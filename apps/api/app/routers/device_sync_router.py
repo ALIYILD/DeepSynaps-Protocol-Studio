@@ -11,9 +11,11 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor
+from app.auth import AuthenticatedActor, get_authenticated_actor, require_patient_owner
+from app.crypto import encrypt_token
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.repositories.patients import resolve_patient_clinic_id
 from app.services.device_sync.adapter_registry import (
     get_adapter,
     is_demo_mode,
@@ -39,6 +41,62 @@ def _require_clinician(actor: AuthenticatedActor) -> None:
         raise ApiServiceError(
             code="forbidden", message="Clinician access required.", status_code=403
         )
+
+
+def _gate_connection_access(
+    connection_id: str, actor: AuthenticatedActor, db: Session
+) -> "object":
+    """Cross-clinic ownership gate for a DeviceConnection.
+
+    Pre-fix the per-connection routes used a permissive
+    ``if _clinic_id: require_patient_owner(...)`` pattern that
+    silently passed when a patient row had been deleted (orphan
+    connection) or when ``resolve_patient_clinic_id`` returned
+    ``clinic_id=None`` (clinician with no ``clinic_id`` set on
+    their User row). ``trigger_sync`` had NO ownership check at
+    all — any authenticated clinician/technician could trigger a
+    token refresh + observation insert against any clinic's
+    connection.
+
+    Post-fix:
+
+    * 404 if the connection doesn't exist (no enumeration oracle).
+    * 404 if the patient is orphaned (no clinic) and the actor is
+      not an admin — an unowned connection is not implicitly
+      everyone's.
+    * 403 (canonical ``cross_clinic_access_denied``) on clinic
+      mismatch — same shape as
+      ``apps.api.app.auth.require_patient_owner`` raises.
+    """
+    from app.persistence.models import DeviceConnection
+    conn = db.query(DeviceConnection).filter_by(id=connection_id).first()
+    if conn is None:
+        raise ApiServiceError(
+            code="not_found",
+            message="Connection not found.",
+            status_code=404,
+        )
+    exists, clinic_id = resolve_patient_clinic_id(db, conn.patient_id or "")
+    if not exists:
+        # Connection points at a deleted / nonexistent patient row.
+        raise ApiServiceError(
+            code="not_found",
+            message="Connection not found.",
+            status_code=404,
+        )
+    if clinic_id is None:
+        # Orphan patient (clinician with no clinic_id). Refuse for
+        # non-admins so a crafted patient_id can't become a covert
+        # write target via a connection upsert.
+        if actor.role != "admin":
+            raise ApiServiceError(
+                code="not_found",
+                message="Connection not found.",
+                status_code=404,
+            )
+    else:
+        require_patient_owner(actor, clinic_id)
+    return conn
 
 
 # ── Response schemas ───────────────────────────────────────────────────────────
@@ -124,13 +182,22 @@ def oauth_callback(
     code: str = Query(default=""),
     state: str = Query(default=""),
     patient_id: str = Query(default=""),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> dict:
     """OAuth callback — exchanges code for tokens and stores connection."""
+    _require_clinician(actor)
+
     import uuid
     from datetime import datetime, timezone
 
     from app.persistence.models import DeviceConnection
+
+    # Cross-clinic ownership check before writing a device connection.
+    if patient_id:
+        _, clinic_id = resolve_patient_clinic_id(db, patient_id)
+        if clinic_id:
+            require_patient_owner(actor, clinic_id)
 
     try:
         tokens = exchange_code(provider, code=code, redirect_uri="")
@@ -160,15 +227,15 @@ def oauth_callback(
             consent_given=True,
             consent_given_at=now,
             connected_at=now,
-            access_token_enc=tokens.access_token,
-            refresh_token_enc=tokens.refresh_token or "",
+            access_token_enc=encrypt_token(tokens.access_token),
+            refresh_token_enc=encrypt_token(tokens.refresh_token or ""),
             scope=tokens.scope or "",
             created_at=now,
         )
         db.add(conn)
     else:
-        conn.access_token_enc = tokens.access_token
-        conn.refresh_token_enc = tokens.refresh_token or ""
+        conn.access_token_enc = encrypt_token(tokens.access_token)
+        conn.refresh_token_enc = encrypt_token(tokens.refresh_token or "")
         conn.scope = tokens.scope or ""
         conn.status = "connected"
         conn.updated_at = now
@@ -193,6 +260,8 @@ def device_dashboard(
 ) -> DashboardOut:
     """Per-device dashboard data: daily summaries, sync history, latest values."""
     _require_clinician(actor)
+    _gate_connection_access(connection_id, actor, db)
+
     data = get_device_dashboard_data(connection_id, db, days=days)
     if "error" in data:
         raise ApiServiceError(
@@ -212,12 +281,10 @@ def device_sync_history(
     """Paginated sync event log for a connection."""
     _require_clinician(actor)
 
-    from app.persistence.models import DeviceConnection, DeviceSyncEvent
+    from app.persistence.models import DeviceSyncEvent
     from app.services.device_sync.demo_data_generator import generate_sync_events
 
-    conn = db.query(DeviceConnection).filter_by(id=connection_id).first()
-    if conn is None:
-        raise ApiServiceError(code="not_found", message="Connection not found.", status_code=404)
+    conn = _gate_connection_access(connection_id, actor, db)
 
     events = (
         db.query(DeviceSyncEvent)
@@ -261,12 +328,10 @@ def device_timeseries(
 
     from datetime import datetime, timedelta, timezone
 
-    from app.persistence.models import DeviceConnection, WearableObservation
+    from app.persistence.models import WearableObservation
     from app.services.device_sync.demo_data_generator import generate_observations
 
-    conn = db.query(DeviceConnection).filter_by(id=connection_id).first()
-    if conn is None:
-        raise ApiServiceError(code="not_found", message="Connection not found.", status_code=404)
+    conn = _gate_connection_access(connection_id, actor, db)
 
     now = datetime.now(timezone.utc)
     if not date_to:
@@ -314,8 +379,18 @@ def trigger_sync(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> SyncResultOut:
-    """Manually trigger a data sync for a connection."""
+    """Manually trigger a data sync for a connection.
+
+    Pre-fix this route had NO ownership check at all — any
+    authenticated clinician or technician could force a sync
+    (which refreshes the OAuth token and inserts new
+    WearableObservation rows) against any clinic's connection_id.
+    Combined with the technician role being admitted by
+    ``_require_clinician``, this was a covert write into another
+    clinic's PHI.
+    """
     _require_clinician(actor)
+    _gate_connection_access(connection_id, actor, db)
     result = sync_connection(connection_id, db)
     return SyncResultOut(
         success=result.success,

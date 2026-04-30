@@ -4,11 +4,17 @@ import json
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import (
@@ -20,15 +26,14 @@ from app.persistence.models import (
     Patient,
     PatientAdherenceEvent,
     TreatmentCourse,
+    User,
     WearableDailySummary,
 )
+from app.repositories.patients import resolve_patient_clinic_id
 from app.repositories.sessions import (
     check_conflicts,
     create_session,
     delete_session,
-    get_session,
-    list_sessions_for_clinician,
-    list_sessions_for_patient,
     update_session,
 )
 
@@ -218,6 +223,46 @@ class RemoteMonitorSnapshotOut(BaseModel):
     hrv: Optional[float] = None
     impedance: Optional[float] = None
     adherence: str = "unknown"
+
+
+class SessionTelemetryOut(BaseModel):
+    """Live telemetry for a session.
+
+    When no real device is connected the response is flagged ``is_demo: True``
+    and the values are deterministic stubs derived from the session id so the
+    UI can render a rehearsal flow without ever pretending a fake number is
+    a real measurement. The frontend MUST show a "DEMO TELEMETRY — clinician
+    must verify on real device" banner whenever ``is_demo`` is true.
+    """
+    session_id: str
+    is_demo: bool
+    impedance_kohm: Optional[float] = None
+    intensity_pct_rmt: Optional[float] = None
+    elapsed_sec: Optional[int] = None
+    sampled_at: str
+
+
+class SessionComfortIn(BaseModel):
+    """NRS-SE side-effect rating (0-10) recorded by the clinician.
+
+    AI must NEVER auto-fill this — comfort is a patient-reported outcome
+    captured by the clinician at the bedside. The endpoint accepts a
+    free-text ``note`` so the clinician can record verbatim what the
+    patient said.
+    """
+    nrs_se: int = Field(ge=0, le=10)
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class SessionSignIn(BaseModel):
+    """Clinician sign-off on the post-session record.
+
+    The presence of a sign-off event marks the session as ready for billing
+    review. Without it, the session is "unsigned" and downstream consumers
+    (billing, reports) treat it as a draft.
+    """
+    note: Optional[str] = Field(default=None, max_length=500)
+    is_demo: Optional[bool] = False
 
 
 def _patient_name(patient: Optional[Patient]) -> str:
@@ -534,11 +579,53 @@ def _build_runtime_payload(db: Session, record: ClinicalSession, patient: Option
     )
 
 
-def _get_owned_session_or_404(db: Session, session_id: str, actor: AuthenticatedActor) -> ClinicalSession:
-    record = get_session(db, session_id, actor.actor_id)
+def _resolve_session_for_actor(
+    db: Session, session_id: str, actor: AuthenticatedActor
+) -> ClinicalSession:
+    """Return the session if ``actor`` may read/write it; raise 404 otherwise.
+
+    Pre-fix the router used the legacy owner-only model
+    (``clinical_sessions.clinician_id == actor.actor_id``) so a covering
+    clinician at the same clinic could not read or update a colleague's
+    session, and admin / supervisor were also locked out of cross-clinic
+    rows that they are explicitly meant to see.
+
+    Post-fix the gate routes through the canonical
+    ``resolve_patient_clinic_id`` + ``require_patient_owner`` helpers and
+    converts the 403 cross-clinic denial into a 404 so the existence of
+    another clinic's session id never leaks to a probing client.
+    """
+    record = db.query(ClinicalSession).filter(ClinicalSession.id == session_id).first()
     if record is None:
         raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
+    _, clinic_id = resolve_patient_clinic_id(db, record.patient_id)
+    try:
+        require_patient_owner(actor, clinic_id, allow_admin=True)
+    except ApiServiceError as exc:
+        # Convert cross-clinic 403 → 404 to avoid leaking row existence.
+        if exc.code == "cross_clinic_access_denied":
+            raise ApiServiceError(
+                code="not_found", message="Session not found.", status_code=404
+            ) from None
+        raise
     return record
+
+
+def _clinic_member_ids(db: Session, actor: AuthenticatedActor) -> list[str]:
+    """Return user-ids whose ``clinic_id`` matches ``actor.clinic_id``.
+
+    Used by the list endpoints so a covering clinician sees their
+    teammates' sessions instead of the empty list the owner-only filter
+    produced. Returns ``[actor.actor_id]`` when the actor has no clinic
+    binding (solo practitioner) so the list still works.
+    """
+    if actor.clinic_id is None:
+        return [actor.actor_id]
+    rows = db.execute(
+        select(User.id).where(User.clinic_id == actor.clinic_id)
+    ).all()
+    ids = [r[0] for r in rows]
+    return ids or [actor.actor_id]
 
 
 def _append_session_event(
@@ -569,16 +656,69 @@ def _append_session_event(
 @router.get("", response_model=SessionListResponse)
 def list_sessions_endpoint(
     patient_id: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    clinician_id: Optional[str] = None,
+    room_id: Optional[str] = None,
+    modality: Optional[str] = None,
+    status: Optional[str] = None,
+    appointment_type: Optional[str] = None,
+    telehealth: Optional[bool] = None,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> SessionListResponse:
     require_minimum_role(actor, "clinician")
-    if patient_id:
-        records = list_sessions_for_patient(session, patient_id, actor.actor_id)
+    # Clinic-scope: covering clinicians at the same clinic see each other's
+    # sessions; admin sees the full surface across clinics. Pre-fix the
+    # owner-only filter produced an empty list for any user who wasn't the
+    # row's ``clinician_id``.
+    if actor.role == "admin":
+        query = session.query(ClinicalSession)
     else:
-        records = list_sessions_for_clinician(session, actor.actor_id)
+        member_ids = _clinic_member_ids(session, actor)
+        query = session.query(ClinicalSession).filter(
+            ClinicalSession.clinician_id.in_(member_ids)
+        )
+    if patient_id:
+        # Refuse to leak rows for a patient that isn't in the actor's clinic.
+        _, patient_clinic_id = resolve_patient_clinic_id(session, patient_id)
+        try:
+            require_patient_owner(actor, patient_clinic_id, allow_admin=True)
+        except ApiServiceError as exc:
+            if exc.code == "cross_clinic_access_denied":
+                # Empty list (not 404) — listing is not a row read.
+                return SessionListResponse(items=[], total=0)
+            raise
+        query = query.filter(ClinicalSession.patient_id == patient_id)
+    if start_date:
+        query = query.filter(ClinicalSession.scheduled_at >= start_date)
+    if end_date:
+        query = query.filter(ClinicalSession.scheduled_at < end_date)
+    if clinician_id:
+        query = query.filter(ClinicalSession.clinician_id == clinician_id)
+    if room_id:
+        query = query.filter(ClinicalSession.room_id == room_id)
+    if modality:
+        query = query.filter(ClinicalSession.modality == modality)
+    if status:
+        query = query.filter(ClinicalSession.status == status)
+    if appointment_type:
+        query = query.filter(ClinicalSession.appointment_type == appointment_type)
+    if telehealth is not None:
+        if telehealth:
+            query = query.filter(ClinicalSession.room_id == "telehealth")
+        else:
+            query = query.filter(ClinicalSession.room_id != "telehealth")
+    # `total` reflects the full filter match — clients use it for pagination
+    # UI; `items` is the windowed slice. Order before slicing so paging is
+    # stable across calls.
+    ordered = query.order_by(ClinicalSession.scheduled_at.desc())
+    total = ordered.count()
+    records = list(ordered.offset(offset).limit(limit).all())
     items = [SessionOut.from_record(r) for r in records]
-    return SessionListResponse(items=items, total=len(items))
+    return SessionListResponse(items=items, total=total)
 
 
 @router.post("", response_model=SessionOut, status_code=201)
@@ -588,9 +728,23 @@ def create_session_endpoint(
     session: Session = Depends(get_db_session),
 ) -> SessionOut:
     require_minimum_role(actor, "clinician")
-    patient = session.query(Patient).filter_by(id=body.patient_id, clinician_id=actor.actor_id).first()
+    # Clinic-scope the patient lookup so a colleague at the same clinic can
+    # book sessions for the patient they're covering. The owner-only check
+    # would 404 a covering clinician booking on the owning clinician's
+    # behalf — pre-fix this turned routine cross-cover into a permission
+    # mystery rather than a real error.
+    patient = session.query(Patient).filter(Patient.id == body.patient_id).first()
     if patient is None:
         raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
+    _, patient_clinic_id = resolve_patient_clinic_id(session, body.patient_id)
+    try:
+        require_patient_owner(actor, patient_clinic_id, allow_admin=True)
+    except ApiServiceError as exc:
+        if exc.code == "cross_clinic_access_denied":
+            raise ApiServiceError(
+                code="not_found", message="Patient not found.", status_code=404
+            ) from None
+        raise
 
     # Validate appointment_type
     if body.appointment_type not in VALID_APPOINTMENT_TYPES:
@@ -600,10 +754,14 @@ def create_session_endpoint(
             status_code=400,
         )
 
-    # Check for scheduling conflicts
+    # Conflict detection still scopes to the patient's owning clinician —
+    # that's the calendar an overlap matters on. Two clinicians at the
+    # same clinic legitimately have separate calendars and shouldn't
+    # collide on each other's bookings.
+    booking_clinician_id = patient.clinician_id
     conflicts = check_conflicts(
         session,
-        clinician_id=actor.actor_id,
+        clinician_id=booking_clinician_id,
         scheduled_at=body.scheduled_at,
         duration_minutes=body.duration_minutes,
         room_id=body.room_id,
@@ -618,7 +776,7 @@ def create_session_endpoint(
             details={"conflicting_session_ids": conflict_ids},
         )
 
-    record = create_session(session, clinician_id=actor.actor_id, **body.model_dump())
+    record = create_session(session, clinician_id=booking_clinician_id, **body.model_dump())
     return SessionOut.from_record(record)
 
 
@@ -628,18 +786,22 @@ def get_current_session_endpoint(
     session: Session = Depends(get_db_session),
 ) -> SessionRuntimeOut:
     require_minimum_role(actor, "clinician")
-    rows = (
-        session.query(ClinicalSession)
-        .filter(
-            ClinicalSession.clinician_id == actor.actor_id,
-            ClinicalSession.status.in_(("in_progress", "checked_in", "confirmed", "scheduled")),
+    # Clinic-scoped pick: a covering clinician at the same clinic surfaces
+    # the team's active session, not the empty list the owner-only filter
+    # produced.
+    if actor.role == "admin":
+        base = session.query(ClinicalSession)
+    else:
+        base = session.query(ClinicalSession).filter(
+            ClinicalSession.clinician_id.in_(_clinic_member_ids(session, actor))
         )
-        .all()
-    )
+    rows = base.filter(
+        ClinicalSession.status.in_(("in_progress", "checked_in", "confirmed", "scheduled")),
+    ).all()
     if not rows:
         raise ApiServiceError(code="not_found", message="No active or upcoming session found.", status_code=404)
     record = sorted(rows, key=_session_priority)[0]
-    patient = session.query(Patient).filter_by(id=record.patient_id, clinician_id=actor.actor_id).first()
+    patient = session.query(Patient).filter(Patient.id == record.patient_id).first()
     return _build_runtime_payload(session, record, patient)
 
 
@@ -650,9 +812,7 @@ def get_session_endpoint(
     session: Session = Depends(get_db_session),
 ) -> SessionOut:
     require_minimum_role(actor, "clinician")
-    record = get_session(session, session_id, actor.actor_id)
-    if record is None:
-        raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
+    record = _resolve_session_for_actor(session, session_id, actor)
     return SessionOut.from_record(record)
 
 
@@ -663,7 +823,7 @@ def list_session_events_endpoint(
     session: Session = Depends(get_db_session),
 ) -> list[SessionEventOut]:
     require_minimum_role(actor, "clinician")
-    _get_owned_session_or_404(session, session_id, actor)
+    _resolve_session_for_actor(session, session_id, actor)
     rows = (
         session.query(ClinicalSessionEvent)
         .filter_by(session_id=session_id)
@@ -681,7 +841,7 @@ def create_session_event_endpoint(
     session: Session = Depends(get_db_session),
 ) -> SessionEventOut:
     require_minimum_role(actor, "clinician")
-    record = _get_owned_session_or_404(session, session_id, actor)
+    record = _resolve_session_for_actor(session, session_id, actor)
     row = _append_session_event(
         session,
         record=record,
@@ -711,7 +871,7 @@ def transition_session_phase_endpoint(
     session: Session = Depends(get_db_session),
 ) -> SessionRuntimeOut:
     require_minimum_role(actor, "clinician")
-    record = _get_owned_session_or_404(session, session_id, actor)
+    record = _resolve_session_for_actor(session, session_id, actor)
     _append_session_event(
         session,
         record=record,
@@ -722,7 +882,7 @@ def transition_session_phase_endpoint(
     )
     if body.phase == "ended":
         record = _finalize_session_runtime(session, record=record, actor=actor)
-    patient = session.query(Patient).filter_by(id=record.patient_id, clinician_id=actor.actor_id).first()
+    patient = session.query(Patient).filter(Patient.id == record.patient_id).first()
     return _build_runtime_payload(session, record, patient)
 
 
@@ -733,7 +893,7 @@ def start_session_video_endpoint(
     session: Session = Depends(get_db_session),
 ) -> SessionVideoOut:
     require_minimum_role(actor, "clinician")
-    record = _get_owned_session_or_404(session, session_id, actor)
+    record = _resolve_session_for_actor(session, session_id, actor)
     room_name = f"ds-live-{record.id}"
     _append_session_event(
         session,
@@ -753,7 +913,7 @@ def end_session_video_endpoint(
     session: Session = Depends(get_db_session),
 ) -> SessionVideoOut:
     require_minimum_role(actor, "clinician")
-    record = _get_owned_session_or_404(session, session_id, actor)
+    record = _resolve_session_for_actor(session, session_id, actor)
     room_name = f"ds-live-{record.id}"
     _append_session_event(
         session,
@@ -773,7 +933,7 @@ def get_remote_monitor_snapshot_endpoint(
     session: Session = Depends(get_db_session),
 ) -> RemoteMonitorSnapshotOut:
     require_minimum_role(actor, "clinician")
-    record = _get_owned_session_or_404(session, session_id, actor)
+    record = _resolve_session_for_actor(session, session_id, actor)
     latest_summary = (
         session.query(WearableDailySummary)
         .filter(WearableDailySummary.patient_id == record.patient_id)
@@ -815,7 +975,7 @@ def set_session_impedance_endpoint(
     session: Session = Depends(get_db_session),
 ) -> SessionEventOut:
     require_minimum_role(actor, "clinician")
-    record = _get_owned_session_or_404(session, session_id, actor)
+    record = _resolve_session_for_actor(session, session_id, actor)
     row = _append_session_event(
         session,
         record=record,
@@ -823,6 +983,154 @@ def set_session_impedance_endpoint(
         event_type="IMPEDANCE",
         note=f"Impedance {body.impedance_kohm:.1f} kOhm",
         payload={"impedance_kohm": body.impedance_kohm},
+    )
+    return _event_out(row)
+
+
+# ── Session Runner launch-audit endpoints (2026-04-30) ────────────────────────
+
+
+def _session_has_real_device(record: ClinicalSession) -> bool:
+    """Return True if the session has a real device id attached.
+
+    A "real device" is any non-empty ``device_id`` that is not the demo
+    sentinel. When false, telemetry must be flagged ``is_demo=True`` so the
+    clinician knows the live readouts are deterministic stubs.
+    """
+    did = (record.device_id or "").strip().lower()
+    if not did:
+        return False
+    if did in {"demo", "rehearsal", "none", "stub"}:
+        return False
+    return True
+
+
+def _deterministic_demo_telemetry(record: ClinicalSession) -> dict:
+    """Stable per-session demo numbers — never random.
+
+    Hashing the session id keeps the values consistent across reloads so the
+    clinician sees the same rehearsal numbers each time, instead of a fake
+    "live changing" value that could be mistaken for a real measurement.
+    """
+    h = abs(hash(record.id))
+    impedance = round(2.0 + (h % 600) / 100.0, 2)  # 2.00 - 7.99 kOhm
+    intensity = round(1.0 + ((h >> 8) % 200) / 100.0, 2)  # 1.00 - 2.99
+    return {"impedance_kohm": impedance, "intensity_pct_rmt": intensity}
+
+
+@router.get("/{session_id}/telemetry", response_model=SessionTelemetryOut)
+def get_session_telemetry_endpoint(
+    session_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> SessionTelemetryOut:
+    """Return live telemetry for a session.
+
+    Honesty rule: if no real device is attached, ``is_demo=True`` and the
+    values are deterministic stubs. The UI must surface a banner so the
+    clinician never mistakes rehearsal data for a real measurement.
+    """
+    require_minimum_role(actor, "clinician")
+    record = _resolve_session_for_actor(session, session_id, actor)
+
+    is_real = _session_has_real_device(record)
+    sampled_at = datetime.now(timezone.utc).isoformat()
+
+    if is_real:
+        # When a real device is attached, surface the most recently logged
+        # impedance event (real measurement) instead of stubbing.
+        impedance_payload = _latest_event_payload(session, session_id, "IMPEDANCE") or {}
+        impedance = (
+            float(impedance_payload["impedance_kohm"])
+            if impedance_payload.get("impedance_kohm") is not None
+            else None
+        )
+        runtime_ctx = _course_runtime_context(session, record)
+        intensity = runtime_ctx.get("intensity_mA")
+        return SessionTelemetryOut(
+            session_id=session_id,
+            is_demo=False,
+            impedance_kohm=impedance,
+            intensity_pct_rmt=intensity,
+            elapsed_sec=None,
+            sampled_at=sampled_at,
+        )
+
+    stub = _deterministic_demo_telemetry(record)
+    # Compute elapsed seconds since checked_in_at if known.
+    elapsed = None
+    if record.checked_in_at:
+        try:
+            started = datetime.fromisoformat(record.checked_in_at.replace("Z", "+00:00"))
+            elapsed = max(0, int((datetime.now(timezone.utc) - started).total_seconds()))
+        except ValueError:
+            elapsed = None
+    return SessionTelemetryOut(
+        session_id=session_id,
+        is_demo=True,
+        impedance_kohm=stub["impedance_kohm"],
+        intensity_pct_rmt=stub["intensity_pct_rmt"],
+        elapsed_sec=elapsed,
+        sampled_at=sampled_at,
+    )
+
+
+@router.post("/{session_id}/comfort", response_model=SessionEventOut, status_code=201)
+def record_session_comfort_endpoint(
+    session_id: str,
+    body: SessionComfortIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> SessionEventOut:
+    """Record an NRS-SE comfort/side-effect rating (0-10).
+
+    Persists as a ``COMFORT`` event on the clinical session so the rating
+    flows through the same audit trail as impedance / phase / AE events.
+    AI must NEVER auto-fill this — clinician input only.
+    """
+    require_minimum_role(actor, "clinician")
+    record = _resolve_session_for_actor(session, session_id, actor)
+    row = _append_session_event(
+        session,
+        record=record,
+        actor=actor,
+        event_type="COMFORT",
+        note=f"NRS-SE {body.nrs_se}/10" + (f" — {body.note}" if body.note else ""),
+        payload={"nrs_se": body.nrs_se, "note": body.note or None},
+    )
+    return _event_out(row)
+
+
+@router.post("/{session_id}/sign", response_model=SessionEventOut, status_code=201)
+def sign_session_endpoint(
+    session_id: str,
+    body: SessionSignIn = SessionSignIn(),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> SessionEventOut:
+    """Record clinician sign-off on a session.
+
+    Without a sign-off event the session is treated as an unsigned draft by
+    downstream consumers (billing, reports). The optional ``is_demo`` flag
+    is propagated into the event payload so PDF exports can stamp DEMO when
+    appropriate.
+    """
+    require_minimum_role(actor, "clinician")
+    record = _resolve_session_for_actor(session, session_id, actor)
+    payload: dict = {
+        "signed_by": actor.actor_id,
+        "signed_at": datetime.now(timezone.utc).isoformat(),
+        "is_demo": bool(body.is_demo),
+    }
+    if body.note:
+        payload["note"] = body.note
+    row = _append_session_event(
+        session,
+        record=record,
+        actor=actor,
+        event_type="SIGN",
+        note=f"Signed by {actor.display_name}" + (f" — {body.note}" if body.note else ""),
+        payload=payload,
     )
     return _event_out(row)
 
@@ -837,10 +1145,13 @@ def update_session_endpoint(
     require_minimum_role(actor, "clinician")
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
 
-    # Fetch existing record
-    record = get_session(session, session_id, actor.actor_id)
-    if record is None:
-        raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
+    # Clinic-scope gate first: confirms the actor may touch this session
+    # at all. The repo update/delete functions still take ``clinician_id``
+    # for their internal filter so we pass the session's owning clinician
+    # — the gate above is what authorises cross-clinician (same-clinic)
+    # operation; passing the row's own ``clinician_id`` keeps the repo
+    # filter satisfied without re-introducing the owner-only block.
+    record = _resolve_session_for_actor(session, session_id, actor)
 
     # Validate appointment_type if being changed
     if "appointment_type" in updates and updates["appointment_type"] not in VALID_APPOINTMENT_TYPES:
@@ -864,13 +1175,15 @@ def update_session_endpoint(
         elif new_status == "cancelled":
             updates.setdefault("cancelled_at", now_iso)
 
-    # Check for scheduling conflicts if time/resource changed
+    # Conflict detection scopes to the session's owning clinician — same
+    # rationale as the create path. Two clinicians at the same clinic
+    # legitimately have separate calendars.
     time_changed = "scheduled_at" in updates or "duration_minutes" in updates
     resource_changed = "room_id" in updates or "device_id" in updates
     if time_changed or resource_changed:
         conflicts = check_conflicts(
             session,
-            clinician_id=actor.actor_id,
+            clinician_id=record.clinician_id,
             scheduled_at=updates.get("scheduled_at", record.scheduled_at),
             duration_minutes=updates.get("duration_minutes", record.duration_minutes),
             room_id=updates.get("room_id", record.room_id),
@@ -886,7 +1199,7 @@ def update_session_endpoint(
                 details={"conflicting_session_ids": conflict_ids},
             )
 
-    result = update_session(session, session_id, actor.actor_id, **updates)
+    result = update_session(session, session_id, record.clinician_id, **updates)
     if result is None:
         raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
     return SessionOut.from_record(result)
@@ -899,6 +1212,7 @@ def delete_session_endpoint(
     session: Session = Depends(get_db_session),
 ) -> None:
     require_minimum_role(actor, "clinician")
-    deleted = delete_session(session, session_id, actor.actor_id)
+    record = _resolve_session_for_actor(session, session_id, actor)
+    deleted = delete_session(session, session_id, record.clinician_id)
     if not deleted:
         raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)

@@ -21,8 +21,9 @@ GET  /api/v1/patient-portal/home-adherence-summary      Adherence stats for acti
 from __future__ import annotations
 
 import json
+import re
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends
@@ -40,10 +41,19 @@ from app.persistence.models import (
 )
 from app.services.home_device_adherence import compute_adherence_summary
 from app.services.home_device_flags import run_home_device_flag_checks
+from app.settings import get_settings
 
 router = APIRouter(prefix="/api/v1/patient-portal", tags=["Patient Portal — Home Device"])
 
 _DEMO_PATIENT_ACTOR_ID = "actor-patient-demo"
+_DEMO_ALLOWED_ENVS = frozenset({"development", "test"})
+
+# Patient self-reports the date the home session occurred. Stored as text
+# (legacy column type), so the router validates it.
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+# Sessions can be back-dated up to 30 days (e.g., patient catching up after
+# travel) but can never be in the future.
+_MAX_BACKDATE_DAYS = 30
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────────
@@ -54,10 +64,84 @@ def _dt(v) -> Optional[str]:
     return v.isoformat() if isinstance(v, datetime) else str(v)
 
 
+def _validate_session_date(value: str, *, field: str = "session_date") -> str:
+    """Pin a self-reported date to ``YYYY-MM-DD``, no future, max 30 days back.
+
+    Pre-fix the body accepted any string for ``session_date`` /
+    ``report_date``. A patient could submit ``"2099-12-31"`` and pollute
+    adherence summaries with future-dated sessions, or stuff arbitrary
+    text into the column (rendered back to clinicians in review queues).
+    """
+    if not isinstance(value, str) or not _DATE_RE.match(value):
+        raise ApiServiceError(
+            code="invalid_date",
+            message=f"{field} must be YYYY-MM-DD.",
+            status_code=422,
+        )
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError as exc:
+        raise ApiServiceError(
+            code="invalid_date",
+            message=f"{field} is not a valid calendar date.",
+            status_code=422,
+        ) from exc
+    today = datetime.now(timezone.utc).date()
+    if parsed > today:
+        raise ApiServiceError(
+            code="invalid_date",
+            message=f"{field} cannot be in the future.",
+            status_code=422,
+        )
+    if (today - parsed) > timedelta(days=_MAX_BACKDATE_DAYS):
+        raise ApiServiceError(
+            code="invalid_date",
+            message=(
+                f"{field} cannot be more than {_MAX_BACKDATE_DAYS} days in the past."
+            ),
+            status_code=422,
+        )
+    return value
+
+
 def _require_patient(actor: AuthenticatedActor, db: Session) -> Patient:
+    """Resolve the Patient row for the calling actor.
+
+    Pre-fix this helper only matched ``Patient.email == user.email`` and
+    never checked ``actor.role``. A clinician whose own user.email
+    happened to match a Patient row could log home sessions / submit
+    adherence events as that patient. The demo-bypass branch
+    (``actor.actor_id == "actor-patient-demo"``) was reachable in any
+    environment.
+
+    Post-fix:
+
+    * Only ``patient`` and ``admin`` actors can resolve a Patient via
+      this helper. Clinicians use the clinician-facing routers.
+    * The demo bypass is gated to ``app_env in {development, test}`` so
+      a production deployment cannot serve a demo patient identity.
+    """
     from app.persistence.models import User
+
+    if actor.role not in ("patient", "admin"):
+        raise ApiServiceError(
+            code="patient_role_required",
+            message="The patient portal is only available to patient accounts.",
+            status_code=403,
+        )
+
     if actor.actor_id == _DEMO_PATIENT_ACTOR_ID:
-        patient = db.query(Patient).filter(Patient.email == "patient@demo.com").first()
+        settings = get_settings()
+        app_env = (getattr(settings, "app_env", None) or "production").lower()
+        if app_env not in _DEMO_ALLOWED_ENVS:
+            raise ApiServiceError(
+                code="demo_disabled",
+                message="Demo patient bypass is not available in this environment.",
+                status_code=403,
+            )
+        patient = db.query(Patient).filter(
+            Patient.email.in_(["patient@deepsynaps.com", "patient@demo.com"])
+        ).first()
         if patient:
             return patient
         raise ApiServiceError(
@@ -241,13 +325,15 @@ def log_home_session(
             status_code=404,
         )
 
+    session_date_validated = _validate_session_date(body.session_date)
+
     now = datetime.now(timezone.utc)
     log = DeviceSessionLog(
         id=str(uuid.uuid4()),
         assignment_id=assignment.id,
         patient_id=patient.id,
         course_id=assignment.course_id,
-        session_date=body.session_date,
+        session_date=session_date_validated,
         logged_at=now,
         duration_minutes=body.duration_minutes,
         completed=body.completed,
@@ -331,6 +417,8 @@ def submit_adherence_event(
             status_code=422,
         )
 
+    report_date_validated = _validate_session_date(body.report_date, field="report_date")
+
     assignment = _get_active_assignment(patient.id, db)
     now = datetime.now(timezone.utc)
 
@@ -341,7 +429,7 @@ def submit_adherence_event(
         course_id=assignment.course_id if assignment else None,
         event_type=body.event_type,
         severity=body.severity,
-        report_date=body.report_date,
+        report_date=report_date_validated,
         body=body.body,
         structured_json=json.dumps(body.structured),
         status="open",

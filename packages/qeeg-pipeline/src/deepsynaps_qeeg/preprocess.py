@@ -112,6 +112,10 @@ def run(
         "bandpass": [float(lo), float(hi)],
         "notch_hz": float(notch) if notch is not None else None,
         "prep_used": bool(prep_used),
+        # Records the bad-channel detection path actually used. PyPREP is the
+        # primary detector; when unavailable / failing we fall back to a
+        # correlation+deviation pass instead of silently skipping the test.
+        "bad_channel_detector": "pyprep" if prep_used else "correlation_deviation_fallback",
     }
     return raw, quality
 
@@ -166,7 +170,129 @@ def _robust_average_reference(raw: "mne.io.BaseRaw") -> tuple[list[str], bool]:
 
 
 def _fallback_average_ref(raw: "mne.io.BaseRaw") -> tuple[list[str], bool]:
-    """Plain MNE average reference used when PyPREP is unavailable / fails."""
-    raw.set_eeg_reference("average", projection=False, verbose="WARNING")
-    bads = list(raw.info.get("bads") or [])
-    return bads, False
+    """Plain MNE average reference used when PyPREP is unavailable / fails.
+
+    Before applying the average reference we run a lightweight bad-channel
+    detector based on the PREP "noisy channels" criteria (Bigdely-Shamlo 2015):
+
+    - **deviation criterion**: channels whose robust z-score of channel-wise
+      standard deviation exceeds 5.0 are flagged as bad.
+    - **correlation criterion**: channels whose median Pearson correlation to
+      all other channels falls below 0.4 are flagged as bad.
+
+    Bad channels are interpolated (when montage permits) before re-referencing
+    so the resulting average reference is not biased by extreme channels.
+    Failures degrade gracefully — the average reference is always applied even
+    if the detector raises.
+    """
+
+    bads_detected: list[str] = []
+    try:
+        bads_detected = _detect_bad_channels_correlation_deviation(raw)
+    except Exception as exc:  # pragma: no cover - defensive only
+        log.warning("Fallback bad-channel detection failed (%s); skipping.", exc)
+
+    # Merge with anything already on info["bads"] (e.g. user overrides upstream)
+    existing = list(raw.info.get("bads") or [])
+    bads = sorted(set(existing) | set(bads_detected))
+    interpolated = False
+    if bads:
+        raw.info["bads"] = bads
+        try:
+            raw.interpolate_bads(reset_bads=True, verbose="WARNING")
+            interpolated = True
+            log.info(
+                "Fallback bad-channel pass interpolated %d channels: %s", len(bads), bads
+            )
+        except Exception as exc:
+            log.warning(
+                "interpolate_bads failed in fallback path (%s); proceeding without "
+                "interpolation. Average reference will exclude bad channels.",
+                exc,
+            )
+
+    try:
+        raw.set_eeg_reference("average", projection=False, verbose="WARNING")
+    except ValueError as exc:
+        # Defensive: if no good channels remain (e.g. unmappable montage),
+        # restore bads so the caller still sees what was flagged and skip
+        # referencing. The pipeline marks this in quality.
+        log.warning(
+            "set_eeg_reference('average') failed in fallback (%s); skipping reference.",
+            exc,
+        )
+        if not interpolated:
+            raw.info["bads"] = bads
+
+    # Always report the originally-detected bads, even if interpolation
+    # cleared raw.info['bads'] (so quality records what we found).
+    return list(bads or raw.info.get("bads") or []), False
+
+
+def _detect_bad_channels_correlation_deviation(
+    raw: "mne.io.BaseRaw",
+    *,
+    deviation_z_threshold: float = 5.0,
+    correlation_threshold: float = 0.4,
+) -> list[str]:
+    """Lightweight PREP-style noisy-channel detection.
+
+    Parameters
+    ----------
+    raw : mne.io.BaseRaw
+        Raw recording with EEG channels.
+    deviation_z_threshold : float
+        Robust-z threshold on channel-wise std. Channels above this are flagged.
+    correlation_threshold : float
+        Median Pearson correlation to other channels below which a channel is
+        flagged.
+
+    Returns
+    -------
+    list of str
+        Channel names flagged as bad. Empty list when nothing flagged or when
+        the recording is too short / has too few channels for the test.
+    """
+    import mne
+    import numpy as np
+
+    eeg_picks = mne.pick_types(raw.info, eeg=True)
+    if len(eeg_picks) < 4:
+        return []
+
+    data = raw.get_data(picks=eeg_picks)
+    ch_names = [raw.ch_names[i] for i in eeg_picks]
+
+    # --- Deviation criterion: robust z of per-channel std ---
+    stds = np.std(data, axis=1)
+    if not np.any(np.isfinite(stds)) or stds.size == 0:
+        return []
+    median_std = float(np.median(stds))
+    mad_std = float(np.median(np.abs(stds - median_std)) * 1.4826) or 1e-12
+    robust_z_std = (stds - median_std) / mad_std
+    deviation_bad = {
+        ch_names[i] for i, z in enumerate(robust_z_std)
+        if np.isfinite(z) and abs(float(z)) > deviation_z_threshold
+    }
+
+    # --- Correlation criterion: median pairwise Pearson correlation ---
+    correlation_bad: set[str] = set()
+    if data.shape[0] >= 4 and data.shape[1] >= 250:
+        try:
+            corr = np.corrcoef(data)
+            np.fill_diagonal(corr, np.nan)
+            with np.errstate(invalid="ignore"):
+                med_corr = np.nanmedian(np.abs(corr), axis=1)
+            for i, c in enumerate(med_corr):
+                if np.isfinite(c) and float(c) < correlation_threshold:
+                    correlation_bad.add(ch_names[i])
+        except Exception as exc:  # pragma: no cover
+            log.warning("Correlation-based bad detection failed (%s).", exc)
+
+    bad = sorted(deviation_bad | correlation_bad)
+    if bad:
+        log.info(
+            "Fallback noisy-channel detector flagged %d channels (deviation=%s, correlation=%s)",
+            len(bad), sorted(deviation_bad), sorted(correlation_bad),
+        )
+    return bad

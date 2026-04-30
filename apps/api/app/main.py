@@ -20,7 +20,6 @@ from sqlalchemy.orm import Session
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from deepsynaps_core_schema import (
-    AuditTrailResponse,
     BrainRegionListResponse,
     CaseSummaryRequest,
     CaseSummaryResponse,
@@ -53,6 +52,7 @@ from app.routers.export_router import router as export_router
 from app.routers.personalization_router import router as personalization_router
 from app.routers.patients_router import router as patients_router
 from app.routers.payments_router import router as payments_router
+from app.routers.agent_billing_router import router as agent_billing_router
 from app.routers.finance_router import router as finance_router
 from app.routers.sessions_router import router as sessions_router
 from app.routers.treatment_courses_router import router as treatment_courses_router
@@ -91,6 +91,7 @@ from app.routers.recordings_router import router as recordings_router
 from app.routers.protocols_saved_router import router as protocols_saved_router
 from app.routers.protocols_generate_router import router as protocols_generate_router
 from app.routers.leads_reception_router import router as leads_reception_router
+from app.routers.onboarding_router import router as onboarding_router
 # Settings API routers (foundation scaffolded by backend subagent #1; endpoints
 # fleshed out by backend subagents #3–#6). See apps/api/SETTINGS_API_DESIGN.md.
 from app.routers.profile_router import router as profile_router
@@ -104,6 +105,12 @@ from app.routers.qeeg_live_router import router as qeeg_live_router
 from app.routers.qeeg_copilot_router import router as qeeg_copilot_router
 from app.routers.qeeg_viz_router import router as qeeg_viz_router
 from app.routers.mri_analysis_router import router as mri_analysis_router
+from app.routers.fusion_router import router as fusion_router
+from app.routers.patient_summary_router import router as patient_summary_router
+from app.routers.patient_timeline_router import router as patient_timeline_router
+from app.routers.clinical_text_router import router as clinical_text_router
+from app.routers.agents_router import router as agents_router
+from app.routers.agent_admin_router import router as agent_admin_router
 from app.routers.admin_pgvector_router import router as admin_pgvector_router
 from app.routers.fusion_router import router as fusion_router
 from app.routers.monitor_router import router as monitor_router
@@ -111,13 +118,31 @@ from app.routers.deeptwin_router import brain_twin_router, router as deeptwin_ro
 from app.routers.feature_store_router import router as feature_store_router
 from app.routers.citation_validator_router import router as citation_validator_router
 from app.routers.command_center_router import router as command_center_router
+from app.routers.dashboard_router import router as dashboard_router
+from app.routers.schedules_router import router as schedules_router
 from app.routers.device_sync_router import router as device_sync_router
-from app.routers.qa_router import router as qa_router
+try:
+    from app.routers.qa_router import router as qa_router
+    _HAS_QA_ROUTER = True
+except ImportError as _qa_imp_err:
+    qa_router = None  # type: ignore[assignment]
+    _HAS_QA_ROUTER = False
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "QA router unavailable (deepsynaps_qa not installed): %s", _qa_imp_err
+    )
 from app.routers.qeeg_raw_router import router as qeeg_raw_router
+from app.routers.ai_health_router import router as ai_health_router
+from app.routers.audit_trail_router import router as audit_trail_router
+from app.routers.quality_assurance_router import router as quality_assurance_router
 from app.sentry_setup import init_sentry
 from app.settings import get_settings
-from app.services.audit import get_audit_trail
 from app.services.brain_regions import list_brain_regions
+from app.services.brain_targets import (
+    get_brain_target,
+    list_brain_targets,
+)
+from app.services.agent_scheduler import shutdown_scheduler, start_scheduler
 from app.services.agent_skills_seed import seed_default_agent_skills
 from app.services.clinical_data import seed_clinical_dataset
 from app.services.devices import list_devices
@@ -135,6 +160,52 @@ logger = get_logger(__name__)
 init_sentry(settings.sentry_dsn, settings.app_env)
 
 
+def _seed_demo_users_for_dev(db: Session) -> None:
+    """Idempotently seed demo Clinic + Users so demo tokens lift a real clinic_id.
+
+    This makes the cross-clinic ownership gate work out-of-the-box in
+    development, test, and smoke-test environments without requiring
+    manual fixture setup.
+    """
+    if settings.app_env not in ("development", "test"):
+        return
+    from app.persistence.models import Clinic, User
+    clinic_id = "clinic-demo-default"
+    if db.query(Clinic).filter_by(id=clinic_id).first() is None:
+        db.add(Clinic(id=clinic_id, name="Demo Clinic"))
+        db.flush()
+    demo_users = [
+        {
+            "id": "actor-clinician-demo",
+            "email": "demo_clinician@example.com",
+            "display_name": "Verified Clinician Demo",
+            "role": "clinician",
+            "package_id": "clinician_pro",
+        },
+        {
+            "id": "actor-admin-demo",
+            "email": "demo_admin@example.com",
+            "display_name": "Admin Demo User",
+            "role": "admin",
+            "package_id": "enterprise",
+        },
+    ]
+    for spec in demo_users:
+        existing = db.query(User).filter_by(id=spec["id"]).first()
+        if existing is None:
+            db.add(User(
+                id=spec["id"],
+                email=spec["email"],
+                display_name=spec["display_name"],
+                hashed_password="x",
+                role=spec["role"],
+                package_id=spec["package_id"],
+                clinic_id=clinic_id,
+            ))
+        elif existing.clinic_id is None:
+            existing.clinic_id = clinic_id
+    db.commit()
+
 
 @asynccontextmanager
 async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
@@ -149,6 +220,9 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
         # Idempotent — covers schemas bootstrapped via Base.metadata.create_all
         # (e.g. tests) where alembic seed didn't run.
         seed_default_agent_skills(session)
+        # Seed demo Clinic + User rows so demo tokens resolve with a real
+        # clinic_id and cross-clinic gates work in dev/test/smoke runs.
+        _seed_demo_users_for_dev(session)
         app_instance.state.clinical_snapshot_id = snapshot.snapshot_id
         logger.info(
             "application startup complete",
@@ -156,12 +230,19 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
         )
     finally:
         session.close()
-    yield
+    # Phase 9 — boot the agent-ops cron (gated on
+    # DEEPSYNAPS_AGENT_CRON_ENABLED so tests / CI don't fire jobs).
+    start_scheduler()
+    try:
+        yield
+    finally:
+        shutdown_scheduler()
 
 
 app = FastAPI(title=settings.api_title, version=settings.api_version, lifespan=lifespan)
 app.include_router(auth_router)
 app.include_router(payments_router)
+app.include_router(agent_billing_router)
 app.include_router(finance_router)
 app.include_router(export_router)
 app.include_router(personalization_router)
@@ -207,6 +288,7 @@ app.include_router(recordings_router)
 app.include_router(protocols_saved_router)
 app.include_router(protocols_generate_router)
 app.include_router(leads_reception_router)
+app.include_router(onboarding_router)
 # Settings API (scaffolded 024_settings_schema) — stubs; endpoints arrive in
 # follow-up subagents. Grouped together for discoverability.
 app.include_router(profile_router)
@@ -224,13 +306,24 @@ app.include_router(fusion_router)
 app.include_router(monitor_router)
 app.include_router(deeptwin_router)
 app.include_router(brain_twin_router)
+app.include_router(patient_summary_router)
+app.include_router(patient_timeline_router)
+app.include_router(clinical_text_router)
+app.include_router(agents_router)
+app.include_router(agent_admin_router)
 app.include_router(admin_pgvector_router)
 app.include_router(feature_store_router)
 app.include_router(citation_validator_router)
 app.include_router(command_center_router)
+app.include_router(schedules_router)
+app.include_router(dashboard_router)
 app.include_router(device_sync_router)
-app.include_router(qa_router)
+if _HAS_QA_ROUTER and qa_router is not None:
+    app.include_router(qa_router)
 app.include_router(qeeg_raw_router)
+app.include_router(ai_health_router)
+app.include_router(audit_trail_router)
+app.include_router(quality_assurance_router)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -471,6 +564,26 @@ def brain_regions() -> BrainRegionListResponse:
     return list_brain_regions()
 
 
+# Brain Map Planner — clinical target registry (deterministic, no AI).
+# Frontend `pgBrainMapPlanner` uses these to resolve canonical targets
+# (DLPFC-L, mPFC, M1, etc.) to anchor 10-20 electrodes + MNI coordinates +
+# evidence grade. See `app/services/brain_targets.py` for the full schema and
+# adding-a-target rules.
+@app.get("/api/v1/brain-targets")
+def brain_targets() -> dict:
+    return list_brain_targets()
+
+
+@app.get("/api/v1/brain-targets/{target_id}")
+def brain_target_detail(target_id: str) -> dict:
+    entry = get_brain_target(target_id)
+    if not entry:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail=f"Unknown brain target: {target_id}")
+    return entry
+
+
 @app.get("/api/v1/qeeg/biomarkers", response_model=QEEGBiomarkerListResponse)
 def qeeg_biomarkers() -> QEEGBiomarkerListResponse:
     return list_qeeg_biomarkers()
@@ -534,12 +647,11 @@ def review_action(
     return record_review_action(payload, actor, session)
 
 
-@app.get("/api/v1/audit-trail", response_model=AuditTrailResponse)
-def audit_trail(
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-    session: Session = Depends(get_db_session),
-) -> AuditTrailResponse:
-    return get_audit_trail(actor, session)
+# NOTE: GET /api/v1/audit-trail moved to apps/api/app/routers/audit_trail_router.py
+# (launch-audit 2026-04-30). The router exposes filters, summary, NDJSON / CSV
+# exports, single-event detail, and audits its own reads — all required for
+# regulator-credible review. The legacy admin-only endpoint that lived here is
+# subsumed by router.list_audit_trail (clinician minimum + admin sees-all).
 
 
 # ── Static asset mounts ──────────────────────────────────────────────────────

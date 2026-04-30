@@ -87,10 +87,10 @@ def test_anonymous_request_rejected_on_protected_endpoint(client: TestClient) ->
 
 
 def test_telegram_webhook_no_secret_configured_accepts_all(client: TestClient) -> None:
-    """When TELEGRAM_WEBHOOK_SECRET is empty, any request is processed (no gating)."""
-    # Default test env has no telegram_webhook_secret set
+    """When per-bot secret is empty, any request is processed (no gating) in test env."""
+    # Default test env has no telegram webhook secrets set
     resp = client.post(
-        "/api/v1/telegram/webhook",
+        "/api/v1/telegram/webhook/patient",
         json={"update_id": 1, "message": {"chat": {"id": 99}, "text": "HELP"}},
     )
     assert resp.status_code == 200
@@ -100,22 +100,20 @@ def test_telegram_webhook_no_secret_configured_accepts_all(client: TestClient) -
 def test_telegram_webhook_wrong_secret_silently_ignored(client: TestClient, monkeypatch) -> None:
     """Wrong X-Telegram-Bot-Api-Secret-Token returns 200/ok but ignores the payload."""
 
-    # Patch get_settings to return a settings object with a webhook secret set
     import app.settings as _sm
     original = _sm.get_settings
 
     class _FakeSettings:
-        telegram_webhook_secret = "correct-secret"
+        telegram_patient_webhook_secret = "correct-secret"
+        telegram_clinician_webhook_secret = "clinician-secret"
         app_env = "test"
-        # forward everything else
         def __getattr__(self, name):
             return getattr(original(), name)
 
     monkeypatch.setattr(_sm, "get_settings", lambda: _FakeSettings())
 
-    # Wrong secret
     resp = client.post(
-        "/api/v1/telegram/webhook",
+        "/api/v1/telegram/webhook/patient",
         json={"update_id": 1, "message": {"chat": {"id": 99}, "text": "LINK abc123"}},
         headers={"X-Telegram-Bot-Api-Secret-Token": "wrong-secret"},
     )
@@ -129,7 +127,8 @@ def test_telegram_webhook_correct_secret_accepted(client: TestClient, monkeypatc
     original = _sm.get_settings
 
     class _FakeSettings:
-        telegram_webhook_secret = "correct-secret"
+        telegram_patient_webhook_secret = "correct-secret"
+        telegram_clinician_webhook_secret = "clinician-secret"
         app_env = "test"
         def __getattr__(self, name):
             return getattr(original(), name)
@@ -137,7 +136,7 @@ def test_telegram_webhook_correct_secret_accepted(client: TestClient, monkeypatc
     monkeypatch.setattr(_sm, "get_settings", lambda: _FakeSettings())
 
     resp = client.post(
-        "/api/v1/telegram/webhook",
+        "/api/v1/telegram/webhook/patient",
         json={"update_id": 1, "message": {"chat": {"id": 99}, "text": "HELP"}},
         headers={"X-Telegram-Bot-Api-Secret-Token": "correct-secret"},
     )

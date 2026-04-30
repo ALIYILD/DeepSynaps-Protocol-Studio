@@ -1,11 +1,16 @@
+from datetime import datetime, timedelta, timezone
+import json
+import logging
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from typing import Optional
 import stripe
 
 from ..auth import AuthenticatedActor, get_authenticated_actor
 from ..packages import PACKAGES, PACKAGE_ORDER
+from ..persistence.models import StripeWebhookLog
 from ..services.stripe_service import (
     create_customer,
     create_checkout_session,
@@ -20,6 +25,8 @@ from ..repositories.users import (
 )
 from ..database import get_db_session
 from ..settings import get_settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="", tags=["payments"])
 
@@ -219,23 +226,29 @@ def create_portal(
     return {"portal_url": portal_url}
 
 
-@router.post("/api/v1/payments/webhook")
-async def stripe_webhook(request: Request, db: Session = Depends(get_db_session)):
-    """Handle Stripe webhook events. Stripe sends raw bytes; no JWT auth."""
+def _compute_next_retry_at(attempt_count: int, base_minutes: int = 5, max_minutes: int = 360) -> datetime:
+    """Exponential backoff capped at max_minutes (default 6 hours)."""
+    backoff_minutes = min(base_minutes * (2 ** attempt_count), max_minutes)
+    return datetime.now(timezone.utc) + timedelta(minutes=backoff_minutes)
+
+
+def _price_map_rev(settings) -> dict[str, str]:
+    """Build reverse price-id → package-id map, filtering unset IDs."""
+    price_map = {
+        settings.stripe_price_resident: "resident",
+        settings.stripe_price_clinician_pro: "clinician_pro",
+        settings.stripe_price_clinic_team: "clinic_team",
+    }
+    return {k: v for k, v in price_map.items() if k}
+
+
+def _process_webhook_event(db: Session, event: dict) -> None:
+    """Run the business logic for a verified Stripe webhook event.
+
+    This is intentionally separate from HTTP handling so the retry worker can
+    call it directly without re-verifying signatures.
+    """
     s = get_settings()
-    if not s.stripe_webhook_secret:
-        raise HTTPException(status_code=400, detail="Stripe not configured")
-
-    payload = await request.body()
-    sig_header = request.headers.get("stripe-signature", "")
-
-    try:
-        event = construct_webhook_event(payload, sig_header, s.stripe_webhook_secret)
-    except stripe.error.SignatureVerificationError:
-        raise HTTPException(status_code=400, detail="Invalid Stripe webhook signature")
-    except Exception:
-        raise HTTPException(status_code=400, detail="Could not parse webhook event")
-
     event_type = event["type"]
     data_obj = event["data"]["object"]
 
@@ -245,36 +258,26 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db_session)
         stripe_subscription_id = data_obj.get("subscription")
         user_id = (data_obj.get("metadata") or {}).get("user_id")
 
-        # Determine package from the subscription's price
         package_id = "explorer"
+        current_period_end = None
         if stripe_subscription_id:
             try:
                 import stripe as _stripe
                 _stripe.api_key = s.stripe_secret_key
                 stripe_sub = _stripe.Subscription.retrieve(stripe_subscription_id)
                 price_id = stripe_sub["items"]["data"][0]["price"]["id"]
-                price_map_rev = {
-                    s.stripe_price_resident: "resident",
-                    s.stripe_price_clinician_pro: "clinician_pro",
-                    s.stripe_price_clinic_team: "clinic_team",
-                }
-                # Remove empty-string key that maps unset prices to explorer
-                price_map_rev = {k: v for k, v in price_map_rev.items() if k}
+                price_map_rev = _price_map_rev(s)
                 package_id = price_map_rev.get(price_id, "explorer")
                 current_period_end_ts = stripe_sub.get("current_period_end")
-                from datetime import datetime
                 current_period_end = (
-                    datetime.utcfromtimestamp(current_period_end_ts)
+                    datetime.fromtimestamp(current_period_end_ts, tz=timezone.utc)
                     if current_period_end_ts
                     else None
                 )
             except Exception:
                 current_period_end = None
-        else:
-            current_period_end = None
 
         if stripe_customer_id:
-            # Ensure subscription row exists with customer id before updating
             if user_id:
                 sub = get_subscription_by_user(db, user_id)
                 if sub and not sub.stripe_customer_id:
@@ -298,7 +301,6 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db_session)
         stripe_customer_id = data_obj.get("customer")
         stripe_subscription_id = data_obj.get("id")
         status = data_obj.get("status", "active")
-        # Map Stripe status to our status vocabulary
         if status not in ("active", "canceled", "past_due"):
             status = "active"
 
@@ -308,19 +310,14 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db_session)
         except (KeyError, IndexError, TypeError):
             pass
 
-        price_map_rev = {
-            s.stripe_price_resident: "resident",
-            s.stripe_price_clinician_pro: "clinician_pro",
-            s.stripe_price_clinic_team: "clinic_team",
-        }
-        # Remove empty-string key that maps unset prices to explorer
-        price_map_rev = {k: v for k, v in price_map_rev.items() if k}
+        price_map_rev = _price_map_rev(s)
         package_id = price_map_rev.get(price_id, "explorer") if price_id else "explorer"
 
         current_period_end_ts = data_obj.get("current_period_end")
-        from datetime import datetime
         current_period_end = (
-            datetime.utcfromtimestamp(current_period_end_ts) if current_period_end_ts else None
+            datetime.fromtimestamp(current_period_end_ts, tz=timezone.utc)
+            if current_period_end_ts
+            else None
         )
 
         if stripe_customer_id:
@@ -370,4 +367,107 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db_session)
             if sub:
                 update_user_package(db, user_id=sub.user_id, package_id="explorer", role="guest")
 
+
+@router.post("/api/v1/payments/webhook")
+async def stripe_webhook(request: Request, db: Session = Depends(get_db_session)):
+    """Handle Stripe webhook events. Stripe sends raw bytes; no JWT auth.
+
+    Every verified event is persisted to the StripeWebhookLog outbox table.
+    Business logic runs inside a try/except so partial failures are recorded
+    and retried by the worker rather than dropped.
+    """
+    s = get_settings()
+    if not s.stripe_webhook_secret:
+        raise HTTPException(status_code=400, detail="Stripe not configured")
+
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature", "")
+
+    try:
+        event = construct_webhook_event(payload, sig_header, s.stripe_webhook_secret)
+    except stripe.error.SignatureVerificationError:
+        raise HTTPException(status_code=400, detail="Invalid Stripe webhook signature")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Could not parse webhook event")
+
+    stripe_event_id = event.get("id", "")
+    event_type = event.get("type", "")
+
+    # Upsert the log row (idempotent — Stripe may redeliver).
+    log = db.query(StripeWebhookLog).filter_by(stripe_event_id=stripe_event_id).first()
+    if log is None:
+        # First-ever delivery — record and process inline.
+        log = StripeWebhookLog(
+            stripe_event_id=stripe_event_id,
+            event_type=event_type,
+            payload=json.dumps(event),
+            status="pending",
+            attempt_count=0,
+            next_retry_at=None,
+        )
+        db.add(log)
+        db.commit()
+        db.refresh(log)
+    elif log.status == "succeeded":
+        # Already processed successfully — 200 stops Stripe retries.
+        return {"received": True}
+    elif log.status == "dead":
+        # Retries exhausted; the row is parked for manual review.
+        # Don't auto-revive on redelivery — that hides the alert and
+        # may re-fire stale business logic.
+        logger.error(
+            "Stripe webhook redelivered after dead: event=%s type=%s",
+            stripe_event_id, event_type,
+        )
+        return {"received": True}
+    else:
+        # Redelivered while pending or failed. Pre-fix this branch
+        # bumped status back to pending and synchronously re-ran
+        # ``_process_webhook_event``. That had three problems:
+        #
+        # 1. Pending + concurrent redelivery double-ran business logic
+        #    (no row-level lock; both calls upsert subscriptions in
+        #    parallel, racing the same external Stripe state).
+        # 2. Failed events bypassed ``next_retry_at`` cool-off, so the
+        #    inline path hammered transient downstream failures.
+        # 3. Failed events could overwrite NEWER state from a more
+        #    recent webhook that already succeeded for the same
+        #    subscription — undoing a ``customer.subscription.deleted``
+        #    when an earlier ``customer.subscription.updated`` got
+        #    redelivered.
+        #
+        # Post-fix we hand redeliveries to the offline retry worker
+        # (``scripts/retry_stripe_webhooks.py``) which honours
+        # ``next_retry_at`` and processes events in ascending
+        # ``created_at`` order. Stripe still gets a 200 so it stops
+        # redelivering at their layer.
+        log.attempt_count += 1
+        if log.status == "failed":
+            log.next_retry_at = _compute_next_retry_at(log.attempt_count)
+        log.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        logger.info(
+            "Stripe webhook redelivery deferred to worker: event=%s type=%s status=%s attempts=%d",
+            stripe_event_id, event_type, log.status, log.attempt_count,
+        )
+        return {"received": True}
+
+    try:
+        _process_webhook_event(db, event)
+    except Exception as exc:
+        log.status = "failed"
+        log.attempt_count += 1
+        log.next_retry_at = _compute_next_retry_at(log.attempt_count)
+        log.last_error = str(exc)
+        log.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        logger.warning("Stripe webhook processing failed: event=%s error=%s", stripe_event_id, exc)
+        # Return 200 so Stripe doesn't retry at their layer — our worker handles retries
+        return {"received": True}
+
+    log.status = "succeeded"
+    log.next_retry_at = None
+    log.last_error = None
+    log.updated_at = datetime.now(timezone.utc)
+    db.commit()
     return {"received": True}

@@ -6,10 +6,42 @@ from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
-from app.persistence.models import MriAnalysis, OutcomeSeries, Patient, QEEGAnalysis
+from app.persistence.models import Clinic, MriAnalysis, OutcomeSeries, Patient, QEEGAnalysis, User
+
+
+def _ensure_demo_clinician_in_clinic() -> None:
+    """Seed Clinic + User keyed on the demo clinician actor_id so the
+    cross-clinic ownership gate (added in the audit) finds a real clinic_id."""
+    db = SessionLocal()
+    try:
+        existing = db.query(User).filter_by(id="actor-clinician-demo").first()
+        if existing is not None and existing.clinic_id:
+            return
+        clinic_id = "clinic-annotations-demo"
+        if db.query(Clinic).filter_by(id=clinic_id).first() is None:
+            db.add(Clinic(id=clinic_id, name="Annotations Demo Clinic"))
+            db.flush()
+        if existing is None:
+            db.add(
+                User(
+                    id="actor-clinician-demo",
+                    email="demo_clin_annotations@example.com",
+                    display_name="Verified Clinician Demo",
+                    hashed_password="x",
+                    role="clinician",
+                    package_id="clinician_pro",
+                    clinic_id=clinic_id,
+                )
+            )
+        else:
+            existing.clinic_id = clinic_id
+        db.commit()
+    finally:
+        db.close()
 
 
 def _seed_patient(email: str = "patient@deepsynaps.com") -> str:
+    _ensure_demo_clinician_in_clinic()
     db = SessionLocal()
     try:
         patient = Patient(
@@ -30,32 +62,48 @@ def _seed_patient(email: str = "patient@deepsynaps.com") -> str:
 def test_annotations_round_trip_for_clinician(client: TestClient, auth_headers: dict) -> None:
     patient_id = _seed_patient("annotations@example.com")
 
+    # Seed a real qEEG analysis row owned by this patient — the annotations
+    # router now FK-validates target_id against an actual QEEGAnalysis /
+    # MriAnalysis row whose patient_id matches the body's patient_id.
+    qeeg_id = "qeeg-analysis-1"
+    db = SessionLocal()
+    try:
+        if db.query(QEEGAnalysis).filter_by(id=qeeg_id).first() is None:
+            db.add(QEEGAnalysis(
+                id=qeeg_id,
+                patient_id=patient_id,
+                clinician_id="actor-clinician-demo",
+                analysis_status="completed",
+            ))
+            db.commit()
+    finally:
+        db.close()
+
     create_resp = client.post(
         "/api/v1/annotations",
         headers=auth_headers["clinician"],
         json={
-            "patient_id": patient_id,
-            "target_type": "qeeg",
-            "target_id": "qeeg-analysis-1",
-            "title": "Frontal review",
-            "body": "Check frontal theta shift against symptoms.",
-            "anchor_label": "Compare tab",
-            "anchor_data": {"analysis_id": "qeeg-analysis-1"},
+            "analysis_id": qeeg_id,
+            "analysis_type": "qeeg",
+            "target_kind": "finding",
+            "text": "Check frontal theta shift against symptoms.",
+            "tags": ["review", "frontal"],
         },
     )
     assert create_resp.status_code == 201, create_resp.text
     created = create_resp.json()
-    assert created["target_type"] == "qeeg"
-    assert created["anchor_data"]["analysis_id"] == "qeeg-analysis-1"
+    assert created["analysis_type"] == "qeeg"
+    assert created["target_kind"] == "finding"
+    assert created["text"] == "Check frontal theta shift against symptoms."
 
     list_resp = client.get(
-        f"/api/v1/annotations?patient_id={patient_id}&target_type=qeeg&target_id=qeeg-analysis-1",
+        f"/api/v1/annotations?analysis_id={qeeg_id}&analysis_type=qeeg",
         headers=auth_headers["clinician"],
     )
     assert list_resp.status_code == 200, list_resp.text
     rows = list_resp.json()
     assert len(rows) == 1
-    assert rows[0]["title"] == "Frontal review"
+    assert rows[0]["text"] == "Check frontal theta shift against symptoms."
 
     delete_resp = client.delete(
         f"/api/v1/annotations/{created['id']}",

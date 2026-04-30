@@ -2,11 +2,19 @@ import { api, downloadBlob } from './api.js';
 import { spinner, emptyState, evidenceBadge, labelBadge, safetyBadge, approvalBadge, govFlag, fr, cardWrap, tag } from './helpers.js';
 import { FALLBACK_ASSESSMENT_TEMPLATES, FALLBACK_CONDITIONS, FALLBACK_MODALITIES } from './constants.js';
 import { currentUser } from './auth.js';
+import { getEvidenceUiStats } from './evidence-ui-live.js';
+import { getProtocolWatchSignalTitle, loadProtocolWatchContext } from './protocol-watch-context.js';
 import {
   EVIDENCE_TOTAL_PAPERS,
   EVIDENCE_TOTAL_TRIALS,
   EVIDENCE_SUMMARY,
 } from './evidence-dataset.js';
+
+// ── HTML escape — prevents XSS from API/localStorage dynamic content ─────────
+function _esc(v) {
+  if (v == null) return '';
+  return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
+}
 
 // ── SOAP Notes — localStorage persistence ────────────────────────────────────
 const SOAP_NOTES_KEY = 'ds_soap_notes';
@@ -57,6 +65,77 @@ const SOAP_TEMPLATES = {
     plan: '',
   },
 };
+
+let _coursesEvidenceStats = {
+  totalPapers: EVIDENCE_TOTAL_PAPERS,
+  totalTrials: EVIDENCE_TOTAL_TRIALS,
+  modalityDistribution: EVIDENCE_SUMMARY.modalityDistribution || {},
+};
+
+function _coursesTotalPapers() {
+  return Number(_coursesEvidenceStats.totalPapers) || EVIDENCE_TOTAL_PAPERS;
+}
+
+function _coursesModalityCount(label, fallback) {
+  const dist = _coursesEvidenceStats.modalityDistribution || {};
+  const candidates = [label];
+  if (label === 'TMS') candidates.push('TMS / rTMS', 'rTMS');
+  const found = candidates.find((key) => Number(dist[key]) > 0);
+  return found ? Number(dist[found]) : fallback;
+}
+
+async function _ensureCoursesEvidenceStats() {
+  try {
+    _coursesEvidenceStats = await getEvidenceUiStats({
+      fallbackSummary: EVIDENCE_SUMMARY,
+      fallbackConditionCount: 15,
+      fallbackMetaAnalyses: 0,
+    });
+  } catch {}
+}
+
+function _emptyCoursePatientEvidenceContext() {
+  return {
+    live: false,
+    course: null,
+    patientId: null,
+    patientName: '',
+    reportCount: 0,
+    savedCitationCount: 0,
+    highlightCount: 0,
+    contradictionCount: 0,
+    reportCitationCount: 0,
+    phenotypeTags: [],
+  };
+}
+
+async function _resolveCoursePatientEvidenceContext(courseId) {
+  if (!courseId) return _emptyCoursePatientEvidenceContext();
+  const course = await api.getCourse(courseId).catch(() => null);
+  const patientId = course?.patient_id || null;
+  const patientName = course?.patient_name || '';
+  if (!patientId) {
+    return { ..._emptyCoursePatientEvidenceContext(), course, patientName };
+  }
+  const [overview, reports] = await Promise.all([
+    api.evidencePatientOverview?.(patientId).catch(() => null),
+    api.listReports?.(patientId).catch(() => []),
+  ]);
+  return {
+    live: !!overview || (Array.isArray(reports) && reports.length > 0),
+    course,
+    patientId,
+    patientName,
+    reportCount: Array.isArray(reports) ? reports.length : 0,
+    savedCitationCount: Array.isArray(overview?.saved_citations) ? overview.saved_citations.length : 0,
+    highlightCount: Array.isArray(overview?.highlights) ? overview.highlights.length : 0,
+    contradictionCount: Array.isArray(overview?.contradictory_findings) ? overview.contradictory_findings.length : 0,
+    reportCitationCount: Array.isArray(overview?.evidence_used_in_report) ? overview.evidence_used_in_report.length : 0,
+    phenotypeTags: Array.isArray(overview?.compare_with_literature_phenotype?.matched_tags)
+      ? overview.compare_with_literature_phenotype.matched_tags
+      : [],
+  };
+}
 
 // ── Shared color maps ─────────────────────────────────────────────────────────
 const STATUS_COLOR = {
@@ -225,11 +304,11 @@ function renderPredictionCard(pred, outcomeCount) {
 // ── Clinical Intelligence — Cohort Benchmarks ────────────────────────────────
 
 const BENCHMARKS = {
-  'tDCS':          { condition: 'Depression (MDD)',               expected_responder_rate: 52, evidence: `Meta-analysis (n=1,144) · ${(EVIDENCE_SUMMARY.modalityDistribution['tDCS'] || 18200).toLocaleString()} papers indexed` },
-  'TMS':           { condition: 'Treatment-Resistant Depression', expected_responder_rate: 58, evidence: `FDA-cleared indication · ${(EVIDENCE_SUMMARY.modalityDistribution['TMS / rTMS'] || 24800).toLocaleString()} papers indexed` },
-  'Neurofeedback': { condition: 'ADHD',                          expected_responder_rate: 64, evidence: `Meta-analysis (n=830) · ${(EVIDENCE_SUMMARY.modalityDistribution['Neurofeedback'] || 10400).toLocaleString()} papers indexed` },
-  'taVNS':         { condition: 'Epilepsy',                      expected_responder_rate: 45, evidence: `RCT data (n=600) · ${(EVIDENCE_SUMMARY.modalityDistribution['taVNS'] || 5200).toLocaleString()} papers indexed` },
-  'CES':           { condition: 'Anxiety/Insomnia',              expected_responder_rate: 55, evidence: `Meta-analysis (n=2,400) · ${(EVIDENCE_SUMMARY.modalityDistribution['CES'] || 4800).toLocaleString()} papers indexed` },
+  'tDCS':          { condition: 'Depression (MDD)',               expected_responder_rate: 52, evidence: () => `Meta-analysis (n=1,144) · ${_coursesModalityCount('tDCS', 18200).toLocaleString()} papers indexed` },
+  'TMS':           { condition: 'Treatment-Resistant Depression', expected_responder_rate: 58, evidence: () => `FDA-cleared indication · ${_coursesModalityCount('TMS', 24800).toLocaleString()} papers indexed` },
+  'Neurofeedback': { condition: 'ADHD',                          expected_responder_rate: 64, evidence: () => `Meta-analysis (n=830) · ${_coursesModalityCount('Neurofeedback', 10400).toLocaleString()} papers indexed` },
+  'taVNS':         { condition: 'Epilepsy',                      expected_responder_rate: 45, evidence: () => `RCT data (n=600) · ${_coursesModalityCount('taVNS', 5200).toLocaleString()} papers indexed` },
+  'CES':           { condition: 'Anxiety/Insomnia',              expected_responder_rate: 55, evidence: () => `Meta-analysis (n=2,400) · ${_coursesModalityCount('CES', 4800).toLocaleString()} papers indexed` },
 };
 
 function benchmarkRow(modality, clinicRate, benchmarkRate, benchmark) {
@@ -261,7 +340,7 @@ function benchmarkRow(modality, clinicRate, benchmarkRate, benchmark) {
         </div>
       </div>
     </div>
-    <div style="font-size:10px;color:var(--text-tertiary);margin-top:3px">${benchmark.evidence} &middot; ${benchmark.condition}</div>
+      <div style="font-size:10px;color:var(--text-tertiary);margin-top:3px">${typeof benchmark.evidence === 'function' ? benchmark.evidence() : benchmark.evidence} &middot; ${benchmark.condition}</div>
   </div>`;
 }
 
@@ -372,9 +451,9 @@ function _tcListRow(c, openAEs = []) {
     onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background=''">
     <div style="flex:1;min-width:0;overflow:hidden">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;flex-wrap:nowrap;overflow:hidden">
-        <span style="font-size:13px;font-weight:700;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px">${c._patientName || '—'}</span>
-        <span style="font-size:11.5px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(c.condition_slug || '—').replace(/-/g,' ')}</span>
-        <span style="font-size:11px;color:var(--teal);font-weight:600;flex-shrink:0">${c.modality_slug || '—'}</span>
+        <span style="font-size:13px;font-weight:700;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px">${_esc(c._patientName) || '—'}</span>
+        <span style="font-size:11.5px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc((c.condition_slug || '—').replace(/-/g,' '))}</span>
+        <span style="font-size:11px;color:var(--teal);font-weight:600;flex-shrink:0">${_esc(c.modality_slug) || '—'}</span>
       </div>
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         <span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:10px;background:${st.bg};color:${st.color};white-space:nowrap">${st.label}</span>
@@ -409,8 +488,8 @@ function _tcCard(c, openAEs = []) {
     onclick="window._openCourse('${c.id}')">
     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
       <div style="flex:1;min-width:0">
-        <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c._patientName || '—'}</div>
-        <div style="font-size:11.5px;color:var(--text-secondary)">${(c.condition_slug || '—').replace(/-/g,' ')} · <span style="color:var(--teal)">${c.modality_slug || '—'}</span></div>
+        <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(c._patientName) || '—'}</div>
+        <div style="font-size:11.5px;color:var(--text-secondary)">${_esc((c.condition_slug || '—').replace(/-/g,' '))} · <span style="color:var(--teal)">${_esc(c.modality_slug) || '—'}</span></div>
       </div>
       <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:${st.bg};color:${st.color};flex-shrink:0;white-space:nowrap">${st.label}</span>
     </div>
@@ -427,6 +506,7 @@ function _tcCard(c, openAEs = []) {
 
 // ── pgCourses — Treatment Courses list ───────────────────────────────────────
 export async function pgCourses(setTopbar, navigate) {
+  await _ensureCoursesEvidenceStats();
   const canCreate = ['clinician', 'admin', 'supervisor'].includes(currentUser?.role);
   setTopbar('Treatment Courses',
     canCreate ? `<button class="btn btn-primary btn-sm" onclick="window._nav('protocol-wizard')">+ New Course</button>` : ''
@@ -846,9 +926,9 @@ export async function pgClinicalNotes(setTopbar) {
             <div style="font-size:0.85rem;font-weight:600">Session ${entry.sessionId.slice(0, 6)}</div>
             ${entry.note.flagged ? '<span style="color:var(--amber-500);font-size:0.75rem">★ Flagged</span>' : ''}
           </div>
-          <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:2px">${entry.course?.title || entry.course?.condition_slug || 'Course ' + String(entry.courseId).slice(0, 6)}</div>
+          <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:2px">${_esc(entry.course?.title || entry.course?.condition_slug || 'Course ' + String(entry.courseId).slice(0, 6))}</div>
           <div style="font-size:0.72rem;color:var(--text-secondary);margin-top:1px">${new Date(entry.note.updated_at).toLocaleDateString()}</div>
-          <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">${entry.note.subjective?.slice(0, 60) || 'Empty note'}...</div>
+          <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">${_esc(entry.note.subjective?.slice(0, 60)) || 'Empty note'}...</div>
         </div>`;
       }).join('');
 
@@ -885,7 +965,7 @@ export async function pgClinicalNotes(setTopbar) {
       flagged:     getSoapNote(courseId, sessionId)?.flagged || false,
     };
     saveSoapNote(courseId, sessionId, note);
-    window._showNotifToast?.({ title: 'Note Saved', body: 'SOAP note saved successfully', severity: 'success' });
+    window._showNotifToast?.({ title: 'Note Saved', body: 'SOAP note saved in the course workflow.', severity: 'success' });
   };
 
   window._flagNote = function(courseId, sessionId) {
@@ -902,13 +982,13 @@ export async function pgClinicalNotes(setTopbar) {
     win.document.write(`<!DOCTYPE html><html><head><title>SOAP Note</title>
       <style>body{font-family:Arial,sans-serif;padding:40px;max-width:800px;margin:0 auto}h1{font-size:1.4rem}h3{color:#555;font-size:0.9rem;text-transform:uppercase;margin-top:24px}p{line-height:1.7;white-space:pre-wrap}.header{border-bottom:2px solid #00d4bc;padding-bottom:12px;margin-bottom:24px}.footer{margin-top:40px;border-top:1px solid #ccc;padding-top:12px;font-size:0.8rem;color:#888}</style>
       </head><body>
-      <div class="header"><h1>Clinical SOAP Note</h1><p style="color:#666;font-size:0.9rem">Generated: ${new Date().toLocaleString()} · ${note.clinician || 'Clinician'}</p></div>
-      <h3>Subjective</h3><p>${note.subjective || '—'}</p>
-      <h3>Objective</h3><p>${note.objective || '—'}</p>
-      <h3>Assessment</h3><p>${note.assessment || '—'}</p>
-      <h3>Plan</h3><p>${note.plan || '—'}</p>
-      <h3>Adverse Effects</h3><p>${note.adverse || 'None reported'}</p>
-      <div class="footer">Next session: ${note.next_date || 'Not scheduled'} · DeepSynaps Protocol Studio · CONFIDENTIAL</div>
+      <div class="header"><h1>Clinical SOAP Note</h1><p style="color:#666;font-size:0.9rem">Generated: ${new Date().toLocaleString()} · ${_esc(note.clinician) || 'Clinician'}</p></div>
+      <h3>Subjective</h3><p>${_esc(note.subjective) || '—'}</p>
+      <h3>Objective</h3><p>${_esc(note.objective) || '—'}</p>
+      <h3>Assessment</h3><p>${_esc(note.assessment) || '—'}</p>
+      <h3>Plan</h3><p>${_esc(note.plan) || '—'}</p>
+      <h3>Adverse Effects</h3><p>${_esc(note.adverse) || 'None reported'}</p>
+      <div class="footer">Next session: ${_esc(note.next_date) || 'Not scheduled'} · DeepSynaps Protocol Studio · CONFIDENTIAL</div>
       </body></html>`);
     win.document.close();
     win.print();
@@ -987,6 +1067,7 @@ export async function pgCourseDetail(setTopbar, navigate) {
   el.innerHTML = spinner();
 
   let course = null, sessions = [], adverseEvents = [], patient = null, protocolDetail = null, outcomes = [], outcomeSummary = null;
+  let liveEvidenceContext = null;
   const loadErrors = [];
   try {
     course = await api.getCourse(id);
@@ -1019,6 +1100,10 @@ export async function pgCourseDetail(setTopbar, navigate) {
     catch { protocolDetail = null; } // protocol detail not critical for go-live
   }
   try { outcomeSummary = await api.courseOutcomeSummary(id); } catch { outcomeSummary = null; }
+  liveEvidenceContext = await loadProtocolWatchContext({
+    condition: course?.condition_slug || '',
+    modality: course?.modality_slug || '',
+  });
 
   // Course-scoped normalized reads (assessment severity, audit trail, AE roll-up).
   // Each is non-blocking; failures fall back to existing behavior.
@@ -1034,11 +1119,10 @@ export async function pgCourseDetail(setTopbar, navigate) {
     : 0;
   const statusCol = STATUS_COLOR[course.status] || 'var(--text-tertiary)';
   const finalization = _courseFinalizationSummary(sessions, adverseEvents, aeSummary);
-
   setTopbar(
     `${course.condition_slug ? course.condition_slug.replace(/-/g,' ') : 'Course'} · ${course.modality_slug || ''}`,
     `<button class="btn btn-ghost btn-sm" onclick="window._nav('courses')">← Courses</button>
-     <button class="btn btn-sm" onclick="window._showExportPanel()">↓ Export Report</button>
+     <button class="btn btn-sm" onclick="window._showExportPanel()">↓ Export Options</button>
      ${course.status === 'pending_approval'
        ? `<button class="btn btn-primary btn-sm" onclick="window._activateCourseDetail('${course.id}')">Approve &amp; Activate</button>`
        : course.status === 'active'
@@ -1135,6 +1219,17 @@ export async function pgCourseDetail(setTopbar, navigate) {
           aeSummary?.unresolved > 0 ? `<strong>${aeSummary.unresolved}</strong> unresolved adverse event${aeSummary.unresolved === 1 ? '' : 's'}` : null,
         ].filter(Boolean).join(' &middot; ')}.
         <button class="btn btn-sm" style="margin-left:10px" onclick="window._cdSwitchTab('sessions')">Open Sessions</button>
+      </div>`;
+    })()}
+    ${(() => {
+      if (!liveEvidenceContext || (!liveEvidenceContext.coverage && !liveEvidenceContext.template && !liveEvidenceContext.safety)) return '';
+      return `<div role="status" style="margin-bottom:16px;padding:12px 16px;border-radius:8px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.22);color:var(--text-secondary);font-size:12.5px">
+        <strong style="color:var(--text-primary)">Live protocol watch:</strong>
+        ${[
+          liveEvidenceContext.coverage ? `Coverage <strong>${_cdEscHtml(String(liveEvidenceContext.coverage.coverage ?? 0))}%</strong> across <strong>${Number(liveEvidenceContext.coverage.paper_count || 0).toLocaleString()}</strong> papers${liveEvidenceContext.coverage.gap && liveEvidenceContext.coverage.gap !== 'None' ? ` · gap ${_cdEscHtml(liveEvidenceContext.coverage.gap)}` : ''}` : null,
+          liveEvidenceContext.template ? `Template <strong>${_cdEscHtml([liveEvidenceContext.template.modality, liveEvidenceContext.template.indication, liveEvidenceContext.template.target].filter(Boolean).join(' — '))}</strong>` : null,
+          liveEvidenceContext.safety ? `Safety <strong>${_cdEscHtml(getProtocolWatchSignalTitle(liveEvidenceContext.safety))}</strong>` : null,
+        ].filter(Boolean).join(' &middot; ')}.
       </div>`;
     })()}
 
@@ -1567,7 +1662,7 @@ function renderNextSessionSuggestion(course, sessions = [], outcomes = []) {
   }
 
   const urgencyStyles = {
-    info:    { border: 'var(--accent-teal, #00d4bc)', bg: 'color-mix(in srgb,var(--accent-teal, #00d4bc) 8%,var(--card-bg, #1a2035))', label: '💡 Next Session Suggestion', labelColor: 'var(--accent-teal, #00d4bc)' },
+    info:    { border: 'var(--teal, #00d4bc)', bg: 'color-mix(in srgb,var(--teal, #00d4bc) 8%,var(--card-bg, #1a2035))', label: '💡 Next Session Suggestion', labelColor: 'var(--teal, #00d4bc)' },
     warn:    { border: '#f59e0b', bg: 'rgba(245,158,11,0.07)', label: '⚠ Clinical Alert', labelColor: '#f59e0b' },
     alert:   { border: '#ef4444', bg: 'rgba(239,68,68,0.07)', label: '🚨 Protocol Review Recommended', labelColor: '#ef4444' },
     success: { border: '#22c55e', bg: 'rgba(34,197,94,0.07)', label: '✓ Positive Progress', labelColor: '#22c55e' },
@@ -1688,7 +1783,7 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
       <span style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;font-weight:600;align-self:center;margin-right:4px">Quick actions</span>
       <button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')">▶ Start Session</button>
       <button class="btn btn-sm" onclick="window._nav('review-queue')">◱ Request Review</button>
-      <button class="btn btn-sm" onclick="window._showExportPanel()">↓ Export Report</button>
+      <button class="btn btn-sm" onclick="window._showExportPanel()">↓ Export Options</button>
     </div>
     <div class="g2">
       <div>
@@ -2688,6 +2783,33 @@ export async function pgSessionExecution(setTopbar, navigate) {
 
   <div id="sex-root">
 
+    <!-- ── Clinical safety disclaimers (always visible) ────────────────── -->
+    <!-- launch-audit 2026-04-30: hard-coded clinician-facing reminders so
+         the runner never silently runs without governance copy on screen. -->
+    <div id="sex-safety-disclaimers" class="card" style="margin-bottom:12px;border:1px solid rgba(245,158,11,0.25);background:rgba(245,158,11,0.05)">
+      <div style="padding:10px 14px;font-size:11.5px;color:var(--text-secondary);line-height:1.5">
+        <div style="font-weight:600;color:var(--amber);margin-bottom:4px;font-size:12px">Clinical safety reminders</div>
+        <ul style="margin:0;padding-left:18px">
+          <li>Verify device, montage, and patient consent before starting.</li>
+          <li>Monitor patient throughout. Stop if an adverse event occurs.</li>
+          <li>Stimulation parameters require device-specific safety review.</li>
+          <li>Sessions are clinical decisions. AI suggestions are decision-support only.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ── Plan handoff banner (Brain Map Planner / qEEG Analyzer) ─────── -->
+    <!-- Populated by _seConsumePrefilledPlan() once a real plan was pushed
+         via window._rxPrefilledProto. Stays hidden when no plan was sent. -->
+    <div id="sex-plan-banner" style="display:none;margin-bottom:12px;padding:10px 14px;border-radius:6px;background:rgba(0,212,188,0.07);border:1px solid rgba(0,212,188,0.25);font-size:12px;color:var(--text-secondary)"></div>
+
+    <!-- ── Demo-mode banner (shown when no active courses) ─────────────── -->
+    <div id="sex-demo-banner" style="display:none;margin-bottom:12px;padding:10px 14px;border-radius:6px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);font-size:12px;color:var(--amber)">
+      <strong>Sample session — clinician review required.</strong>
+      No live courses are loaded. Any session saved from this view is flagged
+      <code style="font-size:11px">is_demo: true</code> and exports stamped DEMO.
+    </div>
+
     <!-- ── STEP 0: SELECT PATIENT ─────────────────────────────────────── -->
     <div id="sex-select">
       ${currentUser?.role === 'technician' ? `<div class="notice notice-info" style="margin-bottom:14px">◧ Technician mode — log session parameters only. Course management is handled by your supervising clinician.</div>` : ''}
@@ -2807,6 +2929,12 @@ export async function pgSessionExecution(setTopbar, navigate) {
               <div id="sex-guide-instructions" class="sex-guide-text"></div>
             </div>
           </div>
+
+          <!-- Live Protocol Watch -->
+          <div class="card" style="margin-bottom:12px">
+            <div class="sex-section-hd">Live Protocol Watch</div>
+            <div id="sex-live-evidence-watch" style="padding:14px 16px;color:var(--text-tertiary);font-size:12px">Select a course to load live evidence context…</div>
+          </div>
         </div>
 
         <!-- RIGHT COLUMN -->
@@ -2843,10 +2971,38 @@ export async function pgSessionExecution(setTopbar, navigate) {
             <div id="sex-consent-display" style="margin:0 16px 12px"></div>
             <!-- Begin button -->
             <div style="padding:0 16px 16px;display:flex;gap:10px;align-items:center">
-              <button id="sex-begin-btn" class="btn btn-primary" onclick="window._seSetPhase('active')" disabled style="opacity:0.5;flex:1">
+              <button id="sex-begin-btn" class="btn btn-primary" onclick="window._seBeginSession()" disabled style="opacity:0.5;flex:1">
                 Begin Session →
               </button>
               <button class="btn btn-sm" onclick="window._seSetPhase('select')">← Change</button>
+            </div>
+            <div id="sex-begin-blocker" style="display:none;padding:0 16px 12px;font-size:11.5px;color:var(--amber)"></div>
+          </div>
+
+          <!-- ── Impedance check + telemetry honesty (launch-audit 2026-04-30) ── -->
+          <div class="card" style="margin-bottom:12px">
+            <div class="sex-section-hd">
+              Impedance Check
+              <span id="sex-imp-status" style="font-size:11px;font-weight:400;color:var(--text-tertiary)">Not measured</span>
+            </div>
+            <div id="sex-telemetry-banner" style="display:none;margin:10px 16px;padding:8px 12px;border-radius:6px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);font-size:11.5px;color:var(--amber)">
+              <strong>DEMO TELEMETRY</strong> — clinician must verify on real device. Values shown below are deterministic stubs.
+            </div>
+            <div style="padding:0 16px 14px">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+                <label class="sex-field-lbl" style="margin:0">Impedance (kΩ)</label>
+                <input id="sex-imp-input" class="form-control sex-field-input" type="number" step="0.1" min="0" max="100" placeholder="e.g. 4.8" style="width:90px">
+                <button class="btn btn-sm" onclick="window._seMeasureImpedance()">Measure</button>
+                <button class="btn btn-sm" onclick="window._seSubmitImpedance()">Record</button>
+                <span id="sex-imp-readout" style="font-size:11.5px;color:var(--text-tertiary)"></span>
+              </div>
+              <div style="font-size:11px;color:var(--text-tertiary);line-height:1.5">
+                Threshold: ≤ 10 kΩ to begin. Above threshold requires written override below.
+              </div>
+              <div id="sex-imp-override-wrap" style="display:none;margin-top:8px">
+                <label class="sex-field-lbl">Override reason (required when impedance &gt; 10 kΩ)</label>
+                <textarea id="sex-imp-override" class="form-control" rows="2" placeholder="Clinical rationale for proceeding above threshold…" style="font-size:12px;margin-top:4px;resize:vertical"></textarea>
+              </div>
             </div>
           </div>
         </div>
@@ -3001,6 +3157,17 @@ export async function pgSessionExecution(setTopbar, navigate) {
                   ).join('')}
                 </div>
               </div>
+              <div style="margin-bottom:14px">
+                <div class="sex-obs-label">
+                  Comfort / Side-effect rating <span style="font-weight:400;color:var(--text-tertiary)">(NRS-SE 0–10, clinician input)</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
+                  <input id="sex-comfort-input" type="number" min="0" max="10" step="1" class="form-control sex-field-input" placeholder="0–10" style="width:80px">
+                  <input id="sex-comfort-note" class="form-control sex-field-input" placeholder="Verbatim patient quote (optional)…" style="flex:1">
+                  <button class="btn btn-sm" onclick="window._seRecordComfort()">Record NRS-SE</button>
+                </div>
+                <div id="sex-comfort-log" style="margin-top:6px;font-size:11.5px;color:var(--text-tertiary)"></div>
+              </div>
               <div>
                 <label class="sex-obs-label">
                   Patient Comments &amp; Notes
@@ -3009,6 +3176,11 @@ export async function pgSessionExecution(setTopbar, navigate) {
                   placeholder="Patient reports, observations during stimulation…"
                   style="font-size:12.5px;margin-top:6px"></textarea>
               </div>
+              <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn btn-sm" style="border-color:var(--amber);color:var(--amber)" onclick="window._seOpenAEReporter()">⚠ Report Adverse Event</button>
+                <button class="btn btn-sm" onclick="window._seAbortSession()">⏹ Abort Session</button>
+              </div>
+              <div id="sex-ae-active-panel" style="display:none;margin-top:10px"></div>
             </div>
           </div>
         </div>
@@ -3148,6 +3320,21 @@ export async function pgSessionExecution(setTopbar, navigate) {
             </div>
           </div>
 
+          <!-- Clinician sign-off (launch-audit 2026-04-30) ─────────────── -->
+          <div class="card" style="margin-bottom:12px">
+            <div class="sex-section-hd">
+              Clinician Sign-off
+              <span id="sex-sign-status" style="font-size:11px;font-weight:400;color:var(--text-tertiary)">Unsigned draft</span>
+            </div>
+            <div style="padding:0 16px 14px">
+              <div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:8px;line-height:1.5">
+                Sign-off marks this session record ready for billing review. Without it, the record is a draft.
+              </div>
+              <input id="sex-sign-note" class="form-control sex-field-input" placeholder="Optional sign-off note…" style="margin-bottom:8px">
+              <button class="btn btn-sm" onclick="window._seSignSession()" id="sex-sign-btn">✓ Sign session record</button>
+            </div>
+          </div>
+
           <!-- Next Actions -->
           <div class="card sex-actions-card" style="margin-bottom:12px">
             <div class="sex-section-hd">Next Actions</div>
@@ -3182,6 +3369,268 @@ export async function pgSessionExecution(setTopbar, navigate) {
   window._seCurrentPhase     = 'select';
   window._seSideEffects      = [];
   window._seCurrentTolerance = null;
+  // Session Runner launch-audit 2026-04-30 — runtime state.
+  window._seCurrentSessionId    = null;   // ClinicalSession.id once started
+  window._seImpedanceMeasured   = false;  // pre-flight gate
+  window._seImpedanceValue      = null;   // last recorded kΩ
+  window._seImpedanceOverride   = false;  // override granted (with reason)
+  window._seIsDemoMode          = false;  // no real plan / course
+  window._seHasRealDevice       = false;  // telemetry honesty
+  window._seIsSigned            = false;  // post-session sign-off
+  window._seComfortRatings      = [];     // [{nrs, note, at}]
+  window._sePrefilledPlan       = null;   // captured from _rxPrefilledProto
+
+  // ── Audit helper — surface 'session_runner' (launch-audit 2026-04-30) ──────
+  // Best-effort POST to /api/v1/qeeg-analysis/audit-events. NEVER throws,
+  // NEVER blocks UI. Surface whitelist extended server-side to allow this
+  // string. Audit-trail outages must not break clinical workflow.
+  window._seAudit = function(event, extra) {
+    try {
+      if (!api || typeof api.logAudit !== 'function') return;
+      const payload = Object.assign({
+        surface: 'session_runner',
+        event: String(event || 'unknown'),
+        analysis_id: window._seCurrentSessionId || null,
+        patient_id: window._seCurrentPatientId || null,
+        using_demo_data: !!window._seIsDemoMode,
+      }, extra || {});
+      const p = api.logAudit(payload);
+      if (p && typeof p.catch === 'function') p.catch(function() {});
+    } catch (_) { /* never break UI */ }
+  };
+
+  // ── Consume window._rxPrefilledProto (Brain Map Planner / qEEG handoff) ────
+  // The planner pushes a real plan into the global, then navigates here. We
+  // honor it by surfacing a banner + auto-selecting the course whose target
+  // matches the plan target when possible. Demo flag is set when no live
+  // course is found — saves are honestly flagged is_demo.
+  window._seConsumePrefilledPlan = function() {
+    const proto = window._rxPrefilledProto;
+    if (!proto || typeof proto !== 'object') return;
+    window._sePrefilledPlan = proto;
+    // Mark the global as consumed so a back-nav doesn't re-trigger it.
+    window._rxPrefilledProto = null;
+    const banner = document.getElementById('sex-plan-banner');
+    if (!banner) return;
+    const src = proto.source === 'brain-map-planner' ? 'Brain Map Planner'
+              : proto.source === 'designer'          ? 'Protocol Designer'
+              : (proto.source || 'plan');
+    const targetTxt = proto.target?.region_id || proto.target?.region || proto.target || '—';
+    const params = proto.parameters || {};
+    const paramTxt = [
+      params.frequency_hz ? params.frequency_hz + ' Hz' : null,
+      params.intensity ? params.intensity : null,
+      params.duration_min ? params.duration_min + ' min' : null,
+    ].filter(Boolean).join(' · ') || '—';
+    banner.style.display = '';
+    banner.innerHTML = '<strong style="color:var(--teal)">Plan handoff from ' + esc(src) + ':</strong> '
+      + 'target <strong>' + esc(targetTxt) + '</strong> · ' + esc(paramTxt)
+      + ' · clinician must verify against course before starting.';
+    window._seAudit('plan_loaded', { note: 'source=' + src + ' target=' + targetTxt });
+    // Try to auto-select a matching course if exactly one matches the target.
+    try {
+      const t = String(targetTxt || '').toLowerCase();
+      const matches = (window._seActiveCourses || []).filter(c =>
+        (c.target_region || '').toLowerCase().includes(t) ||
+        (c.coil_placement || '').toLowerCase().includes(t)
+      );
+      if (matches.length === 1) {
+        setTimeout(() => window._seSelectCourse(matches[0].id), 0);
+      }
+    } catch (_) {}
+  };
+
+  // ── Pre-flight gate guard for Begin Session ────────────────────────────────
+  // Hard governance: all 8 safety checks complete AND impedance recorded
+  // (≤ threshold OR override reason provided). Without both the button
+  // refuses to advance the phase. Replaces the prior naive ``onclick``
+  // that just called `_seSetPhase('active')` without the impedance gate.
+  window._seBeginSession = function() {
+    const blocker = document.getElementById('sex-begin-blocker');
+    const reasons = [];
+    const ids = ['sex-ck-identity','sex-ck-contra','sex-ck-consent','sex-ck-ae','sex-ck-assess','sex-ck-device','sex-ck-target','sex-ck-ready'];
+    const safetyCount = ids.filter(id => document.getElementById(id)?.checked).length;
+    if (safetyCount < 8) reasons.push('Complete all ' + (8 - safetyCount) + ' remaining safety check(s).');
+    if (!window._seImpedanceMeasured) reasons.push('Record an impedance measurement.');
+    if (window._seImpedanceMeasured && window._seImpedanceValue != null && window._seImpedanceValue > 10 && !window._seImpedanceOverride) {
+      reasons.push('Impedance ' + window._seImpedanceValue.toFixed(1) + ' kΩ exceeds 10 kΩ threshold — supply override reason.');
+    }
+    if (window._seConsentBlocked) reasons.push('No valid treatment consent on file.');
+    if (reasons.length > 0) {
+      if (blocker) { blocker.style.display = ''; blocker.innerHTML = '⚠ ' + reasons.map(esc).join('<br>'); }
+      window._seAudit('begin_blocked', { note: reasons.join(' | ') });
+      return;
+    }
+    if (blocker) blocker.style.display = 'none';
+    window._seAudit('session_started', {
+      note: 'impedance=' + (window._seImpedanceValue ?? '?') + ' override=' + (window._seImpedanceOverride ? 'yes' : 'no'),
+    });
+    window._seSetPhase('active');
+  };
+
+  // ── Impedance handlers (Phase 1) ───────────────────────────────────────────
+  // _seMeasureImpedance pulls a deterministic stub from the live telemetry
+  // endpoint when no real device is connected. The DEMO TELEMETRY banner is
+  // surfaced based on the server's is_demo flag — values are never random.
+  window._seMeasureImpedance = async function() {
+    const sessionId = window._seCurrentSessionId;
+    const banner = document.getElementById('sex-telemetry-banner');
+    const input = document.getElementById('sex-imp-input');
+    const readout = document.getElementById('sex-imp-readout');
+    if (!sessionId) {
+      // Without a backing ClinicalSession we still produce a deterministic
+      // demo number client-side and flag is_demo. This keeps the rehearsal
+      // workflow honest without lying to the clinician.
+      if (banner) banner.style.display = '';
+      window._seHasRealDevice = false;
+      const stub = (Math.abs((window._seCurrentCourseId || 'demo').split('').reduce((a,c)=>(a*31+c.charCodeAt(0))|0,0)) % 800) / 100 + 2;
+      const v = Math.round(stub * 10) / 10;
+      if (input) input.value = v.toFixed(1);
+      if (readout) readout.textContent = 'Stub reading ' + v.toFixed(1) + ' kΩ — clinician must verify.';
+      window._seAudit('impedance_measured', { note: 'stub=' + v + ' demo=true' });
+      return;
+    }
+    try {
+      const t = await api.getSessionTelemetry(sessionId);
+      window._seHasRealDevice = !t.is_demo;
+      if (banner) banner.style.display = t.is_demo ? '' : 'none';
+      if (t.impedance_kohm != null) {
+        if (input) input.value = Number(t.impedance_kohm).toFixed(1);
+        if (readout) readout.textContent = (t.is_demo ? 'Stub reading ' : 'Live device reading ') + Number(t.impedance_kohm).toFixed(1) + ' kΩ';
+      }
+      window._seAudit('impedance_measured', { note: 'value=' + t.impedance_kohm + ' demo=' + t.is_demo });
+    } catch (e) {
+      if (readout) readout.textContent = 'Telemetry unavailable: ' + (e?.message || 'error');
+    }
+  };
+
+  window._seSubmitImpedance = async function() {
+    const input = document.getElementById('sex-imp-input');
+    const readout = document.getElementById('sex-imp-readout');
+    const status = document.getElementById('sex-imp-status');
+    const overrideWrap = document.getElementById('sex-imp-override-wrap');
+    const overrideEl = document.getElementById('sex-imp-override');
+    const v = parseFloat(input?.value);
+    if (isNaN(v) || v < 0 || v > 100) {
+      if (readout) readout.textContent = 'Enter a value 0–100 kΩ.';
+      return;
+    }
+    window._seImpedanceValue = v;
+    window._seImpedanceMeasured = true;
+    const above = v > 10;
+    if (overrideWrap) overrideWrap.style.display = above ? '' : 'none';
+    window._seImpedanceOverride = above && !!(overrideEl?.value || '').trim();
+    if (status) {
+      status.textContent = (above ? '⚠ ' : '✓ ') + v.toFixed(1) + ' kΩ' + (above ? ' (above threshold)' : '');
+      status.style.color = above ? 'var(--amber)' : 'var(--teal)';
+    }
+    // Persist as a server event when a backing session exists.
+    if (window._seCurrentSessionId) {
+      try { await api.setSessionImpedance(window._seCurrentSessionId, v); } catch (_) {}
+    }
+    window._seAudit('impedance_recorded', { note: 'value=' + v + ' above_threshold=' + above });
+    // Re-evaluate Begin button state.
+    window._seCheckSafety();
+  };
+
+  // Wire the override textarea to live-update the override flag.
+  document.addEventListener('input', function(e) {
+    if (e.target && e.target.id === 'sex-imp-override') {
+      window._seImpedanceOverride = (e.target.value || '').trim().length > 0;
+    }
+  }, true);
+
+  // ── Comfort / NRS-SE rating (Phase 2, clinician input only) ────────────────
+  // AI must NEVER auto-fill this. The handler refuses to send anything when
+  // the clinician hasn't entered a number — there are no defaults.
+  window._seRecordComfort = async function() {
+    const input = document.getElementById('sex-comfort-input');
+    const noteEl = document.getElementById('sex-comfort-note');
+    const log = document.getElementById('sex-comfort-log');
+    const v = parseInt(input?.value, 10);
+    if (isNaN(v) || v < 0 || v > 10) {
+      if (log) log.innerHTML = '<span style="color:var(--amber)">Enter 0–10.</span>';
+      return;
+    }
+    const note = (noteEl?.value || '').trim() || null;
+    const at = new Date().toLocaleTimeString();
+    window._seComfortRatings.push({ nrs: v, note, at });
+    if (log) {
+      log.innerHTML = window._seComfortRatings.map(r =>
+        '<div>' + r.at + ' — NRS-SE <strong>' + r.nrs + '/10</strong>'
+        + (r.note ? ' · "' + esc(r.note) + '"' : '') + '</div>'
+      ).join('');
+    }
+    if (input) input.value = '';
+    if (noteEl) noteEl.value = '';
+    if (window._seCurrentSessionId) {
+      try { await api.recordSessionComfort(window._seCurrentSessionId, { nrs_se: v, note }); } catch (_) {}
+    }
+    window._seAudit('comfort_recorded', { note: 'nrs=' + v + (note ? ' has_note=true' : '') });
+  };
+
+  // ── Adverse Event reporter (Phase 2, opens in-place panel) ─────────────────
+  // Real submission via window._submitAE → /api/v1/adverse-events. Severity,
+  // body system, timing, and action MUST come from clinician input — never
+  // generated by AI.
+  window._seOpenAEReporter = function() {
+    const panel = document.getElementById('sex-ae-active-panel');
+    const courseId = window._seCurrentCourseId;
+    const patientId = window._seCurrentPatientId;
+    if (!panel) return;
+    panel.style.display = '';
+    panel.innerHTML = renderAEForm(courseId || '', patientId || '')
+      + '<div id="ae-error" style="display:none;color:var(--red);font-size:12px;margin-top:6px"></div>'
+      + '<div style="display:flex;gap:8px;margin-top:10px">'
+      + '<button class="btn btn-sm" style="border-color:var(--amber);color:var(--amber)" onclick="window._submitAE(\'' + (courseId || '') + '\',\'' + (patientId || '') + '\')">Submit AE Report</button>'
+      + '<button class="btn btn-sm" onclick="document.getElementById(\'sex-ae-active-panel\').style.display=\'none\'">Cancel</button>'
+      + '</div>';
+    window._seAudit('adverse_event_opened', {});
+  };
+
+  // ── Abort session (Phase 2) ────────────────────────────────────────────────
+  window._seAbortSession = async function() {
+    const reason = window.prompt('Reason for aborting session (required):', '');
+    if (!reason || !reason.trim()) return;
+    if (window._seCurrentSessionId) {
+      try {
+        await api.logSessionEvent(window._seCurrentSessionId, {
+          type: 'OPER',
+          note: 'Session aborted: ' + reason.trim(),
+          payload: { action: 'abort', reason: reason.trim() },
+        });
+      } catch (_) {}
+    }
+    window._seAudit('session_aborted', { note: reason.trim().slice(0, 200) });
+    window._seSetPhase('post');
+    const outcomeEl = document.getElementById('se-outcome');
+    if (outcomeEl) outcomeEl.value = 'stopped_early';
+    const notesEl = document.getElementById('se-notes');
+    if (notesEl && !notesEl.value.includes(reason)) {
+      notesEl.value = (notesEl.value ? notesEl.value + '\n' : '') + '[Abort reason] ' + reason.trim();
+    }
+  };
+
+  // ── Clinician sign-off (Phase 3) ───────────────────────────────────────────
+  window._seSignSession = async function() {
+    const note = (document.getElementById('sex-sign-note')?.value || '').trim();
+    const status = document.getElementById('sex-sign-status');
+    const btn = document.getElementById('sex-sign-btn');
+    if (window._seIsSigned) return;
+    if (window._seCurrentSessionId) {
+      try {
+        await api.signSession(window._seCurrentSessionId, { note: note || null, is_demo: !!window._seIsDemoMode });
+      } catch (e) {
+        if (status) { status.textContent = 'Sign-off failed: ' + (e?.message || 'error'); status.style.color = 'var(--red)'; }
+        return;
+      }
+    }
+    window._seIsSigned = true;
+    if (status) { status.textContent = '✓ Signed' + (window._seIsDemoMode ? ' (DEMO)' : ''); status.style.color = 'var(--teal)'; }
+    if (btn) { btn.disabled = true; btn.textContent = '✓ Signed'; btn.style.opacity = '0.6'; }
+    window._seAudit('session_signed', { note: 'demo=' + !!window._seIsDemoMode });
+  };
+
 
   window._seSetPhase = function(phase) {
     window._seCurrentPhase = phase;
@@ -3294,8 +3743,16 @@ export async function pgSessionExecution(setTopbar, navigate) {
     const btn   = document.getElementById('sex-begin-btn');
     const err   = document.getElementById('sex-safety-err');
     if (tally) tally.textContent = `${n} / 8`;
-    if (btn)   { btn.disabled = n < 8; btn.style.opacity = n === 8 ? '' : '0.5'; }
+    // Pre-flight gate (launch-audit 2026-04-30): all 8 checks AND impedance
+    // measured AND (impedance ≤ 10 kΩ OR override reason provided). Without
+    // both the Begin button refuses to advance.
+    const impedanceOK = window._seImpedanceMeasured
+      && (window._seImpedanceValue == null || window._seImpedanceValue <= 10 || window._seImpedanceOverride);
+    const ready = n === 8 && impedanceOK && !window._seConsentBlocked;
+    if (btn)   { btn.disabled = !ready; btn.style.opacity = ready ? '' : '0.5'; }
     if (err)   err.style.display = n === 8 ? 'none' : '';
+    // When a check is toggled, log it for the audit trail.
+    window._seAudit && window._seAudit('safety_check_state', { note: n + '/8 imp_ok=' + (impedanceOK ? '1' : '0') });
   };
 
   window._seSetTolerance = function(val) {
@@ -3429,6 +3886,12 @@ export async function pgSessionExecution(setTopbar, navigate) {
       }
 
       const session = await api.logSession(courseId, sessionData);
+      window._seAudit && window._seAudit('post_summary_saved', {
+        note: 'outcome=' + outcomeVal + ' tolerance=' + (toleranceVal || '?')
+              + ' deviation=' + (sessionData.protocol_deviation ? '1' : '0')
+              + ' interrupt=' + (sessionData.interruptions ? '1' : '0')
+              + ' demo=' + !!window._seIsDemoMode,
+      });
 
       const course    = (window._seActiveCourses || []).find(c => c.id === courseId) || {};
       const patientId = course.patient_id || null;
@@ -3439,7 +3902,7 @@ export async function pgSessionExecution(setTopbar, navigate) {
       if (okEl) {
         okEl.innerHTML = session.offline
           ? '\u{1F4BE} Saved offline \u2014 will sync when connected.'
-          : `\u2713 Session ${(course.sessions_delivered || 0) + 1} logged for <strong>${course.condition_slug?.replace(/-/g, ' ') || 'course'}</strong>.`;
+          : `\u2713 Session ${(course.sessions_delivered || 0) + 1} logged for <strong>${_esc(course.condition_slug?.replace(/-/g, ' ')) || 'course'}</strong>.`;
         okEl.style.display = '';
       }
       if (submitBtn) { submitBtn.textContent = 'Saved \u2713'; submitBtn.style.opacity = '0.6'; }
@@ -3450,7 +3913,7 @@ export async function pgSessionExecution(setTopbar, navigate) {
         const aePanel = document.getElementById('sex-ae-panel');
         if (aeWarn) {
           aeWarn.style.display = '';
-          aeWarn.innerHTML = `<strong>\u26A0 Attention required:</strong> Tolerance rated \u201C${toleranceVal || outcomeVal}\u201D. Consider filing an adverse event report.`;
+          aeWarn.innerHTML = `<strong>\u26A0 Attention required:</strong> Tolerance rated \u201C${_esc(toleranceVal || outcomeVal)}\u201D. Consider filing an adverse event report.`;
         }
         if (aePanel) {
           aePanel.style.display = '';
@@ -3467,6 +3930,7 @@ export async function pgSessionExecution(setTopbar, navigate) {
     } catch (e) {
       if (errEl) { errEl.textContent = e.message || 'Failed to log session.'; errEl.style.display = ''; }
       if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Save Session'; }
+      window._seAudit && window._seAudit('post_summary_save_failed', { note: String(e?.message || e).slice(0, 200) });
     }
   };
 
@@ -3532,11 +3996,20 @@ export async function pgSessionExecution(setTopbar, navigate) {
       ? '<h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Clinician Notes</h3>'
         + '<div style="font-size:10pt;line-height:1.6;padding:10px;background:#f9f9f9;border:1px solid #ddd;border-radius:4px;margin-bottom:20px;white-space:pre-wrap">' + notes + '</div>'
       : '';
+    // launch-audit 2026-04-30: stamp DEMO when no live courses backed the
+    // saved record, so paper exports never get mistaken for real clinical
+    // documentation.
+    const _isDemoExport = !!window._seIsDemoMode;
+    const _demoStamp = _isDemoExport
+      ? '<div style="background:#f59e0b;color:white;padding:2px 8px;border-radius:3px;font-weight:700;margin-top:4px;display:inline-block">DEMO — clinician review required</div>'
+      : '';
     snFrame.innerHTML = [
       '<div style="border-bottom:2px solid #003366;padding-bottom:12px;margin-bottom:20px">',
       '<div style="display:flex;justify-content:space-between;align-items:flex-start">',
       '<div><div style="font-size:18pt;font-weight:700;color:#003366">DeepSynaps Protocol Studio</div>',
-      '<div style="font-size:10pt;color:#555;margin-top:2px">Session Notes</div></div>',
+      '<div style="font-size:10pt;color:#555;margin-top:2px">Session Notes</div>',
+      _demoStamp,
+      '</div>',
       '<div style="text-align:right;font-size:9pt;color:#555"><div>Date: ' + sessionDate + '</div>',
       '<div style="background:#cc0000;color:white;padding:2px 8px;border-radius:3px;font-weight:700;margin-top:4px">CONFIDENTIAL</div></div>',
       '</div></div>',
@@ -3573,6 +4046,7 @@ export async function pgSessionExecution(setTopbar, navigate) {
       '</div>',
     ].join('');
     document.body.appendChild(snFrame);
+    window._seAudit && window._seAudit('export_session_notes', { note: 'demo=' + !!window._seIsDemoMode });
   };
 
   // ── Session Timer ──────────────────────────────────────────────────────────
@@ -3590,6 +4064,7 @@ export async function pgSessionExecution(setTopbar, navigate) {
     if (window._seTimerInterval) clearInterval(window._seTimerInterval);
     const dur = parseInt(document.getElementById('se-timer-dur')?.value) || 25;
     window._seTimerRemaining = dur * 60;
+    window._seAudit && window._seAudit('timer_started', { note: 'duration_min=' + dur });
     const startBtn    = document.getElementById('se-timer-start-btn');
     const stopBtn     = document.getElementById('se-timer-stop-btn');
     const pulse       = document.getElementById('se-timer-pulse');
@@ -3630,6 +4105,7 @@ export async function pgSessionExecution(setTopbar, navigate) {
     if (stopBtn)  stopBtn.style.display  = 'none';
     if (pulse)    pulse.style.display    = 'none';
     if (activeLabel) activeLabel.style.display = 'none';
+    window._seAudit && window._seAudit('timer_stopped', { note: 'remaining_sec=' + (window._seTimerRemaining || 0) });
   };
 
   // ── Auto-fill from course data ─────────────────────────────────────────────
@@ -3643,6 +4119,8 @@ export async function pgSessionExecution(setTopbar, navigate) {
     if (!courseId) return;
     const course = (window._seActiveCourses || []).find(c => c.id === courseId);
     if (!course) return;
+    const liveWatchEl = document.getElementById('sex-live-evidence-watch');
+    if (liveWatchEl) liveWatchEl.innerHTML = '<div style="font-size:12px;color:var(--text-tertiary)">Loading live evidence context…</div>';
 
     // ── Populate ghost fields ─────────────────────────────────────────────────
     const setGhost = (id, val) => { const el2 = document.getElementById(id); if (el2 && val != null) el2.value = val; };
@@ -3738,7 +4216,10 @@ export async function pgSessionExecution(setTopbar, navigate) {
       const phase = course.phase || (sessDone < 5 ? 'Initiation' : sessDone < 15 ? 'Treatment' : 'Maintenance');
       const goal = course.goal || course.treatment_goal || 'Symptom reduction via neuromodulation';
       const lastOutcome = course.last_outcome_score != null ? `${course.last_outcome_score} (${course.last_outcome_template || 'score'})` : '—';
-      const lastTol = course.last_tolerance || (course.sessions_delivered > 0 ? (course.last_tolerance || 'Well tolerated') : '—');
+      // Honest unknown: never default tolerance to "Well tolerated" when there
+      // is no real prior reading on file — that would fabricate a clinical
+      // observation. (launch-audit 2026-04-30)
+      const lastTol = course.last_tolerance || '—';
       txOv.innerHTML = `
         <div class="sex-tx-overview-grid">
           <div class="sex-tx-stat">
@@ -3812,6 +4293,40 @@ export async function pgSessionExecution(setTopbar, navigate) {
       setupPlacementNote.textContent = parts.join(' · ') || 'No placement details on file';
     }
 
+    // ── Live protocol watch ──────────────────────────────────────────────────
+    if (liveWatchEl) {
+      try {
+        const liveWatch = await loadProtocolWatchContext({
+          condition: course.condition_slug || '',
+          modality: course.modality_slug || '',
+        });
+        const coverage = liveWatch?.coverage || null;
+        const template = liveWatch?.template || null;
+        const signal = liveWatch?.safety || null;
+        if (!coverage && !template && !signal) {
+          liveWatchEl.innerHTML = '<div style="font-size:12px;color:var(--text-tertiary)">No live evidence watch rows were returned for this course.</div>';
+        } else {
+          liveWatchEl.innerHTML = `
+            <div style="display:flex;flex-direction:column;gap:10px">
+              ${coverage ? `<div style="padding:10px 12px;border-radius:8px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.18)">
+                <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--teal,#00d4bc);margin-bottom:4px">Coverage</div>
+                <div style="font-size:12px;color:var(--text-secondary)">Coverage <strong style="color:var(--text-primary)">${esc(String(coverage.coverage ?? 0))}%</strong> across <strong style="color:var(--text-primary)">${Number(coverage.paper_count || 0).toLocaleString()}</strong> papers${coverage.gap && coverage.gap !== 'None' ? ` · gap ${esc(coverage.gap)}` : ''}</div>
+              </div>` : ''}
+              ${template ? `<div style="padding:10px 12px;border-radius:8px;background:rgba(74,158,255,0.08);border:1px solid rgba(74,158,255,0.18)">
+                <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--blue);margin-bottom:4px">Template</div>
+                <div style="font-size:12px;color:var(--text-secondary)"><strong style="color:var(--text-primary)">${esc([template.modality, template.indication, template.target].filter(Boolean).join(' — '))}</strong>${template.evidence_tier ? ` · ${esc(template.evidence_tier)}` : ''}</div>
+              </div>` : ''}
+              ${signal ? `<div style="padding:10px 12px;border-radius:8px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.18)">
+                <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--amber);margin-bottom:4px">Safety watch</div>
+                <div style="font-size:12px;color:var(--text-secondary)">${esc(getProtocolWatchSignalTitle(signal))}</div>
+              </div>` : ''}
+            </div>`;
+        }
+      } catch {
+        liveWatchEl.innerHTML = '<div style="font-size:12px;color:var(--text-tertiary)">Live evidence watch unavailable for this course.</div>';
+      }
+    }
+
     // ── Aftercare items ───────────────────────────────────────────────────────
     const acList = document.getElementById('sex-aftercare-items');
     if (acList) {
@@ -3865,6 +4380,20 @@ export async function pgSessionExecution(setTopbar, navigate) {
       }
     }
   };
+
+  // ── Final wiring (launch-audit 2026-04-30) ─────────────────────────────────
+  // 1. Set demo-mode flag when no live courses (drives banner + is_demo flag
+  //    on saved records).
+  // 2. Surface the demo banner if applicable.
+  // 3. Consume any plan handed off via window._rxPrefilledProto.
+  // 4. Fire page_loaded audit event.
+  window._seIsDemoMode = !activeCourses.length;
+  const demoBanner = document.getElementById('sex-demo-banner');
+  if (demoBanner) demoBanner.style.display = window._seIsDemoMode ? '' : 'none';
+  try { window._seConsumePrefilledPlan(); } catch (_) {}
+  window._seAudit('page_loaded', {
+    note: 'courses=' + activeCourses.length + ' demo=' + !!window._seIsDemoMode,
+  });
 }
 
 
@@ -4784,7 +5313,7 @@ export async function pgOutcomes(setTopbar, navigate) {
       const sparkSVG = miniSparkline(avgScores, 'var(--teal)', 120, 32);
       const monthLabels = months.length ? `${months[0]} — ${months[months.length - 1]}` : '';
       return `<div class="card" style="padding:16px">
-        <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${tmpl}">${tmpl}</div>
+        <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(tmpl)}">${_esc(tmpl)}</div>
         <div style="display:flex;align-items:flex-end;gap:12px;margin-bottom:8px">
           ${sparkSVG || `<span style="font-size:11px;color:var(--text-tertiary)">Not enough data</span>`}
           <div>
@@ -4819,7 +5348,7 @@ export async function pgOutcomes(setTopbar, navigate) {
       const respPct  = withData.length > 0 ? Math.round((data.responders / withData.length) * 100) : 0;
       const pctColor = respPct >= 60 ? 'var(--green)' : respPct >= 40 ? 'var(--amber)' : 'var(--red)';
       return `<tr>
-        <td style="font-weight:500">${mod.replace(/-/g, ' ')}</td>
+        <td style="font-weight:500">${_esc(mod.replace(/-/g, ' '))}</td>
         <td class="mono">${data.pts.size}</td>
         <td class="mono">${data.outcomes.length}</td>
         <td>
@@ -5544,73 +6073,164 @@ export async function pgOutcomes(setTopbar, navigate) {
   };
 }
 
-// ── pgAdverseEvents — Clinic-wide AE monitoring ───────────────────────────────
+// ── pgAdverseEvents — Clinic-wide AE log (launch-audit 2026-04-30) ────────────
+//
+// Standalone "full log" view. Surfaces every visible filter as a real query
+// against /api/v1/adverse-events. Counts come from /summary so they include
+// rows beyond the first page. Detail review / sign-off / escalation /
+// classification edits live in the monitor-hub modal (one shared codepath).
+//
 export async function pgAdverseEvents(setTopbar, navigate) {
-  setTopbar('Adverse Events Monitor', `<button class="btn btn-sm" onclick="window._nav('courses')">← Courses</button>`);
+  setTopbar(
+    'Adverse Events',
+    `<button class="btn btn-sm" onclick="window._aeExportCsv()">Export CSV</button>
+     <button class="btn btn-sm" style="margin-left:6px" onclick="window._nav('courses')">← Courses</button>`
+  );
   const el = document.getElementById('content');
   el.innerHTML = spinner();
 
-  let aes = [], courses = [], patients = [];
+  // Persistent filter state for this page (separate key from monitor-hub).
+  const aeF = (window._aeFilters = window._aeFilters || {});
+  const params = {};
+  if (aeF.severity)    params.severity = aeF.severity;
+  if (aeF.body_system) params.body_system = aeF.body_system;
+  if (aeF.status)      params.status = aeF.status;
+  if (aeF.expected)    params.expected = aeF.expected;
+  if (aeF.sae === true)        params.sae = 'true';
+  if (aeF.reportable === true) params.reportable = 'true';
+
+  let aes = [], summary = null, courses = [], patients = [];
   try {
-    [aes, courses, patients] = await Promise.all([
-      api.listAdverseEvents().then(r => r?.items || []).catch(() => []),
+    [aes, summary, courses, patients] = await Promise.all([
+      api.listAdverseEvents(params).then(r => r?.items || []).catch(() => []),
+      api.getAdverseEventsSummary?.().catch(() => null) || Promise.resolve(null),
       api.listCourses().then(r => r?.items || []).catch(() => []),
       api.listPatients().then(r => r?.items || []).catch(() => []),
     ]);
   } catch {}
+
+  // Best-effort audit (page open).
+  try {
+    if (api && typeof api.logAudit === 'function') {
+      const p = api.logAudit({ surface: 'adverse_events', event: 'page_loaded', note: 'standalone_full_log' });
+      if (p && p.catch) p.catch(() => {});
+    }
+  } catch (_) {}
 
   const courseMap = {};
   courses.forEach(c => { courseMap[c.id] = c; });
   const patMap = {};
   patients.forEach(p => { patMap[p.id] = `${p.first_name} ${p.last_name}`; });
 
-  const counts = { mild: 0, moderate: 0, severe: 0, serious: 0 };
-  aes.forEach(ae => { if (counts[ae.severity] !== undefined) counts[ae.severity]++; });
+  // Real KPI roll-up — always derive from /summary when available, fall back
+  // to deriving from the visible list. Either way the values are real, never
+  // hardcoded. The legacy "by severity" tiles below stay useful but read from
+  // the summary when present.
+  const summaryFallback = (() => {
+    const counts = { mild: 0, moderate: 0, severe: 0, serious: 0 };
+    aes.forEach(ae => { if (counts[ae.severity] !== undefined) counts[ae.severity]++; });
+    return {
+      total: aes.length,
+      sae: aes.filter(a => a.is_serious || a.severity === 'serious').length,
+      reportable: aes.filter(a => a.reportable).length,
+      awaiting_review: aes.filter(a => !a.reviewed_at && !a.resolved_at).length,
+      by_severity: counts,
+    };
+  })();
+  const sm = summary || summaryFallback;
+  const bySev = (sm.by_severity || summaryFallback.by_severity) || {};
 
   const SEV_COLOR = { mild: 'var(--text-secondary)', moderate: 'var(--amber)', severe: 'var(--red)', serious: 'var(--red)' };
+  const filterActive = Object.values(params).some(v => v != null && v !== '');
 
   el.innerHTML = `
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px">
+    <div style="background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.35);padding:8px 12px;border-radius:6px;margin-bottom:14px;font-size:11.5px;color:var(--text-secondary);line-height:1.6">
+      <span style="color:var(--red);font-weight:700">⚠</span>
+      Adverse events require timely clinician review per local policy.
+      Serious adverse events may require regulatory reporting (IRB / FDA / MHRA).
+      Demo data is not for actual clinical reporting.
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:18px">
+      <div class="metric-card"><div class="metric-label">Total</div><div class="metric-value" style="color:var(--blue)">${sm.total||0}</div><div class="metric-delta">all events</div></div>
+      <div class="metric-card"><div class="metric-label">SAE</div><div class="metric-value" style="color:var(--red)">${sm.sae||0}</div><div class="metric-delta">serious adverse events</div></div>
+      <div class="metric-card"><div class="metric-label">Reportable</div><div class="metric-value" style="color:var(--red)">${sm.reportable||0}</div><div class="metric-delta">SAE+unexpected+related</div></div>
+      <div class="metric-card"><div class="metric-label">Awaiting review</div><div class="metric-value" style="color:var(--amber)">${sm.awaiting_review||0}</div><div class="metric-delta">unreviewed + unresolved</div></div>
+      <div class="metric-card"><div class="metric-label">Open</div><div class="metric-value" style="color:var(--amber)">${sm.open != null ? sm.open : (aes.filter(a=>!a.resolved_at).length)}</div><div class="metric-delta">not resolved</div></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px">
       ${['mild','moderate','severe','serious'].map(s => `
-        <div class="metric-card" style="cursor:pointer" onclick="window._aeFilter('${s}')">
+        <div class="metric-card" style="cursor:pointer" onclick="window._aeSetFilter('severity','${s}')">
           <div class="metric-label">${s.charAt(0).toUpperCase()+s.slice(1)}</div>
-          <div class="metric-value" style="color:${SEV_COLOR[s]}">${counts[s]}</div>
-          <div class="metric-delta">reported events</div>
+          <div class="metric-value" style="color:${SEV_COLOR[s]}">${bySev[s]||0}</div>
+          <div class="metric-delta">click to filter</div>
         </div>`).join('')}
     </div>
 
     <div class="card" style="margin-bottom:16px">
-      <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <select id="ae-sev-filter" class="form-control" style="width:auto;font-size:12px" onchange="window._aeFilter()">
-          <option value="">All Severities</option>
-          <option value="mild">Mild</option>
-          <option value="moderate">Moderate</option>
-          <option value="severe">Severe</option>
-          <option value="serious">Serious</option>
+      <div style="padding:10px 14px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select id="ae-sev-filter" class="form-control" style="width:auto;font-size:12px" onchange="window._aeSetFilter('severity', this.value)">
+          <option value=""${!aeF.severity?' selected':''}>All Severities</option>
+          <option value="mild"${aeF.severity==='mild'?' selected':''}>Mild</option>
+          <option value="moderate"${aeF.severity==='moderate'?' selected':''}>Moderate</option>
+          <option value="severe"${aeF.severity==='severe'?' selected':''}>Severe</option>
+          <option value="serious"${aeF.severity==='serious'?' selected':''}>Serious</option>
         </select>
-        <input id="ae-search" class="form-control" placeholder="Search event type or notes…" style="flex:1;min-width:180px;font-size:12px" oninput="window._aeFilter()">
-        <span id="ae-count" style="font-size:11px;color:var(--text-tertiary);white-space:nowrap">${aes.length} events</span>
+        <select id="ae-status-filter" class="form-control" style="width:auto;font-size:12px" onchange="window._aeSetFilter('status', this.value)">
+          <option value=""${!aeF.status?' selected':''}>All Statuses</option>
+          <option value="open"${aeF.status==='open'?' selected':''}>Open</option>
+          <option value="reviewed"${aeF.status==='reviewed'?' selected':''}>Reviewed</option>
+          <option value="resolved"${aeF.status==='resolved'?' selected':''}>Resolved</option>
+          <option value="escalated"${aeF.status==='escalated'?' selected':''}>Escalated</option>
+        </select>
+        <select id="ae-bs-filter" class="form-control" style="width:auto;font-size:12px" onchange="window._aeSetFilter('body_system', this.value)">
+          <option value=""${!aeF.body_system?' selected':''}>All Body Systems</option>
+          ${['nervous','psychiatric','cardiac','gi','skin','general','other'].map(b=>'<option value="'+b+'"'+(aeF.body_system===b?' selected':'')+'>'+b.toUpperCase()+'</option>').join('')}
+        </select>
+        <select id="ae-exp-filter" class="form-control" style="width:auto;font-size:12px" onchange="window._aeSetFilter('expected', this.value)">
+          <option value=""${!aeF.expected?' selected':''}>All Expectedness</option>
+          <option value="expected"${aeF.expected==='expected'?' selected':''}>Expected</option>
+          <option value="unexpected"${aeF.expected==='unexpected'?' selected':''}>Unexpected</option>
+        </select>
+        <label style="display:flex;gap:4px;align-items:center;font-size:11.5px;color:var(--text-secondary)">
+          <input type="checkbox" ${aeF.sae===true?'checked':''} onchange="window._aeSetFilter('sae', this.checked?true:'')"> SAE only
+        </label>
+        <label style="display:flex;gap:4px;align-items:center;font-size:11.5px;color:var(--text-secondary)">
+          <input type="checkbox" ${aeF.reportable===true?'checked':''} onchange="window._aeSetFilter('reportable', this.checked?true:'')"> Reportable only
+        </label>
+        <input id="ae-search" class="form-control" placeholder="Search event type or notes…" style="flex:1;min-width:180px;font-size:12px" oninput="window._aeTextFilter()">
+        ${filterActive ? '<button class="btn btn-sm" onclick="window._aeClearFilters()">Clear</button>' : ''}
+        <span id="ae-count" style="font-size:11px;color:var(--text-tertiary);white-space:nowrap">${aes.length} shown${filterActive?' (filtered)':''}</span>
       </div>
       <div style="overflow-x:auto">
-        ${aes.length === 0 ? emptyState('🛡️', 'No adverse events reported', 'Adverse events will be logged here when reported during sessions.') : `
+        ${aes.length === 0 ? emptyState('🛡️', filterActive?'No adverse events match the active filters':'No adverse events reported', 'Reporters land here when sessions surface adverse events.') : `
         <table class="ds-table" id="ae-table">
-          <thead><tr><th>Date</th><th>Patient</th><th>Course</th><th>Event Type</th><th>Severity</th><th>Onset</th><th>Action</th><th>Resolution</th><th></th></tr></thead>
+          <thead><tr><th>Date</th><th>Patient</th><th>Course</th><th>Event Type</th><th>Severity</th><th>Body system</th><th>Status</th><th>Flags</th><th></th></tr></thead>
           <tbody id="ae-tbody">
             ${aes.map(ae => {
               const sev = ae.severity || 'mild';
               const sc = SEV_COLOR[sev] || 'var(--text-secondary)';
               const course = courseMap[ae.course_id] || {};
               const patName = patMap[ae.patient_id] || (course.patient_id ? patMap[course.patient_id] : '') || '—';
-              return `<tr data-sev="${sev}" data-text="${(ae.event_type||'') + ' ' + (ae.description||ae.notes||'')}">
-                <td style="font-size:11.5px;color:var(--text-secondary);white-space:nowrap">${ae.reported_at ? ae.reported_at.split('T')[0] : ae.occurred_at ? ae.occurred_at.split('T')[0] : ae.created_at?.split('T')[0] || '—'}</td>
-                <td style="font-size:12px">${patName}</td>
-                <td style="font-size:12px">${course.condition_slug ? course.condition_slug.replace(/-/g,' ') + ' · ' + (course.modality_slug||'') : '—'}</td>
-                <td style="font-size:12.5px;font-weight:500">${ae.event_type || '—'}</td>
-                <td><span style="font-size:11px;padding:2px 8px;border-radius:4px;background:${sc}22;color:${sc};font-weight:600">${sev}</span></td>
-                <td style="font-size:11.5px">${ae.onset_timing || '—'}</td>
-                <td style="font-size:11.5px">${ae.action_taken || '—'}</td>
-                <td style="font-size:11.5px">${ae.resolved_at || ae.resolution === 'resolved' ? '<span style="color:var(--green)">Resolved</span>' : '<span style="color:var(--amber)">Ongoing</span>'}</td>
-                <td>${ae.course_id ? `<button class="btn btn-sm" onclick="window._openCourse('${ae.course_id}')">View →</button>` : ''}</td>
+              const status = ae.resolved_at ? 'resolved' : ae.escalated_at ? 'escalated' : ae.reviewed_at ? 'reviewed' : 'open';
+              const stColor = status==='resolved'?'var(--green)':status==='escalated'?'var(--red)':status==='reviewed'?'var(--blue)':'var(--amber)';
+              return `<tr data-sev="${sev}" data-text="${_esc((ae.event_type||'') + ' ' + (ae.description||ae.notes||''))}">
+                <td style="font-size:11.5px;color:var(--text-secondary);white-space:nowrap">${ae.reported_at ? ae.reported_at.split('T')[0] : ae.created_at?.split('T')[0] || '—'}</td>
+                <td style="font-size:12px">${_esc(patName)}${ae.is_demo?' <span style="color:var(--amber);font-size:10px;font-weight:600;letter-spacing:0.5px">DEMO</span>':''}</td>
+                <td style="font-size:12px">${course.condition_slug ? _esc(course.condition_slug.replace(/-/g,' ')) + ' · ' + _esc(course.modality_slug||'') : '—'}</td>
+                <td style="font-size:12.5px;font-weight:500">${_esc(ae.event_type) || '—'}</td>
+                <td><span style="font-size:11px;padding:2px 8px;border-radius:4px;background:${sc}22;color:${sc};font-weight:600">${_esc(sev)}</span></td>
+                <td style="font-size:11.5px">${_esc(ae.body_system) || '—'}</td>
+                <td><span style="font-size:11px;padding:2px 8px;border-radius:4px;background:${stColor}22;color:${stColor};font-weight:600">${status}</span></td>
+                <td style="font-size:10px">
+                  ${ae.is_serious || sev==='serious' ? '<span style="color:var(--red);font-weight:700;margin-right:4px">SAE</span>' : ''}
+                  ${ae.reportable ? '<span style="color:var(--red);font-weight:700">REPORTABLE</span>' : ''}
+                </td>
+                <td>
+                  <button class="btn btn-sm" onclick="window._aeOpenDetail('${ae.id}')">Open</button>
+                  ${ae.course_id ? `<button class="btn btn-sm" onclick="window._openCourse('${ae.course_id}')" style="margin-left:4px">Course →</button>` : ''}
+                </td>
               </tr>`;
             }).join('')}
           </tbody>
@@ -5618,21 +6238,71 @@ export async function pgAdverseEvents(setTopbar, navigate) {
       </div>
     </div>`;
 
-  window._aeFilter = function(directSev) {
-    const sevEl = document.getElementById('ae-sev-filter');
-    const q     = (document.getElementById('ae-search')?.value || '').toLowerCase();
-    if (directSev && sevEl) sevEl.value = directSev;
-    const sev = sevEl?.value || '';
+  // ── Filter helpers ──────────────────────────────────────────────────────
+  window._aeSetFilter = function(key, value) {
+    const F = window._aeFilters = window._aeFilters || {};
+    if (value === '' || value === false || value == null) {
+      delete F[key];
+    } else {
+      F[key] = value;
+    }
+    try {
+      if (api && typeof api.logAudit === 'function') {
+        api.logAudit({ surface: 'adverse_events', event: 'filter_changed', note: key+'='+String(value) }).catch(() => {});
+      }
+    } catch (_) {}
+    window._nav('adverse-events-full');
+  };
+
+  window._aeClearFilters = function() {
+    window._aeFilters = {};
+    window._nav('adverse-events-full');
+  };
+
+  window._aeTextFilter = function() {
+    const q = (document.getElementById('ae-search')?.value || '').toLowerCase();
     const rows = document.querySelectorAll('#ae-tbody tr');
     let visible = 0;
     rows.forEach(row => {
-      const matchSev  = !sev  || row.dataset.sev === sev;
-      const matchText = !q    || (row.dataset.text || '').toLowerCase().includes(q);
-      row.style.display = matchSev && matchText ? '' : 'none';
-      if (matchSev && matchText) visible++;
+      const matchText = !q || (row.dataset.text || '').toLowerCase().includes(q);
+      row.style.display = matchText ? '' : 'none';
+      if (matchText) visible++;
     });
     const countEl = document.getElementById('ae-count');
-    if (countEl) countEl.textContent = visible + ' event' + (visible !== 1 ? 's' : '');
+    if (countEl) countEl.textContent = visible + ' shown' + (Object.keys(params).length||q?' (filtered)':'');
+  };
+
+  // ── Detail jump: route through the monitor-hub modal so we keep one
+  // codepath for review/sign-off/escalation/classification edits.
+  window._aeOpenDetail = function(id) {
+    if (!id) return;
+    window._monitorHubAEId = id;
+    window._monitorHubTab = 'adverse';
+    // The drawer auto-opens via the monitor-hub deep-link block.
+    setTimeout(() => {
+      try { window._mhAeOpenDetail?.(id); } catch (_) {}
+    }, 50);
+    window._nav('monitor-hub');
+  };
+
+  window._aeExportCsv = async function() {
+    try {
+      const result = await api.exportAdverseEventsCsv?.(params);
+      if (!result || !result.blob) {
+        window._dsToast?.({title:'Export failed', body:'CSV export endpoint unavailable.', severity:'error'});
+        return;
+      }
+      try { api.logAudit?.({ surface:'adverse_events', event:'export_csv', note: JSON.stringify(params).slice(0,200) }).catch(() => {}); } catch (_) {}
+      const url = URL.createObjectURL(result.blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = result.filename || ('adverse-events-'+new Date().toISOString().slice(0,10)+'.csv');
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      window._dsToast?.({title:'CSV exported', severity:'success'});
+    } catch (e) {
+      window._dsToast?.({title:'Export failed', body:e?.message||'Try again.', severity:'error'});
+    }
   };
 }
 
@@ -5788,15 +6458,15 @@ function _prLibCard(p, compareSet) {
   const inCompare   = compareSet && compareSet.has(pid);
 
   return `<div class="proto-card" id="plc-${pid}">
-    <div class="proto-card-name">${name}</div>
+    <div class="proto-card-name">${_esc(name)}</div>
     <div class="proto-card-badges">
-      <span class="proto-cond-badge ${condClass}">${cond}</span>
-      <span class="proto-mod-badge">${modality}</span>
+      <span class="proto-cond-badge ${condClass}">${_esc(cond)}</span>
+      <span class="proto-mod-badge">${_esc(modality)}</span>
       ${eGrade ? evidenceBadge(eGrade) : ''}
       ${approval ? approvalBadge(approval) : ''}
     </div>
     <div class="proto-card-chips">
-      ${targetSite ? `<span class="proto-chip site">&#9900; ${targetSite}</span>` : ''}
+      ${targetSite ? `<span class="proto-chip site">&#9900; ${_esc(targetSite)}</span>` : ''}
       ${sessionCount ? `<span class="proto-chip count">${sessionCount} sessions</span>` : ''}
       ${offLabel ? govFlag('Off-label use', 'warn') : ''}
     </div>
@@ -5848,12 +6518,12 @@ export async function pgProtocolRegistry(setTopbar) {
 
   // Build dropdown option lists
   const condOptions = conds.length
-    ? conds.map(c => `<option value="${c.id || c.Condition_ID}">${c.name || c.Condition_Name || c.id}</option>`).join('')
-    : [...new Set(SAMPLE_PROTOCOLS.map(p => p.condition))].map(c => `<option value="${c}">${c}</option>`).join('');
+    ? conds.map(c => `<option value="${_esc(c.id || c.Condition_ID)}">${_esc(c.name || c.Condition_Name || c.id)}</option>`).join('')
+    : [...new Set(SAMPLE_PROTOCOLS.map(p => p.condition))].map(c => `<option value="${_esc(c)}">${_esc(c)}</option>`).join('');
 
   const modOptions = mods.length
-    ? mods.map(m => `<option value="${m.id || m.name || m.Modality_Name}">${m.name || m.Modality_Name || m.id}</option>`).join('')
-    : [...new Set(SAMPLE_PROTOCOLS.map(p => p.modality))].map(m => `<option value="${m}">${m}</option>`).join('');
+    ? mods.map(m => `<option value="${_esc(m.id || m.name || m.Modality_Name)}">${_esc(m.name || m.Modality_Name || m.id)}</option>`).join('')
+    : [...new Set(SAMPLE_PROTOCOLS.map(p => p.modality))].map(m => `<option value="${_esc(m)}">${_esc(m)}</option>`).join('');
 
   // Compare state (up to 2)
   window._prLibCompareSet = window._prLibCompareSet || new Set();
@@ -6493,7 +7163,7 @@ export async function pgClinicalReports(setTopbar) {
   try { patients = await api.listPatients(); } catch (_) { patients = []; }
 
   const ptOpts = patients.map(p =>
-    `<option value="${p.id}">${p.name || p.full_name || `Patient #${p.id}`}</option>`
+    `<option value="${_esc(p.id)}">${_esc(p.name || p.full_name || `Patient #${p.id}`)}</option>`
   ).join('');
 
   setTopbar({
@@ -6568,19 +7238,19 @@ export async function pgClinicalReports(setTopbar) {
           <div style="font-size:24px;flex-shrink:0;line-height:1">${icon}</div>
           <div style="flex:1;min-width:0">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:3px">
-              <span style="font-size:14px;font-weight:700;color:var(--text-primary)">${r.title || 'Untitled Report'}</span>
+              <span style="font-size:14px;font-weight:700;color:var(--text-primary)">${_esc(r.title || 'Untitled Report')}</span>
               <span class="rh-report-type-badge" style="background:${col}22;color:${col}">${label}</span>
             </div>
             <div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:2px">
-              <span>👤 ${ptN}</span>
+              <span>👤 ${_esc(ptN)}</span>
               <span style="margin:0 8px;color:var(--border)">|</span>
               <span>📅 ${dateDisp}</span>
-              ${r.source ? `<span style="margin:0 8px;color:var(--border)">|</span><span>✍ ${r.source}</span>` : ''}
+              ${r.source ? `<span style="margin:0 8px;color:var(--border)">|</span><span>✍ ${_esc(r.source)}</span>` : ''}
             </div>
             <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
               <button class="btn btn-sm" onclick="window._rhView('${r.id}')">View</button>
               <button class="btn btn-sm" onclick="window._rhAISummarize('${r.id}')" title="AI Summary">🤖 AI Summary</button>
-              ${r.file_url ? `<button class="btn btn-sm" onclick="window.open('${r.file_url}','_blank')" title="Download">📎 Download</button>` : ''}
+              ${r.file_url ? `<button class="btn btn-sm" onclick="window._rhDownload('${r.id}')" title="Download">📎 Download</button>` : ''}
               <button class="btn btn-sm" onclick="window._rhLinkToCourse('${r.id}')">🔗 Link to Course</button>
               <button class="btn btn-sm" style="color:var(--red)" onclick="window._rhDelete('${r.id}')">🗑 Delete</button>
             </div>
@@ -6630,7 +7300,7 @@ export async function pgClinicalReports(setTopbar) {
 
   function uploadModal() {
     const ptOptsModal = (window._rhPatients || []).map(p =>
-      `<option value="${p.id}">${p.name || p.full_name || `Patient #${p.id}`}</option>`
+      `<option value="${_esc(p.id)}">${_esc(p.name || p.full_name || `Patient #${p.id}`)}</option>`
     ).join('');
     return `
       <div class="rh-modal-overlay" id="rh-upload-modal" style="display:none" onclick="if(event.target===this) window._rhCloseModal()">
@@ -6888,6 +7558,30 @@ export async function pgClinicalReports(setTopbar) {
     }
   };
 
+  async function _rhFetchProtectedUrl(url) {
+    const token = localStorage.getItem('ds_access_token');
+    const res = await fetch(url, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`Download failed (${res.status})`);
+    const blob = await res.blob();
+    const dispo = res.headers.get('content-disposition') || '';
+    const match = dispo.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
+    const filename = match ? decodeURIComponent(match[1].replace(/"/g, '')) : '';
+    return { blob, filename };
+  }
+
+  window._rhDownload = async function(reportId) {
+    const r = (window._rhReports || []).find(x => String(x.id) === String(reportId));
+    if (!r?.file_url) return;
+    try {
+      const file = await _rhFetchProtectedUrl(r.file_url);
+      downloadBlob(file.blob, file.filename || `${(r.title || 'report').replace(/\s+/g, '_')}`);
+    } catch (e) {
+      window._showToast?.(e.message || 'Download failed.', 'warning');
+    }
+  };
+
   window._rhView = function(reportId) {
     const r = (window._rhReports || []).find(x => String(x.id) === String(reportId));
     if (!r) return;
@@ -6901,7 +7595,7 @@ export async function pgClinicalReports(setTopbar) {
       <p><strong>Date:</strong> ${r.date || r.report_date || '—'}</p>
       <p><strong>Source:</strong> ${r.source || '—'}</p>
       <p><strong>Notes:</strong> ${r.notes || '—'}</p>
-      ${r.file_url ? `<p><a href="${r.file_url}" target="_blank">Download file</a></p>` : ''}
+      ${r.file_url ? `<p><button onclick="window.opener && window.opener._rhDownload && window.opener._rhDownload(${JSON.stringify(String(reportId))})">Download attached file</button></p>` : ''}
     </body></html>`);
   };
 
@@ -7277,9 +7971,9 @@ function _calRenderWeek() {
       const op    = a.status === 'completed' ? '0.6' : '1';
       return `<div class="cal-appt" onclick="window._calSelectAppt('${a.id}')"
         style="top:${topPx}px;height:${hPx}px;background:${bg};opacity:${op}"
-        title="${a.patientName} \u2014 ${a.type} (${a.startHour}:00, ${a.duration}min)">
-        <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.patientName}</div>
-        <div style="opacity:.8;font-size:.65rem">${a.type}</div>
+        title="${_esc(a.patientName)} \u2014 ${_esc(a.type)} (${a.startHour}:00, ${a.duration}min)">
+        <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(a.patientName)}</div>
+        <div style="opacity:.8;font-size:.65rem">${_esc(a.type)}</div>
       </div>`;
     }).join('');
     return `<div style="height:${totalH}px;position:relative;border-left:1px solid var(--border)${isT ? ';background:color-mix(in srgb,var(--teal) 4%,transparent)' : ''}">${apptHtml}</div>`;
@@ -7315,9 +8009,9 @@ function _calRenderDay() {
     const bg    = CAL_TYPE_COLOR[a.type] || '#555';
     return `<div class="cal-appt" onclick="window._calSelectAppt('${a.id}')"
       style="top:${topPx}px;height:${hPx}px;background:${bg};left:4px;right:4px"
-      title="${a.patientName}">
-      <div style="font-weight:700">${a.patientName}</div>
-      <div style="opacity:.85;font-size:.68rem">${a.type} \u00b7 ${a.startHour}:00 \u00b7 ${a.duration}min \u00b7 ${a.room}</div>
+      title="${_esc(a.patientName)}">
+      <div style="font-weight:700">${_esc(a.patientName)}</div>
+      <div style="opacity:.85;font-size:.68rem">${_esc(a.type)} \u00b7 ${a.startHour}:00 \u00b7 ${a.duration}min \u00b7 ${_esc(a.room)}</div>
     </div>`;
   }).join('');
 
@@ -7356,7 +8050,7 @@ function _calRenderMonth() {
     const inMonth = d.getMonth() === month;
     const isT     = ds === today;
     const dayA    = byDay[ds] || [];
-    const dots    = dayA.slice(0, 5).map(a => `<span class="cal-dot" style="background:${CAL_TYPE_COLOR[a.type] || '#555'}" title="${a.patientName}"></span>`).join('');
+    const dots    = dayA.slice(0, 5).map(a => `<span class="cal-dot" style="background:${CAL_TYPE_COLOR[a.type] || '#555'}" title="${_esc(a.patientName)}"></span>`).join('');
     const more    = dayA.length > 5 ? `<span style="font-size:.62rem;color:var(--text-secondary)">+${dayA.length - 5}</span>` : '';
     cells += `<div class="cal-month-cell${!inMonth ? ' other-month' : ''}${isT ? ' today' : ''}" onclick="window._calDayClick('${ds}')">
       <div style="font-size:.78rem;font-weight:${isT ? '700' : '400'};color:${isT ? 'var(--teal)' : 'inherit'};margin-bottom:4px">${d.getDate()}</div>
@@ -7379,7 +8073,7 @@ function _calRenderDetailPanel() {
   return `<div class="cal-detail-panel open" id="cal-detail-panel">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
       <div style="width:8px;height:32px;border-radius:3px;background:${bg};flex-shrink:0"></div>
-      <div style="flex:1;font-weight:700;font-size:.95rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.patientName}</div>
+      <div style="flex:1;font-weight:700;font-size:.95rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(a.patientName)}</div>
       <button onclick="window._calClosePanel()" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:1.3rem;line-height:1;padding:0">\u00d7</button>
     </div>
     <div style="margin-bottom:12px;display:flex;gap:6px;flex-wrap:wrap">
@@ -7392,7 +8086,7 @@ function _calRenderDetailPanel() {
       <div>\uD83D\uDCCD ${a.room}</div>
       ${a.recurrence && a.recurrence !== 'none' ? `<div>\uD83D\uDD01 Recurring ${a.recurrence}</div>` : ''}
     </div>
-    ${a.notes ? `<div style="font-size:.82rem;background:rgba(255,255,255,.04);border-radius:6px;padding:10px;margin-bottom:14px;line-height:1.5">${a.notes}</div>` : ''}
+    ${a.notes ? `<div style="font-size:.82rem;background:rgba(255,255,255,.04);border-radius:6px;padding:10px;margin-bottom:14px;line-height:1.5">${_esc(a.notes)}</div>` : ''}
     <div style="display:flex;flex-direction:column;gap:8px">
       ${isActive ? `
         <button class="btn-primary" style="font-size:.8rem;padding:8px" onclick="window._calCompleteAppt('${a.id}')">Mark Complete</button>
@@ -7704,7 +8398,7 @@ function _drawWaveform(svgId, amplitude, frequency) {
     const y = (H / 2) - amp * Math.sin((x / W) * cycles * 2 * Math.PI);
     pts.push(`${x},${y.toFixed(1)}`);
   }
-  svg.innerHTML = `<polyline points="${pts.join(' ')}" fill="none" stroke="var(--accent-teal)" stroke-width="2" stroke-linecap="round"/>`;
+  svg.innerHTML = `<polyline points="${pts.join(' ')}" fill="none" stroke="var(--teal)" stroke-width="2" stroke-linecap="round"/>`;
 }
 
 function _drawSparkline(svgId, data, color) {
@@ -7719,7 +8413,7 @@ function _drawSparkline(svgId, data, color) {
     const y = H - ((v - min) / range) * (H - 4) - 2;
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   });
-  svg.innerHTML = `<polyline points="${pts.join(' ')}" fill="none" stroke="${color || 'var(--accent-teal)'}" stroke-width="1.5" stroke-linecap="round"/>`;
+  svg.innerHTML = `<polyline points="${pts.join(' ')}" fill="none" stroke="${color || 'var(--teal)'}" stroke-width="1.5" stroke-linecap="round"/>`;
 }
 
 function _monitorUpdateUI() {
@@ -7774,7 +8468,7 @@ function _monitorUpdateUI() {
   _drawWaveform('monitor-waveform-svg', _monitorSession.params.amplitude, _monitorSession.params.frequency);
 
   // Sparklines
-  _drawSparkline('monitor-spark-amp', _monitorParamHistory.amplitude, 'var(--accent-teal)');
+  _drawSparkline('monitor-spark-amp', _monitorParamHistory.amplitude, 'var(--teal)');
   _drawSparkline('monitor-spark-freq', _monitorParamHistory.frequency, '#a78bfa');
   _drawSparkline('monitor-spark-imp', _monitorParamHistory.impedance, '#fb923c');
 }
@@ -8087,14 +8781,14 @@ function _monitorStartFormHTML() {
           </label>
 
           <div style="display:flex;flex-direction:column;gap:4px;font-size:.85rem;font-weight:600">
-            Starting Amplitude: <span id="monitor-form-amp-val" style="color:var(--accent-teal);font-weight:700">50 mA</span>
+            Starting Amplitude: <span id="monitor-form-amp-val" style="color:var(--teal);font-weight:700">50 mA</span>
             <input id="monitor-form-amp" type="range" min="0" max="100" step="1" value="50"
               oninput="document.getElementById('monitor-form-amp-val').textContent=this.value+' mA'"
               style="width:100%;margin:4px 0">
           </div>
 
           <div style="display:flex;flex-direction:column;gap:4px;font-size:.85rem;font-weight:600">
-            Starting Frequency: <span id="monitor-form-freq-val" style="color:var(--accent-teal);font-weight:700">10 Hz</span>
+            Starting Frequency: <span id="monitor-form-freq-val" style="color:var(--teal);font-weight:700">10 Hz</span>
             <input id="monitor-form-freq" type="range" min="0.5" max="40" step="0.5" value="10"
               oninput="document.getElementById('monitor-form-freq-val').textContent=this.value+' Hz'"
               style="width:100%;margin:4px 0">
@@ -8226,7 +8920,7 @@ function _monitorDashboardHTML() {
       <div>
         <div class="monitor-param-card" style="text-align:center">
           <div style="font-size:.75rem;color:var(--text-muted);margin-bottom:4px">ELAPSED TIME</div>
-          <div id="monitor-timer-big" style="font-size:2.8rem;font-weight:800;font-variant-numeric:tabular-nums;color:var(--accent-teal)">00:00</div>
+          <div id="monitor-timer-big" style="font-size:2.8rem;font-weight:800;font-variant-numeric:tabular-nums;color:var(--teal)">00:00</div>
           <div class="monitor-progress-bar">
             <div class="monitor-progress-fill" id="monitor-progress-fill" style="width:0%"></div>
           </div>
@@ -8351,7 +9045,7 @@ export async function pgSessionMonitor(setTopbar) {
     const logEl = document.getElementById('monitor-log');
     if (logEl) {
       logEl.innerHTML = _monitorSession.cues.map(c =>
-        `<div class="monitor-log-entry">[${c.ts}] ${c.msg}</div>`
+        `<div class="monitor-log-entry">[${c.ts}] ${_esc(c.msg)}</div>`
       ).join('');
       logEl.scrollTop = logEl.scrollHeight;
     }
@@ -8540,7 +9234,7 @@ function _predGaugeSVG(score) {
   </svg>`;
 }
 
-function _predResultHTML(result, ci) {
+function _predResultHTML(result, ci, patientEvidence = null) {
   const { predictedScore, riskLevel, confidence, featureImportance } = result;
   const riskColor = riskLevel === 'low' ? '#10b981' : riskLevel === 'moderate' ? '#f59e0b' : '#ef4444';
   const riskLabel = riskLevel === 'low' ? 'Low Risk' : riskLevel === 'moderate' ? 'Moderate Risk' : 'High Risk';
@@ -8598,17 +9292,23 @@ function _predResultHTML(result, ci) {
   const isSecondPos = (sortedFeats[1]?.[1]?.signed ?? 0) >= 0;
 
   let scoreInterpretation;
+  const liveTail = patientEvidence?.live
+    ? ` This patient currently has ${patientEvidence.highlightCount} live evidence highlight${patientEvidence.highlightCount === 1 ? '' : 's'}, ${patientEvidence.savedCitationCount} saved citation${patientEvidence.savedCitationCount === 1 ? '' : 's'}, and ${patientEvidence.reportCount} report${patientEvidence.reportCount === 1 ? '' : 's'} available for clinical review.`
+    : '';
   if (predictedScore >= 75) {
-    scoreInterpretation = `A predicted outcome score of <strong>${predictedScore}/100</strong> indicates a <strong>strong likelihood of clinical improvement</strong> with current treatment parameters. This patient profile aligns closely with high-responder cohorts in the ${EVIDENCE_TOTAL_PAPERS.toLocaleString()}-paper neuromodulation evidence base.`;
+    scoreInterpretation = `A predicted outcome score of <strong>${predictedScore}/100</strong> indicates a <strong>strong likelihood of clinical improvement</strong> with current treatment parameters. This patient profile aligns closely with high-responder cohorts in the ${_coursesTotalPapers().toLocaleString()}-paper neuromodulation evidence base.${liveTail}`;
   } else if (predictedScore >= 55) {
-    scoreInterpretation = `A predicted outcome score of <strong>${predictedScore}/100</strong> suggests a <strong>moderate probability of meaningful improvement</strong>. Close monitoring and protocol optimisation are recommended to maximise this patient's response trajectory.`;
+    scoreInterpretation = `A predicted outcome score of <strong>${predictedScore}/100</strong> suggests a <strong>moderate probability of meaningful improvement</strong>. Close monitoring and protocol optimisation are recommended to maximise this patient's response trajectory.${liveTail}`;
   } else if (predictedScore >= 40) {
-    scoreInterpretation = `A predicted outcome score of <strong>${predictedScore}/100</strong> reflects a <strong>guarded prognosis</strong>. This patient may require additional support, enhanced session frequency, or a protocol adjustment to achieve clinically meaningful gains.`;
+    scoreInterpretation = `A predicted outcome score of <strong>${predictedScore}/100</strong> reflects a <strong>guarded prognosis</strong>. This patient may require additional support, enhanced session frequency, or a protocol adjustment to achieve clinically meaningful gains.${liveTail}`;
   } else {
-    scoreInterpretation = `A predicted outcome score of <strong>${predictedScore}/100</strong> signals a <strong>high-risk trajectory</strong>. Consider a multidisciplinary review, barrier assessment, and protocol intensification or adjunct interventions.`;
+    scoreInterpretation = `A predicted outcome score of <strong>${predictedScore}/100</strong> signals a <strong>high-risk trajectory</strong>. Consider a multidisciplinary review, barrier assessment, and protocol intensification or adjunct interventions.${liveTail}`;
   }
 
-  const drivingFactors = `The two strongest predictors in this model are <strong>${topFeatLabel}</strong> (${isTopPos ? 'positively' : 'negatively'} influencing outcome) and <strong>${secondFeatLabel}</strong> (${isSecondPos ? 'positively' : 'negatively'} influencing outcome). Targeting improvements in these dimensions is likely to shift the predicted score most efficiently.`;
+  const phenotypeTail = patientEvidence?.phenotypeTags?.length
+    ? ` Literature phenotype tags currently linked to this patient: <strong>${_esc(patientEvidence.phenotypeTags.slice(0, 5).join(' · '))}</strong>.`
+    : '';
+  const drivingFactors = `The two strongest predictors in this model are <strong>${topFeatLabel}</strong> (${isTopPos ? 'positively' : 'negatively'} influencing outcome) and <strong>${secondFeatLabel}</strong> (${isSecondPos ? 'positively' : 'negatively'} influencing outcome). Targeting improvements in these dimensions is likely to shift the predicted score most efficiently.${phenotypeTail}`;
 
   let adjustmentAdvice;
   if (predictedScore < 50) {
@@ -8617,6 +9317,9 @@ function _predResultHTML(result, ci) {
     adjustmentAdvice = 'Maintain current protocol with standard review at session 10. If adherence drops below 80%, implement a proactive outreach plan. Consider adding a structured home practice component to reinforce in-clinic gains.';
   } else {
     adjustmentAdvice = 'Current parameters appear well-matched to this patient profile. Continue standard monitoring cadence. Document response markers carefully — this case may be suitable for evidence contribution or protocol benchmarking.';
+  }
+  if (patientEvidence?.live && patientEvidence.savedCitationCount > 0) {
+    adjustmentAdvice += ` ${patientEvidence.savedCitationCount} saved evidence citation${patientEvidence.savedCitationCount === 1 ? '' : 's'} can already be reused in the next report review.`;
   }
 
   const aiInterpHTML = `
@@ -8661,7 +9364,7 @@ function _predResultHTML(result, ci) {
       <div>
         <div style="font-size:.78rem;color:var(--text-muted);margin-bottom:4px">Model confidence: ${Math.round(confidence * 100)}%</div>
         <div style="background:var(--border,#334155);border-radius:6px;height:8px;overflow:hidden">
-          <div style="width:${Math.round(confidence * 100)}%;height:100%;background:var(--accent-teal,#10b981);border-radius:6px;transition:width .4s ease"></div>
+          <div style="width:${Math.round(confidence * 100)}%;height:100%;background:var(--teal,#00d4bc);border-radius:6px;transition:width .4s ease"></div>
         </div>
       </div>
 
@@ -8723,13 +9426,13 @@ function _predHistoryTableHTML() {
            style="width:64px;padding:3px 6px;background:var(--input-bg,var(--surface-2,#1e293b));border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:.8rem"
            onchange="window._qqEnterActual('${p.id}', this.value)">`;
     return `<tr style="border-bottom:1px solid var(--border)">
-      <td style="padding:8px 10px">${p.patientName}</td>
+      <td style="padding:8px 10px">${_esc(p.patientName)}</td>
       <td style="padding:8px 10px;color:var(--text-muted)">${p.date}</td>
       <td style="padding:8px 10px;font-weight:700">${p.result.predictedScore}</td>
       <td style="padding:8px 10px"><span style="color:${riskColor};font-size:.78rem;font-weight:700">${riskLabel}</span></td>
       <td style="padding:8px 10px">${actualCell}</td>
       <td style="padding:8px 10px;color:var(--text-muted)">${accuracy}</td>
-      <td style="padding:8px 10px;color:var(--text-muted);font-size:.8rem;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(p.notes || '').replace(/"/g, '&quot;')}">${p.notes || '\u2014'}</td>
+      <td style="padding:8px 10px;color:var(--text-muted);font-size:.8rem;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(p.notes || '')}">${_esc(p.notes) || '\u2014'}</td>
       <td style="padding:8px 10px">
         <button onclick="window._qqDeletePrediction('${p.id}')"
           style="background:none;border:1px solid #ef444466;color:#ef4444;cursor:pointer;font-size:.78rem;padding:2px 8px;border-radius:4px"
@@ -8747,7 +9450,7 @@ function _predHistoryTableHTML() {
         ${withActual.length >= 2 ? `<span style="color:var(--text-muted);font-size:.78rem">Correlation: computed from ${withActual.length} follow-up entries</span>` : ''}
       </div>
       <button onclick="window._qqExportCSV()"
-        style="padding:6px 14px;background:var(--accent-teal,#10b981);color:#fff;border:none;border-radius:8px;font-size:.82rem;font-weight:600;cursor:pointer">
+        style="padding:6px 14px;background:var(--teal,#00d4bc);color:#fff;border:none;border-radius:8px;font-size:.82rem;font-weight:600;cursor:pointer">
         Export CSV
       </button>
     </div>
@@ -8771,16 +9474,25 @@ function _predHistoryTableHTML() {
 }
 
 export async function pgOutcomePrediction(setTopbar) {
+  await _ensureCoursesEvidenceStats();
   setTopbar('Outcome Prediction & ML Scoring', '');
   _initPredictions();
+  const patientEvidence = await _resolveCoursePatientEvidenceContext(window._selectedCourseId || null).catch(() => _emptyCoursePatientEvidenceContext());
 
   const el = document.getElementById('content');
   el.innerHTML = `
     <div style="padding:16px 0;max-width:1200px;margin:0 auto">
 
+      <div style="margin-bottom:16px;padding:14px 16px;border-radius:12px;border:1px solid ${patientEvidence.live ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.22)'};background:${patientEvidence.live ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.08)'};font-size:12px;line-height:1.55;color:var(--text-secondary)">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:${patientEvidence.live ? 'var(--teal,#00d4bc)' : 'var(--amber,#f59e0b)'};margin-bottom:6px">Prediction context</div>
+        ${patientEvidence.live
+          ? `Using live patient evidence context for <strong style="color:var(--text-primary)">${_esc(patientEvidence.patientName || 'selected patient')}</strong>: ${patientEvidence.highlightCount} evidence highlight${patientEvidence.highlightCount === 1 ? '' : 's'}, ${patientEvidence.savedCitationCount} saved citation${patientEvidence.savedCitationCount === 1 ? '' : 's'}, ${patientEvidence.reportCount} report${patientEvidence.reportCount === 1 ? '' : 's'}, and ${patientEvidence.reportCitationCount} citation${patientEvidence.reportCitationCount === 1 ? '' : 's'} already staged for reports.${patientEvidence.phenotypeTags.length ? ` Phenotype tags: ${_esc(patientEvidence.phenotypeTags.slice(0, 5).join(' · '))}.` : ''}`
+          : `This prediction workspace is currently using general evidence/corpus context only. Select a course with a resolvable patient if you want live patient evidence and report context to appear here.`}
+      </div>
+
       <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:1px solid var(--border)">
         <button id="pred-tab-predict" onclick="window._qqSwitchPredTab('predict')"
-          style="padding:8px 18px;background:var(--accent-teal,#10b981);color:#fff;border:none;border-radius:8px 8px 0 0;font-size:.875rem;font-weight:600;cursor:pointer">
+          style="padding:8px 18px;background:var(--teal,#00d4bc);color:#fff;border:none;border-radius:8px 8px 0 0;font-size:.875rem;font-weight:600;cursor:pointer">
           Predict &amp; Analyze
         </button>
         <button id="pred-tab-history" onclick="window._qqSwitchPredTab('history')"
@@ -8797,7 +9509,7 @@ export async function pgOutcomePrediction(setTopbar) {
 
             <label style="display:block;margin-bottom:12px">
               <span style="font-size:.78rem;color:var(--text-muted);display:block;margin-bottom:4px">Patient Name</span>
-              <input id="pred-patient-name" type="text" placeholder="Enter patient name"
+              <input id="pred-patient-name" type="text" placeholder="Enter patient name" value="${_esc(patientEvidence.patientName || '')}"
                 style="width:100%;padding:7px 10px;background:var(--input-bg,var(--surface-2,#1e293b));border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-size:.875rem;box-sizing:border-box">
             </label>
 
@@ -8895,11 +9607,11 @@ export async function pgOutcomePrediction(setTopbar) {
 
             <div style="display:flex;gap:10px;flex-wrap:wrap">
               <button onclick="window._qqRunPrediction()"
-                style="flex:1;padding:10px;background:var(--accent-teal,#10b981);color:#fff;border:none;border-radius:8px;font-size:.875rem;font-weight:600;cursor:pointer">
+                style="flex:1;padding:10px;background:var(--teal,#00d4bc);color:#fff;border:none;border-radius:8px;font-size:.875rem;font-weight:600;cursor:pointer">
                 Run Prediction
               </button>
               <button id="pred-save-btn" onclick="window._qqSavePrediction()"
-                style="display:none;flex:1;padding:10px;background:var(--accent-blue,#3b82f6);color:#fff;border:none;border-radius:8px;font-size:.875rem;font-weight:600;cursor:pointer">
+                style="display:none;flex:1;padding:10px;background:var(--blue,#4a9eff);color:#fff;border:none;border-radius:8px;font-size:.875rem;font-weight:600;cursor:pointer">
                 Save Prediction
               </button>
             </div>
@@ -8935,7 +9647,7 @@ export async function pgOutcomePrediction(setTopbar) {
     const panelHistory = document.getElementById('pred-panel-history');
     const tabPredict   = document.getElementById('pred-tab-predict');
     const tabHistory   = document.getElementById('pred-tab-history');
-    const activeStyle  = 'var(--accent-teal,#10b981)';
+    const activeStyle  = 'var(--teal,#00d4bc)';
     if (tab === 'predict') {
       panelPredict.style.display = '';
       panelHistory.style.display = 'none';
@@ -8966,7 +9678,7 @@ export async function pgOutcomePrediction(setTopbar) {
     if (panel) {
       panel.style.alignItems = 'flex-start';
       panel.style.justifyContent = 'flex-start';
-      panel.innerHTML = _predResultHTML(result, ci);
+      panel.innerHTML = _predResultHTML(result, ci, patientEvidence);
     }
     const saveBtn = document.getElementById('pred-save-btn');
     if (saveBtn) saveBtn.style.display = '';
@@ -9280,7 +9992,7 @@ function _reRuleCardHTML(rule) {
           <span class="toggle-slider"></span>
         </label>
         <div style="min-width:0">
-          <span style="font-weight:600;font-size:.92rem">${rule.name}</span>
+          <span style="font-weight:600;font-size:.92rem">${_esc(rule.name)}</span>
           <span class="rule-trigger-badge" style="margin-left:8px">${_reTriggerLabel(rule.trigger)}</span>
         </div>
       </div>
@@ -9400,10 +10112,10 @@ function _reLogTableHTML(filter) {
     const dismissBtn = e.dismissed ? '' : `<button class="btn-sm" onclick="window._rulesDismissAlert('${e.id}')">Dismiss</button>`;
     return `
     <tr class="${e.dismissed ? '' : 'alert-log-row-active'}">
-      <td style="padding:8px 10px;font-size:.85rem;font-weight:600">${e.ruleName}${demoBadge}</td>
-      <td style="padding:8px 10px;font-size:.85rem">${e.patientName}${e.demo ? ' <span style="font-size:.72rem;color:var(--amber);font-weight:700">· demo patient</span>' : ''}</td>
+      <td style="padding:8px 10px;font-size:.85rem;font-weight:600">${_esc(e.ruleName)}${demoBadge}</td>
+      <td style="padding:8px 10px;font-size:.85rem">${_esc(e.patientName)}${e.demo ? ' <span style="font-size:.72rem;color:var(--amber);font-weight:700">· demo patient</span>' : ''}</td>
       <td style="padding:8px 10px;font-size:.82rem;color:var(--text-muted)">${ts}</td>
-      <td style="padding:8px 10px;font-size:.78rem;color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${e.details}">${e.details}</td>
+      <td style="padding:8px 10px;font-size:.78rem;color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(e.details)}">${_esc(e.details)}</td>
       <td style="padding:8px 10px">${statusBadge}</td>
       <td style="padding:8px 10px">${dismissBtn}</td>
     </tr>`;
@@ -9485,7 +10197,7 @@ export async function pgRulesEngine(setTopbar) {
 
     const tabStyle = (id) => {
       const active = _reActiveTab === id;
-      return `style="padding:8px 18px;border:none;border-radius:8px 8px 0 0;font-size:.9rem;font-weight:${active?'700':'500'};cursor:pointer;background:${active?'var(--card-bg)':'transparent'};color:${active?'var(--text-primary)':'var(--text-muted)'};border-bottom:${active?'2px solid var(--accent-teal)':'2px solid transparent'}"`;
+      return `style="padding:8px 18px;border:none;border-radius:8px 8px 0 0;font-size:.9rem;font-weight:${active?'700':'500'};cursor:pointer;background:${active?'var(--card-bg)':'transparent'};color:${active?'var(--text-primary)':'var(--text-muted)'};border-bottom:${active?'2px solid var(--teal)':'2px solid transparent'}"`;
     };
 
     let tabContent = '';
@@ -9558,7 +10270,7 @@ export async function pgRulesEngine(setTopbar) {
         <div style="border-bottom:2px solid var(--border);margin-bottom:16px;display:flex;gap:4px">
           <button ${tabStyle('rules')} onclick="window._reSwitchTab('rules')">Rules</button>
           <button ${tabStyle('log')} onclick="window._reSwitchTab('log')">
-            Alert Log ${undismissed > 0 ? `<span style="background:var(--accent-teal);color:#fff;border-radius:10px;padding:1px 7px;font-size:.7rem;margin-left:4px">${undismissed}</span>` : ''}
+            Alert Log ${undismissed > 0 ? `<span style="background:var(--teal);color:#fff;border-radius:10px;padding:1px 7px;font-size:.7rem;margin-left:4px">${undismissed}</span>` : ''}
           </button>
           <button ${tabStyle('test')} onclick="window._reSwitchTab('test')">Test Rules</button>
         </div>
@@ -9676,7 +10388,7 @@ export async function pgRulesEngine(setTopbar) {
       const undismissed = getAlertLog().filter(e => !e.dismissed).length;
       logTab.querySelector('span')?.remove();
       if (undismissed > 0) {
-        logTab.insertAdjacentHTML('beforeend', `<span style="background:var(--accent-teal);color:#fff;border-radius:10px;padding:1px 7px;font-size:.7rem;margin-left:4px">${undismissed}</span>`);
+        logTab.insertAdjacentHTML('beforeend', `<span style="background:var(--teal);color:#fff;border-radius:10px;padding:1px 7px;font-size:.7rem;margin-left:4px">${undismissed}</span>`);
       }
     }
   };
@@ -9759,9 +10471,9 @@ export async function pgRulesEngine(setTopbar) {
       panel.innerHTML = `<div style="color:var(--text-muted);font-size:.9rem">No rules matched this trigger with the provided context.</div>`;
     } else {
       panel.innerHTML = `
-        <div style="font-weight:600;margin-bottom:10px;color:var(--accent-teal)">🔔 ${fired.length} rule${fired.length > 1 ? 's' : ''} fired:</div>
+        <div style="font-weight:600;margin-bottom:10px;color:var(--teal)">🔔 ${fired.length} rule${fired.length > 1 ? 's' : ''} fired:</div>
         ${fired.map(r => `
-          <div style="margin-bottom:8px;padding:10px;background:var(--card-bg);border-radius:8px;border:1px solid var(--accent-teal)">
+          <div style="margin-bottom:8px;padding:10px;background:var(--card-bg);border-radius:8px;border:1px solid var(--teal)">
             <div style="font-weight:600;font-size:.9rem">${r.name}</div>
             <div style="font-size:.78rem;color:var(--text-muted);margin-top:4px">
               Actions: ${r.actions.map(a => `${_reActionLabel(a.type)} via ${a.channel}`).join(', ') || 'none'}
@@ -9986,7 +10698,7 @@ export async function pgAINoteAssistant(setTopbar) {
         <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px">
           ${tabs.map(tab => `<button onclick="window._aiSetPhraseTab('${tab}')"
             style="padding:4px 12px;border-radius:6px;font-size:0.78rem;font-weight:600;cursor:pointer;border:1px solid var(--border);
-            background:${_aiPhraseTab === tab ? 'var(--accent-teal,#00d4bc)' : 'var(--surface-2)'};
+            background:${_aiPhraseTab === tab ? 'var(--teal,#00d4bc)' : 'var(--surface-2)'};
             color:${_aiPhraseTab === tab ? '#000' : 'var(--text-primary)'}">${tab}</button>`).join('')}
         </div>
         <div id="ai-phrase-items">
@@ -10185,11 +10897,11 @@ export async function pgAINoteAssistant(setTopbar) {
           onmouseover="this.style.background='var(--hover-bg,rgba(255,255,255,0.05))'"
           onmouseout="this.style.background=''"
           onclick="window._aiSelectSession(${i})">
-          <div style="font-weight:600;font-size:0.875rem">${s.patientName || 'Unknown Patient'}</div>
+          <div style="font-weight:600;font-size:0.875rem">${_esc(s.patientName || 'Unknown Patient')}</div>
           <div style="font-size:0.78rem;color:var(--text-secondary);margin-top:2px">
-            ${s.modality || 'Neurofeedback'} · ${s.duration || 30}min · ${s.condition || 'General'}
+            ${_esc(s.modality || 'Neurofeedback')} · ${s.duration || 30}min · ${_esc(s.condition || 'General')}
           </div>
-          <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:2px;font-style:italic">${s.notes || 'No notes'}</div>
+          <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:2px;font-style:italic">${_esc(s.notes || 'No notes')}</div>
         </div>`).join('');
     }
     document.getElementById('ai-session-modal').style.display = 'flex';
@@ -10382,7 +11094,7 @@ export async function pgAINoteAssistant(setTopbar) {
       condition:   _aiCondition,
     };
     saveSoapNote(courseId, sessionId, note);
-    window._showNotifToast?.({ title: 'Note Saved', body: `SOAP note for ${patientName} saved.`, severity: 'success' });
+    window._showNotifToast?.({ title: 'Note Saved', body: `SOAP note for ${patientName} saved in the course workflow.`, severity: 'success' });
   };
 
   window._aiCopyAll = function() {
@@ -10497,7 +11209,7 @@ function _ccrBuildSvgChart(outcomes) {
   const minSess = Math.min(...allSessions, 0);
   const sessRange = maxSess - minSess || 1;
 
-  const colors = ['var(--teal,#00d4bc)', 'var(--accent-blue,#3b82f6)', 'var(--accent-violet,#8b5cf6)', 'var(--accent-amber,#f59e0b)', 'var(--accent-rose,#f43f5e)'];
+  const colors = ['var(--teal,#00d4bc)', 'var(--blue,#4a9eff)', 'var(--violet,#9b7fff)', 'var(--amber,#ffb547)', 'var(--rose,#ff6b9d)'];
   const templateKeys = Object.keys(byTemplate);
 
   const toX = (s) => padL + ((s - minSess) / sessRange) * chartW;
@@ -10644,17 +11356,17 @@ export async function pgCourseCompletionReport(setTopbar, navigate) {
       <!-- Header -->
       <div class="ccr-header">
         <div class="ccr-header-left">
-          <div class="ccr-clinic-name">${clinicName}</div>
+          <div class="ccr-clinic-name">${_esc(clinicName)}</div>
           <h1 class="ccr-title">Course Completion Report</h1>
-          <div class="ccr-subtitle">${_condLabel} &nbsp;·&nbsp; ${_modLabel}</div>
+          <div class="ccr-subtitle">${_esc(_condLabel)} &nbsp;·&nbsp; ${_esc(_modLabel)}</div>
         </div>
         <div class="ccr-header-right">
           <div class="ccr-patient-block">
             <div class="ccr-patient-label">Patient</div>
-            <div class="ccr-patient-name">${patientName}</div>
+            <div class="ccr-patient-name">${_esc(patientName)}</div>
           </div>
           <div class="ccr-meta-block">
-            <div><span class="ccr-meta-label">Protocol:</span> ${course.protocol_id || course.protocol_name || course.name || '—'}</div>
+            <div><span class="ccr-meta-label">Protocol:</span> ${_esc(course.protocol_id || course.protocol_name || course.name || '—')}</div>
             <div><span class="ccr-meta-label">Report Date:</span> ${reportDate}</div>
           </div>
         </div>
@@ -10693,7 +11405,7 @@ export async function pgCourseCompletionReport(setTopbar, navigate) {
         <div class="ccr-section-title">Responder Status</div>
         <div class="ccr-responder-row">
           ${responderBadge}
-          ${firstWithPct ? `<span class="ccr-responder-detail">Based on ${firstWithPct.template_title || firstWithPct.template_id || firstWithPct.template_name || 'outcome measure'}: ${firstWithPct.pct_change > 0 ? '+' : ''}${Math.round(firstWithPct.pct_change)}% change</span>` : '<span class="ccr-responder-detail">No outcome comparison data available</span>'}
+          ${firstWithPct ? `<span class="ccr-responder-detail">Based on ${_esc(firstWithPct.template_title || firstWithPct.template_id || firstWithPct.template_name || 'outcome measure')}: ${firstWithPct.pct_change > 0 ? '+' : ''}${Math.round(firstWithPct.pct_change)}% change</span>` : '<span class="ccr-responder-detail">No outcome comparison data available</span>'}
         </div>
       </div>
 
@@ -10729,9 +11441,9 @@ export async function pgCourseCompletionReport(setTopbar, navigate) {
                   return `<tr>
                   <td>${_ccrFmtDate(s.created_at || s.scheduled_at || s.date)}</td>
                   <td>${s.duration_minutes != null ? s.duration_minutes + ' min' : '—'}</td>
-                  <td>${s.tolerance_rating || '—'}</td>
+                  <td>${_esc(s.tolerance_rating) || '—'}</td>
                   <td>${s.interruptions ? '<span class="ccr-ae-yes">Yes</span>' : '<span class="ccr-ae-no">No</span>'}</td>
-                  <td>${s.interruption_reason || '—'}</td>
+                  <td>${_esc(s.interruption_reason) || '—'}</td>
                   <td>${checklist ? `${checklist.completed}/${checklist.total}` : '—'}</td>
                   <td>${s.protocol_deviation ? '<span class="ccr-ae-yes">Yes</span>' : '<span class="ccr-ae-no">No</span>'}</td>
                 </tr>`;
@@ -10750,7 +11462,7 @@ export async function pgCourseCompletionReport(setTopbar, navigate) {
           ${adverseEvents.map(ae => `
             <div class="ccr-adverse-item">
               <span class="ccr-adverse-date">${_ccrFmtDate(ae.reported_at || ae.created_at)}</span>
-              <span class="ccr-adverse-note">${(ae.event_type || 'Adverse event').replace(/_/g, ' ')} · <strong>${ae.severity || '—'}</strong>${ae.description ? ' — ' + ae.description : ''}</span>
+              <span class="ccr-adverse-note">${_esc((ae.event_type || 'Adverse event').replace(/_/g, ' '))} · <strong>${_esc(ae.severity || '—')}</strong>${ae.description ? ' — ' + _esc(ae.description) : ''}</span>
             </div>`).join('')}
         </div>
       </div>` : ''}
@@ -10771,7 +11483,7 @@ export async function pgCourseCompletionReport(setTopbar, navigate) {
           <div class="ccr-sig-label">Clinician Signature &amp; Date</div>
         </div>
         <div class="ccr-footer-right">
-          <div class="ccr-footer-clinic">${clinicName}</div>
+          <div class="ccr-footer-clinic">${_esc(clinicName)}</div>
           <div class="ccr-footer-date">Generated: ${reportDate}</div>
         </div>
       </div>
@@ -10839,7 +11551,7 @@ window._openQuickOutcomeCapture = function(courseId, sessionId, patientName) {
         <h2 class="qoc-title" id="qoc-title">Record Outcome</h2>
         <button class="qoc-close-btn" onclick="document.getElementById('qoc-overlay').remove()" aria-label="Close">&times;</button>
       </div>
-      ${patientName ? `<div class="qoc-patient-name">${patientName}</div>` : ''}
+      ${patientName ? `<div class="qoc-patient-name">${_esc(patientName)}</div>` : ''}
       <div class="qoc-body">
         <div class="qoc-field">
           <label class="qoc-label" for="qoc-measure">Outcome Measure</label>

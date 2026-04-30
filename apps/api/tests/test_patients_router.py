@@ -3,8 +3,63 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+import pytest
+from sqlalchemy import text
+
+from app.database import SessionLocal
+from app.persistence.models import Clinic, User
+
+
+@pytest.fixture(autouse=True)
+def _clean_adverse_events_after_test() -> None:
+    """Ensure adverse-event rows never bleed between enrichment tests.
+
+    The fast-truncate path in ``reset_database(fast=True)`` has been observed
+    to occasionally leave adverse-event state behind when running under
+    pytest-xdist.  This fixture provides an explicit safety net.
+    """
+    yield
+    db = SessionLocal()
+    try:
+        db.execute(text("DELETE FROM adverse_events"))
+        db.commit()
+    finally:
+        db.close()
+
+
+def _ensure_demo_clinician_in_clinic() -> None:
+    """Seed Clinic + User keyed on the demo clinician actor_id so the
+    cross-clinic ownership gate (added in the audit) finds a real clinic_id."""
+    db = SessionLocal()
+    try:
+        existing = db.query(User).filter_by(id="actor-clinician-demo").first()
+        if existing is not None and existing.clinic_id:
+            return
+        clinic_id = "clinic-patients-demo"
+        if db.query(Clinic).filter_by(id=clinic_id).first() is None:
+            db.add(Clinic(id=clinic_id, name="Patients Demo Clinic"))
+            db.flush()
+        if existing is None:
+            db.add(
+                User(
+                    id="actor-clinician-demo",
+                    email="demo_clin_patients@example.com",
+                    display_name="Verified Clinician Demo",
+                    hashed_password="x",
+                    role="clinician",
+                    package_id="clinician_pro",
+                    clinic_id=clinic_id,
+                )
+            )
+        else:
+            existing.clinic_id = clinic_id
+        db.commit()
+    finally:
+        db.close()
+
 
 def _create_patient(client: TestClient, auth_headers: dict, **overrides) -> str:
+    _ensure_demo_clinician_in_clinic()
     body = {
         "first_name": "Test",
         "last_name": "Patient",

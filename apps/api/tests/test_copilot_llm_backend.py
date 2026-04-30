@@ -65,7 +65,7 @@ def test_backend_falls_back_to_mock_when_no_clients(
     assert copilot._select_backend() == "mock"
 
 
-def test_tools_schema_has_four_tools() -> None:
+def test_tools_schema_has_five_tools() -> None:
     from deepsynaps_qeeg.ai import copilot
 
     schema = copilot._tools_schema()
@@ -76,6 +76,8 @@ def test_tools_schema_has_four_tools() -> None:
         "tool_explain_feature",
         "tool_compare_to_norm",
         "tool_get_recommendation_detail",
+        "tool_explain_channel",
+        "tool_explain_medication",
     }
     for tool in schema:
         assert "description" in tool and tool["description"]
@@ -95,6 +97,9 @@ def test_tools_schema_has_four_tools() -> None:
     ) == {"feature_name", "value"}
     assert by_name["tool_get_recommendation_detail"]["input_schema"]["required"] == [
         "section"
+    ]
+    assert by_name["tool_explain_channel"]["input_schema"]["required"] == [
+        "channel_name"
     ]
 
 

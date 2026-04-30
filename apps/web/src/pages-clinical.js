@@ -2,6 +2,9 @@ import { api, downloadBlob } from './api.js';
 import { cardWrap, fr, evBar, pillSt, initials, tag, spinner, emptyState, spark, brainMapSVG, evidenceBadge, labelBadge, approvalBadge, safetyBadge, govFlag } from './helpers.js';
 import { currentUser } from './auth.js';
 import { FALLBACK_CONDITIONS, FALLBACK_MODALITIES, FALLBACK_ASSESSMENT_TEMPLATES, COURSE_STATUS_COLORS } from './constants.js';
+import { getModalitySignalTitle, getModalityTemplateHint, loadModalityEvidenceContext } from './modality-evidence-context.js';
+import { loadResearchBundleOverview } from './research-bundle-overview.js';
+import { getProtocolWatchSignalTitle, loadProtocolWatchContext } from './protocol-watch-context.js';
 import { renderHomeTherapyTab, bindHomeTherapyActions } from './pages-home-therapy.js';
 import {
   CONDITION_HOME_TEMPLATES,
@@ -42,6 +45,7 @@ import {
 } from './personalization-explainability.js';
 import { EVIDENCE_SUMMARY, CONDITION_EVIDENCE, getTopConditionsByPaperCount } from './evidence-dataset.js';
 import { PROTOCOL_LIBRARY, CONDITIONS as PROTO_CONDITIONS, DEVICES as PROTO_DEVICES } from './protocols-data.js';
+import { getEvidenceUiStats } from './evidence-ui-live.js';
 import {
   DEMO_PATIENT,
   DEMO_CLINICIAN_DASHBOARD,
@@ -710,11 +714,12 @@ export async function pgDash(setTopbar, navigate) {
   let allMediaItems = [];
   let wearableAlertSummary = null;
   let riskSummaryData = [];
+  let _overview = null;
   const _withTimeout = (promise, ms = 8000) =>
     Promise.race([promise, new Promise(resolve => setTimeout(() => resolve(null), ms))]);
   let _apiFailCount = 0;
   try {
-    const [ptsRes, coursesRes, queueRes, aeRes, outRes, consentsRes, mediaQueueRes, wearableAlertsRes, riskRes] = await Promise.all([
+    const [ptsRes, coursesRes, queueRes, aeRes, outRes, consentsRes, mediaQueueRes, wearableAlertsRes, riskRes, overviewRes] = await Promise.all([
       _withTimeout(api.listPatients().catch(() => null)),
       _withTimeout(api.listCourses().catch(() => null)),
       _withTimeout(api.listReviewQueue({ status: 'pending' }).catch(() => null)),
@@ -724,7 +729,9 @@ export async function pgDash(setTopbar, navigate) {
       _withTimeout(api.listMediaQueue().catch(() => null)),
       _withTimeout(api.getClinicAlertSummary().catch(() => null)),
       _withTimeout(api.getClinicRiskSummary().catch(() => null)),
+      _withTimeout(api.getDashboardOverview().catch(() => null), 6000),
     ]);
+    if (overviewRes) _overview = overviewRes;
     if (ptsRes)       allPatients    = ptsRes.items || []; else _apiFailCount++;
     if (coursesRes)   allCourses     = coursesRes.items || []; else _apiFailCount++;
     if (queueRes)     pendingQueue   = queueRes.items || []; else _apiFailCount++;
@@ -743,8 +750,15 @@ export async function pgDash(setTopbar, navigate) {
   // ── Demo-mode fallback ────────────────────────────────────────────────────
   // When clinic has no data (fresh install or API down), seed demo content so
   // the dashboard always shows something. _isDemo drives the DEMO badge.
+  // Demo-token sessions on prod ALWAYS fail every backend call (by design —
+  // demo-login is gated to non-prod), so promote the hard-fail into demo seed
+  // when we detect a build-time demo flag.
   let _isDemo = false;
-  if (_coreLoadFailed) {
+  const _demoModeBuild = (() => {
+    try { return !!(import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1'); }
+    catch (_) { return false; }
+  })();
+  if (_coreLoadFailed && !_demoModeBuild) {
     if (_abortCtrl.signal.aborted) { window.removeEventListener('hashchange', _onLeave); return; }
     el.innerHTML = `<div style="padding:48px 24px;text-align:center">
       <div style="font-size:24px;margin-bottom:12px;opacity:0.4">&#9888;</div>
@@ -754,6 +768,12 @@ export async function pgDash(setTopbar, navigate) {
     </div>`;
     window.removeEventListener('hashchange', _onLeave);
     return;
+  }
+  // In demo build, normalise the fail count so the demo seed below triggers
+  // (allPatients/allCourses are still empty here, so the next branch hits).
+  if (_coreLoadFailed && _demoModeBuild) {
+    allPatients = [];
+    allCourses = [];
   }
   if (allPatients.length === 0 && allCourses.length === 0) {
     _isDemo = true;
@@ -976,6 +996,17 @@ export async function pgDash(setTopbar, navigate) {
   const _totalRed   = riskSummaryData.reduce((n, p) => n + (p.categories || []).filter(c => c.level === 'red').length, 0);
   const _totalAmber = riskSummaryData.reduce((n, p) => n + (p.categories || []).filter(c => c.level === 'amber').length, 0);
 
+  // Hoisted: KPI values from /api/v1/dashboard/overview when available, else local fallbacks.
+  // Must be in scope before window._dashAgentCtx + the actions strip render below.
+  const _ovm = (_overview && _overview.metrics) ? _overview.metrics : {};
+  const _kpiCaseload = _ovm.active_caseload ? _ovm.active_caseload.value : (activePatientIds.length || patCount);
+  const _kpiSessions = _ovm.sessions_delivered ? _ovm.sessions_delivered.value : totalDelivered;
+  const _kpiResponder = _ovm.responder_rate ? _ovm.responder_rate.value : responderRate;
+  const _kpiPending = _ovm.pending_review ? _ovm.pending_review.value : pendingQueue.length;
+  const _kpiSafety = _ovm.safety_flags ? _ovm.safety_flags.value : (seriousAEs.length);
+  const _kpiConsent = _ovm.consent_alerts ? _ovm.consent_alerts.value : consentAlertCount;
+  if (_overview && _overview.is_demo) _isDemo = true;
+
   window._dashAgentCtx = [
     '[Clinic dashboard snapshot — use for operational context; not a substitute for chart review.]',
     `Patients in system: ${patCount}`,
@@ -989,7 +1020,7 @@ export async function pgDash(setTopbar, navigate) {
     `Today's clinic queue (courses): ${clinicQueue.length}`,
     // Risk stratification summary
     `Risk stratification: ${_totalRed} red flags, ${_totalAmber} amber flags across ${riskSummaryData.length} patients`,
-    `Protocol Studio: ${PROTOCOL_LIBRARY?.length || 0} protocols across ${PROTO_CONDITIONS?.length || 0} conditions; ${(EVIDENCE_SUMMARY?.totalPapers || 87000).toLocaleString()} evidence papers indexed; ${EVIDENCE_SUMMARY?.totalTrials || 0} clinical trials`,
+    `Protocol Studio: ${PROTOCOL_LIBRARY?.length || 0} protocols across ${PROTO_CONDITIONS?.length || 0} conditions; ${liveEvidence.totalPapers.toLocaleString()} evidence papers indexed; ${liveEvidence.totalTrials || 0} clinical trials`,
     ...(riskSummaryData.filter(p => (p.categories || []).some(c => c.level === 'red')).map(p => {
       const reds = (p.categories || []).filter(c => c.level === 'red').map(c => c.category.replace(/_/g, ' ')).join(', ');
       return `  RED risk: ${p.patient_name || p.patient_id} — ${reds}`;
@@ -1420,25 +1451,25 @@ export async function pgDash(setTopbar, navigate) {
   const _kpiGrid = `<div class="dh2-kpi-grid">
     <div class="dh2-kpi" ${_kb} onclick="window._nav('patients')">
       <div class="dh2-kpi-lbl"><span class="dh2-kpi-dot teal"></span>Active caseload</div>
-      <div class="dh2-kpi-num">${activePatientIds.length || patCount}</div>
+      <div class="dh2-kpi-num">${_kpiCaseload}</div>
       <div class="dh2-kpi-delta ${activeCourses.length > 0 ? 'up' : 'flat'}">${activeCourses.length} active course${activeCourses.length!==1?'s':''}</div>
       <svg class="dh2-kpi-spark" viewBox="0 0 100 40" fill="none"><path d="M0 30 L14 24 L28 28 L42 18 L56 22 L70 12 L84 15 L100 6" stroke="#00d4bc" stroke-width="1.5"/></svg>
     </div>
     <div class="dh2-kpi" ${_kb} onclick="window._nav('courses')">
       <div class="dh2-kpi-lbl blue"><span class="dh2-kpi-dot blue"></span>Sessions delivered</div>
-      <div class="dh2-kpi-num">${totalDelivered}<span class="unit">/ wk ${sessionsPerWeek}</span></div>
+      <div class="dh2-kpi-num">${_kpiSessions}<span class="unit">/ wk ${sessionsPerWeek}</span></div>
       <div class="dh2-kpi-delta ${_utilPct >= 70 ? 'up' : 'flat'}">${_utilPct}% utilization</div>
       <svg class="dh2-kpi-spark" viewBox="0 0 100 40" fill="none"><path d="M0 18 L14 20 L28 14 L42 22 L56 12 L70 16 L84 10 L100 14" stroke="#4a9eff" stroke-width="1.5"/></svg>
     </div>
     <div class="dh2-kpi" ${_kb} onclick="window._nav('outcomes')">
       <div class="dh2-kpi-lbl violet"><span class="dh2-kpi-dot violet"></span>Responder rate</div>
-      <div class="dh2-kpi-num">${responderRate}</div>
+      <div class="dh2-kpi-num">${_kpiResponder}</div>
       <div class="dh2-kpi-delta ${_phqDelta != null && _phqDelta < 0 ? 'up' : 'flat'}">PHQ-9 Δ ${_phqDeltaStr}</div>
       <svg class="dh2-kpi-spark" viewBox="0 0 100 40" fill="none"><path d="M0 10 L14 14 L28 18 L42 22 L56 20 L70 26 L84 30 L100 34" stroke="#9b7fff" stroke-width="1.5"/></svg>
     </div>
     <div class="dh2-kpi" ${_kb} onclick="window._nav('${pendingQueue.length > 0 ? 'review-queue' : 'outcomes'}')">
       <div class="dh2-kpi-lbl amber"><span class="dh2-kpi-dot amber"></span>Pending review</div>
-      <div class="dh2-kpi-num">${pendingQueue.length}</div>
+      <div class="dh2-kpi-num">${_kpiPending}</div>
       <div class="dh2-kpi-delta ${flaggedCourses.length > 0 ? 'down' : 'flat'}">${flaggedCourses.length > 0 ? flaggedCourses.length + ' need re-render' : 'all current'}</div>
       <svg class="dh2-kpi-spark" viewBox="0 0 100 40" fill="none"><path d="M0 28 L14 24 L28 26 L42 18 L56 22 L70 16 L84 12 L100 14" stroke="#ffb547" stroke-width="1.5"/></svg>
     </div>
@@ -1823,16 +1854,27 @@ export async function pgDash(setTopbar, navigate) {
   </div>`;
 
   // ── Protocol Studio connection card (87K evidence dataset) ───────────────────
-  const _protoCount = PROTOCOL_LIBRARY?.length || 0;
-  const _condCount  = PROTO_CONDITIONS?.length || 0;
+  const _liveCoverageRows = protocolOverview?.coverageRows || [];
+  const _liveTemplateRows = protocolOverview?.templates || [];
+  const _liveSafetyRows = protocolOverview?.safetySignals || [];
+  const _protoCount = _liveTemplateRows.length || PROTOCOL_LIBRARY?.length || 0;
+  const _condCount  = liveEvidence.totalConditions || PROTO_CONDITIONS?.length || 0;
   const _deviceCount = PROTO_DEVICES?.length || 0;
-  const _totalPapers = EVIDENCE_SUMMARY?.totalPapers || 87000;
-  const _totalTrials = EVIDENCE_SUMMARY?.totalTrials || 0;
-  const _totalMeta   = EVIDENCE_SUMMARY?.totalMetaAnalyses || 0;
+  const _totalPapers = liveEvidence.totalPapers;
+  const _totalTrials = liveEvidence.totalTrials;
+  const _totalMeta   = liveEvidence.totalMetaAnalyses;
   const _topCondByPapers = getTopConditionsByPaperCount ? getTopConditionsByPaperCount(6) : [];
-  const _evGradeDist = EVIDENCE_SUMMARY?.gradeDistribution || {};
-  const _modDist = EVIDENCE_SUMMARY?.modalityDistribution || {};
+  const _evGradeDist = Object.keys(liveEvidence.gradeDistribution || {}).length ? liveEvidence.gradeDistribution : (EVIDENCE_SUMMARY?.gradeDistribution || {});
+  const _modDist = Object.keys(liveEvidence.modalityDistribution || {}).length ? liveEvidence.modalityDistribution : (EVIDENCE_SUMMARY?.modalityDistribution || {});
   const _topModalities2 = Object.entries(_modDist).sort((a,b) => b[1] - a[1]).slice(0, 5);
+  const _topCoverageRows = _liveCoverageRows.filter((row) => row.gap && row.gap !== 'None').slice(0, 4);
+  const _topTemplateRows = _liveTemplateRows.slice(0, 4);
+  const _topSafetyRows = _liveSafetyRows.slice(0, 4);
+  const _signalTitle = (signal) =>
+    (signal.safety_signal_tags || []).concat(signal.contraindication_signal_tags || []).join(', ')
+    || signal.title
+    || signal.example_titles
+    || 'Safety signal';
 
   const _protocolStudioCard = `<div class="dh2-card" style="position:relative;overflow:hidden">
     <div style="position:absolute;top:0;right:0;width:180px;height:100%;opacity:0.04;pointer-events:none;background:radial-gradient(circle at 80% 30%, var(--teal), transparent 70%)"></div>
@@ -1841,7 +1883,7 @@ export async function pgDash(setTopbar, navigate) {
         <div class="dh2-card-title" style="display:flex;align-items:center;gap:8px">Protocol Studio
           <span style="font-size:10px;font-weight:700;letter-spacing:0.5px;padding:2px 7px;border-radius:4px;background:rgba(0,212,188,0.12);color:var(--teal)">CONNECTED</span>
         </div>
-        <div class="dh2-card-sub">87K evidence-backed research papers &middot; ${_protoCount} protocols &middot; ${_condCount} conditions</div>
+        <div class="dh2-card-sub">${_totalPapers.toLocaleString()} evidence-backed research papers &middot; ${_protoCount} ${_liveTemplateRows.length ? 'live templates' : 'protocols'} &middot; ${_condCount} conditions</div>
       </div>
       <div class="dh2-card-actions">
         <button class="dh2-launch-btn primary" onclick="window._nav('protocol-hub')">Open Studio &rarr;</button>
@@ -1908,11 +1950,46 @@ export async function pgDash(setTopbar, navigate) {
         ).join('')}
       </div>
     </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:14px">
+      <div style="padding:12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">
+        <div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Coverage watch</div>
+        ${_topCoverageRows.length
+          ? _topCoverageRows.map((row) => {
+              const gapColor = row.paper_count < 10 ? 'var(--rose)' : 'var(--amber)';
+              return `<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
+                <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
+                  <div style="font-size:11.5px;font-weight:600;color:var(--text-primary)">${_esc(row.modality)} · ${_esc(row.condition)}</div>
+                  <span style="font-size:10px;padding:2px 7px;border-radius:999px;background:${gapColor}22;color:${gapColor};border:1px solid ${gapColor}55">${_esc(row.gap || 'Gap')}</span>
+                </div>
+                <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:4px">${(row.paper_count || 0).toLocaleString()} papers · coverage ${_esc(row.coverage ?? 0)}%</div>
+              </div>`;
+            }).join('')
+          : '<div style="font-size:11px;color:var(--text-tertiary)">No live coverage gaps surfaced.</div>'}
+      </div>
+      <div style="padding:12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">
+        <div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Template watch</div>
+        ${_topTemplateRows.length
+          ? _topTemplateRows.map((row) => `<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
+              <div style="font-size:11.5px;font-weight:600;color:var(--text-primary)">${_esc(row.modality || 'Modality')} · ${_esc(row.indication || 'Indication')}</div>
+              <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:4px">${_esc(row.target || 'Target pending')} · ${_esc(row.evidence_tier || 'Tier not set')}</div>
+            </div>`).join('')
+          : '<div style="font-size:11px;color:var(--text-tertiary)">Using registry fallback templates.</div>'}
+      </div>
+      <div style="padding:12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">
+        <div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Safety watch</div>
+        ${_topSafetyRows.length
+          ? _topSafetyRows.map((row) => `<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
+              <div style="font-size:11.5px;font-weight:600;color:var(--text-primary)">${_esc(row.primary_modality || 'Modality')}${row.indication_tags?.length ? ' · ' + _esc(row.indication_tags.slice(0, 2).join(' · ')) : ''}</div>
+              <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:4px">${_esc(_signalTitle(row))}</div>
+            </div>`).join('')
+          : '<div style="font-size:11px;color:var(--text-tertiary)">No live safety signals loaded.</div>'}
+      </div>
+    </div>
     <div style="display:flex;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border);flex-wrap:wrap">
       <button class="dh2-launch-btn" onclick="window._nav('protocol-hub')">Browse protocols</button>
       <button class="dh2-launch-btn" onclick="window._protocolHubTab='generate';window._nav('protocol-hub')">Generate protocol</button>
       <button class="dh2-launch-btn" onclick="window._nav('research-evidence')">Evidence library</button>
-      <span style="margin-left:auto;font-size:10px;color:var(--text-tertiary);align-self:center">Sources: ${(EVIDENCE_SUMMARY?.sources || []).slice(0, 4).join(', ')}${(EVIDENCE_SUMMARY?.sources || []).length > 4 ? ' +' + ((EVIDENCE_SUMMARY?.sources || []).length - 4) + ' more' : ''}</span>
+      <span style="margin-left:auto;font-size:10px;color:var(--text-tertiary);align-self:center">Sources: ${(liveEvidence.sources || EVIDENCE_SUMMARY?.sources || []).slice(0, 4).join(', ')}${(liveEvidence.sources || EVIDENCE_SUMMARY?.sources || []).length > 4 ? ' +' + (((liveEvidence.sources || EVIDENCE_SUMMARY?.sources || []).length) - 4) + ' more' : ''}</span>
     </div>
   </div>`;
   if (_abortCtrl.signal.aborted) { window.removeEventListener('hashchange', _onLeave); return; }
@@ -2051,7 +2128,7 @@ export async function pgPatients(setTopbar, navigate) {
     if (_demoOk) {
       items = [...DEMO_PATIENT_ROSTER];
     } else {
-      el.innerHTML = `<div class="notice notice-warn">Could not load patients: ${e.message}</div>`;
+      el.innerHTML = `<div class="notice notice-warn">Could not load patients: ${_escCC(e.message)}</div>`;
       return;
     }
   }
@@ -2874,7 +2951,7 @@ export async function pgPatients(setTopbar, navigate) {
       rows = _parseCSV(text);
     } catch (e) {
       notice.style.display = '';
-      notice.innerHTML = `<div style="color:var(--red);font-size:12px">Parse error: ${e.message}</div>`;
+      notice.innerHTML = `<div style="color:var(--red);font-size:12px">Parse error: ${_escCC(e.message)}</div>`;
       section.style.display = 'none';
       return;
     }
@@ -2898,7 +2975,7 @@ export async function pgPatients(setTopbar, navigate) {
     const tbodyRows = rows.map(r => {
       const invalid = !r.first_name || !r.last_name;
       const bg = invalid ? 'background:rgba(255,107,107,0.06)' : '';
-      const cells = headers.map(h => `<td style="font-size:11px">${r[h] || ''}</td>`).join('');
+      const cells = headers.map(h => `<td style="font-size:11px">${_escCC(r[h] || '')}</td>`).join('');
       return `<tr style="${bg}">${cells}</tr>`;
     }).join('');
 
@@ -2954,7 +3031,7 @@ export async function pgPatients(setTopbar, navigate) {
       if (errors === 0) {
         resultEl.innerHTML = `<div class="notice" style="background:rgba(0,212,188,0.07);border:1px solid rgba(0,212,188,0.25);border-radius:6px;padding:10px 12px;font-size:12px;color:var(--teal)">${done} patient${done !== 1 ? 's' : ''} imported successfully.</div>`;
       } else {
-        resultEl.innerHTML = `<div class="notice notice-warn" style="font-size:12px">${done} imported, ${errors} failed.<br>${errorDetails.map(d => `<div style="margin-top:4px;color:var(--red)">• ${d}</div>`).join('')}</div>`;
+        resultEl.innerHTML = `<div class="notice notice-warn" style="font-size:12px">${done} imported, ${errors} failed.<br>${errorDetails.map(d => `<div style="margin-top:4px;color:var(--red)">• ${_escCC(d)}</div>`).join('')}</div>`;
       }
     }
     // Refresh patient list in background
@@ -3045,7 +3122,7 @@ export async function pgPatients(setTopbar, navigate) {
       }
       if (resultPanel) resultPanel.style.display = '';
     } catch (e) {
-      if (notice) { notice.style.display = ''; notice.innerHTML = `<div style="color:var(--red);font-size:12px">Extraction failed: ${e.message}</div>`; }
+      if (notice) { notice.style.display = ''; notice.innerHTML = `<div style="color:var(--red);font-size:12px">Extraction failed: ${_escCC(e.message)}</div>`; }
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = 'Extract Patient Data →'; }
     }
@@ -3236,7 +3313,7 @@ export async function pgProfile(setTopbar, navigate) {
   </div>
 
   <div class="tab-bar">
-    ${['overview', 'courses', 'sessions', 'outcomes', 'protocol', 'brain-twin', 'assessments', 'analytics', 'patient-dash', 'notes', 'phenotype', 'consent', 'monitoring', 'home-therapy'].map(t => {
+    ${['overview', 'courses', 'sessions', 'outcomes', 'protocol', 'brain-twin', 'fusion-workbench', 'assessments', 'analytics', 'patient-dash', 'notes', 'phenotype', 'consent', 'monitoring', 'home-therapy'].map(t => {
       const labels = {
         'overview':     'Dashboard',
         'courses':      'Treatment Courses',
@@ -3244,6 +3321,7 @@ export async function pgProfile(setTopbar, navigate) {
         'outcomes':     'Outcomes',
         'protocol':     'AI Protocol',
         'brain-twin':   'Deeptwin',
+        'fusion-workbench': 'Fusion',
         'assessments':  'Assessments',
         'analytics':    'Analytics',
         'patient-dash': 'Patient Dash',
@@ -3277,6 +3355,8 @@ export async function pgProfile(setTopbar, navigate) {
   };
 
   window._patDashExport = function() {
+    const canExportFHIR = typeof api.exportFHIRBundle === 'function';
+    const canExportDocx = typeof api.exportProtocolDocx === 'function';
     const existing = document.getElementById('ptd-export-modal');
     if (existing) { existing.remove(); return; }
     const modal = document.createElement('div');
@@ -3284,9 +3364,10 @@ export async function pgProfile(setTopbar, navigate) {
     modal.style.cssText = 'position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center';
     modal.innerHTML = `<div style="background:var(--bg-card,var(--navy-900));border:1px solid var(--border);border-radius:14px;padding:24px 28px;max-width:420px;width:90%;position:relative">
       <div style="font-size:15px;font-weight:700;margin-bottom:6px;color:var(--text-primary)">Export Patient Data</div>
-      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:16px">Choose an export format for ${pt.first_name} ${pt.last_name}'s records.</div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">Choose an export format for ${pt.first_name} ${pt.last_name}'s records.</div>
+      <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:16px">FHIR and DOCX options are only available when their backend export endpoints are enabled. Print is always browser-based.</div>
       <div style="display:flex;flex-direction:column;gap:8px">
-        <button class="btn" onclick="window._runExportFHIR()" style="text-align:left;padding:10px 14px">
+        <button class="btn" onclick="window._runExportFHIR()" style="text-align:left;padding:10px 14px;${canExportFHIR ? '' : 'opacity:.55;cursor:not-allowed'}" ${canExportFHIR ? '' : 'disabled'}>
           <div style="font-weight:600;font-size:13px">Export FHIR R4 Bundle</div>
           <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">HL7 FHIR-compliant interoperability package</div>
         </button>
@@ -3294,7 +3375,7 @@ export async function pgProfile(setTopbar, navigate) {
           <div style="font-weight:600;font-size:13px">Print Summary Report</div>
           <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">Browser print dialog for PDF or paper</div>
         </button>
-        <button class="btn" onclick="window._runExportDocx()" style="text-align:left;padding:10px 14px">
+        <button class="btn" onclick="window._runExportDocx()" style="text-align:left;padding:10px 14px;${canExportDocx ? '' : 'opacity:.55;cursor:not-allowed'}" ${canExportDocx ? '' : 'disabled'}>
           <div style="font-weight:600;font-size:13px">Download Protocol DOCX</div>
           <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">Word document with protocol parameters</div>
         </button>
@@ -3399,6 +3480,13 @@ export async function pgProfile(setTopbar, navigate) {
       window._nav('deeptwin');
       return;
     }
+    if (t === 'fusion-workbench') {
+      window._selectedPatientId = pt.id;
+      window._profilePatientId = pt.id;
+      try { sessionStorage.setItem('ds_pat_selected_id', pt.id); } catch {}
+      window._nav('fusion-workbench');
+      return;
+    }
     if (t === 'phenotype') {
       document.getElementById('ptab-body').innerHTML = spinner();
       const [assigns, phenos] = await Promise.all([
@@ -3447,7 +3535,17 @@ export async function pgProfile(setTopbar, navigate) {
               </tr>`).join('')}
             </tbody></table>`;
           }
-        } catch { bodyEl.innerHTML = `<div style="color:var(--text-tertiary);font-size:12px">Could not load assessments.</div>`; }
+        } catch (err) {
+          // Demo build → backend rejects demo tokens. Show "no data yet"
+          // instead of an error so the rest of the patient tab stays usable.
+          let _demoBuild = false;
+          try { _demoBuild = !!(import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1'); } catch (_) { _demoBuild = false; }
+          if (_demoBuild) {
+            bodyEl.innerHTML = `<div style="color:var(--text-tertiary);font-size:12.5px;padding:8px 0">No assessments recorded for this patient yet.</div>`;
+          } else {
+            bodyEl.innerHTML = `<div style="color:var(--text-tertiary);font-size:12px">Could not load assessments.</div>`;
+          }
+        }
       }, 0);
       return;
     }
@@ -3588,7 +3686,7 @@ function _ccBarSVG(values, color = '#4cc9f0', w = 420, h = 120) {
   return `<svg viewBox="0 0 ${values.length * (bw + 1)} ${h}" style="width:100%;height:${h}px">${bars}</svg>`;
 }
 
-function _escCC(v) { return v == null ? '' : String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function _escCC(v) { return v == null ? '' : String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;'); }
 
 function _renderCommandCenterHTML(d) {
   const pid = _escCC(d.patient_id);
@@ -3970,7 +4068,7 @@ function renderDashboardOverview(pt, sessions, courses, ctx = {}) {
         <div class="ptd-ac-icon" style="background:rgba(0,212,188,0.08)">&#129516;</div>
         <div class="ptd-ac-text">
           <div class="ptd-ac-title">Create DeepTwin</div>
-          <div class="ptd-ac-desc">Multi-modal AI analysis</div>
+          <div class="ptd-ac-desc">Multi-modal analysis (rule-based)</div>
         </div>
       </div>
       <div class="ptd-action-card ptd-ac-proto" onclick="window._patDashAIProtocol()">
@@ -4632,7 +4730,7 @@ function renderPatientAnalytics(pt, sessions, courses, ctx = {}) {
       <option value="tasks">Tasks</option>
     </select>
     <button class="btn btn-sm" style="font-size:10px" onclick="window.switchPT('patient-dash')">Open DeepTwin Terminal</button>
-    <button class="btn btn-sm" style="font-size:10px" onclick="window._patDashExport && window._patDashExport()">Export Report</button>
+    <button class="btn btn-sm" style="font-size:10px" onclick="window._patDashExport && window._patDashExport()">Export Patient Data</button>
   </div>
 
   <!-- ═══ 4) OVERVIEW CHARTS ═══ -->
@@ -6217,6 +6315,7 @@ function renderWizStep4Result(result) {
   const onLabel = result?.on_label_vs_off_label || result?.on_label || '';
   const warnings = result?.governance_warnings || result?.warnings || [];
   const rationale = result?.rationale || result?.notes || result?.description || result?.summary || '';
+  const liveCtx = ws.generatedLiveEvidenceContext || null;
 
   // Save this generation as a new version (only if there's meaningful content)
   const draftText = result?.protocol || result?.draft || rationale || JSON.stringify(result);
@@ -6243,6 +6342,14 @@ function renderWizStep4Result(result) {
 
   const govHtml = warnings.length
     ? warnings.map(w => govFlag(w)).join('')
+    : '';
+  const liveContextHtml = liveCtx && (liveCtx.coverage || liveCtx.template || liveCtx.safety)
+    ? `<div class="notice notice-info" style="margin-bottom:12px;font-size:11px;line-height:1.55">
+        <strong>Live evidence watch</strong>
+        ${liveCtx.coverage ? ` · coverage ${liveCtx.coverage.coverage}% across ${Number(liveCtx.coverage.paper_count || 0).toLocaleString()} papers${liveCtx.coverage.gap && liveCtx.coverage.gap !== 'None' ? ` · gap: ${liveCtx.coverage.gap}` : ''}` : ''}
+        ${liveCtx.template ? ` · template ${String([liveCtx.template.modality, liveCtx.template.indication, liveCtx.template.target].filter(Boolean).join(' — ')).replace(/</g, '&lt;')}` : ''}
+        ${liveCtx.safety ? ` · safety ${String(getProtocolWatchSignalTitle(liveCtx.safety)).replace(/</g, '&lt;')}` : ''}
+      </div>`
     : '';
 
   const explainabilityBanner = result?.personalization_why_selected_debug
@@ -6272,6 +6379,7 @@ function renderWizStep4Result(result) {
           </div>
         </div>
         ${explainabilityBanner}
+        ${liveContextHtml}
         ${govHtml}
         ${result?.device_resolution ? `<div class="notice notice-info" style="margin-bottom:12px;font-size:11px;line-height:1.55">
           <strong>Registry trace</strong> — device <strong>${String(result.device_resolution.resolved_device || '').replace(/</g, '&lt;')}</strong>
@@ -6595,6 +6703,7 @@ function _wizBindActions() {
     ws.generatedProtocolPersistedExplainability = null;
     ws.draftGenContextFingerprint = null;
     ws.generatedProtocolDebugPresent = false;
+    ws.generatedLiveEvidenceContext = null;
 
     ws.step = 3;
     ws._step4Html = renderWizStep4Loading();
@@ -6633,6 +6742,10 @@ function _wizBindActions() {
 
       const result = await api.generateProtocol(payload);
       ws.generatedProtocol = result;
+      ws.generatedLiveEvidenceContext = await loadProtocolWatchContext({
+        condition: conditionName,
+        modality: modalityName,
+      });
       const dbg = result.personalization_why_selected_debug;
       ws.generatedProtocolPersistedExplainability = dbg
         ? toPersistedPersonalizationExplainability(dbg)
@@ -7034,10 +7147,10 @@ async function _pilRenderLibrary() {
     window._pilCondMap   = condMap;
 
     const condOptions = conds.map(c =>
-      `<option value="${c.id || c.Condition_ID}">${c.name || c.Condition_Name || c.id}</option>`
+      `<option value="${_escCC(c.id || c.Condition_ID)}">${_escCC(c.name || c.Condition_Name || c.id)}</option>`
     ).join('');
     const modOptions = mods.map(m =>
-      `<option value="${m.id || m.name || m.Modality_Name}">${m.name || m.Modality_Name || m.id}</option>`
+      `<option value="${_escCC(m.id || m.name || m.Modality_Name)}">${_escCC(m.name || m.Modality_Name || m.id)}</option>`
     ).join('');
 
     // Compute classification counts
@@ -7137,7 +7250,7 @@ function _pilRenderWizard() {
   const sel = window._pilSelectedProtocol;
   const bannerHtml = sel ? `
     <div class="pil-prefill-banner">
-      <span>Pre-filled from: <strong>${sel.name || sel.id}</strong></span>
+      <span>Pre-filled from: <strong>${_escCC(sel.name || sel.id)}</strong></span>
       <button class="btn btn-ghost btn-sm" onclick="window._pilSelectedProtocol=null;window._wizState._fresh=true;_pilRenderWizard()">Clear ×</button>
     </div>` : '';
 
@@ -8158,7 +8271,7 @@ function bindChat(chatHistory) {
       const noteEl = document.getElementById('chart-note-content');
       if (noteEl) noteEl.textContent = reply;
     } catch (e) {
-      msgs.innerHTML += `<div class="bubble bubble-in" style="color:var(--red)">Error: ${e.message}</div>`;
+      msgs.innerHTML += `<div class="bubble bubble-in" style="color:var(--red)">Error: ${_escCC(e.message)}</div>`;
     }
   };
   window.signNote = function() {
@@ -8546,6 +8659,168 @@ export async function pgBrainData(setTopbar) {
           <div class="form-group"><label class="form-label">Notes</label>
             <textarea id="qr-notes" class="form-control" rows="2" placeholder="Key findings, LORETA summary…"></textarea>
           </div>
+
+          <!-- Clinical Context Survey — bundled as LLM-ready JSON alongside the EDF recording -->
+          <details id="qr-survey-panel" style="margin:14px 0 8px;border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:rgba(20,184,166,0.04)">
+            <summary style="cursor:pointer;font-size:12.5px;font-weight:600;color:var(--teal);list-style:none;display:flex;align-items:center;gap:8px;user-select:none">
+              <span>◧ Clinical Context Survey</span>
+              <span style="font-size:10.5px;font-weight:500;color:var(--text-tertiary);margin-left:auto">Helps an LLM interpret the EDF</span>
+            </summary>
+            <div style="margin-top:10px;font-size:11.5px;color:var(--text-tertiary);line-height:1.5;margin-bottom:10px">
+              Answers get bundled into a compact, self-describing JSON payload (schema <code style="color:var(--teal)">deepsynaps.qeeg_clinical_context.v1</code>) that accompanies the EDF when an LLM interprets this recording. All fields optional.
+            </div>
+
+            <div style="font-size:10px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin:4px 0 6px">Recording conditions</div>
+            <div class="g2" style="gap:8px;margin-bottom:6px">
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Recording state</label>
+                <select id="qs-state" class="form-control">
+                  <option value="resting">Resting</option>
+                  <option value="task">Task / cognitive</option>
+                  <option value="sleep">Sleep</option>
+                  <option value="post_session">Post-treatment</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Time of day</label>
+                <select id="qs-tod" class="form-control">
+                  <option value="morning">Morning</option>
+                  <option value="afternoon">Afternoon</option>
+                  <option value="evening">Evening</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Environment</label>
+                <select id="qs-env" class="form-control">
+                  <option value="clinic">Clinic</option>
+                  <option value="home">Home</option>
+                  <option value="lab">Research lab</option>
+                </select>
+              </div>
+            </div>
+
+            <div style="font-size:10px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin:10px 0 6px">Patient state at recording</div>
+            <div class="g2" style="gap:8px">
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Caffeine (last 4 h)</label>
+                <select id="qs-caff" class="form-control">
+                  <option value="none">None</option>
+                  <option value="one_cup">1 cup</option>
+                  <option value="two_plus">2+ cups</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Alcohol / cannabis (last 24 h)</label>
+                <select id="qs-sub" class="form-control">
+                  <option value="none">None</option>
+                  <option value="some">Some</option>
+                  <option value="significant">Significant</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Sleep quality (prev night)</label>
+                <select id="qs-slpq" class="form-control">
+                  <option value="good">Good</option>
+                  <option value="fair">Fair</option>
+                  <option value="poor">Poor</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Sleep hours</label>
+                <input id="qs-slph" class="form-control" type="number" min="0" max="24" step="0.5" placeholder="7">
+              </div>
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Anxiety now (0–10)</label>
+                <input id="qs-anx" class="form-control" type="number" min="0" max="10" step="1" placeholder="0–10">
+              </div>
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Alertness now (0–10)</label>
+                <input id="qs-alt" class="form-control" type="number" min="0" max="10" step="1" placeholder="0–10">
+              </div>
+            </div>
+            <div class="form-group" style="margin-bottom:6px">
+              <label class="form-label" style="font-size:11px">EEG-active medications</label>
+              <div style="display:flex;flex-wrap:wrap;gap:4px;font-size:11px">
+                ${['ssri','snri','benzodiazepine','stimulant','antipsychotic','antiepileptic','hypnotic','lithium','beta_blocker','opioid','none'].map(m => `
+                  <label style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid var(--border);border-radius:999px;cursor:pointer;color:var(--text-secondary)">
+                    <input type="checkbox" class="qs-med" value="${m}"> ${m.replace(/_/g,' ')}
+                  </label>`).join('')}
+              </div>
+            </div>
+
+            <div style="font-size:10px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin:10px 0 6px">Clinical picture</div>
+            <div class="form-group" style="margin-bottom:6px">
+              <label class="form-label" style="font-size:11px">Primary clinical question</label>
+              <input id="qs-pq" class="form-control" placeholder="e.g. Is left DLPFC rTMS indicated for treatment-resistant MDD?">
+            </div>
+            <div class="form-group" style="margin-bottom:6px">
+              <label class="form-label" style="font-size:11px">Provisional diagnoses</label>
+              <div style="display:flex;flex-wrap:wrap;gap:4px;font-size:11px">
+                ${['mdd','bipolar','gad','ptsd','ocd','adhd','asd','schizophrenia','tbi','stroke','dementia','insomnia','chronic_pain','tinnitus','epilepsy','migraine','other'].map(d => `
+                  <label style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid var(--border);border-radius:999px;cursor:pointer;color:var(--text-secondary)">
+                    <input type="checkbox" class="qs-dx" value="${d}"> ${d.replace(/_/g,' ')}
+                  </label>`).join('')}
+              </div>
+            </div>
+            <div class="g2" style="gap:8px">
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Symptom duration</label>
+                <select id="qs-dur" class="form-control">
+                  <option value="lt_1m">&lt; 1 month</option>
+                  <option value="1_6m">1–6 months</option>
+                  <option value="6_24m">6–24 months</option>
+                  <option value="gt_2y">&gt; 2 years</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Head injury history</label>
+                <select id="qs-ti" class="form-control">
+                  <option value="none">None</option>
+                  <option value="mild_concussion">Mild concussion</option>
+                  <option value="moderate_tbi">Moderate TBI</option>
+                  <option value="severe_tbi">Severe TBI</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Seizure history</label>
+                <select id="qs-sz" class="form-control">
+                  <option value="no">No</option>
+                  <option value="yes">Yes</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group" style="margin-bottom:6px">
+              <label class="form-label" style="font-size:11px">Prior neuromodulation tried</label>
+              <div style="display:flex;flex-wrap:wrap;gap:4px;font-size:11px">
+                ${['rtms','tdcs','neurofeedback','tvns','dbs','ect','none'].map(n => `
+                  <label style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid var(--border);border-radius:999px;cursor:pointer;color:var(--text-secondary)">
+                    <input type="checkbox" class="qs-prior" value="${n}"> ${n.replace(/_/g,' ')}
+                  </label>`).join('')}
+              </div>
+            </div>
+
+            <div style="font-size:10px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin:10px 0 6px">Analysis goals</div>
+            <div class="g2" style="gap:8px">
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Candidate modality</label>
+                <select id="qs-mod" class="form-control">
+                  <option value="undecided">Not yet decided</option>
+                  <option value="tms">TMS / rTMS</option>
+                  <option value="tdcs">tDCS</option>
+                  <option value="neurofeedback">Neurofeedback</option>
+                  <option value="tvns">tVNS / taVNS</option>
+                  <option value="tacs">tACS</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom:6px"><label class="form-label" style="font-size:11px">Target region (optional)</label>
+                <input id="qs-roi" class="form-control" placeholder="e.g. Left DLPFC, F3–F4">
+              </div>
+            </div>
+
+            <div style="font-size:10px;font-weight:700;color:var(--amber);text-transform:uppercase;letter-spacing:.8px;margin:10px 0 6px">Red-flag screen</div>
+            <div style="display:flex;flex-direction:column;gap:4px;font-size:11.5px;color:var(--text-secondary)">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="qs-rf-si"> Active suicidal ideation</label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="qs-rf-neuro"> Unexplained recent neurological symptoms</label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="qs-rf-sync"> Recent syncope or seizure-like episode</label>
+            </div>
+
+            <div style="display:flex;gap:6px;margin-top:14px;flex-wrap:wrap;align-items:center">
+              <button type="button" class="btn btn-sm" onclick="window._qeegSurveyPreview()">Preview JSON</button>
+              <button type="button" class="btn btn-sm" onclick="window._qeegSurveyCopy()">Copy JSON</button>
+              <button type="button" class="btn btn-sm" onclick="window._qeegSurveyDownload()">Download .json</button>
+              <span id="qs-status" style="font-size:11px;color:var(--text-tertiary);margin-left:4px"></span>
+            </div>
+            <pre id="qs-preview" style="display:none;margin-top:8px;padding:10px;background:rgba(0,0,0,0.3);border-radius:6px;font-family:var(--font-mono,monospace);font-size:10.5px;color:var(--teal);max-height:260px;overflow:auto;white-space:pre-wrap;word-break:break-word"></pre>
+          </details>
+
           <div id="qr-error" style="display:none;color:var(--red);font-size:12px;margin-bottom:8px"></div>
           <div style="display:flex;gap:8px">
             <button class="btn" onclick="document.getElementById('qeeg-form-panel').style.display='none'">Cancel</button>
@@ -8775,7 +9050,7 @@ export function bindBrainData(records, patMap, patients, setTopbar) {
       allRecords = res?.items || [];
       container.innerHTML = _renderRecordRows(allRecords, patMap || {});
     } catch (e) {
-      container.innerHTML = `<div style="color:var(--red);font-size:12px">Load failed: ${e.message}</div>`;
+      container.innerHTML = `<div style="color:var(--red);font-size:12px">Load failed: ${_escCC(e.message)}</div>`;
     }
   };
 
@@ -8875,11 +9150,133 @@ export function bindBrainData(records, patMap, patients, setTopbar) {
     }
   };
 
+  // ── Clinical Context Survey — LLM-ready JSON bundle ───────────────────────
+  // Schema: deepsynaps.qeeg_clinical_context.v1. This payload is self-describing
+  // (includes instructions_for_llm) so any LLM can consume it without an
+  // external schema doc. Paired with EDF-derived band powers, it gives the
+  // model both the numbers and the clinical context to interpret them.
+  window._qeegSurveyBuild = function() {
+    const val   = id  => (document.getElementById(id)?.value ?? '') || null;
+    const num   = id  => { const v = document.getElementById(id)?.value; return (v === '' || v == null) ? null : Number(v); };
+    const chk   = id  => !!document.getElementById(id)?.checked;
+    const multi = sel => Array.from(document.querySelectorAll(sel)).filter(x => x.checked).map(x => x.value);
+
+    const fileName = document.getElementById('qr-file-input')?.files?.[0]?.name || null;
+
+    return {
+      schema: 'deepsynaps.qeeg_clinical_context.v1',
+      generated_at: new Date().toISOString(),
+      recording: {
+        patient_ref:     val('qr-patient'),
+        recording_date:  val('qr-date'),
+        filename:        fileName,
+        device:          val('qr-device'),
+        channels:        num('qr-channels'),
+        duration_min:    num('qr-duration'),
+        eyes_condition:  val('qr-eyes'),
+        recording_state: val('qs-state'),
+        time_of_day:     val('qs-tod'),
+        environment:     val('qs-env'),
+      },
+      state_at_recording: {
+        caffeine_4h:           val('qs-caff'),
+        alcohol_cannabis_24h:  val('qs-sub'),
+        sleep_quality:         val('qs-slpq'),
+        sleep_hours:           num('qs-slph'),
+        anxiety_0_10:          num('qs-anx'),
+        alertness_0_10:        num('qs-alt'),
+        eeg_active_meds:       multi('.qs-med'),
+      },
+      clinical: {
+        primary_question:      val('qs-pq'),
+        provisional_diagnoses: multi('.qs-dx'),
+        symptom_duration:      val('qs-dur'),
+        head_injury_history:   val('qs-ti'),
+        seizure_history:       val('qs-sz') === 'yes',
+        prior_neuromod:        multi('.qs-prior'),
+      },
+      analysis_goals: {
+        candidate_modality: val('qs-mod'),
+        target_region:      val('qs-roi'),
+      },
+      red_flags: {
+        active_si:                  chk('qs-rf-si'),
+        unexplained_neuro_symptoms: chk('qs-rf-neuro'),
+        recent_syncope_or_seizure:  chk('qs-rf-sync'),
+      },
+      clinician_notes: val('qr-notes'),
+      _instructions_for_llm:
+        'This is clinical context for interpreting an EDF qEEG recording. ' +
+        'Consider recording confounders (caffeine, sleep, medications, alcohol/cannabis, time of day) before attributing findings to pathology. ' +
+        'Any true flag under `red_flags` requires immediate clinician attention and must not be minimized in the analysis narrative. ' +
+        'Respect `analysis_goals.candidate_modality` unless the EEG data indicates a contraindication. ' +
+        'Prior neuromodulation attempts under `clinical.prior_neuromod` are relevant for resistance patterns and should inform protocol suggestions.',
+    };
+  };
+
+  window._qeegSurveyJSON = function() {
+    return JSON.stringify(window._qeegSurveyBuild(), null, 2);
+  };
+
+  window._qeegSurveyPreview = function() {
+    const pre = document.getElementById('qs-preview');
+    if (!pre) return;
+    if (pre.style.display === 'none') {
+      pre.textContent = window._qeegSurveyJSON();
+      pre.style.display = '';
+    } else {
+      pre.style.display = 'none';
+    }
+  };
+
+  window._qeegSurveyCopy = async function() {
+    const status = document.getElementById('qs-status');
+    try {
+      await navigator.clipboard.writeText(window._qeegSurveyJSON());
+      if (status) { status.textContent = '✓ Copied'; setTimeout(() => { status.textContent = ''; }, 2000); }
+    } catch (_) {
+      if (status) { status.textContent = 'Copy failed'; setTimeout(() => { status.textContent = ''; }, 2000); }
+    }
+  };
+
+  window._qeegSurveyDownload = function() {
+    const survey = window._qeegSurveyBuild();
+    const blob = new Blob([JSON.stringify(survey, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    const ref  = survey.recording.patient_ref || 'unknown';
+    const date = survey.recording.recording_date || new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `qeeg_context_${ref}_${date}.json`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 0);
+    const status = document.getElementById('qs-status');
+    if (status) { status.textContent = '✓ Downloaded'; setTimeout(() => { status.textContent = ''; }, 2000); }
+  };
+
   window._saveQEEGRecord = async function() {
     const errEl = document.getElementById('qr-error');
     if (errEl) errEl.style.display = 'none';
     const patientId = document.getElementById('qr-patient')?.value;
     if (!patientId) { if (errEl) { errEl.textContent = 'Select a patient.'; errEl.style.display = 'block'; } return; }
+
+    // Embed survey JSON in notes inside stable delimiters so it can be
+    // recovered verbatim by downstream LLM interpretation without a schema migration.
+    const humanNotes = (document.getElementById('qr-notes')?.value || '').trim();
+    let notesOut = null;
+    try {
+      const survey = window._qeegSurveyBuild?.();
+      if (survey) {
+        const block = '<<qeeg_context_v1>>\n' + JSON.stringify(survey) + '\n<</qeeg_context_v1>>';
+        notesOut = humanNotes ? (humanNotes + '\n\n' + block) : block;
+      } else {
+        notesOut = humanNotes || null;
+      }
+    } catch (_) {
+      notesOut = humanNotes || null;
+    }
+
     const payload = {
       patient_id:             patientId,
       recorded_at:            document.getElementById('qr-date')?.value || null,
@@ -8893,7 +9290,7 @@ export function bindBrainData(records, patMap, patients, setTopbar) {
       gamma_power:            parseFloat(document.getElementById('qr-gamma')?.value) || null,
       artifact_rejection_pct: parseFloat(document.getElementById('qr-artifact')?.value) || null,
       eyes_condition:         document.getElementById('qr-eyes')?.value || null,
-      notes:                  document.getElementById('qr-notes')?.value || null,
+      summary_notes:          notesOut,
     };
     try {
       await api.createQEEGRecord(payload);
@@ -8964,7 +9361,7 @@ export function bindBrainData(records, patMap, patients, setTopbar) {
         ${result?.red_flags?.length ? `<div class="notice notice-warn">⚠ Red flags: ${result.red_flags.join(', ')}</div>` : ''}
       `);
     } catch (e) {
-      if (res) res.innerHTML = `<div class="notice notice-warn">${e.message}</div>`;
+      if (res) res.innerHTML = `<div class="notice notice-warn">${_escCC(e.message)}</div>`;
     }
   };
 
@@ -9719,7 +10116,7 @@ window._vcSaveRecordedNote = function() {
   const body = document.getElementById('vc-note-body')?.value?.trim();
   if (!body) { _dsToast('Please enter note content before saving.', 'warn'); return; }
   document.querySelector('.modal-overlay')?.remove();
-  _vcToast('Note Saved', `"${subj||'Note'}" saved as draft. AI summary will be generated shortly.`, 'success');
+  _vcToast('Note Saved', `"${subj||'Note'}" was saved as a draft in this browser view. AI summary generation is not verified from this page.`, 'success');
 };
 window._vcStartCall = function(reqId, type) {
   _vcToast(`Start ${type==='video'?'Video Visit':'Voice Call'}`, 'Connect your video/telephony provider to launch calls from this page.', 'info');
@@ -9739,25 +10136,25 @@ window._vcLaunchConsult = function(type, id) {
 window._vcScheduleFollowUp = function(pid) {
   _vcToast('Schedule Follow-up', 'Open the Scheduling page to book a follow-up session for this patient.', 'info');
 };
-window._vcMarkFollowUpDone = function(id) { _vcRender(); _vcToast('Marked', 'Item marked as reviewed.', 'success'); };
+window._vcMarkFollowUpDone = function(id) { _vcRender(); _vcToast('Marked', 'Item marked as reviewed in this preview workflow.', 'success'); };
 window._vcMarkMediaReviewed = function(id) {
   const item = VC_MOCK.sharedMedia.find(m => m.id === id);
   if (item) item.reviewed = true;
   _vcRender();
 };
 window._vcConvertToNote = function(id) {
-  _vcToast('Note Created', 'A draft note has been created from this update. Open AI Notes to review and sign off.', 'success');
+  _vcToast('Draft Note Created', 'A local draft note has been created from this update. Open AI Notes to review before saving to the clinical record.', 'success');
 };
 window._vcFlagAdverse = function(id) {
-  _vcToast('Adverse Event Flagged', 'This update has been flagged for adverse event review. Add it to the patient\'s clinical record.', 'warning');
+  _vcToast('Adverse Event Flagged', 'This update has been flagged locally for adverse event review. Add it to the patient\'s clinical record after clinician confirmation.', 'warning');
 };
 window._vcSignOff = function(id) {
   const note = VC_MOCK.aiNotes.find(n => n.id === id);
   if (note) note.status = 'signed';
-  _vcRender(); _vcToast('Note Signed', 'Note signed off and saved to the clinical record.', 'success');
+  _vcRender(); _vcToast('Note Signed Locally', 'Note sign-off was recorded in this preview flow. Clinical-record persistence is not verified from this page.', 'success');
 };
-window._vcSaveNoteDraft = function(id) { _vcToast('Draft Saved', 'Note draft saved. You can return to sign off later.', 'success'); };
-window._vcConvertNoteAction = function(id) { _vcToast('Follow-up Created', 'A follow-up task has been added to the patient\'s care plan.', 'success'); };
+window._vcSaveNoteDraft = function(id) { _vcToast('Draft Saved', 'Note draft saved in this browser view. You can return to sign off later.', 'success'); };
+window._vcConvertNoteAction = function(id) { _vcToast('Follow-up Logged', 'A local follow-up item was added to this preview workflow. Care-plan persistence is not verified from this page.', 'success'); };
 window._vcDiscardNote = function(id) {
   const idx = VC_MOCK.aiNotes.findIndex(n => n.id === id);
   if (idx >= 0) VC_MOCK.aiNotes.splice(idx, 1);
@@ -9956,7 +10353,7 @@ export async function pgProtocolBuilder(setTopbar) {
     </div>`;
 
   // ── AI Suggest ─────────────────────────────────────────────────────────────
-  window._pbAISuggest = function() {
+  window._pbAISuggest = async function() {
     const panel = document.getElementById('pb-ai-suggest-panel');
     if (!panel) return;
 
@@ -9972,6 +10369,9 @@ export async function pgProtocolBuilder(setTopbar) {
       return;
     }
 
+    panel.style.display = '';
+    panel.innerHTML = `<div id="pb-ai-suggest-panel"><h4>🤖 AI Protocol Suggestion</h4><p style="font-size:12.5px;color:var(--text-secondary)">Loading live evidence context for the current builder blocks…</p></div>`;
+
     // Detect modalities present on canvas
     const types = nodes.map(n => n.type);
     const hasTMS = types.some(t => ['tms', 'theta-burst', 'deep-tms'].includes(t));
@@ -9980,6 +10380,13 @@ export async function pgProtocolBuilder(setTopbar) {
     const hasHRV = types.some(t => ['hrv-biofeedback', 'biofeedback'].includes(t));
     const hasRest = types.some(t => t === 'rest');
     const hasRepeat = types.some(t => t === 'repeat');
+    const liveModalities = [
+      hasTMS ? 'tms' : null,
+      hasNFB ? 'neurofeedback' : null,
+      hasTDCS ? 'tdcs' : null,
+      hasHRV ? 'biofeedback' : null,
+    ].filter(Boolean);
+    const liveBundle = await loadModalityEvidenceContext(liveModalities, { templateLimit: 4, safetyLimit: 4 });
 
     // Session count recommendation
     let sessionRec = '20–30 sessions recommended for most neuromodulation courses.';
@@ -9993,13 +10400,23 @@ export async function pgProtocolBuilder(setTopbar) {
     if (hasTMS) {
       paramTips.push('Set intensity to 120% motor threshold for left DLPFC protocols. Consider 80–90% MT for anxious patients.');
       paramTips.push('Inter-train interval of ≥2 seconds reduces seizure risk. Verify device default settings match protocol.');
+      const hint = getModalityTemplateHint(liveBundle, 'tms');
+      if (hint) paramTips.push(hint);
     }
     if (hasNFB) {
       paramTips.push('For ADHD: SMR reward (12–15 Hz) at Cz + theta inhibit (4–8 Hz). Threshold should auto-adjust to keep reward rate 60–70%.');
       paramTips.push('Electrode placement: always use EEG-grade gel for impedance <5 kΩ. Check before each session.');
+      const hint = getModalityTemplateHint(liveBundle, 'neurofeedback');
+      if (hint) paramTips.push(hint);
     }
     if (hasTDCS) {
       paramTips.push('tDCS: ramp current up over 30 seconds to reduce skin sensation. Current density should not exceed 0.06 mA/cm².');
+      const hint = getModalityTemplateHint(liveBundle, 'tdcs');
+      if (hint) paramTips.push(hint);
+    }
+    if (hasHRV) {
+      const hint = getModalityTemplateHint(liveBundle, 'biofeedback');
+      if (hint) paramTips.push(hint);
     }
     if (!hasRest && (hasTMS || hasTDCS)) {
       paramTips.push('Consider adding Rest Period blocks between stimulation blocks to reduce fatigue and support consolidation.');
@@ -10019,12 +10436,29 @@ export async function pgProtocolBuilder(setTopbar) {
     if (hasRepeat && hasTMS) {
       warnings.push('Repeat blocks with TMS: ensure cumulative pulse count per day does not exceed safety limits (typically ≤3000 standard, ≤6000 in published iTBS protocols).');
     }
+    for (const modality of liveModalities) {
+      const signal = liveBundle[modality]?.safety?.[0];
+      if (signal) warnings.push(`Live ${modality.toUpperCase()} safety watch: ${getModalitySignalTitle(signal)}.`);
+    }
 
-    // Literature links (rule-based)
+    // Literature links (bundle-backed when available, rule-based otherwise)
     const links = [];
-    if (hasTMS) links.push({ text: 'George et al. (2010) — TMS for depression, d=0.55', page: 'evidence' });
-    if (hasNFB) links.push({ text: 'Arns et al. (2009) — Neurofeedback for ADHD, d=0.59', page: 'evidence' });
-    if (hasTDCS) links.push({ text: 'Brunoni et al. (2017) — tDCS meta-analysis, d=0.37', page: 'evidence' });
+    const _pushTemplateLinks = (modality) => {
+      const rows = liveBundle[modality]?.templates || [];
+      rows.slice(0, 2).forEach((row) => {
+        const label = [row.modality || modality.toUpperCase(), row.indication, row.target].filter(Boolean).join(' — ');
+        links.push({ text: `${label} · ${row.evidence_tier || 'Tier unset'}`, page: 'research-evidence' });
+      });
+    };
+    _pushTemplateLinks('tms');
+    _pushTemplateLinks('neurofeedback');
+    _pushTemplateLinks('tdcs');
+    _pushTemplateLinks('biofeedback');
+    if (!links.length) {
+      if (hasTMS) links.push({ text: 'George et al. (2010) — TMS for depression, d=0.55', page: 'research-evidence' });
+      if (hasNFB) links.push({ text: 'Arns et al. (2009) — Neurofeedback for ADHD, d=0.59', page: 'research-evidence' });
+      if (hasTDCS) links.push({ text: 'Brunoni et al. (2017) — tDCS meta-analysis, d=0.37', page: 'research-evidence' });
+    }
     links.push({ text: 'Browse full evidence library →', page: 'evidence' });
 
     panel.style.display = '';
@@ -10165,8 +10599,8 @@ export async function pgProtocolBuilder(setTopbar) {
     try {
       localStorage.setItem('ds_builder_protocol', JSON.stringify(_builderGetJSON()));
       const status = document.getElementById('builder-status');
-      if (status) { status.textContent = '✓ Saved'; setTimeout(() => { if (status) status.textContent = ''; }, 2500); }
-      window._announce?.('Protocol saved');
+      if (status) { status.textContent = '✓ Saved in this browser view'; setTimeout(() => { if (status) status.textContent = ''; }, 2500); }
+      window._announce?.('Protocol saved in this browser view');
     } catch { window._announce?.('Save failed', true); }
   };
 
@@ -10368,7 +10802,7 @@ function _dsCheckboxGroup(items, name) {
   let html = '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:4px 12px">';
   for (const item of items) {
     html += `<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);cursor:pointer;padding:3px 0">
-      <input type="checkbox" value="${item.id}" data-ds="${name}" style="accent-color:var(--accent-teal,#00d4bc);width:14px;height:14px">
+      <input type="checkbox" value="${item.id}" data-ds="${name}" style="accent-color:var(--teal,#00d4bc);width:14px;height:14px">
       ${item.label}
     </label>`;
   }
@@ -10382,7 +10816,7 @@ function _dsRecCard(rec) {
   const hasWarnings = rec.warnings.length > 0;
 
   const condPills = rec.conditions.map(c =>
-    `<span style="background:rgba(0,212,188,0.12);color:var(--accent-teal,#00d4bc);padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500">${c}</span>`
+    `<span style="background:rgba(0,212,188,0.12);color:var(--teal,#00d4bc);padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500">${c}</span>`
   ).join('');
 
   const warnPills = rec.warnings.map(w =>
@@ -10406,7 +10840,7 @@ function _dsRecCard(rec) {
     <div style="margin-bottom:8px">
       <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-tertiary);margin-bottom:3px">
         <span>Match Score</span>
-        <span style="font-weight:600;color:var(--accent-teal,#00d4bc)">${rec.matchScore}%</span>
+        <span style="font-weight:600;color:var(--teal,#00d4bc)">${rec.matchScore}%</span>
       </div>
       <div class="rec-match-bar"><div class="rec-match-fill" style="width:${rec.matchScore}%"></div></div>
     </div>
@@ -10457,6 +10891,93 @@ export async function pgDecisionSupport(setTopbar) {
 
   const content = document.getElementById('content');
   if (!content) return;
+  const [dsCoverageRes, dsTemplateRows, dsSafetyRows] = await Promise.all([
+    api.protocolCoverage({ limit: 48 }).catch(() => null),
+    api.listResearchProtocolTemplates({ limit: 48 }).catch(() => []),
+    api.listResearchSafetySignals({ limit: 48 }).catch(() => []),
+  ]);
+  const dsCoverageRows = Array.isArray(dsCoverageRes?.rows) ? dsCoverageRes.rows : [];
+  const dsTemplates = Array.isArray(dsTemplateRows) ? dsTemplateRows : [];
+  const dsSafetySignals = Array.isArray(dsSafetyRows) ? dsSafetyRows : [];
+  const _dsSlug = (v) => String(v || '').trim().toLowerCase().replace(/[_\s/]+/g, '-').replace(/[^a-z0-9-]/g, '');
+  const _dsLiveSignalTitle = (signal) =>
+    (signal.safety_signal_tags || []).concat(signal.contraindication_signal_tags || []).join(', ')
+    || signal.title
+    || signal.example_titles
+    || 'Safety signal';
+  const _dsFindLiveContext = (modality, conditions = []) => {
+    const modSlug = _dsSlug(modality);
+    const condSlugs = conditions.map(_dsSlug);
+    const coverage = dsCoverageRows.filter((row) =>
+      _dsSlug(row.modality) === modSlug &&
+      (!condSlugs.length || condSlugs.includes(_dsSlug(row.condition)))
+    );
+    const templates = dsTemplates.filter((row) =>
+      _dsSlug(row.modality) === modSlug &&
+      (!condSlugs.length || condSlugs.includes(_dsSlug(row.indication)))
+    );
+    const safety = dsSafetySignals.filter((signal) => {
+      const modalityHit = (signal.canonical_modalities || []).some((tag) => _dsSlug(tag) === modSlug)
+        || _dsSlug(signal.primary_modality) === modSlug;
+      const indicationHit = !condSlugs.length || (signal.indication_tags || []).some((tag) => condSlugs.includes(_dsSlug(tag)));
+      return modalityHit && indicationHit;
+    });
+    return { coverage, templates, safety };
+  };
+  const _dsRenderEvidenceTable = (filterModality, filterLevel) => {
+    const liveRows = dsTemplates
+      .filter((row) => {
+        const mod = _dsSlug(row.modality);
+        const level = String(row.evidence_tier || '').replace(/^EV-?/i, '').toUpperCase();
+        if (filterModality && mod !== filterModality) return false;
+        if (filterLevel && level !== filterLevel) return false;
+        return true;
+      })
+      .map((row) => {
+        const ctx = _dsFindLiveContext(row.modality, [row.indication]);
+        const level = String(row.evidence_tier || '').replace(/^EV-?/i, '').toUpperCase() || 'B';
+        const gap = ctx.coverage[0]?.gap && ctx.coverage[0]?.gap !== 'None' ? ` · gap: ${ctx.coverage[0].gap}` : '';
+        const safety = ctx.safety.length ? ` · safety: ${_dsLiveSignalTitle(ctx.safety[0])}` : '';
+        return `<tr>
+          <td style="font-weight:500">${DS_MODALITY_ICONS[_dsSlug(row.modality)] || ''} ${row.modality}</td>
+          <td style="text-transform:capitalize">${row.indication || '—'}</td>
+          <td><span class="evidence-badge-${level}">Level ${level}</span></td>
+          <td class="mono">${Number(row.paper_count || 0).toLocaleString()}</td>
+          <td style="font-size:11px;color:var(--text-secondary)">${row.target || 'Target pending'}${gap}${safety}</td>
+        </tr>`;
+      }).join('');
+    if (liveRows) {
+      return `<table class="ds-table" style="font-size:12px">
+        <thead><tr><th>Modality</th><th>Condition</th><th>Evidence Level</th><th>Papers</th><th>Live bundle context</th></tr></thead>
+        <tbody>${liveRows}</tbody>
+      </table>`;
+    }
+    return _dsEvidenceTable(filterModality, filterLevel);
+  };
+  const _dsRenderLiveRecommendationCard = (rec) => {
+    const base = _dsRecCard(rec);
+    const ctx = _dsFindLiveContext(rec.modality, rec.conditions);
+    if (!ctx.coverage.length && !ctx.templates.length && !ctx.safety.length) return base;
+    const liveBits = [];
+    if (ctx.coverage.length) {
+      const row = ctx.coverage[0];
+      liveBits.push(`Coverage ${row.coverage}% across ${Number(row.paper_count || 0).toLocaleString()} papers${row.gap && row.gap !== 'None' ? ` · gap: ${row.gap}` : ''}`);
+    }
+    if (ctx.templates.length) {
+      const tpl = ctx.templates[0];
+      liveBits.push(`Template: ${(tpl.target || 'target pending')} · ${tpl.evidence_tier || 'tier unset'}`);
+    }
+    if (ctx.safety.length) {
+      liveBits.push(`Safety: ${_dsLiveSignalTitle(ctx.safety[0])}`);
+    }
+    return base.replace(
+      '</button>\n  </div>',
+      `${liveBits.length ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:var(--text-secondary);line-height:1.5">${liveBits.map(_esc).join('<br>')}</div>` : ''}<button class="btn btn-primary btn-sm" onclick="window._applyModalityRecommendation('${rec.modality}')"${rec.matchScore === 0 ? ' disabled' : ''}>
+      Use This Modality &rarr;
+    </button>
+  </div>`
+    );
+  };
 
   const modOptions = Object.keys(MODALITY_INDICATIONS)
     .map(m => `<option value="${m}">${DS_MODALITY_ICONS[m] || ''} ${m.charAt(0).toUpperCase() + m.slice(1)}</option>`)
@@ -10475,7 +10996,7 @@ export async function pgDecisionSupport(setTopbar) {
 
   <div style="margin-bottom:20px">
     <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:4px">Clinical Decision Support</h2>
-    <p style="font-size:12.5px;color:var(--text-secondary)">Rule-based protocol recommendations derived from modality-indication evidence mapping. All logic is deterministic &mdash; no external API calls.</p>
+    <p style="font-size:12.5px;color:var(--text-secondary)">Rule-based protocol recommendations derived from modality-indication evidence mapping. Contraindication logic remains deterministic; evidence context now prefers the live neuromodulation research bundle when available.</p>
   </div>
 
   <div style="display:grid;grid-template-columns:40% 60%;gap:20px;align-items:start">
@@ -10549,7 +11070,7 @@ export async function pgDecisionSupport(setTopbar) {
         </select>
       </div>
     </div>
-    <div id="ds-ev-table">${_dsEvidenceTable('', '')}</div>
+    <div id="ds-ev-table">${_dsRenderEvidenceTable('', '')}</div>
   </div>
 
 </div>`;
@@ -10583,7 +11104,7 @@ export async function pgDecisionSupport(setTopbar) {
         No modalities match the selected symptoms &mdash; consider broadening your symptom selection.
       </div>`;
     } else {
-      html += scored.map(_dsRecCard).join('');
+      html += scored.map(_dsRenderLiveRecommendationCard).join('');
     }
 
     if (unmatched.length > 0 && scored.length > 0) {
@@ -10591,7 +11112,7 @@ export async function pgDecisionSupport(setTopbar) {
         <summary style="font-size:11.5px;color:var(--text-tertiary);cursor:pointer;padding:4px 0">
           Show ${unmatched.length} modalities with no symptom match
         </summary>
-        <div style="margin-top:8px">${unmatched.map(_dsRecCard).join('')}</div>
+        <div style="margin-top:8px">${unmatched.map(_dsRenderLiveRecommendationCard).join('')}</div>
       </details>`;
     }
 
@@ -10644,7 +11165,7 @@ export async function pgDecisionSupport(setTopbar) {
 
   window._filterEvidenceLibrary = function(modality, level) {
     const el = document.getElementById('ds-ev-table');
-    if (el) el.innerHTML = _dsEvidenceTable(modality || '', level || '');
+    if (el) el.innerHTML = _dsRenderEvidenceTable(modality || '', level || '');
   };
 }
 
@@ -10834,7 +11355,7 @@ function _ppRenderTabs(activeTab) {
   const tabs = ['demographics', 'insurance', 'medications', 'allergies', 'history', 'notes', 'assessments'];
   const labels = { demographics: 'Demographics', insurance: 'Insurance', medications: 'Medications', allergies: 'Allergies', history: 'Treatment History', notes: 'Notes', assessments: 'Assessments' };
   return `<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px;overflow-x:auto" role="tablist">
-    ${tabs.map(t => `<button role="tab" aria-selected="${t === activeTab}" class="btn" style="border-radius:0;border:none;border-bottom:${t === activeTab ? '2px solid var(--accent-teal)' : '2px solid transparent'};margin-bottom:-2px;padding:10px 18px;font-size:.875rem;font-weight:${t === activeTab ? '600' : '400'};color:${t === activeTab ? 'var(--accent-teal)' : 'var(--text-secondary)'};white-space:nowrap;background:none" onclick="window._profileTab('${t}')">${labels[t]}</button>`).join('')}
+    ${tabs.map(t => `<button role="tab" aria-selected="${t === activeTab}" class="btn" style="border-radius:0;border:none;border-bottom:${t === activeTab ? '2px solid var(--teal)' : '2px solid transparent'};margin-bottom:-2px;padding:10px 18px;font-size:.875rem;font-weight:${t === activeTab ? '600' : '400'};color:${t === activeTab ? 'var(--teal)' : 'var(--text-secondary)'};white-space:nowrap;background:none" onclick="window._profileTab('${t}')">${labels[t]}</button>`).join('')}
   </div>`;
 }
 
@@ -11009,9 +11530,9 @@ function _ppRenderHistory(profile, editMode) {
                   ${h.outcome != null ? `<div style="display:flex;align-items:center;gap:8px">
                     <span style="font-size:.75rem;color:var(--text-tertiary)">Outcome</span>
                     <div style="flex:1;max-width:160px;height:6px;background:var(--border);border-radius:3px;overflow:hidden">
-                      <div style="height:6px;border-radius:3px;background:var(--accent-teal);width:${h.outcome}%;transition:width .4s"></div>
+                      <div style="height:6px;border-radius:3px;background:var(--teal);width:${h.outcome}%;transition:width .4s"></div>
                     </div>
-                    <span style="font-size:.75rem;font-weight:600;color:var(--accent-teal)">${h.outcome}%</span>
+                    <span style="font-size:.75rem;font-weight:600;color:var(--teal)">${h.outcome}%</span>
                   </div>` : ''}
                 </div>
               </div>`).join('')}
@@ -11194,9 +11715,9 @@ export async function pgPatientProfile(setTopbar) {
         (name === 'allergies' && btn.textContent === 'Allergies') ||
         (name === 'notes' && btn.textContent === 'Notes') ||
         (name === 'assessments' && btn.textContent === 'Assessments');
-      btn.style.borderBottomColor = active ? 'var(--accent-teal)' : 'transparent';
+      btn.style.borderBottomColor = active ? 'var(--teal)' : 'transparent';
       btn.style.fontWeight        = active ? '600' : '400';
-      btn.style.color             = active ? 'var(--accent-teal)' : 'var(--text-secondary)';
+      btn.style.color             = active ? 'var(--teal)' : 'var(--text-secondary)';
     });
   };
 
@@ -11257,7 +11778,7 @@ export async function pgPatientProfile(setTopbar) {
     savePatientProfile(p);
     _ppEditMode = false;
     _ppRerender();
-    window._announce?.('Demographics saved');
+    window._announce?.('Saving demographics…');
     // ── Sync core fields to backend ────────────────────────────────────────
     const nameParts = (p.name || '').trim().split(/\s+/);
     const backendData = {
@@ -11270,6 +11791,7 @@ export async function pgPatientProfile(setTopbar) {
     };
     try {
       await api.updatePatient(_ppCurrentId, backendData);
+      window._announce?.('Demographics saved');
       window._showNotifToast?.({ title: 'Saved', body: 'Patient profile updated.', severity: 'success' });
     } catch(e) {
       window._showNotifToast?.({ title: 'Save failed', body: e.message || 'Could not sync to server.', severity: 'warn' });
@@ -11289,7 +11811,7 @@ export async function pgPatientProfile(setTopbar) {
     savePatientProfile(p);
     _ppEditMode = false;
     _ppRerender();
-    window._announce?.('Insurance saved');
+    window._announce?.('Insurance saved in this browser view');
   };
 
   window._profileAddMedication = function() {
@@ -11312,7 +11834,7 @@ export async function pgPatientProfile(setTopbar) {
     });
     savePatientProfile(p);
     document.getElementById('pp-tab-content').innerHTML = _ppRenderMedications(p, _ppEditMode);
-    window._announce?.('Medication added');
+    window._announce?.('Medication added in this browser view');
   };
 
   window._profileDeleteMedication = function(idx) {
@@ -11341,7 +11863,7 @@ export async function pgPatientProfile(setTopbar) {
     });
     savePatientProfile(p);
     document.getElementById('pp-tab-content').innerHTML = _ppRenderAllergies(p, _ppEditMode);
-    window._announce?.('Allergy added');
+    window._announce?.('Allergy added in this browser view');
   };
 
   window._profileDeleteAllergy = function(idx) {
@@ -11372,7 +11894,7 @@ export async function pgPatientProfile(setTopbar) {
     });
     savePatientProfile(p);
     document.getElementById('pp-tab-content').innerHTML = _ppRenderHistory(p, _ppEditMode);
-    window._announce?.('Treatment entry added');
+    window._announce?.('Treatment entry added in this browser view');
   };
 
   window._profileSaveNotes = function() {
@@ -11382,7 +11904,7 @@ export async function pgPatientProfile(setTopbar) {
     savePatientProfile(p);
     _ppEditMode = false;
     _ppRerender();
-    window._announce?.('Notes saved');
+    window._announce?.('Notes saved in this browser view');
   };
 
   window._profileAddFlag = function(flag) {
@@ -11413,9 +11935,9 @@ export async function pgPatientProfile(setTopbar) {
     document.getElementById('pp-tab-content').innerHTML = _ppRenderTab(p, 'notes', true);
     document.querySelectorAll('[role="tab"]').forEach(btn => {
       const isNotes = btn.textContent.trim() === 'Notes';
-      btn.style.borderBottomColor = isNotes ? 'var(--accent-teal)' : 'transparent';
+      btn.style.borderBottomColor = isNotes ? 'var(--teal)' : 'transparent';
       btn.style.fontWeight        = isNotes ? '600' : '400';
-      btn.style.color             = isNotes ? 'var(--accent-teal)' : 'var(--text-secondary)';
+      btn.style.color             = isNotes ? 'var(--teal)' : 'var(--text-secondary)';
     });
     document.getElementById('pp-notes-area')?.focus();
     window._announce?.('Notes tab open — begin typing');
@@ -11660,3 +12182,13 @@ function _hlMark(text, query) {
 }
 
 // ── Type badge colors ─────────────────────────────────────────────────────────
+  const liveEvidence = await getEvidenceUiStats({
+    fallbackSummary: EVIDENCE_SUMMARY,
+    fallbackConditionCount: CONDITION_EVIDENCE.length,
+  });
+  const protocolOverview = await loadResearchBundleOverview({
+    coverageLimit: 12,
+    templateLimit: 12,
+    safetyLimit: 18,
+    includeConditions: false,
+  });

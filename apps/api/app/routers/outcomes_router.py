@@ -16,10 +16,16 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import OutcomeEvent, OutcomeSeries, TreatmentCourse
+from app.repositories.patients import resolve_patient_clinic_id
 
 router = APIRouter(prefix="/api/v1/outcomes", tags=["Outcomes"])
 
@@ -321,6 +327,7 @@ def list_outcomes(
     course_id: Optional[str] = Query(default=None),
     template_id: Optional[str] = Query(default=None),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    limit: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db_session),
 ) -> OutcomeListResponse:
     require_minimum_role(actor, "clinician")
@@ -335,7 +342,7 @@ def list_outcomes(
     if template_id:
         q = q.filter(OutcomeSeries.template_id == template_id)
 
-    records = q.order_by(OutcomeSeries.administered_at).all()
+    records = q.order_by(OutcomeSeries.administered_at).limit(limit).all()
     items = [OutcomeOut.from_record(r) for r in records]
     return OutcomeListResponse(items=items, total=len(items))
 
@@ -347,6 +354,16 @@ def record_outcome_event(
     db: Session = Depends(get_db_session),
 ) -> OutcomeEventOut:
     require_minimum_role(actor, "clinician")
+
+    # Cross-clinic data-poisoning guard: a clinician at clinic B used to be
+    # able to write an OutcomeEvent (severity="critical", title=…) against a
+    # clinic A patient_id. monitor_service surfaces those events to clinic A
+    # via a patient_id-scoped (not clinician-scoped) query, so the row would
+    # show up as a "critical" alert next to the wrong clinic's patient.
+    if body.patient_id:
+        exists, patient_clinic_id = resolve_patient_clinic_id(db, body.patient_id)
+        if exists:
+            require_patient_owner(actor, patient_clinic_id)
 
     recorded_at = datetime.now(timezone.utc)
     if body.recorded_at:
@@ -420,10 +437,17 @@ def course_outcome_summary(
     db: Session = Depends(get_db_session),
 ) -> CourseSummaryListResponse:
     require_minimum_role(actor, "clinician")
+    # Owner gate — only the course's owning clinician (or admin) can read its outcomes.
+    course = db.query(TreatmentCourse).filter_by(id=course_id).first()
+    if course is None:
+        raise ApiServiceError(code="not_found", message="Treatment course not found.", status_code=404)
+    if actor.role != "admin" and course.clinician_id != actor.actor_id:
+        raise ApiServiceError(code="not_found", message="Treatment course not found.", status_code=404)
     records = (
         db.query(OutcomeSeries)
         .filter(OutcomeSeries.course_id == course_id)
         .order_by(OutcomeSeries.administered_at)
+        .limit(200)
         .all()
     )
     return _compute_summary(course_id, records)
@@ -440,7 +464,7 @@ def aggregate_outcomes(
     q = db.query(OutcomeSeries)
     if actor.role != "admin":
         q = q.filter(OutcomeSeries.clinician_id == actor.actor_id)
-    records = q.all()
+    records = q.limit(500).all()
 
     by_course: dict[str, list[OutcomeSeries]] = {}
     for r in records:
@@ -521,7 +545,7 @@ def longitudinal_outcomes(
     course_q = db.query(TreatmentCourse)
     if actor.role != "admin":
         course_q = course_q.filter(TreatmentCourse.clinician_id == actor.actor_id)
-    courses = [course for course in course_q.all() if _course_matches_cohort(course, cohort)]
+    courses = [course for course in course_q.limit(200).all() if _course_matches_cohort(course, cohort)]
     course_map = {course.id: course for course in courses}
     if not course_map:
         return {
@@ -548,7 +572,7 @@ def longitudinal_outcomes(
     if actor.role != "admin":
         outcomes_q = outcomes_q.filter(OutcomeSeries.clinician_id == actor.actor_id)
     outcomes_q = outcomes_q.filter(OutcomeSeries.administered_at >= start, OutcomeSeries.administered_at <= end)
-    outcome_rows = outcomes_q.order_by(OutcomeSeries.administered_at).all()
+    outcome_rows = outcomes_q.order_by(OutcomeSeries.administered_at).limit(500).all()
 
     series: dict[str, list[float]] = {}
     for template_id in _LONGITUDINAL_TEMPLATES:

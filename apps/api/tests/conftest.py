@@ -4,6 +4,7 @@ import sys
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 
 
 # Use a per-process DB file so parallel pytest invocations don't collide.
@@ -65,9 +66,73 @@ def _cleanup_test_db():
 
 @pytest.fixture(autouse=True)
 def isolated_database() -> None:
-    reset_database()   # drop_all then create_all — always idempotent regardless of prior state
+    reset_database(fast=True)   # fast truncate path (~20x) — falls back to DDL on first call
+    # Seed Clinic + User row keyed on the demo clinician's actor_id so the
+    # cross-clinic ownership gate (added in the audit) finds a real clinic_id
+    # when tests use the `clinician-demo-token`. Idempotent per-test thanks to
+    # reset_database() above.
+    from app.database import SessionLocal
+    from app.persistence.models import Clinic, PackageTokenBudget, User
+    _db = SessionLocal()
+    try:
+        _clinic_id = "clinic-demo-default"
+        if _db.query(Clinic).filter_by(id=_clinic_id).first() is None:
+            _db.add(Clinic(id=_clinic_id, name="Demo Clinic"))
+            _db.flush()
+        if _db.query(User).filter_by(id="actor-clinician-demo").first() is None:
+            _db.add(User(
+                id="actor-clinician-demo",
+                email="demo_clinician@example.com",
+                display_name="Verified Clinician Demo",
+                hashed_password="x",
+                role="clinician",
+                package_id="clinician_pro",
+                clinic_id=_clinic_id,
+            ))
+        if _db.query(User).filter_by(id="actor-admin-demo").first() is None:
+            _db.add(User(
+                id="actor-admin-demo",
+                email="demo_admin@example.com",
+                display_name="Admin Demo User",
+                hashed_password="x",
+                role="admin",
+                package_id="enterprise",
+                clinic_id=_clinic_id,
+            ))
+        # Re-seed default package budgets after fast truncate deletes them.
+        _seeded = {r.package_id for r in _db.query(PackageTokenBudget).all()}
+        for pkg_id, ti, to, cp in (
+            ("free", 50_000, 10_000, 500),
+            ("clinician_pro", 1_000_000, 200_000, 5_000),
+            ("enterprise", 5_000_000, 1_000_000, 20_000),
+        ):
+            if pkg_id not in _seeded:
+                _db.add(PackageTokenBudget(
+                    id=f"pkg_budget_{pkg_id}",
+                    package_id=pkg_id,
+                    monthly_tokens_in_cap=ti,
+                    monthly_tokens_out_cap=to,
+                    monthly_cost_pence_cap=cp,
+                ))
+        _db.commit()
+    except Exception:
+        _db.rollback()
+    finally:
+        _db.close()
     yield
-    reset_database()   # clean up after each test
+    reset_database(fast=True)   # clean up after each test
+
+
+@pytest.fixture(autouse=True)
+def _clean_adverse_events() -> None:
+    yield
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        db.execute(text("DELETE FROM adverse_events"))
+        db.commit()
+    finally:
+        db.close()
 
 
 @pytest.fixture

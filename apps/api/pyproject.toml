@@ -22,6 +22,15 @@ dependencies = [
     "deepsynaps-safety-engine",
     "deepsynaps-generation-engine",
     "slowapi>=0.1.9",
+    # APScheduler — BackgroundScheduler powers the Phase 9 agent abuse-signal
+    # hourly cron (apps/api/app/services/agent_scheduler.py). Gated on
+    # DEEPSYNAPS_AGENT_CRON_ENABLED so tests / CI don't fire jobs.
+    "apscheduler>=3.10",
+    # Redis client used by SlowAPI's `limits` storage adapter when
+    # DEEPSYNAPS_LIMITER_REDIS_URI is set. Without it the rate-limiter
+    # backend falls back to in-memory and the warning at startup logs
+    # what's wrong. See apps/api/app/limiter.py for the selection logic.
+    "redis>=5.0.0,<6.0.0",
     "alembic>=1.13.0",
     "psycopg2-binary>=2.9.0",
     "python-jose[cryptography]>=3.3.0",
@@ -40,6 +49,16 @@ dependencies = [
     "numpy>=1.26.0,<3.0.0",
     # qEEG advanced analyses — aperiodic/periodic spectral decomposition
     "specparam>=2.0.0rc0,<3.0.0",
+    # Reports stream HTML→PDF render path (PR #144 night shift). Imported in
+    # packages/render-engine/src/deepsynaps_render_engine/renderers.py via
+    # try/except → raises PdfRendererUnavailable when missing, so the
+    # /api/v1/reports/{id}/render?format=pdf endpoint returns HTTP 503 with
+    # code "pdf_renderer_unavailable" instead of producing a blank PDF.
+    # NOTE: WeasyPrint requires Pango + Cairo system libs in the runtime
+    # image (libpango-1.0-0, libpangoft2-1.0-0, libcairo2, libharfbuzz0b,
+    # libgdk-pixbuf2.0-0). These are NOT in the current slim Docker base —
+    # see DEPLOYMENT.md before relying on PDF output.
+    "weasyprint>=60.0,<70.0",
     # qEEG MNE-Python pipeline (preprocess, ICA, SpecParam, connectivity,
     # eLORETA, normative z-scores, RAG) is installed as a SIBLING editable
     # package by the Dockerfile + developer setup, NOT declared here. Pip's
@@ -51,5 +70,21 @@ dependencies = [
     #   pip install -e packages/qeeg-pipeline
 ]
 
+[project.optional-dependencies]
+# Editable path dep on the standalone MNE / SpecParam / eLORETA / normative-z
+# pipeline. Pulled in ONLY when you `pip install -e ".[qeeg]"` — keeping it
+# out of the base `dependencies` list means plain `pip install` succeeds on
+# machines that don't have MNE-Python / fooof / autoreject / pyprep /
+# mne-icalabel / mne-connectivity installed. The runtime import is already
+# guarded in `app/routers/qeeg_analysis_router.py::_try_import_full_pipeline`.
+qeeg = [
+    "deepsynaps-qeeg",
+]
+
 [tool.setuptools]
 py-modules = []
+
+[dependency-groups]
+dev = [
+    "pytest-asyncio>=1.3.0",
+]

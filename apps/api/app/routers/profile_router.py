@@ -23,13 +23,14 @@ from io import BytesIO
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, Request, UploadFile
 from pydantic import BaseModel
 from PIL import Image
 from sqlalchemy.orm import Session
 
 from ..database import get_db_session
 from ..errors import ApiServiceError
+from ..limiter import limiter
 from ..persistence.models import User
 from ..services import auth_service
 
@@ -308,7 +309,9 @@ def verify_email(
 
 
 @router.post("/avatar", response_model=AvatarResponse)
+@limiter.limit("10/minute")
 async def upload_avatar(
+    request: Request,
     file: UploadFile = File(...),
     user: User = Depends(auth_service.current_user),
     db: Session = Depends(get_db_session),
@@ -323,6 +326,13 @@ async def upload_avatar(
             status_code=400,
         )
     data = await file.read()
+    _MAX_AVATAR_BYTES = 5 * 1024 * 1024  # 5 MB
+    if len(data) > _MAX_AVATAR_BYTES:
+        raise ApiServiceError(
+            code="file_too_large",
+            message="Avatar exceeds 5 MB.",
+            status_code=413,
+        )
     url = _save_avatar(user.id, data)
     user.avatar_url = url
     db.commit()

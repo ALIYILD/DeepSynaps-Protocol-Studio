@@ -144,7 +144,7 @@ export function mountSalesChatWidget() {
 export function mountAppAgentWidget(kind) {
   // kind: 'patient' | 'clinician'
   const root = _ensureRoot('ds-app-agent');
-  const _tgConnected = localStorage.getItem('ds_patient_tg_connected') === '1';
+  const _tgState = localStorage.getItem('ds_patient_tg_state') || 'idle';
   root.innerHTML = `
     <button class="ds-chat-fab ds-chat-fab--agent" id="ds-agent-fab" type="button" aria-label="AI agents">
       <span class="ds-chat-fab__icon">🧠</span>
@@ -172,10 +172,10 @@ export function mountAppAgentWidget(kind) {
         </div>
         <div data-atabpanel="settings" style="display:none;padding:10px 14px;font-size:12px">
           <div style="font-weight:700;font-size:13px;margin-bottom:10px">\u2708 Connect Telegram</div>
-          <div style="color:var(--text-secondary);margin-bottom:10px">Get your AI agent on Telegram in 2 steps:</div>
-          <div id="ds-agent-tg-area">${_tgConnected
-            ? '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><span style="font-size:11px;font-weight:600;padding:4px 12px;border-radius:99px;background:rgba(74,222,128,0.12);color:var(--green,#22c55e)">Connected</span><button class="btn btn-sm btn-ghost" style="font-size:10px;color:var(--red,#ef4444)" onclick="window._patientDisconnectTg()">Disconnect</button></div>'
-            : '<div style="font-size:12px;color:var(--text-secondary);line-height:1.8;margin-bottom:10px">1. Click below to get your link code<br>2. Open <strong>@DeepSynapsPatientBot</strong> on Telegram<br>3. Send the code \u2014 done!</div><button class="btn btn-primary btn-sm" onclick="window._patientGetTgCode()">Get Link Code</button>'
+          <div style="color:var(--text-secondary);margin-bottom:10px">Get your AI agent on Telegram in 3 steps:</div>
+          <div id="ds-agent-tg-area">${_tgState === 'pending'
+            ? '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><span style="font-size:11px;font-weight:600;padding:4px 12px;border-radius:99px;background:rgba(255,179,71,0.14);color:var(--amber,#f59e0b)">Link code issued</span><button class="btn btn-sm btn-ghost" style="font-size:10px;color:var(--red,#ef4444)" onclick="window._patientDisconnectTg()">Clear</button></div><div style="font-size:11px;color:var(--text-secondary);line-height:1.7;margin-bottom:10px">This widget cannot verify Telegram linking yet. It only remembers that a link code was issued on this device.</div>'
+            : '<div style="font-size:12px;color:var(--text-secondary);line-height:1.8;margin-bottom:10px">1. Click below to get your link code<br>2. Follow the bot handle shown with the code<br>3. Send the code to the bot to complete linking outside this widget</div><button class="btn btn-primary btn-sm" onclick="window._patientGetTgCode()">Get Link Code</button>'
           }</div>
           <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border)">
             <div style="font-size:11px;color:var(--text-tertiary)">Model: <strong>GLM-4.5 Flash (Free)</strong></div>
@@ -213,13 +213,17 @@ export function mountAppAgentWidget(kind) {
     try {
       const res = await api.telegramLinkCode('patient');
       const code = res?.code || res?.data?.code || '------';
+      const instr = res?.instructions || '';
+      const m = instr.match(/@([A-Za-z0-9_]+)/);
+      const handle = m ? m[1] : 'DeepSynapsPatientBot';
       area.innerHTML = `
         <div style="font-family:monospace;font-size:22px;font-weight:700;color:var(--teal);letter-spacing:3px;margin:10px 0">${code}</div>
         <div style="font-size:11px;color:var(--text-secondary);line-height:1.6;margin-bottom:10px">
-          Open <strong>@DeepSynapsPatientBot</strong> on Telegram and send:<br>
+          Open <strong>@${handle}</strong> on Telegram and send:<br>
           <code style="background:rgba(255,255,255,0.05);padding:2px 6px;border-radius:4px">LINK ${code}</code>
         </div>
-        <button class="btn btn-primary btn-sm" onclick="window._patientConfirmTg()">Mark as linked \u2713</button>
+        <div style="font-size:10.5px;color:var(--text-tertiary);margin-bottom:10px">This widget cannot verify Telegram linkage. After sending the code to the bot, you can keep a reminder on this device or clear it manually.</div>
+        <button class="btn btn-primary btn-sm" onclick="window._patientConfirmTg()">Keep reminder on this device</button>
       `;
     } catch {
       area.innerHTML = '<div style="color:var(--red,#ef4444)">Could not get link code. Try again later.</div>';
@@ -227,16 +231,21 @@ export function mountAppAgentWidget(kind) {
   };
 
   window._patientConfirmTg = function() {
-    localStorage.setItem('ds_patient_tg_connected', '1');
-    if (typeof window._showNotifToast === 'function') window._showNotifToast('Telegram connected!', 'ok');
+    localStorage.setItem('ds_patient_tg_state', 'pending');
+    if (typeof window._showNotifToast === 'function') {
+      window._showNotifToast({ title: 'Reminder saved', body: 'This device will remember that a Telegram link code was issued, but linkage is not verified in-app yet.', severity: 'info' });
+    }
     const area = document.getElementById('ds-agent-tg-area');
-    if (area) area.innerHTML = '<div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;font-weight:600;padding:4px 12px;border-radius:99px;background:rgba(74,222,128,0.12);color:var(--green,#22c55e)">Connected</span><button class="btn btn-sm btn-ghost" style="font-size:10px;color:var(--red,#ef4444)" onclick="window._patientDisconnectTg()">Disconnect</button></div>';
+    if (area) area.innerHTML = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><span style="font-size:11px;font-weight:600;padding:4px 12px;border-radius:99px;background:rgba(255,179,71,0.14);color:var(--amber,#f59e0b)">Link code issued</span><button class="btn btn-sm btn-ghost" style="font-size:10px;color:var(--red,#ef4444)" onclick="window._patientDisconnectTg()">Clear</button></div><div style="font-size:11px;color:var(--text-secondary);line-height:1.7">This widget cannot verify Telegram linking yet. It only remembers that a link code was issued on this device.</div>';
   };
 
   window._patientDisconnectTg = function() {
-    localStorage.removeItem('ds_patient_tg_connected');
+    localStorage.removeItem('ds_patient_tg_state');
+    if (typeof window._showNotifToast === 'function') {
+      window._showNotifToast({ title: 'Reminder cleared', body: 'This widget no longer stores a Telegram link-code reminder.', severity: 'info' });
+    }
     const area = document.getElementById('ds-agent-tg-area');
-    if (area) area.innerHTML = '<div style="font-size:12px;color:var(--text-secondary);line-height:1.8;margin-bottom:10px">1. Click below to get your link code<br>2. Open <strong>@DeepSynapsPatientBot</strong> on Telegram<br>3. Send the code \u2014 done!</div><button class="btn btn-primary btn-sm" onclick="window._patientGetTgCode()">Get Link Code</button>';
+    if (area) area.innerHTML = '<div style="font-size:12px;color:var(--text-secondary);line-height:1.8;margin-bottom:10px">1. Click below to get your link code<br>2. Follow the bot handle shown with the code<br>3. Send the code to the bot to complete linking outside this widget</div><button class="btn btn-primary btn-sm" onclick="window._patientGetTgCode()">Get Link Code</button>';
   };
 
   const append = (role, text) => {
@@ -267,4 +276,3 @@ export function mountAppAgentWidget(kind) {
     }
   });
 }
-

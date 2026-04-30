@@ -27,7 +27,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from .schemas import NormedValue, SegmentationEngine, StructuralMetrics
+from .schemas import SegmentationEngine, StructuralMetrics
 
 log = logging.getLogger(__name__)
 
@@ -62,12 +62,18 @@ def attach_brain_age(
     """
     try:
         from .models.brain_age import predict_brain_age
+        from .safety import safe_brain_age
 
-        metrics.brain_age = predict_brain_age(
+        raw = predict_brain_age(
             t1_preprocessed_path=t1_preprocessed_path,
             chronological_age=chronological_age,
             weights_path=weights_path,
         )
+        # Always go through the safety wrapper so the API surface gets a
+        # plausibility-checked envelope with confidence band + calibration
+        # provenance attached. Garbage in → not_estimable instead of a
+        # bogus age value reaching the clinician.
+        metrics.brain_age = safe_brain_age(raw)
     except Exception as exc:  # noqa: BLE001
         log.warning("brain-age attach failed: %s", exc)
     return metrics

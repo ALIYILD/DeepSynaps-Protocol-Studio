@@ -11,6 +11,8 @@ import {
   EVIDENCE_SOURCES, CONDITION_EVIDENCE, EVIDENCE_SUMMARY,
   getTopConditionsByPaperCount, searchEvidenceByKeyword,
 } from './evidence-dataset.js';
+import { getEvidenceUiStats } from './evidence-ui-live.js';
+import { loadResearchBundleWorkspace } from './research-bundle-workspace.js';
 import {
   CONDITION_REGISTRY, ASSESSMENT_REGISTRY, PROTOCOL_REGISTRY,
   DEVICE_REGISTRY, BRAIN_TARGET_REGISTRY,
@@ -54,6 +56,73 @@ function hBar(label, value, maxVal, color) {
 
 /* ── grade color ───────────────────────────────────────────────────────────── */
 const GRADE_CLR = { A: '#2dd4bf', B: '#60a5fa', C: '#fbbf24', D: '#f97316', E: '#ef4444' };
+let _liveEvidenceUiStats = null;
+let _researchBundleState = {
+  loaded: false,
+  loading: null,
+  summary: null,
+  coverageRows: [],
+  templates: [],
+  exactProtocols: [],
+  safetySignals: [],
+  evidenceGraph: [],
+};
+
+function _reSlug(v) {
+  return String(v || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s/]+/g, '-')
+    .replace(/[^a-z0-9-]/g, '');
+}
+
+function _reNormalizeLabel(v) {
+  const raw = String(v || '').trim();
+  if (!raw) return '';
+  if (raw.toLowerCase() === 'tdcs') return 'tDCS';
+  if (raw.toLowerCase() === 'tacs') return 'tACS';
+  if (raw.toLowerCase() === 'trns') return 'tRNS';
+  if (raw.toLowerCase() === 'tfus') return 'tFUS';
+  if (raw.toLowerCase() === 'rtms') return 'rTMS';
+  return raw.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
+}
+
+function _reSignalTitle(signal) {
+  return (
+    (signal.safety_signal_tags || []).concat(signal.contraindication_signal_tags || []).join(', ')
+    || signal.title
+    || signal.example_titles
+    || 'Safety signal'
+  );
+}
+
+async function _ensureResearchBundleData() {
+  if (_researchBundleState.loaded) return _researchBundleState;
+  if (_researchBundleState.loading) return _researchBundleState.loading;
+  _researchBundleState.loading = (async () => {
+    try {
+      const data = await loadResearchBundleWorkspace({
+        summaryLimit: 12,
+        coverageLimit: 24,
+        templateLimit: 24,
+        exactProtocolLimit: 24,
+        safetyLimit: 40,
+        evidenceGraphLimit: 24,
+      });
+      _researchBundleState.summary = data.summary || null;
+      _researchBundleState.coverageRows = data.coverageRows || [];
+      _researchBundleState.templates = data.templates || [];
+      _researchBundleState.exactProtocols = data.exactProtocols || [];
+      _researchBundleState.safetySignals = data.safetySignals || [];
+      _researchBundleState.evidenceGraph = data.evidenceGraph || [];
+      _researchBundleState.loaded = !!data.live;
+    } finally {
+      _researchBundleState.loading = null;
+    }
+    return _researchBundleState;
+  })();
+  return _researchBundleState.loading;
+}
 
 /* ── lazy-loaded protocol data (shared by search + review tabs) ─────────── */
 let _protosAll = [], _condsAll = [], _devsAll = [];
@@ -88,9 +157,15 @@ export async function pgResearchEvidence(setTopbar, navigate) {
   const tab = window._resEvidenceTab || 'overview';
   window._resEvidenceTab = tab;
   const el = document.getElementById('content');
+  const liveEvidence = await getEvidenceUiStats({
+    fallbackSummary: EVIDENCE_SUMMARY,
+    fallbackConditionCount: CONDITION_EVIDENCE.length,
+    fallbackMetaAnalyses: EVIDENCE_TOTAL_META,
+  });
+  _liveEvidenceUiStats = liveEvidence;
 
   setTopbar('Research Evidence',
-    '<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--teal);color:#fff;font-weight:600">87K Papers</span>');
+    `<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--teal);color:#fff;font-weight:600">${esc(fmtK(liveEvidence.totalPapers))} Papers</span>`);
 
   /* ── tab bar ─────────────────────────────────────────────────────────────── */
   function tabBar() {
@@ -125,7 +200,7 @@ export async function pgResearchEvidence(setTopbar, navigate) {
     return values.map(v =>
       `<button class="reg-domain-pill${v === active ? ' active' : ''}"
         aria-pressed="${v === active}"
-        onclick="window._reFilter['${tab}']='${esc(v)}';window._nav('research-evidence')">${esc(v)}</button>`
+        onclick="window._reFilter['${esc(tab)}']='${esc(v)}';window._nav('research-evidence')">${esc(v)}</button>`
     ).join('');
   }
 
@@ -142,10 +217,10 @@ export async function pgResearchEvidence(setTopbar, navigate) {
   const body = document.getElementById('re-body');
 
   /* ── render per tab ──────────────────────────────────────────────────────── */
-  if (tab === 'overview')         renderOverview(body);
+  if (tab === 'overview')         renderOverview(body, liveEvidence);
   else if (tab === 'conditions')  renderConditions(body, q, filt, sort, sInput, pills, sortBtn);
   else if (tab === 'assessments') renderAssessments(body, q, filt, sInput, pills);
-  else if (tab === 'protocols')   renderProtocols(body, q, sInput);
+  else if (tab === 'protocols')   await renderProtocols(body, q, sInput);
   else if (tab === 'neuro')       renderNeuro(body, q, filt, sInput, pills);
   else if (tab === 'aiml')        renderAIML(body, q, sInput);
   else if (tab === 'search')      await renderEvidenceSearch(body);
@@ -156,17 +231,22 @@ export async function pgResearchEvidence(setTopbar, navigate) {
 /* ══════════════════════════════════════════════════════════════════════════════
    TAB 1 — Overview
    ══════════════════════════════════════════════════════════════════════════════ */
-function renderOverview(body) {
+function renderOverview(body, liveEvidence = null) {
   const S = EVIDENCE_SUMMARY;
-  const top10 = getTopConditionsByPaperCount(10);
+  const top10 = Array.isArray(liveEvidence?.topConditions) && liveEvidence.topConditions.length
+    ? liveEvidence.topConditions.slice(0, 10).map((row) => ({
+        conditionId: row.key,
+        paperCount: Number(row.count) || 0,
+      }))
+    : getTopConditionsByPaperCount(10);
 
   /* KPI strip */
   const kpis = [
-    { val: fmtK(EVIDENCE_TOTAL_PAPERS), label: 'Papers', color: 'var(--teal)' },
-    { val: fmtK(EVIDENCE_TOTAL_TRIALS), label: 'Clinical Trials', color: 'var(--blue)' },
-    { val: fmtK(EVIDENCE_TOTAL_META),   label: 'Meta-analyses', color: 'var(--violet)' },
-    { val: S.totalConditions,            label: 'Conditions', color: 'var(--rose)' },
-    { val: S.totalDevices,               label: 'Modalities', color: 'var(--amber)' },
+    { val: fmtK(liveEvidence?.totalPapers || EVIDENCE_TOTAL_PAPERS), label: 'Papers', color: 'var(--teal)' },
+    { val: fmtK(liveEvidence?.totalTrials || EVIDENCE_TOTAL_TRIALS), label: 'Clinical Trials', color: 'var(--blue)' },
+    { val: fmtK(liveEvidence?.totalMetaAnalyses || EVIDENCE_TOTAL_META), label: 'Meta-analyses', color: 'var(--violet)' },
+    { val: liveEvidence?.totalConditions || S.totalConditions, label: 'Conditions', color: 'var(--rose)' },
+    { val: Object.keys(liveEvidence?.modalityDistribution || {}).length || S.totalDevices, label: 'Modalities', color: 'var(--amber)' },
   ];
   let kpiHtml = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px">';
   for (const k of kpis) {
@@ -179,7 +259,7 @@ function renderOverview(body) {
 
   /* sources strip */
   let srcHtml = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:20px">';
-  for (const s of EVIDENCE_SOURCES) {
+  for (const s of (liveEvidence?.sources?.length ? liveEvidence.sources : EVIDENCE_SOURCES)) {
     srcHtml += `<span style="padding:3px 10px;font-size:11px;border-radius:12px;background:var(--surface-2);color:var(--text-secondary)">${esc(s)}</span>`;
   }
   srcHtml += '</div>';
@@ -194,7 +274,7 @@ function renderOverview(body) {
   yearHtml += '</div>';
 
   /* evidence grade distribution */
-  const gd = S.gradeDistribution;
+  const gd = Object.keys(liveEvidence?.gradeDistribution || {}).length ? liveEvidence.gradeDistribution : S.gradeDistribution;
   const gdMax = Math.max(...Object.values(gd));
   let gradeHtml = '<div class="ch-card" style="padding:16px;margin-bottom:16px"><div style="font-weight:600;margin-bottom:12px;font-size:14px">Evidence Grade Distribution</div>';
   for (const [g, cnt] of Object.entries(gd)) {
@@ -203,7 +283,7 @@ function renderOverview(body) {
   gradeHtml += '</div>';
 
   /* modality distribution */
-  const md = S.modalityDistribution;
+  const md = Object.keys(liveEvidence?.modalityDistribution || {}).length ? liveEvidence.modalityDistribution : S.modalityDistribution;
   const mdEntries = Object.entries(md).sort(([, a], [, b]) => b - a);
   const mdMax = mdEntries[0]?.[1] || 1;
   let modHtml = '<div class="ch-card" style="padding:16px;margin-bottom:16px"><div style="font-weight:600;margin-bottom:12px;font-size:14px">Top Modalities by Paper Count</div>';
@@ -390,14 +470,33 @@ function renderAssessments(body, q, filt, sInput, pills) {
 /* ══════════════════════════════════════════════════════════════════════════════
    TAB 4 — Protocols & Devices
    ══════════════════════════════════════════════════════════════════════════════ */
-function renderProtocols(body, q, sInput) {
+async function renderProtocols(body, q, sInput) {
+  await _ensureResearchBundleData();
   let html = sInput('Search protocols, devices, modalities...') + '<div style="margin-bottom:16px"></div>';
 
   /* ── Section A: Protocol Templates ────────────────────────────────────────── */
-  let protos = [...PROTOCOL_REGISTRY];
+  const liveProtoRows = _researchBundleState.loaded
+    ? (_researchBundleState.exactProtocols.length ? _researchBundleState.exactProtocols : _researchBundleState.templates).map((row, idx) => ({
+        id: row.id || `live-proto-${idx}`,
+        name: row.name || [row.modality, row.indication, row.target].filter(Boolean).join(' — ') || 'Live protocol template',
+        condition: _reNormalizeLabel(row.indication || row.condition || row.condition_label || ''),
+        modality: _reNormalizeLabel(row.modality || row.primary_modality || ''),
+        target: row.target || row.target_label || row.region || '',
+        freq: row.freq || row.frequency || row.top_parameter_tags || row.example_titles || 'Live parameters available',
+        intensity: row.intensity || row.intensity_range || row.top_parameter_tags || 'See evidence row',
+        sessions: Number(row.paper_count || row.session_count || row.example_count || 0),
+        ev: String(row.evidence_tier || row.evidence_grade || row.grade || '').replace(/^EV-?/i, '').toUpperCase() || 'B',
+        onLabel: row.on_label ?? row.is_on_label ?? false,
+      }))
+    : [];
+  let protos = liveProtoRows.length ? liveProtoRows : [...PROTOCOL_REGISTRY];
   if (q) protos = protos.filter(p => (p.name + ' ' + p.condition + ' ' + p.modality + ' ' + p.target).toLowerCase().includes(q));
 
-  html += '<div class="ch-card" style="padding:16px;margin-bottom:16px"><div style="font-weight:600;margin-bottom:12px;font-size:14px">Protocol Templates (' + protos.length + ')</div>';
+  html += '<div class="ch-card" style="padding:16px;margin-bottom:16px"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px"><div style="font-weight:600;font-size:14px">Protocol Templates (' + protos.length + ')</div>' +
+    (_researchBundleState.loaded
+      ? '<span style="font-size:11px;color:var(--text-tertiary)">Live research bundle templates and exact protocols</span>'
+      : '<span style="font-size:11px;color:var(--text-tertiary)">Registry fallback</span>') +
+    '</div>';
   html += '<div style="overflow-x:auto"><table style="width:100%;font-size:12px;border-collapse:collapse">';
   html += '<thead><tr style="text-align:left;color:var(--text-tertiary);background:var(--surface-2)"><th style="padding:6px 8px">Protocol</th><th style="padding:6px 8px">Condition</th><th style="padding:6px 8px">Modality</th><th style="padding:6px 8px">Target</th><th style="padding:6px 8px">Frequency</th><th style="padding:6px 8px">Intensity</th><th style="padding:6px 8px;text-align:right">Sessions</th><th style="padding:6px 8px">Evidence</th><th style="padding:6px 8px">Label</th></tr></thead><tbody>';
   for (const p of protos) {
@@ -439,7 +538,9 @@ function renderProtocols(body, q, sInput) {
   html += '</div></div>';
 
   /* ── Section C: Modality Overview ─────────────────────────────────────────── */
-  const md = EVIDENCE_SUMMARY.modalityDistribution;
+  const md = Object.keys(_liveEvidenceUiStats?.modalityDistribution || {}).length
+    ? _liveEvidenceUiStats.modalityDistribution
+    : EVIDENCE_SUMMARY.modalityDistribution;
   const mdEntries = Object.entries(md).sort(([, a], [, b]) => b - a);
   const mdMax = mdEntries[0]?.[1] || 1;
   html += '<div class="ch-card" style="padding:16px;margin-bottom:16px"><div style="font-weight:600;margin-bottom:12px;font-size:14px">Modality Research Volume</div>';
@@ -447,6 +548,65 @@ function renderProtocols(body, q, sInput) {
     html += hBar(m, cnt, mdMax, 'var(--green)');
   }
   html += '</div>';
+
+  if (_researchBundleState.loaded && (_researchBundleState.coverageRows.length || _researchBundleState.safetySignals.length || _researchBundleState.evidenceGraph.length)) {
+    const coverageRows = _researchBundleState.coverageRows
+      .filter((row) => !q || ([
+        row.condition,
+        row.modality,
+        row.gap,
+        row.primary_target,
+      ].join(' ').toLowerCase().includes(q)))
+      .slice(0, 10);
+    const safetyRows = _researchBundleState.safetySignals
+      .filter((row) => !q || ([
+        row.primary_modality,
+        ...(row.indication_tags || []),
+        ...(row.safety_signal_tags || []),
+        ...(row.contraindication_signal_tags || []),
+      ].join(' ').toLowerCase().includes(q)))
+      .slice(0, 6);
+    const graphRows = _researchBundleState.evidenceGraph
+      .filter((row) => !q || ([
+        row.target,
+        row.modality,
+        row.indication,
+      ].join(' ').toLowerCase().includes(q)))
+      .slice(0, 6);
+
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px">';
+    html += '<div class="ch-card" style="padding:16px"><div style="font-weight:600;margin-bottom:12px;font-size:14px">Live Coverage Watch</div>' +
+      (coverageRows.length
+        ? coverageRows.map((row) => {
+            const gapColor = row.gap && row.gap !== 'None' ? 'var(--amber)' : 'var(--teal)';
+            return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+              <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
+                <div style="font-size:12px;font-weight:600">${esc(_reNormalizeLabel(row.modality))} — ${esc(_reNormalizeLabel(row.condition))}</div>
+                <span style="padding:2px 8px;font-size:10px;border-radius:999px;background:${gapColor}22;color:${gapColor};border:1px solid ${gapColor}55">${esc(row.gap || 'Covered')}</span>
+              </div>
+              <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">${fmt(row.paper_count || 0)} papers · coverage ${esc(row.coverage ?? 0)}%${row.primary_target ? ' · target ' + esc(row.primary_target) : ''}</div>
+            </div>`;
+          }).join('')
+        : '<div style="font-size:12px;color:var(--text-tertiary)">No live coverage rows available.</div>') +
+      '</div>';
+    html += '<div class="ch-card" style="padding:16px"><div style="font-weight:600;margin-bottom:12px;font-size:14px">Live Safety Signals</div>' +
+      (safetyRows.length
+        ? safetyRows.map((row) => `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+            <div style="font-size:12px;font-weight:600">${esc(_reNormalizeLabel(row.primary_modality || 'Modality'))}${row.indication_tags?.length ? ' · ' + esc(row.indication_tags.slice(0, 2).join(' · ')) : ''}</div>
+            <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">${esc(_reSignalTitle(row))}</div>
+          </div>`).join('')
+        : '<div style="font-size:12px;color:var(--text-tertiary)">No live safety signals available.</div>') +
+      '</div>';
+    html += '<div class="ch-card" style="padding:16px"><div style="font-weight:600;margin-bottom:12px;font-size:14px">Live Evidence Graph Links</div>' +
+      (graphRows.length
+        ? graphRows.map((row) => `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+            <div style="font-size:12px;font-weight:600">${esc(_reNormalizeLabel(row.modality || 'Modality'))}${row.indication ? ' · ' + esc(_reNormalizeLabel(row.indication)) : ''}</div>
+            <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">${esc(row.target || row.target_label || 'Target link')}${row.paper_count != null ? ' · ' + fmt(row.paper_count) + ' papers' : ''}</div>
+          </div>`).join('')
+        : '<div style="font-size:12px;color:var(--text-tertiary)">No live evidence-graph rows available.</div>') +
+      '</div>';
+    html += '</div>';
+  }
 
   body.innerHTML = html;
 }
@@ -623,8 +783,8 @@ async function renderEvidenceSearch(body) {
     .join('');
   const curatedCount = curatedLitItems.length;
   const evDbAvailable = overview?.evidence_db_available;
-  const _totalEvPapers = EVIDENCE_SUMMARY?.totalPapers || 87000;
-  const _totalEvTrials = EVIDENCE_SUMMARY?.totalTrials || 0;
+  const _totalEvPapers = _liveEvidenceUiStats?.totalPapers || EVIDENCE_SUMMARY?.totalPapers || 87000;
+  const _totalEvTrials = _liveEvidenceUiStats?.totalTrials || EVIDENCE_SUMMARY?.totalTrials || 0;
 
   /* ── window handlers ─────────────────────────────────────────────────── */
   window._libPromoteExternal = async (paperId, title) => {
@@ -718,9 +878,9 @@ async function renderEvidenceSearch(body) {
     '<div class="ch-kpi-strip" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px;margin-bottom:16px">' +
       kpi('var(--teal)',   overview?.curated_paper_count || fmtK(_totalEvPapers), 'Curated papers', 'Public PubMed/OpenAlex ingest — 87K indexed') +
       kpi('var(--blue)',   overview?.curated_trial_count || fmt(_totalEvTrials), 'Curated trials') +
-      kpi('var(--rose)',   EVIDENCE_SUMMARY?.totalMetaAnalyses || 0, 'Meta-analyses') +
+      kpi('var(--rose)',   _liveEvidenceUiStats?.totalMetaAnalyses || EVIDENCE_SUMMARY?.totalMetaAnalyses || 0, 'Meta-analyses') +
       kpi('var(--violet)', curatedCount, 'Your library', 'Per-clinician promoted papers') +
-      kpi('var(--amber)',  CONDITION_EVIDENCE.length, 'Conditions covered') +
+      kpi('var(--amber)',  _liveEvidenceUiStats?.totalConditions || CONDITION_EVIDENCE.length, 'Conditions covered') +
       kpi('var(--teal)',   evDbAvailable ? 'Online' : 'Offline', 'Evidence index') +
     '</div>' +
     /* External brokered search */
@@ -778,6 +938,7 @@ async function renderEvidenceSearch(body) {
    ══════════════════════════════════════════════════════════════════════════════ */
 async function renderNeedsReview(body) {
   await _ensureProtoData();
+  await _ensureResearchBundleData();
 
   const kpi = (color, value, label, title) =>
     `<div class="ch-kpi-card" style="--kpi-color:${color}"${title ? ` title="${esc(title)}"` : ''}>` +
@@ -791,7 +952,7 @@ async function renderNeedsReview(body) {
   }
 
   /* ── identify protocols needing review ──────────────────────────────── */
-  const _needsReviewRows = _protosAll.filter(p =>
+  const _legacyNeedsReviewRows = _protosAll.filter(p =>
     (Array.isArray(p.governance) && p.governance.includes('unreviewed')) ||
     (typeof p.notes === 'string' && /verify/i.test(p.notes))
   );
@@ -835,7 +996,7 @@ async function renderNeedsReview(body) {
   };
 
   /* ── build review rows ──────────────────────────────────────────────── */
-  const rows = _needsReviewRows.map(p => {
+  const legacyRows = _legacyNeedsReviewRows.map(p => {
     const gov = Array.isArray(p.governance) ? p.governance : [];
     const isUnreviewed = gov.includes('unreviewed');
     const hasVerify = typeof p.notes === 'string' && /verify/i.test(p.notes);
@@ -848,6 +1009,43 @@ async function renderNeedsReview(body) {
     const topCite = Array.isArray(p.references) && p.references.length ? p.references[0] : '—';
     return { p, gov, isUnreviewed, hasVerify, reason, reasonColor, cond, dev, topCite };
   });
+  const liveRows = _researchBundleState.loaded
+    ? _researchBundleState.coverageRows
+        .filter((row) => row.gap && row.gap !== 'None')
+        .map((row, idx) => {
+          const modalitySlug = _reSlug(row.modality);
+          const conditionSlug = _reSlug(row.condition);
+          const matchedTemplate = _researchBundleState.templates.find((tpl) =>
+            _reSlug(tpl.modality) === modalitySlug && _reSlug(tpl.indication) === conditionSlug
+          );
+          const matchedSignals = _researchBundleState.safetySignals.filter((signal) => {
+            const indicationHit = (signal.indication_tags || []).some((tag) => _reSlug(tag) === conditionSlug);
+            const modalityHit = (signal.canonical_modalities || []).some((tag) => _reSlug(tag) === modalitySlug)
+              || _reSlug(signal.primary_modality) === modalitySlug;
+            return indicationHit && modalityHit;
+          });
+          const topCite = matchedTemplate?.example_titles || matchedSignals[0]?.title || matchedSignals[0]?.example_titles || row.primary_target || 'Live coverage row';
+          const ev = String(matchedTemplate?.evidence_tier || row.evidence_tier || row.grade || '').replace(/^EV-?/i, '').toUpperCase();
+          return {
+            p: {
+              id: matchedTemplate?.id || `live-review-${idx}`,
+              name: [row.modality, row.condition, row.primary_target].filter(Boolean).join(' — ') || `${row.modality} — ${row.condition}`,
+              device: row.modality || '',
+              conditionId: row.condition || '',
+              evidenceGrade: ev,
+            },
+            gov: matchedSignals.length ? ['safety-review'] : ['coverage-review'],
+            isUnreviewed: row.gap !== 'None',
+            hasVerify: matchedSignals.length > 0,
+            reason: matchedSignals.length ? `${row.gap} + safety signal` : row.gap,
+            reasonColor: matchedSignals.length ? 'var(--rose)' : row.paper_count < 10 ? 'var(--amber)' : 'var(--blue)',
+            cond: { label: row.condition },
+            dev: { label: _reNormalizeLabel(row.modality) },
+            topCite,
+          };
+        })
+    : [];
+  const rows = liveRows.length ? liveRows : legacyRows;
 
   const filtQ = (window._reSearch?.review || '').toLowerCase();
   const filtered = !filtQ ? rows : rows.filter(r =>
@@ -862,7 +1060,11 @@ async function renderNeedsReview(body) {
   const totalVerify     = rows.filter(r => r.hasVerify).length;
   const gradeABHighPri  = rows.filter(r => r.isUnreviewed && ['A','B'].includes(String(r.p.evidenceGrade || '').toUpperCase())).length;
   const pendingPapers   = _litQueue.length;
-  const _totalEvPapers  = EVIDENCE_SUMMARY?.totalPapers || 87000;
+  const _totalEvPapers  = _liveEvidenceUiStats?.totalPapers || EVIDENCE_SUMMARY?.totalPapers || 87000;
+  const _totalProtocols = liveRows.length || _protosAll.length;
+  const reviewCaption = liveRows.length
+    ? 'Live protocol coverage and safety triage from the neuromodulation evidence bundle'
+    : 'Legacy protocol governance fallback from the curated local library';
 
   /* ── Section 1: Protocols requiring review ──────────────────────────── */
   const sInput = '<div style="position:relative;max-width:280px;flex:1 1 220px">' +
@@ -876,7 +1078,7 @@ async function renderNeedsReview(body) {
     '<div class="ch-card">' +
       '<div class="ch-card-hd" style="flex-wrap:wrap;gap:8px">' +
         '<span class="ch-card-title">Protocols requiring review (' + filtered.length + (filtered.length !== rows.length ? ' of ' + rows.length : '') + ')</span>' +
-        '<span style="font-size:11px;color:var(--text-tertiary)">Click <b>Review →</b> to open protocol detail</span>' +
+        '<span style="font-size:11px;color:var(--text-tertiary)">' + reviewCaption + '</span>' +
         sInput +
       '</div>' +
       (!rows.length
@@ -984,8 +1186,8 @@ async function renderNeedsReview(body) {
       kpi('var(--blue)',   totalVerify,     'Verify flags', 'notes field mentions "verify"') +
       kpi('var(--teal)',   gradeABHighPri,  'Grade A/B priority', 'Highest clinical priority — strong evidence awaiting review') +
       kpi('var(--violet)', pendingPapers,   'Pending papers', 'Cross-protocol literature_watch rows (verdict=pending)') +
-      kpi('var(--rose)',   _protosAll.length, 'Total protocols', 'From curated 87K-paper evidence library') +
-      kpi('var(--teal)',   fmtK(_totalEvPapers), 'Evidence base', '87K papers indexed across ' + CONDITION_EVIDENCE.length + ' conditions') +
+      kpi('var(--rose)',   _totalProtocols, 'Tracked rows', liveRows.length ? 'Live protocol coverage rows with unresolved gaps' : 'From curated neuromodulation evidence library') +
+      kpi('var(--teal)',   fmtK(_totalEvPapers), 'Evidence base', _totalEvPapers.toLocaleString() + ' papers indexed across ' + (_liveEvidenceUiStats?.totalConditions || CONDITION_EVIDENCE.length) + ' conditions') +
     '</div>' +
     protosSection +
     papersSection;

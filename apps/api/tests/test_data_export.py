@@ -73,7 +73,7 @@ def test_export_fhir_bundle_returns_patient_summary(client: TestClient, auth_hea
 
     course = client.post(
         "/api/v1/treatment-courses",
-        json={"patient_id": patient_id, "protocol_id": "PRO-FHIR"},
+        json={"patient_id": patient_id, "protocol_id": "PRO-001"},
         headers=auth_headers["clinician"],
     )
     assert course.status_code == 201, course.text
@@ -201,11 +201,11 @@ def test_export_endpoints_hide_other_clinicians_patients(client: TestClient, aut
         json={"patient_id": patient_id},
         headers=other_headers,
     )
-    assert fhir.status_code == 404, fhir.text
+    assert fhir.status_code == 403, fhir.text
 
     bids = client.post(
         "/api/v1/export/bids-derivatives",
         json={"patient_id": patient_id},
         headers=other_headers,
     )
-    assert bids.status_code == 404, bids.text
+    assert bids.status_code == 403, bids.text

@@ -24,6 +24,10 @@ from app.database import SessionLocal
 from app.persistence.models import MriAnalysis
 from app.settings import get_settings
 
+# Reuse the hand-built valid NIfTI-1 gz fixture from the sibling test module
+# so the night-shift `validate_upload_blob` gate accepts the payload.
+from test_mri_analysis_router import VALID_NIFTI_GZ
+
 
 # ── Fixtures (copied from test_mri_analysis_router.py) ──────────────────────
 
@@ -42,7 +46,7 @@ def force_demo_mode(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _upload(client: TestClient, auth_headers: dict) -> str:
-    files = {"file": ("scan.nii.gz", io.BytesIO(b"FAKE_NIFTI" * 32), "application/gzip")}
+    files = {"file": ("scan.nii.gz", io.BytesIO(VALID_NIFTI_GZ), "application/gzip")}
     resp = client.post(
         "/api/v1/mri/upload",
         data={"patient_id": "pat-mri-ai-upgrades"},

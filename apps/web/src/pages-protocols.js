@@ -618,11 +618,36 @@ export async function pgProtocolDetail(setTopbar, navigate) {
             <div id="prot-recent-lit-body" style="font-size:12px;color:var(--text-secondary);padding:8px 0">Loading\u2026</div>
           </div>
 
+          <!--
+            Structured report payload preview - surfaces the new ReportPayload
+            schema (observed / interpretation / suggested-actions) so clinicians
+            see the same visual contract that backs the HTML/PDF export.
+            Server populates via POST /api/v1/reports/preview-payload.
+          -->
+          <div class="prot-detail-card" id="prot-report-preview-card">
+            <div class="prot-detail-card-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+              <span>\ud83d\udccb Structured report preview</span>
+              <span style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-tertiary);font-weight:400">
+                <span class="prot-aud-toggle" data-active="clinician" style="display:inline-flex;border:1px solid var(--border);border-radius:14px;overflow:hidden">
+                  <button class="prot-aud-btn" data-view="clinician" style="padding:3px 10px;border:none;background:var(--teal);color:#fff;font-size:11px;cursor:pointer">Clinician</button>
+                  <button class="prot-aud-btn" data-view="patient" style="padding:3px 10px;border:none;background:transparent;color:var(--text-secondary);font-size:11px;cursor:pointer">Patient</button>
+                </span>
+                <button class="ch-btn-sm" id="prot-report-load-btn" style="font-size:11px">Load preview</button>
+              </span>
+            </div>
+            <div id="prot-report-preview-body" style="font-size:12px;color:var(--text-secondary);padding:8px 0">Click <b>Load preview</b> to render a structured-report sample for this protocol. Sections separate <b>observed findings</b>, <b>model interpretation</b>, and <b>suggested actions</b>; every claim carries an evidence-strength badge and citations link out to PubMed/DOI.</div>
+          </div>
+
           ${proto.tags?.length ? `
           <div class="prot-detail-card">
             <div class="prot-detail-card-title">Tags</div>
             <div class="prot-tags">${(proto.tags||[]).map(t=>`<span class="prot-tag">${_esc(t)}</span>`).join('')}</div>
           </div>` : ''}
+
+          <div class="prot-detail-card" id="prot-detail-bundle-evidence-card">
+            <div class="prot-detail-card-title">Bundle evidence context</div>
+            <div id="prot-detail-bundle-body" style="font-size:12px;color:var(--text-secondary)">Loading bundle-backed template and safety context…</div>
+          </div>
 
           <div class="prot-detail-card" id="prot-detail-evidence-card">
             <div class="prot-detail-card-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
@@ -760,8 +785,225 @@ export async function pgProtocolDetail(setTopbar, navigate) {
   }
 
   // ── Evidence tab (for-protocol endpoint) ──────────────────────────────────
+  // ── Structured report preview (calls /api/v1/reports/preview-payload) ────
+  // Renders observed/interpretation/suggested-actions with evidence-strength
+  // badges. Has loading / empty / error / 503 states. Audience toggle flips
+  // between clinician + patient views without a re-fetch.
+  let _reportPayload = null;
+  let _reportAudience = 'clinician';
+
+  const _strengthBadge = (s) => {
+    const palette = {
+      'Strong':           ['#0a5d2c', '#d1f7df'],
+      'Moderate':         ['#9b6a00', '#fff2c8'],
+      'Limited':          ['#7a3e00', '#fde2cc'],
+      'Conflicting':      ['#7a1f1f', '#fbd5d5'],
+      'Evidence pending': ['#475569', '#e2e8f0'],
+    };
+    const [c, bg] = palette[s] || palette['Evidence pending'];
+    return `<span style="color:${c};background:${bg};padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px">${_esc(s)}</span>`;
+  };
+
+  const _confidencePill = (level) => {
+    if (!level) return '';
+    const labels = { high: 'High confidence', medium: 'Medium confidence', low: 'Low confidence', insufficient: 'Insufficient evidence' };
+    const colors = { high: '#0a5d2c', medium: '#9b6a00', low: '#7a3e00', insufficient: '#475569' };
+    const color = colors[level] || '#475569';
+    return `<span style="color:${color};border:1px solid ${color};padding:2px 10px;border-radius:12px;font-size:10px;font-weight:600">${_esc(labels[level] || level)}</span>`;
+  };
+
+  const _renderSectionPayload = (sec, lookup) => {
+    const observed = (sec.observed || []).length
+      ? `<ul style="margin:4px 0 0;padding-left:18px">${(sec.observed||[]).map(o=>`<li>${_esc(o)}</li>`).join('')}</ul>`
+      : `<div style="color:var(--text-tertiary);font-style:italic">No findings recorded.</div>`;
+    const interp = (sec.interpretations || []).length
+      ? `<ul style="margin:4px 0 0;padding-left:18px;list-style:none">${(sec.interpretations||[]).map(i=>{
+          const cites = (i.evidence_refs||[]).map(r=>{
+            const cit = lookup[r];
+            const link = cit?.doi ? `https://doi.org/${cit.doi}` : (cit?.pmid ? `https://pubmed.ncbi.nlm.nih.gov/${cit.pmid}/` : (cit?.url || ''));
+            return link
+              ? `<sup><a href="${_esc(link)}" target="_blank" rel="noopener" style="color:#1f5fb3;text-decoration:none">[${_esc(r)}]</a></sup>`
+              : `<sup style="color:#7a1f1f">[${_esc(r)}]</sup>`;
+          }).join(' ');
+          const counter = (i.counter_evidence_refs||[]).length
+            ? ` <span style="color:#7a1f1f;font-size:11px;font-weight:600">Conflicting: ${_esc((i.counter_evidence_refs||[]).join(', '))}</span>`
+            : '';
+          return `<li style="margin-bottom:6px">${_strengthBadge(i.evidence_strength || 'Evidence pending')} <span>${_esc(i.text)}</span> ${cites}${counter}</li>`;
+        }).join('')}</ul>`
+      : `<div style="color:var(--text-tertiary);font-style:italic">No model interpretations.</div>`;
+    const actions = (sec.suggested_actions || []).length
+      ? `<ul style="margin:4px 0 0;padding-left:18px">${(sec.suggested_actions||[]).map(a=>{
+          const prefix = a.requires_clinician_review === false ? '' : 'Consider: ';
+          const why = a.rationale ? `<div style="color:var(--text-tertiary);font-size:11px;margin-top:2px">Why: ${_esc(a.rationale)}</div>` : '';
+          return `<li style="margin-bottom:4px"><span>${_esc(prefix)}${_esc(a.text)}</span>${why}</li>`;
+        }).join('')}</ul>`
+      : `<div style="color:var(--text-tertiary);font-style:italic">No suggested actions.</div>`;
+    const cautions = (sec.cautions||[]).length
+      ? `<ul style="margin:2px 0 0;padding-left:18px;color:#7a3e00">${(sec.cautions||[]).map(c=>`<li>${_esc(c)}</li>`).join('')}</ul>`
+      : `<div style="color:#7a3e00;font-style:italic;font-size:11px">No cautions identified.</div>`;
+    const limits = (sec.limitations||[]).length
+      ? `<ul style="margin:2px 0 0;padding-left:18px;color:#7a1f1f">${(sec.limitations||[]).map(l=>`<li>${_esc(l)}</li>`).join('')}</ul>`
+      : `<div style="color:#7a1f1f;font-style:italic;font-size:11px">No limitations recorded.</div>`;
+    return `
+      <section style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:10px;background:#ffffff">
+        <header style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;flex-wrap:wrap">
+          <h4 style="margin:0;font-size:13px;color:var(--text-primary)">${_esc(sec.title)}</h4>
+          ${_confidencePill(sec.confidence)}
+        </header>
+        <div style="border-left:3px solid #1f5fb3;padding:4px 8px;background:#f4f9ff;border-radius:0 6px 6px 0;margin-bottom:6px">
+          <div style="font-size:10px;font-weight:700;color:#1f5fb3;text-transform:uppercase;letter-spacing:0.4px">Observed findings</div>
+          ${observed}
+        </div>
+        <div style="border-left:3px solid #9b6a00;padding:4px 8px;background:#fffaf0;border-radius:0 6px 6px 0;margin-bottom:6px">
+          <div style="font-size:10px;font-weight:700;color:#9b6a00;text-transform:uppercase;letter-spacing:0.4px">Model interpretation</div>
+          ${interp}
+        </div>
+        <div style="border-left:3px solid #0a5d2c;padding:4px 8px;background:#f3fbf6;border-radius:0 6px 6px 0;margin-bottom:6px">
+          <div style="font-size:10px;font-weight:700;color:#0a5d2c;text-transform:uppercase;letter-spacing:0.4px">Suggested actions (decision support)</div>
+          ${actions}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
+          <div><div style="font-size:10px;font-weight:700;color:#7a3e00;text-transform:uppercase;letter-spacing:0.4px">Cautions</div>${cautions}</div>
+          <div><div style="font-size:10px;font-weight:700;color:#7a1f1f;text-transform:uppercase;letter-spacing:0.4px">Limitations</div>${limits}</div>
+        </div>
+      </section>`;
+  };
+
+  const _renderReportPayload = () => {
+    const body = document.getElementById('prot-report-preview-body');
+    if (!body || !_reportPayload) return;
+    const lookup = {};
+    (_reportPayload.citations || []).forEach(c => { lookup[c.citation_id] = c; });
+    const sections = (_reportPayload.sections || []).map(s => _renderSectionPayload(s, lookup)).join('');
+    const citeRows = (_reportPayload.citations || []).map(c => {
+      const link = c.doi ? `https://doi.org/${c.doi}` : (c.pmid ? `https://pubmed.ncbi.nlm.nih.gov/${c.pmid}/` : c.url || '');
+      const status = c.status === 'verified'
+        ? `<span style="color:#0a5d2c;background:#d1f7df;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px;text-transform:uppercase">verified</span>`
+        : `<span style="color:#7a3e00;background:#fde2cc;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px;text-transform:uppercase">unverified</span>`;
+      const lvl = c.evidence_level ? `<span style="margin-left:6px;color:var(--text-tertiary);font-size:11px">${_esc(c.evidence_level)}</span>` : '';
+      const linkHtml = link ? `<a href="${_esc(link)}" target="_blank" rel="noopener" style="color:#1f5fb3;text-decoration:none">${_esc(link)}</a>` : `<span style="color:#7a1f1f;font-style:italic">${_esc(c.raw_text || 'no link')}</span>`;
+      return `<li style="margin-bottom:6px;border-bottom:1px solid var(--border);padding-bottom:4px">
+        <div><strong>[${_esc(c.citation_id)}]</strong> ${_esc(c.title || '(untitled)')} ${status}${lvl}</div>
+        <div style="color:var(--text-tertiary);font-size:11px">retrieved ${_esc(c.retrieved_at || '')}</div>
+        <div style="font-size:11px">${linkHtml}</div>
+      </li>`;
+    }).join('');
+    const audienceLabel = _reportAudience === 'patient' ? 'Patient view' : 'Clinician view';
+    body.innerHTML = `
+      <div style="font-size:10px;color:var(--text-tertiary);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">${_esc(audienceLabel)}</div>
+      <div style="font-size:13px;color:var(--text-primary);line-height:1.4;margin-bottom:10px">${_esc(_reportPayload.summary || '')}</div>
+      ${sections}
+      <details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px;color:var(--text-secondary);font-weight:600">Citations (${(_reportPayload.citations||[]).length})</summary>
+        <ol style="margin:6px 0 0;padding-left:18px;list-style:none">${citeRows || '<li style="color:var(--text-tertiary);font-style:italic">No citations attached.</li>'}</ol>
+      </details>
+      <div style="font-size:10px;color:var(--text-tertiary);font-family:var(--font-mono);margin-top:8px;border-top:1px solid var(--border);padding-top:6px">
+        schema: ${_esc(_reportPayload.schema_id)} · generator: ${_esc(_reportPayload.generator_version)} · generated: ${_esc(_reportPayload.generated_at)}
+      </div>`;
+  };
+
+  document.querySelectorAll('.prot-aud-btn').forEach(btn => {
+    btn.onclick = () => {
+      _reportAudience = btn.getAttribute('data-view');
+      document.querySelectorAll('.prot-aud-btn').forEach(b => {
+        const on = b.getAttribute('data-view') === _reportAudience;
+        b.style.background = on ? 'var(--teal)' : 'transparent';
+        b.style.color = on ? '#fff' : 'var(--text-secondary)';
+      });
+      _renderReportPayload();
+    };
+  });
+
+  const _loadReportBtn = document.getElementById('prot-report-load-btn');
+  if (_loadReportBtn) {
+    _loadReportBtn.onclick = async () => {
+      const body = document.getElementById('prot-report-preview-body');
+      if (!body) return;
+      _loadReportBtn.disabled = true;
+      _loadReportBtn.textContent = 'Loading…';
+      body.innerHTML = '<div style="color:var(--text-tertiary);padding:8px 0">Building structured report payload…</div>';
+      try {
+        const res = await fetch('/api/v1/reports/preview-payload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ audience: 'both' }),
+        });
+        if (res.status === 503) {
+          body.innerHTML = '<div style="color:#7a3e00;padding:8px 0">Report renderer unavailable (503). The server is missing the PDF/HTML render dependency. Check the API host.</div>';
+          window._showToast?.('Report renderer 503: dependency missing on API host.', 'warning');
+        } else if (!res.ok) {
+          body.innerHTML = `<div style="color:#7a1f1f;padding:8px 0">Failed to load preview (HTTP ${res.status}).</div>`;
+          window._showToast?.(`Report preview failed (HTTP ${res.status}).`, 'error');
+        } else {
+          _reportPayload = await res.json();
+          _renderReportPayload();
+        }
+      } catch (e) {
+        console.warn('report preview failed', e);
+        body.innerHTML = '<div style="color:#7a1f1f;padding:8px 0">Network error loading report preview.</div>';
+        window._showToast?.('Report preview failed. Please try again.', 'error');
+      }
+      _loadReportBtn.disabled = false;
+      _loadReportBtn.textContent = 'Load preview';
+    };
+  }
+
   let _evData = null;
   let _evActiveTab = 'papers';
+  const _bundleIndication = cond?.label || proto.conditionId || '';
+  const _bundleModality = proto.device || '';
+  const _bundleTarget = proto.target || '';
+
+  const _renderBundleEvidence = ({ templates = [], safetySignals = [] } = {}) => {
+    const host = document.getElementById('prot-detail-bundle-body');
+    if (!host) return;
+    if (!templates.length && !safetySignals.length) {
+      host.innerHTML = '<div style="color:var(--text-tertiary)">No bundle-backed protocol templates or safety signals matched this protocol yet.</div>';
+      return;
+    }
+    const templateHtml = templates.length
+      ? `
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${templates.slice(0, 3).map((tpl) => `
+            <div style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:rgba(31,95,179,0.05)">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                <div style="font-weight:600;color:var(--text-primary)">${_esc(tpl.protocol_name || tpl.template_name || tpl.title || tpl.condition_label || 'Protocol template')}</div>
+                ${(tpl.evidence_grade || tpl.evidence_tier) ? `<span style="font-size:10px;color:var(--teal);border:1px solid var(--teal);padding:1px 6px;border-radius:999px">${_esc(String(tpl.evidence_grade || tpl.evidence_tier).replace(/^EV-/, ''))}</span>` : ''}
+              </div>
+              <div style="margin-top:3px;color:var(--text-tertiary);font-size:11px">${_esc(tpl.target_region || tpl.target || tpl.coil_or_electrode_placement || tpl.condition_label || '')}</div>
+              ${(tpl.supporting_paper_count || tpl.paper_count || tpl.linked_paper_count) ? `<div style="margin-top:4px;color:var(--text-secondary);font-size:11px">${_esc(String(tpl.supporting_paper_count || tpl.paper_count || tpl.linked_paper_count))} supporting papers</div>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      `
+      : '<div style="color:var(--text-tertiary)">No bundle template matches for this indication/device pair.</div>';
+    const signalHtml = safetySignals.length
+      ? `
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${safetySignals.slice(0, 3).map((sig) => `
+            <div style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,181,71,0.06)">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                <div style="font-weight:600;color:var(--text-primary)">${_esc(sig.signal || sig.title || sig.label || sig.risk || 'Safety signal')}</div>
+                ${(sig.paper_count || sig.supporting_paper_count || sig.mention_count) ? `<span style="font-size:10px;color:var(--text-tertiary)">${_esc(String(sig.paper_count || sig.supporting_paper_count || sig.mention_count))} refs</span>` : ''}
+              </div>
+              <div style="margin-top:3px;color:var(--text-tertiary);font-size:11px">${_esc(sig.summary || sig.notes || sig.description || 'Bundle-backed safety signal.')}</div>
+            </div>
+          `).join('')}
+        </div>
+      `
+      : '<div style="color:var(--text-tertiary)">No bundle safety signals matched this protocol yet.</div>';
+    host.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <section>
+          <div style="font-size:10px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--text-tertiary);margin-bottom:6px">Template support</div>
+          ${templateHtml}
+        </section>
+        <section>
+          <div style="font-size:10px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--text-tertiary);margin-bottom:6px">Safety signals</div>
+          ${signalHtml}
+        </section>
+      </div>
+    `;
+  };
 
   const _renderEvTab = () => {
     const body = document.getElementById('prot-detail-ev-body');
@@ -806,6 +1048,19 @@ export async function pgProtocolDetail(setTopbar, navigate) {
   };
 
   window._protEvTab = tab => { _evActiveTab = tab; _renderEvTab(); };
+
+  Promise.allSettled([
+    api.listResearchProtocolTemplates?.({ indication: _bundleIndication, modality: _bundleModality, target: _bundleTarget, limit: 4 }),
+    api.listResearchSafetySignals?.({ indication: _bundleIndication, modality: _bundleModality, target: _bundleTarget, limit: 4 }),
+  ]).then(([tplRes, sigRes]) => {
+    _renderBundleEvidence({
+      templates: tplRes.status === 'fulfilled' ? (Array.isArray(tplRes.value?.items) ? tplRes.value.items : Array.isArray(tplRes.value) ? tplRes.value : []) : [],
+      safetySignals: sigRes.status === 'fulfilled' ? (Array.isArray(sigRes.value?.items) ? sigRes.value.items : Array.isArray(sigRes.value) ? sigRes.value : []) : [],
+    });
+  }).catch(() => {
+    const host = document.getElementById('prot-detail-bundle-body');
+    if (host) host.innerHTML = '<div style="color:var(--text-tertiary)">Bundle-backed evidence context is unavailable right now.</div>';
+  });
 
   // Load evidence + status concurrently
   Promise.all([
@@ -864,6 +1119,8 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
     scanGuidedNotes: prefill?.scanGuidedNotes ? JSON.stringify(prefill.scanGuidedNotes, null, 2) : '',
     saved: false,
     submitted: false,
+    saveSyncState: null,
+    submitSyncState: null,
   };
 
   const _govToggle = g => {
@@ -1081,8 +1338,8 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
               <button class="prot-b-submit-btn" onclick="window._protBSubmit()">Submit for Review</button>
             </div>
 
-            ${_b.saved ? '<div class="prot-b-success">\u2713 Saved to local library</div>' : ''}
-            ${_b.submitted ? '<div class="prot-b-success">\u2713 Submitted for clinical review</div>' : ''}
+            ${_b.saved ? `<div class="prot-b-success">\u2713 ${_b.saveSyncState === 'backend' ? 'Draft saved and synced to backend' : 'Draft saved in this browser only'}</div>` : ''}
+            ${_b.submitted ? `<div class="prot-b-success">\u2713 ${_b.submitSyncState === 'backend' ? 'Submitted to backend review queue' : 'Saved locally — backend review was not started'}</div>` : ''}
           </div>
         </div>
       </div>`;
@@ -1236,6 +1493,9 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
     localStorage.setItem('ds_custom_protocols', JSON.stringify(saved));
     const backend = await _pushCustomToBackend(custom, 'draft');
     _b.saved = true;
+    _b.submitted = false;
+    _b.saveSyncState = backend.pushed ? 'backend' : 'local';
+    _b.submitSyncState = null;
     renderBuilder();
     const suffix = backend.pushed ? ' (synced to backend)' : ' (local-only — attach a patient to sync)';
     window._showNotifToast?.({ title:'Saved', body:`"${_b.name}" saved to protocol library${suffix}.`, severity:'success' });
@@ -1252,6 +1512,8 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
     const backend = await _pushCustomToBackend(custom, 'submitted');
     _b.submitted = true;
     _b.saved = false;
+    _b.submitSyncState = backend.pushed ? 'backend' : 'local';
+    _b.saveSyncState = null;
     renderBuilder();
     const body = backend.pushed
       ? `"${_b.name}" submitted to backend review queue. Review status remains unchanged until a clinician records it.`

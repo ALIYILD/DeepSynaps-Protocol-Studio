@@ -109,7 +109,15 @@ class AppSettings(BaseModel):
     telegram_bot_token: str = Field(default="")
     telegram_bot_token_patient: str = Field(default="")
     telegram_bot_token_clinician: str = Field(default="")
+    # Shared fallback secret. Per-bot secrets below are preferred — if they
+    # are set, they override this for the corresponding webhook route.
     telegram_webhook_secret: str = Field(default="")
+    # Per-bot Telegram webhook secrets. Telegram lets the operator pin a
+    # secret per webhook URL via setWebhook(secret_token=...). We accept
+    # bot-specific secrets so a leaked patient secret cannot authenticate
+    # clinician posts and vice versa.
+    telegram_patient_webhook_secret: str = Field(default="")
+    telegram_clinician_webhook_secret: str = Field(default="")
     telegram_bot_username_patient: str = Field(default="")
     telegram_bot_username_clinician: str = Field(default="")
     telegram_sales_chat_id: str = Field(default="")
@@ -168,6 +176,21 @@ class AppSettings(BaseModel):
             "Set DEEPSYNAPS_ENABLE_DEEPTWIN_SIMULATION=1 to override."
         ),
     )
+
+    # SlowAPI rate-limiter storage backend. Empty (default) uses in-memory
+    # storage — fine for dev/test and single-process deploys, but on a
+    # horizontally-scaled Fly app each machine keeps its own counters and
+    # the effective per-IP limit becomes (configured limit × machine count).
+    # Point this at a shared Redis instance in production/staging to enforce
+    # global limits. Examples:
+    #   redis://default:<password>@<host>:<port>/0
+    #   redis://<host>:6379
+    # Provision via `fly redis create` or any external Redis; SlowAPI uses
+    # the URI directly. When empty, a startup warning is emitted in
+    # production/staging — non-fatal so existing deploys keep working, but
+    # ops should set DEEPSYNAPS_LIMITER_REDIS_URI before relying on the
+    # auth/login + LLM-cost rate limits to actually hold under load.
+    limiter_redis_uri: str = Field(default="")
 
     @field_validator("database_url")
     @classmethod

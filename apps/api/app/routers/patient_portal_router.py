@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 from app.auth import AuthenticatedActor, get_authenticated_actor
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.settings import get_settings
 from app.persistence.models import (
     AssessmentRecord,
     ClinicalSession,
@@ -55,17 +56,51 @@ router = APIRouter(prefix="/api/v1/patient-portal", tags=["Patient Portal"])
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 _DEMO_PATIENT_ACTOR_ID = "actor-patient-demo"
+_DEMO_ALLOWED_ENVS = frozenset({"development", "test"})
 
 
 def _require_patient(actor: AuthenticatedActor, db: Session) -> Patient:
-    """Find the Patient record linked to this user account by email match."""
+    """Find the Patient record linked to this user account by email match.
+
+    Pre-fix this helper had two gaps:
+
+    * No ``actor.role`` check — a clinician (or any non-patient role)
+      whose ``user.email`` happened to match a Patient row could read /
+      write that patient's wellness logs, dashboard, notifications, and
+      learn-progress (the routes that called this helper without an
+      explicit role pre-check).
+    * The demo bypass (``actor.actor_id == "actor-patient-demo"``) was
+      reachable in any environment, including production.
+
+    Post-fix:
+
+    * Only ``patient`` and ``admin`` roles pass. Most routes already
+      had an explicit ``if actor.role != "patient"`` pre-check; the
+      defensive role gate here closes the gap on the ones that didn't.
+    * The demo bypass is gated to ``app_env in {development, test}``.
+    """
     from app.persistence.models import User
+
+    if actor.role not in ("patient", "admin"):
+        raise ApiServiceError(
+            code="patient_role_required",
+            message="Patient portal access is restricted to patient accounts.",
+            status_code=403,
+        )
 
     # Demo patient actor — look up by any of the known demo emails (no DB
     # user row exists). The seed script uses patient@deepsynaps.com; older
     # deployments used patient@demo.com. Accept either so the portal works
     # on any seeded environment.
     if actor.actor_id == _DEMO_PATIENT_ACTOR_ID:
+        settings = get_settings()
+        app_env = (getattr(settings, "app_env", None) or "production").lower()
+        if app_env not in _DEMO_ALLOWED_ENVS:
+            raise ApiServiceError(
+                code="demo_disabled",
+                message="Demo patient bypass is not available in this environment.",
+                status_code=403,
+            )
         patient = (
             db.query(Patient)
             .filter(Patient.email.in_(["patient@deepsynaps.com", "patient@demo.com"]))

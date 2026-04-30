@@ -194,12 +194,12 @@ const DEMO_CONSENTS = [
 
 // ── Demo audit log ───────────────────────────────────────────────────────────
 const DEMO_AUDIT = [
-  { id: _uid(), action: 'consent_created', patient_name: 'Sarah M. Johnson', template: 'TMS / rTMS Consent Form', actor: 'Dr. Emily Chen', timestamp: '2026-04-20T14:25:00Z', ip: '192.168.1.45', details: 'Consent form generated and sent to patient' },
+  { id: _uid(), action: 'consent_created', patient_name: 'Sarah M. Johnson', template: 'TMS / rTMS Consent Form', actor: 'Dr. Emily Chen', timestamp: '2026-04-20T14:25:00Z', ip: '192.168.1.45', details: 'Consent draft created and marked pending signature capture' },
   { id: _uid(), action: 'consent_signed', patient_name: 'Sarah M. Johnson', template: 'TMS / rTMS Consent Form', actor: 'Sarah M. Johnson (patient)', timestamp: '2026-04-20T14:30:00Z', ip: '192.168.1.45', details: 'Digital signature captured' },
   { id: _uid(), action: 'consent_countersigned', patient_name: 'Sarah M. Johnson', template: 'TMS / rTMS Consent Form', actor: 'Dr. Emily Chen', timestamp: '2026-04-20T14:32:00Z', ip: '192.168.1.45', details: 'Clinician attestation completed' },
   { id: _uid(), action: 'consent_created', patient_name: 'Michael R. Torres', template: 'tDCS Consent Form', actor: 'Dr. Emily Chen', timestamp: '2026-04-18T09:10:00Z', ip: '192.168.1.52', details: 'Consent form generated' },
   { id: _uid(), action: 'consent_signed', patient_name: 'Michael R. Torres', template: 'tDCS Consent Form', actor: 'Michael R. Torres (patient)', timestamp: '2026-04-18T09:15:00Z', ip: '192.168.1.52', details: 'Digital signature captured' },
-  { id: _uid(), action: 'consent_sent', patient_name: 'Lisa A. Park', template: 'TMS / rTMS Consent Form', actor: 'Dr. James Wilson', timestamp: '2026-04-22T08:00:00Z', ip: '192.168.1.33', details: 'Consent form sent to patient for review' },
+  { id: _uid(), action: 'consent_pending_review', patient_name: 'Lisa A. Park', template: 'TMS / rTMS Consent Form', actor: 'Dr. James Wilson', timestamp: '2026-04-22T08:00:00Z', ip: '192.168.1.33', details: 'Consent record marked pending external review follow-up' },
   { id: _uid(), action: 'consent_revoked', patient_name: 'Robert J. Garcia', template: 'tDCS Consent Form', actor: 'Dr. Emily Chen', timestamp: '2026-04-01T10:00:00Z', ip: '192.168.1.61', details: 'Patient withdrew from treatment; consent revoked at patient request' },
   { id: _uid(), action: 'consent_expired', patient_name: 'Jennifer L. Adams', template: 'TMS / rTMS Consent Form', actor: 'System', timestamp: '2026-03-10T00:00:00Z', ip: 'system', details: 'Consent passed 12-month validity window' },
 ];
@@ -308,7 +308,7 @@ async function _mountConsent(rootEl, opts) {
     S.builder.customSections[section] = value;
   };
 
-  window._consentSendForSignature = () => {
+  window._consentSendForSignature = async () => {
     const b = S.builder;
     if (!b.patientName || !b.templateId) {
       window._showNotifToast?.({ title: 'Required', body: 'Patient name and consent template are required.', severity: 'warn' });
@@ -330,6 +330,8 @@ async function _mountConsent(rootEl, opts) {
       device: b.device || '',
       custom_sections: b.customSections,
       additional_notes: b.additionalNotes,
+      capture_mode: 'pending',
+      _backend: false,
     };
     S.consents.unshift(newConsent);
     S.auditLog.unshift({
@@ -340,13 +342,27 @@ async function _mountConsent(rootEl, opts) {
       actor: b.clinicianName || 'Clinician',
       timestamp: new Date().toISOString(),
       ip: 'local',
-      details: 'Consent form created and sent for signature',
+      details: 'Consent draft created and marked pending signature capture',
     });
 
-    // Try to persist to backend
-    api.createConsentRecord?.(newConsent).catch(() => {});
+    let saved = false;
+    try {
+      const res = await api.createConsentRecord?.(newConsent);
+      const rec = res?.item || res;
+      if (rec?.id) {
+        newConsent.id = rec.id;
+        newConsent._backend = true;
+        saved = true;
+      }
+    } catch {}
 
-    window._showNotifToast?.({ title: 'Consent Sent', body: `Consent form sent to ${b.patientName} for signature.`, severity: 'success' });
+    window._showNotifToast?.({
+      title: saved ? 'Consent saved' : 'Consent saved locally',
+      body: saved
+        ? `Pending consent for ${b.patientName} was saved. Remote patient delivery is not verified from this page.`
+        : `Pending consent for ${b.patientName} was saved in this browser only. Remote patient delivery is not verified from this page.`,
+      severity: saved ? 'success' : 'warning',
+    });
     S.builder = defaultState().builder;
     S.tab = 'dashboard';
     render();
@@ -360,7 +376,7 @@ async function _mountConsent(rootEl, opts) {
     setTimeout(() => _initSignaturePad(), 50);
   };
 
-  window._consentCompleteSignature = () => {
+  window._consentCompleteSignature = async () => {
     const consent = S.consents.find(c => c.id === S.viewingConsent);
     if (!consent) return;
     const canvas = document.getElementById('cm-sig-canvas');
@@ -372,25 +388,39 @@ async function _mountConsent(rootEl, opts) {
     consent.status = 'signed';
     consent.signed_at = new Date().toISOString();
     consent.expires_at = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
-    consent.ip_address = '127.0.0.1';
+    consent.ip_address = null;
     consent.signature_data = sigData;
+    consent.capture_mode = 'clinic-device';
 
     S.auditLog.unshift({
       id: _uid(),
       action: 'consent_signed',
       patient_name: consent.patient_name,
       template: consent.template_name,
-      actor: consent.patient_name + ' (patient)',
+      actor: consent.patient_name + ' (clinic-device capture)',
       timestamp: consent.signed_at,
-      ip: consent.ip_address,
-      details: 'Digital signature captured and verified',
+      ip: 'not-verified',
+      details: 'Digital signature captured on clinic device',
     });
 
-    api.updateConsentRecord?.(consent.id, consent).catch(() => {});
+    let saved = false;
+    try {
+      await api.updateConsentRecord?.(consent.id, consent);
+      consent._backend = true;
+      saved = true;
+    } catch {
+      consent._backend = false;
+    }
 
     S.signatureMode = false;
     S.signatureData = sigData;
-    window._showNotifToast?.({ title: 'Consent Signed', body: `${consent.patient_name} signed the ${consent.template_name}.`, severity: 'success' });
+    window._showNotifToast?.({
+      title: saved ? 'Consent signed' : 'Signature saved locally',
+      body: saved
+        ? `${consent.patient_name} signed the ${consent.template_name} on this clinic device.`
+        : `${consent.patient_name}'s clinic-device signature was saved in this browser only.`,
+      severity: saved ? 'success' : 'warning',
+    });
     render();
   };
 
@@ -418,7 +448,11 @@ async function _mountConsent(rootEl, opts) {
       ip: 'local',
       details: 'Consent revoked by clinician',
     });
-    api.updateConsentRecord?.(consent.id, consent).catch(() => {});
+    api.updateConsentRecord?.(consent.id, consent).then(() => {
+      consent._backend = true;
+    }).catch(() => {
+      consent._backend = false;
+    });
     window._showNotifToast?.({ title: 'Consent Revoked', body: `Consent for ${consent.patient_name} has been revoked.`, severity: 'warn' });
     render();
   };
@@ -443,7 +477,7 @@ async function _mountConsent(rootEl, opts) {
       `Device: ${consent.device ? (DEVICES.find(d => d.id === consent.device)?.label || consent.device) : 'N/A'}`,
       `Clinician: ${consent.clinician || 'N/A'}`,
       `Status: ${consent.status.toUpperCase()}`,
-      consent.signed_at ? `Signed: ${_fmtDateTime(consent.signed_at)}` : 'Awaiting signature',
+      consent.signed_at ? `Signed: ${_fmtDateTime(consent.signed_at)}` : 'Awaiting clinic-device capture or pending external follow-up',
       consent.expires_at ? `Expires: ${_fmtDate(consent.expires_at)}` : '',
       '',
       '--------------------------------------------------------------',
@@ -480,7 +514,7 @@ async function _mountConsent(rootEl, opts) {
       'I have had the opportunity to ask questions and have received',
       'satisfactory answers. I voluntarily consent to the described procedure.',
       '',
-      consent.signed_at ? `Signed electronically on ${_fmtDateTime(consent.signed_at)}` : '[AWAITING SIGNATURE]',
+      consent.signed_at ? `Signed electronically on ${_fmtDateTime(consent.signed_at)}` : '[AWAITING CLINIC-DEVICE CAPTURE OR PENDING EXTERNAL FOLLOW-UP]',
       consent.ip_address ? `IP Address: ${consent.ip_address}` : '',
       '',
       '--------------------------------------------------------------',
@@ -586,6 +620,7 @@ function _render(root, S) {
     <div class="cm-wrap${embedCls}">
       ${_tabBar(S.tab)}
       <div class="cm-body">
+        <div class="cm-beta-note">Clinic-device capture only. This page stores consent records and in-browser signatures, but it does not verify remote patient delivery or external e-sign completion.</div>
         ${S.viewingConsent ? _renderConsentDetail(S) : ''}
         ${!S.viewingConsent && S.tab === 'dashboard' ? _renderDashboard(S) : ''}
         ${!S.viewingConsent && S.tab === 'templates' ? _renderTemplates() : ''}
@@ -870,7 +905,7 @@ function _renderBuilder(S) {
 
           <div class="cm-builder-actions">
             <button class="cm-btn ghost" onclick="window._consentTab('templates')">Back to Templates</button>
-            <button class="cm-btn primary" onclick="window._consentSendForSignature()">Send for Signature \u2192</button>
+            <button class="cm-btn primary" onclick="window._consentSendForSignature()">Save Pending Consent \u2192</button>
           </div>
         </div>
       </div>
@@ -896,14 +931,14 @@ function _renderConsentDetail(S) {
 
   const signaturePad = S.signatureMode ? `
     <div class="cm-signature-section">
-      <div class="cm-group-title"><span class="cm-num">\u270D</span>Digital Signature</div>
-      <div class="cm-sig-instructions">Please sign in the box below using your mouse or touch input. This constitutes your electronic signature.</div>
+      <div class="cm-group-title"><span class="cm-num">\u270D</span>Clinic-Device Signature</div>
+      <div class="cm-sig-instructions">Capture the patient signature on this clinic device using mouse or touch input. This page does not verify remote signing.</div>
       <div class="cm-sig-pad-wrap">
         <canvas id="cm-sig-canvas" class="cm-sig-canvas" width="560" height="180"></canvas>
       </div>
       <div class="cm-sig-actions">
         <button class="cm-btn ghost" onclick="window._consentClearSignature()">Clear</button>
-        <button class="cm-btn primary" onclick="window._consentCompleteSignature()">Complete Signature</button>
+        <button class="cm-btn primary" onclick="window._consentCompleteSignature()">Save Clinic-Device Signature</button>
       </div>
     </div>
   ` : '';
@@ -911,8 +946,8 @@ function _renderConsentDetail(S) {
   const signatureDisplay = consent.signature_data && !S.signatureMode ? `
     <div class="cm-signature-display">
       <div class="cm-group-title"><span class="cm-num">\u2713</span>Captured Signature</div>
-      <img src="${consent.signature_data}" class="cm-sig-image" alt="Patient signature">
-      <div class="cm-sig-meta">Signed: ${_fmtDateTime(consent.signed_at)} \u00B7 IP: ${esc(consent.ip_address || 'N/A')}</div>
+      <img src="${esc(consent.signature_data)}" class="cm-sig-image" alt="Patient signature">
+      <div class="cm-sig-meta">Signed: ${_fmtDateTime(consent.signed_at)} \u00B7 Capture: ${esc(consent.capture_mode || 'clinic-device')}</div>
     </div>
   ` : '';
 
@@ -926,7 +961,7 @@ function _renderConsentDetail(S) {
       <div class="cm-detail-toolbar">
         <button class="cm-back-btn" onclick="window._consentCloseDetail()">\u2190 Back to Dashboard</button>
         <div class="cm-detail-actions">
-          ${consent.status === 'pending' ? `<button class="cm-btn primary" onclick="window._consentOpenSignature('${esc(consent.id)}')">Capture Signature</button>` : ''}
+          ${consent.status === 'pending' ? `<button class="cm-btn primary" onclick="window._consentOpenSignature('${esc(consent.id)}')">Capture On Device</button>` : ''}
           ${consent.status === 'signed' ? `<button class="cm-btn ghost" onclick="window._consentExportPDF('${esc(consent.id)}')">Export</button>` : ''}
           ${consent.status === 'signed' ? `<button class="cm-btn rose" onclick="window._consentRevoke('${esc(consent.id)}')">Revoke</button>` : ''}
         </div>
@@ -943,7 +978,7 @@ function _renderConsentDetail(S) {
           </div>
           <div class="cm-detail-hero-dates">
             <span>Clinician: ${esc(consent.clinician)}</span>
-            ${consent.signed_at ? `<span>Signed: ${_fmtDateTime(consent.signed_at)}</span>` : '<span>Awaiting signature</span>'}
+            ${consent.signed_at ? `<span>Signed: ${_fmtDateTime(consent.signed_at)}</span>` : '<span>Awaiting clinic-device capture or pending external follow-up</span>'}
             ${consent.expires_at ? `<span>Expires: ${_fmtDate(consent.expires_at)}</span>` : ''}
           </div>
         </div>
@@ -1038,7 +1073,7 @@ function _renderAudit(S) {
     <div class="cm-audit">
       <div class="cm-audit-header">
         <div class="cm-audit-title">Consent Audit Trail</div>
-        <div class="cm-audit-sub">Complete record of all consent-related actions. Every creation, signature, revocation, and export is logged with timestamp and IP.</div>
+        <div class="cm-audit-sub">Complete record of consent-related actions. Entries include timestamps plus any available device or IP metadata, but remote delivery and external e-sign verification are not confirmed from this page.</div>
       </div>
 
       <div class="cm-audit-table">
@@ -1088,6 +1123,7 @@ function _styleBlock() {
 
     /* Body */
     .cm-body { flex:1; overflow-y:auto; padding:20px; }
+    .cm-beta-note { margin-bottom:16px; padding:10px 14px; border-radius:10px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.24); color:${T.t2}; font-size:12px; line-height:1.55; }
 
     /* Stats & toolbar */
     .cm-stats-row { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; }

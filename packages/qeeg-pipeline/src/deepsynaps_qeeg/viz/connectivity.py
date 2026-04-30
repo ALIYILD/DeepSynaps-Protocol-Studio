@@ -15,14 +15,12 @@ from __future__ import annotations
 
 import base64
 import io
-import json
 import logging
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from .. import FREQ_BANDS
 
 log = logging.getLogger(__name__)
 

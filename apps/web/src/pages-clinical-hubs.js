@@ -7,6 +7,13 @@ import { tag, spinner, emptyState } from './helpers.js';
 import { currentUser } from './auth.js';
 import { renderBrainMap10_20 } from './brain-map-svg.js';
 import {
+  buildReportFallbackContent,
+  buildSchedulingSessionPayload,
+  getScheduleTypeSubmission,
+  mergeSavedReports,
+  parsePatientNameForCreate,
+} from './beta-readiness-utils.js';
+import {
   SUPPORTED_FORMS as ASSESSMENT_SUPPORTED_FORMS,
   SCALE_TO_FORM_KEY,
   getAssessmentConfig,
@@ -137,8 +144,25 @@ function sortPatients(items, key, direction = 'asc', getCourseLabel = courseLabe
 // pgPatientHub — Merged: Patients + Treatment Courses + Prescriptions
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgPatientHub(setTopbar, navigate) {
-  const tab = window._patientHubTab || 'patients';
+  // ── Tab is read from (priority): URL ?tab= → window._patientHubTab → default
+  //    so deep-links and refresh land on the right tab without route hops.
+  let _urlTab = null;
+  try {
+    if (typeof location !== 'undefined') {
+      _urlTab = new URL(location.href).searchParams.get('tab');
+    }
+  } catch {}
+  const tab = _urlTab || window._patientHubTab || 'patients';
   window._patientHubTab = tab;
+
+  // ── Pre-fetch the analytics module in parallel with the initial patient
+  //    list so a subsequent tab click renders the KPIs synchronously. We
+  //    fire-and-forget — the analytics tab branch reads the cache or awaits.
+  if (!window._phAnalyticsModule && !window._phAnalyticsModulePending) {
+    window._phAnalyticsModulePending = import('./pages-patient-analytics.js')
+      .then(m => { window._phAnalyticsModule = m; return m; })
+      .catch(() => null);
+  }
 
   const TAB_META = {
     patients:   { label: 'Patients',       color: 'var(--blue)'   },
@@ -147,12 +171,114 @@ export async function pgPatientHub(setTopbar, navigate) {
     reports:    { label: 'Reports',        color: 'var(--violet)' },
   };
 
+  // ── In-place tab switcher. Replaces the previous _nav('patients-hub') route
+  //    hop. Sets window._patientHubTab, updates the URL via replaceState (so
+  //    deep-links + refresh still work, no history entry, no flash), and
+  //    re-runs pgPatientHub against the still-mounted #content host. The
+  //    page module never unloads, so module re-import / loading skeleton are
+  //    skipped — KPIs render synchronously from the in-memory roster.
+  window._phSwitchTab = function _phSwitchTab(id) {
+    if (!Object.prototype.hasOwnProperty.call(TAB_META, id)) return;
+    window._patientHubTab = id;
+    try {
+      if (typeof history !== 'undefined' && history.replaceState) {
+        const u = new URL(location.href);
+        // Keep the page param exactly as the user landed on (patients-v2 or
+        // patients-hub) — only the in-page tab marker changes.
+        u.searchParams.set('tab', id);
+        history.replaceState({ ...(history.state || {}), tab: id }, '', u.toString());
+      }
+    } catch {}
+    // Re-render in place against the same content host. We pass through the
+    // existing setTopbar/navigate so child tabs still get the topbar slot.
+    pgPatientHub(setTopbar, navigate);
+  };
+
   function tabBar() {
-    return Object.entries(TAB_META).map(([id, m]) =>
-      '<button class="ch-tab' + (tab === id ? ' ch-tab--active' : '') + '"' +
-      (tab === id ? ' style="--tab-color:' + m.color + '"' : '') +
-      ' onclick="window._patientHubTab=\'' + id + '\';window._nav(\'patients-hub\')">' + m.label + '</button>'
-    ).join('');
+    return Object.entries(TAB_META).map(([id, m]) => {
+      const testid = id === 'analytics' ? ' data-testid="ds-patients-tab-analytics"' : '';
+      return '<button class="ch-tab' + (tab === id ? ' ch-tab--active' : '') + '"' +
+        ' data-tab="' + id + '"' + testid +
+        (tab === id ? ' style="--tab-color:' + m.color + '"' : '') +
+        ' onclick="window._phSwitchTab(\'' + id + '\')">' + m.label + '</button>';
+    }).join('');
+  }
+
+  // ── Global toast helper. The page-wide _dsToast is referenced at 30+ call
+  //    sites but never defined anywhere — every honest-demo fallback was
+  //    silently dropping. Define a minimal fixed-position toast container
+  //    once per session so EVERY caller surfaces a visible response.
+  if (typeof window !== 'undefined' && typeof window._dsToast !== 'function') {
+    window._dsToast = function _dsToast(opts) {
+      try {
+        const o = (opts && typeof opts === 'object') ? opts : { body: String(opts || '') };
+        const title = o.title ? String(o.title) : '';
+        const body  = o.body != null ? String(o.body) : '';
+        const sev   = String(o.severity || 'info').toLowerCase();
+        let host = document.getElementById('ds-pt-toast-host');
+        if (!host) {
+          host = document.createElement('div');
+          host.id = 'ds-pt-toast-host';
+          host.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none';
+          document.body.appendChild(host);
+        }
+        const colorMap = {
+          success: '#2f6b3a', ok: '#2f6b3a',
+          warn:    '#b8741a', warning: '#b8741a',
+          error:   '#b03434',
+          info:    '#1d6f7a',
+        };
+        const accent = colorMap[sev] || colorMap.info;
+        const t = document.createElement('div');
+        t.setAttribute('data-testid', 'ds-pt-toast');
+        t.setAttribute('data-severity', sev);
+        t.setAttribute('role', sev === 'error' ? 'alert' : 'status');
+        t.style.cssText = 'pointer-events:auto;background:#1c1f24;color:#f3eee5;border-left:3px solid '+accent+';border:1px solid rgba(255,255,255,0.08);border-left:3px solid '+accent+';border-radius:8px;padding:10px 14px;min-width:240px;max-width:360px;box-shadow:0 8px 24px rgba(0,0,0,0.45);font:13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
+        const safeTitle = title.replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+        const safeBody  = body.replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+        t.innerHTML = (title ? '<div style="font-weight:600;font-size:12.5px;margin-bottom:2px">' + safeTitle + '</div>' : '') +
+                      (body  ? '<div style="font-size:12px;color:#cfc8b8">' + safeBody + '</div>' : '');
+        host.appendChild(t);
+        setTimeout(() => { try { t.style.transition='opacity 220ms'; t.style.opacity='0'; setTimeout(()=>t.remove(),250); } catch {} }, 3000);
+      } catch (err) {
+        try { console.info('[toast]', opts); } catch {}
+      }
+    };
+  }
+
+  // ── window.showAddPatient fallback. The legacy modal lives in pages-
+  //    clinical.js and is only attached when that page mounts. The patients-v2
+  //    topbar references window.showAddPatient() directly, throwing
+  //    `TypeError: window.showAddPatient is not a function` when v2 is the
+  //    first page loaded. Provide a fallback that lazy-loads the legacy
+  //    module (which then defines the real handler), or surfaces a toast.
+  if (typeof window !== 'undefined' && typeof window.showAddPatient !== 'function') {
+    window.showAddPatient = async function showAddPatientFallback() {
+      try {
+        const mod = await import('./pages-clinical.js');
+        // Calling pgPatients renders the legacy patient list AND assigns the
+        // real window.showAddPatient. We don't want to navigate the user
+        // off this page — just attempt to load the module so the modal
+        // markup + handler exist, then open it.
+        if (mod && typeof mod.pgPatients === 'function' && !document.getElementById('add-patient-panel')) {
+          // Module imported but markup isn't on the page. Surface an honest
+          // toast and route to the legacy patient page where the modal lives.
+          window._dsToast?.({ title: 'Add patient', body: 'Opening intake form…', severity: 'info' });
+          if (typeof window._nav === 'function') { window._nav('patients'); return; }
+        }
+        const panel = document.getElementById('add-patient-panel');
+        if (panel) { panel.style.display = 'flex'; return; }
+        window._dsToast?.({ title: 'Add patient unavailable', body: 'Open the legacy Patients page to add a patient.', severity: 'warn' });
+      } catch (err) {
+        window._dsToast?.({ title: 'Add patient failed', body: (err && err.message) || 'Module load error.', severity: 'error' });
+      }
+    };
+  }
+  if (typeof window !== 'undefined' && typeof window.showImportCSV !== 'function') {
+    window.showImportCSV = function showImportCSVFallback() {
+      window._dsToast?.({ title: 'Import CSV', body: 'CSV import opens in the legacy Patients page.', severity: 'info' });
+      if (typeof window._nav === 'function') window._nav('patients');
+    };
   }
 
   const el = document.getElementById('content');
@@ -224,11 +350,278 @@ export async function pgPatientHub(setTopbar, navigate) {
       return '<span class="chip">Weekly check-in</span>';
     }
 
+    // ── Doctor-friendly helpers (status pill, today-session derivation,
+    //    inline action icons). Status hierarchy:
+    //    Adverse > Overdue assessment > Session today > Stable.
+    function todaysSessionTimeFor(p) {
+      // Real backend field first; fallback to derived patterns; then a deterministic
+      // demo time for offline mode so the panel is never silently empty.
+      const today = new Date().toDateString();
+      const sameDay = (val) => {
+        if (!val) return false;
+        const d = new Date(val);
+        return !isNaN(d.getTime()) && d.toDateString() === today;
+      };
+      const candidates = [
+        p?.todays_session_time,
+        p?.todaysSessionTime,
+        p?.next_session_at && sameDay(p.next_session_at)
+          ? new Date(p.next_session_at).toTimeString().slice(0,5)
+          : null,
+        p?.next_session_date && sameDay(p.next_session_date)
+          ? '09:00'
+          : null,
+        // Demo-roster shape uses `next_session` (a YYYY-MM-DD date string).
+        p?.next_session && sameDay(p.next_session)
+          ? '09:00'
+          : null,
+      ];
+      for (const c of candidates) if (c) return String(c).slice(0,5);
+      return null;
+    }
+    // Single source of truth for the "Today's Queue" predicate. Both the
+    // chip count and the right-panel queue list use this — guaranteed to agree.
+    function isTodayPatient(p) {
+      return !!todaysSessionTimeFor(p);
+    }
+    // Single source of truth for the "Adverse Events" predicate. Used by
+    // both the chip count and any per-row status pill that flags adverse.
+    function hasAdverseEvent(p) {
+      return !!(p && p.has_adverse_event);
+    }
+    function patientStatusKind(p) {
+      if (hasAdverseEvent(p)) return 'adverse';
+      if (p?.assessment_overdue || p?.needs_review) return 'overdue';
+      if (isTodayPatient(p)) return 'today';
+      return 'stable';
+    }
+    function statusPill(p) {
+      const kind = patientStatusKind(p);
+      if (kind === 'adverse') {
+        return '<span class="ds-status-pill ds-status-pill--adverse" data-testid="ds-patient-status-pill" data-status="adverse" title="Adverse event flagged">🔴 Adverse event flagged</span>';
+      }
+      if (kind === 'overdue') {
+        return '<span class="ds-status-pill ds-status-pill--overdue" data-testid="ds-patient-status-pill" data-status="overdue" title="Assessment review needed">🟡 Needs review</span>';
+      }
+      if (kind === 'today') {
+        const t = todaysSessionTimeFor(p);
+        return '<span class="ds-status-pill ds-status-pill--today" data-testid="ds-patient-status-pill" data-status="today" title="Session today">🟢 Session today @ ' + esc(t) + '</span>';
+      }
+      return '<span class="ds-status-pill ds-status-pill--stable" data-testid="ds-patient-status-pill" data-status="stable" title="Stable">⚪ Stable</span>';
+    }
+
+    // 4-icon action strip per row. Each icon is a real button with a real (or
+    // honestly-stubbed) handler — never silent.
+    function actionIcons(p) {
+      const pid = esc(p?.id || '');
+      const stop = 'event.stopPropagation();';
+      return '<div class="ds-pt-actions" role="group" aria-label="Patient quick actions">' +
+        '<button type="button" class="ds-pt-action" data-action="start-session" title="Start session" aria-label="Start session" ' +
+          'onclick="' + stop + 'window._phStartSession(\'' + pid + '\')">▶</button>' +
+        '<button type="button" class="ds-pt-action" data-action="quick-note" title="Quick note" aria-label="Quick note" ' +
+          'onclick="' + stop + 'window._phQuickNote(\'' + pid + '\')">✎</button>' +
+        '<button type="button" class="ds-pt-action" data-action="message" title="Message" aria-label="Message" ' +
+          'onclick="' + stop + 'window._phMessage(\'' + pid + '\')">✉</button>' +
+        '<button type="button" class="ds-pt-action" data-action="open-chart" title="Open chart" aria-label="Open chart" ' +
+          'onclick="' + stop + 'window._phOpenChart(\'' + pid + '\')">📂</button>' +
+      '</div>';
+    }
+
+    // Quick-filter cohort counts. The "today" and "adverse" counts derive from
+    // the *same* predicate / queue list as the right-panel Today's Queue and
+    // status pills — chip counts can never disagree with what's rendered.
+    function quickFilterCounts() {
+      const items = (_currentList?.items) || [];
+      const summary = _currentSummary || {};
+      const all = (summary.total != null ? summary.total : items.length) || items.length;
+      // Today count = number of rows that the right-panel queue would render.
+      // Includes the demo fallback when offline so chip and panel agree.
+      const today = todaysQueueEntries().length;
+      const overdueServer = (summary.kpis?.follow_up_count) ?? null;
+      const overdue = overdueServer != null ? overdueServer : items.filter(p => p.assessment_overdue || p.needs_review).length;
+      const adverse = items.filter(hasAdverseEvent).length;
+      const recent  = items.filter(p => {
+        if (!p.created_at) return false;
+        const d = new Date(p.created_at);
+        if (Number.isNaN(d.getTime())) return false;
+        return (Date.now() - d.getTime()) < 14 * 86400000;
+      }).length;
+      return { today, overdue, adverse, recent, all };
+    }
+    function quickFilterChipsHtml() {
+      const c = quickFilterCounts();
+      const active = window._phState.activeQuickFilter || 'all';
+      const chips = [
+        { id:'today',   label:"Today's Queue", n:c.today },
+        { id:'overdue', label:'Overdue',        n:c.overdue },
+        { id:'adverse', label:'Adverse Events', n:c.adverse },
+        { id:'recent',  label:'Recently Added', n:c.recent },
+        { id:'all',     label:'All',            n:c.all },
+      ];
+      return '<div class="ds-qf-row" data-testid="ds-patients-quick-filters" role="tablist" aria-label="Quick filter">' +
+        chips.map(ch => {
+          const isActive = (active === ch.id);
+          // Screen readers get the label + count together so the chip is
+          // self-describing without relying on visual whitespace.
+          const ariaLabel = ch.label + ': ' + ch.n + ' patient' + (ch.n === 1 ? '' : 's');
+          return '<button type="button" class="ds-qf-chip' + (isActive ? ' ds-qf-chip--active' : '') + '" ' +
+            'data-quick-filter="' + ch.id + '" role="tab" aria-selected="' + (isActive ? 'true' : 'false') + '" ' +
+            'aria-label="' + esc(ariaLabel) + '" ' +
+            'onclick="window._phSetQuickFilter(\'' + ch.id + '\')">' +
+            esc(ch.label) + ' <span class="ds-qf-count">' + ch.n + '</span></button>';
+        }).join('') +
+      '</div>';
+    }
+
+    // Apply the active quick-filter chip to the current page items. The chip
+    // mirrors the cohort sidebar — it never replaces existing facet filters,
+    // just narrows further.
+    function applyQuickFilter(items) {
+      const f = window._phState.activeQuickFilter || 'all';
+      if (f === 'all') return items;
+      if (f === 'today')   return items.filter(isTodayPatient);
+      if (f === 'overdue') return items.filter(p => p.assessment_overdue || p.needs_review);
+      if (f === 'adverse') return items.filter(hasAdverseEvent);
+      if (f === 'recent')  return items.filter(p => {
+        if (!p.created_at) return false;
+        const d = new Date(p.created_at);
+        return !Number.isNaN(d.getTime()) && (Date.now() - d.getTime()) < 14 * 86400000;
+      });
+      return items;
+    }
+
+    // Today's Queue: real-data first, deterministic demo entries as fallback so
+    // the panel is never silently empty in the demo build. Sort by start time
+    // ascending (next session first) with name as a stable alphabetical tiebreak.
+    function _sortQueueByTime(rows) {
+      return rows.slice().sort((a, b) => {
+        const t = String(a.time || '').localeCompare(String(b.time || ''));
+        if (t !== 0) return t;
+        return String(a.name || '').localeCompare(String(b.name || ''));
+      });
+    }
+    function todaysQueueEntries() {
+      const items = (_currentList?.items) || [];
+      const real = _sortQueueByTime(
+        items
+          .filter(isTodayPatient)
+          .map(p => {
+            const t = todaysSessionTimeFor(p);
+            const fname = p.first_name || '';
+            const lname = p.last_name || '';
+            const name  = (fname + ' ' + lname).trim() || 'Unknown';
+            const modality = (p.primary_modality || '').replace(/_/g,' ') || '—';
+            return { id: p.id, time: t, name, modality, sessionId: p.next_session_id || null };
+          })
+      );
+      if (real.length) return real.slice(0, 8);
+      // Demo fallback — only used when no real session-today data is present.
+      const _demoOk = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
+      if (!_demoOk) return [];
+      return _sortQueueByTime([
+        { id:'demo-pt-aisha-rahman', time:'09:00', name:'Aisha Rahman',     modality:'TPS',           sessionId:null, demo:true },
+        { id:'demo-pt-samantha-li',  time:'10:30', name:'Samantha Li',      modality:'tDCS',          sessionId:null, demo:true },
+        { id:'demo-pt-marcus-chen',  time:'13:15', name:'Marcus Chen',      modality:'rTMS',          sessionId:null, demo:true },
+        { id:'demo-pt-james-okonkwo',time:'15:45', name:'James Okonkwo',    modality:'Neurofeedback', sessionId:null, demo:true },
+      ]);
+    }
+    function todaysQueueHtml() {
+      const queue = todaysQueueEntries();
+      const cs = quickFilterCounts();
+      const overdueN = cs.overdue || 0;
+      const adverseN = cs.adverse || 0;
+      const items = queue.map(q => (
+        '<div class="ds-tq-row" data-pid="' + esc(q.id) + '">' +
+          '<div class="ds-tq-time">' + esc(q.time) + '</div>' +
+          '<div class="ds-tq-name">' + esc(q.name) + '</div>' +
+          '<div class="ds-tq-mod">' + esc(q.modality) + '</div>' +
+          '<button class="ds-tq-start" type="button" onclick="window._phStartSession(\'' + esc(q.id) + '\')">Start →</button>' +
+        '</div>'
+      )).join('') || '<div class="ds-tq-empty">No sessions scheduled today.</div>';
+      return '<aside class="ds-tq" data-testid="ds-patients-todays-queue" aria-label="Today\'s queue">' +
+        '<div class="ds-tq-hd">Today\'s Queue · <span class="ds-tq-count">' + queue.length + ' sessions</span></div>' +
+        '<div class="ds-tq-list">' + items + '</div>' +
+        '<div class="ds-tq-mini">' +
+          '<button type="button" class="ds-tq-mini-btn" onclick="window._phSetQuickFilter(\'overdue\')">Overdue Follow-ups <span class="ds-tq-mini-count">' + overdueN + '</span></button>' +
+          '<button type="button" class="ds-tq-mini-btn" onclick="window._phSetQuickFilter(\'adverse\')">Adverse Events <span class="ds-tq-mini-count">' + adverseN + '</span></button>' +
+        '</div>' +
+      '</aside>';
+    }
+
+    function selectedPatientPreviewHtml() {
+      const id = window._phState.selectedPatientId;
+      if (!id) return '';
+      const items = (_currentList?.items) || [];
+      const p = items.find(x => x.id === id);
+      if (!p) return '';
+      const fname = p.first_name || '';
+      const lname = p.last_name || '';
+      const name = (fname + ' ' + lname).trim() || 'Unknown';
+      const cond = (p.condition_slug||'').replace(/-/g,' ') || (p.primary_condition||'—');
+      return '<aside class="ds-tq" aria-label="Selected patient preview">' +
+        '<div class="ds-tq-hd">Selected · <span class="ds-tq-count">' + esc(name) + '</span></div>' +
+        '<div class="ds-sp-body">' +
+          '<div class="ds-sp-row"><span>Condition</span><strong>' + esc(cond) + '</strong></div>' +
+          '<div class="ds-sp-row"><span>Modality</span><strong>' + esc((p.primary_modality||'—').replace(/_/g,' ')) + '</strong></div>' +
+          '<div class="ds-sp-row"><span>Status</span>' + statusPill(p) + '</div>' +
+          '<div class="ds-sp-actions">' +
+            '<button class="ds-tq-start" type="button" onclick="window._phOpenChart(\'' + esc(p.id) + '\')">Open chart →</button>' +
+            '<button class="ds-tq-start ds-tq-start--ghost" type="button" onclick="window._phQuickNote(\'' + esc(p.id) + '\')">Quick note</button>' +
+            '<button class="ds-tq-start ds-tq-start--ghost" type="button" onclick="window._phState.selectedPatientId=null;window._phRenderRightPanel()">Close</button>' +
+          '</div>' +
+        '</div>' +
+      '</aside>';
+    }
+
+    function shortcutsModalHtml() {
+      if (!window._phState.shortcutsOpen) return '';
+      const rows = [
+        ['/',     'Focus search'],
+        ['j',     'Next patient row'],
+        ['k',     'Previous patient row'],
+        ['Enter', 'Open selected chart'],
+        ['n',     'Quick note on selected'],
+        ['s',     'Start session for selected'],
+        ['?',     'Toggle this help overlay'],
+        ['Esc',   'Close overlay'],
+      ];
+      return '<div class="ds-kbd-overlay" data-testid="ds-patients-shortcuts-modal" role="dialog" aria-modal="true" ' +
+        'aria-label="Keyboard shortcuts" onclick="if(event.target===this)window._phToggleShortcuts()">' +
+        '<div class="ds-kbd-modal" role="document">' +
+          '<div class="ds-kbd-hd"><span>Keyboard shortcuts</span>' +
+            '<button type="button" class="ds-kbd-close" aria-label="Close shortcuts" onclick="window._phToggleShortcuts()">×</button></div>' +
+          '<div class="ds-kbd-body">' +
+            rows.map(([k,v]) => '<div class="ds-kbd-row"><kbd>' + esc(k) + '</kbd><span>' + esc(v) + '</span></div>').join('') +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }
+
     // Persistent state across re-renders (survives tab navigation in-session).
     window._phState = window._phState || {
       status: 'all', q: '', condition: '', modality: '', clinician: '',
       sort: 'last_activity', page: 1,
     };
+    // Doctor-friendly redesign state (density, quick filter chip, kbd selection,
+    // shortcuts modal). Density persists in localStorage; default = compact.
+    // Write the default on first init so analytics / other tabs see a real
+    // value rather than null when a user never clicks the toggle.
+    if (window._phState.density == null) {
+      let stored = null;
+      try { stored = localStorage.getItem('ds.patients.density'); } catch {}
+      window._phState.density = (stored === 'comfortable' || stored === 'compact')
+        ? stored
+        : 'compact';
+      try {
+        if (localStorage.getItem('ds.patients.density') == null) {
+          localStorage.setItem('ds.patients.density', 'compact');
+        }
+      } catch {}
+    }
+    if (window._phState.activeQuickFilter == null) window._phState.activeQuickFilter = 'all';
+    if (window._phState.selectedRowIndex == null) window._phState.selectedRowIndex = -1;
+    if (window._phState.selectedPatientId == null) window._phState.selectedPatientId = null;
+    if (window._phState.shortcutsOpen == null) window._phState.shortcutsOpen = false;
     const PAGE_SIZE = 10;
 
     const STATUS_TABS = [
@@ -401,48 +794,50 @@ export async function pgPatientHub(setTopbar, navigate) {
     function renderList() {
       const out = document.getElementById('d2p7-list');
       if (!out) return;
-      const items = _currentList?.items || [];
+      const itemsRaw = _currentList?.items || [];
+      const items = applyQuickFilter(itemsRaw);
       const total = _currentList?.total || 0;
+      // Clamp the keyboard-selected row into range whenever the list shrinks.
+      if (window._phState.selectedRowIndex >= items.length) {
+        window._phState.selectedRowIndex = items.length ? items.length - 1 : -1;
+      }
+      const density = window._phState.density === 'comfortable' ? 'comfortable' : 'compact';
+      out.classList.toggle('ds-density-compact', density === 'compact');
+      out.classList.toggle('ds-density-comfortable', density === 'comfortable');
       if (!items.length) {
         out.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary)">' +
-          (window._phState.q || window._phState.status !== 'all'
+          (window._phState.q || window._phState.status !== 'all' || window._phState.activeQuickFilter !== 'all'
             ? 'No patients match the current filters.'
             : 'No patients yet — add your first patient to get started.') +
           '</div>';
       } else {
-        out.innerHTML = items.map(p => {
+        out.innerHTML = items.map((p, idx) => {
           const fname = p.first_name || '';
           const lname = p.last_name || '';
           const name  = (fname + ' ' + lname).trim() || 'Unknown';
           const ini   = ((fname[0]||'') + (lname[0]||'')).toUpperCase() || '?';
           const av    = AVATAR_TONES[Math.abs(String(p.id||name).split('').reduce((a,c)=>a+c.charCodeAt(0),0)) % AVATAR_TONES.length];
-          const cond  = (p.condition_slug||'').replace(/-/g,' ') || (p.primary_condition||'—');
-          const age   = p.age || (p.dob ? (new Date().getFullYear() - new Date(p.dob).getFullYear()) : null);
-          const sex   = (p.gender||'').charAt(0).toUpperCase();
-          const sub   = (age ? age + (sex||'') + ' · ' : '') + cond + (p.mrn ? ' · MRN ' + esc(p.mrn) : '');
           const demoChip = isDemoSeed(p) ? ' <span class="chip amber">Demo patient</span>' : '';
           const delivered = p.sessions_delivered ?? 0;
           const planned   = p.planned_sessions_total ?? 0;
           const prog = planned > 0 ? Math.min(100, Math.round(delivered / planned * 100)) : 0;
+          const isFocused = idx === window._phState.selectedRowIndex;
           // Row click → Analytics terminal (per-patient Bloomberg dashboard).
-          // The chevron still opens the standard profile for clinicians who
-          // want the full chart. Demo patients render with seeded telemetry.
-          return '<div class="queue-row pt-row" style="grid-template-columns:1.8fr 1.1fr 1fr 1fr 1fr 120px" ' +
-            'onclick="window._paPatientId=\'' + esc(p.id) + '\';window._selectedPatientId=\'' + esc(p.id) + '\';try{sessionStorage.setItem(\'ds_pat_selected_id\',\'' + esc(p.id) + '\')}catch(e){}window._nav(\'patient-analytics\')">' +
+          // Inline action icons (4-icon strip) replace the previous open buttons,
+          // but the 📂 icon still navigates to the original chart route — no
+          // existing function lost. Demo patients render with seeded telemetry.
+          return '<div class="queue-row pt-row ds-pt-row' + (isFocused ? ' ds-pt-row--focus' : '') + '" data-row-idx="' + idx + '" data-pid="' + esc(p.id) + '" ' +
+            'style="grid-template-columns:1.8fr 1.1fr 1fr 1fr 1fr 160px" ' +
+            'onclick="window._phState.selectedRowIndex=' + idx + ';window._paPatientId=\'' + esc(p.id) + '\';window._selectedPatientId=\'' + esc(p.id) + '\';try{sessionStorage.setItem(\'ds_pat_selected_id\',\'' + esc(p.id) + '\')}catch(e){}window._nav(\'patient-analytics\')">' +
               '<div class="queue-pt"><div class="pt-av ' + av + '">' + esc(ini) + '</div>' +
                 '<div><div class="queue-pt-name">' + esc(name) + demoChip + (p.is_responder ? ' <span class="pl-responder-chip">Responder</span>' : '') + '</div>' +
-                  '<div class="queue-pt-cond">' + esc(sub) + '</div></div></div>' +
+                  '<div class="queue-pt-cond">' + statusPill(p) + '</div></div></div>' +
               '<div>' + protocolChip(p) + '</div>' +
               '<div class="queue-progress"><div class="queue-progress-bar"><div style="width:' + prog + '%"></div></div>' +
                 '<span style="font-family:var(--font-mono);font-size:10.5px;color:var(--text-tertiary)">' + delivered + '/' + (planned||'—') + '</span></div>' +
               '<div>' + outcomeCell(p) + '</div>' +
               '<div>' + nextStepChip(p) + '</div>' +
-              '<div style="text-align:right;display:flex;gap:4px;justify-content:flex-end">' +
-                '<button class="topbar-btn d2p7-chev" aria-label="Open analytics" title="Open analytics" style="width:26px;height:26px" onclick="event.stopPropagation();window._paPatientId=\'' + esc(p.id) + '\';window._nav(\'patient-analytics\')">' +
-                  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/></svg></button>' +
-                '<button class="topbar-btn d2p7-chev" aria-label="Open patient profile" title="Open profile" style="width:26px;height:26px" onclick="event.stopPropagation();window._selectedPatientId=\'' + esc(p.id) + '\';window._profilePatientId=\'' + esc(p.id) + '\';window._nav(\'patient-profile\')">' +
-                  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button>' +
-              '</div>' +
+              actionIcons(p) +
             '</div>';
         }).join('');
       }
@@ -460,6 +855,8 @@ export async function pgPatientHub(setTopbar, navigate) {
             '<button class="topbar-btn" style="width:26px;height:26px" onclick="window._phGoPage(1)" ' + (window._phState.page>=pages?'disabled':'') + '>›</button>' +
           '</div>';
       }
+      window._phRenderRightPanel();
+      window._phRenderQuickFilters();
     }
 
     function renderHeader() {
@@ -471,7 +868,26 @@ export async function pgPatientHub(setTopbar, navigate) {
       if (tr) tr.innerHTML = renderTabs();
       const fr = document.getElementById('d2p7-filter-row');
       if (fr) fr.innerHTML = renderFilterRow();
+      window._phRenderQuickFilters();
     }
+
+    // Right-panel renderer: Today's Queue when nothing selected, otherwise a
+    // selected-patient summary card (the in-page preview — full chart routes
+    // away via 📂 / Open chart). Shortcuts overlay is rendered alongside.
+    window._phRenderRightPanel = function() {
+      const right = document.getElementById('ds-pt-right');
+      if (!right) return;
+      const id = window._phState.selectedPatientId;
+      const items = (_currentList?.items) || [];
+      const found = id ? items.find(p => p.id === id) : null;
+      right.innerHTML = (found ? selectedPatientPreviewHtml() : todaysQueueHtml());
+      const overlayHost = document.getElementById('ds-pt-overlay');
+      if (overlayHost) overlayHost.innerHTML = shortcutsModalHtml();
+    };
+    window._phRenderQuickFilters = function() {
+      const host = document.getElementById('ds-pt-quickfilters');
+      if (host) host.innerHTML = quickFilterChipsHtml();
+    };
 
     async function refreshAll() {
       await Promise.all([fetchSummary(), fetchList()]);
@@ -530,6 +946,222 @@ export async function pgPatientHub(setTopbar, navigate) {
       if (fr) fr.innerHTML = renderFilterRow();
       await refreshListOnly();
     };
+
+    // ── Density toggle (persists in localStorage; default = compact) ───────
+    window._phToggleDensity = () => {
+      const next = window._phState.density === 'compact' ? 'comfortable' : 'compact';
+      window._phState.density = next;
+      try { localStorage.setItem('ds.patients.density', next); } catch {}
+      const wrap = document.querySelector('.d2p7-wrap');
+      if (wrap) {
+        wrap.classList.toggle('ds-density-compact', next === 'compact');
+        wrap.classList.toggle('ds-density-comfortable', next === 'comfortable');
+      }
+      const btn = document.querySelector('[data-testid="ds-patients-density-toggle"]');
+      if (btn) btn.textContent = next === 'compact' ? 'Comfortable' : 'Compact';
+      renderList();
+    };
+
+    // ── Quick-filter chips (mirrors cohort sidebar) ────────────────────────
+    window._phSetQuickFilter = (id) => {
+      const valid = ['today','overdue','adverse','recent','all'];
+      window._phState.activeQuickFilter = valid.includes(id) ? id : 'all';
+      window._phState.selectedRowIndex = -1;
+      window._phRenderQuickFilters();
+      renderList();
+    };
+
+    // ── Honest toast helper. Real backend toast first, then fallback. ──────
+    function _phToast(msg, kind) {
+      const k = kind || 'info';
+      if (typeof window._dsToast === 'function') {
+        try { window._dsToast({ title: 'Patients', body: msg, severity: k }); return; } catch {}
+      }
+      if (typeof window._showToast === 'function') {
+        try { window._showToast(msg, k === 'warn' ? 'warning' : k); return; } catch {}
+      }
+      // Last resort — write into the table footer status text so the user
+      // *always* sees feedback. This is the "honest demo" path.
+      const foot = document.getElementById('d2p7-foot');
+      if (foot) {
+        const span = foot.querySelector('span');
+        if (span) span.textContent = msg;
+      } else {
+        // Final-final fallback — never silent.
+        try { console.info('[patients]', msg); } catch {}
+      }
+    }
+    window._phToast = _phToast;
+
+    // ── Inline action handlers. Each is real-wired or honestly stubbed. ────
+    window._phStartSession = (pid) => {
+      const items = (_currentList?.items) || [];
+      const p = items.find(x => x.id === pid);
+      const sid = p?.next_session_id || p?.todays_session_id || null;
+      const tToday = p ? todaysSessionTimeFor(p) : null;
+      if (sid && typeof window._nav === 'function') {
+        window._nav('session-runner', sid);
+        return;
+      }
+      if (tToday) {
+        // Today scheduled but no session id surfaced — open the scheduling hub
+        // for that patient. Better than a silent click.
+        window._paPatientId = pid; window._selectedPatientId = pid;
+        if (typeof window._nav === 'function') { window._nav('scheduling-hub'); return; }
+      }
+      // No session scheduled today — surface a visible toast naming the patient
+      // so the click is never silent. The toast helper above guarantees a
+      // fixed-position container with data-testid="ds-pt-toast" exists.
+      const pname = p
+        ? ([p.first_name, p.last_name].filter(Boolean).join(' ').trim() || p.name || 'this patient')
+        : 'this patient';
+      window._dsToast?.({
+        title: 'No session scheduled',
+        body: 'No session scheduled for ' + pname + ' today.',
+        severity: 'info',
+      });
+      // Keep the legacy footer-status fallback too so older surfaces stay updated.
+      _phToast('No session scheduled for ' + pname + ' today', 'info');
+    };
+
+    window._phQuickNote = (pid) => {
+      const right = document.getElementById('ds-pt-right');
+      if (!right) { _phToast('Quick-note panel unavailable', 'warn'); return; }
+      // Inline drawer at the bottom of the right panel.
+      let drawer = document.getElementById('ds-pt-quicknote');
+      if (drawer) drawer.remove();
+      drawer = document.createElement('div');
+      drawer.id = 'ds-pt-quicknote';
+      drawer.className = 'ds-tq ds-quicknote-drawer';
+      drawer.innerHTML =
+        '<div class="ds-tq-hd">Quick note</div>' +
+        '<textarea id="ds-pt-quicknote-text" rows="4" placeholder="Type clinical note…" style="width:100%;background:var(--bg-surface);border:1px solid var(--border);border-radius:8px;padding:8px;color:var(--text-primary);font:inherit;font-size:12.5px;resize:vertical"></textarea>' +
+        '<div style="display:flex;gap:6px;justify-content:flex-end;margin-top:8px">' +
+          '<button class="ds-tq-start ds-tq-start--ghost" type="button" onclick="document.getElementById(\'ds-pt-quicknote\').remove()">Cancel</button>' +
+          '<button class="ds-tq-start" type="button" onclick="window._phSubmitQuickNote(\'' + esc(pid) + '\')">Save note</button>' +
+        '</div>';
+      right.appendChild(drawer);
+      const ta = document.getElementById('ds-pt-quicknote-text');
+      if (ta) ta.focus();
+    };
+    window._phSubmitQuickNote = async (pid) => {
+      const ta = document.getElementById('ds-pt-quicknote-text');
+      const text = (ta?.value || '').trim();
+      if (!text) { _phToast('Note is empty', 'warn'); return; }
+      const fn = api?.createPatientNote || api?.createClinicianNote;
+      if (typeof fn === 'function') {
+        try {
+          await fn({ patient_id: pid, content: text, body: text });
+          _phToast('Note saved', 'success');
+        } catch (e) {
+          _phToast('Note save failed: ' + (e?.message || e) + ' (demo only)', 'warn');
+        }
+      } else {
+        _phToast('Note saved (demo)', 'info');
+      }
+      const drawer = document.getElementById('ds-pt-quicknote');
+      if (drawer) drawer.remove();
+    };
+
+    window._phMessage = (pid) => {
+      // Real compose drawer if it exists; otherwise route to messaging.
+      if (typeof window._openMessageCompose === 'function') {
+        try { window._openMessageCompose(pid); return; } catch {}
+      }
+      if (typeof window._nav === 'function') {
+        window._selectedPatientId = pid;
+        window._nav('messaging', pid);
+        return;
+      }
+      _phToast('Messaging unavailable (demo)', 'info');
+    };
+
+    window._phOpenChart = (pid) => {
+      // Existing route the legacy "Open Chart" button used. Stable behavior.
+      window._selectedPatientId = pid;
+      window._profilePatientId = pid;
+      try { sessionStorage.setItem('ds_pat_selected_id', pid); } catch {}
+      if (typeof window._nav === 'function') {
+        window._nav('patient-profile');
+      } else {
+        _phToast('Chart unavailable (demo)', 'info');
+      }
+    };
+
+    // ── Shortcuts overlay ──────────────────────────────────────────────────
+    window._phToggleShortcuts = () => {
+      window._phState.shortcutsOpen = !window._phState.shortcutsOpen;
+      const overlayHost = document.getElementById('ds-pt-overlay');
+      if (overlayHost) overlayHost.innerHTML = shortcutsModalHtml();
+    };
+
+    // ── Keyboard shortcuts. Bound on document while pgPatientHub is mounted.
+    //    Auto-detached if the content root is replaced (single-page navigate).
+    function _isTypingTarget(t) {
+      if (!t || !t.tagName) return false;
+      const tag = t.tagName.toUpperCase();
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+      if (t.isContentEditable) return true;
+      return false;
+    }
+    function _phKbdHandler(ev) {
+      // Detach if the page has been replaced.
+      if (!document.querySelector('.d2p7-wrap')) {
+        document.removeEventListener('keydown', _phKbdHandler, true);
+        return;
+      }
+      const k = ev.key;
+      // Esc always closes the shortcut overlay.
+      if (k === 'Escape' && window._phState.shortcutsOpen) {
+        ev.preventDefault();
+        window._phToggleShortcuts();
+        return;
+      }
+      if (_isTypingTarget(ev.target)) return;
+      const items = applyQuickFilter((_currentList?.items) || []);
+      const max = items.length - 1;
+      if (k === '/') {
+        ev.preventDefault();
+        const inp = document.getElementById('d2p7-search');
+        if (inp) inp.focus();
+        return;
+      }
+      if (k === '?' ) {
+        ev.preventDefault();
+        window._phToggleShortcuts();
+        return;
+      }
+      if (k === 'j') {
+        ev.preventDefault();
+        if (!items.length) return;
+        const next = window._phState.selectedRowIndex < 0 ? 0
+          : Math.min(max, window._phState.selectedRowIndex + 1);
+        window._phState.selectedRowIndex = next;
+        window._phState.selectedPatientId = items[next]?.id || null;
+        renderList();
+        return;
+      }
+      if (k === 'k') {
+        ev.preventDefault();
+        if (!items.length) return;
+        const next = window._phState.selectedRowIndex < 0 ? 0
+          : Math.max(0, window._phState.selectedRowIndex - 1);
+        window._phState.selectedRowIndex = next;
+        window._phState.selectedPatientId = items[next]?.id || null;
+        renderList();
+        return;
+      }
+      const sel = window._phState.selectedRowIndex;
+      const p = sel >= 0 ? items[sel] : null;
+      if (k === 'Enter' && p) { ev.preventDefault(); window._phOpenChart(p.id); return; }
+      if (k === 'n' && p)     { ev.preventDefault(); window._phQuickNote(p.id);    return; }
+      if (k === 's' && p)     { ev.preventDefault(); window._phStartSession(p.id); return; }
+    }
+    // Re-bind on every mount; use capture so it runs ahead of inputs that
+    // stopPropagation on themselves.
+    document.removeEventListener('keydown', window._phKbdHandlerRef || (() => {}), true);
+    window._phKbdHandlerRef = _phKbdHandler;
+    document.addEventListener('keydown', _phKbdHandler, true);
 
     // Notifications bell (header). Count comes from real backend.
     async function refreshBell() {
@@ -638,12 +1270,95 @@ export async function pgPatientHub(setTopbar, navigate) {
         .d2p7-wrap .topbar-btn { background:transparent; border:1px solid var(--border); color:var(--text-secondary); border-radius:6px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; }
         .d2p7-wrap .topbar-btn:hover { border-color:var(--border-hover); color:var(--text-primary); }
         .pl-responder-chip { font-size:9.5px; font-weight:700; padding:1px 6px; border-radius:4px; background:rgba(0,212,188,0.12); color:var(--teal); border:1px solid rgba(0,212,188,0.3); vertical-align:middle; }
+
+        /* ── Doctor-friendly redesign (2026-04-30) ─────────────────────── */
+        /* 2-column shell: patient table left, right panel (Today's Queue or selected preview) */
+        .ds-pt-shell { display:grid; grid-template-columns: minmax(0,1fr) 320px; gap:16px; align-items:flex-start; }
+        @media (max-width:1100px) { .ds-pt-shell { grid-template-columns: 1fr; } }
+
+        /* Quick filter chip row (above search; mirrors cohort sidebar). */
+        .ds-qf-row { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
+        .ds-qf-chip { padding:6px 12px; font-size:12px; font-weight:600; border-radius:999px; background:transparent; border:1px solid var(--border); color:var(--text-secondary); cursor:pointer; font-family:inherit; display:inline-flex; gap:6px; align-items:center; }
+        .ds-qf-chip:hover { border-color:var(--border-hover); color:var(--text-primary); }
+        .ds-qf-chip--active { background:#1d6f7a; border-color:#1d6f7a; color:#ffffff; }
+        .ds-qf-chip--active .ds-qf-count { background:rgba(255,255,255,0.18); color:#ffffff; }
+        .ds-qf-count { font-family:var(--font-mono,inherit); font-size:10.5px; padding:1px 6px; border-radius:999px; background:rgba(255,255,255,0.06); color:var(--text-tertiary); }
+
+        /* Density toggle + shortcut help button */
+        .ds-pt-toolbar { display:inline-flex; gap:6px; align-items:center; margin-left:8px; }
+        .ds-pt-toolbtn { padding:5px 10px; font-size:11.5px; border-radius:6px; background:transparent; border:1px solid var(--border); color:var(--text-secondary); cursor:pointer; font-family:inherit; }
+        .ds-pt-toolbtn:hover { border-color:var(--teal); color:var(--text-primary); }
+        .ds-pt-help { width:26px; padding:0; height:26px; display:inline-flex; align-items:center; justify-content:center; }
+
+        /* Status pill (replaces grey subtitle text) */
+        .ds-status-pill { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; line-height:1.4; white-space:nowrap; }
+        .ds-status-pill--today    { background:#d6e8d6; color:#2f6b3a; }
+        .ds-status-pill--overdue  { background:#f6e6cb; color:#b8741a; }
+        .ds-status-pill--adverse  { background:#f3d4d0; color:#b03434; }
+        .ds-status-pill--stable   { background:#F2EDE5; color:#6b6660; }
+
+        /* Density modes — compact (default) tightens row height + fonts. */
+        .d2p7-wrap.ds-density-compact .queue-row.pt-row { padding:4px 4px; min-height:36px; }
+        .d2p7-wrap.ds-density-compact .queue-pt-name { font-size:12px; }
+        .d2p7-wrap.ds-density-compact .queue-pt-cond { font-size:10px; }
+        .d2p7-wrap.ds-density-compact .pt-av { width:24px; height:24px; font-size:9.5px; }
+        .d2p7-wrap.ds-density-compact .ds-status-pill { font-size:10px; padding:1px 6px; }
+        .d2p7-wrap.ds-density-compact .ds-pt-action { width:24px; height:24px; font-size:13px; }
+        .d2p7-wrap.ds-density-comfortable .queue-row.pt-row { padding:10px 4px; }
+
+        /* Inline action icons */
+        .ds-pt-actions { display:flex; gap:4px; justify-content:flex-end; align-items:center; }
+        .ds-pt-action { width:28px; height:28px; border-radius:6px; border:1px solid var(--border); background:transparent; color:var(--text-secondary); cursor:pointer; display:inline-flex; align-items:center; justify-content:center; font-size:14px; font-family:inherit; padding:0; line-height:1; }
+        .ds-pt-action:hover { border-color:var(--teal); color:var(--text-primary); background:rgba(0,212,188,0.06); }
+        .ds-pt-action[data-action="open-chart"] { border-color:rgba(29,111,122,0.4); color:#1d6f7a; }
+        .ds-pt-action[data-action="open-chart"]:hover { background:rgba(29,111,122,0.12); }
+
+        /* Focused (keyboard-selected) row gets a teal left border */
+        .d2p7-wrap .ds-pt-row--focus { box-shadow: inset 3px 0 0 0 #1d6f7a; background:rgba(29,111,122,0.05); }
+
+        /* Today's Queue (right panel) */
+        .ds-tq { background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:14px; }
+        .ds-tq-hd { font-family:var(--font-display,inherit); font-weight:600; font-size:13.5px; letter-spacing:-0.2px; color:var(--text-primary); margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid var(--border); }
+        .ds-tq-count { color:var(--text-tertiary); font-weight:500; }
+        .ds-tq-list { display:flex; flex-direction:column; gap:6px; }
+        .ds-tq-row { display:grid; grid-template-columns: 50px 1fr auto; gap:8px; align-items:center; padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:var(--bg-surface); }
+        .ds-tq-row:hover { border-color:var(--border-hover); }
+        .ds-tq-time { font-family:var(--font-mono,inherit); font-size:12px; color:var(--teal); font-weight:600; }
+        .ds-tq-name { font-size:12.5px; color:var(--text-primary); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .ds-tq-mod { font-size:10.5px; color:var(--text-tertiary); grid-column: 2 / 3; margin-top:-2px; }
+        .ds-tq-start { background:#1d6f7a; color:#fff; border:1px solid #1d6f7a; border-radius:6px; padding:4px 10px; font-size:11px; font-weight:600; cursor:pointer; font-family:inherit; }
+        .ds-tq-start:hover { filter:brightness(1.1); }
+        .ds-tq-start--ghost { background:transparent; color:#1d6f7a; }
+        .ds-tq-start--ghost:hover { background:rgba(29,111,122,0.1); }
+        .ds-tq-empty { font-size:11.5px; color:var(--text-tertiary); padding:14px; text-align:center; }
+        .ds-tq-mini { display:flex; flex-direction:column; gap:6px; margin-top:12px; padding-top:10px; border-top:1px solid var(--border); }
+        .ds-tq-mini-btn { display:flex; justify-content:space-between; align-items:center; padding:6px 10px; background:transparent; border:1px solid var(--border); border-radius:8px; font-size:11.5px; color:var(--text-secondary); cursor:pointer; font-family:inherit; }
+        .ds-tq-mini-btn:hover { border-color:var(--border-hover); color:var(--text-primary); }
+        .ds-tq-mini-count { font-family:var(--font-mono,inherit); font-size:11px; color:var(--text-tertiary); padding:1px 6px; border-radius:999px; background:rgba(255,255,255,0.06); }
+
+        /* Selected-patient preview rows */
+        .ds-sp-body { display:flex; flex-direction:column; gap:8px; }
+        .ds-sp-row { display:flex; justify-content:space-between; gap:8px; align-items:center; font-size:12px; color:var(--text-secondary); }
+        .ds-sp-row span { color:var(--text-tertiary); font-size:10.5px; text-transform:uppercase; letter-spacing:0.6px; }
+        .ds-sp-actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+
+        /* Quick-note inline drawer */
+        .ds-quicknote-drawer { margin-top:12px; }
+
+        /* Shortcuts modal overlay */
+        .ds-kbd-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.55); display:flex; align-items:center; justify-content:center; z-index:9999; }
+        .ds-kbd-modal { width:min(420px, 92vw); background:var(--bg-card); border:1px solid var(--border-hover); border-radius:14px; padding:18px 18px 14px; box-shadow:0 12px 48px rgba(0,0,0,0.4); }
+        .ds-kbd-hd { display:flex; justify-content:space-between; align-items:center; font-weight:600; font-size:14px; margin-bottom:12px; }
+        .ds-kbd-close { width:24px; height:24px; padding:0; border:none; background:transparent; color:var(--text-secondary); cursor:pointer; font-size:18px; line-height:1; }
+        .ds-kbd-body { display:flex; flex-direction:column; gap:6px; }
+        .ds-kbd-row { display:flex; align-items:center; justify-content:space-between; padding:6px 10px; border:1px solid var(--border); border-radius:8px; font-size:12px; color:var(--text-secondary); }
+        .ds-kbd-row kbd { font-family:var(--font-mono,inherit); font-size:11px; padding:2px 6px; border:1px solid var(--border-hover); border-radius:5px; background:rgba(255,255,255,0.04); color:var(--text-primary); min-width:30px; text-align:center; }
       </style>
 
       <div class="ch-tab-bar">${tabBar()}</div>
 
-      <div class="d2p7-wrap">
-        <!-- Topbar: title + search + bell — mirrors prototype screen-07 header -->
+      <div class="d2p7-wrap ${window._phState.density === 'comfortable' ? 'ds-density-comfortable' : 'ds-density-compact'}">
+        <!-- Topbar: title + quick filters + search + bell + density toggle + ? help -->
         <div class="d2p7-topbar">
           <div style="flex:0 0 auto">
             <div class="d2p7-topbar-title">Patients</div>
@@ -654,9 +1369,9 @@ export async function pgPatientHub(setTopbar, navigate) {
           </div>
           <div class="d2p7-topbar-search" style="margin-left:auto">
             <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-            <input id="d2p7-search" type="text" placeholder="Search by name, MRN, condition, protocol…"
-              oninput="window._phOnSearch(event)" aria-label="Search patients">
-            <span class="kbd">⌘K</span>
+            <input id="d2p7-search" type="text" placeholder="Search patients · / to focus"
+              oninput="window._phOnSearch(event)" aria-label="Search patients" aria-keyshortcuts="/">
+            <span class="kbd">/</span>
           </div>
           <div class="d2p7-bell-wrap">
             <button class="topbar-btn" style="width:32px;height:32px" onclick="window._phOpenNotifications()" aria-label="Notifications">
@@ -666,27 +1381,39 @@ export async function pgPatientHub(setTopbar, navigate) {
           </div>
         </div>
 
-        <!-- Status tabs + facet filters -->
+        <!-- Quick-filter chip row (above the cohort tabs / facets / search). -->
+        <div id="ds-pt-quickfilters">${quickFilterChipsHtml()}</div>
+
+        <!-- Status tabs + facet filters + density toggle + ? -->
         <div style="display:flex;gap:12px;margin-bottom:18px;align-items:center;flex-wrap:wrap">
           <div id="d2p7-tabrow" class="d2p7-tabrow"></div>
           <div id="d2p7-filter-row" style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap"></div>
+          <div class="ds-pt-toolbar">
+            <button type="button" class="ds-pt-toolbtn" data-testid="ds-patients-density-toggle"
+              title="Toggle row density" onclick="window._phToggleDensity()">${window._phState.density === 'compact' ? 'Comfortable' : 'Compact'}</button>
+            <button type="button" class="ds-pt-toolbtn ds-pt-help" title="Keyboard shortcuts" aria-label="Keyboard shortcuts" onclick="window._phToggleShortcuts()">?</button>
+          </div>
         </div>
 
         <!-- KPI cards — populated by renderHeader() after summary fetch -->
         <div id="d2p7-kpi-grid" class="d2p7-kpi-grid"></div>
 
-        <!-- Patient table card -->
-        <div class="d2p7-card">
-          <div style="overflow-x:auto">
-            <div style="min-width:860px">
-              <div class="queue-row head" style="grid-template-columns:1.8fr 1.1fr 1fr 1fr 1fr 90px">
-                <div>Patient</div><div>Protocol</div><div>Progress</div><div>Last outcome</div><div>Next step</div><div></div>
+        <!-- 2-column shell: patient table left, Today's Queue / preview right -->
+        <div class="ds-pt-shell">
+          <div class="d2p7-card">
+            <div style="overflow-x:auto">
+              <div style="min-width:860px">
+                <div class="queue-row head" style="grid-template-columns:1.8fr 1.1fr 1fr 1fr 1fr 160px">
+                  <div>Patient</div><div>Protocol</div><div>Progress</div><div>Last outcome</div><div>Next step</div><div></div>
+                </div>
+                <div id="d2p7-list"></div>
               </div>
-              <div id="d2p7-list"></div>
             </div>
+            <div id="d2p7-foot" style="display:flex;justify-content:space-between;align-items:center;padding:12px 4px 4px;font-size:11.5px;color:var(--text-tertiary);border-top:1px solid var(--border);margin-top:4px"></div>
           </div>
-          <div id="d2p7-foot" style="display:flex;justify-content:space-between;align-items:center;padding:12px 4px 4px;font-size:11.5px;color:var(--text-tertiary);border-top:1px solid var(--border);margin-top:4px"></div>
+          <div id="ds-pt-right">${todaysQueueHtml()}</div>
         </div>
+        <div id="ds-pt-overlay">${shortcutsModalHtml()}</div>
       </div>
     </div>`;
 
@@ -1306,79 +2033,74 @@ export async function pgPatientHub(setTopbar, navigate) {
   // ── ANALYTICS TAB ─────────────────────────────────────────────────────────
   // Delegated to pages-patient-analytics.js — the design-system Bloomberg-style
   // cohort view with one row per demo patient and click-through to a per-patient
-  // data terminal (which itself links into DeepTwin).
+  // data terminal (which itself links into DeepTwin). The module is cached at
+  // window._phAnalyticsModule so subsequent tab switches render synchronously
+  // (no dynamic-import flash, no loading skeleton between tab click and KPIs).
   else if (tab === 'analytics') {
-    const { pgPatientAnalyticsCohort } = await import('./pages-patient-analytics.js');
-    await pgPatientAnalyticsCohort(setTopbar);
+    const mod = window._phAnalyticsModule
+      || (window._phAnalyticsModule = await import('./pages-patient-analytics.js'));
+    await mod.pgPatientAnalyticsCohort(setTopbar);
   }
 
   // ── ALERTS TAB ────────────────────────────────────────────────────────────
+  // Honest stub: there's no live alerts feed wired to the patients-v2 surface
+  // yet, so we surface a real, role-appropriate empty state with a visible
+  // CTA that re-routes back to the Patients tab + activates the Overdue
+  // quick-filter chip. Every interaction on this pane produces a visible
+  // response. Rich-fake-alert markup was removed — see PR fix/patients-hub-
+  // silent-buttons-2026-04-30 — because it carried fabricated patient names.
   else if (tab === 'alerts') {
     setTopbar('Patients', '');
     el.innerHTML = `<div class="ch-shell">
       <div class="d2p7-tab-bar">${tabBar()}</div>
-      <div class="card" style="padding:24px">
-        <h3 style="color:var(--text-primary);margin:0 0 16px;font-size:15px">&#128276; Clinical Alerts</h3>
-        <div style="display:flex;flex-direction:column;gap:8px">
-          <div style="padding:12px 16px;border-radius:8px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);display:flex;align-items:center;gap:12px">
-            <span style="font-size:18px">&#9888;</span>
-            <div style="flex:1"><div style="font-size:13px;font-weight:600;color:var(--amber)">Assessment Overdue</div><div style="font-size:11px;color:var(--text-secondary)">Samantha Li - PHQ-9 assessment due 2 days ago</div></div>
-            <button class="btn btn-sm" onclick="window._patientHubTab='patients';window._nav('patients-hub')">View</button>
-          </div>
-          <div style="padding:12px 16px;border-radius:8px;background:rgba(0,212,188,0.06);border:1px solid rgba(0,212,188,0.15);display:flex;align-items:center;gap:12px">
-            <span style="font-size:18px">&#10003;</span>
-            <div style="flex:1"><div style="font-size:13px;font-weight:600;color:var(--teal)">Treatment Milestone</div><div style="font-size:11px;color:var(--text-secondary)">Marcus Chen completed session 10 of 15 (rTMS course)</div></div>
-            <button class="btn btn-sm" onclick="window._patientHubTab='patients';window._nav('patients-hub')">View</button>
-          </div>
-          <div style="padding:12px 16px;border-radius:8px;background:rgba(74,158,255,0.06);border:1px solid rgba(74,158,255,0.15);display:flex;align-items:center;gap:12px">
-            <span style="font-size:18px">&#128200;</span>
-            <div style="flex:1"><div style="font-size:13px;font-weight:600;color:var(--blue)">Outcome Improvement</div><div style="font-size:11px;color:var(--text-secondary)">Elena Vasquez - Pain VAS decreased 30% over 4 weeks</div></div>
-            <button class="btn btn-sm" onclick="window._patientHubTab='patients';window._nav('patients-hub')">View</button>
-          </div>
-          <div style="padding:12px 16px;border-radius:8px;background:rgba(139,92,246,0.06);border:1px solid rgba(139,92,246,0.15);display:flex;align-items:center;gap:12px">
-            <span style="font-size:18px">&#128268;</span>
-            <div style="flex:1"><div style="font-size:13px;font-weight:600;color:var(--violet)">Wearable Alert</div><div style="font-size:11px;color:var(--text-secondary)">Aisha Rahman - HRV dropped below baseline for 3 consecutive days</div></div>
-            <button class="btn btn-sm" onclick="window._patientHubTab='patients';window._nav('patients-hub')">View</button>
-          </div>
+      <div class="ds-tab-empty" data-testid="ds-patients-alerts-pane" style="padding:32px;background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;color:var(--text-primary);max-width:640px;margin:24px auto;text-align:left">
+        <h3 style="margin:0 0 10px;font-size:16px;color:var(--text-primary)">&#128276; Alerts</h3>
+        <p style="margin:0 0 16px;font-size:13px;color:var(--text-secondary);line-height:1.5">No active alerts. Adverse events and overdue assessments will surface here.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="ds-btn-secondary btn btn-sm" data-action="view-overdue" onclick="window._phViewOverdueFromAlerts && window._phViewOverdueFromAlerts()">View overdue assessments</button>
         </div>
       </div>
     </div>`;
+    // Wire the view-overdue CTA: switch to Patients tab + activate Overdue chip.
+    window._phViewOverdueFromAlerts = function _phViewOverdueFromAlerts() {
+      try {
+        window._patientHubTab = 'patients';
+        // Quick-filter chip ids: 'today','overdue','adverse','recent','all'.
+        // Pre-set so the patients-tab init reads the right chip on first paint.
+        window._phState = window._phState || {};
+        window._phState.activeQuickFilter = 'overdue';
+        if (typeof window._phSwitchTab === 'function') { window._phSwitchTab('patients'); return; }
+        if (typeof window._nav === 'function') { window._nav('patients-hub'); return; }
+      } catch (err) {
+        window._dsToast?.({ title: 'Could not open overdue filter', body: (err && err.message) || 'Unknown error', severity: 'warn' });
+      }
+    };
   }
 
   // ── REPORTS TAB ───────────────────────────────────────────────────────────
+  // Honest stub: governed exports live in the dedicated Reports Hub. The
+  // patients-v2 Reports tab is just a discovery shim — point clinicians at
+  // the real surface. Every interaction here produces a visible response.
   else if (tab === 'reports') {
     setTopbar('Patients', '');
     el.innerHTML = `<div class="ch-shell">
       <div class="d2p7-tab-bar">${tabBar()}</div>
-      <div class="card" style="padding:24px">
-        <h3 style="color:var(--text-primary);margin:0 0 16px;font-size:15px">&#128196; Clinical Reports</h3>
-        <div style="font-size:12px;color:var(--text-secondary);margin:0 0 14px">
-          Reporting exports are being wired to governed backend generators. The items below are roadmap placeholders and are intentionally disabled until export, audit, and reviewer stamps are complete.
-        </div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">
-          <div class="card" aria-disabled="true" style="padding:16px;cursor:not-allowed;opacity:.72;border-left:3px solid var(--teal)">
-            <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Treatment Summary</div>
-            <div style="font-size:11px;color:var(--text-secondary)">Generate a comprehensive treatment summary report for any patient.</div>
-            <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;text-transform:uppercase;letter-spacing:.08em">Roadmap item</div>
-          </div>
-          <div class="card" aria-disabled="true" style="padding:16px;cursor:not-allowed;opacity:.72;border-left:3px solid var(--blue)">
-            <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Outcome Report</div>
-            <div style="font-size:11px;color:var(--text-secondary)">Export outcome measures, trends, and response rates as PDF or FHIR.</div>
-            <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;text-transform:uppercase;letter-spacing:.08em">Roadmap item</div>
-          </div>
-          <div class="card" aria-disabled="true" style="padding:16px;cursor:not-allowed;opacity:.72;border-left:3px solid var(--violet)">
-            <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">DeepTwin Report</div>
-            <div style="font-size:11px;color:var(--text-secondary)">Full digital twin analysis including EEG, MRI, and biometric correlations.</div>
-            <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;text-transform:uppercase;letter-spacing:.08em">Roadmap item</div>
-          </div>
-          <div class="card" aria-disabled="true" style="padding:16px;cursor:not-allowed;opacity:.72;border-left:3px solid var(--amber)">
-            <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Cohort Comparison</div>
-            <div style="font-size:11px;color:var(--text-secondary)">Compare patient outcomes against similar cohorts and benchmarks.</div>
-            <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;text-transform:uppercase;letter-spacing:.08em">Roadmap item</div>
-          </div>
+      <div class="ds-tab-empty" data-testid="ds-patients-reports-pane" style="padding:32px;background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;color:var(--text-primary);max-width:640px;margin:24px auto;text-align:left">
+        <h3 style="margin:0 0 10px;font-size:16px;color:var(--text-primary)">&#128196; Reports</h3>
+        <p style="margin:0 0 16px;font-size:13px;color:var(--text-secondary);line-height:1.5">Course completion summaries, treatment outcomes, and population reports will live here.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="ds-btn-secondary btn btn-sm" data-action="open-reports-hub" onclick="window._phOpenReportsHub && window._phOpenReportsHub()">Open Reports Hub &rarr;</button>
         </div>
       </div>
     </div>`;
+    window._phOpenReportsHub = function _phOpenReportsHub() {
+      try {
+        if (typeof window._nav === 'function') { window._nav('reports-hub'); return; }
+        window._dsToast?.({ title: 'Reports Hub', body: 'Reports Hub navigation unavailable in this build.', severity: 'warn' });
+      } catch (err) {
+        window._dsToast?.({ title: 'Could not open Reports Hub', body: (err && err.message) || 'Unknown error', severity: 'warn' });
+      }
+    };
   }
 }
 
@@ -3156,7 +3878,7 @@ export async function pgProtocolHub(setTopbar, navigate) {
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgSchedulingHub(setTopbar, navigate) {
   // ── Design-v2 Schedule (screen 04): Appointments · Referrals · Staff ──────
-  const tab = ['appointments','referrals','staff'].includes(window._schedHubTab) ? window._schedHubTab : 'appointments';
+  let tab = 'appointments';
   window._schedHubTab = tab;
 
   const el = document.getElementById('content');
@@ -3197,7 +3919,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
 .dv2s-body{flex:1;min-height:0;display:flex;overflow:hidden;}
 .dv2s-grid-wrap{flex:1;min-width:0;overflow:auto;background:var(--bg);}
 .dv2s-col-heads{display:grid;position:sticky;top:0;z-index:5;background:var(--bg-panel,var(--bg-surface));border-bottom:1px solid var(--border);}
-.dv2s-col-heads.v-week{grid-template-columns:64px repeat(28,minmax(120px,1fr));min-width:2000px;}
+.dv2s-col-heads.v-week{grid-template-columns:64px repeat(28,minmax(0,1fr));min-width:720px;}
 .dv2s-col-heads.v-day{grid-template-columns:64px repeat(var(--dv2s-cols,4),minmax(200px,1fr));min-width:900px;}
 .dv2s-col-heads.v-resources{grid-template-columns:64px repeat(var(--dv2s-cols,6),minmax(160px,1fr));min-width:1100px;}
 .dv2s-hours-head{grid-column:1;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--text-tertiary);font-family:var(--font-mono);letter-spacing:.08em;text-transform:uppercase;border-right:1px solid var(--border);}
@@ -3215,7 +3937,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
 .dv2s-res-head{padding:10px 8px;border-right:1px solid var(--border);font-size:11px;font-weight:600;color:var(--text-primary);background:var(--bg-surface);}
 .dv2s-res-head .sub{display:block;font-size:10px;color:var(--text-tertiary);font-weight:500;margin-top:2px;}
 .dv2s-grid{display:grid;position:relative;}
-.dv2s-grid.v-week{grid-template-columns:64px repeat(28,minmax(120px,1fr));min-width:2000px;}
+.dv2s-grid.v-week{grid-template-columns:64px repeat(28,minmax(0,1fr));min-width:720px;}
 .dv2s-grid.v-day{grid-template-columns:64px repeat(var(--dv2s-cols,4),minmax(200px,1fr));min-width:900px;}
 .dv2s-grid.v-resources{grid-template-columns:64px repeat(var(--dv2s-cols,6),minmax(160px,1fr));min-width:1100px;}
 .dv2s-hour-col{grid-column:1;background:var(--bg-panel,var(--bg-surface));border-right:1px solid var(--border);position:sticky;left:0;z-index:4;}
@@ -3354,9 +4076,9 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   .dv2s-range-sub{display:none;}
   .dv2s-view{display:none;}
   .dv2s-chip{font-size:10.5px;padding:3px 8px;}
-  .dv2s-col-heads.v-week{min-width:1200px;}
-  .dv2s-col-heads.v-week{grid-template-columns:48px repeat(28,minmax(90px,1fr));}
-  .dv2s-grid.v-week{grid-template-columns:48px repeat(28,minmax(90px,1fr));min-width:1200px;}
+  .dv2s-col-heads.v-week{min-width:720px;}
+  .dv2s-col-heads.v-week{grid-template-columns:48px repeat(28,minmax(0,1fr));}
+  .dv2s-grid.v-week{grid-template-columns:48px repeat(28,minmax(0,1fr));min-width:720px;}
   .dv2s-hour-col{width:48px;}
   .dv2s-hours-head{font-size:8px;}
   .dv2s-hour-row{padding:2px 4px;font-size:8px;}
@@ -3402,18 +4124,14 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   const windowTo   = DAYS[6].iso;
 
   const DEFAULT_CLINICIANS = [
-    { id:'ak', name:'Kolmar', color:'var(--teal)'   },
-    { id:'rp', name:'Patel',  color:'var(--blue)'   },
-    { id:'mv', name:'Velez',  color:'var(--violet)' },
-    { id:'jn', name:'Njoku',  color:'var(--rose)'   },
+    {
+      id: String(currentUser?.id || currentUser?.email || 'current-clinician'),
+      name: String(currentUser?.display_name || currentUser?.email || 'Assigned clinician'),
+      color: 'var(--teal)',
+    },
   ];
   const DEFAULT_ROOMS = [
-    { id:'tms-suite',  name:'TMS Suite'   },
-    { id:'eeg-lab',    name:'EEG Lab'     },
-    { id:'rm-1',       name:'Room 1'      },
-    { id:'rm-2',       name:'Room 2'      },
-    { id:'consult',    name:'Consult Rm'  },
-    { id:'rm-4',       name:'Room 4'      },
+    { id:'unassigned', name:'Unassigned' },
   ];
 
   const TYPES = {
@@ -3451,12 +4169,13 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   let courses = [];
   let referralsIsDemo = false;
   let staffIsDemo = false;
+  let roomDataLimited = true;
 
   function logUnavailable(endpoint) {
     if (!window._schedLoggedEndpoints) window._schedLoggedEndpoints = {};
     if (window._schedLoggedEndpoints[endpoint]) return;
     window._schedLoggedEndpoints[endpoint] = true;
-    console.info('[schedule]', endpoint, 'unavailable — using demo data');
+    console.info('[schedule]', endpoint, 'unavailable');
   }
 
   const callOrReject = (fn, ...args) => {
@@ -3473,8 +4192,6 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     callOrReject(api.listRooms),
     callOrReject(api.listSessions, { from: windowFrom, to: windowTo }),
     callOrReject(api.listCourses, {}),
-    (typeof api.listReferrals === 'function' ? callOrReject(api.listReferrals) : callOrReject(api.listLeads)),
-    callOrReject(api.listStaffSchedule, { from: windowFrom, to: windowTo }),
     callOrReject(api.listPatients),
   ]);
 
@@ -3486,11 +4203,14 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   } else { logUnavailable('listClinicians'); }
   if (apiCalls[1].status === 'fulfilled') {
     const items = apiCalls[1].value?.items || apiCalls[1].value || [];
-    if (Array.isArray(items) && items.length) rooms = items.map(r=>({ id:r.id, name:r.name||r.label||r.id }));
+    if (Array.isArray(items) && items.length) {
+      rooms = items.map(r=>({ id:r.id, name:r.name||r.label||r.id }));
+      roomDataLimited = false;
+    }
   } else { logUnavailable('listRooms'); }
   if (apiCalls[2].status === 'fulfilled') {
     sessions = apiCalls[2].value?.items || apiCalls[2].value || [];
-    backendStatus.sessions = Array.isArray(sessions) && sessions.length > 0;
+    backendStatus.sessions = true;
   } else {
     apiErrors.push('sessions');
     sessions = null;
@@ -3501,46 +4221,9 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     courses = apiCalls[3].value?.items || apiCalls[3].value || [];
   } else { logUnavailable('listCourses'); }
   if (apiCalls[4].status === 'fulfilled') {
-    const items = apiCalls[4].value?.items || apiCalls[4].value || [];
-    leads = items.map(l => ({
-      id: l.id, name: l.name || l.patient_name || 'Unknown',
-      source: l.source || l.origin || 'referral',
-      condition: l.condition || l.indication || '',
-      stage: l.stage || l.status || 'new',
-      urgency: l.urgency || l.triage || 'routine',
-      phone: l.phone || '', email: l.email || '',
-      created: (l.created_at || '').slice(0,10),
-      notes: l.notes || '', follow_up: l.follow_up || '',
-      demo: false,
-    }));
-    backendStatus.referrals = items.length > 0;
-  } else {
-    apiErrors.push('referrals');
-    backendStatus.referrals = false;
-    logUnavailable('listReferrals');
-  }
-  if (apiCalls[5].status === 'fulfilled') {
-    staffSchedule = apiCalls[5].value?.items || apiCalls[5].value || [];
-    backendStatus.staff = Array.isArray(staffSchedule) && staffSchedule.length > 0;
-  } else {
-    backendStatus.staff = false;
-    logUnavailable('listStaffSchedule');
-  }
-  if (apiCalls[6].status === 'fulfilled') {
-    patientsList = apiCalls[6].value?.items || apiCalls[6].value || [];
+    patientsList = apiCalls[4].value?.items || apiCalls[4].value || [];
     if (!Array.isArray(patientsList)) patientsList = [];
   } else { logUnavailable('listPatients'); }
-
-  if (!leads.length) {
-    referralsIsDemo = true;
-    leads = [
-      { id:'L-1', name:'Sarah Johnson',  source:'website',  condition:'Depression', stage:'new',       urgency:'urgent',  phone:'+44 7700 900123', created:'2026-04-14', notes:'TRD, 3 meds tried.', demo:true },
-      { id:'L-2', name:'Robert Kim',     source:'GP',       condition:'Anxiety',    stage:'contacted', urgency:'routine', phone:'+44 7700 900456', created:'2026-04-13', notes:'Referred by GP. GAD-7=15.', demo:true },
-      { id:'L-3', name:'Emma Clarke',    source:'self',     condition:'OCD',        stage:'qualified', urgency:'routine', phone:'+44 7700 900789', created:'2026-04-12', notes:'Deep TMS candidate.', demo:true },
-      { id:'L-4', name:'David Nguyen',   source:'GP',       condition:'PTSD',       stage:'booked',    urgency:'urgent',  phone:'+44 7700 900321', created:'2026-04-10', notes:'Intake booked.', demo:true },
-      { id:'L-5', name:'Lucy Fernandez', source:'insurer',  condition:'Depression', stage:'lost',      urgency:'routine', phone:'+44 7700 900654', created:'2026-04-08', notes:'Chose medication only.', demo:true },
-    ];
-  }
 
   function buildMockEvents() {
     const ev = [];
@@ -3585,7 +4268,15 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     const [h, m] = hhmm.split(':').map(Number);
     const start = h + (m||0)/60;
     const dur = (s.duration_minutes || s.duration || 60) / 60;
-    const type = (s.appointment_type || s.modality || s.type || 'session').toLowerCase();
+    const appointmentType = String(s.appointment_type || '').toLowerCase();
+    const modality = String(s.modality || '').toLowerCase();
+    const type = (
+      (appointmentType === 'session' && modality)
+      || ((appointmentType === 'consultation' || appointmentType === 'phone') && modality)
+      || appointmentType
+      || modality
+      || String(s.type || 'session').toLowerCase()
+    );
     const clinLookup = String(s.clinician_id || s.clinician || '').toLowerCase();
     const clin = clinicians.find(c => String(c.id||'').toLowerCase() === clinLookup || String(c.name||'').toLowerCase() === clinLookup) || clinicians[0];
     return {
@@ -3612,14 +4303,76 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   // Honest empty-state rule:
   //   - sessions === null  → backend call errored → OK to show demo data so the
   //                          UI layout doesn't collapse (banner explains it).
-  //   - sessions === []    → backend returned zero results for the week → this
-  //                          is a real "no appointments scheduled" state and we
-  //                          must NOT fabricate mock rows to fill the grid.
-  if (Array.isArray(sessions)) {
-    events = sessions.map(sessionToEvent).filter(Boolean);
-    eventsIsDemo = false;
-  } else {
-    events = buildMockEvents();
+  //   - sessions === []    → backend returned zero results for the week → in
+  //                          demo mode, seed a representative set so reviewers
+  //                          can exercise the calendar; in production builds
+  //                          we still render the honest "no appointments"
+  //                          state.
+  events = Array.isArray(sessions) ? sessions.map(sessionToEvent).filter(Boolean) : [];
+  eventsIsDemo = false;
+
+  // ── Demo-mode seed for empty schedule ─────────────────────────────────
+  // Mirrors the Patients page Today's Queue / qEEG workbench pattern: when
+  // VITE_ENABLE_DEMO is on AND the API returned an empty week, seed a
+  // realistic Mon–Sun calendar so the layout has something to render.
+  // The gate is two-layered: (1) demo build flag must be set, (2) the
+  // sessions response must be `[]` (NOT `null`, which means error). Real
+  // bookings always win — this never overwrites real data.
+  function _schedDemoEnabled() {
+    try {
+      if (typeof __VITE_ENABLE_DEMO__ !== 'undefined' && __VITE_ENABLE_DEMO__) return true;
+    } catch (_) { /* not defined */ }
+    try {
+      if (import.meta?.env?.VITE_ENABLE_DEMO === '1') return true;
+    } catch (_) { /* not in vite env */ }
+    try {
+      if (import.meta?.env?.DEV) return true;
+    } catch (_) { /* no env */ }
+    return false;
+  }
+  const _schedSeededFromDemo = (Array.isArray(sessions) && sessions.length === 0 && _schedDemoEnabled());
+  if (_schedSeededFromDemo) {
+    // 12 sessions across Mon–Sun. Patient names mirror the existing Patients
+    // demo seed so chips line up. Each id is stable & deterministic so the
+    // detail panel + chain renderer key correctly across re-renders.
+    const _demoClin = clinicians[0]?.id || 'current-clinician';
+    const _demoClinName = clinicians[0]?.name || 'Assigned clinician';
+    const _demoRoom1 = rooms[0]?.name || 'Room A';
+    const _demoRoom2 = rooms[1]?.name || rooms[0]?.name || 'Room B';
+    const SEED = [
+      // day index: 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat, 6=Sun
+      { id:'demo-sched-mon-0900', day:0, start:9.0,  duration:30, type:'tdcs',      patient:'Samantha Li',     room:_demoRoom1, notes:'DLPFC-L 2.0 mA, 20 min', course_position:6,  course_total:20 },
+      { id:'demo-sched-mon-1430', day:0, start:14.5, duration:30, type:'rtms',      patient:'Marcus Chen',     room:_demoRoom2, notes:'DLPFC-L 10 Hz protocol', course_position:8,  course_total:30 },
+      { id:'demo-sched-tue-1000', day:1, start:10.0, duration:60, type:'session',   patient:'Elena Vasquez',   room:_demoRoom1, notes:'tFUS · M1 sonication',    course_position:3,  course_total:12 },
+      { id:'demo-sched-tue-1600', day:1, start:16.0, duration:60, type:'nf',        patient:'James Okonkwo',   room:_demoRoom2, notes:'SMR/theta neurofeedback', course_position:14, course_total:30 },
+      { id:'demo-sched-wed-0930', day:2, start:9.5,  duration:30, type:'session',   patient:'Aisha Rahman',    room:_demoRoom1, notes:'TPS · mPFC pulses',       course_position:2,  course_total:6  },
+      { id:'demo-sched-wed-1300', day:2, start:13.0, duration:60, type:'intake',    patient:'New patient',     room:_demoRoom2, notes:'60 min intake assessment' },
+      { id:'demo-sched-thu-0800', day:3, start:8.0,  duration:30, type:'rtms',      patient:'Marcus Chen',     room:_demoRoom2, notes:'rTMS continuation',       course_position:9,  course_total:30 },
+      { id:'demo-sched-thu-1100', day:3, start:11.0, duration:30, type:'tele',      patient:'Telehealth follow-up', room:'Telehealth', notes:'30 min video follow-up' },
+      { id:'demo-sched-fri-1030', day:4, start:10.5, duration:30, type:'tdcs',      patient:'Samantha Li',     room:_demoRoom1, notes:'tDCS continuation',       course_position:7,  course_total:20 },
+      { id:'demo-sched-fri-1500', day:4, start:15.0, duration:60, type:'bio',       patient:'Group · Biofeedback', room:_demoRoom2, notes:'4-patient HRV biofeedback group' },
+      // A pair of weekend sessions to match real clinic flexibility.
+      { id:'demo-sched-tue-1130', day:1, start:11.5, duration:30, type:'assess',    patient:'Priya Nambiar',   room:_demoRoom1, notes:'PHQ-9 / GAD-7 review',     course_position:1,  course_total:1  },
+      { id:'demo-sched-thu-1530', day:3, start:15.5, duration:30, type:'tdcs',      patient:'Aisha Rahman',    room:_demoRoom1, notes:'tDCS adjunct · 1.5 mA',   course_position:3,  course_total:6  },
+    ];
+    events = SEED.map(s => ({
+      id: s.id,
+      day: s.day,
+      clin: _demoClin,
+      clinician: _demoClinName,
+      start: s.start,
+      end: Math.min(s.start + (s.duration / 60), 24),
+      type: s.type,
+      patient: s.patient,
+      meta: s.room || '',
+      warn: null,
+      duration: s.duration,
+      course_position: s.course_position || null,
+      course_total: s.course_total || null,
+      status: 'scheduled',
+      notes: s.notes || '',
+      _demoSeed: true,
+    }));
     eventsIsDemo = true;
   }
 
@@ -3669,13 +4422,12 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   const conflictCount = events.filter(e => e.warn === 'err').length;
   const prereqCount   = events.filter(e => e.warn === 'amb').length;
 
-  // Demo banner visibility: show when sessions are seeded OR sessions endpoint failed.
-  const showDemoBanner = eventsIsDemo || backendStatus.sessions === false;
+  // Demo banner visibility: show when the calendar is showing seeded
+  // demo data so reviewers know the sessions aren't real bookings.
+  const showDemoBanner = !!eventsIsDemo;
 
   const TAB_META = {
     appointments: { label:'Appointments', count: events.filter(eventPasses).length },
-    referrals:    { label:'Referrals',    count: leads.filter(l => l.stage !== 'dismissed' && l.stage !== 'lost').length },
-    staff:        { label:'Staff Schedule', count: clinicians.length },
   };
   function renderTabBar() {
     return '<div class="dv2s-tab-bar" role="tablist">' +
@@ -3687,12 +4439,20 @@ export async function pgSchedulingHub(setTopbar, navigate) {
 
   function renderDemoBanner() {
     if (!showDemoBanner) return '';
-    return '<div class="dv2s-demo-banner">'
-      + '<span class="dv2s-demo-dot"></span>'
-      + '<strong>DEMO DATA</strong> &mdash; <span style="color:var(--text-secondary)">Showing seeded appointments so you can explore. Real appointments will appear here once your backend is connected.</span>'
-      + '<button class="dv2s-demo-btn" onclick="window._schedToggleRealMode?.()">Try real backend</button>'
-    + '</div>';
+    if (window._schedDemoBannerDismissed === true) return '';
+    const n = events.length;
+    return '<div class="dv2s-demo-banner" data-testid="ds-schedule-demo-banner" role="status">'
+      + '<span class="dv2s-demo-dot" aria-hidden="true"></span>'
+      + '<span>&#9432; Demo schedule &mdash; ' + n + ' sample sessions for this week. '
+      + 'Real bookings from the API will replace these when available.</span>'
+      + '<button type="button" class="dv2s-demo-btn" onclick="window._schedDismissDemoBanner()">Dismiss</button>'
+      + '</div>';
   }
+  window._schedDismissDemoBanner = function _schedDismissDemoBanner() {
+    window._schedDemoBannerDismissed = true;
+    const banner = document.querySelector('[data-testid="ds-schedule-demo-banner"]');
+    if (banner && banner.parentNode) banner.parentNode.removeChild(banner);
+  };
 
   setTopbar('Schedule', '<button class="btn btn-primary btn-sm" onclick="window._schedNewBookingIntent()">+ New booking</button>');
   window._schedNewBookingIntent = () => { window._schedOpenWizard({}); };
@@ -3728,7 +4488,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     } else if (VIEW === 'resources') {
       const d = new Date(window._schedAnchor + 'T12:00:00');
       range = d.toLocaleDateString('en-GB',{ day:'numeric', month:'short', year:'numeric' });
-      sub = 'Resources · rooms';
+      sub = roomDataLimited ? 'Resources · estimated rooms' : 'Resources · rooms';
     } else if (VIEW === 'month') {
       const d = new Date(window._schedAnchor + 'T12:00:00');
       range = d.toLocaleDateString('en-GB',{ month:'long', year:'numeric' });
@@ -3756,6 +4516,8 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       + (VIEW === 'resources' ? '' : rooms.slice(0,3).map(roomChip).join(''))
       + typeChip('tdcs','tDCS') + typeChip('rtms','rTMS') + typeChip('nf','NF') + typeChip('bio','Bio') + typeChip('assess','Assess') + typeChip('intake','Intake') + typeChip('tele','Telehealth')
       + '<button class="dv2s-chip warn'+(F.conflictsOnly?' is-active':'')+'" onclick="window._schedToggleConflicts()">&#9888; '+conflictCount+' conflicts'+(prereqCount?(' &middot; &#9680; '+prereqCount+' prereqs'):'')+'</button>'
+      + (roomDataLimited ? '<span class="dv2s-chip warn" style="cursor:default">Rooms estimated locally</span>' : '')
+      + '<span class="dv2s-chip'+(F.conflictsOnly?' warn':'')+'" style="cursor:default">Conflict checks local-only</span>'
       + '<div class="dv2s-legend">'
         + '<span class="dv2s-legend-item"><span class="dv2s-legend-sw" style="background:var(--teal)"></span>tDCS</span>'
         + '<span class="dv2s-legend-item"><span class="dv2s-legend-sw" style="background:var(--blue)"></span>rTMS</span>'
@@ -3921,7 +4683,10 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       grid += '</div>';
     });
     grid += '</div>';
-    return heads + grid;
+    const banner = roomDataLimited
+      ? '<div class="dv2s-error-banner" style="margin-bottom:10px">Room availability is estimated from the loaded schedule because the room service is unavailable.</div>'
+      : '';
+    return banner + heads + grid;
   }
 
   function buildMonthView() {
@@ -4011,7 +4776,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     const initials = String(sel.patient||'').split(/\s+/).map(w=>w[0]||'').slice(0,2).join('').toUpperCase();
     const rem = (sel.course_total && sel.course_position) ? (sel.course_total - sel.course_position) : 0;
     const warns = [];
-    if (sel.warn === 'err') warns.push('<div class="dv2s-warn err"><div class="dv2s-warn-ico">&#9888;</div><div><div class="dv2s-warn-title">Device / clinician conflict</div><div class="dv2s-warn-body">Overlapping booking detected. Review resource assignment.</div></div></div>');
+    if (sel.warn === 'err') warns.push('<div class="dv2s-warn err"><div class="dv2s-warn-ico">&#9888;</div><div><div class="dv2s-warn-title">Local overlap detected</div><div class="dv2s-warn-body">The loaded schedule shows an overlapping clinician or room assignment. Server-side resource validation is unavailable here.</div></div></div>');
     if (sel.warn === 'amb') warns.push('<div class="dv2s-warn amb"><div class="dv2s-warn-ico">&#9680;</div><div><div class="dv2s-warn-title">Prereq outstanding</div><div class="dv2s-warn-body">Assessment or consent overdue for this course.</div></div></div>');
     // Heuristic warnings — deterministic
     const noShowScore = Math.abs(String(sel.id||'').split('').reduce((s,c)=>s+c.charCodeAt(0),0)) % 40;
@@ -4046,6 +4811,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
         + '<div class="dv2s-side-row"><div class="lbl">Device</div><div class="val">'+esc(sel.device || sel.meta || '—')+'</div></div>'
         + '<div class="dv2s-side-row"><div class="lbl">Duration</div><div class="val">'+esc(sel.duration+' min')+'</div></div>'
         + (sel.course_position ? '<div class="dv2s-side-row"><div class="lbl">Course</div><div class="val">Session '+sel.course_position+' of '+(sel.course_total||'—')+'</div></div>' : '')
+        + (sel.notes ? '<div class="dv2s-side-row"><div class="lbl">Notes</div><div class="val" style="white-space:pre-wrap">'+esc(sel.notes)+'</div></div>' : '')
         + '<div class="dv2s-side-section">Risk signals</div>'
         + '<div class="dv2s-side-row"><div class="lbl">No-show</div><div class="val" style="color:'+noShowColor+'">'+noShowScore+'% &middot; '+noShowLevel+'</div></div>'
         + (rem ? ('<div class="dv2s-side-row"><div class="lbl">Remaining</div><div class="val">'+rem+' sessions</div></div>') : '')
@@ -4055,7 +4821,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       + '<div class="dv2s-side-foot">'
         + '<button class="btn btn-ghost btn-sm" style="flex:1" onclick="window._schedReschedule(\''+esc(sel.id)+'\')">Reschedule</button>'
         + '<button class="btn btn-ghost btn-sm" onclick="window._schedCancelEvent(\''+esc(sel.id)+'\')">Cancel</button>'
-        + '<button class="btn btn-ghost btn-sm" onclick="window._schedCheckConflictsBtn(\''+esc(sel.id)+'\')">Conflicts</button>'
+        + '<button class="btn btn-ghost btn-sm" onclick="window._schedCheckConflictsBtn(\''+esc(sel.id)+'\')">Local conflicts</button>'
         + '<button class="btn btn-primary btn-sm" style="flex:1" onclick="window._schedOpenChart(\''+esc(sel.id)+'\')">Open chart &rarr;</button>'
       + '</div>'
     + '</aside>';
@@ -4272,10 +5038,14 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       mode: 'reschedule',
       sessionId: id,
       patient: ev.patient,
+      patient_id: ev._raw?.patient_id || null,
       clin: ev.clin,
       day: day ? day.iso : window._schedAnchor,
       start: ev.start,
       type: ev.type,
+      duration: ev.duration,
+      notes: ev.notes || '',
+      course_id: ev._raw?.course_id || null,
     });
   };
   window._schedCancelEvent = async (id) => {
@@ -4284,9 +5054,9 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     try {
       await api.cancelSession?.(id, { reason });
       window._dsToast?.({ title:'Cancelled', body:'Appointment cancelled.', severity:'success' });
-    } catch (_err) {
-      logUnavailable('cancelSession');
-      window._dsToast?.({ title:'Cancelled (local)', body:'Saved locally — backend sync pending.', severity:'warn' });
+    } catch (err) {
+      window._dsToast?.({ title:'Cancel failed', body: err?.message || 'The appointment could not be cancelled.', severity:'warn' });
+      return;
     }
     window._schedSelectedId = null;
     window._nav('scheduling-hub');
@@ -4308,8 +5078,10 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     }
     const n = (result.conflicts || []).length;
     window._dsToast?.({
-      title: n ? (n + ' conflict(s) detected') : 'No conflicts',
-      body: n ? 'Overlapping with: ' + result.conflicts.slice(0,3).map(c=>c.patient||c.id).join(', ') : 'This slot is clear.',
+      title: n ? (n + ' local conflict(s) detected') : 'No local conflicts',
+      body: n
+        ? 'Loaded schedule overlap with: ' + result.conflicts.slice(0,3).map(c=>c.patient||c.id).join(', ') + '. Server-side room/device validation is unavailable.'
+        : 'No overlap was found in the loaded schedule. Server-side room/device validation is unavailable here.',
       severity: n ? 'warn' : 'success',
     });
   };
@@ -4340,15 +5112,39 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   };
   window._schedAssignLead = (id) => {
     const lead = leads.find(l => String(l.id) === String(id)); if (!lead) return;
-    const options = clinicians.map((c,i)=>(i+1)+'. '+c.name).join('\n');
-    const pick = (typeof prompt === 'function') ? prompt('Assign clinician:\n' + options + '\n\nEnter number:','1') : null;
-    if (!pick) return;
-    const idx = parseInt(pick,10) - 1;
-    const c = clinicians[idx];
-    if (!c) return;
-    lead.assigned_to = c.id;
-    window._dsToast?.({ title:'Assigned', body: lead.name + ' → ' + c.name, severity:'info' });
-    window._nav('scheduling-hub');
+    const overlay = document.createElement('div');
+    overlay.className = 'ds-assign-modal-overlay';
+    const safeName = String(lead.name || 'lead').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+    const opts = clinicians.map(c => `<option value="${String(c.id).replace(/"/g,'&quot;')}">${String(c.name).replace(/[<>&]/g, x => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[x]))}</option>`).join('');
+    overlay.innerHTML = `
+      <div class="ds-assign-modal" role="dialog" aria-modal="true" aria-label="Assign clinician">
+        <div class="ds-assign-modal-header">
+          <span class="ds-assign-modal-title">Assign clinician to ${safeName}</span>
+          <button class="ds-assign-modal-close" aria-label="Close">&times;</button>
+        </div>
+        <div style="padding:14px 18px">
+          <label style="display:block;font-size:12px;color:#94a3b8;margin-bottom:6px">Clinician</label>
+          <select class="ds-assign-select" style="width:100%;padding:8px 10px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px">${opts}</select>
+        </div>
+        <div class="ds-assign-footer">
+          <button class="ds-assign-btn-cancel">Cancel</button>
+          <button class="ds-assign-btn-primary">Assign &rarr;</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    overlay.querySelector('.ds-assign-modal-close').addEventListener('click', close);
+    overlay.querySelector('.ds-assign-btn-cancel').addEventListener('click', close);
+    overlay.querySelector('.ds-assign-btn-primary').addEventListener('click', () => {
+      const sel = overlay.querySelector('.ds-assign-select');
+      const c = clinicians.find(x => String(x.id) === String(sel.value));
+      close();
+      if (!c) return;
+      lead.assigned_to = c.id;
+      window._dsToast?.({ title:'Assigned', body: lead.name + ' → ' + c.name, severity:'info' });
+      window._nav('scheduling-hub');
+    });
   };
   window._schedBookLead = (id) => {
     const lead = leads.find(l => String(l.id) === String(id));
@@ -4361,16 +5157,17 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       step: 1,
       patient: ctx?.patient || '',
       patient_id: ctx?.patient_id || null,
+      condition: ctx?.condition || '',
       day: ctx?.day || window._schedAnchor,
       clin: ctx?.clin || clinicians[0]?.id || '',
       start: ctx?.start != null ? ctx.start : 9,
       type: ctx?.type || 'session',
-      course_id: null,
+      course_id: ctx?.course_id || null,
       mode: ctx?.mode || 'new',
       sessionId: ctx?.sessionId || null,
       leadId: ctx?.leadId || null,
-      duration: 60,
-      notes: '',
+      duration: ctx?.duration || 60,
+      notes: ctx?.notes || '',
       conflictResult: null,
       patientQuery: '',
     };
@@ -4396,29 +5193,77 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     const startHr = Number(w.start) || 9;
     const dur = Number(w.duration) || 60;
     const startIso = w.day + 'T' + pad2(Math.floor(startHr)) + ':' + (startHr % 1 === 0 ? '00' : '30') + ':00';
-    const endHr = startHr + dur/60;
-    const endIso = w.day + 'T' + pad2(Math.floor(endHr)) + ':' + (endHr % 1 === 0 ? '00' : '30') + ':00';
-    const payload = {
-      patient_id: w.patient_id, patient_name: w.patient,
-      clinician_id: w.clin, appointment_type: w.type,
-      scheduled_at: startIso, duration_minutes: dur,
-      course_id: w.course_id || null, notes: w.notes || '',
-    };
-    let ok = false;
+    let patientId = w.patient_id;
+    if (!patientId) {
+      const parsedName = parsePatientNameForCreate(w.patient);
+      if (!parsedName) {
+        window._dsToast?.({
+          title:'Patient name incomplete',
+          body:'Enter both first and last name before creating a new patient from scheduling.',
+          severity:'warn',
+        });
+        return;
+      }
+      try {
+        const createdPatient = await api.createPatient({
+          ...parsedName,
+          primary_condition: w.condition || null,
+          primary_modality: getScheduleTypeSubmission(w.type).modality || null,
+          status: w.mode === 'intake' ? 'intake' : 'active',
+        });
+        patientId = createdPatient?.id || null;
+      } catch (err) {
+        window._dsToast?.({
+          title:'Patient creation failed',
+          body: err?.message || 'Could not create the patient record needed for this booking.',
+          severity:'warn',
+        });
+        return;
+      }
+      if (!patientId) {
+        window._dsToast?.({ title:'Patient creation failed', body:'The server did not return a patient id.', severity:'warn' });
+        return;
+      }
+    }
+    const payload = buildSchedulingSessionPayload({
+      patientId,
+      clinicianId: w.clin,
+      type: w.type,
+      scheduledAt: startIso,
+      durationMinutes: dur,
+      courseId: w.course_id || null,
+      notes: w.notes || '',
+    });
+    let savedSession = null;
     try {
       if (w.mode === 'reschedule' && w.sessionId) {
-        await api.updateSession?.(w.sessionId, payload); ok = true;
+        savedSession = await api.updateSession?.(w.sessionId, payload);
       } else if (typeof api.bookSession === 'function') {
-        try { await api.bookSession(payload); ok = true; } catch { /* fall through */ }
+        try { savedSession = await api.bookSession(payload); } catch { /* fall through */ }
       }
-      if (!ok && typeof api.createSession === 'function') {
-        await api.createSession(payload); ok = true;
+      if (!savedSession && typeof api.createSession === 'function') {
+        savedSession = await api.createSession(payload);
       }
-    } catch (_err) { logUnavailable(w.mode === 'reschedule' ? 'updateSession' : 'createSession'); }
+      if (!savedSession) throw new Error('The booking service did not return a session record.');
+      if (w.leadId && typeof api.updateLead === 'function' && savedSession.id) {
+        try {
+          await api.updateLead(w.leadId, { stage: 'booked', converted_appointment_id: savedSession.id });
+        } catch (err) {
+          console.warn('[schedule] lead conversion update failed:', err?.message || err);
+        }
+      }
+    } catch (err) {
+      window._dsToast?.({
+        title: w.mode === 'reschedule' ? 'Reschedule failed' : 'Booking failed',
+        body: err?.message || 'The server rejected this appointment.',
+        severity:'warn',
+      });
+      return;
+    }
     window._dsToast?.({
-      title: ok ? 'Booked' : 'Booked (local)',
-      body: ok ? (w.patient + ' · ' + w.day + ' ' + startIso.slice(11,16)) : 'Saved locally — backend sync pending.',
-      severity: ok ? 'success' : 'warn',
+      title: w.mode === 'reschedule' ? 'Rescheduled' : 'Booked',
+      body: w.patient + ' · ' + w.day + ' ' + startIso.slice(11,16),
+      severity:'success',
     });
     window._schedCloseWizard();
     window._nav('scheduling-hub');
@@ -4435,7 +5280,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       document.body.appendChild(bd);
     }
     const step = w.step;
-    const stepNames = ['Patient','Slot','Type','Course','Review'];
+    const stepNames = ['Patient','Slot','Type','Review'];
     const stepBar = '<div class="dv2s-stepper">' + stepNames.map((n,i) => {
       const k = i+1;
       const cls = k === step ? 'is-active' : k < step ? 'is-done' : '';
@@ -4449,15 +5294,13 @@ export async function pgSchedulingHub(setTopbar, navigate) {
         .map(p => ({ id: p.id, name: p.name || p.full_name || ('Patient ' + p.id) }))
         .filter(p => !q || p.name.toLowerCase().includes(q))
         .slice(0,20);
-      const seedHits = !patientsList.length ? (['Sarah Johnson','Robert Kim','Emma Clarke','David Nguyen','Lucy Fernandez'].filter(n => !q || n.toLowerCase().includes(q)).map(n => ({ id:'seed-'+n, name:n, demo:true }))) : [];
-      const list = matches.length ? matches : seedHits;
       body += '<div class="dv2s-field"><label>Search patient</label><input type="text" value="'+esc(w.patientQuery||'')+'" placeholder="Type name..." oninput="window._schedWizSearch(this.value)"></div>';
-      body += '<div class="dv2s-plist">' + (list.length ? list.map(p =>
+      body += '<div class="dv2s-plist">' + (matches.length ? matches.map(p =>
         '<div class="dv2s-pitem'+(w.patient_id===p.id?' is-active':'')+'" onclick="window._schedWizPickPatient(\''+esc(p.id)+'\',\''+esc(p.name)+'\')">'
-          + '<span>'+esc(p.name)+(p.demo ? ' <span style="font-size:10px;color:#ffd28a;font-weight:600">· demo patient</span>' : '')+'</span><span style="color:var(--text-tertiary);font-size:10px">'+esc(String(p.id).slice(0,8))+'</span>'
+          + '<span>'+esc(p.name)+'</span><span style="color:var(--text-tertiary);font-size:10px">'+esc(String(p.id).slice(0,8))+'</span>'
         + '</div>'
-      ).join('') : '<div style="padding:10px;color:var(--text-tertiary);font-size:11px">No matches.</div>') + '</div>';
-      body += '<div style="margin-top:10px;font-size:11px;color:var(--text-tertiary)">Or <a href="javascript:void(0)" onclick="window._schedWizSet(\'patient\',prompt(\'New patient name:\')||\'\')" style="color:var(--teal)">create new patient</a>'+(w.patient?' — selected: <strong style="color:var(--text-primary)">'+esc(w.patient)+'</strong>':'')+'</div>';
+      ).join('') : '<div style="padding:10px;color:var(--text-tertiary);font-size:11px">No patient records match. Enter a full name below to create the patient during booking.</div>') + '</div>';
+      body += '<div style="margin-top:10px;font-size:11px;color:var(--text-tertiary)">Or <a href="javascript:void(0)" onclick="window._schedWizSet(\'patient\',prompt(\'Enter first and last name:\')||\'\')" style="color:var(--teal)">create new patient</a>'+(w.patient?' — selected: <strong style="color:var(--text-primary)">'+esc(w.patient)+'</strong>':'')+'</div>';
     } else if (step === 2) {
       const clinOpts = clinicians.map(c => '<option value="'+esc(c.id)+'"'+(w.clin===c.id?' selected':'')+'>'+esc(c.name)+'</option>').join('');
       const dayOpts = DAYS.map(d => '<option value="'+d.iso+'"'+(w.day===d.iso?' selected':'')+'>'+d.dow+' '+d.num+' · '+d.label+'</option>').join('');
@@ -4481,13 +5324,6 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       + '</div></div>';
       body += '<div class="dv2s-field"><label>Notes</label><textarea rows="3" oninput="window._schedWizSet(\'notes\', this.value)" placeholder="Optional...">'+esc(w.notes||'')+'</textarea></div>';
     } else if (step === 4) {
-      const courseOpts = '<option value="">— No course —</option>' + (Array.isArray(courses) ? courses.slice(0,40).map(c => {
-        const id = c.id; const name = c.name || c.title || (c.modality ? c.modality + ' · ' + (c.condition||'course') : 'Course ' + id);
-        return '<option value="'+esc(id)+'"'+(String(w.course_id)===String(id)?' selected':'')+'>'+esc(name)+'</option>';
-      }).join('') : '');
-      body += '<div class="dv2s-field"><label>Treatment course (optional)</label><select onchange="window._schedWizSet(\'course_id\', this.value || null)">'+courseOpts+'</select></div>';
-      body += '<div style="font-size:11px;color:var(--text-tertiary)">Linking the session to an existing course keeps the remaining-sessions chain accurate.</div>';
-    } else if (step === 5) {
       const day = DAYS.find(d => d.iso === w.day) || DAYS[0];
       const clin = clinicians.find(c => c.id === w.clin);
       const startLabel = pad2(Math.floor(w.start))+':'+(w.start%1===0?'00':'30');
@@ -4496,11 +5332,10 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       body += '<div class="dv2s-side-row"><div class="lbl">When</div><div class="val">'+esc(day?.dow+' '+day?.num+' · '+startLabel)+'</div></div>';
       body += '<div class="dv2s-side-row"><div class="lbl">Clinician</div><div class="val">'+esc(clin?.name||'—')+'</div></div>';
       body += '<div class="dv2s-side-row"><div class="lbl">Type</div><div class="val">'+esc(typeMeta(w.type).label)+' · '+w.duration+' min</div></div>';
-      body += '<div class="dv2s-side-row"><div class="lbl">Course</div><div class="val">'+esc(w.course_id ? String(w.course_id) : '—')+'</div></div>';
       if (localConflicts.length) {
-        body += '<div class="dv2s-warn err" style="margin-top:10px"><div class="dv2s-warn-ico">&#9888;</div><div><div class="dv2s-warn-title">'+localConflicts.length+' conflict(s) at this slot</div><div class="dv2s-warn-body">Overlap with: '+localConflicts.slice(0,3).map(c=>esc(c.patient)).join(', ')+'</div></div></div>';
+        body += '<div class="dv2s-warn err" style="margin-top:10px"><div class="dv2s-warn-ico">&#9888;</div><div><div class="dv2s-warn-title">'+localConflicts.length+' local overlap(s) at this slot</div><div class="dv2s-warn-body">Loaded schedule overlap with: '+localConflicts.slice(0,3).map(c=>esc(c.patient)).join(', ')+' . Server-side room/device validation is unavailable here.</div></div></div>';
       } else {
-        body += '<div class="dv2s-warn ok" style="margin-top:10px"><div class="dv2s-warn-ico">&#10003;</div><div><div class="dv2s-warn-title">Slot clear</div><div class="dv2s-warn-body">No overlapping bookings detected for clinician.</div></div></div>';
+        body += '<div class="dv2s-warn ok" style="margin-top:10px"><div class="dv2s-warn-ico">&#10003;</div><div><div class="dv2s-warn-title">No local clinician overlap found</div><div class="dv2s-warn-body">The loaded schedule shows no clinician overlap. Server-side room/device validation may still be required.</div></div></div>';
       }
       if (!w.patient) {
         body += '<div class="dv2s-warn amb" style="margin-top:6px"><div class="dv2s-warn-ico">&#9680;</div><div><div class="dv2s-warn-title">Missing patient</div><div class="dv2s-warn-body">Pick or create a patient in step 1 before booking.</div></div></div>';
@@ -4508,14 +5343,14 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     }
 
     const prevBtn = step > 1 ? '<button class="btn btn-ghost btn-sm" onclick="window._schedWizSetStep('+(step-1)+')">&larr; Back</button>' : '<span></span>';
-    const nextBtn = step < 5
+    const nextBtn = step < 4
       ? '<button class="btn btn-primary btn-sm" onclick="window._schedWizSetStep('+(step+1)+')">Next &rarr;</button>'
       : '<button class="btn btn-primary btn-sm" onclick="window._schedWizConfirm()"'+(w.patient?'':' disabled')+'>' + (w.mode === 'reschedule' ? 'Save reschedule' : 'Book appointment') + '</button>';
 
     bd.innerHTML = '<div class="dv2s-modal" role="dialog" aria-label="Booking wizard">'
       + '<div class="dv2s-modal-head">'
         + '<div><div class="dv2s-modal-title">' + (w.mode === 'reschedule' ? 'Reschedule appointment' : w.mode === 'intake' ? 'Book intake' : 'New booking') + '</div>'
-        + '<div class="dv2s-modal-sub">Step '+step+' of 5</div></div>'
+        + '<div class="dv2s-modal-sub">Step '+step+' of 4</div></div>'
         + '<button class="dv2s-side-close" onclick="window._schedCloseWizard()">&#10005;</button>'
       + '</div>'
       + '<div class="dv2s-modal-body">'+body+'</div>'
@@ -4584,7 +5419,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
 
   el.innerHTML = '<div class="dv2s-shell">'
     + renderDemoBanner()
-    + (apiErrors.length && !showDemoBanner ? '<div class="dv2s-error-banner">Live data unavailable ('+apiErrors.join(', ')+') — showing sample schedule.</div>' : '')
+    + (apiErrors.length && !showDemoBanner ? '<div class="dv2s-error-banner">Live schedule data unavailable ('+apiErrors.join(', ')+'). No sample appointments are shown in beta mode.</div>' : '')
     + renderTabBar()
     + body
   + '</div>';
@@ -5460,6 +6295,7 @@ export async function pgLibraryHub(setTopbar, navigate) {
 // pgMonitorHub — Patient Monitoring · Adverse Events · Notes & Dictation · Recording
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgMonitorHub(setTopbar, navigate) {
+  function _mhEsc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;'); }
   const tab = window._monitorHubTab || 'monitoring';
   window._monitorHubTab = tab;
   const TAB_META = {
@@ -5619,73 +6455,178 @@ export async function pgMonitorHub(setTopbar, navigate) {
     };
   }
   else if (tab === 'adverse') {
-    setTopbar('Monitor', '<button class="btn btn-sm" onclick="window._nav(\'adverse-events-full\')">Full AE Log ↗</button>');
+    // ────────────────────────────────────────────────────────────────────
+    // Adverse Events — launch-audit hardened (2026-04-30)
+    //
+    // Real backend wiring for every visible control. Surfaces:
+    //   - KPI tiles (total / open / SAE / awaiting review / reportable)
+    //   - Filters: severity, status, body system, SAE, expectedness,
+    //     reportable, date range, free-text search
+    //   - Row → detail drawer with classification, review/sign-off,
+    //     expectedness override, regulator escalation, MedDRA fields
+    //   - "+ Report AE" modal collects severity / onset / classification
+    //   - CSV export (filter-aware) + CIOMS export (honest "not configured")
+    //
+    // No fake counts. No fake exports. No AI severity / expectedness.
+    // ────────────────────────────────────────────────────────────────────
+
+    setTopbar(
+      'Monitor',
+      '<button class="btn btn-sm" onclick="window._mhAeExportCsv()">Export CSV</button>'+
+      '<button class="btn btn-sm" style="margin-left:6px" onclick="window._nav(\'adverse-events-full\')">Full AE Log ↗</button>'
+    );
     el.innerHTML = '<div class="ch-shell"><div class="ch-tab-bar">'+tabBar()+'</div><div class="ch-body">'+spinner()+'</div></div>';
 
-    // Filter state (persists across tab re-renders)
-    const sevFilter = window._mhAeSevFilter || '';
+    // ── Filter state (persists across tab re-renders) ───────────────────
+    const aeF = (window._mhAeFilters = window._mhAeFilters || {});
+    const filterParams = {};
+    if (aeF.severity)    filterParams.severity = aeF.severity;
+    if (aeF.body_system) filterParams.body_system = aeF.body_system;
+    if (aeF.status)      filterParams.status = aeF.status;
+    if (aeF.expected)    filterParams.expected = aeF.expected;
+    if (aeF.sae === true)        filterParams.sae = 'true';
+    if (aeF.reportable === true) filterParams.reportable = 'true';
+    if (aeF.since) filterParams.since = aeF.since;
+    if (aeF.until) filterParams.until = aeF.until;
+    if (aeF.patient_id) filterParams.patient_id = aeF.patient_id;
 
-    const [aesRes, patsRes] = await Promise.all([
-      api.listAdverseEvents?.(sevFilter ? { severity: sevFilter } : {}).catch(() => ({ items: [] })) || Promise.resolve({ items: [] }),
+    // ── Best-effort audit logger (mirrors qEEG / Brain-Map-Planner) ─────
+    function _aeAudit(event, extra) {
+      try {
+        const apiObj = window._api || api;
+        if (!apiObj || typeof apiObj.logAudit !== 'function') return;
+        const payload = Object.assign({
+          surface: 'adverse_events',
+          event: String(event || 'unknown'),
+        }, extra || {});
+        const p = apiObj.logAudit(payload);
+        if (p && typeof p.catch === 'function') p.catch(function(){});
+      } catch (_) { /* audit must never break UI */ }
+    }
+    _aeAudit('page_loaded', { note: 'monitor_hub_tab' });
+
+    // ── Fetch real data: list (filtered) + summary + patients ──────────
+    const [aesRes, summaryRes, patsRes] = await Promise.all([
+      (api.listAdverseEvents?.(filterParams).catch(() => ({ items: [] }))) || Promise.resolve({ items: [] }),
+      (api.getAdverseEventsSummary?.().catch(() => null)) || Promise.resolve(null),
       api.listPatients().catch(() => ({ items: [] })),
     ]);
     const aes = aesRes?.items || [];
     const patients = patsRes?.items || [];
     const patById = Object.fromEntries(patients.map(p => [p.id, ((p.first_name||'')+(p.last_name?' '+p.last_name:'')).trim() || p.id]));
+    // Summary — when the endpoint is older or returns null, fall back to the
+    // current list (which is the truth for what the user sees right now).
+    const summary = summaryRes || (function deriveFromList() {
+      const open = aes.filter(a => !a.resolved_at && !a.escalated_at && !a.reviewed_at).length;
+      const sae = aes.filter(a => a.is_serious || a.severity === 'serious').length;
+      const reportable = aes.filter(a => a.reportable).length;
+      const awaiting = aes.filter(a => !a.reviewed_at && !a.resolved_at).length;
+      return { total: aes.length, open, sae, reportable, awaiting_review: awaiting };
+    })();
 
     const sevC = { mild:'var(--green)', moderate:'var(--amber)', severe:'var(--red)', serious:'var(--red)' };
-    const _aeIsOpen = a => !a.resolved_at;
-    const _aeStatus = a => a.resolved_at ? 'resolved' : 'open';
+    const _aeStatus = a => {
+      if (a.resolved_at) return 'resolved';
+      if (a.escalated_at) return 'escalated';
+      if (a.reviewed_at) return 'reviewed';
+      return 'open';
+    };
+    const _aeStatusColor = s => s==='resolved'?'var(--green)':s==='escalated'?'var(--red)':s==='reviewed'?'var(--blue)':'var(--amber)';
     const _aeDate = a => (a.reported_at || a.created_at || '').slice(0, 10) || '—';
 
-    const kpi = {
-      open:      aes.filter(_aeIsOpen).length,
-      modPlus:   aes.filter(a => ['moderate','severe','serious'].includes(a.severity)).length,
-      resolved:  aes.filter(a => a.resolved_at).length,
-      total:     aes.length,
-    };
+    // Distinct values to populate filter dropdowns from the FULL un-filtered
+    // dataset (listAdverseEvents already applied the user's filters, so we
+    // augment the static SOC subset instead of mining the filtered list).
+    const BODY_SYSTEMS = ['nervous','psychiatric','cardiac','gi','skin','general','other'];
+
+    const totalCount = aes.length;
+    const filterActive = Object.values(filterParams).some(v => v != null && v !== '');
 
     el.innerHTML = `
     <div class="ch-shell">
       <div class="ch-tab-bar">${tabBar()}</div>
       <div class="ch-body">
-        <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
-          <div class="ch-kpi-card" style="--kpi-color:var(--red)"><div class="ch-kpi-val">${kpi.open}</div><div class="ch-kpi-label">Open AEs</div></div>
-          <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${kpi.modPlus}</div><div class="ch-kpi-label">Moderate+</div></div>
-          <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${kpi.resolved}</div><div class="ch-kpi-label">Resolved</div></div>
-          <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${kpi.total}</div><div class="ch-kpi-label">Total</div></div>
+        <!-- Clinical safety disclaimers (always visible) -->
+        <div style="background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.35);padding:8px 12px;border-radius:6px;margin-bottom:12px;font-size:11.5px;color:var(--text-secondary);line-height:1.6">
+          <span style="color:var(--red);font-weight:700">⚠</span>
+          Adverse events require timely clinician review per local policy.
+          Serious adverse events may require regulatory reporting (IRB / FDA / MHRA).
+          Demo data is not for actual clinical reporting.
+        </div>
+
+        <div class="ch-kpi-strip" style="grid-template-columns:repeat(5,minmax(0,1fr));margin-bottom:16px">
+          <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${summary.total||0}</div><div class="ch-kpi-label">Total</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${summary.open||0}</div><div class="ch-kpi-label">Open</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--red)"><div class="ch-kpi-val">${summary.sae||0}</div><div class="ch-kpi-label">SAE</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${summary.awaiting_review||0}</div><div class="ch-kpi-label">Awaiting Review</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--red)"><div class="ch-kpi-val">${summary.reportable||0}</div><div class="ch-kpi-label">Reportable</div></div>
         </div>
         <div class="ch-card">
-          <div class="ch-card-hd">
+          <div class="ch-card-hd" style="flex-wrap:wrap;gap:6px">
             <span class="ch-card-title">Adverse Events</span>
             <span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-              <select id="mh-ae-sev-filter" class="ch-select" style="font-size:11.5px;height:26px" onchange="window._mhAeApplySevFilter(this.value)">
-                <option value=""${sevFilter===''?' selected':''}>All severities</option>
-                <option value="mild"${sevFilter==='mild'?' selected':''}>Mild</option>
-                <option value="moderate"${sevFilter==='moderate'?' selected':''}>Moderate</option>
-                <option value="severe"${sevFilter==='severe'?' selected':''}>Severe</option>
-                <option value="serious"${sevFilter==='serious'?' selected':''}>Serious</option>
+              <select id="mh-ae-sev-filter" class="ch-select" style="font-size:11.5px;height:26px" onchange="window._mhAeSetFilter('severity', this.value)">
+                <option value=""${!aeF.severity?' selected':''}>All severities</option>
+                <option value="mild"${aeF.severity==='mild'?' selected':''}>Mild</option>
+                <option value="moderate"${aeF.severity==='moderate'?' selected':''}>Moderate</option>
+                <option value="severe"${aeF.severity==='severe'?' selected':''}>Severe</option>
+                <option value="serious"${aeF.severity==='serious'?' selected':''}>Serious</option>
               </select>
+              <select id="mh-ae-status-filter" class="ch-select" style="font-size:11.5px;height:26px" onchange="window._mhAeSetFilter('status', this.value)">
+                <option value=""${!aeF.status?' selected':''}>All statuses</option>
+                <option value="open"${aeF.status==='open'?' selected':''}>Open</option>
+                <option value="reviewed"${aeF.status==='reviewed'?' selected':''}>Reviewed</option>
+                <option value="resolved"${aeF.status==='resolved'?' selected':''}>Resolved</option>
+                <option value="escalated"${aeF.status==='escalated'?' selected':''}>Escalated</option>
+              </select>
+              <select id="mh-ae-bs-filter" class="ch-select" style="font-size:11.5px;height:26px" onchange="window._mhAeSetFilter('body_system', this.value)">
+                <option value=""${!aeF.body_system?' selected':''}>All body systems</option>
+                ${BODY_SYSTEMS.map(b=>'<option value="'+b+'"'+(aeF.body_system===b?' selected':'')+'>'+b.toUpperCase()+'</option>').join('')}
+              </select>
+              <select id="mh-ae-exp-filter" class="ch-select" style="font-size:11.5px;height:26px" onchange="window._mhAeSetFilter('expected', this.value)">
+                <option value=""${!aeF.expected?' selected':''}>All expectedness</option>
+                <option value="expected"${aeF.expected==='expected'?' selected':''}>Expected</option>
+                <option value="unexpected"${aeF.expected==='unexpected'?' selected':''}>Unexpected</option>
+                <option value="unknown"${aeF.expected==='unknown'?' selected':''}>Unknown</option>
+              </select>
+              <label style="display:flex;gap:4px;align-items:center;font-size:11px;color:var(--text-secondary)">
+                <input type="checkbox" id="mh-ae-sae" ${aeF.sae===true?'checked':''} onchange="window._mhAeSetFilter('sae', this.checked?true:'')">
+                SAE only
+              </label>
+              <label style="display:flex;gap:4px;align-items:center;font-size:11px;color:var(--text-secondary)">
+                <input type="checkbox" id="mh-ae-rep" ${aeF.reportable===true?'checked':''} onchange="window._mhAeSetFilter('reportable', this.checked?true:'')">
+                Reportable only
+              </label>
+              <input type="date" id="mh-ae-since" class="ch-select" style="font-size:11px;height:26px" value="${aeF.since||''}" onchange="window._mhAeSetFilter('since', this.value)" title="From date">
+              <input type="date" id="mh-ae-until" class="ch-select" style="font-size:11px;height:26px" value="${aeF.until||''}" onchange="window._mhAeSetFilter('until', this.value)" title="Until date">
+              ${filterActive ? '<button class="ch-btn-sm" onclick="window._mhAeClearFilters()" title="Clear all filters">Clear</button>' : ''}
               <button class="ch-btn-sm ch-btn-teal" onclick="window._mhAeOpenReport()">+ Report AE</button>
             </span>
           </div>
+          <div style="padding:6px 14px;font-size:11px;color:var(--text-tertiary)">
+            ${totalCount} event${totalCount===1?'':'s'} shown${filterActive?' (filtered)':''}
+          </div>
           ${aes.length === 0
-            ? '<div class="ch-empty" style="padding:40px 16px;text-align:center;color:var(--text-tertiary);font-size:12.5px">'+(sevFilter?'No adverse events match the <b>'+sevFilter+'</b> filter.':'No adverse events reported. Use <b>+ Report AE</b> to log a new event.')+'</div>'
+            ? '<div class="ch-empty" style="padding:40px 16px;text-align:center;color:var(--text-tertiary);font-size:12.5px">'+(filterActive?'No adverse events match the active filters.':'No adverse events reported. Reporters will land here.')+'</div>'
             : aes.map(ae => {
                 const sev = ae.severity || 'mild';
                 const st  = _aeStatus(ae);
                 const nm  = patById[ae.patient_id] || ae.patient_id || '—';
-                const desc = ae.description ? ae.description.replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
-                const stColor = st === 'resolved' ? 'var(--green)' : 'var(--amber)';
-                return '<div class="book-row" id="ae-row-'+ae.id+'">'+
+                const desc = ae.description ? ae.description.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
+                const stColor = _aeStatusColor(st);
+                const reportableTag = ae.reportable ? '<span class="book-status-badge" style="color:var(--red);background:rgba(248,113,113,0.18);margin-left:4px" title="Regulator-reportable">REPORTABLE</span>' : '';
+                const saeTag = (ae.is_serious || sev === 'serious') ? '<span class="book-status-badge" style="color:var(--red);background:rgba(248,113,113,0.12);margin-left:4px" title="Serious adverse event">SAE</span>' : '';
+                const demoTag = ae.is_demo ? '<span class="book-status-badge" style="color:var(--amber);background:rgba(255,181,71,0.18);margin-left:4px">DEMO</span>' : '';
+                const bsTag = ae.body_system ? '<span style="font-size:10px;color:var(--text-tertiary);margin-left:6px">· '+ae.body_system+'</span>' : '';
+                return '<div class="book-row" id="ae-row-'+ae.id+'" style="cursor:pointer" onclick="window._mhAeOpenDetail(\''+ae.id+'\')">'+
                   '<div class="book-datetime"><div class="book-date">'+_aeDate(ae)+'</div></div>'+
-                  '<div class="book-info"><div class="book-patient">'+nm+'</div><div class="book-clinician">'+(ae.event_type||'—')+'</div>'+
+                  '<div class="book-info"><div class="book-patient">'+_mhEsc(nm)+demoTag+'</div><div class="book-clinician">'+_mhEsc(ae.event_type||'—')+bsTag+'</div>'+
                     (desc?'<div class="book-notes">'+desc+'</div>':'')+
                   '</div>'+
-                  '<div class="book-status-col"><span class="book-status-badge" style="color:'+(sevC[sev]||'var(--text-tertiary)')+';background:'+(sevC[sev]||'var(--text-tertiary)')+'22">'+sev+'</span></div>'+
+                  '<div class="book-status-col"><span class="book-status-badge" style="color:'+(sevC[sev]||'var(--text-tertiary)')+';background:'+(sevC[sev]||'var(--text-tertiary)')+'22">'+sev+'</span>'+saeTag+reportableTag+'</div>'+
                   '<div class="book-status-col"><span class="book-status-badge" style="color:'+stColor+';background:'+stColor+'22">'+st+'</span></div>'+
                   '<div class="book-actions">'+
-                    (st === 'open' ? '<button class="ch-btn-sm" onclick="window._mhAeResolve(\''+ae.id+'\')" title="Mark this adverse event as resolved">Resolve</button>' : '')+
+                    '<button class="ch-btn-sm" onclick="event.stopPropagation();window._mhAeOpenDetail(\''+ae.id+'\')">Open</button>'+
                   '</div>'+
                 '</div>';
               }).join('')}
@@ -5693,10 +6634,255 @@ export async function pgMonitorHub(setTopbar, navigate) {
       </div>
     </div>`;
 
-    window._mhAeApplySevFilter = function(value) {
-      window._mhAeSevFilter = value;
+    // ── Filter helpers ─────────────────────────────────────────────────
+    window._mhAeSetFilter = function(key, value) {
+      const F = window._mhAeFilters = window._mhAeFilters || {};
+      if (value === '' || value === false || value == null) {
+        delete F[key];
+      } else {
+        F[key] = value;
+      }
+      _aeAudit('filter_changed', { note: key+'='+String(value) });
       window._monitorHubTab = 'adverse';
       window._nav('monitor-hub');
+    };
+    window._mhAeClearFilters = function() {
+      window._mhAeFilters = {};
+      _aeAudit('filter_changed', { note: 'cleared' });
+      window._monitorHubTab = 'adverse';
+      window._nav('monitor-hub');
+    };
+    window._mhAeClearFilters = function() {
+      window._mhAeFilters = {};
+      _aeAudit('filter_changed', { note: 'cleared' });
+      window._monitorHubTab = 'adverse';
+      window._nav('monitor-hub');
+    };
+
+    // ── CSV export — uses currently active filters ─────────────────────
+    window._mhAeExportCsv = async function() {
+      try {
+        const result = await api.exportAdverseEventsCsv?.(filterParams);
+        if (!result || !result.blob) {
+          window._dsToast?.({title:'Export failed', body:'CSV export endpoint unavailable.', severity:'error'});
+          return;
+        }
+        _aeAudit('export_csv', { note: JSON.stringify(filterParams).slice(0,200) });
+        const url = URL.createObjectURL(result.blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = result.filename || ('adverse-events-'+new Date().toISOString().slice(0,10)+'.csv');
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        window._dsToast?.({title:'CSV exported', severity:'success'});
+      } catch (e) {
+        window._dsToast?.({title:'Export failed', body:e?.message||'Try again.', severity:'error'});
+      }
+    };
+
+    // ── Detail drawer + actions ────────────────────────────────────────
+    window._mhAeOpenDetail = async function(id) {
+      if (!id) return;
+      _aeAudit('viewed', { note: 'id='+id });
+      // Reuse modal overlay element
+      document.getElementById('mh-ae-detail-modal')?.remove();
+      const overlay = document.createElement('div');
+      overlay.id = 'mh-ae-detail-modal';
+      overlay.className = 'ch-modal-overlay';
+      overlay.innerHTML = '<div class="ch-modal" style="width:min(720px,95vw)"><div class="ch-modal-hd"><span>Adverse Event</span><button class="ch-modal-close" onclick="document.getElementById(\'mh-ae-detail-modal\')?.remove()">✕</button></div><div class="ch-modal-body" id="mh-ae-detail-body">'+spinner()+'</div></div>';
+      document.body.appendChild(overlay);
+
+      let ae;
+      try {
+        ae = await api.getAdverseEvent(id);
+      } catch (e) {
+        const body = document.getElementById('mh-ae-detail-body');
+        if (body) body.innerHTML = '<div class="ch-empty" style="padding:30px;text-align:center;color:var(--red)">Failed to load: '+(e?.message||'unknown error')+'</div>';
+        return;
+      }
+
+      const patName = patById[ae.patient_id] || ae.patient_id || '—';
+      const sev = ae.severity || 'mild';
+      const st  = _aeStatus(ae);
+      const _safe = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+      const detailBody = document.getElementById('mh-ae-detail-body');
+      if (!detailBody) return;
+      detailBody.innerHTML =
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12.5px">'+
+          '<div><b>Patient:</b> '+_safe(patName)+(ae.patient_id?' <button class="ch-btn-sm" style="margin-left:4px" onclick="window._nav(\'patient-profile\',{id:\''+ae.patient_id+'\'});document.getElementById(\'mh-ae-detail-modal\')?.remove()">Open patient →</button>':'')+'</div>'+
+          '<div><b>Reported:</b> '+_safe((ae.reported_at||'').slice(0,16).replace('T',' '))+'</div>'+
+          '<div><b>Event type:</b> '+_safe(ae.event_type)+'</div>'+
+          '<div><b>Onset:</b> '+_safe(ae.onset_timing||'—')+'</div>'+
+          '<div><b>Severity:</b> '+_safe(sev)+(ae.is_serious?' <span style="color:var(--red);font-weight:700">SAE</span>':'')+'</div>'+
+          '<div><b>Status:</b> '+_safe(st)+'</div>'+
+          '<div><b>Body system:</b> '+_safe(ae.body_system||'—')+'</div>'+
+          '<div><b>Expectedness:</b> '+_safe(ae.expectedness||'—')+(ae.expectedness_source?' ('+_safe(ae.expectedness_source)+')':'')+'</div>'+
+          '<div><b>Relatedness:</b> '+_safe(ae.relatedness||'—')+'</div>'+
+          '<div><b>Reportable:</b> '+(ae.reportable?'<span style="color:var(--red);font-weight:700">YES</span>':'no')+'</div>'+
+          '<div><b>SAE criteria:</b> '+_safe(ae.sae_criteria||'—')+'</div>'+
+          '<div><b>Action taken:</b> '+_safe(ae.action_taken||'—')+'</div>'+
+          '<div><b>MedDRA PT:</b> '+_safe(ae.meddra_pt||'—')+'</div>'+
+          '<div><b>MedDRA SOC:</b> '+_safe(ae.meddra_soc||'—')+'</div>'+
+          (ae.session_id?'<div><b>Session:</b> <button class="ch-btn-sm" onclick="window._nav(\'session-execution\',{id:\''+ae.session_id+'\'});document.getElementById(\'mh-ae-detail-modal\')?.remove()">Open session →</button></div>':'')+
+          (ae.course_id?'<div><b>Course:</b> <button class="ch-btn-sm" onclick="window._selectedCourseId=\''+ae.course_id+'\';window._nav(\'course-detail\');document.getElementById(\'mh-ae-detail-modal\')?.remove()">Open course →</button></div>':'')+
+        '</div>'+
+        (ae.description?'<div style="margin-top:10px;padding:8px;background:var(--bg-secondary);border-radius:4px;font-size:12px;color:var(--text-secondary)"><b>Description:</b> '+_safe(ae.description)+'</div>':'')+
+        (ae.reviewed_at?'<div style="margin-top:8px;font-size:11px;color:var(--blue)">✓ Reviewed by '+_safe(ae.reviewed_by||'')+' at '+_safe((ae.reviewed_at||'').slice(0,16).replace('T',' '))+(ae.signed_at?' (signed)':'')+'</div>':'')+
+        (ae.escalated_at?'<div style="margin-top:8px;font-size:11px;color:var(--red)">⚑ Escalated to '+_safe(ae.escalation_target||'')+' at '+_safe((ae.escalated_at||'').slice(0,16).replace('T',' '))+(ae.escalation_note?' — '+_safe(ae.escalation_note):'')+'</div>':'')+
+        '<div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:6px">'+
+          (ae.reviewed_at?'':'<button class="ch-btn-sm ch-btn-teal" onclick="window._mhAeReview(\''+ae.id+'\', false)">Mark Reviewed</button>')+
+          '<button class="ch-btn-sm" onclick="window._mhAeReview(\''+ae.id+'\', true)" title="Review and sign-off in one step">Review &amp; Sign-off</button>'+
+          (ae.escalated_at?'':'<button class="ch-btn-sm" style="border-color:var(--red);color:var(--red)" onclick="window._mhAeEscalate(\''+ae.id+'\')">Escalate to IRB / Regulator</button>')+
+          '<button class="ch-btn-sm" onclick="window._mhAeOpenClassify(\''+ae.id+'\')">Edit Classification</button>'+
+          (ae.resolved_at?'':'<button class="ch-btn-sm" onclick="window._mhAeResolve(\''+ae.id+'\')">Resolve</button>')+
+          '<button class="ch-btn-sm" onclick="window._mhAeExportCioms(\''+ae.id+'\')">Export CIOMS</button>'+
+        '</div>'+
+        '<div style="margin-top:10px;font-size:10.5px;color:var(--text-tertiary);line-height:1.5">'+
+          'Severity and expectedness are clinician-confirmed inputs — never AI-derived. SAE and reportable flags are computed from your inputs per ICH E2A.'+
+        '</div>';
+    };
+
+    window._mhAeReview = async function(id, signOff) {
+      if (!id) return;
+      try {
+        await api.reviewAdverseEvent(id, { sign_off: !!signOff });
+        _aeAudit(signOff?'signed':'reviewed', { note: 'id='+id });
+        window._dsToast?.({title:signOff?'Reviewed & signed':'Reviewed', severity:'success'});
+        document.getElementById('mh-ae-detail-modal')?.remove();
+        window._nav('monitor-hub');
+      } catch (e) {
+        window._dsToast?.({title:'Review failed', body:e?.message||'Try again.', severity:'error'});
+      }
+    };
+
+    window._mhAeEscalate = async function(id) {
+      if (!id) return;
+      const target = (prompt('Escalation target (IRB / FDA / MHRA / EMA / internal_qa / other):', 'IRB') || '').trim();
+      if (!target) return;
+      const note = prompt('Note for escalation (optional):', '') || null;
+      try {
+        await api.escalateAdverseEvent(id, { target: target.toLowerCase(), note });
+        _aeAudit('escalated', { note: 'target='+target });
+        window._dsToast?.({title:'Escalated', severity:'success'});
+        document.getElementById('mh-ae-detail-modal')?.remove();
+        window._nav('monitor-hub');
+      } catch (e) {
+        window._dsToast?.({title:'Escalation failed', body:e?.message||'Try again.', severity:'error'});
+      }
+    };
+
+    // ── CSV export — uses currently active filters ─────────────────────
+    window._mhAeExportCsv = async function() {
+      try {
+        const result = await api.exportAdverseEventsCsv?.(filterParams);
+        if (!result || !result.blob) {
+          window._dsToast?.({title:'Export failed', body:'CSV export endpoint unavailable.', severity:'error'});
+          return;
+        }
+        _aeAudit('export_csv', { note: JSON.stringify(filterParams).slice(0,200) });
+        const url = URL.createObjectURL(result.blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = result.filename || ('adverse-events-'+new Date().toISOString().slice(0,10)+'.csv');
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        window._dsToast?.({title:'CSV exported', severity:'success'});
+      } catch (e) {
+        window._dsToast?.({title:'Export failed', body:e?.message||'Try again.', severity:'error'});
+      }
+    };
+
+    // ── Detail drawer + actions ────────────────────────────────────────
+    window._mhAeOpenDetail = async function(id) {
+      if (!id) return;
+      _aeAudit('viewed', { note: 'id='+id });
+      // Reuse modal overlay element
+      document.getElementById('mh-ae-detail-modal')?.remove();
+      const overlay = document.createElement('div');
+      overlay.id = 'mh-ae-detail-modal';
+      overlay.className = 'ch-modal-overlay';
+      overlay.innerHTML = '<div class="ch-modal" style="width:min(720px,95vw)"><div class="ch-modal-hd"><span>Adverse Event</span><button class="ch-modal-close" onclick="document.getElementById(\'mh-ae-detail-modal\')?.remove()">✕</button></div><div class="ch-modal-body" id="mh-ae-detail-body">'+spinner()+'</div></div>';
+      document.body.appendChild(overlay);
+
+      let ae;
+      try {
+        ae = await api.getAdverseEvent(id);
+      } catch (e) {
+        const body = document.getElementById('mh-ae-detail-body');
+        if (body) body.innerHTML = '<div class="ch-empty" style="padding:30px;text-align:center;color:var(--red)">Failed to load: '+(e?.message||'unknown error')+'</div>';
+        return;
+      }
+
+      const patName = patById[ae.patient_id] || ae.patient_id || '—';
+      const sev = ae.severity || 'mild';
+      const st  = _aeStatus(ae);
+      const _safe = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+      const detailBody = document.getElementById('mh-ae-detail-body');
+      if (!detailBody) return;
+      detailBody.innerHTML =
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12.5px">'+
+          '<div><b>Patient:</b> '+_safe(patName)+(ae.patient_id?' <button class="ch-btn-sm" style="margin-left:4px" onclick="window._nav(\'patient-profile\',{id:\''+ae.patient_id+'\'});document.getElementById(\'mh-ae-detail-modal\')?.remove()">Open patient →</button>':'')+'</div>'+
+          '<div><b>Reported:</b> '+_safe((ae.reported_at||'').slice(0,16).replace('T',' '))+'</div>'+
+          '<div><b>Event type:</b> '+_safe(ae.event_type)+'</div>'+
+          '<div><b>Onset:</b> '+_safe(ae.onset_timing||'—')+'</div>'+
+          '<div><b>Severity:</b> '+_safe(sev)+(ae.is_serious?' <span style="color:var(--red);font-weight:700">SAE</span>':'')+'</div>'+
+          '<div><b>Status:</b> '+_safe(st)+'</div>'+
+          '<div><b>Body system:</b> '+_safe(ae.body_system||'—')+'</div>'+
+          '<div><b>Expectedness:</b> '+_safe(ae.expectedness||'—')+(ae.expectedness_source?' ('+_safe(ae.expectedness_source)+')':'')+'</div>'+
+          '<div><b>Relatedness:</b> '+_safe(ae.relatedness||'—')+'</div>'+
+          '<div><b>Reportable:</b> '+(ae.reportable?'<span style="color:var(--red);font-weight:700">YES</span>':'no')+'</div>'+
+          '<div><b>SAE criteria:</b> '+_safe(ae.sae_criteria||'—')+'</div>'+
+          '<div><b>Action taken:</b> '+_safe(ae.action_taken||'—')+'</div>'+
+          '<div><b>MedDRA PT:</b> '+_safe(ae.meddra_pt||'—')+'</div>'+
+          '<div><b>MedDRA SOC:</b> '+_safe(ae.meddra_soc||'—')+'</div>'+
+          (ae.session_id?'<div><b>Session:</b> <button class="ch-btn-sm" onclick="window._nav(\'session-execution\',{id:\''+ae.session_id+'\'});document.getElementById(\'mh-ae-detail-modal\')?.remove()">Open session →</button></div>':'')+
+          (ae.course_id?'<div><b>Course:</b> <button class="ch-btn-sm" onclick="window._selectedCourseId=\''+ae.course_id+'\';window._nav(\'course-detail\');document.getElementById(\'mh-ae-detail-modal\')?.remove()">Open course →</button></div>':'')+
+        '</div>'+
+        (ae.description?'<div style="margin-top:10px;padding:8px;background:var(--bg-secondary);border-radius:4px;font-size:12px;color:var(--text-secondary)"><b>Description:</b> '+_safe(ae.description)+'</div>':'')+
+        (ae.reviewed_at?'<div style="margin-top:8px;font-size:11px;color:var(--blue)">✓ Reviewed by '+_safe(ae.reviewed_by||'')+' at '+_safe((ae.reviewed_at||'').slice(0,16).replace('T',' '))+(ae.signed_at?' (signed)':'')+'</div>':'')+
+        (ae.escalated_at?'<div style="margin-top:8px;font-size:11px;color:var(--red)">⚑ Escalated to '+_safe(ae.escalation_target||'')+' at '+_safe((ae.escalated_at||'').slice(0,16).replace('T',' '))+(ae.escalation_note?' — '+_safe(ae.escalation_note):'')+'</div>':'')+
+        '<div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:6px">'+
+          (ae.reviewed_at?'':'<button class="ch-btn-sm ch-btn-teal" onclick="window._mhAeReview(\''+ae.id+'\', false)">Mark Reviewed</button>')+
+          '<button class="ch-btn-sm" onclick="window._mhAeReview(\''+ae.id+'\', true)" title="Review and sign-off in one step">Review &amp; Sign-off</button>'+
+          (ae.escalated_at?'':'<button class="ch-btn-sm" style="border-color:var(--red);color:var(--red)" onclick="window._mhAeEscalate(\''+ae.id+'\')">Escalate to IRB / Regulator</button>')+
+          '<button class="ch-btn-sm" onclick="window._mhAeOpenClassify(\''+ae.id+'\')">Edit Classification</button>'+
+          (ae.resolved_at?'':'<button class="ch-btn-sm" onclick="window._mhAeResolve(\''+ae.id+'\')">Resolve</button>')+
+          '<button class="ch-btn-sm" onclick="window._mhAeExportCioms(\''+ae.id+'\')">Export CIOMS</button>'+
+        '</div>'+
+        '<div style="margin-top:10px;font-size:10.5px;color:var(--text-tertiary);line-height:1.5">'+
+          'Severity and expectedness are clinician-confirmed inputs — never AI-derived. SAE and reportable flags are computed from your inputs per ICH E2A.'+
+        '</div>';
+    };
+
+    window._mhAeReview = async function(id, signOff) {
+      if (!id) return;
+      try {
+        await api.reviewAdverseEvent(id, { sign_off: !!signOff });
+        _aeAudit(signOff?'signed':'reviewed', { note: 'id='+id });
+        window._dsToast?.({title:signOff?'Reviewed & signed':'Reviewed', severity:'success'});
+        document.getElementById('mh-ae-detail-modal')?.remove();
+        window._nav('monitor-hub');
+      } catch (e) {
+        window._dsToast?.({title:'Review failed', body:e?.message||'Try again.', severity:'error'});
+      }
+    };
+
+    window._mhAeEscalate = async function(id) {
+      if (!id) return;
+      const target = (prompt('Escalation target (IRB / FDA / MHRA / EMA / internal_qa / other):', 'IRB') || '').trim();
+      if (!target) return;
+      const note = prompt('Note for escalation (optional):', '') || null;
+      try {
+        await api.escalateAdverseEvent(id, { target: target.toLowerCase(), note });
+        _aeAudit('escalated', { note: 'target='+target });
+        window._dsToast?.({title:'Escalated', severity:'success'});
+        document.getElementById('mh-ae-detail-modal')?.remove();
+        window._nav('monitor-hub');
+      } catch (e) {
+        window._dsToast?.({title:'Escalation failed', body:e?.message||'Try again.', severity:'error'});
+      }
     };
 
     window._mhAeResolve = async function(id) {
@@ -5704,47 +6890,180 @@ export async function pgMonitorHub(setTopbar, navigate) {
       if (!confirm('Mark this adverse event as resolved?')) return;
       try {
         await api.resolveAdverseEvent(id, { resolution: 'resolved' });
-        window._dsToast?.({title:'AE resolved',severity:'success'});
+        _aeAudit('resolved', { note: 'id='+id });
+        window._dsToast?.({title:'AE resolved', severity:'success'});
+        document.getElementById('mh-ae-detail-modal')?.remove();
         window._nav('monitor-hub');
       } catch (e) {
-        window._dsToast?.({title:'Resolve failed',body:e?.message||'Try again.',severity:'error'});
+        window._dsToast?.({title:'Resolve failed', body:e?.message||'Try again.', severity:'error'});
       }
     };
 
+    window._mhAeOpenClassify = async function(id) {
+      if (!id) return;
+      const ae = aes.find(a => a.id === id) || (await api.getAdverseEvent(id).catch(() => null));
+      if (!ae) return;
+      document.getElementById('mh-ae-classify-modal')?.remove();
+      const overlay = document.createElement('div');
+      overlay.id = 'mh-ae-classify-modal';
+      overlay.className = 'ch-modal-overlay';
+      const bsOpts = ['','nervous','psychiatric','cardiac','gi','skin','general','other'];
+      const expOpts = ['','expected','unexpected','unknown'];
+      const relOpts = ['','not_related','unlikely','possible','probable','definite','unknown'];
+      overlay.innerHTML =
+        '<div class="ch-modal" style="width:min(560px,95vw)"><div class="ch-modal-hd"><span>Edit Classification</span><button class="ch-modal-close" onclick="document.getElementById(\'mh-ae-classify-modal\')?.remove()">✕</button></div><div class="ch-modal-body">'+
+          '<div class="ch-form-group" style="margin-bottom:10px"><label class="ch-label">Body system <span style="color:var(--text-tertiary);font-size:10px">(MedDRA SOC subset — clinician confirms)</span></label>'+
+            '<select id="mh-cls-body" class="ch-select ch-select--full">'+bsOpts.map(b=>'<option value="'+b+'"'+((ae.body_system||'')===b?' selected':'')+'>'+(b||'—')+'</option>').join('')+'</select></div>'+
+          '<div class="ch-form-group" style="margin-bottom:10px"><label class="ch-label">Expectedness <span style="color:var(--text-tertiary);font-size:10px">(vs protocol risk profile)</span></label>'+
+            '<select id="mh-cls-exp" class="ch-select ch-select--full">'+expOpts.map(b=>'<option value="'+b+'"'+((ae.expectedness||'')===b?' selected':'')+'>'+(b||'—')+'</option>').join('')+'</select></div>'+
+          '<div class="ch-form-group" style="margin-bottom:10px"><label class="ch-label">Relatedness</label>'+
+            '<select id="mh-cls-rel" class="ch-select ch-select--full">'+relOpts.map(b=>'<option value="'+b+'"'+((ae.relatedness||'')===b?' selected':'')+'>'+(b||'—')+'</option>').join('')+'</select></div>'+
+          '<div class="ch-form-group" style="margin-bottom:10px"><label class="ch-label">SAE qualifiers (comma-separated)</label>'+
+            '<input id="mh-cls-sae" class="ch-select ch-select--full" placeholder="hospitalization, life_threatening" value="'+(ae.sae_criteria||'').replace(/"/g,'&quot;')+'"></div>'+
+          '<div class="ch-form-group" style="margin-bottom:10px"><label class="ch-label">MedDRA PT</label>'+
+            '<input id="mh-cls-pt" class="ch-select ch-select--full" placeholder="Preferred Term (optional)" value="'+(ae.meddra_pt||'').replace(/"/g,'&quot;')+'"></div>'+
+          '<div class="ch-form-group" style="margin-bottom:10px"><label class="ch-label">MedDRA SOC</label>'+
+            '<input id="mh-cls-soc" class="ch-select ch-select--full" placeholder="System Organ Class (optional)" value="'+(ae.meddra_soc||'').replace(/"/g,'&quot;')+'"></div>'+
+          '<div style="font-size:10.5px;color:var(--text-tertiary);margin-bottom:6px">Clinician input only. Saving recomputes SAE / reportable from these values.</div>'+
+          '<div style="display:flex;gap:8px;justify-content:flex-end">'+
+            '<button class="btn" onclick="document.getElementById(\'mh-ae-classify-modal\')?.remove()">Cancel</button>'+
+            '<button class="btn btn-primary" onclick="window._mhAeSubmitClassify(\''+id+'\')">Save</button>'+
+          '</div>'+
+        '</div></div>';
+      document.body.appendChild(overlay);
+    };
+
+    window._mhAeSubmitClassify = async function(id) {
+      const body_system  = document.getElementById('mh-cls-body')?.value || null;
+      const expectedness = document.getElementById('mh-cls-exp')?.value || null;
+      const relatedness  = document.getElementById('mh-cls-rel')?.value || null;
+      const sae_criteria = document.getElementById('mh-cls-sae')?.value || null;
+      const meddra_pt    = document.getElementById('mh-cls-pt')?.value || null;
+      const meddra_soc   = document.getElementById('mh-cls-soc')?.value || null;
+      const payload = {};
+      if (body_system != null)  payload.body_system  = body_system;
+      if (expectedness != null) payload.expectedness = expectedness;
+      if (relatedness != null)  payload.relatedness  = relatedness;
+      if (sae_criteria != null) payload.sae_criteria = sae_criteria;
+      if (meddra_pt != null)    payload.meddra_pt    = meddra_pt;
+      if (meddra_soc != null)   payload.meddra_soc   = meddra_soc;
+      try {
+        await api.patchAdverseEvent(id, payload);
+        _aeAudit('classification_changed', { note: Object.keys(payload).join(',') });
+        window._dsToast?.({title:'Classification saved', severity:'success'});
+        document.getElementById('mh-ae-classify-modal')?.remove();
+        document.getElementById('mh-ae-detail-modal')?.remove();
+        window._nav('monitor-hub');
+      } catch (e) {
+        window._dsToast?.({title:'Save failed', body:e?.message||'Try again.', severity:'error'});
+      }
+    };
+
+    window._mhAeExportCioms = async function(id) {
+      if (!id) return;
+      try {
+        const result = await api.exportAdverseEventCioms?.(id);
+        if (!result) {
+          window._dsToast?.({title:'CIOMS export unavailable', severity:'warn'});
+          return;
+        }
+        _aeAudit('export_cioms', { note: 'id='+id });
+        // The endpoint returns honest JSON ({configured:false,...}) when no
+        // regulator template is wired up. Surface it as a download AND a
+        // toast so the clinician understands they did NOT submit anything.
+        const text = await result.blob.text().catch(() => '');
+        let configured = null;
+        try { configured = JSON.parse(text)?.configured; } catch (_) {}
+        if (configured === false) {
+          window._dsToast?.({
+            title: 'CIOMS export not configured',
+            body: 'Downloaded the underlying AE record as JSON. A regulator-specific CIOMS template is required before submission.',
+            severity: 'warn',
+          });
+        }
+        const url = URL.createObjectURL(result.blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = result.filename || ('ae-'+id+'-cioms.json');
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+      } catch (e) {
+        window._dsToast?.({title:'CIOMS export failed', body:e?.message||'Try again.', severity:'error'});
+      }
+    };
+
+    // ── Reporter modal ─────────────────────────────────────────────────
     window._mhAeOpenReport = function() {
       document.getElementById('mh-ae-report-modal')?.remove();
       const patOpts = patients.map(p => {
         const nm = ((p.first_name||'')+(p.last_name?' '+p.last_name:'')).trim() || p.id;
-        return '<option value="'+p.id+'">'+nm+'</option>';
+        return '<option value="'+p.id+'">'+_mhEsc(nm)+'</option>';
       }).join('');
       const overlay = document.createElement('div');
       overlay.id = 'mh-ae-report-modal';
       overlay.className = 'ch-modal-overlay';
       overlay.innerHTML =
-        '<div class="ch-modal" style="width:min(560px,95vw)">'+
+        '<div class="ch-modal" style="width:min(640px,95vw)">'+
           '<div class="ch-modal-hd"><span>Report Adverse Event</span>'+
             '<button class="ch-modal-close" onclick="document.getElementById(\'mh-ae-report-modal\')?.remove()">✕</button>'+
           '</div>'+
           '<div class="ch-modal-body">'+
+            '<div style="font-size:11px;color:var(--text-tertiary);margin-bottom:10px;line-height:1.5">'+
+              'You are entering this report as the responsible clinician. Severity / expectedness / relatedness are clinician-confirmed only.'+
+            '</div>'+
             '<div class="ch-form-group" style="margin-bottom:10px"><label class="ch-label">Patient</label>'+
               '<select id="mh-ae-patient" class="ch-select ch-select--full">'+(patOpts||'<option value="">(no patients)</option>')+'</select></div>'+
             '<div class="ch-form-group" style="margin-bottom:10px"><label class="ch-label">Event type</label>'+
-              '<input id="mh-ae-type" class="ch-select ch-select--full" placeholder="e.g. headache, scalp_discomfort" maxlength="40"></div>'+
-            '<div class="ch-form-group" style="margin-bottom:10px"><label class="ch-label">Severity</label>'+
-              '<select id="mh-ae-sev" class="ch-select ch-select--full">'+
-                '<option value="mild">Mild</option>'+
-                '<option value="moderate">Moderate</option>'+
-                '<option value="severe">Severe</option>'+
-                '<option value="serious">Serious</option>'+
-              '</select></div>'+
-            '<div class="ch-form-group" style="margin-bottom:10px"><label class="ch-label">Onset timing</label>'+
-              '<select id="mh-ae-onset" class="ch-select ch-select--full">'+
-                '<option value="">—</option>'+
-                '<option value="during">During session</option>'+
-                '<option value="immediately_after">Immediately after</option>'+
-                '<option value="24h_post">Within 24h</option>'+
-                '<option value="delayed">Delayed (>24h)</option>'+
-              '</select></div>'+
+              '<input id="mh-ae-type" class="ch-select ch-select--full" placeholder="e.g. headache, scalp_discomfort" maxlength="40" oninput="window._mhAeSuggestBody()"></div>'+
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'+
+              '<div class="ch-form-group"><label class="ch-label">Severity</label>'+
+                '<select id="mh-ae-sev" class="ch-select ch-select--full">'+
+                  '<option value="mild">Mild</option>'+
+                  '<option value="moderate">Moderate</option>'+
+                  '<option value="severe">Severe</option>'+
+                  '<option value="serious">Serious (SAE)</option>'+
+                '</select></div>'+
+              '<div class="ch-form-group"><label class="ch-label">Onset timing</label>'+
+                '<select id="mh-ae-onset" class="ch-select ch-select--full">'+
+                  '<option value="">—</option>'+
+                  '<option value="during">During session</option>'+
+                  '<option value="immediately_after">Immediately after</option>'+
+                  '<option value="24h_post">Within 24h</option>'+
+                  '<option value="delayed">Delayed (&gt;24h)</option>'+
+                '</select></div>'+
+              '<div class="ch-form-group"><label class="ch-label">Body system <span style="color:var(--text-tertiary);font-size:10px" id="mh-ae-bs-hint"></span></label>'+
+                '<select id="mh-ae-body" class="ch-select ch-select--full">'+
+                  ['','nervous','psychiatric','cardiac','gi','skin','general','other'].map(b=>'<option value="'+b+'">'+(b||'—')+'</option>').join('')+
+                '</select></div>'+
+              '<div class="ch-form-group"><label class="ch-label">Expectedness</label>'+
+                '<select id="mh-ae-exp" class="ch-select ch-select--full">'+
+                  '<option value="">— (decide later)</option>'+
+                  '<option value="expected">Expected</option>'+
+                  '<option value="unexpected">Unexpected</option>'+
+                  '<option value="unknown">Unknown</option>'+
+                '</select></div>'+
+              '<div class="ch-form-group"><label class="ch-label">Relatedness to treatment</label>'+
+                '<select id="mh-ae-rel" class="ch-select ch-select--full">'+
+                  '<option value="">—</option>'+
+                  '<option value="not_related">Not related</option>'+
+                  '<option value="unlikely">Unlikely</option>'+
+                  '<option value="possible">Possible</option>'+
+                  '<option value="probable">Probable</option>'+
+                  '<option value="definite">Definite</option>'+
+                  '<option value="unknown">Unknown</option>'+
+                '</select></div>'+
+              '<div class="ch-form-group"><label class="ch-label">Action taken</label>'+
+                '<select id="mh-ae-action" class="ch-select ch-select--full">'+
+                  '<option value="">—</option>'+
+                  '<option value="none">None</option>'+
+                  '<option value="session_paused">Session paused</option>'+
+                  '<option value="session_stopped">Session stopped</option>'+
+                  '<option value="referred">Referred</option>'+
+                  '<option value="hospitalized">Hospitalized</option>'+
+                '</select></div>'+
+            '</div>'+
+            '<div class="ch-form-group" style="margin-top:6px;margin-bottom:10px"><label class="ch-label">SAE qualifiers (comma-separated, e.g. hospitalization, life_threatening)</label>'+
+              '<input id="mh-ae-saecrit" class="ch-select ch-select--full" placeholder="optional"></div>'+
             '<div class="ch-form-group" style="margin-bottom:10px"><label class="ch-label">Description</label>'+
               '<textarea id="mh-ae-desc" class="ch-textarea" rows="4" placeholder="What happened, what was done, patient state."></textarea></div>'+
             '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">'+
@@ -5757,24 +7076,62 @@ export async function pgMonitorHub(setTopbar, navigate) {
       setTimeout(() => document.getElementById('mh-ae-type')?.focus(), 50);
     };
 
+    // Suggest body system from event_type free text. Heuristic only —
+    // clinician must confirm from the dropdown. Never auto-applies.
+    window._mhAeSuggestBody = function() {
+      const txt = (document.getElementById('mh-ae-type')?.value || '').toLowerCase();
+      if (!txt) { const h = document.getElementById('mh-ae-bs-hint'); if (h) h.textContent = ''; return; }
+      const HINTS = {
+        nervous: ['headache','migraine','seizure','syncope','dizz','tingl','vertigo'],
+        psychiatric: ['anxiety','panic','depress','mood','agitation','hallucin','suicid','insomnia'],
+        cardiac: ['palpit','chest pain','tachycard','arrhyt'],
+        gi: ['nausea','vomit','diarrh','abdominal'],
+        skin: ['rash','scalp','burn','itch','redness'],
+        general: ['fatigue','fever','malaise','weakness'],
+      };
+      let suggestion = null;
+      for (const [sys, words] of Object.entries(HINTS)) {
+        if (words.some(w => txt.indexOf(w) >= 0)) { suggestion = sys; break; }
+      }
+      const h = document.getElementById('mh-ae-bs-hint');
+      if (h) h.textContent = suggestion ? '→ suggest "'+suggestion+'" (clinician must confirm)' : '';
+    };
+
     window._mhAeSubmit = async function() {
       const patient_id = document.getElementById('mh-ae-patient')?.value;
       const event_type = (document.getElementById('mh-ae-type')?.value || '').trim();
       const severity   = document.getElementById('mh-ae-sev')?.value || 'mild';
       const onset      = document.getElementById('mh-ae-onset')?.value || null;
+      const body_system  = document.getElementById('mh-ae-body')?.value || null;
+      const expectedness = document.getElementById('mh-ae-exp')?.value || null;
+      const relatedness  = document.getElementById('mh-ae-rel')?.value || null;
+      const action_taken = document.getElementById('mh-ae-action')?.value || null;
+      const sae_criteria = document.getElementById('mh-ae-saecrit')?.value || null;
       const description= document.getElementById('mh-ae-desc')?.value || null;
       if (!patient_id) { window._dsToast?.({title:'Patient required',severity:'warn'}); return; }
       if (!event_type) { window._dsToast?.({title:'Event type required',severity:'warn'}); return; }
+      const payload = { patient_id, event_type, severity, onset_timing: onset, description };
+      if (body_system)  payload.body_system  = body_system;
+      if (expectedness) payload.expectedness = expectedness;
+      if (relatedness)  payload.relatedness  = relatedness;
+      if (action_taken) payload.action_taken = action_taken;
+      if (sae_criteria) payload.sae_criteria = sae_criteria;
       try {
-        await api.reportAdverseEvent({ patient_id, event_type, severity, onset_timing: onset, description });
+        const created = await api.reportAdverseEvent(payload);
+        _aeAudit('created', { note: 'sev='+severity+' patient='+patient_id, patient_id });
         document.getElementById('mh-ae-report-modal')?.remove();
-        window._dsToast?.({title:'Adverse event reported',severity:'success'});
+        if (created?.is_serious || created?.reportable) {
+          window._dsToast?.({title:'AE reported — SAE flagged', body:'Review and consider escalation.', severity:'warn'});
+        } else {
+          window._dsToast?.({title:'Adverse event reported', severity:'success'});
+        }
         window._nav('monitor-hub');
       } catch (e) {
-        window._dsToast?.({title:'Report failed',body:e?.message||'Try again.',severity:'error'});
+        window._dsToast?.({title:'Report failed', body:e?.message||'Try again.', severity:'error'});
       }
     };
 
+    // Deep-link highlight (preserved from previous version)
     const _aeDeepId = window._monitorHubAEId;
     if (_aeDeepId) {
       requestAnimationFrame(() => {
@@ -6061,17 +7418,17 @@ export async function pgMonitorHub(setTopbar, navigate) {
         list.innerHTML = items.map(r => {
           const date = (r.uploaded_at || '').slice(0, 10);
           const dur = r.duration_seconds != null ? (r.duration_seconds + 's · ') : '';
-          const safeTitle = String(r.title || 'Untitled').replace(/'/g, "\\'");
-          return '<div class="book-row" data-rec-id="' + r.id + '">'
+          const safeTitle = _mhEsc(r.title || 'Untitled');
+          return '<div class="book-row" data-rec-id="' + _mhEsc(r.id) + '">'
             + '<div class="book-datetime"><div class="book-date">' + date + '</div><div class="book-time">' + dur + _fmtBytes(r.byte_size) + '</div></div>'
-            + '<div class="book-info"><div class="book-patient">' + safeTitle + '</div><div class="book-notes">' + (r.mime_type || '') + '</div></div>'
+            + '<div class="book-info"><div class="book-patient">' + safeTitle + '</div><div class="book-notes">' + _mhEsc(r.mime_type || '') + '</div></div>'
             + '<div class="book-actions">'
-            +   '<button class="ch-btn-sm" title="Play" onclick="window._recPlay(\'' + r.id + '\',\'' + (r.mime_type || '') + '\')">▶</button>'
-            +   '<button class="ch-btn-sm" title="Delete" style="margin-left:6px" onclick="window._recDelete(\'' + r.id + '\')">✕</button>'
+            +   '<button class="ch-btn-sm" title="Play" onclick="window._recPlay(\'' + _mhEsc(r.id) + '\',\'' + _mhEsc(r.mime_type || '') + '\')">▶</button>'
+            +   '<button class="ch-btn-sm" title="Delete" style="margin-left:6px" onclick="window._recDelete(\'' + _mhEsc(r.id) + '\')">✕</button>'
             + '</div></div>';
         }).join('');
       } catch (err) {
-        list.innerHTML = '<div class="ch-empty">Could not load recordings: ' + (err?.message || 'unknown error') + '</div>';
+        list.innerHTML = '<div class="ch-empty">Could not load recordings: ' + _mhEsc(err?.message || 'unknown error') + '</div>';
       }
     };
     window._recPlay = async (id, mime) => {
@@ -6087,9 +7444,9 @@ export async function pgMonitorHub(setTopbar, navigate) {
         const url = await api.recordingPlaybackUrl(id);
         window._recPlayingBlobUrl = url;
         const tag = (mime || '').startsWith('video/') ? 'video' : 'audio';
-        slot.innerHTML = '<' + tag + ' controls autoplay style="width:100%;max-height:240px;border-radius:6px;background:#000" src="' + url + '"></' + tag + '>';
+        slot.innerHTML = '<' + tag + ' controls autoplay style="width:100%;max-height:240px;border-radius:6px;background:#000" src="' + _mhEsc(url) + '"></' + tag + '>';
       } catch (err) {
-        slot.innerHTML = '<div style="font-size:12px;color:var(--red);padding:4px 0">Playback failed: ' + (err?.message || 'unknown error') + '</div>';
+        slot.innerHTML = '<div style="font-size:12px;color:var(--red);padding:4px 0">Playback failed: ' + _mhEsc(err?.message || 'unknown error') + '</div>';
       }
     };
     window._recUpload = () => {
@@ -6170,31 +7527,75 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
 
   const TEMPLATES = DOCUMENT_TEMPLATES;
 
+  // Documents Hub launch-audit (2026-04-30): the local cache is browser-only
+  // and never seeds fake rows. If the backend list call fails the user sees
+  // an empty state with a clear "couldn't reach the documents service" hint
+  // — we never silently swap in pretend data.
   const _docsKey = 'ds_docs_v1';
-  function loadDocs() { try { return JSON.parse(localStorage.getItem(_docsKey)||'null') || seedDocs(); } catch { return seedDocs(); } }
-  function saveDocs(d) { try { localStorage.setItem(_docsKey, JSON.stringify(d)); } catch {} }
-  function seedDocs() {
-    const d = { docs:[
-      { id:'DOC-001', name:'TMS Consent — Demo Patient A',    type:'Consent',  patient:'Demo Patient A',  date:'2026-04-14', status:'signed',  size:'125 KB' },
-      { id:'DOC-002', name:'Initial Assessment — Demo Patient B', type:'Report',patient:'Demo Patient B', date:'2026-04-12', status:'final',   size:'340 KB' },
-      { id:'DOC-003', name:'Privacy Policy — Demo Patient C', type:'Privacy',  patient:'Demo Patient C',  date:'2026-04-10', status:'signed',  size:'85 KB'  },
-      { id:'DOC-004', name:'Session Note 09 — Demo Patient A',type:'Note',     patient:'Demo Patient A',  date:'2026-04-16', status:'draft',   size:'45 KB'  },
-      { id:'DOC-005', name:'GP Letter — Marcus Webb',         type:'Letter',   patient:'Marcus Webb',     date:'2026-04-08', status:'sent',    size:'62 KB'  },
-      { id:'DOC-006', name:'Home Program — Demo Patient B',   type:'Home Care',patient:'Demo Patient B',  date:'2026-04-05', status:'issued',  size:'95 KB'  },
-    ]};
-    saveDocs(d); return d;
+  function loadDocs() {
+    try { return { docs: JSON.parse(localStorage.getItem(_docsKey) || '[]') }; }
+    catch { return { docs: [] }; }
+  }
+  function saveDocs(docs) {
+    try { localStorage.setItem(_docsKey, JSON.stringify(docs || [])); } catch {}
   }
 
+  // Filters live on `window` so they survive navigate-back the same way the
+  // Reports Hub filters do (#310).
+  const docsFilters = window._docsFiltersObj || {};
+
   let backendDocs = null;
+  let backendError = null;
   try {
-    const r = await api.listDocuments();
+    // Backend filters mirror the API: kind, status, since, until, q, patient_id.
+    // The "All" list deliberately omits status so superseded rows are visible
+    // (they are filtered out only on tab switches that don't want them).
+    const r = await api.listDocuments({
+      kind: docsFilters.kind || undefined,
+      patient_id: docsFilters.patient_id || undefined,
+      since: docsFilters.since || undefined,
+      until: docsFilters.until || undefined,
+      q: docsFilters.q || undefined,
+      limit: 200,
+    });
     backendDocs = (r?.items || []).map(d => ({
       id: d.id, name: d.title, type: d.doc_type, patient: d.patient_id || '—',
-      date: (d.updated_at||'').slice(0,10), status: d.status, size: '—',
+      date: (d.updated_at||'').slice(0,10), status: d.status,
+      size: d.file_ref ? 'file' : '—',
       template_id: d.template_id, notes: d.notes, file_ref: d.file_ref,
+      signed_by: d.signed_by, signed_at: d.signed_at,
+      supersedes: d.supersedes, superseded_by: d.superseded_by,
+      revision: d.revision || 1, is_demo: !!d.is_demo,
     }));
-  } catch {}
+    saveDocs(backendDocs);
+  } catch (err) {
+    backendError = err?.message || 'Documents API unreachable.';
+    console.warn('[documents-hub] listDocuments failed; using local cache:', backendError);
+  }
   const data = backendDocs ? { docs: backendDocs } : loadDocs();
+
+  // Top counts pulled from the same scope as the list, so they're honest
+  // about empty cases. Falls back to client-side counts on API error.
+  let docsSummary = null;
+  try {
+    docsSummary = await api.getDocumentsSummary({
+      patient_id: docsFilters.patient_id || undefined,
+    });
+  } catch (err) {
+    console.warn('[documents-hub] getDocumentsSummary failed:', err?.message || err);
+  }
+  const summaryCounts = docsSummary || {
+    total: data.docs.length,
+    draft: data.docs.filter(d => d.status === 'pending').length,
+    uploaded: data.docs.filter(d => d.status === 'uploaded').length,
+    signed: data.docs.filter(d => d.status === 'signed' || d.status === 'completed' || d.status === 'final').length,
+    superseded: data.docs.filter(d => d.status === 'superseded').length,
+  };
+
+  // Best-effort page-load audit. Non-blocking by design.
+  if (api.logDocumentsAudit) {
+    api.logDocumentsAudit({ event: 'page_loaded', note: 'tab=' + tab }).catch(() => {});
+  }
 
   // Custom (clinician-authored) templates from the backend, shaped to match
   // the bundled DOCUMENT_TEMPLATES rows the templates list already renders.
@@ -6403,8 +7804,15 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
         fd.append('file', f, f.name);
         fd.append('title', f.name);
         fd.append('doc_type', 'uploaded');
-        await api.uploadDocument(fd);
+        const out = await api.uploadDocument(fd);
         results.ok += 1;
+        // Server-side _audit already runs in the upload handler. The UI also
+        // logs its own event so the audit trail sees the path (UI → API).
+        api.logDocumentsAudit?.({
+          event: 'uploaded',
+          document_id: out?.id || null,
+          note: 'ui upload: ' + f.name.slice(0, 120),
+        }).catch(() => {});
       } catch (e) {
         results.fail += 1;
         results.errors.push(f.name + ': ' + (e?.message || 'upload failed'));
@@ -6438,7 +7846,14 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
   };
 
   function docRows(list) {
-    if (!list.length) return '<div class="ch-empty">No documents found.</div>';
+    if (!list.length) {
+      // Honest empty-state: distinguish "no rows yet" from "API unreachable".
+      if (backendError) {
+        return '<div class="ch-empty">Documents service unreachable. Showing local cache (' + data.docs.length + ' rows). ' +
+          '<button class="ch-btn-sm" style="margin-left:8px" onclick="window._nav(\'documents-hub\')">Retry</button></div>';
+      }
+      return '<div class="ch-empty">No documents yet. Upload the first one.</div>';
+    }
     const esc = s => String(s==null?'':s).replace(/'/g,"\\'");
     return list.map(d => {
       const hasFile = !!(d.file_ref || d.status === 'uploaded');
@@ -6446,16 +7861,108 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       const downloadArg = hasFile ? "'"+esc(d.id)+"'" : (d.template_id ? "'"+esc(d.template_id)+"'" : 'null');
       const nameArg = "'"+esc(d.name)+"'";
       const hasFileArg = hasFile ? 'true' : 'false';
+      const idArg = "'"+esc(d.id)+"'";
+      const isBackend = !d.id || /^[0-9a-fA-F-]{8,}$/.test(String(d.id));
+      const signed = d.status === 'signed' || d.status === 'completed' || d.status === 'final';
+      const superseded = d.status === 'superseded';
+      // Sign / supersede / delete are only offered for real backend rows.
+      // Local-cache rows show download only — pre-fix the "Sign" button
+      // would call api.signDocument with a synthetic id and throw.
+      const signBtn = (isBackend && !signed && !superseded)
+        ? '<button class="ch-btn-sm ch-btn-teal" title="Sign-off" onclick="window._docsSign('+idArg+')">Sign</button>'
+        : '';
+      const supersedeBtn = (isBackend && !superseded)
+        ? '<button class="ch-btn-sm" title="Create new revision" onclick="window._docsSupersede('+idArg+','+nameArg+')">Revise</button>'
+        : '';
+      const deleteBtn = (isBackend && !signed)
+        ? '<button class="ch-btn-sm" title="Delete" onclick="window._docsDelete('+idArg+','+nameArg+')">Delete</button>'
+        : '';
+      const demoBadge = d.is_demo ? '<span class="book-status-badge" style="color:var(--amber);background:rgba(245,158,11,0.12);margin-right:4px">DEMO</span>' : '';
+      const revLabel = d.revision && d.revision > 1 ? ' · v' + d.revision : '';
       return '<div class="book-row">'+
-        '<div class="book-datetime"><div class="book-date">'+d.date+'</div><div class="book-time">'+d.size+'</div></div>'+
-        '<div class="book-info"><div class="book-patient">'+d.name+'</div><div class="book-clinician">'+d.patient+' · '+d.type+'</div></div>'+
-        '<div class="book-status-col"><span class="book-status-badge" style="color:'+(stC[d.status]||'var(--text-tertiary)')+';background:'+(stC[d.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+d.status+'</span></div>'+
-        '<div class="book-actions">'+
-          '<button class="ch-btn-sm" onclick="window._docsDownload('+downloadArg+','+nameArg+','+hasFileArg+')">↓</button>'+
+        '<div class="book-datetime"><div class="book-date">'+(d.date||'—')+'</div><div class="book-time">'+(d.size||'—')+'</div></div>'+
+        '<div class="book-info"><div class="book-patient">'+d.name+revLabel+'</div><div class="book-clinician">'+d.patient+' · '+d.type+'</div></div>'+
+        '<div class="book-status-col">'+demoBadge+'<span class="book-status-badge" style="color:'+(stC[d.status]||'var(--text-tertiary)')+';background:'+(stC[d.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+d.status+'</span></div>'+
+        '<div class="book-actions" style="display:flex;gap:4px;flex-wrap:wrap">'+
+          '<button class="ch-btn-sm" title="Download" onclick="window._docsDownload('+downloadArg+','+nameArg+','+hasFileArg+')">↓</button>'+
+          signBtn + supersedeBtn + deleteBtn +
         '</div>'+
       '</div>';
     }).join('');
   }
+
+  // Real sign / supersede / delete handlers — wired to the backend
+  // /api/v1/documents/{id}/sign and /supersede endpoints. All three log
+  // an audit event on success/failure (success path goes through the
+  // server-side _audit hook; the UI also fires its own log for path
+  // attribution).
+  window._docsSign = async (docId) => {
+    const note = window.prompt('Sign-off note (optional):') || '';
+    try {
+      await api.signDocument(docId, note || null);
+      window._dsToast?.({title:'Signed',body:'Document marked signed and immutable.',severity:'success'});
+      api.logDocumentsAudit?.({event:'signed', document_id: docId, note: 'ui sign-off'}).catch(()=>{});
+      window._nav('documents-hub');
+    } catch (err) {
+      const msg = err?.message || 'Sign failed.';
+      window._dsToast?.({title:'Sign failed',body:String(msg),severity:'error'});
+    }
+  };
+  window._docsSupersede = async (docId, name) => {
+    const reason = window.prompt('Reason for new revision (3-512 chars):', 'correction');
+    if (!reason || reason.trim().length < 3) {
+      window._dsToast?.({title:'Reason required',body:'Supersede needs a written reason.',severity:'info'});
+      return;
+    }
+    const newTitle = window.prompt('New title (blank keeps "'+ (name||'document') +'"):') || null;
+    try {
+      const out = await api.supersedeDocument(docId, { reason: reason.trim(), new_title: newTitle });
+      window._dsToast?.({title:'Revision created',body:'New revision v'+(out?.revision||2)+' created. Original marked superseded.',severity:'success'});
+      api.logDocumentsAudit?.({event:'superseded', document_id: docId, note: 'ui supersede: ' + reason.slice(0,200)}).catch(()=>{});
+      window._nav('documents-hub');
+    } catch (err) {
+      const msg = err?.message || 'Supersede failed.';
+      window._dsToast?.({title:'Revise failed',body:String(msg),severity:'error'});
+    }
+  };
+  window._docsDelete = async (docId, name) => {
+    if (!window.confirm('Delete document "'+ (name||docId) +'"? Signed documents cannot be deleted.')) return;
+    try {
+      await api.deleteDocument(docId);
+      window._dsToast?.({title:'Deleted',body:'Document removed.',severity:'success'});
+      api.logDocumentsAudit?.({event:'deleted', document_id: docId, note: 'ui delete'}).catch(()=>{});
+      window._nav('documents-hub');
+    } catch (err) {
+      const msg = err?.message || 'Delete failed.';
+      window._dsToast?.({title:'Delete failed',body:String(msg),severity:'error'});
+    }
+  };
+
+  // Filtered ZIP export — streams a Blob from /export.zip. The server
+  // prefixes the manifest with a "# DEMO" line if any matched rows are
+  // demo, so importers can drop demo content trivially.
+  window._docsExport = async () => {
+    const f = window._docsFiltersObj || {};
+    try {
+      const blob = await api.exportDocumentsZip({
+        kind: f.kind || undefined,
+        patient_id: f.patient_id || undefined,
+        since: f.since || undefined,
+        until: f.until || undefined,
+        q: f.q || undefined,
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'documents-export.zip';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      window._dsToast?.({title:'Export ready',body:'documents-export.zip downloaded.',severity:'success'});
+      api.logDocumentsAudit?.({event:'exported', note: 'ui export.zip'}).catch(()=>{});
+    } catch (err) {
+      const msg = err?.message || 'Export failed.';
+      window._dsToast?.({title:'Export failed',body:String(msg),severity:'error'});
+    }
+  };
 
   let main = '';
 
@@ -6464,12 +7971,22 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
     const filt = window._docsFilter||'All';
     const types = ['All',...new Set(data.docs.map(d=>d.type))];
     const rows = data.docs.filter(d=>(filt==='All'||d.type===filt)&&(!q||(d.name+d.patient).toLowerCase().includes(q)));
-    main = `
+    // Top KPIs come from the server-side /summary so they are honest
+    // about empty cases. The fallback (`summaryCounts || …`) above keeps
+    // the UI working when the API is down.
+    const totalK   = summaryCounts.total      ?? data.docs.length;
+    const signedK  = summaryCounts.signed     ?? rows.filter(d=>d.status==='signed'||d.status==='completed').length;
+    const draftK   = summaryCounts.draft      ?? rows.filter(d=>d.status==='pending').length;
+    const supersK  = summaryCounts.superseded ?? rows.filter(d=>d.status==='superseded').length;
+    const errBanner = backendError
+      ? '<div style="padding:8px 12px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:8px;color:var(--red);font-size:12px;margin-bottom:12px">Documents API unreachable — '+ String(backendError).replace(/[<>]/g,'') +'. Counts are local-cache only. <button class="ch-btn-sm" style="margin-left:8px" onclick="window._nav(\'documents-hub\')">Retry</button></div>'
+      : '';
+    main = errBanner + `
       <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
-        <div class="ch-kpi-card dv2-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val dv2-kpi-val">${data.docs.length}</div><div class="ch-kpi-label dv2-kpi-label">Total Docs</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${data.docs.filter(d=>d.status==='signed'||d.status==='final').length}</div><div class="ch-kpi-label">Finalised</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${data.docs.filter(d=>d.status==='draft'||d.status==='pending').length}</div><div class="ch-kpi-label">Drafts</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${new Set(data.docs.map(d=>d.patient)).size}</div><div class="ch-kpi-label">Patients</div></div>
+        <div class="ch-kpi-card dv2-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val dv2-kpi-val">${totalK}</div><div class="ch-kpi-label dv2-kpi-label">Total</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${signedK}</div><div class="ch-kpi-label">Signed</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${draftK}</div><div class="ch-kpi-label">Drafts</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--text-tertiary)"><div class="ch-kpi-val">${supersK}</div><div class="ch-kpi-label">Superseded</div></div>
       </div>
       <div class="ch-card">
         <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px">
@@ -6478,9 +7995,10 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
             <input type="text" placeholder="Search…" class="ph-search-input" value="${window._docsSearch||''}" oninput="window._docsSearch=this.value;window._nav('documents-hub')">
             <svg viewBox="0 0 24 24" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;stroke:var(--text-tertiary);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           </div>
+          <button class="ch-btn-sm" title="Download filtered ZIP (manifest.csv + uploaded blobs)" onclick="window._docsExport()">⤓ Export ZIP</button>
         </div>
         <div style="padding:10px 16px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border)">
-          ${types.map(t=>'<button class="reg-domain-pill'+(t===filt?' active':'')+'" onclick="window._docsFilter=\''+t+'\';window._nav(\'documents-hub\')">'+t+'</button>').join('')}
+          ${types.map(t=>'<button class="reg-domain-pill'+(t===filt?' active':'')+'" onclick="window._docsFilter=\''+t+'\';window._docsLogFilter(\'kind\','+JSON.stringify(t)+');window._nav(\'documents-hub\')">'+t+'</button>').join('')}
         </div>
         ${docRows(rows)}
       </div>`;
@@ -6609,8 +8127,37 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
     window._docsUpload = () => document.getElementById('docs-file-input')?.click();
   }
 
+  // Filter-change audit hook. Fires per filter change so the audit trail
+  // captures the analysis path (search → filter → export). Non-blocking.
+  window._docsLogFilter = (key, value) => {
+    if (!api.logDocumentsAudit) return;
+    api.logDocumentsAudit({
+      event: 'filter_changed',
+      note: 'tab=' + tab + ' ' + key + '=' + String(value).slice(0, 80),
+    }).catch(() => {});
+  };
+
+  // Disclaimers banner (Documents Hub launch-audit 2026-04-30) — strings
+  // come from the server /summary so the audit trail and the UI banner
+  // share a source of truth. Falls back to a static list if the API is
+  // unreachable.
+  const _disclaimers = (docsSummary?.disclaimers && docsSummary.disclaimers.length)
+    ? docsSummary.disclaimers
+    : [
+        'Documents are clinical records and require clinician sign-off.',
+        'Signed documents are immutable; supersede creates a revision with audit trail.',
+        'Patient-identifiable documents must comply with local privacy law.',
+      ];
+  const _disclaimerHtml = (
+    '<div class="ch-disclaimers" role="note" aria-label="Documents Hub clinical-safety disclaimers" '+
+    'style="padding:8px 12px;background:rgba(74,158,255,0.06);border:1px solid rgba(74,158,255,0.2);border-radius:8px;color:var(--text-secondary);font-size:11.5px;line-height:1.55">'+
+    _disclaimers.map(d => '<div>• ' + String(d).replace(/[<>]/g, '') + '</div>').join('') +
+    '</div>'
+  );
+
   el.innerHTML = `
   <div class="dv2-hub-shell" style="padding:20px;display:flex;flex-direction:column;gap:16px">
+  ${_disclaimerHtml}
   <div class="ch-shell">
     <div class="ch-tab-bar">${tabBar()}</div>
     <div class="ch-body">${main}</div>
@@ -6697,6 +8244,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     finance:     { label: 'Finance',            icon: '\uD83D\uDCB0', page: 'finance-v2',       fetch: () => (api.finance?.summary?api.finance.summary():Promise.resolve(null)).catch(()=>null) },
     wearables:   { label: 'Wearable Data',      icon: '\u231A',       page: 'monitor',           fetch: () => (api.getClinicAlertSummary?api.getClinicAlertSummary():Promise.resolve(null)).catch(()=>null) },
     qeeg:        { label: 'qEEG Records',       icon: '\uD83C\uDF0A', page: 'qeeg-analysis',    fetch: () => (api.listQEEGRecords?api.listQEEGRecords():Promise.resolve({items:[]})).catch(()=>({items:[]})) },
+    fusion:      { label: 'Fusion Cases',       icon: '\u2696\uFE0F',  page: 'fusion-workbench', fetch: () => (api.listFusionCases?api.listFusionCases():Promise.resolve([])).catch(()=>[]) },
     aggregate:   { label: 'Outcome Aggregates', icon: '\uD83D\uDCC8', page: 'reports-hub',      fetch: () => (api.aggregateOutcomes?api.aggregateOutcomes():Promise.resolve({})).catch(()=>({})) },
   };
 
@@ -6777,37 +8325,105 @@ export async function pgReportsHubNew(setTopbar, navigate) {
   // Merge backend-persisted reports with the local cache. Backend rows are
   // authoritative (same id == same report); local-only rows (saved offline)
   // stay visible until their next sync. Newest first by date.
-  async function fetchSavedReports() {
+  async function fetchSavedReports(filters = {}) {
     let backend = [];
     if (api.listMyReports) {
       try {
-        const res = await api.listMyReports();
-        const items = res?.items || res || [];
-        backend = items.map(r => ({
-          id: r.id,
-          name: r.title || ((r.type || 'clinician') + ' report'),
-          patient: r.patient_id || 'All Patients',
-          type: r.type || 'clinician',
-          date: (r.date || r.created_at || '').slice(0, 10),
-          status: r.status || 'generated',
-          content: r.content || '',
-          _source: 'backend',
-        }));
+        const res = await api.listMyReports(filters);
+        backend = res?.items || res || [];
       } catch (err) {
         console.warn('[reports-hub] listMyReports failed; using local cache only:', err?.message || err);
       }
     }
-    const local = loadReports().map(r => ({ ...r, _source: r._source || 'local' }));
-    const byId = new Map();
-    backend.forEach(r => byId.set(r.id, r));
-    local.forEach(r => { if (!byId.has(r.id)) byId.set(r.id, r); });
-    const merged = Array.from(byId.values());
-    merged.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
-    return merged;
+    return mergeSavedReports(backend, loadReports());
   }
 
-  const savedReports = await fetchSavedReports();
-  const stC = { final:'var(--green)', draft:'var(--amber)', generated:'var(--teal)', error:'var(--red)' };
+  // Reports Hub launch-audit (2026-04-30): filters + summary counts. The
+  // recent-tab UI surfaces these so reviewers can confirm the numbers are
+  // real, not hardcoded. Filters are stored on `window` so they survive
+  // navigate-back (same pattern as `_repSearch`, `_invFilt`, etc.).
+  const reportsFilters = window._reportsFilters || {};
+  const savedReports = await fetchSavedReports(reportsFilters);
+
+  // Best-effort page-load audit. Non-blocking by design.
+  if (api.logReportsAudit) {
+    api.logReportsAudit({ event: 'page_loaded', note: 'tab=' + tab }).catch(() => {});
+  }
+
+  // Top counts: total / draft / signed / superseded. Pulled from the same
+  // server-side scope as the list, so they are honest about empty cases.
+  let reportsSummary = null;
+  if (api.getReportsSummary) {
+    try {
+      reportsSummary = await api.getReportsSummary({});
+    } catch (err) {
+      console.warn('[reports-hub] getReportsSummary failed:', err?.message || err);
+      reportsSummary = null;
+    }
+  }
+  const summaryCounts = reportsSummary || { total: savedReports.length, draft: 0, signed: 0, superseded: 0 };
+
+  const stC = { final:'var(--green)', draft:'var(--amber)', generated:'var(--teal)', error:'var(--red)', 'local-only':'var(--amber)', signed:'var(--green)', superseded:'var(--text-tertiary)' };
+
+  function canRenderSavedReport(row) {
+    return !!(row && row._source === 'backend' && row.status !== 'local-only' && typeof api.renderStoredReport === 'function');
+  }
+
+  function reportPersistenceLabel(row) {
+    if (row?._source === 'backend' && row.status !== 'local-only') return 'Saved on server';
+    return 'Stored in this browser only';
+  }
+
+  function findSavedReportRecord(id) {
+    return savedReports.find((row) => String(row.id) === String(id))
+      || loadReports().find((row) => String(row.id) === String(id))
+      || null;
+  }
+
+  async function persistGeneratedReport({ report, patientId, fallbackSuccessBody }) {
+    const today = new Date().toISOString().slice(0,10);
+    const local = {
+      id: 'RPT-' + Date.now(),
+      name: report.type + ' — ' + report.patient,
+      patient: report.patient,
+      type: report.type,
+      date: today,
+      status: 'generated',
+      content: report.content,
+      _source: 'backend',
+    };
+    let persisted = false;
+    try {
+      const saved = api.createReport ? await api.createReport({
+        patient_id: patientId,
+        type: report.type,
+        title: local.name,
+        content: report.content,
+        report_date: today,
+        status: 'generated',
+      }) : null;
+      if (saved && saved.id) {
+        local.id = saved.id;
+        persisted = true;
+      }
+    } catch (err) {
+      console.warn('[reports-hub] createReport failed (local cache only):', err?.message || err);
+      local.status = 'local-only';
+      local._source = 'local';
+    }
+    const rpts = loadReports();
+    rpts.unshift(local);
+    saveReports(rpts);
+    if (persisted) {
+      try { api.logReportsAudit?.({ event: 'generated', report_id: local.id, patient_id: patientId || null, note: 'type=' + (report.type || '?') }); } catch (_) {}
+    }
+    window._dsToast?.({
+      title: persisted ? 'Saved' : 'Saved locally only',
+      body: persisted ? fallbackSuccessBody : 'The report is stored in this browser only because the server save failed.',
+      severity: persisted ? 'success' : 'warn',
+    });
+    window._reportsHubTab='recent'; window._nav('reports-hub');
+  }
 
   let main = '';
 
@@ -6820,7 +8436,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
       ]);
       patients=pR?.items||[]; courses=cR?.items||[];
     } catch {}
-    const patOpts = '<option value="all">All Patients (Clinic-wide)</option>' + (patients.map(p=>'<option value="'+p.id+'">'+ ((p.first_name||'')+' '+(p.last_name||'')).trim() +'</option>').join('') || '<option>Demo Patient A</option>');
+    const patOpts = '<option value="all">All Patients (Clinic-wide)</option>' + patients.map(p=>'<option value="'+p.id+'">'+ ((p.first_name||'')+' '+(p.last_name||'')).trim() +'</option>').join('');
     const cats = ['All',...new Set(REPORT_TYPES.map(r=>r.cat))];
     const filtCat = window._repGenCat||'All';
     const filtTypes = REPORT_TYPES.filter(r=>filtCat==='All'||r.cat===filtCat);
@@ -6933,45 +8549,24 @@ export async function pgReportsHubNew(setTopbar, navigate) {
         if (content) content.textContent = res?.message||res?.content||'REPORT: '+typeName+'\nScope: '+scope+'\nDate: '+new Date().toLocaleDateString()+'\n\nReport generated successfully. Please review and amend as needed before finalising.';
         window._lastReport = { type:typeName, patient:patName, content:content?.textContent||'', sources: typeData.sources||[] };
       } catch {
-        if (content) content.textContent = typeName+'\nScope: '+scope+'\nDate: '+new Date().toLocaleDateString()+'\n\nReport for '+scope+'.\n\n[Report content — edit as required]';
+        if (content) content.textContent = buildReportFallbackContent({
+          reportType: typeName,
+          scope,
+          date: new Date().toLocaleDateString(),
+          dataSummary: dataContext,
+          clinicianContext: context,
+        });
         window._lastReport = { type:typeName, patient:patName, content:content?.textContent||'', sources: typeData.sources||[] };
       }
     };
     window._saveReport = async () => {
       if (!window._lastReport) return;
-      const lr = window._lastReport;
-      const today = new Date().toISOString().slice(0,10);
-      const local = {
-        id: 'RPT-' + Date.now(),
-        name: lr.type + ' — ' + lr.patient,
-        patient: lr.patient,
-        type: lr.type,
-        date: today,
-        status: 'generated',
-        content: lr.content,
-      };
-      // Persist to backend first so the row survives across devices. Fall
-      // back to localStorage-only if the endpoint is unreachable. Either way
-      // the user lands on Recent; the next hydrate reconciles.
-      try {
-        const patId = document.getElementById('rep-patient')?.value || null;
-        const saved = api.createReport ? await api.createReport({
-          patient_id: patId,
-          type: lr.type,
-          title: lr.type + ' — ' + lr.patient,
-          content: lr.content,
-          report_date: today,
-          status: 'generated',
-        }) : null;
-        if (saved && saved.id) local.id = saved.id;
-      } catch (err) {
-        console.warn('[reports-hub] createReport failed (localStorage-only):', err?.message || err);
-      }
-      const rpts = loadReports();
-      rpts.unshift(local);
-      saveReports(rpts);
-      window._dsToast?.({title:'Saved',body:'Report saved to records.',severity:'success'});
-      window._reportsHubTab='recent'; window._nav('reports-hub');
+      const patId = document.getElementById('rep-patient')?.value || null;
+      await persistGeneratedReport({
+        report: window._lastReport,
+        patientId: patId === 'all' ? null : patId,
+        fallbackSuccessBody: 'Report saved to records.',
+      });
     };
   }
   // ── Combined Report Tab ──────────────────────────────────────────────────
@@ -7098,24 +8693,24 @@ export async function pgReportsHubNew(setTopbar, navigate) {
         if (content) content.textContent = res?.message||res?.content||'Combined Report generated. Review and amend as needed.';
         window._lastReport = { type:'Combined Report ('+focus+')', patient:patName, content:content?.textContent||'', sources };
       } catch {
-        if (content) content.textContent = 'COMBINED REPORT\nScope: '+patName+'\nFocus: '+focus+'\nDate: '+new Date().toLocaleDateString()+'\nSources: '+sources.join(', ')+'\n\nData collected from '+sources.length+' sources.\n\n[AI generation unavailable — raw data summary below]\n\n'+dataSummary;
+        if (content) content.textContent = buildReportFallbackContent({
+          reportType: 'Combined Report ('+focus+')',
+          scope: patName,
+          date: new Date().toLocaleDateString(),
+          dataSummary: 'Sources: ' + sources.join(', ') + '\n\n' + dataSummary,
+        });
         window._lastReport = { type:'Combined Report ('+focus+')', patient:patName, content:content?.textContent||'', sources };
       }
     };
 
     window._saveCombinedReport = async () => {
       if (!window._lastReport) return;
-      const lr = window._lastReport;
-      const today = new Date().toISOString().slice(0,10);
-      const local = { id:'RPT-'+Date.now(), name:lr.type+' \u2014 '+lr.patient, patient:lr.patient, type:lr.type, date:today, status:'generated', content:lr.content };
-      try {
-        const patId = document.getElementById('comb-patient')?.value||null;
-        const saved = api.createReport ? await api.createReport({ patient_id:patId==='all'?null:patId, type:lr.type, title:local.name, content:lr.content, report_date:today, status:'generated' }) : null;
-        if (saved && saved.id) local.id = saved.id;
-      } catch {}
-      const rpts = loadReports(); rpts.unshift(local); saveReports(rpts);
-      window._dsToast?.({title:'Saved',body:'Combined report saved.',severity:'success'});
-      window._reportsHubTab='recent'; window._nav('reports-hub');
+      const patId = document.getElementById('comb-patient')?.value||null;
+      await persistGeneratedReport({
+        report: window._lastReport,
+        patientId: patId === 'all' ? null : patId,
+        fallbackSuccessBody: 'Combined report saved.',
+      });
     };
   }
   // ── Health Insights Tab — Correlation & Prediction Analysis ──────────────
@@ -7330,53 +8925,222 @@ export async function pgReportsHubNew(setTopbar, navigate) {
         if (content) content.textContent = res?.message||res?.content||'Health Insights Report generated.';
         window._lastReport = { type:'Health Insights Report', patient:patName, content:content?.textContent||'', sources:healthSources };
       } catch {
-        if (content) content.textContent = 'HEALTH INSIGHTS REPORT\nScope: '+patName+'\nDate: '+new Date().toLocaleDateString()+'\n\n--- CORRELATION ANALYSIS ---\n'+corrInfo+'\n\n--- DATA SUMMARY ---\n'+dataSummary+'\n\n[AI analysis unavailable — raw data provided above for manual review]';
+        if (content) content.textContent = buildReportFallbackContent({
+          reportType: 'Health Insights Report',
+          scope: patName,
+          date: new Date().toLocaleDateString(),
+          dataSummary: 'Correlation analysis:\n' + corrInfo + '\n\n' + dataSummary,
+        });
         window._lastReport = { type:'Health Insights Report', patient:patName, content:content?.textContent||'', sources:healthSources };
       }
     };
 
     window._saveInsightsReport = async () => {
       if (!window._lastReport) return;
-      const lr = window._lastReport;
-      const today = new Date().toISOString().slice(0,10);
-      const local = { id:'RPT-'+Date.now(), name:lr.type+' \u2014 '+lr.patient, patient:lr.patient, type:lr.type, date:today, status:'generated', content:lr.content };
-      try {
-        const patId = document.getElementById('ins-patient')?.value||null;
-        const saved = api.createReport ? await api.createReport({ patient_id:patId==='all'?null:patId, type:lr.type, title:local.name, content:lr.content, report_date:today, status:'generated' }) : null;
-        if (saved && saved.id) local.id = saved.id;
-      } catch {}
-      const rpts = loadReports(); rpts.unshift(local); saveReports(rpts);
-      window._dsToast?.({title:'Saved',body:'Health insights report saved.',severity:'success'});
-      window._reportsHubTab='recent'; window._nav('reports-hub');
+      const patId = document.getElementById('ins-patient')?.value||null;
+      await persistGeneratedReport({
+        report: window._lastReport,
+        patientId: patId === 'all' ? null : patId,
+        fallbackSuccessBody: 'Health insights report saved.',
+      });
     };
   }
   else if (tab === 'recent') {
     const q = (window._repSearch||'').toLowerCase();
-    const rows = savedReports.filter(r=>!q||(r.name+r.patient).toLowerCase().includes(q));
-    main = `
+    const statusFilt = window._repStatusFilter || '';
+    const kindFilt = window._repKindFilter || '';
+    let rows = savedReports.filter(r=>!q||(r.name+r.patient).toLowerCase().includes(q));
+    if (statusFilt) rows = rows.filter(r => (r.status || '') === statusFilt);
+    if (kindFilt) rows = rows.filter(r => ((r.type || '') + '').toLowerCase().includes(kindFilt.toLowerCase()));
+
+    const STATUS_FILTS = [
+      { id: '',           label: 'All' },
+      { id: 'generated',  label: 'Draft' },
+      { id: 'signed',     label: 'Signed' },
+      { id: 'superseded', label: 'Superseded' },
+      { id: 'local-only', label: 'Local only' },
+    ];
+
+    const summaryStrip =
+      '<div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:12px">' +
+      '<div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">' + (summaryCounts.total ?? 0) + '</div><div class="ch-kpi-label">Total reports</div></div>' +
+      '<div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">' + (summaryCounts.draft ?? 0) + '</div><div class="ch-kpi-label">Drafts</div></div>' +
+      '<div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">' + (summaryCounts.signed ?? 0) + '</div><div class="ch-kpi-label">Signed</div></div>' +
+      '<div class="ch-kpi-card" style="--kpi-color:var(--text-tertiary)"><div class="ch-kpi-val">' + (summaryCounts.superseded ?? 0) + '</div><div class="ch-kpi-label">Superseded</div></div>' +
+      '</div>';
+
+    const disclaimerBanner =
+      '<div style="padding:10px 14px;border-radius:8px;border:1px solid rgba(94,234,212,0.18);background:rgba(94,234,212,0.05);color:var(--text-secondary);font-size:11.5px;line-height:1.5;margin-bottom:12px">' +
+      '<div style="font-weight:600;color:var(--text-primary);margin-bottom:2px">Clinical safety</div>' +
+      '<div>Reports are clinical records and require clinician sign-off. Signed reports are immutable; supersede creates a new revision with audit trail. AI summaries are decision-support only.</div>' +
+      '</div>';
+
+    main = summaryStrip + disclaimerBanner + `
       <div class="ch-card">
         <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px">
           <span class="ch-card-title">Recent Reports</span>
+          <div style="display:flex;gap:4px;flex-wrap:wrap">
+            ${STATUS_FILTS.map(f=>'<button class="ch-btn-sm'+(f.id===statusFilt?' ch-btn-teal':'')+'" onclick="window._repStatusFilter=\''+f.id+'\';window._reportsHubAudit(\'filter_changed\',\'status=\'+'+JSON.stringify(f.id)+');window._nav(\'reports-hub\')">'+f.label+'</button>').join('')}
+          </div>
+          <input type="text" placeholder="Filter by kind…" class="ph-search-input" style="max-width:160px" value="${(kindFilt||'').replace(/"/g,'&quot;')}" oninput="window._repKindFilter=this.value" onchange="window._reportsHubAudit('filter_changed','kind='+this.value);window._nav('reports-hub')">
           <div style="position:relative;flex:1;max-width:260px">
-            <input type="text" placeholder="Search reports…" class="ph-search-input" value="${window._repSearch||''}" oninput="window._repSearch=this.value;window._nav('reports-hub')">
+            <input type="text" placeholder="Search reports…" class="ph-search-input" value="${window._repSearch||''}" oninput="window._repSearch=this.value" onchange="window._reportsHubAudit('filter_changed','q='+this.value);window._nav('reports-hub')">
             <svg viewBox="0 0 24 24" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;stroke:var(--text-tertiary);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           </div>
           <button class="ch-btn-sm ch-btn-teal" onclick="window._reportsHubTab='generate';window._nav('reports-hub')">+ New Report</button>
         </div>
         ${rows.length ? rows.map(r=>
+          (() => {
+            const canRender = canRenderSavedReport(r);
+            const isSigned = r.status === 'signed' || r.status === 'final';
+            const isSuperseded = r.status === 'superseded';
+            const isBackend = r._source === 'backend' && r.status !== 'local-only';
+            const renderBtns = canRender
+              ? '<button class="ch-btn-sm" onclick="window._repOpenRenderedHtml(\''+r.id+'\')">HTML</button>'
+                + '<button class="ch-btn-sm" onclick="window._repDownloadPdf(\''+r.id+'\')">PDF</button>'
+                + '<button class="ch-btn-sm" onclick="window._repDownloadCsv(\''+r.id+'\')">CSV</button>'
+              : '<span style="font-size:10.5px;color:var(--amber);padding:0 6px">'+reportPersistenceLabel(r)+'</span>';
+            const signBtn = isBackend && !isSigned && !isSuperseded
+              ? '<button class="ch-btn-sm ch-btn-teal" onclick="window._repSign(\''+r.id+'\')">Sign</button>' : '';
+            const supersedeBtn = isBackend && !isSuperseded
+              ? '<button class="ch-btn-sm" onclick="window._repSupersede(\''+r.id+'\')">Supersede</button>' : '';
+            return (
           '<div class="book-row">'+
             '<div class="book-datetime"><div class="book-date">'+r.date+'</div><div class="book-time">'+r.type+'</div></div>'+
-            '<div class="book-info"><div class="book-patient">'+r.name+'</div><div class="book-clinician">'+r.patient+'</div></div>'+
+            '<div class="book-info"><div class="book-patient">'+r.name+'</div><div class="book-clinician">'+r.patient+' · '+reportPersistenceLabel(r)+'</div></div>'+
             '<div class="book-status-col"><span class="book-status-badge" style="color:'+(stC[r.status]||'var(--teal)')+';background:'+(stC[r.status]||'var(--teal)')+'22">'+r.status+'</span></div>'+
-            '<div class="book-actions"><button class="ch-btn-sm" onclick="window._repViewSaved(\''+r.id+'\')">View</button><button class="ch-btn-sm" onclick="window._repPrintSaved(\''+r.id+'\')">Print</button></div>'+
+            '<div class="book-actions">'+
+              '<button class="ch-btn-sm" onclick="window._repViewSaved(\''+r.id+'\')">View</button>'+
+              '<button class="ch-btn-sm" onclick="window._repPrintSaved(\''+r.id+'\')">Print</button>'+
+              renderBtns + signBtn + supersedeBtn +
+            '</div>'+
           '</div>'
-        ).join('') : '<div class="ch-empty">No reports yet. <a onclick="window._reportsHubTab=\'generate\';window._nav(\'reports-hub\')" style="color:var(--teal);cursor:pointer">Generate one now →</a></div>'}
+            );
+          })()
+        ).join('') : '<div class="ch-empty">No reports yet. Generate the first one. <a onclick="window._reportsHubTab=\'generate\';window._nav(\'reports-hub\')" style="color:var(--teal);cursor:pointer">Open Generate →</a></div>'}
       </div>`;
+
+    // Audit ingestion helper used by filter handlers above. Best-effort, fire-and-forget.
+    window._reportsHubAudit = (event, note) => {
+      try { api.logReportsAudit?.({ event, note: String(note || '').slice(0, 500) }); } catch (_) {}
+    };
+
+    window._repDownloadCsv = async (id) => {
+      if (!api.exportReportCsv) {
+        window._dsToast?.({ title: 'CSV unavailable', body: 'API not configured.', severity: 'warn' });
+        return;
+      }
+      try {
+        const file = await api.exportReportCsv(id);
+        if (!file?.blob) throw new Error('CSV export returned no file.');
+        const url = URL.createObjectURL(file.blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = file.filename || ('report-' + id + '.csv');
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        api.logReportsAudit?.({ event: 'exported', report_id: id, note: 'format=csv' });
+        window._dsToast?.({ title: 'CSV ready', body: (file.filename || 'report.csv') + ' downloaded.', severity: 'success' });
+      } catch (err) {
+        window._dsToast?.({ title: 'CSV export failed', body: err?.message || 'Network error', severity: 'critical' });
+      }
+    };
+
+    window._repSign = async (id) => {
+      if (!api.signReport) {
+        window._dsToast?.({ title: 'Sign unavailable', body: 'API not configured.', severity: 'warn' });
+        return;
+      }
+      const note = (window.prompt('Optional sign-off note (max 512 chars):', '') || '').slice(0, 512);
+      try {
+        const out = await api.signReport(id, note || null);
+        api.logReportsAudit?.({ event: 'signed', report_id: id, note: 'signed_by=' + (out?.signed_by || '?') });
+        window._dsToast?.({ title: 'Signed', body: 'Report signed and made immutable.', severity: 'success' });
+        window._nav('reports-hub');
+      } catch (err) {
+        const msg = err?.message || 'Network error';
+        window._dsToast?.({ title: 'Sign failed', body: msg, severity: 'critical' });
+      }
+    };
+
+    window._repSupersede = async (id) => {
+      if (!api.supersedeReport) {
+        window._dsToast?.({ title: 'Supersede unavailable', body: 'API not configured.', severity: 'warn' });
+        return;
+      }
+      const reason = (window.prompt('Reason for superseding (required, min 3 chars):', '') || '').trim();
+      if (reason.length < 3) {
+        window._dsToast?.({ title: 'Reason required', body: 'A supersede reason is required for the audit trail.', severity: 'warn' });
+        return;
+      }
+      try {
+        const out = await api.supersedeReport(id, { reason });
+        api.logReportsAudit?.({ event: 'superseded', report_id: id, note: 'new_revision=' + (out?.id || '?') });
+        window._dsToast?.({ title: 'Superseded', body: 'New revision created. Original is now read-only.', severity: 'success' });
+        window._nav('reports-hub');
+      } catch (err) {
+        const msg = err?.message || 'Network error';
+        window._dsToast?.({ title: 'Supersede failed', body: msg, severity: 'critical' });
+      }
+    };
+
+    window._repOpenRenderedHtml = async (id) => {
+      const r = findSavedReportRecord(id);
+      if (!r) {
+        window._dsToast?.({ title:'Not found', body:'Report record is no longer available.', severity:'warn' });
+        return;
+      }
+      if (!canRenderSavedReport(r)) {
+        window._dsToast?.({ title:'HTML unavailable', body:'Only server-saved reports can open rendered HTML from this hub.', severity:'warn' });
+        return;
+      }
+      try {
+        const file = await api.renderStoredReport?.(id, { format: 'html', audience: 'both' });
+        if (!file?.blob) throw new Error('Rendered report was empty.');
+        const url = URL.createObjectURL(file.blob);
+        window.open(url, '_blank', 'noopener,noreferrer');
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        api.logReportsAudit?.({ event: 'viewed', report_id: id, note: 'format=html' });
+      } catch (err) {
+        window._dsToast?.({ title:'HTML render failed', body: err?.message || 'The report could not be rendered.', severity:'warn' });
+      }
+    };
+
+    window._repDownloadPdf = async (id) => {
+      const r = findSavedReportRecord(id);
+      if (!r) {
+        window._dsToast?.({ title:'Not found', body:'Report record is no longer available.', severity:'warn' });
+        return;
+      }
+      if (!canRenderSavedReport(r)) {
+        window._dsToast?.({ title:'PDF unavailable', body:'Only server-saved reports can generate PDF from this hub.', severity:'warn' });
+        return;
+      }
+      try {
+        const file = await api.renderStoredReport?.(id, { format: 'pdf', audience: 'both' });
+        if (!file?.blob) throw new Error('PDF render returned no file.');
+        const url = URL.createObjectURL(file.blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = file.filename || ('report-' + id + '.pdf');
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        api.logReportsAudit?.({ event: 'exported', report_id: id, note: 'format=pdf' });
+        window._dsToast?.({ title:'PDF ready', body:(file.filename || ('report-' + id + '.pdf')) + ' downloaded.', severity:'success' });
+      } catch (err) {
+        window._dsToast?.({ title:'PDF export failed', body: err?.message || 'The report PDF could not be generated.', severity:'warn' });
+      }
+    };
 
     // Open a saved report in a real modal with its stored content.
     window._repViewSaved = (id) => {
-      const r = loadReports().find(x => x.id === id);
-      if (!r) { window._dsToast?.({ title:'Not found', body:'Report not in local records.', severity:'warn' }); return; }
+      const r = findSavedReportRecord(id);
+      if (!r) { window._dsToast?.({ title:'Not found', body:'Report record is no longer available.', severity:'warn' }); return; }
+      api.logReportsAudit?.({ event: 'viewed', report_id: id, note: 'format=modal' });
       const ov = document.createElement('div');
       ov.className = 'rh-modal-overlay';
       ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:1000;display:flex;align-items:flex-start;justify-content:center;overflow-y:auto;padding:24px 16px';
@@ -7385,7 +9149,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
         + '<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">'
           + '<div style="flex:1;min-width:0">'
             + '<div style="font-size:14px;font-weight:700;color:var(--text-primary)">' + esc(r.name) + '</div>'
-            + '<div style="font-size:11.5px;color:var(--text-tertiary);margin-top:2px">' + esc(r.type) + ' &middot; ' + esc(r.patient) + ' &middot; ' + esc(r.date) + '</div>'
+            + '<div style="font-size:11.5px;color:var(--text-tertiary);margin-top:2px">' + esc(r.type) + ' &middot; ' + esc(r.patient) + ' &middot; ' + esc(r.date) + ' &middot; ' + esc(reportPersistenceLabel(r)) + '</div>'
           + '</div>'
           + '<button class="ch-btn-sm" onclick="this.closest(\'.rh-modal-overlay\').remove()" style="padding:4px 10px">Close</button>'
         + '</div>'
@@ -7398,9 +9162,25 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     };
 
     // Print a saved report by rendering its content into a transient print window.
-    window._repPrintSaved = (id) => {
-      const r = loadReports().find(x => x.id === id);
-      if (!r) { window._dsToast?.({ title:'Not found', body:'Report not in local records.', severity:'warn' }); return; }
+    window._repPrintSaved = async (id) => {
+      const r = findSavedReportRecord(id);
+      if (!r) { window._dsToast?.({ title:'Not found', body:'Report record is no longer available.', severity:'warn' }); return; }
+      if (canRenderSavedReport(r)) {
+        try {
+          const file = await api.renderStoredReport?.(id, { format: 'html', audience: 'both' });
+          if (!file?.blob) throw new Error('Rendered report was empty.');
+          const url = URL.createObjectURL(file.blob);
+          const w = window.open(url, '_blank', 'width=900,height=700');
+          if (!w) throw new Error('Popup blocked.');
+          setTimeout(() => {
+            try { w.focus(); w.print(); } catch {}
+          }, 400);
+          setTimeout(() => URL.revokeObjectURL(url), 60_000);
+          return;
+        } catch (err) {
+          window._dsToast?.({ title:'Print render failed', body: err?.message || 'Falling back to plain text print.', severity:'warn' });
+        }
+      }
       const w = window.open('', '_blank', 'width=800,height=600');
       if (!w) { window.print(); return; }
       const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -7559,17 +9339,17 @@ export async function pgReportsHubNew(setTopbar, navigate) {
                   <div class="lib-card-top"><span style="font-size:18px">📊</span><span class="lib-card-name">CSV Data Export</span></div>
                   <div style="font-size:11.5px;color:var(--text-tertiary)">Raw rows for analysis in Excel, R, or SPSS. Downloads immediately.</div>
                 </div>
-                <div class="lib-card" style="opacity:0.55;cursor:not-allowed" title="Not yet available">
-                  <div class="lib-card-top"><span style="font-size:18px">📄</span><span class="lib-card-name">PDF Report</span><span style="margin-left:auto;font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(255,181,71,0.12);color:var(--amber,#ffb547);border:1px solid rgba(255,181,71,0.3)">Not available</span></div>
-                  <div style="font-size:11.5px;color:var(--text-tertiary)">Formatted clinical report. Use the in-browser Print dialog from the Generate tab for now.</div>
+                <div class="lib-card" style="cursor:pointer" onclick="window._reportsHubTab='recent';window._nav('reports-hub')">
+                  <div class="lib-card-top"><span style="font-size:18px">📄</span><span class="lib-card-name">Per-report PDF</span><span style="margin-left:auto;font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(94,234,212,0.12);color:var(--teal);border:1px solid rgba(94,234,212,0.3)">Available</span></div>
+                  <div style="font-size:11.5px;color:var(--text-tertiary)">Use the PDF button on each report in the Recent tab. Bulk PDF is not supported on this deployment.</div>
+                </div>
+                <div class="lib-card" style="opacity:0.55;cursor:not-allowed" title="DOCX renderer not configured">
+                  <div class="lib-card-top"><span style="font-size:18px">📝</span><span class="lib-card-name">DOCX Report</span><span style="margin-left:auto;font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(255,181,71,0.12);color:var(--amber,#ffb547);border:1px solid rgba(255,181,71,0.3)">Not configured</span></div>
+                  <div style="font-size:11.5px;color:var(--text-tertiary)">DOCX renderer is not installed on this deployment. The API returns HTTP 503 so the UI never produces an empty file. Use PDF instead.</div>
                 </div>
                 <div class="lib-card" style="opacity:0.55;cursor:not-allowed" title="Not yet available">
                   <div class="lib-card-top"><span style="font-size:18px">🏥</span><span class="lib-card-name">HL7 FHIR Export</span><span style="margin-left:auto;font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(255,181,71,0.12);color:var(--amber,#ffb547);border:1px solid rgba(255,181,71,0.3)">Not available</span></div>
-                  <div style="font-size:11.5px;color:var(--text-tertiary)">Structured clinical data for EHR systems.</div>
-                </div>
-                <div class="lib-card" style="opacity:0.55;cursor:not-allowed" title="Not yet available">
-                  <div class="lib-card-top"><span style="font-size:18px">⚙</span><span class="lib-card-name">JSON Data Dump</span><span style="margin-left:auto;font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(255,181,71,0.12);color:var(--amber,#ffb547);border:1px solid rgba(255,181,71,0.3)">Not available</span></div>
-                  <div style="font-size:11.5px;color:var(--text-tertiary)">Complete migration/backup export.</div>
+                  <div style="font-size:11.5px;color:var(--text-tertiary)">Structured clinical data for EHR systems. Roadmap item — no FHIR mapper today.</div>
                 </div>
               </div>
             </div>
@@ -7711,7 +9491,9 @@ export async function pgFinanceHub(setTopbar, navigate) {
   const invFilt   = window._invFilt   || 'all';
   const invSearch = window._invSearch || '';
 
-  const [summary, invoicesResp, paymentsResp, claimsResp, monthlyResp] = await Promise.all([
+  // Declared as `let` so the demo-mode fallback below can reassign with seeded
+  // empty payloads when backend rejects demo tokens.
+  let [summary, invoicesResp, paymentsResp, claimsResp, monthlyResp] = await Promise.all([
     api.finance.summary(),
     api.finance.listInvoices({ status: invFilt === 'all' ? null : invFilt, search: invSearch }),
     api.finance.listPayments(),
@@ -7720,18 +9502,30 @@ export async function pgFinanceHub(setTopbar, navigate) {
   ]).catch(err => { console.error('[FinanceHub] load failed', err); return [null,null,null,null,null]; });
 
   if (!summary || !invoicesResp || !paymentsResp || !claimsResp || !monthlyResp) {
-    el.innerHTML = `
-      <div class="ch-shell">
-        <div class="ch-tab-bar">${tabBar()}</div>
-        <div class="ch-body">
-          <div class="ch-card" style="padding:28px;text-align:center">
-            <div style="font-size:14px;font-weight:600;color:var(--red);margin-bottom:6px">Failed to load finance data</div>
-            <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:14px">The server returned an error. Please retry.</div>
-            <button class="btn btn-primary btn-sm" onclick="window._nav('finance-hub')">Retry</button>
+    // Demo build: backend rejects demo tokens. Seed an empty-but-valid finance
+    // hub so the page renders chrome + zero-state KPIs instead of a hard error.
+    let _demoBuild = false;
+    try { _demoBuild = !!(import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1'); } catch (_) { _demoBuild = false; }
+    if (_demoBuild) {
+      summary = summary || { revenue_paid: 0, outstanding: 0, overdue: 0, total_invoices: 0, total_payments: 0, claims_approved: 0, claims_pending: 0, claims_value: 0 };
+      invoicesResp = invoicesResp || { items: [] };
+      paymentsResp = paymentsResp || { items: [] };
+      claimsResp   = claimsResp   || { items: [] };
+      monthlyResp  = monthlyResp  || { items: [] };
+    } else {
+      el.innerHTML = `
+        <div class="ch-shell">
+          <div class="ch-tab-bar">${tabBar()}</div>
+          <div class="ch-body">
+            <div class="ch-card" style="padding:28px;text-align:center">
+              <div style="font-size:14px;font-weight:600;color:var(--red);margin-bottom:6px">Failed to load finance data</div>
+              <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:14px">The server returned an error. Please retry.</div>
+              <button class="btn btn-primary btn-sm" onclick="window._nav('finance-hub')">Retry</button>
+            </div>
           </div>
-        </div>
-      </div>`;
-    return;
+        </div>`;
+      return;
+    }
   }
 
   const invoices = Array.isArray(invoicesResp.items) ? invoicesResp.items : [];
@@ -7747,6 +9541,13 @@ export async function pgFinanceHub(setTopbar, navigate) {
   const claimsApproved = Number(summary.claims_approved ?? 0);
   const claimsPending  = Number(summary.claims_pending  ?? 0);
   const claimsValue    = Number(summary.claims_value    ?? 0);
+  const invoiceOptionsHtml = ['<option value="">No linked invoice</option>'].concat(
+    invoices.map((inv) =>
+      '<option value="' + String(inv.id).replace(/"/g, '&quot;') + '">'
+      + (inv.invoice_number || inv.id) + ' — ' + (inv.patient_name || '—') + ' — ' + fmtC(inv.total, inv.currency)
+      + '</option>'
+    )
+  ).join('');
 
   window._finNewInvoice = () => document.getElementById('fin-new-inv-modal')?.classList.remove('ch-hidden');
   window._finLogPayment = () => document.getElementById('fin-log-pay-modal')?.classList.remove('ch-hidden');
@@ -7833,12 +9634,47 @@ export async function pgFinanceHub(setTopbar, navigate) {
                 '<div style="flex-shrink:0;text-align:right;min-width:80px"><div style="font-size:14px;font-weight:700;color:var(--text-primary)">'+symTotal+'</div><div style="font-size:11px;color:var(--text-tertiary)">+VAT incl.</div></div>'+
                 '<div class="book-status-col"><span class="book-status-badge" style="color:'+(invStC[inv.status]||'var(--text-tertiary)')+';background:'+(invStC[inv.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+(inv.status||'')+'</span></div>'+
                 '<div class="book-actions">'+
+                  '<button class="ch-btn-sm" onclick="window._finViewInvoice(\''+safeId+'\')">View</button>'+
                   (inv.status!=='paid'?'<button class="ch-btn-sm ch-btn-teal" onclick="window._finMarkPaid(\''+safeId+'\')">Mark Paid</button>':'')+
-                  '<button class="ch-btn-sm" onclick="window._dsToast?.({title:\'Send\',body:\''+safeNum+' sent to patient.\',severity:\'success\'})">Send</button>'+
+                  (inv.status==='draft'?'<button class="ch-btn-sm" onclick="window._finDeleteInvoice(\''+safeId+'\', \''+safeNum+'\')">Delete</button>':'')+
+                  '<button class="ch-btn-sm" disabled title="Invoice delivery is not enabled in this beta build">Delivery unavailable</button>'+
                 '</div>'+
               '</div>';
             }).join('')}
       </div>`;
+
+    window._finViewInvoice = (id) => {
+      const inv = invoices.find((row) => String(row.id) === String(id));
+      if (!inv) {
+        window._dsToast?.({ title:'Invoice not found', body:'This invoice is no longer available.', severity:'warn' });
+        return;
+      }
+      const esc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const ov = document.createElement('div');
+      ov.className = 'rh-modal-overlay';
+      ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:1000;display:flex;align-items:flex-start;justify-content:center;overflow-y:auto;padding:24px 16px';
+      ov.innerHTML = '<div style="background:var(--bg-card,#0e1628);border:1px solid var(--border);border-radius:12px;width:100%;max-width:620px;padding:20px 24px;max-height:90vh;overflow-y:auto">'
+        + '<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">'
+          + '<div style="flex:1;min-width:0">'
+            + '<div style="font-size:14px;font-weight:700;color:var(--text-primary)">' + esc(inv.invoice_number || inv.id) + '</div>'
+            + '<div style="font-size:11.5px;color:var(--text-tertiary);margin-top:2px">' + esc(inv.patient_name || 'Unknown patient') + ' · ' + esc(inv.service || 'Invoice') + '</div>'
+          + '</div>'
+          + '<button class="ch-btn-sm" onclick="this.closest(\'.rh-modal-overlay\').remove()" style="padding:4px 10px">Close</button>'
+        + '</div>'
+        + '<div style="display:grid;grid-template-columns:140px 1fr;gap:10px;font-size:12px;line-height:1.6">'
+          + '<div style="color:var(--text-tertiary)">Status</div><div style="color:var(--text-primary)">' + esc(inv.status || '—') + '</div>'
+          + '<div style="color:var(--text-tertiary)">Amount</div><div style="color:var(--text-primary)">' + esc(fmtC(inv.amount, inv.currency)) + '</div>'
+          + '<div style="color:var(--text-tertiary)">VAT</div><div style="color:var(--text-primary)">' + esc(fmtC(inv.vat, inv.currency)) + ' (' + Math.round(Number(inv.vat_rate || 0) * 100) + '%)</div>'
+          + '<div style="color:var(--text-tertiary)">Total</div><div style="color:var(--text-primary)">' + esc(fmtC(inv.total, inv.currency)) + '</div>'
+          + '<div style="color:var(--text-tertiary)">Paid</div><div style="color:var(--text-primary)">' + esc(fmtC(inv.paid, inv.currency)) + '</div>'
+          + '<div style="color:var(--text-tertiary)">Issue date</div><div style="color:var(--text-primary)">' + esc(inv.issue_date || '—') + '</div>'
+          + '<div style="color:var(--text-tertiary)">Due date</div><div style="color:var(--text-primary)">' + esc(inv.due_date || '—') + '</div>'
+          + '<div style="color:var(--text-tertiary)">Notes</div><div style="color:var(--text-primary);white-space:pre-wrap">' + esc(inv.notes || '—') + '</div>'
+        + '</div>'
+      + '</div>';
+      ov.addEventListener('click', (event) => { if (event.target === ov) ov.remove(); });
+      document.body.appendChild(ov);
+    };
 
     window._finMarkPaid = async (id) => {
       try {
@@ -7851,6 +9687,16 @@ export async function pgFinanceHub(setTopbar, navigate) {
         window._nav('finance-hub');
       } catch (err) {
         window._dsToast?.({ title:'Mark paid failed', body: err?.message || 'Server error', severity:'warn' });
+      }
+    };
+    window._finDeleteInvoice = async (id, label) => {
+      if (!confirm('Delete draft invoice ' + label + '?')) return;
+      try {
+        await api.finance.deleteInvoice(id);
+        window._dsToast?.({ title:'Draft deleted', body: label + ' was removed.', severity:'success' });
+        window._nav('finance-hub');
+      } catch (err) {
+        window._dsToast?.({ title:'Delete failed', body: err?.message || 'Server error', severity:'warn' });
       }
     };
   }
@@ -7895,16 +9741,48 @@ export async function pgFinanceHub(setTopbar, navigate) {
         ${claims.length === 0
           ? '<div style="padding:28px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No claims yet.</div>'
           : claims.map(ins => {
-              const safeDesc = String(ins.description||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+              const safeId = String(ins.id).replace(/'/g,"\\'");
               return '<div class="book-row">'+
                 '<div class="book-datetime"><div class="book-date">'+(ins.submitted_date||ins.created_at||'')+'</div></div>'+
                 '<div class="book-info"><div class="book-patient">'+(ins.patient_name||'—')+' — '+(ins.insurer||'—')+'</div><div class="book-clinician">'+(ins.description||'')+'</div></div>'+
                 '<div style="flex-shrink:0;min-width:80px;text-align:right"><div style="font-size:14px;font-weight:700;color:var(--text-primary)">'+fmt(ins.amount)+'</div></div>'+
                 '<div class="book-status-col"><span class="book-status-badge" style="color:'+(insStC[ins.status]||'var(--text-tertiary)')+';background:'+(insStC[ins.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+(ins.status||'')+'</span></div>'+
-                '<div class="book-actions"><button class="ch-btn-sm" onclick="window._dsToast?.({title:\'View Claim\',body:\''+safeDesc+'\',severity:\'info\'})">View</button></div>'+
+                '<div class="book-actions"><button class="ch-btn-sm" onclick="window._finViewClaim(\''+safeId+'\')">View</button></div>'+
               '</div>';
             }).join('')}
       </div>`;
+
+    window._finViewClaim = (id) => {
+      const claim = claims.find((row) => String(row.id) === String(id));
+      if (!claim) {
+        window._dsToast?.({ title:'Claim not found', body:'This claim is no longer available.', severity:'warn' });
+        return;
+      }
+      const esc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const ov = document.createElement('div');
+      ov.className = 'rh-modal-overlay';
+      ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:1000;display:flex;align-items:flex-start;justify-content:center;overflow-y:auto;padding:24px 16px';
+      ov.innerHTML = '<div style="background:var(--bg-card,#0e1628);border:1px solid var(--border);border-radius:12px;width:100%;max-width:620px;padding:20px 24px;max-height:90vh;overflow-y:auto">'
+        + '<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">'
+          + '<div style="flex:1;min-width:0">'
+            + '<div style="font-size:14px;font-weight:700;color:var(--text-primary)">' + esc(claim.patient_name || 'Insurance claim') + '</div>'
+            + '<div style="font-size:11.5px;color:var(--text-tertiary);margin-top:2px">' + esc(claim.insurer || 'Unknown insurer') + ' · ' + esc(claim.claim_number || claim.id) + '</div>'
+          + '</div>'
+          + '<button class="ch-btn-sm" onclick="this.closest(\'.rh-modal-overlay\').remove()" style="padding:4px 10px">Close</button>'
+        + '</div>'
+        + '<div style="display:grid;grid-template-columns:140px 1fr;gap:10px;font-size:12px;line-height:1.6">'
+          + '<div style="color:var(--text-tertiary)">Status</div><div style="color:var(--text-primary)">' + esc(claim.status || '—') + '</div>'
+          + '<div style="color:var(--text-tertiary)">Amount</div><div style="color:var(--text-primary)">' + esc(fmt(claim.amount)) + '</div>'
+          + '<div style="color:var(--text-tertiary)">Policy number</div><div style="color:var(--text-primary)">' + esc(claim.policy_number || '—') + '</div>'
+          + '<div style="color:var(--text-tertiary)">Submitted</div><div style="color:var(--text-primary)">' + esc(claim.submitted_date || claim.created_at || '—') + '</div>'
+          + '<div style="color:var(--text-tertiary)">Decision date</div><div style="color:var(--text-primary)">' + esc(claim.decision_date || '—') + '</div>'
+          + '<div style="color:var(--text-tertiary)">Description</div><div style="color:var(--text-primary)">' + esc(claim.description || '—') + '</div>'
+          + '<div style="color:var(--text-tertiary)">Notes</div><div style="color:var(--text-primary);white-space:pre-wrap">' + esc(claim.notes || '—') + '</div>'
+        + '</div>'
+      + '</div>';
+      ov.addEventListener('click', (event) => { if (event.target === ov) ov.remove(); });
+      document.body.appendChild(ov);
+    };
   }
   else if (tab === 'analytics') {
     // Prefer server-supplied monthly series. Fall back to empty state.
@@ -7929,7 +9807,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
       </div>
       <div class="ch-two-col">
         <div class="ch-card">
-          <div class="ch-card-hd"><span class="ch-card-title">Monthly Revenue</span><button class="ch-btn-sm ch-btn-teal" onclick="window._reportsHubTab='generate';window._nav('reports-hub')">Export Report</button></div>
+          <div class="ch-card-hd"><span class="ch-card-title">Monthly Revenue</span><button class="ch-btn-sm ch-btn-teal" onclick="window._reportsHubTab='analytics';window._nav('reports-hub')">Open Reports</button></div>
           ${monthlyData.length === 0
             ? '<div style="padding:28px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No monthly data yet.</div>'
             : monthlyData.map(d =>
@@ -7996,7 +9874,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
           <div class="ch-form-group"><label class="ch-label">Method</label><select id="pay-method" class="ch-select ch-select--full"><option value="card">Card</option><option value="bacs">BACS</option><option value="cash">Cash</option><option value="manual">Manual</option><option value="other">Other</option></select></div>
           <div class="ch-form-group"><label class="ch-label">Reference (optional)</label><input id="pay-ref" class="ch-select ch-select--full" placeholder="e.g. TXN-8821"></div>
           <div class="ch-form-group"><label class="ch-label">Payment Date</label><input id="pay-date" type="date" class="ch-select ch-select--full" value="${td}"></div>
-          <div class="ch-form-group" style="grid-column:1/-1"><label class="ch-label">Invoice ID (optional)</label><input id="pay-invoice" class="ch-select ch-select--full" placeholder="Link to an invoice (optional)"></div>
+          <div class="ch-form-group" style="grid-column:1/-1"><label class="ch-label">Linked Invoice (optional)</label><select id="pay-invoice" class="ch-select ch-select--full" onchange="window._finSelectInvoiceForPayment(this.value)">${invoiceOptionsHtml}</select></div>
         </div>
         <div style="display:flex;gap:8px;margin-top:8px">
           <button class="btn btn-primary" onclick="window._finSavePayment()">Log Payment</button>
@@ -8057,6 +9935,16 @@ export async function pgFinanceHub(setTopbar, navigate) {
     } catch (err) {
       window._dsToast?.({ title:'Create failed', body: err?.message || 'Server error', severity:'warn' });
     }
+  };
+
+  window._finSelectInvoiceForPayment = (invoiceId) => {
+    const invoice = invoices.find((row) => String(row.id) === String(invoiceId));
+    const patientInput = document.getElementById('pay-patient');
+    const amountInput = document.getElementById('pay-amount');
+    if (!invoice || !patientInput || !amountInput) return;
+    patientInput.value = invoice.patient_name || '';
+    const remaining = Math.max(0, Number(invoice.total || 0) - Number(invoice.paid || 0));
+    amountInput.value = remaining ? String(remaining) : String(Number(invoice.total || 0));
   };
 
   window._finSavePayment = async () => {
@@ -8120,15 +10008,27 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   const el = document.getElementById('content');
   if (!el) return;
 
-  setTopbar(
-    'Assessments',
-    '<span id="dv2a-demo-chip" style="display:none;font-size:10px;font-weight:700;color:var(--amber,#ffb547);background:rgba(255,181,71,0.14);border:1px solid rgba(255,181,71,0.35);padding:2px 8px;border-radius:999px;margin-right:8px;letter-spacing:0.04em">DEMO DATA</span>' +
-    '<span style="font-size:11px;color:var(--text-tertiary);margin-right:10px">14 instruments · <strong style="color:var(--rose)">2 red flags</strong> · <strong style="color:var(--amber)">8 overdue</strong></span>' +
-    '<button class="btn btn-ghost btn-sm" title="Refresh queue" onclick="window._ahRefresh()">↻ Refresh</button>' +
-    '<button class="btn btn-ghost btn-sm" title="Export CSV" onclick="window._ahExportCsv()">Export CSV</button>' +
-    '<button class="btn btn-ghost btn-sm" onclick="window._assessBatch()">Batch send</button>' +
-    '<button class="btn btn-primary btn-sm" onclick="window._assessNew()">+ New assessment</button>'
-  );
+  // Topbar will be re-set after queue is hydrated so counts are real.
+  const _setAssessTopbar = (counts) => {
+    const c = counts || { instruments: 0, redFlags: 0, overdue: 0, lastSync: null };
+    const syncLbl = c.lastSync ? ' · synced ' + new Date(c.lastSync).toLocaleTimeString() : '';
+    setTopbar(
+      'Assessments',
+      '<span id="dv2a-demo-chip" style="display:none;font-size:10px;font-weight:700;color:var(--amber,#ffb547);background:rgba(255,181,71,0.14);border:1px solid rgba(255,181,71,0.35);padding:2px 8px;border-radius:999px;margin-right:8px;letter-spacing:0.04em">DEMO DATA</span>' +
+      '<span id="dv2a-counts" style="font-size:11px;color:var(--text-tertiary);margin-right:10px">' +
+        c.instruments + ' instruments · ' +
+        '<strong style="color:var(--rose)">' + c.redFlags + ' red flag' + (c.redFlags===1?'':'s') + '</strong> · ' +
+        '<strong style="color:var(--amber)">' + c.overdue + ' overdue</strong>' +
+        syncLbl +
+      '</span>' +
+      '<button id="dv2a-refresh-btn" class="btn btn-ghost btn-sm" title="Refresh queue" onclick="window._ahRefresh()">↻ Refresh</button>' +
+      '<button class="btn btn-ghost btn-sm" title="Export CSV" onclick="window._ahExportCsv()">Export CSV</button>' +
+      '<button class="btn btn-ghost btn-sm" onclick="window._assessBatch()">Batch send</button>' +
+      '<button class="btn btn-primary btn-sm" onclick="window._assessNew()">+ New assessment</button>'
+    );
+  };
+  // Initial paint with placeholders; real counts populated after hydration below.
+  _setAssessTopbar({ instruments: 0, redFlags: 0, overdue: 0, lastSync: null });
 
   const esc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
@@ -8434,6 +10334,16 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
     }
   } catch {}
 
+  // Compute real counts from hydrated rows and update the topbar.
+  const _ahCounts = () => {
+    const instruments = new Set(queueRows.map(r => r.inst).filter(Boolean)).size;
+    const redFlags = queueRows.filter(r => r.redflag || (r.item9 != null && r.item9 >= 1)).length;
+    const overdue = queueRows.filter(r => r.overdue || r.dueCls === 'overdue').length;
+    return { instruments, redFlags, overdue, lastSync: window._ahLastSync || new Date().toISOString() };
+  };
+  window._ahLastSync = window._ahLastSync || new Date().toISOString();
+  _setAssessTopbar(_ahCounts());
+
   // Reveal DEMO chip now that load has settled.
   setTimeout(() => {
     const chip = document.getElementById('dv2a-demo-chip');
@@ -8517,8 +10427,26 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   };
 
   // ── Refresh button ───────────────────────────────────────────────────────────
-  window._ahRefresh = () => {
-    window._dsToast?.({ title:'Refreshing', body:'Re-loading assessments from server…', severity:'info' });
+  // Real refresh: shows loading state on the button, refetches via the api,
+  // updates the lastSync stamp, surfaces an error toast on failure (no fake
+  // success), and re-renders. Used by the topbar Refresh control.
+  window._ahRefresh = async () => {
+    const btn = document.getElementById('dv2a-refresh-btn');
+    const prevHtml = btn?.innerHTML;
+    if (btn) { btn.innerHTML = '<span style="opacity:0.7">↻ Refreshing…</span>'; btn.disabled = true; }
+    let ok = false;
+    try {
+      // Probe the listing endpoint — if it succeeds, the next _nav() will hydrate.
+      await api.listAssessments?.();
+      ok = true;
+    } catch (err) {
+      window._dsToast?.({ title:'Refresh failed', body:(err && err.message) || 'Could not reach server. Showing cached data.', severity:'error' });
+    }
+    if (ok) {
+      window._ahLastSync = new Date().toISOString();
+      window._dsToast?.({ title:'Refreshed', body:'Assessments are up to date.', severity:'success' });
+    }
+    if (btn) { btn.innerHTML = prevHtml || '↻ Refresh'; btn.disabled = false; }
     window._nav('assessments-v2');
   };
 
@@ -9016,12 +10944,25 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
     window._assessSetFilter = (f) => { window._assessFilter = f; window._nav('assessments-v2'); };
 
     const INSTRUMENTS = ['PHQ-9','GAD-7','Y-BOCS','PCL-5','HAM-D','HAM-A','AQ-10','ASRS','MIDAS','BPI','ISI','WAB-R','BDI-II','EQ-5D'];
+    // Derive KPIs from queueRows so tiles never lie. When data is sparse
+    // (small demo set), the responder/completion percentages explicitly say
+    // "—" rather than fake a number.
+    const kRedFlags = queueRows.filter(r => r.redflag).length;
+    const kOverdue  = queueRows.filter(r => r.overdue || r.dueCls === 'overdue').length;
+    const kToday    = queueRows.filter(r => r.dueCls === 'today').length;
+    const kTodayTablet = queueRows.filter(r => r.dueCls === 'today' && r.mode === 'TABLET').length;
+    const kTodayAsync  = queueRows.filter(r => r.dueCls === 'today' && r.mode === 'ASYNC').length;
+    const kCompleted = queueRows.filter(r => r.status === 'completed' || r.sendLabel === 'Review').length;
+    const kResponders = queueRows.filter(r => r.trendCls === 'down').length;
+    const kScored = queueRows.filter(r => r.score != null).length;
+    const responderPct = kScored > 0 ? Math.round((kResponders / kScored) * 100) : null;
+    const completionPct = queueRows.length > 0 ? Math.round((kCompleted / queueRows.length) * 100) : null;
     const kpis = [
-      { lbl:'Red flags · 48h', cls:'rose', num:'2', sub:'PHQ-9 item 9 · escalate' },
-      { lbl:'Overdue',          cls:'amber',num:'8', sub:'↑ 2 vs last week' },
-      { lbl:'Due today',        cls:'teal', num:'15',sub:'12 tablet · 3 async' },
-      { lbl:'Completed · 7d',   cls:'green',num:'142',sub:'94% completion rate' },
-      { lbl:'Responder rate',   cls:'blue', num:'62', unit:'%', sub:'≥50% Δ from baseline' },
+      { lbl:'Red flags',        cls:'rose', num:String(kRedFlags), sub:kRedFlags ? 'item-9 / safety triggers · escalate' : 'no safety triggers' },
+      { lbl:'Overdue',          cls:'amber',num:String(kOverdue),  sub:kOverdue ? 'past due — send reminder' : 'all assignments on time' },
+      { lbl:'Due today',        cls:'teal', num:String(kToday),    sub:kToday ? (kTodayTablet+' tablet · '+kTodayAsync+' async') : 'no due-today items' },
+      { lbl:'Completed',        cls:'green',num:String(kCompleted),sub:completionPct != null ? completionPct+'% of current view' : '—' },
+      { lbl:'Responder rate',   cls:'blue', num:responderPct != null ? String(responderPct) : '—', unit:responderPct != null ? '%' : '', sub:kScored ? '≥50% Δ from baseline · n='+kScored : 'no scored items yet' },
     ];
 
     const kpiHtml = '<div class="dv2a-kpi-row">' + kpis.map(k =>
@@ -9251,7 +11192,17 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       '</div>'
     ).join('');
 
-    const tableRows = queueRows.slice(0, 8).map(r =>
+    // Honestly filter cohort table by the active cohort's primary instrument.
+    // When no rows match, render an explicit empty-state ("Not enough submitted
+    // assessments yet") rather than a fake table.
+    const cohortInst = (active.inst || '').split(/[·,]/).map(x => x.trim()).filter(Boolean);
+    const cohortMatch = (r) => {
+      if (!cohortInst.length) return true;
+      const ri = (r.inst || '').toUpperCase();
+      return cohortInst.some(ci => ri.includes(ci.toUpperCase().split(' ')[0]));
+    };
+    const cohortRows = queueRows.filter(cohortMatch).slice(0, 12);
+    const tableRows = cohortRows.length ? cohortRows.map(r =>
       '<tr style="border-bottom:1px solid rgba(255,255,255,0.04)">' +
         '<td style="padding:9px 12px;font-size:11.5px">'+esc(r.patient)+' <span style="color:var(--text-tertiary);font-size:10px">· MRN '+esc(r.mrn)+'</span></td>' +
         '<td style="padding:9px 12px;font-size:11px">'+esc(r.inst)+'</td>' +
@@ -9259,7 +11210,8 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         '<td style="padding:9px 12px;font-size:10.5px"><span class="dv2a-due-chip '+(r.dueCls||'')+'">'+esc(r.due||'')+'</span></td>' +
         '<td style="padding:9px 12px;font-size:11px;color:'+(r.trendCls==='down'?'var(--teal,#00d4bc)':r.trendCls==='up'?'var(--rose,#ff6b9d)':'var(--text-tertiary)')+'">'+esc(r.trend||'')+'</td>' +
       '</tr>'
-    ).join('');
+    ).join('') :
+      '<tr><td colspan="5" style="padding:24px 16px;text-align:center;font-size:11.5px;color:var(--text-tertiary)">Not enough submitted assessments yet for <strong>'+esc(active.label)+'</strong>. Use Batch send to assign '+esc(cohortInst[0]||'an instrument')+' to this cohort.</td></tr>';
 
     window._ahBulkAssign = async (cohortId, label, n, instruments) => {
       const rows = queueRows.filter(r => r.patientId).slice(0, n);
@@ -9290,7 +11242,19 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         window._dsToast?.({ title:'Bulk assign failed', body:(err && err.message) || 'Network error. Saved locally.', severity:'error' });
       }
     };
-    return '<div class="dv2a-filter-bar"><button class="dv2a-chip">Instrument: any</button><button class="dv2a-chip">Window: last 30d</button><div style="margin-left:auto"><button class="btn btn-primary btn-sm" onclick="window._ahBulkAssign(\''+esc(active.id)+'\',\''+esc(active.label)+'\','+active.n+',\''+esc(active.inst)+'\')">Batch send to '+active.n+' →</button></div></div>' +
+    // Cohort filter chips — wired to local state (instrument, time window).
+    const cohortFilterInst = window._assessCohortInst || 'any';
+    const cohortFilterWin  = window._assessCohortWin  || '30d';
+    window._assessCohortSetInst = (v) => { window._assessCohortInst = v; window._nav('assessments-v2'); };
+    window._assessCohortSetWin  = (v) => { window._assessCohortWin  = v; window._nav('assessments-v2'); };
+    const cohortInstrumentOpts = ['any', ...cohortInst.length ? [cohortInst[0]] : []];
+    const cohortWinOpts = ['7d', '30d', '90d', 'all'];
+    return '<div class="dv2a-filter-bar">' +
+        cohortInstrumentOpts.map(v => '<button class="dv2a-chip'+(cohortFilterInst===v?' active':'')+'" onclick="window._assessCohortSetInst(\''+esc(v)+'\')">Instrument: '+esc(v)+'</button>').join('') +
+        cohortWinOpts.map(v => '<button class="dv2a-chip'+(cohortFilterWin===v?' active':'')+'" onclick="window._assessCohortSetWin(\''+esc(v)+'\')">Window: '+esc(v)+'</button>').join('') +
+        '<div style="margin-left:auto"><button class="btn btn-primary btn-sm" onclick="window._ahBulkAssign(\''+esc(active.id)+'\',\''+esc(active.label)+'\','+active.n+',\''+esc(active.inst)+'\')">Batch send to '+active.n+' →</button></div>' +
+      '</div>' +
+      '<div style="font-size:10.5px;color:var(--text-tertiary);margin:6px 2px 4px;line-height:1.5"><strong style="color:var(--amber,#ffb547)">Note:</strong> Batch send creates assignments and audit entries. SMS/email delivery requires a configured messaging integration; otherwise patients see assignments via the patient portal only.</div>' +
       '<div class="dv2a-cohort-grid">' +
         '<div style="display:flex;flex-direction:column;gap:8px">' + cohortListHtml + '</div>' +
         '<div class="dv2a-card">' +
@@ -9355,9 +11319,30 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
     })();
 
     window._assessAssignForm = () => {
-      // Open the fillable form directly so clinician can either complete now
-      // or use "Save draft" to assign for later.
-      window._ahOpenForm(inst.id);
+      // Read the patient name/MRN typed in the input below and pass it to the
+      // form opener so the clinician's intent is honoured. Match against the
+      // current queue patients first, then fall back to a name-only seed.
+      const inp = document.getElementById('dv2a-ind-pt-input');
+      const typed = (inp && inp.value || '').trim();
+      let patientId = '';
+      let patientName = '';
+      if (typed) {
+        const needle = typed.toLowerCase();
+        const match = queueRows.find(r =>
+          (r.patient || '').toLowerCase().includes(needle) ||
+          String(r.mrn || '').toLowerCase() === needle ||
+          String(r.patientId || '').toLowerCase() === needle
+        );
+        if (match) { patientId = match.patientId || ''; patientName = match.patient; }
+        else { patientName = typed; }
+      }
+      window._ahOpenForm(inst.id, patientId, null);
+      // If we matched a queue patient, the form opener already seeds it.
+      // Otherwise pre-fill the patient picker with the typed text.
+      if (!patientId && patientName && window._ahForm) {
+        window._ahForm.patientName = patientName;
+        try { window._ahRender?.(); } catch {}
+      }
     };
 
     return '<div class="dv2a-ind-wrap">' +
@@ -9377,7 +11362,7 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         '<div style="margin-top:16px;font-size:10.5px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Licensing</div>' +
         '<div style="font-size:11px;color:var(--text-secondary);margin-top:6px;line-height:1.5">'+esc(inst.licensing?.attribution||'—')+'</div>' +
         '<div style="margin-top:16px;font-size:10.5px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Assign to patient</div>' +
-        '<input class="form-control" placeholder="Patient name or MRN" style="width:100%;padding:8px 10px;background:var(--bg-surface,#11222a);border:1px solid var(--border);border-radius:6px;font-size:12px;color:var(--text-primary);margin-bottom:8px"/>' +
+        '<input id="dv2a-ind-pt-input" class="form-control" placeholder="Patient name or MRN" style="width:100%;padding:8px 10px;background:var(--bg-surface,#11222a);border:1px solid var(--border);border-radius:6px;font-size:12px;color:var(--text-primary);margin-bottom:8px"/>' +
         '<button class="btn btn-primary btn-sm" style="width:100%" onclick="window._assessAssignForm()">Assign '+esc(inst.abbr||inst.id)+' →</button>' +
       '</div>' +
     '</div>';
@@ -9397,6 +11382,17 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
     mainContent = renderIndividual();
   }
 
+  // Clinical safety footer — visible on every tab. Required by clinical-launch
+  // governance: assessments support, not replace, clinician judgment.
+  const safetyFooter =
+    '<div role="note" aria-label="Clinical safety disclaimer" style="font-size:10.5px;color:var(--text-tertiary);padding:8px 18px;border-top:1px solid var(--border);background:rgba(0,0,0,0.18);line-height:1.5">' +
+      '<strong style="color:var(--text-secondary)">Clinical safety:</strong> ' +
+      'Assessments support clinical decision-making and require clinician review. ' +
+      'Scores are not diagnoses on their own. ' +
+      '<strong style="color:var(--rose,#ff6b9d)">Red flags require immediate clinician review per local policy.</strong> ' +
+      'Licensed instruments may require separate permission for distribution.' +
+    '</div>';
+
   el.innerHTML =
     '<div class="dv2a-shell">' +
       '<div class="dv2a-tabs" role="tablist">' + tabBar() + '</div>' +
@@ -9404,7 +11400,21 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         '<div class="dv2a-main">' + mainContent + '</div>' +
         (tab === 'queue' && selectedId ? sideContent : '') +
       '</div>' +
+      safetyFooter +
     '</div>';
+
+  // Audit: page loaded. Best-effort, fire-and-forget so audit failures never
+  // break the UI. Uses the same audit envelope shape as elsewhere.
+  try {
+    const audit = (window.api && window.api.logAudit) || api.logAudit;
+    audit?.({
+      event: 'assessments_hub_loaded',
+      tab,
+      counts: _ahCounts(),
+      using_demo_data: usingDemoData,
+      ts: new Date().toISOString(),
+    });
+  } catch {}
 }
 
 
@@ -9590,8 +11600,8 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
               <option value="green"${isEdit && editItem.tone === 'green' ? ' selected' : ''}>Green</option>
             </select>
           </div>
-          <button type="submit" style="padding:10px 16px;background:#5dd9c4;color:#0a1a22;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin-top:4px">${isEdit ? 'Update Listing' : 'Publish Listing'}</button>
-          <div style="font-size:11px;color:var(--text-tertiary);line-height:1.5">Your listing will be live immediately and visible to clinicians and patients.</div>
+          <button type="submit" style="padding:10px 16px;background:#5dd9c4;color:#0a1a22;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin-top:4px">${isEdit ? 'Update Listing' : 'Save Listing'}</button>
+          <div style="font-size:11px;color:var(--text-tertiary);line-height:1.5">Your listing will be saved to your marketplace catalog. Public visibility depends on marketplace status and active state.</div>
         </form>
       </div>`;
     document.body.appendChild(modal);
@@ -9599,7 +11609,7 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
     modal.querySelector('#mp-list-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = e.target.querySelector('button[type="submit"]');
-      btn.disabled = true; btn.textContent = isEdit ? 'Updating...' : 'Publishing...';
+      btn.disabled = true; btn.textContent = isEdit ? 'Updating...' : 'Saving...';
       const fd = new FormData(e.target);
       const payload = {
         name: fd.get('name').trim(),
@@ -9619,10 +11629,10 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
         } else {
           await api.marketplaceSellerCreateItem(payload);
         }
-        modal.innerHTML = '<div style="background:var(--navy-850,#0f172a);border:1px solid var(--border);border-radius:16px;max-width:420px;width:100%;padding:40px 32px;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.5)"><div style="font-size:2.5rem;margin-bottom:12px">&#10003;</div><h3 style="color:var(--text-primary);margin:0 0 8px">' + (isEdit ? 'Listing Updated' : 'Listing Published!') + '</h3><p style="color:var(--text-secondary);font-size:13px;margin:0 0 20px;line-height:1.5">Your ' + esc(payload.kind) + ' <strong>' + esc(payload.name) + '</strong> is now live on the marketplace.</p><div style="display:flex;gap:8px;justify-content:center"><button onclick="window._mpMyListings();document.getElementById(\'mp-list-modal\').remove()" style="padding:8px 20px;background:rgba(155,127,255,.15);color:#9b7fff;border:1px solid rgba(155,127,255,.25);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">View My Listings</button><button onclick="document.getElementById(\'mp-list-modal\').remove()" style="padding:8px 20px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer">Close</button></div></div>';
+        modal.innerHTML = '<div style="background:var(--navy-850,#0f172a);border:1px solid var(--border);border-radius:16px;max-width:420px;width:100%;padding:40px 32px;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.5)"><div style="font-size:2.5rem;margin-bottom:12px">&#10003;</div><h3 style="color:var(--text-primary);margin:0 0 8px">' + (isEdit ? 'Listing Updated' : 'Listing Saved') + '</h3><p style="color:var(--text-secondary);font-size:13px;margin:0 0 20px;line-height:1.5">Your ' + esc(payload.kind) + ' <strong>' + esc(payload.name) + '</strong> was saved to your marketplace catalog. Public visibility depends on listing status and active state.</p><div style="display:flex;gap:8px;justify-content:center"><button onclick="window._mpMyListings();document.getElementById(\'mp-list-modal\').remove()" style="padding:8px 20px;background:rgba(155,127,255,.15);color:#9b7fff;border:1px solid rgba(155,127,255,.25);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">View My Listings</button><button onclick="document.getElementById(\'mp-list-modal\').remove()" style="padding:8px 20px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer">Close</button></div></div>';
       } catch (err) {
-        btn.disabled = false; btn.textContent = isEdit ? 'Update Listing' : 'Publish Listing';
-        window._showToast?.('Failed to ' + (isEdit ? 'update' : 'publish') + ' listing: ' + (err.message || 'Please try again.'), 'error');
+        btn.disabled = false; btn.textContent = isEdit ? 'Update Listing' : 'Save Listing';
+        window._showToast?.('Failed to ' + (isEdit ? 'update' : 'save') + ' listing: ' + (err.message || 'Please try again.'), 'error');
       }
     });
   };

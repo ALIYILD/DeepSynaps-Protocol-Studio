@@ -509,12 +509,22 @@ def _fallback_report_html(analysis_id: str, report: dict[str, Any]) -> str:
     patient = report.get("patient", {}) if isinstance(report, dict) else {}
     modalities = report.get("modalities_present", []) if isinstance(report, dict) else []
     targets = report.get("stim_targets", []) if isinstance(report, dict) else []
+    citations = report.get("saved_evidence_citations", []) if isinstance(report, dict) else []
     rows = "".join(
         f"<tr><td>{t.get('target_id','')}</td>"
         f"<td>{t.get('modality','')}</td>"
         f"<td>{t.get('region_name','')}</td>"
         f"<td>{t.get('confidence','')}</td></tr>"
         for t in targets
+    )
+    citation_rows = "".join(
+        "<tr>"
+        f"<td>{(c.get('citation_payload') or {}).get('title') or c.get('title') or 'Untitled citation'}</td>"
+        f"<td>{(c.get('citation_payload') or {}).get('journal') or (c.get('citation_payload') or {}).get('source') or '—'}</td>"
+        f"<td>{(c.get('citation_payload') or {}).get('url') or (c.get('citation_payload') or {}).get('record_url') or (c.get('citation_payload') or {}).get('doi_url') or '—'}</td>"
+        "</tr>"
+        for c in citations
+        if isinstance(c, dict)
     )
     return f"""<!doctype html>
 <html><head><meta charset="utf-8"><title>MRI Report — {analysis_id}</title>
@@ -534,6 +544,9 @@ def _fallback_report_html(analysis_id: str, report: dict[str, Any]) -> str:
   <h2>Stim targets</h2>
   <table><thead><tr><th>Target</th><th>Modality</th><th>Region</th><th>Confidence</th></tr></thead>
   <tbody>{rows or '<tr><td colspan="4">No targets</td></tr>'}</tbody></table>
+  <h2>Saved evidence citations</h2>
+  <table><thead><tr><th>Title</th><th>Source</th><th>Link</th></tr></thead>
+  <tbody>{citation_rows or '<tr><td colspan="3">No saved citations</td></tr>'}</tbody></table>
   <p class="foot">Decision-support tool. Not a medical device. Coordinates and suggested
      parameters are derived from peer-reviewed literature. Not a substitute for
      clinician judgement. For neuronavigation planning only.</p>

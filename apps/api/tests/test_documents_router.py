@@ -135,11 +135,17 @@ class TestDocumentCrud:
         r = client.get(f"/api/v1/documents/{doc['id']}", headers=auth_headers["clinician"])
         assert r.status_code == 404
 
-    def test_clinician_scope_isolation(self, client: TestClient, auth_headers: dict) -> None:
-        _create(client, auth_headers, title="Mine")
+    def test_admin_sees_all_clinic_documents(self, client: TestClient, auth_headers: dict) -> None:
+        """Updated for the clinic-scope rewrite: admin / supervisor are
+        cross-clinic operators by design (canonical
+        `require_patient_owner` admits them via `allow_admin=True`).
+        Pre-fix the owner-only filter excluded admin from seeing other
+        clinicians' rows; post-fix admin sees the full clinic surface."""
+        created = _create(client, auth_headers, title="Mine")
         resp = client.get("/api/v1/documents", headers=auth_headers["admin"])
         assert resp.status_code == 200
-        assert all(d["title"] != "Mine" for d in resp.json()["items"])
+        ids = [d["id"] for d in resp.json()["items"]]
+        assert created["id"] in ids
 
 
 class TestDocumentUploadDownload:
@@ -229,3 +235,31 @@ class TestDocumentUploadDownload:
         doc = _create(client, auth_headers, title="Metadata Only")
         resp = client.get(f"/api/v1/documents/{doc['id']}/download", headers=auth_headers["clinician"])
         assert resp.status_code == 404
+
+    def test_upload_preserves_file_ref_and_mime_for_download(
+        self, client: TestClient, auth_headers: dict, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Contract test: uploaded file must round-trip with its declared MIME
+        on download — this is what the structured-report renderer relies on
+        when it embeds attached PDFs."""
+        from app.settings import get_settings
+        settings = get_settings()
+        monkeypatch.setattr(settings, "media_storage_root", str(tmp_path))
+
+        payload = b"%PDF-1.4 round-trip mime test"
+        files = {"file": ("scan.pdf", io.BytesIO(payload), "application/pdf")}
+        up = client.post(
+            "/api/v1/documents/upload",
+            files=files,
+            data={"title": "Scan attachment"},
+            headers=auth_headers["clinician"],
+        )
+        assert up.status_code == 201, up.text
+        doc_id = up.json()["id"]
+        assert up.json()["file_ref"].startswith("documents/")
+
+        dl = client.get(f"/api/v1/documents/{doc_id}/download", headers=auth_headers["clinician"])
+        assert dl.status_code == 200
+        # MIME must round-trip — never default to octet-stream when known.
+        assert dl.headers["content-type"].startswith("application/pdf")
+        assert dl.content == payload

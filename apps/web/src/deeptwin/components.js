@@ -8,6 +8,7 @@ import {
   evidenceGradeBadge, simulationOnlyBadge, notAPrescriptionStamp,
   modelEstimatedStamp, approvalRequiredBadge, correlationVsCausationNotice,
   dataCompletenessWarning, completenessGauge, riskChip, reviewStatusChip,
+  confidenceTierChip, topDriversList, evidenceStatusChip, decisionSupportBanner,
   escHtml, safetyFooter,
 } from './safety.js';
 import { sparklineSVG, buildTimeline, buildCorrelationHeatmap, buildPrediction, buildSimulationCurve } from './charts.js';
@@ -27,10 +28,16 @@ const DOMAIN_LABEL = {
 };
 
 // 1. Twin status header --------------------------------------------------
-export function renderHeader({ patientLabel, condition, summary }) {
-  const compl = summary?.completeness_pct ?? 0;
-  const sources = (summary?.sources_connected || []).length;
-  const total = sources + (summary?.sources_missing || []).length;
+export function renderHeader({ patientLabel, condition, summary, dataSources }) {
+  const compl = dataSources?.completeness_score != null
+    ? Math.round(dataSources.completeness_score * 100)
+    : (summary?.completeness_pct ?? 0);
+  const sources = dataSources?.sources
+    ? Object.values(dataSources.sources).filter(s => s.available).length
+    : (summary?.sources_connected || []).length;
+  const total = dataSources?.sources
+    ? Object.keys(dataSources.sources).length
+    : (sources + (summary?.sources_missing || []).length);
   const updated = summary?.last_updated ? new Date(summary.last_updated).toLocaleString() : '—';
   return `
     <section class="dt-header card">
@@ -57,7 +64,33 @@ export function renderHeader({ patientLabel, condition, summary }) {
 }
 
 // 2. Data source grid ----------------------------------------------------
-export function renderDataSources({ summary }) {
+export function renderDataSources({ summary, dataSources }) {
+  // Prefer real data-sources map (migration 063); fall back to summary shape.
+  if (dataSources?.sources) {
+    const entries = Object.entries(dataSources.sources);
+    const cells = entries.filter(([, s]) => s.available).map(([key, s]) => `
+      <div class="dt-src dt-src-on">
+        <div class="dt-src-label">${escHtml(DOMAIN_LABEL[key] || key)}</div>
+        <div class="dt-src-meta">${s.count} records · updated ${s.last_updated ? new Date(s.last_updated).toLocaleDateString() : '—'}</div>
+      </div>
+    `).join('');
+    const off = entries.filter(([, s]) => !s.available).map(([key]) => `
+      <div class="dt-src dt-src-off">
+        <div class="dt-src-label">${escHtml(DOMAIN_LABEL[key] || key)}</div>
+        <div class="dt-src-meta">no data</div>
+      </div>
+    `).join('');
+    const score = Math.round((dataSources.completeness_score || 0) * 100);
+    return `
+      <section class="card dt-section">
+        <header class="dt-section-h"><h3>Data sources</h3>
+          <span class="dt-section-sub">Real availability · ${score}% complete</span>
+        </header>
+        <div class="dt-src-grid">${cells}${off}</div>
+        ${off ? dataCompletenessWarning(off.split('dt-src-off').length - 1 + ' sources missing') : ''}
+      </section>
+    `;
+  }
   const connected = summary?.sources_connected || [];
   const missing = summary?.sources_missing || [];
   const cells = connected.map(s => `
@@ -219,18 +252,29 @@ export function renderPrediction({ prediction }, hostId) {
     <button class="dt-tab ${h === horizon ? 'active' : ''}" data-horizon="${h}">${h}</button>
   `).join('');
   const assumptions = (prediction?.assumptions || []).map(a => `<li>${escHtml(a)}</li>`).join('');
+  const tierChip = prediction?.confidence_tier ? confidenceTierChip(prediction.confidence_tier) : '';
+  const evChip = evidenceStatusChip(prediction?.evidence_status || 'pending');
+  const drivers = topDriversList(prediction?.top_drivers);
+  const rationale = prediction?.rationale
+    ? `<div class="dt-pred-rationale" style="font-size:13px;margin:8px 0">${escHtml(prediction.rationale)}</div>`
+    : '';
+  const calibrationNote = prediction?.calibration?.note
+    ? `<div class="dt-muted" style="font-size:11px;margin-top:4px">Calibration: ${escHtml(prediction.calibration.status || 'uncalibrated')} — ${escHtml(prediction.calibration.note)}</div>`
+    : '';
   return `
     <section class="card dt-section">
       <header class="dt-section-h"><h3>Prediction engine</h3>
-        <span class="dt-section-sub">Trajectory with uncertainty bands. ${modelEstimatedStamp()} ${approvalRequiredBadge()}</span>
+        <span class="dt-section-sub">Trajectory with uncertainty bands. ${modelEstimatedStamp()} ${approvalRequiredBadge()} ${tierChip} ${evChip}</span>
       </header>
       <div class="dt-tabs">${buttons}</div>
       <div id="${hostId}" class="dt-chart-host"></div>
+      ${rationale}
       <div class="dt-pred-foot">
         <div><div class="dt-k">Assumptions</div><ul>${assumptions}</ul></div>
-        <div>${evidenceGradeBadge(prediction?.evidence_grade)}</div>
+        <div><div class="dt-k">Top drivers</div>${drivers}</div>
+        <div>${evidenceGradeBadge(prediction?.evidence_grade)}${calibrationNote}</div>
       </div>
-      <div class="dt-notice dt-notice-amber">${escHtml(prediction?.disclaimer || 'Predictions are model-estimated. Clinician must review.')}</div>
+      <div class="dt-notice dt-notice-amber">${escHtml(prediction?.disclaimer || 'Predictions are model-estimated and uncalibrated. Clinician must review.')}</div>
     </section>
   `;
 }
@@ -304,14 +348,33 @@ export function renderSimulationLab(_state, hostId) {
 
 export function renderSimulationDetail(sim) {
   if (!sim) return '<div class="dt-muted">Run a scenario to see predicted output.</div>';
-  const bullet = arr => (arr || []).map(s => `<li>${escHtml(s)}</li>`).join('');
+  const bullet = arr => (arr || []).map(s => `<li>${escHtml(typeof s === 'string' ? s : (s.claim || s.detail || JSON.stringify(s)))}</li>`).join('');
+  const tier = sim.confidence_tier ? confidenceTierChip(sim.confidence_tier) : '';
+  const ev = evidenceStatusChip(sim.evidence_status || 'pending');
+  const drivers = topDriversList(sim.top_drivers || sim.feature_attribution);
+  const rationale = sim.rationale
+    ? `<div class="dt-sim-rationale" style="font-size:13px;margin:6px 0">${escHtml(sim.rationale)}</div>`
+    : '';
+  const ci = Array.isArray(sim.responder_probability_ci95)
+    ? ` <span class="dt-muted" style="font-size:11px">95% CI ${Math.round(sim.responder_probability_ci95[0]*100)}–${Math.round(sim.responder_probability_ci95[1]*100)}%</span>`
+    : '';
+  const calNote = sim.calibration?.note
+    ? `<div class="dt-muted" style="font-size:11px;margin-top:4px">Calibration: ${escHtml(sim.calibration.status || 'uncalibrated')} — ${escHtml(sim.calibration.note)}</div>`
+    : '';
+  const provenance = sim.provenance
+    ? `<details class="dt-prov" style="margin-top:8px"><summary class="dt-muted" style="font-size:11px;cursor:pointer">Provenance · ${escHtml(sim.provenance.model_id || '')} · ${escHtml(sim.provenance.schema_version || '')}</summary><pre style="font-size:11px;white-space:pre-wrap;background:rgba(255,255,255,.04);padding:6px;border-radius:6px">${escHtml(JSON.stringify(sim.provenance, null, 2))}</pre></details>`
+    : '';
+  const psNotes = (sim.patient_specific_notes || []).map(n => `<li>${escHtml(n)}</li>`).join('');
   return `
     <div class="dt-sim-detail">
       <div class="dt-sim-detail-h">
         <strong>${escHtml(sim.scenario_id)}</strong>
         ${evidenceGradeBadge(sim.evidence_grade)}
+        ${tier}
+        ${ev}
         ${approvalRequiredBadge()}
       </div>
+      ${rationale}
       <div class="dt-sim-detail-grid">
         <div>
           <div class="dt-k">Expected domains</div>
@@ -319,7 +382,12 @@ export function renderSimulationDetail(sim) {
         </div>
         <div>
           <div class="dt-k">Responder probability</div>
-          <div>${escHtml(String(Math.round((sim.responder_probability || 0) * 100)))}% ${sim.non_responder_flag ? '<span class="dt-stamp dt-stamp-warn">non-responder flag</span>' : ''}</div>
+          <div>${escHtml(String(Math.round((sim.responder_probability || 0) * 100)))}%${ci} ${sim.non_responder_flag ? '<span class="dt-stamp dt-stamp-warn">non-responder flag</span>' : ''}</div>
+          ${calNote}
+        </div>
+        <div>
+          <div class="dt-k">Top drivers (patient-specific)</div>
+          ${drivers}
         </div>
         <div>
           <div class="dt-k">Safety concerns</div>
@@ -337,8 +405,10 @@ export function renderSimulationDetail(sim) {
           <div class="dt-k">Evidence support</div>
           <ul>${bullet(sim.evidence_support)}</ul>
         </div>
+        ${psNotes ? `<div><div class="dt-k">Patient-specific notes</div><ul>${psNotes}</ul></div>` : ''}
       </div>
-      <div class="dt-notice dt-notice-amber">${escHtml(sim.disclaimer || '')}</div>
+      ${provenance}
+      <div class="dt-notice dt-notice-amber">${escHtml(sim.disclaimer || 'Decision-support only. Clinician must review.')}</div>
     </div>
   `;
 }
@@ -401,11 +471,100 @@ export function errorBlock(message) {
 }
 
 export function emptyPatientBlock() {
+  // Detect demo build at render time so the chooser surfaces a one-click
+  // path to a synthetic DeepTwin without leaving the page. Outside demo
+  // mode the demo button is hidden so a clinician can't accidentally
+  // explore fabricated content.
+  let isDemo = false;
+  try {
+    isDemo = !!(import.meta.env && (import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1'));
+  } catch (_e) { isDemo = false; }
+  const demoBtn = isDemo
+    ? `<button class="btn btn-primary btn-sm" onclick="window._selectedPatientId='sarah-johnson';window._profilePatientId='sarah-johnson';window._nav('deeptwin')">Open DeepTwin (demo data)</button>`
+    : '';
   return `
-    <section class="card dt-section dt-empty">
-      <h3>Select a patient to load their DeepTwin</h3>
-      <p class="dt-muted">DeepTwin is patient-scoped. Pick a patient from the roster, then return here.</p>
-      <button class="btn btn-primary btn-sm" onclick="window._nav('patients-hub')">Go to Patients</button>
+    <section class="card dt-section dt-empty" role="region" aria-label="DeepTwin patient picker">
+      <h3>Pick a patient to load their DeepTwin</h3>
+      <p class="dt-muted">DeepTwin is patient-scoped — it composes 11 sections (signals, timeline, correlations, predictions, simulation lab, report center, doctor handoff) for one patient at a time. Pick a patient below or open the demo to see the full surface.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+        ${demoBtn}
+        <button class="btn btn-outline btn-sm" onclick="window._nav('patients-hub')">Open patients roster</button>
+        <button class="btn btn-outline btn-sm" onclick="window._nav('clinical')">Back to clinical hub</button>
+      </div>
+    </section>
+  `;
+}
+
+
+// 12. Analysis & Simulation history ---------------------------------------
+export function renderHistoryPanel({ analysisRuns = [], simulationRuns = [] }) {
+  const analysisItems = analysisRuns.map(r => `
+    <div class="dt-history-item" data-run-id="${escHtml(r.id)}" data-run-type="analysis">
+      <div class="dt-history-meta">
+        <span class="dt-history-type">${escHtml(r.analysis_type)}</span>
+        <span class="dt-history-date">${new Date(r.created_at).toLocaleString()}</span>
+        ${r.reviewed_at ? '<span class="dt-chip dt-chip-teal">Reviewed</span>' : '<span class="dt-chip dt-chip-amber">Pending review</span>'}
+      </div>
+      <div class="dt-history-actions">
+        ${!r.reviewed_at ? `<button class="btn btn-ghost btn-sm" data-review>Mark reviewed</button>` : ''}
+      </div>
+    </div>
+  `).join('') || '<div class="dt-muted">No analysis runs yet.</div>';
+
+  const simulationItems = simulationRuns.map(r => `
+    <div class="dt-history-item" data-run-id="${escHtml(r.id)}" data-run-type="simulation">
+      <div class="dt-history-meta">
+        <span class="dt-history-type">Simulation</span>
+        <span class="dt-history-date">${new Date(r.created_at).toLocaleString()}</span>
+        ${r.reviewed_at ? '<span class="dt-chip dt-chip-teal">Reviewed</span>' : '<span class="dt-chip dt-chip-amber">Pending review</span>'}
+      </div>
+      <div class="dt-history-actions">
+        ${!r.reviewed_at ? `<button class="btn btn-ghost btn-sm" data-review>Mark reviewed</button>` : ''}
+      </div>
+    </div>
+  `).join('') || '<div class="dt-muted">No simulation runs yet.</div>';
+
+  return `
+    <section class="card dt-section">
+      <header class="dt-section-h"><h3>History & Review</h3>
+        <span class="dt-section-sub">Past analyses and simulations requiring clinician review</span>
+      </header>
+      <div class="dt-history-grid">
+        <div class="dt-history-col">
+          <h4>Analysis runs (${analysisRuns.length})</h4>
+          ${analysisItems}
+        </div>
+        <div class="dt-history-col">
+          <h4>Simulation runs (${simulationRuns.length})</h4>
+          ${simulationItems}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+// 13. Clinician notes -----------------------------------------------------
+export function renderClinicianNotesPanel({ notes = [] }) {
+  const items = notes.map(n => `
+    <div class="dt-note-item">
+      <div class="dt-note-meta">
+        <span class="dt-note-author">${escHtml(n.clinician_id)}</span>
+        <span class="dt-note-date">${new Date(n.created_at).toLocaleString()}</span>
+      </div>
+      <div class="dt-note-text">${escHtml(n.note_text)}</div>
+    </div>
+  `).join('') || '<div class="dt-muted">No clinician notes yet.</div>';
+
+  return `
+    <section class="card dt-section">
+      <header class="dt-section-h"><h3>Clinician notes</h3>
+        <span class="dt-section-sub">Annotations on this twin context</span>
+      </header>
+      <div class="dt-notes-list">${items}</div>
+      <div class="dt-note-form">
+        <textarea id="dt-note-input" class="dt-textarea" rows="2" placeholder="Add a clinician note…"></textarea>
+        <button class="btn btn-primary btn-sm" id="dt-note-save">Save note</button>
+      </div>
     </section>
   `;
 }

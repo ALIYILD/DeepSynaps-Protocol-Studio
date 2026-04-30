@@ -29,11 +29,15 @@ import json
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
+from app.auth import AuthenticatedActor, require_patient_owner
 from app.database import get_db_session
 from app.persistence.models import QEEGAIReport, QEEGAnalysis
+from app.registries.auth import DEMO_ACTOR_TOKENS
+from app.repositories.patients import resolve_patient_clinic_id
+from app.settings import get_settings
 
 _log = logging.getLogger(__name__)
 
@@ -114,17 +118,130 @@ def _analysis_snapshot(analysis: QEEGAnalysis) -> dict:
         "risk_scores": _maybe("risk_scores_json"),
         "brain_age": _maybe("brain_age_json"),
         "explainability": _maybe("explainability_json"),
+        "safety_cockpit": _maybe("safety_cockpit_json"),
+        "red_flags": _maybe("red_flags_json"),
+        "normative_metadata": _maybe("normative_metadata_json"),
+        "interpretability_status": getattr(analysis, "interpretability_status", None),
+        "medication_confounds": getattr(analysis, "medication_confounds", None),
     }
+
+
+def _resolve_ws_actor(token: str | None) -> AuthenticatedActor | None:
+    """Best-effort actor resolution from a token in the WS query string.
+
+    WebSockets cannot easily carry Authorization headers from browsers, so
+    the convention is `?token=<jwt>`. Mirrors the demo+JWT logic in
+    `app.auth.get_authenticated_actor` but returns None on any failure
+    instead of raising — the caller closes the socket with code 1008.
+    """
+    if not token:
+        return None
+    settings = get_settings()
+    if settings.app_env in ("development", "test"):
+        demo = DEMO_ACTOR_TOKENS.get(token)
+        if demo is not None:
+            # Lift clinic_id from DB if a matching User row exists (mirrors
+            # the additive change in get_authenticated_actor).
+            from app.database import SessionLocal
+            from app.repositories.users import get_user_by_id
+            clinic_id = None
+            try:
+                _db = SessionLocal()
+                try:
+                    _u = get_user_by_id(_db, demo.actor_id)
+                    if _u is not None and _u.clinic_id:
+                        clinic_id = _u.clinic_id
+                finally:
+                    _db.close()
+            except Exception:
+                pass
+            return AuthenticatedActor(
+                actor_id=demo.actor_id,
+                display_name=demo.display_name,
+                role=demo.role,
+                package_id=demo.package_id,
+                token_id=token,
+                clinic_id=clinic_id,
+            )
+    try:
+        from app.services.auth_service import decode_token
+        from app.database import SessionLocal
+        from app.repositories.users import get_user_by_id
+        payload = decode_token(token)
+        if not payload or payload.get("type") != "access":
+            return None
+        user_id = payload.get("sub")
+        if not user_id:
+            return None
+        _db = SessionLocal()
+        try:
+            user = get_user_by_id(_db, user_id)
+        finally:
+            _db.close()
+        if user is None:
+            return None
+        clinic_id = user.clinic_id or payload.get("clinic_id")
+        return AuthenticatedActor(
+            actor_id=user_id,
+            display_name=user.display_name,
+            role=payload.get("role", "guest"),
+            package_id=payload.get("package_id", "explorer"),
+            token_id=token,
+            clinic_id=clinic_id,
+        )
+    except Exception:
+        return None
+
+
+# Per-actor LLM message-rate cap on the Copilot WebSocket. WebSockets
+# aren't naturally instrumented by SlowAPI's per-route limiter (the
+# limit decorator targets HTTP routes via FastAPI's Request param), so
+# we enforce a token-bucket-style cap manually in the message loop.
+# 20 messages/min/actor matches the HTTP-side `@limiter.limit("20/minute")`
+# pattern used by every other LLM-touching route in the codebase.
+_COPILOT_MAX_MESSAGES_PER_MIN = 20
+# Max bytes in a single user `content` payload before we refuse the
+# turn. Pre-fix this was uncapped, so a clinician (or compromised
+# token) could paste megabytes into the LLM prompt → cost-DoS.
+_COPILOT_MAX_CONTENT_BYTES = 8_000
 
 
 @router.websocket("/{analysis_id}")
 async def copilot_ws(
     websocket: WebSocket,
     analysis_id: str,
+    token: str | None = Query(default=None),
     db: Session = Depends(get_db_session),
 ) -> None:
-    """Copilot chat WebSocket. See module docstring for the message protocol."""
+    """Copilot chat WebSocket. See module docstring for the message protocol.
+
+    Requires an auth token. The WebSocket protocol does not allow
+    custom request headers from a vanilla ``new WebSocket(url)``, but
+    modern Sec-WebSocket-Protocol negotiation and reverse-proxies that
+    forward ``Authorization`` from the upgrade request both DO. The
+    auth resolution prefers the header path so the token never lands
+    in proxy access logs / browser history; the ``?token=`` query
+    parameter is kept as a fallback for legacy callers.
+
+    Without a valid token (or with one that doesn't match the
+    analysis's clinic) the socket is rejected with code 1008.
+    """
     await websocket.accept()
+
+    # Prefer the Authorization header so the token isn't logged in
+    # the request URL. Fall back to ``?token=`` for legacy clients.
+    raw_token: str | None = None
+    auth_header = websocket.headers.get("authorization") or ""
+    if auth_header.lower().startswith("bearer "):
+        raw_token = auth_header[7:].strip()
+    if not raw_token:
+        raw_token = token  # legacy path
+
+    actor = _resolve_ws_actor(raw_token)
+    if actor is None or actor.role == "guest":
+        await websocket.send_json({"type": "error", "content": "Authentication required."})
+        await websocket.close(code=1008)
+        return
 
     copilot = _load_copilot()
 
@@ -137,6 +254,23 @@ async def copilot_ws(
                 "content": f"Analysis '{analysis_id}' not found.",
             }
         )
+        await websocket.close(code=1008)
+        return
+
+    # Cross-clinic ownership gate — the analysis must belong to a patient
+    # in the actor's clinic (or actor must be admin). Pre-fix the
+    # ``if exists`` branch silently passed when the patient row had been
+    # deleted (orphan-bypass IDOR) — an attacker could read a stale
+    # analysis_id whose patient_id no longer resolved. Now refuse for
+    # non-admins on the orphan path too.
+    try:
+        exists, clinic_id = resolve_patient_clinic_id(db, analysis.patient_id)
+        if exists:
+            require_patient_owner(actor, clinic_id)
+        elif actor.role != "admin":
+            raise PermissionError("orphaned-patient analysis is admin-only")
+    except Exception:
+        await websocket.send_json({"type": "error", "content": "Access denied for this analysis."})
         await websocket.close(code=1008)
         return
 
@@ -153,21 +287,34 @@ async def copilot_ws(
                 risk_scores=snapshot["risk_scores"],
                 recommendation=recommendation,
                 papers=[],
+                medication_confounds=snapshot.get("medication_confounds"),
             )
         except Exception as exc:  # pragma: no cover — should not happen
             _log.warning("render_system_prompt failed: %s", exc)
             system_prompt = ""
 
     # ── Send welcome message ─────────────────────────────────────────────
+    # NOTE: pre-fix this echoed the first 400 chars of the rendered
+    # system prompt back to the client, leaking the prompt template
+    # plus the (PHI-shaped) features/zscores/risk_scores snapshot.
+    # Drop the preview from the wire — debug it server-side instead.
     await websocket.send_json(
         {
             "type": "welcome",
             "analysis_id": analysis_id,
             "stubbed": copilot is None,
             "disclaimer": WELCOME_DISCLAIMER,
-            "system_prompt_preview": (system_prompt[:400] if system_prompt else None),
         }
     )
+
+    # Sliding-window rate bucket for this socket. Pre-fix the message
+    # loop dispatched into the LLM with no throttle — a single
+    # authenticated client could drive arbitrary Anthropic / OpenAI
+    # spend by sending continuous `message` frames. The bucket below
+    # enforces ``_COPILOT_MAX_MESSAGES_PER_MIN`` per actor, mirroring
+    # the HTTP-route ``@limiter.limit("20/minute")`` we use elsewhere.
+    import time as _time
+    _msg_window: list[float] = []
 
     dispatch_context: dict[str, Any] = {
         "db": db,
@@ -176,6 +323,11 @@ async def copilot_ws(
         "features": snapshot["features"],
         "zscores": snapshot["zscores"],
         "risk_scores": snapshot["risk_scores"],
+        "safety_cockpit": snapshot.get("safety_cockpit"),
+        "red_flags": snapshot.get("red_flags"),
+        "normative_metadata": snapshot.get("normative_metadata"),
+        "interpretability_status": snapshot.get("interpretability_status"),
+        "medication_confounds": snapshot.get("medication_confounds"),
     }
 
     # Conversation history (used by :func:`real_llm_tool_dispatch`). Each
@@ -217,6 +369,38 @@ async def copilot_ws(
                     {"type": "error", "content": "Message content must be a string."}
                 )
                 continue
+
+            # Per-message size cap — refuse mega-payloads at the
+            # boundary so they never reach the LLM provider.
+            if len(content) > _COPILOT_MAX_CONTENT_BYTES:
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "content": (
+                            "Message exceeds "
+                            f"{_COPILOT_MAX_CONTENT_BYTES} bytes; trim "
+                            "before resubmitting."
+                        ),
+                    }
+                )
+                continue
+
+            # Sliding 60-second rate bucket per socket / actor.
+            _now = _time.time()
+            _msg_window[:] = [t for t in _msg_window if _now - t < 60.0]
+            if len(_msg_window) >= _COPILOT_MAX_MESSAGES_PER_MIN:
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "content": (
+                            "Rate limit reached "
+                            f"({_COPILOT_MAX_MESSAGES_PER_MIN}/min). "
+                            "Slow down to avoid LLM-cost throttling."
+                        ),
+                    }
+                )
+                continue
+            _msg_window.append(_now)
 
             if copilot is None:
                 await websocket.send_json(

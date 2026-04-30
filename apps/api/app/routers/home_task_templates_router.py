@@ -130,6 +130,7 @@ def list_home_task_templates(
         select(HomeTaskTemplate)
         .where(HomeTaskTemplate.owner_id == actor.actor_id)
         .order_by(HomeTaskTemplate.updated_at.desc())
+        .limit(200)
     ).all()
     items = [_record_to_out(r) for r in rows]
     return HomeTaskTemplateListResponse(items=items, total=len(items))

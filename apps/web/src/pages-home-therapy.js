@@ -10,6 +10,12 @@
 
 import { renderAdherenceDashboard, bindAdherenceActions } from './therapy-adherence-dashboard.js';
 
+/** Escape HTML special chars to prevent XSS from API response fields */
+function esc(v) {
+  if (v == null) return '';
+  return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
+}
+
 /** Track which sub-view is active (persists across re-renders within session) */
 let _htSubView = 'review';
 
@@ -67,9 +73,9 @@ export async function renderHomeTherapyTab(patientId, apiObj) {
           <span class="ch-assess-pill ch-pill--done">Active</span>
         </div>
         <div class="ht-device-body">
-          <div class="ht-device-category">${activeAssignment.device_category}</div>
-          <div class="ht-device-name">${activeAssignment.device_name}</div>
-          ${activeAssignment.device_model ? `<div class="ht-device-model">${activeAssignment.device_model}</div>` : ''}
+          <div class="ht-device-category">${esc(activeAssignment.device_category)}</div>
+          <div class="ht-device-name">${esc(activeAssignment.device_name)}</div>
+          ${activeAssignment.device_model ? `<div class="ht-device-model">${esc(activeAssignment.device_model)}</div>` : ''}
           <div class="ht-device-schedule">
             ${activeAssignment.session_frequency_per_week ? `<span>${activeAssignment.session_frequency_per_week}x / week</span>` : ''}
             ${activeAssignment.session_frequency_per_week && totalSessions ? '<span style="opacity:0.4">·</span>' : ''}
@@ -105,10 +111,10 @@ export async function renderHomeTherapyTab(patientId, apiObj) {
           return `<div class="ht-flag-row">
             <div class="ht-flag-indicator" style="--flag-color:${dotColor}"></div>
             <div class="ht-flag-info">
-              <div class="ht-flag-type">${f.flag_type.replace(/_/g, ' ')}</div>
-              <div class="ht-flag-detail">${f.detail}</div>
+              <div class="ht-flag-type">${esc(f.flag_type.replace(/_/g, ' '))}</div>
+              <div class="ht-flag-detail">${esc(f.detail)}</div>
             </div>
-            <span class="ht-flag-severity ${sevClass}">${f.severity}</span>
+            <span class="ht-flag-severity ${sevClass}">${esc(f.severity)}</span>
             <button class="btn btn-ghost btn-sm" onclick="window._htDismissFlag('${f.id}')">Dismiss</button>
           </div>`;
         }).join('')}
@@ -133,7 +139,7 @@ export async function renderHomeTherapyTab(patientId, apiObj) {
               <td>${l.duration_minutes ? l.duration_minutes + ' min' : '—'}</td>
               <td class="${l.completed ? 'ht-cell-check' : 'ht-cell-partial'}">${l.completed ? '✓ Yes' : '~ Partial'}</td>
               <td class="ht-cell-teal">${l.tolerance_rating ? l.tolerance_rating + '/5' : '—'}</td>
-              <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${l.side_effects_during || '—'}</td>
+              <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(l.side_effects_during) || '—'}</td>
               <td>
                 <div class="ht-cell-actions">
                   <button class="btn btn-ghost btn-sm" onclick="window._htReviewLog('${l.id}','reviewed')">Review</button>
@@ -165,11 +171,11 @@ export async function renderHomeTherapyTab(patientId, apiObj) {
           return `<div class="ht-event-row">
             <div class="ht-event-info">
               <div class="ht-event-top">
-                <span class="ht-event-type">${e.event_type.replace(/_/g, ' ')}</span>
-                ${e.severity ? `<span class="ht-flag-severity ${sevClass}">${e.severity}</span>` : ''}
-                <span class="ht-event-date">${e.report_date}</span>
+                <span class="ht-event-type">${esc(e.event_type.replace(/_/g, ' '))}</span>
+                ${e.severity ? `<span class="ht-flag-severity ${sevClass}">${esc(e.severity)}</span>` : ''}
+                <span class="ht-event-date">${esc(e.report_date)}</span>
               </div>
-              ${e.body ? `<div class="ht-event-body">${e.body.slice(0, 140)}${e.body.length > 140 ? '…' : ''}</div>` : ''}
+              ${e.body ? `<div class="ht-event-body">${esc(e.body.slice(0, 140))}${e.body.length > 140 ? '…' : ''}</div>` : ''}
             </div>
             <button class="btn btn-ghost btn-sm" style="flex-shrink:0" onclick="window._htAckEvent('${e.id}')">Acknowledge</button>
           </div>`;
@@ -331,9 +337,9 @@ export function bindHomeTherapyActions(patientId, apiObj) {
             <span class="ht-ai-title">AI Home Therapy Summary</span>
             <span class="ht-ai-audit">logged for audit</span>
           </div>
-          <div class="ht-ai-body">${result.summary || 'No summary available.'}</div>
-          <div class="ht-ai-meta">Model: ${result.model} · Sessions reviewed: ${result.sessions_reviewed}</div>
-          ${result.warning ? `<div class="ht-ai-warning">${result.warning}</div>` : ''}
+          <div class="ht-ai-body">${esc(result.summary) || 'No summary available.'}</div>
+          <div class="ht-ai-meta">Model: ${esc(result.model)} · Sessions reviewed: ${result.sessions_reviewed}</div>
+          ${result.warning ? `<div class="ht-ai-warning">${esc(result.warning)}</div>` : ''}
         </div>`;
       }
     } catch (_e) {

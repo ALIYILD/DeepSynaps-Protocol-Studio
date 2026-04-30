@@ -159,6 +159,27 @@ _HTML_TEMPLATE = r"""<!doctype html>
   </div>
   {% endfor %}
 
+  {% if report.saved_evidence_citations %}
+  <h2>Saved evidence citations</h2>
+  <table>
+    <tr><th>Title</th><th>Source</th><th>Link</th></tr>
+    {% for citation in report.saved_evidence_citations %}
+      {% set payload = citation.citation_payload if citation.citation_payload is defined else {} %}
+      <tr>
+        <td>{{ payload.title or citation.title or payload.citation or "Untitled citation" }}</td>
+        <td>{{ payload.journal or payload.source or payload.year or "—" }}</td>
+        <td>
+          {% if payload.url or payload.record_url or payload.doi_url %}
+            <a href="{{ payload.url or payload.record_url or payload.doi_url }}">Open source</a>
+          {% else %}
+            —
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
   <div class="disclaimer">
     <b>Decision-support only.</b> Coordinates and suggested parameters are derived from peer-reviewed literature
     (see DOIs per target). Not a substitute for clinician judgment and not a medical device. For neuronavigation

@@ -23,6 +23,7 @@ from ..repositories.users import (
     get_user_by_id,
 )
 from ..services import auth_service
+from ..auth import AuthenticatedActor, get_authenticated_actor
 from ..persistence.models import (
     PasswordResetToken,
     PatientInvite,
@@ -263,7 +264,10 @@ def _touch_user_session(
     request: Request | None,
 ) -> None:
     """Rotate the `refresh_token_hash` on /auth/refresh so the session row
-    continues to track the most recent refresh token. Best-effort."""
+    continues to track the most recent refresh token. The caller must have
+    already verified the row exists and is not revoked — this function no
+    longer silently creates a new session row when no match is found,
+    because that fallback was a token-replay revival vector."""
     try:
         old_hash = auth_service.hash_refresh_token(old_refresh_token)
         row = db.scalar(select(UserSession).where(UserSession.refresh_token_hash == old_hash))
@@ -272,13 +276,11 @@ def _touch_user_session(
             row.refresh_token_hash = auth_service.hash_refresh_token(new_refresh_token)
             row.last_seen_at = now
             db.commit()
-        else:
-            # Row didn't exist (old refresh was issued before session tracking
-            # went live, or an aborted rotation). Create one so future refreshes
-            # are trackable.
-            _record_user_session(
-                db, user_id=user_id, refresh_token=new_refresh_token, request=request
-            )
+        # If the row vanished between the route's gate check and this
+        # rotation (e.g. concurrent logout in another tab), do nothing —
+        # the new refresh token still works because the route returned it,
+        # but the session is no longer tracked. Acceptable for this race;
+        # the next refresh will 401 because the new hash isn't persisted.
     except Exception:  # pragma: no cover
         logger.warning("Failed to touch UserSession for user %s", user_id, exc_info=True)
         try:
@@ -420,15 +422,30 @@ def register(
     )
 
 
-@limiter.limit("10/minute")
+@limiter.limit("5/minute")
 @router.post("/api/v1/auth/login", response_model=TokenResponse)
 def login(
     request: Request,
     body: LoginRequest,
     db: Session = Depends(get_db_session),
 ) -> TokenResponse:
+    # Always run a bcrypt verify even when the user does not exist — bcrypt
+    # is slow enough that a missing-user short-circuit becomes a measurable
+    # timing oracle for user enumeration. Use a static dummy hash with the
+    # supplied password; the result is discarded.
+    _DUMMY_BCRYPT_HASH = (
+        "$2b$12$abcdefghijklmnopqrstuuOXLkfHJZBYvT4Q3ZKmtH8pHj3nYtEWO"
+    )
     user = get_user_by_email(db, body.email)
-    if user is None or not auth_service.verify_password(body.password, user.hashed_password):
+    if user is None:
+        auth_service.verify_password(body.password, _DUMMY_BCRYPT_HASH)
+        raise ApiServiceError(
+            code="invalid_credentials",
+            message="Incorrect email or password.",
+            warnings=["Double-check the email and password and try again."],
+            status_code=401,
+        )
+    if not auth_service.verify_password(body.password, user.hashed_password):
         raise ApiServiceError(
             code="invalid_credentials",
             message="Incorrect email or password.",
@@ -499,6 +516,28 @@ def refresh_token(
             code="account_inactive",
             message="This account has been deactivated.",
             warnings=["Contact support if you believe this is an error."],
+            status_code=401,
+        )
+
+    # Server-side rotation gate: the presented refresh token must match a
+    # live UserSession row that has not been revoked. Without this check,
+    # a stolen refresh JWT remained valid for its full TTL (30 days) even
+    # after logout / password reset / device sign-out, and `_touch_user_session`
+    # would silently create a fresh session row when no match was found —
+    # effectively reviving any harvested token. Now: hash mismatch or
+    # revoked row both 401.
+    presented_hash = auth_service.hash_refresh_token(body.refresh_token)
+    session_row = db.scalar(
+        select(UserSession).where(
+            UserSession.refresh_token_hash == presented_hash,
+            UserSession.user_id == user.id,
+        )
+    )
+    if session_row is None or session_row.revoked_at is not None:
+        raise ApiServiceError(
+            code="invalid_refresh_token",
+            message="The refresh token has been revoked or is no longer valid.",
+            warnings=["Log in again to obtain a new token pair."],
             status_code=401,
         )
 
@@ -605,9 +644,39 @@ def me(
     )
 
 
+class LogoutRequest(BaseModel):
+    refresh_token: str | None = None
+
+
 @router.post("/api/v1/auth/logout", response_model=MessageResponse)
-def logout() -> MessageResponse:
-    # Token invalidation is client-side; server issues no-op acknowledgement.
+def logout(
+    body: LogoutRequest | None = None,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> MessageResponse:
+    """Revoke the caller's refresh-token session server-side."""
+    now = datetime.now(timezone.utc)
+    refresh_token = (body.refresh_token if body else None) or ""
+    if refresh_token:
+        token_hash = auth_service.hash_refresh_token(refresh_token)
+        row = db.scalar(
+            select(UserSession).where(UserSession.refresh_token_hash == token_hash)
+        )
+        if row and row.revoked_at is None:
+            row.revoked_at = now
+            db.commit()
+    elif actor.actor_id and actor.actor_id != "anonymous":
+        # No specific token supplied — revoke all active sessions for this user.
+        rows = db.scalars(
+            select(UserSession).where(
+                UserSession.user_id == actor.actor_id,
+                UserSession.revoked_at.is_(None),
+            )
+        ).all()
+        for row in rows:
+            row.revoked_at = now
+        if rows:
+            db.commit()
     return MessageResponse(message="Successfully logged out.")
 
 
@@ -615,8 +684,9 @@ class DemoLoginRequest(BaseModel):
     token: str
 
 
+@limiter.limit("10/minute")
 @router.post("/api/v1/auth/demo-login", response_model=TokenResponse)
-def demo_login(body: DemoLoginRequest) -> TokenResponse:
+def demo_login(request: Request, body: DemoLoginRequest) -> TokenResponse:
     """Issue demo JWTs only in explicitly non-production environments."""
     settings = get_settings()
     # In production/staging, do not reveal that this endpoint exists.
@@ -675,12 +745,14 @@ def forgot_password(
     db.add(reset_record)
     db.commit()
 
-    # Log only the first 8 characters so the token cannot be extracted from logs.
-    # Replace this block with real email dispatch when the email service is wired.
+    # Do NOT log any portion of the raw token or the user's email — log
+    # aggregation pipelines (Fly logs, Datadog, etc.) widen the blast radius
+    # of a stolen log dump. Once the email service is wired the raw token
+    # leaves this process via the email payload and we drop all on-disk
+    # references.
     logger.info(
-        "Password reset token issued for user %s: %s... (expires %s)",
-        user.email,
-        raw_token[:8],
+        "Password reset token issued (user_id=%s, expires=%s)",
+        user.id,
         expires_at.isoformat(),
     )
 
@@ -740,6 +812,21 @@ def reset_password(
 
     user.hashed_password = auth_service.hash_password(body.new_password)
     reset_record.used_at = datetime.now(timezone.utc)
+
+    # Revoke every active UserSession for this user — a password reset
+    # implies the prior credential was compromised, so all outstanding
+    # refresh tokens must be invalidated. Without this step, a stolen
+    # refresh JWT issued before the reset remained valid for its full
+    # 30-day TTL even after the password was changed.
+    now = datetime.now(timezone.utc)
+    for session_row in db.scalars(
+        select(UserSession).where(
+            UserSession.user_id == user.id,
+            UserSession.revoked_at.is_(None),
+        )
+    ).all():
+        session_row.revoked_at = now
+
     db.commit()
 
     return MessageResponse(message="Password has been reset successfully.")
@@ -894,11 +981,11 @@ def change_password(
             status_code=401,
         )
 
-    if len(body.new_password) < 10:
+    if len(body.new_password) < 8:
         raise ApiServiceError(
             code="password_too_short",
-            message="New password must be at least 10 characters long.",
-            warnings=["Choose a password with 10 or more characters."],
+            message="Password must be at least 8 characters long.",
+            warnings=["Choose a password with 8 or more characters."],
             status_code=400,
         )
 
@@ -932,8 +1019,10 @@ def change_password(
 # ── 2FA (TOTP) ───────────────────────────────────────────────────────────────
 
 
+@limiter.limit("5/minute")
 @router.post("/api/v1/auth/2fa/setup", response_model=TwoFactorSetupResponse)
 def twofa_setup(
+    request: Request,
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db_session),
 ) -> TwoFactorSetupResponse:

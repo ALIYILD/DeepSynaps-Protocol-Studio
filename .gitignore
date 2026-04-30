@@ -13,6 +13,7 @@ venv/
 *.db
 *.sqlite3
 *.db-journal
+*.db.backup.*
 
 # Python build artefacts
 **/*.egg-info/
@@ -38,6 +39,20 @@ Thumbs.db
 *.log
 *.tsbuildinfo
 .test_artifacts/
+apps/api/C:/
+.runtime-test-media/
+
+# ── Local test scratch / experiments ───────────────────────────────────────
+# Untracked local experiments must NOT be left as test_*.py in apps/api/tests
+# because pytest discovers them and they pollute shared state under xdist.
+apps/api/tests/_scratch/
+apps/api/tests/local_*.py
+apps/api/tests/*_local.py
+apps/api/tests/e2e_*.py
+
+# ── Platform path artefacts ────────────────────────────────────────────────
+# Windows-style path leakage (e.g., from misconfigured path strings on Unix)
+C:/
 
 # Playwright
 playwright-report/
@@ -78,6 +93,8 @@ apps/api/data/exports/
 data/imports/neuromodulation-research/
 data/research/neuromodulation/raw/
 data/research/neuromodulation/derived/*.csv
+data/research/neuromodulation/deepsynaps-evidence-enriched.xlsx
+data/research/neuromodulation/neuromodulation_master_database_enriched.csv
 
 # Uploads & backups
 media_uploads/

@@ -20,15 +20,30 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
+from app.errors import ApiServiceError
 from app.persistence.models import (
     Patient,
     RiskStratificationAudit,
     RiskStratificationResult,
+    User,
+)
+from app.repositories.patients import resolve_patient_clinic_id
+from app.services.risk_clinical_scores import (
+    SCORE_IDS,
+    build_all_clinical_scores,
 )
 from app.services.risk_evidence_map import RISK_CATEGORIES, RISK_CATEGORY_LABELS
-from app.services.risk_stratification import compute_risk_profile
+from app.services.risk_stratification import (
+    assemble_patient_context,
+    compute_risk_profile,
+)
 
 router = APIRouter(prefix="/api/v1/risk", tags=["Risk Stratification"])
 
@@ -111,6 +126,13 @@ def _level_rank(level: str) -> int:
     return {"red": 3, "amber": 2, "green": 1}.get(level, 0)
 
 
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session) -> None:
+    """Cross-clinic ownership gate — safety-critical data must not leak across clinics."""
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
+
+
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
 @router.get("/patient/{patient_id}", response_model=PatientRiskProfile)
@@ -123,7 +145,8 @@ def get_patient_risk_profile(
 
     If no results exist or they are older than 24 hours, triggers a fresh compute.
     """
-    require_minimum_role(actor, "guest")
+    require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
 
     rows = db.execute(
         select(RiskStratificationResult)
@@ -135,7 +158,9 @@ def get_patient_risk_profile(
     if not needs_compute and rows:
         latest = max((r.computed_at for r in rows if r.computed_at), default=None)
         if latest:
-            age_hours = (datetime.now(timezone.utc) - latest).total_seconds() / 3600
+            # SQLite strips tzinfo on roundtrip — coerce to UTC before comparison.
+            latest_utc = latest if latest.tzinfo is not None else latest.replace(tzinfo=timezone.utc)
+            age_hours = (datetime.now(timezone.utc) - latest_utc).total_seconds() / 3600
             if age_hours > 24:
                 needs_compute = True
 
@@ -162,15 +187,24 @@ def get_clinic_risk_summary(
     db: Session = Depends(get_db_session),
 ):
     """Return a per-patient risk summary for the clinic dashboard."""
-    require_minimum_role(actor, "guest")
+    require_minimum_role(actor, "clinician")
 
-    # Fetch all active patients for this clinician
-    patients = db.execute(
-        select(Patient).where(
-            Patient.clinician_id == actor.actor_id,
-            Patient.status == "active",
-        )
-    ).scalars().all()
+    # Clinic-scope, not owner-only: covering clinicians at the same clinic
+    # see each other's at-risk patients (the entire point of a clinic
+    # dashboard), and admin / supervisor — cross-clinic operators by
+    # design — see the full surface. Pre-fix the
+    # ``Patient.clinician_id == actor.actor_id`` filter showed each
+    # clinician only their own panel, which silently dropped other
+    # clinicians' RED-level patients from the dashboard a covering
+    # clinician relied on.
+    base = (
+        select(Patient)
+        .join(User, User.id == Patient.clinician_id, isouter=True)
+        .where(Patient.status == "active")
+    )
+    if actor.role != "admin":
+        base = base.where(User.clinic_id == actor.clinic_id)
+    patients = db.execute(base).scalars().all()
 
     summaries: list[PatientRiskSummary] = []
 
@@ -219,11 +253,20 @@ def override_risk_category(
 ):
     """Clinician manual override of a risk category traffic light."""
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
 
     if category not in RISK_CATEGORIES:
-        return {"error": f"Invalid category: {category}. Must be one of {RISK_CATEGORIES}"}
+        raise ApiServiceError(
+            code="invalid_category",
+            message=f"Invalid category: {category}. Must be one of {RISK_CATEGORIES}",
+            status_code=422,
+        )
     if body.level not in ("green", "amber", "red"):
-        return {"error": "Level must be green, amber, or red"}
+        raise ApiServiceError(
+            code="invalid_level",
+            message="Level must be green, amber, or red",
+            status_code=422,
+        )
 
     row = db.execute(
         select(RiskStratificationResult).where(
@@ -243,7 +286,11 @@ def override_risk_category(
         ).scalar_one_or_none()
 
     if not row:
-        return {"error": "Patient or category not found"}
+        raise ApiServiceError(
+            code="not_found",
+            message="Patient or risk category not found",
+            status_code=404,
+        )
 
     previous_effective = row.override_level or row.level
 
@@ -276,7 +323,8 @@ def recompute_patient_risk(
     db: Session = Depends(get_db_session),
 ):
     """Force a full recompute of all 8 risk categories."""
-    require_minimum_role(actor, "guest")
+    require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
 
     category_dicts = compute_risk_profile(patient_id, db, clinician_id=actor.actor_id)
     return PatientRiskProfile(
@@ -284,6 +332,62 @@ def recompute_patient_risk(
         computed_at=datetime.now(timezone.utc).isoformat(),
         categories=[CategoryOut(**c) for c in category_dicts],
     )
+
+
+@router.get("/patient/{patient_id}/clinical-scores")
+def get_patient_clinical_scores(
+    patient_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Unified decision-support clinical scores for a patient.
+
+    Returns the eight scores (anxiety, depression, stress, mci,
+    brain_age, relapse_risk, adherence_risk, response_probability) using
+    the ``ScoreResponse`` schema. PROM assessments are PRIMARY anchors;
+    biomarkers are supporting only. NEVER a diagnosis.
+    """
+    require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
+
+    ctx = assemble_patient_context(patient_id, db)
+    if not ctx.patient:
+        return {"patient_id": patient_id, "scores": {}, "error": "patient_not_found"}
+
+    chronological_age: Optional[int] = None
+    age_val = (ctx.patient or {}).get("age")
+    if isinstance(age_val, (int, float)):
+        chronological_age = int(age_val)
+
+    # Adverse events — count unresolved as risk signal
+    adverse_event_count = len(ctx.adverse_events or [])
+
+    # NB: qeeg_risk_payload, brain_age_payload, trajectory_change_scores,
+    # wearable_summary and adherence_summary are intentionally NOT
+    # recomputed here — Stream 4 only consumes upstream payloads. The
+    # router accepts None and the score builders degrade gracefully.
+    wearable_summary: Optional[dict] = None
+    if ctx.wearable_summaries:
+        wearable_summary = ctx.wearable_summaries[0]
+
+    scores = build_all_clinical_scores(
+        assessments=ctx.assessments,
+        qeeg_risk_payload=None,
+        brain_age_payload=None,
+        wearable_summary=wearable_summary,
+        trajectory_change_scores=None,
+        adverse_event_count=adverse_event_count,
+        adherence_summary=None,
+        chronological_age=chronological_age,
+        response_target="depression",
+    )
+
+    return {
+        "patient_id": patient_id,
+        "score_ids": list(SCORE_IDS),
+        "scores": {sid: s.model_dump(mode="json") for sid, s in scores.items()},
+        "computed_at": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @router.get("/patient/{patient_id}/audit")
@@ -294,7 +398,8 @@ def get_risk_audit_trail(
     db: Session = Depends(get_db_session),
 ):
     """Return the audit trail of risk-level changes for a patient."""
-    require_minimum_role(actor, "guest")
+    require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
 
     rows = db.execute(
         select(RiskStratificationAudit)

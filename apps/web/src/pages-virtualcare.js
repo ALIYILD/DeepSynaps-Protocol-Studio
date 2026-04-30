@@ -3,9 +3,9 @@
 // Video Visits · Voice Calls · Messaging · Note Capture · AI Transcription
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { api } from './api.js';
 import { CONDITION_HOME_TEMPLATES } from './home-program-condition-templates.js';
-import { EVIDENCE_TOTAL_PAPERS, EVIDENCE_SUMMARY } from './evidence-dataset.js';
+import { EVIDENCE_TOTAL_PAPERS } from './evidence-dataset.js';
+import { loadResearchBundleOverview } from './research-bundle-overview.js';
 
 const _e = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const _fmtTime = iso => { try { return new Date(iso).toLocaleString('en-GB',{hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'}); } catch { return iso; } };
@@ -144,8 +144,8 @@ function _vcAnalysisTick() {
   // Fire-and-forget persist to backend
   const sid = _vc.analysisSessionId;
   if (sid) {
-    api.virtualCareSubmitVoiceAnalysis?.(sid, seg.voice).catch(() => {});
-    api.virtualCareSubmitVideoAnalysis?.(sid, seg.video).catch(() => {});
+    api.virtualCareSubmitVoiceAnalysis?.(sid, { ...seg.voice, source: 'simulated' }).catch(() => {});
+    api.virtualCareSubmitVideoAnalysis?.(sid, { ...seg.video, source: 'simulated' }).catch(() => {});
   }
 }
 
@@ -728,9 +728,12 @@ async function _vcSwitchTab(tabId) {
   u.activeTab = tabId;
   // Clear ward bio polling when leaving dashboard
   if (tabId !== 'dashboard' && _wardBioPollInt) { clearInterval(_wardBioPollInt); _wardBioPollInt = null; }
-  // Update tab buttons
+  // Update tab buttons (also keep ARIA selection state + roving tabindex in sync)
   document.querySelectorAll('.vc-utab').forEach(b => {
-    b.classList.toggle('vc-utab-active', b.dataset.tab === tabId);
+    const active = b.dataset.tab === tabId;
+    b.classList.toggle('vc-utab-active', active);
+    b.setAttribute('aria-selected', active ? 'true' : 'false');
+    b.setAttribute('tabindex', active ? '0' : '-1');
   });
   // Show / hide panels
   ['dashboard', 'messaging', 'livesession'].forEach(id => {
@@ -774,19 +777,41 @@ export async function pgVirtualCare(setTopbar, navigate) {
       .vc-tab-badge{font-size:10px;font-family:var(--font-mono,monospace);background:rgba(0,212,188,.15);color:#00d4bc;padding:2px 6px;border-radius:4px;margin-left:6px;animation:vc-badge-pulse 2s infinite}
       @keyframes vc-badge-pulse{0%,100%{opacity:1}50%{opacity:.6}}
     </style>
-    <div class="vc-unified-tabs">
-      <button class="vc-utab" data-tab="dashboard" onclick="window._vcSwitchTab('dashboard')">Dashboard</button>
-      <button class="vc-utab" data-tab="messaging" onclick="window._vcSwitchTab('messaging')">Communications</button>
-      <button class="vc-utab" data-tab="livesession" onclick="window._vcSwitchTab('livesession')">Live Session<span id="vc-tab-ls-badge" class="vc-tab-badge" style="display:none"></span></button>
+    <div class="vc-unified-tabs" role="tablist" aria-label="Virtual Care sections">
+      <button class="vc-utab" role="tab" id="vc-tab-dashboard" data-tab="dashboard" aria-controls="vc-panel-dashboard" aria-selected="false" tabindex="-1" onclick="window._vcSwitchTab('dashboard')">Dashboard</button>
+      <button class="vc-utab" role="tab" id="vc-tab-messaging" data-tab="messaging" aria-controls="vc-panel-messaging" aria-selected="false" tabindex="-1" onclick="window._vcSwitchTab('messaging')">Communications</button>
+      <button class="vc-utab" role="tab" id="vc-tab-livesession" data-tab="livesession" aria-controls="vc-panel-livesession" aria-selected="false" tabindex="-1" onclick="window._vcSwitchTab('livesession')">Live Session<span id="vc-tab-ls-badge" class="vc-tab-badge" style="display:none"></span></button>
     </div>
-    <div id="vc-panel-dashboard" class="vc-unified-panel"></div>
-    <div id="vc-panel-messaging" class="vc-unified-panel"></div>
-    <div id="vc-panel-livesession" class="vc-unified-panel"></div>`;
+    <div id="vc-panel-dashboard" class="vc-unified-panel" role="tabpanel" aria-labelledby="vc-tab-dashboard" tabindex="0"></div>
+    <div id="vc-panel-messaging" class="vc-unified-panel" role="tabpanel" aria-labelledby="vc-tab-messaging" tabindex="0"></div>
+    <div id="vc-panel-livesession" class="vc-unified-panel" role="tabpanel" aria-labelledby="vc-tab-livesession" tabindex="0"></div>`;
 
   // Decide default tab
   let defaultTab = 'dashboard';
   if (window._lsSessionSeed) defaultTab = 'livesession';
   else if (window._vcUnifiedDefaultTab) { defaultTab = window._vcUnifiedDefaultTab; delete window._vcUnifiedDefaultTab; }
+
+  // Roving-tabindex keyboard nav for the unified tablist (Left/Right/Home/End).
+  const _vcTabList = mount.querySelector('.vc-unified-tabs');
+  if (_vcTabList && !_vcTabList.dataset.kbWired) {
+    _vcTabList.dataset.kbWired = '1';
+    _vcTabList.addEventListener('keydown', (ev) => {
+      const tabs = Array.from(_vcTabList.querySelectorAll('[role="tab"]'));
+      if (!tabs.length) return;
+      const currentIdx = tabs.findIndex(t => t === document.activeElement);
+      let nextIdx = -1;
+      if (ev.key === 'ArrowRight') nextIdx = (currentIdx + 1 + tabs.length) % tabs.length;
+      else if (ev.key === 'ArrowLeft') nextIdx = (currentIdx - 1 + tabs.length) % tabs.length;
+      else if (ev.key === 'Home') nextIdx = 0;
+      else if (ev.key === 'End') nextIdx = tabs.length - 1;
+      if (nextIdx < 0) return;
+      ev.preventDefault();
+      const target = tabs[nextIdx];
+      target.focus();
+      const id = target.dataset.tab;
+      if (id) window._vcSwitchTab(id);
+    });
+  }
 
   await _vcSwitchTab(defaultTab);
 }
@@ -825,7 +850,7 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
   const today = new Date().toISOString().slice(0, 10);
   const weekStart = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
 
-  const [rMe, rTodaySessions, rWeekSessions, rPatients, rCohort, rOutcomes, rAudit, rAlerts] =
+  const [rMe, rTodaySessions, rWeekSessions, rPatients, rCohort, rOutcomes, rAudit, rAlerts, rEvidenceOverview] =
     await Promise.allSettled([
       api.me?.(),
       api.listSessions?.({ date: today }),
@@ -835,6 +860,7 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
       api.aggregateOutcomes?.(),
       api.auditTrail?.(),
       api.getClinicAlertSummary?.(),
+      loadResearchBundleOverview({ summaryLimit: 6, coverageLimit: 6, templateLimit: 6, safetyLimit: 6 }),
     ]);
 
   const ok = r => r.status === 'fulfilled' && r.value;
@@ -865,6 +891,69 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
     { grade:'B', name:'CES · bilateral · 0.5 Hz — 9 RCTs · pinned v1.2.0 · Insomnia',        rerender:false },
     { grade:'A', name:'rTMS · 10Hz · DLPFC-L — 62 RCTs · pinned v4.0.0 · TRD primary',       rerender:false },
   ];
+
+  const evidenceOverview = ok(rEvidenceOverview) || null;
+  const evidenceSummary = evidenceOverview?.summary || null;
+  const evidenceStatus = evidenceOverview?.status || null;
+  const evidenceCoverage = evidenceOverview?.coverageRows || [];
+  const evidenceSignals = evidenceOverview?.safetySignals || [];
+  const evidenceTemplates = evidenceOverview?.templates || [];
+  const evidenceConditions = evidenceOverview?.conditions || [];
+  const evidencePaperCount = Number(evidenceOverview?.paperCount || EVIDENCE_TOTAL_PAPERS) || EVIDENCE_TOTAL_PAPERS;
+  const evidenceConditionCount = evidenceOverview?.conditionCount || null;
+
+  function evidenceGradeFrom(row) {
+    const raw = String(row?.grade || row?.evidence_grade || row?.evidence_tier || '').trim().toUpperCase();
+    if (raw === 'A' || raw === 'HIGH' || raw === 'EV-A') return 'A';
+    if (raw === 'B' || raw === 'MODERATE' || raw === 'EV-B') return 'B';
+    return 'C';
+  }
+
+  function liveCoverageLabel(row) {
+    const modality = row?.modality || row?.primary_modality || 'Protocol';
+    const target = row?.target || row?.target_label || row?.primary_target || 'target unspecified';
+    const condition = row?.condition || row?.indication || row?.condition_slug || 'mixed indication';
+    const papers = Number(row?.paper_count || row?.supporting_papers || 0) || 0;
+    const gap = row?.gap || row?.coverage_gap || 'None';
+    return `${modality} · ${target} · ${condition} — ${papers} papers${gap && gap !== 'None' ? ` · gap: ${gap}` : ''}`;
+  }
+
+  function liveSignalLabel(row) {
+    const modality = row?.modality || row?.primary_modality || 'Protocol';
+    const condition = row?.condition || row?.indication || 'mixed indication';
+    const signal = row?.signal || row?.safety_signal || row?.tag || row?.label || 'Safety review';
+    return `${modality} · ${condition} — safety signal: ${signal}`;
+  }
+
+  function liveTemplateLabel(row) {
+    const modality = row?.modality || row?.primary_modality || 'Protocol';
+    const target = row?.target || row?.primary_target || 'target unspecified';
+    const condition = row?.condition || row?.indication || 'mixed indication';
+    return `${modality} · ${target} · ${condition} — template available`;
+  }
+
+  const liveEvidenceRows = [
+    ...evidenceCoverage.slice(0, 3).map(row => ({
+      grade: evidenceGradeFrom(row),
+      name: liveCoverageLabel(row),
+      rerender: String(row?.gap || row?.coverage_gap || 'None') !== 'None',
+    })),
+    ...evidenceSignals.slice(0, 2).map(row => ({
+      grade: evidenceGradeFrom(row),
+      name: liveSignalLabel(row),
+      rerender: true,
+    })),
+    ...(!evidenceCoverage.length && !evidenceSignals.length ? evidenceTemplates.slice(0, 3).map(row => ({
+      grade: evidenceGradeFrom(row),
+      name: liveTemplateLabel(row),
+      rerender: false,
+    })) : []),
+  ].slice(0, 5);
+  const evidenceIsDemo = liveEvidenceRows.length === 0;
+  const evidenceCardMeta = evidenceIsDemo
+    ? `Active registry grades · ${evidencePaperCount.toLocaleString()} papers indexed · last synced 12 min ago`
+    : `Live registry evidence · ${evidencePaperCount.toLocaleString()} papers indexed${evidenceConditionCount ? ` · ${evidenceConditionCount} conditions mapped` : ''}`;
+  const evidenceRowsData = evidenceIsDemo ? DB_EVIDENCE : liveEvidenceRows;
 
   const DEMO_ACTIVITY = [
     { icon:'check',    text:'Samantha L. completed session 12/20 · tDCS. Side-effect check-in: clear.',    time:'8m'  },
@@ -1223,7 +1312,7 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
   const scheduleRows = renderScheduleRows('All');
   const caseloadRows = renderCaseloadRows('All');
 
-  const evidenceRows = DB_EVIDENCE.map(row => `
+  const evidenceRows = evidenceRowsData.map(row => `
     <div class="vc-db-ev-row${row.rerender?' vc-db-ev-warn':''}">
       ${gradeBadge(row.grade)}
       <span class="vc-db-ev-name">${_e(row.name)}</span>
@@ -1516,8 +1605,8 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
     <div class="vc-db-card">
       <div class="vc-db-card-hd">
         <div>
-          <div class="vc-db-card-title">Evidence governance${demoChip}</div>
-          <div class="vc-db-card-meta">Active registry grades &middot; ${EVIDENCE_TOTAL_PAPERS.toLocaleString()} papers indexed &middot; last synced 12 min ago</div>
+          <div class="vc-db-card-title">Evidence governance${evidenceIsDemo?demoChip:''}</div>
+          <div class="vc-db-card-meta">${evidenceCardMeta}</div>
         </div>
         <button class="vc-db-tab active" id="vc-db-ev-all-btn">All current</button>
       </div>
@@ -1800,7 +1889,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
             </div>
             <div id="vc-analysis-panel" class="vc-analysis-panel" style="${_vc.analysisPanelVisible ? '' : 'display:none'}">
               <div class="vc-analysis-section">
-                <div class="vc-analysis-hdr"><span class="vc-pulse-dot"></span> Voice Analysis</div>
+                <div class="vc-analysis-hdr"><span class="vc-pulse-dot"></span> Voice Analysis <span style="font-size:9px;color:var(--text-tertiary);font-weight:400">(simulated)</span></div>
                 <div style="margin-bottom:6px"><span style="font-size:10px;color:var(--text-tertiary)">Sentiment</span> <span id="vc-va-sentiment" class="vc-pill vc-pill--neutral">--</span></div>
                 <div class="vc-gauge-row"><span class="vc-gauge-label">Stress</span><div class="vc-gauge-track"><div id="vc-va-stress-fill" class="vc-gauge-fill" style="width:0%;background:#4ade80"></div></div><span id="vc-va-stress-val" class="vc-gauge-val">--</span></div>
                 <div class="vc-gauge-row"><span class="vc-gauge-label">Energy</span><div class="vc-gauge-track"><div id="vc-va-energy-fill" class="vc-gauge-fill" style="width:0%;background:#00d4bc"></div></div><span id="vc-va-energy-val" class="vc-gauge-val">--</span></div>
@@ -1808,7 +1897,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
                 <div style="margin-top:4px" id="vc-va-tags"></div>
               </div>
               <div class="vc-analysis-section">
-                <div class="vc-analysis-hdr"><span class="vc-pulse-dot"></span> Video Analysis</div>
+                <div class="vc-analysis-hdr"><span class="vc-pulse-dot"></span> Video Analysis <span style="font-size:9px;color:var(--text-tertiary);font-weight:400">(simulated)</span></div>
                 <div class="vc-gauge-row"><span class="vc-gauge-label">Engagement</span><div class="vc-gauge-track"><div id="vc-va-engagement-fill" class="vc-gauge-fill" style="width:0%;background:#00d4bc"></div></div><span id="vc-va-engagement-val" class="vc-gauge-val">--</span></div>
                 <div class="vc-expression-row" id="vc-va-expression"><span class="emoji">\uD83D\uDE10</span> <span class="vc-pill vc-pill--neutral">--</span></div>
                 <div class="vc-gauge-row"><span class="vc-gauge-label">Eye contact</span><div class="vc-gauge-track"><div id="vc-va-eyecontact-fill" class="vc-gauge-fill" style="width:0%;background:#00d4bc"></div></div><span id="vc-va-eyecontact-val" class="vc-gauge-val">--</span></div>
@@ -1820,13 +1909,10 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
           </div>` : ''}
 
           <div class="vc-call-controls">
-            <button class="vc-ctrl-btn vc-ctrl-mute" onclick="window._vcCallCtrl('mute')" title="Mute">
-              \uD83C\uDF99
-            </button>
-            ${isVideo ? `<button class="vc-ctrl-btn vc-ctrl-video" onclick="window._vcCallCtrl('video')" title="Toggle camera">\uD83D\uDCF9</button>` : ''}
-            <button class="vc-ctrl-btn vc-ctrl-record" onclick="window._vcCallCtrl('record')" title="Record">
-              \u23FA Rec
-            </button>
+            <!-- Mute / camera / record controls live inside the Jitsi iframe.
+                 We do not surface duplicates here because the outer buttons
+                 cannot reach the iframe's media tracks (cross-origin), which
+                 made them pretend toggles in earlier builds. -->
             <button class="vc-ctrl-btn" onclick="window._vcToggleAnalysis()" title="Toggle analysis panel">
               \uD83D\uDCCA Analysis
             </button>
@@ -2272,7 +2358,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
               <div class="vc-update-body">
                 <div class="vc-update-name">${_e(n.patientName)}</div>
                 <div class="vc-update-subject">${_e(n.subject)}</div>
-                <div class="vc-update-meta">${_statusBadge(n.status)} \u00B7 ${_ago(n.recordedAt)}</div>
+                <div class="vc-update-meta">${_statusBadge(n.status)}${n.localOnly ? ' \u00B7 Local only' : ''} \u00B7 ${_ago(n.recordedAt)}</div>
               </div>
             </div>`).join('')}
         </div>
@@ -2290,6 +2376,10 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
 
             <div class="vc-update-detail-card">
               <div class="vc-update-subject-lg">${_e(sel.subject)}</div>
+              ${sel.localOnly ? `
+                <div style="margin-bottom:12px;padding:10px 12px;border-radius:10px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);font-size:11.5px;color:var(--text-secondary)">
+                  This note exists only in this browser. Backend sign-off and finalization were not created.
+                </div>` : ''}
               <div class="vc-transcription-block">
                 <div class="vc-block-label">Clinical Note (Transcribed)</div>
                 <div class="vc-transcription-text">${_e(sel.transcription)}</div>
@@ -2303,7 +2393,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
 
               ${sel.status !== 'signed' ? `
                 <div class="vc-note-sign-bar">
-                  <button class="vc-sign-btn" onclick="window._vcSignNote('${sel.id}')">\u2713 Sign Note</button>
+                  <button class="vc-sign-btn" onclick="window._vcSignNote('${sel.id}')">${sel.localOnly ? '\u2713 Mark Signed Locally' : '\u2713 Sign Note'}</button>
                   <button class="vc-edit-note-btn" onclick="window._vcEditNote('${sel.id}')">Edit</button>
                 </div>` : '<div class="vc-note-signed">\u2713 Note signed</div>'}
             </div>
@@ -2523,8 +2613,16 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
     if (meta) { meta.lastMsg = text; meta.lastAt = new Date().toISOString(); meta.unread = 0; }
     _vc.messageText = '';
     renderPage();
-    try { await api.sendPatientMessage?.(pid, text); } catch {}
-    window._showNotifToast?.({ title:'Sent', body:'Message delivered to patient.', severity:'success' });
+    let delivered = false;
+    try {
+      const res = await api.sendPatientMessage?.(pid, text);
+      if (res !== false) delivered = true;
+    } catch {}
+    window._showNotifToast?.(
+      delivered
+        ? { title:'Sent', body:'Message accepted by the patient messaging backend.', severity:'success' }
+        : { title:'Saved locally', body:'Message was stored in this browser only. Patient delivery did not complete.', severity:'warning' }
+    );
   };
 
   window._vcStartCall = (type, pid) => {
@@ -2550,12 +2648,22 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
   window._vcAcceptCall = async (id, type) => {
     const cr = VC_DATA.callRequests.find(c => c.id === id);
     if (!cr) return;
-    try { await api.resolveCallRequest?.(cr.messageId || cr.id); } catch {}
+    if (_vc.live.callRequests) {
+      try {
+        await api.resolveCallRequest?.(cr.messageId || cr.id);
+      } catch (e) {
+        window._showNotifToast?.({ title:'Accept failed', body:(e?.body?.message || e?.message || 'Unable to resolve call request.'), severity:'warning' });
+        return;
+      }
+    }
     const idx = VC_DATA.callRequests.findIndex(c => c.id === id);
     if (idx >= 0) VC_DATA.callRequests.splice(idx, 1);
     _vc.activeCall = { type, item:cr, phase:'connecting' };
     _vc.activeCall.roomName = 'ds-' + (window._clinicId || 'clinic') + '-' + (cr.patientId || id).replace(/[^a-z0-9]/gi,'') + '-' + Date.now();
     renderPage();
+    if (!_vc.live.callRequests) {
+      window._showNotifToast?.({ title:'Preview row removed', body:'This call request was removed locally only.', severity:'info' });
+    }
     setTimeout(() => { if(_vc.activeCall) { _vc.activeCall.phase = 'active'; renderPage(); _startLiveTranscription(); _vcStartAnalysis(_vc.activeCall); } }, 2000);
   };
 
@@ -2593,8 +2701,8 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
     if (ctrl === 'note' && _vc.activeCall) {
       const item = _vc.activeCall.item;
       _vc.recording = { type:'voice', phase:'idle', patientId:item.patientId, patientName:item.patientName, initials:item.initials||'?', transcription:'', aiSummary:'' };
+      renderPage();
     }
-    window._showNotifToast?.({ title:ctrl, body:`${ctrl} toggled.`, severity:'info' });
   };
 
   const _vcSimulateTranscript = () => {
@@ -2612,14 +2720,20 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
     const idx = VC_DATA.callRequests.findIndex(c => c.id === id);
     if (idx < 0) return;
     const item = VC_DATA.callRequests[idx];
-    try {
-      await api.resolveCallRequest?.(item.messageId || item.id);
-      VC_DATA.callRequests.splice(idx, 1);
-      renderPage();
-      window._showNotifToast?.({ title:'Dismissed', body:'Call request resolved in the live inbox.', severity:'success' });
-    } catch (e) {
-      window._showNotifToast?.({ title:'Dismiss failed', body:(e?.body?.message || e?.message || 'Unable to resolve call request.'), severity:'warning' });
+    if (_vc.live.callRequests) {
+      try {
+        await api.resolveCallRequest?.(item.messageId || item.id);
+        VC_DATA.callRequests.splice(idx, 1);
+        renderPage();
+        window._showNotifToast?.({ title:'Dismissed', body:'Call request resolved in the live inbox.', severity:'success' });
+      } catch (e) {
+        window._showNotifToast?.({ title:'Dismiss failed', body:(e?.body?.message || e?.message || 'Unable to resolve call request.'), severity:'warning' });
+      }
+      return;
     }
+    VC_DATA.callRequests.splice(idx, 1);
+    renderPage();
+    window._showNotifToast?.({ title:'Preview row removed', body:'This call request was removed locally only.', severity:'info' });
   };
 
   window._vcScheduleCall = id => {
@@ -2733,6 +2847,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
     const textEl = document.getElementById('vc-cap-text');
     const text = textEl ? textEl.value : _vc.recording.transcription;
     let created = null;
+    let savedLocallyOnly = false;
     try {
       created = await api.createClinicianNote?.({
         patient_id: _vc.recording.patientId,
@@ -2742,7 +2857,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
         session_id: null,
       });
     } catch {
-      window._showNotifToast?.({ title: 'Saved locally', body: 'Note saved locally — API unavailable.', severity: 'warning' });
+      savedLocallyOnly = true;
     }
     VC_DATA.clinicianNotes.unshift({
       id: created?.note_id || ('cn-' + Date.now()),
@@ -2758,8 +2873,13 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
       status: 'awaiting-signoff',
       actionsTaken: [],
       draftId: created?.draft_id || null,
+      localOnly: savedLocallyOnly || !created,
     });
-    window._showNotifToast?.({ title:'Note Saved', body:'Note saved and queued for sign-off.', severity:'success' });
+    window._showNotifToast?.(
+      savedLocallyOnly || !created
+        ? { title: 'Saved locally', body: 'Note saved locally — sign-off workflow is unavailable until note sync succeeds.', severity: 'warning' }
+        : { title:'Note Saved', body:'Draft saved to the clinician-note workflow.', severity:'success' }
+    );
     _vc.recording = null;
     _vc.tab = 'ai-notes';
     renderPage();
@@ -2768,6 +2888,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
   window._vcSignNote = async id => {
     const note = VC_DATA.clinicianNotes.find(n => n.id === id);
     if (!note) return;
+    const hasBackendDraft = !!note.draftId;
     if (note.draftId) {
       try {
         await api.approveClinicianDraft?.(note.draftId, {});
@@ -2779,7 +2900,11 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
     note.status = 'signed';
     note.actionsTaken = [...(note.actionsTaken||[]), 'signed'];
     renderPage();
-    window._showNotifToast?.({ title:'Note Signed', body:'Clinical note signed and finalised.', severity:'success' });
+    window._showNotifToast?.(
+      hasBackendDraft
+        ? { title:'Note Signed', body:'Clinical note approval was recorded in the note workflow.', severity:'success' }
+        : { title:'Signed locally', body:'Clinical note was marked signed in this browser only.', severity:'warning' }
+    );
   };
 
   window._vcEditNote = id => {
@@ -3065,14 +3190,14 @@ function _lsRender() {
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
         <div>
           <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:14px;font-weight:600">Video consult</div>
-          <div style="font-size:11px;color:var(--text-tertiary)">Telehealth session \u00B7 patient connected remotely</div>
+          <div style="font-size:11px;color:var(--text-tertiary)">Telehealth preview \u00B7 remote connection not verified from this panel</div>
         </div>
-        <span class="chip ${s.videoActive ? 'teal' : ''}" style="${s.videoActive ? '' : 'color:var(--text-tertiary)'}">${s.videoActive ? '\u25CF Live' : 'Idle'}</span>
+        <span class="chip ${s.videoActive ? 'teal' : ''}" style="${s.videoActive ? '' : 'color:var(--text-tertiary)'}">${s.videoActive ? '\u25CF Preview Active' : 'Idle'}</span>
       </div>
       <div style="aspect-ratio:16/9;border-radius:8px;overflow:hidden;background:rgba(0,0,0,0.35);border:1px solid var(--border);display:flex;align-items:center;justify-content:center">
         ${s.videoActive
           ? `<iframe id="ls-video-iframe" src="https://meet.jit.si/ds-live-${_e(session.id)}" allow="camera;microphone;autoplay" style="width:100%;height:100%;border:none"></iframe>`
-          : `<div style="text-align:center;color:var(--text-tertiary);font-size:12px"><div style="font-size:28px;margin-bottom:6px">\uD83D\uDCF9</div>Video not started</div>`}
+          : `<div style="text-align:center;color:var(--text-tertiary);font-size:12px"><div style="font-size:28px;margin-bottom:6px">\uD83D\uDCF9</div>Preview not started</div>`}
       </div>
       <div style="display:flex;gap:6px;margin-top:10px">
         ${s.videoActive
@@ -3293,9 +3418,9 @@ function _lsRender() {
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
               <div>
                 <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:13px;font-weight:600">Patient biometrics</div>
-                <div style="font-size:11px;color:var(--text-tertiary)">Live wearable telemetry</div>
+                <div style="font-size:11px;color:var(--text-tertiary)">Simulated telemetry (demo)</div>
               </div>
-              <span class="chip ${s.videoActive ? 'teal' : ''}" style="${s.videoActive ? '' : 'color:var(--text-tertiary)'}" id="ls-bio-status">${s.videoActive ? '● Live' : 'Idle'}</span>
+              <span class="chip ${s.videoActive ? 'teal' : ''}" style="${s.videoActive ? '' : 'color:var(--text-tertiary)'}" id="ls-bio-status">${s.videoActive ? '● Preview Active' : 'Idle'}</span>
             </div>
             <div id="ls-bio-grid" style="display:flex;flex-direction:column;gap:10px;font-size:11px">
               <div style="display:flex;align-items:center;gap:8px">
@@ -3330,8 +3455,8 @@ function _lsRender() {
           <div class="dv2-card" style="padding:14px;margin-bottom:12px" id="ls-ai-panel">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
               <div>
-                <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:13px;font-weight:600">AI session analysis</div>
-                <div style="font-size:11px;color:var(--text-tertiary)">Voice sentiment & video engagement</div>
+                <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:13px;font-weight:600">AI session analysis <span style="font-size:9px;color:var(--text-tertiary);font-weight:400">(simulated)</span></div>
+                <div style="font-size:11px;color:var(--text-tertiary)">Simulated voice sentiment & video engagement</div>
               </div>
               <span class="chip" style="color:var(--text-tertiary)" id="ls-ai-status">Waiting</span>
             </div>
@@ -3791,7 +3916,7 @@ function _lsStartBioPolling() {
     // Submit snapshot to backend if session exists.
     if (s.vcSessionId) {
       api.virtualCareSubmitBiometrics(s.vcSessionId, {
-        source: 'wearable', heart_rate_bpm: hr, hrv_ms: hrv, spo2_pct: spo2, stress_score: stress,
+        source: 'simulated', heart_rate_bpm: hr, hrv_ms: hrv, spo2_pct: spo2, stress_score: stress,
       }).catch(() => {});
     }
   }, 5000);
@@ -3818,7 +3943,7 @@ function _lsUpdateBioDisplay(hr, hrv, spo2, stress) {
   if (hrvEl) hrvEl.textContent = hrv != null ? Math.round(hrv) : '--';
   if (spo2El) spo2El.textContent = spo2 != null ? Math.round(spo2) : '--';
   if (stressEl) stressEl.textContent = stress != null ? Math.round(stress) : '--';
-  if (statusEl) { statusEl.textContent = '● Live'; statusEl.className = 'chip teal'; statusEl.style.color = ''; }
+  if (statusEl) { statusEl.textContent = '● Preview Active'; statusEl.className = 'chip teal'; statusEl.style.color = ''; }
   // Compute anxiety from HRV + HR
   const anxiety = (hrv != null && hr != null)
     ? Math.min(100, Math.max(0, Math.round((1 - hrv / 70) * 60 + ((hr - 55) / 45) * 40)))
@@ -4420,7 +4545,7 @@ async function _lsRemindTask(id) {
       if (res) sent = true;
     } catch {}
   }
-  _lsLogEvent('OPER', sent ? `Reminder sent: ${t.title}` : `Reminder queued locally (offline): ${t.title}`);
+  _lsLogEvent('OPER', sent ? `Reminder request accepted: ${t.title}` : `Reminder queued locally (offline): ${t.title}`);
   if (!sent) {
     const key = `ds_home_task_reminders_queue`;
     const q = _lsHtRead(key, []);

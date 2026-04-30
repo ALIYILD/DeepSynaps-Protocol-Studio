@@ -5,9 +5,9 @@ import re
 from dataclasses import dataclass, field
 from io import BytesIO
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from deepsynaps_core_schema import (
@@ -15,10 +15,17 @@ from deepsynaps_core_schema import (
     ProtocolDraftRequest,
 )
 
-from app.auth import AuthenticatedActor, get_authenticated_actor
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.limiter import limiter
 from app.persistence.models import Patient
+from app.repositories.patients import resolve_patient_clinic_id
 from app.services.clinical_data import (
     generate_handbook_from_clinical_data,
     generate_protocol_draft_from_clinical_data,
@@ -37,46 +44,66 @@ def _safe_filename_part(value: str) -> str:
 
 
 def _assert_export_patient_access(db: Session, actor: AuthenticatedActor, patient_id: str) -> None:
-    if actor.role == "admin":
-        return
+    """Cross-clinic ownership gate for patient-bound export endpoints.
+
+    Pre-fix this used ``patient.clinician_id != actor.actor_id`` which
+    over-restricted same-clinic colleagues AND silently allowed access
+    to ``clinic_id=None`` orphaned patients via clinician_id alone. The
+    canonical fix is to load the patient row first (so a missing id
+    surfaces as 404), then route the clinic check through
+    ``resolve_patient_clinic_id`` + ``require_patient_owner`` — same
+    shape every other patient-scoped router uses.
+    """
     patient = db.query(Patient).filter(Patient.id == patient_id).first()
-    if patient is None or patient.clinician_id != actor.actor_id:
+    if patient is None:
         raise ApiServiceError(
             code="not_found",
             message="Patient not found.",
             status_code=404,
         )
+    if actor.role == "admin":
+        return
+    _, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    require_patient_owner(actor, clinic_id)
 
 
 # ---------------------------------------------------------------------------
 # Request bodies
 # ---------------------------------------------------------------------------
 
+# Pydantic caps. Pre-fix every str field on every export request was
+# uncapped, so an authenticated clinician could send megabyte-scale
+# strings that fan out into LLM prompts and DOCX renders.
+_EXPORT_NAME_MAX = 200
+_EXPORT_TAG_MAX = 80
+_PATIENT_ID_MAX = 64
+
+
 class ExportProtocolDocxRequest(BaseModel):
-    condition_name: str
-    modality_name: str
-    device_name: str
-    setting: str = "Clinic"
-    evidence_threshold: str = "Systematic Review"
+    condition_name: str = Field(..., max_length=_EXPORT_NAME_MAX)
+    modality_name: str = Field(..., max_length=_EXPORT_NAME_MAX)
+    device_name: str = Field(..., max_length=_EXPORT_NAME_MAX)
+    setting: str = Field(default="Clinic", max_length=_EXPORT_TAG_MAX)
+    evidence_threshold: str = Field(default="Systematic Review", max_length=_EXPORT_TAG_MAX)
     off_label: bool = False
-    symptom_cluster: str = "General"
+    symptom_cluster: str = Field(default="General", max_length=_EXPORT_TAG_MAX)
 
 
 class ExportHandbookDocxRequest(BaseModel):
-    condition_name: str
-    modality_name: str
-    device_name: str = ""
+    condition_name: str = Field(..., max_length=_EXPORT_NAME_MAX)
+    modality_name: str = Field(..., max_length=_EXPORT_NAME_MAX)
+    device_name: str = Field(default="", max_length=_EXPORT_NAME_MAX)
 
 
 class ExportPatientGuideDocxRequest(BaseModel):
-    condition_name: str
-    modality_name: str
+    condition_name: str = Field(..., max_length=_EXPORT_NAME_MAX)
+    modality_name: str = Field(..., max_length=_EXPORT_NAME_MAX)
 
 
 class ExportNeuromodulationRequest(BaseModel):
-    patient_id: str
-    qeeg_analysis_id: str | None = None
-    mri_analysis_id: str | None = None
+    patient_id: str = Field(..., max_length=_PATIENT_ID_MAX)
+    qeeg_analysis_id: str | None = Field(default=None, max_length=_PATIENT_ID_MAX)
+    mri_analysis_id: str | None = Field(default=None, max_length=_PATIENT_ID_MAX)
 
 
 # ---------------------------------------------------------------------------
@@ -100,12 +127,17 @@ class _ProtocolDocxAdapter:
 # ---------------------------------------------------------------------------
 
 @router.post("/api/v1/export/protocol-docx")
+@limiter.limit("10/minute")
 def export_protocol_docx(
+    request: Request,
     payload: ExportProtocolDocxRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> StreamingResponse:
-    if actor.role not in ("clinician", "admin"):
-        raise HTTPException(status_code=403, detail="Export endpoints require clinician or admin role.")
+    # Pre-fix this triggered an LLM-backed protocol render with no
+    # rate limit — repeat-fire from one authed clinician could burn
+    # arbitrary Anthropic spend per minute. 10/min is well above
+    # legitimate manual export cadence.
+    require_minimum_role(actor, "clinician")
 
     draft_request = ProtocolDraftRequest(
         condition=payload.condition_name,
@@ -152,12 +184,13 @@ def export_protocol_docx(
 
 
 @router.post("/api/v1/export/handbook-docx")
+@limiter.limit("10/minute")
 def export_handbook_docx(
+    request: Request,
     payload: ExportHandbookDocxRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> StreamingResponse:
-    if actor.role not in ("clinician", "admin"):
-        raise HTTPException(status_code=403, detail="Export endpoints require clinician or admin role.")
+    require_minimum_role(actor, "clinician")
 
     handbook_request = HandbookGenerateRequest(
         handbook_kind="clinician_handbook",
@@ -227,12 +260,13 @@ def export_handbook_docx(
 
 
 @router.post("/api/v1/export/patient-guide-docx")
+@limiter.limit("10/minute")
 def export_patient_guide_docx(
+    request: Request,
     payload: ExportPatientGuideDocxRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> StreamingResponse:
-    if actor.role not in ("clinician", "admin"):
-        raise HTTPException(status_code=403, detail="Export endpoints require clinician or admin role.")
+    require_minimum_role(actor, "clinician")
 
     # Build protocol draft to extract patient communication notes
     draft_request = ProtocolDraftRequest(
@@ -285,13 +319,17 @@ def export_patient_guide_docx(
 
 
 @router.post("/api/v1/export/fhir-r4-bundle")
+@limiter.limit("10/minute")
 def export_fhir_r4_bundle(
+    request: Request,
     payload: ExportNeuromodulationRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> StreamingResponse:
-    if actor.role not in ("clinician", "admin"):
-        raise HTTPException(status_code=403, detail="Export endpoints require clinician or admin role.")
+    # Bulk patient-data archive — heavy DB read fanned out across
+    # qEEG + MRI + clinical notes. Patient-data archive generation is
+    # the textbook abusable surface; cap per IP at 10/min.
+    require_minimum_role(actor, "clinician")
     _assert_export_patient_access(db, actor, payload.patient_id)
 
     bundle = build_neuromodulation_fhir_bundle(
@@ -300,7 +338,13 @@ def export_fhir_r4_bundle(
         qeeg_analysis_id=payload.qeeg_analysis_id,
         mri_analysis_id=payload.mri_analysis_id,
     )
-    filename = f'fhir_bundle_{_safe_filename_part(payload.patient_id)}.json'
+    # Use a sanitised slug + a short hash of patient_id rather than
+    # the raw patient_id in the Content-Disposition. Pre-fix this
+    # echoed the patient_id into the browser's download history /
+    # client logs / referer chain.
+    import hashlib
+    pid_tag = hashlib.sha256(payload.patient_id.encode("utf-8")).hexdigest()[:12]
+    filename = f"fhir_bundle_{pid_tag}.json"
     return StreamingResponse(
         BytesIO(json.dumps(bundle, indent=2).encode("utf-8")),
         media_type="application/fhir+json",
@@ -309,13 +353,14 @@ def export_fhir_r4_bundle(
 
 
 @router.post("/api/v1/export/bids-derivatives")
+@limiter.limit("10/minute")
 def export_bids_derivatives(
+    request: Request,
     payload: ExportNeuromodulationRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> StreamingResponse:
-    if actor.role not in ("clinician", "admin"):
-        raise HTTPException(status_code=403, detail="Export endpoints require clinician or admin role.")
+    require_minimum_role(actor, "clinician")
     _assert_export_patient_access(db, actor, payload.patient_id)
 
     archive_bytes, filename = build_bids_derivatives_zip(

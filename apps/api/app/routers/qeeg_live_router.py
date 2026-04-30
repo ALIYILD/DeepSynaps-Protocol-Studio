@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import time
 from typing import Any, AsyncIterator, Literal
@@ -13,9 +14,112 @@ from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimu
 from app.entitlements import require_feature
 from app.errors import ApiServiceError
 from app.packages import Feature
+from app.settings import get_settings
 
 
 router = APIRouter(prefix="/api/v1/qeeg/live", tags=["qeeg-live"])
+_logger = logging.getLogger(__name__)
+
+
+def _resolve_ws_token(websocket: WebSocket, query_token: str | None) -> str | None:
+    """Resolve the WS auth token, preferring the Authorization header.
+
+    Pre-fix the WebSocket route only read ``?token=`` from the query
+    string. Tokens placed in URLs leak into:
+
+    * Reverse-proxy / Fly access logs (Fly-Replay, GunicornAccessLog).
+    * Browser history and the Referer header on any subsequent
+      navigation while the WS is open.
+    * The page's HTML source if the URL is rendered into a debug
+      banner.
+
+    The header path is preferred so the token never enters the URL.
+    Browsers DO support ``Sec-WebSocket-Protocol: bearer.<token>`` for
+    in-band token delivery; reverse-proxies forward the
+    ``Authorization`` header on the upgrade request. Both routes
+    bypass URL-based logging. ``?token=`` is kept as a fallback for
+    legacy clients but logged at WARNING so security teams can spot
+    leaked tokens.
+    """
+    auth_header = websocket.headers.get("authorization") or ""
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header[7:].strip()
+        if token:
+            return token
+
+    subproto = websocket.headers.get("sec-websocket-protocol") or ""
+    for part in [p.strip() for p in subproto.split(",") if p.strip()]:
+        if part.lower().startswith("bearer."):
+            token = part.split(".", 1)[1].strip()
+            if token:
+                return token
+
+    if query_token:
+        _logger.warning(
+            "qeeg_live_ws_token_in_query client=%s",
+            websocket.client.host if websocket.client else "unknown",
+        )
+        return query_token
+    return None
+
+
+def _validate_mock_source(edf_path: str | None) -> None:
+    """Enforce path-traversal + environment guards on the mock EDF source.
+
+    The mock source path used to flow straight into ``mne.io.read_raw_edf``
+    with zero validation — any authenticated clinician could request
+    ``?source=mock&edf_path=/etc/passwd`` (server filesystem probe) or
+    point at another clinic's raw EEG storage location and stream it back.
+
+    Rules:
+      * In ``production``/``staging``, the mock source is refused entirely.
+      * In ``development``/``test``, ``edf_path`` (when provided) must
+        resolve under one of the allowlisted fixture roots: the ``DEEPSYNAPS_QEEG_FIXTURES_DIR``
+        env var if set, otherwise ``apps/api/tests/fixtures/eeg`` and
+        ``packages/qeeg-pipeline/tests/fixtures``.
+    """
+    app_env = get_settings().app_env
+    if app_env in ("production", "staging"):
+        raise ApiServiceError(
+            code="mock_source_disabled",
+            message="Mock source is not available in this environment.",
+            status_code=403,
+        )
+    if not edf_path:
+        return
+    from pathlib import Path
+
+    candidate = Path(edf_path).expanduser()
+    try:
+        resolved = candidate.resolve(strict=False)
+    except (OSError, RuntimeError) as exc:
+        raise ApiServiceError(
+            code="invalid_edf_path",
+            message="edf_path could not be resolved.",
+            warnings=[str(exc)],
+            status_code=400,
+        ) from exc
+
+    allowed_roots: list[Path] = []
+    env_root = os.getenv("DEEPSYNAPS_QEEG_FIXTURES_DIR")
+    if env_root:
+        allowed_roots.append(Path(env_root).expanduser().resolve(strict=False))
+    repo_root = Path(__file__).resolve().parents[3]
+    allowed_roots.append((repo_root / "apps" / "api" / "tests" / "fixtures" / "eeg").resolve(strict=False))
+    allowed_roots.append((repo_root / "packages" / "qeeg-pipeline" / "tests" / "fixtures").resolve(strict=False))
+
+    for root in allowed_roots:
+        try:
+            resolved.relative_to(root)
+            return
+        except ValueError:
+            continue
+
+    raise ApiServiceError(
+        code="edf_path_outside_allowlist",
+        message="edf_path must point inside an allowlisted fixtures directory.",
+        status_code=400,
+    )
 
 
 def _feature_flag_enabled() -> bool:
@@ -153,10 +257,25 @@ async def qeeg_live_sse(
     line_freq_hz: float = Query(default=50.0, ge=45.0, le=65.0),
     token: str | None = Query(default=None),
 ) -> StreamingResponse:
-    # EventSource cannot set Authorization headers; accept token= as a fallback.
+    # EventSource cannot set Authorization headers, so a query-string
+    # fallback is unavoidable for browser SSE clients. Prefer the header
+    # path (already wired via Depends) so server access logs never see
+    # the JWT for native callers (curl, server-to-server). When the
+    # query path IS used, log a WARNING so security teams can audit
+    # tokens leaking through proxy logs.
     if token and (not getattr(actor, "token_id", None)):
+        _logger.warning(
+            "qeeg_live_sse_token_in_query client=%s",
+            request.client.host if request.client else "unknown",
+        )
         actor = get_authenticated_actor(authorization=f"Bearer {token}")
     _gate(actor)
+
+    # Validate mock-source params synchronously, before StreamingResponse
+    # starts the body — otherwise the FastAPI exception handler can't write
+    # a 4xx because the response head has already been flushed.
+    if source == "mock":
+        _validate_mock_source(edf_path)
 
     async def sse_gen() -> AsyncIterator[str]:
         async for payload in _stream_frames(
@@ -185,18 +304,29 @@ async def qeeg_live_sse(
 async def qeeg_live_ws(
     websocket: WebSocket,
 ) -> None:
-    # WebSockets cannot attach Authorization headers from browsers; accept a
-    # `token=` query param and map it to the same JWT actor resolution.
-    token = websocket.query_params.get("token")
-    actor = get_authenticated_actor(authorization=f"Bearer {token}" if token else None)
+    # Prefer the Authorization header / Sec-WebSocket-Protocol so the
+    # JWT never enters the URL (which leaks into proxy access logs and
+    # browser history). Fall back to ``?token=`` for legacy clients —
+    # logged at WARNING by ``_resolve_ws_token``.
+    query_token = websocket.query_params.get("token")
+    raw_token = _resolve_ws_token(websocket, query_token)
+    actor = get_authenticated_actor(authorization=f"Bearer {raw_token}" if raw_token else None)
     _gate(actor)
-    await websocket.accept()
 
     # Query params: source=lsl|mock, stream_name=..., edf_path=..., age=..., sex=...
     qp = dict(websocket.query_params)
     source = qp.get("source", "lsl")
     stream_name = qp.get("stream_name")
     edf_path = qp.get("edf_path")
+    if source == "mock":
+        # Validate before websocket.accept() so we can close with a real
+        # error code rather than starting the producer with an unsafe path.
+        try:
+            _validate_mock_source(edf_path)
+        except ApiServiceError as exc:
+            await websocket.close(code=4400, reason=exc.code)
+            return
+    await websocket.accept()
     try:
         age = int(qp["age"]) if "age" in qp and qp["age"] != "" else None
     except Exception:

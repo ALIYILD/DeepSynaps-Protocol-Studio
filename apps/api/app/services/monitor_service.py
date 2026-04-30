@@ -72,6 +72,13 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _aware(dt: datetime | None) -> datetime | None:
+    """Coerce a potentially tz-naive datetime to UTC-aware (SQLite strips tzinfo)."""
+    if dt is None:
+        return None
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
 def _clinic_id(actor: AuthenticatedActor) -> str:
     return actor.actor_id
 
@@ -106,7 +113,7 @@ def build_live_snapshot(actor: AuthenticatedActor, db: Session) -> dict:
         risk_tier = 'green'
         risk_score = 0.18
         drivers = []
-        if summary is None or (_now() - summary.synced_at).total_seconds() >= 48 * 3600:
+        if summary is None or (_now() - _aware(summary.synced_at)).total_seconds() >= 48 * 3600:
             risk_tier = 'orange'
             risk_score = 0.58
             drivers.append('wearable_stale')
@@ -138,7 +145,7 @@ def build_live_snapshot(actor: AuthenticatedActor, db: Session) -> dict:
             'prom_delta': None,
             'adherence_pct': summary.readiness_score if summary else None,
             'last_feature_at': summary.synced_at.isoformat() if summary else None,
-            'wearable_stale': summary is None or (_now() - summary.synced_at).total_seconds() >= 48 * 3600,
+            'wearable_stale': summary is None or (_now() - _aware(summary.synced_at)).total_seconds() >= 48 * 3600,
             'last_device_seen_at': summary.synced_at.isoformat() if summary else None,
             'last_contact_at': outcome.recorded_at.isoformat() if outcome else None,
         })
@@ -231,8 +238,18 @@ def disconnect_integration(actor: AuthenticatedActor, db: Session, integration_i
 
 def list_fleet(actor: AuthenticatedActor, db: Session) -> dict:
     require_minimum_role(actor, 'clinician')
-    grouped = {}
-    for row in db.query(DeviceConnection).filter(DeviceConnection.status != 'disconnected').all():
+    # Scope DeviceConnection rows to the actor's patients — pre-fix this
+    # query had no clinic/clinician filter and returned every connected
+    # device across every clinic (cross-clinic info disclosure).
+    patients = _patients(actor, db)
+    patient_ids = [p.id for p in patients]
+    grouped: dict = {}
+    if not patient_ids:
+        return {'clinic_id': _clinic_id(actor), 'devices': []}
+    for row in db.query(DeviceConnection).filter(
+        DeviceConnection.status != 'disconnected',
+        DeviceConnection.patient_id.in_(patient_ids),
+    ).all():
         item = grouped.setdefault(row.source, {
             'id': row.source,
             'device_key': row.source,

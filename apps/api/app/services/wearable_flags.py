@@ -18,6 +18,13 @@ from sqlalchemy.orm import Session
 from app.persistence.models import WearableDailySummary, WearableAlertFlag
 
 
+def _aware(dt: datetime | None) -> datetime | None:
+    """Coerce a potentially tz-naive datetime to UTC-aware (SQLite strips tzinfo)."""
+    if dt is None:
+        return None
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
 # ── Thresholds ────────────────────────────────────────────────────────────────
 
 _SLEEP_WORSENING_DELTA_H   = -1.5    # drop of ≥1.5h average sleep over 7d vs prior 7d
@@ -76,7 +83,7 @@ def run_flag_checks(
     )
     dedup_48h: set[str] = {
         f.flag_type for f in flags_7d
-        if f.triggered_at >= now - timedelta(hours=48)
+        if _aware(f.triggered_at) >= now - timedelta(hours=48)
     }
     fire_count_7d: Counter[str] = Counter(f.flag_type for f in flags_7d)
 

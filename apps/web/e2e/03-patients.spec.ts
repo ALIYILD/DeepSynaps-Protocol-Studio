@@ -3,8 +3,38 @@ import { mockApiSuccess, setAuthToken } from './helpers';
 
 test.describe('Patient Management', () => {
   test.beforeEach(async ({ page }) => {
-    await mockApiSuccess(page);
     await setAuthToken(page);
+
+    // Single catch-all: handle auth, patients, and everything else
+    await page.route('**/api/v1/**', (route) => {
+      const url = route.request().url();
+      if (url.includes('/auth/me')) {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            id: 'test-user-1',
+            email: 'test@clinic.com',
+            display_name: 'Dr. Test User',
+            role: 'clinician',
+          }),
+        });
+      } else if (url.includes('/patients')) {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            items: [
+              { id: 'p1', first_name: 'Alice', last_name: 'Smith', primary_condition: 'ADHD', created_at: new Date().toISOString() },
+              { id: 'p2', first_name: 'Bob', last_name: 'Jones', primary_condition: 'Anxiety', created_at: new Date().toISOString() },
+            ],
+            total: 2,
+          }),
+        });
+      } else {
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+      }
+    });
   });
 
   test('patients page loads and shows patient list', async ({ page }) => {

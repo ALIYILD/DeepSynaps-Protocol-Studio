@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, Path, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor
+from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import MarketplaceItem, User
@@ -58,6 +58,37 @@ class UpdateListingRequest(BaseModel):
 
 
 _VALID_KINDS = frozenset({"product", "service", "device", "software", "education", "course"})
+
+# Schemes that may appear in seller-supplied URLs. ``external_url`` and
+# ``image_url`` flow into clinician-rendered <a href="…"> / <img src="…">
+# attributes. Pre-fix any string up to 512 chars was accepted, so a
+# seller listing could carry ``javascript:alert(document.cookie)`` and
+# stored-XSS every clinician who clicked the listing. Restrict to
+# http(s) URLs only — everything else (``javascript:``, ``data:``,
+# ``file:``, ``vbscript:``, ``blob:``) is refused at the schema layer.
+_ALLOWED_URL_SCHEMES = frozenset({"http://", "https://"})
+
+
+def _validate_seller_url(url: str | None, *, field: str) -> None:
+    """Reject URLs whose scheme is not in ``_ALLOWED_URL_SCHEMES``.
+
+    Empty / None is allowed — that's "no link supplied". A non-empty
+    value MUST start with one of the allowed scheme prefixes (case-
+    insensitive). ``//host/path`` (protocol-relative) is also rejected
+    because it inherits the page's scheme on https vs http inconsistently.
+    """
+    if not url:
+        return
+    candidate = url.strip().lower()
+    if not any(candidate.startswith(s) for s in _ALLOWED_URL_SCHEMES):
+        raise ApiServiceError(
+            code="invalid_url_scheme",
+            message=(
+                f"{field} must use http:// or https:// — other schemes "
+                "(javascript:, data:, file:, vbscript:, blob:) are refused."
+            ),
+            status_code=422,
+        )
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────────
@@ -131,7 +162,17 @@ def create_listing(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> dict:
-    """Create a new product listing as a seller."""
+    """Create a new product listing as a seller.
+
+    Pre-fix this only required ``get_authenticated_actor``, so ANY
+    authenticated user — including freshly-self-registered guest /
+    technician / reviewer accounts — could become a seller and post
+    Amazon affiliate spam. Combined with the URL-XSS fix in
+    PR #183 (\`_validate_seller_url\`), the role gate below ensures
+    a malicious actor must at minimum hold a clinician token before
+    they can create a listing that renders into clinician browsers.
+    """
+    require_minimum_role(actor, "clinician")
     user = _require_user(actor, db)
 
     if body.kind not in _VALID_KINDS:
@@ -140,6 +181,12 @@ def create_listing(
             message=f"kind must be one of: {', '.join(sorted(_VALID_KINDS))}",
             status_code=422,
         )
+
+    # Reject javascript:/data:/file: URI schemes — these flow into
+    # clinician-rendered href/src attributes and are the load-bearing
+    # stored-XSS guard.
+    _validate_seller_url(body.external_url, field="external_url")
+    _validate_seller_url(body.image_url, field="image_url")
 
     now = datetime.now(timezone.utc)
     item = MarketplaceItem(
@@ -196,6 +243,10 @@ def update_listing(
     db: Session = Depends(get_db_session),
 ) -> dict:
     """Update one of the seller's own listings."""
+    # Mirror the create-side role gate — a downgraded former
+    # clinician should not retain edit rights to a stale listing
+    # they posted under elevated role.
+    require_minimum_role(actor, "clinician")
     user = _require_user(actor, db)
     item = db.query(MarketplaceItem).filter(
         MarketplaceItem.id == item_id,
@@ -216,8 +267,10 @@ def update_listing(
     if body.price_unit is not None:
         item.price_unit = body.price_unit.strip() or None
     if body.external_url is not None:
+        _validate_seller_url(body.external_url, field="external_url")
         item.external_url = body.external_url.strip()
     if body.image_url is not None:
+        _validate_seller_url(body.image_url, field="image_url")
         item.image_url = body.image_url.strip() or None
     if body.tags is not None:
         item.tags_json = json.dumps(body.tags)

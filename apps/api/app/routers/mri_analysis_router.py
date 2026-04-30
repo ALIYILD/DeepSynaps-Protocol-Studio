@@ -32,6 +32,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -42,19 +43,31 @@ from app.auth import (
 )
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.limiter import limiter
 from app.persistence.models import (
     AiSummaryAudit,
     ClinicalSession,
     MriAnalysis,
+    MriReportFinding,
+    MriTargetPlan,
     MriUpload,
     OutcomeSeries,
+    Patient,
     QEEGRecord,
 )
 from app.repositories.patients import resolve_patient_clinic_id
+from app.services.evidence_intelligence import list_saved_citations
 from app.services import mri_pipeline as mri_pipeline_facade
 from app.settings import get_settings
 
 _log = logging.getLogger(__name__)
+
+try:
+    from deepsynaps_mri.niivue_payload import StimTarget as ViewerStimTarget
+    from deepsynaps_mri.niivue_payload import build_payload as build_viewer_payload
+except ImportError:  # pragma: no cover - optional package path during thin installs
+    ViewerStimTarget = None  # type: ignore[assignment]
+    build_viewer_payload = None  # type: ignore[assignment]
 
 
 def _gate_patient_access(
@@ -71,6 +84,27 @@ try:
 except ImportError:  # pragma: no cover - optional package path during thin installs
     ViewerStimTarget = None  # type: ignore[assignment]
     build_viewer_payload = None  # type: ignore[assignment]
+
+# Upload validation + fusion payload + safer-language helpers — added
+# 2026-04-26 night. Imported lazily through a try/except so the API still
+# loads even on slim deployments where the mri pipeline package isn't
+# installed (the demo-mode short-circuit covers that path).
+try:
+    from deepsynaps_mri.safety import (  # type: ignore[import-not-found]
+        findings_from_structural,
+        safe_brain_age,
+        to_fusion_payload,
+    )
+    from deepsynaps_mri.schemas import BrainAgePrediction  # type: ignore[import-not-found]
+    from deepsynaps_mri.validation import validate_upload_blob  # type: ignore[import-not-found]
+    HAS_MRI_VALIDATION = True
+except ImportError:  # pragma: no cover - thin-install fallback
+    findings_from_structural = None  # type: ignore[assignment]
+    safe_brain_age = None  # type: ignore[assignment]
+    to_fusion_payload = None  # type: ignore[assignment]
+    BrainAgePrediction = None  # type: ignore[assignment]
+    validate_upload_blob = None  # type: ignore[assignment]
+    HAS_MRI_VALIDATION = False
 
 
 router = APIRouter(prefix="/api/v1/mri", tags=["mri"])
@@ -317,7 +351,43 @@ def _build_patient_timeline_payload(
 
 
 def _report_from_row(row: MriAnalysis) -> dict[str, Any]:
-    """Assemble an ``MRIReport``-shaped dict from a persisted row."""
+    """Assemble an ``MRIReport``-shaped dict from a persisted row.
+
+    Includes the safer per-region ``findings`` array and a brain-age block
+    that's been routed through :func:`safe_brain_age` so the API never
+    surfaces an implausible predicted age. Both are optional — if the mri
+    pipeline package isn't importable the raw stored payload is returned
+    unchanged.
+    """
+    structural = _load(row.structural_json)
+    qc = _load(row.qc_json) or {}
+
+    # Safer brain-age envelope. Re-runs the wrapper on whatever the model
+    # produced so the field always carries confidence_band_years +
+    # calibration_provenance even on legacy rows persisted before the
+    # safety wrapper landed.
+    if (
+        HAS_MRI_VALIDATION
+        and safe_brain_age is not None
+        and BrainAgePrediction is not None
+        and isinstance(structural, dict)
+        and structural.get("brain_age")
+    ):
+        try:
+            raw_ba = BrainAgePrediction(**structural["brain_age"])
+            wrapped = safe_brain_age(raw_ba)
+            structural = dict(structural)
+            structural["brain_age"] = wrapped.model_dump(mode="json")
+        except Exception as exc:  # noqa: BLE001
+            _log.info("brain-age safety wrap skipped (%s: %s)", type(exc).__name__, exc)
+
+    findings: list[dict[str, Any]] = []
+    if HAS_MRI_VALIDATION and findings_from_structural is not None:
+        try:
+            findings = findings_from_structural(structural)
+        except Exception as exc:  # noqa: BLE001
+            _log.info("findings_from_structural skipped (%s: %s)", type(exc).__name__, exc)
+
     return {
         "analysis_id": row.analysis_id,
         "patient": {
@@ -326,8 +396,9 @@ def _report_from_row(row: MriAnalysis) -> dict[str, Any]:
             "sex": row.sex,
         },
         "modalities_present": _load(row.modalities_present_json) or [],
-        "qc": _load(row.qc_json) or {},
-        "structural": _load(row.structural_json),
+        "qc": qc,
+        "qc_warnings": _load(getattr(row, "qc_warnings_json", None)) or [],
+        "structural": structural,
         "functional": _load(row.functional_json),
         "diffusion": _load(row.diffusion_json),
         "stim_targets": _load(row.stim_targets_json) or [],
@@ -335,8 +406,29 @@ def _report_from_row(row: MriAnalysis) -> dict[str, Any]:
         "overlays": _load(row.overlays_json) or {},
         "pipeline_version": row.pipeline_version or "0.1.0",
         "norm_db_version": row.norm_db_version or "ISTAGING-v1",
+        # Safer per-region observations (added 2026-04-26 night). Always
+        # includes ``requires_clinical_correlation: True`` and hedged
+        # language; never says "diagnosis".
+        "findings": findings,
+        "saved_evidence_citations": [],
         "disclaimer": _DISCLAIMER,
     }
+
+
+def _attach_saved_evidence_citations(
+    row: MriAnalysis,
+    report: dict[str, Any],
+    db: Session,
+) -> dict[str, Any]:
+    scoped = list_saved_citations(
+        row.patient_id,
+        db,
+        context_kind="mri",
+        analysis_id=row.analysis_id,
+    )
+    report_with_citations = dict(report)
+    report_with_citations["saved_evidence_citations"] = scoped
+    return report_with_citations
 
 
 def _status_payload_from_row(row: MriAnalysis, job_id: str) -> dict[str, Any]:
@@ -347,11 +439,18 @@ def _status_payload_from_row(row: MriAnalysis, job_id: str) -> dict[str, Any]:
         "SUCCESS": "done",
         "FAILURE": "failed",
     }
-    return {
+    info: dict[str, Any] = {"stage": stage_map.get(row.state, row.state)}
+    failure = getattr(row, "failure_reason", None)
+    if failure:
+        info["error"] = failure
+    payload: dict[str, Any] = {
         "job_id": job_id,
         "state": row.state,
-        "info": {"stage": stage_map.get(row.state, row.state)},
+        "info": info,
     }
+    if failure:
+        payload["error"] = failure
+    return payload
 
 
 def _populate_row_from_report(row: MriAnalysis, report: dict[str, Any]) -> None:
@@ -368,6 +467,9 @@ def _populate_row_from_report(row: MriAnalysis, report: dict[str, Any]) -> None:
         row.pipeline_version = str(report["pipeline_version"])[:16] or None
     if "norm_db_version" in report:
         row.norm_db_version = str(report["norm_db_version"])[:16] or None
+    # Generate patient-facing report at the same time as the analysis report
+    from app.services.mri_claim_governance import sanitize_for_patient
+    row.patient_facing_report_json = json.dumps(sanitize_for_patient(report))
 
 
 def _viewer_payload_from_report(analysis_id: str, report: dict[str, Any]) -> dict[str, Any]:
@@ -480,7 +582,9 @@ def _audit_mri_analyze(
 
 
 @router.post("/upload", status_code=201)
+@limiter.limit("10/minute")
 async def upload_mri(
+    request: Request,
     file: UploadFile = File(...),
     patient_id: str = Form(...),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
@@ -499,6 +603,23 @@ async def upload_mri(
     filename = file.filename or "upload.bin"
     ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ".bin"
 
+    _ALLOWED_MRI_EXTENSIONS = frozenset({"zip", "nii", "gz", "dcm", "dicom", "img", "hdr"})
+    _fn_lower = filename.lower()
+    _ext_valid = (
+        _fn_lower.endswith(".nii.gz")
+        or _fn_lower.endswith(".tar.gz")
+        or ext.lstrip(".") in _ALLOWED_MRI_EXTENSIONS
+    )
+    if not _ext_valid:
+        raise ApiServiceError(
+            code="invalid_file_type",
+            message=(
+                f"File type '{ext}' is not accepted. "
+                "Allowed: .zip, .nii, .nii.gz, .dcm, .dicom, .img, .hdr"
+            ),
+            status_code=422,
+        )
+
     file_bytes = await file.read()
     if not file_bytes:
         raise ApiServiceError(
@@ -513,6 +634,20 @@ async def upload_mri(
             status_code=422,
         )
 
+    # Stronger upload validation (added 2026-04-26 night): extension whitelist
+    # + NIfTI magic-byte / zip sanity check before we ever persist the blob.
+    # Skipped only when the validator helpers aren't importable (slim
+    # deployment) — in that case the loose, pre-existing checks above are
+    # the only safety net.
+    if HAS_MRI_VALIDATION and validate_upload_blob is not None:
+        validation = validate_upload_blob(filename, file_bytes)
+        if not validation.ok:
+            raise ApiServiceError(
+                code=validation.code or "invalid_upload",
+                message=validation.message,
+                status_code=422,
+            )
+
     settings = get_settings()
     from app.services import media_storage
 
@@ -526,7 +661,16 @@ async def upload_mri(
             settings=settings,
         )
     except Exception as exc:
-        _log.exception("Failed to save MRI upload")
+        _log.error(
+            "mri_upload_failed",
+            extra={
+                "event": "mri_upload_failed",
+                "patient_id": patient_id,
+                "actor_id": actor.actor_id,
+                "upload_filename": filename,
+                "error": str(exc),
+            },
+        )
         raise ApiServiceError(
             code="upload_failed",
             message=f"Failed to save upload: {exc}",
@@ -546,8 +690,16 @@ async def upload_mri(
     db.commit()
 
     _log.info(
-        "MRI upload saved: upload_id=%s patient=%s size=%d",
-        upload_id, patient_id, len(file_bytes),
+        "mri_upload_success",
+        extra={
+            "event": "mri_upload_success",
+            "upload_id": upload_id,
+            "patient_id": patient_id,
+            "actor_id": actor.actor_id,
+            "upload_filename": filename,
+            "file_size_bytes": len(file_bytes),
+            "mimetype": file.content_type,
+        },
     )
     return {
         "upload_id": upload_id,
@@ -560,7 +712,9 @@ async def upload_mri(
 
 
 @router.post("/analyze")
+@limiter.limit("10/minute")
 async def analyze_mri(
+    request: Request,
     upload_id: str = Form(...),
     patient_id: str = Form(...),
     condition: str = Form("mdd"),
@@ -571,6 +725,13 @@ async def analyze_mri(
     db: Session = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Kick off the MRI pipeline for an uploaded session.
+
+    Pre-fix this route had no rate limit — an authenticated
+    clinician could POST 10 000 jobs in a tight loop, each writing
+    rows + audit + (in non-demo) enqueuing a real pipeline run.
+    No queue-depth check, no cost ceiling. The 10/min IP cap is a
+    minimum guard; real per-actor cost limits should be a separate
+    follow-up wired through the worker queue.
 
     Returns
     -------
@@ -652,9 +813,11 @@ async def analyze_mri(
             row.state = "SUCCESS"
         else:
             row.state = "FAILURE"
+            _err_msg = result.get("error") or "pipeline failed"
             row.qc_json = _dump(
-                {"passed": False, "notes": [result.get("error") or "pipeline failed"]}
+                {"passed": False, "notes": [_err_msg]}
             )
+            row.failure_reason = str(_err_msg)[:1000]
         db.commit()
         return {"job_id": analysis_id, "state": "queued"}
 
@@ -692,6 +855,7 @@ def get_status(
             status_code=404,
         )
 
+    _gate_patient_access(actor, row.patient_id, db)
     return _status_payload_from_row(row, job_id)
 
 
@@ -714,6 +878,8 @@ async def stream_status_events(
             message=f"job_id {job_id!r} not found",
             status_code=404,
         )
+
+    _gate_patient_access(actor, row.patient_id, db)
 
     async def event_generator():
         last_payload: str | None = None
@@ -766,7 +932,55 @@ def get_report(
             status_code=404,
         )
     _gate_patient_access(actor, row.patient_id, db)
-    return JSONResponse(_report_from_row(row))
+    report = _attach_saved_evidence_citations(row, _report_from_row(row), db)
+    return JSONResponse(report)
+
+
+@router.get("/report/{analysis_id}/fusion_payload")
+def get_fusion_payload(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> JSONResponse:
+    """Return a narrow fusion-ready payload for the qEEG-MRI fusion stream.
+
+    Shape — see ``deepsynaps_mri.safety.to_fusion_payload`` docstring.
+    Decision-support only; every entry carries
+    ``requires_clinical_correlation: True``.
+    """
+    require_minimum_role(actor, "clinician")
+
+    row = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if row is None:
+        raise ApiServiceError(
+            code="analysis_not_found",
+            message=f"analysis_id {analysis_id!r} not found",
+            status_code=404,
+        )
+    _gate_patient_access(actor, row.patient_id, db)
+
+    report = _report_from_row(row)
+    if not (HAS_MRI_VALIDATION and to_fusion_payload is not None):
+        return JSONResponse(
+            {
+                "code": "fusion_payload_unavailable",
+                "message": (
+                    "MRI fusion payload helper is not available in this build "
+                    "(packages/mri-pipeline missing)."
+                ),
+            },
+            status_code=503,
+        )
+    try:
+        payload = to_fusion_payload(report, subject_id=row.patient_id)
+    except Exception as exc:  # noqa: BLE001
+        _log.exception("to_fusion_payload failed for analysis_id=%s", analysis_id)
+        raise ApiServiceError(
+            code="fusion_payload_failed",
+            message=f"{type(exc).__name__}: {exc}",
+            status_code=500,
+        )
+    return JSONResponse(payload)
 
 
 @router.get("/{analysis_id}/viewer.json")
@@ -785,6 +999,7 @@ def get_viewer_payload(
             message=f"analysis_id {analysis_id!r} not found",
             status_code=404,
         )
+    _gate_patient_access(actor, row.patient_id, db)
     return JSONResponse(_viewer_payload_from_report(analysis_id, _report_from_row(row)))
 
 
@@ -807,8 +1022,9 @@ def get_report_pdf(
             message=f"analysis_id {analysis_id!r} not found",
             status_code=404,
         )
+    _gate_patient_access(actor, row.patient_id, db)
 
-    report = _report_from_row(row)
+    report = _attach_saved_evidence_citations(row, _report_from_row(row), db)
     pdf_bytes = mri_pipeline_facade.generate_report_pdf_safe(analysis_id, report)
     if pdf_bytes is None:
         return JSONResponse(
@@ -849,7 +1065,8 @@ def get_report_html(
             message=f"analysis_id {analysis_id!r} not found",
             status_code=404,
         )
-    report = _report_from_row(row)
+    _gate_patient_access(actor, row.patient_id, db)
+    report = _attach_saved_evidence_citations(row, _report_from_row(row), db)
     html = mri_pipeline_facade.generate_report_html_safe(analysis_id, report)
     return HTMLResponse(html)
 
@@ -874,6 +1091,7 @@ def get_overlay(
             message=f"analysis_id {analysis_id!r} not found",
             status_code=404,
         )
+    _gate_patient_access(actor, row.patient_id, db)
     report = _report_from_row(row)
     html = mri_pipeline_facade.generate_overlay_html_safe(
         analysis_id, target_id, report
@@ -917,6 +1135,7 @@ async def get_medrag(
             message=f"analysis_id {analysis_id!r} not found",
             status_code=404,
         )
+    _gate_patient_access(actor, row.patient_id, db)
     report = _report_from_row(row)
     return await mri_pipeline_facade.run_medrag_for_analysis_safe(
         report, top_k=top_k
@@ -1003,6 +1222,7 @@ def compare_mri(
             message="baseline and followup analyses belong to different patients",
             status_code=422,
         )
+    _gate_patient_access(actor, base_row.patient_id, db)
 
     baseline_report = _report_from_row(base_row)
     followup_report = _report_from_row(fup_row)
@@ -1055,3 +1275,607 @@ def compare_mri(
         "key_findings": key_findings,
     }
     return JSONResponse(payload)
+
+
+# ── MRI Clinical Workbench endpoints (migration 053) ─────────────────────────
+
+
+class _ReportStateTransitionIn(BaseModel):
+    action: str
+    note: Optional[str] = None
+
+
+class _SafetyCockpitOut(BaseModel):
+    checks: list[dict]
+    red_flags: list[dict]
+    overall_status: str
+    disclaimer: str
+
+
+class _RedFlagsOut(BaseModel):
+    flags: list[dict]
+    flag_count: int
+    high_severity_count: int
+    disclaimer: str
+
+
+class _AtlasModelCardOut(BaseModel):
+    template_space: Optional[str] = None
+    atlas_version: Optional[str] = None
+    registration_method: Optional[str] = None
+    segmentation_method: Optional[str] = None
+    brain_extraction_status: Optional[str] = None
+    registration_confidence: Optional[str] = None
+    coordinate_uncertainty_mm: Optional[float] = None
+    known_limitations: Optional[str] = None
+    complete: bool = False
+
+
+class _TargetPlanOut(BaseModel):
+    id: str
+    analysis_id: str
+    target_index: int
+    anatomical_label: str
+    modality_compatibility: Optional[list[str]] = None
+    atlas_version: Optional[str] = None
+    registration_confidence: Optional[str] = None
+    coordinate_uncertainty_mm: Optional[float] = None
+    contraindications: list[str] = Field(default_factory=list)
+    evidence_grade: Optional[str] = None
+    off_label_flag: bool = False
+    match_rationale: Optional[str] = None
+    caution_rationale: Optional[str] = None
+    required_checks: list[str] = Field(default_factory=list)
+
+
+class _TimelineEventOut(BaseModel):
+    date: str
+    event_type: str
+    title: str
+    description: str
+    severity: Optional[str] = None
+    resolved: bool = False
+    source_analysis_id: Optional[str] = None
+
+
+@router.get("/{analysis_id}/safety-cockpit", response_model=_SafetyCockpitOut)
+def get_mri_safety_cockpit(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> _SafetyCockpitOut:
+    """Return the clinical safety cockpit for an MRI analysis."""
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    from app.services.mri_safety_engine import compute_mri_safety_cockpit
+
+    cockpit = None
+    if analysis.safety_cockpit_json:
+        try:
+            cockpit = json.loads(analysis.safety_cockpit_json)
+        except (TypeError, ValueError):
+            pass
+    if cockpit is None:
+        cockpit = compute_mri_safety_cockpit(analysis)
+        analysis.safety_cockpit_json = json.dumps(cockpit)
+        db.commit()
+
+    _log.info(
+        "mri_safety_cockpit_served",
+        extra={
+            "event": "mri_safety_cockpit_served",
+            "analysis_id": analysis_id,
+            "overall_status": cockpit.get("overall_status"),
+            "red_flag_count": len(cockpit.get("red_flags", [])),
+            "radiology_review_required": any(
+                f.get("code") == "RADIOLOGY_REVIEW_REQUIRED" for f in cockpit.get("red_flags", [])
+            ),
+            "actor_id": actor.actor_id,
+        },
+    )
+    return _SafetyCockpitOut(**cockpit)
+
+
+@router.get("/{analysis_id}/red-flags", response_model=_RedFlagsOut)
+def get_mri_red_flags(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> _RedFlagsOut:
+    """Return red-flag detector output for an MRI analysis."""
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    from app.services.mri_safety_engine import compute_mri_safety_cockpit
+
+    flags = None
+    if analysis.red_flags_json:
+        try:
+            flags = json.loads(analysis.red_flags_json)
+        except (TypeError, ValueError):
+            pass
+    if flags is None:
+        cockpit = compute_mri_safety_cockpit(analysis)
+        red_flags = cockpit.get("red_flags", [])
+        flags = {
+            "flags": red_flags,
+            "flag_count": len(red_flags),
+            "high_severity_count": sum(1 for f in red_flags if f.get("severity") == "high"),
+            "disclaimer": cockpit.get("disclaimer", ""),
+        }
+        analysis.red_flags_json = json.dumps(flags)
+        db.commit()
+    return _RedFlagsOut(**flags)
+
+
+@router.get("/{analysis_id}/atlas-model-card", response_model=_AtlasModelCardOut)
+def get_mri_atlas_model_card(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> _AtlasModelCardOut:
+    """Return atlas / model metadata for an MRI analysis."""
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    meta = None
+    if analysis.atlas_metadata_json:
+        try:
+            meta = json.loads(analysis.atlas_metadata_json)
+        except (TypeError, ValueError):
+            pass
+    if meta:
+        return _AtlasModelCardOut(**meta)
+
+    structural = _load(analysis.structural_json) or {}
+    reg = structural.get("registration", {})
+    return _AtlasModelCardOut(
+        template_space=reg.get("template_space", "MNI152"),
+        atlas_version=structural.get("atlas_version", "unknown"),
+        registration_method=reg.get("method", "unknown"),
+        segmentation_method=structural.get("segmentation_method", "unknown"),
+        brain_extraction_status=structural.get("brain_extraction", "unknown"),
+        registration_confidence=reg.get("confidence", "unknown"),
+        coordinate_uncertainty_mm=reg.get("uncertainty_mm"),
+        known_limitations="MRI spatial context incomplete — interpret cautiously." if not structural else None,
+        complete=bool(structural),
+    )
+
+
+@router.post("/{analysis_id}/target-plan-governance", response_model=list[_TargetPlanOut])
+def compute_mri_target_plan_governance(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> list[_TargetPlanOut]:
+    """Compute and persist target-plan governance records for an MRI analysis."""
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    patient = db.query(Patient).filter_by(id=analysis.patient_id).first()
+    if not patient:
+        raise ApiServiceError(code="not_found", message="Patient not found", status_code=404)
+
+    from app.services.mri_protocol_governance import compute_target_plan_governance
+
+    plans = compute_target_plan_governance(analysis, patient, db)
+    db.commit()
+
+    _log.info(
+        "mri_target_plan_generated",
+        extra={
+            "event": "mri_target_plan_generated",
+            "analysis_id": analysis_id,
+            "target_count": len(plans),
+            "off_label_count": sum(1 for p in plans if p.off_label_flag),
+            "actor_id": actor.actor_id,
+        },
+    )
+
+    out: list[_TargetPlanOut] = []
+    for p in plans:
+        db.refresh(p)
+        out.append(_TargetPlanOut(
+            id=p.id,
+            analysis_id=p.analysis_id,
+            target_index=p.target_index,
+            anatomical_label=p.anatomical_label,
+            modality_compatibility=json.loads(p.modality_compatibility) if p.modality_compatibility else None,
+            atlas_version=p.atlas_version,
+            registration_confidence=p.registration_confidence,
+            coordinate_uncertainty_mm=p.coordinate_uncertainty_mm,
+            contraindications=json.loads(p.contraindications) if p.contraindications else [],
+            evidence_grade=p.evidence_grade,
+            off_label_flag=p.off_label_flag,
+            match_rationale=p.match_rationale,
+            caution_rationale=p.caution_rationale,
+            required_checks=json.loads(p.required_checks) if p.required_checks else [],
+        ))
+    return out
+
+
+@router.get("/{analysis_id}/target-plan-governance", response_model=list[_TargetPlanOut])
+def get_mri_target_plan_governance(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> list[_TargetPlanOut]:
+    """Return persisted target-plan governance records for an MRI analysis."""
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    rows = db.query(MriTargetPlan).filter_by(analysis_id=analysis_id).order_by(MriTargetPlan.target_index.asc()).all()
+    out: list[_TargetPlanOut] = []
+    for p in rows:
+        out.append(_TargetPlanOut(
+            id=p.id,
+            analysis_id=p.analysis_id,
+            target_index=p.target_index,
+            anatomical_label=p.anatomical_label,
+            modality_compatibility=json.loads(p.modality_compatibility) if p.modality_compatibility else None,
+            atlas_version=p.atlas_version,
+            registration_confidence=p.registration_confidence,
+            coordinate_uncertainty_mm=p.coordinate_uncertainty_mm,
+            contraindications=json.loads(p.contraindications) if p.contraindications else [],
+            evidence_grade=p.evidence_grade,
+            off_label_flag=p.off_label_flag,
+            match_rationale=p.match_rationale,
+            caution_rationale=p.caution_rationale,
+            required_checks=json.loads(p.required_checks) if p.required_checks else [],
+        ))
+    return out
+
+
+@router.post("/{analysis_id}/transition")
+def transition_mri_report_state(
+    analysis_id: str,
+    body: _ReportStateTransitionIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Transition an MRI analysis report through its review workflow."""
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    from app.services.mri_clinician_review import transition_report_state
+
+    analysis = transition_report_state(analysis, body.action, actor, db, note=body.note)
+    db.commit()
+    return {
+        "analysis_id": analysis.analysis_id,
+        "report_state": analysis.report_state,
+        "reviewer_id": analysis.reviewer_id,
+        "reviewed_at": analysis.reviewed_at.isoformat() if analysis.reviewed_at else None,
+    }
+
+
+@router.post("/{analysis_id}/sign")
+def sign_mri_report(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Digitally sign-off on an approved MRI report."""
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    from app.services.mri_clinician_review import sign_report
+
+    analysis = sign_report(analysis_id, actor, db)
+    db.commit()
+    return {
+        "analysis_id": analysis.analysis_id,
+        "signed_by": analysis.signed_by,
+        "signed_at": analysis.signed_at.isoformat() if analysis.signed_at else None,
+    }
+
+
+@router.get("/{analysis_id}/patient-facing")
+def get_mri_patient_facing_report(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Return the sanitized patient-facing version of an MRI report.
+
+    Gated: report must be approved (or reviewed with amendments) before
+    the patient-facing version is returned.
+    """
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    if analysis.report_state not in ("MRI_APPROVED", "MRI_REVIEWED_WITH_AMENDMENTS"):
+        _log.warning(
+            "mri_patient_report_blocked",
+            extra={
+                "event": "mri_patient_report_blocked",
+                "analysis_id": analysis_id,
+                "report_state": analysis.report_state,
+                "actor_id": actor.actor_id,
+            },
+        )
+        raise ApiServiceError(
+            code="report_not_approved",
+            message="Patient-facing report is only available after clinician approval.",
+            status_code=403,
+        )
+
+    if not analysis.patient_facing_report_json:
+        return {"disclaimer": "Patient-facing report not yet generated.", "content": None}
+    return json.loads(analysis.patient_facing_report_json)
+
+
+@router.get("/patient/{patient_id}/timeline", response_model=list[_TimelineEventOut])
+def get_mri_patient_timeline(
+    patient_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> list[_TimelineEventOut]:
+    """Return the MRI clinical workbench timeline for a patient."""
+    require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
+
+    from app.services.mri_timeline import build_timeline
+
+    events = build_timeline(patient_id, db)
+    return [_TimelineEventOut(**e) for e in events]
+
+
+@router.post("/{analysis_id}/export-bids")
+def export_mri_bids_package(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> StreamingResponse:
+    """Export a Clinical MRI Package in BIDS-style zip format.
+
+    Gated: requires approved and signed-off report.
+    """
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    from app.services.mri_bids_export import build_bids_package
+
+    buf = build_bids_package(analysis_id, actor, db)
+    _log.info(
+        "mri_bids_export_served",
+        extra={
+            "event": "mri_bids_export_served",
+            "analysis_id": analysis_id,
+            "actor_id": actor.actor_id,
+            "actor_role": actor.role,
+        },
+    )
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="mri_clinical_package_{analysis_id}.zip"'
+            ),
+        },
+    )
+
+
+
+class _FindingUpdateIn(BaseModel):
+    status: str
+    clinician_note: Optional[str] = None
+    amended_text: Optional[str] = None
+
+
+@router.post("/{analysis_id}/claim-governance")
+def generate_mri_claim_governance(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Run claim governance over the MRI AI report."""
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    from app.services.mri_claim_governance import classify_mri_claims
+
+    report = _report_from_row(analysis)
+    findings = classify_mri_claims(report)
+    analysis.claim_governance_json = json.dumps(findings)
+
+    blocked_count = sum(1 for f in findings if f.get("claim_type") == "BLOCKED")
+    _log.info(
+        "mri_claim_governance_generated",
+        extra={
+            "event": "mri_claim_governance_generated",
+            "analysis_id": analysis_id,
+            "finding_count": len(findings),
+            "blocked_count": blocked_count,
+            "actor_id": actor.actor_id,
+        },
+    )
+
+    existing = {f.target_id: f for f in db.query(MriReportFinding).filter_by(analysis_id=analysis_id).all()}
+    for idx, item in enumerate(findings):
+        target_id = f"{item.get('section', 'unknown')}_{idx}"
+        if target_id in existing:
+            existing[target_id].claim_type = item["claim_type"]
+            if item.get("block_reason"):
+                existing[target_id].clinician_note = item["block_reason"]
+        else:
+            db.add(
+                MriReportFinding(
+                    analysis_id=analysis_id,
+                    target_id=target_id,
+                    claim_type=item["claim_type"],
+                    status="BLOCKED" if item["claim_type"] == "BLOCKED" else "PENDING_REVIEW",
+                    clinician_note=item.get("block_reason"),
+                )
+            )
+    db.commit()
+    return {"analysis_id": analysis_id, "findings": findings}
+
+
+@router.get("/{analysis_id}/claim-governance")
+def get_mri_claim_governance(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Return persisted claim governance for an MRI analysis."""
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    if analysis.claim_governance_json:
+        return {"analysis_id": analysis_id, "findings": json.loads(analysis.claim_governance_json)}
+    return {"analysis_id": analysis_id, "findings": []}
+
+
+@router.post("/{analysis_id}/findings/{finding_id}")
+def update_mri_finding(
+    analysis_id: str,
+    finding_id: str,
+    body: _FindingUpdateIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Update a single MRI finding's review status."""
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    from app.services.mri_clinician_review import update_finding_status
+
+    finding = update_finding_status(
+        finding_id, body.status, body.clinician_note, body.amended_text, actor, db
+    )
+    db.commit()
+    return {"id": finding.id, "status": finding.status, "claim_type": finding.claim_type}
+
+
+@router.get("/{analysis_id}/audit-trail")
+def get_mri_audit_trail(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Return the immutable audit trail for an MRI analysis."""
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    from app.services.mri_clinician_review import get_audit_trail
+
+    audits = get_audit_trail(analysis_id, db)
+    return {
+        "analysis_id": analysis_id,
+        "audits": [
+            {
+                "id": a.id,
+                "action": a.action,
+                "actor_id": a.actor_id,
+                "actor_role": a.actor_role,
+                "previous_state": a.previous_state,
+                "new_state": a.new_state,
+                "note": a.note,
+                "created_at": a.created_at.isoformat() if a.created_at else None,
+            }
+            for a in audits
+        ],
+    }
+
+
+@router.post("/{analysis_id}/export")
+def export_mri_package(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> StreamingResponse:
+    """Build and return a comprehensive clinical export package for an MRI analysis."""
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    from app.services.mri_bids_export import build_bids_package
+
+    buf = build_bids_package(analysis_id, actor, db)
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="mri_export_{analysis_id}.zip"',
+        },
+    )
+
+
+@router.get("/{analysis_id}/registration-qa")
+def get_mri_registration_qa(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Return registration QA metrics for an MRI analysis."""
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    from app.services.mri_registration_qa import compute_registration_qa
+
+    return compute_registration_qa(analysis)
+
+
+@router.get("/{analysis_id}/phi-audit")
+def get_mri_phi_audit(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Return PHI / de-identification audit for an MRI analysis."""
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    from app.services.mri_phi_audit import compute_phi_audit
+
+    return compute_phi_audit(analysis)

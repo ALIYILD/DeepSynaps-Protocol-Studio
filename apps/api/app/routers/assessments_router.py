@@ -5,15 +5,33 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.limiter import limiter
 from app.persistence.models import AssessmentRecord
+from app.repositories.patients import resolve_patient_clinic_id
+
+
+def _gate_patient_access(
+    actor: AuthenticatedActor, patient_id: str | None, db: Session
+) -> None:
+    """Cross-clinic ownership gate. Same shape as the rest of the codebase."""
+    if not patient_id:
+        return
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
 from app.repositories.assessments import (
     create_assessment,
     delete_assessment,
@@ -743,6 +761,7 @@ def assign_assessment_endpoint(
 ) -> AssessmentOut:
     """Assign an assessment to a patient with status=pending."""
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, body.patient_id, session)
     notes = body.clinician_notes or ""
     template_title = body.template_id
     respondent_type = body.respondent_type
@@ -792,13 +811,17 @@ class BulkAssignmentItem(BaseModel):
 class BulkAssignRequest(BaseModel):
     # Legacy shape (pages-clinical-tools.js): one patient, many templates.
     patient_id: Optional[str] = None
-    template_ids: Optional[list[str]] = None
+    # Cap at 50 templates per request — prevents memory/CPU DoS via a
+    # massive template_ids array and bounds the per-request commit count.
+    template_ids: Optional[list[str]] = Field(default=None, max_length=50)
     phase: Optional[str] = None
     due_date: Optional[str] = None
     bundle_id: Optional[str] = None
     clinician_notes: Optional[str] = None
-    # New shape (design-v2 Hub): list of per-patient assignments.
-    assignments: Optional[list[BulkAssignmentItem]] = None
+    # New shape (design-v2 Hub): list of per-patient assignments. Cap at 100
+    # — same DoS argument; legitimate clinic workflows assign tens, not
+    # thousands, of items at once.
+    assignments: Optional[list[BulkAssignmentItem]] = Field(default=None, max_length=100)
 
 
 class BulkAssignResponse(BaseModel):
@@ -876,6 +899,7 @@ def bulk_assign_assessments(
                 failed.append({"template_id": None, "reason": "scale_id/template_id missing"})
                 continue
             try:
+                _gate_patient_access(actor, item.patient_id, session)
                 record = _create_one_assignment(
                     session,
                     actor.actor_id,
@@ -899,6 +923,7 @@ def bulk_assign_assessments(
             message="Provide either `assignments` or both `patient_id` and `template_ids`.",
             status_code=400,
         )
+    _gate_patient_access(actor, body.patient_id, session)
     for tpl_id in body.template_ids:
         try:
             record = _create_one_assignment(
@@ -925,6 +950,7 @@ def patient_assessment_summary(
 ) -> dict:
     """Normalized read for AI agents, reports, and protocol personalization."""
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, session)
     snapshot = get_patient_assessment_summary(session, patient_id, clinician_id=actor.actor_id)
     return snapshot.to_dict()
 
@@ -937,6 +963,7 @@ def patient_assessment_ai_context(
 ) -> dict:
     """Plain-text snapshot for LLM prompt context. Clinician-authored only."""
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, session)
     text = extract_ai_assessment_context(session, patient_id, clinician_id=actor.actor_id)
     return {"patient_id": patient_id, "context": text}
 
@@ -949,6 +976,7 @@ def create_assessment_endpoint(
 ) -> AssessmentOut:
     """Create a single assessment — supports both legacy `template_id` and new `scale_id` fields."""
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, body.patient_id, session)
     payload = body.model_dump(exclude_none=True)
     # Resolve scale_id → template_id.
     if "scale_id" in payload and "template_id" not in payload:
@@ -989,6 +1017,86 @@ def create_assessment_endpoint(
             payload["severity"] = sev["severity"]
     record = create_assessment(session, clinician_id=actor.actor_id, **payload)
     return AssessmentOut.from_record(record)
+
+
+# ── CSV export (launch-audit 2026-04-30) ──────────────────────────────────────
+#
+# Real CSV export — not fake rows, not a fake success toast. Returns the
+# clinician's assessments (or a single patient's) with audit-friendly columns.
+# Registered BEFORE `/{assessment_id}` so the path-param route does not catch
+# it.
+
+class CsvExportResponseV2(BaseModel):
+    csv: str
+    rows: int
+    generated_at: str
+    demo: bool = False
+
+
+def _build_csv_export(
+    patient_id: Optional[str],
+    actor: AuthenticatedActor,
+    session: Session,
+) -> CsvExportResponseV2:
+    require_minimum_role(actor, "clinician")
+    if patient_id:
+        _gate_patient_access(actor, patient_id, session)
+        records = list_assessments_for_patient(session, patient_id, actor.actor_id)
+    else:
+        records = list_assessments_for_clinician(session, actor.actor_id)
+
+    headers = [
+        "id", "patient_id", "instrument", "status", "due_date",
+        "completed_at", "score", "severity", "severity_label",
+        "red_flag", "reviewed_by", "reviewed_at", "respondent_type",
+        "phase", "created_at", "updated_at",
+    ]
+
+    def _esc(v: Any) -> str:
+        if v is None:
+            return ""
+        s = str(v)
+        if any(ch in s for ch in (",", '"', "\n", "\r")):
+            return '"' + s.replace('"', '""') + '"'
+        return s
+
+    lines: list[str] = [",".join(headers)]
+    for r in records:
+        out = AssessmentOut.from_record(r)
+        red = bool(out.escalated)
+        if (out.template_id or "").lower() in ("phq9", "phq-9") and out.items:
+            try:
+                arr = (out.items.get("items") if isinstance(out.items, dict) else out.items) or []
+                if isinstance(arr, list) and len(arr) >= 9 and (arr[8] or 0) >= 1:
+                    red = True
+            except Exception:
+                pass
+        row = [
+            out.id, out.patient_id or "", out.template_id, out.status,
+            out.due_date or "", out.completed_at or "", out.score or "",
+            out.severity or "", out.severity_label or "",
+            "1" if red else "0",
+            out.reviewed_by or "", out.reviewed_at or "",
+            out.respondent_type or "", out.phase or "",
+            out.created_at, out.updated_at,
+        ]
+        lines.append(",".join(_esc(v) for v in row))
+
+    return CsvExportResponseV2(
+        csv="\n".join(lines),
+        rows=len(records),
+        generated_at=datetime.now(timezone.utc).isoformat(),
+        demo=False,
+    )
+
+
+@router.get("/export", response_model=CsvExportResponseV2)
+def export_assessments_csv_endpoint(
+    patient_id: Optional[str] = Query(None),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> CsvExportResponseV2:
+    return _build_csv_export(patient_id, actor, session)
 
 
 @router.get("/{assessment_id}", response_model=AssessmentOut)
@@ -1251,9 +1359,11 @@ def _deterministic_stub(severity: Optional[str], template_title: str, score: Opt
     rf_line = f" Red flags: {'; '.join(red_flags)}." if red_flags else ""
     score_str = f"{score}" if score is not None else "(unrecorded)"
     return (
+        f"[Deterministic fallback — LLM unavailable] "
         f"{template_title} score {score_str} {band_narrative}"
         f"{rf_line} Recommended action: review in next clinical contact and document rationale. "
-        "This deterministic summary is a stub; replace with an AI-generated summary once the LLM proxy is configured."
+        "This summary was produced by the deterministic stub because the LLM proxy is not configured "
+        "or did not respond — do not treat the wording as an AI-generated narrative."
     )
 
 
@@ -1313,8 +1423,10 @@ def _prior_same_instrument_scores(
 
 
 @router.post("/{assessment_id}/ai-summary", response_model=AiSummaryResponse)
+@limiter.limit("20/minute")
 def ai_summary_assessment_endpoint(
     assessment_id: str,
+    request: Request,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> AiSummaryResponse:
@@ -1411,3 +1523,6 @@ def ai_summary_assessment_endpoint(
         red_flags=red_flags,
         source=source,
     )
+
+
+# (CSV export endpoint defined earlier in the file, before /{assessment_id}.)

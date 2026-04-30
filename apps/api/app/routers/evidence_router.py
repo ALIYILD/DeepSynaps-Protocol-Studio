@@ -244,6 +244,17 @@ class PaperOut(BaseModel):
     oa_url: Optional[str] = None
     sources: list[str] = Field(default_factory=list)
     abstract: Optional[str] = None
+    # CSV-enrichment columns (migration 004). Optional so pre-migration DBs still work.
+    pmcid: Optional[str] = None
+    source: Optional[str] = None
+    modalities: list[str] = Field(default_factory=list)
+    conditions: list[str] = Field(default_factory=list)
+    study_design: Optional[str] = None
+    sample_size: Optional[int] = None
+    primary_outcome_measure: Optional[str] = None
+    effect_direction: Optional[str] = None
+    europe_pmc_url: Optional[str] = None
+    enrichment_status: Optional[str] = None
 
 
 class TrialOut(BaseModel):
@@ -503,11 +514,12 @@ def _score(row: sqlite3.Row) -> float:
 
 
 def _paper_row_to_out(row: sqlite3.Row, include_abstract: bool = False) -> PaperOut:
+    keys = row.keys()
     out = PaperOut(
         id=row["id"],
         pmid=row["pmid"],
         doi=row["doi"],
-        openalex_id=row["openalex_id"] if "openalex_id" in row.keys() else None,
+        openalex_id=row["openalex_id"] if "openalex_id" in keys else None,
         title=row["title"],
         year=row["year"],
         journal=row["journal"],
@@ -516,10 +528,37 @@ def _paper_row_to_out(row: sqlite3.Row, include_abstract: bool = False) -> Paper
         cited_by_count=row["cited_by_count"],
         is_oa=bool(row["is_oa"]) if row["is_oa"] is not None else False,
         oa_url=row["oa_url"],
-        sources=json.loads(row["sources_json"] or "[]") if "sources_json" in row.keys() else [],
+        sources=json.loads(row["sources_json"] or "[]") if "sources_json" in keys else [],
     )
-    if include_abstract and "abstract" in row.keys():
+    if include_abstract and "abstract" in keys:
         out.abstract = row["abstract"]
+    # CSV-enrichment columns (migration 004). Guarded for backward compatibility.
+    if "pmcid" in keys:
+        out.pmcid = row["pmcid"]
+    if "source" in keys:
+        out.source = row["source"]
+    if "modalities_json" in keys:
+        try:
+            out.modalities = json.loads(row["modalities_json"] or "[]")
+        except (TypeError, ValueError):
+            out.modalities = []
+    if "conditions_json" in keys:
+        try:
+            out.conditions = json.loads(row["conditions_json"] or "[]")
+        except (TypeError, ValueError):
+            out.conditions = []
+    if "study_design" in keys:
+        out.study_design = row["study_design"]
+    if "sample_size" in keys:
+        out.sample_size = row["sample_size"]
+    if "primary_outcome_measure" in keys:
+        out.primary_outcome_measure = row["primary_outcome_measure"]
+    if "effect_direction" in keys:
+        out.effect_direction = row["effect_direction"]
+    if "europe_pmc_url" in keys:
+        out.europe_pmc_url = row["europe_pmc_url"]
+    if "enrichment_status" in keys:
+        out.enrichment_status = row["enrichment_status"]
     return out
 
 
@@ -680,11 +719,20 @@ def save_evidence_citation(
 @router.get("/patient/{patient_id}/saved-citations")
 def get_saved_evidence_citations(
     patient_id: str,
+    context_kind: str | None = Query(default=None),
+    analysis_id: str | None = Query(default=None),
+    report_id: str | None = Query(default=None),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> list[dict]:
     require_minimum_role(actor, "clinician")
-    return list_saved_citations(patient_id, db)
+    return list_saved_citations(
+        patient_id,
+        db,
+        context_kind=context_kind,
+        analysis_id=analysis_id,
+        report_id=report_id,
+    )
 
 
 @router.post("/report-payload")
@@ -949,25 +997,147 @@ def evidence_for_protocol(
     return ForProtocolOut(protocol_id=protocol_id, papers=papers, trials=trials, devices=devices)
 
 
+_PUBLIC_STATS_MODALITIES = (
+    "tms", "dbs", "tdcs", "scs", "vns", "pns", "tacs", "snm", "rns",
+    "tvns", "tfus", "mcs", "ons", "trns", "trigns", "gen",
+)
+_PUBLIC_STATS_CONDITIONS = (
+    "parkinsons", "chronic_pain", "stroke", "mdd", "depression", "alzheimers",
+    "ocd", "ms", "asd", "tbi", "ptsd", "insomnia", "anxiety", "adhd",
+    "tinnitus", "long_covid", "epilepsy",
+)
+
+
 @router.get("/stats")
 def evidence_stats() -> dict:
-    """PUBLIC endpoint — no auth. Returns only row counts (no titles, no PHI).
-    Used by the marketing landing page to show live evidence totals.
-    Returns {ok: false, counts: {}} if the DB isn't present, never raises."""
+    """PUBLIC endpoint — no auth. Returns only aggregate counts (no titles,
+    no authors, no abstracts, no PHI). Used by the marketing landing page to
+    show live evidence-corpus metrics.
+
+    Returns baseline `{ok, counts}` plus richer corpus aggregates when the
+    migration-004 enrichment columns are present. Safe to call from the
+    public landing page — the content is purely numerical roll-ups.
+
+    Never raises: returns `{ok: false, counts: {}}` if the DB is missing or
+    any query fails.
+    """
     path = _default_db_path()
     if not os.path.exists(path):
         return {"ok": False, "counts": {}}
     try:
         conn = sqlite3.connect(path, timeout=5)
         conn.execute("PRAGMA query_only = 1")
-        counts = {
-            t: conn.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
-            for t in ("papers", "trials", "indications")
+
+        counts: dict[str, int] = {}
+        for t in ("papers", "trials", "indications", "devices"):
+            try:
+                counts[t] = conn.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
+            except sqlite3.OperationalError:
+                counts[t] = 0
+
+        # last_ingested timestamp drives the landing-page "updated Xh ago" badge.
+        try:
+            last_updated = conn.execute(
+                "SELECT MAX(last_ingested) FROM papers"
+            ).fetchone()[0]
+        except sqlite3.OperationalError:
+            last_updated = None
+
+        payload: dict = {
+            "ok": True,
+            "counts": counts,
+            "last_updated": last_updated,
         }
+
+        # Migration-004 enrichment columns may or may not exist. Probe once and
+        # short-circuit cleanly if this is an older DB.
+        col_rows = conn.execute("PRAGMA table_info(papers)").fetchall()
+        col_names = {row[1] for row in col_rows}
+        has_enrichment = {
+            "modalities_json",
+            "conditions_json",
+            "study_design",
+            "effect_direction",
+            "source",
+            "enrichment_status",
+            "year",
+        }.issubset(col_names)
+
+        if has_enrichment:
+            papers_with_abstract = conn.execute(
+                "SELECT count(*) FROM papers WHERE abstract IS NOT NULL AND length(abstract) > 50"
+            ).fetchone()[0]
+            counts["papers_with_abstract"] = papers_with_abstract
+
+            by_source = {
+                (row[0] or "unknown"): row[1]
+                for row in conn.execute(
+                    "SELECT source, count(*) FROM papers GROUP BY source"
+                ).fetchall()
+                if row[0]
+            }
+
+            by_study_design = {
+                row[0]: row[1]
+                for row in conn.execute(
+                    "SELECT study_design, count(*) FROM papers "
+                    "WHERE study_design IS NOT NULL AND study_design != '' "
+                    "GROUP BY study_design ORDER BY count(*) DESC LIMIT 10"
+                ).fetchall()
+            }
+
+            by_effect_direction = {
+                row[0]: row[1]
+                for row in conn.execute(
+                    "SELECT effect_direction, count(*) FROM papers "
+                    "WHERE effect_direction IS NOT NULL AND effect_direction != '' "
+                    "GROUP BY effect_direction"
+                ).fetchall()
+            }
+
+            # Modality / condition counts via LIKE on JSON column. One round-
+            # trip per token (bounded: 16 modalities × 17 conditions).
+            top_modalities: list[dict[str, int | str]] = []
+            for tok in _PUBLIC_STATS_MODALITIES:
+                row = conn.execute(
+                    "SELECT count(*) FROM papers WHERE modalities_json LIKE ?",
+                    (f'%"{tok}"%',),
+                ).fetchone()
+                if row and row[0]:
+                    top_modalities.append({"key": tok, "count": row[0]})
+            top_modalities.sort(key=lambda x: x["count"], reverse=True)
+
+            top_conditions: list[dict[str, int | str]] = []
+            for tok in _PUBLIC_STATS_CONDITIONS:
+                row = conn.execute(
+                    "SELECT count(*) FROM papers WHERE conditions_json LIKE ?",
+                    (f'%"{tok}"%',),
+                ).fetchone()
+                if row and row[0]:
+                    top_conditions.append({"key": tok, "count": row[0]})
+            top_conditions.sort(key=lambda x: x["count"], reverse=True)
+
+            year_row = conn.execute(
+                "SELECT MIN(year), MAX(year) FROM papers WHERE year IS NOT NULL"
+            ).fetchone()
+            year_coverage = {
+                "min": year_row[0] if year_row else None,
+                "max": year_row[1] if year_row else None,
+            }
+
+            payload.update({
+                "by_source": by_source,
+                "by_study_design": by_study_design,
+                "by_effect_direction": by_effect_direction,
+                "top_modalities": top_modalities[:12],
+                "top_conditions": top_conditions[:12],
+                "year_coverage": year_coverage,
+            })
+
         conn.close()
     except Exception:
         return {"ok": False, "counts": {}}
-    return {"ok": True, "counts": counts}
+    return payload
 
 
 @router.get("/research/health", response_model=ResearchHealthOut)
@@ -1275,13 +1445,41 @@ def list_indications(actor: AuthenticatedActor = Depends(get_authenticated_actor
     return [IndicationOut(**dict(r)) for r in rows]
 
 
+_PAPER_SELECT_COLS = (
+    "p.id, p.pmid, p.doi, p.openalex_id, p.title, p.year, p.journal, "
+    "p.cited_by_count, p.is_oa, p.oa_url, p.pub_types_json, p.authors_json, p.sources_json, "
+    "p.abstract, p.source, p.pmcid, p.modalities_json, p.conditions_json, "
+    "p.study_design, p.sample_size, p.primary_outcome_measure, p.effect_direction, "
+    "p.europe_pmc_url, p.enrichment_status"
+)
+
+# Known tokens from migration 004 / CSV enrichment. Used by /papers/stats.
+_KNOWN_MODALITIES = [
+    "tms", "dbs", "tdcs", "scs", "pns", "vns", "tacs", "snm", "rns",
+    "tvns", "mcs", "tfus", "trigns", "ons", "trns", "gen",
+]
+_KNOWN_CONDITIONS = [
+    "parkinsons", "chronic_pain", "stroke", "mdd", "alzheimers", "ocd", "ms",
+    "asd", "tbi", "ptsd", "insomnia", "anxiety", "adhd", "tinnitus",
+    "long_covid", "depression",
+]
+
+
 @router.get("/papers", response_model=list[PaperOut])
 def search_papers(
     q: Optional[str] = Query(None, description="FTS5 query over title/abstract."),
     indication: Optional[str] = Query(None, description="Indication slug."),
     grade: Optional[str] = Query(None, pattern="^[A-E]$", description="A-E evidence grade filter."),
     oa_only: bool = Query(False, description="Only papers with accessible open-access URLs."),
-    limit: int = Query(20, ge=1, le=100),
+    modality: Optional[str] = Query(None, description="Modality token, e.g. 'tms' (matches modalities_json)."),
+    condition: Optional[str] = Query(None, description="Condition token, e.g. 'mdd' (matches conditions_json)."),
+    study_design: Optional[str] = Query(None, description="Exact study design, e.g. 'rct'."),
+    effect_direction: Optional[str] = Query(None, description="positive | null | mixed"),
+    year_min: Optional[int] = Query(None, ge=1900, le=2100),
+    year_max: Optional[int] = Query(None, ge=1900, le=2100),
+    source: Optional[str] = Query(None, description="EuropePMC source (MED, PMC, PPR, AGR, ETH)."),
+    has_abstract: Optional[bool] = Query(None, description="Only papers with a non-trivial abstract."),
+    limit: int = Query(20, ge=1, le=200),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> list[PaperOut]:
     require_minimum_role(actor, "clinician")
@@ -1302,14 +1500,36 @@ def search_papers(
                 params.append(grade)
         if oa_only:
             where.append("p.is_oa = 1")
+        if modality:
+            where.append("p.modalities_json LIKE ?")
+            params.append(f'%"{modality}"%')
+        if condition:
+            where.append("p.conditions_json LIKE ?")
+            params.append(f'%"{condition}"%')
+        if study_design:
+            where.append("p.study_design = ?")
+            params.append(study_design)
+        if effect_direction:
+            where.append("p.effect_direction = ?")
+            params.append(effect_direction)
+        if year_min is not None:
+            where.append("p.year >= ?")
+            params.append(year_min)
+        if year_max is not None:
+            where.append("p.year <= ?")
+            params.append(year_max)
+        if source:
+            where.append("p.source = ?")
+            params.append(source)
+        if has_abstract:
+            where.append("p.abstract IS NOT NULL AND length(p.abstract) > 50")
         if q:
             join += "JOIN papers_fts f ON f.rowid = p.id "
             where.append("papers_fts MATCH ?")
             params.append(q)
 
         sql = (
-            "SELECT p.id, p.pmid, p.doi, p.openalex_id, p.title, p.year, p.journal, "
-            "p.cited_by_count, p.is_oa, p.oa_url, p.pub_types_json, p.authors_json, p.sources_json "
+            "SELECT " + _PAPER_SELECT_COLS + " "
             "FROM papers p " + join
             + (" WHERE " + " AND ".join(where) if where else "")
             + " LIMIT ?"
@@ -1322,9 +1542,175 @@ def search_papers(
     ranked = sorted(rows, key=_score, reverse=True)[:limit]
     _audit(
         "papers.search", actor,
-        q=q, indication=indication, grade=grade, oa_only=oa_only, limit=limit,
+        q=q, indication=indication, grade=grade, oa_only=oa_only,
+        modality=modality, condition=condition, study_design=study_design,
+        effect_direction=effect_direction, year_min=year_min, year_max=year_max,
+        source=source, has_abstract=has_abstract, limit=limit,
         result_count=len(ranked),
     )
+    return [_paper_row_to_out(r) for r in ranked]
+
+
+# ── Stats endpoint ────────────────────────────────────────────────────────────
+
+class PaperStatsOut(BaseModel):
+    total: int
+    with_abstract: int
+    by_source: dict[str, int] = Field(default_factory=dict)
+    by_study_design: dict[str, int] = Field(default_factory=dict)
+    by_effect_direction: dict[str, int] = Field(default_factory=dict)
+    by_year: list[dict] = Field(default_factory=list)
+    top_modalities: list[dict] = Field(default_factory=list)
+    top_conditions: list[dict] = Field(default_factory=list)
+
+
+@router.get("/papers/stats", response_model=PaperStatsOut)
+def papers_stats(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> PaperStatsOut:
+    """Aggregate counts over `papers` for the Knowledge dashboard. Scans
+    modalities_json / conditions_json once in Python to stay under 500ms on
+    ~87k rows. Requires clinician role."""
+    require_minimum_role(actor, "clinician")
+    conn = _evidence_conn()
+    try:
+        total = conn.execute("SELECT count(*) FROM papers").fetchone()[0]
+        with_abstract = conn.execute(
+            "SELECT count(*) FROM papers WHERE abstract IS NOT NULL AND length(abstract) > 50"
+        ).fetchone()[0]
+
+        def _group(col: str) -> dict[str, int]:
+            out: dict[str, int] = {}
+            try:
+                rows = conn.execute(
+                    f"SELECT {col} AS k, count(*) AS c FROM papers "
+                    f"WHERE {col} IS NOT NULL AND {col} <> '' GROUP BY {col}"
+                ).fetchall()
+            except sqlite3.OperationalError:
+                return out
+            for r in rows:
+                out[str(r["k"])] = int(r["c"])
+            return out
+
+        by_source = _group("source")
+        by_study_design = _group("study_design")
+        by_effect_direction = _group("effect_direction")
+
+        # Top years (top 10)
+        year_rows = conn.execute(
+            "SELECT year, count(*) AS c FROM papers WHERE year IS NOT NULL "
+            "GROUP BY year ORDER BY c DESC LIMIT 10"
+        ).fetchall()
+        by_year = [{"year": int(r["year"]), "count": int(r["c"])} for r in year_rows]
+
+        # Modalities / conditions: single pass over json text blobs.
+        modality_counts: dict[str, int] = {k: 0 for k in _KNOWN_MODALITIES}
+        condition_counts: dict[str, int] = {k: 0 for k in _KNOWN_CONDITIONS}
+        try:
+            blob_rows = conn.execute(
+                "SELECT modalities_json, conditions_json FROM papers "
+                "WHERE (modalities_json IS NOT NULL AND modalities_json <> '[]') "
+                "OR (conditions_json IS NOT NULL AND conditions_json <> '[]')"
+            ).fetchall()
+            for r in blob_rows:
+                mj = r["modalities_json"]
+                if mj:
+                    try:
+                        for tok in json.loads(mj):
+                            if tok in modality_counts:
+                                modality_counts[tok] += 1
+                    except (TypeError, ValueError):
+                        pass
+                cj = r["conditions_json"]
+                if cj:
+                    try:
+                        for tok in json.loads(cj):
+                            if tok in condition_counts:
+                                condition_counts[tok] += 1
+                    except (TypeError, ValueError):
+                        pass
+        except sqlite3.OperationalError:
+            pass
+
+        top_modalities = [
+            {"key": k, "count": c}
+            for k, c in sorted(modality_counts.items(), key=lambda kv: kv[1], reverse=True)
+            if c > 0
+        ][:20]
+        top_conditions = [
+            {"key": k, "count": c}
+            for k, c in sorted(condition_counts.items(), key=lambda kv: kv[1], reverse=True)
+            if c > 0
+        ][:20]
+    finally:
+        conn.close()
+
+    _audit("papers.stats", actor, total=total)
+    return PaperStatsOut(
+        total=int(total),
+        with_abstract=int(with_abstract),
+        by_source=by_source,
+        by_study_design=by_study_design,
+        by_effect_direction=by_effect_direction,
+        by_year=by_year,
+        top_modalities=top_modalities,
+        top_conditions=top_conditions,
+    )
+
+
+@router.get("/papers/similar/{paper_id}", response_model=list[PaperOut])
+def similar_papers(
+    paper_id: int = PathParam(..., ge=1),
+    limit: int = Query(10, ge=1, le=50),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[PaperOut]:
+    """FTS-based 'more like this'. Tokenises the source paper's title into
+    word bigrams and runs them OR-joined through papers_fts MATCH. Falls back
+    to unigrams if the title is too short for bigrams."""
+    require_minimum_role(actor, "clinician")
+    conn = _evidence_conn()
+    try:
+        seed = conn.execute(
+            "SELECT id, title FROM papers WHERE id = ?", (paper_id,)
+        ).fetchone()
+        if not seed:
+            raise HTTPException(status_code=404, detail="paper not found")
+        title = (seed["title"] or "").strip()
+        # Keep alphanumeric tokens of length >=3, drop a few obvious stopwords.
+        _STOP = {"and", "the", "for", "with", "from", "into", "using", "study",
+                 "trial", "versus", "effect", "effects", "analysis", "review",
+                 "patients", "clinical", "randomized", "randomised", "based"}
+        toks = [
+            "".join(ch for ch in w.lower() if ch.isalnum())
+            for w in title.split()
+        ]
+        toks = [t for t in toks if len(t) >= 3 and t not in _STOP]
+        # Build bigrams, quoted so FTS treats them as phrases.
+        if len(toks) >= 2:
+            terms = [f'"{toks[i]} {toks[i + 1]}"' for i in range(len(toks) - 1)]
+        else:
+            terms = toks
+        if not terms:
+            _audit("papers.similar", actor, paper_id=paper_id, result_count=0)
+            return []
+        # Cap to a reasonable number to avoid pathological MATCH queries.
+        fts_query = " OR ".join(terms[:20])
+
+        sql = (
+            "SELECT " + _PAPER_SELECT_COLS + " "
+            "FROM papers p JOIN papers_fts f ON f.rowid = p.id "
+            "WHERE papers_fts MATCH ? AND p.id <> ? "
+            "LIMIT ?"
+        )
+        try:
+            rows = conn.execute(sql, (fts_query, paper_id, limit * 4)).fetchall()
+        except sqlite3.OperationalError:
+            rows = []
+    finally:
+        conn.close()
+
+    ranked = sorted(rows, key=_score, reverse=True)[:limit]
+    _audit("papers.similar", actor, paper_id=paper_id, result_count=len(ranked))
     return [_paper_row_to_out(r) for r in ranked]
 
 
@@ -1337,9 +1723,8 @@ def get_paper(
     conn = _evidence_conn()
     try:
         row = conn.execute(
-            "SELECT id, pmid, doi, openalex_id, title, abstract, year, journal, "
-            "cited_by_count, is_oa, oa_url, pub_types_json, authors_json, sources_json "
-            "FROM papers WHERE id = ?",
+            "SELECT " + _PAPER_SELECT_COLS + " "
+            "FROM papers p WHERE p.id = ?",
             (paper_id,),
         ).fetchone()
     finally:

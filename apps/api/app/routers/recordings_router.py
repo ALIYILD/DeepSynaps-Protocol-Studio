@@ -21,10 +21,17 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.persistence.models import SessionRecording
+from app.persistence.models import Patient, SessionRecording, User
+from app.repositories.patients import resolve_patient_clinic_id
+from app.services import media_storage
 from app.settings import get_settings
 
 router = APIRouter(prefix="/api/v1/recordings", tags=["recordings"])
@@ -44,6 +51,69 @@ _ALLOWED_MIME = {
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
+def _assert_recording_patient_access(
+    patient_id: Optional[str], actor: AuthenticatedActor, session: Session
+) -> None:
+    """Cross-clinic ownership gate for recordings tied to a patient.
+
+    Pre-fix the only access check was ``record.owner_clinician_id ==
+    actor.actor_id`` (legacy owner-only). That:
+
+    * Refused legitimate same-clinic colleagues (a covering clinician
+      could not stream their teammate's session recordings).
+    * Was inconsistent with the rest of the platform — wearable /
+      qeeg / device-sync / documents now all use the canonical
+      ``resolve_patient_clinic_id`` + ``require_patient_owner`` pair.
+    * Implicitly admitted a clinician who left a clinic so long as
+      their actor_id persisted on old rows — there was no live
+      clinic-membership check.
+
+    Cross-clinic 403 is converted to 404 to avoid leaking row
+    existence. Orphan patients (clinician with no clinic_id) refuse
+    for non-admins.
+    """
+    if patient_id is None:
+        return
+    exists, clinic_id = resolve_patient_clinic_id(session, patient_id)
+    if not exists:
+        # ``patient_id`` is a free-form tag on this surface (legacy:
+        # external IDs / synthetic test IDs are accepted). Only refuse
+        # when the row actually exists in another clinic — that's the
+        # real cross-clinic IDOR vector. Non-existent IDs pass through.
+        return
+    try:
+        require_patient_owner(actor, clinic_id)
+    except ApiServiceError as exc:
+        if exc.status_code == 403:
+            raise ApiServiceError(
+                code="not_found", message="Patient not found.", status_code=404,
+            ) from exc
+        raise
+
+
+def _scope_recordings_query_to_clinic(q, actor: AuthenticatedActor):
+    """Restrict a ``SessionRecording`` query to the actor's clinic.
+
+    Pre-fix every list endpoint filtered by
+    ``SessionRecording.owner_clinician_id == actor.actor_id`` —
+    same-clinic colleagues never saw each other's recordings, and
+    admins of one clinic were treated identically to a random
+    clinician of another (no admin bypass branch). Post-fix the
+    join walks ``SessionRecording -> User`` on
+    ``owner_clinician_id`` and filters on ``actor.clinic_id`` for
+    non-admin/supervisor roles.
+    """
+    if actor.role in ("admin", "supervisor"):
+        return q
+    if not getattr(actor, "clinic_id", None):
+        # Empty result rather than the legacy owner-only fallback.
+        return q.filter(SessionRecording.id.is_(None))
+    return (
+        q.join(User, User.id == SessionRecording.owner_clinician_id)
+        .filter(User.clinic_id == actor.clinic_id)
+    )
+
 
 def _recordings_root() -> Path:
     """Storage root for uploaded recordings. Created on demand."""
@@ -91,15 +161,15 @@ def list_recordings(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> RecordingListResponse:
-    """List recordings owned by the authenticated clinician."""
+    """List recordings owned by the authenticated clinician's clinic."""
     require_minimum_role(actor, "clinician")
-    stmt = select(SessionRecording).where(
-        SessionRecording.owner_clinician_id == actor.actor_id
-    )
     if patient_id is not None:
-        stmt = stmt.where(SessionRecording.patient_id == patient_id)
-    stmt = stmt.order_by(SessionRecording.uploaded_at.desc())
-    rows = session.scalars(stmt).all()
+        _assert_recording_patient_access(patient_id, actor, session)
+    base_q = session.query(SessionRecording)
+    if patient_id is not None:
+        base_q = base_q.filter(SessionRecording.patient_id == patient_id)
+    base_q = _scope_recordings_query_to_clinic(base_q, actor)
+    rows = base_q.order_by(SessionRecording.uploaded_at.desc()).all()
     items = [_record_to_out(r) for r in rows]
     return RecordingListResponse(items=items, total=len(items))
 
@@ -121,6 +191,10 @@ async def create_recording(
     """
     require_minimum_role(actor, "clinician")
 
+    # Cross-clinic gate: a clinician at clinic A must not be able to
+    # POST a recording with a clinic-B patient_id (covert write).
+    _assert_recording_patient_access(patient_id, actor, session)
+
     mime = (file.content_type or "").lower()
     if mime not in _ALLOWED_MIME:
         raise ApiServiceError(
@@ -138,6 +212,23 @@ async def create_recording(
         raise ApiServiceError(
             code="file_too_large",
             message=f"Recording exceeds maximum size of {_MAX_BYTES} bytes.",
+            status_code=422,
+        )
+
+    # Magic-byte verification — pre-fix the only check on the file
+    # content was ``file.content_type`` (client-controlled HTTP
+    # header), so a clinician could ``POST`` arbitrary binary tagged
+    # ``audio/webm`` and the router happily wrote it to disk and
+    # served it back with that MIME on download.
+    is_audio = mime.startswith("audio/")
+    looks_ok = (
+        media_storage.looks_like_audio(file_bytes) if is_audio
+        else media_storage.looks_like_video(file_bytes)
+    )
+    if not looks_ok:
+        raise ApiServiceError(
+            code="invalid_file_content",
+            message="Upload bytes do not match the declared MIME type.",
             status_code=422,
         )
 
@@ -182,16 +273,20 @@ def stream_recording(
 ):
     """Stream the recording's bytes with the stored Content-Type.
 
-    Owner-only access — the in-clinic sharing model can extend this later.
+    Pre-fix this used ``record.owner_clinician_id == actor.actor_id``
+    (legacy owner-only). Post-fix the row is loaded via the
+    clinic-scoped query helper so same-clinic colleagues can stream
+    each other's recordings, while cross-clinic actors are refused
+    with the same 404 used for missing rows (no existence leak).
     """
     require_minimum_role(actor, "clinician")
-    record = session.scalar(
-        select(SessionRecording).where(SessionRecording.id == recording_id)
+    record = (
+        _scope_recordings_query_to_clinic(
+            session.query(SessionRecording).filter(SessionRecording.id == recording_id),
+            actor,
+        ).first()
     )
     if record is None:
-        raise ApiServiceError(code="not_found", message="Recording not found.", status_code=404)
-    if record.owner_clinician_id != actor.actor_id:
-        # Same 404 as missing — don't leak existence to other clinicians.
         raise ApiServiceError(code="not_found", message="Recording not found.", status_code=404)
 
     settings_root = Path(get_settings().media_storage_root).resolve()
@@ -221,14 +316,15 @@ def delete_recording(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> None:
-    """Owner-only hard-delete. Removes the row and the on-disk blob."""
+    """Hard-delete (clinic-scoped). Removes the row and the on-disk blob."""
     require_minimum_role(actor, "clinician")
-    record = session.scalar(
-        select(SessionRecording).where(SessionRecording.id == recording_id)
+    record = (
+        _scope_recordings_query_to_clinic(
+            session.query(SessionRecording).filter(SessionRecording.id == recording_id),
+            actor,
+        ).first()
     )
     if record is None:
-        raise ApiServiceError(code="not_found", message="Recording not found.", status_code=404)
-    if record.owner_clinician_id != actor.actor_id:
         raise ApiServiceError(code="not_found", message="Recording not found.", status_code=404)
 
     settings_root = Path(get_settings().media_storage_root).resolve()

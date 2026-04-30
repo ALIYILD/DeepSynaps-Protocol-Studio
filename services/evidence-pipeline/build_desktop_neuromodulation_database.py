@@ -28,6 +28,44 @@ PUBMED_ESUMMARY_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fc
 CROSSREF_WORKS_URL = "https://api.crossref.org/works/"
 
 
+def load_bundle_manifest(bundle_root: Path) -> dict[str, dict[str, object]]:
+    manifest_path = bundle_root / "manifest.json"
+    if not manifest_path.exists():
+        return {}
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    assets = payload.get("assets") or []
+    return {str(asset.get("asset_key")): asset for asset in assets if asset.get("asset_key")}
+
+
+def resolve_bundle_asset(
+    bundle_root: Path,
+    *,
+    asset_key: str,
+    primary_path: str,
+    legacy_path: str | None = None,
+    manifest_assets: dict[str, dict[str, object]] | None = None,
+) -> Path:
+    manifest_assets = manifest_assets or {}
+    candidates: list[str] = []
+    manifest_asset = manifest_assets.get(asset_key)
+    if manifest_asset:
+        manifest_rel = manifest_asset.get("relative_path")
+        if manifest_rel:
+            candidates.append(str(manifest_rel))
+    if primary_path not in candidates:
+        candidates.append(primary_path)
+    if legacy_path and legacy_path not in candidates:
+        candidates.append(legacy_path)
+    for rel in candidates:
+        path = bundle_root / rel
+        if path.exists():
+            return path
+    return bundle_root / primary_path
+
+
 def load_csv(path: Path) -> list[dict[str, str]]:
     with path.open("r", encoding="utf-8", newline="") as handle:
         return list(csv.DictReader(handle))
@@ -1089,14 +1127,55 @@ def build_paper_confidence_score(row: dict) -> int:
 
 
 def build_enriched_master(bundle_root: Path) -> tuple[list[dict], list[dict], list[dict], set[str]]:
-    master_rows = load_csv(bundle_root / "neuromodulation_all_papers_master.csv")
-    ai_rows = load_csv(bundle_root / "neuromodulation_ai_ingestion_dataset.csv")
+    manifest_assets = load_bundle_manifest(bundle_root)
+    master_rows = load_csv(
+        resolve_bundle_asset(
+            bundle_root,
+            asset_key="neuromodulation_all_papers_master",
+            primary_path="raw/neuromodulation_all_papers_master.csv",
+            legacy_path="neuromodulation_all_papers_master.csv",
+            manifest_assets=manifest_assets,
+        )
+    )
+    ai_rows = load_csv(
+        resolve_bundle_asset(
+            bundle_root,
+            asset_key="neuromodulation_ai_ingestion_dataset",
+            primary_path="derived/neuromodulation_ai_ingestion_dataset.csv",
+            legacy_path="neuromodulation_ai_ingestion_dataset.csv",
+            manifest_assets=manifest_assets,
+        )
+    )
     abstracts = load_csv(bundle_root / "derived" / "neuromodulation_europepmc_abstracts.csv")
     conditions = load_csv(bundle_root / "derived" / "neuromodulation_condition_mentions.csv")
     outcomes = load_csv(bundle_root / "derived" / "neuromodulation_patient_outcomes.csv")
-    safety_rows = load_csv(bundle_root / "neuromodulation_safety_contraindication_signals.csv")
-    evidence_graph = load_csv(bundle_root / "neuromodulation_evidence_graph.csv")
-    protocol_templates = load_csv(bundle_root / "neuromodulation_protocol_template_candidates.csv")
+    safety_rows = load_csv(
+        resolve_bundle_asset(
+            bundle_root,
+            asset_key="neuromodulation_safety_contraindication_signals",
+            primary_path="derived/neuromodulation_safety_contraindication_signals.csv",
+            legacy_path="neuromodulation_safety_contraindication_signals.csv",
+            manifest_assets=manifest_assets,
+        )
+    )
+    evidence_graph = load_csv(
+        resolve_bundle_asset(
+            bundle_root,
+            asset_key="neuromodulation_evidence_graph",
+            primary_path="derived/neuromodulation_evidence_graph.csv",
+            legacy_path="neuromodulation_evidence_graph.csv",
+            manifest_assets=manifest_assets,
+        )
+    )
+    protocol_templates = load_csv(
+        resolve_bundle_asset(
+            bundle_root,
+            asset_key="neuromodulation_protocol_template_candidates",
+            primary_path="derived/neuromodulation_protocol_template_candidates.csv",
+            legacy_path="neuromodulation_protocol_template_candidates.csv",
+            manifest_assets=manifest_assets,
+        )
+    )
 
     ai_by_key = {row["paper_key"]: row for row in ai_rows}
     abstract_by_key = {row["paper_key"]: row for row in abstracts}

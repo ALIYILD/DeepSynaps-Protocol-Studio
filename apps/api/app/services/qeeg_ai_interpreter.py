@@ -632,6 +632,7 @@ async def generate_ai_report(
 
     # ── RAG: fetch top-N literature refs ─────────────────────────────────
     modalities = _modalities_for_conditions(flagged)
+    rag_failed = False
     try:
         rag_raw = await qeeg_rag.query_literature(
             conditions=flagged,
@@ -640,12 +641,28 @@ async def generate_ai_report(
             db_session=db_session,
         )
     except Exception as exc:  # pragma: no cover - defensive
-        _log.warning("qeeg_rag.query_literature raised (treated as empty): %s", exc)
+        _log.warning(
+            "qeeg_rag.query_literature raised (treated as empty): conditions=%s modalities=%s exc=%s: %s",
+            flagged, modalities, exc.__class__.__name__, exc,
+        )
         rag_raw = []
+        rag_failed = True
 
     if not isinstance(rag_raw, list):
         rag_raw = []
     literature_refs = _build_literature_refs(rag_raw[:10])
+    # When RAG returns nothing, the prompt currently says "cite [1]…[N]"
+    # with N=0 — the LLM has no anchors and tends to hallucinate citations.
+    # Emit a structured note (also surfaced in the audit log via prompt_hash)
+    # so the LLM is told explicitly not to cite.
+    rag_empty_notice = ""
+    if not literature_refs:
+        rag_empty_notice = (
+            "\n\nNOTE: No literature references were retrieved for this analysis "
+            f"({'RAG query failed' if rag_failed else 'no matching corpus papers'}). "
+            "Do NOT use bracketed citations [1]..[N] in your output; cite only "
+            "from your training data and clearly mark inferences as such."
+        )
 
     # ── Build the LLM prompt ─────────────────────────────────────────────
     powers_text = _format_band_powers_for_prompt(band_powers_local)
@@ -672,13 +689,22 @@ async def generate_ai_report(
         user_parts.append(f"\nDeterministic Condition Pattern Matches:\n{match_text}")
     if refs_text:
         user_parts.append(refs_text)
-    user_parts.append(
-        "\nRemember: cite the numbered references [1]..[{n}] in your "
-        "executive_summary and every findings[*].observation. Never use "
-        "'diagnose', 'diagnostic', 'diagnosis', or 'treatment recommendation'.".format(
-            n=len(literature_refs) or 1
+    if rag_empty_notice:
+        user_parts.append(rag_empty_notice)
+    if literature_refs:
+        user_parts.append(
+            "\nRemember: cite the numbered references [1]..[{n}] in your "
+            "executive_summary and every findings[*].observation. Never use "
+            "'diagnose', 'diagnostic', 'diagnosis', or 'treatment recommendation'.".format(
+                n=len(literature_refs)
+            )
         )
-    )
+    else:
+        user_parts.append(
+            "\nRemember: do NOT use bracketed citations [1]..[N] (no "
+            "literature was retrieved). Never use 'diagnose', 'diagnostic', "
+            "'diagnosis', or 'treatment recommendation'."
+        )
 
     user_prompt = "\n".join(user_parts)
 
@@ -724,7 +750,7 @@ async def generate_ai_report(
             "data": parsed,
             "literature_refs": literature_refs,
             "prompt_hash": prompt_hash,
-            "model_used": "z-ai/glm-4.5-air:free",
+            "model_used": None,
         }
 
     except Exception as exc:

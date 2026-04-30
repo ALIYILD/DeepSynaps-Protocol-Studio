@@ -5,6 +5,12 @@ import { renderLiveEvidencePanel } from './live-evidence.js';
 import { EVIDENCE_SUMMARY, CONDITION_EVIDENCE, getConditionEvidence, getTopConditionsByPaperCount } from './evidence-dataset.js';
 import { PROTOCOL_LIBRARY, CONDITIONS as PROTO_CONDITIONS, DEVICES as PROTO_DEVICES, getProtocolsByCondition } from './protocols-data.js';
 import { renderBrainMap10_20, SITES_10_20 } from './brain-map-svg.js';
+import { getEvidenceUiStats } from './evidence-ui-live.js';
+
+function _kEsc(v) {
+  if (v == null) return '';
+  return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
+}
 
 // ── Evidence Library ──────────────────────────────────────────────────────────
 export async function pgEvidence(setTopbar) {
@@ -21,11 +27,14 @@ export async function pgEvidence(setTopbar) {
     items = [];
   }
 
-  // Evidence KPI banner from 87K dataset
-  const _tp = EVIDENCE_SUMMARY?.totalPapers || 87000;
-  const _tt = EVIDENCE_SUMMARY?.totalTrials || 0;
-  const _tm = EVIDENCE_SUMMARY?.totalMetaAnalyses || 0;
-  const _tc = CONDITION_EVIDENCE?.length || 0;
+  const liveEvidence = await getEvidenceUiStats({
+    fallbackSummary: EVIDENCE_SUMMARY,
+    fallbackConditionCount: CONDITION_EVIDENCE.length,
+  });
+  const _tp = liveEvidence.totalPapers;
+  const _tt = liveEvidence.totalTrials;
+  const _tm = liveEvidence.totalMetaAnalyses;
+  const _tc = liveEvidence.totalConditions;
 
   // Build modality options from data
   const modalitySet = new Set(items.map(e => e.modality).filter(Boolean));
@@ -71,7 +80,7 @@ export async function pgEvidence(setTopbar) {
   <div id="ev-count" style="font-size:11.5px;color:var(--text-tertiary);margin-bottom:10px">${items.length} evidence records · ${(_tp/1000).toFixed(0)}K papers indexed across ${_tc} conditions</div>
   <div id="ev-body">
     ${items.length === 0
-      ? emptyState('◈', 'No evidence records loaded. Start the backend to load clinical data. 87K papers are indexed in the local evidence dataset.')
+      ? emptyState('◈', `No evidence records loaded. Start the backend to load clinical data. ${_tp.toLocaleString()} papers are available in the current evidence corpus.`)
       : renderEvidenceTable(items)}
   </div>`;
 
@@ -192,10 +201,10 @@ function _openEvidenceModal(evidence) {
           <span style="font-size:16px;font-weight:800;color:${g.color}">${evGrade}</span>
         </div>
         <div style="flex:1;min-width:0">
-          <div style="font-family:var(--font-display);font-size:16px;font-weight:700;color:var(--text-primary);line-height:1.35">${evidence.title || evidence.condition || '—'}</div>
+          <div style="font-family:var(--font-display);font-size:16px;font-weight:700;color:var(--text-primary);line-height:1.35">${_kEsc(evidence.title || evidence.condition) || '—'}</div>
           <div style="display:flex;gap:6px;align-items:center;margin-top:5px;flex-wrap:wrap">
             <span style="font-size:10px;padding:2px 8px;border-radius:999px;background:${g.color}18;color:${g.color};font-weight:600">${g.label}</span>
-            ${evidence.modality ? `<span style="font-size:10px;padding:2px 8px;border-radius:999px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-tertiary)">${evidence.modality}</span>` : ''}
+            ${evidence.modality ? `<span style="font-size:10px;padding:2px 8px;border-radius:999px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-tertiary)">${_kEsc(evidence.modality)}</span>` : ''}
           </div>
         </div>
         <button onclick="document.getElementById('ds-evidence-modal')?.remove();document.body.style.overflow=''" style="background:none;border:none;color:var(--text-tertiary);cursor:pointer;font-size:20px;padding:4px 8px">&times;</button>
@@ -1907,7 +1916,7 @@ export function bindHandbooks() {
     try {
       const blob = await api.exportPatientGuideDocx({ condition, modality, reading_level, language });
       downloadBlob(blob, 'patient-guide.docx');
-      statusEl.textContent = 'Download ready \u2014 your patient guide has been saved.';
+      statusEl.textContent = 'Download started \u2014 your patient guide file is ready.';
       statusEl.style.display = '';
       setTimeout(function() { statusEl.style.display = 'none'; }, 5000);
     } catch (e) {
@@ -1919,57 +1928,110 @@ export function bindHandbooks() {
   };
 }
 
-// ── Audit Trail ───────────────────────────────────────────────────────────────
+// ── Audit Trail (launch-audit 2026-04-30) ─────────────────────────────────────
+//
+// Regulator-credible record of every clinical action. The qEEG Analyzer,
+// Brain Map Planner, Session Runner, and Adverse Events surfaces all write
+// through ``apps/api/app/repositories/audit.py::create_audit_event`` with a
+// ``surface=`` whitelist. This page surfaces the live trail with rich
+// filters, a drill-out to the source surface, regulator-grade exports
+// (CSV + NDJSON), and audits its own reads.
+//
+// Hard rules — no silent fakery:
+//   * Filter changes hit the API, not a client-side derivation.
+//   * Empty state is honest ("no events yet"), never demo rows pretending
+//     to be real. When the API call fails we keep going with demo rows
+//     CLEARLY tagged so reviewers can spot them.
+//   * Exports stream from /api/v1/audit-trail/export.csv|ndjson — never
+//     fabricated client-side.
+//   * Drill-out CTAs link to the originating surface using the route
+//     contract documented above.
+//   * Page load + filter changes + drill-outs + exports are themselves
+//     audited via ``api.logAudit({ surface: 'audit_trail', event: ... })``.
+//
 export async function pgAuditTrail(setTopbar) {
   // ── Topbar ────────────────────────────────────────────────────────────────
   setTopbar('Audit Trail', `
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <button id="audit-view-timeline" class="btn btn-primary btn-sm" onclick="window._setAuditView('timeline')">Timeline</button>
       <button id="audit-view-table" class="btn btn-ghost btn-sm" onclick="window._setAuditView('table')">Table</button>
-      <button class="btn btn-ghost btn-sm" onclick="window._exportAuditCSV()">Export CSV</button>
+      <button id="audit-export-csv" class="btn btn-ghost btn-sm" onclick="window._exportAuditCSV()">Export CSV</button>
+      <button id="audit-export-ndjson" class="btn btn-ghost btn-sm" onclick="window._exportAuditNDJSON()" title="Newline-delimited JSON, one event per line — preferred regulator format">Export NDJSON</button>
     </div>`);
 
   const el = document.getElementById('content');
   el.innerHTML = spinner();
 
-  // ── Data loading ──────────────────────────────────────────────────────────
-  const res = await api.auditTrail().catch(() => null);
-  let entries = res?.items || res || [];
-  if (!Array.isArray(entries)) entries = [];
+  // ── Filter state (persisted on window for re-entry) ──────────────────────
+  const auditF = (window._auditFilters = window._auditFilters || {});
 
-  const DEMO_ENTRIES = [
-    { created_at: new Date().toISOString(), actor: 'Dr. Chen', action: 'LOGIN', resource_type: 'session', resource_id: '' },
-    { created_at: new Date(Date.now()-3600000).toISOString(), actor: 'Dr. Patel', action: 'APPROVE', resource_type: 'course', resource_id: 'course-abc123' },
-    { created_at: new Date(Date.now()-7200000).toISOString(), actor: 'Tech Kim', action: 'CREATE', resource_type: 'session_log', resource_id: 'sess-xyz789' },
-    { created_at: new Date(Date.now()-86400000).toISOString(), actor: 'Dr. Chen', action: 'GENERATE', resource_type: 'protocol', resource_id: '' },
-    { created_at: new Date(Date.now()-172800000).toISOString(), actor: 'Admin', action: 'DELETE', resource_type: 'patient', resource_id: 'pat-old001' },
-  ];
-  const isDemo = entries.length === 0;
+  // ── Page-load audit ───────────────────────────────────────────────────────
+  try {
+    if (api && typeof api.logAudit === 'function') {
+      const p = api.logAudit({ surface: 'audit_trail', event: 'page_loaded', note: 'audit_trail_page' });
+      if (p && p.catch) p.catch(() => {});
+    }
+  } catch (_) {}
+
+  // ── Data loading (real API + summary in parallel) ─────────────────────────
+  let entries = [];
+  let total = 0;
+  let summary = null;
+  let apiError = null;
+  let apiDisclaimers = null;
+  try {
+    const [listRes, sumRes] = await Promise.all([
+      api.auditTrail(auditF).catch((e) => { apiError = e; return null; }),
+      api.auditTrailSummary().catch(() => null),
+    ]);
+    entries = (listRes?.items) || [];
+    total = listRes?.total ?? entries.length;
+    summary = sumRes;
+    apiDisclaimers = listRes?.disclaimers || null;
+  } catch (e) {
+    apiError = e;
+  }
+
+  // Honest empty/demo policy. We only fall back to local demo rows when
+  // the API call FAILED entirely; an empty list from a healthy API stays
+  // empty so reviewers see the truth.
+  const apiFailed = apiError && entries.length === 0;
+  const DEMO_ENTRIES = apiFailed ? [
+    { event_id: 'demo-1', created_at: new Date().toISOString(), actor_id: 'Dr. Chen', action: 'qeeg.viewed', surface: 'qeeg', event_type: 'viewed', target_type: 'qeeg', target_id: 'demo-analysis-1', note: 'DEMO row — backend unreachable', is_demo: true },
+    { event_id: 'demo-2', created_at: new Date(Date.now()-3600000).toISOString(), actor_id: 'Dr. Patel', action: 'adverse_events.create', surface: 'adverse_events', event_type: 'create', target_type: 'adverse_events', target_id: 'AE-demo-001', note: 'DEMO row — backend unreachable', is_demo: true },
+  ] : [];
+  const isDemo = apiFailed;
   const displayEntries = isDemo ? DEMO_ENTRIES : entries;
 
   window._auditData = displayEntries;
   window._auditFiltered = displayEntries;
   window._auditPage = 0;
   window._auditView = 'timeline';
+  window._auditSummary = summary;
 
   // ── Helpers ───────────────────────────────────────────────────────────────
-  function actionColor(action) {
-    const a = (action || '').toUpperCase();
-    if (a === 'CREATE') return 'var(--teal)';
-    if (a === 'UPDATE' || a === 'APPROVE') return 'var(--blue)';
-    if (a === 'DELETE' || a === 'REJECT' || a === 'DISCONTINUE') return 'var(--red)';
-    if (a === 'LOGIN' || a === 'LOGOUT') return 'var(--violet)';
-    if (a === 'EXPORT' || a === 'GENERATE') return 'var(--amber)';
+  // Surface palette mirrors the source-of-truth surfaces in the qEEG audit
+  // ingestion whitelist. Anything outside the whitelist falls back to neutral.
+  function surfaceColor(surface) {
+    const s = (surface || '').toLowerCase();
+    if (s === 'qeeg') return 'var(--teal)';
+    if (s === 'brain_map_planner') return 'var(--blue)';
+    if (s === 'session_runner') return 'var(--violet)';
+    if (s === 'adverse_events') return 'var(--red)';
+    if (s === 'audit_trail') return 'var(--amber)';
     return 'var(--text-tertiary)';
   }
 
-  function isHighRisk(action) {
-    return ['DELETE','REJECT','DISCONTINUE','EXPORT'].includes((action||'').toUpperCase());
+  function isHighRisk(action, surface) {
+    const a = (action || '').toLowerCase();
+    if (surface === 'adverse_events') return true;
+    return /(delete|reject|discontinue|export|escalate|sign|destroy)/.test(a);
   }
 
   function fmtDate(iso) {
     if (!iso) return { date: '—', time: '' };
     const d = new Date(iso);
+    if (isNaN(d.getTime())) return { date: iso, time: '' };
     return {
       date: d.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }),
       time: d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', second:'2-digit' })
@@ -1978,25 +2040,47 @@ export async function pgAuditTrail(setTopbar) {
 
   function uniqueActors(arr) {
     const s = new Set();
-    arr.forEach(e => { const a = e.actor || e.user_id; if (a) s.add(a); });
+    arr.forEach(e => { const a = e.actor_id || e.actor || e.user_id; if (a) s.add(a); });
     return [...s];
   }
 
   function todayStr() { return new Date().toISOString().split('T')[0]; }
 
   // ── Stats computation ─────────────────────────────────────────────────────
-  function computeStats(arr) {
+  // Prefers backend ``/summary`` when present (counts are real, not derived
+  // from the visible page). Falls back to deriving from current rows.
+  function computeStats(arr, sum) {
     const today = todayStr();
     const todayEntries = arr.filter(e => (e.created_at || '').startsWith(today));
-    const highRisk = arr.filter(e => isHighRisk(e.action)).length;
+    const highRisk = arr.filter(e => isHighRisk(e.action || e.event_type, e.surface)).length;
     const lastEntry = arr.length ? arr[0] : null;
     const lastTime = lastEntry ? fmtDate(lastEntry.created_at) : null;
     return {
+      totalEvents: sum?.total ?? arr.length,
       totalToday: todayEntries.length,
-      uniqueActorsToday: new Set(todayEntries.map(e => e.actor || e.user_id).filter(Boolean)).size,
+      uniqueActorsToday: new Set(todayEntries.map(e => e.actor_id || e.actor || e.user_id).filter(Boolean)).size,
       highRisk,
+      saeRelated: sum?.sae_related ?? 0,
+      regulatoryFlagged: sum?.regulatory_flagged ?? 0,
       lastEvent: lastTime ? `${lastTime.date} ${lastTime.time}` : '—',
     };
+  }
+
+  // ── Drill-out routing ─────────────────────────────────────────────────────
+  // Translates a surface + target_id pair into the deep-link the source page
+  // uses. Returns null when the surface is unknown so the UI can render an
+  // honest "no source page" fallback rather than a broken link.
+  function drillOutHref(ev) {
+    if (!ev) return null;
+    const surface = (ev.surface || ev.target_type || '').toLowerCase();
+    const id = ev.target_id || '';
+    if (!id) return null;
+    if (surface === 'adverse_events') return `?page=adverse-events&id=${encodeURIComponent(id)}`;
+    if (surface === 'session_runner') return `?page=session-execution&id=${encodeURIComponent(id)}`;
+    if (surface === 'qeeg') return `?page=qeeg-analysis&id=${encodeURIComponent(id)}`;
+    if (surface === 'brain_map_planner') return `?page=brain-map-planner&plan_id=${encodeURIComponent(id)}`;
+    if (surface === 'assessments' || surface === 'assessment') return `?page=assessments&id=${encodeURIComponent(id)}`;
+    return null;
   }
 
   // ── Build unique actors list for filter dropdown ───────────────────────────
@@ -2073,7 +2157,7 @@ export async function pgAuditTrail(setTopbar) {
                   ${item.label}
                 </div>`).join('')}
               </div>
-              <button class="btn btn-ghost btn-sm" style="width:100%;font-size:11px;opacity:0.5;cursor:not-allowed" disabled>Download Report</button>
+              <div style="font-size:10.5px;color:var(--text-tertiary);font-style:italic;margin-top:4px">Framework summary — formal compliance reports are out of scope for this view. Use the regulator-grade Export NDJSON button above for the immutable event trail.</div>
             </div>
           </div>`).join('')}
         </div>
@@ -2083,41 +2167,57 @@ export async function pgAuditTrail(setTopbar) {
 
   // ── Filters HTML ──────────────────────────────────────────────────────────
   function filtersHTML() {
+    const f = window._auditFilters || {};
+    const optSel = (val, current) => val === current ? ' selected' : '';
     return `
     <div class="card" style="margin-bottom:16px">
       <div class="card-body" style="padding:12px 16px">
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-          <input id="audit-search" type="text" placeholder="Search actor / action / resource…"
+          <input id="audit-search" type="text" placeholder="Search actor / target / note…"
+            value="${_kEsc(f.q || '')}"
+            aria-label="Search audit events"
             style="flex:1;min-width:180px;background:var(--bg-surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none"
-            oninput="window._filterAudit()" />
-          <select id="audit-action"
+            oninput="window._auditFilterDebounced()" />
+          <select id="audit-surface" aria-label="Filter by surface"
             style="background:var(--bg-surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;font-size:12px;color:var(--text-primary);cursor:pointer"
-            onchange="window._filterAudit()">
-            <option value="">All Actions</option>
-            <option value="CREATE">CREATE</option>
-            <option value="READ">READ</option>
-            <option value="UPDATE">UPDATE</option>
-            <option value="DELETE">DELETE</option>
-            <option value="LOGIN">LOGIN</option>
-            <option value="LOGOUT">LOGOUT</option>
-            <option value="APPROVE">APPROVE</option>
-            <option value="REJECT">REJECT</option>
-            <option value="EXPORT">EXPORT</option>
-            <option value="GENERATE">GENERATE</option>
+            onchange="window._setAuditFilter('surface', this.value)">
+            <option value=""${optSel('', f.surface || '')}>All Surfaces</option>
+            <option value="qeeg"${optSel('qeeg', f.surface || '')}>qEEG Analyzer</option>
+            <option value="brain_map_planner"${optSel('brain_map_planner', f.surface || '')}>Brain Map Planner</option>
+            <option value="session_runner"${optSel('session_runner', f.surface || '')}>Session Runner</option>
+            <option value="adverse_events"${optSel('adverse_events', f.surface || '')}>Adverse Events</option>
+            <option value="audit_trail"${optSel('audit_trail', f.surface || '')}>Audit Trail</option>
+            <option value="protocol"${optSel('protocol', f.surface || '')}>Protocol Review</option>
+            <option value="evidence"${optSel('evidence', f.surface || '')}>Evidence Review</option>
+            <option value="upload"${optSel('upload', f.surface || '')}>Upload Review</option>
           </select>
-          <select id="audit-user"
+          <input id="audit-event-type" type="text" placeholder="event_type (e.g. create, escalate)"
+            value="${_kEsc(f.event_type || '')}"
+            aria-label="Filter by event type"
+            style="background:var(--bg-surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;font-size:12px;color:var(--text-primary)"
+            onchange="window._setAuditFilter('event_type', this.value)" />
+          <select id="audit-user" aria-label="Filter by actor"
             style="background:var(--bg-surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;font-size:12px;color:var(--text-primary);cursor:pointer"
-            onchange="window._filterAudit()">
-            <option value="">All Users</option>
-            ${allActors.map(a => `<option value="${a}">${a}</option>`).join('')}
+            onchange="window._setAuditFilter('actor_id', this.value)">
+            <option value=""${optSel('', f.actor_id || '')}>All Actors</option>
+            ${allActors.map(a => `<option value="${_kEsc(a)}"${optSel(a, f.actor_id || '')}>${_kEsc(a)}</option>`).join('')}
           </select>
-          <input id="audit-from" type="date"
+          <input id="audit-from" type="date" aria-label="Since date"
+            value="${_kEsc(f.since || '')}"
             style="background:var(--bg-surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;font-size:12px;color:var(--text-primary);cursor:pointer"
-            onchange="window._filterAudit()" />
-          <input id="audit-to" type="date"
+            onchange="window._setAuditFilter('since', this.value)" />
+          <input id="audit-to" type="date" aria-label="Until date"
+            value="${_kEsc(f.until || '')}"
             style="background:var(--bg-surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;font-size:12px;color:var(--text-primary);cursor:pointer"
-            onchange="window._filterAudit()" />
+            onchange="window._setAuditFilter('until', this.value)" />
           <button class="btn btn-ghost btn-sm" onclick="window._clearAuditFilters()">Clear</button>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px">
+          <span style="font-size:11px;color:var(--text-tertiary);margin-right:4px">Quick range:</span>
+          <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:3px 8px" onclick="window._auditPreset('today')">Today</button>
+          <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:3px 8px" onclick="window._auditPreset('7d')">Last 7d</button>
+          <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:3px 8px" onclick="window._auditPreset('30d')">Last 30d</button>
+          <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:3px 8px" onclick="window._auditPreset('90d')">Last 90d</button>
         </div>
       </div>
     </div>`;
@@ -2125,44 +2225,66 @@ export async function pgAuditTrail(setTopbar) {
 
   // ── Stats strip ───────────────────────────────────────────────────────────
   function statsHTML(arr) {
-    const s = computeStats(arr);
+    const s = computeStats(arr, window._auditSummary);
+    const sum = window._auditSummary;
+    const surfaceTiles = sum?.by_surface ? Object.entries(sum.by_surface).slice(0, 6) : [];
     return `
-    <div class="g3" style="margin-bottom:16px;grid-template-columns:repeat(4,minmax(0,1fr))">
+    <div class="g3" style="margin-bottom:12px;grid-template-columns:repeat(4,minmax(0,1fr))">
       <div class="metric-card">
-        <div class="metric-label">Events Today</div>
-        <div class="metric-value">${s.totalToday}</div>
+        <div class="metric-label">Total Events</div>
+        <div class="metric-value">${s.totalEvents}</div>
+        <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">in your scope</div>
       </div>
       <div class="metric-card">
-        <div class="metric-label">Unique Actors Today</div>
-        <div class="metric-value">${s.uniqueActorsToday}</div>
+        <div class="metric-label">SAE-related</div>
+        <div class="metric-value" style="color:${s.saeRelated > 0 ? 'var(--red)' : 'var(--text-primary)'}">${s.saeRelated}</div>
+        <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">adverse_events surface</div>
       </div>
       <div class="metric-card">
-        <div class="metric-label">High-Risk Actions</div>
-        <div class="metric-value" style="color:${s.highRisk > 0 ? 'var(--red)' : 'var(--text-primary)'}">${s.highRisk}</div>
+        <div class="metric-label">Regulatory-flagged</div>
+        <div class="metric-value" style="color:${s.regulatoryFlagged > 0 ? 'var(--amber)' : 'var(--text-primary)'}">${s.regulatoryFlagged}</div>
+        <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">escalate / sign / IRB</div>
       </div>
       <div class="metric-card">
         <div class="metric-label">Last Event</div>
         <div style="font-family:var(--font-display);font-size:13px;font-weight:700;color:var(--text-primary);line-height:1.3;margin-top:4px">${s.lastEvent}</div>
       </div>
-    </div>`;
+    </div>
+    ${surfaceTiles.length ? `
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
+      ${surfaceTiles.map(([surface, count]) => `
+        <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:3px 9px"
+          onclick="window._setAuditFilter('surface', '${_kEsc(surface)}')">
+          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${surfaceColor(surface)};margin-right:5px"></span>
+          ${_kEsc(surface)} <span style="color:var(--text-tertiary);margin-left:5px">${count}</span>
+        </button>
+      `).join('')}
+    </div>` : ''}`;
   }
 
   // ── Timeline entry renderer ───────────────────────────────────────────────
   function renderTimelineEntry(e, i) {
     const { date, time } = fmtDate(e.created_at);
-    const actor = e.actor || e.user_id || '—';
+    const actor = e.actor_id || e.actor || e.user_id || '—';
     const action = e.action || '—';
-    const resType = e.resource_type || '';
-    const resId = e.resource_id || e.target_id || '';
-    const color = actionColor(action);
-    const highRisk = isHighRisk(action);
-    const payload = e.payload || e.changes || null;
+    const surface = (e.surface || e.target_type || '').toLowerCase();
+    const eventType = e.event_type || (action.includes('.') ? action.split('.').slice(1).join('.') : action);
+    const targetType = e.target_type || surface;
+    const targetId = e.target_id || '';
+    const color = surfaceColor(surface);
+    const highRisk = isHighRisk(eventType, surface);
+    const isDemoRow = !!e.is_demo;
+    const drillHref = drillOutHref(e);
+    const payloadHash = e.payload_hash || '';
+    const note = e.note || '';
+    const eventId = e.event_id || `idx-${i}`;
+    const safeNote = _kEsc(note);
     return `
-    <div style="display:flex;gap:16px;padding:10px 0;border-bottom:1px solid var(--border)">
+    <div style="display:flex;gap:16px;padding:10px 0;border-bottom:1px solid var(--border)" data-event-id="${_kEsc(eventId)}">
       <div style="width:140px;flex-shrink:0;text-align:right">
         <div style="font-size:11px;color:var(--text-secondary)">${date}</div>
         <div style="font-size:10.5px;color:var(--text-tertiary)">${time}</div>
-        <div style="font-size:10.5px;color:var(--teal);margin-top:2px">${actor}</div>
+        <div style="font-size:10.5px;color:var(--teal);margin-top:2px">${_kEsc(actor)}</div>
       </div>
       <div style="display:flex;flex-direction:column;align-items:center;width:20px;flex-shrink:0">
         <div style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0;margin-top:4px"></div>
@@ -2170,14 +2292,18 @@ export async function pgAuditTrail(setTopbar) {
       </div>
       <div style="flex:1;padding-bottom:8px">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <span style="font-size:12.5px;font-weight:600;color:var(--text-primary)">${action}</span>
-          ${resType ? `<span class="tag">${resType}</span>` : ''}
+          <span style="font-size:12.5px;font-weight:600;color:var(--text-primary)">${_kEsc(eventType)}</span>
+          ${surface ? `<span class="tag" style="background:${color}20;color:${color};border-color:${color}40">${_kEsc(surface)}</span>` : ''}
           ${highRisk ? `<span style="font-size:9px;font-weight:700;padding:2px 5px;border-radius:3px;background:rgba(255,107,107,0.15);color:var(--red)">HIGH RISK</span>` : ''}
+          ${isDemoRow ? `<span style="font-size:9px;font-weight:700;padding:2px 5px;border-radius:3px;background:rgba(255,181,71,0.18);color:var(--amber)">DEMO</span>` : ''}
         </div>
-        ${resId ? `<div style="font-size:11.5px;color:var(--text-secondary);margin-top:3px">${resId}</div>` : ''}
-        ${payload ? `
-        <button onclick="(function(){var p=document.getElementById('audit-payload-${i}');var b=document.getElementById('audit-toggle-${i}');if(p.style.display==='none'){p.style.display='block';b.textContent='Hide details ×';}else{p.style.display='none';b.textContent='Show details ›'}})()" id="audit-toggle-${i}" style="font-size:10px;color:var(--text-tertiary);background:none;border:none;cursor:pointer;margin-top:4px">Show details ›</button>
-        <pre id="audit-payload-${i}" style="display:none;font-size:10.5px;color:var(--text-secondary);background:rgba(0,0,0,0.2);padding:8px;border-radius:4px;margin-top:6px;overflow-x:auto;white-space:pre-wrap">${JSON.stringify(payload, null, 2)}</pre>` : ''}
+        ${targetId ? `<div style="font-size:11.5px;color:var(--text-secondary);margin-top:3px"><span style="color:var(--text-tertiary)">${_kEsc(targetType)}:</span> ${_kEsc(targetId)}</div>` : ''}
+        ${note ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:3px">${safeNote}</div>` : ''}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px">
+          <button id="audit-toggle-${i}" onclick="window._auditToggleDetails(${i})" style="font-size:10px;color:var(--text-tertiary);background:none;border:none;cursor:pointer">Show details ›</button>
+          ${drillHref ? `<a href="${drillHref}" onclick="window._auditDrillOut(event, '${_kEsc(eventId)}', '${_kEsc(surface)}', '${_kEsc(targetId)}')" style="font-size:10px;color:var(--teal);text-decoration:none">Open source ${_kEsc(surface)} →</a>` : `<span style="font-size:10px;color:var(--text-tertiary);font-style:italic" title="No drill-out target available">No source link</span>`}
+        </div>
+        <pre id="audit-payload-${i}" style="display:none;font-size:10.5px;color:var(--text-secondary);background:rgba(0,0,0,0.2);padding:8px;border-radius:4px;margin-top:6px;overflow-x:auto;white-space:pre-wrap">${_kEsc(JSON.stringify({ event_id: eventId, action, role: e.role, actor_id: actor, target_type: targetType, target_id: targetId, note, surface, event_type: eventType, payload_hash: payloadHash, created_at: e.created_at }, null, 2))}</pre>
       </div>
     </div>`;
   }
@@ -2186,25 +2312,36 @@ export async function pgAuditTrail(setTopbar) {
   window._renderAuditTimeline = function(slice) {
     const container = document.getElementById('audit-timeline');
     if (!container) return;
-    const isFirstPage = window._auditPage === 0;
-    const html = slice.map((e, i) => renderTimelineEntry(e, (window._auditPage * 50) + i)).join('');
-    if (isFirstPage) {
-      container.innerHTML = html || `<div style="padding:32px 0;text-align:center;color:var(--text-tertiary);font-size:13px">No events match the current filters.</div>`;
-    } else {
-      container.insertAdjacentHTML('beforeend', html);
-    }
+    const html = (slice || []).map((e, i) => renderTimelineEntry(e, i)).join('');
+    container.innerHTML = html || `<div style="padding:32px 0;text-align:center;color:var(--text-tertiary);font-size:13px">No events match the current filters. Actions across the app will appear here.</div>`;
+    // Hide the legacy "Load more" button — the API ``limit/offset`` query
+    // params can be wired in if a clinic ever sees >500 events per filter.
     const loadMoreBtn = document.getElementById('audit-load-more');
-    const filtered = window._auditFiltered || [];
-    const shown = (window._auditPage + 1) * 50;
-    if (loadMoreBtn) {
-      loadMoreBtn.style.display = shown < filtered.length ? 'block' : 'none';
-    }
+    if (loadMoreBtn) loadMoreBtn.style.display = 'none';
   };
 
   // ── Table render function ─────────────────────────────────────────────────
   window._renderAuditTable = function(arr) {
     const container = document.getElementById('audit-table-container');
     if (!container) return;
+    const safeRow = (e) => {
+      const { date, time } = fmtDate(e.created_at);
+      const surface = (e.surface || e.target_type || '').toLowerCase();
+      const eventType = e.event_type || (e.action || '').split('.').slice(1).join('.') || (e.action || '');
+      const hr = isHighRisk(eventType, surface);
+      const drillHref = drillOutHref(e);
+      const eventId = e.event_id || '';
+      return `<tr>
+        <td class="mono" style="white-space:nowrap;font-size:11px;color:var(--text-tertiary)">${date} ${time}</td>
+        <td style="font-size:11.5px;color:var(--teal)">${_kEsc(e.actor_id || e.actor || e.user_id || '—')}</td>
+        <td><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${surfaceColor(surface)};margin-right:5px"></span>${_kEsc(surface || '—')}</td>
+        <td style="color:var(--text-primary)">${_kEsc(eventType || '—')}</td>
+        <td style="color:var(--text-secondary)">${_kEsc(e.target_type || '—')}</td>
+        <td class="mono" style="font-size:11px;color:var(--text-tertiary)">${_kEsc(e.target_id || '—')}</td>
+        <td>${e.is_demo ? `<span style="font-size:9px;font-weight:700;padding:2px 5px;border-radius:3px;background:rgba(255,181,71,0.18);color:var(--amber)">DEMO</span>` : (hr ? `<span style="font-size:9px;font-weight:700;padding:2px 5px;border-radius:3px;background:rgba(255,107,107,0.15);color:var(--red)">HIGH</span>` : `<span style="font-size:10px;color:var(--text-tertiary)">Normal</span>`)}</td>
+        <td>${drillHref ? `<a href="${drillHref}" onclick="window._auditDrillOut(event, '${_kEsc(eventId)}', '${_kEsc(surface)}', '${_kEsc(e.target_id || '')}')" style="font-size:10.5px;color:var(--teal);text-decoration:none">Open →</a>` : `<span style="font-size:10.5px;color:var(--text-tertiary)">—</span>`}</td>
+      </tr>`;
+    };
     container.innerHTML = `
     <div style="overflow-x:auto">
       <table class="ds-table">
@@ -2212,29 +2349,17 @@ export async function pgAuditTrail(setTopbar) {
           <tr>
             <th>Timestamp</th>
             <th>Actor</th>
-            <th>Action</th>
-            <th>Resource Type</th>
-            <th>Resource ID</th>
-            <th>IP Address</th>
-            <th>Risk Level</th>
+            <th>Surface</th>
+            <th>Event</th>
+            <th>Target Type</th>
+            <th>Target ID</th>
+            <th>Risk</th>
+            <th>Drill-out</th>
           </tr>
         </thead>
         <tbody>
-          ${arr.map(e => {
-            const { date, time } = fmtDate(e.created_at);
-            const action = e.action || '—';
-            const hr = isHighRisk(action);
-            return `<tr>
-              <td class="mono" style="white-space:nowrap;font-size:11px;color:var(--text-tertiary)">${date} ${time}</td>
-              <td style="font-size:11.5px;color:var(--teal)">${e.actor || e.user_id || '—'}</td>
-              <td><span class="tag" style="color:${actionColor(action)}">${action}</span></td>
-              <td style="color:var(--text-secondary)">${e.resource_type || e.target_type || '—'}</td>
-              <td class="mono" style="font-size:11px;color:var(--text-tertiary)">${e.resource_id || e.target_id || '—'}</td>
-              <td class="mono" style="font-size:11px;color:var(--text-tertiary)">${e.ip_address || '—'}</td>
-              <td>${hr ? `<span style="font-size:9px;font-weight:700;padding:2px 5px;border-radius:3px;background:rgba(255,107,107,0.15);color:var(--red)">HIGH RISK</span>` : `<span style="font-size:10px;color:var(--text-tertiary)">Normal</span>`}</td>
-            </tr>`;
-          }).join('')}
-          ${arr.length === 0 ? `<tr><td colspan="7" style="text-align:center;color:var(--text-tertiary);padding:32px">No events match the current filters.</td></tr>` : ''}
+          ${(arr || []).map(safeRow).join('')}
+          ${(!arr || arr.length === 0) ? `<tr><td colspan="8" style="text-align:center;color:var(--text-tertiary);padding:32px">No events match the current filters. Actions across the app will appear here.</td></tr>` : ''}
         </tbody>
       </table>
     </div>`;
@@ -2254,65 +2379,175 @@ export async function pgAuditTrail(setTopbar) {
     if (view === 'table') {
       window._renderAuditTable(window._auditFiltered || window._auditData || []);
     }
+    try { api.logAudit?.({ surface: 'audit_trail', event: 'view_toggled', note: 'view='+view }).catch(() => {}); } catch (_) {}
   };
 
-  // ── Filter logic ──────────────────────────────────────────────────────────
-  window._filterAudit = function() {
-    const q = document.getElementById('audit-search')?.value.toLowerCase() || '';
-    const action = document.getElementById('audit-action')?.value || '';
-    const user = document.getElementById('audit-user')?.value || '';
-    const dateFrom = document.getElementById('audit-from')?.value;
-    const dateTo = document.getElementById('audit-to')?.value;
-
-    let filtered = window._auditData || [];
-    if (q) filtered = filtered.filter(e =>
-      (e.actor || e.user_id || '').toLowerCase().includes(q) ||
-      (e.action || '').toLowerCase().includes(q) ||
-      (e.resource_type || '').toLowerCase().includes(q) ||
-      (e.resource_id || '').toLowerCase().includes(q)
-    );
-    if (action) filtered = filtered.filter(e => (e.action || '').toUpperCase().startsWith(action));
-    if (user) filtered = filtered.filter(e => (e.actor || e.user_id) === user);
-    if (dateFrom) filtered = filtered.filter(e => e.created_at >= dateFrom);
-    if (dateTo) filtered = filtered.filter(e => e.created_at <= dateTo + 'T23:59:59');
-
-    window._auditFiltered = filtered;
-    window._auditPage = 0;
-    if (window._auditView === 'table') {
-      window._renderAuditTable(filtered);
+  // ── Toggle JSON details inline ───────────────────────────────────────────
+  window._auditToggleDetails = function(i) {
+    const p = document.getElementById('audit-payload-' + i);
+    const b = document.getElementById('audit-toggle-' + i);
+    if (!p || !b) return;
+    if (p.style.display === 'none' || !p.style.display) {
+      p.style.display = 'block';
+      b.textContent = 'Hide details ×';
+      try { api.logAudit?.({ surface: 'audit_trail', event: 'event_viewed', note: 'idx='+i }).catch(() => {}); } catch (_) {}
     } else {
-      window._renderAuditTimeline(filtered.slice(0, 50));
+      p.style.display = 'none';
+      b.textContent = 'Show details ›';
+    }
+  };
+
+  // ── Drill-out handler ─────────────────────────────────────────────────────
+  window._auditDrillOut = function(ev, eventId, surface, targetId) {
+    try { api.logAudit?.({ surface: 'audit_trail', event: 'drill_out', note: `event_id=${eventId} surface=${surface} target=${targetId}` }).catch(() => {}); } catch (_) {}
+    // Honest fallback when target_id is missing — block navigation.
+    if (!targetId) {
+      try { ev.preventDefault(); } catch (_) {}
+      const t = document.getElementById('audit-toast');
+      if (t) {
+        t.textContent = 'No target_id on this event — cannot open source ' + (surface || 'page');
+        t.style.display = 'block';
+        setTimeout(() => { t.style.display = 'none'; }, 4000);
+      }
+      return false;
+    }
+    // Otherwise let the SPA navigate via the href.
+    return true;
+  };
+
+  // ── Filter persistence + API re-fetch ─────────────────────────────────────
+  let _auditDebounceTimer = null;
+  window._auditFilterDebounced = function() {
+    clearTimeout(_auditDebounceTimer);
+    _auditDebounceTimer = setTimeout(() => {
+      const q = document.getElementById('audit-search')?.value || '';
+      window._setAuditFilter('q', q);
+    }, 250);
+  };
+
+  window._setAuditFilter = function(key, value) {
+    const f = window._auditFilters = window._auditFilters || {};
+    if (value == null || value === '') delete f[key];
+    else f[key] = value;
+    try { api.logAudit?.({ surface: 'audit_trail', event: 'filter_changed', note: key + '=' + String(value) }).catch(() => {}); } catch (_) {}
+    window._refetchAudit();
+  };
+
+  window._auditPreset = function(preset) {
+    const f = window._auditFilters = window._auditFilters || {};
+    const today = new Date();
+    const ymd = (d) => d.toISOString().slice(0, 10);
+    if (preset === 'today') {
+      f.since = ymd(today);
+      delete f.until;
+    } else if (preset === '7d') {
+      const d = new Date(today.getTime() - 6 * 86400000);
+      f.since = ymd(d);
+      delete f.until;
+    } else if (preset === '30d') {
+      const d = new Date(today.getTime() - 29 * 86400000);
+      f.since = ymd(d);
+      delete f.until;
+    } else if (preset === '90d') {
+      const d = new Date(today.getTime() - 89 * 86400000);
+      f.since = ymd(d);
+      delete f.until;
+    }
+    try { api.logAudit?.({ surface: 'audit_trail', event: 'preset_applied', note: preset }).catch(() => {}); } catch (_) {}
+    window._refetchAudit();
+  };
+
+  window._refetchAudit = async function() {
+    const container = document.getElementById('audit-timeline');
+    if (container) container.innerHTML = '<div style="padding:24px 0;text-align:center;color:var(--text-tertiary);font-size:12px">Loading…</div>';
+    try {
+      const f = window._auditFilters || {};
+      const [listRes, sumRes] = await Promise.all([
+        api.auditTrail(f),
+        api.auditTrailSummary().catch(() => null),
+      ]);
+      const items = listRes?.items || [];
+      window._auditData = items;
+      window._auditFiltered = items;
+      window._auditSummary = sumRes;
+      // Re-render filters bar (so user dropdown reflects new actor universe)
+      const stripEl = document.getElementById('audit-stats-strip');
+      if (stripEl) stripEl.innerHTML = statsHTML(items);
+      if (window._auditView === 'table') {
+        window._renderAuditTable(items);
+      } else {
+        window._renderAuditTimeline(items);
+      }
+      const headerCount = document.getElementById('audit-event-count');
+      if (headerCount) headerCount.textContent = `${listRes?.total ?? items.length} total events`;
+    } catch (e) {
+      if (container) container.innerHTML = `<div role="alert" style="padding:24px 0;text-align:center;color:var(--red);font-size:12px">Audit trail fetch failed: ${_kEsc(e?.message || 'unknown')}</div>`;
     }
   };
 
   // ── Clear filters ─────────────────────────────────────────────────────────
   window._clearAuditFilters = function() {
-    const ids = ['audit-search','audit-action','audit-user','audit-from','audit-to'];
+    window._auditFilters = {};
+    const ids = ['audit-search','audit-event-type','audit-user','audit-from','audit-to','audit-surface'];
     ids.forEach(id => { const el2 = document.getElementById(id); if (el2) el2.value = ''; });
-    window._filterAudit();
+    try { api.logAudit?.({ surface: 'audit_trail', event: 'filters_cleared', note: 'all' }).catch(() => {}); } catch (_) {}
+    window._refetchAudit();
   };
 
-  // ── CSV Export ────────────────────────────────────────────────────────────
-  window._exportAuditCSV = function() {
-    const data = window._auditFiltered || window._auditData || [];
-    const rows = [['Timestamp','Actor','Action','Resource Type','Resource ID','IP']];
-    data.forEach(e => rows.push([
-      e.created_at || '', e.actor || e.user_id || '', e.action || '',
-      e.resource_type || '', e.resource_id || '', e.ip_address || ''
-    ]));
-    const csv = rows.map(r => r.map(v => '"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
-    const blob = new Blob([csv], {type:'text/csv'});
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'audit-trail.csv';
-    a.click();
+  // ── CSV Export (real server-rendered file) ───────────────────────────────
+  window._exportAuditCSV = async function() {
+    const btn = document.getElementById('audit-export-csv');
+    if (btn) { btn.disabled = true; btn.dataset.label = btn.textContent; btn.textContent = 'Exporting…'; }
+    try {
+      const { blob, filename } = await api.auditTrailExportCsv(window._auditFilters || {});
+      downloadBlob(blob, filename || 'audit-trail.csv');
+      try { api.logAudit?.({ surface: 'audit_trail', event: 'export_csv', note: JSON.stringify(window._auditFilters || {}).slice(0,200) }).catch(() => {}); } catch (_) {}
+    } catch (e) {
+      const t = document.getElementById('audit-toast');
+      if (t) { t.textContent = 'CSV export failed: ' + (e?.message || 'unknown'); t.style.display='block'; setTimeout(()=>{t.style.display='none';},5000); }
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = btn.dataset.label || 'Export CSV'; }
+    }
+  };
+
+  // ── NDJSON Export (regulator format) ─────────────────────────────────────
+  window._exportAuditNDJSON = async function() {
+    const btn = document.getElementById('audit-export-ndjson');
+    if (btn) { btn.disabled = true; btn.dataset.label = btn.textContent; btn.textContent = 'Exporting…'; }
+    try {
+      const { blob, filename } = await api.auditTrailExportNdjson(window._auditFilters || {});
+      downloadBlob(blob, filename || 'audit-trail.ndjson');
+      try { api.logAudit?.({ surface: 'audit_trail', event: 'export_ndjson', note: JSON.stringify(window._auditFilters || {}).slice(0,200) }).catch(() => {}); } catch (_) {}
+    } catch (e) {
+      const t = document.getElementById('audit-toast');
+      if (t) { t.textContent = 'NDJSON export failed: ' + (e?.message || 'unknown'); t.style.display='block'; setTimeout(()=>{t.style.display='none';},5000); }
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = btn.dataset.label || 'Export NDJSON'; }
+    }
   };
 
   // ── Render page ───────────────────────────────────────────────────────────
+  // Disclaimers come from the API (when present) for honest, source-of-truth
+  // wording, falling back to the regulator-required strings shipped with the
+  // launch audit. The demo / empty / error notices are honest about the
+  // current data state — never hide a real failure.
+  const disclaimers = (Array.isArray(apiDisclaimers) && apiDisclaimers.length ? apiDisclaimers : [
+    'Audit trail records clinical actions for regulatory review.',
+    'Events are immutable; redactions require admin sign-off and create their own audit event.',
+    'Demo events are not regulator-submittable.',
+  ]);
   el.innerHTML = `
-  <div style="max-width:900px;margin:0 auto;padding-bottom:40px">
-    ${isDemo ? `<div class="notice notice-info" style="margin-bottom:16px">No audit events recorded yet. Events are logged automatically as you use the platform.</div>
-    <div class="notice notice-warn" style="margin-bottom:16px">Demo data — connect backend for live events</div>` : ''}
+  <div style="max-width:1100px;margin:0 auto;padding-bottom:40px">
+    ${apiError ? `<div role="alert" class="notice notice-warn" style="margin-bottom:16px">Audit-trail API unavailable (${_kEsc(apiError?.message || 'unknown error')}). Showing demo rows tagged DEMO; regulator review must use the live API.</div>` : ''}
+    ${(!apiError && entries.length === 0) ? `<div class="notice notice-info" style="margin-bottom:16px">No audit events yet. Actions across the app will appear here.</div>` : ''}
+
+    <div role="region" aria-label="Audit-trail clinical safety disclaimers" style="margin-bottom:14px;padding:10px 14px;background:rgba(74,222,128,0.06);border-left:3px solid var(--green);border-radius:4px">
+      <ul style="margin:0;padding-left:18px;font-size:11.5px;color:var(--text-secondary);line-height:1.55">
+        ${disclaimers.map(d => `<li>${_kEsc(d)}</li>`).join('')}
+      </ul>
+    </div>
+
+    <div id="audit-toast" role="status" aria-live="polite" style="display:none;margin-bottom:12px;padding:8px 14px;background:rgba(255,107,107,0.10);border:1px solid rgba(255,107,107,0.4);border-radius:4px;font-size:12px;color:var(--red)"></div>
 
     ${complianceSummaryHTML()}
 
@@ -2325,17 +2560,12 @@ export async function pgAuditTrail(setTopbar) {
       <div class="card">
         <div class="card-header">
           <h3>Event Timeline</h3>
-          <span style="font-size:11px;color:var(--text-tertiary)">${displayEntries.length} total events</span>
+          <span id="audit-event-count" style="font-size:11px;color:var(--text-tertiary)">${total} total events</span>
         </div>
         <div class="card-body" style="padding:0 18px">
-          <div id="audit-timeline"></div>
+          <div id="audit-timeline" role="list" aria-label="Audit events timeline"></div>
           <div style="text-align:center;padding:16px 0">
-            <button id="audit-load-more" class="btn btn-ghost btn-sm" style="display:none" onclick="
-              window._auditPage++;
-              const start = window._auditPage * 50;
-              const next = (window._auditFiltered || []).slice(start, start + 50);
-              window._renderAuditTimeline(next);
-            ">Load more events</button>
+            <button id="audit-load-more" class="btn btn-ghost btn-sm" style="display:none">Load more events</button>
           </div>
         </div>
       </div>
@@ -2349,7 +2579,7 @@ export async function pgAuditTrail(setTopbar) {
 
   // Initial render
   window._auditPage = 0;
-  window._renderAuditTimeline(displayEntries.slice(0, 50));
+  window._renderAuditTimeline(displayEntries);
 }
 
 // ── Pricing ───────────────────────────────────────────────────────────────────
@@ -2988,7 +3218,7 @@ function _renderKPIBlock() {
   ];
   return `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
     ${items.map(i => `<div style="background:rgba(0,212,188,0.07);border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center">
-      <div style="font-size:1.8rem;font-weight:800;color:var(--accent-teal,#00d4bc)">${i.value}</div>
+      <div style="font-size:1.8rem;font-weight:800;color:var(--teal,#00d4bc)">${i.value}</div>
       <div style="font-size:.78rem;color:var(--text-muted,#94a3b8);margin-top:4px">${i.label}</div>
     </div>`).join('')}
   </div>`;
@@ -3095,7 +3325,7 @@ function _renderRevenueSummaryBlock() {
   ];
   return `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
     ${items.map(i => `<div style="background:rgba(245,158,11,0.07);border:1px solid var(--border);border-radius:8px;padding:14px">
-      <div style="font-size:1.6rem;font-weight:800;color:var(--accent-teal,#00d4bc)">${i.value}</div>
+      <div style="font-size:1.6rem;font-weight:800;color:var(--teal,#00d4bc)">${i.value}</div>
       <div style="font-size:.8rem;font-weight:600;margin-top:4px">${i.label}</div>
       <div style="font-size:.72rem;color:var(--text-muted,#94a3b8);margin-top:2px">${i.sub}</div>
     </div>`).join('')}
@@ -3977,259 +4207,716 @@ function _qaRenderActions(filterStatus) {
   return filterHTML + tableHTML;
 }
 
+// ── QA Findings / CAPA Register (launch-audit 2026-04-30) ────────────────────
+//
+// Real, API-backed Quality Assurance findings register. Replaces the prior
+// localStorage-only peer-review prototype. Every visible control is wired to
+// `/api/v1/qa/findings*` or honestly disabled. Closed findings are immutable;
+// reopen creates a new revision; CAPA owners must be real users (the API
+// validates owner_id against the User table).
+//
+// Cross-surface drill-out: rows with source_target_type/id navigate to the
+// originating record (adverse_events, sessions, reports, documents, qeeg,
+// brain_map_planner). When the API returns an empty list, we render a clear
+// "No findings yet" empty state — never invented rows. Demo rows are tagged
+// `is_demo=true` and exports prefix with `# DEMO`.
+
+const _QA_PAGE_DISCLAIMERS = [
+  'Quality Assurance findings require timely owner action and clinician sign-off.',
+  'CAPA owners and due dates support regulator inspection — keep them current.',
+  'Closed findings are immutable; reopen creates a new revision with audit trail.',
+];
+
+const _QA_FINDING_TYPES = [
+  ['non_conformance',    'Non-conformance'],
+  ['sae_followup',       'SAE follow-up'],
+  ['documentation_gap',  'Documentation gap'],
+  ['protocol_deviation', 'Protocol deviation'],
+  ['capa',               'CAPA action'],
+  ['observation',        'Observation'],
+];
+
+const _QA_SEVERITIES = [
+  ['minor',    'Minor'],
+  ['major',    'Major'],
+  ['critical', 'Critical'],
+];
+
+const _QA_STATUSES = [
+  ['open',        'Open'],
+  ['in_progress', 'In progress'],
+  ['closed',      'Closed'],
+  ['reopened',    'Reopened'],
+];
+
+const _QA_SOURCE_TARGETS = [
+  ['adverse_events',    'Adverse Event'],
+  ['sessions',          'Session'],
+  ['reports',           'Report'],
+  ['documents',         'Document'],
+  ['qeeg',              'qEEG analysis'],
+  ['brain_map_planner', 'Brain Map plan'],
+];
+
+function _qaEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function _qaSeverityBadge(sev) {
+  const map = {
+    critical: ['#dc2626', '#fee2e2', 'Critical'],
+    major:    ['#ea580c', '#fed7aa', 'Major'],
+    minor:    ['#2563eb', '#dbeafe', 'Minor'],
+  };
+  const [color, bg, label] = map[sev] || map.minor;
+  return `<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:9999px;background:${bg};color:${color}">${label}</span>`;
+}
+
+function _qaFindingStatusBadge(status) {
+  const map = {
+    open:        ['#dc2626', '#fee2e2', 'Open'],
+    in_progress: ['#d97706', '#fef3c7', 'In progress'],
+    closed:      ['#059669', '#d1fae5', 'Closed'],
+    reopened:    ['#7c3aed', '#ede9fe', 'Reopened'],
+  };
+  const [color, bg, label] = map[status] || map.open;
+  return `<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:9999px;background:${bg};color:${color}">${label}</span>`;
+}
+
+function _qaDrillOutHref(targetType, targetId) {
+  if (!targetType || !targetId) return null;
+  const id = encodeURIComponent(targetId);
+  switch ((targetType || '').toLowerCase()) {
+    case 'adverse_events':    return `?page=adverse-events&id=${id}`;
+    case 'sessions':          return `?page=session-execution&id=${id}`;
+    case 'reports':           return `?page=reports&id=${id}`;
+    case 'documents':         return `?page=documents&id=${id}`;
+    case 'qeeg':              return `?page=qeegmaps&id=${id}`;
+    case 'brain_map_planner': return `?page=brain-map-planner&id=${id}`;
+    default:                  return null;
+  }
+}
+
 // ── Main exported page function ───────────────────────────────────────────────
 export async function pgQualityAssurance(setTopbar) {
-  setTopbar('Quality Assurance & Peer Review', '');
+  setTopbar('Quality Assurance & Peer Review', `
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-primary btn-sm" onclick="window._qaShowCreate()">+ Log Finding</button>
+      <button class="btn btn-ghost btn-sm" onclick="window._qaExportCSV()">Export CSV</button>
+      <button class="btn btn-ghost btn-sm" onclick="window._qaExportNDJSON()" title="Newline-delimited JSON, one finding per line — preferred regulator format">Export NDJSON</button>
+    </div>
+  `);
   const el = document.getElementById('content');
+  el.innerHTML = spinner();
 
-  // Internal state
-  let _activeTab       = 'dashboard';
-  let _filterStatus    = 'all';
-  let _filterClinician = '';
-  let _filterDateFrom  = '';
-  let _filterDateTo    = '';
-  let _filterActions   = 'all';
-  let _openReviewId    = null;
+  // ── Page state ────────────────────────────────────────────────────────────
+  // Persisted on window so re-entry from a drill-out preserves the filter set.
+  const state = (window._qaState = window._qaState || {
+    filters: {
+      status: '',
+      severity: '',
+      finding_type: '',
+      since: '',
+      until: '',
+      owner_id: '',
+      q: '',
+      capa_overdue_only: false,
+    },
+    selectedId: null,
+  });
 
-  // Criteria and score working state (keyed by reviewId)
-  const _wip = {};
-  function _getWip(id) {
-    if (!_wip[id]) {
-      const r = getQAReviews().find(x=>x.id===id);
-      _wip[id] = r ? JSON.parse(JSON.stringify(r)) : null;
+  // ── Page-load audit ───────────────────────────────────────────────────────
+  try {
+    if (api && typeof api.logQualityAssuranceAudit === 'function') {
+      const p = api.logQualityAssuranceAudit({ event: 'page_loaded', note: 'quality_assurance_page' });
+      if (p && p.catch) p.catch(() => {});
     }
-    return _wip[id];
+  } catch (_) {}
+
+  // ── Data loading ──────────────────────────────────────────────────────────
+  async function _qaLoad() {
+    let listRes = null;
+    let summary = null;
+    let listError = null;
+    try {
+      const [lr, sr] = await Promise.all([
+        api.listQualityFindings(state.filters).catch((e) => { listError = e; return null; }),
+        api.getQualityFindingsSummary().catch(() => null),
+      ]);
+      listRes = lr;
+      summary = sr;
+    } catch (e) {
+      listError = e;
+    }
+
+    const items = (listRes && Array.isArray(listRes.items)) ? listRes.items : [];
+    const total = (listRes && typeof listRes.total === 'number') ? listRes.total : items.length;
+    const disclaimers = (listRes && Array.isArray(listRes.disclaimers) && listRes.disclaimers.length)
+      ? listRes.disclaimers
+      : _QA_PAGE_DISCLAIMERS;
+
+    // Honest demo fallback: only seed demo rows when the live API call FAILED
+    // entirely. An empty list from a healthy backend stays empty so reviewers
+    // see the truth ("No findings yet").
+    const apiFailed = !!listError && items.length === 0;
+    const displayItems = apiFailed ? _qaDemoFindings() : items;
+    const displaySummary = summary || (apiFailed ? _qaDemoSummary() : { total: 0, open: 0, in_progress: 0, closed: 0, reopened: 0, by_severity: {}, by_finding_type: {}, sae_related: 0, capa_overdue: 0, demo_rows: 0 });
+    const displayTotal = apiFailed ? displayItems.length : total;
+
+    state.items = displayItems;
+    state.summary = displaySummary;
+    state.apiFailed = apiFailed;
+    state.disclaimers = disclaimers;
+    state.total = displayTotal;
   }
 
+  // ── Render ────────────────────────────────────────────────────────────────
   function render() {
-    const tabBar = `
-      <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px">
-        ${[['dashboard','QA Dashboard'],['reviews','Case Reviews'],['actions','Corrective Actions']].map(([id,label])=>`
-          <button onclick="window._qaTab('${id}')" style="padding:10px 18px;border:none;background:none;cursor:pointer;font-size:.88rem;font-weight:600;
-            color:${_activeTab===id?'var(--teal)':'var(--text-muted)'};
-            border-bottom:${_activeTab===id?'2px solid var(--teal)':'2px solid transparent'};
-            margin-bottom:-2px;transition:color .15s">${label}</button>`).join('')}
+    const s = state.summary || {};
+    const items = state.items || [];
+    const apiFailed = !!state.apiFailed;
+
+    const banner = `
+      <div class="card" style="padding:12px 14px;border-left:3px solid var(--teal);margin-bottom:14px;background:rgba(20,184,166,0.05)">
+        <div style="font-weight:600;font-size:.85rem;margin-bottom:6px">Clinical safety</div>
+        <ul style="margin:0;padding-left:18px;font-size:.8rem;color:var(--text-muted);line-height:1.5">
+          ${(state.disclaimers || _QA_PAGE_DISCLAIMERS).map(d => `<li>${_qaEsc(d)}</li>`).join('')}
+        </ul>
+        ${apiFailed ? `<div style="margin-top:8px;padding:6px 10px;background:#fef3c7;border-radius:4px;font-size:.78rem;color:#92400e"><b>Backend unreachable.</b> Showing DEMO rows for layout review only — these are <b>NOT</b> regulator-submittable. Refresh once the API is restored.</div>` : ''}
       </div>`;
 
-    let body = '';
-    if (_activeTab === 'dashboard') body = _qaRenderDashboard();
-    else if (_activeTab === 'reviews') body = _qaRenderReviews(_filterStatus, _filterClinician, _filterDateFrom, _filterDateTo);
-    else if (_activeTab === 'actions') body = _qaRenderActions(_filterActions);
+    const counts = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">
+        ${_qaCountCard('Open',          s.open || 0,           '#dc2626')}
+        ${_qaCountCard('In progress',   s.in_progress || 0,    '#d97706')}
+        ${_qaCountCard('Closed',        s.closed || 0,         '#059669')}
+        ${_qaCountCard('Reopened',      s.reopened || 0,       '#7c3aed')}
+        ${_qaCountCard('SAE-related',   s.sae_related || 0,    '#ef4444')}
+        ${_qaCountCard('CAPA overdue',  s.capa_overdue || 0,   '#b91c1c', s.capa_overdue ? 'window._qaToggleOverdue()' : null)}
+      </div>`;
 
-    el.innerHTML = tabBar + `<div id="qa-tab-body">${body}</div>`;
+    const filters = _qaRenderFilters();
+    const list    = _qaRenderList(items);
 
-    // Re-open review form if it was open
-    if (_activeTab === 'reviews' && _openReviewId) {
-      const formEl = document.getElementById(`qa-form-${_openReviewId}`);
-      if (formEl) formEl.style.display = 'block';
+    el.innerHTML = banner + counts + filters + list + _qaRenderModalSlot();
+
+    // Re-attach search debounce hook every render
+    const searchEl = document.getElementById('qa-filter-q');
+    if (searchEl) {
+      searchEl.addEventListener('input', _qaDebouncedSearch, { once: false });
     }
   }
 
-  // ── Global handlers ───────────────────────────────────────────────────────
+  function _qaCountCard(label, value, color, onclick) {
+    const click = onclick ? `onclick="${onclick}" style="cursor:pointer"` : '';
+    return `
+      <div class="card" style="padding:12px;text-align:center" ${click}>
+        <div style="font-size:1.6rem;font-weight:700;color:${color}">${_qaEsc(value)}</div>
+        <div style="font-size:.72rem;color:var(--text-muted);margin-top:4px;text-transform:uppercase;letter-spacing:.04em">${_qaEsc(label)}</div>
+      </div>`;
+  }
 
-  window._qaTab = function(tab) {
-    _activeTab = tab;
-    _openReviewId = null;
-    render();
+  function _qaRenderFilters() {
+    const f = state.filters;
+    return `
+      <div class="card" style="padding:12px;margin-bottom:12px">
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+          <select class="form-control" id="qa-filter-status" style="width:auto" onchange="window._qaSetFilter('status', this.value)">
+            <option value="">All statuses</option>
+            ${_QA_STATUSES.map(([v,l]) => `<option value="${v}" ${f.status===v?'selected':''}>${l}</option>`).join('')}
+          </select>
+          <select class="form-control" id="qa-filter-severity" style="width:auto" onchange="window._qaSetFilter('severity', this.value)">
+            <option value="">All severities</option>
+            ${_QA_SEVERITIES.map(([v,l]) => `<option value="${v}" ${f.severity===v?'selected':''}>${l}</option>`).join('')}
+          </select>
+          <select class="form-control" id="qa-filter-type" style="width:auto" onchange="window._qaSetFilter('finding_type', this.value)">
+            <option value="">All types</option>
+            ${_QA_FINDING_TYPES.map(([v,l]) => `<option value="${v}" ${f.finding_type===v?'selected':''}>${l}</option>`).join('')}
+          </select>
+          <input type="date"   class="form-control" id="qa-filter-since" style="width:auto" value="${_qaEsc(f.since)}" onchange="window._qaSetFilter('since', this.value)" title="From (created on or after)">
+          <input type="date"   class="form-control" id="qa-filter-until" style="width:auto" value="${_qaEsc(f.until)}" onchange="window._qaSetFilter('until', this.value)" title="Until (created on or before)">
+          <input type="text"   class="form-control" id="qa-filter-owner" placeholder="Owner ID" style="width:140px" value="${_qaEsc(f.owner_id)}" onchange="window._qaSetFilter('owner_id', this.value)">
+          <input type="search" class="form-control" id="qa-filter-q"     placeholder="Search title / description / CAPA" style="flex:1;min-width:220px" value="${_qaEsc(f.q)}">
+          <label style="display:flex;align-items:center;gap:6px;font-size:.82rem;cursor:pointer">
+            <input type="checkbox" id="qa-filter-overdue" ${f.capa_overdue_only?'checked':''} onchange="window._qaSetFilter('capa_overdue_only', this.checked)">
+            CAPA overdue only
+          </label>
+          <button class="btn btn-ghost btn-sm" onclick="window._qaClearFilters()">Clear</button>
+        </div>
+      </div>`;
+  }
+
+  function _qaRenderList(items) {
+    if (!items.length) {
+      return `<div class="card" style="padding:32px;text-align:center;color:var(--text-muted)">
+        <div style="font-size:1rem;font-weight:600;margin-bottom:6px">No findings yet</div>
+        <div style="font-size:.85rem">QA reviews will land here as reviewers log non-conformances and CAPA actions.</div>
+        <div style="margin-top:12px"><button class="btn btn-primary btn-sm" onclick="window._qaShowCreate()">+ Log first finding</button></div>
+      </div>`;
+    }
+    const rows = items.map(_qaRenderRow).join('');
+    return `<div style="display:flex;flex-direction:column;gap:10px">${rows}</div>`;
+  }
+
+  function _qaRenderRow(it) {
+    const drillHref = _qaDrillOutHref(it.source_target_type, it.source_target_id);
+    const drillBtn = drillHref
+      ? `<a class="btn btn-ghost btn-sm" href="${drillHref}" onclick="window._qaLogDrillOut('${_qaEsc(it.id)}','${_qaEsc(it.source_target_type)}','${_qaEsc(it.source_target_id)}')">Open source ${_qaEsc(it.source_target_type)}</a>`
+      : `<span style="font-size:.72rem;color:var(--text-muted)">No source record linked</span>`;
+    const overdueChip = it.capa_overdue
+      ? `<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:9999px;background:#fee2e2;color:#b91c1c">CAPA overdue</span>`
+      : '';
+    const demoChip = it.is_demo
+      ? `<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:9999px;background:#fef3c7;color:#92400e">DEMO</span>`
+      : '';
+    const ownerLine = it.owner_display_name || it.owner_id
+      ? `Owner: <b style="color:var(--text)">${_qaEsc(it.owner_display_name || it.owner_id)}</b>`
+      : `<span style="color:var(--text-muted)">No owner assigned</span>`;
+    const dueLine = it.capa_due_date
+      ? `Due: <b style="color:${it.capa_overdue?'#b91c1c':'var(--text)'}">${_qaEsc(it.capa_due_date)}</b>`
+      : '';
+    return `
+      <div class="card" style="padding:14px" id="qa-row-${_qaEsc(it.id)}">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap">
+          <div style="flex:1;min-width:240px">
+            <div style="font-weight:700;font-size:.95rem">${_qaEsc(it.title)}</div>
+            <div style="font-size:.78rem;color:var(--text-muted);margin-top:3px">${_qaEsc((it.description || '').slice(0, 220))}${(it.description||'').length>220?'…':''}</div>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            ${_qaSeverityBadge(it.severity)}
+            ${_qaFindingStatusBadge(it.status)}
+            ${overdueChip}
+            ${demoChip}
+          </div>
+        </div>
+        <div style="margin-top:8px;display:flex;gap:14px;flex-wrap:wrap;font-size:.78rem;color:var(--text-muted)">
+          <span>Type: <b style="color:var(--text)">${_qaEsc(it.finding_type)}</b></span>
+          <span>${ownerLine}</span>
+          ${dueLine?`<span>${dueLine}</span>`:''}
+          <span>Reporter: <b style="color:var(--text)">${_qaEsc(it.reporter_id)}</b></span>
+          <span>Created: <b style="color:var(--text)">${_qaEsc((it.created_at || '').slice(0,10))}</b></span>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-sm" onclick="window._qaOpenDetail('${_qaEsc(it.id)}')">Detail</button>
+          ${drillBtn}
+        </div>
+      </div>`;
+  }
+
+  function _qaRenderModalSlot() {
+    return `<div id="qa-modal-slot"></div>`;
+  }
+
+  // ── Filter handlers ───────────────────────────────────────────────────────
+  let _searchTimer = null;
+  const _qaDebouncedSearch = (ev) => {
+    if (_searchTimer) clearTimeout(_searchTimer);
+    _searchTimer = setTimeout(() => {
+      state.filters.q = ev.target.value || '';
+      try { api.logQualityAssuranceAudit?.({ event: 'filter_changed', note: 'q=' + state.filters.q.slice(0,80) }); } catch (_) {}
+      _qaReload();
+    }, 300);
   };
 
-  window._qaRandomSample = function() {
-    const reviews  = getQAReviews();
-    const sampled  = new Set(reviews.map(r=>r.caseId));
-    const pool     = Array.from({length:50},(_,i)=>`CASE-${String(i+1).padStart(3,'0')}`);
-    const unsampled = pool.filter(c => !sampled.has(c));
-    const msgEl = document.getElementById('qa-sample-msg');
-    if (unsampled.length === 0) {
-      if (msgEl) msgEl.textContent = 'All cases in pool already sampled.';
+  window._qaSetFilter = function(key, value) {
+    state.filters[key] = value;
+    try { api.logQualityAssuranceAudit?.({ event: 'filter_changed', note: key + '=' + String(value).slice(0,80) }); } catch (_) {}
+    _qaReload();
+  };
+
+  window._qaClearFilters = function() {
+    state.filters = { status:'', severity:'', finding_type:'', since:'', until:'', owner_id:'', q:'', capa_overdue_only:false };
+    try { api.logQualityAssuranceAudit?.({ event: 'filters_cleared', note: 'all' }); } catch (_) {}
+    _qaReload();
+  };
+
+  window._qaToggleOverdue = function() {
+    state.filters.capa_overdue_only = !state.filters.capa_overdue_only;
+    try { api.logQualityAssuranceAudit?.({ event: 'filter_changed', note: 'capa_overdue_only=' + state.filters.capa_overdue_only }); } catch (_) {}
+    _qaReload();
+  };
+
+  async function _qaReload() {
+    el.innerHTML = spinner();
+    try { await _qaLoad(); } catch (_) {}
+    render();
+  }
+
+  // ── Drill-out logging ─────────────────────────────────────────────────────
+  window._qaLogDrillOut = function(findingId, targetType, targetId) {
+    try {
+      api.logQualityAssuranceAudit?.({
+        event: 'drill_out',
+        finding_id: findingId,
+        note: `target=${targetType}:${targetId}`,
+      });
+    } catch (_) {}
+    // Allow the anchor's default href navigation to proceed.
+    return true;
+  };
+
+  // ── Modal / detail / create / close / reopen ──────────────────────────────
+  window._qaShowCreate = function() {
+    const slot = document.getElementById('qa-modal-slot');
+    if (!slot) return;
+    slot.innerHTML = `
+      <div class="qa-modal-bg" style="position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999" onclick="if(event.target===this)window._qaCloseModal()">
+        <div class="card" style="max-width:560px;width:92%;padding:18px;max-height:90vh;overflow:auto">
+          <div style="font-weight:700;font-size:1rem;margin-bottom:10px">Log new QA finding</div>
+          <div style="display:grid;gap:10px">
+            <input class="form-control" id="qa-new-title" placeholder="Short title (required)">
+            <textarea class="form-control" id="qa-new-desc" rows="3" placeholder="Description / context"></textarea>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <select class="form-control" id="qa-new-type">
+                ${_QA_FINDING_TYPES.map(([v,l]) => `<option value="${v}">${l}</option>`).join('')}
+              </select>
+              <select class="form-control" id="qa-new-sev">
+                ${_QA_SEVERITIES.map(([v,l]) => `<option value="${v}">${l}</option>`).join('')}
+              </select>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <select class="form-control" id="qa-new-source-type">
+                <option value="">No source surface</option>
+                ${_QA_SOURCE_TARGETS.map(([v,l]) => `<option value="${v}">${l}</option>`).join('')}
+              </select>
+              <input class="form-control" id="qa-new-source-id" placeholder="Source record ID (optional)">
+            </div>
+            <input class="form-control" id="qa-new-owner" placeholder="CAPA owner (real user ID; leave blank if none)">
+            <textarea class="form-control" id="qa-new-capa" rows="2" placeholder="CAPA action (corrective/preventive plan)"></textarea>
+            <input type="date" class="form-control" id="qa-new-due" title="CAPA due date">
+            <div id="qa-new-error" style="font-size:.8rem;color:#b91c1c"></div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
+              <button class="btn" onclick="window._qaCloseModal()">Cancel</button>
+              <button class="btn btn-primary" id="qa-new-save" onclick="window._qaSubmitCreate()">Save finding</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  };
+
+  window._qaCloseModal = function() {
+    const slot = document.getElementById('qa-modal-slot');
+    if (slot) slot.innerHTML = '';
+  };
+
+  window._qaSubmitCreate = async function() {
+    const title = (document.getElementById('qa-new-title')?.value || '').trim();
+    if (!title) {
+      const err = document.getElementById('qa-new-error');
+      if (err) err.textContent = 'Title is required.';
       return;
     }
-    const caseId   = unsampled[Math.floor(Math.random()*unsampled.length)];
-    const reviewer = document.getElementById('qa-sample-reviewer')?.value || QA_REVIEWERS[0];
-    const today    = new Date().toISOString().slice(0,10);
-    const newId    = 'QA-' + String(reviews.length+1).padStart(3,'0');
-    const newReview = {
-      id: newId,
-      caseId,
-      patientName: 'New Patient',
-      clinician: QA_CLINICIANS[Math.floor(Math.random()*QA_CLINICIANS.length)],
-      reviewer,
-      sampledDate: today,
-      reviewDate: null,
-      criteria: _qaBlankCriteria(),
-      scores: _qaBlankScores(),
-      overallVerdict: 'pending',
-      reviewerNotes: '',
-      correctiveActionRequired: false,
-      correctiveActionId: null,
+    const body = {
+      title,
+      description: document.getElementById('qa-new-desc')?.value || '',
+      finding_type: document.getElementById('qa-new-type')?.value || 'non_conformance',
+      severity:    document.getElementById('qa-new-sev')?.value || 'minor',
+      owner_id:    (document.getElementById('qa-new-owner')?.value || '').trim() || null,
+      capa_text:   document.getElementById('qa-new-capa')?.value || null,
+      capa_due_date: document.getElementById('qa-new-due')?.value || null,
+      source_target_type: document.getElementById('qa-new-source-type')?.value || null,
+      source_target_id:   (document.getElementById('qa-new-source-id')?.value || '').trim() || null,
     };
-    saveQAReview(newReview);
-    if (msgEl) msgEl.textContent = `Sampled ${caseId} — assigned to ${reviewer}`;
-    setTimeout(() => {
-      _activeTab = 'reviews';
-      _filterStatus = 'pending';
-      render();
-    }, 800);
-  };
-
-  window._qaOpenReview = function(id) {
-    if (_activeTab !== 'reviews') { _activeTab = 'reviews'; render(); }
-    _openReviewId = _openReviewId === id ? null : id;
-    const formEl = document.getElementById(`qa-form-${id}`);
-    if (formEl) formEl.style.display = _openReviewId === id ? 'block' : 'none';
-  };
-
-  window._qaSetCriterion = function(id, criterion, value) {
-    const wip = _getWip(id); if (!wip) return;
-    wip.criteria[criterion] = value;
-    // Update button styles
-    const row = document.querySelector(`#qa-form-${id} [onclick*="_qaSetCriterion('${id}','${criterion}',true)"]`)?.closest('.qa-criteria-row');
-    if (row) {
-      row.querySelectorAll('.qa-verdict-btn').forEach(b => { b.classList.remove('pass','fail'); });
-      const btns = row.querySelectorAll('.qa-verdict-btn');
-      if (value === true && btns[0]) btns[0].classList.add('pass');
-      if (value === false && btns[1]) btns[1].classList.add('fail');
+    const btn = document.getElementById('qa-new-save');
+    if (btn) btn.disabled = true;
+    try {
+      const created = await api.createQualityFinding(body);
+      try { api.logQualityAssuranceAudit?.({ event: 'created', finding_id: created?.id, note: `severity=${body.severity}` }); } catch (_) {}
+      window._qaCloseModal();
+      await _qaReload();
+    } catch (e) {
+      const err = document.getElementById('qa-new-error');
+      if (err) err.textContent = (e && e.message) || 'Failed to create finding. The backend may be unreachable; demo mode does not persist creations.';
+      if (btn) btn.disabled = false;
     }
   };
 
-  window._qaSetScore = function(id, key, value) {
-    const wip = _getWip(id); if (!wip) return;
-    if (!wip.scores) wip.scores = _qaBlankScores();
-    wip.scores[key] = value;
-  };
-
-  window._qaSetVerdict = function(id, verdict) {
-    const wip = _getWip(id); if (!wip) return;
-    wip.overallVerdict = verdict;
-    const formEl = document.getElementById(`qa-form-${id}`);
-    if (formEl) {
-      formEl.querySelectorAll('.qa-verdict-btn[onclick*="_qaSetVerdict"]').forEach(b => {
-        b.classList.remove('pass','fail');
-        if (b.getAttribute('onclick').includes(`'${verdict}'`)) {
-          b.classList.add(verdict==='fail' ? 'fail' : 'pass');
-        }
-      });
+  window._qaOpenDetail = async function(id) {
+    const slot = document.getElementById('qa-modal-slot');
+    if (!slot) return;
+    slot.innerHTML = `<div class="qa-modal-bg" style="position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999" onclick="if(event.target===this)window._qaCloseModal()"><div class="card" style="padding:24px;max-width:520px;width:92%">${spinner()}</div></div>`;
+    let it = null;
+    try {
+      it = await api.getQualityFinding(id);
+    } catch (_) {
+      // fall back to any matching list item (covers demo mode)
+      it = (state.items || []).find(x => x.id === id) || null;
     }
-  };
-
-  window._qaToggleCorrective = function(id, checked) {
-    const wip = _getWip(id); if (!wip) return;
-    wip.correctiveActionRequired = checked;
-    const inlineEl = document.getElementById(`qa-ca-inline-${id}`);
-    if (inlineEl) inlineEl.style.display = checked ? 'block' : 'none';
-  };
-
-  window._qaSubmitReview = function(id) {
-    const wip = _getWip(id); if (!wip) return;
-    wip.reviewerNotes = document.getElementById(`qa-notes-${id}`)?.value || wip.reviewerNotes;
-    wip.reviewDate    = new Date().toISOString().slice(0,10);
-    if (!wip.overallVerdict || wip.overallVerdict === 'pending') wip.overallVerdict = 'pending';
-    saveQAReview(wip);
-    delete _wip[id];
-
-    // Handle corrective action creation
-    if (wip.correctiveActionRequired) {
-      const issue   = document.getElementById(`qa-ca-issue-${id}`)?.value || '';
-      const action  = document.getElementById(`qa-ca-action-${id}`)?.value || '';
-      const dueDate = document.getElementById(`qa-ca-due-${id}`)?.value || '';
-      if (issue || action) {
-        const actions = getCorrectiveActions();
-        const newCA = {
-          id: 'CA-' + String(actions.length+1).padStart(3,'0'),
-          reviewId: wip.id,
-          patientName: wip.patientName,
-          clinician: wip.clinician,
-          issue,
-          action,
-          dueDate,
-          status: 'open',
-          completedDate: null,
-        };
-        saveCorrectiveAction(newCA);
-        wip.correctiveActionId = newCA.id;
-        saveQAReview(wip);
-      }
+    try { api.logQualityAssuranceAudit?.({ event: 'finding_viewed', finding_id: id, note: '' }); } catch (_) {}
+    if (!it) {
+      slot.innerHTML = `<div class="qa-modal-bg" style="position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999" onclick="if(event.target===this)window._qaCloseModal()"><div class="card" style="padding:24px;max-width:480px;width:92%">
+        <div style="font-weight:700;margin-bottom:8px">Finding not found</div>
+        <div style="font-size:.85rem;color:var(--text-muted);margin-bottom:12px">It may have been deleted or is not visible at your role.</div>
+        <div style="text-align:right"><button class="btn" onclick="window._qaCloseModal()">Close</button></div>
+      </div></div>`;
+      return;
     }
-
-    _openReviewId = null;
-    render();
-  };
-
-  window._qaFilterStatus = function(s) {
-    _filterStatus = s;
-    if (_activeTab !== 'reviews') _activeTab = 'reviews';
-    render();
-  };
-
-  window._qaFilterClinician = function(name) {
-    _filterClinician = name;
-    if (_activeTab !== 'reviews') _activeTab = 'reviews';
-    render();
-  };
-
-  window._qaApplyDateFilter = function() {
-    _filterDateFrom = document.getElementById('qa-date-from')?.value || '';
-    _filterDateTo   = document.getElementById('qa-date-to')?.value   || '';
-    render();
-  };
-
-  window._qaCompleteAction = function(id) {
-    const actions = getCorrectiveActions();
-    const action  = actions.find(a=>a.id===id);
-    if (!action) return;
-    action.status        = 'completed';
-    action.completedDate = new Date().toISOString().slice(0,10);
-    saveCorrectiveAction(action);
-    render();
-  };
-
-  window._qaNewAction = function() {
-    const formEl = document.getElementById('qa-new-action-form');
-    if (!formEl) return;
-    formEl.style.display = formEl.style.display === 'none' ? 'block' : 'none';
-    formEl.innerHTML = `
-      <div class="card" style="padding:14px">
-        <div style="font-weight:600;font-size:.85rem;margin-bottom:10px">New Corrective Action</div>
-        <div style="display:grid;gap:8px">
-          <input class="form-control" id="qa-new-ca-caseid"  placeholder="Case ID (e.g. QA-001)">
-          <input class="form-control" id="qa-new-ca-patient" placeholder="Patient name">
-          <select class="form-control" id="qa-new-ca-clinician">
-            ${QA_CLINICIANS.map(c=>`<option value="${c}">${c}</option>`).join('')}
-          </select>
-          <input class="form-control" id="qa-new-ca-issue"   placeholder="Issue description">
-          <input class="form-control" id="qa-new-ca-action"  placeholder="Action required">
-          <input type="date" class="form-control" id="qa-new-ca-due">
-        </div>
-        <div style="margin-top:10px;display:flex;gap:8px">
-          <button class="btn btn-primary" onclick="window._qaSaveAction()">Save Action</button>
-          <button class="btn" onclick="window._qaNewAction()">Cancel</button>
+    state.selectedId = id;
+    const drillHref = _qaDrillOutHref(it.source_target_type, it.source_target_id);
+    const drillRow = drillHref
+      ? `<div style="margin-top:6px"><a class="btn btn-ghost btn-sm" href="${drillHref}" onclick="window._qaLogDrillOut('${_qaEsc(it.id)}','${_qaEsc(it.source_target_type)}','${_qaEsc(it.source_target_id)}')">Open source ${_qaEsc(it.source_target_type)}: ${_qaEsc(it.source_target_id)}</a></div>`
+      : '';
+    const isClosed = it.status === 'closed';
+    const isReopened = it.status === 'reopened';
+    const ownerVal = _qaEsc(it.owner_id || '');
+    const capaVal = _qaEsc(it.capa_text || '');
+    const dueVal = _qaEsc(it.capa_due_date || '');
+    slot.innerHTML = `
+      <div class="qa-modal-bg" style="position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999" onclick="if(event.target===this)window._qaCloseModal()">
+        <div class="card" style="max-width:680px;width:94%;padding:18px;max-height:92vh;overflow:auto">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+            <div>
+              <div style="font-weight:700;font-size:1rem">${_qaEsc(it.title)}</div>
+              <div style="font-size:.74rem;color:var(--text-muted);margin-top:2px">${_qaEsc(it.id)} · revision_count=${_qaEsc(it.revision_count||0)} · payload_hash=${_qaEsc(it.payload_hash||'-')}</div>
+            </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">${_qaSeverityBadge(it.severity)}${_qaFindingStatusBadge(it.status)}${it.is_demo?'<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:9999px;background:#fef3c7;color:#92400e">DEMO</span>':''}</div>
+          </div>
+          <div style="margin-top:10px;font-size:.85rem;white-space:pre-wrap">${_qaEsc(it.description||'(no description)')}</div>
+          ${drillRow}
+          <hr style="border:0;border-top:1px solid var(--border);margin:14px 0">
+          <div style="font-weight:600;font-size:.82rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px">Update fields</div>
+          <div style="display:grid;gap:8px">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <select class="form-control" id="qa-d-sev" ${isClosed?'disabled':''}>
+                ${_QA_SEVERITIES.map(([v,l])=>`<option value="${v}" ${it.severity===v?'selected':''}>${l}</option>`).join('')}
+              </select>
+              <select class="form-control" id="qa-d-status" ${isClosed?'disabled':''}>
+                ${_QA_STATUSES.filter(([v]) => v !== 'closed' && v !== 'reopened').map(([v,l])=>`<option value="${v}" ${it.status===v?'selected':''}>${l}</option>`).join('')}
+                ${isReopened?`<option value="reopened" selected>Reopened</option>`:''}
+              </select>
+            </div>
+            <input class="form-control" id="qa-d-owner" placeholder="CAPA owner user ID" value="${ownerVal}" ${isClosed?'disabled':''}>
+            <textarea class="form-control" id="qa-d-capa" rows="2" placeholder="CAPA action" ${isClosed?'disabled':''}>${capaVal}</textarea>
+            <input type="date" class="form-control" id="qa-d-due" value="${dueVal}" ${isClosed?'disabled':''}>
+            <div id="qa-d-error" style="font-size:.8rem;color:#b91c1c"></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+              ${isClosed
+                ? `<button class="btn btn-primary" onclick="window._qaShowReopen('${_qaEsc(it.id)}')">Reopen finding</button>`
+                : `<button class="btn btn-primary" onclick="window._qaSavePatch('${_qaEsc(it.id)}')">Save changes</button>
+                   <button class="btn" onclick="window._qaShowClose('${_qaEsc(it.id)}')">Sign-off &amp; close</button>`}
+              <button class="btn btn-ghost" onclick="window._qaCloseModal()">Close</button>
+            </div>
+            ${isClosed ? `<div style="margin-top:10px;padding:10px;background:rgba(5,150,105,.06);border-left:3px solid #059669;font-size:.8rem"><b>Closed</b> by <code>${_qaEsc(it.closed_by||'-')}</code> at <code>${_qaEsc(it.closed_at||'-')}</code><div style="margin-top:4px;color:var(--text-muted)">${_qaEsc(it.closure_note||'')}</div></div>` : ''}
+          </div>
         </div>
       </div>`;
   };
 
-  window._qaSaveAction = function() {
-    const actions = getCorrectiveActions();
-    const newCA = {
-      id:          'CA-' + String(actions.length+1).padStart(3,'0'),
-      reviewId:    document.getElementById('qa-new-ca-caseid')?.value  || '',
-      patientName: document.getElementById('qa-new-ca-patient')?.value || '',
-      clinician:   document.getElementById('qa-new-ca-clinician')?.value || '',
-      issue:       document.getElementById('qa-new-ca-issue')?.value   || '',
-      action:      document.getElementById('qa-new-ca-action')?.value  || '',
-      dueDate:     document.getElementById('qa-new-ca-due')?.value     || '',
-      status:      'open',
-      completedDate: null,
+  window._qaSavePatch = async function(id) {
+    const body = {
+      severity:    document.getElementById('qa-d-sev')?.value || null,
+      status:      document.getElementById('qa-d-status')?.value || null,
+      owner_id:    (document.getElementById('qa-d-owner')?.value || '').trim(),
+      capa_text:   document.getElementById('qa-d-capa')?.value || null,
+      capa_due_date: document.getElementById('qa-d-due')?.value || null,
     };
-    saveCorrectiveAction(newCA);
-    _activeTab = 'actions';
-    render();
+    try {
+      await api.patchQualityFinding(id, body);
+      try { api.logQualityAssuranceAudit?.({ event: 'updated', finding_id: id, note: 'severity='+body.severity+';status='+body.status }); } catch (_) {}
+      window._qaCloseModal();
+      await _qaReload();
+    } catch (e) {
+      const err = document.getElementById('qa-d-error');
+      if (err) err.textContent = (e && e.message) || 'Update failed.';
+    }
   };
 
-  window._qaFilterActions = function(status) {
-    _filterActions = status;
-    render();
+  window._qaShowClose = function(id) {
+    const slot = document.getElementById('qa-modal-slot');
+    if (!slot) return;
+    slot.innerHTML = `
+      <div class="qa-modal-bg" style="position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999" onclick="if(event.target===this)window._qaCloseModal()">
+        <div class="card" style="max-width:520px;width:92%;padding:18px">
+          <div style="font-weight:700;font-size:1rem;margin-bottom:6px">Sign-off &amp; close</div>
+          <div style="font-size:.82rem;color:var(--text-muted);margin-bottom:10px">Closure is immutable. Record what corrective action satisfied this finding — a regulator will review this note.</div>
+          <textarea class="form-control" id="qa-close-note" rows="4" placeholder="Closure note (required)"></textarea>
+          <input class="form-control" id="qa-close-sig" placeholder="Sign-off signature (optional, e.g. clinician initials)" style="margin-top:8px">
+          <div id="qa-close-error" style="font-size:.8rem;color:#b91c1c;margin-top:6px"></div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+            <button class="btn" onclick="window._qaOpenDetail('${_qaEsc(id)}')">Back</button>
+            <button class="btn btn-primary" onclick="window._qaConfirmClose('${_qaEsc(id)}')">Sign &amp; close</button>
+          </div>
+        </div>
+      </div>`;
   };
 
+  window._qaConfirmClose = async function(id) {
+    const note = (document.getElementById('qa-close-note')?.value || '').trim();
+    const sig  = (document.getElementById('qa-close-sig')?.value || '').trim();
+    if (!note) {
+      const err = document.getElementById('qa-close-error');
+      if (err) err.textContent = 'Closure note is required.';
+      return;
+    }
+    try {
+      await api.closeQualityFinding(id, { note, signature: sig || null });
+      try { api.logQualityAssuranceAudit?.({ event: 'closed', finding_id: id, note: '' }); } catch (_) {}
+      window._qaCloseModal();
+      await _qaReload();
+    } catch (e) {
+      const err = document.getElementById('qa-close-error');
+      if (err) err.textContent = (e && e.message) || 'Close failed.';
+    }
+  };
+
+  window._qaShowReopen = function(id) {
+    const slot = document.getElementById('qa-modal-slot');
+    if (!slot) return;
+    slot.innerHTML = `
+      <div class="qa-modal-bg" style="position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999" onclick="if(event.target===this)window._qaCloseModal()">
+        <div class="card" style="max-width:520px;width:92%;padding:18px">
+          <div style="font-weight:700;font-size:1rem;margin-bottom:6px">Reopen finding</div>
+          <div style="font-size:.82rem;color:var(--text-muted);margin-bottom:10px">Reopening creates a new immutable revision in the audit trail. The prior closure metadata is preserved in the revision history.</div>
+          <textarea class="form-control" id="qa-reopen-reason" rows="4" placeholder="Reason for reopening (required)"></textarea>
+          <div id="qa-reopen-error" style="font-size:.8rem;color:#b91c1c;margin-top:6px"></div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+            <button class="btn" onclick="window._qaOpenDetail('${_qaEsc(id)}')">Back</button>
+            <button class="btn btn-primary" onclick="window._qaConfirmReopen('${_qaEsc(id)}')">Reopen</button>
+          </div>
+        </div>
+      </div>`;
+  };
+
+  window._qaConfirmReopen = async function(id) {
+    const reason = (document.getElementById('qa-reopen-reason')?.value || '').trim();
+    if (!reason) {
+      const err = document.getElementById('qa-reopen-error');
+      if (err) err.textContent = 'Reason is required.';
+      return;
+    }
+    try {
+      await api.reopenQualityFinding(id, { reason });
+      try { api.logQualityAssuranceAudit?.({ event: 'reopened', finding_id: id, note: reason.slice(0,80) }); } catch (_) {}
+      window._qaCloseModal();
+      await _qaReload();
+    } catch (e) {
+      const err = document.getElementById('qa-reopen-error');
+      if (err) err.textContent = (e && e.message) || 'Reopen failed.';
+    }
+  };
+
+  // ── Exports ───────────────────────────────────────────────────────────────
+  window._qaExportCSV = async function() {
+    try { api.logQualityAssuranceAudit?.({ event: 'export_csv', note: JSON.stringify(state.filters).slice(0,200) }); } catch (_) {}
+    try {
+      const blob = await api.exportQualityFindingsCsv(state.filters);
+      downloadBlob(blob, 'quality_findings.csv');
+    } catch (e) {
+      alert('CSV export failed: ' + ((e && e.message) || 'unknown error'));
+    }
+  };
+
+  window._qaExportNDJSON = async function() {
+    try { api.logQualityAssuranceAudit?.({ event: 'export_ndjson', note: JSON.stringify(state.filters).slice(0,200) }); } catch (_) {}
+    try {
+      const blob = await api.exportQualityFindingsNdjson(state.filters);
+      downloadBlob(blob, 'quality_findings.ndjson');
+    } catch (e) {
+      alert('NDJSON export failed: ' + ((e && e.message) || 'unknown error'));
+    }
+  };
+
+  // ── Initial load ──────────────────────────────────────────────────────────
+  await _qaLoad();
   render();
+}
+
+// ── Honest demo seeds for offline / API-down preview ─────────────────────────
+function _qaDemoFindings() {
+  const today = new Date();
+  const iso = (n) => { const d = new Date(today); d.setDate(d.getDate()+n); return d.toISOString(); };
+  const day = (n) => iso(n).slice(0,10);
+  return [
+    {
+      id: 'demo-finding-1',
+      title: 'Documentation gap on consent re-attestation',
+      description: 'Consent attestation missing for protocol amendment v2 in 3 cases.',
+      finding_type: 'documentation_gap',
+      severity: 'major',
+      status: 'open',
+      owner_id: 'demo-owner-1',
+      owner_display_name: 'Dr. Demo Clinician',
+      capa_text: 'Re-attest consent; review staff training.',
+      capa_due_date: day(-2),
+      capa_overdue: true,
+      source_target_type: 'documents',
+      source_target_id: 'demo-doc-1',
+      evidence_links: [],
+      is_demo: true,
+      created_at: iso(-7),
+      updated_at: iso(-1),
+      reporter_id: 'demo-reporter',
+      revision_count: 1,
+      payload_hash: 'demo0001',
+    },
+    {
+      id: 'demo-finding-2',
+      title: 'SAE follow-up overdue (rTMS protocol B)',
+      description: 'Adverse event AE-demo-009 lacks 14-day follow-up note.',
+      finding_type: 'sae_followup',
+      severity: 'critical',
+      status: 'in_progress',
+      owner_id: 'demo-owner-2',
+      owner_display_name: 'NP. Demo Reviewer',
+      capa_text: 'Schedule follow-up; document outcome.',
+      capa_due_date: day(3),
+      capa_overdue: false,
+      source_target_type: 'adverse_events',
+      source_target_id: 'AE-demo-009',
+      evidence_links: [],
+      is_demo: true,
+      created_at: iso(-3),
+      updated_at: iso(0),
+      reporter_id: 'demo-reporter',
+      revision_count: 2,
+      payload_hash: 'demo0002',
+    },
+    {
+      id: 'demo-finding-3',
+      title: 'Closed: protocol fidelity in qEEG cleaning step',
+      description: 'Resolved — staff retrained on artifact rejection threshold.',
+      finding_type: 'protocol_deviation',
+      severity: 'minor',
+      status: 'closed',
+      owner_id: null,
+      owner_display_name: null,
+      capa_text: 'Training delivered 2026-04-20.',
+      capa_due_date: day(-10),
+      capa_overdue: false,
+      source_target_type: 'qeeg',
+      source_target_id: 'demo-qeeg-1',
+      evidence_links: [],
+      is_demo: true,
+      created_at: iso(-21),
+      updated_at: iso(-9),
+      closed_at: iso(-9),
+      closed_by: 'demo-admin',
+      closure_note: 'Training records on file.',
+      reporter_id: 'demo-reporter',
+      revision_count: 3,
+      payload_hash: 'demo0003',
+    },
+  ];
+}
+
+function _qaDemoSummary() {
+  return {
+    total: 3,
+    open: 1,
+    in_progress: 1,
+    closed: 1,
+    reopened: 0,
+    by_severity: { minor: 1, major: 1, critical: 1 },
+    by_finding_type: { documentation_gap: 1, sae_followup: 1, protocol_deviation: 1 },
+    sae_related: 1,
+    capa_overdue: 1,
+    demo_rows: 3,
+  };
 }
 
 // ── Device & Equipment Management ─────────────────────────────────────────────
@@ -4900,7 +5587,7 @@ export async function pgDeviceManagement(setTopbar) {
     if (msg) {
       msg.style.display = 'block';
       msg.style.color = '#10b981';
-      msg.textContent = '\u2713 ' + d.name + ' assigned to session ' + sessionId + ' \u2014 session count now ' + d.sessionCount + '.';
+      msg.textContent = '\u2713 ' + d.name + ' was linked to the local session log ' + sessionId + ' \u2014 session count now ' + d.sessionCount + '.';
     }
     var sessInput = document.getElementById('dm-assign-session');
     if (sessInput) sessInput.value = '';
@@ -5204,7 +5891,7 @@ function _trialWizardHtml() {
     + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
     + '<strong style="font-size:1rem">New Clinical Trial</strong>'
     + '<div style="display:flex;gap:6px">'
-    + '<span id="wiz-step-1" style="padding:3px 10px;border-radius:12px;font-size:.72rem;font-weight:700;background:var(--accent-teal);color:#000">1. Basic Info</span>'
+    + '<span id="wiz-step-1" style="padding:3px 10px;border-radius:12px;font-size:.72rem;font-weight:700;background:var(--teal);color:#000">1. Basic Info</span>'
     + '<span id="wiz-step-2" style="padding:3px 10px;border-radius:12px;font-size:.72rem;font-weight:700;background:var(--hover-bg);color:var(--text-muted)">2. Arms</span>'
     + '<span id="wiz-step-3" style="padding:3px 10px;border-radius:12px;font-size:.72rem;font-weight:700;background:var(--hover-bg);color:var(--text-muted)">3. Outcomes</span>'
     + '</div></div>'
@@ -5283,7 +5970,7 @@ export async function pgClinicalTrials(setTopbar) {
       + ['registry','participants','data'].map(function(t) {
           var labels = { registry: '🧪 Trial Registry', participants: '👥 Participants', data: '📊 Data Collection' };
           var active = _activeTab === t;
-          return '<button onclick="window._trialTabSwitch(\'' + t + '\')" style="padding:10px 20px;border:none;background:none;cursor:pointer;font-size:.88rem;font-weight:' + (active?'700':'400') + ';color:' + (active?'var(--accent-teal)':'var(--text-muted)') + ';border-bottom:' + (active?'2px solid var(--accent-teal)':'2px solid transparent') + ';margin-bottom:-2px;transition:all .15s">' + labels[t] + '</button>';
+          return '<button onclick="window._trialTabSwitch(\'' + t + '\')" style="padding:10px 20px;border:none;background:none;cursor:pointer;font-size:.88rem;font-weight:' + (active?'700':'400') + ';color:' + (active?'var(--teal)':'var(--text-muted)') + ';border-bottom:' + (active?'2px solid var(--teal)':'2px solid transparent') + ';margin-bottom:-2px;transition:all .15s">' + labels[t] + '</button>';
         }).join('')
       + '</div>';
     var body = '';
@@ -5308,7 +5995,7 @@ export async function pgClinicalTrials(setTopbar) {
       + [''].concat(statuses).map(function(s) {
           var label = s ? s.charAt(0).toUpperCase() + s.slice(1) : 'All';
           var active = _filterStatus === s;
-          return '<button onclick="window._trialFilterStatus(\'' + s + '\')" style="padding:3px 10px;border-radius:12px;border:1px solid var(--border);background:' + (active ? 'var(--accent-teal)' : 'var(--card-bg)') + ';color:' + (active ? '#000' : 'var(--text-secondary)') + ';font-size:.72rem;font-weight:600;cursor:pointer">' + label + '</button>';
+          return '<button onclick="window._trialFilterStatus(\'' + s + '\')" style="padding:3px 10px;border-radius:12px;border:1px solid var(--border);background:' + (active ? 'var(--teal)' : 'var(--card-bg)') + ';color:' + (active ? '#000' : 'var(--text-secondary)') + ';font-size:.72rem;font-weight:600;cursor:pointer">' + label + '</button>';
         }).join('')
       + '<select class="form-control" style="width:auto;font-size:.78rem;padding:3px 8px;height:28px" onchange="window._trialFilterPhase(this.value)">'
       + '<option value="">All Phases</option>'
@@ -5361,7 +6048,7 @@ export async function pgClinicalTrials(setTopbar) {
             + '<span>Coordinator: <strong style="color:var(--text-secondary)">' + (trial.coordinatorName || '—') + '</strong></span>'
             + '</div>'
             + '<div style="font-size:.78rem;color:var(--text-muted);margin-bottom:8px"><span>Arms: </span>' + armSummary + '</div>'
-            + '<div style="font-size:.78rem;color:var(--text-muted);margin-bottom:4px">Enrollment: <strong style="color:var(--text-primary)">' + stats.total + ' / ' + trial.targetEnrollment + '</strong><span style="color:var(--accent-teal);margin-left:4px">(' + stats.enrollmentPct + '%)</span></div>'
+            + '<div style="font-size:.78rem;color:var(--text-muted);margin-bottom:4px">Enrollment: <strong style="color:var(--text-primary)">' + stats.total + ' / ' + trial.targetEnrollment + '</strong><span style="color:var(--teal);margin-left:4px">(' + stats.enrollmentPct + '%)</span></div>'
             + '<div class="trial-enrollment-bar"><div class="trial-enrollment-fill" style="width:' + Math.min(stats.enrollmentPct, 100) + '%"></div></div>'
             + '<div style="font-size:.75rem;color:var(--text-muted)">' + (trial.startDate || '?') + ' \u2192 ' + (trial.endDate || '?') + '</div>'
             + '</div>'
@@ -5555,7 +6242,7 @@ export async function pgClinicalTrials(setTopbar) {
       document.getElementById('wiz-panel-3').style.display = 'none';
       ['wiz-step-1','wiz-step-2','wiz-step-3'].forEach(function(sid, i) {
         var el2 = document.getElementById(sid);
-        if (el2) { el2.style.background = i === 0 ? 'var(--accent-teal)' : 'var(--hover-bg)'; el2.style.color = i === 0 ? '#000' : 'var(--text-muted)'; }
+        if (el2) { el2.style.background = i === 0 ? 'var(--teal)' : 'var(--hover-bg)'; el2.style.color = i === 0 ? '#000' : 'var(--text-muted)'; }
       });
     };
 
@@ -5576,7 +6263,7 @@ export async function pgClinicalTrials(setTopbar) {
       document.getElementById('wiz-panel-' + next).style.display = '';
       ['wiz-step-1','wiz-step-2','wiz-step-3'].forEach(function(sid, i) {
         var el2 = document.getElementById(sid);
-        if (el2) { el2.style.background = i === next - 1 ? 'var(--accent-teal)' : 'var(--hover-bg)'; el2.style.color = i === next - 1 ? '#000' : 'var(--text-muted)'; }
+        if (el2) { el2.style.background = i === next - 1 ? 'var(--teal)' : 'var(--hover-bg)'; el2.style.color = i === next - 1 ? '#000' : 'var(--text-muted)'; }
       });
       if (next === 2) window._trialRenderArms();
     };
@@ -5587,7 +6274,7 @@ export async function pgClinicalTrials(setTopbar) {
       document.getElementById('wiz-panel-' + prev).style.display = '';
       ['wiz-step-1','wiz-step-2','wiz-step-3'].forEach(function(sid, i) {
         var el2 = document.getElementById(sid);
-        if (el2) { el2.style.background = i === prev - 1 ? 'var(--accent-teal)' : 'var(--hover-bg)'; el2.style.color = i === prev - 1 ? '#000' : 'var(--text-muted)'; }
+        if (el2) { el2.style.background = i === prev - 1 ? 'var(--teal)' : 'var(--hover-bg)'; el2.style.color = i === prev - 1 ? '#000' : 'var(--text-muted)'; }
       });
     };
 
@@ -5752,7 +6439,7 @@ export async function pgClinicalTrials(setTopbar) {
         notes: notes,
       };
       saveTrialDataPoint(point);
-      if (msg) { msg.style.display = 'block'; msg.style.color = '#10b981'; msg.textContent = '\u2713 Data point saved.'; }
+      if (msg) { msg.style.display = 'block'; msg.style.color = '#10b981'; msg.textContent = '\u2713 Data point saved in this browser view.'; }
       setTimeout(function() { render(); }, 600);
     };
 
@@ -6156,7 +6843,7 @@ export async function pgStaffScheduling(setTopbar) {
         var d = dates[i];
         var isToday = d === todayStr;
         return '<div style="padding:8px;text-align:center;font-size:.8rem;font-weight:600;border-right:1px solid var(--border);' +
-          (isToday ? 'color:var(--accent-teal,#00d4bc);' : 'color:var(--text-muted)') + '">' +
+          (isToday ? 'color:var(--teal,#00d4bc);' : 'color:var(--text-muted)') + '">' +
           day + '<br><span style="font-size:.75rem;opacity:.7">' + _fmtDate(d) + '</span></div>';
       }).join('');
 
@@ -6278,7 +6965,7 @@ export async function pgStaffScheduling(setTopbar) {
           '<button class="btn btn-sm btn-ghost" style="color:#ef4444;margin-left:4px" onclick="window._staffDenySwap(\'' + req.id + '\')">Deny</button>'
         : '';
       var notif = req.status === 'approved'
-        ? '<div style="font-size:.72rem;color:var(--text-muted);margin-top:6px">Cover clinician will be notified via Virtual Care</div>'
+        ? '<div style="font-size:.72rem;color:var(--text-muted);margin-top:6px">Cover clinician handoff should be coordinated in Virtual Care. This staffing page does not send the notification.</div>'
         : '';
       return '<div class="swap-card">' +
         '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px">' +
@@ -6807,11 +7494,11 @@ export async function pgClinicAnalytics(setTopbar) {
     const cancelVals = [14,13,12,11.2,9.5,8.3];
 
     const kpis = [
-      { label:'Total Revenue MTD',   value:`$${(thisMo/1000).toFixed(0)}k`, delta:`${revUp?'+':''}${revDelta}% vs last month`,    up:revUp,    spark:sparkline(revVals,'var(--accent-teal)',60,20) },
-      { label:'Sessions This Month', value:`${totalSessions}`,              delta:`+${sessDelta}% vs last month`,                  up:true,     spark:sparkline(sessVals,'var(--accent-blue)',60,20) },
-      { label:'New Patients',        value:`${newPat}`,                     delta:`+${patDelta}% vs last month`,                   up:true,     spark:sparkline(patVals,'var(--accent-violet)',60,20) },
-      { label:'Avg Session Rating',  value:`${avgRating}`,                  delta:`+${ratingDelta} vs last month`,                 up:true,     spark:sparkline(ratingVals,'var(--accent-amber)',60,20) },
-      { label:'Cancellation Rate',   value:`${cancelRate}%`,                delta:`${cancelDelta}% vs last month`,                 up:false,    spark:sparkline(cancelVals,'var(--accent-rose)',60,20) },
+      { label:'Total Revenue MTD',   value:`$${(thisMo/1000).toFixed(0)}k`, delta:`${revUp?'+':''}${revDelta}% vs last month`,    up:revUp,    spark:sparkline(revVals,'var(--teal)',60,20) },
+      { label:'Sessions This Month', value:`${totalSessions}`,              delta:`+${sessDelta}% vs last month`,                  up:true,     spark:sparkline(sessVals,'var(--blue)',60,20) },
+      { label:'New Patients',        value:`${newPat}`,                     delta:`+${patDelta}% vs last month`,                   up:true,     spark:sparkline(patVals,'var(--violet)',60,20) },
+      { label:'Avg Session Rating',  value:`${avgRating}`,                  delta:`+${ratingDelta} vs last month`,                 up:true,     spark:sparkline(ratingVals,'var(--amber)',60,20) },
+      { label:'Cancellation Rate',   value:`${cancelRate}%`,                delta:`${cancelDelta}% vs last month`,                 up:false,    spark:sparkline(cancelVals,'var(--rose)',60,20) },
     ];
 
     return `<div class="fff-kpi-row">${kpis.map(k => `
@@ -6858,7 +7545,7 @@ export async function pgClinicAnalytics(setTopbar) {
     const dots = vals.map((v, i) =>
       `<circle class="ca-rev-dot" data-idx="${i}" data-val="${v}" data-mo="${d.revenueData[i].month}"
         cx="${px(i).toFixed(1)}" cy="${py(v).toFixed(1)}" r="4"
-        fill="var(--accent-teal)" stroke="var(--bg)" stroke-width="2" opacity="0" style="cursor:pointer"
+        fill="var(--teal)" stroke="var(--bg)" stroke-width="2" opacity="0" style="cursor:pointer"
         onmouseenter="window._caRevHover(event,${i},${v},'${d.revenueData[i].month}')"
         onmouseleave="window._caRevLeave(event,${i})"/>`
     ).join('');
@@ -6866,13 +7553,13 @@ export async function pgClinicAnalytics(setTopbar) {
     return `<svg id="ca-rev-svg" width="100%" viewBox="0 0 ${W} ${H}" style="overflow:visible">
       <defs>
         <linearGradient id="rev-grad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="var(--accent-teal)" stop-opacity="0.35"/>
-          <stop offset="100%" stop-color="var(--accent-teal)" stop-opacity="0"/>
+          <stop offset="0%" stop-color="var(--teal)" stop-opacity="0.35"/>
+          <stop offset="100%" stop-color="var(--teal)" stop-opacity="0"/>
         </linearGradient>
       </defs>
       ${gridLines}
       <path d="${areaPath}" fill="url(#rev-grad)"/>
-      <polyline points="${linePts}" fill="none" stroke="var(--accent-teal)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+      <polyline points="${linePts}" fill="none" stroke="var(--teal)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
       ${labels}
       ${dots}
     </svg>`;
@@ -6887,7 +7574,7 @@ export async function pgClinicAnalytics(setTopbar) {
       { key:'active',    label:'Active Patients', count:d.funnelData.active },
       { key:'completed', label:'Completed',       count:d.funnelData.completed },
     ];
-    const colors = ['var(--accent-teal)','#4a9eff','var(--accent-violet)','var(--accent-amber)','var(--accent-rose)'];
+    const colors = ['var(--teal)','#4a9eff','var(--violet)','var(--amber)','var(--rose)'];
     const maxCount = stages[0].count;
 
     return stages.map((s, i) => {
@@ -7037,7 +7724,7 @@ export async function pgClinicAnalytics(setTopbar) {
   // ── Render page HTML ───────────────────────────────────────────────────────
   document.getElementById('app-content').innerHTML = `
     <div id="fff-root" style="padding:20px;max-width:1400px;margin:0 auto">
-      <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:12.5px;color:var(--accent-amber,#ffb547);display:flex;align-items:center;gap:10px">
+      <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:12.5px;color:var(--amber,#ffb547);display:flex;align-items:center;gap:10px">
         <span style="font-size:14px">&#9888;</span>
         <span><b>Preview data.</b> Revenue trend, acquisition funnel, clinician productivity, session heatmap, and churn segments on this page are seeded demo values. Wire-up to <code>/api/v1/finance/monthly</code>, <code>/api/v1/sessions</code>, and <code>/api/v1/leads</code> is tracked separately.</span>
       </div>
@@ -7101,7 +7788,7 @@ export async function pgClinicAnalytics(setTopbar) {
         </div>
       </div>
 
-      <div id="ca-toast" style="display:none;position:fixed;bottom:24px;right:24px;background:var(--accent-teal);color:#000;padding:10px 18px;border-radius:10px;font-size:.85rem;font-weight:700;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,.4)"></div>
+      <div id="ca-toast" style="display:none;position:fixed;bottom:24px;right:24px;background:var(--teal);color:#000;padding:10px 18px;border-radius:10px;font-size:.85rem;font-weight:700;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,.4)"></div>
     </div>
   `;
 
@@ -7142,7 +7829,7 @@ export async function pgClinicAnalytics(setTopbar) {
     panel.dataset.key = key;
     panel.style.display = 'block';
     panel.innerHTML = `<strong>${label}</strong> — ${count} patients
-      <span style="margin-left:10px;font-size:.78rem;color:var(--text-muted)">Conversion from previous stage: <strong style="color:var(--accent-teal)">${conv}%</strong></span>
+      <span style="margin-left:10px;font-size:.78rem;color:var(--text-muted)">Conversion from previous stage: <strong style="color:var(--teal)">${conv}%</strong></span>
       <div style="margin-top:6px;font-size:.78rem;color:var(--text-muted)">
         ${key==='leads'?'Referral sources: 42% physician, 31% self-referred, 27% online'
           :key==='consults'?'Consultation-to-intake gap avg: 6.2 days'
@@ -7185,7 +7872,7 @@ export async function pgClinicAnalytics(setTopbar) {
     panel.dataset.key = key;
     panel.style.display = 'block';
     const busyLabel = count >= 8 ? 'Peak' : count >= 4 ? 'Moderate' : count >= 1 ? 'Light' : 'Empty';
-    const busyColor = count >= 8 ? 'var(--accent-teal)' : count >= 4 ? '#4a9eff' : count >= 1 ? 'var(--accent-amber)' : 'var(--text-muted)';
+    const busyColor = count >= 8 ? 'var(--teal)' : count >= 4 ? '#4a9eff' : count >= 1 ? 'var(--amber)' : 'var(--text-muted)';
     panel.innerHTML = `<strong>${day} ${hour}</strong>
       <span style="margin-left:10px;background:${busyColor}22;color:${busyColor};padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:700">${busyLabel}</span>
       <div style="margin-top:5px;font-size:.78rem;color:var(--text-muted)">
@@ -7209,13 +7896,13 @@ export async function pgClinicAnalytics(setTopbar) {
       'Lost to Follow-up': 'Patients who did not respond to 3+ re-engagement attempts over 60 days.',
       'On Hold': 'Patients who paused treatment (insurance, personal, or medical hold).',
     };
-    panel.innerHTML = `<strong>${label}</strong> — <strong style="color:var(--accent-teal)">${count}</strong> patients (${pct}% of total)
+    panel.innerHTML = `<strong>${label}</strong> — <strong style="color:var(--teal)">${count}</strong> patients (${pct}% of total)
       <div style="margin-top:5px;font-size:.78rem;color:var(--text-muted)">${notes[label] || ''}</div>`;
   };
 
   // ── Re-engagement action ────────────────────────────────────────────────────
   window._caSendReEngage = function(name) {
-    window._caShowToast(`Re-engagement message queued for ${name}`);
+    window._caShowToast(`Re-engagement follow-up logged locally for ${name}. Message delivery is not wired from this page.`);
   };
 
   // ── Toast helper ──────────────────────────────────────────────────────────
@@ -7748,7 +8435,7 @@ export async function pgProtocolMarketplace(setTopbar) {
     const isImported = imports.some(i => i.id === p.id);
     const isFav      = favs.includes(p.id);
     const condBadges = (p.conditions || []).map(c =>
-      `<span class="kkk-tag" style="background:rgba(74,158,255,.07);border-color:rgba(74,158,255,.15);color:var(--accent-blue)">${c}</span>`
+      `<span class="kkk-tag" style="background:rgba(74,158,255,.07);border-color:rgba(74,158,255,.15);color:var(--blue)">${c}</span>`
     ).join('');
     const tagBadges = (p.tags || []).slice(0, 4).map(t => `<span class="kkk-tag">${t}</span>`).join('');
     return `
@@ -7818,11 +8505,12 @@ export async function pgProtocolMarketplace(setTopbar) {
     const rows = published.length ? published.map(p => {
       const statusClass = p.status === 'Published' ? 'kkk-status-published' : p.status === 'Draft' ? 'kkk-status-draft' : 'kkk-status-review';
       const ratingDisp  = p.rating > 0 ? `★ ${p.rating.toFixed(1)}` : 'No ratings yet';
+      const lifecycleLabel = p.status === 'Published' ? 'Published' : (p.status === 'Local Draft' ? 'Saved locally' : 'Submitted');
       return `
         <div class="kkk-published-row">
           <div class="kkk-published-info">
             <div class="kkk-published-name">${p.name}</div>
-            <div class="kkk-published-meta">${p.modality} · Published ${p.publishDate} · ${p.downloads} downloads · ${ratingDisp}</div>
+            <div class="kkk-published-meta">${p.modality} · ${lifecycleLabel} ${p.publishDate} · ${p.downloads} downloads · ${ratingDisp}</div>
           </div>
           <span class="kkk-status-badge ${statusClass}">${p.status}</span>
           <div style="display:flex;gap:6px;flex-shrink:0">
@@ -7856,8 +8544,8 @@ export async function pgProtocolMarketplace(setTopbar) {
         <button class="kkk-tab ${_activeTab==='publish'?'active':''}" onclick="window._mpTab('publish')">Publish Protocol</button>
       </div>
       <div style="max-width:640px">
-        <h3 style="font-size:1rem;font-weight:700;margin-bottom:4px;color:var(--text)">Share a Protocol with the Community</h3>
-        <p style="font-size:.84rem;color:var(--text-muted);margin-bottom:20px">Published protocols are reviewed by our clinical team before appearing in the marketplace. Submissions are typically reviewed within 5 business days.</p>
+        <h3 style="font-size:1rem;font-weight:700;margin-bottom:4px;color:var(--text)">Prepare a Protocol for Marketplace Sharing</h3>
+        <p style="font-size:.84rem;color:var(--text-muted);margin-bottom:20px">This page stores marketplace publish drafts locally. Registry-backed submission and review routing are not wired from this view yet.</p>
         <div class="kkk-form-row">
           <label>Select Protocol from Your Library</label>
           <select id="pub-select">${opts}</select>
@@ -7892,7 +8580,7 @@ export async function pgProtocolMarketplace(setTopbar) {
           <textarea id="pub-refs" rows="3" placeholder="Author et al. (Year). Title. Journal vol:pages."></textarea>
         </div>
         <div style="display:flex;gap:10px;margin-top:20px">
-          <button class="btn-primary" style="padding:9px 22px" onclick="window._mpSubmitPublish()">Submit for Review</button>
+          <button class="btn-primary" style="padding:9px 22px" onclick="window._mpSubmitPublish()">Save Publish Draft</button>
           <button class="btn-secondary" style="padding:9px 16px" onclick="window._mpPreviewPublish()">Preview Submission</button>
         </div>
       </div>`;
@@ -7971,7 +8659,7 @@ export async function pgProtocolMarketplace(setTopbar) {
             <span class="kkk-evidence-badge ${evidenceClass(p.evidence)}">${evidenceShort(p.evidence)}</span>
           </div>
           <div class="kkk-preview-title">${p.name}</div>
-          <div class="kkk-preview-sub">${p.author} · ${p.institution} · Published ${p.publishDate || 'N/A'}</div>
+          <div class="kkk-preview-sub">${p.author} · ${p.institution} · ${(p.status === 'Published' ? 'Published' : (p.status === 'Local Draft' ? 'Saved locally' : 'Submitted'))} ${p.publishDate || 'N/A'}</div>
 
           <div class="kkk-star-display" style="margin-bottom:20px">
             <span class="stars">${starsHtml(p.rating)}</span>
@@ -8069,7 +8757,7 @@ export async function pgProtocolMarketplace(setTopbar) {
       const bh=((v/mx)*(H-16));
       return `<rect x="${(x-6).toFixed(1)}" y="${(H-bh-2).toFixed(1)}" width="12" height="${bh.toFixed(1)}" rx="2" fill="rgba(0,212,188,.35)"/>`;
     }).join('');
-    const trend = `<svg width="${W}" height="${H}" style="overflow:visible">${bars}<polyline points="${pts}" fill="none" stroke="var(--accent-teal)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+    const trend = `<svg width="${W}" height="${H}" style="overflow:visible">${bars}<polyline points="${pts}" fill="none" stroke="var(--teal)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
 
     const cities = [
       {city:'New York', pct:28}, {city:'Los Angeles',pct:21}, {city:'Toronto',pct:17}, {city:'London',pct:14},
@@ -8086,7 +8774,7 @@ export async function pgProtocolMarketplace(setTopbar) {
           <p style="font-size:.8rem;color:var(--text-muted);margin-bottom:20px">${pub.status} · ${pub.downloads} total downloads · ${pub.rating > 0 ? `★ ${pub.rating.toFixed(1)}` : 'No ratings yet'}</p>
 
           <div style="margin-bottom:20px">
-            <div class="kkk-preview-section-title" style="font-size:.7rem;color:var(--accent-teal);font-weight:700;letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px;border-bottom:1px solid var(--border);padding-bottom:6px">Download Trend (Last 12 Weeks)</div>
+            <div class="kkk-preview-section-title" style="font-size:.7rem;color:var(--teal);font-weight:700;letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px;border-bottom:1px solid var(--border);padding-bottom:6px">Download Trend (Last 12 Weeks)</div>
             <div style="overflow-x:auto">${trend}</div>
             <div style="display:flex;justify-content:space-between;font-size:.68rem;color:var(--text-muted);margin-top:4px;padding:0 10px">
               <span>12w ago</span><span>Now</span>
@@ -8095,23 +8783,23 @@ export async function pgProtocolMarketplace(setTopbar) {
 
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
             <div>
-              <div class="kkk-preview-section-title" style="font-size:.7rem;color:var(--accent-teal);font-weight:700;letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px;border-bottom:1px solid var(--border);padding-bottom:6px">Usage by Condition</div>
+              <div class="kkk-preview-section-title" style="font-size:.7rem;color:var(--teal);font-weight:700;letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px;border-bottom:1px solid var(--border);padding-bottom:6px">Usage by Condition</div>
               ${condUsage.map(c=>`
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;font-size:.8rem">
                   <span style="flex:1;color:var(--text-muted)">${c.label}</span>
                   <div style="width:80px;height:5px;background:var(--bg-secondary);border-radius:3px;overflow:hidden">
-                    <div style="width:${c.pct}%;height:100%;background:var(--accent-blue);border-radius:3px"></div>
+                    <div style="width:${c.pct}%;height:100%;background:var(--blue);border-radius:3px"></div>
                   </div>
                   <span style="color:var(--text);font-weight:600;min-width:30px">${c.pct}%</span>
                 </div>`).join('')}
             </div>
             <div>
-              <div class="kkk-preview-section-title" style="font-size:.7rem;color:var(--accent-teal);font-weight:700;letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px;border-bottom:1px solid var(--border);padding-bottom:6px">Top Locations</div>
+              <div class="kkk-preview-section-title" style="font-size:.7rem;color:var(--teal);font-weight:700;letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px;border-bottom:1px solid var(--border);padding-bottom:6px">Top Locations</div>
               ${cities.map(c=>`
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;font-size:.8rem">
                   <span style="flex:1;color:var(--text-muted)">${c.city}</span>
                   <div style="width:80px;height:5px;background:var(--bg-secondary);border-radius:3px;overflow:hidden">
-                    <div style="width:${c.pct}%;height:100%;background:var(--accent-violet);border-radius:3px"></div>
+                    <div style="width:${c.pct}%;height:100%;background:var(--violet);border-radius:3px"></div>
                   </div>
                   <span style="color:var(--text);font-weight:600;min-width:30px">${c.pct}%</span>
                 </div>`).join('')}
@@ -8170,7 +8858,7 @@ export async function pgProtocolMarketplace(setTopbar) {
           return `
             <div style="display:flex;flex-direction:column;gap:6px">
               <div style="font-size:.8rem;color:var(--text-muted);display:flex;justify-content:space-between"><span>Total Protocols</span><strong style="color:var(--text)">${all.length}</strong></div>
-              <div style="font-size:.8rem;color:var(--text-muted);display:flex;justify-content:space-between"><span>Imported</span><strong style="color:var(--accent-teal)">${imps.length}</strong></div>
+              <div style="font-size:.8rem;color:var(--text-muted);display:flex;justify-content:space-between"><span>Imported</span><strong style="color:var(--teal)">${imps.length}</strong></div>
               <div style="font-size:.8rem;color:var(--text-muted);display:flex;justify-content:space-between"><span>Favorites</span><strong style="color:#f59e0b">${favs.length}</strong></div>
             </div>`;
         })()}
@@ -8363,7 +9051,7 @@ export async function pgProtocolMarketplace(setTopbar) {
   };
 
   window._mpEditPublished = function(id) {
-    showToast('Opening editor for published protocol…', true);
+    showToast('Opening local share metadata editor…', true);
   };
 
   window._mpUnpublish = function(id) {
@@ -8411,12 +9099,12 @@ export async function pgProtocolMarketplace(setTopbar) {
       publishDate: new Date().toISOString().slice(0,10),
       downloads: 0,
       rating: 0,
-      status: 'Under Review',
+      status: 'Local Draft',
       modality: 'Custom',
       desc, tags, conditions: conds, contraindications: contra, evidence, refs,
     });
     lsSet('ds_published_protocols', pubs);
-    showToast('Protocol submitted for review');
+    showToast('Publish draft saved locally');
     _activeTab = 'published';
     renderMain();
     const sb = document.getElementById('kkk-sidebar');
@@ -8709,7 +9397,7 @@ export async function pgDataExport(setTopbar) {
       <thead><tr>${headers}</tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
-    <div style="margin-top:8px;font-size:11px;color:var(--accent-teal,#00d4bc)">
+    <div style="margin-top:8px;font-size:11px;color:var(--teal,#00d4bc)">
       <span style="background:rgba(0,212,188,0.08);padding:2px 8px;border-radius:4px;font-style:italic;font-family:var(--font-mono,monospace)">teal cells</span>
       = de-identified / transformed values &nbsp;|&nbsp; Patient Name → SUBJ_XXX &nbsp;|&nbsp; DOB → [Age bracket] &nbsp;|&nbsp; Exact dates → [Week offset] &nbsp;|&nbsp; Clinician → CLINICIAN_A
     </div>`;
@@ -8902,9 +9590,9 @@ export async function pgDataExport(setTopbar) {
           ${DOMAINS.map(d => {
             const active = _sel.domains.includes(d);
             return `<label style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-radius:8px;
-              border:1px solid ${active ? 'var(--accent-teal,#00d4bc)' : 'var(--border)'};
+              border:1px solid ${active ? 'var(--teal,#00d4bc)' : 'var(--border)'};
               background:${active ? 'rgba(0,212,188,0.06)' : 'rgba(255,255,255,0.02)'};cursor:pointer;transition:all 0.15s">
-              <input type="checkbox" style="margin-top:2px;accent-color:var(--accent-teal,#00d4bc)"
+              <input type="checkbox" style="margin-top:2px;accent-color:var(--teal,#00d4bc)"
                 ${active ? 'checked' : ''} onchange="window._nnnbToggleDomain('${d}')">
               <div>
                 <div style="font-size:12.5px;font-weight:600;color:var(--text,var(--text-primary));margin-bottom:2px">${d}</div>
@@ -8953,9 +9641,9 @@ export async function pgDataExport(setTopbar) {
           ${methods.map(m => {
             const active = _sel.deidMethod === m.val;
             return `<label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;
-              border:1px solid ${active ? 'var(--accent-blue,#4a9eff)' : 'var(--border)'};
+              border:1px solid ${active ? 'var(--blue,#4a9eff)' : 'var(--border)'};
               background:${active ? 'rgba(74,158,255,0.06)' : 'rgba(255,255,255,0.02)'};cursor:pointer;transition:all 0.15s">
-              <input type="radio" name="nnnb-deid-method" value="${m.val}" ${active?'checked':''} onchange="window._nnnbSetMethod('${m.val}')" style="accent-color:var(--accent-blue,#4a9eff)">
+              <input type="radio" name="nnnb-deid-method" value="${m.val}" ${active?'checked':''} onchange="window._nnnbSetMethod('${m.val}')" style="accent-color:var(--blue,#4a9eff)">
               <div>
                 <div style="font-size:12.5px;font-weight:600;color:var(--text,var(--text-primary))">${m.label}</div>
                 <div style="font-size:11px;color:var(--text-muted,var(--text-secondary))">${m.desc}</div>
@@ -8997,10 +9685,10 @@ export async function pgDataExport(setTopbar) {
           ${formats.map(f => {
             const active = _sel.format === f.val;
             return `<label style="display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-radius:8px;
-              border:1px solid ${active ? 'var(--accent-violet,#9b7fff)' : 'var(--border)'};
+              border:1px solid ${active ? 'var(--violet,#9b7fff)' : 'var(--border)'};
               background:${active ? 'rgba(155,127,255,0.07)' : 'rgba(255,255,255,0.02)'};cursor:pointer;transition:all 0.15s">
               <div style="display:flex;align-items:center;gap:8px">
-                <input type="radio" name="nnnb-format" value="${f.val}" ${active?'checked':''} onchange="window._nnnbSetFormat('${f.val}')" style="accent-color:var(--accent-violet,#9b7fff)">
+                <input type="radio" name="nnnb-format" value="${f.val}" ${active?'checked':''} onchange="window._nnnbSetFormat('${f.val}')" style="accent-color:var(--violet,#9b7fff)">
                 <span style="font-size:13px;font-weight:700;color:var(--text,var(--text-primary))">${f.label}</span>
               </div>
               <span style="font-size:10.5px;color:var(--text-muted,var(--text-secondary));padding-left:20px">${f.desc}</span>
@@ -9012,7 +9700,7 @@ export async function pgDataExport(setTopbar) {
           <div style="display:flex;gap:14px;margin-top:4px">
             ${[['none','None'],['zip','ZIP (simulated)']].map(([val,label]) => `
               <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;cursor:pointer">
-                <input type="radio" name="nnnb-compress" value="${val}" ${_sel.compress===val?'checked':''} onchange="window._nnnbSetCompress('${val}')" style="accent-color:var(--accent-teal,#00d4bc)">
+                <input type="radio" name="nnnb-compress" value="${val}" ${_sel.compress===val?'checked':''} onchange="window._nnnbSetCompress('${val}')" style="accent-color:var(--teal,#00d4bc)">
                 ${label}
               </label>`).join('')}
           </div>
@@ -9022,12 +9710,12 @@ export async function pgDataExport(setTopbar) {
           <input type="text" class="form-control" id="nnnb-export-purpose" placeholder="e.g. IRB-2024-011 interim analysis" style="max-width:500px">
         </div>
       </div>
-      <div style="padding:12px 16px;border-radius:9px;background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.25);margin-bottom:16px;font-size:12px;color:var(--accent-amber,#f59e0b)">
+      <div style="padding:12px 16px;border-radius:9px;background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.25);margin-bottom:16px;font-size:12px;color:var(--amber,#ffb547)">
         ⚠ Exports to external parties require a valid active Data Sharing Agreement covering the exported domains. Check Section 4 below before sharing.
       </div>
       <div style="display:flex;gap:10px;justify-content:flex-end">
         <button class="btn btn-secondary" onclick="window._nnnbGoStep(2)">← Back</button>
-        <button class="btn btn-primary" style="background:var(--accent-teal,#00d4bc);color:#000;font-weight:700;padding:10px 22px" onclick="window._nnnbGenerateExport()">
+        <button class="btn btn-primary" style="background:var(--teal,#00d4bc);color:#000;font-weight:700;padding:10px 22px" onclick="window._nnnbGenerateExport()">
           📤 Generate Export
         </button>
       </div>`;
@@ -9054,11 +9742,11 @@ export async function pgDataExport(setTopbar) {
           <td style="font-size:12px">${r.user}</td>
           <td style="max-width:200px">
             <div style="display:flex;flex-wrap:wrap;gap:3px">
-              ${(r.domains||[]).map(d => `<span style="font-size:9.5px;padding:1px 6px;border-radius:3px;background:rgba(74,158,255,0.1);color:var(--accent-blue,#4a9eff)">${d}</span>`).join('')}
+              ${(r.domains||[]).map(d => `<span style="font-size:9.5px;padding:1px 6px;border-radius:3px;background:rgba(74,158,255,0.1);color:var(--blue,#4a9eff)">${d}</span>`).join('')}
             </div>
           </td>
           <td style="font-family:var(--font-mono,monospace);font-size:12px">${(r.recordCount||0).toLocaleString()}</td>
-          <td><span style="font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:4px;background:rgba(155,127,255,0.1);color:var(--accent-violet,#9b7fff)">${r.format}</span></td>
+          <td><span style="font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:4px;background:rgba(155,127,255,0.1);color:var(--violet,#9b7fff)">${r.format}</span></td>
           <td style="font-size:11.5px;color:var(--text-muted,var(--text-secondary))">${r.deidMethod}</td>
           <td style="font-size:11.5px;color:var(--text-muted,var(--text-secondary));max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.purpose||'—'}</td>
           <td><button class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="window._nnnbReExport('${r.id}')">Re-export</button></td>
@@ -9112,7 +9800,7 @@ export async function pgDataExport(setTopbar) {
         <label class="form-label" style="font-size:11.5px;font-weight:600;display:block;margin-bottom:6px">Data Domains Covered</label>
         <div style="display:flex;flex-wrap:wrap;gap:10px">
           ${domOpts.map(d => `<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer">
-            <input type="checkbox" class="nnnb-dsa-domain-cb" value="${d}" style="accent-color:var(--accent-blue,#4a9eff)"> ${d}
+            <input type="checkbox" class="nnnb-dsa-domain-cb" value="${d}" style="accent-color:var(--blue,#4a9eff)"> ${d}
           </label>`).join('')}
         </div>
       </div>
@@ -9167,7 +9855,7 @@ export async function pgDataExport(setTopbar) {
       <div class="nnnb-section">
         <div class="nnnb-section-title" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
           <span>📜 Export History</span>
-          <span style="font-size:10.5px;font-weight:500;color:var(--accent-amber,#f59e0b);background:rgba(245,158,11,0.1);padding:3px 10px;border-radius:5px">
+          <span style="font-size:10.5px;font-weight:500;color:var(--amber,#ffb547);background:rgba(245,158,11,0.1);padding:3px 10px;border-radius:5px">
             Export logs retained for 6 years per HIPAA requirements
           </span>
         </div>
@@ -9196,7 +9884,7 @@ export async function pgDataExport(setTopbar) {
           <span>🤝 Data Sharing Agreements</span>
           <button class="btn btn-secondary" style="font-size:12px" onclick="window._nnnbShowDSAForm()">+ Add New DSA</button>
         </div>
-        <div style="padding:10px 14px;border-radius:8px;background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.25);font-size:12px;color:var(--accent-amber,#f59e0b);margin-bottom:14px">
+        <div style="padding:10px 14px;border-radius:8px;background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.25);font-size:12px;color:var(--amber,#ffb547);margin-bottom:14px">
           ⚠ Exports to external parties require a valid <strong>Active</strong> Data Sharing Agreement covering the exported data domains.
         </div>
         <div id="nnnb-dsa-list">${renderDSACards()}</div>
@@ -9286,7 +9974,7 @@ export async function pgDataExport(setTopbar) {
         </label>
         <div style="display:flex;gap:8px;justify-content:flex-end">
           <button style="padding:7px 16px;font-size:12.5px;border-radius:6px;background:transparent;border:1px solid var(--border,#1f2e4a);color:var(--text-secondary,#b7c4d9);cursor:pointer" onclick="this.closest('[style*=inset]').remove()">Cancel</button>
-          <button id="_nnnb-export-confirm-btn" disabled style="padding:7px 16px;font-size:12.5px;border-radius:6px;background:var(--accent-teal,#00d4bc);color:#000;font-weight:700;cursor:pointer;opacity:0.45" onclick="window._nnnbDoExport(this)">Confirm &amp; Download</button>
+          <button id="_nnnb-export-confirm-btn" disabled style="padding:7px 16px;font-size:12.5px;border-radius:6px;background:var(--teal,#00d4bc);color:#000;font-weight:700;cursor:pointer;opacity:0.45" onclick="window._nnnbDoExport(this)">Confirm &amp; Download</button>
         </div>
       </div>`;
     document.body.appendChild(overlay);
@@ -9324,7 +10012,7 @@ export async function pgDataExport(setTopbar) {
       const hb = document.getElementById('nnnb-history-body');
       if (hb) hb.innerHTML = renderHistoryTable();
       const toast = document.createElement('div');
-      toast.style.cssText = 'position:fixed;bottom:24px;right:24px;max-width:340px;padding:14px 18px;border-radius:10px;background:var(--navy-800,#0f172a);border:1px solid var(--accent-teal,#00d4bc);z-index:9999;box-shadow:0 4px 24px rgba(0,0,0,0.5)';
+      toast.style.cssText = 'position:fixed;bottom:24px;right:24px;max-width:340px;padding:14px 18px;border-radius:10px;background:var(--navy-800,#0f172a);border:1px solid var(--teal,#00d4bc);z-index:9999;box-shadow:0 4px 24px rgba(0,0,0,0.5)';
       toast.innerHTML = `<div style="font-size:13px;font-weight:600;color:var(--text,var(--text-primary));margin-bottom:3px">&#x2713; Export generated</div><div style="font-size:12px;color:var(--text-muted,var(--text-secondary))">${filename} — audit entry recorded</div>`;
       document.body.appendChild(toast);
       setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.3s'; setTimeout(() => toast.remove(), 300); }, 3500);
@@ -9346,7 +10034,7 @@ export async function pgDataExport(setTopbar) {
     _step = 3;
     renderPage();
     const toast = document.createElement('div');
-    toast.style.cssText = 'position:fixed;bottom:24px;right:24px;max-width:340px;padding:12px 16px;border-radius:10px;background:var(--navy-800,#0f172a);border:1px solid var(--accent-blue,#4a9eff);z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.5)';
+    toast.style.cssText = 'position:fixed;bottom:24px;right:24px;max-width:340px;padding:12px 16px;border-radius:10px;background:var(--navy-800,#0f172a);border:1px solid var(--blue,#4a9eff);z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.5)';
     toast.innerHTML = `<div style="font-size:12.5px;font-weight:600;color:var(--text,var(--text-primary))">Config loaded from history — review and click Generate Export</div>`;
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 3000);
@@ -9381,7 +10069,7 @@ export async function pgDataExport(setTopbar) {
     const c = document.getElementById('nnnb-dsa-form-container');
     if (c) c.innerHTML = '';
     const toast = document.createElement('div');
-    toast.style.cssText = 'position:fixed;bottom:24px;right:24px;max-width:320px;padding:12px 16px;border-radius:10px;background:var(--navy-800,#0f172a);border:1px solid var(--accent-teal,#00d4bc);z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.5)';
+    toast.style.cssText = 'position:fixed;bottom:24px;right:24px;max-width:320px;padding:12px 16px;border-radius:10px;background:var(--navy-800,#0f172a);border:1px solid var(--teal,#00d4bc);z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.5)';
     toast.innerHTML = `<div style="font-size:12.5px;font-weight:600;color:var(--text,var(--text-primary))">DSA saved — status: Pending Signature</div>`;
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 2500);
@@ -9814,13 +10502,13 @@ export async function pgTrialEnrollment(setTopbar) {
     if (crit.inclusion || crit.exclusion) {
       html += `<div style="display:flex;gap:14px;margin-bottom:16px;flex-wrap:wrap">
         <div style="flex:1;min-width:190px;background:rgba(0,212,188,.07);border:1px solid rgba(0,212,188,.2);border-radius:8px;padding:12px">
-          <div style="font-size:.79rem;font-weight:700;color:var(--accent-teal);margin-bottom:6px">Inclusion Criteria</div>
+          <div style="font-size:.79rem;font-weight:700;color:var(--teal);margin-bottom:6px">Inclusion Criteria</div>
           <ul style="margin:0;padding-left:15px;font-size:.79rem;color:var(--text-muted);line-height:1.75">
             ${(crit.inclusion||[]).map(c=>`<li>${c}</li>`).join('')}
           </ul>
         </div>
         <div style="flex:1;min-width:190px;background:rgba(244,63,94,.07);border:1px solid rgba(244,63,94,.2);border-radius:8px;padding:12px">
-          <div style="font-size:.79rem;font-weight:700;color:var(--accent-rose);margin-bottom:6px">Exclusion Criteria</div>
+          <div style="font-size:.79rem;font-weight:700;color:var(--rose);margin-bottom:6px">Exclusion Criteria</div>
           <ul style="margin:0;padding-left:15px;font-size:.79rem;color:var(--text-muted);line-height:1.75">
             ${(crit.exclusion||[]).map(c=>`<li>${c}</li>`).join('')}
           </ul>
@@ -9857,7 +10545,7 @@ export async function pgTrialEnrollment(setTopbar) {
           </span>
           <span>
             ${alreadyInvited
-              ? `<span style="font-size:.77rem;color:var(--accent-teal);font-weight:600">Invited ✓</span>`
+              ? `<span style="font-size:.77rem;color:var(--teal);font-weight:600">Invited ✓</span>`
               : r.status!=='ineligible'
                 ? `<button class="nnne-btn primary small" onclick="window._nnnEInvite('${r.id}','${(r.name||'').replace(/'/g,'&#x27;')}')">Invite</button>`
                 : `<span style="font-size:.74rem;color:var(--text-muted)">—</span>`}
@@ -10030,9 +10718,9 @@ export async function pgTrialEnrollment(setTopbar) {
         ${buildDeviationBarSVG()}
         <div style="font-size:.78rem;color:var(--text-muted);line-height:1.8">
           <div>Total: <strong style="color:var(--text)">${devs.length}</strong></div>
-          <div>Critical: <strong style="color:var(--accent-rose)">${devs.filter(d=>d.severity==='critical').length}</strong></div>
-          <div>Open: <strong style="color:var(--accent-amber)">${devs.filter(d=>d.status==='open').length}</strong></div>
-          <div>Resolved: <strong style="color:var(--accent-teal)">${devs.filter(d=>d.status==='resolved').length}</strong></div>
+          <div>Critical: <strong style="color:var(--rose)">${devs.filter(d=>d.severity==='critical').length}</strong></div>
+          <div>Open: <strong style="color:var(--amber)">${devs.filter(d=>d.status==='open').length}</strong></div>
+          <div>Resolved: <strong style="color:var(--teal)">${devs.filter(d=>d.status==='resolved').length}</strong></div>
         </div>
       </div>
 
@@ -10072,7 +10760,7 @@ export async function pgTrialEnrollment(setTopbar) {
     ];
 
     const tabs = `<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px;overflow-x:auto">
-      ${SECTIONS.map(sec=>`<button onclick="window._nnnESection('${sec.id}')" style="padding:10px 18px;border:none;background:none;cursor:pointer;font-size:.83rem;font-weight:${_activeSection===sec.id?'700':'400'};color:${_activeSection===sec.id?'var(--accent-teal)':'var(--text-muted)'};border-bottom:${_activeSection===sec.id?'2px solid var(--accent-teal)':'2px solid transparent'};margin-bottom:-2px;white-space:nowrap;transition:all .15s">${sec.icon} ${sec.label}</button>`).join('')}
+      ${SECTIONS.map(sec=>`<button onclick="window._nnnESection('${sec.id}')" style="padding:10px 18px;border:none;background:none;cursor:pointer;font-size:.83rem;font-weight:${_activeSection===sec.id?'700':'400'};color:${_activeSection===sec.id?'var(--teal)':'var(--text-muted)'};border-bottom:${_activeSection===sec.id?'2px solid var(--teal)':'2px solid transparent'};margin-bottom:-2px;white-space:nowrap;transition:all .15s">${sec.icon} ${sec.label}</button>`).join('')}
     </div>`;
 
     let body = '';
@@ -10129,7 +10817,7 @@ export async function pgTrialEnrollment(setTopbar) {
     }
     invites.push({ id:'inv_'+Date.now(), studyId:_selectedStudyId, patientId, patientName, date:new Date().toISOString().slice(0,10), status:'invited' });
     lsSet('ds_trial_invitations', invites);
-    showToast(`Invitation sent to ${patientName}`);
+    showToast(`Invitation logged locally for ${patientName}. Study outreach is not sent from this page.`);
     render();
   };
 
@@ -10145,7 +10833,7 @@ export async function pgTrialEnrollment(setTopbar) {
       }
     });
     lsSet('ds_trial_invitations', invites);
-    showToast(`${added} invitation${added!==1?'s':''} sent`);
+    showToast(`${added} invitation${added!==1?'s':''} logged locally. Study outreach is not sent from this page.`);
     render();
   };
 
@@ -10281,7 +10969,7 @@ export async function pgIRBManager(setTopbar) {
   function toast(msg, ok) {
     if (ok === undefined) ok = true;
     const d = document.createElement('div');
-    d.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999;background:' + (ok ? 'var(--accent-teal)' : 'var(--accent-rose)') + ';color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.35);pointer-events:none;opacity:0;transition:opacity .2s';
+    d.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999;background:' + (ok ? 'var(--teal)' : 'var(--rose)') + ';color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.35);pointer-events:none;opacity:0;transition:opacity .2s';
     d.textContent = msg;
     document.body.appendChild(d);
     requestAnimationFrame(function() { d.style.opacity = '1'; });
@@ -10289,7 +10977,7 @@ export async function pgIRBManager(setTopbar) {
   }
 
   function statusBadge(status) {
-    var map = { active:{label:'Active',color:'var(--accent-teal)'}, pending_renewal:{label:'Pending Renewal',color:'var(--accent-amber)'}, closed:{label:'Closed',color:'var(--text-muted)'} };
+    var map = { active:{label:'Active',color:'var(--teal)'}, pending_renewal:{label:'Pending Renewal',color:'var(--amber)'}, closed:{label:'Closed',color:'var(--text-muted)'} };
     var s = map[status] || {label:status,color:'var(--text-muted)'};
     return '<span style="display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700;background:' + s.color + '22;color:' + s.color + ';border:1px solid ' + s.color + '55">' + s.label + '</span>';
   }
@@ -10299,28 +10987,28 @@ export async function pgIRBManager(setTopbar) {
     return '<span class="nnna-ae-severity ' + (cls[sev]||'') + '">' + (lbl[sev]||sev) + '</span>';
   }
   function aeStatusBadge(st) {
-    var map = {open:{label:'Open',color:'var(--accent-amber)'},under_review:{label:'Under Review',color:'var(--accent-blue)'},resolved:{label:'Resolved',color:'var(--accent-teal)'},reported_to_irb:{label:'Reported to IRB',color:'var(--accent-violet)'}};
+    var map = {open:{label:'Open',color:'var(--amber)'},under_review:{label:'Under Review',color:'var(--blue)'},resolved:{label:'Resolved',color:'var(--teal)'},reported_to_irb:{label:'Reported to IRB',color:'var(--violet)'}};
     var s = map[st] || {label:st,color:'var(--text-muted)'};
     return '<span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;background:' + s.color + '22;color:' + s.color + ';border:1px solid ' + s.color + '44">' + s.label + '</span>';
   }
   function amendStatusBadge(st) {
-    var map = {Approved:'var(--accent-teal)',Pending:'var(--accent-amber)',Rejected:'var(--accent-rose)',Renewal:'var(--accent-blue)'};
+    var map = {Approved:'var(--teal)',Pending:'var(--amber)',Rejected:'var(--rose)',Renewal:'var(--blue)'};
     var c = map[st] || 'var(--text-muted)';
     return '<span style="display:inline-block;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:600;background:' + c + '22;color:' + c + '">' + st + '</span>';
   }
   function docTypeBadge(type) {
-    var map = {irb_approval:{label:'IRB Approval',color:'var(--accent-teal)'},protocol:{label:'Protocol',color:'var(--accent-blue)'},consent_form:{label:'Consent',color:'var(--accent-violet)'},hipaa:{label:'HIPAA',color:'var(--accent-amber)'},amendment:{label:'Amendment',color:'var(--accent-rose)'}};
+    var map = {irb_approval:{label:'IRB Approval',color:'var(--teal)'},protocol:{label:'Protocol',color:'var(--blue)'},consent_form:{label:'Consent',color:'var(--violet)'},hipaa:{label:'HIPAA',color:'var(--amber)'},amendment:{label:'Amendment',color:'var(--rose)'}};
     var s = map[type] || {label:type,color:'var(--text-muted)'};
     return '<span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;background:' + s.color + '22;color:' + s.color + ';border:1px solid ' + s.color + '44">' + s.label + '</span>';
   }
   function docStatusBadge(st) {
-    var map = {current:'var(--accent-teal)',superseded:'var(--text-muted)',pending:'var(--accent-amber)'};
+    var map = {current:'var(--teal)',superseded:'var(--text-muted)',pending:'var(--amber)'};
     var c = map[st] || 'var(--text-muted)';
     return '<span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:600;background:' + c + '22;color:' + c + ';border:1px solid ' + c + '44;text-transform:capitalize">' + st + '</span>';
   }
   function enrollBar(enrolled, target) {
     var pct = Math.min(100, Math.round((enrolled / target) * 100));
-    var color = pct >= 90 ? 'var(--accent-teal)' : pct >= 60 ? 'var(--accent-blue)' : 'var(--accent-amber)';
+    var color = pct >= 90 ? 'var(--teal)' : pct >= 60 ? 'var(--blue)' : 'var(--amber)';
     return '<div class="nnna-enrollment-bar"><div class="nnna-enrollment-fill" style="width:' + pct + '%;background:' + color + '"></div><span class="nnna-enrollment-label">' + enrolled + '/' + target + ' (' + pct + '%)</span></div>';
   }
 
@@ -10329,7 +11017,7 @@ export async function pgIRBManager(setTopbar) {
     return '<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:22px;overflow-x:auto">' +
       tabs.map(function(t) {
         var active = _activeTab === t.id;
-        return '<button onclick="window._irbTab(\'' + t.id + '\')" style="padding:10px 18px;background:none;border:none;border-bottom:' + (active?'2px solid var(--accent-teal)':'2px solid transparent') + ';color:' + (active?'var(--accent-teal)':'var(--text-muted)') + ';font-size:13px;font-weight:' + (active?'700':'500') + ';cursor:pointer;white-space:nowrap;transition:color .15s;margin-bottom:-2px">' + t.label + '</button>';
+        return '<button onclick="window._irbTab(\'' + t.id + '\')" style="padding:10px 18px;background:none;border:none;border-bottom:' + (active?'2px solid var(--teal)':'2px solid transparent') + ';color:' + (active?'var(--teal)':'var(--text-muted)') + ';font-size:13px;font-weight:' + (active?'700':'500') + ';cursor:pointer;white-space:nowrap;transition:color .15s;margin-bottom:-2px">' + t.label + '</button>';
       }).join('') + '</div>';
   }
 
@@ -10341,8 +11029,8 @@ export async function pgIRBManager(setTopbar) {
 
   function renderStudyCard(s) {
     var expanded = _expandedStudy === s.id;
-    var accentColor = s.status === 'active' ? 'var(--accent-teal)' : s.status === 'pending_renewal' ? 'var(--accent-amber)' : 'var(--text-muted)';
-    var expiryColor = s.status === 'pending_renewal' ? 'var(--accent-amber)' : 'var(--text)';
+    var accentColor = s.status === 'active' ? 'var(--teal)' : s.status === 'pending_renewal' ? 'var(--amber)' : 'var(--text-muted)';
+    var expiryColor = s.status === 'pending_renewal' ? 'var(--amber)' : 'var(--text)';
     var renewBtn = s.status === 'pending_renewal' ? '<button class="nnna-btn-sm nnna-btn-teal" onclick="window._irbRenewModal(\'' + s.id + '\')">Renew Approval</button>' : '';
     var detailHtml = '';
     if (expanded) {
@@ -10365,7 +11053,7 @@ export async function pgIRBManager(setTopbar) {
     }
     return '<div class="nnna-study-card" style="border-left:4px solid ' + accentColor + '">' +
       '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">' +
-      '<div style="flex:1;min-width:250px"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px"><span style="font-size:11px;font-weight:700;color:var(--accent-teal);letter-spacing:.5px">' + s.studyId + '</span><span style="font-size:10px;background:var(--hover-bg);color:var(--text-muted);padding:1px 7px;border-radius:8px">' + s.phase + '</span>' + statusBadge(s.status) + '</div><h3 style="margin:0 0 6px;font-size:14px;font-weight:700;color:var(--text);line-height:1.4">' + s.title + '</h3><div style="font-size:12px;color:var(--text-muted);display:flex;flex-wrap:wrap;gap:12px"><span>PI: <strong style="color:var(--text)">' + s.pi + '</strong></span><span>Board: <strong style="color:var(--text)">' + s.board + '</strong></span><span>Approved: <strong style="color:var(--text)">' + s.approved + '</strong></span><span>Expires: <strong style="color:' + expiryColor + '">' + s.expiry + '</strong></span></div></div>' +
+      '<div style="flex:1;min-width:250px"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px"><span style="font-size:11px;font-weight:700;color:var(--teal);letter-spacing:.5px">' + s.studyId + '</span><span style="font-size:10px;background:var(--hover-bg);color:var(--text-muted);padding:1px 7px;border-radius:8px">' + s.phase + '</span>' + statusBadge(s.status) + '</div><h3 style="margin:0 0 6px;font-size:14px;font-weight:700;color:var(--text);line-height:1.4">' + s.title + '</h3><div style="font-size:12px;color:var(--text-muted);display:flex;flex-wrap:wrap;gap:12px"><span>PI: <strong style="color:var(--text)">' + s.pi + '</strong></span><span>Board: <strong style="color:var(--text)">' + s.board + '</strong></span><span>Approved: <strong style="color:var(--text)">' + s.approved + '</strong></span><span>Expires: <strong style="color:' + expiryColor + '">' + s.expiry + '</strong></span></div></div>' +
       '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;min-width:190px"><div style="width:100%"><div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Enrollment Progress</div>' + enrollBar(s.enrolled, s.target) + '</div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button class="nnna-btn-sm" onclick="window._irbToggleStudy(\'' + s.id + '\')">' + (expanded ? 'Hide Details' : 'View Details') + '</button><button class="nnna-btn-sm nnna-btn-amber" onclick="window._irbAmendModal(\'' + s.id + '\')">Request Amendment</button>' + renewBtn + '</div></div></div>' +
       detailHtml + '</div>';
   }
@@ -10425,7 +11113,7 @@ export async function pgIRBManager(setTopbar) {
       months.push({ key: d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'), label: d.toLocaleString('default',{month:'short'}) });
     }
     var sevCats = ['mild','moderate','severe','unexpected'];
-    var sevColors = {mild:'var(--accent-teal)',moderate:'var(--accent-amber)',severe:'var(--accent-rose)',unexpected:'var(--accent-violet)'};
+    var sevColors = {mild:'var(--teal)',moderate:'var(--amber)',severe:'var(--rose)',unexpected:'var(--violet)'};
     var chartData = months.map(function(m) {
       var b = {mild:0,moderate:0,severe:0,unexpected:0};
       aes.forEach(function(ae) { if (ae.onsetDate && ae.onsetDate.slice(0,7) === m.key && b[ae.severity] !== undefined) b[ae.severity]++; });
@@ -10448,9 +11136,9 @@ export async function pgIRBManager(setTopbar) {
       if (d.total > 0) bars += '<text x="' + (x + barW/2).toFixed(1) + '" y="' + (yOff - 3).toFixed(1) + '" text-anchor="middle" font-size="9" fill="var(--text)">' + d.total + '</text>';
     });
     var legendHtml = sevCats.map(function(s) { return '<span style="display:inline-flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:' + sevColors[s] + ';border-radius:2px;display:inline-block"></span>' + s.charAt(0).toUpperCase()+s.slice(1) + '</span>'; }).join('');
-    var irbWarnHtml = needsIRB.length > 0 ? '<div style="background:var(--accent-rose)18;border:1px solid var(--accent-rose)55;border-radius:8px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:flex-start;gap:10px"><span style="font-size:18px;flex-shrink:0">&#9888;</span><div><div style="font-size:13px;font-weight:700;color:var(--accent-rose);margin-bottom:3px">IRB Notification Required</div><div style="font-size:12px;color:var(--text)">' + needsIRB.length + ' adverse event' + (needsIRB.length>1?'s':'') + ' (Severe or Unexpected) require IRB notification: ' + needsIRB.map(function(ae) { return '<strong>' + ae.patientId + '</strong> - ' + ae.eventType; }).join('; ') + '</div></div></div>' : '';
+    var irbWarnHtml = needsIRB.length > 0 ? '<div style="background:var(--rose)18;border:1px solid var(--rose)55;border-radius:8px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:flex-start;gap:10px"><span style="font-size:18px;flex-shrink:0">&#9888;</span><div><div style="font-size:13px;font-weight:700;color:var(--rose);margin-bottom:3px">IRB Notification Required</div><div style="font-size:12px;color:var(--text)">' + needsIRB.length + ' adverse event' + (needsIRB.length>1?'s':'') + ' (Severe or Unexpected) require IRB notification: ' + needsIRB.map(function(ae) { return '<strong>' + ae.patientId + '</strong> - ' + ae.eventType; }).join('; ') + '</div></div></div>' : '';
     var aeRows = aes.map(function(ae) {
-      return '<tr style="border-bottom:1px solid var(--border)" onmouseover="this.style.background=\'var(--hover-bg)\'" onmouseout="this.style.background=\'\'"><td style="padding:9px 10px"><span style="font-size:11px;font-weight:700;color:var(--accent-teal)">' + studyLabel(ae.studyId) + '</span></td><td style="padding:9px 10px;color:var(--text)">' + ae.patientId + '</td><td style="padding:9px 10px;color:var(--text)">' + ae.eventType + '</td><td style="padding:9px 10px">' + aeSeverityBadge(ae.severity) + '</td><td style="padding:9px 10px;color:var(--text-muted)">' + ae.onsetDate + '</td><td style="padding:9px 10px">' + aeStatusBadge(ae.status) + '</td><td style="padding:9px 10px"><button class="nnna-btn-sm" onclick="window._irbViewAE(\'' + ae.id + '\')">View</button></td></tr>';
+      return '<tr style="border-bottom:1px solid var(--border)" onmouseover="this.style.background=\'var(--hover-bg)\'" onmouseout="this.style.background=\'\'"><td style="padding:9px 10px"><span style="font-size:11px;font-weight:700;color:var(--teal)">' + studyLabel(ae.studyId) + '</span></td><td style="padding:9px 10px;color:var(--text)">' + ae.patientId + '</td><td style="padding:9px 10px;color:var(--text)">' + ae.eventType + '</td><td style="padding:9px 10px">' + aeSeverityBadge(ae.severity) + '</td><td style="padding:9px 10px;color:var(--text-muted)">' + ae.onsetDate + '</td><td style="padding:9px 10px">' + aeStatusBadge(ae.status) + '</td><td style="padding:9px 10px"><button class="nnna-btn-sm" onclick="window._irbViewAE(\'' + ae.id + '\')">View</button></td></tr>';
     }).join('');
     return '<div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px"><div><h2 style="margin:0;font-size:1.1rem;font-weight:800;color:var(--text)">Adverse Event Reporting</h2><div style="font-size:12px;color:var(--text-muted);margin-top:3px">' + aes.length + ' events logged</div></div><div style="display:flex;gap:8px"><button class="nnna-btn-sm" onclick="window._irbExportAE()">Export AE Report</button><button class="nnna-btn-primary" onclick="window._irbNewAEModal()">Report New AE</button></div></div>' + irbWarnHtml + '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:18px"><div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:10px;display:flex;align-items:center;gap:16px;flex-wrap:wrap"><span style="text-transform:uppercase;letter-spacing:.5px">AE Trend - Last 6 Months</span><span style="font-size:11px;display:flex;gap:10px;flex-wrap:wrap">' + legendHtml + '</span></div><svg viewBox="0 0 ' + svgW + ' ' + svgH + '" style="width:100%;max-width:' + svgW + 'px;display:block;overflow:visible"><line x1="' + padL + '" y1="' + padT + '" x2="' + padL + '" y2="' + (svgH-padB) + '" stroke="var(--border)" stroke-width="1"/><line x1="' + padL + '" y1="' + (svgH-padB) + '" x2="' + (svgW-10) + '" y2="' + (svgH-padB) + '" stroke="var(--border)" stroke-width="1"/>' + bars + '</svg></div><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="border-bottom:2px solid var(--border)"><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Study</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Patient ID</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Event Type</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Severity</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Date</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Status</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Action</th></tr></thead><tbody>' + aeRows + '</tbody></table></div></div>';
   }
@@ -10458,16 +11146,16 @@ export async function pgIRBManager(setTopbar) {
   function renderConsentTracking() {
     var consents = getConsents();
     function capBadge(c) {
-      var map = {full:{label:'Full',color:'var(--accent-teal)'},assisted:{label:'Assisted',color:'var(--accent-amber)'},lar:{label:'LAR Required',color:'var(--accent-rose)'}};
+      var map = {full:{label:'Full',color:'var(--teal)'},assisted:{label:'Assisted',color:'var(--amber)'},lar:{label:'LAR Required',color:'var(--rose)'}};
       var s = map[c] || {label:c, color:'var(--text-muted)'};
       return '<span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;background:' + s.color + '22;color:' + s.color + ';border:1px solid ' + s.color + '44">' + s.label + '</span>';
     }
     var reconsentCount = consents.filter(function(c) { return c.reconsentDue && c.reconsentDue !== 'N/A'; }).length;
     var consentRows = consents.map(function(c) {
       var nr = c.reconsentDue && c.reconsentDue !== 'N/A';
-      return '<tr style="border-bottom:1px solid var(--border);' + (nr?'background:var(--accent-amber)09;':'') + '" onmouseover="this.style.background=\'var(--hover-bg)\'" onmouseout="this.style.background=\'' + (nr?'var(--accent-amber)09':'') + '\'"><td style="padding:9px 10px;color:var(--text);font-weight:600">' + c.patientId + '</td><td style="padding:9px 10px"><span style="font-size:11px;font-weight:700;color:var(--accent-teal)">' + studyLabel(c.studyId) + '</span></td><td style="padding:9px 10px;color:var(--text)">' + c.consentVersion + '</td><td style="padding:9px 10px;color:var(--text-muted)">' + c.signedDate + '</td><td style="padding:9px 10px">' + capBadge(c.capacityAssessment) + '</td><td style="padding:9px 10px;color:var(--text-muted);font-size:12px">' + c.lar + '</td><td style="padding:9px 10px">' + (nr ? '<span style="color:var(--accent-amber);font-weight:700;font-size:12px">&#9888; ' + c.reconsentDue + '<br><span style="font-size:10px;font-weight:400;color:var(--text-muted)">' + c.reconsentReason + '</span></span>' : '<span style="color:var(--text-muted);font-size:12px">N/A</span>') + '</td></tr>';
+      return '<tr style="border-bottom:1px solid var(--border);' + (nr?'background:var(--amber)09;':'') + '" onmouseover="this.style.background=\'var(--hover-bg)\'" onmouseout="this.style.background=\'' + (nr?'var(--amber)09':'') + '\'"><td style="padding:9px 10px;color:var(--text);font-weight:600">' + c.patientId + '</td><td style="padding:9px 10px"><span style="font-size:11px;font-weight:700;color:var(--teal)">' + studyLabel(c.studyId) + '</span></td><td style="padding:9px 10px;color:var(--text)">' + c.consentVersion + '</td><td style="padding:9px 10px;color:var(--text-muted)">' + c.signedDate + '</td><td style="padding:9px 10px">' + capBadge(c.capacityAssessment) + '</td><td style="padding:9px 10px;color:var(--text-muted);font-size:12px">' + c.lar + '</td><td style="padding:9px 10px">' + (nr ? '<span style="color:var(--amber);font-weight:700;font-size:12px">&#9888; ' + c.reconsentDue + '<br><span style="font-size:10px;font-weight:400;color:var(--text-muted)">' + c.reconsentReason + '</span></span>' : '<span style="color:var(--text-muted);font-size:12px">N/A</span>') + '</td></tr>';
     }).join('');
-    return '<div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px"><div><h2 style="margin:0;font-size:1.1rem;font-weight:800;color:var(--text)">Research Consent Tracking</h2><div style="font-size:12px;color:var(--text-muted);margin-top:3px">Research-specific consent - separate from clinical consent</div></div><button class="nnna-btn-primary" onclick="window._irbNewConsentModal()">Record New Consent</button></div><div style="background:var(--accent-blue)12;border:1px solid var(--accent-blue)44;border-radius:8px;padding:11px 14px;margin-bottom:16px;font-size:12px;color:var(--text)"><strong style="color:var(--accent-blue)">Re-consent Policy:</strong> Any approved protocol amendment triggers mandatory re-consent for all currently enrolled participants.' + (reconsentCount > 0 ? ' <strong style="color:var(--accent-amber)">' + reconsentCount + ' participant(s) require re-consent.</strong>' : '') + '</div><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="border-bottom:2px solid var(--border)"><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Patient ID</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Study</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Consent Version</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Signed Date</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Capacity</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">LAR</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Re-consent Due</th></tr></thead><tbody>' + consentRows + '</tbody></table></div></div>';
+    return '<div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px"><div><h2 style="margin:0;font-size:1.1rem;font-weight:800;color:var(--text)">Research Consent Tracking</h2><div style="font-size:12px;color:var(--text-muted);margin-top:3px">Research-specific consent - separate from clinical consent</div></div><button class="nnna-btn-primary" onclick="window._irbNewConsentModal()">Record New Consent</button></div><div style="background:var(--blue)12;border:1px solid var(--blue)44;border-radius:8px;padding:11px 14px;margin-bottom:16px;font-size:12px;color:var(--text)"><strong style="color:var(--blue)">Re-consent Policy:</strong> Any approved protocol amendment triggers mandatory re-consent for all currently enrolled participants.' + (reconsentCount > 0 ? ' <strong style="color:var(--amber)">' + reconsentCount + ' participant(s) require re-consent.</strong>' : '') + '</div><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="border-bottom:2px solid var(--border)"><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Patient ID</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Study</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Consent Version</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Signed Date</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Capacity</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">LAR</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Re-consent Due</th></tr></thead><tbody>' + consentRows + '</tbody></table></div></div>';
   }
 
   function renderRegDocuments() {
@@ -10479,7 +11167,7 @@ export async function pgIRBManager(setTopbar) {
     var docRows = filtered.length === 0
       ? '<div style="text-align:center;padding:32px;color:var(--text-muted)">No documents match the current filter.</div>'
       : filtered.map(function(doc) {
-          return '<div class="nnna-doc-row"><div style="display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap">' + docTypeBadge(doc.type) + '<div style="flex:1;min-width:180px"><div style="font-size:13px;font-weight:600;color:var(--text)">' + doc.name + '</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px"><span style="font-size:11px;font-weight:700;color:var(--accent-teal)">' + studyLabel(doc.studyId) + '</span> &middot; v' + doc.version + ' &middot; ' + doc.date + '</div></div>' + docStatusBadge(doc.status) + '</div><div style="display:flex;gap:6px;flex-shrink:0"><button class="nnna-btn-sm" onclick="window._irbViewDoc(\'' + doc.id + '\')">View</button><button class="nnna-btn-sm nnna-btn-amber" onclick="window._irbUploadDocModal(\'' + doc.id + '\')">New Version</button></div></div>';
+          return '<div class="nnna-doc-row"><div style="display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap">' + docTypeBadge(doc.type) + '<div style="flex:1;min-width:180px"><div style="font-size:13px;font-weight:600;color:var(--text)">' + doc.name + '</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px"><span style="font-size:11px;font-weight:700;color:var(--teal)">' + studyLabel(doc.studyId) + '</span> &middot; v' + doc.version + ' &middot; ' + doc.date + '</div></div>' + docStatusBadge(doc.status) + '</div><div style="display:flex;gap:6px;flex-shrink:0"><button class="nnna-btn-sm" onclick="window._irbViewDoc(\'' + doc.id + '\')">View</button><button class="nnna-btn-sm nnna-btn-amber" onclick="window._irbUploadDocModal(\'' + doc.id + '\')">New Version</button></div></div>';
         }).join('');
     return '<div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px"><div><h2 style="margin:0;font-size:1.1rem;font-weight:800;color:var(--text)">Regulatory Document Registry</h2><div style="font-size:12px;color:var(--text-muted);margin-top:3px">' + docs.length + ' documents across ' + studies.length + ' studies</div></div><button class="nnna-btn-primary" onclick="window._irbUploadDocModal()">Upload New Version</button></div><div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap"><select class="form-control" style="width:auto;font-size:12px" onchange="window._irbDocFilter(\'study\',this.value)"><option value="">All Studies</option>' + studyOpts + '</select><select class="form-control" style="width:auto;font-size:12px" onchange="window._irbDocFilter(\'type\',this.value)"><option value="">All Types</option>' + typeOpts + '</select></div><div id="irb-doc-preview" style="display:none;background:var(--hover-bg);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><span id="irb-doc-preview-title" style="font-size:13px;font-weight:700;color:var(--text)"></span><button class="nnna-btn-sm nnna-btn-rose" onclick="document.getElementById(\'irb-doc-preview\').style.display=\'none\'">Close</button></div><pre id="irb-doc-preview-body" style="font-size:12px;color:var(--text);white-space:pre-wrap;line-height:1.6;margin:0;font-family:monospace"></pre></div><div>' + docRows + '</div></div>';
   }
@@ -10520,7 +11208,7 @@ export async function pgIRBManager(setTopbar) {
     var study = getStudies().find(function(s) { return s.id === studyId; });
     if (!study) return;
     document.getElementById('irb-renew-modal') && document.getElementById('irb-renew-modal').remove();
-    document.body.insertAdjacentHTML('beforeend', '<div id="irb-renew-modal" onclick="if(event.target.id===\'irb-renew-modal\')window._irbCloseModal(\'irb-renew-modal\')" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px"><div style="background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:540px;max-height:90vh;overflow-y:auto"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px"><h3 style="margin:0;font-size:15px;font-weight:800;color:var(--text)">Renewal Application - ' + study.studyId + '</h3><button onclick="window._irbCloseModal(\'irb-renew-modal\')" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:20px;line-height:1">x</button></div><div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Current expiry: <strong style="color:var(--accent-amber)">' + study.expiry + '</strong></div><div class="nnna-form-group" style="margin-bottom:12px"><label>Principal Investigator</label><input class="form-control" id="renew-pi" value="' + study.pi + '"></div><div class="nnna-form-group" style="margin-bottom:12px"><label>Enrollment to Date</label><input class="form-control" id="renew-enrolled" type="number" value="' + study.enrolled + '"></div><div class="nnna-form-group" style="margin-bottom:12px"><label>Requested Renewal Period</label><select class="form-control" id="renew-period"><option value="12">12 months</option><option value="24">24 months</option></select></div><div class="nnna-form-group" style="margin-bottom:12px"><label>Progress Summary *</label><textarea class="form-control" id="renew-summary" rows="4" placeholder="Summarize study progress, protocol deviations, and justification for continuation..."></textarea></div><div class="nnna-form-group" style="margin-bottom:20px"><label>Adverse Events Since Last Approval</label><textarea class="form-control" id="renew-aes" rows="2" placeholder="List reportable AEs or note None..."></textarea></div><div style="display:flex;justify-content:flex-end;gap:8px"><button class="nnna-btn-sm" onclick="window._irbCloseModal(\'irb-renew-modal\')">Cancel</button><button class="nnna-btn-primary" onclick="window._irbSubmitRenewal(\'' + studyId + '\')">Submit Renewal</button></div></div></div>');
+    document.body.insertAdjacentHTML('beforeend', '<div id="irb-renew-modal" onclick="if(event.target.id===\'irb-renew-modal\')window._irbCloseModal(\'irb-renew-modal\')" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px"><div style="background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:540px;max-height:90vh;overflow-y:auto"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px"><h3 style="margin:0;font-size:15px;font-weight:800;color:var(--text)">Renewal Application - ' + study.studyId + '</h3><button onclick="window._irbCloseModal(\'irb-renew-modal\')" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:20px;line-height:1">x</button></div><div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Current expiry: <strong style="color:var(--amber)">' + study.expiry + '</strong></div><div class="nnna-form-group" style="margin-bottom:12px"><label>Principal Investigator</label><input class="form-control" id="renew-pi" value="' + study.pi + '"></div><div class="nnna-form-group" style="margin-bottom:12px"><label>Enrollment to Date</label><input class="form-control" id="renew-enrolled" type="number" value="' + study.enrolled + '"></div><div class="nnna-form-group" style="margin-bottom:12px"><label>Requested Renewal Period</label><select class="form-control" id="renew-period"><option value="12">12 months</option><option value="24">24 months</option></select></div><div class="nnna-form-group" style="margin-bottom:12px"><label>Progress Summary *</label><textarea class="form-control" id="renew-summary" rows="4" placeholder="Summarize study progress, protocol deviations, and justification for continuation..."></textarea></div><div class="nnna-form-group" style="margin-bottom:20px"><label>Adverse Events Since Last Approval</label><textarea class="form-control" id="renew-aes" rows="2" placeholder="List reportable AEs or note None..."></textarea></div><div style="display:flex;justify-content:flex-end;gap:8px"><button class="nnna-btn-sm" onclick="window._irbCloseModal(\'irb-renew-modal\')">Cancel</button><button class="nnna-btn-primary" onclick="window._irbSubmitRenewal(\'' + studyId + '\')">Submit Renewal</button></div></div></div>');
   };
   window._irbSubmitRenewal = function(studyId) {
     var pi = document.getElementById('renew-pi') && document.getElementById('renew-pi').value && document.getElementById('renew-pi').value.trim();
@@ -10597,14 +11285,14 @@ export async function pgIRBManager(setTopbar) {
     lsSet('ds_irb_studies', studies);
     _wizardDraft = {info:{},population:{},arms:[{name:'',intervention:'',sessions:'',duration:'',frequency:''}],regulatory:{}};
     _wizardStep = 1; _activeTab = 'active-studies';
-    toast('Study submitted to IRB - pending approval');
+    toast('Study draft saved locally for IRB follow-up');
     render();
   };
 
   window._irbNewAEModal = function() {
     var studies = getStudies();
     document.getElementById('irb-ae-modal') && document.getElementById('irb-ae-modal').remove();
-    document.body.insertAdjacentHTML('beforeend', '<div id="irb-ae-modal" onclick="if(event.target.id===\'irb-ae-modal\')window._irbCloseModal(\'irb-ae-modal\')" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px"><div style="background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:560px;max-height:90vh;overflow-y:auto"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px"><h3 style="margin:0;font-size:15px;font-weight:800;color:var(--text)">Report Adverse Event</h3><button onclick="window._irbCloseModal(\'irb-ae-modal\')" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:20px;line-height:1">x</button></div><div class="nnna-form-grid"><div class="nnna-form-group"><label>Study *</label><select class="form-control" id="ae-study"><option value="">Select study...</option>' + studies.map(function(s){return '<option value="'+s.id+'">'+s.studyId+'</option>';}).join('') + '</select></div><div class="nnna-form-group"><label>De-identified Patient ID *</label><input class="form-control" id="ae-patient" placeholder="e.g., PT-009"></div><div class="nnna-form-group" style="grid-column:1/-1"><label>Event Description *</label><textarea class="form-control" id="ae-desc" rows="3" placeholder="Describe the adverse event..."></textarea></div><div class="nnna-form-group"><label>Onset Date *</label><input class="form-control" id="ae-date" type="date" value="' + new Date().toISOString().slice(0,10) + '"></div><div class="nnna-form-group"><label>Severity *</label><select class="form-control" id="ae-severity" onchange="window._irbAESevChange()"><option value="">Select...</option><option value="mild">Mild</option><option value="moderate">Moderate</option><option value="severe">Severe</option><option value="unexpected">Unexpected</option></select></div><div class="nnna-form-group"><label>Causality Assessment *</label><select class="form-control" id="ae-causality"><option value="">Select...</option><option value="unrelated">Unrelated</option><option value="possibly">Possibly Related</option><option value="probably">Probably Related</option><option value="definitely">Definitely Related</option></select></div><div class="nnna-form-group" style="grid-column:1/-1"><label>Actions Taken *</label><textarea class="form-control" id="ae-actions" rows="2" placeholder="Describe actions taken..."></textarea></div></div><div id="ae-irb-warn" style="display:none;background:var(--accent-rose)18;border:1px solid var(--accent-rose)55;border-radius:8px;padding:10px 14px;margin-top:10px;font-size:12px;color:var(--accent-rose);font-weight:600">IRB Notification Required - Severe or Unexpected events must be reported to the IRB within 24-72 hours.</div><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:20px"><button class="nnna-btn-sm" onclick="window._irbCloseModal(\'irb-ae-modal\')">Cancel</button><button class="nnna-btn-primary" onclick="window._irbSubmitAE()">Submit AE Report</button></div></div></div>');
+    document.body.insertAdjacentHTML('beforeend', '<div id="irb-ae-modal" onclick="if(event.target.id===\'irb-ae-modal\')window._irbCloseModal(\'irb-ae-modal\')" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px"><div style="background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:560px;max-height:90vh;overflow-y:auto"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px"><h3 style="margin:0;font-size:15px;font-weight:800;color:var(--text)">Report Adverse Event</h3><button onclick="window._irbCloseModal(\'irb-ae-modal\')" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:20px;line-height:1">x</button></div><div class="nnna-form-grid"><div class="nnna-form-group"><label>Study *</label><select class="form-control" id="ae-study"><option value="">Select study...</option>' + studies.map(function(s){return '<option value="'+s.id+'">'+s.studyId+'</option>';}).join('') + '</select></div><div class="nnna-form-group"><label>De-identified Patient ID *</label><input class="form-control" id="ae-patient" placeholder="e.g., PT-009"></div><div class="nnna-form-group" style="grid-column:1/-1"><label>Event Description *</label><textarea class="form-control" id="ae-desc" rows="3" placeholder="Describe the adverse event..."></textarea></div><div class="nnna-form-group"><label>Onset Date *</label><input class="form-control" id="ae-date" type="date" value="' + new Date().toISOString().slice(0,10) + '"></div><div class="nnna-form-group"><label>Severity *</label><select class="form-control" id="ae-severity" onchange="window._irbAESevChange()"><option value="">Select...</option><option value="mild">Mild</option><option value="moderate">Moderate</option><option value="severe">Severe</option><option value="unexpected">Unexpected</option></select></div><div class="nnna-form-group"><label>Causality Assessment *</label><select class="form-control" id="ae-causality"><option value="">Select...</option><option value="unrelated">Unrelated</option><option value="possibly">Possibly Related</option><option value="probably">Probably Related</option><option value="definitely">Definitely Related</option></select></div><div class="nnna-form-group" style="grid-column:1/-1"><label>Actions Taken *</label><textarea class="form-control" id="ae-actions" rows="2" placeholder="Describe actions taken..."></textarea></div></div><div id="ae-irb-warn" style="display:none;background:var(--rose)18;border:1px solid var(--rose)55;border-radius:8px;padding:10px 14px;margin-top:10px;font-size:12px;color:var(--rose);font-weight:600">IRB Notification Required - Severe or Unexpected events must be reported to the IRB within 24-72 hours.</div><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:20px"><button class="nnna-btn-sm" onclick="window._irbCloseModal(\'irb-ae-modal\')">Cancel</button><button class="nnna-btn-primary" onclick="window._irbSubmitAE()">Submit AE Report</button></div></div></div>');
   };
   window._irbAESevChange = function() {
     var sev = document.getElementById('ae-severity') && document.getElementById('ae-severity').value;
@@ -10638,7 +11326,7 @@ export async function pgIRBManager(setTopbar) {
   };
   window._irbMarkIRBReported = function(id) {
     lsSet('ds_irb_adverse_events', getAEs().map(function(ae) { return ae.id===id ? Object.assign({},ae,{reportedToIRB:true,status:'reported_to_irb'}) : ae; }));
-    window._irbCloseModal('irb-ae-view-modal'); toast('Marked as reported to IRB'); render();
+    window._irbCloseModal('irb-ae-view-modal'); toast('Marked locally for IRB follow-up'); render();
   };
   window._irbResolveAE = function(id) {
     lsSet('ds_irb_adverse_events', getAEs().map(function(ae) { return ae.id===id ? Object.assign({},ae,{status:'resolved'}) : ae; }));
@@ -10939,7 +11627,7 @@ export async function pgLiteratureLibrary(setTopbar) {
         <div class="nnnd-rl-actions">
           <button class="nnnd-btn nnnd-btn-primary" onclick="window._litAbs('${p.id}')">View Abstract</button>
           <button class="nnnd-btn" onclick="window._litCit('${p.id}')">Copy Citation</button>
-          <button class="nnnd-btn" style="color:var(--accent-rose,#f87171);border-color:rgba(248,113,113,.3)" onclick="window._litRL('${p.id}')">Remove</button>
+          <button class="nnnd-btn" style="color:var(--rose,#ff6b9d);border-color:rgba(248,113,113,.3)" onclick="window._litRL('${p.id}')">Remove</button>
         </div>
       </div>`;}).join('');
     return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
@@ -11041,7 +11729,7 @@ export async function pgLiteratureLibrary(setTopbar) {
     return '';
   }
 
-  function rlBadge() { const c=rl().length; return c>0?`<span style="font-size:10px;background:var(--accent-violet,#818cf8);color:#fff;padding:1px 5px;border-radius:10px;margin-left:4px">${c}</span>`:''; }
+  function rlBadge() { const c=rl().length; return c>0?`<span style="font-size:10px;background:var(--violet,#9b7fff);color:#fff;padding:1px 5px;border-radius:10px;margin-left:4px">${c}</span>`:''; }
 
   function render() {
     const n=filtered().length;
@@ -11165,14 +11853,14 @@ export async function pgLiteratureLibrary(setTopbar) {
   window._litCit = (id, toast) => {
     const p=lib().find(x=>x.id===id); if(!p) return;
     const txt=apa(p);
-    const done=()=>{ if(toast){const t=document.createElement('div');t.style.cssText='position:fixed;bottom:24px;right:24px;background:var(--accent-teal,#2dd4bf);color:#0a1628;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;z-index:2000;box-shadow:0 4px 16px rgba(0,0,0,.4)';t.textContent='✓ APA citation copied';document.body.appendChild(t);setTimeout(()=>t.remove(),2500);}};
+    const done=()=>{ if(toast){const t=document.createElement('div');t.style.cssText='position:fixed;bottom:24px;right:24px;background:var(--teal,#00d4bc);color:#0a1628;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;z-index:2000;box-shadow:0 4px 16px rgba(0,0,0,.4)';t.textContent='✓ APA citation copied';document.body.appendChild(t);setTimeout(()=>t.remove(),2500);}};
     navigator.clipboard?.writeText(txt).then(done).catch(()=>{const ta=document.createElement('textarea');ta.value=txt;ta.style.cssText='position:fixed;opacity:0;left:-9999px';document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();done();});
   };
 
   window._litTP = (pid, pname) => {
     const tags=ptags(); if(!tags.find(t=>t.paperId===pid&&t.protocol===pname)) {tags.push({paperId:pid,protocol:pname,taggedAt:new Date().toISOString()});_lsSetLit('ds_literature_protocol_tags',tags);}
     const dd=document.getElementById(`pdd-${pid}`); if(dd) dd.style.display='none'; _protoDD=null;
-    const t=document.createElement('div');t.style.cssText='position:fixed;bottom:24px;right:24px;background:var(--accent-violet,#818cf8);color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;z-index:2000;box-shadow:0 4px 16px rgba(0,0,0,.4)';t.textContent=`✓ Tagged to "${pname}"`;document.body.appendChild(t);setTimeout(()=>t.remove(),2500);
+    const t=document.createElement('div');t.style.cssText='position:fixed;bottom:24px;right:24px;background:var(--violet,#9b7fff);color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;z-index:2000;box-shadow:0 4px 16px rgba(0,0,0,.4)';t.textContent=`✓ Tagged to "${pname}"`;document.body.appendChild(t);setTimeout(()=>t.remove(),2500);
   };
 
   window._litPDD = id => {
@@ -11307,8 +11995,8 @@ export async function pgLongitudinalReport(setTopbar) {
       <option value="12m">Last 12 months</option>
       <option value="all">All time</option>
     </select>
-    <button onclick="window._lrptCSV()" style="background:var(--accent-blue);color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px">Export CSV</button>
-    <button onclick="window.print()" style="background:var(--accent-violet);color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px">Export PDF</button>
+    <button onclick="window._lrptCSV()" style="background:var(--blue);color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px">Export CSV</button>
+    <button onclick="window.print()" style="background:var(--violet);color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px">Export PDF</button>
   `);
 
   function _lrptFiltered() {
@@ -11325,7 +12013,7 @@ export async function pgLongitudinalReport(setTopbar) {
 
   function _lrptRRColor(rr) {
     if (rr >= 70) return 'var(--teal)';
-    if (rr >= 50) return 'var(--accent-amber)';
+    if (rr >= 50) return 'var(--amber)';
     return '#ef4444';
   }
 
@@ -11447,7 +12135,7 @@ export async function pgLongitudinalReport(setTopbar) {
       const bh = (b.n / maxN) * chartH;
       const x = padL + i * bw + 2;
       const y = padT + chartH - bh;
-      return '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + (bw - 4) + '" height="' + bh.toFixed(1) + '" fill="var(--accent-blue)" rx="2"/>'
+      return '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + (bw - 4) + '" height="' + bh.toFixed(1) + '" fill="var(--blue)" rx="2"/>'
         + '<text x="' + (padL + i * bw + bw / 2).toFixed(1) + '" y="' + (y - 3).toFixed(1) + '" text-anchor="middle" font-size="10" fill="var(--text-secondary)">' + b.n + '</text>'
         + '<text x="' + (padL + i * bw + bw / 2).toFixed(1) + '" y="' + (H - 4) + '" text-anchor="middle" font-size="10" fill="var(--text-secondary)">' + b.bin + '</text>';
     }).join('');
@@ -11560,14 +12248,14 @@ export async function pgLongitudinalReport(setTopbar) {
 
     const kpiCards = '<div class="lrpt-kpi-row">'
       + '<div class="lrpt-kpi-card" style="border-color:var(--teal)"><div class="lrpt-kpi-num">' + s.totalPatients + '</div><div class="lrpt-kpi-label">Total Patients Treated</div>' + _lrptTrend(s.totalPatients, s.totalPatientsPrev, '', true) + '</div>'
-      + '<div class="lrpt-kpi-card" style="border-color:var(--accent-blue)"><div class="lrpt-kpi-num">' + s.responseRate.toFixed(1) + '%</div><div class="lrpt-kpi-label">Response Rate (\u226550% improvement)</div>' + _lrptTrend(s.responseRate, s.responseRatePrev, '%', true) + '</div>'
-      + '<div class="lrpt-kpi-card" style="border-color:var(--accent-violet)"><div class="lrpt-kpi-num">' + s.avgSessions.toFixed(1) + '</div><div class="lrpt-kpi-label">Avg Sessions / Course</div>' + _lrptTrend(s.avgSessions, s.avgSessionsPrev, '', false) + '</div>'
-      + '<div class="lrpt-kpi-card" style="border-color:var(--accent-amber)"><div class="lrpt-kpi-num">' + s.avgImprovement.toFixed(1) + '%</div><div class="lrpt-kpi-label">Avg % Improvement</div>' + _lrptTrend(s.avgImprovement, s.avgImprovementPrev, '%', true) + '</div>'
+      + '<div class="lrpt-kpi-card" style="border-color:var(--blue)"><div class="lrpt-kpi-num">' + s.responseRate.toFixed(1) + '%</div><div class="lrpt-kpi-label">Response Rate (\u226550% improvement)</div>' + _lrptTrend(s.responseRate, s.responseRatePrev, '%', true) + '</div>'
+      + '<div class="lrpt-kpi-card" style="border-color:var(--violet)"><div class="lrpt-kpi-num">' + s.avgSessions.toFixed(1) + '</div><div class="lrpt-kpi-label">Avg Sessions / Course</div>' + _lrptTrend(s.avgSessions, s.avgSessionsPrev, '', false) + '</div>'
+      + '<div class="lrpt-kpi-card" style="border-color:var(--amber)"><div class="lrpt-kpi-num">' + s.avgImprovement.toFixed(1) + '%</div><div class="lrpt-kpi-label">Avg % Improvement</div>' + _lrptTrend(s.avgImprovement, s.avgImprovementPrev, '%', true) + '</div>'
       + '<div class="lrpt-kpi-card" style="border-color:#ef4444"><div class="lrpt-kpi-num">' + s.dropoutRate.toFixed(1) + '%</div><div class="lrpt-kpi-label">Dropout Rate</div>' + _lrptTrend(s.dropoutRate, s.dropoutRatePrev, '%', false) + '</div>'
       + '</div>';
 
     el.innerHTML = '<div class="lrpt-page">'
-      + '<div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:12.5px;color:var(--accent-amber,#ffb547);display:flex;align-items:center;gap:10px">'
+      + '<div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:12.5px;color:var(--amber,#ffb547);display:flex;align-items:center;gap:10px">'
       + '<span style="font-size:14px">&#9888;</span>'
       + '<span><b>Preview data.</b> This longitudinal report is using a fixed demo dataset. Real cohort aggregation from <code>/api/v1/outcomes/aggregate</code> is pending the longitudinal aggregator endpoint. Do not rely on the figures below for clinical or regulatory decisions.</span>'
       + '</div>'
@@ -11639,7 +12327,7 @@ export async function pgClinicalScoringCalc(setTopbar) {
       severity: [
         { min:0,  max:4,  label:'Minimal Depression',         color:'#22c55e', interp:'Score suggests minimal depression. Monitor and repeat screening in 3\u20136 months. Watchful waiting is appropriate.' },
         { min:5,  max:9,  label:'Mild Depression',            color:'#84cc16', interp:'Score suggests mild depression. Watchful waiting, guided self-help, and psychoeducation are recommended.' },
-        { min:10, max:14, label:'Moderate Depression',        color:'var(--accent-amber)', interp:'Scores in this range suggest moderate depression. Consider initiating treatment with antidepressant and/or structured psychotherapy. TMS may be considered when PHQ-9 \u226510 with inadequate medication response (clinician judgment required).' },
+        { min:10, max:14, label:'Moderate Depression',        color:'var(--amber)', interp:'Scores in this range suggest moderate depression. Consider initiating treatment with antidepressant and/or structured psychotherapy. TMS may be considered when PHQ-9 \u226510 with inadequate medication response (clinician judgment required).' },
         { min:15, max:19, label:'Moderately Severe Depression',color:'#f97316', interp:'Scores in this range indicate moderately severe depression. Active treatment is commonly indicated at this severity; clinician review recommended.' },
         { min:20, max:27, label:'Severe Depression',          color:'#ef4444', interp:'Scores in this range indicate severe depression. Scores at this level indicate the need for urgent clinical assessment. Clinician judgment required regarding referral and treatment pathway.' }
       ],
@@ -11663,7 +12351,7 @@ export async function pgClinicalScoringCalc(setTopbar) {
       severity: [
         { min:0,  max:4,  label:'Minimal Anxiety',  color:'#22c55e', interp:'Score suggests minimal anxiety. Reassurance and psychoeducation appropriate.' },
         { min:5,  max:9,  label:'Mild Anxiety',     color:'#84cc16', interp:'Score suggests mild anxiety. Self-management strategies and relaxation techniques recommended.' },
-        { min:10, max:14, label:'Moderate Anxiety', color:'var(--accent-amber)', interp:'Score suggests moderate anxiety. Consider structured CBT, SSRIs, or SNRIs. Neurofeedback has emerging evidence.' },
+        { min:10, max:14, label:'Moderate Anxiety', color:'var(--amber)', interp:'Score suggests moderate anxiety. Consider structured CBT, SSRIs, or SNRIs. Neurofeedback has emerging evidence.' },
         { min:15, max:21, label:'Severe Anxiety',   color:'#ef4444', interp:'Score indicates severe anxiety. Active pharmacological and/or psychological treatment required.' }
       ],
       cutoffs:[{range:'0\u20134',label:'Minimal',action:'Reassurance'},{range:'5\u20139',label:'Mild',action:'Self-management'},{range:'10\u201314',label:'Moderate',action:'Structured intervention'},{range:'15\u201321',label:'Severe',action:'Active treatment + referral'}],
@@ -11680,7 +12368,7 @@ export async function pgClinicalScoringCalc(setTopbar) {
       ],
       severity: [
         { min:0,  max:31, label:'Below PTSD Threshold', color:'#22c55e', interp:'Score below clinical threshold of 31\u201333. Monitor; consider further evaluation if clinical concern.' },
-        { min:32, max:49, label:'Probable PTSD',        color:'var(--accent-amber)', interp:'Scores in this range fall in the probable PTSD range (screening result only). CAPS-5 structured interview recommended for full clinical assessment.' },
+        { min:32, max:49, label:'Probable PTSD',        color:'var(--amber)', interp:'Scores in this range fall in the probable PTSD range (screening result only). CAPS-5 structured interview recommended for full clinical assessment.' },
         { min:50, max:80, label:'Severe PTSD',          color:'#ef4444', interp:'Scores in this range indicate severe PTSD. Trauma-focused CBT (CPT, PE) and neuromodulation have published evidence; clinician assessment required to determine treatment pathway.' }
       ],
       cutoffs:[{range:'0\u201331',label:'Subclinical',action:'Monitor'},{range:'32\u201349',label:'Probable PTSD',action:'Full assessment'},{range:'50\u201380',label:'Severe PTSD',action:'Active trauma treatment'}],
@@ -11700,7 +12388,7 @@ export async function pgClinicalScoringCalc(setTopbar) {
       severity:[
         {min:0,max:7,label:'Normal / Remission',color:'#22c55e',interp:'Normal range or remission.'},
         {min:8,max:13,label:'Mild Depression',color:'#84cc16',interp:'Mild depressive symptoms. Monitor; consider initiating treatment.'},
-        {min:14,max:18,label:'Moderate Depression',color:'var(--accent-amber)',interp:'Scores in this range suggest moderate depression. Treatment initiation commonly considered; clinician assessment required.'},
+        {min:14,max:18,label:'Moderate Depression',color:'var(--amber)',interp:'Scores in this range suggest moderate depression. Treatment initiation commonly considered; clinician assessment required.'},
         {min:19,max:22,label:'Severe Depression',color:'#f97316',interp:'Scores in this range indicate severe depression. Clinician review of treatment intensity is warranted.'},
         {min:23,max:52,label:'Very Severe',color:'#ef4444',interp:'Scores in this range indicate very severe depression. Scores at this level indicate the need for urgent clinical assessment.'}
       ],
@@ -11719,7 +12407,7 @@ export async function pgClinicalScoringCalc(setTopbar) {
       severity:[
         {min:0,max:6,label:'Normal',color:'#22c55e',interp:'Normal range. No treatment indicated.'},
         {min:7,max:19,label:'Mild Depression',color:'#84cc16',interp:'Mild depression. Watchful waiting or self-management.'},
-        {min:20,max:34,label:'Moderate Depression',color:'var(--accent-amber)',interp:'Moderate depression. Active treatment recommended. TMS or pharmacotherapy.'},
+        {min:20,max:34,label:'Moderate Depression',color:'var(--amber)',interp:'Moderate depression. Active treatment recommended. TMS or pharmacotherapy.'},
         {min:35,max:60,label:'Severe Depression',color:'#ef4444',interp:'Scores in this range indicate severe depression. Scores at this level indicate the need for urgent clinical assessment. Note: MADRS \u226530 is a commonly cited TMS trial inclusion threshold (clinician judgment required).'}
       ],
       cutoffs:[{range:'0\u20136',label:'Normal',action:'None'},{range:'7\u201319',label:'Mild',action:'Self-management'},{range:'20\u201334',label:'Moderate',action:'Active treatment'},{range:'35\u201360',label:'Severe',action:'Urgent referral'}],
@@ -11740,7 +12428,7 @@ export async function pgClinicalScoringCalc(setTopbar) {
       severity:[
         {min:0,max:13,label:'Minimal Depression',color:'#22c55e',interp:'Minimal depressive symptoms.'},
         {min:14,max:19,label:'Mild Depression',color:'#84cc16',interp:'Mild depression. Monitoring and self-help.'},
-        {min:20,max:28,label:'Moderate Depression',color:'var(--accent-amber)',interp:'Moderate depression. Treatment initiation recommended.'},
+        {min:20,max:28,label:'Moderate Depression',color:'var(--amber)',interp:'Moderate depression. Treatment initiation recommended.'},
         {min:29,max:63,label:'Severe Depression',color:'#ef4444',interp:'Scores in this range indicate severe depression. Scores at this level indicate the need for urgent clinical assessment.'}
       ],
       cutoffs:[{range:'0\u201313',label:'Minimal',action:'Monitor'},{range:'14\u201319',label:'Mild',action:'Self-help'},{range:'20\u201328',label:'Moderate',action:'Treatment'},{range:'29\u201363',label:'Severe',action:'Urgent'}],
@@ -11758,7 +12446,7 @@ export async function pgClinicalScoringCalc(setTopbar) {
       severity:[
         {min:0,max:7,label:'Subclinical',color:'#22c55e',interp:'Score in subclinical range.'},
         {min:8,max:15,label:'Mild OCD',color:'#84cc16',interp:'Mild OCD. Brief ERP, self-guided materials.'},
-        {min:16,max:23,label:'Moderate OCD',color:'var(--accent-amber)',interp:'Moderate OCD. Structured ERP \u00b1 SRI. TMS (SMA or OFC) has emerging evidence.'},
+        {min:16,max:23,label:'Moderate OCD',color:'var(--amber)',interp:'Moderate OCD. Structured ERP \u00b1 SRI. TMS (SMA or OFC) has emerging evidence.'},
         {min:24,max:31,label:'Severe OCD',color:'#f97316',interp:'Severe OCD. Intensive ERP + SRI. TMS for treatment-resistant cases.'},
         {min:32,max:40,label:'Extreme OCD',color:'#ef4444',interp:'Extreme OCD. Intensive/residential treatment. Neuromodulation (TMS, DBS) for refractory.'}
       ],
@@ -11781,7 +12469,7 @@ export async function pgClinicalScoringCalc(setTopbar) {
       severity:[
         {min:24,max:40,label:'Normal',color:'#22c55e',interp:'Within normal limits.'},
         {min:41,max:70,label:'Borderline\u2013Mild',color:'#84cc16',interp:'Some symptoms present. Monitor closely.'},
-        {min:71,max:108,label:'Moderate',color:'var(--accent-amber)',interp:'Moderate symptom burden. Active management.'},
+        {min:71,max:108,label:'Moderate',color:'var(--amber)',interp:'Moderate symptom burden. Active management.'},
         {min:109,max:168,label:'Severe',color:'#ef4444',interp:'Scores in this range indicate severe psychiatric symptom burden. Scores at this level indicate the need for urgent clinical assessment.'}
       ],
       cutoffs:[{range:'24\u201340',label:'Normal',action:'Monitor'},{range:'41\u201370',label:'Mild',action:'Outpatient'},{range:'71\u2013108',label:'Moderate',action:'Active treatment'},{range:'109+',label:'Severe',action:'Urgent care'}],
@@ -11798,7 +12486,7 @@ export async function pgClinicalScoringCalc(setTopbar) {
       ],
       severity:[
         {min:0,max:17,label:'Moderate-Severe Impairment',color:'#ef4444',interp:'Scores in this range indicate significant cognitive impairment (score interpretation only \u2014 clinical assessment required). Neuropsychological evaluation and neurology referral may be warranted.'},
-        {min:18,max:22,label:'Mild Impairment',color:'var(--accent-amber)',interp:'Mild cognitive impairment (MCI) range. Longitudinal monitoring and lifestyle interventions.'},
+        {min:18,max:22,label:'Mild Impairment',color:'var(--amber)',interp:'Mild cognitive impairment (MCI) range. Longitudinal monitoring and lifestyle interventions.'},
         {min:23,max:25,label:'Low Normal',color:'#84cc16',interp:'Low normal. Consider education adjustment (+1 if \u226412 years education). Retest in 12 months.'},
         {min:26,max:30,label:'Normal',color:'#22c55e',interp:'Within normal limits (\u226526). No significant cognitive impairment detected.'}
       ],
@@ -11818,7 +12506,7 @@ export async function pgClinicalScoringCalc(setTopbar) {
       severity:[
         {min:0,max:9,label:'Severe Dementia',color:'#ef4444',interp:'Severe dementia. Specialist care required.'},
         {min:10,max:18,label:'Moderate Dementia',color:'#f97316',interp:'Moderate dementia. Structured care planning and safety assessment.'},
-        {min:19,max:23,label:'Mild Dementia',color:'var(--accent-amber)',interp:'Mild dementia. Consider cholinesterase inhibitors. Cognitive rehabilitation.'},
+        {min:19,max:23,label:'Mild Dementia',color:'var(--amber)',interp:'Mild dementia. Consider cholinesterase inhibitors. Cognitive rehabilitation.'},
         {min:24,max:30,label:'Normal',color:'#22c55e',interp:'Normal range. Repeat annually.'}
       ],
       cutoffs:[{range:'24\u201330',label:'Normal',action:'Annual screen'},{range:'19\u201323',label:'Mild dementia',action:'Medication + rehab'},{range:'10\u201318',label:'Moderate',action:'Structured care'},{range:'0\u20139',label:'Severe',action:'Specialist care'}],
@@ -11835,7 +12523,7 @@ export async function pgClinicalScoringCalc(setTopbar) {
       ],
       severity:[
         {min:0,max:1,label:'Low Risk',color:'#22c55e',interp:'Low risk. Provide brief alcohol education.'},
-        {min:2,max:2,label:'Possible AUD',color:'var(--accent-amber)',interp:'Score of 2 suggests possible alcohol use disorder. Brief intervention and further assessment.'},
+        {min:2,max:2,label:'Possible AUD',color:'var(--amber)',interp:'Score of 2 suggests possible alcohol use disorder. Brief intervention and further assessment.'},
         {min:3,max:4,label:'Probable AUD / Dependence',color:'#ef4444',interp:'Scores in this range are associated with probable alcohol dependence in validated research (screening result only). Formal clinical assessment and specialist referral recommended.'}
       ],
       cutoffs:[{range:'0\u20131',label:'Low risk',action:'Brief education'},{range:'2',label:'Possible AUD',action:'Brief intervention'},{range:'3\u20134',label:'Probable dependence',action:'Specialist referral'}],
@@ -11851,7 +12539,7 @@ export async function pgClinicalScoringCalc(setTopbar) {
       ],
       severity:[
         {min:0,max:2,label:'Low Risk',color:'#22c55e',interp:'Low-risk drinking. Provide education on safe limits.'},
-        {min:3,max:4,label:'Hazardous / Harmful',color:'var(--accent-amber)',interp:'Hazardous/harmful drinking. Brief counselling recommended.'},
+        {min:3,max:4,label:'Hazardous / Harmful',color:'var(--amber)',interp:'Hazardous/harmful drinking. Brief counselling recommended.'},
         {min:5,max:12,label:'Probable AUD',color:'#ef4444',interp:'Scores in this range are associated with probable alcohol use disorder (screening result only). Full AUDIT and clinical assessment needed.'}
       ],
       cutoffs:[{range:'0\u20132',label:'Low risk',action:'Education'},{range:'3\u20134',label:'Hazardous',action:'Brief counselling'},{range:'5\u201312',label:'Probable AUD',action:'Full assessment'}],

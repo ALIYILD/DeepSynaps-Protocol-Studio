@@ -3,16 +3,18 @@
 Handles EDF file upload, spectral analysis, AI interpretation,
 pre/post comparison, prediction, and correlation.
 """
+import hashlib
 import html as html_mod
 import json
 import logging
 import math
+import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -24,15 +26,21 @@ from app.auth import (
 )
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.limiter import limiter
 from app.persistence.models import (
     AiSummaryAudit,
     Patient,
     QEEGAnalysis,
     QEEGAIReport,
     QEEGComparison,
+    QEEGProtocolFit,
     QEEGRecord,
+    QEEGReportAudit,
+    QEEGReportFinding,
+    QEEGTimelineEvent,
 )
 from app.repositories.patients import resolve_patient_clinic_id
+from app.services.evidence_intelligence import list_saved_citations
 from app.settings import get_settings
 
 _log = logging.getLogger(__name__)
@@ -60,12 +68,23 @@ except Exception:  # pragma: no cover
     recommend_protocols = None  # type: ignore[assignment]
     summarize_for_recommender = None  # type: ignore[assignment]
     ProtocolLibrary = None  # type: ignore[assignment]
+    _log.warning(
+        "deepsynaps_qeeg.recommender not available — "
+        "qEEG protocol recommendation endpoints will return 503"
+    )
 
 # ── Max upload size for EDF files (100 MB) ───────────────────────────────────
 _MAX_EDF_BYTES = 100 * 1024 * 1024
 
 # ── Allowed extensions ───────────────────────────────────────────────────────
 _ALLOWED_EXTENSIONS = {".edf", ".edf+", ".bdf", ".bdf+", ".eeg"}
+
+# ── Max clinical-context survey JSON size ────────────────────────────────────
+# The survey is later inlined verbatim into the LLM prompt by /ai-report, so
+# this cap is effectively a per-upload LLM-cost cap. 16 KB is well above any
+# realistic v1-schema submission while staying inside Anthropic's prompt
+# budget for the rest of the report.
+_MAX_SURVEY_JSON_BYTES = 16 * 1024
 
 # ── EDF magic bytes check ────────────────────────────────────────────────────
 _EDF_MAGIC = b"0       "  # EDF files start with "0" followed by 7 spaces
@@ -196,7 +215,7 @@ class AnalysisOut(BaseModel):
             analysis_error=r.analysis_error,
             band_powers=_maybe_json_loads(r.band_powers_json),
             artifact_rejection=_maybe_json_loads(r.artifact_rejection_json),
-            advanced_analyses=_maybe_json_loads(r.advanced_analyses_json),
+            advanced_analyses=_maybe_json_loads(getattr(r, "advanced_analyses_json", None)),
             aperiodic=_maybe_json_loads(getattr(r, "aperiodic_json", None)),
             peak_alpha_freq=_maybe_json_loads(getattr(r, "peak_alpha_freq_json", None)),
             connectivity=_maybe_json_loads(getattr(r, "connectivity_json", None)),
@@ -247,6 +266,14 @@ class AIReportOut(BaseModel):
     confidence_note: Optional[str] = None
     clinician_reviewed: bool
     clinician_amendments: Optional[str] = None
+    report_state: Optional[str] = None
+    reviewer_id: Optional[str] = None
+    model_version: Optional[str] = None
+    prompt_version: Optional[str] = None
+    report_version: Optional[str] = None
+    claim_governance: Optional[list] = None
+    signed_by: Optional[str] = None
+    signed_at: Optional[str] = None
     created_at: str
 
     @classmethod
@@ -264,8 +291,83 @@ class AIReportOut(BaseModel):
             confidence_note=r.confidence_note,
             clinician_reviewed=r.clinician_reviewed,
             clinician_amendments=r.clinician_amendments,
+            report_state=r.report_state,
+            reviewer_id=r.reviewer_id,
+            model_version=r.model_version,
+            prompt_version=r.prompt_version,
+            report_version=r.report_version,
+            claim_governance=json.loads(r.claim_governance_json) if r.claim_governance_json else None,
+            signed_by=r.signed_by,
+            signed_at=r.signed_at.isoformat() if r.signed_at else None,
             created_at=r.created_at.isoformat() if r.created_at else "",
         )
+
+
+class ReportStateTransitionIn(BaseModel):
+    action: str
+    note: Optional[str] = None
+
+
+class ReportFindingUpdateIn(BaseModel):
+    status: str
+    clinician_note: Optional[str] = None
+    amended_text: Optional[str] = None
+
+
+class SafetyCockpitOut(BaseModel):
+    checks: list[dict]
+    red_flags: list[dict]
+    overall_status: str
+    disclaimer: str
+
+
+class RedFlagsOut(BaseModel):
+    flags: list[dict]
+    flag_count: int
+    high_severity_count: int
+    disclaimer: str
+
+
+class NormativeModelCardOut(BaseModel):
+    normative_db_name: Optional[str] = None
+    normative_db_version: Optional[str] = None
+    age_range: Optional[str] = None
+    eyes_condition_compatible: Optional[bool] = None
+    montage_compatible: Optional[bool] = None
+    zscore_method: Optional[str] = None
+    confidence_interval: Optional[str] = None
+    ood_warning: Optional[str] = None
+    limitations: list[str] = Field(default_factory=list)
+    complete: bool = False
+
+
+class ProtocolFitOut(BaseModel):
+    id: str
+    analysis_id: str
+    pattern_summary: str
+    symptom_linkage: Optional[dict] = None
+    contraindications: list[str] = Field(default_factory=list)
+    evidence_grade: Optional[str] = None
+    off_label_flag: bool = False
+    candidate_protocol: Optional[dict] = None
+    alternative_protocols: list[dict] = Field(default_factory=list)
+    match_rationale: Optional[str] = None
+    caution_rationale: Optional[str] = None
+    required_checks: list[str] = Field(default_factory=list)
+    clinician_reviewed: bool = False
+
+
+class TimelineEventOut(BaseModel):
+    date: str
+    event_type: str
+    title: str
+    summary: str
+    status: str
+    rci: Optional[float] = None
+    confounders: list[str] = Field(default_factory=list)
+    ai_explanation: Optional[str] = None
+    confidence: Optional[str] = None
+    source: str
 
 
 class ComparisonOut(BaseModel):
@@ -470,6 +572,50 @@ def _enrich_comparison_payload(
     })
 
 
+# ── Channel anatomy lookup ───────────────────────────────────────────────────
+try:
+    from deepsynaps_qeeg.knowledge.channel_anatomy import explain_channel
+except Exception:  # pragma: no cover
+    explain_channel = None  # type: ignore[assignment]
+
+_LEGACY_CHANNEL_MAP = {"T3": "T7", "T4": "T8", "T5": "P7", "T6": "P8"}
+
+def _normalize_channel_name(name: str) -> str:
+    """Strip reference suffixes (-Av, -Ref, -Cz, etc.), title-case, and map legacy 10-20 names."""
+    base = name.strip()
+    for suffix in ("-Av", "-Ref", "-Cz", "-A1", "-A2", "-M1", "-M2", "-Avg", "-Average"):
+        if base.upper().endswith(suffix.upper()):
+            base = base[: -len(suffix)]
+            break
+    # Title-case: FP1 → Fp1, CZ → Cz
+    base = base[:1].upper() + base[1:].lower() if len(base) > 1 else base.upper()
+    # Map legacy T3/T4/T5/T6 → modern T7/T8/P7/P8
+    return _LEGACY_CHANNEL_MAP.get(base, base)
+
+class ChannelAnatomyResponse(BaseModel):
+    channel: str
+    cortical_region: str
+    brodmann_areas: str
+    functional_networks: str
+    common_artifacts: str
+    clinical_relevance: str
+    notes: str
+
+@router.get("/channel-anatomy/{channel_name}", response_model=ChannelAnatomyResponse)
+async def channel_anatomy(
+    channel_name: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> ChannelAnatomyResponse:
+    """Return functional anatomy, Brodmann areas, networks and artifacts for a 10-20 channel."""
+    if explain_channel is None:
+        raise ApiServiceError("Channel anatomy knowledge module not available", status_code=503)
+    normalized = _normalize_channel_name(channel_name)
+    data = explain_channel(normalized)
+    if data is None:
+        raise ApiServiceError(f"Unknown channel: {channel_name}", status_code=404)
+    return ChannelAnatomyResponse(**data)
+
+
 # ── Upload EDF File ──────────────────────────────────────────────────────────
 
 @router.post("/upload", response_model=AnalysisOut, status_code=201)
@@ -480,10 +626,17 @@ async def upload_edf(
     eyes_condition: Optional[str] = Form(default=None),
     equipment: Optional[str] = Form(default=None),
     course_id: Optional[str] = Form(default=None),
+    survey_json: Optional[str] = Form(default=None),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> AnalysisOut:
-    """Upload an EDF/BDF/EEG file for qEEG analysis."""
+    """Upload an EDF/BDF/EEG file for qEEG analysis.
+
+    Optional ``survey_json`` carries the frontend clinical-context survey
+    (schema ``deepsynaps.qeeg_clinical_context.v1``). When supplied, it is
+    wrapped in stable delimiters and stored on the linked QEEGRecord so
+    :func:`generate_ai_report_endpoint` can surface it to the LLM.
+    """
     require_minimum_role(actor, "clinician")
     _gate_patient_access(actor, patient_id, db)
 
@@ -534,6 +687,35 @@ async def upload_edf(
         settings=settings,
     )
 
+    # If the caller supplied a clinical-context survey, validate and wrap it
+    # in stable delimiters so /ai-report can recover it verbatim later.
+    wrapped_survey_notes: Optional[str] = None
+    if survey_json:
+        # Hard cap on survey size — the field is later inlined verbatim into
+        # the LLM prompt by /ai-report, so an attacker who can submit a
+        # 5 MB survey blob can drive arbitrary token spend per analysis.
+        # 16 KB is well above any realistic clinical-context survey.
+        if len(survey_json) > _MAX_SURVEY_JSON_BYTES:
+            raise ApiServiceError(
+                code="survey_too_large",
+                message=(
+                    f"survey_json exceeds {_MAX_SURVEY_JSON_BYTES} bytes; "
+                    "trim non-essential free-text before resubmitting."
+                ),
+                status_code=422,
+            )
+
+        from app.services.qeeg_context_extractor import wrap_qeeg_context
+
+        try:
+            wrapped_survey_notes = wrap_qeeg_context(survey_json)
+        except ValueError as exc:
+            raise ApiServiceError(
+                code="invalid_survey_json",
+                message=f"survey_json is not valid JSON: {exc}",
+                status_code=422,
+            )
+
     # Create a linked QEEGRecord (for backward compatibility)
     qeeg_record = QEEGRecord(
         patient_id=patient_id,
@@ -544,6 +726,7 @@ async def upload_edf(
         equipment=equipment,
         eyes_condition=eyes_condition,
         raw_data_ref=file_ref,
+        summary_notes=wrapped_survey_notes,
     )
     db.add(qeeg_record)
     db.flush()
@@ -567,7 +750,14 @@ async def upload_edf(
     db.commit()
     db.refresh(analysis)
 
-    _log.info("EDF uploaded: %s (%d bytes) for patient %s", filename, len(file_bytes), patient_id)
+    # Log without raw patient_id — short SHA prefix lets ops correlate
+    # records via the audit table without writing PHI to disk.
+    _log.info(
+        "EDF uploaded: %s (%d bytes) patient=%s",
+        filename,
+        len(file_bytes),
+        hashlib.sha256(patient_id.encode("utf-8")).hexdigest()[:12],
+    )
     return AnalysisOut.from_record(analysis)
 
 
@@ -861,29 +1051,92 @@ def get_analysis(
     return AnalysisOut.from_record(analysis)
 
 
+@router.get("/{analysis_id}/brain.json")
+def get_analysis_brain_payload(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict:
+    """Return a compact 3D brain surface payload for the qEEG web viewer."""
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+
+    # Cross-clinic gate — the brain payload contains source-localised
+    # per-ROI band power and within-subject z-scores for the patient
+    # (PHI). Without this, any authenticated clinician can fetch any
+    # other clinic's analysis by guessing or scraping ids. Mirrors the
+    # canonical gate in get_analysis above.
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    if analysis.analysis_status != "completed":
+        raise ApiServiceError(code="analysis_not_ready", message="Analysis not completed", status_code=400)
+
+    source_raw = getattr(analysis, "source_roi_json", None)
+    if not source_raw:
+        raise ApiServiceError(
+            code="source_unavailable",
+            message="Source localization output unavailable for this analysis",
+            status_code=404,
+        )
+    try:
+        source_payload = json.loads(source_raw)
+    except (TypeError, ValueError):
+        raise ApiServiceError(code="source_unavailable", message="Malformed source payload", status_code=500)
+
+    roi_band_power = (source_payload or {}).get("roi_band_power") if isinstance(source_payload, dict) else None
+    if not isinstance(roi_band_power, dict) or not roi_band_power:
+        raise ApiServiceError(
+            code="source_unavailable",
+            message="Source localization payload missing roi_band_power",
+            status_code=404,
+        )
+
+    try:
+        from deepsynaps_qeeg.viz.web_payload import build_brain_payload
+    except Exception as exc:
+        raise ApiServiceError(
+            code="qeeg_web_viewer_unavailable",
+            message=f"Web viewer payload builder unavailable: {str(exc)[:200]}",
+            status_code=503,
+        )
+
+    subjects_dir = os.getenv("MNE_SUBJECTS_DIR") or None
+    return build_brain_payload(roi_band_power, subjects_dir=subjects_dir, subject="fsaverage")
+
+
 # ── List Analyses for Patient ────────────────────────────────────────────────
 
 @router.get("/patient/{patient_id}", response_model=AnalysisListResponse)
 def list_patient_analyses(
     patient_id: str,
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> AnalysisListResponse:
-    """List all qEEG analyses for a patient."""
+    """List qEEG analyses for a patient with pagination.
+
+    `total` is the full filter match so the UI can paginate; `items` is the
+    requested window. Default page is 50; previous behaviour silently capped
+    at 100 which masked overflow on high-volume patients.
+    """
     require_minimum_role(actor, "clinician")
     _gate_patient_access(actor, patient_id, db)
 
-    analyses = (
+    base = (
         db.query(QEEGAnalysis)
         .filter_by(patient_id=patient_id)
         .order_by(QEEGAnalysis.created_at.desc())
-        .limit(100)
-        .all()
     )
+    total = base.count()
+    analyses = list(base.offset(offset).limit(limit).all())
 
     return AnalysisListResponse(
         items=[AnalysisOut.from_record(a) for a in analyses],
-        total=len(analyses),
+        total=total,
     )
 
 
@@ -895,7 +1148,9 @@ class AIReportRequest(BaseModel):
 
 
 @router.post("/{analysis_id}/ai-report", response_model=AIReportOut, status_code=201)
+@limiter.limit("20/minute")
 async def generate_ai_report_endpoint(
+    request: Request,
     analysis_id: str,
     body: AIReportRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
@@ -908,6 +1163,13 @@ async def generate_ai_report_endpoint(
     if not analysis:
         raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
 
+    # Cross-clinic gate — the AI report inlines the linked QEEGRecord's
+    # clinical-context survey (PR #166) plus full band-power features
+    # into the LLM prompt. Without this gate any clinician could fan
+    # out arbitrary analysis_id values and exfiltrate another clinic's
+    # PHI-rich survey + AI narrative.
+    _gate_patient_access(actor, analysis.patient_id, db)
+
     if analysis.analysis_status != "completed" or not analysis.band_powers_json:
         raise ApiServiceError(
             code="analysis_not_ready",
@@ -919,6 +1181,10 @@ async def generate_ai_report_endpoint(
 
     # Deterministic condition matching
     from app.services.qeeg_ai_interpreter import match_condition_patterns, generate_ai_report
+    from app.services.qeeg_context_extractor import (
+        extract_qeeg_context,
+        format_context_for_prompt,
+    )
 
     # ── Load the new CONTRACT §1.1 feature dict if Agent B's pipeline wrote it.
     # Every column is nullable; when all are None we fall back to the legacy
@@ -995,6 +1261,27 @@ async def generate_ai_report_endpoint(
         features if features is not None else band_powers
     )
 
+    # Auto-surface any clinician-supplied clinical-context survey that was
+    # embedded in the linked QEEGRecord's notes. Lets the LLM see recording
+    # confounders (caffeine, sleep, meds), prior neuromodulation history,
+    # and red-flag screen results alongside the band powers.
+    merged_patient_context = body.patient_context or None
+    survey_sources_used: list[str] = []
+    if analysis.qeeg_record_id:
+        linked_record = (
+            db.query(QEEGRecord).filter_by(id=analysis.qeeg_record_id).first()
+        )
+        if linked_record is not None:
+            survey_ctx = extract_qeeg_context(linked_record.summary_notes)
+            if survey_ctx:
+                survey_block = format_context_for_prompt(survey_ctx)
+                merged_patient_context = (
+                    f"{survey_block}\n\n{body.patient_context}"
+                    if body.patient_context
+                    else survey_block
+                )
+                survey_sources_used.append("qeeg_clinical_context_survey_v1")
+
     # Generate AI report (RAG-grounded when pipeline features are present).
     report_result = await generate_ai_report(
         band_powers=band_powers,
@@ -1002,7 +1289,7 @@ async def generate_ai_report_endpoint(
         zscores=zscores,
         flagged_conditions=flagged_conditions,
         quality=quality,
-        patient_context=body.patient_context,
+        patient_context=merged_patient_context,
         condition_matches=condition_matches,
         report_type=body.report_type,
         db_session=db,
@@ -1010,6 +1297,22 @@ async def generate_ai_report_endpoint(
 
     report_data = report_result.get("data", {})
     literature_refs = report_result.get("literature_refs") or []
+
+    # ── Clinical Safety Cockpit (CONTRACT §1.2) ──────────────────────────
+    from app.services.qeeg_safety_engine import compute_safety_cockpit, compute_interpretability_status
+
+    cockpit = compute_safety_cockpit(analysis)
+    analysis.safety_cockpit_json = json.dumps(cockpit)
+    analysis.interpretability_status = compute_interpretability_status(cockpit)
+
+    # ── Claim Governance (CONTRACT §1.3) ─────────────────────────────────
+    from app.services.qeeg_claim_governance import classify_claims, sanitize_for_patient
+
+    # Pass the full report dict to classify_claims (it expects a dict, not a string)
+    governance = classify_claims(report_data)
+
+    # ── Patient-facing report ──────────────────────────────────────────────
+    patient_report = sanitize_for_patient(report_data)
 
     # Save report — persist literature_refs so the frontend can render
     # numbered citations alongside the narrative (CONTRACT §5.5).
@@ -1026,8 +1329,36 @@ async def generate_ai_report_endpoint(
         model_used=report_result.get("model_used"),
         prompt_hash=report_result.get("prompt_hash"),
         confidence_note=report_data.get("confidence_level"),
+        report_state="DRAFT_AI",
+        model_version=report_result.get("model_used"),
+        prompt_version=report_result.get("prompt_hash"),
+        report_version="1.0.0",
+        claim_governance_json=json.dumps(governance),
+        patient_facing_report_json=json.dumps(patient_report),
     )
     db.add(report)
+    db.commit()
+    db.refresh(report)
+
+    # ── Per-finding records (CONTRACT §1.4) ──────────────────────────────
+    for idx, finding in enumerate(report_data.get("findings", [])):
+        finding_text = finding.get("description", "")
+        # Build a minimal report-shaped dict so classify_claims can process the finding
+        finding_gov = classify_claims({"findings": [{"observation": finding_text}]})
+        # classify_claims returns a list of classified findings
+        claim_type = "INFERRED"
+        if finding_gov and len(finding_gov) > 0:
+            claim_type = finding_gov[0].get("claim_type", "INFERRED")
+
+        rf = QEEGReportFinding(
+            report_id=report.id,
+            finding_text=finding_text,
+            claim_type=claim_type,
+            evidence_grade="C" if claim_type in ("INFERRED", "UNSUPPORTED") else "B",
+        )
+        db.add(rf)
+
+    db.commit()
 
     # Audit log — include qeeg_rag_literature in sources_used when RAG
     # actually returned references (CONTRACT §5.6).
@@ -1042,12 +1373,11 @@ async def generate_ai_report_endpoint(
         summary_type="qeeg_analysis",
         prompt_hash=report_result.get("prompt_hash"),
         response_preview=str(report_data.get("executive_summary", ""))[:200],
-        sources_used=json.dumps(sources_used),
+        sources_used=json.dumps([*sources_used, *survey_sources_used]),
         model_used=report_result.get("model_used"),
     )
     db.add(audit)
     db.commit()
-    db.refresh(report)
 
     return AIReportOut.from_record(report)
 
@@ -1344,6 +1674,11 @@ async def stream_analysis_events(
     """
     require_minimum_role(actor, "clinician")
 
+    # Cross-clinic ownership gate — analysis.patient_id must belong to actor's clinic.
+    _ownership_row = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if _ownership_row is not None:
+        _gate_patient_access(actor, _ownership_row.patient_id, db)
+
     # In test runs, keep the SSE endpoint deterministic and single-shot to
     # avoid TestClient streaming quirks and SQLite connection-scope surprises.
     try:
@@ -1623,6 +1958,7 @@ def _build_confidence_bar(confidence: float) -> str:
 def _render_report_html(
     report: QEEGAIReport,
     analysis: QEEGAnalysis,
+    saved_citations: Optional[list[dict]] = None,
 ) -> str:
     """Build a print-optimized HTML page from a qEEG AI report."""
     narrative = json.loads(report.ai_narrative_json) if report.ai_narrative_json else {}
@@ -1688,6 +2024,33 @@ def _render_report_html(
             else:
                 ref_items.append(f"<li>{_esc(str(ref))}</li>")
         refs_html = "<h2>Literature References</h2><ol>" + "".join(ref_items) + "</ol>"
+
+    saved_refs_html = ""
+    if saved_citations:
+        ref_items = []
+        for citation in saved_citations:
+            payload = citation.get("citation_payload") if isinstance(citation, dict) else {}
+            payload = payload if isinstance(payload, dict) else {}
+            title = _esc(
+                payload.get("title")
+                or citation.get("title")
+                or payload.get("citation")
+                or "Untitled citation"
+            )
+            source = _esc(payload.get("journal") or payload.get("source") or "")
+            year = _esc(payload.get("year") or "")
+            url = _esc(payload.get("url") or payload.get("record_url") or payload.get("doi_url") or "")
+            summary = _esc(payload.get("abstract") or payload.get("summary") or "")
+            parts = [title]
+            meta = " · ".join(part for part in [source, year] if part)
+            if meta:
+                parts.append(f"<span style=\"color:#6b7280;\">{meta}</span>")
+            if url:
+                parts.append(f'<div><a href="{url}">{url}</a></div>')
+            if summary:
+                parts.append(f"<div>{summary}</div>")
+            ref_items.append("<li>" + "".join(parts) + "</li>")
+        saved_refs_html = "<h2>Saved Evidence Citations</h2><ol>" + "".join(ref_items) + "</ol>"
 
     # Metadata
     report_date = report.created_at.strftime("%Y-%m-%d %H:%M UTC") if report.created_at else "N/A"
@@ -1823,12 +2186,14 @@ def _render_report_html(
   {conditions_html}
   {protocols_html}
   {refs_html}
+  {saved_refs_html}
 
   {"<h2>Clinician Amendments</h2><p>" + _esc(report.clinician_amendments) + "</p>" if report.clinician_amendments else ""}
 
   <div class="disclaimer">
-    <strong>Clinical Disclaimer:</strong> This report was generated by an AI system and is intended
-    to assist qualified clinicians in their assessment. It does not constitute a clinical diagnosis.
+    <strong>Disclaimer:</strong> Research and wellness use only. This report was generated by an AI
+    system to assist qualified clinicians in their assessment. It is informational and is not a
+    medical diagnosis or treatment recommendation. Discuss any findings with a qualified clinician.
     All findings should be reviewed and validated by a licensed healthcare professional in the
     context of the patient&rsquo;s full clinical history.
     {"<br><em>This report has been reviewed by the attending clinician.</em>" if report.clinician_reviewed else "<br><em>This report has NOT yet been reviewed by a clinician.</em>"}
@@ -1859,11 +2224,24 @@ def export_report_html(
     if not analysis:
         raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
 
+    # Cross-clinic ownership gate. Without this, a clinician at clinic A
+    # who guesses or harvests an analysis_id from clinic B can pull the
+    # PDF directly. Every other report-fetching endpoint in this router
+    # already calls _gate_patient_access; this one was missed in Phase 2.
+    _gate_patient_access(actor, analysis.patient_id, db)
+
     report = db.query(QEEGAIReport).filter_by(id=report_id, analysis_id=analysis_id).first()
     if not report:
         raise ApiServiceError(code="not_found", message="Report not found", status_code=404)
 
-    html_content = _render_report_html(report, analysis)
+    saved_citations = list_saved_citations(
+        analysis.patient_id,
+        db,
+        context_kind="qeeg",
+        analysis_id=analysis_id,
+        report_id=report_id,
+    )
+    html_content = _render_report_html(report, analysis, saved_citations=saved_citations)
     short_id = report_id[:8]
 
     return HTMLResponse(
@@ -2901,7 +3279,8 @@ class RecommendationsResponse(BaseModel):
     contraindications: list[dict] = Field(default_factory=list)
     rules_fired: list[dict] = Field(default_factory=list)
     disclaimer: str = (
-        "Decision support only. Not a diagnosis or treatment recommendation. Clinician supervision required."
+        "Research and wellness use only. Decision-support output requires clinician supervision and "
+        "is not a medical diagnosis or treatment recommendation. Discuss any findings with a qualified clinician."
     )
 
 
@@ -2920,13 +3299,16 @@ def get_recommendations_endpoint(
         raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
 
     if recommend_protocols is None or summarize_for_recommender is None:
-        return RecommendationsResponse(
-            analysis_id=analysis_id,
-            success=False,
-            recommendations=[],
-            contraindications=[],
-            rules_fired=[],
-            disclaimer=RecommendationsResponse().disclaimer,
+        raise ApiServiceError(
+            code="feature_unavailable",
+            message="qEEG protocol recommendations are unavailable.",
+            status_code=503,
+            details={
+                "feature": "qeeg_protocol_recommendations",
+                "status": "unavailable",
+                "reason": "The deepsynaps_qeeg.recommender package is not installed in this environment.",
+                "remediation": "Install the deepsynaps-qeeg-pipeline package with the recommender extra.",
+            },
         )
 
     # Build a minimal pipeline_result-like payload for summarization.
@@ -3039,3 +3421,502 @@ def patient_trajectory_endpoint(
             is_stub=True,
             trajectory=None,
         )
+
+
+# CONTRACT_V3 §5.1 / §5.2 — FHIR + BIDS exports.
+@router.get("/{analysis_id}/export/fhir")
+def export_qeeg_fhir(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> Response:
+    """Export a qEEG analysis as a FHIR R4 Bundle document."""
+    require_minimum_role(actor, "clinician")
+
+    from app.services import fhir_export
+
+    row = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if row is None:
+        raise ApiServiceError(
+            code="not_found", message="Analysis not found", status_code=404,
+        )
+    bundle = fhir_export.qeeg_to_fhir_bundle(row)
+    return Response(
+        content=json.dumps(bundle, indent=2),
+        media_type="application/fhir+json",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="qeeg_fhir_{analysis_id}.json"'
+            ),
+        },
+    )
+
+
+@router.get("/{analysis_id}/safety-cockpit", response_model=SafetyCockpitOut)
+def get_safety_cockpit(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> SafetyCockpitOut:
+    """Return the clinical safety cockpit for a qEEG analysis."""
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    from app.services.qeeg_safety_engine import compute_safety_cockpit
+
+    # Use persisted cockpit if available, else compute on-the-fly
+    cockpit = None
+    if analysis.safety_cockpit_json:
+        try:
+            cockpit = json.loads(analysis.safety_cockpit_json)
+        except (TypeError, ValueError):
+            pass
+    if cockpit is None:
+        cockpit = compute_safety_cockpit(analysis)
+        analysis.safety_cockpit_json = json.dumps(cockpit)
+        db.commit()
+    return SafetyCockpitOut(**cockpit)
+
+
+@router.get("/{analysis_id}/red-flags", response_model=RedFlagsOut)
+def get_red_flags(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> RedFlagsOut:
+    """Return red-flag detector output for a qEEG analysis."""
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    from app.services.qeeg_safety_engine import detect_red_flags
+
+    flags = None
+    if analysis.red_flags_json:
+        try:
+            flags = json.loads(analysis.red_flags_json)
+        except (TypeError, ValueError):
+            pass
+    if flags is None:
+        notes = None
+        if analysis.qeeg_record_id:
+            qeeg_record = db.query(QEEGRecord).filter_by(id=analysis.qeeg_record_id).first()
+            if qeeg_record:
+                notes = qeeg_record.summary_notes
+        flags = detect_red_flags(analysis, notes=notes)
+        analysis.red_flags_json = json.dumps(flags)
+        db.commit()
+    return RedFlagsOut(**flags)
+
+
+@router.get("/{analysis_id}/normative-model-card", response_model=NormativeModelCardOut)
+def get_normative_model_card(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> NormativeModelCardOut:
+    """Return normative model metadata for a qEEG analysis."""
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    meta = None
+    if analysis.normative_metadata_json:
+        try:
+            meta = json.loads(analysis.normative_metadata_json)
+        except (TypeError, ValueError):
+            pass
+
+    if meta:
+        return NormativeModelCardOut(**meta)
+
+    # Build from norm_db_version and best-guess defaults
+    norm_db = analysis.norm_db_version or "unknown"
+    return NormativeModelCardOut(
+        normative_db_name="DeepSynaps Normative",
+        normative_db_version=norm_db,
+        age_range="18–65 years (default)",
+        eyes_condition_compatible=bool(analysis.eyes_condition),
+        montage_compatible=True,
+        zscore_method="GAMLSS centiles with log-normal absolute power",
+        confidence_interval="95%",
+        ood_warning="Out-of-distribution detection not configured for this normative database.",
+        limitations=[
+            "Normative data may not represent the patient's specific demographic.",
+            "Z-scores are descriptive, not diagnostic.",
+        ],
+        complete=False,
+    )
+
+
+@router.post("/{analysis_id}/protocol-fit", response_model=ProtocolFitOut)
+def compute_protocol_fit_endpoint(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> ProtocolFitOut:
+    """Compute and persist a protocol-fit recommendation."""
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    patient = db.query(Patient).filter_by(id=analysis.patient_id).first()
+    if not patient:
+        raise ApiServiceError(code="not_found", message="Patient not found", status_code=404)
+
+    from app.services.qeeg_protocol_fit import compute_protocol_fit
+
+    fit = compute_protocol_fit(analysis, patient, db)
+    db.commit()
+    db.refresh(fit)
+    return ProtocolFitOut(
+        id=fit.id,
+        analysis_id=fit.analysis_id,
+        pattern_summary=fit.pattern_summary,
+        symptom_linkage=json.loads(fit.symptom_linkage_json) if fit.symptom_linkage_json else None,
+        contraindications=json.loads(fit.contraindications_json) if fit.contraindications_json else [],
+        evidence_grade=fit.evidence_grade,
+        off_label_flag=fit.off_label_flag,
+        candidate_protocol=json.loads(fit.candidate_protocol_json) if fit.candidate_protocol_json else None,
+        alternative_protocols=json.loads(fit.alternative_protocols_json) if fit.alternative_protocols_json else [],
+        match_rationale=fit.match_rationale,
+        caution_rationale=fit.caution_rationale,
+        required_checks=json.loads(fit.required_checks_json) if fit.required_checks_json else [],
+        clinician_reviewed=fit.clinician_reviewed,
+    )
+
+
+@router.get("/{analysis_id}/protocol-fit", response_model=ProtocolFitOut)
+def get_protocol_fit_endpoint(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> ProtocolFitOut:
+    """Return the persisted protocol-fit recommendation."""
+    require_minimum_role(actor, "clinician")
+    fit = db.query(QEEGProtocolFit).filter_by(analysis_id=analysis_id).order_by(QEEGProtocolFit.created_at.desc()).first()
+    if not fit:
+        raise ApiServiceError(code="not_found", message="Protocol fit not found. Run POST first.", status_code=404)
+    _gate_patient_access(actor, fit.patient_id, db)
+    return ProtocolFitOut(
+        id=fit.id,
+        analysis_id=fit.analysis_id,
+        pattern_summary=fit.pattern_summary,
+        symptom_linkage=json.loads(fit.symptom_linkage_json) if fit.symptom_linkage_json else None,
+        contraindications=json.loads(fit.contraindications_json) if fit.contraindications_json else [],
+        evidence_grade=fit.evidence_grade,
+        off_label_flag=fit.off_label_flag,
+        candidate_protocol=json.loads(fit.candidate_protocol_json) if fit.candidate_protocol_json else None,
+        alternative_protocols=json.loads(fit.alternative_protocols_json) if fit.alternative_protocols_json else [],
+        match_rationale=fit.match_rationale,
+        caution_rationale=fit.caution_rationale,
+        required_checks=json.loads(fit.required_checks_json) if fit.required_checks_json else [],
+        clinician_reviewed=fit.clinician_reviewed,
+    )
+
+
+@router.post("/reports/{report_id}/transition")
+def transition_report_state_endpoint(
+    report_id: str,
+    body: ReportStateTransitionIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Transition an AI report through its review workflow."""
+    require_minimum_role(actor, "clinician")
+    report = db.query(QEEGAIReport).filter_by(id=report_id).first()
+    if not report:
+        raise ApiServiceError(code="not_found", message="Report not found", status_code=404)
+    _gate_patient_access(actor, report.patient_id, db)
+
+    from app.services.qeeg_clinician_review import transition_report_state
+
+    report = transition_report_state(report, body.action, actor, db, note=body.note)
+    db.commit()
+    db.refresh(report)
+    return {"id": report.id, "report_state": report.report_state, "reviewer_id": report.reviewer_id, "reviewed_at": report.reviewed_at.isoformat() if report.reviewed_at else None}
+
+
+@router.post("/reports/{report_id}/findings/{finding_id}")
+def update_report_finding_endpoint(
+    report_id: str,
+    finding_id: str,
+    body: ReportFindingUpdateIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Update a single finding's review status."""
+    require_minimum_role(actor, "clinician")
+    report = db.query(QEEGAIReport).filter_by(id=report_id).first()
+    if not report:
+        raise ApiServiceError(code="not_found", message="Report not found", status_code=404)
+    _gate_patient_access(actor, report.patient_id, db)
+
+    from app.services.qeeg_clinician_review import update_finding_status
+
+    finding = update_finding_status(finding_id, body.status, body.clinician_note, body.amended_text, actor, db)
+    db.commit()
+    return {"id": finding.id, "status": finding.status, "claim_type": finding.claim_type}
+
+
+@router.post("/reports/{report_id}/sign")
+def sign_report_endpoint(
+    report_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Digitally sign-off on an approved report."""
+    require_minimum_role(actor, "clinician")
+    report = db.query(QEEGAIReport).filter_by(id=report_id).first()
+    if not report:
+        raise ApiServiceError(code="not_found", message="Report not found", status_code=404)
+    _gate_patient_access(actor, report.patient_id, db)
+
+    from app.services.qeeg_clinician_review import sign_report
+
+    report = sign_report(report_id, actor, db)
+    db.commit()
+    return {"id": report.id, "signed_by": report.signed_by, "signed_at": report.signed_at.isoformat() if report.signed_at else None}
+
+
+@router.get("/reports/{report_id}/patient-facing")
+def get_patient_facing_report(
+    report_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Return the sanitized patient-facing version of an AI report.
+
+    Gated: report must be approved (or reviewed with amendments) before
+    the patient-facing version is returned.
+    """
+    require_minimum_role(actor, "clinician")
+    report = db.query(QEEGAIReport).filter_by(id=report_id).first()
+    if not report:
+        raise ApiServiceError(code="not_found", message="Report not found", status_code=404)
+    # Phase 2 fix (audit P1-1): suppress cross-tenant access to 404 so that
+    # an actor in clinic A cannot enumerate report IDs that belong to clinic B.
+    # Previously the gate raised a 403 that revealed the row's existence.
+    try:
+        _gate_patient_access(actor, report.patient_id, db)
+    except ApiServiceError as gate_exc:
+        if getattr(gate_exc, "status_code", None) == 403:
+            raise ApiServiceError(code="not_found", message="Report not found", status_code=404) from None
+        raise
+
+    if report.report_state not in ("APPROVED", "REVIEWED_WITH_AMENDMENTS"):
+        raise ApiServiceError(
+            code="report_not_approved",
+            message="Patient-facing report is only available after clinician approval.",
+            status_code=403,
+        )
+
+    from app.services.qeeg_claim_governance import resolve_patient_facing_report
+
+    resolved = resolve_patient_facing_report(
+        ai_narrative_json=report.ai_narrative_json,
+        report_payload=getattr(report, "report_payload", None),
+        patient_facing_report_json=report.patient_facing_report_json,
+    )
+    if resolved is not None:
+        return resolved
+
+    return {"disclaimer": "Patient-facing report not yet generated.", "content": None}
+
+
+@router.get("/patient/{patient_id}/timeline", response_model=list[TimelineEventOut])
+def get_patient_timeline(
+    patient_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> list[TimelineEventOut]:
+    """Return the longitudinal DeepTwin/qEEG timeline for a patient."""
+    require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
+
+    from app.services.qeeg_timeline import build_timeline
+
+    events = build_timeline(patient_id, db)
+    return [TimelineEventOut(**e) for e in events]
+
+
+@router.post("/{analysis_id}/export-bids")
+def export_bids_package(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> StreamingResponse:
+    """Export a Clinical qEEG Package in BIDS-style zip format.
+
+    Gated: requires approved and signed-off report.
+    """
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    from app.services.qeeg_bids_export import build_bids_package
+
+    buf = build_bids_package(analysis_id, actor, db)
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="qeeg_clinical_package_{analysis_id}.zip"'
+            ),
+        },
+    )
+
+
+# ── CSV export (launch-audit 2026-04-30) ──────────────────────────────────────
+#
+# Real CSV envelope for a single qEEG analysis. Returns band-power rows
+# alongside z-scores when the analysis carries normative deviations. Used
+# by the Analyzer page for clinician-facing downloads. Never fakes data:
+# if no analysis exists, this is a 404; if no band powers exist yet,
+# rows is 0 and the response is honest about it.
+
+class QEEGCsvExportResponse(BaseModel):
+    csv: str
+    rows: int
+    generated_at: str
+    analysis_id: str
+    demo: bool = False
+
+
+def _qeeg_csv_escape(value: object) -> str:
+    if value is None:
+        return ""
+    s = str(value)
+    if any(ch in s for ch in (",", '"', "\n", "\r")):
+        return '"' + s.replace('"', '""') + '"'
+    return s
+
+
+@router.get("/{analysis_id}/export-csv", response_model=QEEGCsvExportResponse)
+def export_qeeg_csv(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> QEEGCsvExportResponse:
+    """Real per-analysis CSV download. No fake rows, no fake success toast."""
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    bands_payload = _maybe_json_loads(analysis.band_powers_json) or {}
+    bands = (bands_payload or {}).get("bands") if isinstance(bands_payload, dict) else None
+    bands = bands or {}
+    norm = _maybe_json_loads(analysis.normative_deviations_json) or {}
+
+    band_names = list(bands.keys())
+    headers = ["channel"] + band_names + [f"{b}_zscore" for b in band_names]
+    lines = [",".join(headers)]
+
+    channel_set: set[str] = set()
+    for b in band_names:
+        for ch in (bands.get(b, {}) or {}).get("channels", {}).keys():
+            channel_set.add(ch)
+
+    for ch in sorted(channel_set):
+        row: list[object] = [ch]
+        for b in band_names:
+            v = ((bands.get(b, {}) or {}).get("channels", {}) or {}).get(ch, {}).get("relative_pct")
+            row.append(round(v, 2) if isinstance(v, (int, float)) else "")
+        for b in band_names:
+            z = (norm.get(ch) or {}).get(b) if isinstance(norm, dict) else None
+            row.append(round(z, 2) if isinstance(z, (int, float)) else "")
+        lines.append(",".join(_qeeg_csv_escape(v) for v in row))
+
+    return QEEGCsvExportResponse(
+        csv="\n".join(lines),
+        rows=len(channel_set),
+        generated_at=datetime.now(timezone.utc).isoformat(),
+        analysis_id=analysis_id,
+        demo=False,
+    )
+
+
+# ── Page-level audit ingestion (launch-audit 2026-04-30) ──────────────────────
+#
+# Lightweight audit event sink for the qEEG Analyzer page. The persistence
+# table is the same one used by /api/v1/audit-trail (admins see it through
+# the `get_audit_trail` service). Ingestion is best-effort and never raises
+# back at the UI: audit-trail outages must not break clinical workflow.
+
+class QEEGAuditEventIn(BaseModel):
+    event: str = Field(..., max_length=120)
+    analysis_id: Optional[str] = Field(None, max_length=64)
+    patient_id: Optional[str] = Field(None, max_length=64)
+    note: Optional[str] = Field(None, max_length=1024)
+    using_demo_data: Optional[bool] = False
+    # Optional namespace prefix so non-qEEG surfaces (e.g. the Brain Map
+    # Planner) can reuse this endpoint while still being attributable in the
+    # audit trail. Falls back to "qeeg" for backwards-compat.
+    surface: Optional[str] = Field("qeeg", max_length=32)
+
+
+class QEEGAuditEventOut(BaseModel):
+    accepted: bool
+    event_id: str
+
+
+@router.post("/audit-events", response_model=QEEGAuditEventOut)
+def record_qeeg_audit_event(
+    payload: QEEGAuditEventIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> QEEGAuditEventOut:
+    require_minimum_role(actor, "clinician")
+    from app.repositories.audit import create_audit_event
+
+    now = datetime.now(timezone.utc)
+    # Surface prefix lets us share this endpoint across multiple clinical
+    # surfaces while still carrying provenance in the audit trail. Whitelist
+    # the prefix to avoid arbitrary user-supplied strings ending up in audit
+    # `action` rows. Default "qeeg" preserves prior behaviour.
+    raw_surface = (payload.surface or "qeeg").strip().lower()
+    surface = raw_surface if raw_surface in {"qeeg", "brain_map_planner", "session_runner", "adverse_events", "audit_trail", "reports", "documents", "quality_assurance"} else "qeeg"
+    event_id = f"{surface}-{payload.event}-{actor.actor_id}-{int(now.timestamp())}-{uuid.uuid4().hex[:6]}"
+    target_id = payload.analysis_id or payload.patient_id or actor.clinic_id or actor.actor_id
+    note_parts: list[str] = []
+    if payload.using_demo_data:
+        note_parts.append("DEMO")
+    if payload.patient_id:
+        note_parts.append(f"patient={payload.patient_id}")
+    if payload.analysis_id:
+        note_parts.append(f"analysis={payload.analysis_id}")
+    if payload.note:
+        note_parts.append(payload.note[:500])
+    note = "; ".join(note_parts) or payload.event
+
+    try:
+        create_audit_event(
+            db,
+            event_id=event_id,
+            target_id=str(target_id),
+            target_type=surface,
+            action=f"{surface}.{payload.event}",
+            role=actor.role,
+            actor_id=actor.actor_id,
+            note=note[:1024],
+            created_at=now.isoformat(),
+        )
+    except Exception:  # pragma: no cover - audit must never block UI
+        _log.exception("qeeg audit-event persistence failed")
+        return QEEGAuditEventOut(accepted=False, event_id=event_id)
+
+    return QEEGAuditEventOut(accepted=True, event_id=event_id)

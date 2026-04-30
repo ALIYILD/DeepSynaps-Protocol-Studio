@@ -47,7 +47,7 @@ def init_database() -> None:
     Base.metadata.create_all(bind=engine)
 
 
-def reset_database() -> None:
+def reset_database(fast: bool = False) -> None:
     import app.persistence.models  # noqa: F401
     from sqlalchemy import inspect, text
 
@@ -57,6 +57,19 @@ def reset_database() -> None:
     existing_table_names = set(insp.get_table_names())
 
     is_sqlite = engine.dialect.name == "sqlite"
+
+    if fast and existing_table_names:
+        # Fast test-path: truncate data instead of dropping/recreating schema.
+        # ~20x faster for SQLite with 100+ tables.
+        with engine.begin() as conn:
+            conn.execute(text("PRAGMA foreign_keys = OFF"))
+            for table_name in existing_table_names:
+                conn.execute(text(f'DELETE FROM "{table_name}"'))
+            if "sqlite_sequence" in existing_table_names:
+                conn.execute(text('DELETE FROM "sqlite_sequence"'))
+            conn.execute(text("PRAGMA foreign_keys = ON"))
+        return
+
     with engine.begin() as conn:
         if is_sqlite:
             conn.execute(text("PRAGMA foreign_keys = OFF"))
@@ -64,7 +77,7 @@ def reset_database() -> None:
         # the current metadata — this prevents "table already exists" errors
         # when the schema has evolved and old tables linger in the test file.
         for table_name in existing_table_names:
-            conn.execute(text(f"DROP TABLE IF EXISTS \"{table_name}\""))
+            conn.execute(text(f'DROP TABLE IF EXISTS "{table_name}"'))
         if is_sqlite:
             conn.execute(text("PRAGMA foreign_keys = ON"))
 

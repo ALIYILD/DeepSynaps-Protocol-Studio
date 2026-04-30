@@ -19,6 +19,8 @@ import {
   EVIDENCE_SUMMARY,
   getConditionEvidence,
 } from './evidence-dataset.js';
+import { getEvidenceUiStats } from './evidence-ui-live.js';
+import { emptyPatientEvidenceContext, loadPatientEvidenceContext } from './patient-evidence-context.js';
 
 // ── Nav definition ────────────────────────────────────────────────────────────
 // Patient nav: each item is tagged with a `tone` so the sidebar renders
@@ -35,6 +37,7 @@ function _patientNav() {
     { id: 'pt-outcomes',         label: 'Progress',             icon: '📈', tone: 'green',  group: 'main' },
     { id: 'patient-assessments', label: 'Assessments',          icon: '📋', tone: 'rose',   group: 'main' },
     { id: 'patient-reports',     label: 'My Reports',           icon: '📄', tone: 'blue',   group: 'main' },
+    { id: 'patient-brainmap',    label: 'My Brain Map',         icon: '🧠', tone: 'violet', group: 'main' },
 
     // ── CONNECT ───────────────────────────────────────────────────────────────
     { section: 'Connect', sectionId: 'pt-connect', collapsed: false },
@@ -216,6 +219,14 @@ export function setTopbar(title, html = '') {
 
 function spinner() {
   return '<div style="text-align:center;padding:48px;color:var(--teal);font-size:24px">◈</div>';
+}
+
+function _emptyPatientEvidenceContext(patientId = '') {
+  return emptyPatientEvidenceContext(patientId);
+}
+
+async function _loadPatientEvidenceContext(patientId, reports = null) {
+  return loadPatientEvidenceContext(patientId, { reports });
 }
 
 // ── Sparkline helper ──────────────────────────────────────────────────────────
@@ -448,6 +459,10 @@ export async function pgPatientDashboard(user) {
   setTopbar('Home');
   function esc(v) { if (v == null) return ''; return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;'); }
   const firstName = esc((user?.display_name || 'there').split(' ')[0]);
+  const liveEvidence = await getEvidenceUiStats({
+    fallbackSummary: EVIDENCE_SUMMARY,
+    fallbackConditionCount: EVIDENCE_SUMMARY.totalConditions,
+  });
 
   const el = document.getElementById('patient-content');
   el.innerHTML = spinner();
@@ -465,6 +480,7 @@ export async function pgPatientDashboard(user) {
     wellnessLogsRaw,
     dashboardRaw,
     patientSummaryRaw,
+    patientReportsRaw,
   ] = await Promise.all([
     api.patientPortalSessions().catch(() => null),
     api.patientPortalCourses().catch(() => null),
@@ -476,6 +492,7 @@ export async function pgPatientDashboard(user) {
     (api.patientPortalWellnessLogs ? api.patientPortalWellnessLogs(7).catch(() => null) : Promise.resolve(null)),
     (api.patientPortalDashboard ? api.patientPortalDashboard().catch(() => null) : Promise.resolve(null)),
     (api.patientPortalSummary ? api.patientPortalSummary().catch(() => null) : Promise.resolve(null)),
+    (api.patientPortalReports ? api.patientPortalReports().catch(() => null) : Promise.resolve(null)),
   ]);
 
   const _hmLoadFailed =
@@ -488,9 +505,14 @@ export async function pgPatientDashboard(user) {
     homeTasksPortalRaw == null &&
     wellnessLogsRaw == null &&
     dashboardRaw == null &&
-    patientSummaryRaw == null;
+    patientSummaryRaw == null &&
+    patientReportsRaw == null;
 
-  if (_hmLoadFailed) {
+  // In demo mode, seed sample data instead of showing the error page.
+  const _demoEnabled = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1';
+  const _hmDemo = _hmLoadFailed && _demoEnabled && isDemoPatient(user, { getToken: api.getToken });
+
+  if (_hmLoadFailed && !_hmDemo) {
     el.innerHTML = `
       <div class="pt-portal-empty">
         <div class="pt-portal-empty-ico" aria-hidden="true">&#9888;</div>
@@ -509,6 +531,8 @@ export async function pgPatientDashboard(user) {
   const coursesArr   = Array.isArray(portalCourses) ? portalCourses : [];
   const messages     = Array.isArray(portalMessagesRaw) ? portalMessagesRaw : [];
   const patientSummary = (patientSummaryRaw && typeof patientSummaryRaw === 'object') ? patientSummaryRaw : null;
+  const patientReports = Array.isArray(patientReportsRaw) ? patientReportsRaw : [];
+  const patientEvidence = await _loadPatientEvidenceContext(patientId, patientReports).catch(() => _emptyPatientEvidenceContext(patientId));
 
   // Wearable daily summary → flatten to latest-valued metrics.
   const wearableDays = Array.isArray(wearableSummaryRaw) ? wearableSummaryRaw : [];
@@ -516,7 +540,6 @@ export async function pgPatientDashboard(user) {
   // ── Demo seed — populates every array when the backend returned nothing so
   //    first-time preview users see a fully-rendered home dashboard. Gated
   //    on "everything empty" — any real patient data and we skip the seed.
-  const _hmDemo = false;
   if (_hmDemo) {
     coursesArr.push({
       id: 'demo-crs-001',
@@ -683,6 +706,14 @@ export async function pgPatientDashboard(user) {
     return '<div class="hm-simple-summary">'
       + '<div class="hm-simple-summary__hd"><div><h3>Your latest summaries</h3><p>Plain-language updates from your most recent clinic reviews.</p></div>'
       + '<button class="btn btn-ghost btn-sm" onclick="window._navPatient(\'patient-reports\')">Open reports →</button></div>'
+      + (patientEvidence.live
+        ? '<div class="hm-simple-summary__note" style="margin-bottom:12px;font-size:12px;color:var(--text-secondary)">'
+          + patientEvidence.highlightCount + ' live evidence highlight' + (patientEvidence.highlightCount === 1 ? '' : 's')
+          + ' · ' + patientEvidence.savedCitationCount + ' saved citation' + (patientEvidence.savedCitationCount === 1 ? '' : 's')
+          + ' · ' + patientEvidence.reportCount + ' report' + (patientEvidence.reportCount === 1 ? '' : 's')
+          + ' available'
+          + '</div>'
+        : '')
       + '<div class="hm-simple-summary__grid">' + cards.join('') + '</div>'
       + outcomesHtml
       + '</div>';
@@ -961,7 +992,7 @@ export async function pgPatientDashboard(user) {
     } else if (sessDelivered > 0) {
       metricLine = `You've completed <strong style="color:var(--teal)">${sessDelivered}</strong> session${sessDelivered === 1 ? '' : 's'} so far.`;
     } else {
-      metricLine = `Your course hasn't started yet — your clinician will schedule your first session.`;
+      metricLine = `Your course hasn't started yet — your first session will appear here when it is available in the portal workflow.`;
     }
     const deltaHtml = outcomeDelta
       ? `<div class="pth-progress-delta">${outcomeDelta}</div>`
@@ -987,7 +1018,7 @@ export async function pgPatientDashboard(user) {
           </div>
           <div class="pth-empty">
             <div class="pth-empty-title">No tasks yet</div>
-            <div class="pth-empty-sub">Your care team will add tasks here.</div>
+            <div class="pth-empty-sub">Tasks will appear here when they are available in the portal workflow.</div>
           </div>
         </div>`;
     }
@@ -1161,7 +1192,7 @@ export async function pgPatientDashboard(user) {
     if (sessDelivered > 0) {
       return `You've completed <strong style="color:var(--teal)">${sessDelivered}</strong> session${sessDelivered === 1 ? '' : 's'} so far.`;
     }
-    return `Your care team will schedule your first session.`;
+    return `Your first session will appear here when it is available in the portal workflow.`;
   }
 
   function _pth2QuickTilesHtml() {
@@ -1206,8 +1237,8 @@ export async function pgPatientDashboard(user) {
           <svg width="18" height="18"><use href="#i-book-open"/></svg>
         </div>
         <div class="pth2-tile-title">Education Library</div>
-        <div class="pth2-tile-sub">${targetAreaLine ? esc(targetAreaLine) : (EVIDENCE_TOTAL_PAPERS.toLocaleString() + '+ papers, courses, podcasts & clinic videos')}</div>
-        <div class="pth2-tile-meta">Explore</div>
+        <div class="pth2-tile-sub">${patientEvidence.phenotypeTags.length ? esc(patientEvidence.phenotypeTags.slice(0, 3).join(' · ')) : (targetAreaLine ? esc(targetAreaLine) : (liveEvidence.totalPapers.toLocaleString() + '+ papers, courses, podcasts & clinic videos'))}</div>
+        <div class="pth2-tile-meta">${patientEvidence.live ? (patientEvidence.highlightCount + ' evidence highlights') : 'Explore'}</div>
       </button>`);
 
     const unreadCount = messages.filter(m => !m.is_read && m.sender_type !== 'patient').length;
@@ -1396,7 +1427,7 @@ export async function pgPatientDashboard(user) {
       return `
         <div class="pth2-empty">
           <div class="pth2-empty-title">No tasks yet</div>
-          <div class="pth2-empty-sub">Your care team will add tasks here.</div>
+          <div class="pth2-empty-sub">Tasks will appear here when they are available in the portal workflow.</div>
         </div>`;
     }
     const rows = homeTasks.slice(0, 4).map(t => {
@@ -1547,7 +1578,7 @@ export async function pgPatientDashboard(user) {
         kind: 'sleep',
         kicker: 'Synaps AI · Morning note',
         body: `Your sleep last night was ${hh}h ${String(mm).padStart(2,'0')}m — a bit short. That often shows up as low mood mid-morning. <strong>Try a 20-minute outdoor walk after breakfast</strong> — the light + movement combo is on your plan today.`,
-        primary: { label: 'Start walk timer', action: 'walk' },
+        primary: { label: 'Open homework', action: 'walk' },
       };
     }
     if (openTasks.length >= 3) {
@@ -1583,7 +1614,7 @@ export async function pgPatientDashboard(user) {
   }
   function _hmPlanHtml() {
     if (!homeTasks.length) {
-      return `<div class="pth2-empty"><div class="pth2-empty-title">No tasks for today</div><div class="pth2-empty-sub">Your care team will post your plan here.</div></div>`;
+      return `<div class="pth2-empty"><div class="pth2-empty-title">No tasks for today</div><div class="pth2-empty-sub">Your plan will appear here when it is available in the portal workflow.</div></div>`;
     }
     return homeTasks.slice(0, 5).map(t => {
       const done = !!(t.completed || t.done);
@@ -1597,11 +1628,11 @@ export async function pgPatientDashboard(user) {
       if (done) {
         right = `<div class="hm-tl-done">\u2713 ${esc(t._doneAt || 'done')}</div>`;
       } else if (t.task_type === 'walk' || /walk/.test(String(t.title||'').toLowerCase())) {
-        right = `<button class="hm-tl-action primary" onclick="window._hmStartTask('${esc(t.id)}', 'walk')">Start</button>`;
+        right = `<button class="hm-tl-action primary" onclick="window._hmStartTask('${esc(t.id)}', 'walk')">Open</button>`;
       } else if (t.task_type === 'tdcs' || /tdcs/.test(String(t.title||'').toLowerCase())) {
         right = `<button class="hm-tl-action" onclick="window._hmStartTask('${esc(t.id)}', 'tdcs')">Prep</button>`;
       } else {
-        right = `<button class="hm-tl-action" onclick="window._hmStartTask('${esc(t.id)}', 'reminder')">Remind me</button>`;
+        right = `<button class="hm-tl-action" onclick="window._hmStartTask('${esc(t.id)}', 'reminder')">Open</button>`;
       }
       const pill = done
         ? '<span class="hm-tl-pill done">Done</span>'
@@ -1675,7 +1706,7 @@ export async function pgPatientDashboard(user) {
         <div class="hm-next-wrap">
           <div class="hm-next-kicker">Next clinical session</div>
           <div class="hm-next-title">No session scheduled yet</div>
-          <div class="hm-next-sub">Your care team will schedule your next session shortly. Reach out if you'd like to check in.</div>
+          <div class="hm-next-sub">Your next session will appear here when it is available in the portal workflow. Reach out if you'd like to check in.</div>
           <div class="hm-next-actions">
             <button class="btn btn-primary btn-sm" onclick="window._navPatient('patient-messages')"><svg width="13" height="13"><use href="#i-mail"/></svg>Message care team</button>
           </div>
@@ -1702,7 +1733,7 @@ export async function pgPatientDashboard(user) {
         </div>
         <div class="hm-next-actions">
           <button class="btn btn-primary btn-sm" onclick="window._navPatient('pt-sessions')"><svg width="13" height="13"><use href="#i-calendar"/></svg>Open session</button>
-          <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')"><svg width="13" height="13"><use href="#i-clock"/></svg>Reschedule</button>
+          <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')"><svg width="13" height="13"><use href="#i-clock"/></svg>Request reschedule</button>
         </div>
       </div>`;
   }
@@ -1860,15 +1891,15 @@ export async function pgPatientDashboard(user) {
   function _hmEducationHtml() {
     const weekN = (totalPlanned && sessDelivered) ? Math.max(1, Math.ceil(sessDelivered / Math.max(1, Math.round(totalPlanned / 10)))) : null;
     const picks = [
-      { id:'ed-1', t:'t1', dur:'6:42',  title:'Dr. Kolmar: What happens in weeks 6\u201310 of your tDCS course', meta:'Clinic · personalised for you' },
-      { id:'ed-2', t:'t2', dur:'14:03', title:'Huberman Lab: Sleep & mood \u2014 the morning light protocol',     meta:'Huberman · matches your plan' },
-      { id:'ed-3', t:'t3', dur:'4:18',  title:'Mayo Clinic: When to expect symptom improvement',                  meta:'Mayo Clinic · short read' },
+      { id:'ed-1', t:'t1', dur:'6:42',  title:'Dr. Kolmar: What happens in weeks 6\u201310 of your tDCS course', meta:'Sample · personalised for you' },
+      { id:'ed-2', t:'t2', dur:'14:03', title:'Huberman Lab: Sleep & mood \u2014 the morning light protocol',     meta:'Sample · matches your plan' },
+      { id:'ed-3', t:'t3', dur:'4:18',  title:'Mayo Clinic: When to expect symptom improvement',                  meta:'Sample · short read' },
     ];
     return `
       <div class="hm-card">
         <div class="hm-card-head">
-          <div><h3>For you today</h3><p>${picks.length} picks${weekN ? ' matched to Week ' + weekN : ''}</p></div>
-          <button class="hm-card-link" onclick="window._navPatient('pt-learn')">Library →</button>
+          <div><h3>For you today</h3><p>${patientEvidence.live ? (patientEvidence.highlightCount + ' live evidence highlights' + (patientEvidence.phenotypeTags.length ? ' · ' + esc(patientEvidence.phenotypeTags.slice(0, 3).join(' · ')) : '')) : (picks.length + ' sample picks' + (weekN ? ' matched to Week ' + weekN : '') + ' — your clinic will curate real content here')}</p></div>
+          <button class="hm-card-link" onclick="window._navPatient('pt-learn')">Library &rarr;</button>
         </div>
         <div class="hm-edu-list">
           ${picks.map(p => `
@@ -1889,6 +1920,12 @@ export async function pgPatientDashboard(user) {
   // ── Render ────────────────────────────────────────────────────────────────
   el.innerHTML = `
     <div class="ptd-dashboard hm-dashboard" id="pt-route-home">
+
+      ${_hmDemo ? `<div class="hw-demo-banner" role="status">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <strong>Demo data</strong>
+        &mdash; sample dashboard shown while your clinic is being set up. Your real data will appear once your care team connects your account.
+      </div>` : ''}
 
       <!-- ═══ Greeting hero + KPIs ═══ -->
       <div class="hm-hero">
@@ -2010,8 +2047,8 @@ export async function pgPatientDashboard(user) {
             <div class="ptd-slider-rows">
               ${[
                 { id: 'ptd-dc-mood',   label: 'Mood',   color: 'var(--teal,#2dd4bf)' },
-                { id: 'ptd-dc-sleep',  label: 'Sleep',  color: 'var(--accent-blue,#60a5fa)' },
-                { id: 'ptd-dc-energy', label: 'Energy', color: 'var(--accent-violet,#a78bfa)' },
+                { id: 'ptd-dc-sleep',  label: 'Sleep',  color: 'var(--blue,#4a9eff)' },
+                { id: 'ptd-dc-energy', label: 'Energy', color: 'var(--violet,#9b7fff)' },
               ].map(s => `<div class="ptd-slider-row">
                 <label>${s.label}</label>
                 <input type="range" id="${s.id}" min="1" max="10" value="5" oninput="document.getElementById('${s.id}-v').textContent=this.value" style="accent-color:${s.color}">
@@ -2134,17 +2171,15 @@ export async function pgPatientDashboard(user) {
   };
   window._hmStartTask = function(id, kind) {
     if (kind === 'walk') {
-      _hmShowToast('Walk timer started \u2014 20 min');
-      // Navigate to wellness page where the timer could live
-      setTimeout(() => window._navPatient && window._navPatient('patient-homework'), 600);
+      window._navPatient && window._navPatient('patient-homework');
     } else if (kind === 'tdcs') {
       window._navPatient && window._navPatient('patient-home-devices');
     } else {
-      _hmShowToast('Reminder set');
+      window._navPatient && window._navPatient('patient-homework');
     }
   };
   window._hmAiAction = function(action) {
-    if (action === 'walk') { window._hmStartTask(null, 'walk'); return; }
+    if (action === 'walk') { window._navPatient && window._navPatient('patient-homework'); return; }
     if (action === 'plan') { window._navPatient && window._navPatient('patient-homework'); return; }
     _hmShowToast('Noted');
   };
@@ -2249,12 +2284,34 @@ export async function pgPatientDashboard(user) {
       localStorage.setItem('ds_wellness_streak', String(lastDay === yesterday ? cur + 1 : 1));
       localStorage.setItem('ds_last_checkin_prev', todayIso);
     } catch (_e) {}
-    try { const uid = user?.patient_id || user?.id; if (uid) await api.submitAssessment(uid, { type: 'wellness_checkin', ...payload }).catch(() => {}); } catch (_e) {}
+    let syncedToClinic = false;
+    try {
+      if (typeof api.patientPortalSubmitWellnessLog === 'function') {
+        await api.patientPortalSubmitWellnessLog(payload);
+        syncedToClinic = true;
+      } else {
+        const uid = user?.patient_id || user?.id;
+        if (uid) {
+          await api.submitAssessment(uid, { type: 'wellness_checkin', ...payload });
+          syncedToClinic = true;
+        }
+      }
+    } catch (_e) {}
     const form = document.getElementById('pt-checkin-form');
-    if (form) form.outerHTML = '<div class="ptd-checkin-done"><span style="color:var(--teal,#2dd4bf)">\u2713</span><span>Check-in saved. Your care team will see your update.</span></div>';
+    if (form) {
+      form.outerHTML = syncedToClinic
+        ? '<div class="ptd-checkin-done"><span style="color:var(--teal,#2dd4bf)">\u2713</span><span>Check-in saved and synced to your clinic.</span></div>'
+        : '<div class="ptd-checkin-done"><span style="color:var(--teal,#2dd4bf)">\u2713</span><span>Check-in saved in this browser. Clinic sync is unavailable right now.</span></div>';
+    }
     const tile = document.getElementById('pth-tile-checkin');
     if (tile) tile.classList.remove('pth-tile--pending');
-    if (typeof window._showNotifToast === 'function') window._showNotifToast({ title: 'Check-in saved', body: 'Good job \u2014 keep it up!', severity: 'success' });
+    if (typeof window._showNotifToast === 'function') {
+      window._showNotifToast({
+        title: syncedToClinic ? 'Check-in synced' : 'Check-in saved locally',
+        body: syncedToClinic ? 'Your clinic can review this update.' : 'This update is stored on this device only.',
+        severity: 'success',
+      });
+    }
   };
 
   // ── Today's-focus snooze handler ──────────────────────────────────────────
@@ -3287,7 +3344,7 @@ export async function pgPatientSessions() {
   // 12" headings. Hides sections that have zero items.
   function _psGroupedListHtml() {
     if (!_psList.length) {
-      return `<div class="ps-empty">No sessions yet. Your care team will schedule your first session soon.</div>`;
+      return `<div class="ps-empty">No sessions yet. Your first session will appear here when it is available in the portal workflow.</div>`;
     }
     const liveIdxs      = [];
     const upcomingIdxs  = [];
@@ -3346,7 +3403,7 @@ export async function pgPatientSessions() {
           <div><div class="ps-detail-meta-lbl">Clinician</div><div class="ps-detail-meta-val">${esc(clinician)}</div></div>
         </div>
         <div class="ps-detail-actions">
-          <button class="btn btn-primary btn-sm" onclick="window._navPatient && window._navPatient('patient-messages')"><span style="color:#04121c">&#9679;</span>&nbsp;Watch live from clinician</button>
+          <button class="btn btn-primary btn-sm" onclick="window._navPatient && window._navPatient('patient-messages')"><span style="color:#04121c">&#9679;</span>&nbsp;Message clinician</button>
           <button class="btn-outline" onclick="window._psReportStop && window._psReportStop()">Stop session</button>
           <button class="btn-outline" onclick="window._psReportDiscomfort && window._psReportDiscomfort()">Report discomfort</button>
         </div>
@@ -3625,6 +3682,12 @@ export async function pgPatientSessions() {
   }
 
   el.innerHTML = `
+    ${_SEED ? `<div class="hw-demo-banner" role="status">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <strong>Demo data</strong>
+      &mdash; sample session history shown while your clinic is being set up. Your real sessions will appear once your care team connects your account.
+    </div>` : ''}
+
     <!-- Page header -->
     <div class="ps-hd">
       <div>
@@ -3794,13 +3857,22 @@ export async function pgPatientSessions() {
     });
   };
   window._psReportStop = async function() {
-    if (typeof window._showNotifToast === 'function') {
-      window._showNotifToast({ title: 'Session pause requested', body: 'Your technician has been alerted. Please sit tight.', severity: 'warning' });
-    }
     if (uid && api.sendPortalMessage) {
       try {
         await api.sendPortalMessage({ body: 'Patient pressed STOP during a live session — immediate attention requested.', category: 'safety_alert', priority: 'high' });
-      } catch (_e) { console.error('[session] stop alert failed:', _e); }
+        if (typeof window._showNotifToast === 'function') {
+          window._showNotifToast({ title: 'Session pause requested', body: 'Your technician has been alerted. Please sit tight.', severity: 'warning' });
+        }
+      } catch (_e) {
+        console.error('[session] stop alert failed:', _e);
+        if (typeof window._showNotifToast === 'function') {
+          window._showNotifToast({ title: 'Alert not sent', body: 'This portal could not confirm staff notification. Contact clinic staff immediately.', severity: 'critical' });
+        }
+      }
+      return;
+    }
+    if (typeof window._showNotifToast === 'function') {
+      window._showNotifToast({ title: 'Alert not sent', body: 'This portal could not confirm staff notification. Contact clinic staff immediately.', severity: 'critical' });
     }
   };
   window._psReportDiscomfort = async function() {
@@ -3895,7 +3967,9 @@ async function _pgPatientHomeworkImpl() {
     homeTasksPortalRaw === null &&
     coursesRaw === null &&
     sessionsRaw === null;
-  if (_homeworkLoadFailed) {
+  const _hwDemoEnabled = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1';
+  const _hwIsDemo = _homeworkLoadFailed && _hwDemoEnabled && isDemoPatient(user, { getToken: api.getToken });
+  if (_homeworkLoadFailed && !_hwIsDemo) {
     throw new Error('homework_data_unavailable');
   }
   let _portalTaskCompletions = new Map();
@@ -4086,7 +4160,7 @@ async function _pgPatientHomeworkImpl() {
          ${t.task_type === 'tdcs'
            ? '<button class="btn btn-primary btn-sm hw-go" onclick="window._hwStart && window._hwStart(\'' + esc(t.id) + '\', \'tdcs\')">Start session<svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>'
            : t.task_type === 'breathing'
-             ? '<button class="btn btn-ghost btn-sm hw-go" onclick="window._hwStart && window._hwStart(\'' + esc(t.id) + '\', \'breathing\')"><svg width="11" height="11"><use href="#i-play"/></svg>Guided</button>'
+             ? '<button class="btn btn-ghost btn-sm hw-go" onclick="window._hwStart && window._hwStart(\'' + esc(t.id) + '\', \'breathing\')">Open<svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>'
              : t.task_type === 'walk' || t.task_type === 'activation'
                ? '<button class="btn btn-ghost btn-sm hw-go" onclick="window._hwStart && window._hwStart(\'' + esc(t.id) + '\', \'walk\')"><svg width="11" height="11"><use href="#i-play"/></svg>Start</button>'
                : '<button class="btn btn-ghost btn-sm hw-go" onclick="window._hwOpen && window._hwOpen(\'' + esc(t.id) + '\')">Open<svg width="11" height="11"><use href="#i-arrow-right"/></svg></button>'}`;
@@ -4147,7 +4221,7 @@ async function _pgPatientHomeworkImpl() {
       <div class="hw-demo-banner" role="status">
         <svg width="14" height="14"><use href="#i-info"/></svg>
         <strong>Demo data</strong>
-        <span>\u2014 your clinician will replace these with your real homework once your plan is activated.</span>
+        <span>\u2014 these preview tasks will be replaced when your portal homework plan is available.</span>
         <span style="margin-left:auto">Preview mode</span>
       </div>` : ''}
 
@@ -4155,10 +4229,10 @@ async function _pgPatientHomeworkImpl() {
       <div class="hw-hd">
         <div>
           <h2>Homework</h2>
-          <p>The at-home plan ${activeCourse?.primary_clinician_name ? esc(activeCourse.primary_clinician_name) + ' built around your' : 'your clinician will build around your'} ${esc(activeCourse?.modality_slug ? (activeCourse.modality_slug + '').toUpperCase() : 'treatment')} course. Small, evidence-based tasks that help the stimulation stick. Check things off as you go \u2014 your team sees your progress in real time.</p>
+          <p>The at-home plan ${activeCourse?.primary_clinician_name ? esc(activeCourse.primary_clinician_name) + ' built around your' : 'built around your'} ${esc(activeCourse?.modality_slug ? (activeCourse.modality_slug + '').toUpperCase() : 'treatment')} course. Small, evidence-based tasks that help the stimulation stick. Check things off as you go \u2014 progress review depends on portal workflow.</p>
         </div>
         <div class="hw-hd-actions">
-          <button class="btn btn-ghost btn-sm" onclick="window._hwReminders && window._hwReminders()"><svg width="13" height="13"><use href="#i-bell"/></svg>Reminders \u00b7 <span id="hw-reminders-state">On</span></button>
+          <button class="btn btn-ghost btn-sm" onclick="window._hwReminders && window._hwReminders()"><svg width="13" height="13"><use href="#i-bell"/></svg>Reminders</button>
           <button class="btn btn-ghost btn-sm" onclick="window._hwExport && window._hwExport()"><svg width="13" height="13"><use href="#i-download"/></svg>Export plan</button>
         </div>
       </div>
@@ -4233,7 +4307,7 @@ async function _pgPatientHomeworkImpl() {
             <div class="hw-section-hd">
               <div>
                 <h3>Today \u00b7 ${esc(new Date().toLocaleDateString(loc, { weekday: 'long', month: 'long', day: 'numeric' }))}</h3>
-                <p>${todays.length ? 'Tap an item to open it. Walk and mood log are the high-priority items.' : 'No tasks scheduled for today yet \u2014 your clinician will add some.'}</p>
+                <p>${todays.length ? 'Tap an item to open it. Walk and mood log are the high-priority items.' : 'No tasks scheduled for today yet \u2014 new items will appear here when available in the portal workflow.'}</p>
               </div>
               <a class="hw-see-all" href="javascript:void(0)" onclick="window._hwFilter && window._hwFilter('week')">View full week <svg width="12" height="12"><use href="#i-arrow-right"/></svg></a>
             </div>
@@ -4347,7 +4421,7 @@ async function _pgPatientHomeworkImpl() {
                   return `<div style="flex:1">
                     <div class="hw-next-kick">No clinic session booked</div>
                     <div class="hw-next-title">Message your team</div>
-                    <div class="hw-next-sub">Your care team will schedule the next one shortly.</div>
+                    <div class="hw-next-sub">The next session will appear here when it is available in the portal workflow.</div>
                   </div>`;
                 }
                 const d = new Date(nextInClinic.scheduled_at);
@@ -4495,15 +4569,16 @@ async function _pgPatientHomeworkImpl() {
   window._hwStart = function(taskId, kind) {
     const task = _taskById.get(String(taskId));
     if (kind === 'tdcs') {
-      _hwToast('Starting home tDCS prep\u2026');
+      _hwToast('Opening home devices\u2026');
       setTimeout(() => window._navPatient && window._navPatient('patient-home-devices'), 500);
     } else if (kind === 'breathing') {
-      _hwToast('Opening breathing guide\u2026');
+      _hwToast('Opening education library\u2026');
       setTimeout(() => window._navPatient && window._navPatient('patient-education'), 500);
     } else if (kind === 'walk') {
       _hwOpenWalkTimer(task);
     } else {
-      _hwToast('Started');
+      // Unknown kind — open the task detail instead of a misleading toast.
+      if (task) window._hwOpen(taskId);
     }
     if (task && !(task.completed || task.done)) {
       // Don't auto-complete — let the patient confirm after finishing.
@@ -4643,11 +4718,7 @@ async function _pgPatientHomeworkImpl() {
   };
 
   window._hwReminders = function() {
-    const st = document.getElementById('hw-reminders-state');
-    if (!st) return;
-    const on = st.textContent.trim().toLowerCase() === 'on';
-    st.textContent = on ? 'Off' : 'On';
-    _hwToast('Reminders ' + (on ? 'muted for today' : 'on'));
+    _hwToast('Reminders are not yet available \u2014 your clinic will enable them');
   };
 
   window._hwExport = function() {
@@ -4697,7 +4768,7 @@ async function _pgPatientHomeworkImpl() {
     if (!_isDemo && api.mutateHomeProgramTask && uid) {
       try {
         await api.mutateHomeProgramTask({ ...newTask, patient_id: uid });
-        _hwToast('Added \u2014 your clinician will confirm');
+        _hwToast('Added to your home-task workflow');
       } catch (e) { console.warn('[homework] add lib failed:', e); }
     } else {
       _hwToast('Added to today\u2019s plan');
@@ -4888,7 +4959,7 @@ function renderLikertForm(containerId, patientId, config) {
       // which applies to any measure).
       const bodyText = (formKey === 'phq9')
         ? t('patient.assess.result.body')
-        : 'Your score has been recorded. Your care team will review these results before your next session. If you are experiencing thoughts of self-harm, please contact your clinician immediately or call a crisis line.';
+        : 'Your score has been saved in this browser. Clinic review depends on portal workflow before your next session. If you are experiencing thoughts of self-harm, please contact your clinician immediately or call a crisis line.';
       const titleText = (formKey === 'phq9')
         ? t('patient.assess.result.title')
         : 'Assessment Result';
@@ -5237,6 +5308,12 @@ async function _pgPatientAssessmentsImpl() {
   el.innerHTML = `
     <div class="pt-route" id="pt-route-assessments">
 
+      ${_isDemo ? `<div class="hw-demo-banner" role="status">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <strong>Demo data</strong>
+        &mdash; sample assessments shown while your clinic is being set up. Your real questionnaires will appear once your care team activates your plan.
+      </div>` : ''}
+
       <div class="as-hd">
         <div>
           <h2>Assessments</h2>
@@ -5323,7 +5400,7 @@ async function _pgPatientAssessmentsImpl() {
                 <div class="as-daily-summary-ico">✅</div>
                 <div>
                   <div class="as-daily-summary-title">Check-in complete</div>
-                  <div class="as-daily-summary-sub">Your care team will see this update.</div>
+                  <div class="as-daily-summary-sub">Review timing depends on portal workflow.</div>
                 </div>
               </div>
               <div class="as-daily-summary-grid" id="as-daily-summary-grid"></div>
@@ -5341,7 +5418,8 @@ async function _pgPatientAssessmentsImpl() {
           <span>Questionnaires prescribed for this week</span>
           <span class="as-due-lbl-right">${dueItems.length} due${dueItems.filter(a => a.overdue).length ? ' · ' + dueItems.filter(a => a.overdue).length + ' overdue' : ''}</span>
         </div>
-        <div class="as-due-grid">${dueItems.map(_dueCardHtml).join('')}</div>` : `
+        <div class="as-due-grid">${dueItems.map(_dueCardHtml).join('')}</div>
+        <div id="as-form-slot"></div>` : `
         <div class="as-due-lbl"><span>Nothing due this week</span></div>
         <div class="pth2-empty" style="padding:24px"><div class="pth2-empty-title">All caught up</div><div class="pth2-empty-sub">Your next prescribed questionnaire will appear here when scheduled.</div></div>`}
 
@@ -5421,7 +5499,7 @@ async function _pgPatientAssessmentsImpl() {
       <div class="as-panel" id="as-panel-scheduled" style="display:none">
         <div class="as-sched-lbl">Upcoming · auto-reminders are on</div>
         <div class="as-sched-list">
-          ${scheduledItems.length ? scheduledItems.map(_schedRowHtml).join('') : '<div class="pth2-empty" style="padding:24px"><div class="pth2-empty-title">No future assessments scheduled</div><div class="pth2-empty-sub">Your clinician will add new ones as your plan progresses.</div></div>'}
+          ${scheduledItems.length ? scheduledItems.map(_schedRowHtml).join('') : '<div class="pth2-empty" style="padding:24px"><div class="pth2-empty-title">No future assessments scheduled</div><div class="pth2-empty-sub">New assessments will appear here when they are available in the portal workflow.</div></div>'}
         </div>
       </div>
 
@@ -5545,7 +5623,7 @@ async function _pgPatientAssessmentsImpl() {
     const qText = document.getElementById('as-daily-q-text');
     if (qText) qText.textContent = 'All done — great job!';
     const subText = document.getElementById('as-daily-sub-text');
-    if (subText) subText.textContent = 'Your care team will see this update.';
+    if (subText) subText.textContent = 'Your update has been saved in this browser.';
 
     // Save to localStorage
     try {
@@ -5561,12 +5639,17 @@ async function _pgPatientAssessmentsImpl() {
       localStorage.setItem('ds_last_checkin_prev', iso);
     } catch (_e) {}
     // Submit to backend
+    let syncedToClinic = false;
     if (!_isDemo && uid && api.submitAssessment) {
       try {
         await api.submitAssessment(uid, { type: 'daily_checkin', mood: s.mood, energy: s.energy, sleep: s.sleep, anxiety: s.anxiety, stress: s.stress, date: new Date().toISOString() });
+        syncedToClinic = true;
       } catch (_e) {}
     }
-    _toast('Check-in saved · 5/5');
+    if (subText) subText.textContent = syncedToClinic
+      ? 'Your clinic can review this check-in in the patient portal.'
+      : 'Saved in this browser only until clinic sync is available.';
+    _toast(syncedToClinic ? 'Check-in synced · 5/5' : 'Check-in saved locally · 5/5');
   }
 
   window._asDailyReset = function() {
@@ -5584,11 +5667,15 @@ async function _pgPatientAssessmentsImpl() {
   };
 
   window._asStart = function(slug) {
-    _toast('Opening questionnaire: ' + String(slug).toUpperCase());
-    // If we have a real route for taking assessments, route there; otherwise Home.
-    setTimeout(() => {
-      if (window._navPatient) window._navPatient('patient-portal');
-    }, 400);
+    const formKey = String(slug).replace(/-/g, '');
+    const slot = document.getElementById('as-form-slot');
+    if (SUPPORTED_FORMS[formKey] && slot) {
+      renderAssessmentForm(formKey, 'as-form-slot', uid);
+      slot.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      _toast('Loading ' + String(slug).toUpperCase());
+      return;
+    }
+    _toast(String(slug).toUpperCase() + ' form is not yet available in this portal');
   };
 
   window._asHistFilter = function(f) {
@@ -5607,10 +5694,7 @@ async function _pgPatientAssessmentsImpl() {
   };
 
   window._asToggleRaw = function() {
-    _rawOn = !_rawOn;
-    const lbl = document.getElementById('as-toggle-raw-lbl');
-    if (lbl) lbl.textContent = _rawOn ? 'Hide raw scores' : 'Show raw scores';
-    _toast(_rawOn ? 'Raw scores visible' : 'Raw scores hidden');
+    _toast('Raw score view is not yet available in this portal');
   };
 
   window._asExport = function() {
@@ -5695,12 +5779,14 @@ async function _pgPatientAssessmentsImpl() {
         notes: answers.note || answers.concerns || null,
         ai_context: { score, answered_at: new Date().toISOString(), question_count: survey.questions.length },
       };
+      let savedToBackend = false;
       if (api.submitSelfAssessment) {
         await api.submitSelfAssessment(payload);
+        savedToBackend = true;
       }
       setSelfAssessmentLastFiled(key, new Date().toISOString());
       clearSelfAssessmentDraft(key);
-      _toast(survey.shortTitle + ' check-in saved');
+      _toast(savedToBackend ? (survey.shortTitle + ' check-in saved') : (survey.shortTitle + ' saved locally'));
       // Refresh the card grid
       const grid = document.getElementById('as-selfassess-grid');
       if (grid) {
@@ -5721,8 +5807,8 @@ async function _pgPatientAssessmentsImpl() {
     }
   };
 
-  window._asToggleReminder = function(on) { _toast('Daily reminder ' + (on ? 'on' : 'off')); };
-  window._asViewHistory = function(_id) { _toast('Opening history entry…'); };
+  window._asToggleReminder = function(on) { _toast('Reminders are not yet available \u2014 your clinic will enable them'); };
+  window._asViewHistory = function(_id) { _toast('Assessment history details are unavailable from this beta portal.'); };
 }
 
 // \u2500\u2500 Reports \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -5739,18 +5825,19 @@ export async function pgPatientReports() {
     Promise.resolve(p).catch(() => null),
     _timeout(3000),
   ]);
-  let outcomesRaw, assessmentsRaw, coursesRaw, sessionsRaw, wearableSummaryRaw, reportsRaw;
+  let outcomesRaw, assessmentsRaw, coursesRaw, sessionsRaw, wearableSummaryRaw, reportsRaw, evidenceOverviewRaw;
   try {
-    [outcomesRaw, assessmentsRaw, coursesRaw, sessionsRaw, wearableSummaryRaw, reportsRaw] = await Promise.all([
+    [outcomesRaw, assessmentsRaw, coursesRaw, sessionsRaw, wearableSummaryRaw, reportsRaw, evidenceOverviewRaw] = await Promise.all([
       _raceNull(api.patientPortalOutcomes()),
       _raceNull(api.patientPortalAssessments()),
       _raceNull(api.patientPortalCourses()),
       _raceNull(api.patientPortalSessions()),
       _raceNull(api.patientPortalWearableSummary(30)),
       _raceNull(api.patientPortalReports()),
+      _raceNull(_loadPatientEvidenceContext(currentUser?.patient_id || currentUser?.id || null)),
     ]);
   } catch (_e) {
-    outcomesRaw = assessmentsRaw = coursesRaw = sessionsRaw = wearableSummaryRaw = reportsRaw = null;
+    outcomesRaw = assessmentsRaw = coursesRaw = sessionsRaw = wearableSummaryRaw = reportsRaw = evidenceOverviewRaw = null;
   }
   // Soft-error: fall through to an empty docs list (which renders an
   // empty-state card) instead of the hard "Could not load" state when
@@ -5781,6 +5868,9 @@ export async function pgPatientReports() {
   const courses     = Array.isArray(coursesRaw)     ? coursesRaw     : [];
   const sessions    = Array.isArray(sessionsRaw)    ? sessionsRaw    : [];
   const reports     = Array.isArray(reportsRaw)     ? reportsRaw     : [];
+  const patientEvidence = (evidenceOverviewRaw && typeof evidenceOverviewRaw === 'object')
+    ? { ..._emptyPatientEvidenceContext(currentUser?.patient_id || currentUser?.id || null), ...evidenceOverviewRaw, reportCount: reports.length }
+    : _emptyPatientEvidenceContext(currentUser?.patient_id || currentUser?.id || null);
 
   // ── Plain-language knowledge base ────────────────────────────────────────
   // Extension point: clinician-approved per-patient summaries can be supplied
@@ -6194,7 +6284,7 @@ export async function pgPatientReports() {
     if (delta !== null) {
       const abs = Math.abs(delta.delta);
       const dir = delta.delta < 0 ? 'dropped' : 'increased';
-      const tone = delta.delta < 0 ? 'This is a positive sign.' : 'Your care team is monitoring this.';
+      const tone = delta.delta < 0 ? 'This is a positive sign.' : 'This change is being tracked in your portal workflow.';
       deltaRow = `<div class="pt-doc-pl-row"><span class="pt-doc-pl-label">What changed</span>Your score ${dir} by ${abs} point${abs !== 1 ? 's' : ''} since your last report on ${esc(delta.prevDate)}. ${tone}</div>`;
     } else if (doc.score != null && doc.templateKey) {
       deltaRow = `<div class="pt-doc-pl-row"><span class="pt-doc-pl-label">What changed</span>This is your first recorded result for this measure — future reports will show how you are progressing.</div>`;
@@ -6311,7 +6401,7 @@ export async function pgPatientReports() {
     if (heroDelta !== null) {
       const abs = Math.abs(heroDelta.delta);
       const dir = heroDelta.delta < 0 ? 'dropped' : 'increased';
-      const tone = heroDelta.delta < 0 ? 'This is a positive sign.' : 'Your care team is monitoring this.';
+      const tone = heroDelta.delta < 0 ? 'This is a positive sign.' : 'This change is being tracked in your portal workflow.';
       deltaText = `Your score ${dir} by <strong>${abs}</strong> point${abs !== 1 ? 's' : ''} since your last report on ${esc(heroDelta.prevDate)}. ${tone}`;
     } else if (doc.score != null) {
       deltaText = 'This is your first recorded result for this measure — future reports will show your progress over time.';
@@ -6452,7 +6542,7 @@ export async function pgPatientReports() {
         <div class="rpt-overview-head">
           <div>
             <div class="rpt-overview-eyebrow">Your reports, by source</div>
-            <div class="rpt-overview-count">${docs.length} report${docs.length === 1 ? '' : 's'} available <span class="rpt-overview-sep">·</span> last updated ${esc(lastUpdated)}</div>
+            <div class="rpt-overview-count">${docs.length} report${docs.length === 1 ? '' : 's'} available <span class="rpt-overview-sep">·</span> last updated ${esc(lastUpdated)}${patientEvidence.live ? `<span class="rpt-overview-sep">·</span>${patientEvidence.highlightCount} evidence highlight${patientEvidence.highlightCount === 1 ? '' : 's'}` : ''}</div>
           </div>
         </div>
         <div class="rpt-overview-grid">
@@ -6469,10 +6559,64 @@ export async function pgPatientReports() {
       </div>`;
   }
 
+  function evidenceLinkedHTML() {
+    const saved = Array.isArray(patientEvidence.overview?.saved_citations) ? patientEvidence.overview.saved_citations : [];
+    const used = Array.isArray(patientEvidence.overview?.evidence_used_in_report) ? patientEvidence.overview.evidence_used_in_report : [];
+    if (!patientEvidence.live && !saved.length && !used.length) return '';
+    return `
+      <div class="pt-docs-evidence-panel" style="margin:16px 0 18px;padding:16px 18px;border-radius:16px;border:1px solid rgba(91,182,255,0.18);background:rgba(91,182,255,0.06)">
+        <div style="display:flex;justify-content:space-between;gap:14px;align-items:flex-start;flex-wrap:wrap">
+          <div>
+            <div style="font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--blue,#5bb6ff);margin-bottom:8px">Evidence linked to your reports</div>
+            <div style="font-size:14px;font-weight:600;color:var(--text-primary)">Saved citations and evidence notes your care team can use during report review</div>
+            <div style="margin-top:6px;font-size:12px;color:var(--text-secondary)">
+              ${patientEvidence.highlightCount} evidence highlight${patientEvidence.highlightCount === 1 ? '' : 's'}
+              <span style="opacity:.5">·</span>
+              ${patientEvidence.savedCitationCount} saved citation${patientEvidence.savedCitationCount === 1 ? '' : 's'}
+              <span style="opacity:.5">·</span>
+              ${patientEvidence.reportCitationCount} citation${patientEvidence.reportCitationCount === 1 ? '' : 's'} already staged for report payloads
+            </div>
+          </div>
+          ${patientEvidence.phenotypeTags.length ? `<div style="font-size:11px;color:var(--text-tertiary);max-width:340px">Phenotype tags: ${esc(patientEvidence.phenotypeTags.slice(0, 6).join(' · '))}</div>` : ''}
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:14px">
+          <div style="padding:12px 14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">
+            <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Saved evidence citations</div>
+            ${saved.length
+              ? saved.slice(0, 4).map(function (row) {
+                  const label = row.finding_label || row.claim || 'Saved evidence';
+                  const paper = row.paper_title || row.title || 'Evidence paper';
+                  const cite = row.citation_payload?.inline_citation || '';
+                  return `<div style="padding:8px 0;border-top:1px solid rgba(255,255,255,0.06)">
+                    <div style="font-size:11px;font-weight:600;color:var(--text-primary)">${esc(label)}</div>
+                    <div style="font-size:11.5px;color:var(--text-secondary)">${esc(paper)}</div>
+                    ${cite ? `<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:3px">${esc(cite)}</div>` : ''}
+                  </div>`;
+                }).join('')
+              : '<div style="font-size:12px;color:var(--text-tertiary)">No saved evidence citations yet.</div>'}
+          </div>
+          <div style="padding:12px 14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">
+            <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Evidence already staged for reports</div>
+            ${used.length
+              ? used.slice(0, 4).map(function (row) {
+                  const cite = row.inline_citation || '';
+                  const title = row.title || 'Evidence citation';
+                  return `<div style="padding:8px 0;border-top:1px solid rgba(255,255,255,0.06)">
+                    <div style="font-size:11px;font-weight:600;color:var(--text-primary)">${esc(title)}</div>
+                    ${cite ? `<div style="font-size:10.5px;color:var(--text-secondary);margin-top:3px">${esc(cite)}</div>` : ''}
+                  </div>`;
+                }).join('')
+              : '<div style="font-size:12px;color:var(--text-tertiary)">No report-scoped evidence citations staged yet.</div>'}
+          </div>
+        </div>
+      </div>`;
+  }
+
   el.innerHTML = `
     <div class="pt-docs-wrap">
       <div id="pt-docs-ask-anchor"></div>
       ${overviewStripHTML()}
+      ${evidenceLinkedHTML()}
       ${heroCardHTML(latest)}
       ${catChipsHTML()}
       <div class="pt-docs-sections-wrap">
@@ -6560,6 +6704,56 @@ export async function pgPatientReports() {
     if (more) more.removeAttribute('hidden');
     if (btn)  btn.remove();
   };
+}
+
+// \u2500\u2500 My Brain Map (Phase 1) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// Renders the patient-facing QEEGBrainMapReport for the current patient's
+// most recent qEEG analysis. Honest empty state when none exists.
+export async function pgPatientBrainMap() {
+  setTopbar('My Brain Map');
+  const el = document.getElementById('patient-content');
+  if (!el) return;
+  el.innerHTML = spinner();
+
+  const patientId = (currentUser && (currentUser.patient_id || currentUser.id)) || null;
+  if (!patientId) {
+    el.innerHTML = '<div class="ds-card"><div class="ds-card__body" style="padding:32px;text-align:center;color:var(--text-secondary)">'
+      + 'Please sign in to view your brain map.</div></div>';
+    return;
+  }
+
+  let analyses = null;
+  try { analyses = await api.listPatientQEEGAnalyses(patientId); } catch (_) { analyses = null; }
+  const items = (analyses && (analyses.items || analyses.analyses || analyses)) || [];
+  if (!Array.isArray(items) || items.length === 0) {
+    el.innerHTML = '<div class="ds-card"><div class="ds-card__body" style="padding:48px;text-align:center;color:var(--text-secondary);font-size:14px;line-height:1.6">'
+      + '<h3 style="margin:0 0 8px;color:var(--text-primary)">No brain map yet</h3>'
+      + 'Your clinician will share results here once your qEEG is analyzed. There is no brain map on file for your account at the moment.'
+      + '</div></div>';
+    return;
+  }
+
+  const latest = items[0] || {};
+  const reportId = latest.report_id || latest.latest_report_id || null;
+  if (!reportId) {
+    el.innerHTML = '<div class="ds-card"><div class="ds-card__body" style="padding:32px;text-align:center;color:var(--text-secondary)">'
+      + 'Your most recent qEEG is being analyzed. Check back shortly.'
+      + '</div></div>';
+    return;
+  }
+
+  el.innerHTML = '<div id="pt-brainmap-mount"></div>';
+  try {
+    const reportMod = await import('./qeeg-patient-report.js');
+    await reportMod.mountPatientReport('pt-brainmap-mount', reportId, api);
+  } catch (e) {
+    el.innerHTML =
+      '<div class="ds-alert ds-alert--error">Unable to load your brain map right now. Please try again later.</div>'
+      + '<p style="margin-top:12px;font-size:12px;color:var(--text-secondary);line-height:1.5">'
+      + 'Research and wellness use only. Brain map summaries are informational and are not a medical '
+      + 'diagnosis or treatment recommendation. Discuss any findings with a qualified clinician.'
+      + '</p>';
+  }
 }
 
 // \u2500\u2500 Messages \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -7040,9 +7234,9 @@ export async function pgPatientMessages() {
       if (status) {
         status.removeAttribute('hidden');
         status.className = 'ptmsg-send-status ptmsg-send-ok';
-        status.textContent = 'Your care team will get back to you shortly.';
+        status.textContent = 'Call request recorded. Response timing depends on portal workflow.';
       }
-      if (btn) { btn.disabled = true; btn.textContent = 'Sent'; }
+      if (btn) { btn.disabled = true; btn.textContent = 'Recorded'; }
       window._ptmsgPendingCallTier = null;
     } catch (e) {
       const msg = (e && e.data && e.data.message) || (e && e.message)
@@ -7463,7 +7657,7 @@ async function _pgPatientVirtualCareImpl() {
     if (m.kind === 'analysis') {
       const a = m.analysis || {};
       const sentiment = a.sentiment || a.mood || 'Pending';
-      const summary = a.summary || a.clinical_summary || 'Analysis in progress. Your clinician will review shortly.';
+      const summary = a.summary || a.clinical_summary || 'Analysis in progress. Review timing depends on portal workflow.';
       const uploadType = m.uploadType === 'voice' ? 'Voice analysis' : m.uploadType === 'video' ? 'Video analysis' : 'AI analysis';
       return `
         <div class="vc-msg">
@@ -7475,7 +7669,7 @@ async function _pgPatientVirtualCareImpl() {
                 <div class="vc-card-ico" style="background:rgba(167,139,250,.15);color:#a78bfa"><svg width="16" height="16"><use href="#i-sparkle"/></svg></div>
                 <div style="flex:1;min-width:0">
                   <div class="vc-card-hd-title">${esc(uploadType)}</div>
-                  <div class="vc-card-hd-sub">Sentiment: ${esc(sentiment)} · Clinician will review</div>
+                  <div class="vc-card-hd-sub">Sentiment: ${esc(sentiment)} · Review pending</div>
                 </div>
               </div>
               <div class="vc-card-body">${esc(summary)}</div>
@@ -7546,7 +7740,7 @@ async function _pgPatientVirtualCareImpl() {
         <aside class="vc-threads">
           <div class="vc-threads-hd">
             <h2><svg width="18" height="18"><use href="#i-video"/></svg>Virtual care <span class="agent-openclaw-badge" style="font-size:9px;vertical-align:middle;margin-left:6px">Powered by OpenClaw</span></h2>
-            <p>Message, call or video with your care team \u2014 secure, end-to-end encrypted.</p>
+            <p>Message, call or video with your care team \u2014 secure, encrypted in transit.</p>
             <div class="vc-search">
               <svg width="14" height="14"><use href="#i-search"/></svg>
               <input type="text" id="vc-search-input" placeholder="Search messages, files, people\u2026" oninput="window._vcSearch && window._vcSearch(this.value)">
@@ -7559,7 +7753,7 @@ async function _pgPatientVirtualCareImpl() {
             <button data-tf="ai" onclick="window._vcThreadFilter && window._vcThreadFilter('ai')">AI</button>
           </div>
           <div class="vc-thread-list" id="vc-thread-list">
-            ${threadList.length ? threadList.map(_threadItemHtml).join('') : '<div class="pth2-empty" style="padding:24px 16px"><div class="pth2-empty-title">No conversations yet</div><div class="pth2-empty-sub">Your care team will reach out soon.</div></div>'}
+            ${threadList.length ? threadList.map(_threadItemHtml).join('') : '<div class="pth2-empty" style="padding:24px 16px"><div class="pth2-empty-title">No conversations yet</div><div class="pth2-empty-sub">Use this portal to send a support request or message your clinic.</div></div>'}
           </div>
           <div class="vc-threads-foot">
             <button class="btn btn-ghost btn-sm" onclick="window._navPatient && window._navPatient('patient-careteam')"><svg width="12" height="12"><use href="#i-plus"/></svg>Start new conversation</button>
@@ -7679,7 +7873,7 @@ async function _pgPatientVirtualCareImpl() {
           <div class="vc-rail-section">
             <div class="vc-rail-lbl">Privacy</div>
             <div style="font-size:11.5px;color:var(--text-tertiary);line-height:1.55">
-              Messages are end-to-end encrypted and stored per HIPAA / GDPR. Only you and the care team you approve can see this thread.
+              Messages are encrypted in transit and stored per HIPAA / GDPR guidelines. Only you and the care team you approve can see this thread.
             </div>
           </div>
         </aside>
@@ -7691,7 +7885,7 @@ async function _pgPatientVirtualCareImpl() {
           <div class="vc-call-remote">
             <div class="vc-call-remote-av" id="vc-call-remote-av">${activeThread ? (activeThread.avatar || activeThread.name.slice(0,2).toUpperCase()) : 'JK'}</div>
             <div class="vc-call-remote-name" id="vc-call-remote-name">${esc(activeThread ? activeThread.name : '')}</div>
-            <div class="vc-call-status" id="vc-call-status">Calling\u2026 \u00b7 end-to-end encrypted</div>
+            <div class="vc-call-status" id="vc-call-status">Calling\u2026 \u00b7 encrypted</div>
             <div class="vc-call-timer" id="vc-call-timer">00:00</div>
             <div style="display:flex;gap:10px;margin-top:24px;justify-content:center">
               <button class="btn btn-ghost btn-sm" onclick="window._vcHangup && window._vcHangup()"><svg width="12" height="12"><use href="#i-pulse"/></svg>End call</button>
@@ -7832,7 +8026,7 @@ async function _pgPatientVirtualCareImpl() {
       // Real clinician thread — POST to care team via patient portal messages.
       try {
         await api.sendPortalMessage({ body, category: 'patient_message', thread_id: activeId === 'primary' ? undefined : activeId });
-        _showToast('Sent');
+        _showToast('Message accepted by care messaging');
       } catch (err) {
         console.error('[virtualcare] send failed:', err);
         _showToast('Failed to send — try again');
@@ -7841,7 +8035,7 @@ async function _pgPatientVirtualCareImpl() {
         if (sc3) { sc3.innerHTML = _convHtml(activeId); sc3.scrollTop = sc3.scrollHeight; }
       }
     } else {
-      _showToast('Sent');
+      _showToast('Message saved locally');
     }
   };
   window._vcQuick = function(kind) {
@@ -7878,7 +8072,7 @@ async function _pgPatientVirtualCareImpl() {
         t.messages.push({ id: localId, sender: 'me', senderName: 'You', at: new Date().toISOString(), body: '', kind: 'file', fileName: file.name, fileSize: file.size, fileType: file.type, objectUrl });
         const sc = document.getElementById('vc-conv-scroll');
         if (sc) { sc.innerHTML = _convHtml(activeId); sc.scrollTop = sc.scrollHeight; }
-        _showToast('Attachment sent');
+        _showToast('Attachment added locally');
         inp.value = '';
       };
       document.body.appendChild(inp);
@@ -7913,7 +8107,7 @@ async function _pgPatientVirtualCareImpl() {
         const sc = document.getElementById('vc-conv-scroll');
         if (sc) { sc.innerHTML = _convHtml(activeId); sc.scrollTop = sc.scrollHeight; }
         _vcRemoveRecOverlay();
-        _showToast('Voice note sent');
+        _showToast('Voice note recorded locally');
         // Upload to backend in background
         if (!_isDemo && api.patientUploadAudio) {
           const consentId = await _vcEnsureConsent('upload_voice');
@@ -7960,7 +8154,7 @@ async function _pgPatientVirtualCareImpl() {
         const sc = document.getElementById('vc-conv-scroll');
         if (sc) { sc.innerHTML = _convHtml(activeId); sc.scrollTop = sc.scrollHeight; }
         _vcRemoveRecOverlay();
-        _showToast('Video note sent');
+        _showToast('Video note recorded locally');
         // Upload to backend in background
         if (!_isDemo && api.patientUploadVideo) {
           const consentId = await _vcEnsureConsent('upload_video');
@@ -8076,7 +8270,7 @@ async function _pgPatientVirtualCareImpl() {
     if (action === 'call') {
       window.location.href = 'tel:988';
     } else if (action === 'plan') {
-      _showToast('Opening safety plan…');
+      _showToast('Safety plan access is unavailable from this beta portal. Contact your care team or use emergency resources if you need help now.');
     } else if (action === 'dismiss') {
       const c = document.getElementById('vc-crisis');
       if (c) c.classList.add('hidden');
@@ -8101,11 +8295,11 @@ async function _pgPatientVirtualCareImpl() {
   };
 
   window._vcAcceptSchedule = function() {
-    _showToast('Schedule change accepted');
+    _showToast('Noted \u2014 redirecting to sessions');
     setTimeout(() => window._navPatient && window._navPatient('patient-sessions'), 800);
   };
   window._vcRejectSchedule = function() {
-    _showToast('Keeping original time');
+    _showToast('Noted \u2014 redirecting to sessions');
     setTimeout(() => window._navPatient && window._navPatient('patient-sessions'), 800);
   };
   try { if (sessionStorage.getItem('ds_vc_crisis_dismiss')) { const c = document.getElementById('vc-crisis'); if (c) c.classList.add('hidden'); } } catch (_e) {}
@@ -8156,7 +8350,7 @@ async function _pgPatientVirtualCareImpl() {
         </div>
         <!-- Live biometrics overlay -->
         <div id="vc-live-bio" style="position:absolute;top:12px;right:12px;z-index:10;background:rgba(0,0,0,.6);padding:12px 14px;border-radius:10px;color:#fff;font-size:11px;display:flex;flex-direction:column;gap:8px;min-width:160px;backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.08)">
-          <div style="font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px;opacity:.7;margin-bottom:2px">Live biometrics</div>
+          <div style="font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px;opacity:.7;margin-bottom:2px">Simulated biometrics</div>
           <div style="display:flex;align-items:center;gap:8px"><span style="width:28px">HR</span><div style="flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.1);overflow:hidden"><div id="vc-bio-hr-bar" style="width:0%;height:100%;background:#ff8ab3;border-radius:2px;transition:width .4s ease"></div></div><span id="vc-bio-hr" style="width:36px;text-align:right;font-weight:700;color:#ff8ab3;font-size:11px">--</span></div>
           <div style="display:flex;align-items:center;gap:8px"><span style="width:28px">HRV</span><div style="flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.1);overflow:hidden"><div id="vc-bio-hrv-bar" style="width:0%;height:100%;background:#4a9eff;border-radius:2px;transition:width .4s ease"></div></div><span id="vc-bio-hrv" style="width:36px;text-align:right;font-weight:700;color:#4a9eff;font-size:11px">--</span></div>
           <div style="display:flex;align-items:center;gap:8px"><span style="width:28px">SpO₂</span><div style="flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.1);overflow:hidden"><div id="vc-bio-spo2-bar" style="width:0%;height:100%;background:#4ade80;border-radius:2px;transition:width .4s ease"></div></div><span id="vc-bio-spo2" style="width:36px;text-align:right;font-weight:700;color:#4ade80;font-size:11px">--</span></div>
@@ -8206,7 +8400,7 @@ async function _pgPatientVirtualCareImpl() {
       // Submit snapshot to backend every 30s if session exists.
       if (window._vcActiveSessionId && elapsed % 30 === 0) {
         api.virtualCareSubmitBiometrics(window._vcActiveSessionId, {
-          source: 'wearable', heart_rate_bpm: hr, hrv_ms: hrv, spo2_pct: spo2, stress_score: stress,
+          source: 'simulated', heart_rate_bpm: hr, hrv_ms: hrv, spo2_pct: spo2, stress_score: stress,
         }).catch(() => {});
       }
     }, 3000);
@@ -8233,7 +8427,7 @@ async function _pgPatientVirtualCareImpl() {
         api.virtualCareSubmitVoiceAnalysis(window._vcActiveSessionId, {
           segment_start_sec: Math.max(0, elapsed - 10), segment_end_sec: elapsed,
           sentiment, stress_level: sentiment === 'distressed' ? 75 : sentiment === 'negative' ? 45 : sentiment === 'positive' ? 15 : 30,
-          energy_level: sentiment === 'positive' ? 75 : 50,
+          energy_level: sentiment === 'positive' ? 75 : 50, source: 'simulated',
         }).catch(() => {});
       }
     }, 12000);
@@ -8423,6 +8617,8 @@ async function _pgPatientCareTeamImpl() {
   el.innerHTML = `
     <div class="pt-route" id="pt-route-careteam">
 
+      ${_isDemo ? '<div class="hw-demo-banner" role="status"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><strong>Demo data</strong>&mdash; the people below are fictional examples. Your real care team will appear once your clinic assigns your treatment plan.</div>' : ''}
+
       <!-- HERO -->
       <div class="ct-hero">
         <div class="ct-hero-top">
@@ -8433,7 +8629,7 @@ async function _pgPatientCareTeamImpl() {
             <div class="ct-hero-stats">
               <div class="ct-hero-stat"><div class="ct-hero-stat-n">${squad.length}</div><div class="ct-hero-stat-l">Core clinicians</div></div>
               <div class="ct-hero-stat"><div class="ct-hero-stat-n">${specialists.length}</div><div class="ct-hero-stat-l">Specialists on call</div></div>
-              <div class="ct-hero-stat"><div class="ct-hero-stat-n">48 min</div><div class="ct-hero-stat-l">Avg reply time</div></div>
+              <div class="ct-hero-stat"><div class="ct-hero-stat-n">${_isDemo ? '\u2014' : '\u2264 2 hrs'}</div><div class="ct-hero-stat-l">${_isDemo ? 'No data yet' : 'Business hours'}</div></div>
               <div class="ct-hero-stat"><div class="ct-hero-stat-n">24/7</div><div class="ct-hero-stat-l">Crisis line</div></div>
             </div>
           </div>
@@ -8555,7 +8751,7 @@ async function _pgPatientCareTeamImpl() {
             <div class="ct-esc-ring amber"><svg width="15" height="15"><use href="#i-pulse"/></svg></div>
             <div><div class="ct-esc-title">Urgent clinical after-hours</div><div class="ct-esc-sub">For DeepSynaps patients · device issues, medication, severe symptom spike</div></div>
             <div class="ct-esc-hours">After 6 PM · wknd</div>
-            <div class="ct-esc-num" onclick="window._ctUrgentCall && window._ctUrgentCall()">(+1) 617-555-0143</div>
+            <div class="ct-esc-num" style="cursor:default;opacity:0.6">Set by your clinic</div>
           </div>
           <div class="ct-esc-row">
             <div class="ct-esc-ring teal"><svg width="15" height="15"><use href="#i-sparkle"/></svg></div>
@@ -8624,17 +8820,17 @@ async function _pgPatientCareTeamImpl() {
   }
 
   window._ctMessage = function(_id) {
-    _toast('Opening Virtual Care…');
+    _toast('Opening care messaging…');
     setTimeout(() => window._navPatient && window._navPatient('patient-virtualcare'), 400);
   };
   window._ctBook = function(_id) {
-    _toast('Opening scheduling…');
+    _toast('Opening session schedule…');
     setTimeout(() => window._navPatient && window._navPatient('patient-sessions'), 400);
   };
   window._ctMessageTeam  = function() { window._ctMessage(); };
   window._ctBookConsult  = function() { window._ctBook(); };
   window._ctAskAI        = function() {
-    _toast('Opening Synaps AI…');
+    _toast('Opening Virtual Care assistant…');
     setTimeout(() => window._navPatient && window._navPatient('patient-virtualcare'), 400);
   };
   window._ctAIPrefs      = function() { _toast('AI preferences saved'); };
@@ -8789,9 +8985,9 @@ async function _pgPatientEducationImpl() {
 
   // Learning paths
   const PATHS = [
-    { id:'p1', icoCls:'brain',  tag:'For your plan',     name:'Understanding tDCS, end-to-end',         desc:'From the basic physics of direct current to electrode placement, dosing, and what neuroplasticity actually changes in your brain.', lessons:8, mins:72, pct:62 },
-    { id:'p2', icoCls:'heart',  tag:'Recovery toolkit',  name:'MDD recovery — beyond the device',       desc:'Sleep, behavioral activation, exercise, social rhythm — the lifestyle scaffolding that makes neuromodulation stick.', lessons:7, mins:58, pct:18 },
-    { id:'p3', icoCls:'shield', tag:'Foundations',       name:'Brain health basics in 7 short videos',  desc:'A friendly tour of brain regions, neurotransmitters, neuroplasticity, qEEG, and how home devices fit into the broader picture.', lessons:7, mins:42, pct:8 },
+    { id:'p1', icoCls:'brain',  tag:'For your plan',     name:'Understanding tDCS, end-to-end',         desc:'From the basic physics of direct current to electrode placement, dosing, and what neuroplasticity actually changes in your brain.', lessons:8, mins:72, pct:0 },
+    { id:'p2', icoCls:'heart',  tag:'Recovery toolkit',  name:'MDD recovery — beyond the device',       desc:'Sleep, behavioral activation, exercise, social rhythm — the lifestyle scaffolding that makes neuromodulation stick.', lessons:7, mins:58, pct:0 },
+    { id:'p3', icoCls:'shield', tag:'Foundations',       name:'Brain health basics in 7 short videos',  desc:'A friendly tour of brain regions, neurotransmitters, neuroplasticity, qEEG, and how home devices fit into the broader picture.', lessons:7, mins:42, pct:0 },
   ];
 
   // Academy courses — curated learning resources with completion tracking
@@ -8936,7 +9132,7 @@ async function _pgPatientEducationImpl() {
             </div>
             <div class="el-hero-stat">
               <div class="el-hero-stat-icon purple"><svg width="18" height="18"><use href="#i-clock"/></svg></div>
-              <div class="el-hero-stat-content"><div class="el-hero-stat-val">2h 14m watched</div><div class="el-hero-stat-lbl">42% of recommended path</div></div>
+              <div class="el-hero-stat-content"><div class="el-hero-stat-val">\u2014</div><div class="el-hero-stat-lbl">Watch time tracked as you go</div></div>
             </div>
             <div class="el-hero-stat">
               <div class="el-hero-stat-icon amber"><svg width="18" height="18"><use href="#i-bookmark"/></svg></div>
@@ -8964,22 +9160,10 @@ async function _pgPatientEducationImpl() {
       <!-- Continue watching -->
       <div class="el-section">
         <div class="el-section-head">
-          <div class="el-section-title"><svg width="16" height="16"><use href="#i-play"/></svg>Continue watching <span class="el-section-count">${contDemo.length} in progress</span></div>
-          <div class="el-section-actions" style="display:none"><button class="btn btn-ghost btn-sm" onclick="window._edToast && window._edToast('History')">View history</button></div>
+          <div class="el-section-title"><svg width="16" height="16"><use href="#i-play"/></svg>Continue watching</div>
         </div>
-        <div class="el-continue-grid">
-          ${contDemo.map(c => `
-            <div class="el-continue-card" onclick="window._edOpen && window._edOpen('${esc(c.id)}')">
-              <div class="el-cont-thumb el-thumb-grad-${c.grad}">
-                <div class="el-thumb-icon"><svg><use href="#i-${esc(c.ico)}"/></svg></div>
-                <div class="el-cont-progress"><div class="el-cont-progress-fill" style="width:${c.pct}%"></div></div>
-              </div>
-              <div class="el-cont-info">
-                <div class="el-cont-title">${esc(c.title)}</div>
-                <div class="el-cont-sub">${esc(c.sub)}</div>
-                <div class="el-cont-time"><svg width="11" height="11"><use href="#i-play"/></svg>${esc(c.left)}</div>
-              </div>
-            </div>`).join('')}
+        <div style="padding:18px 0;text-align:center;color:var(--text-tertiary);font-size:12.5px;line-height:1.6">
+          No watch history yet. Open a video or article below to get started.
         </div>
       </div>
 
@@ -9484,7 +9668,7 @@ export async function pgPatientProfile(user) {
       notice.className = 'notice notice-success';
       notice.style.display = '';
       notice.style.fontSize = '11.5px';
-      notice.textContent = 'Preferences updated.';
+      notice.textContent = 'Preferences updated in this portal view.';
       setTimeout(() => { if (notice) notice.style.display = 'none'; }, 2500);
     }
   };
@@ -9511,7 +9695,7 @@ export async function pgPatientProfile(user) {
 // Full patient settings page ported from the mockup (st-* scope).
 // Self-contained: injects its own icon sprite, handlers, toast and confirm
 // modal. Local-only — no server persistence yet — save/discard produce a toast.
-export async function pgPatientSettings(user) {
+async function pgPatientSettingsLegacy(user) {
   setTopbar('Settings');
   const el = document.getElementById('patient-content');
   if (!el) return;
@@ -9773,7 +9957,7 @@ export async function pgPatientSettings(user) {
             <div class="st-row">
               <div>
                 <div class="st-row-label">Preferred contact method</div>
-                <div class="st-row-sub">Your care team will try this first for non-urgent check-ins.</div>
+                <div class="st-row-sub">This preference is used for non-urgent check-ins when portal workflow supports it.</div>
               </div>
               <div class="st-seg" data-st-seg>
                 <button class="active">Portal message</button>
@@ -9990,7 +10174,7 @@ export async function pgPatientSettings(user) {
                 <div class="st-row-label">Password</div>
                 <div class="st-row-sub">Managed by your care coordinator.</div>
               </div>
-              <button class="btn btn-ghost btn-sm" data-st-action="change-password"><svg width="13" height="13"><use href="#st-i-lock"/></svg>Change</button>
+              <button class="btn btn-ghost btn-sm" disabled style="opacity:0.55;"><svg width="13" height="13"><use href="#st-i-lock"/></svg>Unavailable</button>
             </div>
 
             <div class="st-row">
@@ -9999,8 +10183,8 @@ export async function pgPatientSettings(user) {
                 <div class="st-row-sub">Authenticator app · required for clinical data access.</div>
               </div>
               <div style="display:flex;gap:8px;align-items:center;">
-                <span class="st-link-state off">Disabled</span>
-                <button class="btn btn-ghost btn-sm" data-st-action="manage-2fa">Enable</button>
+                <span class="st-link-state off">Managed elsewhere</span>
+                <button class="btn btn-ghost btn-sm" disabled style="opacity:0.55;">Unavailable</button>
               </div>
             </div>
 
@@ -10017,7 +10201,7 @@ export async function pgPatientSettings(user) {
                 <div class="st-row-label">Backup codes</div>
                 <div class="st-row-sub">Generate one-time codes for emergency sign-in.</div>
               </div>
-              <button class="btn btn-ghost btn-sm" data-st-action="backup-codes"><svg width="13" height="13"><use href="#st-i-download"/></svg>View codes</button>
+              <button class="btn btn-ghost btn-sm" disabled style="opacity:0.55;"><svg width="13" height="13"><use href="#st-i-download"/></svg>Unavailable</button>
             </div>
 
             <div class="st-row stack">
@@ -10059,30 +10243,30 @@ export async function pgPatientSettings(user) {
             <div class="st-danger-row">
               <div>
                 <div class="t">Pause treatment plan</div>
-                <div class="s">Temporarily stop sessions, reminders, and homework. Your care team will be notified. Resume anytime.</div>
+                <div class="s">This request is managed by your clinic and cannot be started from this beta settings page.</div>
               </div>
-              <button class="st-danger-btn" data-st-danger="pause">Pause</button>
+              <button class="st-danger-btn" disabled style="opacity:0.55;cursor:not-allowed">Clinic only</button>
             </div>
             <div class="st-danger-row">
               <div>
                 <div class="t">Revoke all data sharing</div>
-                <div class="s">Immediately stop sharing with PCP, insurance (where legally possible), and research programs. Cannot be bulk-undone.</div>
+                <div class="s">This request is managed by your clinic and cannot be started from this beta settings page.</div>
               </div>
-              <button class="st-danger-btn" data-st-danger="revoke">Revoke all</button>
+              <button class="st-danger-btn" disabled style="opacity:0.55;cursor:not-allowed">Clinic only</button>
             </div>
             <div class="st-danger-row">
               <div>
                 <div class="t">Transfer records to another provider</div>
-                <div class="s">Your coordinator will prepare a full FHIR export and coordinate with your new clinic. Your DeepSynaps account remains open until you close it.</div>
+                <div class="s">Your coordinator must initiate this transfer outside the beta portal.</div>
               </div>
-              <button class="st-danger-btn" data-st-danger="transfer">Start transfer</button>
+              <button class="st-danger-btn" disabled style="opacity:0.55;cursor:not-allowed">Clinic only</button>
             </div>
             <div class="st-danger-row">
               <div>
                 <div class="t">Delete account</div>
-                <div class="s">Permanently removes all personal identifiers after the clinical retention period (7 years per HIPAA). De-identified research contributions are retained. Cannot be reversed.</div>
+                <div class="s">Account deletion is not initiated from this beta portal. Contact your clinic for the formal process.</div>
               </div>
-              <button class="st-danger-btn" data-st-danger="delete">Delete account</button>
+              <button class="st-danger-btn" disabled style="opacity:0.55;cursor:not-allowed">Clinic only</button>
             </div>
           </div>
         </section>
@@ -10114,10 +10298,10 @@ export async function pgPatientSettings(user) {
     </div>
   `;
 
-  _wireSettingsPage();
+  _wireSettingsPageLegacy();
 }
 
-function _wireSettingsPage() {
+function _wireSettingsPageLegacy() {
   const st = document.getElementById('pt-route-settings');
   if (!st) return;
 
@@ -10227,8 +10411,11 @@ function _wireSettingsPage() {
     b.addEventListener('click', () => {
       const a = b.dataset.stAction;
       if (a === 'edit-profile') { window._navPatient && window._navPatient('patient-profile'); return; }
-      if (a === 'change-password') { window._ptChangePassword && window._ptChangePassword(); return; }
-      const msgs = { 'manage-2fa': '2FA managed via your clinic portal', 'backup-codes': 'Backup codes available from your clinic' };
+      if (a === 'change-password') { stToast('Password changes are unavailable from this beta portal.'); return; }
+      const msgs = {
+        'manage-2fa': 'Two-factor authentication is managed outside this beta portal.',
+        'backup-codes': 'Backup codes are unavailable from this beta portal.'
+      };
       stToast(msgs[a] || 'Action: ' + a);
     });
   });
@@ -10236,13 +10423,13 @@ function _wireSettingsPage() {
   st.querySelectorAll('[data-st-unlink]').forEach(b => {
     b.addEventListener('click', () => {
       const svc = b.dataset.stUnlink;
-      stToast(svc.charAt(0).toUpperCase() + svc.slice(1) + ' unlinked');
+      stToast((svc.charAt(0).toUpperCase() + svc.slice(1)) + ' management is unavailable from this beta portal.');
     });
   });
   st.querySelectorAll('[data-st-link]').forEach(b => {
     b.addEventListener('click', () => {
       const svc = b.dataset.stLink;
-      stToast('Linking ' + svc + '…');
+      stToast('Linking ' + svc + ' is unavailable from this beta portal.');
     });
   });
 
@@ -10258,7 +10445,7 @@ function _wireSettingsPage() {
     b.addEventListener('click', () => {
       const type = b.dataset.stExport;
       const labels = { summary:'Session summary', qeeg:'qEEG export', messages:'Message history', fhir:'FHIR bundle' };
-      stToast((labels[type] || 'Export') + ' requested · your care team will email you a secure link');
+      stToast((labels[type] || 'Export') + ' is unavailable from this beta portal.');
     });
   });
 
@@ -10287,10 +10474,10 @@ function _wireSettingsPage() {
   const DANGER_COPY = {
     pause: {
       title: 'Pause your treatment plan?',
-      body: 'Sessions, reminders, and homework will stop. Your care team is notified. You can resume anytime from Settings.',
+      body: 'Sessions, reminders, and homework will stop in this portal preview. Resume from Settings or contact your clinic for care-plan changes.',
       ok: 'Pause plan',
       needInput: false,
-      success: 'Treatment plan paused · care team notified'
+      success: 'Treatment plan paused in this portal preview'
     },
     revoke: {
       title: 'Revoke all data sharing?',
@@ -10301,17 +10488,17 @@ function _wireSettingsPage() {
     },
     transfer: {
       title: 'Start record transfer?',
-      body: "Your coordinator will prepare a full FHIR export and reach out within 1 business day to coordinate with your new clinic.",
+      body: "Record transfer requests are handled by your clinic. This beta portal does not start the verified transfer workflow.",
       ok: 'Request transfer',
       needInput: false,
-      success: 'Transfer requested · your coordinator will contact you'
+      success: 'Transfer request is unavailable from this portal'
     },
     delete: {
       title: 'Delete your account?',
-      body: "This removes all personal identifiers after the 7-year HIPAA retention window. This cannot be reversed.",
+      body: "Account deletion is clinic-managed and is not started from this beta portal.",
       ok: 'Delete forever',
       needInput: true,
-      success: 'Account deletion scheduled · you have 30 days to cancel'
+      success: 'Account deletion is unavailable from this portal'
     }
   };
 
@@ -10471,7 +10658,7 @@ export async function pgPatientMarketplace(_user) {
       ? (isAmazon
         ? `<button class="mp-cta mp-cta--amazon" data-mp-buy="${esc(i.id)}">View on Amazon · ${esc(i.price)}</button>`
         : `<button class="mp-cta mp-cta--buy" data-mp-buy="${esc(i.id)}">View Product · ${esc(i.price)}</button>`)
-      : `<button class="mp-cta mp-cta--buy" data-mp-buy="${esc(i.id)}">${esc(i.price)}</button>`;
+      : `<button class="mp-cta mp-cta--buy" disabled style="opacity:.55;cursor:not-allowed" title="External product link is unavailable in this beta portal">Unavailable · ${esc(i.price)}</button>`;
     const price = `<div class="mp-price">${esc(i.price)}</div>`;
     return `
       <article class="mp-card" data-kind="${esc(i.kind)}" data-id="${esc(i.id)}">
@@ -10810,8 +10997,6 @@ function _wireMarketplace(CATALOG) {
         window.open(item.external_url, '_blank', 'noopener,noreferrer');
         const isAmz = item.external_url.includes('amazon');
         mpToast(isAmz ? `Opening Amazon…` : `Opening ${item.name}…`);
-      } else {
-        mpToast(`${item.name} · link coming soon`);
       }
     });
   });
@@ -10821,6 +11006,846 @@ function _wireMarketplace(CATALOG) {
     btn.addEventListener('click', () => {
       showDetails(btn.dataset.mpDetails);
     });
+  });
+}
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+// Full patient settings page ported from the mockup (st-* scope).
+// Self-contained: injects its own icon sprite, handlers, toast and confirm
+// modal. Local-only — no server persistence yet — save/discard produce a toast.
+export async function pgPatientSettings(user) {
+  setTopbar('Settings');
+  const el = document.getElementById('patient-content');
+  if (!el) return;
+
+  function esc(v) {
+    if (v == null) return '';
+    return String(v)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
+  }
+
+  const displayName = esc(user?.display_name || user?.email?.split('@')[0] || 'Patient');
+  const email       = esc(user?.email || '');
+  const initials    = (displayName || '?').slice(0, 2).toUpperCase();
+
+  const spriteHTML = `
+    <svg width="0" height="0" aria-hidden="true" style="position:absolute">
+      <defs>
+        <symbol id="st-i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M4 21a8 8 0 0 1 16 0" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+        <symbol id="st-i-bell" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2H4.5L6 16Z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 20a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+        <symbol id="st-i-heart" viewBox="0 0 24 24"><path d="M12 20s-7-4.5-7-10a4.5 4.5 0 0 1 7-3.5A4.5 4.5 0 0 1 19 10c0 5.5-7 10-7 10Z" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+        <symbol id="st-i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+        <symbol id="st-i-repeat" viewBox="0 0 24 24"><path d="M4 10V7a2 2 0 0 1 2-2h11l-3-3m3 3-3 3M20 14v3a2 2 0 0 1-2 2H7l3 3m-3-3 3-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+        <symbol id="st-i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+        <symbol id="st-i-shield" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6l-8-3Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+        <symbol id="st-i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 10v6M12 7v.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+        <symbol id="st-i-alert" viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M12 10v5M12 17v.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+        <symbol id="st-i-edit" viewBox="0 0 24 24"><path d="m4 20 4-1 11-11-3-3L5 16l-1 4Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+        <symbol id="st-i-check" viewBox="0 0 24 24"><path d="m5 12 5 5 9-11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+        <symbol id="st-i-chart" viewBox="0 0 24 24"><path d="M4 19V5M4 19h16M8 15v-5M12 15V8M16 15v-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+        <symbol id="st-i-brain" viewBox="0 0 24 24"><path d="M9 4a3 3 0 0 0-3 3v1a3 3 0 0 0-2 5 3 3 0 0 0 2 5v1a3 3 0 0 0 3 3m6-18a3 3 0 0 1 3 3v1a3 3 0 0 1 2 5 3 3 0 0 1-2 5v1a3 3 0 0 1-3 3" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+        <symbol id="st-i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="m3 7 9 6 9-6" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+        <symbol id="st-i-clipboard" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="17" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M9 4h6v3H9z" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+        <symbol id="st-i-download" viewBox="0 0 24 24"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+        <symbol id="st-i-pulse" viewBox="0 0 24 24"><path d="M3 12h4l2-5 4 10 2-5h6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      </defs>
+    </svg>
+  `;
+
+  el.innerHTML = `
+    ${spriteHTML}
+    <div class="pt-settings-route" id="pt-route-settings">
+
+      <aside class="st-nav" id="st-nav">
+        <div class="st-nav-title">Settings</div>
+        <div class="st-nav-item active" data-target="st-account"><svg><use href="#st-i-user"/></svg>Account</div>
+        <div class="st-nav-item" data-target="st-notifications"><svg><use href="#st-i-bell"/></svg>Notifications</div>
+        <div class="st-nav-item" data-target="st-care"><svg><use href="#st-i-heart"/></svg>Care preferences</div>
+        <div class="st-nav-item" data-target="st-privacy"><svg><use href="#st-i-lock"/></svg>Privacy &amp; data</div>
+        <div class="st-nav-item" data-target="st-accessibility"><svg><use href="#st-i-eye"/></svg>Accessibility</div>
+        <div class="st-nav-item" data-target="st-security"><svg><use href="#st-i-shield"/></svg>Security</div>
+        <div class="st-nav-item" data-target="st-danger" style="color:rgba(255,138,138,0.85);"><svg><use href="#st-i-alert"/></svg>Danger zone</div>
+      </aside>
+
+      <div class="st-main">
+
+        <section class="st-section" id="st-account">
+          <div class="st-section-head">
+            <div class="st-section-ico"><svg width="18" height="18"><use href="#st-i-user"/></svg></div>
+            <div>
+              <h3>Account</h3>
+              <p>Your profile, contact info, and how DeepSynaps identifies you.</p>
+            </div>
+          </div>
+          <div class="st-body">
+            <div class="st-profile">
+              <div class="st-profile-av">${esc(initials)}</div>
+              <div class="st-profile-body">
+                <h4>${displayName}</h4>
+                <div class="email">${email}</div>
+                <div class="meta">Profile details are managed by your care coordinator.</div>
+              </div>
+              <button class="btn btn-ghost btn-sm" data-st-action="edit-profile"><svg width="13" height="13"><use href="#st-i-edit"/></svg>Edit</button>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Display name</div>
+                <div class="st-row-sub">How your clinicians see you across the portal.</div>
+              </div>
+              <input class="st-input" type="text" value="${displayName}" data-st-change />
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Preferred pronouns</div>
+                <div class="st-row-sub">Shown to your care team in all threads and notes.</div>
+              </div>
+              <select class="st-select" data-st-change>
+                <option>she / her</option>
+                <option>he / him</option>
+                <option>they / them</option>
+                <option>Prefer not to say</option>
+              </select>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Date of birth</div>
+                <div class="st-row-sub">Used for eligibility and clinical decision support. Contact your coordinator to change.</div>
+              </div>
+              <input class="st-input" type="text" value="—" readonly style="opacity:0.7;cursor:not-allowed;" />
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Phone</div>
+                <div class="st-row-sub">For appointment reminders and urgent clinical contact.</div>
+              </div>
+              <input class="st-input" type="text" value="" placeholder="+1 (000) 000-0000" data-st-change />
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Timezone</div>
+                <div class="st-row-sub">All session times and reminders use this zone.</div>
+              </div>
+              <select class="st-select" data-st-change>
+                <option selected>Europe / London (BST, UTC+1)</option>
+                <option>America / New_York (EDT, UTC−4)</option>
+                <option>America / Los_Angeles (PDT, UTC−7)</option>
+                <option>Europe / Berlin (CEST, UTC+2)</option>
+                <option>Asia / Singapore (SGT, UTC+8)</option>
+              </select>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Language</div>
+                <div class="st-row-sub">Portal UI + patient-facing reports.</div>
+              </div>
+              <select class="st-select" data-st-change>
+                <option selected>English (US)</option>
+                <option>English (UK)</option>
+                <option>Deutsch</option>
+                <option>Español</option>
+                <option>Français</option>
+                <option>Türkçe</option>
+                <option>中文 (简体)</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <section class="st-section" id="st-notifications">
+          <div class="st-section-head">
+            <div class="st-section-ico purple"><svg width="18" height="18"><use href="#st-i-bell"/></svg></div>
+            <div>
+              <h3>Notifications</h3>
+              <p>Choose how and when we reach out — for sessions, messages, and care updates.</p>
+            </div>
+          </div>
+          <div class="st-body">
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Channel</div>
+                <div class="st-row-sub">Primary channel for everything below. Urgent clinical alerts always come via all three.</div>
+              </div>
+              <div class="st-seg" data-st-seg>
+                <button class="active">App push</button>
+                <button>Email</button>
+                <button>SMS</button>
+              </div>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Session reminders</div>
+                <div class="st-row-sub">Your in-clinic sessions, home protocols, and consults.</div>
+              </div>
+              <div class="st-toggle on" data-st-toggle></div>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Reminder timing</div>
+                <div class="st-row-sub">How long before each session to notify you.</div>
+              </div>
+              <div class="st-pills" data-st-pills>
+                <button class="st-pill">15 min</button>
+                <button class="st-pill active">1 hour</button>
+                <button class="st-pill">3 hours</button>
+                <button class="st-pill">Day before</button>
+              </div>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">New messages</div>
+                <div class="st-row-sub">From your care team or Synaps AI triage.</div>
+              </div>
+              <div class="st-toggle on" data-st-toggle></div>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Homework nudges</div>
+                <div class="st-row-sub">Daily mood journal, breathing, walks, sleep checklist.</div>
+              </div>
+              <div class="st-toggle on" data-st-toggle></div>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Assessment reminders</div>
+                <div class="st-row-sub">PHQ-9, GAD-7, ISI, WHO-5 — when they're due.</div>
+              </div>
+              <div class="st-toggle on" data-st-toggle></div>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Progress milestones</div>
+                <div class="st-row-sub">Week completions, streaks, and score improvement markers.</div>
+              </div>
+              <div class="st-toggle on" data-st-toggle></div>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Education picks for you</div>
+                <div class="st-row-sub">Weekly video/article suggestions matched to your protocol.</div>
+              </div>
+              <div class="st-toggle" data-st-toggle></div>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Device sync updates</div>
+                <div class="st-row-sub">When Synaps One, wearables, or Apple Health sync new data.</div>
+              </div>
+              <div class="st-toggle" data-st-toggle></div>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Quiet hours</div>
+                <div class="st-row-sub">Non-urgent notifications stay silent during these hours.</div>
+              </div>
+              <select class="st-select" data-st-change>
+                <option selected>10 PM – 7 AM</option>
+                <option>9 PM – 8 AM</option>
+                <option>11 PM – 6 AM</option>
+                <option>Off (never quiet)</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <section class="st-section" id="st-care">
+          <div class="st-section-head">
+            <div class="st-section-ico pink"><svg width="18" height="18"><use href="#st-i-heart"/></svg></div>
+            <div>
+              <h3>Care preferences</h3>
+              <p>How you want your care team to communicate and share decisions with you.</p>
+            </div>
+          </div>
+          <div class="st-body">
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Preferred contact method</div>
+                <div class="st-row-sub">This preference is used for non-urgent check-ins when portal workflow supports it.</div>
+              </div>
+              <div class="st-seg" data-st-seg>
+                <button class="active">Portal message</button>
+                <button>Video call</button>
+                <button>Voice call</button>
+              </div>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Depth of clinical detail</div>
+                <div class="st-row-sub">How technical should messages and reports be?</div>
+              </div>
+              <div class="st-pills" data-st-pills>
+                <button class="st-pill">Plain language</button>
+                <button class="st-pill active">Balanced</button>
+                <button class="st-pill">Full clinical</button>
+              </div>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Let Synaps AI triage my messages</div>
+                <div class="st-row-sub">AI responds first and escalates anything clinical or sensitive to a human within minutes.</div>
+              </div>
+              <div class="st-toggle on" data-st-toggle></div>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Share assessment results in real-time</div>
+                <div class="st-row-sub">Your PHQ-9 / GAD-7 scores appear on your clinician's dashboard the moment you submit.</div>
+              </div>
+              <div class="st-toggle on" data-st-toggle></div>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Allow qEEG data for personalization</div>
+                <div class="st-row-sub">Your qEEG reports feed the AI Personalization Engine to refine your protocol.</div>
+              </div>
+              <div class="st-toggle on" data-st-toggle></div>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Crisis escalation contact</div>
+                <div class="st-row-sub">Who we contact in addition to you if Synaps AI detects a safety concern.</div>
+              </div>
+              <input class="st-input" type="text" value="" placeholder="Name · relationship · phone" data-st-change style="min-width:280px;" />
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Next-of-kin on file</div>
+                <div class="st-row-sub">Used only in emergencies. Managed by your care coordinator.</div>
+              </div>
+              <span class="st-link-state off">Not set</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="st-section" id="st-privacy">
+          <div class="st-section-head">
+            <div class="st-section-ico blue"><svg width="18" height="18"><use href="#st-i-lock"/></svg></div>
+            <div>
+              <h3>Privacy &amp; data</h3>
+              <p>Who can see your data, how it's shared, and what you can export or delete.</p>
+            </div>
+          </div>
+          <div class="st-body">
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Share with primary care physician</div>
+                <div class="st-row-sub">Send monthly summaries to your PCP. Revocable anytime.</div>
+              </div>
+              <div class="st-toggle on" data-st-toggle></div>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Anonymous research contribution</div>
+                <div class="st-row-sub">De-identified qEEG + outcome data may improve protocols for future patients. No personal identifiers leave DeepSynaps.</div>
+              </div>
+              <div class="st-toggle on" data-st-toggle></div>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Product analytics</div>
+                <div class="st-row-sub">Help us improve the portal UI. Usage only — no health data.</div>
+              </div>
+              <div class="st-toggle on" data-st-toggle></div>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Insurance data sharing</div>
+                <div class="st-row-sub">Session counts and diagnoses shared with your insurer for coverage. Required for reimbursement.</div>
+              </div>
+              <div class="st-toggle on" data-st-toggle style="opacity:0.7;pointer-events:none;"></div>
+            </div>
+
+            <div class="st-row stack">
+              <div>
+                <div class="st-row-label">Download your data</div>
+                <div class="st-row-sub">Exports are encrypted and ready within 24 hours. Links expire after 7 days.</div>
+              </div>
+              <div class="st-data-grid">
+                <div class="st-data-card">
+                  <div class="t"><svg><use href="#st-i-chart"/></svg>Session &amp; outcome summary</div>
+                  <div class="s">PDF · PHQ-9, GAD-7, ISI, WHO-5 timelines + tDCS log. ~2 MB.</div>
+                  <button class="btn btn-ghost btn-sm" data-st-export="summary" style="align-self:flex-start;"><svg width="13" height="13"><use href="#st-i-download"/></svg>Request</button>
+                </div>
+                <div class="st-data-card">
+                  <div class="t"><svg><use href="#st-i-brain"/></svg>qEEG raw + processed</div>
+                  <div class="s">EDF + JSON · raw recordings and analyses. ~240 MB.</div>
+                  <button class="btn btn-ghost btn-sm" data-st-export="qeeg" style="align-self:flex-start;"><svg width="13" height="13"><use href="#st-i-download"/></svg>Request</button>
+                </div>
+                <div class="st-data-card">
+                  <div class="t"><svg><use href="#st-i-mail"/></svg>Full message history</div>
+                  <div class="s">JSON · every thread with care team + Synaps AI. ~8 MB.</div>
+                  <button class="btn btn-ghost btn-sm" data-st-export="messages" style="align-self:flex-start;"><svg width="13" height="13"><use href="#st-i-download"/></svg>Request</button>
+                </div>
+                <div class="st-data-card">
+                  <div class="t"><svg><use href="#st-i-clipboard"/></svg>Complete record (FHIR)</div>
+                  <div class="s">HL7 FHIR bundle · transferable to any EHR. ~45 MB.</div>
+                  <button class="btn btn-ghost btn-sm" data-st-export="fhir" style="align-self:flex-start;"><svg width="13" height="13"><use href="#st-i-download"/></svg>Request</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="st-section" id="st-accessibility">
+          <div class="st-section-head">
+            <div class="st-section-ico orange"><svg width="18" height="18"><use href="#st-i-eye"/></svg></div>
+            <div>
+              <h3>Accessibility &amp; display</h3>
+              <p>Adjust the portal to suit how you see, hear, and read.</p>
+            </div>
+          </div>
+          <div class="st-body">
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Theme</div>
+                <div class="st-row-sub">Dark is recommended for evening sessions.</div>
+              </div>
+              <div class="st-seg" data-st-seg>
+                <button class="active">Dark</button>
+                <button>Light</button>
+                <button>System</button>
+              </div>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Text size</div>
+                <div class="st-row-sub">Applies across all portal screens.</div>
+              </div>
+              <div class="st-seg" data-st-seg>
+                <button>Small</button>
+                <button class="active">Default</button>
+                <button>Large</button>
+                <button>X-Large</button>
+              </div>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Reduce motion</div>
+                <div class="st-row-sub">Minimize animations and transitions.</div>
+              </div>
+              <div class="st-toggle" data-st-toggle></div>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">High contrast mode</div>
+                <div class="st-row-sub">Bolder text and sharper contrast borders.</div>
+              </div>
+              <div class="st-toggle" data-st-toggle></div>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Captions on video content</div>
+                <div class="st-row-sub">Auto-on for Education Library and video consults.</div>
+              </div>
+              <div class="st-toggle on" data-st-toggle></div>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Screen reader hints</div>
+                <div class="st-row-sub">Extra ARIA labels for assistive tech.</div>
+              </div>
+              <div class="st-toggle" data-st-toggle></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="st-section" id="st-security">
+          <div class="st-section-head">
+            <div class="st-section-ico"><svg width="18" height="18"><use href="#st-i-shield"/></svg></div>
+            <div>
+              <h3>Security</h3>
+              <p>Keep your account and health data safe.</p>
+            </div>
+          </div>
+          <div class="st-body">
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Password</div>
+                <div class="st-row-sub">Managed by your care coordinator.</div>
+              </div>
+              <button class="btn btn-ghost btn-sm" data-st-action="change-password"><svg width="13" height="13"><use href="#st-i-lock"/></svg>Change</button>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Two-factor authentication</div>
+                <div class="st-row-sub">Authenticator app · required for clinical data access.</div>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <span class="st-link-state off">Disabled</span>
+                <button class="btn btn-ghost btn-sm" data-st-action="manage-2fa">Enable</button>
+              </div>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Face ID / biometric unlock</div>
+                <div class="st-row-sub">Unlock the mobile app with biometrics.</div>
+              </div>
+              <div class="st-toggle" data-st-toggle></div>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Backup codes</div>
+                <div class="st-row-sub">Generate one-time codes for emergency sign-in.</div>
+              </div>
+              <button class="btn btn-ghost btn-sm" data-st-action="backup-codes"><svg width="13" height="13"><use href="#st-i-download"/></svg>View codes</button>
+            </div>
+
+            <div class="st-row stack">
+              <div>
+                <div class="st-row-label">Active sessions</div>
+                <div class="st-row-sub">Devices currently signed into your account.</div>
+              </div>
+              <div style="width:100%;">
+                <div class="st-sess-row">
+                  <div class="st-sess-ico"><svg width="16" height="16"><use href="#st-i-pulse"/></svg></div>
+                  <div>
+                    <div class="st-sess-title">This browser <span class="cur">Current</span></div>
+                    <div class="st-sess-sub">Active now</div>
+                  </div>
+                  <button class="st-sess-btn ghost" style="pointer-events:none;opacity:0.5;">—</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="st-row">
+              <div>
+                <div class="st-row-label">Login alerts</div>
+                <div class="st-row-sub">Email + push notification for every new sign-in.</div>
+              </div>
+              <div class="st-toggle on" data-st-toggle></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="st-section st-danger" id="st-danger">
+          <div class="st-section-head">
+            <div class="st-section-ico red"><svg width="18" height="18"><use href="#st-i-alert"/></svg></div>
+            <div>
+              <h3>Danger zone</h3>
+              <p>Account actions that can't be undone without contacting your care coordinator.</p>
+            </div>
+          </div>
+          <div class="st-body">
+            <div class="st-danger-row">
+              <div>
+                <div class="t">Pause treatment plan</div>
+                <div class="s">This request is managed by your clinic and cannot be started from this beta settings page.</div>
+              </div>
+              <button class="st-danger-btn" disabled style="opacity:0.55;cursor:not-allowed">Clinic only</button>
+            </div>
+            <div class="st-danger-row">
+              <div>
+                <div class="t">Revoke all data sharing</div>
+                <div class="s">This request is managed by your clinic and cannot be started from this beta settings page.</div>
+              </div>
+              <button class="st-danger-btn" disabled style="opacity:0.55;cursor:not-allowed">Clinic only</button>
+            </div>
+            <div class="st-danger-row">
+              <div>
+                <div class="t">Transfer records to another provider</div>
+                <div class="s">Your coordinator must initiate this transfer outside the beta portal.</div>
+              </div>
+              <button class="st-danger-btn" disabled style="opacity:0.55;cursor:not-allowed">Clinic only</button>
+            </div>
+            <div class="st-danger-row">
+              <div>
+                <div class="t">Delete account</div>
+                <div class="s">Account deletion is not initiated from this beta portal. Contact your clinic for the formal process.</div>
+              </div>
+              <button class="st-danger-btn" disabled style="opacity:0.55;cursor:not-allowed">Clinic only</button>
+            </div>
+          </div>
+        </section>
+
+        <div class="st-savebar" id="st-savebar">
+          <div class="st-savebar-msg">You have unsaved changes</div>
+          <div class="st-savebar-actions">
+            <button class="btn btn-ghost btn-sm" id="st-discard">Discard</button>
+            <button class="btn btn-primary btn-sm" id="st-save"><svg width="13" height="13"><use href="#st-i-check"/></svg>Save changes</button>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="st-bd" id="st-confirm-bd">
+        <div class="st-modal">
+          <div class="st-modal-ico"><svg width="20" height="20"><use href="#st-i-alert"/></svg></div>
+          <h4 id="st-confirm-title">Are you sure?</h4>
+          <p id="st-confirm-body">This action cannot be undone.</p>
+          <input class="st-input st-modal-confirm-input" id="st-confirm-input" type="text" placeholder='Type "CONFIRM" to continue' />
+          <div class="st-modal-actions">
+            <button class="btn btn-ghost btn-sm" id="st-confirm-cancel">Cancel</button>
+            <button class="st-danger-btn" id="st-confirm-ok">Proceed</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="st-toast" id="st-toast"><svg><use href="#st-i-check"/></svg><span id="st-toast-text">Saved</span></div>
+    </div>
+  `;
+
+  _wireSettingsPage();
+}
+
+function _wireSettingsPage() {
+  const st = document.getElementById('pt-route-settings');
+  if (!st) return;
+
+  const toast = document.getElementById('st-toast');
+  const toastText = document.getElementById('st-toast-text');
+  let toastTimer = null;
+  function stToast(msg) {
+    if (!toast) return;
+    if (toastText) toastText.textContent = msg;
+    toast.classList.add('show');
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove('show'), 2200);
+  }
+
+  const saveBar = document.getElementById('st-savebar');
+  let dirty = false;
+  function markDirty() {
+    if (dirty) return;
+    dirty = true;
+    if (saveBar) saveBar.classList.add('show');
+  }
+  function clearDirty() {
+    dirty = false;
+    if (saveBar) saveBar.classList.remove('show');
+  }
+
+  st.querySelectorAll('[data-st-toggle]').forEach(t => {
+    t.addEventListener('click', () => {
+      if (t.style.pointerEvents === 'none') return;
+      t.classList.toggle('on');
+      markDirty();
+    });
+  });
+
+  st.querySelectorAll('[data-st-seg]').forEach(seg => {
+    seg.addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      seg.querySelectorAll('button').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      markDirty();
+    });
+  });
+
+  st.querySelectorAll('[data-st-pills]').forEach(group => {
+    group.addEventListener('click', (e) => {
+      const b = e.target.closest('.st-pill');
+      if (!b) return;
+      group.querySelectorAll('.st-pill').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      markDirty();
+    });
+  });
+
+  st.querySelectorAll('[data-st-change]').forEach(el => {
+    el.addEventListener('input', markDirty);
+    el.addEventListener('change', markDirty);
+  });
+
+  const saveBtn = document.getElementById('st-save');
+  const discardBtn = document.getElementById('st-discard');
+  if (saveBtn) saveBtn.addEventListener('click', async () => {
+    clearDirty();
+    try {
+      if (api.updatePatientPreferences) {
+        const prefs = {};
+        st.querySelectorAll('[data-st-toggle]').forEach(t => { prefs[t.dataset.stToggle] = t.classList.contains('on'); });
+        await api.updatePatientPreferences(prefs);
+      }
+      stToast('Settings saved');
+    } catch (err) {
+      stToast('Save failed \u2014 try again');
+      console.error('[settings] save failed', err);
+    }
+  });
+  if (discardBtn) discardBtn.addEventListener('click', () => { clearDirty(); stToast('Changes discarded'); window.location.reload(); });
+
+  const nav = document.getElementById('st-nav');
+  if (nav) {
+    nav.addEventListener('click', (e) => {
+      const item = e.target.closest('.st-nav-item');
+      if (!item) return;
+      const target = document.getElementById(item.dataset.target);
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      nav.querySelectorAll('.st-nav-item').forEach(x => x.classList.remove('active'));
+      item.classList.add('active');
+    });
+  }
+
+  const sectionIds = ['st-account','st-notifications','st-care','st-privacy','st-accessibility','st-security','st-danger'];
+  const sections = sectionIds.map(id => document.getElementById(id)).filter(Boolean);
+  const navItems = nav ? nav.querySelectorAll('.st-nav-item') : [];
+  function updateActiveNav() {
+    if (!sections.length) return;
+    const scrollY = (window.scrollY || document.documentElement.scrollTop) + 120;
+    let current = sections[0].id;
+    for (const sec of sections) {
+      if (sec.offsetTop <= scrollY) current = sec.id;
+    }
+    navItems.forEach(item => {
+      item.classList.toggle('active', item.dataset.target === current);
+    });
+  }
+  window.addEventListener('scroll', updateActiveNav, { passive: true });
+
+  st.querySelectorAll('[data-st-action]').forEach(b => {
+    b.addEventListener('click', () => {
+      const a = b.dataset.stAction;
+      const msgs = {
+        'edit-profile': 'Profile changes are managed by your clinic in this beta portal.',
+        'change-password': 'Password changes are unavailable from this beta portal.',
+        'manage-2fa': '2FA management is unavailable from this beta portal.',
+        'backup-codes': 'Backup codes are unavailable from this beta portal.'
+      };
+      stToast(msgs[a] || 'Action: ' + a);
+    });
+  });
+
+  st.querySelectorAll('[data-st-unlink]').forEach(b => {
+    b.addEventListener('click', () => {
+      const svc = b.dataset.stUnlink;
+      stToast(svc.charAt(0).toUpperCase() + svc.slice(1) + ' unlinked');
+    });
+  });
+  st.querySelectorAll('[data-st-link]').forEach(b => {
+    b.addEventListener('click', () => {
+      const svc = b.dataset.stLink;
+      stToast('Linking ' + svc + '…');
+    });
+  });
+
+  st.querySelectorAll('[data-st-revoke]').forEach(b => {
+    b.addEventListener('click', () => {
+      const row = b.closest('.st-sess-row');
+      if (row) row.style.display = 'none';
+      stToast('Session revoked');
+    });
+  });
+
+  st.querySelectorAll('[data-st-export]').forEach(b => {
+    b.addEventListener('click', () => {
+      const type = b.dataset.stExport;
+      const labels = { summary:'Session summary', qeeg:'qEEG export', messages:'Message history', fhir:'FHIR bundle' };
+      stToast((labels[type] || 'Export') + ' is unavailable from this beta portal.');
+    });
+  });
+
+  st.querySelectorAll('[data-st-legal]').forEach(a => {
+    a.addEventListener('click', () => {
+      stToast('Opening: ' + a.textContent);
+    });
+  });
+
+  const bd = document.getElementById('st-confirm-bd');
+  const mTitle = document.getElementById('st-confirm-title');
+  const mBody = document.getElementById('st-confirm-body');
+  const mInput = document.getElementById('st-confirm-input');
+  const mCancel = document.getElementById('st-confirm-cancel');
+  const mOk = document.getElementById('st-confirm-ok');
+  let pendingAction = null;
+
+  const DANGER_COPY = {
+    pause: {
+      title: 'Pause your treatment plan?',
+      body: 'Sessions, reminders, and homework will stop in this portal view. Care-team notification is not confirmed from this beta portal. You can resume anytime from Settings.',
+      ok: 'Pause plan',
+      needInput: false,
+      success: 'Treatment plan paused in this portal view'
+    },
+    revoke: {
+      title: 'Revoke all data sharing?',
+      body: 'Sharing with your PCP and research programs stops immediately. Insurance sharing remains where legally required.',
+      ok: 'Revoke all',
+      needInput: true,
+      success: 'All sharing permissions revoked'
+    },
+    transfer: {
+      title: 'Start record transfer?',
+      body: "A transfer request will be saved in this portal view. Coordinator outreach and FHIR export are not confirmed from this beta portal.",
+      ok: 'Request transfer',
+      needInput: false,
+      success: 'Transfer request saved in this portal view'
+    },
+    delete: {
+      title: 'Delete your account?',
+      body: "This removes all personal identifiers after the 7-year HIPAA retention window. This cannot be reversed.",
+      ok: 'Delete forever',
+      needInput: true,
+      success: 'Account deletion request saved in this portal view'
+    }
+  };
+
+  st.querySelectorAll('[data-st-danger]').forEach(b => {
+    b.addEventListener('click', () => {
+      pendingAction = b.dataset.stDanger;
+      const c = DANGER_COPY[pendingAction];
+      if (!c || !bd) return;
+      if (mTitle) mTitle.textContent = c.title;
+      if (mBody) mBody.textContent = c.body;
+      if (mOk) mOk.textContent = c.ok;
+      if (mInput) {
+        mInput.value = '';
+        mInput.style.display = c.needInput ? '' : 'none';
+      }
+      bd.classList.add('open');
+    });
+  });
+
+  function closeConfirm() { if (bd) bd.classList.remove('open'); pendingAction = null; }
+  if (mCancel) mCancel.addEventListener('click', closeConfirm);
+  if (bd) bd.addEventListener('click', (e) => { if (e.target === bd) closeConfirm(); });
+  if (mOk) {
+    mOk.addEventListener('click', () => {
+      if (!pendingAction) return;
+      const c = DANGER_COPY[pendingAction];
+      if (c.needInput && mInput && mInput.value.trim().toUpperCase() !== 'CONFIRM') {
+        stToast('Type CONFIRM to continue');
+        return;
+      }
+      stToast(c.success);
+      closeConfirm();
+    });
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && bd && bd.classList.contains('open')) closeConfirm();
   });
 }
 
@@ -10968,6 +11993,7 @@ function _tasksGetEnrichedFromServer(serverTasks) {
 }
 
 function _taskRenderCard(task, today, opts) {
+  function esc(v) { if (v == null) return ''; return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;'); }
   opts = opts || {};
   const done = _pttIsComplete(task.id, today);
   const cat = task.cat || _TASK_CAT_META['custom'];
@@ -11008,8 +12034,8 @@ function _taskRenderCard(task, today, opts) {
     '</div>' +
 
     '<div class="pt-tasks-card-body">' +
-      '<div class="pt-tasks-card-title' + (done ? ' pt-tasks-card-title--done' : '') + '">' + task.title + '</div>' +
-      (task.why ? '<div class="pt-tasks-card-why">' + task.why + '</div>' : '') +
+      '<div class="pt-tasks-card-title' + (done ? ' pt-tasks-card-title--done' : '') + '">' + esc(task.title) + '</div>' +
+      (task.why ? '<div class="pt-tasks-card-why">' + esc(task.why) + '</div>' : '') +
       (metaPills ? '<div class="pt-tasks-card-meta">' + metaPills + '</div>' : '') +
       careHTML +
     '</div>' +
@@ -11154,7 +12180,17 @@ export async function pgPatientWellness() {
       '</div>' +
     '</div>';
 
+    const _isDemoTasks = _looksDemo && _serverHomeProgramTasks && _serverHomeProgramTasks.some(function(t) { return t._isDemoData; });
+    const demoBanner = _isDemoTasks
+      ? '<div class="hw-demo-banner" role="status">' +
+          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>' +
+          '<strong>Demo data</strong>' +
+          '&mdash; sample tasks shown while your clinic is being set up. Your real home program will appear once your care team activates your plan.' +
+        '</div>'
+      : '';
+
     return '<div class="pt-tasks-page">' +
+      demoBanner +
       '<div class="pt-tasks-page-date" style="padding:0 16px 12px">' + todayFmt + '</div>' +
       kpiRow +
       overdueSection +
@@ -11308,11 +12344,7 @@ export async function pgPatientWellness() {
     _launcherOpen(taskId,
       '<div class="pt-launcher-heading">Breathing Exercise</div>' +
       '<div style="text-align:center;padding:12px 0">' +
-        '<div class="pt-launcher-timer-circle" id="bl-circle">' +
-          '<div class="pt-launcher-timer-phase" id="bl-phase">Inhale</div>' +
-          '<div class="pt-launcher-timer-count" id="bl-count">4</div>' +
-        '</div>' +
-        '<div class="pt-launcher-timer-guide" id="bl-guide">Press Start to begin</div>' +
+        '<div style="font-size:13px;color:var(--text-secondary);line-height:1.5;max-width:320px;margin:0 auto">Choose a pattern below, then do the exercise on your own. Log your experience when done.</div>' +
       '</div>' +
       '<div class="pt-launcher-row">' +
         '<label class="pt-launcher-label">Rounds</label>' +
@@ -11779,6 +12811,10 @@ const LEARN_ARTICLES = [
 export async function pgPatientLearn() {
   setTopbar(t('patient.nav.learn'));
   const el = document.getElementById('patient-content');
+  const liveEvidence = await getEvidenceUiStats({
+    fallbackSummary: EVIDENCE_SUMMARY,
+    fallbackConditionCount: EVIDENCE_SUMMARY.totalConditions,
+  });
 
   // Track read articles — fetch from API, fall back to localStorage
   let readArticles = [];
@@ -11864,9 +12900,9 @@ export async function pgPatientLearn() {
       <div style="font-size:20px;font-weight:700;color:var(--text-primary);margin-bottom:6px">Education Library</div>
       <div style="font-size:12.5px;color:var(--text-secondary);max-width:900px">Academic journals, YouTube explainers, podcasts, Udemy and edX courses, clinic premium videos, and conference or seminar replays curated for neuromodulation patients.</div>
       <div style="margin-top:8px;display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--text-tertiary)">
-        <span>${EVIDENCE_TOTAL_PAPERS.toLocaleString()} peer-reviewed papers</span>
-        <span>${EVIDENCE_TOTAL_TRIALS.toLocaleString()} clinical trials</span>
-        <span>${EVIDENCE_SUMMARY.totalConditions} conditions indexed</span>
+        <span>${liveEvidence.totalPapers.toLocaleString()} peer-reviewed papers</span>
+        <span>${liveEvidence.totalTrials.toLocaleString()} clinical trials</span>
+        <span>${liveEvidence.totalConditions} conditions indexed</span>
       </div>
     </div>
 
@@ -12153,7 +13189,7 @@ export async function pgPatientMediaConsent() {
       if (msgEl) {
         msgEl.className = 'notice notice-success';
         msgEl.style.display = '';
-        msgEl.textContent = grantedValue ? 'Consent granted.' : 'Consent revoked.';
+        msgEl.textContent = grantedValue ? 'Consent marked granted in this portal view.' : 'Consent marked revoked in this portal view.';
         setTimeout(() => { if (msgEl) msgEl.style.display = 'none'; }, 2500);
       }
     } catch (err) {
@@ -12226,7 +13262,7 @@ export async function pgPatientMediaUpload() {
 
   const courseOptions = courses.length > 0
     ? `<option value="">— Not linked to a course —</option>` +
-      courses.map(c => `<option value="${c.id}">${c.condition_slug || 'Course'} (${c.status || 'active'})</option>`).join('')
+      courses.map(c => `<option value="${_hdEsc(c.id)}">${_hdEsc(c.condition_slug) || 'Course'} (${_hdEsc(c.status) || 'active'})</option>`).join('')
     : `<option value="">No courses found</option>`;
 
   // Media recorder state
@@ -12240,7 +13276,7 @@ export async function pgPatientMediaUpload() {
   el.innerHTML = `
     <div style="margin-bottom:20px">
       <div style="font-size:17px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Send an Update to Your Care Team</div>
-      <div style="font-size:12.5px;color:var(--text-secondary)">Your care team will review your update before it is used in your clinical record.</div>
+      <div style="font-size:12.5px;color:var(--text-secondary)">Clinical review timing depends on portal workflow before your update is used in your record.</div>
     </div>
 
     <div style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:10px 14px;margin-bottom:16px;display:flex;align-items:flex-start;gap:10px">
@@ -12347,7 +13383,7 @@ export async function pgPatientMediaUpload() {
 
     <!-- Consent reminder -->
     <div class="notice notice-info" style="margin-bottom:16px;font-size:12px">
-      By uploading, you confirm you have given consent for this upload type. Your care team will review your update before it is used in your clinical record.
+      By uploading, you confirm you have given consent for this upload type. Clinical review timing depends on portal workflow before your update is used in your record.
     </div>
 
     <!-- Consent warning (shown when submitting without consent) -->
@@ -12539,12 +13575,12 @@ export async function pgPatientMediaUpload() {
         resultEl.className = 'notice notice-success';
         resultEl.style.display = '';
         resultEl.innerHTML = `
-          <div style="font-weight:600;margin-bottom:8px">&#x2713; Update sent successfully.</div>
+          <div style="font-weight:600;margin-bottom:8px">&#x2713; Update uploaded.</div>
           <div style="font-size:11.5px;line-height:1.7;margin-bottom:10px">
             <strong>What happens next:</strong><br>
-            1. Your care team will review your update — usually within 1&ndash;2 business days.<br>
-            2. If approved, it may be analyzed to help prepare your next appointment.<br>
-            3. Any feedback from your clinician will appear in your <a href="#" onclick="window._navPatient('pt-media-history');return false" style="color:var(--teal)">Media History</a>.
+            1. Your upload was accepted by the portal.<br>
+            2. Care-team review timing depends on clinic workflow and is not guaranteed from this page.<br>
+            3. Any returned feedback will appear in your <a href="#" onclick="window._navPatient('pt-media-history');return false" style="color:var(--teal)">Media History</a> when available.
           </div>
           <a href="#" onclick="window._navPatient('pt-media-history');return false" style="color:var(--teal);font-size:12px">View Media History →</a>`;
       }
@@ -12633,14 +13669,14 @@ export async function pgPatientMediaHistory() {
             <div style="flex:1;min-width:0">
               <div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:5px">
                 <span style="font-size:12.5px;font-weight:600;color:var(--text-primary)">${dateStr}</span>
-                ${courseName ? `<span style="font-size:11px;color:var(--blue)">· ${courseName}</span>` : ''}
+                ${courseName ? `<span style="font-size:11px;color:var(--blue)">· ${_hdEsc(courseName)}</span>` : ''}
                 ${durationSec != null ? `<span style="font-size:11px;color:var(--text-tertiary)">${durationSec}s</span>` : ''}
                 ${statusChip(status)}
               </div>
-              ${notePrev ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;line-height:1.5">${notePrev}</div>` : ''}
+              ${notePrev ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;line-height:1.5">${_hdEsc(notePrev)}</div>` : ''}
               ${feedbackReason ? `
               <div style="font-size:12px;color:var(--teal);background:rgba(0,212,188,0.06);border-left:2px solid var(--teal);padding:8px 10px;border-radius:0 6px 6px 0;margin-bottom:8px;line-height:1.55">
-                <strong>Feedback from your care team:</strong> ${feedbackReason}
+                <strong>Feedback from your care team:</strong> ${_hdEsc(feedbackReason)}
               </div>` : ''}
               <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
                 ${canDelete ? `<button class="btn btn-ghost btn-sm" id="delete-btn-${idx}" style="color:var(--red,#ef4444);border-color:rgba(239,68,68,0.25);font-size:11px"
@@ -13235,7 +14271,7 @@ export async function pgPatientWearables() {
       <div class="pdw-ble-copy">
         <div class="pdw-ble-badge">Web Bluetooth</div>
         <div class="pdw-ble-heading">Direct Bluetooth connection</div>
-        <p class="pdw-ble-text">Pair a Bluetooth heart rate monitor (chest strap, watch, or armband supporting BLE 0x180D) to stream live BPM into your care record. Chrome or Edge required.</p>
+        <p class="pdw-ble-text">Pair a Bluetooth heart rate monitor (chest strap, watch, or armband supporting BLE 0x180D) to view live BPM in this browser session. A summary is uploaded only if secure sync succeeds. Chrome or Edge required.</p>
       </div>
     </div>
   </div>
@@ -13411,7 +14447,7 @@ export async function pgPatientWearables() {
     window._pdwCloseModal();
     showToast(
       syncedToBackend
-        ? 'Session logged. Your care team can see this.'
+        ? 'Session logged. Synced entries are available in your portal workflow.'
         : 'Session saved locally. Ask your clinician to activate home-device sync so it reaches your care team.',
       syncedToBackend ? undefined : '#d97706',
     );
@@ -13443,8 +14479,17 @@ export async function pgPatientWearables() {
       try { if (server && server.connected) server.disconnect(); } catch (_) {}
       setStatus(latestBpm ? 'Connected ✓' : '');
       if (latestBpm > 0) {
-        try { await api.submitWearableObservations({ rhr_bpm: latestBpm, source: 'web_bluetooth_hrm', samples }); }
-        catch (_) { /* offline backend is fine; BLE flow already succeeded */ }
+        let synced = false;
+        try {
+          await api.submitWearableObservations({ rhr_bpm: latestBpm, source: 'web_bluetooth_hrm', samples });
+          synced = true;
+        } catch (_) {}
+        _bleToast(
+          synced
+            ? 'Bluetooth reading captured and shared with your clinic.'
+            : 'Bluetooth reading captured in this browser session. Clinic sync was not confirmed.',
+          synced ? 'var(--teal,#00d4bc)' : '#d97706',
+        );
       }
     };
     function onChange(ev) {
@@ -13677,7 +14722,7 @@ export async function pgIntake(setTopbarFn) {
           const isTemplate = INTAKE_TEMPLATES.some(t => t.id === f.id) && !getIntakeForms().find(s => s.id === f.id);
           const active = f.id === activeFormId ? ' active' : '';
           return '<li class="intake-form-item' + active + '" onclick="window._loadIntakeTemplate(\'' + f.id + '\')">'
-            + '<span style="font-size:.88rem">' + f.name + '</span>'
+            + '<span style="font-size:.88rem">' + _hdEsc(f.name) + '</span>'
             + (isTemplate ? '<span style="font-size:.7rem;padding:1px 6px;border-radius:10px;background:rgba(0,188,188,.12);color:var(--teal)">template</span>' : '')
             + '</li>';
         }).join('')
@@ -13737,12 +14782,12 @@ export async function pgIntake(setTopbarFn) {
       const detailPairs = Object.entries(s.data || {}).map(([k, v]) => {
         const display = (v && typeof v === 'string' && v.startsWith('data:image'))
           ? '<img src="' + v + '" style="height:36px;border:1px solid #ddd;border-radius:3px;vertical-align:middle">'
-          : (v === true || v === 'true' ? '&#10003;' : (v || '&mdash;'));
-        return '<dt>' + k + ':</dt><dd>' + display + '</dd>';
+          : (v === true || v === 'true' ? '&#10003;' : (_hdEsc(v) || '&mdash;'));
+        return '<dt>' + _hdEsc(k) + ':</dt><dd>' + display + '</dd>';
       }).join('');
       return '<tr id="sub-row-' + s.id + '" style="border-bottom:1px solid var(--border)">'
-        + '<td style="padding:10px;font-size:.875rem">' + (s.patientName || '&mdash;') + '</td>'
-        + '<td style="padding:10px;font-size:.875rem">' + (s.formName || '&mdash;') + '</td>'
+        + '<td style="padding:10px;font-size:.875rem">' + (_hdEsc(s.patientName) || '&mdash;') + '</td>'
+        + '<td style="padding:10px;font-size:.875rem">' + (_hdEsc(s.formName) || '&mdash;') + '</td>'
         + '<td style="padding:10px;font-size:.8rem;color:var(--text-muted)">' + (s.submittedAt ? new Date(s.submittedAt).toLocaleDateString() : '&mdash;') + '</td>'
         + '<td style="padding:10px">' + statusBadge(s.signed) + '</td>'
         + '<td style="padding:10px;display:flex;gap:8px">'
@@ -13798,8 +14843,8 @@ export async function pgIntake(setTopbarFn) {
       const sigVal = s.data ? Object.values(s.data).find(v => typeof v === 'string' && v.startsWith('data:image')) : null;
       return '<div class="consent-card">'
         + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">'
-        + '<div><div style="font-weight:600;font-size:.9rem">' + (s.patientName || 'Unknown') + '</div>'
-        + '<div style="font-size:.78rem;color:var(--text-muted);margin-top:2px">' + (s.formName || '&mdash;') + '</div></div>'
+        + '<div><div style="font-weight:600;font-size:.9rem">' + (_hdEsc(s.patientName) || 'Unknown') + '</div>'
+        + '<div style="font-size:.78rem;color:var(--text-muted);margin-top:2px">' + (_hdEsc(s.formName) || '&mdash;') + '</div></div>'
         + statusBadge(s.signed) + '</div>'
         + '<div style="font-size:.78rem;color:var(--text-muted);margin-bottom:10px">'
         + (s.revoked ? '<span style="color:var(--red)">Revoked</span>' : (s.submittedAt ? new Date(s.submittedAt).toLocaleDateString() : 'Date unknown'))
@@ -13943,9 +14988,7 @@ export async function pgIntake(setTopbarFn) {
     const forms = allForms();
     const form = forms.find(function(f) { return f.id === id; });
     const name = form ? form.name : 'this form';
-    const mockLink = 'https://intake.deepsynaps.com/f/' + (id || 'preview');
-    try { navigator.clipboard.writeText(mockLink).catch(function() {}); } catch (_e) {}
-    showToast('Link copied! Patient can complete "' + name + '" at: ' + mockLink);
+    showToast('Intake link sharing is not yet available \u2014 "' + name + '" saved locally only.', '#6b7280');
   };
 
   window._deleteIntakeForm = function(id) {
@@ -13992,7 +15035,7 @@ export async function pgIntake(setTopbarFn) {
       sub.revoked = true;
       try { localStorage.setItem('ds_intake_submissions', JSON.stringify(subs)); } catch (_e) {}
     }
-    showToast('Consent revoked.', '#d97706');
+    showToast('Consent marked revoked in this browser view.', '#d97706');
     refreshContent();
   };
 
@@ -14523,7 +15566,7 @@ export async function pgHomeworkBuilder(setTopbarFn) {
       const title = card.querySelector('.pthtask-title');
       if (title) title.classList.add('pthtask-title--done');
     }
-    window._showNotifToast && window._showNotifToast({ title: 'Done!', body: 'Task marked complete.', severity: 'success' });
+    window._showNotifToast && window._showNotifToast({ title: 'Saved locally', body: 'Task completion was saved in this browser only.', severity: 'warning' });
     // Refresh streak display without full re-render
     const streakEl = document.querySelector('.pthtask-streak');
     const newStreak = _pttStreak();
@@ -14550,7 +15593,7 @@ export async function pgHomeworkBuilder(setTopbarFn) {
     };
     tasks.push(newTask);
     try { localStorage.setItem(_pttTasksKey(), JSON.stringify(tasks)); } catch (_e) {}
-    window._showNotifToast && window._showNotifToast({ title: 'Task added', body: newTask.title, severity: 'success' });
+    window._showNotifToast && window._showNotifToast({ title: 'Task saved locally', body: newTask.title + ' was added in this browser only.', severity: 'warning' });
     // Re-render task sections
     const taskWrap = document.querySelector('.pthtask-page');
     if (taskWrap) {
@@ -14909,7 +15952,7 @@ export async function pgSymptomJournal(setTopbarFn) {
 
   const historyHtml = entries.slice(0, 14).map(e => {
     const unsyncedBadge = !e.synced ? '<span class="pt-unsynced">UNSYNCED</span>' : '';
-    const notesSnippet = e.notes ? `<div style="font-size:11.5px;color:var(--text-secondary);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${e.notes}</div>` : '';
+    const notesSnippet = e.notes ? `<div style="font-size:11.5px;color:var(--text-secondary);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_hdEsc(e.notes)}</div>` : '';
     return `<div class="pt-journal-entry">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <span style="font-size:12px;font-weight:600;color:var(--text-secondary)">${new Date(e.date + 'T12:00:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'})}</span>
@@ -15534,13 +16577,13 @@ function _renderPatientStep2(state) {
     const reqStar = isReq ? '<span class="mapping-required">*</span> ' : '';
     const labelStyle = unmapped ? 'color:#ef4444;font-weight:700' : '';
     const borderColor = unmapped ? '#ef4444' : 'var(--border)';
-    const opts = csvData.headers.map(h => '<option value="' + h + '"' + (cur === h ? ' selected' : '') + '>' + h + '</option>').join('');
+    const opts = csvData.headers.map(h => '<option value="' + _hdEsc(h) + '"' + (cur === h ? ' selected' : '') + '>' + _hdEsc(h) + '</option>').join('');
     return '<tr>' +
       '<td><span style="' + labelStyle + '">' + reqStar + field + '</span></td>' +
       '<td><select style="width:100%;padding:5px 8px;border-radius:6px;border:1px solid ' + borderColor + ';background:var(--input-bg);color:var(--text)" onchange="window._importSetMapping(\'patients\',\'' + field + '\',this.value)">' +
         '<option value="">— not mapped —</option>' + opts +
       '</select></td>' +
-      '<td style="color:var(--text-muted);font-size:.8rem">' + sampleVals + '</td>' +
+      '<td style="color:var(--text-muted);font-size:.8rem">' + _hdEsc(sampleVals) + '</td>' +
     '</tr>';
   }).join('');
   return `
@@ -15571,9 +16614,9 @@ function _renderPatientStep3(state) {
   const ths = allFields.map(f => '<th>' + f + '</th>').join('');
   const trs = previewRows.map(r => {
     const hasErr = r._errors && r._errors.length > 0;
-    const tds = allFields.map(f => '<td>' + (r[f] ?? '') + '</td>').join('');
+    const tds = allFields.map(f => '<td>' + _hdEsc(r[f] ?? '') + '</td>').join('');
     const status = hasErr
-      ? '<span style="color:#ef4444;font-size:.75rem">' + r._errors.map(e => e.message).join('; ') + '</span>'
+      ? '<span style="color:#ef4444;font-size:.75rem">' + r._errors.map(e => _hdEsc(e.message)).join('; ') + '</span>'
       : '<span style="color:#10b981">&#10003;</span>';
     return '<tr class="' + (hasErr ? 'import-row-error' : '') + '"><td>' + (r._rowIndex + 1) + '</td>' + tds + '<td>' + status + '</td></tr>';
   }).join('');
@@ -15616,7 +16659,7 @@ function _renderPatientStep4(result) {
   const errTable = result.errors && result.errors.length > 0 ? `
     <div style="overflow-x:auto;margin-top:12px"><table class="import-preview-table">
       <thead><tr><th>Row</th><th>Field</th><th>Value</th><th>Error</th></tr></thead>
-      <tbody>${result.errors.map(e => '<tr class="import-row-error"><td>' + e.row + '</td><td>' + e.field + '</td><td>' + e.value + '</td><td>' + e.message + '</td></tr>').join('')}</tbody>
+      <tbody>${result.errors.map(e => '<tr class="import-row-error"><td>' + e.row + '</td><td>' + _hdEsc(e.field) + '</td><td>' + _hdEsc(e.value) + '</td><td>' + _hdEsc(e.message) + '</td></tr>').join('')}</tbody>
     </table></div>
     <button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="window._importDownloadErrors('${result.importId}')">&#8595; Download Error Report</button>` : '';
   const icon = result.errors && result.errors.length === 0 ? '✅' : '⚠️';
@@ -15678,13 +16721,13 @@ function _renderSessionStep2(state) {
     const reqStar = isReq ? '<span class="mapping-required">*</span> ' : '';
     const labelStyle = unmapped ? 'color:#ef4444;font-weight:700' : '';
     const borderColor = unmapped ? '#ef4444' : 'var(--border)';
-    const opts = csvData.headers.map(h => '<option value="' + h + '"' + (cur === h ? ' selected' : '') + '>' + h + '</option>').join('');
+    const opts = csvData.headers.map(h => '<option value="' + _hdEsc(h) + '"' + (cur === h ? ' selected' : '') + '>' + _hdEsc(h) + '</option>').join('');
     return '<tr>' +
       '<td><span style="' + labelStyle + '">' + reqStar + field + '</span></td>' +
       '<td><select style="width:100%;padding:5px 8px;border-radius:6px;border:1px solid ' + borderColor + ';background:var(--input-bg);color:var(--text)" onchange="window._importSetMapping(\'sessions\',\'' + field + '\',this.value)">' +
         '<option value="">— not mapped —</option>' + opts +
       '</select></td>' +
-      '<td style="color:var(--text-muted);font-size:.8rem">' + sampleVals + '</td>' +
+      '<td style="color:var(--text-muted);font-size:.8rem">' + _hdEsc(sampleVals) + '</td>' +
     '</tr>';
   }).join('');
   return `
@@ -15715,9 +16758,9 @@ function _renderSessionStep3(state) {
   const ths = allFields.map(f => '<th>' + f + '</th>').join('');
   const trs = previewRows.map(r => {
     const hasErr = r._errors && r._errors.length > 0;
-    const tds = allFields.map(f => '<td>' + (r[f] ?? '') + '</td>').join('');
+    const tds = allFields.map(f => '<td>' + _hdEsc(r[f] ?? '') + '</td>').join('');
     const status = hasErr
-      ? '<span style="color:#ef4444;font-size:.75rem">' + r._errors.map(e => e.message).join('; ') + '</span>'
+      ? '<span style="color:#ef4444;font-size:.75rem">' + r._errors.map(e => _hdEsc(e.message)).join('; ') + '</span>'
       : '<span style="color:#10b981">&#10003;</span>';
     return '<tr class="' + (hasErr ? 'import-row-error' : '') + '"><td>' + (r._rowIndex + 1) + '</td>' + tds + '<td>' + status + '</td></tr>';
   }).join('');
@@ -15800,7 +16843,7 @@ function _renderProtocolStep1() {
 function _renderProtocolStep2(state) {
   const p = state.jsonData;
   const stepsHtml = Array.isArray(p.steps) ? p.steps.map((s, i) =>
-    '<div style="padding:8px 12px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;font-size:.85rem"><strong>Step ' + (i + 1) + ':</strong> ' + (s.label || s.name || JSON.stringify(s)) + '</div>'
+    '<div style="padding:8px 12px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;font-size:.85rem"><strong>Step ' + (i + 1) + ':</strong> ' + _hdEsc(s.label || s.name || JSON.stringify(s)) + '</div>'
   ).join('') : '<p style="color:#ef4444">No steps array found.</p>';
   return `
     <div class="card" style="max-width:700px;margin:0 auto">
@@ -15814,11 +16857,11 @@ function _renderProtocolStep2(state) {
       </div>
       <div style="background:var(--surface);border-radius:8px;padding:16px;margin-bottom:12px">
         <div style="font-size:.78rem;text-transform:uppercase;color:var(--text-muted);margin-bottom:4px">Protocol Name</div>
-        <div style="font-weight:700;font-size:1.1rem">${p.name || '—'}</div>
+        <div style="font-weight:700;font-size:1.1rem">${_hdEsc(p.name || '—')}</div>
         <div style="display:flex;gap:20px;margin-top:10px;font-size:.85rem">
-          <div><span style="color:var(--text-muted)">Modality: </span><strong>${p.modality || '—'}</strong></div>
+          <div><span style="color:var(--text-muted)">Modality: </span><strong>${_hdEsc(p.modality || '—')}</strong></div>
           <div><span style="color:var(--text-muted)">Steps: </span><strong>${Array.isArray(p.steps) ? p.steps.length : 0}</strong></div>
-          ${p.description ? '<div><span style="color:var(--text-muted)">Description: </span>' + p.description + '</div>' : ''}
+          ${p.description ? '<div><span style="color:var(--text-muted)">Description: </span>' + _hdEsc(p.description) + '</div>' : ''}
         </div>
       </div>
       <div style="font-size:.82rem;font-weight:600;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase">Steps</div>
@@ -15833,7 +16876,7 @@ function _renderProtocolStep3(result) {
       <div style="text-align:center;padding:20px 0">
         <div style="font-size:3rem;margin-bottom:8px">${result.ok ? '✅' : '❌'}</div>
         <h3>${result.ok ? 'Protocol Imported' : 'Import Failed'}</h3>
-        <p style="font-size:.95rem;margin-top:4px;color:${result.ok ? '#10b981' : '#ef4444'}">${result.message}</p>
+        <p style="font-size:.95rem;margin-top:4px;color:${result.ok ? '#10b981' : '#ef4444'}">${_hdEsc(result.message)}</p>
       </div>
       <div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
         <button class="btn btn-secondary" onclick="window._importReset('protocol')">Import Another</button>
@@ -16253,7 +17296,7 @@ function _pgpStatus(pct) {
   if (pct >= 30)  return { key: 'improving', label: 'Improving',        icon: '↑', color: '#2dd4bf', bg: 'rgba(45,212,191,0.08)',  tagline: 'Your scores show meaningful improvement since you started.' };
   if (pct >= 10)  return { key: 'improving', label: 'Slowly Improving', icon: '↗', color: '#2dd4bf', bg: 'rgba(45,212,191,0.06)',  tagline: 'You\'re heading in the right direction — progress takes time.' };
   if (pct >= -10) return { key: 'steady',    label: 'Holding Steady',   icon: '→', color: '#60a5fa', bg: 'rgba(96,165,250,0.08)',  tagline: 'Your scores are stable. Keep attending sessions and checking in.' };
-  return               { key: 'review',   label: 'Let\'s Check In',  icon: '!', color: '#fbbf24', bg: 'rgba(251,191,36,0.08)',   tagline: 'Your care team has been notified and will reach out soon.' };
+  return               { key: 'review',   label: 'Let\'s Check In',  icon: '!', color: '#fbbf24', bg: 'rgba(251,191,36,0.08)',   tagline: 'Your recent check-ins suggest you may want to contact your clinic.' };
 }
 
 // ── Single-measure trend chart ────────────────────────────────────────────────
@@ -16469,13 +17512,13 @@ function _pgpBiometrics() {
   var bioRaw = null;
   try { bioRaw = JSON.parse(localStorage.getItem('ds_wearable_summary') || 'null'); } catch (_e) {}
   function bioNum(str) { return parseFloat(String(str || '').replace(/[^\d.]/g, '')); }
-  var sleepVal = bioRaw ? bioRaw.sleep : '7.2 hrs';
-  var hrvVal   = bioRaw ? bioRaw.hrv   : '48 ms';
-  var rhrVal   = bioRaw ? bioRaw.rhr   : '64 bpm';
+  var sleepVal = bioRaw ? bioRaw.sleep : '—';
+  var hrvVal   = bioRaw ? bioRaw.hrv   : '—';
+  var rhrVal   = bioRaw ? bioRaw.rhr   : '—';
   var sleepN = bioNum(sleepVal), hrvN = bioNum(hrvVal), rhrN = bioNum(rhrVal);
-  var sleepSt = sleepN >= 7 ? 'green' : sleepN >= 5.5 ? 'amber' : 'red';
-  var hrvSt   = hrvN   >= 50 ? 'green' : hrvN   >= 30  ? 'amber' : 'red';
-  var rhrSt   = rhrN   <= 65 ? 'green' : rhrN   <= 80  ? 'amber' : 'red';
+  var sleepSt = !bioRaw ? 'grey' : sleepN >= 7 ? 'green' : sleepN >= 5.5 ? 'amber' : 'red';
+  var hrvSt   = !bioRaw ? 'grey' : hrvN   >= 50 ? 'green' : hrvN   >= 30  ? 'amber' : 'red';
+  var rhrSt   = !bioRaw ? 'grey' : rhrN   <= 65 ? 'green' : rhrN   <= 80  ? 'amber' : 'red';
   // Adherence from check-in frequency
   var journal = [];
   try { journal = JSON.parse(localStorage.getItem('ds_symptom_journal') || '[]'); } catch (_e) {}
@@ -16483,9 +17526,9 @@ function _pgpBiometrics() {
   var adhRate = Math.min(100, Math.round((journal.filter(function(e) { return (e.date || (e.created_at || '').slice(0, 10)) >= cut14; }).length / 14) * 100));
   var adhSt   = adhRate >= 70 ? 'green' : adhRate >= 40 ? 'amber' : 'red';
   var tiles = [
-    { label: 'Sleep',      val: sleepVal,       sub: 'avg last 7 nights',  icon: '🌙', st: sleepSt },
-    { label: 'HRV',        val: hrvVal,         sub: 'avg last 7 days',    icon: '💚', st: hrvSt   },
-    { label: 'Resting HR', val: rhrVal,         sub: 'avg last 7 days',    icon: '❤️', st: rhrSt   },
+    { label: 'Sleep',      val: sleepVal,       sub: bioRaw ? 'avg last 7 nights' : 'no wearable connected',  icon: '🌙', st: sleepSt },
+    { label: 'HRV',        val: hrvVal,         sub: bioRaw ? 'avg last 7 days' : 'no wearable connected',    icon: '💚', st: hrvSt   },
+    { label: 'Resting HR', val: rhrVal,         sub: bioRaw ? 'avg last 7 days' : 'no wearable connected',    icon: '❤️', st: rhrSt   },
     { label: 'Adherence',  val: adhRate + '%',  sub: 'check-in rate',      icon: '📋', st: adhSt   },
   ];
   return '<div class="pgp-bio-grid">' +
@@ -16499,7 +17542,7 @@ function _pgpBiometrics() {
       '</div>';
     }).join('') +
     '</div>' +
-    '<div class="pgp-bio-sync">Last synced today &nbsp;·&nbsp; <a href="#" style="color:var(--accent-teal,#2dd4bf);text-decoration:none" onclick="window._navPatient(\'patient-wearables\');return false">Manage devices →</a></div>';
+    '<div class="pgp-bio-sync">' + (bioRaw ? 'Last synced today' : 'No wearable data yet') + ' &nbsp;·&nbsp; <a href="#" style="color:var(--teal,#00d4bc);text-decoration:none" onclick="window._navPatient(\'patient-wearables\');return false">Manage devices →</a></div>';
 }
 
 // ── Care assistant prompt panel ────────────────────────────────────────────────
@@ -16539,7 +17582,7 @@ function _symptomLineChart(symptoms) {
   const W = 380, H = 200, padL = 30, padT = 16, padR = 12, padB = 28;
   const cW = W - padL - padR, cH = H - padT - padB;
   const weeks = 12, maxY = 10;
-  const colors = { anxiety: 'var(--accent-rose,#f43f5e)', sleep: 'var(--accent-teal,#2dd4bf)', focus: 'var(--accent-blue,#60a5fa)' };
+  const colors = { anxiety: 'var(--rose,#ff6b9d)', sleep: 'var(--teal,#00d4bc)', focus: 'var(--blue,#4a9eff)' };
   const lbls = { anxiety: 'Anxiety', sleep: 'Sleep Quality', focus: 'Focus' };
   let gl = '', xl = '', lines = '', dots = '', legend = '';
   for (let y = 0; y <= 10; y += 2) {
@@ -16589,7 +17632,7 @@ function _sessionBarChart(scores) {
   scores.forEach(function (v, i) {
     const bH = Math.max(2, (v / maxY) * cH);
     const x = padL + i * (cW / n) + 1, y = padT + cH - bH;
-    const c = v >= 88 ? 'var(--accent-teal,#2dd4bf)' : v >= 75 ? 'var(--accent-amber,#fbbf24)' : 'var(--accent-rose,#f43f5e)';
+    const c = v >= 88 ? 'var(--teal,#00d4bc)' : v >= 75 ? 'var(--amber,#ffb547)' : 'var(--rose,#ff6b9d)';
     bars += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barW + '" height="' + bH.toFixed(1) + '" rx="2" fill="' + c + '" opacity="0.85"/>';
     if (i % 5 === 0) xl += '<text x="' + (padL + i * (cW / n) + barW / 2).toFixed(1) + '" y="' + (H - 4) + '" text-anchor="middle" font-size="8" fill="rgba(255,255,255,0.3)">S' + (i + 1) + '</text>';
   });
@@ -16601,9 +17644,9 @@ function _sessionBarChart(scores) {
     '<line x1="' + padL + '" y1="' + (padT + cH) + '" x2="' + (W - padR) + '" y2="' + (padT + cH) + '" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>' +
     bars + xl + '</svg>' +
     '<div style="display:flex;gap:14px;margin-top:8px;flex-wrap:wrap">' +
-    '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:rgba(255,255,255,0.6)"><span style="width:10px;height:10px;border-radius:2px;background:var(--accent-teal,#2dd4bf);display:inline-block"></span>Excellent (\u226588)</span>' +
-    '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:rgba(255,255,255,0.6)"><span style="width:10px;height:10px;border-radius:2px;background:var(--accent-amber,#fbbf24);display:inline-block"></span>Good (75\u201387)</span>' +
-    '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:rgba(255,255,255,0.6)"><span style="width:10px;height:10px;border-radius:2px;background:var(--accent-rose,#f43f5e);display:inline-block"></span>Needs Work (&lt;75)</span>' +
+    '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:rgba(255,255,255,0.6)"><span style="width:10px;height:10px;border-radius:2px;background:var(--teal,#00d4bc);display:inline-block"></span>Excellent (\u226588)</span>' +
+    '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:rgba(255,255,255,0.6)"><span style="width:10px;height:10px;border-radius:2px;background:var(--amber,#ffb547);display:inline-block"></span>Good (75\u201387)</span>' +
+    '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:rgba(255,255,255,0.6)"><span style="width:10px;height:10px;border-radius:2px;background:var(--rose,#ff6b9d);display:inline-block"></span>Needs Work (&lt;75)</span>' +
     '</div></div>'
   );
 }
@@ -16620,8 +17663,8 @@ function _goalSparkline(goalId) {
   const lp = pts[pts.length - 1].split(',');
   return (
     '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" style="display:block">' +
-    '<polyline points="' + pts.join(' ') + '" fill="none" stroke="var(--accent-teal,#2dd4bf)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>' +
-    '<circle cx="' + lp[0] + '" cy="' + lp[1] + '" r="2.5" fill="var(--accent-teal,#2dd4bf)"/>' +
+    '<polyline points="' + pts.join(' ') + '" fill="none" stroke="var(--teal,#00d4bc)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>' +
+    '<circle cx="' + lp[0] + '" cy="' + lp[1] + '" r="2.5" fill="var(--teal,#00d4bc)"/>' +
     '</svg>'
   );
 }
@@ -16629,7 +17672,7 @@ function _goalSparkline(goalId) {
 // ── Calendar dots (30-day intensity heatmap) ──────────────────────────────────
 function _calendarDots30() {
   const today = new Date();
-  const cm = { low: 'var(--accent-teal,#2dd4bf)', mid: 'var(--accent-amber,#fbbf24)', high: 'var(--accent-rose,#f43f5e)' };
+  const cm = { low: 'var(--teal,#00d4bc)', mid: 'var(--amber,#ffb547)', high: 'var(--rose,#ff6b9d)' };
   let html = '';
   for (let i = 29; i >= 0; i--) {
     const d = new Date(today);
@@ -17296,7 +18339,7 @@ function _pgpBrainCards(progress) {
       subtitle: 'Fronto-limbic balance',
       detail: progress.improvementPct !== null && progress.improvementPct >= 20
         ? 'Signals look steadier than at the start of treatment.'
-        : 'Your care team is working on steadier emotional regulation.',
+        : 'This area focuses on steadier emotional regulation over time.',
       targetRegion: 'ACC',
       highlightSites: ['F3', 'F4', 'Fz'],
     },
@@ -17368,9 +18411,9 @@ function _pgpDomainCards(progress) {
     {
       title: 'Biomarkers',
       items: [
-        { label: 'Sleep duration', pct: wearable && wearable.sleep ? Math.min(100, Math.round(parseFloat(String(wearable.sleep).replace(/[^\d.]/g, '')) / 9 * 100)) : 72 },
-        { label: 'HRV recovery', pct: wearable && wearable.hrv ? Math.min(100, Math.round(parseFloat(String(wearable.hrv).replace(/[^\d.]/g, '')) / 70 * 100)) : 61 },
-        { label: 'Resting heart rate', pct: wearable && wearable.rhr ? Math.max(15, Math.min(100, 100 - Math.round((parseFloat(String(wearable.rhr).replace(/[^\d.]/g, '')) - 50) * 2))) : 68 },
+        { label: 'Sleep duration', pct: wearable && wearable.sleep ? Math.min(100, Math.round(parseFloat(String(wearable.sleep).replace(/[^\d.]/g, '')) / 9 * 100)) : 0 },
+        { label: 'HRV recovery', pct: wearable && wearable.hrv ? Math.min(100, Math.round(parseFloat(String(wearable.hrv).replace(/[^\d.]/g, '')) / 70 * 100)) : 0 },
+        { label: 'Resting heart rate', pct: wearable && wearable.rhr ? Math.max(15, Math.min(100, 100 - Math.round((parseFloat(String(wearable.rhr).replace(/[^\d.]/g, '')) - 50) * 2))) : 0 },
       ],
     },
   ];
@@ -17429,7 +18472,7 @@ function _pgpMilestones(progress) {
   ];
   var nextTarget = nextGoal
     ? (nextGoal.name + ' · current ' + nextGoal.current + ' / target ' + nextGoal.target)
-    : 'You have reached all current goals. Your care team can add new targets when you are ready.';
+    : 'You have reached all current goals. New targets will appear here when they are added to your portal workflow.';
   return (
     '<section class="pgp-panel">' +
       '<div class="pgp-panel-head"><div><div class="pgp-panel-eyebrow">Milestones and goals</div><h3>Your next targets</h3></div></div>' +
@@ -17672,7 +18715,7 @@ function _pgpBiometricsLive(progress) {
     }).join('') +
     '</div>' +
     (readinessSpark ? '<div style="margin-top:14px">' + readinessSpark + '</div>' : '') +
-    '<div class="pgp-bio-sync">Last synced today &nbsp;·&nbsp; <a href="#" style="color:var(--accent-teal,#2dd4bf);text-decoration:none" onclick="window._navPatient(\'patient-wearables\');return false">Manage devices →</a></div>' +
+    '<div class="pgp-bio-sync">Last synced today &nbsp;·&nbsp; <a href="#" style="color:var(--teal,#00d4bc);text-decoration:none" onclick="window._navPatient(\'patient-wearables\');return false">Manage devices →</a></div>' +
   '</section>';
 }
 
@@ -17797,7 +18840,7 @@ function _pgpHomeTaskStrip(progress) {
     '<div class="pgp-task-strip">' + dayDots + '</div>' +
     '<div style="display:flex;gap:16px;margin:14px 0 10px;font-size:0.85rem;color:var(--text-secondary,#94a3b8)">' +
       '<span><strong style="color:var(--teal,#2dd4bf)">' + completed + '</strong> completed</span>' +
-      '<span><strong style="color:var(--accent-blue,#60a5fa)">' + pending + '</strong> pending</span>' +
+      '<span><strong style="color:var(--blue,#4a9eff)">' + pending + '</strong> pending</span>' +
     '</div>' +
     '<div class="pgp-task-list">' + recent + '</div>' +
   '</section>';
@@ -17962,26 +19005,26 @@ function _renderOutcomePortal_LEGACY() {
   const improvePct = Math.round(((data.symptoms.anxiety[0] - anxNow) / data.symptoms.anxiety[0]) * 100);
 
   const statCards = [
-    { label: 'Sessions Completed', nv: p.totalSessions, max: 30, color: 'var(--accent-teal,#2dd4bf)', dv: null },
-    { label: 'Overall Improvement', nv: improvePct, max: 100, color: 'var(--accent-blue,#60a5fa)', dv: improvePct + '%' },
-    { label: 'Goal Achievement', nv: goalRate, max: 100, color: 'var(--accent-violet,#a78bfa)', dv: goalRate + '%' },
-    { label: 'Days in Treatment', nv: daysSince, max: 365, color: 'var(--accent-amber,#fbbf24)', dv: null },
+    { label: 'Sessions Completed', nv: p.totalSessions, max: 30, color: 'var(--teal,#00d4bc)', dv: null },
+    { label: 'Overall Improvement', nv: improvePct, max: 100, color: 'var(--blue,#4a9eff)', dv: improvePct + '%' },
+    { label: 'Goal Achievement', nv: goalRate, max: 100, color: 'var(--violet,#9b7fff)', dv: goalRate + '%' },
+    { label: 'Days in Treatment', nv: daysSince, max: 365, color: 'var(--amber,#ffb547)', dv: null },
   ];
 
   const goalCardsHTML = data.goals.map(function (g) {
     const pct = Math.min(100, Math.round((g.current / g.target) * 100));
-    const st = g.status === 'achieved' ? { label: 'Achieved', color: 'var(--accent-teal,#2dd4bf)' } : g.status === 'on-track' ? { label: 'On Track', color: 'var(--accent-blue,#60a5fa)' } : { label: 'Needs Attention', color: 'var(--accent-rose,#f43f5e)' };
+    const st = g.status === 'achieved' ? { label: 'Achieved', color: 'var(--teal,#00d4bc)' } : g.status === 'on-track' ? { label: 'On Track', color: 'var(--blue,#4a9eff)' } : { label: 'Needs Attention', color: 'var(--rose,#ff6b9d)' };
     const sn = notes[g.id] || '';
     return '<div class="iii-goal-card" id="goal-card-' + g.id + '">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">' +
-      '<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:1rem;color:var(--text,#f1f5f9);margin-bottom:3px">' + g.name + '</div>' +
+      '<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:1rem;color:var(--text,#f1f5f9);margin-bottom:3px">' + _hdEsc(g.name) + '</div>' +
       '<div style="font-size:0.78rem;color:var(--text-muted,#94a3b8)">Target: ' + g.target + ' &nbsp;&bull;&nbsp; Current: ' + g.current + '</div></div>' +
       '<div style="display:flex;align-items:center;gap:10px;flex-shrink:0">' + _goalSparkline(g.id) +
       '<span style="font-size:0.75rem;font-weight:700;padding:3px 10px;border-radius:12px;background:' + st.color + '22;color:' + st.color + ';border:1px solid ' + st.color + '44">' + st.label + '</span></div></div>' +
       '<div style="margin:12px 0 6px"><div style="display:flex;justify-content:space-between;font-size:0.75rem;color:var(--text-muted,#94a3b8);margin-bottom:5px"><span>Progress</span><span>' + pct + '%</span></div>' +
       '<div style="height:8px;background:rgba(255,255,255,0.07);border-radius:6px;overflow:hidden"><div style="height:100%;width:' + pct + '%;background:' + st.color + ';border-radius:6px;transition:width 1s ease"></div></div></div>' +
       '<div class="iii-goal-note-area" id="note-area-' + g.id + '" style="' + (sn ? '' : 'display:none') + '">' +
-      '<textarea id="note-ta-' + g.id + '" rows="3" placeholder="Write a personal note about this goal..." style="width:100%;background:rgba(255,255,255,0.04);border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:8px;padding:10px;font-size:0.82rem;color:var(--text,#f1f5f9);resize:vertical;margin-top:8px;font-family:inherit" onchange="window._outcomeSaveNote(\'' + g.id + '\',this.value)">' + sn + '</textarea></div>' +
+      '<textarea id="note-ta-' + g.id + '" rows="3" placeholder="Write a personal note about this goal..." style="width:100%;background:rgba(255,255,255,0.04);border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:8px;padding:10px;font-size:0.82rem;color:var(--text,#f1f5f9);resize:vertical;margin-top:8px;font-family:inherit" onchange="window._outcomeSaveNote(\'' + g.id + '\',this.value)">' + _hdEsc(sn) + '</textarea></div>' +
       '<button style="font-size:0.78rem;margin-top:8px;padding:4px 10px;border-radius:8px;cursor:pointer;background:none;border:1px solid rgba(255,255,255,0.1);color:var(--text-muted,#94a3b8)" onclick="window._outcomeToggleNote(\'' + g.id + '\')">' + (sn ? 'Edit Note' : '+ Add Personal Note') + '</button></div>';
   }).join('');
 
@@ -17992,13 +19035,13 @@ function _renderOutcomePortal_LEGACY() {
   }
 
   const sessionHTML = data.sessions.map(function (s) {
-    const read = s.clinicianRead ? '<span style="color:var(--accent-teal,#2dd4bf);font-size:0.72rem" title="Clinician has read">&#10003;&#10003; Read</span>' : '<span style="color:var(--text-muted,#94a3b8);font-size:0.72rem">&#10003; Sent</span>';
+    const read = s.clinicianRead ? '<span style="color:var(--teal,#00d4bc);font-size:0.72rem" title="Clinician has read">&#10003;&#10003; Read</span>' : '<span style="color:var(--text-muted,#94a3b8);font-size:0.72rem">&#10003; Sent</span>';
     const dl = new Date(s.date).toLocaleDateString(_rptLoc, { month: 'short', day: 'numeric', year: 'numeric' });
     return '<div style="display:flex;flex-direction:column;gap:8px;padding:14px 16px;background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.07));border-radius:12px">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">' +
-      '<div><div style="font-weight:600;font-size:0.9rem;color:var(--text,#f1f5f9)">' + s.type + '</div><div style="font-size:0.75rem;color:var(--text-muted,#94a3b8);margin-top:2px">' + dl + ' &nbsp;&bull;&nbsp; ' + s.clinician + '</div></div>' +
+      '<div><div style="font-weight:600;font-size:0.9rem;color:var(--text,#f1f5f9)">' + _hdEsc(s.type) + '</div><div style="font-size:0.75rem;color:var(--text-muted,#94a3b8);margin-top:2px">' + dl + ' &nbsp;&bull;&nbsp; ' + _hdEsc(s.clinician) + '</div></div>' +
       '<div style="display:flex;align-items:center;gap:10px">' + _starHTML(s.id, s.rating) + read + '</div></div>' +
-      (s.note ? '<div style="font-size:0.8rem;color:var(--text-muted,#94a3b8);font-style:italic;padding-left:2px">&#8220;' + s.note + '&#8221;</div>' : '') +
+      (s.note ? '<div style="font-size:0.8rem;color:var(--text-muted,#94a3b8);font-style:italic;padding-left:2px">&#8220;' + _hdEsc(s.note) + '&#8221;</div>' : '') +
       '</div>';
   }).join('');
 
@@ -18119,7 +19162,7 @@ function _renderOutcomePortal_LEGACY() {
     const dueFmt = new Date(nextDate).toLocaleDateString(_rptLoc, { weekday: 'long', month: 'long', day: 'numeric' });
     return '<div class="pto-next-card">' +
       '<h4>&#128197; Next Assessment Due</h4>' +
-      '<p><strong style="color:' + (daysUntil <= 1 ? 'var(--accent-amber,#fbbf24)' : 'var(--teal,#2dd4bf)') + '">' + due + '</strong> &mdash; ' + dueFmt + '</p>' +
+      '<p><strong style="color:' + (daysUntil <= 1 ? 'var(--amber,#ffb547)' : 'var(--teal,#2dd4bf)') + '">' + due + '</strong> &mdash; ' + dueFmt + '</p>' +
       '<button class="pto-share-btn pto-share-btn--copy" onclick="window._ptoToggleAssessForm()" style="margin-bottom:0">Complete Now</button>' +
       '<div id="pto-assess-form" style="display:none" class="pto-inline-form">' +
         '<div class="pto-inline-form-row"><label>PHQ-9 score</label><input type="number" min="0" max="27" id="pto-phq9-input" class="pto-form-inp" placeholder="0-27"/></div>' +
@@ -18202,7 +19245,7 @@ function _renderOutcomePortal_LEGACY() {
     richSectionsHTML +
     '<div class="iii-outcome-banner">' +
     '<div class="iii-banner-greeting">' +
-    '<div style="font-size:1.6rem;font-weight:800;color:var(--text,#f1f5f9);line-height:1.2">Full Outcome History, <span style="color:var(--accent-teal,#2dd4bf)">' + p.name + '</span></div>' +
+    '<div style="font-size:1.6rem;font-weight:800;color:var(--text,#f1f5f9);line-height:1.2">Full Outcome History, <span style="color:var(--teal,#00d4bc)">' + p.name + '</span></div>' +
     '<div style="font-size:0.85rem;color:var(--text-muted,#94a3b8);margin-top:4px">Treatment started ' + new Date(p.startDate).toLocaleDateString(_rptLoc, { month: 'long', day: 'numeric', year: 'numeric' }) + '</div>' +
     '</div>' +
     '<div class="iii-stat-cards">' +
@@ -18216,39 +19259,39 @@ function _renderOutcomePortal_LEGACY() {
     '<div style="max-width:900px;margin:0 auto;padding:0 16px 60px">' +
 
     '<div style="margin-bottom:28px">' +
-    '<h2 style="font-size:1rem;font-weight:700;color:var(--text,#f1f5f9);margin-bottom:14px;display:flex;align-items:center;gap:8px"><span style="color:var(--accent-teal,#2dd4bf)">&#9647;</span> Outcome History</h2>' +
+    '<h2 style="font-size:1rem;font-weight:700;color:var(--text,#f1f5f9);margin-bottom:14px;display:flex;align-items:center;gap:8px"><span style="color:var(--teal,#00d4bc)">&#9647;</span> Outcome History</h2>' +
     '<div class="iii-chart-row">' + _symptomLineChart(data.symptoms) + _sessionBarChart(data.sessionScores) + '</div>' +
     '</div>' +
 
     '<div style="margin-bottom:32px">' +
-    '<h2 style="font-size:1rem;font-weight:700;color:var(--text,#f1f5f9);margin-bottom:14px;display:flex;align-items:center;gap:8px"><span style="color:var(--accent-violet,#a78bfa)">&#9678;</span> Treatment Goals</h2>' +
+    '<h2 style="font-size:1rem;font-weight:700;color:var(--text,#f1f5f9);margin-bottom:14px;display:flex;align-items:center;gap:8px"><span style="color:var(--violet,#9b7fff)">&#9678;</span> Treatment Goals</h2>' +
     '<div style="display:flex;flex-direction:column;gap:12px">' + goalCardsHTML + '</div>' +
     '</div>' +
 
     '<div style="margin-bottom:32px">' +
-    '<h2 style="font-size:1rem;font-weight:700;color:var(--text,#f1f5f9);margin-bottom:14px;display:flex;align-items:center;gap:8px"><span style="color:var(--accent-amber,#fbbf24)">&#9733;</span> Recent Sessions</h2>' +
+    '<h2 style="font-size:1rem;font-weight:700;color:var(--text,#f1f5f9);margin-bottom:14px;display:flex;align-items:center;gap:8px"><span style="color:var(--amber,#ffb547)">&#9733;</span> Recent Sessions</h2>' +
     '<div style="display:flex;flex-direction:column;gap:10px">' + sessionHTML + '</div>' +
-    '<button style="margin-top:16px;display:inline-flex;align-items:center;gap:7px;background:rgba(45,212,191,0.1);color:var(--accent-teal,#2dd4bf);border:1px solid rgba(45,212,191,0.25);border-radius:10px;padding:9px 18px;font-size:0.85rem;font-weight:600;cursor:pointer" onclick="window._navPatient(\'patient-messages\')">&#9647; Message My Care Team</button>' +
+    '<button style="margin-top:16px;display:inline-flex;align-items:center;gap:7px;background:rgba(45,212,191,0.1);color:var(--teal,#00d4bc);border:1px solid rgba(45,212,191,0.25);border-radius:10px;padding:9px 18px;font-size:0.85rem;font-weight:600;cursor:pointer" onclick="window._navPatient(\'patient-messages\')">&#9647; Message My Care Team</button>' +
     '</div>' +
 
     '<div style="margin-bottom:32px;padding:20px 22px;background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.07));border-radius:14px">' +
-    '<h2 style="font-size:1rem;font-weight:700;color:var(--text,#f1f5f9);margin-bottom:8px;display:flex;align-items:center;gap:8px"><span style="color:var(--accent-blue,#60a5fa)">&#8595;</span> Progress Report</h2>' +
+    '<h2 style="font-size:1rem;font-weight:700;color:var(--text,#f1f5f9);margin-bottom:8px;display:flex;align-items:center;gap:8px"><span style="color:var(--blue,#4a9eff)">&#8595;</span> Progress Report</h2>' +
     '<p style="font-size:0.82rem;color:var(--text-muted,#94a3b8);margin-bottom:14px;line-height:1.5">Download a comprehensive summary of your treatment journey to share with your care team or keep for your records.</p>' +
-    '<button style="display:inline-flex;align-items:center;gap:8px;background:var(--accent-blue,#60a5fa);color:#0f172a;border:none;border-radius:10px;padding:10px 20px;font-size:0.88rem;font-weight:700;cursor:pointer" onclick="window._outcomeDownloadReport()">&#8595; Download My Progress Report</button>' +
+    '<button style="display:inline-flex;align-items:center;gap:8px;background:var(--blue,#4a9eff);color:#0f172a;border:none;border-radius:10px;padding:10px 20px;font-size:0.88rem;font-weight:700;cursor:pointer" onclick="window._outcomeDownloadReport()">&#8595; Download My Progress Report</button>' +
     '</div>' +
 
     '<div style="margin-bottom:32px">' +
     '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">' +
-    '<h2 style="font-size:1rem;font-weight:700;color:var(--text,#f1f5f9);display:flex;align-items:center;gap:8px"><span style="color:var(--accent-rose,#f43f5e)">&#9672;</span> 30-Day Symptom Heatmap</h2>' +
+    '<h2 style="font-size:1rem;font-weight:700;color:var(--text,#f1f5f9);display:flex;align-items:center;gap:8px"><span style="color:var(--rose,#ff6b9d)">&#9672;</span> 30-Day Symptom Heatmap</h2>' +
     '<button id="overlay-toggle-btn" style="font-size:0.78rem;padding:6px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:var(--text-muted,#94a3b8);cursor:pointer" onclick="window._outcomeToggleOverlay()">Show Session Dates</button>' +
     '</div>' +
-    '<div id="overlay-session-dates" style="display:none;margin-bottom:12px;font-size:0.78rem;color:var(--accent-teal,#2dd4bf);padding:8px 12px;background:rgba(45,212,191,0.07);border-radius:8px;border:1px solid rgba(45,212,191,0.2)">Session dates: ' + sdates + '</div>' +
-    '<p style="font-size:0.78rem;color:var(--text-muted,#94a3b8);margin:4px 0 10px;line-height:1.5">Each tile is one day. Colour shows how strong your symptoms were — <strong style="color:var(--accent-teal,#2dd4bf)">teal means a calmer day</strong>, rose means a tougher one. Tap a tile to see details.</p>' +
+    '<div id="overlay-session-dates" style="display:none;margin-bottom:12px;font-size:0.78rem;color:var(--teal,#00d4bc);padding:8px 12px;background:rgba(45,212,191,0.07);border-radius:8px;border:1px solid rgba(45,212,191,0.2)">Session dates: ' + sdates + '</div>' +
+    '<p style="font-size:0.78rem;color:var(--text-muted,#94a3b8);margin:4px 0 10px;line-height:1.5">Each tile is one day. Colour shows how strong your symptoms were — <strong style="color:var(--teal,#00d4bc)">teal means a calmer day</strong>, rose means a tougher one. Tap a tile to see details.</p>' +
     '<div class="iii-calendar-dots">' + _calendarDots30() + '</div>' +
     '<div style="display:flex;gap:14px;margin-top:10px;flex-wrap:wrap" role="list" aria-label="Symptom intensity legend">' +
-    '<span role="listitem" style="font-size:0.72rem;color:var(--text-muted,#94a3b8);display:inline-flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:var(--accent-teal,#2dd4bf);display:inline-block;opacity:0.7" aria-hidden="true"></span>Low symptoms &mdash; calmer day</span>' +
-    '<span role="listitem" style="font-size:0.72rem;color:var(--text-muted,#94a3b8);display:inline-flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:var(--accent-amber,#fbbf24);display:inline-block;opacity:0.7" aria-hidden="true"></span>Moderate</span>' +
-    '<span role="listitem" style="font-size:0.72rem;color:var(--text-muted,#94a3b8);display:inline-flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:var(--accent-rose,#f43f5e);display:inline-block;opacity:0.7" aria-hidden="true"></span>High symptoms &mdash; tougher day</span>' +
+    '<span role="listitem" style="font-size:0.72rem;color:var(--text-muted,#94a3b8);display:inline-flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:var(--teal,#00d4bc);display:inline-block;opacity:0.7" aria-hidden="true"></span>Low symptoms &mdash; calmer day</span>' +
+    '<span role="listitem" style="font-size:0.72rem;color:var(--text-muted,#94a3b8);display:inline-flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:var(--amber,#ffb547);display:inline-block;opacity:0.7" aria-hidden="true"></span>Moderate</span>' +
+    '<span role="listitem" style="font-size:0.72rem;color:var(--text-muted,#94a3b8);display:inline-flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:var(--rose,#ff6b9d);display:inline-block;opacity:0.7" aria-hidden="true"></span>High symptoms &mdash; tougher day</span>' +
     '</div>' +
     '<div id="day-detail-popup" style="display:none;margin-top:12px;padding:14px 16px;background:var(--card-bg,rgba(255,255,255,0.05));border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:12px;font-size:0.83rem;color:var(--text-muted,#94a3b8)"></div>' +
     '</div>' +
@@ -18319,6 +19362,7 @@ window._outcomeToggleOverlay = function () {
 window._outcomeShowDay = function (dateStr) {
   const popup = document.getElementById('day-detail-popup');
   if (!popup) return;
+  function _esc(v) { if (v == null) return ''; return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;'); }
   let entry = null;
   try {
     const j = JSON.parse(localStorage.getItem('ds_symptom_journal') || '[]');
@@ -18327,10 +19371,10 @@ window._outcomeShowDay = function (dateStr) {
   popup.style.display = 'block';
   const df = new Date(dateStr).toLocaleDateString(getLocale() === 'tr' ? 'tr-TR' : 'en-US', { weekday: 'long', month: 'long', day: 'numeric' });
   if (entry) {
-    const mood = entry.mood || entry.mood_score || '\u2014', nt = entry.notes || entry.free_text || '';
-    popup.innerHTML = '<strong style="color:var(--text,#f1f5f9)">' + df + '</strong><div style="margin-top:6px">Mood: <strong style="color:var(--accent-teal,#2dd4bf)">' + mood + '</strong></div>' + (nt ? '<div style="margin-top:6px;line-height:1.5">&#8220;' + nt + '&#8221;</div>' : '');
+    const mood = _esc(entry.mood || entry.mood_score || '\u2014'), nt = _esc(entry.notes || entry.free_text || '');
+    popup.innerHTML = '<strong style="color:var(--text,#f1f5f9)">' + _esc(df) + '</strong><div style="margin-top:6px">Mood: <strong style="color:var(--teal,#00d4bc)">' + mood + '</strong></div>' + (nt ? '<div style="margin-top:6px;line-height:1.5">&#8220;' + nt + '&#8221;</div>' : '');
   } else {
-    popup.innerHTML = '<strong style="color:var(--text,#f1f5f9)">' + df + '</strong><div style="margin-top:6px">No journal entry for this day. Visit <a href="#" onclick="window._navPatient(\'pt-journal\');return false" style="color:var(--accent-teal,#2dd4bf)">Symptom Journal</a> to add one.</div>';
+    popup.innerHTML = '<strong style="color:var(--text,#f1f5f9)">' + _esc(df) + '</strong><div style="margin-top:6px">No journal entry for this day. Visit <a href="#" onclick="window._navPatient(\'pt-journal\');return false" style="color:var(--teal,#00d4bc)">Symptom Journal</a> to add one.</div>';
   }
 };
 
@@ -18410,7 +19454,7 @@ window._ptoSubmitAssessment = function () {
   if (!isNaN(phq9v)) api.recordOutcome({ template_name: 'PHQ-9', score_numeric: phq9v, measurement_point: 'Self-report', administered_at: _apiNow }).catch(() => {});
   if (!isNaN(gad7v)) api.recordOutcome({ template_name: 'GAD-7', score_numeric: gad7v, measurement_point: 'Self-report', administered_at: _apiNow }).catch(() => {});
   if (!isNaN(pcl5v)) api.recordOutcome({ template_name: 'PCL-5', score_numeric: pcl5v, measurement_point: 'Self-report', administered_at: _apiNow }).catch(() => {});
-  window._showNotifToast && window._showNotifToast({ title: 'Saved', body: 'Assessment scores recorded.', severity: 'success' });
+  window._showNotifToast && window._showNotifToast({ title: 'Saved', body: 'Assessment scores saved in this browser. Clinic sync depends on portal workflow.', severity: 'success' });
   _renderProgressPage();
 };
 
@@ -18494,10 +19538,18 @@ window._pgpSaSubmit = async function(key) {
       notes: answers.note || answers.concerns || null,
       ai_context: { score: score, answered_at: new Date().toISOString(), question_count: survey.questions.length }
     };
-    await api.submitSelfAssessment(payload);
+    let savedToBackend = false;
+    if (typeof api.submitSelfAssessment === 'function') {
+      await api.submitSelfAssessment(payload);
+      savedToBackend = true;
+    }
     setSelfAssessmentLastFiled(key, new Date().toISOString());
     clearSelfAssessmentDraft(key);
-    window._showNotifToast && window._showNotifToast({ title: 'Check-in saved', body: survey.title + ' submitted. Great work!', severity: 'success' });
+    window._showNotifToast && window._showNotifToast({
+      title: savedToBackend ? 'Check-in saved' : 'Check-in saved locally',
+      body: savedToBackend ? survey.title + ' submitted.' : survey.title + ' was stored in this browser only.',
+      severity: savedToBackend ? 'success' : 'warning'
+    });
     _renderProgressPage();
   } catch (e) {
     if (saving) saving.textContent = '';
@@ -18597,9 +19649,9 @@ function _gpLoad() {
 
 function _gpDemoBanner() {
   return `<div style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;margin-bottom:20px;background:linear-gradient(135deg,rgba(245,158,11,0.14),rgba(217,119,6,0.08));border:1px solid rgba(245,158,11,0.35);border-radius:12px">
-    <span style="font-size:15px;color:var(--accent-amber,#fbbf24)">⚠</span>
+    <span style="font-size:15px;color:var(--amber,#ffb547)">⚠</span>
     <div>
-      <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--accent-amber,#fbbf24)">Demo Guardian Portal</div>
+      <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--amber,#ffb547)">Demo Guardian Portal</div>
       <div style="font-size:11.5px;color:var(--text-muted,#94a3b8);margin-top:3px;line-height:1.45">This guardian portal is currently rendering sample guardian, patient, consent, message, homework, and crisis-plan data from local demo storage. Do not treat the records below as live patient data.</div>
     </div>
   </div>`;
@@ -18614,7 +19666,7 @@ function _gpBadge(lvl) {
 function _gpRing(pct, sz) {
   sz = sz || 80;
   const r = sz / 2 - 8, circ = 2 * Math.PI * r, dash = (pct / 100) * circ, cx = sz / 2, cy = sz / 2;
-  const col = pct >= 80 ? 'var(--accent-teal,#2dd4bf)' : pct >= 60 ? 'var(--accent-amber,#fbbf24)' : 'var(--accent-rose,#fb7185)';
+  const col = pct >= 80 ? 'var(--teal,#00d4bc)' : pct >= 60 ? 'var(--amber,#ffb547)' : 'var(--rose,#ff6b9d)';
   return `<svg width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}" style="transform:rotate(-90deg)"><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--border,rgba(255,255,255,0.08))" stroke-width="7"/><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${col}" stroke-width="7" stroke-dasharray="${dash.toFixed(2)} ${circ.toFixed(2)}" stroke-linecap="round"/><text x="${cx}" y="${cy + 5}" text-anchor="middle" fill="var(--text,#f1f5f9)" font-size="14" font-weight="700" style="transform:rotate(90deg);transform-origin:${cx}px ${cy}px">${pct}%</text></svg>`;
 }
 
@@ -18655,29 +19707,29 @@ function _gpRender() {
   ];
 
   // patient cards
-  const ptCards = patients.map(pt => { const active = pt.patientId === pid; const cc = pt.compliance >= 80 ? 'var(--accent-teal,#2dd4bf)' : pt.compliance >= 60 ? 'var(--accent-amber,#fbbf24)' : 'var(--accent-rose,#fb7185)'; return `<div class="ooo-patient-card${active ? ' ooo-patient-card--active' : ''}" onclick="window._gpSwitch('${pt.patientId}')"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px"><div><div style="font-weight:700;font-size:1rem;color:var(--text,#f1f5f9)">${pt.name}</div><div style="font-size:0.8rem;color:var(--text-muted,#94a3b8);margin-top:2px">Age ${pt.age} \u00b7 ${pt.relation}</div></div>${_gpBadge(pt.accessLevel)}</div><div style="font-size:0.82rem;color:var(--text-muted,#94a3b8);margin-bottom:8px">&#9639; ${pt.program}</div><div style="display:flex;justify-content:space-between;font-size:0.8rem;color:var(--text-muted,#94a3b8);margin-bottom:14px"><span>Next: <strong style="color:var(--text,#f1f5f9)">${new Date(pt.nextAppt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</strong></span><span>Compliance: <strong style="color:${cc}">${pt.compliance}%</strong></span></div><button style="width:100%;padding:8px;border-radius:8px;border:1px solid ${active ? 'var(--accent-teal,#2dd4bf)' : 'var(--border,rgba(255,255,255,0.1))'};background:${active ? 'rgba(45,212,191,0.12)' : 'transparent'};color:${active ? 'var(--accent-teal,#2dd4bf)' : 'var(--text-muted,#94a3b8)'};font-size:0.82rem;font-weight:600;cursor:pointer">${active ? '\u2713 Currently Viewing' : 'Switch to Patient'}</button></div>`; }).join('');
+  const ptCards = patients.map(pt => { const active = pt.patientId === pid; const cc = pt.compliance >= 80 ? 'var(--teal,#00d4bc)' : pt.compliance >= 60 ? 'var(--amber,#ffb547)' : 'var(--rose,#ff6b9d)'; return `<div class="ooo-patient-card${active ? ' ooo-patient-card--active' : ''}" onclick="window._gpSwitch('${pt.patientId}')"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px"><div><div style="font-weight:700;font-size:1rem;color:var(--text,#f1f5f9)">${pt.name}</div><div style="font-size:0.8rem;color:var(--text-muted,#94a3b8);margin-top:2px">Age ${pt.age} \u00b7 ${pt.relation}</div></div>${_gpBadge(pt.accessLevel)}</div><div style="font-size:0.82rem;color:var(--text-muted,#94a3b8);margin-bottom:8px">&#9639; ${pt.program}</div><div style="display:flex;justify-content:space-between;font-size:0.8rem;color:var(--text-muted,#94a3b8);margin-bottom:14px"><span>Next: <strong style="color:var(--text,#f1f5f9)">${new Date(pt.nextAppt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</strong></span><span>Compliance: <strong style="color:${cc}">${pt.compliance}%</strong></span></div><button style="width:100%;padding:8px;border-radius:8px;border:1px solid ${active ? 'var(--teal,#00d4bc)' : 'var(--border,rgba(255,255,255,0.1))'};background:${active ? 'rgba(45,212,191,0.12)' : 'transparent'};color:${active ? 'var(--teal,#00d4bc)' : 'var(--text-muted,#94a3b8)'};font-size:0.82rem;font-weight:600;cursor:pointer">${active ? '\u2713 Currently Viewing' : 'Switch to Patient'}</button></div>`; }).join('');
 
   // treatment progress
-  const treatHtml = !activePt ? '' : `<section style="margin-bottom:36px"><h2 style="font-size:1rem;font-weight:600;color:var(--text,#f1f5f9);margin:0 0 16px;display:flex;align-items:center;gap:8px"><span style="color:var(--accent-blue,#60a5fa)">&#9639;</span> Treatment Progress \u2014 ${activePt.name}</h2><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px"><div style="background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:14px;padding:20px"><div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted,#94a3b8);margin-bottom:10px">Current Protocol</div><div style="font-weight:600;color:var(--text,#f1f5f9);margin-bottom:4px">${activePt.program}</div><div style="font-size:0.85rem;color:var(--text-muted,#94a3b8);margin-bottom:16px">Week 6 of treatment</div><div style="font-size:0.78rem;color:var(--text-muted,#94a3b8)">Next Session</div><div style="font-weight:600;color:var(--accent-teal,#2dd4bf);font-size:0.9rem;margin-top:2px">${new Date(activePt.nextAppt).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</div><div style="font-size:0.78rem;color:var(--text-muted,#94a3b8);margin-top:2px">Clinician: Dr. Nguyen \u00b7 10:00 AM</div></div><div style="background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:14px;padding:20px;display:flex;align-items:center;gap:20px">${_gpRing(activePt.compliance, 88)}<div><div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted,#94a3b8);margin-bottom:6px">Session Compliance</div><div style="font-weight:600;font-size:1.1rem;color:var(--text,#f1f5f9)">${activePt.compliance}%</div><div style="font-size:0.8rem;color:var(--text-muted,#94a3b8);margin-top:4px">Sessions attended</div><div style="font-size:0.78rem;color:${activePt.compliance >= 80 ? 'var(--accent-teal,#2dd4bf)' : 'var(--accent-amber,#fbbf24)'};margin-top:6px">${activePt.compliance >= 80 ? 'Excellent progress' : 'Good \u2014 keep it up'}</div></div></div><div style="background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:14px;padding:20px"><div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted,#94a3b8);margin-bottom:10px">Symptom Trend \u2014 Last 8 Sessions</div><div style="margin-bottom:8px">${_gpSpark(pid)}</div><div style="font-size:0.78rem;color:var(--text-muted,#94a3b8)">Higher is better \u00b7 Scale 1\u201310</div><div style="font-size:0.78rem;color:var(--accent-teal,#2dd4bf);margin-top:4px">\u2191 Improving trend</div></div></div><div style="margin-top:16px;background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:14px;padding:20px"><div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted,#94a3b8);margin-bottom:14px">Recent Clinician Notes (Guardian-Visible)</div><div style="display:flex;flex-direction:column;gap:12px">${clinicNotes.map(n => `<div style="padding:12px 16px;background:var(--hover-bg,rgba(255,255,255,0.04));border-radius:10px;border-left:3px solid var(--accent-blue,#60a5fa)"><div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:0.78rem;color:var(--text-muted,#94a3b8)"><span>${n.clinician}</span><span>${new Date(n.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span></div><div style="font-size:0.87rem;color:var(--text,#f1f5f9);line-height:1.55">${n.text}</div></div>`).join('')}</div></div></section>`;
+  const treatHtml = !activePt ? '' : `<section style="margin-bottom:36px"><h2 style="font-size:1rem;font-weight:600;color:var(--text,#f1f5f9);margin:0 0 16px;display:flex;align-items:center;gap:8px"><span style="color:var(--blue,#4a9eff)">&#9639;</span> Treatment Progress \u2014 ${activePt.name}</h2><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px"><div style="background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:14px;padding:20px"><div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted,#94a3b8);margin-bottom:10px">Current Protocol</div><div style="font-weight:600;color:var(--text,#f1f5f9);margin-bottom:4px">${activePt.program}</div><div style="font-size:0.85rem;color:var(--text-muted,#94a3b8);margin-bottom:16px">Week 6 of treatment</div><div style="font-size:0.78rem;color:var(--text-muted,#94a3b8)">Next Session</div><div style="font-weight:600;color:var(--teal,#00d4bc);font-size:0.9rem;margin-top:2px">${new Date(activePt.nextAppt).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</div><div style="font-size:0.78rem;color:var(--text-muted,#94a3b8);margin-top:2px">Clinician: Dr. Nguyen \u00b7 10:00 AM</div></div><div style="background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:14px;padding:20px;display:flex;align-items:center;gap:20px">${_gpRing(activePt.compliance, 88)}<div><div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted,#94a3b8);margin-bottom:6px">Session Compliance</div><div style="font-weight:600;font-size:1.1rem;color:var(--text,#f1f5f9)">${activePt.compliance}%</div><div style="font-size:0.8rem;color:var(--text-muted,#94a3b8);margin-top:4px">Sessions attended</div><div style="font-size:0.78rem;color:${activePt.compliance >= 80 ? 'var(--teal,#00d4bc)' : 'var(--amber,#ffb547)'};margin-top:6px">${activePt.compliance >= 80 ? 'Excellent progress' : 'Good \u2014 keep it up'}</div></div></div><div style="background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:14px;padding:20px"><div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted,#94a3b8);margin-bottom:10px">Symptom Trend \u2014 Last 8 Sessions</div><div style="margin-bottom:8px">${_gpSpark(pid)}</div><div style="font-size:0.78rem;color:var(--text-muted,#94a3b8)">Higher is better \u00b7 Scale 1\u201310</div><div style="font-size:0.78rem;color:var(--teal,#00d4bc);margin-top:4px">\u2191 Improving trend</div></div></div><div style="margin-top:16px;background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:14px;padding:20px"><div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted,#94a3b8);margin-bottom:14px">Recent Clinician Notes (Guardian-Visible)</div><div style="display:flex;flex-direction:column;gap:12px">${clinicNotes.map(n => `<div style="padding:12px 16px;background:var(--hover-bg,rgba(255,255,255,0.04));border-radius:10px;border-left:3px solid var(--blue,#4a9eff)"><div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:0.78rem;color:var(--text-muted,#94a3b8)"><span>${n.clinician}</span><span>${new Date(n.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span></div><div style="font-size:0.87rem;color:var(--text,#f1f5f9);line-height:1.55">${n.text}</div></div>`).join('')}</div></div></section>`;
 
   // homework & adherence
-  const hwHtml = !activePt ? '' : `<section style="margin-bottom:36px"><h2 style="font-size:1rem;font-weight:600;color:var(--text,#f1f5f9);margin:0 0 16px;display:flex;align-items:center;gap:8px"><span style="color:var(--accent-violet,#a78bfa)">&#9643;</span> Homework &amp; Adherence</h2><div style="display:grid;grid-template-columns:1fr 1fr;gap:16px"><div style="background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:14px;padding:20px"><div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted,#94a3b8);margin-bottom:14px">Assigned Tasks</div><div id="gp-homework-list" style="display:flex;flex-direction:column;gap:10px">${ptHw.map(hw => { const sbg = hw.status === 'completed' ? 'rgba(45,212,191,0.12)' : 'rgba(251,191,36,0.12)', sc = hw.status === 'completed' ? 'var(--accent-teal,#2dd4bf)' : 'var(--accent-amber,#fbbf24)'; return `<div style="padding:10px 12px;background:var(--hover-bg,rgba(255,255,255,0.04));border-radius:10px;border:1px solid var(--border,rgba(255,255,255,0.07))"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><div style="flex:1"><div style="font-size:0.87rem;font-weight:600;color:var(--text,#f1f5f9);margin-bottom:3px">${hw.task}</div><div style="font-size:0.75rem;color:var(--text-muted,#94a3b8)">Due: ${new Date(hw.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}${hw.assisted ? ' \u00b7 Guardian assisted' : ''}</div></div><span style="flex-shrink:0;padding:3px 9px;border-radius:20px;font-size:0.72rem;font-weight:700;background:${sbg};color:${sc}">${hw.status === 'completed' ? '\u2713 Done' : 'Pending'}</span></div>${hw.status !== 'completed' ? `<div style="display:flex;gap:8px;margin-top:8px"><button onclick="window._gpMarkHw('${hw.id}','completed')" style="flex:1;padding:5px 0;border-radius:7px;border:1px solid var(--accent-teal,#2dd4bf);background:transparent;color:var(--accent-teal,#2dd4bf);font-size:0.75rem;font-weight:600;cursor:pointer">Mark Complete</button><button onclick="window._gpMarkHw('${hw.id}','assisted')" style="flex:1;padding:5px 0;border-radius:7px;border:1px solid var(--accent-violet,#a78bfa);background:transparent;color:var(--accent-violet,#a78bfa);font-size:0.75rem;font-weight:600;cursor:pointer">Mark Assisted</button></div>` : ''}</div>`; }).join('')}</div><button onclick="window._gpEncourage()" style="margin-top:16px;width:100%;padding:10px;border-radius:10px;border:1px solid var(--accent-amber,#fbbf24);background:rgba(251,191,36,0.08);color:var(--accent-amber,#fbbf24);font-size:0.85rem;font-weight:600;cursor:pointer">&#128155; Send Encouragement</button></div><div style="background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:14px;padding:20px"><div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted,#94a3b8);margin-bottom:14px">Weekly Adherence</div><div style="overflow-x:auto">${_gpBars(weekData)}</div><div style="display:flex;gap:14px;margin-top:14px;flex-wrap:wrap"><span style="display:flex;align-items:center;gap:5px;font-size:0.75rem;color:var(--text-muted,#94a3b8)"><span style="width:10px;height:10px;border-radius:2px;background:#2dd4bf;display:inline-block"></span>On track (\u226580%)</span><span style="display:flex;align-items:center;gap:5px;font-size:0.75rem;color:var(--text-muted,#94a3b8)"><span style="width:10px;height:10px;border-radius:2px;background:#fbbf24;display:inline-block"></span>Partial (50\u201379%)</span><span style="display:flex;align-items:center;gap:5px;font-size:0.75rem;color:var(--text-muted,#94a3b8)"><span style="width:10px;height:10px;border-radius:2px;background:#fb7185;display:inline-block"></span>Missed (&lt;50%)</span></div></div></div></section>`;
+  const hwHtml = !activePt ? '' : `<section style="margin-bottom:36px"><h2 style="font-size:1rem;font-weight:600;color:var(--text,#f1f5f9);margin:0 0 16px;display:flex;align-items:center;gap:8px"><span style="color:var(--violet,#9b7fff)">&#9643;</span> Homework &amp; Adherence</h2><div style="display:grid;grid-template-columns:1fr 1fr;gap:16px"><div style="background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:14px;padding:20px"><div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted,#94a3b8);margin-bottom:14px">Assigned Tasks</div><div id="gp-homework-list" style="display:flex;flex-direction:column;gap:10px">${ptHw.map(hw => { const sbg = hw.status === 'completed' ? 'rgba(45,212,191,0.12)' : 'rgba(251,191,36,0.12)', sc = hw.status === 'completed' ? 'var(--teal,#00d4bc)' : 'var(--amber,#ffb547)'; return `<div style="padding:10px 12px;background:var(--hover-bg,rgba(255,255,255,0.04));border-radius:10px;border:1px solid var(--border,rgba(255,255,255,0.07))"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><div style="flex:1"><div style="font-size:0.87rem;font-weight:600;color:var(--text,#f1f5f9);margin-bottom:3px">${hw.task}</div><div style="font-size:0.75rem;color:var(--text-muted,#94a3b8)">Due: ${new Date(hw.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}${hw.assisted ? ' \u00b7 Guardian assisted' : ''}</div></div><span style="flex-shrink:0;padding:3px 9px;border-radius:20px;font-size:0.72rem;font-weight:700;background:${sbg};color:${sc}">${hw.status === 'completed' ? '\u2713 Done' : 'Pending'}</span></div>${hw.status !== 'completed' ? `<div style="display:flex;gap:8px;margin-top:8px"><button onclick="window._gpMarkHw('${hw.id}','completed')" style="flex:1;padding:5px 0;border-radius:7px;border:1px solid var(--teal,#00d4bc);background:transparent;color:var(--teal,#00d4bc);font-size:0.75rem;font-weight:600;cursor:pointer">Mark Complete</button><button onclick="window._gpMarkHw('${hw.id}','assisted')" style="flex:1;padding:5px 0;border-radius:7px;border:1px solid var(--violet,#9b7fff);background:transparent;color:var(--violet,#9b7fff);font-size:0.75rem;font-weight:600;cursor:pointer">Mark Assisted</button></div>` : ''}</div>`; }).join('')}</div><button onclick="window._gpEncourage()" style="margin-top:16px;width:100%;padding:10px;border-radius:10px;border:1px solid var(--amber,#ffb547);background:rgba(251,191,36,0.08);color:var(--amber,#ffb547);font-size:0.85rem;font-weight:600;cursor:pointer">&#128155; Send Encouragement</button></div><div style="background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:14px;padding:20px"><div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted,#94a3b8);margin-bottom:14px">Weekly Adherence</div><div style="overflow-x:auto">${_gpBars(weekData)}</div><div style="display:flex;gap:14px;margin-top:14px;flex-wrap:wrap"><span style="display:flex;align-items:center;gap:5px;font-size:0.75rem;color:var(--text-muted,#94a3b8)"><span style="width:10px;height:10px;border-radius:2px;background:#2dd4bf;display:inline-block"></span>On track (\u226580%)</span><span style="display:flex;align-items:center;gap:5px;font-size:0.75rem;color:var(--text-muted,#94a3b8)"><span style="width:10px;height:10px;border-radius:2px;background:#fbbf24;display:inline-block"></span>Partial (50\u201379%)</span><span style="display:flex;align-items:center;gap:5px;font-size:0.75rem;color:var(--text-muted,#94a3b8)"><span style="width:10px;height:10px;border-radius:2px;background:#fb7185;display:inline-block"></span>Missed (&lt;50%)</span></div></div></div></section>`;
 
   // messaging
-  const msgHtml = !activePt ? '' : `<section style="margin-bottom:36px"><h2 style="font-size:1rem;font-weight:600;color:var(--text,#f1f5f9);margin:0 0 16px;display:flex;align-items:center;gap:8px"><span style="color:var(--accent-teal,#2dd4bf)">&#9643;</span> Secure Messages${unread > 0 ? ` <span style="background:var(--accent-rose,#fb7185);color:#fff;border-radius:20px;padding:2px 9px;font-size:0.7rem;font-weight:700">${unread}</span>` : ''}</h2><div style="background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:14px;padding:20px"><div class="ooo-message-thread" id="gp-message-thread" style="max-height:320px;overflow-y:auto;margin-bottom:16px">${ptMsgs.length === 0 ? '<div style="text-align:center;padding:32px;color:var(--text-muted,#94a3b8);font-size:0.87rem">No messages yet. Send a message to your care team below.</div>' : ptMsgs.map(msg => { const g = msg.from === 'guardian'; const bg = g ? 'rgba(45,212,191,0.12)' : 'var(--hover-bg,rgba(255,255,255,0.05))', brd = g ? 'rgba(45,212,191,0.2)' : 'var(--border,rgba(255,255,255,0.08))', rad = g ? '14px 14px 4px 14px' : '14px 14px 14px 4px', dot = (!msg.read && !g) ? '<span style="position:absolute;top:-4px;right:-4px;width:10px;height:10px;border-radius:50%;background:var(--accent-rose,#fb7185)"></span>' : ''; return `<div style="display:flex;flex-direction:column;align-items:${g ? 'flex-end' : 'flex-start'};margin-bottom:12px"><div style="max-width:78%;padding:10px 14px;border-radius:${rad};background:${bg};border:1px solid ${brd};position:relative">${dot}<div style="font-size:0.75rem;color:var(--text-muted,#94a3b8);margin-bottom:4px">${msg.fromName} \u00b7 ${new Date(msg.ts).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div><div style="font-size:0.875rem;color:var(--text,#f1f5f9);line-height:1.5">${msg.text}</div></div></div>`; }).join('')}</div><div style="display:flex;gap:10px"><textarea id="gp-msg-input" placeholder="Type a message to your care team\u2026" rows="2" style="flex:1;padding:10px 14px;background:var(--hover-bg,rgba(255,255,255,0.05));border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:10px;color:var(--text,#f1f5f9);font-size:0.87rem;resize:vertical;font-family:inherit;outline:none"></textarea><button onclick="window._gpSendMsg()" style="padding:10px 18px;border-radius:10px;border:none;background:var(--accent-teal,#2dd4bf);color:#0a0f1a;font-weight:700;font-size:0.85rem;cursor:pointer;flex-shrink:0;align-self:flex-end">Send</button></div><div style="margin-top:10px"><input id="gp-note-input" type="text" placeholder="Attach a brief note (optional)\u2026" style="width:100%;box-sizing:border-box;padding:8px 14px;background:var(--hover-bg,rgba(255,255,255,0.05));border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:8px;color:var(--text,#f1f5f9);font-size:0.82rem;font-family:inherit;outline:none"/></div></div></section>`;
+  const msgHtml = !activePt ? '' : `<section style="margin-bottom:36px"><h2 style="font-size:1rem;font-weight:600;color:var(--text,#f1f5f9);margin:0 0 16px;display:flex;align-items:center;gap:8px"><span style="color:var(--teal,#00d4bc)">&#9643;</span> Secure Messages${unread > 0 ? ` <span style="background:var(--rose,#ff6b9d);color:#fff;border-radius:20px;padding:2px 9px;font-size:0.7rem;font-weight:700">${unread}</span>` : ''}</h2><div style="background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:14px;padding:20px"><div class="ooo-message-thread" id="gp-message-thread" style="max-height:320px;overflow-y:auto;margin-bottom:16px">${ptMsgs.length === 0 ? '<div style="text-align:center;padding:32px;color:var(--text-muted,#94a3b8);font-size:0.87rem">No messages yet. Send a message to your care team below.</div>' : ptMsgs.map(msg => { const g = msg.from === 'guardian'; const bg = g ? 'rgba(45,212,191,0.12)' : 'var(--hover-bg,rgba(255,255,255,0.05))', brd = g ? 'rgba(45,212,191,0.2)' : 'var(--border,rgba(255,255,255,0.08))', rad = g ? '14px 14px 4px 14px' : '14px 14px 14px 4px', dot = (!msg.read && !g) ? '<span style="position:absolute;top:-4px;right:-4px;width:10px;height:10px;border-radius:50%;background:var(--rose,#ff6b9d)"></span>' : ''; return `<div style="display:flex;flex-direction:column;align-items:${g ? 'flex-end' : 'flex-start'};margin-bottom:12px"><div style="max-width:78%;padding:10px 14px;border-radius:${rad};background:${bg};border:1px solid ${brd};position:relative">${dot}<div style="font-size:0.75rem;color:var(--text-muted,#94a3b8);margin-bottom:4px">${msg.fromName} \u00b7 ${new Date(msg.ts).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div><div style="font-size:0.875rem;color:var(--text,#f1f5f9);line-height:1.5">${msg.text}</div></div></div>`; }).join('')}</div><div style="display:flex;gap:10px"><textarea id="gp-msg-input" placeholder="Type a message to your care team\u2026" rows="2" style="flex:1;padding:10px 14px;background:var(--hover-bg,rgba(255,255,255,0.05));border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:10px;color:var(--text,#f1f5f9);font-size:0.87rem;resize:vertical;font-family:inherit;outline:none"></textarea><button onclick="window._gpSendMsg()" style="padding:10px 18px;border-radius:10px;border:none;background:var(--teal,#00d4bc);color:#0a0f1a;font-weight:700;font-size:0.85rem;cursor:pointer;flex-shrink:0;align-self:flex-end">Send</button></div><div style="margin-top:10px"><input id="gp-note-input" type="text" placeholder="Attach a brief note (optional)\u2026" style="width:100%;box-sizing:border-box;padding:8px 14px;background:var(--hover-bg,rgba(255,255,255,0.05));border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:8px;color:var(--text,#f1f5f9);font-size:0.82rem;font-family:inherit;outline:none"/></div></div></section>`;
 
   // consents
   const catL = { sessionNotes: 'Session Notes', medicationInfo: 'Medication Info', biometricData: 'Biometric Data', financialRecords: 'Financial Records' };
-  const consentHtml = !activePt ? '' : `<section style="margin-bottom:36px"><h2 style="font-size:1rem;font-weight:600;color:var(--text,#f1f5f9);margin:0 0 16px;display:flex;align-items:center;gap:8px"><span style="color:var(--accent-amber,#fbbf24)">&#9673;</span> Consent &amp; Authorization</h2><div style="display:flex;flex-direction:column;gap:12px">${ptCons.map(con => { const stBg = con.status === 'valid' ? 'rgba(45,212,191,0.12)' : con.status === 'expiring' ? 'rgba(251,191,36,0.12)' : 'rgba(251,113,133,0.12)', stC = con.status === 'valid' ? 'var(--accent-teal,#2dd4bf)' : con.status === 'expiring' ? 'var(--accent-amber,#fbbf24)' : 'var(--accent-rose,#fb7185)', stL = con.status === 'valid' ? '\u2713 Valid' : con.status === 'expiring' ? '\u26a0 Expiring Soon' : '\u2715 Expired', rBtn = con.status !== 'valid' ? `<button onclick="window._gpResign('${con.id}')" style="padding:5px 14px;border-radius:8px;border:1px solid var(--accent-amber,#fbbf24);background:rgba(251,191,36,0.08);color:var(--accent-amber,#fbbf24);font-size:0.8rem;font-weight:600;cursor:pointer">Re-sign</button>` : '', catBtns = Object.keys(catL).map(k => { const on = con.categories[k]; return `<button onclick="window._gpToggleCat('${con.id}','${k}')" style="padding:4px 12px;border-radius:20px;border:1px solid ${on ? 'var(--accent-blue,#60a5fa)' : 'var(--border,rgba(255,255,255,0.1))'};background:${on ? 'rgba(96,165,250,0.1)' : 'transparent'};color:${on ? 'var(--accent-blue,#60a5fa)' : 'var(--text-muted,#94a3b8)'};font-size:0.75rem;cursor:pointer">${on ? '\u2713' : '\u25cb'} ${catL[k]}</button>`; }).join(''); return `<div class="ooo-consent-item"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><div style="flex:1;min-width:200px"><div style="font-weight:600;font-size:0.9rem;color:var(--text,#f1f5f9);margin-bottom:3px">${con.title}</div><div style="font-size:0.78rem;color:var(--text-muted,#94a3b8)">Signed: ${new Date(con.signedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} \u00b7 Expires: ${new Date(con.expiresDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div></div><div style="display:flex;align-items:center;gap:10px;flex-shrink:0"><span style="padding:4px 12px;border-radius:20px;font-size:0.75rem;font-weight:700;background:${stBg};color:${stC}">${stL}</span>${rBtn}</div></div><div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px">${catBtns}</div></div>`; }).join('')}</div></section>`;
+  const consentHtml = !activePt ? '' : `<section style="margin-bottom:36px"><h2 style="font-size:1rem;font-weight:600;color:var(--text,#f1f5f9);margin:0 0 16px;display:flex;align-items:center;gap:8px"><span style="color:var(--amber,#ffb547)">&#9673;</span> Consent &amp; Authorization</h2><div style="display:flex;flex-direction:column;gap:12px">${ptCons.map(con => { const stBg = con.status === 'valid' ? 'rgba(45,212,191,0.12)' : con.status === 'expiring' ? 'rgba(251,191,36,0.12)' : 'rgba(251,113,133,0.12)', stC = con.status === 'valid' ? 'var(--teal,#00d4bc)' : con.status === 'expiring' ? 'var(--amber,#ffb547)' : 'var(--rose,#ff6b9d)', stL = con.status === 'valid' ? '\u2713 Valid' : con.status === 'expiring' ? '\u26a0 Expiring Soon' : '\u2715 Expired', rBtn = con.status !== 'valid' ? `<button onclick="window._gpResign('${con.id}')" style="padding:5px 14px;border-radius:8px;border:1px solid var(--amber,#ffb547);background:rgba(251,191,36,0.08);color:var(--amber,#ffb547);font-size:0.8rem;font-weight:600;cursor:pointer">Re-sign</button>` : '', catBtns = Object.keys(catL).map(k => { const on = con.categories[k]; return `<button onclick="window._gpToggleCat('${con.id}','${k}')" style="padding:4px 12px;border-radius:20px;border:1px solid ${on ? 'var(--blue,#4a9eff)' : 'var(--border,rgba(255,255,255,0.1))'};background:${on ? 'rgba(96,165,250,0.1)' : 'transparent'};color:${on ? 'var(--blue,#4a9eff)' : 'var(--text-muted,#94a3b8)'};font-size:0.75rem;cursor:pointer">${on ? '\u2713' : '\u25cb'} ${catL[k]}</button>`; }).join(''); return `<div class="ooo-consent-item"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><div style="flex:1;min-width:200px"><div style="font-weight:600;font-size:0.9rem;color:var(--text,#f1f5f9);margin-bottom:3px">${con.title}</div><div style="font-size:0.78rem;color:var(--text-muted,#94a3b8)">Signed: ${new Date(con.signedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} \u00b7 Expires: ${new Date(con.expiresDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div></div><div style="display:flex;align-items:center;gap:10px;flex-shrink:0"><span style="padding:4px 12px;border-radius:20px;font-size:0.75rem;font-weight:700;background:${stBg};color:${stC}">${stL}</span>${rBtn}</div></div><div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px">${catBtns}</div></div>`; }).join('')}</div></section>`;
 
   // emergency & crisis
   const eis = 'padding:7px 10px;background:var(--hover-bg,rgba(255,255,255,0.05));border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:7px;color:var(--text,#f1f5f9);font-size:0.82rem;font-family:inherit;outline:none';
-  const ecRows = ecList.map(ec => `<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--hover-bg,rgba(255,255,255,0.04));border-radius:10px"><div style="width:28px;height:28px;border-radius:50%;background:rgba(251,113,133,0.15);display:flex;align-items:center;justify-content:center;font-size:0.75rem;font-weight:700;color:var(--accent-rose,#fb7185);flex-shrink:0">${ec.priority}</div><div style="flex:1"><div style="font-weight:600;font-size:0.87rem;color:var(--text,#f1f5f9)">${ec.name}</div><div style="font-size:0.75rem;color:var(--text-muted,#94a3b8)">${ec.relation}</div></div><a href="tel:${ec.phone}" style="color:var(--accent-teal,#2dd4bf);font-size:0.87rem;font-weight:600;text-decoration:none">${ec.phone}</a></div>`).join('');
+  const ecRows = ecList.map(ec => `<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--hover-bg,rgba(255,255,255,0.04));border-radius:10px"><div style="width:28px;height:28px;border-radius:50%;background:rgba(251,113,133,0.15);display:flex;align-items:center;justify-content:center;font-size:0.75rem;font-weight:700;color:var(--rose,#ff6b9d);flex-shrink:0">${ec.priority}</div><div style="flex:1"><div style="font-weight:600;font-size:0.87rem;color:var(--text,#f1f5f9)">${ec.name}</div><div style="font-size:0.75rem;color:var(--text-muted,#94a3b8)">${ec.relation}</div></div><a href="tel:${ec.phone}" style="color:var(--teal,#00d4bc);font-size:0.87rem;font-weight:600;text-decoration:none">${ec.phone}</a></div>`).join('');
   const ecEditRows = ecList.map(ec => `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px"><input id="gp-ec-name-${ec.id}" value="${ec.name}" placeholder="Name" style="${eis}"/><input id="gp-ec-rel-${ec.id}" value="${ec.relation}" placeholder="Relation" style="${eis}"/><input id="gp-ec-phone-${ec.id}" value="${ec.phone}" placeholder="Phone" style="${eis}"/></div>`).join('');
-  const crisisDetail = crisis ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px"><div><div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--accent-amber,#fbbf24);margin-bottom:10px;font-weight:600">Warning Signs</div><ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px">${crisis.warningSigns.map(s => `<li style="font-size:0.85rem;color:var(--text,#f1f5f9);line-height:1.5">${s}</li>`).join('')}</ul></div><div><div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--accent-teal,#2dd4bf);margin-bottom:10px;font-weight:600">De-escalation Steps</div><ol style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px">${crisis.deEscalation.map(s => `<li style="font-size:0.85rem;color:var(--text,#f1f5f9);line-height:1.5">${s}</li>`).join('')}</ol></div></div><div style="margin-top:14px;padding:12px 16px;background:rgba(251,113,133,0.06);border-radius:10px;border:1px solid rgba(251,113,133,0.15)"><div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--accent-rose,#fb7185);margin-bottom:8px;font-weight:600">If in immediate danger, call 911</div><div style="font-size:0.82rem;color:var(--text-muted,#94a3b8)">Then contact emergency contacts in priority order. Keep this plan accessible.</div></div>` : '<div style="color:var(--text-muted,#94a3b8);font-size:0.87rem">No crisis plan on file. Contact your care team to create one.</div>';
-  const crisisHtml = !activePt ? '' : `<section style="margin-bottom:36px"><h2 style="font-size:1rem;font-weight:600;color:var(--text,#f1f5f9);margin:0 0 16px;display:flex;align-items:center;gap:8px"><span style="color:var(--accent-rose,#fb7185)">&#9888;</span> Emergency Contacts &amp; Crisis Plan</h2><div style="background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:14px;padding:20px;margin-bottom:14px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted,#94a3b8)">Emergency Contacts</div><button onclick="window._gpToggleEdit()" style="padding:5px 12px;border-radius:8px;border:1px solid var(--border,rgba(255,255,255,0.1));background:transparent;color:var(--text-muted,#94a3b8);font-size:0.78rem;cursor:pointer">Update Info</button></div><div id="gp-contacts-list" style="display:flex;flex-direction:column;gap:8px">${ecRows}</div><div id="gp-edit-contacts-form" style="display:none;margin-top:14px;border-top:1px solid var(--border,rgba(255,255,255,0.08));padding-top:14px">${ecEditRows}<div style="display:flex;gap:8px;margin-top:4px"><button onclick="window._gpSaveContacts()" style="padding:7px 18px;border-radius:8px;border:none;background:var(--accent-teal,#2dd4bf);color:#0a0f1a;font-weight:700;font-size:0.82rem;cursor:pointer">Save Changes</button><button onclick="window._gpCancelEdit()" style="padding:7px 14px;border-radius:8px;border:1px solid var(--border,rgba(255,255,255,0.1));background:transparent;color:var(--text-muted,#94a3b8);font-size:0.82rem;cursor:pointer">Cancel</button></div></div></div><div class="ooo-crisis-panel"><div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="window._gpToggleCrisis()"><div><div style="font-weight:600;font-size:0.92rem;color:var(--text,#f1f5f9)">Crisis &amp; Safety Plan \u2014 ${activePt.name}</div><div style="font-size:0.78rem;color:var(--text-muted,#94a3b8);margin-top:2px">Know the warning signs and what to do</div></div><button id="gp-crisis-btn" style="background:rgba(251,113,133,0.1);border:1px solid rgba(251,113,133,0.25);color:var(--accent-rose,#fb7185);border-radius:8px;padding:6px 14px;font-size:0.8rem;font-weight:600;cursor:pointer">View Plan</button></div><div id="gp-crisis-detail" style="display:none;margin-top:16px;border-top:1px solid rgba(251,113,133,0.2);padding-top:16px">${crisisDetail}</div></div></section>`;
+  const crisisDetail = crisis ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px"><div><div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--amber,#ffb547);margin-bottom:10px;font-weight:600">Warning Signs</div><ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px">${crisis.warningSigns.map(s => `<li style="font-size:0.85rem;color:var(--text,#f1f5f9);line-height:1.5">${s}</li>`).join('')}</ul></div><div><div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--teal,#00d4bc);margin-bottom:10px;font-weight:600">De-escalation Steps</div><ol style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px">${crisis.deEscalation.map(s => `<li style="font-size:0.85rem;color:var(--text,#f1f5f9);line-height:1.5">${s}</li>`).join('')}</ol></div></div><div style="margin-top:14px;padding:12px 16px;background:rgba(251,113,133,0.06);border-radius:10px;border:1px solid rgba(251,113,133,0.15)"><div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--rose,#ff6b9d);margin-bottom:8px;font-weight:600">If in immediate danger, call 911</div><div style="font-size:0.82rem;color:var(--text-muted,#94a3b8)">Then contact emergency contacts in priority order. Keep this plan accessible.</div></div>` : '<div style="color:var(--text-muted,#94a3b8);font-size:0.87rem">No crisis plan on file. Contact your care team to create one.</div>';
+  const crisisHtml = !activePt ? '' : `<section style="margin-bottom:36px"><h2 style="font-size:1rem;font-weight:600;color:var(--text,#f1f5f9);margin:0 0 16px;display:flex;align-items:center;gap:8px"><span style="color:var(--rose,#ff6b9d)">&#9888;</span> Emergency Contacts &amp; Crisis Plan</h2><div style="background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:14px;padding:20px;margin-bottom:14px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted,#94a3b8)">Emergency Contacts</div><button onclick="window._gpToggleEdit()" style="padding:5px 12px;border-radius:8px;border:1px solid var(--border,rgba(255,255,255,0.1));background:transparent;color:var(--text-muted,#94a3b8);font-size:0.78rem;cursor:pointer">Update Info</button></div><div id="gp-contacts-list" style="display:flex;flex-direction:column;gap:8px">${ecRows}</div><div id="gp-edit-contacts-form" style="display:none;margin-top:14px;border-top:1px solid var(--border,rgba(255,255,255,0.08));padding-top:14px">${ecEditRows}<div style="display:flex;gap:8px;margin-top:4px"><button onclick="window._gpSaveContacts()" style="padding:7px 18px;border-radius:8px;border:none;background:var(--teal,#00d4bc);color:#0a0f1a;font-weight:700;font-size:0.82rem;cursor:pointer">Save Changes</button><button onclick="window._gpCancelEdit()" style="padding:7px 14px;border-radius:8px;border:1px solid var(--border,rgba(255,255,255,0.1));background:transparent;color:var(--text-muted,#94a3b8);font-size:0.82rem;cursor:pointer">Cancel</button></div></div></div><div class="ooo-crisis-panel"><div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="window._gpToggleCrisis()"><div><div style="font-weight:600;font-size:0.92rem;color:var(--text,#f1f5f9)">Crisis &amp; Safety Plan \u2014 ${activePt.name}</div><div style="font-size:0.78rem;color:var(--text-muted,#94a3b8);margin-top:2px">Know the warning signs and what to do</div></div><button id="gp-crisis-btn" style="background:rgba(251,113,133,0.1);border:1px solid rgba(251,113,133,0.25);color:var(--rose,#ff6b9d);border-radius:8px;padding:6px 14px;font-size:0.8rem;font-weight:600;cursor:pointer">View Plan</button></div><div id="gp-crisis-detail" style="display:none;margin-top:16px;border-top:1px solid rgba(251,113,133,0.2);padding-top:16px">${crisisDetail}</div></div></section>`;
 
-  document.getElementById('app-content').innerHTML = `<div style="max-width:960px;margin:0 auto;padding:24px 20px 60px"><div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:28px"><div><div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted,#94a3b8);margin-bottom:4px">Family &amp; Guardian Portal</div><h1 style="margin:0;font-size:1.5rem;font-weight:700;color:var(--text,#f1f5f9)">Welcome, ${guardian.name} <span style="font-size:10px;font-weight:700;padding:4px 8px;border-radius:999px;background:rgba(245,158,11,0.12);color:var(--accent-amber,#fbbf24);border:1px solid rgba(245,158,11,0.3);vertical-align:middle">Demo data</span></h1><div style="font-size:0.85rem;color:var(--text-muted,#94a3b8);margin-top:3px">${guardian.relation} \u00b7 ${guardian.email}</div></div><div style="display:flex;align-items:center;gap:10px">${unread > 0 ? `<span style="background:var(--accent-rose,#fb7185);color:#fff;border-radius:20px;padding:4px 12px;font-size:0.78rem;font-weight:700">${unread} unread message${unread > 1 ? 's' : ''}</span>` : ''}<div style="font-size:0.8rem;color:var(--text-muted,#94a3b8)">April 11, 2026</div></div></div>${_gpDemoBanner()}<section style="margin-bottom:36px"><h2 style="font-size:1rem;font-weight:600;color:var(--text,#f1f5f9);margin:0 0 16px;display:flex;align-items:center;gap:8px"><span style="color:var(--accent-teal,#2dd4bf)">&#9673;</span> Your Linked Patients</h2><div class="ooo-patient-cards">${ptCards}</div></section>${treatHtml}${hwHtml}${msgHtml}${consentHtml}${crisisHtml}</div><div id="gp-resign-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;padding:20px"><div style="background:var(--bg-secondary,#0f172a);border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:16px;padding:28px;max-width:520px;width:100%"><h3 style="margin:0 0 8px;color:var(--text,#f1f5f9);font-size:1.1rem">Re-sign Consent</h3><p id="gp-resign-title" style="color:var(--text-muted,#94a3b8);font-size:0.87rem;margin:0 0 16px"></p><div style="background:var(--hover-bg,rgba(255,255,255,0.04));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:10px;padding:16px;font-size:0.82rem;color:var(--text-muted,#94a3b8);line-height:1.6;margin-bottom:16px;max-height:160px;overflow-y:auto">I, the undersigned legal guardian, acknowledge and consent to the treatment protocols outlined by the care team at DeepSynaps Protocol Studio. I understand the nature of neuromodulation therapy, associated risks, and my right to withdraw consent at any time. I authorize the care team to share relevant treatment information with me as the authorized guardian. This consent is valid for one year from the date of signature.</div><div style="margin-bottom:14px"><div style="font-size:0.78rem;color:var(--text-muted,#94a3b8);margin-bottom:6px">Signature (draw below):</div><canvas id="gp-sig-canvas" width="460" height="60" style="border:1px solid var(--border,rgba(255,255,255,0.12));border-radius:8px;background:rgba(255,255,255,0.03);cursor:crosshair;touch-action:none;display:block;width:100%;max-width:460px"></canvas><button onclick="window._gpClearSig()" style="margin-top:6px;padding:4px 12px;border-radius:6px;border:1px solid var(--border,rgba(255,255,255,0.1));background:transparent;color:var(--text-muted,#94a3b8);font-size:0.75rem;cursor:pointer">Clear Signature</button></div><div style="display:flex;gap:10px;justify-content:flex-end"><button onclick="window._gpCloseResign()" style="padding:8px 18px;border-radius:9px;border:1px solid var(--border,rgba(255,255,255,0.1));background:transparent;color:var(--text-muted,#94a3b8);font-size:0.85rem;cursor:pointer">Cancel</button><button onclick="window._gpDoResign()" style="padding:8px 20px;border-radius:9px;border:none;background:var(--accent-teal,#2dd4bf);color:#0a0f1a;font-weight:700;font-size:0.85rem;cursor:pointer">Submit Signature</button></div></div></div>`;
+  document.getElementById('app-content').innerHTML = `<div style="max-width:960px;margin:0 auto;padding:24px 20px 60px"><div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:28px"><div><div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted,#94a3b8);margin-bottom:4px">Family &amp; Guardian Portal</div><h1 style="margin:0;font-size:1.5rem;font-weight:700;color:var(--text,#f1f5f9)">Welcome, ${guardian.name} <span style="font-size:10px;font-weight:700;padding:4px 8px;border-radius:999px;background:rgba(245,158,11,0.12);color:var(--amber,#ffb547);border:1px solid rgba(245,158,11,0.3);vertical-align:middle">Demo data</span></h1><div style="font-size:0.85rem;color:var(--text-muted,#94a3b8);margin-top:3px">${guardian.relation} \u00b7 ${guardian.email}</div></div><div style="display:flex;align-items:center;gap:10px">${unread > 0 ? `<span style="background:var(--rose,#ff6b9d);color:#fff;border-radius:20px;padding:4px 12px;font-size:0.78rem;font-weight:700">${unread} unread message${unread > 1 ? 's' : ''}</span>` : ''}<div style="font-size:0.8rem;color:var(--text-muted,#94a3b8)">April 11, 2026</div></div></div>${_gpDemoBanner()}<section style="margin-bottom:36px"><h2 style="font-size:1rem;font-weight:600;color:var(--text,#f1f5f9);margin:0 0 16px;display:flex;align-items:center;gap:8px"><span style="color:var(--teal,#00d4bc)">&#9673;</span> Your Linked Patients</h2><div class="ooo-patient-cards">${ptCards}</div></section>${treatHtml}${hwHtml}${msgHtml}${consentHtml}${crisisHtml}</div><div id="gp-resign-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;padding:20px"><div style="background:var(--bg-secondary,#0f172a);border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:16px;padding:28px;max-width:520px;width:100%"><h3 style="margin:0 0 8px;color:var(--text,#f1f5f9);font-size:1.1rem">Re-sign Consent</h3><p id="gp-resign-title" style="color:var(--text-muted,#94a3b8);font-size:0.87rem;margin:0 0 16px"></p><div style="background:var(--hover-bg,rgba(255,255,255,0.04));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:10px;padding:16px;font-size:0.82rem;color:var(--text-muted,#94a3b8);line-height:1.6;margin-bottom:16px;max-height:160px;overflow-y:auto">I, the undersigned legal guardian, acknowledge and consent to the treatment protocols outlined by the care team at DeepSynaps Protocol Studio. I understand the nature of neuromodulation therapy, associated risks, and my right to withdraw consent at any time. I authorize the care team to share relevant treatment information with me as the authorized guardian. This consent is valid for one year from the date of signature.</div><div style="margin-bottom:14px"><div style="font-size:0.78rem;color:var(--text-muted,#94a3b8);margin-bottom:6px">Signature (draw below):</div><canvas id="gp-sig-canvas" width="460" height="60" style="border:1px solid var(--border,rgba(255,255,255,0.12));border-radius:8px;background:rgba(255,255,255,0.03);cursor:crosshair;touch-action:none;display:block;width:100%;max-width:460px"></canvas><button onclick="window._gpClearSig()" style="margin-top:6px;padding:4px 12px;border-radius:6px;border:1px solid var(--border,rgba(255,255,255,0.1));background:transparent;color:var(--text-muted,#94a3b8);font-size:0.75rem;cursor:pointer">Clear Signature</button></div><div style="display:flex;gap:10px;justify-content:flex-end"><button onclick="window._gpCloseResign()" style="padding:8px 18px;border-radius:9px;border:1px solid var(--border,rgba(255,255,255,0.1));background:transparent;color:var(--text-muted,#94a3b8);font-size:0.85rem;cursor:pointer">Cancel</button><button onclick="window._gpDoResign()" style="padding:8px 20px;border-radius:9px;border:none;background:var(--teal,#00d4bc);color:#0a0f1a;font-weight:700;font-size:0.85rem;cursor:pointer">Submit Signature</button></div></div></div>`;
 
   try { const m2 = JSON.parse(localStorage.getItem('ds_guardian_messages') || '[]'); localStorage.setItem('ds_guardian_messages', JSON.stringify(m2.map(m => m.patientId === pid ? { ...m, read: true } : m))); } catch (_e) { /* safe */ }
   setTimeout(() => { const t = document.getElementById('gp-message-thread'); if (t) t.scrollTop = t.scrollHeight; }, 50);
@@ -19339,7 +20391,7 @@ export async function pgPatientHomeDevices() {
         catalog_id: item.id,
         note: 'Requested from the Home Devices page.',
       });
-      emitToast(item.name + ' request sent to your care team.', 'var(--teal)');
+      emitToast(item.name + ' request was submitted in the portal workflow. Care-team delivery timing is not confirmed from this page.', 'var(--teal)');
       await pgPatientHomeDevices();
     } catch (err) {
       emitToast(err?.message || ('Could not request ' + item.name + '.'), '#f87171');
@@ -19388,7 +20440,7 @@ export async function pgPatientHomeDevice() {
       <div class="pt-portal-empty" style="padding:60px 24px">
         <div class="pt-portal-empty-ico" aria-hidden="true" style="font-size:32px">⚡</div>
         <div class="pt-portal-empty-title">No Home Device Assigned</div>
-        <div class="pt-portal-empty-body">Your care team has not assigned a home device yet. Once they do, your device details, schedule, and session log will appear here.</div>
+        <div class="pt-portal-empty-body">A home device has not been assigned yet. Device details, schedule, and session logs will appear here after your portal workflow is updated.</div>
         <button class="btn btn-ghost btn-sm" style="margin-top:18px" onclick="window._navPatient('patient-messages')">Contact Your Care Team →</button>
       </div>`;
     return;
@@ -19479,7 +20531,7 @@ export async function pgPatientHomeDevice() {
       <div class="card-body" style="padding:16px 20px">
         <div style="font-size:13px;font-weight:600;color:var(--teal);margin-bottom:6px">Keep going!</div>
         <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.65">
-          Consistent home device use is an important part of your treatment plan. Even short sessions as prescribed help your brain respond to therapy. Your care team can see your session logs and will check in with you regularly.
+          Consistent home device use is an important part of your treatment plan. Even short sessions as prescribed help your brain respond to therapy. Your care team can review synced session logs, and follow-up timing depends on portal workflow.
         </div>
       </div>
     </div>
@@ -19822,7 +20874,7 @@ export async function pgPatientAdherenceEvents() {
       if (statusEl) {
         statusEl.style.display='';
         statusEl.style.color='var(--teal)';
-        statusEl.textContent='Report submitted successfully. Your care team has been notified.';
+        statusEl.textContent='Report recorded. Clinic review timing depends on portal workflow.';
       }
       if (btn) { btn.disabled = false; btn.textContent = 'Submit Report →'; }
       setTimeout(() => pgPatientAdherenceEvents(), 1000);
@@ -20050,32 +21102,34 @@ export async function pgPatientTickets() {
   if (!el) return;
   el.innerHTML = spinner();
 
+  const LOCAL_TICKET_KEY = 'ds_patient_tickets_local';
+  const loadLocalTickets = () => {
+    try {
+      const rows = JSON.parse(localStorage.getItem(LOCAL_TICKET_KEY) || '[]');
+      return Array.isArray(rows) ? rows : [];
+    } catch (_e) {
+      return [];
+    }
+  };
+  const saveLocalTickets = (rows) => {
+    try { localStorage.setItem(LOCAL_TICKET_KEY, JSON.stringify(Array.isArray(rows) ? rows : [])); } catch (_e) {}
+  };
+
   let tickets = [];
+  const hasTicketBackend = typeof api.patientTickets === 'function';
+  const hasReplyBackend = typeof api.patientTicketReply === 'function';
+  const hasCreateBackend = typeof api.patientTicketCreate === 'function';
+  const backendReady = hasTicketBackend && hasReplyBackend && hasCreateBackend;
   try {
     const res = await Promise.race([
-      api.patientTickets ? api.patientTickets() : Promise.resolve([]),
+      hasTicketBackend ? api.patientTickets() : Promise.resolve([]),
       new Promise((_, rej) => setTimeout(() => rej('timeout'), 3000))
     ]);
     if (Array.isArray(res)) tickets = res;
   } catch (_e) {}
 
-  // Demo seed when API returns empty
   if (!tickets.length) {
-    const now = new Date();
-    tickets = [
-      { id: 'TK-1001', title: 'Question about home device setup', category: 'question', status: 'resolved', priority: 'medium', created: new Date(now - 7 * 86400000).toISOString(), messages: [
-        { from: 'You', text: 'I am having trouble pairing the Synaps One device. The LED stays amber.', ts: new Date(now - 7 * 86400000).toISOString() },
-        { from: 'Support', text: 'Please try holding the reset button for 5 seconds, then attempt pairing again. Ensure Bluetooth is enabled on your phone.', ts: new Date(now - 6.5 * 86400000).toISOString() },
-        { from: 'You', text: 'That worked, thank you!', ts: new Date(now - 6 * 86400000).toISOString() },
-      ]},
-      { id: 'TK-1002', title: 'Side effect after session 8', category: 'question', status: 'open', priority: 'high', created: new Date(now - 2 * 86400000).toISOString(), messages: [
-        { from: 'You', text: 'I experienced a mild headache lasting about 2 hours after my last tDCS session. Is this normal?', ts: new Date(now - 2 * 86400000).toISOString() },
-        { from: 'Dr. Kolmar', text: 'Mild headaches can occur and typically resolve quickly. If they persist or worsen, please let us know immediately. We can adjust the protocol if needed.', ts: new Date(now - 1.5 * 86400000).toISOString() },
-      ]},
-      { id: 'TK-1003', title: 'Reschedule request for next week', category: 'other', status: 'in-progress', priority: 'low', created: new Date(now - 1 * 86400000).toISOString(), messages: [
-        { from: 'You', text: 'I will be travelling next Tuesday. Can we move my session to Wednesday or Thursday?', ts: new Date(now - 1 * 86400000).toISOString() },
-      ]},
-    ];
+    tickets = loadLocalTickets();
   }
 
   const catIcon = { question: '&#10067;', bug: '&#128027;', feature: '&#10024;', maintenance: '&#128295;', other: '&#128203;' };
@@ -20092,10 +21146,14 @@ export async function pgPatientTickets() {
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px">
           <div>
             <h2 style="font-size:18px;font-weight:700;color:var(--text-primary);margin:0 0 4px">Support Requests</h2>
-            <p style="font-size:12.5px;color:var(--text-secondary);margin:0">Track your questions and requests to the care team.</p>
+            <p style="font-size:12.5px;color:var(--text-secondary);margin:0">${backendReady ? 'Track your questions and requests to the care team.' : 'Track draft requests on this device until live support messaging is enabled for your clinic.'}</p>
           </div>
-          <button class="btn btn-primary btn-sm" onclick="window._ptNewTicket()">+ New Request</button>
+          <button class="btn btn-primary btn-sm" onclick="window._ptNewTicket()">+ ${backendReady ? 'New Request' : 'New Local Request'}</button>
         </div>
+        ${backendReady ? '' : `
+        <div style="margin-bottom:16px;padding:12px 14px;border:1px solid rgba(255,181,71,0.24);border-radius:12px;background:rgba(255,181,71,0.08);font-size:12.5px;line-height:1.5;color:var(--text-secondary)">
+          Live support messaging is not connected for this beta environment. Requests and replies on this page are stored only on this device and are not sent to your clinic.
+        </div>`}
 
         <div style="display:grid;grid-template-columns:1fr 1.4fr;gap:16px;min-height:400px" class="pt-tickets-grid">
           <!-- Ticket list -->
@@ -20108,7 +21166,7 @@ export async function pgPatientTickets() {
                 <div onclick="window._ptSelectTicket('${t.id}')" style="padding:12px 14px;border-bottom:1px solid var(--border);cursor:pointer;background:${t.id === selectedId ? 'rgba(45,212,191,0.06)' : 'transparent'};transition:background 0.15s">
                   <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
                     <span style="font-size:13px">${catIcon[t.category] || catIcon.other}</span>
-                    <span style="font-size:12.5px;font-weight:600;color:var(--text-primary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.title}</span>
+                    <span style="font-size:12.5px;font-weight:600;color:var(--text-primary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_hdEsc(t.title)}</span>
                   </div>
                   <div style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-tertiary)">
                     <span>${t.id}</span>
@@ -20116,7 +21174,7 @@ export async function pgPatientTickets() {
                     <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${prioColor[t.priority] || '#94a3b8'}"></span>
                     <span style="margin-left:auto">${new Date(t.created).toLocaleDateString()}</span>
                   </div>
-                </div>`).join('')}
+                </div>`).join('') || `<div style="padding:28px 18px;text-align:center;color:var(--text-tertiary);font-size:12.5px">${backendReady ? 'No support requests yet.' : 'No local draft requests yet.'}</div>`}
             </div>
           </div>
 
@@ -20124,11 +21182,11 @@ export async function pgPatientTickets() {
           <div style="border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;overflow:hidden">
             ${sel ? `
               <div style="padding:14px 16px;border-bottom:1px solid var(--border)">
-                <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:4px">${sel.title}</div>
+                <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:4px">${_hdEsc(sel.title)}</div>
                 <div style="display:flex;gap:8px;font-size:11px;color:var(--text-tertiary);flex-wrap:wrap">
-                  <span>${sel.id}</span>
-                  <span style="display:inline-block;padding:2px 7px;border-radius:4px;background:${statusColor[sel.status] || '#64748b'}22;color:${statusColor[sel.status] || '#64748b'};font-weight:600">${statusLabel[sel.status] || sel.status}</span>
-                  <span>Priority: ${sel.priority}</span>
+                  <span>${_hdEsc(sel.id)}</span>
+                  <span style="display:inline-block;padding:2px 7px;border-radius:4px;background:${statusColor[sel.status] || '#64748b'}22;color:${statusColor[sel.status] || '#64748b'};font-weight:600">${statusLabel[sel.status] || _hdEsc(sel.status)}</span>
+                  <span>Priority: ${_hdEsc(sel.priority)}</span>
                   <span>Created: ${new Date(sel.created).toLocaleDateString()}</span>
                 </div>
               </div>
@@ -20136,8 +21194,8 @@ export async function pgPatientTickets() {
                 ${(sel.messages || []).map(m => `
                   <div style="display:flex;flex-direction:column;${m.from === 'You' ? 'align-items:flex-end' : 'align-items:flex-start'}">
                     <div style="max-width:80%;padding:10px 14px;border-radius:12px;background:${m.from === 'You' ? 'rgba(45,212,191,0.1)' : 'rgba(255,255,255,0.04)'};border:1px solid ${m.from === 'You' ? 'rgba(45,212,191,0.2)' : 'var(--border)'}">
-                      <div style="font-size:11px;font-weight:600;color:${m.from === 'You' ? '#2dd4bf' : 'var(--text-primary)'};margin-bottom:3px">${m.from}</div>
-                      <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.5">${m.text}</div>
+                      <div style="font-size:11px;font-weight:600;color:${m.from === 'You' ? '#2dd4bf' : 'var(--text-primary)'};margin-bottom:3px">${_hdEsc(m.from)}</div>
+                      <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.5">${_hdEsc(m.text)}</div>
                     </div>
                     <div style="font-size:10px;color:var(--text-tertiary);margin-top:3px;padding:0 4px">${new Date(m.ts).toLocaleString()}</div>
                   </div>`).join('')}
@@ -20145,9 +21203,9 @@ export async function pgPatientTickets() {
               ${sel.status !== 'resolved' ? `
               <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px">
                 <input id="pt-tk-reply" type="text" placeholder="Add a message..." style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary,rgba(255,255,255,0.04));color:var(--text-primary);font-size:12.5px">
-                <button class="btn btn-primary btn-sm" onclick="window._ptReplyTicket()">Send</button>
+                <button class="btn btn-primary btn-sm" onclick="window._ptReplyTicket()">${backendReady ? 'Reply' : 'Save local note'}</button>
               </div>` : `
-              <div style="padding:12px 16px;border-top:1px solid var(--border);text-align:center;font-size:12px;color:var(--text-tertiary)">This request has been resolved.</div>`}
+              <div style="padding:12px 16px;border-top:1px solid var(--border);text-align:center;font-size:12px;color:var(--text-tertiary)">This request is marked resolved in this portal view.</div>`}
             ` : `<div style="display:flex;align-items:center;justify-content:center;flex:1;color:var(--text-tertiary);font-size:13px">Select a request to view details</div>`}
           </div>
         </div>
@@ -20162,15 +21220,27 @@ export async function pgPatientTickets() {
   window._ptTicketFilter = 'all';
   window._ptFilterTickets = function(s) { window._ptTicketFilter = s; _renderTickets(); };
   window._ptSelectTicket = function(id) { selectedId = id; _renderTickets(); };
-  window._ptReplyTicket = function() {
+  window._ptReplyTicket = async function() {
     const inp = document.getElementById('pt-tk-reply');
     if (!inp || !inp.value.trim()) return;
     const sel = tickets.find(t => t.id === selectedId);
     if (!sel) return;
-    sel.messages.push({ from: 'You', text: inp.value.trim(), ts: new Date().toISOString() });
-    if (api.patientTicketReply) api.patientTicketReply(sel.id, inp.value.trim()).catch(() => {});
+    const messageText = inp.value.trim();
+    sel.messages.push({ from: 'You', text: messageText, ts: new Date().toISOString() });
+    let savedToBackend = false;
+    if (hasReplyBackend) {
+      try {
+        await api.patientTicketReply(sel.id, messageText);
+        savedToBackend = true;
+      } catch (_e) {}
+    }
+    if (!savedToBackend) saveLocalTickets(tickets);
     _renderTickets();
-    window._showNotifToast && window._showNotifToast({ title: 'Message sent', body: 'Your care team will respond soon.', severity: 'success' });
+    window._showNotifToast && window._showNotifToast({
+      title: savedToBackend ? 'Reply recorded' : 'Reply saved locally',
+      body: savedToBackend ? 'This reply was accepted by the support workflow.' : 'This reply is stored on this device only.',
+      severity: savedToBackend ? 'success' : 'warning'
+    });
   };
   window._ptNewTicket = function() {
     const modal = document.createElement('div');
@@ -20178,7 +21248,11 @@ export async function pgPatientTickets() {
     modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5)';
     modal.innerHTML = `
       <div style="background:var(--bg-primary,#0f172a);border:1px solid var(--border);border-radius:14px;padding:24px;width:90%;max-width:420px">
-        <h3 style="font-size:15px;font-weight:700;color:var(--text-primary);margin:0 0 14px">New Support Request</h3>
+        <h3 style="font-size:15px;font-weight:700;color:var(--text-primary);margin:0 0 14px">${backendReady ? 'New Support Request' : 'New Local Support Request'}</h3>
+        ${backendReady ? '' : `
+        <div style="margin-bottom:14px;padding:10px 12px;border:1px solid rgba(255,181,71,0.24);border-radius:10px;background:rgba(255,181,71,0.08);font-size:12px;line-height:1.45;color:var(--text-secondary)">
+          This request will be stored only on this device. It is not delivered to your clinic from this beta page yet.
+        </div>`}
         <div style="margin-bottom:12px">
           <label style="font-size:11.5px;color:var(--text-secondary);display:block;margin-bottom:4px">Category</label>
           <select id="pt-tk-cat" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary,rgba(255,255,255,0.04));color:var(--text-primary);font-size:12.5px">
@@ -20197,12 +21271,12 @@ export async function pgPatientTickets() {
         </div>
         <div style="display:flex;gap:8px;justify-content:flex-end">
           <button class="btn btn-ghost btn-sm" onclick="document.getElementById('pt-tk-modal').remove()">Cancel</button>
-          <button class="btn btn-primary btn-sm" onclick="window._ptSubmitTicket()">Submit</button>
+          <button class="btn btn-primary btn-sm" onclick="window._ptSubmitTicket()">${backendReady ? 'Submit' : 'Save Local Request'}</button>
         </div>
       </div>`;
     document.body.appendChild(modal);
   };
-  window._ptSubmitTicket = function() {
+  window._ptSubmitTicket = async function() {
     const title = (document.getElementById('pt-tk-title') || {}).value;
     const body = (document.getElementById('pt-tk-body') || {}).value;
     const cat = (document.getElementById('pt-tk-cat') || {}).value || 'question';
@@ -20210,11 +21284,22 @@ export async function pgPatientTickets() {
     const t = { id: 'TK-' + (1000 + tickets.length + 1), title: title, category: cat, status: 'open', priority: 'medium', created: new Date().toISOString(), messages: [{ from: 'You', text: body, ts: new Date().toISOString() }] };
     tickets.unshift(t);
     selectedId = t.id;
-    if (api.patientTicketCreate) api.patientTicketCreate({ title: title, body: body, category: cat }).catch(() => {});
+    let savedToBackend = false;
+    if (hasCreateBackend) {
+      try {
+        await api.patientTicketCreate({ title: title, body: body, category: cat });
+        savedToBackend = true;
+      } catch (_e) {}
+    }
+    if (!savedToBackend) saveLocalTickets(tickets);
     const m = document.getElementById('pt-tk-modal');
     if (m) m.remove();
     _renderTickets();
-    window._showNotifToast && window._showNotifToast({ title: 'Request submitted', body: 'Your care team has been notified.', severity: 'success' });
+    window._showNotifToast && window._showNotifToast({
+      title: savedToBackend ? 'Request recorded' : 'Request saved locally',
+      body: savedToBackend ? 'This request was accepted by the support workflow.' : 'This request is stored on this device only.',
+      severity: savedToBackend ? 'success' : 'warning'
+    });
   };
 
   _renderTickets();
@@ -20227,6 +21312,21 @@ export async function pgPatientBilling() {
   if (!el) return;
   el.innerHTML = spinner();
 
+  const billingApiAvailable = typeof api.patientInvoices === 'function' || typeof api.patientPayments === 'function';
+  if (!billingApiAvailable) {
+    el.innerHTML = `
+      <div style="max-width:760px;margin:0 auto;padding:24px 16px">
+        <h2 style="font-size:18px;font-weight:700;color:var(--text-primary);margin:0 0 4px">Billing &amp; Payments</h2>
+        <p style="font-size:12.5px;color:var(--text-secondary);margin:0 0 20px;line-height:1.5">The patient billing portal is not enabled in this beta environment yet.</p>
+        <div style="background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.22);border-radius:12px;padding:18px 20px;color:var(--text-secondary);line-height:1.6">
+          <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Not available in beta</div>
+          <div style="font-size:12.5px;margin-bottom:12px">Invoices and payment history are hidden until the patient-facing billing API is wired to real records.</div>
+          <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')">Message your clinic</button>
+        </div>
+      </div>`;
+    return;
+  }
+
   let invoices = [], payments = [];
   try {
     const [inv, pay] = await Promise.all([
@@ -20236,21 +21336,6 @@ export async function pgPatientBilling() {
     if (Array.isArray(inv)) invoices = inv;
     if (Array.isArray(pay)) payments = pay;
   } catch (_e) {}
-
-  // Demo seed
-  if (!invoices.length) {
-    const now = new Date();
-    invoices = [
-      { id: 'INV-2401', date: new Date(now - 45 * 86400000).toISOString(), description: 'tDCS Session Block (Sessions 1-10)', amount: 1200, currency: 'GBP', vat: 0, status: 'paid', due: new Date(now - 15 * 86400000).toISOString() },
-      { id: 'INV-2402', date: new Date(now - 14 * 86400000).toISOString(), description: 'qEEG Assessment & Report', amount: 350, currency: 'GBP', vat: 70, status: 'paid', due: new Date(now - 0 * 86400000).toISOString() },
-      { id: 'INV-2403', date: new Date(now - 3 * 86400000).toISOString(), description: 'tDCS Session Block (Sessions 11-20)', amount: 1200, currency: 'GBP', vat: 0, status: 'sent', due: new Date(now + 27 * 86400000).toISOString() },
-      { id: 'INV-2404', date: new Date(now - 1 * 86400000).toISOString(), description: 'Home Device Rental - Synaps One (Monthly)', amount: 75, currency: 'GBP', vat: 15, status: 'sent', due: new Date(now + 29 * 86400000).toISOString() },
-    ];
-    payments = [
-      { id: 'PAY-501', date: new Date(now - 30 * 86400000).toISOString(), amount: 1200, method: 'Card', ref: 'ch_3Qa...xYz', invoice: 'INV-2401' },
-      { id: 'PAY-502', date: new Date(now - 5 * 86400000).toISOString(), amount: 420, method: 'BACS', ref: 'BACS-9812', invoice: 'INV-2402' },
-    ];
-  }
 
   const cur = { GBP: '\u00a3', USD: '$', EUR: '\u20ac' };
   const fmt = (a, c) => (cur[c] || '\u00a3') + Number(a || 0).toFixed(2);
@@ -20296,7 +21381,7 @@ export async function pgPatientBilling() {
             return `
             <div style="border:1px solid var(--border);border-radius:10px;padding:14px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
               <div style="flex:1;min-width:180px">
-                <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:2px">${inv.description}</div>
+                <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:2px">${_hdEsc(inv.description)}</div>
                 <div style="font-size:11px;color:var(--text-tertiary)">${inv.id} &middot; Issued ${new Date(inv.date).toLocaleDateString()} &middot; Due ${new Date(inv.due).toLocaleDateString()}</div>
               </div>
               <div style="text-align:right;min-width:100px">
@@ -20313,7 +21398,7 @@ export async function pgPatientBilling() {
               <div style="width:36px;height:36px;border-radius:8px;background:rgba(34,197,94,0.1);color:#22c55e;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">&#10003;</div>
               <div style="flex:1;min-width:160px">
                 <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${fmt(p.amount, 'GBP')}</div>
-                <div style="font-size:11px;color:var(--text-tertiary)">${p.method} &middot; ${p.ref || ''} &middot; ${p.invoice || ''}</div>
+                <div style="font-size:11px;color:var(--text-tertiary)">${_hdEsc(p.method)} &middot; ${_hdEsc(p.ref || '')} &middot; ${_hdEsc(p.invoice || '')}</div>
               </div>
               <div style="font-size:11.5px;color:var(--text-tertiary)">${new Date(p.date).toLocaleDateString()}</div>
             </div>`).join('') : '<div style="text-align:center;padding:32px;color:var(--text-tertiary);font-size:13px">No payments recorded yet.</div>'}
@@ -20486,8 +21571,8 @@ export async function pgPatientHelp() {
   const el = document.getElementById('patient-content');
   if (!el) return;
   const faqs = [
-    { q: 'How do I complete an assessment?', a: 'Go to <strong>Assessments</strong> in the menu. Click on any due assessment, answer each question, and press Submit. Your responses are sent securely to your care team.' },
-    { q: 'How do I contact my care team?', a: 'Use the <strong>Messages</strong> section to send a secure message. Your clinic typically responds within 1 business day. For urgent concerns, call your clinic directly.' },
+    { q: 'How do I complete an assessment?', a: 'Go to <strong>Assessments</strong> in the menu. Click on any due assessment, answer each question, and press Submit. When portal sync is available, your responses are shared with your clinic from there.' },
+    { q: 'How do I contact my care team?', a: 'Use the <strong>Messages</strong> or <strong>Support</strong> section to contact your clinic. Some beta environments store requests only on this device, so call your clinic directly for anything urgent or time-sensitive.' },
     { q: 'What if I feel unwell after a session?', a: 'Contact your clinic immediately or call your local crisis line. <strong>UK: 111 or 999 in emergencies. US: 988 (crisis line) or 911 in emergencies.</strong> Do not use this app for medical emergencies.' },
     { q: 'How do I view my treatment progress?', a: 'Go to the <strong>Progress</strong> section in the menu. You can see your scores over time, session history, and how your symptoms are changing.' },
     { q: 'How do I update my profile?', a: 'Go to <strong>Profile</strong> in the menu. Contact your clinic directly if you need to update personal or medical details they hold.' },
@@ -20529,6 +21614,6 @@ export async function pgPatientHelp() {
 
 export async function pgGuardianPortal(setTopbarFn) {
   const _tb = typeof setTopbarFn === 'function' ? setTopbarFn : setTopbar;
-  _tb('Guardian Portal', '<div style="display:flex;align-items:center;gap:10px"><span style="font-size:0.8rem;color:var(--text-muted,#94a3b8)">Family &amp; Caregiver Access</span><button style="display:inline-flex;align-items:center;gap:6px;background:rgba(251,113,133,0.1);color:var(--accent-rose,#fb7185);border:1px solid rgba(251,113,133,0.25);border-radius:8px;padding:6px 14px;font-size:0.8rem;font-weight:600;cursor:pointer" onclick="window._gpToggleCrisis();setTimeout(function(){var el=document.getElementById(\'gp-crisis-detail\');if(el)el.scrollIntoView({behavior:\'smooth\'})},50)">&#9888; Crisis Plan</button></div>');
+  _tb('Guardian Portal', '<div style="display:flex;align-items:center;gap:10px"><span style="font-size:0.8rem;color:var(--text-muted,#94a3b8)">Family &amp; Caregiver Access</span><button style="display:inline-flex;align-items:center;gap:6px;background:rgba(251,113,133,0.1);color:var(--rose,#ff6b9d);border:1px solid rgba(251,113,133,0.25);border-radius:8px;padding:6px 14px;font-size:0.8rem;font-weight:600;cursor:pointer" onclick="window._gpToggleCrisis();setTimeout(function(){var el=document.getElementById(\'gp-crisis-detail\');if(el)el.scrollIntoView({behavior:\'smooth\'})},50)">&#9888; Crisis Plan</button></div>');
   _gpRender();
 }

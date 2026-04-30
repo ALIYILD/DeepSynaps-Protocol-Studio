@@ -41,6 +41,33 @@ function _on401() {
   setTimeout(() => { _401InFlight = false; }, 5000);
 }
 
+// ── Demo-mode fetch shim ─────────────────────────────────────────────────────
+// On Netlify preview / dev with VITE_ENABLE_DEMO=1 the offline demo-login
+// stores a synthetic '*-demo-token' string. Every backend call from that
+// session is rejected by the real API (401/403) or hits an endpoint the
+// preview API does not expose (404). The browser logs each failed response
+// as a console error — JS .catch() cannot suppress that browser log. To
+// keep reviewer consoles clean, short-circuit predictable demo failures by
+// returning a synthetic empty response WITHOUT firing the network call.
+// Auth endpoints still pass through so demo-login / refresh / me work.
+const _DEMO_PASSTHROUGH = /^\/api\/v1\/auth\/(demo-login|refresh|me|login|logout|register|activate-patient|forgot-password|reset-password)\b/;
+function _isDemoSession() {
+  try {
+    const flag = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
+    if (!flag) return false;
+    const t = getToken();
+    return !!(t && t.endsWith('-demo-token'));
+  } catch { return false; }
+}
+function _demoSyntheticResponse(path, method) {
+  // Mutations: pretend success (return a minimal accepted-shape object).
+  if (method && method !== 'GET') return { ok: true, demo: true, id: 'demo-' + Date.now() };
+  // Reads: list-shaped endpoints get { items: [] }; singular getters get null.
+  // Heuristic: most cohort/list endpoints already expect { items: [...] }, so
+  // returning that shape matches the existing fallback path in pages.
+  return { items: [], demo: true };
+}
+
 function _extractTransport(res, extractor) {
   if (typeof extractor !== 'function') return undefined;
   try {
@@ -54,6 +81,12 @@ async function apiFetch(path, opts = {}) {
   let res;
   const { _fetch: fetchOverride, _transportExtractor: transportExtractor, ...requestOpts } = opts;
   const fetchFn = fetchOverride || globalThis.fetch;
+  // Demo-mode shim — short-circuit before any network call. See helper above.
+  if (_isDemoSession() && !_DEMO_PASSTHROUGH.test(path)) {
+    const data = _demoSyntheticResponse(path, (requestOpts.method || 'GET').toUpperCase());
+    if (transportExtractor) return { data, transport: undefined };
+    return data;
+  }
   // Detect multipart uploads: when body is FormData, omit the JSON content-type
   // so the browser can set the correct multipart/form-data boundary automatically.
   const _isFormData = (typeof FormData !== 'undefined') && (requestOpts.body instanceof FormData);
@@ -221,6 +254,34 @@ async function apiFetchBlob(path, data) {
   return res.blob();
 }
 
+async function apiFetchBinary(path, opts = {}) {
+  const token = getToken();
+  const headers = { ...(opts.headers || {}) };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await globalThis.fetch(`${API_BASE}${path}`, {
+    method: opts.method || 'GET',
+    ...opts,
+    headers,
+  });
+  if (!res.ok) {
+    let detail = `API error ${res.status}`;
+    try {
+      const body = await res.json();
+      detail = body?.message || body?.detail || detail;
+    } catch {}
+    const err = new Error(detail);
+    err.status = res.status;
+    throw err;
+  }
+  const disposition = res.headers.get('Content-Disposition') || '';
+  const match = disposition.match(/filename="([^"]+)"/i);
+  return {
+    blob: await res.blob(),
+    contentType: res.headers.get('Content-Type') || '',
+    filename: match?.[1] || null,
+  };
+}
+
 /**
  * Strip client-only fields; map `lastSyncedServerRevision` → `lastKnownServerRevision` for PUT.
  * POST create omits revision hints.
@@ -252,6 +313,18 @@ function extractHomeProgramTaskTransport(res) {
   };
 }
 
+// Audit-trail query-string builder. Skips empty/null/undefined values so the
+// URL stays clean. Encodes safely for any user-supplied search text.
+function _auditQs(filters = {}) {
+  const out = [];
+  Object.keys(filters || {}).forEach((k) => {
+    const v = filters[k];
+    if (v === null || v === undefined || v === '') return;
+    out.push(`${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
+  });
+  return out.join('&');
+}
+
 export const api = {
   getToken, setToken, clearToken,
   getRefreshToken, setRefreshToken, clearRefreshToken,
@@ -262,7 +335,13 @@ export const api = {
     if (result && result.refresh_token) setRefreshToken(result.refresh_token);
     return result;
   },
-  logout: () => apiFetch('/api/v1/auth/logout', { method: 'POST' }),
+  logout: () => {
+    const rt = getRefreshToken();
+    return apiFetch('/api/v1/auth/logout', {
+      method: 'POST',
+      body: JSON.stringify({ refresh_token: rt || null }),
+    });
+  },
   register: (email, display_name, password, role = 'clinician') =>
     apiFetch('/api/v1/auth/register', { method: 'POST', body: JSON.stringify({ email, display_name, password, role }) }),
   activatePatient: (invite_code, email, display_name, password) =>
@@ -330,18 +409,23 @@ export const api = {
 
   // ── Sessions ────────────────────────────────────────────────────────────
   // Accepts either a string patient_id (legacy) or a query-params object.
+  // Always sends a default `limit` (100) so a misuse can't pull the whole
+  // cohort. Callers can pass `limit`/`offset` to paginate explicitly.
   // Examples:
   //   api.listSessions('pt-123')
-  //   api.listSessions({ from: '2026-04-01', to: '2026-04-30' })
+  //   api.listSessions({ from: '2026-04-01', to: '2026-04-30', limit: 25 })
   //   api.listSessions({ patient_id: 'pt-123', status: 'scheduled' })
   listSessions: (arg) => {
-    let qs = '';
+    let params = {};
     if (arg && typeof arg === 'object') {
-      const entries = Object.entries(arg).filter(([_, v]) => v != null && v !== '');
-      if (entries.length) qs = '?' + new URLSearchParams(entries.map(([k, v]) => [k, String(v)])).toString();
+      params = { ...arg };
     } else if (arg) {
-      qs = `?patient_id=${encodeURIComponent(arg)}`;
+      params = { patient_id: arg };
     }
+    if (params.limit == null) params.limit = 100;
+    if (params.offset == null) params.offset = 0;
+    const entries = Object.entries(params).filter(([_, v]) => v != null && v !== '');
+    const qs = entries.length ? '?' + new URLSearchParams(entries.map(([k, v]) => [k, String(v)])).toString() : '';
     return apiFetchWithRetry(`/api/v1/sessions${qs}`);
   },
   getCurrentSession: () => apiFetch('/api/v1/sessions/current'),
@@ -366,6 +450,26 @@ export const api = {
     apiFetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}/video/end`, { method: 'POST' }),
   remoteMonitorSnapshot: (sessionId) =>
     apiFetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}/remote-monitor-snapshot`),
+  // ── Session Runner launch-audit endpoints (2026-04-30) ─────────────────
+  // Live telemetry — flagged is_demo:true when no real device is attached.
+  // Frontend must surface a banner so the clinician never mistakes
+  // rehearsal stub values for a real measurement.
+  getSessionTelemetry: (sessionId) =>
+    apiFetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}/telemetry`),
+  // NRS-SE comfort rating (0-10). Clinician input only — AI must NEVER
+  // auto-fill this.
+  recordSessionComfort: (sessionId, payload) =>
+    apiFetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}/comfort`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+  // Clinician sign-off — without it, downstream consumers treat the
+  // session record as an unsigned draft.
+  signSession: (sessionId, payload = {}) =>
+    apiFetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}/sign`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   setSessionImpedance: (sessionId, impedance_kohm) =>
     apiFetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}/impedance`, {
       method: 'POST',
@@ -424,7 +528,20 @@ export const api = {
     apiFetch(`/api/v1/patients/${patientId}/medical-history/ai-context`).catch(() => null),
 
   // ── Documents Hub ───────────────────────────────────────────────────────
-  listDocuments: (patientId) => apiFetchWithRetry(`/api/v1/documents${patientId ? '?patient_id=' + patientId : ''}`),
+  // Filter-aware list. ``params`` accepts patient_id / kind / status / since /
+  // until / q / clinic_id / limit / offset (Documents Hub launch-audit
+  // 2026-04-30). The legacy single-arg `listDocuments(patientId)` shape is
+  // preserved for back-compat.
+  listDocuments: (params) => {
+    if (params && typeof params === 'object' && !Array.isArray(params)) {
+      const q = new URLSearchParams(
+        Object.entries(params).filter(([, v]) => v != null && v !== '')
+      ).toString();
+      return apiFetchWithRetry('/api/v1/documents' + (q ? '?' + q : ''));
+    }
+    const patientId = params; // legacy positional shape
+    return apiFetchWithRetry(`/api/v1/documents${patientId ? '?patient_id=' + patientId : ''}`);
+  },
   createDocument: (data) => apiFetch('/api/v1/documents', { method: 'POST', body: JSON.stringify(data) }),
   updateDocument: (id, data) => apiFetch(`/api/v1/documents/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   getDocument: (id) => apiFetch(`/api/v1/documents/${id}`),
@@ -439,11 +556,72 @@ export const api = {
     const headers = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
     return fetch(`${API_BASE}/api/v1/documents/upload`, { method: 'POST', headers, body: formData })
-      .then(r => { if (!r.ok) throw new Error(`API error ${r.status}`); return r.json(); });
+      .then(async r => {
+        if (!r.ok) {
+          // Surface the API's `detail.message` instead of a bare status — so
+          // the toast can say "File type not allowed" rather than "API error 422".
+          let detail = `API error ${r.status}`;
+          try {
+            const body = await r.json();
+            detail = body?.detail?.message || body?.message || detail;
+          } catch (_) { /* fall back to status */ }
+          throw new Error(detail);
+        }
+        return r.json();
+      });
   },
+  fetchDocumentDownload: (id) =>
+    apiFetchBinary(`/api/v1/documents/${encodeURIComponent(id)}/download`),
+  // Plain anchor href for browsers that drive download via `<a download>`.
+  // The server requires Authorization, so this only works with cookie-bearer
+  // setups; for token-bearer setups the caller should use fetchDocumentDownload
+  // and convert to a Blob. Kept here for the Documents Hub `↓` button.
+  documentDownloadUrl: (id) =>
+    `${API_BASE}/api/v1/documents/${encodeURIComponent(id)}/download`,
 
-  // Absolute URL for a document's stored file — used as <a href=> for downloads.
-  documentDownloadUrl: (id) => `${API_BASE}/api/v1/documents/${encodeURIComponent(id)}/download`,
+  // ── Documents Hub launch-audit (2026-04-30) ───────────────────────────
+  // Counts: total / draft / uploaded / signed / superseded / by_kind / by_status.
+  getDocumentsSummary: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch('/api/v1/documents/summary' + (q ? '?' + q : ''));
+  },
+  // Sign-off; idempotent for same actor; 409 if already superseded.
+  signDocument: (docId, note) =>
+    apiFetch(`/api/v1/documents/${encodeURIComponent(docId)}/sign`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note || null }),
+    }),
+  // Create a new revision; original is marked superseded with a back-pointer.
+  supersedeDocument: (docId, opts = {}) =>
+    apiFetch(`/api/v1/documents/${encodeURIComponent(docId)}/supersede`, {
+      method: 'POST',
+      body: JSON.stringify({
+        reason: opts.reason || 'no reason given',
+        new_title: opts.new_title || null,
+        new_notes: opts.new_notes == null ? null : opts.new_notes,
+      }),
+    }),
+  // Filtered bulk export — returns a Blob (zip).
+  exportDocumentsZip: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetchBinary('/api/v1/documents/export.zip' + (q ? '?' + q : ''));
+  },
+  // Best-effort page-level audit ingestion for the Documents Hub.
+  logDocumentsAudit: (event) => {
+    try {
+      const body = JSON.stringify(event || {});
+      return apiFetch('/api/v1/documents/audit-events', {
+        method: 'POST',
+        body,
+      });
+    } catch (_) {
+      return Promise.resolve(null);
+    }
+  },
 
   // ── Session Recordings (Virtual Care Recording Studio) ──────────────────
   // Backs the ▶ button in the Recording Studio. Bytes live on the local Fly
@@ -660,8 +838,20 @@ export const api = {
     apiFetch('/api/v1/evidence/by-finding', { method: 'POST', body: JSON.stringify(data) }),
   saveEvidenceCitation: (data = {}) =>
     apiFetch('/api/v1/evidence/save-citation', { method: 'POST', body: JSON.stringify(data) }),
-  listEvidenceSavedCitations: (patientId) =>
-    apiFetch(`/api/v1/evidence/patient/${encodeURIComponent(patientId)}/saved-citations`),
+  listEvidenceSavedCitations: (arg) => {
+    if (arg && typeof arg === 'object') {
+      const patientId = arg.patient_id || arg.patientId || '';
+      const q = new URLSearchParams(
+        Object.entries({
+          context_kind: arg.context_kind,
+          analysis_id: arg.analysis_id,
+          report_id: arg.report_id,
+        }).filter(([, v]) => v != null && v !== '')
+      ).toString();
+      return apiFetch(`/api/v1/evidence/patient/${encodeURIComponent(patientId)}/saved-citations${q ? '?' + q : ''}`);
+    }
+    return apiFetch(`/api/v1/evidence/patient/${encodeURIComponent(arg)}/saved-citations`);
+  },
   evidenceReportPayload: (data = {}) =>
     apiFetch('/api/v1/evidence/report-payload', { method: 'POST', body: JSON.stringify(data) }),
 
@@ -696,6 +886,11 @@ export const api = {
   listBrainRegions: () => apiFetchWithRetry('/api/v1/brain-regions'),
   listQEEGBiomarkers: () => apiFetch('/api/v1/qeeg/biomarkers'),
   listQEEGConditionMap: () => apiFetch('/api/v1/qeeg/condition-map'),
+  // Canonical clinical-target registry (DLPFC-L, mPFC, M1-L, …) used by
+  // the Brain Map Planner. Deterministic anchor 10-20 site + MNI + evidence
+  // grade per target.
+  listBrainTargets: () => apiFetchWithRetry('/api/v1/brain-targets'),
+  getBrainTarget: (id) => apiFetch(`/api/v1/brain-targets/${encodeURIComponent(id)}`),
 
   // ── Protocol & Handbooks ────────────────────────────────────────────────
   intakePreview: (data) =>
@@ -734,7 +929,30 @@ export const api = {
     };
     return apiFetch('/api/v1/review-queue/actions', { method: 'POST', body: JSON.stringify(body) });
   },
-  auditTrail: () => apiFetch('/api/v1/audit-trail'),
+  // ── Audit Trail (launch-audit 2026-04-30) ─────────────────────────────
+  // The page reads /api/v1/audit-trail with rich filters, drills into
+  // /audit-trail/{event_id}, fetches /summary for the top counts, and
+  // exports through /export.csv | /export.ndjson. All five endpoints
+  // share the same query-string contract; ``filters`` is an object whose
+  // keys map 1:1 to the FastAPI query params.
+  auditTrail: (filters = {}) => {
+    const qs = _auditQs(filters);
+    return apiFetch(`/api/v1/audit-trail${qs ? '?' + qs : ''}`);
+  },
+  auditTrailSummary: () => apiFetch('/api/v1/audit-trail/summary'),
+  auditTrailEvent: (eventId) =>
+    apiFetch(`/api/v1/audit-trail/${encodeURIComponent(eventId)}`),
+  // Returns a {blob, contentType, filename} triple via apiFetchBinary so
+  // the bearer token is attached and a real server-rendered file lands on
+  // the caller's machine. No client-side fabrication.
+  auditTrailExportCsv: (filters = {}) => {
+    const qs = _auditQs(filters);
+    return apiFetchBinary(`/api/v1/audit-trail/export.csv${qs ? '?' + qs : ''}`);
+  },
+  auditTrailExportNdjson: (filters = {}) => {
+    const qs = _auditQs(filters);
+    return apiFetchBinary(`/api/v1/audit-trail/export.ndjson${qs ? '?' + qs : ''}`);
+  },
   // Authoritative governance rules (registry-backed). Used by the Governance
   // page to surface real policy items in the regulatory checklist.
   listGovernanceRules: () => apiFetchWithRetry('/api/v1/registries/governance-rules'),
@@ -817,6 +1035,32 @@ export const api = {
     apiFetch(`/api/v1/deeptwin/patients/${encodeURIComponent(patientId)}/agent-handoff`, {
       method: 'POST', body: JSON.stringify(payload),
     }),
+
+  // ── DeepTwin persistence & review (migration 063) ────────────────────────
+  getDeepTwinDataSources: (patientId) =>
+    apiFetch(`/api/v1/deeptwin/patients/${encodeURIComponent(patientId)}/data-sources`),
+  createAnalysisRun: (patientId, payload) =>
+    apiFetch(`/api/v1/deeptwin/patients/${encodeURIComponent(patientId)}/analysis-runs`, {
+      method: 'POST', body: JSON.stringify(payload),
+    }),
+  listAnalysisRuns: (patientId) =>
+    apiFetch(`/api/v1/deeptwin/patients/${encodeURIComponent(patientId)}/analysis-runs`),
+  reviewAnalysisRun: (runId) =>
+    apiFetch(`/api/v1/deeptwin/analysis-runs/${encodeURIComponent(runId)}/review`, { method: 'POST', body: '{}' }),
+  createSimulationRun: (patientId, payload) =>
+    apiFetch(`/api/v1/deeptwin/patients/${encodeURIComponent(patientId)}/simulation-runs`, {
+      method: 'POST', body: JSON.stringify(payload),
+    }),
+  listSimulationRuns: (patientId) =>
+    apiFetch(`/api/v1/deeptwin/patients/${encodeURIComponent(patientId)}/simulation-runs`),
+  reviewSimulationRun: (runId) =>
+    apiFetch(`/api/v1/deeptwin/simulation-runs/${encodeURIComponent(runId)}/review`, { method: 'POST', body: '{}' }),
+  createClinicianNote: (patientId, payload) =>
+    apiFetch(`/api/v1/deeptwin/patients/${encodeURIComponent(patientId)}/clinician-notes`, {
+      method: 'POST', body: JSON.stringify(payload),
+    }),
+  listClinicianNotes: (patientId) =>
+    apiFetch(`/api/v1/deeptwin/patients/${encodeURIComponent(patientId)}/clinician-notes`),
 
   // ── Registry endpoints (public — no auth needed but token attached if present) ──
   conditions: () => apiFetchWithRetry('/api/v1/registry/conditions'),
@@ -962,8 +1206,41 @@ export const api = {
     const q = new URLSearchParams(params).toString();
     return apiFetchWithRetry(`/api/v1/adverse-events${q ? '?' + q : ''}`);
   },
+  // Launch-audit 2026-04-30: detail view, summary roll-up, classification
+  // override, clinician review/sign-off, escalation, exports.
+  getAdverseEvent: (id) => apiFetchWithRetry(`/api/v1/adverse-events/${encodeURIComponent(id)}`),
+  getAdverseEventsSummary: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/adverse-events/summary${q ? '?' + q : ''}`);
+  },
+  patchAdverseEvent: (id, data = {}) =>
+    apiFetch(`/api/v1/adverse-events/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  reviewAdverseEvent: (id, data = {}) =>
+    apiFetch(`/api/v1/adverse-events/${encodeURIComponent(id)}/review`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  escalateAdverseEvent: (id, data = {}) =>
+    apiFetch(`/api/v1/adverse-events/${encodeURIComponent(id)}/escalate`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
   resolveAdverseEvent: (id, data = {}) =>
     apiFetch(`/api/v1/adverse-events/${id}/resolve`, { method: 'PATCH', body: JSON.stringify(data) }),
+  // Returns a `{ blob, contentType, filename }` triple via apiFetchBinary so
+  // the UI can save / preview the filtered CSV without parsing it twice.
+  exportAdverseEventsCsv: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchBinary(`/api/v1/adverse-events/export.csv${q ? '?' + q : ''}`);
+  },
+  // CIOMS endpoint returns honest JSON until a regulator template is wired
+  // up — see the router for the contract. Returned as a Blob so the UI can
+  // surface the {configured:false, ...} payload via the same download path.
+  exportAdverseEventCioms: (id) =>
+    apiFetchBinary(`/api/v1/adverse-events/${encodeURIComponent(id)}/export.cioms`),
 
   // ── Review queue ─────────────────────────────────────────────────────────
   listReviewQueue: (params = {}) => {
@@ -1062,8 +1339,12 @@ export const api = {
     apiFetch(`/api/v1/qeeg-analysis/${id}`),
   getQEEGAnalysisStatus: (id) =>
     apiFetch(`/api/v1/qeeg-analysis/${id}/status`),
-  listPatientQEEGAnalyses: (patientId) =>
-    apiFetch(`/api/v1/qeeg-analysis/patient/${patientId}`),
+  listPatientQEEGAnalyses: (patientId, opts = {}) => {
+    const limit = opts.limit ?? 50;
+    const offset = opts.offset ?? 0;
+    const qs = `?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`;
+    return apiFetch(`/api/v1/qeeg-analysis/patient/${encodeURIComponent(patientId)}${qs}`);
+  },
   generateQEEGAIReport: (analysisId, body = {}) =>
     apiFetch(`/api/v1/qeeg-analysis/${analysisId}/ai-report`, { method: 'POST', body: JSON.stringify(body) }),
   listQEEGAnalysisReports: (analysisId) =>
@@ -1091,8 +1372,22 @@ export const api = {
     apiFetch(`/api/v1/qeeg-analysis/${analysisId}/run-advanced`, { method: 'POST' }),
   runQEEGQualityCheck: (analysisId) =>
     apiFetch(`/api/v1/qeeg-analysis/${analysisId}/quality-check`, { method: 'POST' }),
-  getQEEGReportPDF: (analysisId, reportId) =>
-    `/api/v1/qeeg-analysis/${analysisId}/reports/${reportId}/pdf`,
+  getQEEGPrintableReport: (analysisId, reportId) =>
+    apiFetchBinary(`/api/v1/qeeg-analysis/${encodeURIComponent(analysisId)}/reports/${encodeURIComponent(reportId)}/pdf`),
+  // qEEG Brain Map report — server-rendered HTML/PDF from the saved
+  // QEEGAIReport's brain_map payload. The backend resolves the payload via
+  // _resolve_qeeg_brain_map_payload (report_payload column with legacy
+  // fallback to patient_facing_report_json).
+  getQEEGBrainMapReportHTML: (reportId) =>
+    apiFetchBinary(`/api/v1/reports/qeeg/${encodeURIComponent(reportId)}.html`),
+  getQEEGBrainMapReportPDF: (reportId) =>
+    apiFetchBinary(`/api/v1/reports/qeeg/${encodeURIComponent(reportId)}.pdf`),
+  // Returns the public URL for the HTML brain map report so we can open it
+  // in a new tab without going through the binary helper.
+  getQEEGBrainMapReportURL: (reportId, format = 'html') => {
+    const ext = format === 'pdf' ? 'pdf' : 'html';
+    return `${API_BASE}/api/v1/reports/qeeg/${encodeURIComponent(reportId)}.${ext}`;
+  },
   getQEEGLongitudinalTrend: (patientId, metric) =>
     apiFetch('/api/v1/qeeg-analysis/longitudinal', { method: 'POST', body: JSON.stringify({ patient_id: patientId, metric }) }),
   getQEEGAssessmentCorrelation: (analysisId, assessments) =>
@@ -1123,6 +1418,50 @@ export const api = {
   fetchQEEGPatientTrajectory: (patientId) =>
     apiFetch(`/api/v1/qeeg-analysis/patients/${patientId}/trajectory`),
 
+  // ── qEEG Clinical Intelligence Workbench (Migration 048) ─────────────────
+  getQEEGSafetyCockpit: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-analysis/${analysisId}/safety-cockpit`),
+  getQEEGRedFlags: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-analysis/${analysisId}/red-flags`),
+  getQEEGNormativeModelCard: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-analysis/${analysisId}/normative-model-card`),
+  computeQEEGProtocolFit: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-analysis/${analysisId}/protocol-fit`, { method: 'POST' }),
+  getQEEGProtocolFit: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-analysis/${analysisId}/protocol-fit`),
+  transitionQEEGReportState: (reportId, body) =>
+    apiFetch(`/api/v1/qeeg-analysis/reports/${reportId}/transition`, { method: 'POST', body: JSON.stringify(body) }),
+  updateQEEGReportFinding: (reportId, findingId, body) =>
+    apiFetch(`/api/v1/qeeg-analysis/reports/${reportId}/findings/${findingId}`, { method: 'POST', body: JSON.stringify(body) }),
+  signQEEGReport: (reportId) =>
+    apiFetch(`/api/v1/qeeg-analysis/reports/${reportId}/sign`, { method: 'POST' }),
+  getQEEGPatientFacingReport: (reportId) =>
+    apiFetch(`/api/v1/qeeg-analysis/reports/${reportId}/patient-facing`),
+  getQEEGPatientTimeline: (patientId) =>
+    apiFetch(`/api/v1/qeeg-analysis/patient/${patientId}/timeline`),
+  exportQEEGBidsPackage: (analysisId) =>
+    apiFetchBinary(`/api/v1/qeeg-analysis/${analysisId}/export-bids`),
+  // Real CSV download for a single analysis (band powers + z-scores).
+  // Returns { csv, rows, generated_at, analysis_id, demo }.
+  exportQEEGAnalysisCSV: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-analysis/${encodeURIComponent(analysisId)}/export-csv`),
+
+  // ── Audit log ingestion (qEEG Analyzer launch-audit 2026-04-30) ─────────
+  // Best-effort, fire-and-forget. Promise resolves to a recorded event_id
+  // (or null on rejection). Audit-trail outages must not break the UI, so
+  // the caller does not need to await it.
+  logAudit: (event) => {
+    try {
+      const body = JSON.stringify(event || {});
+      return apiFetch('/api/v1/qeeg-analysis/audit-events', {
+        method: 'POST',
+        body,
+      });
+    } catch (_) {
+      return Promise.resolve(null);
+    }
+  },
+
   // ── MRI Analyzer (packages/mri-pipeline; see portal_integration/api_contract.md)
   // Multipart upload (.zip DICOM or .nii.gz NIfTI). FormData must include
   //   file: File, patient_id: string
@@ -1142,8 +1481,14 @@ export const api = {
     apiFetch(`/api/v1/mri/status/${encodeURIComponent(jobId)}`),
   getMRIReport: (analysisId) =>
     apiFetch(`/api/v1/mri/report/${encodeURIComponent(analysisId)}`),
+  getMRIReportPdf: (analysisId) =>
+    apiFetchBinary(`/api/v1/mri/report/${encodeURIComponent(analysisId)}/pdf`),
+  getMRIReportHtml: (analysisId) =>
+    apiFetchBinary(`/api/v1/mri/report/${encodeURIComponent(analysisId)}/html`),
   getMRIViewerPayload: (analysisId) =>
     apiFetch(`/api/v1/mri/${encodeURIComponent(analysisId)}/viewer.json`),
+  getMRIOverlayHtml: (analysisId, targetId) =>
+    apiFetchBinary(`/api/v1/mri/overlay/${encodeURIComponent(analysisId)}/${encodeURIComponent(targetId)}`),
   getMRIMedRAG: (analysisId, topK = 20) =>
     apiFetch(`/api/v1/mri/medrag/${encodeURIComponent(analysisId)}?top_k=${encodeURIComponent(topK)}`),
   // Longitudinal compare — AI_UPGRADES P0 #4. Returns a LongitudinalReport:
@@ -1159,6 +1504,25 @@ export const api = {
     apiFetch(`/api/v1/mri/patients/${encodeURIComponent(patientId)}/analyses`),
   getFusionRecommendation: (patientId) =>
     apiFetch(`/api/v1/fusion/recommend/${encodeURIComponent(patientId)}`, { method: 'POST' }),
+  // Fusion Workbench (Migration 054)
+  createFusionCase: (patientId, opts = {}) =>
+    apiFetch('/api/v1/fusion/cases', { method: 'POST', body: JSON.stringify({ patient_id: patientId, ...opts }) }),
+  listFusionCases: (patientId) =>
+    apiFetch(`/api/v1/fusion/cases?patient_id=${encodeURIComponent(patientId)}`),
+  getFusionCase: (caseId) =>
+    apiFetch(`/api/v1/fusion/cases/${encodeURIComponent(caseId)}`),
+  transitionFusionCase: (caseId, action, note, amendments) =>
+    apiFetch(`/api/v1/fusion/cases/${encodeURIComponent(caseId)}/transition`, { method: 'POST', body: JSON.stringify({ action, note, amendments }) }),
+  getFusionAgreement: (caseId) =>
+    apiFetch(`/api/v1/fusion/cases/${encodeURIComponent(caseId)}/agreement`),
+  getFusionProtocolFusion: (caseId) =>
+    apiFetch(`/api/v1/fusion/cases/${encodeURIComponent(caseId)}/protocol-fusion`),
+  getFusionPatientReport: (caseId) =>
+    apiFetch(`/api/v1/fusion/cases/${encodeURIComponent(caseId)}/patient-report`),
+  getFusionAudit: (caseId) =>
+    apiFetch(`/api/v1/fusion/cases/${encodeURIComponent(caseId)}/audit`),
+  exportFusionCase: (caseId) =>
+    apiFetch(`/api/v1/fusion/cases/${encodeURIComponent(caseId)}/export`, { method: 'POST' }),
   getMRIPatientTimeline: (patientId) =>
     apiFetch(`/api/v1/mri/patients/${encodeURIComponent(patientId)}/timeline`),
   exportFHIRBundle: (data) =>
@@ -1477,6 +1841,7 @@ export const api = {
 
   // ── Health ──────────────────────────────────────────────────────────────
   health: () => apiFetch('/health'),
+  aiHealth: () => apiFetch('/api/v1/health/ai'),
 
   // ── Presence (real-time collaboration) ──────────────────────────────────
   pingPresence: (page_id) =>
@@ -1519,6 +1884,122 @@ export const api = {
       Object.entries(params).filter(([, v]) => v != null && v !== '')
     ).toString();
     return apiFetchWithRetry('/api/v1/reports' + (q ? '?' + q : ''));
+  },
+  renderStoredReport: (reportId, params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries({
+        format: params.format || 'html',
+        audience: params.audience || 'both',
+      }).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetchBinary(`/api/v1/reports/${encodeURIComponent(reportId)}/render${q ? '?' + q : ''}`);
+  },
+
+  // ── Reports Hub launch-audit (2026-04-30) ────────────────────────────────
+  // Single report detail with sign / supersede / revision metadata.
+  getReport: (reportId) =>
+    apiFetch(`/api/v1/reports/${encodeURIComponent(reportId)}`),
+  // Counts: total / draft / signed / superseded / by_kind / by_status.
+  getReportsSummary: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch('/api/v1/reports/summary' + (q ? '?' + q : ''));
+  },
+  // Sign-off; idempotent for same actor; 409 if already superseded.
+  signReport: (reportId, note) =>
+    apiFetch(`/api/v1/reports/${encodeURIComponent(reportId)}/sign`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note || null }),
+    }),
+  // Create a new revision; original is marked superseded with a back-pointer.
+  supersedeReport: (reportId, opts = {}) =>
+    apiFetch(`/api/v1/reports/${encodeURIComponent(reportId)}/supersede`, {
+      method: 'POST',
+      body: JSON.stringify({
+        reason: opts.reason || 'no reason given',
+        new_content: opts.new_content == null ? null : opts.new_content,
+        new_title: opts.new_title || null,
+      }),
+    }),
+  // CSV export for one report. Downloads as a Blob via apiFetchBinary.
+  exportReportCsv: (reportId) =>
+    apiFetchBinary(`/api/v1/reports/${encodeURIComponent(reportId)}/export.csv`),
+  // PDF export — convenience alias of /render?format=pdf with an audit hook.
+  exportReportPdf: (reportId, audience) => {
+    const q = new URLSearchParams(
+      Object.entries({ audience: audience || null }).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetchBinary(`/api/v1/reports/${encodeURIComponent(reportId)}/export.pdf${q ? '?' + q : ''}`);
+  },
+  // DOCX export — honest 503 stub when the renderer is not configured.
+  exportReportDocx: (reportId) =>
+    apiFetchBinary(`/api/v1/reports/${encodeURIComponent(reportId)}/export.docx`),
+  // Best-effort page-level audit ingestion for the Reports Hub.
+  logReportsAudit: (event) => {
+    try {
+      const body = JSON.stringify(event || {});
+      return apiFetch('/api/v1/reports/audit-events', {
+        method: 'POST',
+        body,
+      });
+    } catch (_) {
+      return Promise.resolve(null);
+    }
+  },
+
+  // ── Quality Assurance launch-audit (2026-04-30) ────────────────────────
+  // QA findings / non-conformance / CAPA register. Distinct from the
+  // artifact-level QA scoring engine at /api/v1/qa/run.
+  listQualityFindings: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch('/api/v1/qa/findings' + (q ? '?' + q : ''));
+  },
+  getQualityFindingsSummary: () => apiFetch('/api/v1/qa/findings/summary'),
+  getQualityFinding: (findingId) =>
+    apiFetch(`/api/v1/qa/findings/${encodeURIComponent(findingId)}`),
+  createQualityFinding: (body) =>
+    apiFetch('/api/v1/qa/findings', { method: 'POST', body: JSON.stringify(body || {}) }),
+  patchQualityFinding: (findingId, body) =>
+    apiFetch(`/api/v1/qa/findings/${encodeURIComponent(findingId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body || {}),
+    }),
+  closeQualityFinding: (findingId, body) =>
+    apiFetch(`/api/v1/qa/findings/${encodeURIComponent(findingId)}/close`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  reopenQualityFinding: (findingId, body) =>
+    apiFetch(`/api/v1/qa/findings/${encodeURIComponent(findingId)}/reopen`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  exportQualityFindingsCsv: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetchBinary('/api/v1/qa/findings/export.csv' + (q ? '?' + q : ''));
+  },
+  exportQualityFindingsNdjson: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetchBinary('/api/v1/qa/findings/export.ndjson' + (q ? '?' + q : ''));
+  },
+  // Best-effort page-level audit ingestion for the QA Hub.
+  logQualityAssuranceAudit: (event) => {
+    try {
+      const body = JSON.stringify(event || {});
+      return apiFetch('/api/v1/qa/findings/audit-events', {
+        method: 'POST',
+        body,
+      });
+    } catch (_) {
+      return Promise.resolve(null);
+    }
   },
 
   // ── Patient outcomes (portal alias) ─────────────────────────────────────
@@ -1660,7 +2141,10 @@ export const api = {
   // endpoint. This preserves history (DELETE is also available but destructive).
   cancelSession: (id, data = {}) => {
     const body = { status: 'cancelled' };
-    if (data && data.reason) body.session_notes = '[Cancelled] ' + String(data.reason);
+    if (data && data.reason) {
+      body.cancel_reason = String(data.reason);
+      body.session_notes = '[Cancelled] ' + String(data.reason);
+    }
     return apiFetch(`/api/v1/sessions/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
   },
   // Booking alias — backend uses POST /api/v1/sessions (createSession).
@@ -1670,9 +2154,12 @@ export const api = {
   // Endpoints not yet implemented in backend — these reject so callers can
   // try/catch and fall back to demo/seed data. When the real endpoint ships,
   // replace the stub with the real call.
-  listClinicians: () => Promise.reject(new Error('not_implemented')),
+  listClinicians: () =>
+    api.listTeam().then((res) => ({
+      items: (res?.items || []).filter((member) => ['admin', 'clinician', 'technician'].includes(String(member?.role || '').toLowerCase())),
+    })),
   listRooms: () => Promise.reject(new Error('not_implemented')),
-  listReferrals: () => Promise.reject(new Error('not_implemented')),
+  listReferrals: () => api.listLeads(),
   listStaffSchedule: (_params) => Promise.reject(new Error('not_implemented')),
   createStaffShift: (_data) => Promise.reject(new Error('not_implemented')),
   checkSlotConflicts: (_slot) => Promise.reject(new Error('not_implemented')),
@@ -1682,6 +2169,21 @@ export const api = {
   // ── Home program task notifications (stub — endpoint not yet implemented) ──
   remindHomeProgramTask: (_taskId, _payload) => Promise.reject(new Error('not_implemented')),
   listHomeProgramTaskTemplates: () => Promise.reject(new Error('not_implemented')),
+
+  // ── Patient Education Programs (stubs — backend endpoints not yet shipped) ──
+  // Frontend (pgPrograms in pages-practice.js) currently persists to
+  // localStorage(`ds_education_programs_v1`) and renders a DEMO DATA banner.
+  // When `/api/v1/programs/...` ships, replace these rejects with apiFetch calls.
+  // TODO backend: GET /api/v1/programs/modules?condition=&type=&lang=
+  listEducationModules: (_params) => Promise.reject(new Error('not_implemented')),
+  // TODO backend: GET /api/v1/programs/assignments?patient_id=
+  listAssignments: (_params) => Promise.reject(new Error('not_implemented')),
+  // TODO backend: POST /api/v1/programs/assignments  body:{ patient_id, module_id }
+  assignModule: (_data) => Promise.reject(new Error('not_implemented')),
+  // TODO backend: PATCH /api/v1/programs/assignments/{id}  body:{ status:'completed' }
+  markModuleComplete: (_assignmentId) => Promise.reject(new Error('not_implemented')),
+  // TODO backend: DELETE /api/v1/programs/assignments/{id}
+  unassignModule: (_assignmentId) => Promise.reject(new Error('not_implemented')),
 
   // ── Risk Stratification (traffic lights) ──────────────────────────────────
   getPatientRiskProfile: (patientId) =>
@@ -1745,6 +2247,51 @@ export const api = {
     apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/cleaning-config`),
   reprocessQEEGWithCleaning: (analysisId) =>
     apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/reprocess`, { method: 'POST' }),
+
+  // ── qEEG Raw Cleaning Workbench ────────────────────────────────────────────
+  // Decision-support only.  All mutations preserve original raw EEG and
+  // require clinician confirmation before AI suggestions become accepted.
+  getQEEGWorkbenchMetadata: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/metadata`),
+  getQEEGCleaningLog: (analysisId, limit = 200) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/cleaning-log?limit=${limit}`),
+  listQEEGCleaningAnnotations: (analysisId, params = {}) => {
+    const q = new URLSearchParams();
+    if (params.kind) q.set('kind', params.kind);
+    if (params.decisionStatus) q.set('decision_status', params.decisionStatus);
+    if (params.limit != null) q.set('limit', params.limit);
+    const qs = q.toString();
+    return apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/annotations${qs ? '?' + qs : ''}`);
+  },
+  createQEEGCleaningAnnotation: (analysisId, body) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/annotations`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  saveQEEGCleaningVersion: (analysisId, body) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/cleaning-version`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  listQEEGCleaningVersions: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/cleaning-versions`),
+  getQEEGRawVsCleanedSummary: (analysisId, cleaningVersionId) => {
+    const qs = cleaningVersionId ? `?cleaning_version_id=${encodeURIComponent(cleaningVersionId)}` : '';
+    return apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/raw-vs-cleaned-summary${qs}`);
+  },
+  generateQEEGAIArtefactSuggestions: (analysisId, body = null) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/ai-artefact-suggestions`, {
+      method: 'POST',
+      body: body ? JSON.stringify(body) : undefined,
+    }),
+  rerunQEEGAnalysisWithCleaning: (analysisId, cleaningVersionId) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/rerun-analysis`, {
+      method: 'POST',
+      body: JSON.stringify({ cleaning_version_id: cleaningVersionId }),
+    }),
+  // Dashboard endpoints
+  getDashboardOverview: () => apiFetchWithRetry('/api/v1/dashboard/overview'),
+  dashboardSearch: (q) => apiFetch('/api/v1/dashboard/search?q=' + encodeURIComponent(q || '')),
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).

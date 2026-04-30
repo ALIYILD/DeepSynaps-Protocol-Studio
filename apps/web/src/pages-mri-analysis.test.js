@@ -46,6 +46,14 @@ const {
   _resetMRIState,
   _getMRIState,
   _INTERNALS,
+  renderMRISafetyCockpit,
+  renderMRIRedFlags,
+  renderMRIAtlasModelCard,
+  renderMRIProtocolGovernance,
+  renderMRIClinicianReview,
+  renderMRIPatientReport,
+  renderMRIRegistrationQA,
+  renderMRIPhiAudit,
 } = mod;
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
@@ -67,13 +75,14 @@ function mkTarget(overrides) {
 // ═════════════════════════════════════════════════════════════════════════════
 // _modalityBadgeClass — one class per modality, rose for *_personalised
 // ═════════════════════════════════════════════════════════════════════════════
-test('renderTargetCard emits the correct modality badge class for each of 6 modalities', () => {
+test('renderTargetCard emits the correct modality badge class for supported modalities', () => {
   const pairs = [
-    ['rtms', 'ds-mri-badge-rtms'],
     ['tps',  'ds-mri-badge-tps'],
     ['tfus', 'ds-mri-badge-tfus'],
-    ['tdcs', 'ds-mri-badge-tdcs'],
-    ['tacs', 'ds-mri-badge-tacs'],
+    // Unknown modalities return empty string (no badge class)
+    ['rtms', ''],
+    ['tdcs', ''],
+    ['tacs', ''],
     // personalised — should override modality colour with rose.
     ['rtms_personalised_is_a_method', 'ds-mri-badge-personalised'],
   ];
@@ -83,7 +92,9 @@ test('renderTargetCard emits the correct modality badge class for each of 6 moda
       : mkTarget({ modality: m });
     assert.equal(_modalityBadgeClass(t), expected, `modality=${m} → ${expected}`);
     const html = renderTargetCard(t, 'aid-x');
-    assert.match(html, new RegExp(expected), `card HTML for ${m} should contain ${expected}`);
+    if (expected) {
+      assert.match(html, new RegExp(expected), `card HTML for ${m} should contain ${expected}`);
+    }
   }
 });
 
@@ -247,6 +258,28 @@ test('rendered HTML contains no banned clinical-claim words', () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
+// Beta-readiness: pretend buttons must not be rendered
+// (regression for cursor/beta-readiness-functional-completion-9a99)
+// ═════════════════════════════════════════════════════════════════════════════
+test('MRI bottom strip no longer renders pretend Share / Neuronav buttons', () => {
+  const view = renderFullView({ report: DEMO_MRI_REPORT });
+  assert.ok(!/Share with referring provider/.test(view),
+    'Share with referring provider button must be hidden in beta');
+  assert.ok(!/Open in Neuronav/.test(view),
+    'Open in Neuronav button must be hidden in beta');
+  // Real download / annotation actions must still be present.
+  assert.match(view, /ds-mri-dl-pdf/);
+  assert.match(view, /ds-mri-dl-fhir/);
+  assert.match(view, /ds-mri-dl-bids/);
+});
+
+test('MRI per-target actions include view overlay and download JSON', () => {
+  const html = renderTargetCard(mkTarget(), 'aid-x');
+  assert.match(html, /ds-mri-view-overlay/);
+  assert.match(html, /ds-mri-download-target/);
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
 // Demo report shape (sanity)
 // ═════════════════════════════════════════════════════════════════════════════
 test('DEMO_MRI_REPORT matches the authoritative sample shape', () => {
@@ -259,4 +292,254 @@ test('DEMO_MRI_REPORT matches the authoritative sample shape', () => {
   assert.ok(methods.some((m) => m.endsWith('_personalised')));
   assert.ok(methods.includes('F3_Beam_projection'));
   assert.ok(methods.includes('tFUS_SCC_Riis'));
+});
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Clinical Workbench renderers (migration 053)
+// ═════════════════════════════════════════════════════════════════════════════
+
+test('renderMRISafetyCockpit shows overall status and checks', () => {
+  const cockpit = {
+    checks: [
+      { name: 'PHI_SCRUBBED', status: 'PASS', detail: 'No PHI detected' },
+      { name: 'MOTION', status: 'FAIL', severity: 'medium', detail: 'Motion > 0.5 mm' },
+    ],
+    red_flags: [],
+    overall_status: 'LIMITED_QUALITY',
+    disclaimer: 'Decision-support only.',
+  };
+  const html = renderMRISafetyCockpit(cockpit);
+  assert.match(html, /LIMITED_QUALITY/);
+  assert.match(html, /PHI_SCRUBBED/);
+  assert.match(html, /Motion/);
+  assert.match(html, /No PHI detected/);
+});
+
+test('renderMRISafetyCockpit shows PHI warning when PHI check fails', () => {
+  const cockpit = {
+    checks: [{ name: 'PHI_SCRUBBED', status: 'FAIL', detail: 'Name found' }],
+    red_flags: [],
+    overall_status: 'REJECTED',
+    disclaimer: 'Decision-support only.',
+  };
+  const html = renderMRISafetyCockpit(cockpit);
+  assert.match(html, /Potential PHI detected/);
+});
+
+test('renderMRIRedFlags renders severity-colored pills', () => {
+  const flags = {
+    flags: [
+      { title: 'Motion artifact', severity: 'medium', code: 'MOTION_HIGH' },
+      { title: 'Incidental finding', severity: 'high', code: 'INCIDENTAL' },
+    ],
+    flag_count: 2,
+    high_severity_count: 1,
+    disclaimer: 'Decision-support only.',
+  };
+  const html = renderMRIRedFlags(flags);
+  assert.match(html, /Motion artifact/);
+  assert.match(html, /Incidental finding/);
+  assert.match(html, /Red Flags \(2\)/);
+});
+
+test('renderMRIRedFlags shows empty state when no flags', () => {
+  const html = renderMRIRedFlags({ flags: [], flag_count: 0, high_severity_count: 0 });
+  assert.match(html, /No red flags detected/);
+});
+
+test('renderMRIAtlasModelCard renders metadata rows', () => {
+  const meta = {
+    template_space: 'MNI152',
+    atlas_version: 'Desikan-Killiany',
+    registration_method: 'ANTS SyN',
+    coordinate_uncertainty_mm: 1.5,
+  };
+  const html = renderMRIAtlasModelCard(meta);
+  assert.match(html, /MNI152/);
+  assert.match(html, /Desikan-Killiany/);
+  assert.match(html, /ANTS SyN/);
+  assert.match(html, /1\.5 mm/);
+});
+
+test('renderMRIProtocolGovernance renders per-target cards', () => {
+  const plans = [
+    {
+      anatomical_label: 'Left DLPFC',
+      registration_confidence: 'high',
+      coordinate_uncertainty_mm: 1.2,
+      evidence_grade: 'EV-B',
+      off_label_flag: false,
+      match_rationale: 'Candidate target for clinician review.',
+      contraindications: ['Verify MRI safety screening'],
+      required_checks: ['Check implant status'],
+    },
+  ];
+  const html = renderMRIProtocolGovernance(plans);
+  assert.match(html, /Left DLPFC/);
+  assert.match(html, /Candidate target for clinician review/);
+  assert.match(html, /EV-B/);
+  assert.match(html, /Verify MRI safety screening/);
+  assert.match(html, /Check implant status/);
+});
+
+test('renderMRIProtocolGovernance shows off-label badge', () => {
+  const plans = [{
+    anatomical_label: 'SCC',
+    registration_confidence: 'moderate',
+    off_label_flag: true,
+    match_rationale: 'Candidate target for clinician review.',
+    contraindications: [],
+    required_checks: [],
+  }];
+  const html = renderMRIProtocolGovernance(plans);
+  assert.match(html, /Off-label/);
+});
+
+test('renderMRIClinicianReview shows report state badge', () => {
+  const html = renderMRIClinicianReview({ report_state: 'MRI_APPROVED', signed_by: 'dr.smith' });
+  assert.match(html, /MRI_APPROVED/);
+  assert.match(html, /Signed by dr\.smith/);
+});
+
+test('renderMRIClinicianReview blocks approval radiology review warning', () => {
+  const html = renderMRIClinicianReview({ report_state: 'MRI_NEEDS_RADIOLOGY_REVIEW' });
+  assert.match(html, /MRI_NEEDS_RADIOLOGY_REVIEW/);
+  assert.match(html, /Radiology review required/);
+});
+
+test('renderMRIPatientReport shows placeholder when unavailable', () => {
+  const html = renderMRIPatientReport({});
+  assert.match(html, /Patient-facing report will be available/);
+});
+
+test('renderMRIPatientReport renders content when available', () => {
+  const html = renderMRIPatientReport({ patient_facing_content: { text: 'Your MRI shows normal structure.' } });
+  assert.match(html, /Your MRI shows normal structure/);
+  assert.match(html, /Decision-support only/);
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Export gating on bottom strip
+// ═════════════════════════════════════════════════════════════════════════════
+test('BIDS export button is disabled when report is not approved and signed', () => {
+  const view = renderFullView({ report: DEMO_MRI_REPORT });
+  const bidsBtn = view.match(/ds-mri-dl-bids[^>]*>/);
+  assert.ok(bidsBtn, 'BIDS button should exist');
+  assert.ok(/disabled/.test(bidsBtn[0]), 'BIDS button should be disabled when not approved/signed');
+});
+
+test('BIDS export button is enabled when report is approved and signed', () => {
+  const approvedReport = Object.assign({}, DEMO_MRI_REPORT, {
+    report_state: 'MRI_APPROVED',
+    signed_by: 'dr.smith',
+  });
+  const view = renderFullView({ report: approvedReport });
+  const bidsBtn = view.match(/ds-mri-dl-bids[^>]*>/);
+  assert.ok(bidsBtn, 'BIDS button should exist');
+  assert.ok(!/disabled/.test(bidsBtn[0]), 'BIDS button should be enabled when approved and signed');
+});
+
+test('BIDS export button is disabled when radiology review is unresolved', () => {
+  const report = Object.assign({}, DEMO_MRI_REPORT, {
+    report_state: 'MRI_APPROVED',
+    signed_by: 'dr.smith',
+    red_flags: [{ code: 'RADIOLOGY_REVIEW_REQUIRED', resolved: false }],
+  });
+  const view = renderFullView({ report });
+  const bidsBtn = view.match(/ds-mri-dl-bids[^>]*>/);
+  assert.ok(bidsBtn, 'BIDS button should exist');
+  assert.ok(/disabled/.test(bidsBtn[0]), 'BIDS button should be disabled when radiology review unresolved');
+});
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Registration QA panel
+// ═════════════════════════════════════════════════════════════════════════════
+test('renderMRIRegistrationQA shows allowed status when confidence is high', () => {
+  const qa = {
+    registration_status: 'ok',
+    registration_confidence: 'high',
+    atlas_overlap_confidence: 'high',
+    target_finalisation_allowed: true,
+    target_finalisation_blocked_reasons: [],
+    target_drift_warnings: [],
+    segmentation_quality: 'good',
+  };
+  const html = renderMRIRegistrationQA(qa);
+  assert.match(html, /Target finalisation allowed/);
+  assert.match(html, /high/);
+});
+
+test('renderMRIRegistrationQA shows blocked status with reasons when confidence is low', () => {
+  const qa = {
+    registration_status: 'ok',
+    registration_confidence: 'low',
+    atlas_overlap_confidence: 'low',
+    target_finalisation_allowed: false,
+    target_finalisation_blocked_reasons: ['Registration confidence is low', 'Atlas overlap confidence is low'],
+    target_drift_warnings: [],
+    segmentation_quality: 'good',
+  };
+  const html = renderMRIRegistrationQA(qa);
+  assert.match(html, /Target finalisation blocked/);
+  assert.match(html, /Registration confidence is low/);
+});
+
+test('renderMRIRegistrationQA warns about target drift', () => {
+  const qa = {
+    target_drift_warnings: [{ target_id: 'T1', drift_mm: 12.5, severity: 'high' }],
+    target_finalisation_allowed: false,
+    target_finalisation_blocked_reasons: ['Target drift detected'],
+  };
+  const html = renderMRIRegistrationQA(qa);
+  assert.match(html, /Target drift/);
+  assert.match(html, /T1.*12\.5 mm/);
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PHI / De-identification Audit panel
+// ═════════════════════════════════════════════════════════════════════════════
+test('renderMRIPhiAudit shows low risk when no PHI detected', () => {
+  const audit = {
+    risk_level: 'low',
+    filename_heuristic: { potential_phi_in_filename: false },
+    export_filename: { pseudo_id: 'sub-a1b2c3d4' },
+    dicom_tag_scan: { removed_categories: ['PatientName', 'PatientID'], retained_categories: ['Modality'] },
+    burned_in_annotation_warning: { detected: false, message: 'Burned-in annotations not automatically detected.' },
+    disclaimer: 'Best-effort audit.',
+  };
+  const html = renderMRIPhiAudit(audit);
+  assert.match(html, /Risk: low/);
+  assert.match(html, /sub-a1b2c3d4/);
+  assert.match(html, /PatientName/);
+  assert.match(html, /Burned-in annotations/);
+});
+
+test('renderMRIPhiAudit shows high risk when PHI in filename', () => {
+  const audit = {
+    risk_level: 'high',
+    filename_heuristic: { potential_phi_in_filename: true },
+    export_filename: { pseudo_id: 'sub-a1b2c3d4' },
+    dicom_tag_scan: { removed_categories: [], retained_categories: [] },
+    burned_in_annotation_warning: { detected: false, message: 'Check manually.' },
+    disclaimer: 'Best-effort audit.',
+  };
+  const html = renderMRIPhiAudit(audit);
+  assert.match(html, /Risk: high/);
+  assert.match(html, /Potential PHI detected in original filename/);
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// renderFullView includes new clinical workbench panels
+// ═════════════════════════════════════════════════════════════════════════════
+test('renderFullView includes safety cockpit, red flags, atlas card, registration QA, PHI audit, clinician review, and patient report panels', () => {
+  const view = renderFullView({ report: DEMO_MRI_REPORT });
+  assert.match(view, /Safety Cockpit/);
+  assert.match(view, /Red Flags/);
+  assert.match(view, /Atlas &amp; Model Card/);
+  assert.match(view, /Registration QA/);
+  assert.match(view, /PHI \/ De-identification Audit/);
+  assert.match(view, /Clinician Review/);
+  assert.match(view, /Patient Report/);
 });

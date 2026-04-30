@@ -21,6 +21,7 @@ from app.persistence.models import (
     DeliveredSessionParameters,
     Patient,
     TreatmentCourse,
+    User,
     WearableAlertFlag,
 )
 
@@ -38,7 +39,20 @@ def _register_clinician(client: TestClient, suffix: str) -> str:
         },
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()["access_token"]
+    token = resp.json()["access_token"]
+    # Ensure the clinician is bound to a clinic so cross-clinic gates pass.
+    db = SessionLocal()
+    try:
+        from app.persistence.models import Clinic
+        clinic = Clinic(id=f"clinic-{suffix}", name=f"Test Clinic {suffix}")
+        db.add(clinic)
+        user = db.query(User).filter_by(email=f"harden_clin_{suffix}@example.com").first()
+        if user:
+            user.clinic_id = clinic.id
+        db.commit()
+    finally:
+        db.close()
+    return token
 
 
 def _auth(token: str) -> dict[str, str]:

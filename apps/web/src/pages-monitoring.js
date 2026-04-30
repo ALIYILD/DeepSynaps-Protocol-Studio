@@ -215,13 +215,27 @@ async function fetchOr(endpoint, fallback) {
     const headers = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
     const res = await fetch(`${_API_BASE}${endpoint}`, { headers });
-    if (!res.ok) return fallback();
+    if (!res.ok) {
+      const preview = fallback();
+      try { preview.__demo = true; } catch {}
+      return preview;
+    }
     const data = await res.json();
     if (data && typeof data === 'object' && !data.error) return data;
-    return fallback();
+    const preview = fallback();
+    try { preview.__demo = true; } catch {}
+    return preview;
   } catch {
-    return fallback();
+    const preview = fallback();
+    try { preview.__demo = true; } catch {}
+    return preview;
   }
+}
+
+function previewNotice(message) {
+  return `<div style="margin-bottom:16px;padding:12px 14px;border:1px solid rgba(255,181,71,0.28);border-radius:12px;background:rgba(255,181,71,0.08);font-size:12px;line-height:1.5;color:${T.t2}">
+    ${esc(message)}
+  </div>`;
 }
 
 /* ── Shared card wrapper ──────────────────────────────────────────────────── */
@@ -282,6 +296,7 @@ export async function pgMonitoring(setTopbar, navigate) {
 async function renderOverview(body) {
   const data = await fetchOr('/api/v1/admin/health', demoHealth);
   const uptime = await fetchOr('/api/v1/admin/uptime', demoUptime);
+  const preview = !!(data && data.__demo) || !!(uptime && uptime.__demo);
 
   /* ── Gauges row ─────────────────────────────────────────────────────────── */
   const gaugesHtml = `
@@ -353,6 +368,7 @@ async function renderOverview(body) {
   `);
 
   body.innerHTML = `
+    ${preview ? previewNotice('Preview telemetry is shown because the live admin health endpoints were unavailable. Values on this page are sample diagnostics, not authoritative production monitoring.') : ''}
     ${gaugesHtml}
     ${statsHtml}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
@@ -362,9 +378,9 @@ async function renderOverview(body) {
     <div style="text-align:center;padding:8px 0">
       <button class="btn-secondary" style="font-size:12px;padding:6px 16px;border-radius:8px;border:1px solid ${T.border};background:${T.surface};color:${T.t2};cursor:pointer"
         onclick="window._monitoringTab='overview';${navToMonitoring()}">
-        Refresh
+        ${preview ? 'Refresh Preview' : 'Refresh'}
       </button>
-      <span style="font-size:11px;color:${T.t3};margin-left:8px">Auto-refresh: 60s</span>
+      <span style="font-size:11px;color:${T.t3};margin-left:8px">${preview ? 'Preview refresh: 60s' : 'Auto-refresh: 60s'}</span>
     </div>`;
 
   // Auto-refresh every 60s while on this tab
@@ -389,6 +405,7 @@ function _quickStat(label, value, color) {
    ══════════════════════════════════════════════════════════════════════════════ */
 async function renderActivity(body) {
   const items = await fetchOr('/api/v1/admin/activity', demoActivity);
+  const preview = !!(items && items.__demo);
 
   const TYPE_META = {
     protocol_created:  { icon: `<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:${T.teal};fill:none;stroke-width:2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3"/><path d="M12 19v3"/><path d="m4.22 4.22 2.12 2.12"/><path d="m17.66 17.66 2.12 2.12"/></svg>`, label: 'Protocol Created',  color: T.teal },
@@ -426,6 +443,7 @@ async function renderActivity(body) {
   }).join('');
 
   body.innerHTML = `
+    ${preview ? previewNotice('This activity feed is showing sample operational events because the live activity endpoint was unavailable.') : ''}
     <div style="margin-bottom:16px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
         <span style="font-size:12px;color:${T.t3};font-weight:500">Filter:</span>
@@ -436,7 +454,7 @@ async function renderActivity(body) {
       headerRight: `<span style="font-size:11px;color:${T.t3}">${filteredItems.length} events</span>`
     })}
     <div style="text-align:center;margin-top:12px">
-      <span style="font-size:11px;color:${T.t3}">Showing last ${filteredItems.length} events — real-time feed updates via SSE when connected to API</span>
+      <span style="font-size:11px;color:${T.t3}">${preview ? `Showing ${filteredItems.length} sample events in preview mode.` : `Showing last ${filteredItems.length} events — real-time feed updates via SSE when connected to API`}</span>
     </div>`;
 }
 
@@ -445,6 +463,7 @@ async function renderActivity(body) {
    ══════════════════════════════════════════════════════════════════════════════ */
 async function renderAnalytics(body) {
   const data = await fetchOr('/api/v1/admin/analytics', demoAnalytics);
+  const preview = !!(data && data.__demo);
 
   const KPI_META = [
     { key: 'active_clinicians',   label: 'Active Clinicians',   sub: 'This week',        icon: `<svg viewBox="0 0 24 24" style="width:18px;height:18px;stroke:${T.teal};fill:none;stroke-width:2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`, color: T.teal },
@@ -477,11 +496,12 @@ async function renderAnalytics(body) {
   }).join('');
 
   body.innerHTML = `
+    ${preview ? previewNotice('These usage metrics are preview analytics because the live admin analytics endpoint was unavailable.') : ''}
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-bottom:20px">
       ${cards}
     </div>
     <div style="text-align:center;padding:8px 0">
-      <span style="font-size:11px;color:${T.t3}">Data reflects the current 7-day window. Trends show daily values.</span>
+      <span style="font-size:11px;color:${T.t3}">${preview ? 'Preview metrics show a sample 7-day window.' : 'Data reflects the current 7-day window. Trends show daily values.'}</span>
     </div>`;
 }
 
@@ -490,6 +510,7 @@ async function renderAnalytics(body) {
    ══════════════════════════════════════════════════════════════════════════════ */
 async function renderErrors(body) {
   const allErrors = await fetchOr('/api/v1/admin/errors', demoErrors);
+  const preview = !!(allErrors && allErrors.__demo);
   window._monErrors = window._monErrors || allErrors;
 
   const severityFilter = window._errFilter || 'all';
@@ -547,6 +568,7 @@ async function renderErrors(body) {
   }).join('');
 
   body.innerHTML = `
+    ${preview ? previewNotice('This error log is showing sample entries because the live admin log endpoint was unavailable.') : ''}
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
       <span style="font-size:12px;color:${T.t3};font-weight:500">Severity:</span>
       ${filterPills}
@@ -561,7 +583,7 @@ async function renderErrors(body) {
       No ${severityFilter === 'all' ? '' : severityFilter + ' '}errors to display.
     </div>`}
     <div style="text-align:center;padding:8px 0">
-      <span style="font-size:11px;color:${T.t3}">Showing ${filtered.length} of ${allErrors.length} log entries</span>
+      <span style="font-size:11px;color:${T.t3}">${preview ? `Showing ${filtered.length} sample log entries.` : `Showing ${filtered.length} of ${allErrors.length} log entries`}</span>
     </div>`;
 }
 
@@ -570,6 +592,7 @@ async function renderErrors(body) {
    ══════════════════════════════════════════════════════════════════════════════ */
 async function renderPipeline(body) {
   const data = await fetchOr('/api/v1/admin/pipeline', demoPipeline);
+  const preview = !!(data && data.__demo);
 
   /* ── Overview cards ─────────────────────────────────────────────────────── */
   const overviewCards = `
@@ -618,6 +641,7 @@ async function renderPipeline(body) {
   });
 
   body.innerHTML = `
+    ${preview ? previewNotice('This evidence-pipeline panel is in preview mode because the live admin pipeline endpoint was unavailable.') : ''}
     ${overviewCards}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
       ${sourcesCard}
@@ -626,7 +650,7 @@ async function renderPipeline(body) {
     <div style="text-align:center;margin-top:16px">
       <button style="padding:8px 20px;font-size:12px;border-radius:8px;border:1px solid ${T.teal};background:${T.teal}15;color:${T.teal};cursor:pointer;font-weight:600"
         onclick="window._monitoringTab='pipeline';${navToMonitoring()}">
-        Trigger Manual Sync
+        ${preview ? 'Refresh Preview' : 'Trigger Manual Sync'}
       </button>
     </div>`;
 }

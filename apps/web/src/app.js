@@ -128,6 +128,7 @@ if (localStorage.getItem('ds_high_contrast') === '1') document.body.classList.ad
 // Modules are imported on first navigation to a page in that group,
 // then cached for all subsequent navigations (Vite chunks them automatically).
 import { normalizeRouteId } from './route-id.js';
+import { migrateOnboardingCompletionKey } from './onboarding-key-migration.js';
 
 let _modPublic    = null;
 let _modPatient   = null;
@@ -172,8 +173,16 @@ let _modBrainMap = null;
 async function loadBrainMap()     { return (_modBrainMap ??= await import('./pages-brainmap.js')); }
 let _modQEEGAnalysis = null;
 async function loadQEEGAnalysis() { return (_modQEEGAnalysis ??= await import('./pages-qeeg-analysis.js')); }
+let _modQEEGRawWorkbench = null;
+async function loadQEEGRawWorkbench() { return (_modQEEGRawWorkbench ??= await import('./pages-qeeg-raw-workbench.js')); }
+let _modQEEGRawLauncher = null;
+async function loadQEEGRawLauncher() { return (_modQEEGRawLauncher ??= await import('./pages-qeeg-raw-launcher.js')); }
+let _modQEEGLauncher = null;
+async function loadQEEGLauncher() { return (_modQEEGLauncher ??= await import('./pages-qeeg-launcher.js')); }
 let _modMRIAnalysis = null;
 async function loadMRIAnalysis() { return (_modMRIAnalysis ??= await import('./pages-mri-analysis.js')); }
+let _modFusionWorkbench = null;
+async function loadFusionWorkbench() { return (_modFusionWorkbench ??= await import('./pages-fusion-workbench.js')); }
 let _modMonitor = null;
 async function loadMonitor() { return (_modMonitor ??= await import('./pages-monitor.js')); }
 let _modDeviceDashboard = null;
@@ -473,6 +482,7 @@ const NAV = [
   { section: 'Protocol', sectionId: 'protocol', collapsed: false },
   { id: 'protocol-studio',    label: 'Protocol Studio',   icon: '🧪', ai: true },
   { id: 'brainmap-v2',        label: 'Brain Map Planner', icon: '🧠' },
+  { id: 'qeeg-launcher',      label: 'qEEG Brain Map',    icon: '🧠', ai: true },
   { id: 'qeeg-analysis',      label: 'qEEG Analyzer',     icon: '📊', ai: true },
   { id: 'biomarkers',          label: 'Biomarkers',         icon: '🧬' },
   { id: 'handbooks-v2',       label: 'Handbooks',         icon: '📚' },
@@ -652,6 +662,29 @@ function renderNav() {
       }).join('');
     }
     box.style.display = 'block';
+    if (trimmed.length >= 2 && api.dashboardSearch) {
+      api.dashboardSearch(trimmed).then(res => {
+        if (!res || !res.groups) return;
+        const patients = res.groups.Patients || [];
+        const sessions = res.groups.Sessions || [];
+        const courses  = res.groups.Courses || [];
+        const all = [...patients, ...sessions, ...courses].slice(0, 8);
+        if (!all.length) return;
+        const html = all.map(item => {
+          const ini = item.title ? item.title.split(' ').map(s => s[0]).join('').toUpperCase().slice(0,2) : '??';
+          return `<div onclick="window._nav('${esc(item.url_path || '')}')"
+            style="display:flex;align-items:center;gap:9px;padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--border);transition:background 0.1s"
+            onmouseover="this.style.background='rgba(255,255,255,0.04)'" onmouseout="this.style.background=''">
+            <div style="width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--violet),var(--blue));display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#000;flex-shrink:0;text-transform:uppercase">${esc(ini)}</div>
+            <div style="min-width:0">
+              <div style="font-size:12.5px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(item.title)}</div>
+              <div style="font-size:10.5px;color:var(--text-tertiary)">${esc(item.type)} · ${esc(item.subtitle || '')}</div>
+            </div>
+          </div>`;
+        }).join('');
+        box.innerHTML = `<div style="padding:6px 12px;font-size:10px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px">Search results</div>` + html + box.innerHTML;
+      }).catch(() => {});
+    }
   };
   window._navPtOpen = function(id) {
     window._selectedPatientId = id;
@@ -993,6 +1026,11 @@ async function navigate(id, params = {}) {
 }
 
 window._nav = async function(id, params) {
+  // External static page: clinical biomarker reference. Served from apps/web/public/.
+  if (id === 'biomarkers-ref') {
+    window.location.href = 'biomarkers.html';
+    return;
+  }
   await navigate(id, params);
   // Show first-visit feature tooltip if applicable
   if (typeof _initFeatureTooltips === 'function') _initFeatureTooltips();
@@ -1048,6 +1086,7 @@ async function renderPatientPage() {
     case 'patient-homework':    await m.pgPatientHomework();              break;
     case 'patient-assessments': await m.pgPatientAssessments();           break;
     case 'patient-reports':     await m.pgPatientReports();               break;
+    case 'patient-brainmap':    await m.pgPatientBrainMap();              break;
     case 'patient-messages':   await m.pgPatientMessages();               break;
     case 'patient-wearables':  await m.pgPatientWearables();               break;
     case 'pt-wellness':        await m.pgPatientWellness();                break;
@@ -1420,16 +1459,20 @@ async function renderPage() {
       break;
     }
     // ── Governance ───────────────────────────────────────────────────────
-    case 'onboarding': {
-      const m = await loadOnboarding();
-      await m.pgOnboarding(setTopbar, navigate);
-      break;
-    }
+    // Single onboarding flow: 'onboarding' is also aliased to
+    // 'onboarding-wizard' in route-id.js so navigate() normalizes the id
+    // before this switch — but we keep an explicit case here as a defensive
+    // fallback in case a caller bypasses normalization.
+    case 'onboarding':
     case 'onboarding-wizard': {
       const { pgOnboardingWizard } = await loadOnboarding();
       await pgOnboardingWizard(setTopbar);
       break;
     }
+    case 'agent-onboarding': { const { pgAgentOnboarding } = await loadOnboarding(); await pgAgentOnboarding(setTopbar); break; }
+    case 'billing': { const { pgBilling } = await import('./pages-billing.js'); await pgBilling(setTopbar); break; }
+    case 'webhooks': { const { pgWebhooks } = await import('./pages-webhooks.js'); await pgWebhooks(setTopbar); break; }
+    case 'marketplace-landing': { const { pgMarketplaceLanding } = await import('./pages-marketplace.js'); await pgMarketplaceLanding(setTopbar, navigate); break; }
     case 'adverse-events':     { window._monitorHubTab = 'adverse'; window._nav('monitor-hub'); break; }
     case 'adverse-events-full':{ const m = await loadCourses(); await m.pgAdverseEvents(setTopbar, navigate); break; }
     case 'audittrail': {
@@ -1496,14 +1539,41 @@ async function renderPage() {
     case 'schedule-v2':        { const m = await loadClinicalHubs(); await m.pgSchedulingHub(setTopbar, navigate); break; }
     case 'assessments-v2':     { const m = await loadClinicalHubs(); await m.pgAssessmentsHub(setTopbar, navigate); break; }
     case 'patients-v2':        { const m = await loadClinicalHubs(); await m.pgPatientHub(setTopbar, navigate); break; }
-    case 'brain-twin':         { const m = await loadBrainTwin(); await m.pgBrainTwin(setTopbar, navigate); break; }
+    // 'brain-twin' is the legacy flagship route; consolidated onto 'deeptwin'.
+    // route-id.js already aliases the id, but redirect here too as a belt for
+    // any caller that bypasses normaliseRouteId. pages-brain-twin.js is
+    // preserved on disk for direct deep-link recovery via archive tags.
+    case 'brain-twin':         { window._nav('deeptwin'); break; }
     case 'deeptwin':           { const m = await loadDeeptwin(); await m.pgDeeptwin(setTopbar, navigate); break; }
     case 'monitor':            { const m = await loadMonitor(); await m.pgMonitor(setTopbar, navigate); break; }
     case 'device-dashboard':   { const m = await loadDeviceDashboard(); await m.pgDeviceDashboard(setTopbar, navigate); break; }
     case 'protocol-studio':    { const m = await loadClinicalHubs(); await m.pgProtocolHub(setTopbar, navigate); break; }
     case 'brainmap-v2':        { const { pgBrainMapPlanner } = await loadClinicalTools(); await pgBrainMapPlanner(setTopbar, navigate); break; }
+    case 'qeeg-launcher':      { const m = await loadQEEGLauncher(); await m.pgQEEGLauncher(setTopbar, navigate); break; }
     case 'qeeg-analysis':      { const m = await loadQEEGAnalysis(); await m.pgQEEGAnalysis(setTopbar, navigate); break; }
+    case 'qeeg-raw-workbench': {
+      // Route shape:
+      //   qeeg-raw-workbench           → launcher (pick patient + recording / upload EDF)
+      //   qeeg-raw-workbench/<id>      → existing workbench loaded for that analysis
+      //   qeeg-raw-workbench/demo      → workbench with synthetic demo data
+      const hash = (window.location && window.location.hash) || '';
+      const m = hash.match(/qeeg-raw-workbench[\/=:]([A-Za-z0-9_\-]+)/);
+      let analysisId = m ? m[1] : null;
+      try {
+        const url = new URL(window.location.href);
+        if (!analysisId) analysisId = url.searchParams.get('analysisId');
+      } catch (_e) {}
+      if (!analysisId) {
+        const launcher = await loadQEEGRawLauncher();
+        await launcher.pgQEEGRawLauncher(setTopbar, navigate);
+      } else {
+        const m2 = await loadQEEGRawWorkbench();
+        await m2.pgQEEGRawWorkbench(setTopbar, navigate);
+      }
+      break;
+    }
     case 'mri-analysis':       { const m = await loadMRIAnalysis(); await m.pgMRIAnalysis(setTopbar, navigate); break; }
+    case 'fusion-workbench':   { const m = await loadFusionWorkbench(); await m.pgFusionWorkbench(setTopbar, navigate); break; }
     case 'patient-timeline':   { const m = await loadPatientTimeline(); await m.pgPatientTimeline(setTopbar, navigate); break; }
     case 'biomarkers':         { const m = await loadKnowledge(); await m.pgQEEGMaps(setTopbar); break; }
     case 'handbooks-v2':       { const m = await loadHandbooks(); await m.pgHandbooks(setTopbar); break; }
@@ -2059,6 +2129,14 @@ async function _warmPatientRoster() {
 window._warmPatientRoster = _warmPatientRoster;
 
 async function bootApp() {
+  // ── Boot-time onboarding-key migration shim ────────────────────────────────
+  //   Older clients wrote `ds_onboarding_done` (the legacy 4-step pgOnboarding
+  //   flow). PR #4 of the frontend hygiene rollout collapses to a single
+  //   wizard that uses `ds_onboarding_complete`. Copy the old key forward and
+  //   delete it so existing users aren't re-prompted to onboard. This must
+  //   run before the router gate below reads `ds_onboarding_complete`.
+  try { migrateOnboardingCompletionKey(); } catch {}
+
   if (currentPage === 'dashboard') {
     // Role-based entry: redirect technician → session-execution, reviewer → review-queue, etc.
     const role  = currentUser?.role || 'clinician';
@@ -2068,17 +2146,129 @@ async function bootApp() {
   // ── Deep-link: honour ?page= query param or #hash so reloads and bookmarks
   //    land where the user expects. Falls back to role-based entry above if
   //    the requested id doesn't pass a safe-slug check.
+  //    Hash form supports:
+  //      #foo               → page id "foo"
+  //      #/foo              → page id "foo" (leading slash tolerated)
+  //      #/foo/<entityId>   → page id "foo", entityId stashed for the page
+  //      #/foo/<entityId>?mode=... → mode stashed too
+  //    The second path segment, when present and matching qEEG / patient
+  //    routes, is bridged to the legacy globals (window._qeegSelectedId,
+  //    window._qeegRawWorkbenchMode, window._currentPatientId, etc.) so
+  //    page modules read it as if the user had clicked the launcher.
+  let _hadValidDeepLink = false;
   {
     let deepLinkId = null;
+    let deepLinkArg = null;
+    let deepLinkMode = null;
     try {
       const qp = new URL(location.href).searchParams.get('page');
-      if (qp) deepLinkId = qp;
-      else if (location.hash && location.hash.length > 1) deepLinkId = location.hash.slice(1);
+      if (qp) {
+        deepLinkId = qp;
+      } else if (location.hash && location.hash.length > 1) {
+        let raw = location.hash.slice(1);
+        // Tolerate a leading "/" so /#/foo and /#foo both work.
+        if (raw.startsWith('/')) raw = raw.slice(1);
+        // Strip and capture ?mode= or any other query string on the hash.
+        const qIdx = raw.indexOf('?');
+        let queryStr = '';
+        if (qIdx >= 0) { queryStr = raw.slice(qIdx + 1); raw = raw.slice(0, qIdx); }
+        if (queryStr) {
+          try {
+            const sp = new URLSearchParams(queryStr);
+            const m = sp.get('mode'); if (m) deepLinkMode = m;
+          } catch {}
+        }
+        // Split path segments — first becomes the route id, second is an
+        // optional entity id (analysis id, patient id, etc.).
+        const segs = raw.split('/').filter(Boolean);
+        if (segs.length > 0) deepLinkId = segs[0];
+        if (segs.length > 1) deepLinkArg = segs[1];
+      }
     } catch {}
     if (deepLinkId && /^[a-z0-9][a-z0-9-]{0,63}$/i.test(deepLinkId)) {
       currentPage = normalizeRouteId(deepLinkId);
+      _hadValidDeepLink = true;
+      // Bridge entity ids to the per-page globals the existing modules read.
+      if (deepLinkArg && /^[a-z0-9][a-z0-9_\-]{0,127}$/i.test(deepLinkArg)) {
+        if (currentPage === 'qeeg-raw-workbench' || currentPage === 'qeeg-analysis' || currentPage === 'qeeg-raw') {
+          window._qeegSelectedId = deepLinkArg;
+        }
+        if (currentPage === 'qeeg-raw-workbench' && deepLinkMode) {
+          window._qeegRawWorkbenchMode = deepLinkMode;
+        }
+        if (currentPage === 'patient-profile' || currentPage === 'patients-v2') {
+          window._currentPatientId = deepLinkArg;
+          window._profilePatientId = deepLinkArg;
+          window._selectedPatientId = deepLinkArg;
+        }
+      }
     }
   }
+
+  // ── First-login router gate ───────────────────────────────────────────────
+  //   Push a clinician/technician who hasn't completed (or skipped) the setup
+  //   wizard into onboarding-wizard before the dashboard / role-default page
+  //   renders. Other roles (patient, guardian, admin, resident, reviewer,
+  //   supervisor, guest) are NOT gated here — patients have their own
+  //   onboarding surface in the patient portal, and the rest land on
+  //   role-specific entry pages from ROLE_ENTRY_PAGE.
+  //
+  //   The gate is suppressed when:
+  //     * the user explicitly deep-linked somewhere (URL ?page=… or hash),
+  //     * they are already on the onboarding wizard, or
+  //     * `ds_onboarding_complete=true` is already set — covers both
+  //        finishers and Skip-setup users, since _wizSkip now writes the
+  //        flag too. The migration shim above also seeds this flag for
+  //        clients that previously wrote `ds_onboarding_done`.
+  if (!_hadValidDeepLink
+      && currentPage !== 'onboarding-wizard'
+      && currentPage !== 'onboarding') {
+    const role = currentUser?.role;
+    const ONBOARDING_GATED_ROLES = new Set(['clinician', 'technician']);
+    let _onboardingComplete = false;
+    try { _onboardingComplete = localStorage.getItem('ds_onboarding_complete') === 'true'; } catch {}
+    if (ONBOARDING_GATED_ROLES.has(role) && !_onboardingComplete) {
+      currentPage = 'onboarding-wizard';
+    }
+  }
+
+  // ── Hashchange listener: keep the SPA in sync when the user edits the URL
+  //    bar (back/forward, manual edit, copy-paste). Same parsing rules as
+  //    the boot-time deep-link block above.
+  window.addEventListener('hashchange', (ev) => {
+    try {
+      let raw = (location.hash || '').slice(1);
+      if (raw.startsWith('/')) raw = raw.slice(1);
+      const qIdx = raw.indexOf('?');
+      let queryStr = '';
+      if (qIdx >= 0) { queryStr = raw.slice(qIdx + 1); raw = raw.slice(0, qIdx); }
+      const segs = raw.split('/').filter(Boolean);
+      const id = segs[0];
+      const arg = segs[1];
+      if (!id || !/^[a-z0-9][a-z0-9-]{0,63}$/i.test(id)) return;
+      if (arg && /^[a-z0-9][a-z0-9_\-]{0,127}$/i.test(arg)) {
+        if (id === 'qeeg-raw-workbench' || id === 'qeeg-analysis' || id === 'qeeg-raw') {
+          window._qeegSelectedId = arg;
+        }
+        if (id === 'patient-profile' || id === 'patients-v2') {
+          window._currentPatientId = arg;
+          window._profilePatientId = arg;
+          window._selectedPatientId = arg;
+        }
+      }
+      if (queryStr && id === 'qeeg-raw-workbench') {
+        try {
+          const sp = new URLSearchParams(queryStr);
+          const m = sp.get('mode'); if (m) window._qeegRawWorkbenchMode = m;
+        } catch {}
+      }
+      const norm = normalizeRouteId(id);
+      if (norm !== currentPage && typeof window._nav === 'function') {
+        window._nav(norm);
+      }
+    } catch {}
+  });
+
   // Initialise clinic switcher for multi-clinic roles
   window._initClinicSwitcher(currentUser);
   renderNav();
@@ -2524,6 +2714,7 @@ window.addEventListener('popstate', (e) => {
     { type: 'nav', icon: '🔬', title: 'Devices',             page: 'devices' },
     { type: 'nav', icon: '◈',  title: 'qEEG / Brain Data',   page: 'braindata' },
     { type: 'nav', icon: '◫',  title: 'qEEG Maps',           page: 'qeegmaps' },
+    { type: 'nav', icon: '🧬', title: 'Biomarkers Reference', page: 'biomarkers-ref' },
     { type: 'nav', icon: '◉',  title: 'Assessments',         page: 'assessments' },
     { type: 'nav', icon: '◧',  title: 'Handbooks',           page: 'handbooks' },
     { type: 'nav', icon: '🤖', title: 'AI Clinical Assistant', page: 'ai-assistant' },

@@ -199,6 +199,49 @@ HTML_TEMPLATE = """\
   {% endif %}
   {% endif %}
 
+  {% if enriched_findings %}
+  <h2>Artifact &amp; Normative Advisory</h2>
+  <div>
+    {% for ef in enriched_findings %}
+    <div class="card" style="margin-bottom: 10px;">
+      <p><strong>{{ ef.region }} — {{ ef.band }} ({{ ef.severity }} {{ ef.direction }})</strong></p>
+      <p class="note">{{ ef.clinical_note }}</p>
+      {% if ef.medication_flags %}
+        <p>
+          {% for mf in ef.medication_flags %}
+            <span class="badge" style="background: #fce7f3; color: #831843;">{{ mf.medication }}</span>
+          {% endfor %}
+        </p>
+      {% endif %}
+      {% if ef.artifact_flags %}
+        <p>
+          {% for af in ef.artifact_flags %}
+            <span class="warn" style="display: inline-block; margin-right: 4px;">⚠️ {{ af.artifact_type }} ({{ af.confidence }})</span>
+          {% endfor %}
+        </p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if medication_confounds %}
+  <h2>Medication Confounds</h2>
+  <div class="card">
+    <p class="note">The following medications may confound EEG interpretation:</p>
+    <ul>
+    {% for mc in medication_confounds %}
+      <li>
+        <strong>{{ mc.medication }}</strong>
+        <span class="badge">{{ mc.drug_class }}</span><br/>
+        <span class="note">Affected bands: {{ mc.affected_bands | join(", ") }}</span><br/>
+        <span class="note">{{ mc.clinical_note }}</span>
+      </li>
+    {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
   {% if narrative %}
   <h2>Discussion</h2>
   <div>
@@ -265,12 +308,23 @@ def build(
 
     narrative_html = None
     narrative_refs: list[dict[str, Any]] = []
+    enriched_findings: list[dict[str, Any]] = []
     try:
+        from ..knowledge import enhance_findings
         from ..narrative import extract_findings, generate_safe_narrative, retrieve_evidence
         from ..narrative.types import Citation
 
         findings = extract_findings(result)
         if findings:
+            # Age default: 240 months = 20 years
+            age_years = result.quality.get("age")
+            age_months = int(age_years * 12) if age_years is not None else 240
+            enriched_findings = enhance_findings(
+                findings,
+                age_months=age_months,
+                recording_state=result.quality.get("recording_state", "awake_eo"),
+                patient_meta={"medications": result.quality.get("medications")},
+            )
             evidence: dict[str, list[Citation]] = {}
             for f in findings[:8]:
                 evidence[f.key] = retrieve_evidence(f, top_k=5)
@@ -280,9 +334,16 @@ def build(
                 patient_meta={
                     "age": result.quality.get("age"),
                     "sex": result.quality.get("sex"),
+                    "recording_state": result.quality.get("recording_state"),
+                    "medications": result.quality.get("medications"),
+                    "enriched_findings": enriched_findings,
                 },
             )
             narrative_html = _markdown_to_html(report.discussion_markdown)
+            # Extract consolidated medication confounds from first enriched finding
+            medication_confounds: list[dict[str, Any]] = []
+            if enriched_findings and enriched_findings[0].get("medication_summary"):
+                medication_confounds = enriched_findings[0]["medication_summary"]
             narrative_refs = [
                 {
                     "citation_id": c.citation_id,
@@ -310,8 +371,10 @@ def build(
         "longitudinal": (getattr(result, "longitudinal", None) or {}) if result is not None else {},
         "narrative": narrative_html,
         "references": narrative_refs,
+        "medication_confounds": medication_confounds,
         "clinical_summary": clinical_summary,
         "clinical_summary_json": _json_dumps(clinical_summary) if clinical_summary else "",
+        "enriched_findings": enriched_findings,
     }
 
     html_str = _render(context)

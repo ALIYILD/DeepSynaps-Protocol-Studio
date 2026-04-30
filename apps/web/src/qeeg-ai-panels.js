@@ -714,10 +714,35 @@ var _COPILOT_DEMO_REPLIES = [
       + 'for care decisions.',
   },
   {
+    match: /safety|cockpit|quality|interpretability/i,
+    reply: 'The safety cockpit shows this recording is VALID FOR REVIEW: duration 300 s, 19 channels, '
+      + '256 Hz, eyes closed, 10–20 montage, 2/100 epochs rejected. No red flags detected. '
+      + 'This is research/wellness info — please consult your clinician for care decisions.',
+  },
+  {
+    match: /red flag|redflag|flag|warning/i,
+    reply: 'No red flags are detected for this analysis. The signal quality, montage completeness, '
+      + 'and artifact burden all pass the clinical safety gate. This is research/wellness info — '
+      + 'please consult your clinician for care decisions.',
+  },
+  {
+    match: /normative|model card|database|gamlss/i,
+    reply: 'Normative data is DeepSynaps Normative (GAMLSS centiles, 95% CI, log-normal absolute power). '
+      + 'Age range 18–65 years. Z-scores are descriptive, not diagnostic. This is research/wellness info — '
+      + 'please consult your clinician for care decisions.',
+  },
+  {
+    match: /protocol fit|fit panel|contraindication|evidence grade/i,
+    reply: 'Protocol fit panel shows SMR uptraining as a candidate (evidence grade B). Required clinician '
+      + 'checks include verifying seizure history and implant status. This is research/wellness info — '
+      + 'please consult your clinician for care decisions.',
+  },
+  {
     match: /.*/,
     reply: 'I can discuss the brain-age gap, similarity indices, the protocol suggestion, '
-      + 'explainability, or similar-case neighbours shown on this page. This is research/wellness '
-      + 'info — please consult your clinician for care decisions.',
+      + 'safety cockpit, red flags, normative model card, protocol fit, explainability, or similar-case '
+      + 'neighbours shown on this page. This is research/wellness info — please consult your '
+      + 'clinician for care decisions.',
   },
 ];
 
@@ -763,6 +788,10 @@ export function mountCopilotWidget(containerId, analysisId) {
     + '<button class="qeeg-ai-copilot__chip" data-q="Why MDD-like?">why MDD-like?</button>'
     + '<button class="qeeg-ai-copilot__chip" data-q="What protocol do you suggest?">protocol?</button>'
     + '<button class="qeeg-ai-copilot__chip" data-q="Show similar cases">similar cases</button>'
+    + '<button class="qeeg-ai-copilot__chip" data-q="What does the safety cockpit say?">safety cockpit</button>'
+    + '<button class="qeeg-ai-copilot__chip" data-q="Any red flags?">red flags</button>'
+    + '<button class="qeeg-ai-copilot__chip" data-q="Explain the normative model card">normative card</button>'
+    + '<button class="qeeg-ai-copilot__chip" data-q="What is the protocol fit?">protocol fit</button>'
     + '</div>'
     + '<form class="qeeg-ai-copilot__form" data-role="form" autocomplete="off">'
     + '<input class="qeeg-ai-copilot__input" data-role="input" type="text" '
@@ -852,7 +881,8 @@ export function mountCopilotWidget(containerId, analysisId) {
   // Welcome bubble.
   appendBubble('copilot',
     'Hello! I can answer questions about the brain-age gap, similarity indices, the '
-    + 'protocol suggestion, and similar-case neighbours on this page. This is '
+    + 'protocol suggestion, similar-case neighbours, safety cockpit, red flags, '
+    + 'normative model card, and protocol fit on this page. This is '
     + 'research/wellness info — please consult your clinician for care decisions.');
 
   // Try to open a WebSocket. Fall back to offline mode silently on failure.
@@ -864,6 +894,19 @@ export function mountCopilotWidget(containerId, analysisId) {
       ? window.DEEPSYNAPS_COPILOT_WS_BASE
       : proto + host + '/api/v1/qeeg-copilot';
     var url = base.replace(/\/$/, '') + '/' + encodeURIComponent(analysisId || 'demo');
+    // WebSockets can't carry Authorization headers from the browser; pass the
+    // access token via query string. Backend enforces the same RBAC + clinic
+    // gate as the REST routes (qeeg_copilot_router._resolve_ws_actor).
+    try {
+      var _tok = null;
+      try {
+        // localStorage is the same source api.js reads from.
+        if (typeof window !== 'undefined' && window.localStorage) {
+          _tok = window.localStorage.getItem('ds_access_token');
+        }
+      } catch (_) {}
+      if (_tok) url += (url.indexOf('?') === -1 ? '?' : '&') + 'token=' + encodeURIComponent(_tok);
+    } catch (_) { /* fall through; backend will close 1008 */ }
     if (typeof WebSocket !== 'undefined') {
       state.ws = new WebSocket(url);
       setStatus('connecting…', 'ok');
@@ -1025,3 +1068,435 @@ export function mountCopilotWidget(containerId, analysisId) {
 
 // Export the offline reply helper for testing.
 export { _copilotOfflineReply as _copilotOfflineReplyForTest };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NiiVue 3-plane viewer (browser-side) — used by the MRI Analyzer page.
+//
+// Exports:
+//   T1_MNI_URL   - public MNI152 T1 NIfTI (MIT-licensed demo asset)
+//   mountNiiVue(containerId, opts) — lazy-loads NiiVue from CDN, wires 3 canvases
+//                                    (axial/coronal/sagittal) + marker sidebar,
+//                                    degrades gracefully when volumeUrl is null
+//                                    or the CDN fetch fails.
+// License: NiiVue is MIT. We inject a <script> tag at runtime — no npm dep.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Public MNI152 T1-weighted demo volume (MIT-licensed, hosted by the NiiVue
+ * maintainers). Used when we don't have a patient-specific T1 on disk (demo
+ * mode + overlay-only renders).
+ */
+export var T1_MNI_URL = 'https://niivue.github.io/niivue-demo-images/mni152.nii.gz';
+
+/** URL to the NiiVue UMD CDN build. Stable track, pinned by maintainer. */
+var _NIIVUE_CDN_URL = 'https://niivue.github.io/niivue/features/niivue.umd.js';
+
+/** Single-flight promise for the CDN <script> inject. */
+var _niivuePromise = null;
+
+/**
+ * Lazily fetch the NiiVue bundle via a <script src> injection, returning a
+ * promise that resolves with the global ``niivue`` module (``window.niivue``).
+ * Rejects if the script fails to load or the browser is offline.
+ */
+export function _loadNiiVue() {
+  if (_niivuePromise) return _niivuePromise;
+  _niivuePromise = new Promise(function (resolve, reject) {
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      reject(new Error('NiiVue requires a browser document'));
+      return;
+    }
+    if (window.niivue && window.niivue.Niivue) {
+      resolve(window.niivue);
+      return;
+    }
+    var existing = document.querySelector('script[data-ds-niivue="1"]');
+    if (existing) {
+      existing.addEventListener('load', function () { resolve(window.niivue); });
+      existing.addEventListener('error', function () { reject(new Error('NiiVue CDN load failed')); });
+      return;
+    }
+    var s = document.createElement('script');
+    s.src = _NIIVUE_CDN_URL;
+    s.async = true;
+    s.crossOrigin = 'anonymous';
+    s.setAttribute('data-ds-niivue', '1');
+    s.onload = function () {
+      if (window.niivue && window.niivue.Niivue) resolve(window.niivue);
+      else reject(new Error('NiiVue bundle loaded but global missing'));
+    };
+    s.onerror = function () { reject(new Error('NiiVue CDN fetch failed')); };
+    document.head.appendChild(s);
+  });
+  return _niivuePromise;
+}
+
+/**
+ * Render a NiiVue degraded placeholder into ``container`` and return it.
+ * Always idempotent — safe to call multiple times. Placeholder mirrors the
+ * "ds-niivue-grid" styling so the page layout doesn't jump around when the
+ * CDN is unreachable.
+ */
+function _renderNiiVuePlaceholder(container, reason) {
+  var msg = reason || 'Viewer unavailable — click a stim target to see its MNI coordinates';
+  container.innerHTML =
+    '<div class="ds-niivue-grid ds-niivue-grid--placeholder">'
+    + '<div class="ds-niivue-grid__placeholder" role="status">'
+    + '<div class="ds-niivue-grid__placeholder-icon" aria-hidden="true">T1</div>'
+    + '<div class="ds-niivue-grid__placeholder-msg">' + esc(msg) + '</div>'
+    + '</div></div>';
+}
+
+/**
+ * Render the NiiVue grid shell (3 canvases + marker sidebar) into ``container``.
+ * Safe to call before NiiVue is loaded — canvases are attached later.
+ */
+function _renderNiiVueShell(container, markers) {
+  markers = Array.isArray(markers) ? markers : [];
+  var sidebar = markers.map(function (m, i) {
+    var label = esc(m.label || ('Target ' + (i + 1)));
+    var xyz = Array.isArray(m.xyz) ? m.xyz : [];
+    var xyzText = xyz.length === 3
+      ? '[' + xyz.map(function (v) { return (typeof v === 'number' ? v.toFixed(1) : esc(v)); }).join(', ') + ']'
+      : '—';
+    var color = esc(m.color || '#f43f5e');
+    return '<button type="button" class="ds-niivue-marker" '
+      + 'data-idx="' + i + '" '
+      + 'data-x="' + (xyz[0] != null ? esc(xyz[0]) : '') + '" '
+      + 'data-y="' + (xyz[1] != null ? esc(xyz[1]) : '') + '" '
+      + 'data-z="' + (xyz[2] != null ? esc(xyz[2]) : '') + '">'
+      + '<span class="ds-niivue-marker__dot" style="background:' + color + '"></span>'
+      + '<span class="ds-niivue-marker__label">' + label + '</span>'
+      + '<span class="ds-niivue-marker__xyz">' + esc(xyzText) + '</span>'
+      + '</button>';
+  }).join('');
+  container.innerHTML =
+    '<div class="ds-niivue-grid">'
+    + '<div class="ds-niivue-grid__canvases">'
+    + '<canvas class="ds-niivue-canvas" data-plane="axial" aria-label="Axial slice"></canvas>'
+    + '<canvas class="ds-niivue-canvas" data-plane="coronal" aria-label="Coronal slice"></canvas>'
+    + '<canvas class="ds-niivue-canvas" data-plane="sagittal" aria-label="Sagittal slice"></canvas>'
+    + '</div>'
+    + '<aside class="ds-niivue-grid__sidebar" aria-label="Stim target markers">'
+    + '<div class="ds-niivue-grid__sidebar-head">Stim targets (' + markers.length + ')</div>'
+    + (sidebar || '<div class="ds-niivue-grid__sidebar-empty">No markers</div>')
+    + '</aside>'
+    + '</div>';
+}
+
+/**
+ * Mount a NiiVue 3-plane viewer into the DOM element identified by
+ * ``containerId``.
+ *
+ * Parameters
+ * ----------
+ * containerId : string
+ *     ``id`` of the container <div>. The function replaces its contents.
+ * opts : object
+ *     - volumeUrl  : URL to a NIfTI base volume (e.g. T1 MNI). If null/falsy
+ *                    the viewer short-circuits to a degraded placeholder.
+ *     - overlayUrl : optional overlay volume URL (second volume, warm colormap).
+ *     - markers    : optional Array<{xyz:[x,y,z], label?, color?}>. Rendered as
+ *                    a sidebar; clicking re-centers the NiiVue crosshair.
+ *     - onReady    : optional callback(nv, canvases) fired once the volume loaded.
+ *
+ * Returns
+ * -------
+ * object
+ *     ``{ ok: boolean, reason?: string }``. ``ok=false`` when the viewer had to
+ *     degrade — the caller can surface a tooltip but MUST NOT throw.
+ */
+export async function mountNiiVue(containerId, opts) {
+  opts = opts || {};
+  var container = (typeof document !== 'undefined')
+    ? document.getElementById(containerId)
+    : null;
+  if (!container) return { ok: false, reason: 'container_missing' };
+
+  var markers = Array.isArray(opts.markers) ? opts.markers : [];
+
+  // Fast-path: no volume URL → render static placeholder + marker pills.
+  if (!opts.volumeUrl) {
+    _renderNiiVueShell(container, markers);
+    // Replace the 3 canvases with a "viewer unavailable" strip but keep the
+    // sidebar so users can still read MNI coordinates.
+    var canvases = container.querySelector('.ds-niivue-grid__canvases');
+    if (canvases) {
+      canvases.innerHTML =
+        '<div class="ds-niivue-grid__placeholder" role="status">'
+        + '<div class="ds-niivue-grid__placeholder-icon" aria-hidden="true">T1</div>'
+        + '<div class="ds-niivue-grid__placeholder-msg">'
+        + 'Viewer unavailable — click a stim target to see its MNI coordinates'
+        + '</div></div>';
+    }
+    return { ok: false, reason: 'volume_missing' };
+  }
+
+  // Render the shell first so the marker sidebar paints even before NiiVue
+  // finishes loading (the CDN fetch can take 1-2s on cold connections).
+  _renderNiiVueShell(container, markers);
+
+  var niivue;
+  try {
+    niivue = await _loadNiiVue();
+  } catch (err) {
+    _renderNiiVuePlaceholder(container, 'Viewer unavailable — offline or CDN unreachable');
+    return { ok: false, reason: 'cdn_failed' };
+  }
+
+  if (!niivue || !niivue.Niivue) {
+    _renderNiiVuePlaceholder(container, 'Viewer unavailable — NiiVue module missing');
+    return { ok: false, reason: 'niivue_missing' };
+  }
+
+  try {
+    var axial = container.querySelector('canvas[data-plane="axial"]');
+    var coronal = container.querySelector('canvas[data-plane="coronal"]');
+    var sagittal = container.querySelector('canvas[data-plane="sagittal"]');
+    var nvAxial = new niivue.Niivue({ show3Dcrosshair: true, backColor: [0, 0, 0, 1] });
+    var nvCor = new niivue.Niivue({ show3Dcrosshair: true, backColor: [0, 0, 0, 1] });
+    var nvSag = new niivue.Niivue({ show3Dcrosshair: true, backColor: [0, 0, 0, 1] });
+    if (axial) nvAxial.attachToCanvas(axial);
+    if (coronal) nvCor.attachToCanvas(coronal);
+    if (sagittal) nvSag.attachToCanvas(sagittal);
+
+    var volumes = [{ url: opts.volumeUrl }];
+    await Promise.all([
+      nvAxial.loadVolumes(volumes),
+      nvCor.loadVolumes(volumes),
+      nvSag.loadVolumes(volumes),
+    ]);
+
+    // Overlay (optional — second volume painted warm with alpha).
+    if (opts.overlayUrl) {
+      try {
+        await Promise.all([
+          nvAxial.addVolumeFromUrl({ url: opts.overlayUrl, colormap: 'warm', opacity: 0.6 }),
+          nvCor.addVolumeFromUrl({ url: opts.overlayUrl, colormap: 'warm', opacity: 0.6 }),
+          nvSag.addVolumeFromUrl({ url: opts.overlayUrl, colormap: 'warm', opacity: 0.6 }),
+        ]);
+      } catch (_e) { /* overlay optional — keep base T1 visible */ }
+    }
+
+    // Pin each canvas to a specific slice plane. NiiVue uses integer codes:
+    // 0=axial, 1=coronal, 2=sagittal, 3=3D.
+    try { nvAxial.setSliceType(0); } catch (_e) {}
+    try { nvCor.setSliceType(1);   } catch (_e) {}
+    try { nvSag.setSliceType(2);   } catch (_e) {}
+
+    // Marker sidebar click → re-center all three views at that MNI point.
+    var sidebarBtns = container.querySelectorAll('.ds-niivue-marker');
+    sidebarBtns.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var x = parseFloat(btn.getAttribute('data-x'));
+        var y = parseFloat(btn.getAttribute('data-y'));
+        var z = parseFloat(btn.getAttribute('data-z'));
+        if (!isFinite(x) || !isFinite(y) || !isFinite(z)) return;
+        try { nvAxial.scene.crosshairPos = [x, y, z]; nvAxial.drawScene(); } catch (_e) {}
+        try { nvCor.scene.crosshairPos = [x, y, z]; nvCor.drawScene(); } catch (_e) {}
+        try { nvSag.scene.crosshairPos = [x, y, z]; nvSag.drawScene(); } catch (_e) {}
+        container.querySelectorAll('.ds-niivue-marker').forEach(function (b) {
+          b.classList.remove('is-active');
+        });
+        btn.classList.add('is-active');
+      });
+    });
+
+    if (typeof opts.onReady === 'function') {
+      try { opts.onReady({ axial: nvAxial, coronal: nvCor, sagittal: nvSag }); } catch (_e) {}
+    }
+    return { ok: true };
+  } catch (err) {
+    _renderNiiVuePlaceholder(container, 'Viewer failed to initialise');
+    return { ok: false, reason: 'init_failed' };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONTRACT_V3 §1 — Fusion recommendation card
+// ─────────────────────────────────────────────────────────────────────────────
+
+function _fusionModalityBadge(used) {
+  used = Array.isArray(used) ? used : [];
+  var qeeg = used.indexOf('qeeg') >= 0;
+  var mri = used.indexOf('mri') >= 0;
+  var parts = [];
+  parts.push('<span class="qeeg-ai-chip" style="--chip-color:'
+    + (qeeg ? 'var(--teal, #26c6da)' : 'rgba(255,255,255,0.2)') + '">'
+    + 'qEEG ' + (qeeg ? '&#x2713;' : '&#x2013;') + '</span>');
+  parts.push('<span class="qeeg-ai-chip" style="--chip-color:'
+    + (mri ? 'var(--purple, #9575cd)' : 'rgba(255,255,255,0.2)') + '">'
+    + 'MRI ' + (mri ? '&#x2713;' : '&#x2013;') + '</span>');
+  if (!qeeg || !mri) {
+    parts.push('<span class="qeeg-ai-chip" style="--chip-color:#ffa726">single-modality</span>');
+  }
+  return parts.join(' ');
+}
+
+function _agreementPill(score) {
+  var s = Number(score);
+  if (!isFinite(s)) s = 0;
+  var color = s >= 0.6 ? '#66bb6a' : (s >= 0.2 ? '#ffa726' : '#ef5350');
+  var label = 'agreement ' + s.toFixed(2);
+  return '<span class="qeeg-ai-chip" style="--chip-color:' + color + '">' + esc(label) + '</span>';
+}
+
+function _boostBadge(boost) {
+  var b = Number(boost);
+  if (!isFinite(b)) b = 1.0;
+  return '<span class="qeeg-ai-chip" style="--chip-color:#42a5f5">&#xD7;'
+    + b.toFixed(2) + '</span>';
+}
+
+function _supportList(title, support) {
+  support = Array.isArray(support) ? support : [];
+  if (!support.length) {
+    return '<details class="qeeg-ai-support">'
+      + '<summary>' + esc(title) + ' (0)</summary>'
+      + '<div class="qeeg-ai-support__empty">No biomarker support.</div>'
+      + '</details>';
+  }
+  var rows = support.map(function (s) {
+    var z = (s && typeof s.z === 'number') ? s.z.toFixed(2) : '–';
+    var w = (s && typeof s.weight === 'number') ? s.weight.toFixed(2) : '–';
+    var v = (s && typeof s.value === 'number') ? s.value.toFixed(2) : '–';
+    return '<li><code>' + esc(s && s.biomarker ? s.biomarker : '?') + '</code>'
+      + ' value=' + esc(v) + ', z=' + esc(z) + ', weight=' + esc(w) + '</li>';
+  }).join('');
+  return '<details class="qeeg-ai-support">'
+    + '<summary>' + esc(title) + ' (' + support.length + ')</summary>'
+    + '<ul class="qeeg-ai-support__list">' + rows + '</ul>'
+    + '</details>';
+}
+
+function _fusionCitations(citations) {
+  citations = Array.isArray(citations) ? citations : [];
+  if (!citations.length) return '';
+  var items = citations.map(function (c) {
+    var title = c && c.title ? c.title : (c && c.doi ? 'DOI ' + c.doi : 'Reference');
+    var href = c && c.url ? c.url : (c && c.doi ? 'https://doi.org/' + c.doi : '#');
+    return '<li><a href="' + esc(href) + '" target="_blank" rel="noopener noreferrer">'
+      + esc(title) + '</a></li>';
+  }).join('');
+  return '<ul class="qeeg-ai-citations">' + items + '</ul>';
+}
+
+function _fusionRecommendationBlock(rec) {
+  if (!rec) return '';
+  var mod = rec.primary_modality || '?';
+  var target = rec.target_region || '?';
+  var conflicts = Array.isArray(rec.conflicts) ? rec.conflicts : [];
+  var conflictHtml = '';
+  if (conflicts.length) {
+    conflictHtml = '<div class="qeeg-ai-conflicts">'
+      + '<strong>Conflicts:</strong><ul>'
+      + conflicts.map(function (c) {
+          return '<li>' + esc(c.field || 'field') + ': qeeg=' + esc(c.qeeg || '?')
+            + ' vs mri=' + esc(c.mri || '?') + ' &mdash; '
+            + esc(c.resolution || 'clinician review') + '</li>';
+        }).join('')
+      + '</ul></div>';
+  }
+  return '<div class="qeeg-ai-fusion-rec" data-testid="fusion-rec">'
+    + '<div class="qeeg-ai-fusion-rec__head">'
+    + '<span class="qeeg-ai-chip" style="--chip-color:#7e57c2">' + esc(mod) + '</span>'
+    + '<strong class="qeeg-ai-fusion-rec__target">' + esc(target) + '</strong>'
+    + ' ' + _boostBadge(rec.fusion_boost)
+    + ' ' + _agreementPill(rec.agreement_score)
+    + ' <span class="qeeg-ai-chip" style="--chip-color:#26a69a">'
+    + esc(rec.confidence || 'moderate') + '</span>'
+    + '</div>'
+    + (rec.rationale ? '<p class="qeeg-ai-fusion-rec__rationale">'
+      + esc(rec.rationale) + '</p>' : '')
+    + _supportList('qEEG support', rec.qeeg_support)
+    + _supportList('MRI support', rec.mri_support)
+    + _fusionCitations(rec.citations)
+    + conflictHtml
+    + '</div>';
+}
+
+/**
+ * Render a multi-modal fusion recommendation card (CONTRACT_V3 §1).
+ *
+ * @param {object|null} fusion — a FusionRecommendation envelope, or null.
+ * @returns {string} HTML string. Returns '' when fusion is null-ish or has
+ *   no recommendations.
+ */
+export function renderFusionCard(fusion) {
+  if (!fusion || !fusion.recommendations || !fusion.recommendations.length) {
+    return '';
+  }
+  var badges = _fusionModalityBadge(fusion.modalities_used);
+  var body = fusion.recommendations.map(_fusionRecommendationBlock).join('');
+  var envConflicts = Array.isArray(fusion.conflicts) ? fusion.conflicts : [];
+  var envConflictsHtml = '';
+  if (envConflicts.length) {
+    envConflictsHtml = '<div class="qeeg-ai-conflicts qeeg-ai-conflicts--envelope">'
+      + '<strong>Cross-modality conflicts:</strong><ul>'
+      + envConflicts.map(function (c) {
+          return '<li>' + esc(c.field || 'field') + ': qeeg=' + esc(c.qeeg || '?')
+            + ' vs mri=' + esc(c.mri || '?') + ' &mdash; '
+            + esc(c.resolution || 'clinician review') + '</li>';
+        }).join('')
+      + '</ul></div>';
+  }
+  var summary = fusion.summary ? '<p class="qeeg-ai-fusion__summary">'
+    + esc(fusion.summary) + '</p>' : '';
+  var disclaimer = '<footer class="qeeg-ai-fusion__disclaimer">'
+    + esc(fusion.disclaimer || 'Decision-support tool. Not a medical device.')
+    + '</footer>';
+  var header = '<div class="qeeg-ai-fusion__head">' + badges + '</div>';
+  return _card('Multi-modal fusion',
+    header + summary + envConflictsHtml + body + disclaimer);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONTRACT_V3 §2 — SSE pipeline progress client
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Open an EventSource against `url` and wire event handlers. Returns a
+ * cleanup object with `.close()` that tears the stream down.
+ *
+ * When `EventSource` is undefined (JSDOM / older browser), the returned
+ * object has `ok:false` and callers may fall back to their existing
+ * polling loop.
+ *
+ * @param {string}   containerId — DOM id the stream belongs to (used as
+ *                   a stable key for cleanup; can be empty).
+ * @param {string}   url — the SSE endpoint URL (must include ?token=…).
+ * @param {object=}  opts — { onStage, onComplete, onError }.
+ * @returns {{ok:boolean, close:Function}}
+ */
+export function mountPipelineSSE(containerId, url, opts) {
+  opts = opts || {};
+  if (typeof EventSource === 'undefined') {
+    return { ok: false, close: function () {} };
+  }
+  var es;
+  try {
+    es = new EventSource(url);
+  } catch (err) {
+    if (typeof opts.onError === 'function') opts.onError(err);
+    return { ok: false, close: function () {} };
+  }
+  es.addEventListener('stage_update', function (ev) {
+    var payload = null;
+    try { payload = JSON.parse(ev.data || '{}'); } catch (_e) {}
+    if (typeof opts.onStage === 'function') opts.onStage(payload || {});
+  });
+  es.addEventListener('complete', function (ev) {
+    var payload = null;
+    try { payload = JSON.parse(ev.data || '{}'); } catch (_e) {}
+    if (typeof opts.onComplete === 'function') opts.onComplete(payload || {});
+    try { es.close(); } catch (_e) {}
+  });
+  es.addEventListener('error', function (ev) {
+    if (typeof opts.onError === 'function') opts.onError(ev);
+  });
+  return {
+    ok: true,
+    close: function () { try { es.close(); } catch (_e) {} },
+  };
+}
+

@@ -10,14 +10,14 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import AsyncIterator, Iterable
+from typing import AsyncIterator
 
 import numpy as np
 
 log = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class Window:
     """A 1-second EEG window."""
 

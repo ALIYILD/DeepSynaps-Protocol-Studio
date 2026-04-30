@@ -176,9 +176,13 @@ def test_medrag_bridge_shape(monkeypatch) -> None:
     monkeypatch.setattr("app.services.qeeg_rag.query_literature", _fake_query)
 
     report = facade.load_demo_report()
-    out = asyncio.new_event_loop().run_until_complete(
-        facade.run_medrag_for_analysis_safe(report, top_k=5)
-    )
+    _loop = asyncio.new_event_loop()
+    try:
+        out = _loop.run_until_complete(
+            facade.run_medrag_for_analysis_safe(report, top_k=5)
+        )
+    finally:
+        _loop.close()
     assert "analysis_id" in out
     assert isinstance(out["results"], list)
     assert out["results"]
@@ -198,7 +202,11 @@ def test_medrag_bridge_never_raises_on_backend_failure(monkeypatch) -> None:
     monkeypatch.setattr("app.services.qeeg_rag.query_literature", _boom)
 
     report = facade.load_demo_report()
-    out = asyncio.new_event_loop().run_until_complete(
-        facade.run_medrag_for_analysis_safe(report, top_k=5)
-    )
+    _loop = asyncio.new_event_loop()
+    try:
+        out = _loop.run_until_complete(
+            facade.run_medrag_for_analysis_safe(report, top_k=5)
+        )
+    finally:
+        _loop.close()
     assert out["results"] == []

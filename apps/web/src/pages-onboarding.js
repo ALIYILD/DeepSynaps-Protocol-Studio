@@ -1,25 +1,31 @@
 import { api } from './api.js';
-import { currentUser } from './auth.js';
-import { spinner } from './helpers.js';
+import { getEvidenceUiStats } from './evidence-ui-live.js';
 import {
   EVIDENCE_TOTAL_PAPERS,
   EVIDENCE_SUMMARY,
 } from './evidence-dataset.js';
-import {
-  ffInput,
-  ffTextarea,
-  ffSelect,
-  ffChipGroup,
-  ffStepper,
-  ffActions,
-  ffNotice,
-} from './friendly-forms.js';
 
-// ── Module-level wizard state ─────────────────────────────────────────────────
-let onboardingStep = 1;
-let onboardingData = {};
+// HTML escape helper used by the wizard's input value bindings.
+function _obEsc(v) {
+  if (v == null) return '';
+  return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
+}
 
-const ONB_STEP_LABELS = ['Practice', 'Patient', 'Protocol', 'Ready'];
+// Live evidence-stats cache populated on wizard entry; fallback values keep
+// the welcome cards rendering even before the API call resolves.
+let _onboardingEvidenceStats = {
+  totalPapers: EVIDENCE_TOTAL_PAPERS,
+  modalityDistribution: EVIDENCE_SUMMARY.modalityDistribution || {},
+};
+
+function _onboardingTotalPapers() {
+  return Number(_onboardingEvidenceStats.totalPapers) || EVIDENCE_TOTAL_PAPERS;
+}
+
+function _onboardingModalityCount() {
+  return Object.keys(_onboardingEvidenceStats.modalityDistribution || {}).length
+    || Object.keys(EVIDENCE_SUMMARY.modalityDistribution || {}).length;
+}
 
 // ── Step indicator (friendly-forms stepper) ──────────────────────────────────
 function pipHtml(step) {
@@ -168,7 +174,7 @@ function step3Html() {
 
       <div class="ff-card">
         <div class="ff-card-title">Protocol basics</div>
-        <p class="ff-card-sub">We use these to seed recommendations from our ${EVIDENCE_TOTAL_PAPERS.toLocaleString()}-paper evidence base — you can refine every parameter afterwards.</p>
+        <p class="ff-card-sub">We use these to seed recommendations from our ${_onboardingTotalPapers().toLocaleString()}-paper evidence base — you can refine every parameter afterwards.</p>
         ${ffInput({
           id: 'onb-proto-condition',
           label: 'Condition',
@@ -183,7 +189,7 @@ function step3Html() {
           label: 'Modality',
           options: MODALITIES,
           placeholder: 'Select modality…',
-          help: `Choose the neuromodulation method you plan to use for this patient. Recommendations draw from ${EVIDENCE_TOTAL_PAPERS.toLocaleString()} indexed papers across ${Object.keys(EVIDENCE_SUMMARY.modalityDistribution).length} modalities.`,
+          help: `Choose the neuromodulation method you plan to use for this patient. Recommendations draw from ${_onboardingTotalPapers().toLocaleString()} indexed papers across ${_onboardingModalityCount()} modalities.`,
         })}
         ${ffTextarea({
           id: 'onb-proto-symptoms',
@@ -242,7 +248,7 @@ function step4Html() {
         <div class="onb-next-card" onclick="window._nav('ai-assistant')" role="button" tabindex="0">
           <div class="onb-next-icon">✦</div>
           <div class="onb-next-title">Open AI assistant →</div>
-          <div class="onb-next-desc">Get AI-powered clinical decision support.</div>
+          <div class="onb-next-desc">Evidence-based clinical decision support (AI features require configuration).</div>
         </div>
       </div>
 
@@ -442,6 +448,13 @@ window._onbSelectCond = function(el, cond) {
 export async function pgOnboarding(setTopbar, navigate) {
   // Reset step to 1 on each fresh visit (unless resuming)
   if (onboardingStep < 1 || onboardingStep > 4) onboardingStep = 1;
+  try {
+    _onboardingEvidenceStats = await getEvidenceUiStats({
+      fallbackSummary: EVIDENCE_SUMMARY,
+      fallbackConditionCount: 15,
+      fallbackMetaAnalyses: 0,
+    });
+  } catch {}
   renderOnboarding(setTopbar);
 }
 
@@ -604,7 +617,7 @@ function _wizStep1() {
         <div style="background:linear-gradient(135deg,var(--card-bg,var(--bg-card)) 0%,rgba(0,212,188,0.03) 100%);border:1px solid rgba(0,212,188,0.2);border-radius:12px;padding:16px;text-align:center">
           <div style="width:40px;height:40px;border-radius:50%;background:rgba(0,212,188,0.15);display:flex;align-items:center;justify-content:center;font-size:20px;margin:0 auto 10px">📋</div>
           <div style="font-size:12.5px;font-weight:700;color:var(--text-primary);margin-bottom:4px">Evidence-Based Protocols</div>
-          <div style="font-size:11px;color:var(--text-secondary);line-height:1.5">Backed by peer-reviewed research across 15+ conditions</div>
+          <div style="font-size:11px;color:var(--text-secondary);line-height:1.5">Backed by ${_onboardingTotalPapers().toLocaleString()} indexed papers across ${Math.max(_onboardingModalityCount(), 1)} modalities</div>
         </div>
         <div style="background:linear-gradient(135deg,var(--card-bg,var(--bg-card)) 0%,rgba(59,130,246,0.03) 100%);border:1px solid rgba(59,130,246,0.2);border-radius:12px;padding:16px;text-align:center">
           <div style="width:40px;height:40px;border-radius:50%;background:rgba(59,130,246,0.15);display:flex;align-items:center;justify-content:center;font-size:20px;margin:0 auto 10px">👥</div>
@@ -646,7 +659,7 @@ function _wizStep2() {
         <div class="form-group">
           <label class="form-label">Clinic Name</label>
           <input id="wiz-clinic-name" class="form-control" type="text"
-            value="${saved.clinicName || ''}" placeholder="e.g. Synapse Wellness Clinic" />
+            value="${_obEsc(saved.clinicName)}" placeholder="e.g. Synapse Wellness Clinic" />
         </div>
         <div class="form-group">
           <label class="form-label">Clinic Type</label>
@@ -662,7 +675,7 @@ function _wizStep2() {
               <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:var(--text-secondary)">
                 <input type="checkbox" id="wiz-mod-${m.replace(/\s/g,'-')}" value="${m}"
                   ${(saved.modalities || []).includes(m) ? 'checked' : ''}
-                  style="accent-color:var(--accent-teal,#00d4bc)" />
+                  style="accent-color:var(--teal,#00d4bc)" />
                 ${m}
               </label>`).join('')}
           </div>
@@ -731,8 +744,8 @@ function _wizStep4() {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
         <div style="border:2px solid var(--border);border-radius:12px;padding:24px;cursor:pointer;transition:border-color 0.2s;text-align:center"
           id="wiz-card-import"
-          onmouseover="this.style.borderColor='var(--accent-teal,#00d4bc)'"
-          onmouseout="this.style.borderColor='${_wiz.dataChoice==='import' ? 'var(--accent-teal,#00d4bc)' : 'var(--border)'}'"
+          onmouseover="this.style.borderColor='var(--teal,#00d4bc)'"
+          onmouseout="this.style.borderColor='${_wiz.dataChoice==='import' ? 'var(--teal,#00d4bc)' : 'var(--border)'}'"
           onclick="window._wizChooseImport()">
           <div style="font-size:32px;margin-bottom:12px">📥</div>
           <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:6px">Import Existing Data</div>
@@ -740,15 +753,15 @@ function _wizStep4() {
         </div>
         <div style="border:2px solid var(--border);border-radius:12px;padding:24px;cursor:pointer;transition:border-color 0.2s;text-align:center"
           id="wiz-card-sample"
-          onmouseover="this.style.borderColor='var(--accent-teal,#00d4bc)'"
-          onmouseout="this.style.borderColor='${_wiz.dataChoice==='sample' ? 'var(--accent-teal,#00d4bc)' : 'var(--border)'}'"
+          onmouseover="this.style.borderColor='var(--teal,#00d4bc)'"
+          onmouseout="this.style.borderColor='${_wiz.dataChoice==='sample' ? 'var(--teal,#00d4bc)' : 'var(--border)'}'"
           onclick="window._wizChooseSample()">
           <div style="font-size:32px;margin-bottom:12px">🎯</div>
           <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:6px">Start with Sample Data</div>
           <div style="font-size:12px;color:var(--text-secondary);line-height:1.5">We'll set up demo patients, protocols, and sessions so you can explore immediately</div>
         </div>
       </div>
-      <div id="wiz-data-msg" style="display:none;font-size:12.5px;color:var(--accent-teal,#00d4bc);text-align:center;margin-bottom:8px;padding:8px;background:rgba(0,212,188,0.06);border-radius:8px"></div>
+      <div id="wiz-data-msg" style="display:none;font-size:12.5px;color:var(--teal,#00d4bc);text-align:center;margin-bottom:8px;padding:8px;background:rgba(0,212,188,0.06);border-radius:8px"></div>
       <div style="display:flex;gap:12px;justify-content:space-between;align-items:center">
         <button class="btn onboarding-nav-btn" onclick="window._wizGo(3)">← Back</button>
         <div style="display:flex;gap:8px;align-items:center">
@@ -807,7 +820,7 @@ function _wizStep6() {
       ${_wizDots(6)}
       <div id="wiz-confetti-anchor"></div>
       <div style="width:80px;height:80px;border-radius:50%;background:rgba(0,212,188,0.12);border:2px solid rgba(0,212,188,0.4);display:flex;align-items:center;justify-content:center;font-size:36px;margin:0 auto 20px;box-shadow:0 0 32px rgba(0,212,188,0.25)">✓</div>
-      <h2 style="font-size:24px;font-weight:800;color:var(--accent-teal,#00d4bc);margin:0 0 8px">Setup Complete!</h2>
+      <h2 style="font-size:24px;font-weight:800;color:var(--teal,#00d4bc);margin:0 0 8px">Setup Complete!</h2>
       <div style="font-size:15px;color:var(--text-primary);margin-bottom:8px">Your <strong>${roleLabel}</strong> workspace is ready.</div>
       ${ptMsg}
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:28px">
@@ -864,9 +877,16 @@ window._wizGo = function(step) {
   _renderWizStep(step);
 };
 
+// Skip the wizard. We mark onboarding *complete* (not just "skipped") so the
+// post-auth router gate in app.js#bootApp does not re-trigger the wizard on
+// the next reload. Power users who hit "Skip setup" should never be forced
+// back into onboarding without an explicit /onboarding-wizard navigation.
+// `ds_onboarding_skip` is kept as a secondary breadcrumb so dashboards can
+// distinguish "skipped" from "finished" if/when they want to.
 window._wizSkip = function(e) {
   e?.preventDefault();
-  localStorage.setItem('ds_onboarding_skip', '1');
+  try { localStorage.setItem('ds_onboarding_complete', 'true'); } catch {}
+  try { localStorage.setItem('ds_onboarding_skip', '1'); } catch {}
   document.getElementById('onboarding-overlay')?.remove();
   window._nav?.('dashboard');
 };
@@ -950,7 +970,7 @@ window._wizChooseImport = function() {
   // Highlight selected card
   const importCard = document.getElementById('wiz-card-import');
   const sampleCard = document.getElementById('wiz-card-sample');
-  if (importCard) importCard.style.borderColor = 'var(--accent-teal,#00d4bc)';
+  if (importCard) importCard.style.borderColor = 'var(--teal,#00d4bc)';
   if (sampleCard) sampleCard.style.borderColor = 'var(--border)';
 };
 
@@ -964,7 +984,7 @@ window._wizChooseSample = function() {
   }
   const importCard = document.getElementById('wiz-card-import');
   const sampleCard = document.getElementById('wiz-card-sample');
-  if (sampleCard) sampleCard.style.borderColor = 'var(--accent-teal,#00d4bc)';
+  if (sampleCard) sampleCard.style.borderColor = 'var(--teal,#00d4bc)';
   if (importCard) importCard.style.borderColor = 'var(--border)';
 };
 
@@ -1012,6 +1032,17 @@ export async function pgOnboardingWizard(setTopbar) {
   // Reset wizard state for a fresh run
   _wiz = { step: 1, clinicName: '', clinicType: '', modalities: [], clinicianCount: '', role: '', dataChoice: '', complete: false };
 
+  // Refresh the live evidence-stats cache so the welcome-card "X papers
+  // across N modalities" counters reflect the current dataset. Falls back
+  // silently to the bundled summary if the API is unreachable.
+  try {
+    _onboardingEvidenceStats = await getEvidenceUiStats({
+      fallbackSummary: EVIDENCE_SUMMARY,
+      fallbackConditionCount: 15,
+      fallbackMetaAnalyses: 0,
+    });
+  } catch {}
+
   // Restore any previously saved clinic config / role
   try {
     const cc = JSON.parse(localStorage.getItem('ds_clinic_config') || '{}');
@@ -1058,3 +1089,10 @@ window._startOnboarding = function() {
   } catch {}
   _buildWizOverlay();
 };
+
+// Phase 10 — agent-onboarding wizard. Lives in its own module so the unit-
+// test suite can load it under Node without dragging in the legacy
+// onboarding's transitive auth/friendly-forms imports. Re-exported here so
+// `loadOnboarding()` in app.js continues to be the single dynamic-import
+// entry point for every onboarding flow.
+export { pgAgentOnboarding, __agentOnboardingTestApi__ } from './agent-onboarding-wizard.js';

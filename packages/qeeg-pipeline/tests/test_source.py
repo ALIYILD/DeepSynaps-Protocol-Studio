@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 pytest.importorskip("mne")
+pytest.importorskip("nibabel")
 pytest.importorskip("pandas")
 
 

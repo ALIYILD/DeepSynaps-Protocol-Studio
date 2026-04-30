@@ -31,7 +31,14 @@ if TYPE_CHECKING:  # pragma: no cover
 
 @dataclass
 class PipelineResult:
-    """Bundle returned by :func:`run_full_pipeline`. Matches ``CONTRACT.md §1``."""
+    """Bundle returned by :func:`run_full_pipeline`. Matches ``CONTRACT.md §1``.
+
+    Note (2026-04-26 night-shift): top-level ``qc_flags``, ``confidence``,
+    ``method_provenance``, and ``limitations`` are convenience copies of the
+    same keys inside ``features['clinical_summary']``. They exist so callers
+    (frontend, fusion, report renderer) can read decision-support metadata
+    without descending into the features dict.
+    """
 
     features: dict[str, Any] = field(default_factory=dict)
     zscores: dict[str, Any] = field(default_factory=dict)
@@ -42,6 +49,11 @@ class PipelineResult:
     longitudinal: dict[str, Any] = field(default_factory=dict)
     report_html: str | None = None
     report_pdf_path: Path | None = None
+    # Top-level decision-support arrays — populated from clinical_summary.
+    qc_flags: list[dict[str, Any]] = field(default_factory=list)
+    confidence: dict[str, Any] = field(default_factory=dict)
+    method_provenance: dict[str, Any] = field(default_factory=dict)
+    limitations: list[dict[str, Any]] = field(default_factory=list)
 
 
 def run_full_pipeline(
@@ -51,6 +63,7 @@ def run_full_pipeline(
     sex: str | None = None,
     prev_session_id: str | None = None,
     recording_state: str | None = None,
+    medications: list[str] | None = None,
     notch_hz: float = NOTCH_HZ,
     bandpass: tuple[float, float] = BANDPASS,
     resample: float = RESAMPLE_SFREQ,
@@ -111,6 +124,8 @@ def run_full_pipeline(
     if recording_state:
         # Stored for longitudinal state-mismatch validation (e.g. eyes-open vs eyes-closed).
         result.quality["recording_state"] = str(recording_state)
+    if medications is not None:
+        result.quality["medications"] = list(medications)
 
     # --- Stage 1 — I/O ---
     raw = load_raw(eeg_path)
@@ -325,8 +340,16 @@ def run_full_pipeline(
             quality=result.quality,
             age=age,
             sex=sex,
+            evidence_lookup=_resolve_evidence_lookup(),
         )
         result.features = features
+        # Promote decision-support metadata onto the result so consumers don't
+        # have to descend into features['clinical_summary']['…'].
+        cs = features["clinical_summary"]
+        result.qc_flags = list(cs.get("qc_flags") or [])
+        result.confidence = dict(cs.get("confidence") or {})
+        result.method_provenance = dict(cs.get("method_provenance") or {})
+        result.limitations = list(cs.get("limitations") or [])
     except Exception as exc:
         log.warning("Clinical summary stage skipped (%s)", exc)
         result.quality["stage_errors"]["clinical_summary"] = str(exc)
@@ -452,6 +475,46 @@ def run_full_pipeline(
     # Re-stamp pipeline version at the end (avoid being clobbered by sub-dicts).
     result.quality["pipeline_version"] = PIPELINE_VERSION
     return result
+
+
+def _resolve_evidence_lookup() -> Any:
+    """Best-effort evidence-layer lookup for clinical_summary findings.
+
+    Tries to import :mod:`deepsynaps_evidence` (the sibling evidence package)
+    and return a small adapter that, given a finding label, returns up to 3
+    PubMed-style citations. If the package is missing, the API surface differs
+    from what we expect, or any single call raises, we return ``None`` so the
+    summary marks each finding ``evidence_pending`` rather than fabricating.
+
+    The contract on the returned callable: ``(label: str) -> list[dict]``,
+    where each dict may contain ``title``, ``url``, ``pmid``, ``year``,
+    ``evidence_level`` keys.
+    """
+    try:
+        # Late import — never break pipeline startup if evidence pkg missing.
+        from deepsynaps_evidence import grade_evidence  # type: ignore[import-not-found]  # noqa: F401
+    except Exception as exc:
+        log.info("Evidence layer not importable (%s); findings will be evidence_pending.", exc)
+        return None
+
+    def _lookup(label: str) -> list[dict[str, Any]]:
+        # The evidence package has historically exposed a ``search_papers`` or
+        # similar entry; we probe defensively. If none of the known shapes are
+        # present we return an empty list (caller will mark evidence_pending).
+        try:
+            from deepsynaps_evidence import search_papers  # type: ignore[import-not-found]
+        except Exception:
+            search_papers = None  # type: ignore[assignment]
+        if search_papers is None:
+            return []
+        try:
+            hits = search_papers(label, limit=3)  # type: ignore[misc]
+            return hits or []
+        except Exception as inner:
+            log.info("evidence search failed for %s (%s).", label, inner)
+            return []
+
+    return _lookup
 
 
 def _should_run_source_localization(epochs: Any, quality: dict[str, Any]) -> bool:

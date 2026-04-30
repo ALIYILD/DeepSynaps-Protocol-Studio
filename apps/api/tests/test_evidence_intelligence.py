@@ -9,12 +9,15 @@ from app.database import SessionLocal
 from app.persistence.models import DsPaper
 from app.services.evidence_intelligence import (
     EvidenceQuery,
+    SaveCitationRequest,
     build_default_query,
     build_report_payload,
     classify_study_type,
+    list_saved_citations,
     query_evidence,
     rank_papers,
     resolve_concepts,
+    save_citation,
     score_applicability,
 )
 
@@ -200,3 +203,106 @@ def test_report_payload_generation_contains_citations():
         session.close()
     assert payload["guardrail"].startswith("Decision support only")
     assert payload["citations"]
+
+
+def test_saved_citations_can_be_filtered_by_report_context():
+    session = SessionLocal()
+    try:
+        save_citation(
+            SaveCitationRequest(
+                patient_id="pat-scope",
+                finding_id="finding-a",
+                finding_label="Finding A",
+                claim="Claim A",
+                paper_id="paper-a",
+                paper_title="Paper A",
+                context_kind="qeeg",
+                analysis_id="qeeg-1",
+                report_id="report-1",
+                citation_payload={"inline_citation": "(A, 2024)"},
+            ),
+            "clinician-1",
+            session,
+        )
+        save_citation(
+            SaveCitationRequest(
+                patient_id="pat-scope",
+                finding_id="finding-b",
+                finding_label="Finding B",
+                claim="Claim B",
+                paper_id="paper-b",
+                paper_title="Paper B",
+                context_kind="mri",
+                analysis_id="mri-1",
+                report_id="report-9",
+                citation_payload={"inline_citation": "(B, 2024)"},
+            ),
+            "clinician-1",
+            session,
+        )
+        qeeg_rows = list_saved_citations(
+            "pat-scope",
+            session,
+            context_kind="qeeg",
+            analysis_id="qeeg-1",
+            report_id="report-1",
+        )
+        assert len(qeeg_rows) == 1
+        assert qeeg_rows[0]["context_kind"] == "qeeg"
+        assert qeeg_rows[0]["analysis_id"] == "qeeg-1"
+        assert qeeg_rows[0]["report_id"] == "report-1"
+    finally:
+        session.close()
+
+
+def test_report_payload_respects_saved_citation_context_filters():
+    session = SessionLocal()
+    try:
+        save_citation(
+            SaveCitationRequest(
+                patient_id="pat-report-scope",
+                finding_id="finding-qeeg",
+                finding_label="qEEG finding",
+                claim="Claim qEEG",
+                paper_id="paper-qeeg",
+                paper_title="qEEG Paper",
+                context_kind="qeeg",
+                analysis_id="qeeg-55",
+                report_id="report-qeeg",
+                citation_payload={"inline_citation": "(Q, 2024)"},
+            ),
+            "clinician-2",
+            session,
+        )
+        save_citation(
+            SaveCitationRequest(
+                patient_id="pat-report-scope",
+                finding_id="finding-mri",
+                finding_label="MRI finding",
+                claim="Claim MRI",
+                paper_id="paper-mri",
+                paper_title="MRI Paper",
+                context_kind="mri",
+                analysis_id="mri-44",
+                report_id="report-mri",
+                citation_payload={"inline_citation": "(M, 2024)"},
+            ),
+            "clinician-2",
+            session,
+        )
+        payload = build_report_payload(
+            body=__import__("app.services.evidence_intelligence", fromlist=["ReportPayloadRequest"]).ReportPayloadRequest(
+                patient_id="pat-report-scope",
+                finding_ids=["frontal_alpha_asymmetry"],
+                include_saved=True,
+                context_kind="qeeg",
+                analysis_id="qeeg-55",
+                report_id="report-qeeg",
+            ),
+            db=session,
+        )
+        assert payload["report_context"]["context_kind"] == "qeeg"
+        assert len(payload["saved_citations"]) == 1
+        assert payload["saved_citations"][0]["paper_id"] == "paper-qeeg"
+    finally:
+        session.close()

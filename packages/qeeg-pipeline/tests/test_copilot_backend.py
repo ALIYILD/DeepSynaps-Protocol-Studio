@@ -2,7 +2,7 @@
 
 Covers:
 
-* The 4-tool schema names + required fields don't drift (stability).
+* The 6-tool schema names + required fields don't drift (stability).
 * :data:`SYSTEM_PROMPT_TEMPLATE` still contains only *negated* mentions
   of banned vocabulary — the template never *asserts* them.
 * :func:`mock_llm_tool_dispatch` still routes the canned prefixes to
@@ -13,26 +13,34 @@ from __future__ import annotations
 
 
 def test_tools_schema_stability() -> None:
-    """Snapshot the 4 tool names + required fields."""
+    """Snapshot the 6 tool names + required fields."""
     from deepsynaps_qeeg.ai import copilot
 
     schema = copilot._tools_schema()
     assert [t["name"] for t in schema] == [
         "tool_search_papers",
         "tool_explain_feature",
+        "tool_explain_channel",
         "tool_compare_to_norm",
         "tool_get_recommendation_detail",
+        "tool_explain_medication",
     ]
     by_name = {t["name"]: t for t in schema}
     assert by_name["tool_search_papers"]["input_schema"]["required"] == ["query"]
     assert by_name["tool_explain_feature"]["input_schema"]["required"] == [
         "feature_name"
     ]
+    assert by_name["tool_explain_channel"]["input_schema"]["required"] == [
+        "channel_name"
+    ]
     assert set(
         by_name["tool_compare_to_norm"]["input_schema"]["required"]
     ) == {"feature_name", "value"}
     assert by_name["tool_get_recommendation_detail"]["input_schema"]["required"] == [
         "section"
+    ]
+    assert by_name["tool_explain_medication"]["input_schema"]["required"] == [
+        "medication_name"
     ]
 
 
@@ -76,34 +84,76 @@ def test_mock_dispatch_still_works() -> None:
     """Regression: the deterministic mock dispatch routes prefixes."""
     from deepsynaps_qeeg.ai import copilot
 
-    # explain: prefix → tool_explain_feature
+    # explain: prefix -> tool_explain_feature
     explain = copilot.mock_llm_tool_dispatch("explain: theta_beta_ratio", {})
     assert explain["tool"] == "tool_explain_feature"
     assert "theta" in explain["reply"].lower() or "Theta" in explain["reply"]
 
-    # norm: prefix → tool_compare_to_norm
+    # norm: prefix -> tool_compare_to_norm
     norm = copilot.mock_llm_tool_dispatch(
         "norm: theta_beta_ratio=2.5", {"age": 35, "sex": "F"}
     )
     assert norm["tool"] == "tool_compare_to_norm"
     assert "centile" in norm["reply"]
 
-    # section: prefix → tool_get_recommendation_detail
+    # section: prefix -> tool_get_recommendation_detail
     section = copilot.mock_llm_tool_dispatch(
         "section: dose",
         {"recommendation": {"dose": {"sessions": 10}}},
     )
     assert section["tool"] == "tool_get_recommendation_detail"
 
-    # Unsafe query → refusal (no tool call).
+    # Unsafe query -> refusal (no tool call).
     refusal = copilot.mock_llm_tool_dispatch("Can you diagnose me?", {})
     assert refusal["tool"] is None
     assert refusal["reply"] == copilot.REFUSAL_MESSAGE
 
-    # Bare text (no prefix) → echo with no tool.
+    # Bare text (no prefix) -> echo with no tool.
     echo = copilot.mock_llm_tool_dispatch("hello there", {})
     assert echo["tool"] is None
 
+
+def test_mock_medication_prefix() -> None:
+    """Regression: medication: prefix routes to tool_explain_medication."""
+    from deepsynaps_qeeg.ai import copilot
+
+    res = copilot.mock_llm_tool_dispatch("medication: lorazepam", {})
+    assert res["tool"] == "tool_explain_medication"
+    assert "lorazepam" in res["reply"].lower() or "Benzodiazepines" in res["reply"]
+
+    unknown = copilot.mock_llm_tool_dispatch("medication: not_a_drug_xyz", {})
+    assert unknown["tool"] == "tool_explain_medication"
+    assert unknown["result"]["drug_class"] == "Unknown"
+
+
+def test_render_system_prompt_with_medication_confounds() -> None:
+    """render_system_prompt surfaces medication_confounds as readable text."""
+    from deepsynaps_qeeg.ai import copilot
+
+    meds = [
+        {
+            "medication": "Benzodiazepines (e.g., lorazepam)",
+            "affected_bands": ["beta", "alpha"],
+            "drug_class": "GABA-A positive allosteric modulator",
+            "clinical_note": "Beta excess is the hallmark EEG effect.",
+        }
+    ]
+    rendered = copilot.render_system_prompt(
+        analysis_id="test-123",
+        medication_confounds=meds,
+    )
+    assert "Benzodiazepines" in rendered
+    assert "beta" in rendered
+    assert "Medication / confound awareness" in rendered
+
+
+def test_render_system_prompt_medication_confounds_fallback() -> None:
+    """render_system_prompt falls back to (none) when no confounds provided."""
+    from deepsynaps_qeeg.ai import copilot
+
+    rendered = copilot.render_system_prompt(analysis_id="test-456")
+    assert "Medication / confound awareness" in rendered
+    assert "(none)" in rendered
 
 def test_banned_word_sanitiser_rewrites_all_forms() -> None:
     """The sanitiser must rewrite ``diagnos*`` and

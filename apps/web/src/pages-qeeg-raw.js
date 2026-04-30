@@ -14,11 +14,17 @@
 //   - Bad channel marking, segment annotation, ICA review
 //   - Filter controls (LFF, HFF, Notch)
 //   - Page counter (Page X of Y)
+//   - Band power dashboard (Delta/Theta/Alpha/Beta/Gamma)
+//   - Per-channel quality indicator dots
+//   - Recording timeline overview strip
+//   - Keyboard shortcuts help overlay (? key)
+//   - Snapshot PNG export
 // ─────────────────────────────────────────────────────────────────────────────
 import { api } from './api.js';
 import { emptyState, showToast } from './helpers.js';
 import { EEGSignalRenderer } from './eeg-signal-renderer.js';
-import { EEGSpectralPanel } from './eeg-spectral-panel.js';
+import { renderBrainMap10_20 } from './brain-map-svg.js';
+import { EEGSpectralPanel, _computePSD } from './eeg-spectral-panel.js';
 import { EEGEventEditor, EEGMeasurementTool, EEGExporter, EEGUndoManager } from './eeg-tools.js';
 import { EEGMontageEditor, EEGChannelManager, EEGRecordingInfo } from './eeg-montage-editor.js';
 
@@ -118,6 +124,7 @@ function _initState() {
       interactionMode: 'select',
       spectralMode: 'psd',
       spectralVisible: false,
+      notepad: '',
       eventEditor: new EEGEventEditor(),
       measurementTool: new EEGMeasurementTool(),
       undoManager: new EEGUndoManager(),
@@ -166,7 +173,7 @@ export async function renderRawDataTab(tabEl, analysisId, patientId) {
     state.channelInfo = info;
   } catch (err) {
     tabEl.innerHTML = emptyState('&#x26A0;', 'Failed to Load EEG Data',
-      'Could not load channel information.<br><small>' + esc(err.message || err) + '</small>');
+      'Could not load channel information.<br><small>' + esc(String(err && err.message ? err.message : err || "Unknown error")) + '</small>');
     return;
   }
 
@@ -498,6 +505,9 @@ function _buildLayout(state, isDemo) {
 
   // Actions
   html += '<div class="eeg-tb__group">'
+    + '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-snapshot-btn" title="Snapshot PNG (S)">'
+    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>'
+    + ' Snapshot</button>'
     + '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-export-btn" title="Export (CSV/PNG)">'
     + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>'
     + ' Export</button>'
@@ -510,6 +520,9 @@ function _buildLayout(state, isDemo) {
     + '<button class="eeg-tb__action-btn eeg-tb__action-btn--primary" id="eeg-reprocess-btn" title="Re-process with edits">'
     + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6"/><path d="M2.5 22v-6h6"/><path d="M2.5 12A10 10 0 0119 5.6"/><path d="M21.5 12A10 10 0 015 18.4"/></svg>'
     + ' Reprocess</button>'
+    + '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-workbench-btn" title="Open full-screen workbench">'
+    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>'
+    + ' Workbench</button>'
     + '</div>';
 
   html += '</div>'; // toolbar
@@ -536,12 +549,20 @@ function _buildLayout(state, isDemo) {
   html += '<div class="eeg-viewer__spectral-wrap" id="eeg-spectral-wrap" style="display:' + (state.spectralVisible ? 'block' : 'none') + '"></div>';
   html += '</div>'; // main-stack
 
+  // Timeline overview strip
+  html += _buildTimelineOverview(state);
+
   // Right sidebar
   html += '<div class="eeg-viewer__sidebar" id="eeg-sidebar">';
   html += _buildRecordingInfoSection(state);
+  html += _buildBandPowerSection(state);
+  html += _buildEpochStatsSection(state);
+  html += _buildMontageDiagramSection(state);
+  html += _buildCorrelationSection(state);
   html += _buildChannelSection(state);
   html += _buildSegmentsSection(state);
   html += _buildEventsSection(state);
+  html += _buildNotepadSection(state);
   html += _buildICASection(state);
   html += '</div>';
 
@@ -549,9 +570,12 @@ function _buildLayout(state, isDemo) {
 
   // ── Status bar
   html += '<div class="eeg-viewer__statusbar">'
-    + '<span>Scroll: navigate \u00B7 Ctrl+Scroll: zoom \u00B7 Click label: toggle bad \u00B7 Drag: annotate \u00B7 Ctrl+Z/Y: undo/redo</span>'
+    + '<span>Scroll: navigate \u00B7 Ctrl+Scroll: zoom \u00B7 Click label: toggle bad \u00B7 Drag: annotate \u00B7 Ctrl+Z/Y: undo/redo \u00B7 ?: shortcuts</span>'
     + '<span id="eeg-save-indicator"></span>'
     + '</div>';
+
+  // ── Shortcuts help overlay (hidden by default)
+  html += _buildShortcutsHelp();
 
   html += '</div>'; // eeg-viewer
 
@@ -610,6 +634,7 @@ function _buildChannelSection(state) {
     regionMap[r].forEach(function (ch) {
       var isBad = state.badChannels.indexOf(ch) >= 0;
       html += '<label class="eeg-sb__ch-chip' + (isBad ? ' eeg-sb__ch-chip--bad' : '') + '">'
+        + '<span class="eeg-sb__ch-quality" data-ch-q="' + esc(ch) + '"></span>'
         + '<input type="checkbox"' + (isBad ? '' : ' checked') + ' data-ch="' + esc(ch) + '">'
         + '<span class="eeg-sb__ch-name">' + esc(ch) + '</span>'
         + '</label>';
@@ -648,6 +673,94 @@ function _buildICASection(state) {
     + '</div></div>';
 }
 
+// ── Band Power section ──────────────────────────────────────────────────────
+// Clinical EEG frequency bands
+var BAND_DEFS = [
+  { name: 'Delta',  lo: 1,  hi: 4,  color: '#ab47bc', desc: '1–4 Hz \u2014 deep sleep, infants' },
+  { name: 'Theta',  lo: 4,  hi: 8,  color: '#42a5f5', desc: '4–8 Hz \u2014 drowsiness, meditation' },
+  { name: 'Alpha',  lo: 8,  hi: 13, color: '#66bb6a', desc: '8–13 Hz \u2014 relaxed awareness' },
+  { name: 'Beta',   lo: 13, hi: 30, color: '#ffa726', desc: '13–30 Hz \u2014 active thinking' },
+  { name: 'Gamma',  lo: 30, hi: 60, color: '#ef5350', desc: '30–60 Hz \u2014 high-level cognition' },
+];
+
+function _buildBandPowerSection(state) {
+  var bars = BAND_DEFS.map(function (b) {
+    return '<div class="eeg-sb__bp-row" data-band="' + b.name.toLowerCase() + '">'
+      + '<div class="eeg-sb__bp-label">'
+      + '<span class="eeg-sb__bp-dot" style="background:' + b.color + '"></span>'
+      + b.name + '</div>'
+      + '<div class="eeg-sb__bp-bar-wrap">'
+      + '<div class="eeg-sb__bp-bar" style="width:0%;background:' + b.color + '"></div>'
+      + '</div>'
+      + '<div class="eeg-sb__bp-val">--%</div>'
+      + '</div>';
+  }).join('');
+
+  return '<div class="eeg-sb__section">'
+    + '<div class="eeg-sb__title">Band Power <span class="eeg-sb__hint-inline">visible window</span></div>'
+    + '<div class="eeg-sb__bp-list" id="eeg-bandpower">' + bars + '</div>'
+    + '<div class="eeg-sb__bp-legend">Relative power across all channels</div>'
+    + '</div>';
+}
+
+function _updateBandPower(state, renderer) {
+  var container = document.getElementById('eeg-bandpower');
+  if (!container || !renderer || !renderer.data) return;
+
+  var data = renderer.data;
+  var sfreq = renderer.sfreq || 256;
+  if (!data.length || !data[0] || !data[0].length) return;
+
+  // Compute PSD for each channel and average
+  var nfft = 1;
+  while (nfft < data[0].length) nfft <<= 1;
+  var bandSums = BAND_DEFS.map(function () { return 0; });
+  var totalPower = 0;
+  var validCh = 0;
+
+  for (var ci = 0; ci < data.length; ci++) {
+    if (!data[ci] || !data[ci].length) continue;
+    try {
+      var psd = _computePSD(data[ci], sfreq, nfft);
+      var freqs = psd.freqs;
+      var power = psd.power;
+      var chTotal = 0;
+      for (var k = 0; k < freqs.length; k++) chTotal += power[k];
+      if (chTotal <= 0) continue;
+      for (var bi = 0; bi < BAND_DEFS.length; bi++) {
+        var b = BAND_DEFS[bi];
+        var bandPow = 0;
+        for (var k = 0; k < freqs.length; k++) {
+          if (freqs[k] >= b.lo && freqs[k] < b.hi) bandPow += power[k];
+        }
+        bandSums[bi] += bandPow / chTotal;
+      }
+      validCh++;
+    } catch (_) {}
+  }
+
+  if (validCh === 0) return;
+
+  // Average across channels and normalise so max ≈ 100%
+  var avgBands = bandSums.map(function (s) { return s / validCh; });
+  var maxVal = Math.max.apply(null, avgBands);
+  if (maxVal <= 0) maxVal = 1;
+
+  // Find dominant band
+  var domIdx = 0;
+  for (var i = 1; i < avgBands.length; i++) if (avgBands[i] > avgBands[domIdx]) domIdx = i;
+
+  var rows = container.querySelectorAll('.eeg-sb__bp-row');
+  for (var ri = 0; ri < rows.length && ri < BAND_DEFS.length; ri++) {
+    var pct = avgBands[ri];
+    var bar = rows[ri].querySelector('.eeg-sb__bp-bar');
+    var val = rows[ri].querySelector('.eeg-sb__bp-val');
+    if (bar) bar.style.width = Math.min(100, (pct / maxVal * 100)).toFixed(1) + '%';
+    if (val) val.textContent = (pct * 100).toFixed(1) + '%';
+    rows[ri].style.opacity = ri === domIdx ? '1' : '0.65';
+  }
+}
+
 function _renderICAGrid(state) {
   if (!state.icaData || !state.icaData.components) return '<div class="eeg-sb__hint">No ICA data</div>';
   var comps = state.icaData.components;
@@ -676,8 +789,123 @@ function _renderICAGrid(state) {
 
 // ── v2 section builders ─────────────────────────────────────────────────────
 
+function _buildCorrelationSection(state) {
+  return '<div class="eeg-sb__section">'
+    + '<div class="eeg-sb__title">Correlation <span class="eeg-sb__hint-inline">current window</span></div>'
+    + '<div class="eeg-sb__corr" id="eeg-corr-matrix">'
+    + '<div class="eeg-sb__hint">Load signal to see correlation matrix</div>'
+    + '</div></div>';
+}
+
+function _updateCorrelationMatrix(state, channels, data) {
+  var container = document.getElementById('eeg-corr-matrix');
+  if (!container || !channels || !data || channels.length < 2) return;
+  // Compute Pearson correlation for first 8 channels (to keep it small)
+  var n = Math.min(channels.length, 8);
+  var cors = [];
+  for (var i = 0; i < n; i++) {
+    cors[i] = [];
+    for (var j = 0; j < n; j++) {
+      if (!data[i] || !data[j] || !data[i].length || !data[j].length) { cors[i][j] = 0; continue; }
+      var meanI = 0, meanJ = 0;
+      for (var k = 0; k < data[i].length; k++) meanI += data[i][k];
+      for (var k = 0; k < data[j].length; k++) meanJ += data[j][k];
+      meanI /= data[i].length; meanJ /= data[j].length;
+      var num = 0, denI = 0, denJ = 0;
+      var len = Math.min(data[i].length, data[j].length);
+      for (var k = 0; k < len; k++) {
+        var di = data[i][k] - meanI;
+        var dj = data[j][k] - meanJ;
+        num += di * dj;
+        denI += di * di;
+        denJ += dj * dj;
+      }
+      var den = Math.sqrt(denI * denJ);
+      cors[i][j] = den > 0 ? num / den : 0;
+    }
+  }
+  // Build mini heatmap grid
+  var cellSize = Math.max(12, Math.floor(140 / n));
+  var html = '<div style="display:grid;grid-template-columns:repeat(' + n + ',' + cellSize + 'px);gap:1px;">';
+  for (var i = 0; i < n; i++) {
+    for (var j = 0; j < n; j++) {
+      var r = cors[i][j];
+      var absR = Math.abs(r);
+      var hue = r >= 0 ? 160 : 0; // teal for positive, red for negative
+      var sat = Math.min(100, absR * 100);
+      var light = 15 + (1 - absR) * 15;
+      var color = 'hsl(' + hue + ',' + sat.toFixed(0) + '%,' + light.toFixed(0) + '%)';
+      var title = esc(channels[i]) + ' \u2194 ' + esc(channels[j]) + '  r=' + r.toFixed(2);
+      html += '<div style="width:' + cellSize + 'px;height:' + cellSize + 'px;background:' + color + ';border-radius:2px;" title="' + title + '"></div>';
+    }
+  }
+  html += '</div>';
+  // Labels
+  html += '<div style="display:flex;justify-content:space-between;margin-top:4px;font-size:8px;color:#475569;font-family:monospace">';
+  for (var i = 0; i < n; i++) html += '<span style="width:' + cellSize + 'px;text-align:center;overflow:hidden;text-overflow:ellipsis">' + esc(channels[i]) + '</span>';
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function _buildMontageDiagramSection(state) {
+  var info = state.channelInfo || {};
+  var channels = (info.channels || []).map(function (ch) { return ch.name; });
+  var mapHtml = '';
+  try {
+    mapHtml = renderBrainMap10_20({ size: 180, highlightSites: channels, showZones: false });
+  } catch (_) { mapHtml = '<div class="eeg-sb__hint">Montage map unavailable</div>'; }
+  return '<div class="eeg-sb__section">'
+    + '<div class="eeg-sb__title">Montage <span class="eeg-sb__hint-inline">10–20</span></div>'
+    + '<div class="eeg-sb__montage" id="eeg-montage-diagram">' + mapHtml + '</div>'
+    + '</div>';
+}
+
+function _updateMontageDiagram(state) {
+  var container = document.getElementById('eeg-montage-diagram');
+  if (!container) return;
+  var info = state.channelInfo || {};
+  var channels = (info.channels || []).map(function (ch) { return ch.name; });
+  try {
+    container.innerHTML = renderBrainMap10_20({ size: 180, highlightSites: channels, showZones: false });
+  } catch (_) {}
+}
+
+function _buildEpochStatsSection(state) {
+  return '<div class="eeg-sb__section">'
+    + '<div class="eeg-sb__title">Epoch Stats <span class="eeg-sb__hint-inline">current window</span></div>'
+    + '<div class="eeg-sb__stats" id="eeg-epoch-stats">'
+    + '<div class="eeg-sb__hint">Load signal to see statistics</div>'
+    + '</div></div>';
+}
+
+function _updateEpochStats(state, channels, data) {
+  var container = document.getElementById('eeg-epoch-stats');
+  if (!container || !channels || !data) return;
+  var rows = channels.map(function (ch, ci) {
+    var vals = data[ci];
+    if (!vals || !vals.length) return '<div class="eeg-sb__stat-row"><span class="eeg-sb__stat-ch">' + esc(ch) + '</span><span class="eeg-sb__stat-val">--</span></div>';
+    var min = vals[0], max = vals[0], sum = 0;
+    for (var i = 0; i < vals.length; i++) {
+      if (vals[i] < min) min = vals[i];
+      if (vals[i] > max) max = vals[i];
+      sum += vals[i];
+    }
+    var mean = sum / vals.length;
+    var sqSum = 0;
+    for (var i = 0; i < vals.length; i++) sqSum += (vals[i] - mean) * (vals[i] - mean);
+    var sd = Math.sqrt(sqSum / vals.length);
+    var range = max - min;
+    return '<div class="eeg-sb__stat-row" title="Mean ' + mean.toFixed(1) + ' \u00B5V  \u00B7  SD ' + sd.toFixed(1) + '">'
+      + '<span class="eeg-sb__stat-ch">' + esc(ch) + '</span>'
+      + '<span class="eeg-sb__stat-val">' + range.toFixed(0) + ' \u00B5V</span>'
+      + '</div>';
+  }).join('');
+  container.innerHTML = '<div class="eeg-sb__stats-head"><span>Ch</span><span>Range</span></div>' + rows;
+}
+
 function _buildRecordingInfoSection(state) {
   var info = state.channelInfo || {};
+  var fp = state.filterParams || {};
   return '<div class="eeg-sb__section">'
     + '<div class="eeg-sb__title">Recording Info</div>'
     + '<div class="eeg-sb__rec-info">'
@@ -685,7 +913,20 @@ function _buildRecordingInfoSection(state) {
     + '<div class="eeg-sb__rec-row"><span class="eeg-sb__rec-label">Sfreq</span><span class="eeg-sb__rec-val">' + (info.sfreq || 0) + ' Hz</span></div>'
     + '<div class="eeg-sb__rec-row"><span class="eeg-sb__rec-label">Duration</span><span class="eeg-sb__rec-val">' + _formatDuration(info.duration_sec || 0) + '</span></div>'
     + '<div class="eeg-sb__rec-row"><span class="eeg-sb__rec-label">Samples</span><span class="eeg-sb__rec-val">' + (info.n_samples || 0).toLocaleString() + '</span></div>'
+    + '<div class="eeg-sb__rec-row"><span class="eeg-sb__rec-label">LFF</span><span class="eeg-sb__rec-val" id="eeg-rec-lff">' + (fp.lff != null ? fp.lff + ' Hz' : '—') + '</span></div>'
+    + '<div class="eeg-sb__rec-row"><span class="eeg-sb__rec-label">HFF</span><span class="eeg-sb__rec-val" id="eeg-rec-hff">' + (fp.hff != null ? fp.hff + ' Hz' : '—') + '</span></div>'
+    + '<div class="eeg-sb__rec-row"><span class="eeg-sb__rec-label">Notch</span><span class="eeg-sb__rec-val" id="eeg-rec-notch">' + (fp.notch ? fp.notch + ' Hz' : 'Off') + '</span></div>'
+    + '<div class="eeg-sb__rec-row"><span class="eeg-sb__rec-label">Montage</span><span class="eeg-sb__rec-val" id="eeg-rec-montage">' + (state.montage || 'referential') + '</span></div>'
     + '</div></div>';
+}
+
+function _buildNotepadSection(state) {
+  var notes = state.notepad || '';
+  return '<div class="eeg-sb__section">'
+    + '<div class="eeg-sb__title">Notepad</div>'
+    + '<textarea class="eeg-sb__notepad" id="eeg-notepad" placeholder="Clinical observations, impressions, notes...">' + esc(notes) + '</textarea>'
+    + '<div class="eeg-sb__notepad-hint">Auto-saved to session</div>'
+    + '</div>';
 }
 
 function _buildEventsSection(state) {
@@ -706,6 +947,84 @@ function _buildEventsSection(state) {
     + '</div></div>';
 }
 
+// ── Timeline overview strip ─────────────────────────────────────────────────
+
+function _buildTimelineOverview(state) {
+  var dur = (state.channelInfo || {}).duration_sec || 0;
+  return '<div class="eeg-timeline" id="eeg-timeline">'
+    + '<div class="eeg-timeline__track" id="eeg-timeline-track" title="Click to jump">'
+    + '<div class="eeg-timeline__window" id="eeg-timeline-window"></div>'
+    + '<div class="eeg-timeline__segments" id="eeg-timeline-segments"></div>'
+    + '<div class="eeg-timeline__events" id="eeg-timeline-events"></div>'
+    + '</div>'
+    + '<div class="eeg-timeline__labels">'
+    + '<span class="eeg-timeline__label" id="eeg-timeline-start">0s</span>'
+    + '<span class="eeg-timeline__label" id="eeg-timeline-cur">---</span>'
+    + '<span class="eeg-timeline__label" id="eeg-timeline-end">' + _formatDuration(dur) + '</span>'
+    + '</div></div>';
+}
+
+function _updateTimelineOverview(state) {
+  var dur = (state.channelInfo || {}).duration_sec || 0;
+  if (!dur) return;
+  var winEl = document.getElementById('eeg-timeline-window');
+  var segContainer = document.getElementById('eeg-timeline-segments');
+  var evtContainer = document.getElementById('eeg-timeline-events');
+  var curLabel = document.getElementById('eeg-timeline-cur');
+  if (winEl) {
+    var leftPct = (state.tStart / dur) * 100;
+    var widthPct = (state.windowSec / dur) * 100;
+    winEl.style.left = Math.max(0, Math.min(100, leftPct)) + '%';
+    winEl.style.width = Math.max(0.5, Math.min(100, widthPct)) + '%';
+  }
+  if (curLabel) curLabel.textContent = _formatDuration(state.tStart) + ' – ' + _formatDuration(Math.min(dur, state.tStart + state.windowSec));
+  if (segContainer) {
+    segContainer.innerHTML = state.badSegments.map(function (seg) {
+      var left = (seg.start_sec / dur) * 100;
+      var width = ((seg.end_sec - seg.start_sec) / dur) * 100;
+      return '<div class="eeg-timeline__seg" style="left:' + left + '%;width:' + width + '%"></div>';
+    }).join('');
+  }
+  if (evtContainer) {
+    var events = state.eventEditor ? state.eventEditor.getEvents() : [];
+    evtContainer.innerHTML = events.map(function (evt) {
+      var left = (evt.time / dur) * 100;
+      return '<div class="eeg-timeline__evt" style="left:' + left + '%;background:' + (evt.color || '#4caf50') + '" title="' + esc(evt.label) + ' @ ' + evt.time.toFixed(1) + 's"></div>';
+    }).join('');
+  }
+}
+
+// ── Shortcuts help overlay ──────────────────────────────────────────────────
+
+function _buildShortcutsHelp() {
+  var rows = [
+    { key: '\u2190 / \u2192', desc: 'Previous / next page (Shift = \u00D75)' },
+    { key: '\u2191 / \u2193', desc: 'Zoom in / out (sensitivity)' },
+    { key: 'Home / End', desc: 'First / last page' },
+    { key: 'J / K', desc: 'Previous / next event' },
+    { key: 'S', desc: 'Snapshot PNG' },
+    { key: 'Ctrl+Z', desc: 'Undo' },
+    { key: 'Ctrl+Y', desc: 'Redo' },
+    { key: '?', desc: 'Toggle this help' },
+  ];
+  return '<div class="eeg-help" id="eeg-help" style="display:none">'
+    + '<div class="eeg-help__panel">'
+    + '<div class="eeg-help__header">Keyboard Shortcuts <button class="eeg-help__close" id="eeg-help-close">\u00D7</button></div>'
+    + '<div class="eeg-help__body">' + rows.map(function (r) {
+      return '<div class="eeg-help__row"><kbd>' + r.key + '</kbd><span>' + esc(r.desc) + '</span></div>';
+    }).join('') + '</div>'
+    + '</div></div>';
+}
+
+function _showShortcutsHelp() {
+  var el = document.getElementById('eeg-help');
+  if (el) el.style.display = 'flex';
+}
+function _hideShortcutsHelp() {
+  var el = document.getElementById('eeg-help');
+  if (el) el.style.display = 'none';
+}
+
 // ── Data loading ────────────────────────────────────────────────────────────
 
 async function _loadSignalWindow(analysisId, state, renderer, spectralPanel) {
@@ -721,8 +1040,13 @@ async function _loadSignalWindow(analysisId, state, renderer, spectralPanel) {
       } else { renderer.clearOverlay(); }
       // Feed spectral panel
       if (spectralPanel) spectralPanel.setData(demoData.channels, demoData.data, demoData.sfreq, demoData.t_start);
-      // Compute channel quality
+      // Compute channel quality and band power
       _computeChannelQuality(state, demoData.channels, demoData.data, demoData.sfreq, renderer);
+      _updateBandPower(state, renderer);
+      _updateEpochStats(state, demoData.channels, demoData.data);
+      _updateCorrelationMatrix(state, demoData.channels, demoData.data);
+      _updateMontageDiagram(state);
+      _updateTimelineOverview(state);
       return;
     }
 
@@ -749,8 +1073,13 @@ async function _loadSignalWindow(analysisId, state, renderer, spectralPanel) {
     }
     // Feed spectral panel
     if (spectralPanel && _lastChannels) spectralPanel.setData(_lastChannels, _lastData, _lastSfreq, _lastTStart);
-    // Compute channel quality
+    // Compute channel quality and band power
     if (_lastChannels) _computeChannelQuality(state, _lastChannels, _lastData, _lastSfreq, renderer);
+    _updateBandPower(state, renderer);
+    if (_lastChannels) _updateEpochStats(state, _lastChannels, _lastData);
+    if (_lastChannels) _updateCorrelationMatrix(state, _lastChannels, _lastData);
+    _updateMontageDiagram(state);
+    _updateTimelineOverview(state);
   } catch (err) {
     showToast('Signal load failed: ' + (err.message || err), 'error');
   }
@@ -798,9 +1127,9 @@ function _wireToolbar(analysisId, state, renderer, spectralPanel) {
   var lffSel = document.getElementById('eeg-lff-sel');
   var hffSel = document.getElementById('eeg-hff-sel');
   var notchSel = document.getElementById('eeg-notch-sel');
-  if (lffSel) lffSel.onchange = function () { state.filterParams.lff = parseFloat(lffSel.value); state.hasUnsavedChanges = true; _updateSaveIndicator(state); };
-  if (hffSel) hffSel.onchange = function () { state.filterParams.hff = parseFloat(hffSel.value); state.hasUnsavedChanges = true; _updateSaveIndicator(state); };
-  if (notchSel) notchSel.onchange = function () { state.filterParams.notch = parseFloat(notchSel.value); state.hasUnsavedChanges = true; _updateSaveIndicator(state); };
+  if (lffSel) lffSel.onchange = function () { state.filterParams.lff = parseFloat(lffSel.value); state.hasUnsavedChanges = true; _updateSaveIndicator(state); var rl = document.getElementById('eeg-rec-lff'); if (rl) rl.textContent = state.filterParams.lff + ' Hz'; };
+  if (hffSel) hffSel.onchange = function () { state.filterParams.hff = parseFloat(hffSel.value); state.hasUnsavedChanges = true; _updateSaveIndicator(state); var rh = document.getElementById('eeg-rec-hff'); if (rh) rh.textContent = state.filterParams.hff + ' Hz'; };
+  if (notchSel) notchSel.onchange = function () { state.filterParams.notch = parseFloat(notchSel.value); state.hasUnsavedChanges = true; _updateSaveIndicator(state); var rn = document.getElementById('eeg-rec-notch'); if (rn) rn.textContent = state.filterParams.notch ? state.filterParams.notch + ' Hz' : 'Off'; };
 
   // Navigation buttons
   function _navTo(tStart) {
@@ -813,6 +1142,20 @@ function _wireToolbar(analysisId, state, renderer, spectralPanel) {
   document.getElementById('eeg-nav-prev')?.addEventListener('click', function () { _navTo(Math.max(0, state.tStart - state.windowSec)); });
   document.getElementById('eeg-nav-next')?.addEventListener('click', function () { _navTo(Math.min(dur - state.windowSec, state.tStart + state.windowSec)); });
   document.getElementById('eeg-nav-last')?.addEventListener('click', function () { _navTo(Math.max(0, dur - state.windowSec)); });
+
+  // Snapshot
+  document.getElementById('eeg-snapshot-btn')?.addEventListener('click', function () { _takeSnapshot(state); });
+
+  // Timeline click-to-navigate
+  var timelineTrack = document.getElementById('eeg-timeline-track');
+  if (timelineTrack) {
+    timelineTrack.addEventListener('click', function (e) {
+      var rect = timelineTrack.getBoundingClientRect();
+      var pct = (e.clientX - rect.left) / rect.width;
+      var tStart = Math.max(0, Math.min(dur - state.windowSec, pct * dur));
+      _navTo(tStart);
+    });
+  }
 
   // Save
   document.getElementById('eeg-save-btn')?.addEventListener('click', async function () {
@@ -847,6 +1190,16 @@ function _wireToolbar(analysisId, state, renderer, spectralPanel) {
       state.hasUnsavedChanges = false; showToast('Re-processing started', 'success');
     } catch (err) { showToast('Reprocess failed: ' + (err.message || err), 'error'); }
     finally { btn.disabled = false; btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6"/><path d="M2.5 22v-6h6"/><path d="M2.5 12A10 10 0 0119 5.6"/><path d="M21.5 12A10 10 0 015 18.4"/></svg> Reprocess'; }
+  });
+
+  // Workbench
+  document.getElementById('eeg-workbench-btn')?.addEventListener('click', function () {
+    if (window._qeegOpenWorkbench) {
+      window._qeegOpenWorkbench(analysisId);
+    } else {
+      window.location.hash = '#/qeeg-raw-workbench/' + encodeURIComponent(analysisId);
+      if (typeof window._nav === 'function') window._nav('qeeg-raw-workbench');
+    }
   });
 
   // Channel checkboxes
@@ -905,7 +1258,7 @@ function _wireToolbar(analysisId, state, renderer, spectralPanel) {
       if (content) content.innerHTML = _renderICAGrid(state);
       _wireICAButtons(state);
     } catch (err) {
-      if (content) content.innerHTML = '<div class="eeg-sb__hint">ICA unavailable: ' + esc(err.message || err) + '</div>';
+      if (content) content.innerHTML = '<div class="eeg-sb__hint">ICA unavailable: ' + esc(String(err && err.message ? err.message : err || "Unknown error")) + '</div>';
     }
   };
 }
@@ -967,6 +1320,16 @@ function _wireKeyboard(analysisId, state, renderer, tabEl, spectralPanel) {
       case 'y':
         if (e.ctrlKey || e.metaKey) { e.preventDefault(); state.undoManager.redo(); _updateUndoButtons(state); }
         break;
+      case '?':
+        e.preventDefault();
+        var helpEl = document.getElementById('eeg-help');
+        if (helpEl && helpEl.style.display === 'flex') _hideShortcutsHelp(); else _showShortcutsHelp();
+        break;
+      case 's':
+      case 'S':
+        e.preventDefault();
+        _takeSnapshot(state);
+        break;
     }
   };
 
@@ -975,6 +1338,20 @@ function _wireKeyboard(analysisId, state, renderer, tabEl, spectralPanel) {
   if (viewer) {
     viewer.addEventListener('keydown', handler);
     viewer.focus();
+  }
+
+  // Help close button
+  var helpClose = document.getElementById('eeg-help-close');
+  if (helpClose) helpClose.addEventListener('click', _hideShortcutsHelp);
+
+  // Notepad
+  var notepad = document.getElementById('eeg-notepad');
+  if (notepad) {
+    notepad.addEventListener('input', function () {
+      state.notepad = notepad.value;
+      state.hasUnsavedChanges = true;
+      _updateSaveIndicator(state);
+    });
   }
 }
 
@@ -1073,6 +1450,19 @@ function _wireV2Tools(analysisId, state, renderer, spectralPanel) {
 }
 
 // ── UI update helpers ───────────────────────────────────────────────────────
+
+function _takeSnapshot(state) {
+  var canvas = document.getElementById('qeeg-raw-canvas');
+  if (!canvas) { showToast('No canvas to snapshot', 'error'); return; }
+  try {
+    var link = document.createElement('a');
+    var ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    link.download = 'qeeg-snapshot-' + ts + '-t' + Math.round(state.tStart) + 's.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+    showToast('Snapshot saved', 'success');
+  } catch (err) { showToast('Snapshot failed: ' + (err.message || err), 'error'); }
+}
 
 function _updatePageCounter(state) {
   var el = document.getElementById('eeg-page-counter');
@@ -1178,6 +1568,15 @@ function _computeChannelQuality(state, channels, data, sfreq, renderer) {
     }
   }
   renderer.setChannelQuality(qualityMap);
+  // Update sidebar quality dots
+  var GRADE_CLASS = { good: 'eeg-sb__ch-quality--good', moderate: 'eeg-sb__ch-quality--fair', bad: 'eeg-sb__ch-quality--poor', flat: 'eeg-sb__ch-quality--poor' };
+  for (var ch in qualityMap) {
+    var dot = document.querySelector('.eeg-sb__ch-quality[data-ch-q="' + ch + '"]');
+    if (dot) {
+      var grade = qualityMap[ch] && qualityMap[ch].grade;
+      dot.className = 'eeg-sb__ch-quality ' + (GRADE_CLASS[grade] || '');
+    }
+  }
 }
 
 // ── CSS injection ───────────────────────────────────────────────────────────
@@ -1305,6 +1704,61 @@ function _injectCSS() {
 .eeg-sb__evt-label { font-size:10px; color:#cbd5e1; flex:1; }
 .eeg-sb__evt-remove { background:none; border:none; color:#64748b; cursor:pointer; font-size:14px; padding:0 2px; line-height:1; }
 .eeg-sb__evt-remove:hover { color:#ef5350; }
+
+/* Band Power sidebar */
+.eeg-sb__bp-list { display:flex; flex-direction:column; gap:5px; }
+.eeg-sb__bp-row { display:flex; align-items:center; gap:6px; }
+.eeg-sb__bp-label { display:flex; align-items:center; gap:5px; font-size:10px; font-weight:600; color:#94a3b8; width:46px; flex-shrink:0; }
+.eeg-sb__bp-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+.eeg-sb__bp-bar-wrap { flex:1; height:10px; background:rgba(255,255,255,0.04); border-radius:5px; overflow:hidden; }
+.eeg-sb__bp-bar { height:100%; border-radius:5px; transition:width .4s ease; }
+.eeg-sb__bp-val { font-family:'JetBrains Mono','SF Mono',monospace; font-size:9px; color:#cbd5e1; width:36px; text-align:right; flex-shrink:0; }
+.eeg-sb__bp-legend { font-size:9px; color:#475569; margin-top:6px; text-align:center; }
+
+/* Epoch stats sidebar */
+.eeg-sb__stats { max-height:180px; overflow-y:auto; }
+.eeg-sb__stats-head { display:flex; justify-content:space-between; font-size:9px; font-weight:700; color:#475569; text-transform:uppercase; letter-spacing:.04em; padding:0 0 4px; border-bottom:1px solid rgba(255,255,255,0.05); margin-bottom:2px; }
+.eeg-sb__stat-row { display:flex; justify-content:space-between; padding:2px 0; border-bottom:1px solid rgba(255,255,255,0.03); font-size:10px; }
+.eeg-sb__stat-ch { font-family:'JetBrains Mono','SF Mono',monospace; color:#94a3b8; }
+.eeg-sb__stat-val { font-family:'JetBrains Mono','SF Mono',monospace; color:#cbd5e1; }
+
+/* Montage diagram sidebar */
+.eeg-sb__montage { display:flex; justify-content:center; padding:4px 0; }
+.eeg-sb__montage svg { max-width:100%; height:auto; }
+
+/* Notepad sidebar */
+.eeg-sb__notepad { width:100%; min-height:80px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:6px; padding:8px; font-size:11px; color:#cbd5e1; resize:vertical; font-family:'Inter',system-ui,sans-serif; }
+.eeg-sb__notepad:focus { outline:none; border-color:rgba(0,212,188,0.3); box-shadow:0 0 0 2px rgba(0,212,188,0.1); }
+.eeg-sb__notepad::placeholder { color:#475569; }
+.eeg-sb__notepad-hint { font-size:9px; color:#475569; margin-top:4px; text-align:right; }
+
+/* Channel quality indicator */
+.eeg-sb__ch-quality { width:5px; height:5px; border-radius:50%; flex-shrink:0; }
+.eeg-sb__ch-quality--good { background:#66bb6a; }
+.eeg-sb__ch-quality--fair { background:#ffa726; }
+.eeg-sb__ch-quality--poor { background:#ef5350; }
+
+/* Timeline overview strip */
+.eeg-timeline { padding:4px 12px 6px; background:rgba(255,255,255,0.015); border-top:1px solid rgba(255,255,255,0.06); flex-shrink:0; }
+.eeg-timeline__track { position:relative; height:14px; background:rgba(255,255,255,0.04); border-radius:7px; cursor:pointer; overflow:hidden; }
+.eeg-timeline__window { position:absolute; top:0; height:100%; background:rgba(0,212,188,0.25); border-radius:7px; border:1px solid rgba(0,212,188,0.4); transition:left .2s ease, width .2s ease; }
+.eeg-timeline__segments { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; }
+.eeg-timeline__seg { position:absolute; top:0; height:100%; background:rgba(239,83,80,0.35); }
+.eeg-timeline__events { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; }
+.eeg-timeline__evt { position:absolute; top:2px; width:3px; height:10px; border-radius:1px; }
+.eeg-timeline__labels { display:flex; justify-content:space-between; margin-top:3px; }
+.eeg-timeline__label { font-size:9px; color:#475569; font-family:'JetBrains Mono','SF Mono',monospace; }
+
+/* Shortcuts help overlay */
+.eeg-help { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.6); z-index:50; backdrop-filter:blur(2px); }
+.eeg-help__panel { background:#0c1222; border:1px solid rgba(255,255,255,0.1); border-radius:12px; padding:0; width:320px; max-width:90vw; box-shadow:0 20px 60px rgba(0,0,0,0.5); }
+.eeg-help__header { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid rgba(255,255,255,0.06); font-size:12px; font-weight:700; color:#e2e8f0; }
+.eeg-help__close { background:none; border:none; color:#64748b; font-size:18px; cursor:pointer; line-height:1; }
+.eeg-help__close:hover { color:#ef5350; }
+.eeg-help__body { padding:10px 16px 14px; }
+.eeg-help__row { display:flex; align-items:center; gap:12px; padding:5px 0; font-size:11px; color:#94a3b8; border-bottom:1px solid rgba(255,255,255,0.03); }
+.eeg-help__row:last-child { border-bottom:none; }
+.eeg-help__row kbd { display:inline-flex; align-items:center; justify-content:center; min-width:56px; padding:2px 6px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); border-radius:4px; font-family:'JetBrains Mono','SF Mono',monospace; font-size:10px; color:#e2e8f0; flex-shrink:0; }
 
 /* Disabled nav buttons */
 .eeg-tb__nav-btn:disabled { opacity:0.35; cursor:not-allowed; pointer-events:none; }

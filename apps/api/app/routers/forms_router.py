@@ -17,13 +17,31 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import FormDefinition, FormSubmission
+from app.repositories.patients import resolve_patient_clinic_id
+
+
+def _gate_patient_access(
+    actor: AuthenticatedActor, patient_id: str | None, db: Session
+) -> None:
+    """Cross-clinic ownership gate. Same shape as the rest of the codebase."""
+    if not patient_id:
+        return
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
+
 
 router = APIRouter(prefix="/api/v1/forms", tags=["Forms & Assessments"])
 
@@ -93,7 +111,11 @@ class FormListResponse(BaseModel):
 
 
 class FormDeployRequest(BaseModel):
-    patient_ids: list[str]
+    # Cap at 200 patients per deploy. Each id triggers a DB lookup via
+    # _gate_patient_access; without a cap a clinician (or attacker with a
+    # leaked token) could fan out a single request into thousands of
+    # cross-clinic ownership probes.
+    patient_ids: list[str] = Field(..., max_length=200)
     message: Optional[str] = None
 
 
@@ -209,7 +231,7 @@ def list_submissions(
         q = q.filter(FormSubmission.form_id == form_id)
     if patient_id:
         q = q.filter(FormSubmission.patient_id == patient_id)
-    records = q.order_by(FormSubmission.submitted_at.desc()).all()
+    records = q.order_by(FormSubmission.submitted_at.desc()).limit(200).all()
     items = [FormSubmissionOut.from_record(r) for r in records]
     return FormSubmissionListResponse(items=items, total=len(items))
 
@@ -244,7 +266,7 @@ def list_forms(
         q = q.filter(FormDefinition.form_type == form_type)
     if status:
         q = q.filter(FormDefinition.status == status)
-    records = q.order_by(FormDefinition.created_at.desc()).all()
+    records = q.order_by(FormDefinition.created_at.desc()).limit(200).all()
     items = [FormOut.from_record(r) for r in records]
     return FormListResponse(items=items, total=len(items))
 
@@ -292,6 +314,11 @@ def deploy_form(
     """Mark the form as active and associate it with target patients (business logic placeholder)."""
     require_minimum_role(actor, "clinician")
     form = _get_form_or_404(db, form_id, actor)
+    # FK-stuffing guard: deploying to a list of patient_ids must verify each
+    # belongs to the actor's clinic — otherwise a clinician could broadcast
+    # a form across clinic boundaries.
+    for pid in (body.patient_ids or []):
+        _gate_patient_access(actor, pid, db)
     if form.status == "draft":
         form.status = "active"
         db.commit()
@@ -311,6 +338,7 @@ def submit_form(
 ) -> FormSubmissionOut:
     require_minimum_role(actor, "clinician")
     form = _get_form_or_404(db, form_id, actor)
+    _gate_patient_access(actor, body.patient_id, db)
     score_label, score_numeric, scoring_details = _apply_scoring(form, body.responses)
     sub = FormSubmission(
         form_id=form_id,

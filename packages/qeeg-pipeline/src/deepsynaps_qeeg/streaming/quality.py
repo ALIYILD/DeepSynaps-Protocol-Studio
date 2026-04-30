@@ -6,6 +6,9 @@ from typing import Any
 
 import numpy as np
 
+# numpy 2.0 removes np.trapz; 1.x does not have np.trapezoid.
+_trapz = getattr(np, "trapezoid", None) or getattr(np, "trapz")
+
 
 def compute_quality_indicators(
     window: np.ndarray,
@@ -73,7 +76,7 @@ def _line_noise_ratio(x: np.ndarray, sfreq: float, line_freq_hz: float) -> float
         if not np.any(m):
             return 0.0
         # average across channels for a single scalar ratio
-        return float(np.mean(np.trapz(psd[:, m], freqs[m], axis=-1)))
+        return float(np.mean(_trapz(psd[:, m], freqs[m], axis=-1)))
 
     total = band(1.0, 45.0)
     line = band(line_freq_hz - 1.0, line_freq_hz + 1.0)

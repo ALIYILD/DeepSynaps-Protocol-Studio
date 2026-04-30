@@ -474,7 +474,7 @@ def list_courses(
     if status:
         q = q.filter(TreatmentCourse.status == status)
 
-    records = q.order_by(TreatmentCourse.created_at.desc()).all()
+    records = q.order_by(TreatmentCourse.created_at.desc()).limit(200).all()
     items = [CourseOut.from_record(r) for r in records]
     return CourseListResponse(items=items, total=len(items))
 
@@ -788,6 +788,7 @@ def list_sessions(
         db.query(DeliveredSessionParameters)
         .filter_by(course_id=course_id)
         .order_by(DeliveredSessionParameters.created_at)
+        .limit(200)
         .all()
     )
     items = [SessionLogOut.from_record(r) for r in records]
@@ -818,7 +819,7 @@ def list_review_queue(
     if reviewer_id:
         q = q.filter(ReviewQueueItem.assigned_to == reviewer_id)
 
-    records = q.order_by(ReviewQueueItem.created_at.desc()).all()
+    records = q.order_by(ReviewQueueItem.created_at.desc()).limit(200).all()
 
     # Enrich with patient name + course details via lookup
     from app.persistence.models import Patient as _Patient
@@ -1032,6 +1033,7 @@ def course_audit_trail(
         db.query(AuditEventRecord)
         .filter(AuditEventRecord.target_id == course_id, AuditEventRecord.target_type == "treatment_course")
         .order_by(AuditEventRecord.created_at.desc())
+        .limit(200)
         .all()
     )
     return {
@@ -1065,7 +1067,7 @@ def course_adverse_events_summary(
     require_minimum_role(actor, "clinician")
     _get_course_or_404(db, course_id, actor)
     from app.persistence.models import AdverseEvent  # noqa: PLC0415 — lazy import
-    rows = db.query(AdverseEvent).filter_by(course_id=course_id).all()
+    rows = db.query(AdverseEvent).filter_by(course_id=course_id).limit(200).all()
     by_severity: dict[str, int] = {}
     unresolved = 0
     for r in rows:
@@ -1086,3 +1088,161 @@ def course_adverse_events_summary(
         "by_severity": by_severity,
         "highest_severity": highest,
     }
+
+
+# ── Phase 5c: qEEG pre/post comparison for a course ──────────────────────────
+# GET /api/v1/treatment-courses/{course_id}/qeeg-comparison
+#
+# Returns the latest pre/post QEEGComparison row for the course, plus a
+# normalized Δ-by-lobe summary derived from the QEEGBrainMapReport contract
+# (Phase 0). Used by the Course Detail "Brain map progress" card and the
+# Patient Portal Treatment Plan page.
+
+@router.get("/{course_id}/qeeg-comparison")
+def course_qeeg_comparison(
+    course_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict:
+    """Return the latest pre/post qEEG comparison for the course.
+
+    Response shape:
+      {
+        "course_id": <id>,
+        "comparison_id": <id>|None,
+        "baseline_analysis_id": <id>|None,
+        "followup_analysis_id": <id>|None,
+        "delta_powers": {...} | None,
+        "improvement_summary": {...} | None,
+        "ai_narrative": <str>|None,
+        "lobe_delta": {                # convenience roll-up for the Course UI
+          "frontal":   {"baseline_pct": x, "followup_pct": y, "delta_pct": z, "direction": "improving"|"declining"|"stable"},
+          ...
+        },
+        "disclaimer": "Decision-support only..."
+      }
+
+    When no comparison exists, returns the same shape with all data fields
+    null and an empty `lobe_delta`. UI must show an honest empty state.
+    """
+    require_minimum_role(actor, "clinician")
+    course = _get_course_or_404(db, course_id, actor)
+    from app.persistence.models import QEEGAIReport, QEEGComparison  # noqa: PLC0415
+
+    cmp_row: Optional[QEEGComparison] = (
+        db.query(QEEGComparison)
+        .filter_by(course_id=course_id)
+        .order_by(QEEGComparison.created_at.desc())
+        .first()
+    )
+
+    response = {
+        "course_id": course_id,
+        "patient_id": course.patient_id,
+        "comparison_id": None,
+        "baseline_analysis_id": None,
+        "followup_analysis_id": None,
+        "delta_powers": None,
+        "improvement_summary": None,
+        "ai_narrative": None,
+        "lobe_delta": {},
+        "disclaimer": (
+            "Decision-support only. Pre/post change does not establish "
+            "treatment efficacy and is not a medical diagnosis or treatment "
+            "recommendation. Clinical interpretation by a qualified clinician "
+            "is required."
+        ),
+    }
+    if cmp_row is None:
+        return response
+
+    response["comparison_id"] = cmp_row.id
+    response["baseline_analysis_id"] = cmp_row.baseline_analysis_id
+    response["followup_analysis_id"] = cmp_row.followup_analysis_id
+    response["ai_narrative"] = cmp_row.ai_comparison_narrative
+
+    if cmp_row.delta_powers_json:
+        try:
+            response["delta_powers"] = json.loads(cmp_row.delta_powers_json)
+        except (TypeError, ValueError):
+            pass
+    if cmp_row.improvement_summary_json:
+        try:
+            response["improvement_summary"] = json.loads(cmp_row.improvement_summary_json)
+        except (TypeError, ValueError):
+            pass
+
+    # Attempt to compute the lobe-level Δ from the Phase 0 QEEGBrainMapReport
+    # payloads attached to each analysis's most-recent QEEGAIReport. Tolerant
+    # of missing / legacy rows — never raises.
+    response["lobe_delta"] = _compute_course_lobe_delta(
+        db, cmp_row.baseline_analysis_id, cmp_row.followup_analysis_id
+    )
+    return response
+
+
+def _compute_course_lobe_delta(
+    db: Session,
+    baseline_analysis_id: Optional[str],
+    followup_analysis_id: Optional[str],
+) -> dict:
+    """Compute a 4-lobe Δ percentile summary from each analysis's report_payload.
+
+    Returns {} if either side is missing the Phase 0 contract payload.
+    """
+    if not baseline_analysis_id or not followup_analysis_id:
+        return {}
+    from app.persistence.models import QEEGAIReport  # noqa: PLC0415
+
+    def _latest_payload(analysis_id: str) -> Optional[dict]:
+        row = (
+            db.query(QEEGAIReport)
+            .filter_by(analysis_id=analysis_id)
+            .order_by(QEEGAIReport.created_at.desc())
+            .first()
+        )
+        if row is None:
+            return None
+        raw = getattr(row, "report_payload", None)
+        if not raw:
+            return None
+        try:
+            data = json.loads(raw)
+            return data if isinstance(data, dict) else None
+        except (TypeError, ValueError):
+            return None
+
+    baseline = _latest_payload(baseline_analysis_id)
+    followup = _latest_payload(followup_analysis_id)
+    if not baseline or not followup:
+        return {}
+
+    out: dict[str, dict] = {}
+    for lobe in ("frontal", "temporal", "parietal", "occipital"):
+        base_lobe = (baseline.get("lobe_summary") or {}).get(lobe) or {}
+        fu_lobe = (followup.get("lobe_summary") or {}).get(lobe) or {}
+        # Average left + right percentile per side, fall back to whichever exists
+        def _avg(d: dict) -> Optional[float]:
+            vals = [v for v in (d.get("lt_percentile"), d.get("rt_percentile")) if isinstance(v, (int, float))]
+            if not vals:
+                return None
+            return sum(vals) / len(vals)
+        b = _avg(base_lobe)
+        f = _avg(fu_lobe)
+        if b is None or f is None:
+            continue
+        delta = f - b
+        if abs(delta) < 5:
+            direction = "stable"
+        else:
+            # "Improving" = moving toward 50% (typical) from either tail.
+            base_dist = abs(b - 50.0)
+            fu_dist = abs(f - 50.0)
+            direction = "improving" if fu_dist < base_dist else "declining"
+        out[lobe] = {
+            "baseline_pct": round(b, 1),
+            "followup_pct": round(f, 1),
+            "delta_pct": round(delta, 1),
+            "direction": direction,
+        }
+    return out

@@ -61,8 +61,9 @@ test('empty backend + empty local returns []', () => {
 });
 
 function buildCreateReportPayload(lastReport, patientId, today) {
+  const normalizedPatientId = patientId && patientId !== 'all' ? patientId : null;
   return {
-    patient_id: patientId || null,
+    patient_id: normalizedPatientId,
     type: lastReport.type,
     title: lastReport.type + ' — ' + lastReport.patient,
     content: lastReport.content,
@@ -92,4 +93,28 @@ test('Save flow sends null patient_id when unselected', () => {
     '2026-04-10',
   );
   assert.equal(p.patient_id, null);
+});
+
+test('Save flow treats clinic-wide all-patient scope as local-only', () => {
+  const p = buildCreateReportPayload(
+    { type: 'Business Performance Report', patient: 'All Patients', content: 'Clinic-wide body' },
+    'all',
+    '2026-04-10',
+  );
+  assert.equal(p.patient_id, null);
+});
+
+function makeSafeFilename(s) {
+  return String(s || 'report')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'report';
+}
+
+test('download filenames are sanitized for generated reports', () => {
+  assert.equal(
+    makeSafeFilename('Initial Assessment Report — Jane Doe / MRN #42'),
+    'initial-assessment-report-jane-doe-mrn-42',
+  );
 });

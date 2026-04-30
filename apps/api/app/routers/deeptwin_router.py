@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import importlib
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -18,7 +20,30 @@ from app.auth import (
 )
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.persistence.models import (
+    AssessmentRecord,
+    ClinicalSession,
+    DeepTwinAnalysisRun,
+    DeepTwinClinicianNote,
+    DeepTwinSimulationRun,
+    MriAnalysis,
+    OutcomeEvent,
+    QEEGAnalysis,
+    WearableObservation,
+)
+from app.repositories.audit import create_audit_event
 from app.repositories.patients import resolve_patient_clinic_id
+from app.services.deeptwin_decision_support import (
+    ANALYZE_SCHEMA_VERSION,
+    SCHEMA_VERSION,
+    build_calibration_status,
+    build_provenance,
+    build_scenario_comparison,
+    build_uncertainty_block,
+    confidence_tier,
+    derive_top_drivers,
+    soften_language,
+)
 from app.services.deeptwin_engine import (
     REPORT_BUILDERS,
     align_timeline_events,
@@ -106,6 +131,9 @@ class DeeptwinAnalyzeResponse(BaseModel):
     prediction: dict[str, Any] | None = None
     causation: dict[str, Any] | None = None
     engine: dict[str, Any]
+    provenance: dict[str, Any] | None = None
+    schema_version: str | None = None
+    decision_support_only: bool = True
 
 
 class DeeptwinSimulateRequest(BaseModel):
@@ -122,6 +150,9 @@ class DeeptwinSimulateResponse(BaseModel):
     horizon_days: int
     engine: dict[str, Any]
     outputs: dict[str, Any]
+    schema_version: str | None = None
+    provenance: dict[str, Any] | None = None
+    decision_support_only: bool = True
 
 
 class DeeptwinEvidenceRequest(BaseModel):
@@ -304,40 +335,95 @@ def _build_prediction(
         summary_parts.append(
             "Wearables add recovery-state context that can change daily confidence in predicted response."
         )
+    tier = confidence_tier(
+        model_confidence=readiness_score,
+        input_quality=coverage["coverage_ratio"],
+        evidence_strength=0.55,
+    )
+    drivers = derive_top_drivers(
+        inputs={"modalities": list(used_modalities)},
+        base_drivers=[
+            {
+                "factor": "modality_agreement",
+                "magnitude": coverage["coverage_ratio"],
+                "direction": "positive",
+                "detail": (
+                    f"{coverage['covered_domains']} of 6 data domains "
+                    "represented; agreement across qEEG/MRI/assessments tightens prediction."
+                ),
+            }
+        ],
+        limit=5,
+    )
+    key_predictions = [
+        {
+            "title": "Target-response readiness",
+            "summary": soften_language(
+                "Prediction is strongest when neurophysiology, imaging, and "
+                "symptom layers all agree on the current treatment objective."
+            ),
+            "expected_direction": "Confidence improves with multimodal agreement",
+            "why": soften_language(
+                "qEEG, imaging, and assessment trajectories are the highest-"
+                "value combination for protocol planning."
+            ),
+            "confidence": confidence,
+            "confidence_tier": tier,
+            "top_drivers": drivers,
+            "evidence_status": "pending",
+            "caveat": "Missing longitudinal response data weakens patient-specific calibration.",
+        },
+        {
+            "title": "Biomarker tracking value",
+            "summary": soften_language(
+                "Consider tracking alpha, theta/beta ratio, sleep, and HRV as a "
+                "linked monitoring set rather than isolated metrics."
+            ),
+            "expected_direction": "Daily readiness may improve as autonomic and electrophysiology markers stabilize",
+            "why": "These features can change faster than global clinical scales and help explain response lag.",
+            "confidence": "moderate" if "wearables" in used_modalities else "low",
+            "confidence_tier": confidence_tier(
+                model_confidence=0.55 if "wearables" in used_modalities else 0.35,
+                input_quality=coverage["coverage_ratio"],
+                evidence_strength=0.5,
+            ),
+            "top_drivers": derive_top_drivers(
+                inputs={"modalities": list(used_modalities)}, limit=3
+            ),
+            "evidence_status": "pending",
+            "caveat": "Association does not establish causal treatment effect.",
+        },
+        {
+            "title": "Operational next step",
+            "summary": soften_language(
+                "Consider using DeepTwin to rank likely mechanisms, pick a "
+                "candidate protocol, then monitor whether the leading "
+                "biomarker actually moves after week 1 to 2."
+            ),
+            "expected_direction": "Earlier detection of non-response",
+            "why": "Fast biomarker drift can trigger protocol review before waiting for a long symptom cycle.",
+            "confidence": "moderate",
+            "confidence_tier": "medium",
+            "top_drivers": derive_top_drivers(inputs={"weeks": 6}, limit=3),
+            "evidence_status": "pending",
+            "caveat": "Requires clinician review and protocol-specific evidence.",
+        },
+    ]
     return {
         "patient_id": patient_id,
         "prediction_band": confidence.capitalize(),
         "confidence": round(readiness_score, 3),
-        "executive_summary": " ".join(summary_parts),
+        "confidence_tier": tier,
+        "executive_summary": soften_language(" ".join(summary_parts)),
         "coverage": coverage,
         "weights": weights,
         "fusion": fusion,
-        "key_predictions": [
-            {
-                "title": "Target-response readiness",
-                "summary": "Prediction is strongest when neurophysiology, imaging, and symptom layers all agree on the current treatment objective.",
-                "expected_direction": "Confidence improves with multimodal agreement",
-                "why": "qEEG, imaging, and assessment trajectories are the highest-value combination for protocol planning.",
-                "confidence": confidence,
-                "caveat": "Missing longitudinal response data weakens patient-specific calibration.",
-            },
-            {
-                "title": "Biomarker tracking value",
-                "summary": "Alpha, theta/beta ratio, sleep, and HRV should be treated as a linked monitoring set rather than isolated metrics.",
-                "expected_direction": "Daily readiness should improve as autonomic and electrophysiology markers stabilize",
-                "why": "These features can change faster than global clinical scales and help explain response lag.",
-                "confidence": "moderate" if "wearables" in used_modalities else "low",
-                "caveat": "Association does not establish causal treatment effect.",
-            },
-            {
-                "title": "Operational next step",
-                "summary": "Use DeepTwin to rank likely mechanisms, pick a candidate protocol, then monitor whether the leading biomarker actually moves after week 1 to 2.",
-                "expected_direction": "Earlier detection of non-response",
-                "why": "Fast biomarker drift can trigger protocol review before waiting for a long symptom cycle.",
-                "confidence": "moderate",
-                "caveat": "Requires clinician review and protocol-specific evidence.",
-            },
-        ],
+        "key_predictions": key_predictions,
+        "top_drivers": drivers,
+        "calibration": build_calibration_status(),
+        "uncertainty": build_uncertainty_block(),
+        "evidence_status": "pending",
+        "decision_support_only": True,
         "monitoring_priorities": [
             "Repeat qEEG or biomarker review after the first protocol block.",
             "Track sleep and HRV during the scenario window.",
@@ -463,33 +549,81 @@ def _build_simulation_outputs(
                 ),
             }
         )
+    sim_inputs = {
+        "patient_id": patient_id,
+        "protocol_id": protocol_id,
+        "horizon_days": horizon_days,
+        "modalities": list(modalities or []),
+        "scenario": scenario,
+    }
+    tier = confidence_tier(
+        model_confidence=response_probability,
+        input_quality=min(1.0, 0.4 + 0.05 * len(modalities or [])),
+        evidence_strength=0.5,
+    )
+    drivers = derive_top_drivers(
+        inputs={
+            "modalities": list(modalities or []),
+            "weeks": int(weeks),
+            "frequency_hz": frequency_hz,
+        },
+        base_drivers=[
+            {
+                "factor": "intervention",
+                "magnitude": round(effect_size, 3),
+                "direction": "positive" if effect_size > 0 else "neutral",
+                "detail": f"Intervention type: {intervention} at {target}",
+            }
+        ],
+        limit=5,
+    )
     return {
         "timecourse": timecourse,
-        "timecourse_summary": f"Modeled weekly drift suggests approximately {round(effect_size * 100)}% directional movement in the lead biomarker across {int(weeks)} weeks if adherence holds.",
+        "timecourse_summary": soften_language(
+            f"Modeled weekly drift suggests approximately {round(effect_size * 100)}% "
+            f"directional movement in the lead biomarker across {int(weeks)} weeks if adherence holds."
+        ),
         "clinical_forecast": {
-            "summary": f"If {intervention} is applied at {target} for {int(weeks)} weeks, DeepTwin expects a {biomarker} shift with a moderate probability of improving {clinical_goal} provided sleep, adherence, and symptom review remain stable.",
-            "expected_direction": f"{biomarker} normalization with probable improvement in {clinical_goal}",
+            "summary": soften_language(
+                f"Consider {intervention} at {target} for {int(weeks)} weeks; "
+                f"DeepTwin suggests a {biomarker} shift may improve {clinical_goal} "
+                "if sleep, adherence, and symptom review remain stable."
+            ),
+            "expected_direction": f"{biomarker} normalization with possible improvement in {clinical_goal}",
             "caveat": "This is a modeled what-if scenario, not a validated patient-specific treatment guarantee.",
             "response_probability": response_probability,
+            "confidence_tier": tier,
+            "evidence_status": "pending",
         },
         "biomarker_forecast": [
             {
                 "name": biomarker,
                 "direction": "increase" if biomarker.lower() == "alpha" else "normalize",
-                "summary": "Lead biomarker expected to move first if the protocol is having the intended physiologic effect.",
+                "summary": soften_language(
+                    "The lead biomarker may move first if the protocol is "
+                    "having the intended physiologic effect."
+                ),
                 "why": "Short-latency biomarker change is usually the earliest signal that the scenario is directionally plausible.",
+                "confidence_tier": tier,
             },
             {
                 "name": "theta_beta_ratio",
                 "direction": "decrease",
-                "summary": "Attention-linked dysregulation marker should be watched alongside alpha rather than on its own.",
+                "summary": soften_language(
+                    "Consider watching the attention-linked dysregulation "
+                    "marker alongside alpha rather than on its own."
+                ),
                 "why": "qEEG ratios can help distinguish physiologic response from noise or adherence artifacts.",
+                "confidence_tier": "medium",
             },
             {
                 "name": "recovery_state",
                 "direction": "stabilize",
-                "summary": "Sleep and HRV should hold or improve if protocol intensity is tolerable.",
+                "summary": soften_language(
+                    "Sleep and HRV may hold or improve if protocol intensity is tolerable."
+                ),
                 "why": "Recovery burden can overwhelm otherwise promising biomarker gains.",
+                "confidence_tier": "medium",
             },
         ],
         "monitoring_plan": [
@@ -504,6 +638,26 @@ def _build_simulation_outputs(
         ],
         "modalities_used": modalities,
         "scenario": scenario,
+        "confidence_tier": tier,
+        "top_drivers": drivers,
+        "calibration": build_calibration_status(),
+        "uncertainty": build_uncertainty_block(horizon_days=horizon_days),
+        "scenario_comparison": {
+            "baseline_reference": "no_protocol_change_counterfactual_not_observed",
+            "expected_direction": "improvement" if effect_size > 0 else "uncertain",
+            "delta_pred": round(effect_size, 3),
+            "delta_confidence": None,
+            "recommendation_change": None,
+        },
+        "provenance": build_provenance(
+            surface="legacy_simulate",
+            inputs=sim_inputs,
+            schema_version=SCHEMA_VERSION,
+            extra={"protocol_id": protocol_id, "horizon_days": horizon_days},
+        ),
+        "schema_version": SCHEMA_VERSION,
+        "evidence_status": "pending",
+        "decision_support_only": True,
     }
 
 
@@ -547,6 +701,18 @@ def deeptwin_analyze(
                 "Causation outputs are hypotheses, not clinical truth.",
             ],
         },
+        schema_version=ANALYZE_SCHEMA_VERSION,
+        provenance=build_provenance(
+            surface="analyze",
+            inputs={
+                "patient_id": payload.patient_id,
+                "as_of": payload.as_of,
+                "modalities": list(used),
+                "analysis_modes": list(payload.analysis_modes),
+                "combine": payload.combine,
+            },
+            schema_version=ANALYZE_SCHEMA_VERSION,
+        ),
     )
 
     if "correlation" in payload.analysis_modes:
@@ -620,6 +786,11 @@ def deeptwin_simulate(
         payload.modalities,
         payload.scenario or {},
     )
+    sim_provenance = build_provenance(
+        surface="legacy_simulate",
+        inputs=inputs,
+        schema_version=SCHEMA_VERSION,
+    )
     if autoresearch_preview is not None:
         return DeeptwinSimulateResponse(
             patient_id=payload.patient_id,
@@ -627,14 +798,20 @@ def deeptwin_simulate(
             horizon_days=payload.horizon_days,
             engine={"name": "autoresearch", "status": "available"},
             outputs={**governed_outputs, "autoresearch": autoresearch_preview},
+            schema_version=SCHEMA_VERSION,
+            provenance=sim_provenance,
         )
 
     return DeeptwinSimulateResponse(
         patient_id=payload.patient_id,
         protocol_id=payload.protocol_id,
         horizon_days=payload.horizon_days,
-        engine={"name": "stub", "status": "ok"},
+        engine={"name": "stub", "status": "placeholder", "real_ai": False,
+                "notice": "No production simulation model is connected. "
+                          "Output is deterministic placeholder data for UI development only."},
         outputs=governed_outputs,
+        schema_version=SCHEMA_VERSION,
+        provenance=sim_provenance,
     )
 
 
@@ -761,6 +938,14 @@ class TwinPredictionOut(BaseModel):
     traces: list[dict[str, Any]]
     assumptions: list[str]
     evidence_grade: str
+    evidence_status: str | None = None
+    confidence_tier: str | None = None
+    top_drivers: list[dict[str, Any]] = Field(default_factory=list)
+    rationale: str | None = None
+    uncertainty: dict[str, Any] | None = None
+    calibration: dict[str, Any] | None = None
+    provenance: dict[str, Any] | None = None
+    decision_support_only: bool = True
     uncertainty_widens_with_horizon: bool
     disclaimer: str
 
@@ -788,15 +973,29 @@ class TwinSimulationOut(BaseModel):
     predicted_curve: dict[str, Any]
     expected_domains: list[str]
     responder_probability: float
+    responder_probability_ci95: list[float] | None = None
     non_responder_flag: bool
     safety_concerns: list[str]
     missing_data: list[str]
     monitoring_plan: list[str]
-    evidence_support: list[str]
+    evidence_support: list[dict[str, Any]] | list[str]
     evidence_grade: str
+    evidence_status: str | None = None
     approval_required: bool
     labels: dict[str, bool]
     disclaimer: str
+    # New decision-support fields (Stream 3 night-shift upgrade).
+    confidence_tier: str | None = None
+    top_drivers: list[dict[str, Any]] = Field(default_factory=list)
+    feature_attribution: list[dict[str, Any]] | None = None
+    rationale: str | None = None
+    patient_specific_notes: list[str] = Field(default_factory=list)
+    scenario_comparison: dict[str, Any] | None = None
+    uncertainty: dict[str, Any] | None = None
+    calibration: dict[str, Any] | None = None
+    provenance: dict[str, Any] | None = None
+    schema_version: str | None = None
+    decision_support_only: bool = True
 
 
 class TwinReportRequest(BaseModel):
@@ -928,6 +1127,55 @@ def deeptwin_post_simulation(
     return TwinSimulationOut(**result)
 
 
+class TwinScenarioCompareRequest(BaseModel):
+    scenarios: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class TwinScenarioCompareOut(BaseModel):
+    patient_id: str
+    count: int
+    items: list[dict[str, Any]]
+    deltas: list[dict[str, Any]]
+    summary: str
+    schema_version: str
+    provenance: dict[str, Any]
+    decision_support_only: bool = True
+
+
+@router.post(
+    "/patients/{patient_id}/scenarios/compare",
+    response_model=TwinScenarioCompareOut,
+)
+def deeptwin_compare_scenarios(
+    patient_id: str,
+    payload: TwinScenarioCompareRequest,
+    _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> TwinScenarioCompareOut:
+    """Structured comparison across N scenarios.
+
+    The clinician page used to overlay simulation curves client-side
+    only; this endpoint returns the deltas (endpoint, responder
+    probability, confidence tier, recommendation change) so they can
+    be audited and rendered as a table.
+    """
+    _require_clinician_review_actor(_actor)
+    _gate_patient_access(_actor, patient_id)
+    cmp = build_scenario_comparison(payload.scenarios)
+    return TwinScenarioCompareOut(
+        patient_id=patient_id,
+        count=cmp["count"],
+        items=cmp["items"],
+        deltas=cmp["deltas"],
+        summary=cmp["summary"],
+        schema_version=SCHEMA_VERSION,
+        provenance=build_provenance(
+            surface="scenarios.compare",
+            inputs={"scenario_ids": [s.get("scenario_id") for s in payload.scenarios]},
+            schema_version=SCHEMA_VERSION,
+        ),
+    )
+
+
 @router.post("/patients/{patient_id}/reports", response_model=TwinReportOut)
 def deeptwin_post_report(
     patient_id: str,
@@ -987,6 +1235,19 @@ from app.services.deeptwin_tribe import (  # noqa: E402  (intentional late impor
     to_jsonable as tribe_to_jsonable,
 )
 
+TRIBE_ENGINE_INFO: dict[str, Any] = {
+    "name": "tribe-rule-engine",
+    "version": "0.1.0",
+    "real_ai": False,
+    "method": "rule_based",
+    "notice": (
+        "All TRIBE outputs are generated by deterministic rule-based "
+        "feature engineering and quality-weighted fusion — no trained ML "
+        "model is connected. Response probabilities and trajectories are "
+        "heuristic estimates for decision-support exploration only."
+    ),
+}
+
 
 class TribeProtocolModel(BaseModel):
     protocol_id: str = Field(..., min_length=1)
@@ -1043,6 +1304,7 @@ class TribeSimulateResponse(BaseModel):
     patient_id: str
     horizon_weeks: int
     output: dict[str, Any]
+    engine_info: dict[str, Any] = Field(default_factory=lambda: dict(TRIBE_ENGINE_INFO))
     disclaimer: str = TRIBE_DISCLAIMER
 
 
@@ -1059,6 +1321,7 @@ class TribeCompareResponse(BaseModel):
     patient_id: str
     horizon_weeks: int
     comparison: dict[str, Any]
+    engine_info: dict[str, Any] = Field(default_factory=lambda: dict(TRIBE_ENGINE_INFO))
     disclaimer: str = TRIBE_DISCLAIMER
 
 
@@ -1074,6 +1337,7 @@ class TribeLatentResponse(BaseModel):
     embeddings: list[dict[str, Any]]
     latent: dict[str, Any]
     adapted: dict[str, Any]
+    engine_info: dict[str, Any] = Field(default_factory=lambda: dict(TRIBE_ENGINE_INFO))
     disclaimer: str = TRIBE_DISCLAIMER
 
 
@@ -1093,6 +1357,7 @@ class TribeExplainResponse(BaseModel):
     response_probability: float
     response_confidence: str
     evidence_grade: str
+    engine_info: dict[str, Any] = Field(default_factory=lambda: dict(TRIBE_ENGINE_INFO))
     disclaimer: str = TRIBE_DISCLAIMER
 
 
@@ -1117,6 +1382,7 @@ class TribeReportPayloadResponse(BaseModel):
     sections: list[dict[str, Any]]
     audit_ref: str
     generated_at: str
+    engine_info: dict[str, Any] = Field(default_factory=lambda: dict(TRIBE_ENGINE_INFO))
     disclaimer: str = TRIBE_DISCLAIMER
 
 
@@ -1125,6 +1391,7 @@ def deeptwin_simulate_tribe(
     payload: TribeSimulateRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TribeSimulateResponse:
+    _gate_patient_access(_actor, payload.patient_id)
     sim = tribe_simulate_protocol(
         payload.patient_id,
         payload.protocol.to_spec(),
@@ -1153,6 +1420,7 @@ def deeptwin_compare_protocols(
     payload: TribeCompareRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TribeCompareResponse:
+    _gate_patient_access(_actor, payload.patient_id)
     cmp_obj = tribe_compare_protocols(
         payload.patient_id,
         [p.to_spec() for p in payload.protocols],
@@ -1173,6 +1441,7 @@ def deeptwin_patient_latent(
     payload: TribeLatentRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TribeLatentResponse:
+    _gate_patient_access(_actor, payload.patient_id)
     embs, latent, adapted = tribe_compute_patient_latent(
         payload.patient_id,
         samples=payload.samples.to_dict() if payload.samples else None,
@@ -1192,6 +1461,7 @@ def deeptwin_explain(
     payload: TribeExplainRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TribeExplainResponse:
+    _gate_patient_access(_actor, payload.patient_id)
     sim = tribe_simulate_protocol(
         payload.patient_id,
         payload.protocol.to_spec(),
@@ -1216,6 +1486,7 @@ def deeptwin_report_payload(
     payload: TribeReportPayloadRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> TribeReportPayloadResponse:
+    _gate_patient_access(_actor, payload.patient_id)
     sim = tribe_simulate_protocol(
         payload.patient_id,
         payload.protocol.to_spec(),
@@ -1350,3 +1621,515 @@ def deeptwin_get_360_dashboard(
 
     return build_dashboard_payload(session, patient)
 
+
+# ---------------------------------------------------------------------------
+# DeepTwin persistence and clinician review layer (migration 063)
+# ---------------------------------------------------------------------------
+
+
+class DataSourceInfo(BaseModel):
+    available: bool
+    count: int
+    last_updated: str | None = None
+
+
+class DataSourcesOut(BaseModel):
+    patient_id: str
+    sources: dict[str, DataSourceInfo]
+    completeness_score: float
+
+
+class AnalysisRunIn(BaseModel):
+    analysis_type: str = Field(..., min_length=1)
+    input_sources_json: dict[str, Any] | None = None
+    output_summary_json: dict[str, Any] | None = None
+    limitations_json: list[str] | None = None
+    confidence: float | None = None
+    model_name: str | None = None
+
+
+class AnalysisRunOut(BaseModel):
+    id: str
+    patient_id: str
+    clinician_id: str
+    analysis_type: str
+    input_sources_json: dict[str, Any] | None = None
+    output_summary_json: dict[str, Any] | None = None
+    limitations_json: list[str] | None = None
+    confidence: float | None = None
+    model_name: str | None = None
+    status: str
+    created_at: str
+    reviewed_at: str | None = None
+    reviewed_by: str | None = None
+
+
+class SimulationRunIn(BaseModel):
+    proposed_protocol_json: dict[str, Any] | None = None
+    assumptions_json: dict[str, Any] | None = None
+    predicted_direction_json: dict[str, Any] | None = None
+    evidence_links_json: list[str] | None = None
+    confidence: float | None = None
+    limitations: str | None = None
+
+
+class SimulationRunOut(BaseModel):
+    id: str
+    patient_id: str
+    clinician_id: str
+    proposed_protocol_json: dict[str, Any] | None = None
+    assumptions_json: dict[str, Any] | None = None
+    predicted_direction_json: dict[str, Any] | None = None
+    evidence_links_json: list[str] | None = None
+    confidence: float | None = None
+    limitations: str | None = None
+    clinician_review_required: bool
+    created_at: str
+    reviewed_at: str | None = None
+    reviewed_by: str | None = None
+
+
+class ClinicianNoteIn(BaseModel):
+    note_text: str = Field(..., min_length=1)
+    related_analysis_id: str | None = None
+    related_simulation_id: str | None = None
+
+
+class ClinicianNoteOut(BaseModel):
+    id: str
+    patient_id: str
+    clinician_id: str
+    note_text: str
+    related_analysis_id: str | None = None
+    related_simulation_id: str | None = None
+    created_at: str
+
+
+class ReviewIn(BaseModel):
+    pass
+
+
+def _serialize_dt(dt: Any) -> str | None:
+    if dt is None:
+        return None
+    return dt.isoformat() if hasattr(dt, "isoformat") else str(dt)
+
+
+@router.get("/patients/{patient_id}/data-sources", response_model=DataSourcesOut)
+def deeptwin_get_data_sources(
+    patient_id: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> DataSourcesOut:
+    _require_clinician_review_actor(actor)
+    _gate_patient_access(actor, patient_id, db)
+
+    assessment_count = db.scalar(
+        select(func.count()).where(AssessmentRecord.patient_id == patient_id)
+    ) or 0
+    qeeg_count = db.scalar(
+        select(func.count()).where(QEEGAnalysis.patient_id == patient_id)
+    ) or 0
+    mri_count = db.scalar(
+        select(func.count()).where(MriAnalysis.patient_id == patient_id)
+    ) or 0
+    session_count = db.scalar(
+        select(func.count()).where(ClinicalSession.patient_id == patient_id)
+    ) or 0
+    wearable_count = db.scalar(
+        select(func.count()).where(WearableObservation.patient_id == patient_id)
+    ) or 0
+    outcome_count = db.scalar(
+        select(func.count()).where(OutcomeEvent.patient_id == patient_id)
+    ) or 0
+
+    def _last_updated(model_cls) -> str | None:
+        ts_col = getattr(model_cls, 'created_at', None) or getattr(model_cls, 'observed_at', None) or getattr(model_cls, 'synced_at', None)
+        if ts_col is None:
+            return None
+        row = db.execute(
+            select(ts_col)
+            .where(model_cls.patient_id == patient_id)
+            .order_by(ts_col.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        return _serialize_dt(row)
+
+    sources = {
+        "assessments": DataSourceInfo(
+            available=assessment_count > 0,
+            count=assessment_count,
+            last_updated=_last_updated(AssessmentRecord),
+        ),
+        "qeeg": DataSourceInfo(
+            available=qeeg_count > 0,
+            count=qeeg_count,
+            last_updated=_last_updated(QEEGAnalysis),
+        ),
+        "mri": DataSourceInfo(
+            available=mri_count > 0,
+            count=mri_count,
+            last_updated=_last_updated(MriAnalysis),
+        ),
+        "sessions": DataSourceInfo(
+            available=session_count > 0,
+            count=session_count,
+            last_updated=_last_updated(ClinicalSession),
+        ),
+        "wearables": DataSourceInfo(
+            available=wearable_count > 0,
+            count=wearable_count,
+            last_updated=_last_updated(WearableObservation),
+        ),
+        "outcomes": DataSourceInfo(
+            available=outcome_count > 0,
+            count=outcome_count,
+            last_updated=_last_updated(OutcomeEvent),
+        ),
+    }
+
+    total_sources = 6
+    present = sum(1 for s in sources.values() if s.available)
+    completeness = round(present / total_sources, 2)
+
+    create_audit_event(
+        db,
+        event_id=f"dt-ds-{actor.actor_id}-{uuid.uuid4().hex[:12]}",
+        target_id=patient_id,
+        target_type="patient",
+        action="deeptwin.data_source.opened",
+        role=actor.role,
+        actor_id=actor.actor_id,
+        note=f"completeness={completeness}; sources={present}",
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+    return DataSourcesOut(
+        patient_id=patient_id,
+        sources={k: v.model_dump() for k, v in sources.items()},
+        completeness_score=completeness,
+    )
+
+
+@router.post("/patients/{patient_id}/analysis-runs", response_model=AnalysisRunOut)
+def deeptwin_create_analysis_run(
+    patient_id: str,
+    payload: AnalysisRunIn,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> AnalysisRunOut:
+    _require_clinician_review_actor(actor)
+    _gate_patient_access(actor, patient_id, db)
+    run = DeepTwinAnalysisRun(
+        patient_id=patient_id,
+        clinician_id=actor.actor_id,
+        analysis_type=payload.analysis_type,
+        input_sources_json=payload.input_sources_json,
+        output_summary_json=payload.output_summary_json,
+        limitations_json=payload.limitations_json,
+        confidence=payload.confidence,
+        model_name=payload.model_name,
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    create_audit_event(
+        db,
+        event_id=f"dt-analysis-{actor.actor_id}-{uuid.uuid4().hex[:12]}",
+        target_id=patient_id,
+        target_type="patient",
+        action="deeptwin.ai.analysis.completed",
+        role=actor.role,
+        actor_id=actor.actor_id,
+        note=f"type={payload.analysis_type}; run={run.id}",
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+    return AnalysisRunOut(
+        id=run.id,
+        patient_id=run.patient_id,
+        clinician_id=run.clinician_id,
+        analysis_type=run.analysis_type,
+        input_sources_json=run.input_sources_json,
+        output_summary_json=run.output_summary_json,
+        limitations_json=run.limitations_json,
+        confidence=run.confidence,
+        model_name=run.model_name,
+        status=run.status,
+        created_at=_serialize_dt(run.created_at),
+        reviewed_at=_serialize_dt(run.reviewed_at),
+        reviewed_by=run.reviewed_by,
+    )
+
+
+@router.get("/patients/{patient_id}/analysis-runs", response_model=list[AnalysisRunOut])
+def deeptwin_list_analysis_runs(
+    patient_id: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[AnalysisRunOut]:
+    _require_clinician_review_actor(actor)
+    _gate_patient_access(actor, patient_id, db)
+    runs = db.execute(
+        select(DeepTwinAnalysisRun)
+        .where(DeepTwinAnalysisRun.patient_id == patient_id)
+        .order_by(DeepTwinAnalysisRun.created_at.desc())
+    ).scalars().all()
+    return [
+        AnalysisRunOut(
+            id=r.id,
+            patient_id=r.patient_id,
+            clinician_id=r.clinician_id,
+            analysis_type=r.analysis_type,
+            input_sources_json=r.input_sources_json,
+            output_summary_json=r.output_summary_json,
+            limitations_json=r.limitations_json,
+            confidence=r.confidence,
+            model_name=r.model_name,
+            status=r.status,
+            created_at=_serialize_dt(r.created_at),
+            reviewed_at=_serialize_dt(r.reviewed_at),
+            reviewed_by=r.reviewed_by,
+        )
+        for r in runs
+    ]
+
+
+@router.post("/analysis-runs/{run_id}/review", response_model=AnalysisRunOut)
+def deeptwin_review_analysis_run(
+    run_id: str,
+    _payload: ReviewIn,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> AnalysisRunOut:
+    _require_clinician_review_actor(actor)
+    run = db.get(DeepTwinAnalysisRun, run_id)
+    if run is None:
+        raise ApiServiceError(status_code=404, message="Analysis run not found")
+    _gate_patient_access(actor, run.patient_id, db)
+    from datetime import datetime, timezone
+    run.reviewed_at = datetime.now(timezone.utc)
+    run.reviewed_by = actor.actor_id
+    db.commit()
+    db.refresh(run)
+    create_audit_event(
+        db,
+        event_id=f"dt-review-{actor.actor_id}-{uuid.uuid4().hex[:12]}",
+        target_id=run.patient_id,
+        target_type="patient",
+        action="deeptwin.analysis.reviewed",
+        role=actor.role,
+        actor_id=actor.actor_id,
+        note=f"run={run_id}; type={run.analysis_type}",
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+    return AnalysisRunOut(
+        id=run.id,
+        patient_id=run.patient_id,
+        clinician_id=run.clinician_id,
+        analysis_type=run.analysis_type,
+        input_sources_json=run.input_sources_json,
+        output_summary_json=run.output_summary_json,
+        limitations_json=run.limitations_json,
+        confidence=run.confidence,
+        model_name=run.model_name,
+        status=run.status,
+        created_at=_serialize_dt(run.created_at),
+        reviewed_at=_serialize_dt(run.reviewed_at),
+        reviewed_by=run.reviewed_by,
+    )
+
+
+@router.post("/patients/{patient_id}/simulation-runs", response_model=SimulationRunOut)
+def deeptwin_create_simulation_run(
+    patient_id: str,
+    payload: SimulationRunIn,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> SimulationRunOut:
+    _require_clinician_review_actor(actor)
+    _gate_patient_access(actor, patient_id, db)
+    run = DeepTwinSimulationRun(
+        patient_id=patient_id,
+        clinician_id=actor.actor_id,
+        proposed_protocol_json=payload.proposed_protocol_json,
+        assumptions_json=payload.assumptions_json,
+        predicted_direction_json=payload.predicted_direction_json,
+        evidence_links_json=payload.evidence_links_json,
+        confidence=payload.confidence,
+        limitations=payload.limitations,
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    create_audit_event(
+        db,
+        event_id=f"dt-sim-{actor.actor_id}-{uuid.uuid4().hex[:12]}",
+        target_id=patient_id,
+        target_type="patient",
+        action="deeptwin.simulation.completed",
+        role=actor.role,
+        actor_id=actor.actor_id,
+        note=f"run={run.id}",
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+    return SimulationRunOut(
+        id=run.id,
+        patient_id=run.patient_id,
+        clinician_id=run.clinician_id,
+        proposed_protocol_json=run.proposed_protocol_json,
+        assumptions_json=run.assumptions_json,
+        predicted_direction_json=run.predicted_direction_json,
+        evidence_links_json=run.evidence_links_json,
+        confidence=run.confidence,
+        limitations=run.limitations,
+        clinician_review_required=run.clinician_review_required,
+        created_at=_serialize_dt(run.created_at),
+        reviewed_at=_serialize_dt(run.reviewed_at),
+        reviewed_by=run.reviewed_by,
+    )
+
+
+@router.get("/patients/{patient_id}/simulation-runs", response_model=list[SimulationRunOut])
+def deeptwin_list_simulation_runs(
+    patient_id: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[SimulationRunOut]:
+    _require_clinician_review_actor(actor)
+    _gate_patient_access(actor, patient_id, db)
+    runs = db.execute(
+        select(DeepTwinSimulationRun)
+        .where(DeepTwinSimulationRun.patient_id == patient_id)
+        .order_by(DeepTwinSimulationRun.created_at.desc())
+    ).scalars().all()
+    return [
+        SimulationRunOut(
+            id=r.id,
+            patient_id=r.patient_id,
+            clinician_id=r.clinician_id,
+            proposed_protocol_json=r.proposed_protocol_json,
+            assumptions_json=r.assumptions_json,
+            predicted_direction_json=r.predicted_direction_json,
+            evidence_links_json=r.evidence_links_json,
+            confidence=r.confidence,
+            limitations=r.limitations,
+            clinician_review_required=r.clinician_review_required,
+            created_at=_serialize_dt(r.created_at),
+            reviewed_at=_serialize_dt(r.reviewed_at),
+            reviewed_by=r.reviewed_by,
+        )
+        for r in runs
+    ]
+
+
+@router.post("/simulation-runs/{run_id}/review", response_model=SimulationRunOut)
+def deeptwin_review_simulation_run(
+    run_id: str,
+    _payload: ReviewIn,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> SimulationRunOut:
+    _require_clinician_review_actor(actor)
+    run = db.get(DeepTwinSimulationRun, run_id)
+    if run is None:
+        raise ApiServiceError(status_code=404, message="Simulation run not found")
+    _gate_patient_access(actor, run.patient_id, db)
+    from datetime import datetime, timezone
+    run.reviewed_at = datetime.now(timezone.utc)
+    run.reviewed_by = actor.actor_id
+    db.commit()
+    db.refresh(run)
+    create_audit_event(
+        db,
+        event_id=f"dt-sim-review-{actor.actor_id}-{uuid.uuid4().hex[:12]}",
+        target_id=run.patient_id,
+        target_type="patient",
+        action="deeptwin.simulation.reviewed",
+        role=actor.role,
+        actor_id=actor.actor_id,
+        note=f"run={run_id}",
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+    return SimulationRunOut(
+        id=run.id,
+        patient_id=run.patient_id,
+        clinician_id=run.clinician_id,
+        proposed_protocol_json=run.proposed_protocol_json,
+        assumptions_json=run.assumptions_json,
+        predicted_direction_json=run.predicted_direction_json,
+        evidence_links_json=run.evidence_links_json,
+        confidence=run.confidence,
+        limitations=run.limitations,
+        clinician_review_required=run.clinician_review_required,
+        created_at=_serialize_dt(run.created_at),
+        reviewed_at=_serialize_dt(run.reviewed_at),
+        reviewed_by=run.reviewed_by,
+    )
+
+
+@router.post("/patients/{patient_id}/clinician-notes", response_model=ClinicianNoteOut)
+def deeptwin_create_clinician_note(
+    patient_id: str,
+    payload: ClinicianNoteIn,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> ClinicianNoteOut:
+    _require_clinician_review_actor(actor)
+    _gate_patient_access(actor, patient_id, db)
+    note = DeepTwinClinicianNote(
+        patient_id=patient_id,
+        clinician_id=actor.actor_id,
+        note_text=payload.note_text,
+        related_analysis_id=payload.related_analysis_id,
+        related_simulation_id=payload.related_simulation_id,
+    )
+    db.add(note)
+    db.commit()
+    db.refresh(note)
+    create_audit_event(
+        db,
+        event_id=f"dt-note-{actor.actor_id}-{uuid.uuid4().hex[:12]}",
+        target_id=patient_id,
+        target_type="patient",
+        action="deeptwin.clinician_note.created",
+        role=actor.role,
+        actor_id=actor.actor_id,
+        note=f"note={note.id}",
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+    return ClinicianNoteOut(
+        id=note.id,
+        patient_id=note.patient_id,
+        clinician_id=note.clinician_id,
+        note_text=note.note_text,
+        related_analysis_id=note.related_analysis_id,
+        related_simulation_id=note.related_simulation_id,
+        created_at=_serialize_dt(note.created_at),
+    )
+
+
+@router.get("/patients/{patient_id}/clinician-notes", response_model=list[ClinicianNoteOut])
+def deeptwin_list_clinician_notes(
+    patient_id: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[ClinicianNoteOut]:
+    _require_clinician_review_actor(actor)
+    _gate_patient_access(actor, patient_id, db)
+    notes = db.execute(
+        select(DeepTwinClinicianNote)
+        .where(DeepTwinClinicianNote.patient_id == patient_id)
+        .order_by(DeepTwinClinicianNote.created_at.desc())
+    ).scalars().all()
+    return [
+        ClinicianNoteOut(
+            id=n.id,
+            patient_id=n.patient_id,
+            clinician_id=n.clinician_id,
+            note_text=n.note_text,
+            related_analysis_id=n.related_analysis_id,
+            related_simulation_id=n.related_simulation_id,
+            created_at=_serialize_dt(n.created_at),
+        )
+        for n in notes
+    ]

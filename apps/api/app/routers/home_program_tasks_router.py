@@ -165,7 +165,7 @@ def list_task_completions(
     )
     if patient_id:
         q = q.filter(PatientHomeProgramTaskCompletion.patient_id == patient_id)
-    rows = q.order_by(PatientHomeProgramTaskCompletion.completed_at.desc()).all()
+    rows = q.order_by(PatientHomeProgramTaskCompletion.completed_at.desc()).limit(200).all()
     return [
         ClinicianTaskCompletionOut(
             server_task_id=r.server_task_id,

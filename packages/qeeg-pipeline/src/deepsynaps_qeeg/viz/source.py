@@ -11,19 +11,16 @@ Interactive (browser):
 """
 from __future__ import annotations
 
-import base64
 import io
-import json
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from .. import FREQ_BANDS
 
 if TYPE_CHECKING:
-    import mne
+    pass
 
 log = logging.getLogger(__name__)
 
@@ -87,7 +84,6 @@ def render_source_cortex(
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    import mne
 
     if views is None:
         views = ["lateral"]

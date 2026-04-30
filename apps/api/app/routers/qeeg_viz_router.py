@@ -17,10 +17,16 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import QEEGAnalysis
+from app.repositories.patients import resolve_patient_clinic_id
 
 _log = logging.getLogger(__name__)
 
@@ -76,10 +82,40 @@ class VizCapabilities(BaseModel):
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-def _load_analysis(analysis_id: str, db: Session) -> QEEGAnalysis:
+def _load_analysis(
+    analysis_id: str, db: Session, actor: AuthenticatedActor | None = None
+) -> QEEGAnalysis:
+    """Load a qEEG analysis, optionally enforcing the cross-clinic gate.
+
+    Pre-fix every viz endpoint here was open across clinics — any
+    clinician could fetch source-localised band power, topomaps,
+    connectivity matrices, or PDF reports for any patient in any
+    clinic by enumerating analysis_ids. The optional ``actor``
+    parameter wires the canonical ``require_patient_owner`` gate
+    through every call site.
+    """
     analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
     if not analysis:
         raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    if actor is not None and analysis.patient_id:
+        exists, clinic_id = resolve_patient_clinic_id(db, analysis.patient_id)
+        if exists:
+            try:
+                require_patient_owner(actor, clinic_id)
+            except ApiServiceError as exc:
+                if exc.code in {"cross_clinic_access_denied", "forbidden"}:
+                    raise ApiServiceError(
+                        code="not_found",
+                        message="Analysis not found",
+                        status_code=404,
+                    ) from exc
+                raise
+        elif actor.role != "admin":
+            raise ApiServiceError(
+                code="not_found",
+                message="Analysis not found",
+                status_code=404,
+            )
     return analysis
 
 
@@ -142,7 +178,7 @@ def get_viz_capabilities(
 ) -> VizCapabilities:
     """Report which visualization features are available for an analysis."""
     require_minimum_role(actor, "clinician")
-    analysis = _load_analysis(analysis_id, db)
+    analysis = _load_analysis(analysis_id, db, actor)
     features = _load_features(analysis)
     ch_names = _get_ch_names(analysis)
 
@@ -175,7 +211,7 @@ def get_topomap(
 ) -> TopomapResponse:
     """Render a single-band topomap as base64 image."""
     require_minimum_role(actor, "clinician")
-    analysis = _load_analysis(analysis_id, db)
+    analysis = _load_analysis(analysis_id, db, actor)
     features = _load_features(analysis)
     ch_names = _get_ch_names(analysis)
 
@@ -217,7 +253,7 @@ def get_band_grid(
 ) -> BandGridResponse:
     """Render a 5-band topomap grid as a single image."""
     require_minimum_role(actor, "clinician")
-    analysis = _load_analysis(analysis_id, db)
+    analysis = _load_analysis(analysis_id, db, actor)
     features = _load_features(analysis)
     ch_names = _get_ch_names(analysis)
 
@@ -264,7 +300,7 @@ def get_connectivity_chord(
 ) -> ConnectivityPayload:
     """Export connectivity chord diagram payload for brainvis-d3."""
     require_minimum_role(actor, "clinician")
-    analysis = _load_analysis(analysis_id, db)
+    analysis = _load_analysis(analysis_id, db, actor)
     features = _load_features(analysis)
 
     conn = features.get("connectivity", {})
@@ -302,7 +338,7 @@ def get_connectivity_heatmap(
 ) -> dict:
     """Export connectivity heatmap as a Plotly trace payload."""
     require_minimum_role(actor, "clinician")
-    analysis = _load_analysis(analysis_id, db)
+    analysis = _load_analysis(analysis_id, db, actor)
     features = _load_features(analysis)
 
     conn = features.get("connectivity", {})
@@ -339,7 +375,7 @@ def get_source_payload(
 ) -> SourcePayload:
     """Export source-localized data for three-brain-js viewer."""
     require_minimum_role(actor, "clinician")
-    analysis = _load_analysis(analysis_id, db)
+    analysis = _load_analysis(analysis_id, db, actor)
     features = _load_features(analysis)
 
     source = features.get("source", {})
@@ -374,7 +410,7 @@ def get_source_image(
 ) -> Response:
     """Render a source cortex image (PNG/SVG)."""
     require_minimum_role(actor, "clinician")
-    analysis = _load_analysis(analysis_id, db)
+    analysis = _load_analysis(analysis_id, db, actor)
     features = _load_features(analysis)
 
     source = features.get("source", {})
@@ -407,7 +443,7 @@ def generate_v2_pdf_report(
     Returns paths to the generated HTML and PDF files.
     """
     require_minimum_role(actor, "clinician")
-    analysis = _load_analysis(analysis_id, db)
+    analysis = _load_analysis(analysis_id, db, actor)
 
     if analysis.analysis_status != "completed":
         raise ApiServiceError(

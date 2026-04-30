@@ -22,7 +22,16 @@ import {
   renderLongitudinalSparklines,
   mountCopilotWidget,
 } from './qeeg-ai-panels.js';
+import { renderSafetyCockpit, mountSafetyCockpit } from './qeeg-safety-cockpit.js';
+import { renderRedFlags, mountRedFlags } from './qeeg-red-flags.js';
+import { renderNormativeModelCard, mountNormativeModelCard } from './qeeg-normative-card.js';
+import { renderProtocolFit, mountProtocolFit } from './qeeg-protocol-fit.js';
+import { renderClinicianReview, mountClinicianReview } from './qeeg-clinician-review.js';
+import { renderPatientReport, mountPatientReport } from './qeeg-patient-report.js';
+import { renderClinicianReport, mountClinicianReport } from './qeeg-clinician-report.js';
+import { renderTimeline, mountTimeline } from './qeeg-timeline.js';
 import { EvidenceChip, createEvidenceQueryForTarget, initEvidenceDrawer, openEvidenceDrawer, wireEvidenceChips } from './evidence-intelligence.js';
+import { renderLearningEEGReferenceCard } from './learning-eeg-reference.js';
 
 const FUSION_API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 const FUSION_TOKEN_KEY = 'ds_access_token';
@@ -48,8 +57,8 @@ function esc(v) {
 
 // ── Shared helpers ───────────────────────────────────────────────────────────
 function spinner(msg) {
-  return '<div style="display:flex;align-items:center;gap:8px;padding:24px;color:var(--text-secondary)">'
-    + '<span class="spinner"></span>' + esc(msg || 'Loading...') + '</div>';
+  return '<div role="status" aria-live="polite" aria-busy="true" style="display:flex;align-items:center;gap:8px;padding:24px;color:var(--text-secondary)">'
+    + '<span class="spinner" aria-hidden="true"></span>' + esc(msg || 'Loading...') + '</div>';
 }
 
 function card(title, body, extra) {
@@ -95,14 +104,48 @@ function _getContextPatientIdForQEEG() {
   }
 }
 
-export function _getQEEGReportPdfUrl(report, analysis) {
-  if (report && (report.report_pdf_url || report.pdf_url)) {
-    return report.report_pdf_url || report.pdf_url;
+let _qeegPrintableReportViewerUrl = null;
+
+function _revokeQEEGPrintableReportViewerUrl() {
+  if (_qeegPrintableReportViewerUrl) {
+    try { URL.revokeObjectURL(_qeegPrintableReportViewerUrl); } catch (_) {}
+    _qeegPrintableReportViewerUrl = null;
   }
-  if (analysis && analysis.id && report && report.id) {
-    try { return api.getQEEGReportPDF(analysis.id, report.id); } catch (_) { return null; }
+}
+
+export function _canRenderQEEGPrintableReport(report, analysis) {
+  return !!(analysis && analysis.id && report && report.id);
+}
+
+export function _getQEEGReportPdfUrl(report, analysis) {
+  if (!report) return null;
+  if (report.report_pdf_url) return report.report_pdf_url;
+  if (report.pdf_url) return report.pdf_url;
+  if (report.id && analysis && analysis.id && api.getQEEGReportPDF) {
+    return api.getQEEGReportPDF(analysis.id, report.id);
   }
   return null;
+}
+
+async function _mountQEEGPrintableReportViewer(report, analysis) {
+  var frame = document.getElementById('qeeg-printable-report-frame');
+  if (!frame) return;
+  if (!_canRenderQEEGPrintableReport(report, analysis)) {
+    frame.remove();
+    return;
+  }
+  frame.setAttribute('srcdoc', '<p style="font-family:Arial,sans-serif;padding:16px;color:#5b677a">Loading printable report…</p>');
+  try {
+    var file = await api.getQEEGPrintableReport(analysis.id, report.id);
+    _revokeQEEGPrintableReportViewerUrl();
+    _qeegPrintableReportViewerUrl = URL.createObjectURL(file.blob);
+    frame.removeAttribute('srcdoc');
+    frame.src = _qeegPrintableReportViewerUrl;
+  } catch (err) {
+    frame.outerHTML = '<div class="qeeg-report-callout"><div class="qeeg-report-callout__label">Printable report unavailable</div><div class="qeeg-report-callout__value">'
+      + esc(err && err.message ? err.message : err)
+      + '</div></div>';
+  }
 }
 
 function _getAnalysisSortTimestamp(analysis) {
@@ -245,10 +288,10 @@ function badge(text, color) {
 }
 
 const QEEG_WORKSPACE_LENS_META = {
-  spectral: { label: 'Spectral', color: 'var(--teal)' },
-  connectivity: { label: 'Connectivity', color: 'var(--blue)' },
-  asymmetry: { label: 'Asymmetry', color: 'var(--amber)' },
-  biomarkers: { label: 'Biomarkers', color: 'var(--violet)' },
+  spectral:     { label: 'Spectral',     color: 'var(--teal)',   help: 'Band-power topography — where in the cortex each EEG rhythm is concentrated.' },
+  connectivity: { label: 'Connectivity', color: 'var(--blue)',   help: 'Functional links between regions — coherence and phase synchrony across the scalp.' },
+  asymmetry:    { label: 'Asymmetry',    color: 'var(--amber)',  help: 'Hemispheric balance — left/right power differences relevant to mood, anxiety, motor lateralization.' },
+  biomarkers:   { label: 'Biomarkers',   color: 'var(--violet)', help: 'Composite clinical markers — theta/beta ratio, alpha peak, frontal asymmetry score.' },
 };
 
 function _getQEEGWorkspaceState(bands) {
@@ -418,7 +461,7 @@ function _renderWorkspaceRatioRail(ratios) {
         featureSummary: [{ name: item.label, value: val, modality: 'qEEG', direction: 'observed', contribution: 0.18 }],
       }),
     });
-    html += '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+    html += '<div style="padding:10px 12px;border-radius:10px;background:var(--surface-tint-1);border:1px solid var(--border)">'
       + '<div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em">' + esc(item.label) + '</div>'
       + '<div style="font-size:18px;font-weight:700;margin-top:4px">' + (typeof val === 'number' ? val.toFixed(2) : esc(val)) + '</div>'
       + '<div style="font-size:11px;color:var(--text-secondary);margin-top:2px">' + esc(item.ref) + '</div>'
@@ -441,11 +484,11 @@ function _renderWorkspacePrimaryLens(data, bands, normDev, state) {
       return '<div style="display:grid;grid-template-columns:minmax(0,1.35fr) minmax(260px,.85fr);gap:16px;align-items:start">'
         + '<div style="overflow-x:auto">' + renderConnectivityMatrix(matrix, d.channels, { band: state.band + ' coherence', size: 420 }) + '</div>'
         + '<div style="display:flex;flex-direction:column;gap:12px">'
-        + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+        + '<div style="padding:12px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
         + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Spatial network view</div>'
         + renderConnectivityBrainMap(topEdges, { band: state.band + ' coherence', size: 260, threshold: 0 })
         + '</div>'
-        + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+        + '<div style="padding:12px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
         + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Strongest pairs</div>'
         + topEdges.map(function (edge) {
           return '<div style="display:flex;justify-content:space-between;gap:12px;font-size:12px;padding:4px 0;color:var(--text-secondary)">'
@@ -454,14 +497,14 @@ function _renderWorkspacePrimaryLens(data, bands, normDev, state) {
         }).join('')
         + '</div></div></div>';
     }
-    return '<div style="padding:24px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px dashed rgba(255,255,255,0.12);font-size:13px;color:var(--text-secondary)">Run advanced connectivity analyses to unlock the connectivity lens.</div>';
+    return '<div style="padding:24px;border-radius:12px;background:var(--surface-tint-1);border:1px dashed rgba(255,255,255,0.12);font-size:13px;color:var(--text-secondary)">Run advanced connectivity analyses to unlock the connectivity lens.</div>';
   }
   if (state.lens === 'asymmetry') {
     if (data && data.asymmetry_detail && data.asymmetry_detail.regions && typeof renderAsymmetryMap === 'function') {
       var regions = Object.keys(data.asymmetry_detail.regions || {});
       return '<div style="display:grid;grid-template-columns:minmax(0,1.2fr) minmax(240px,.8fr);gap:16px;align-items:start">'
-        + '<div style="text-align:center;padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">' + renderAsymmetryMap(data.asymmetry_detail.regions) + '</div>'
-        + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+        + '<div style="text-align:center;padding:12px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">' + renderAsymmetryMap(data.asymmetry_detail.regions) + '</div>'
+        + '<div style="padding:12px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
         + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Asymmetry regions</div>'
         + regions.map(function (region) {
           return '<div style="display:flex;justify-content:space-between;gap:12px;font-size:12px;padding:4px 0;color:var(--text-secondary)">'
@@ -472,7 +515,7 @@ function _renderWorkspacePrimaryLens(data, bands, normDev, state) {
         }).join('')
         + '</div></div>';
     }
-    return '<div style="padding:24px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px dashed rgba(255,255,255,0.12);font-size:13px;color:var(--text-secondary)">No asymmetry region data available for this session.</div>';
+    return '<div style="padding:24px;border-radius:12px;background:var(--surface-tint-1);border:1px dashed rgba(255,255,255,0.12);font-size:13px;color:var(--text-secondary)">No asymmetry region data available for this session.</div>';
   }
   if (state.lens === 'biomarkers') {
     var biomarkerHtml = '';
@@ -486,13 +529,13 @@ function _renderWorkspacePrimaryLens(data, bands, normDev, state) {
       biomarkerHtml += renderSignalDeviationChart(data.signal_deviations);
     }
     if (biomarkerHtml) {
-      return '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">' + biomarkerHtml + '</div>';
+      return '<div style="padding:12px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">' + biomarkerHtml + '</div>';
     }
-    return '<div style="padding:24px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px dashed rgba(255,255,255,0.12);font-size:13px;color:var(--text-secondary)">No biomarker visualization is available yet for this session.</div>';
+    return '<div style="padding:24px;border-radius:12px;background:var(--surface-tint-1);border:1px dashed rgba(255,255,255,0.12);font-size:13px;color:var(--text-secondary)">No biomarker visualization is available yet for this session.</div>';
   }
   var lensDomain = _getTopomapValueDomain(state.band, state.metric, [metricMap]);
   return '<div style="display:grid;grid-template-columns:minmax(0,1.25fr) minmax(220px,.75fr);gap:16px;align-items:start">'
-    + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+    + '<div style="padding:12px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
     + renderTopoHeatmap(metricMap, Object.assign({
       band: state.band + ' ' + (state.metric === 'zscore' ? 'z-score' : 'relative power'),
       unit: state.metric === 'zscore' ? 'z' : '%',
@@ -501,12 +544,12 @@ function _renderWorkspacePrimaryLens(data, bands, normDev, state) {
     }, _getTopomapLegendOptions(state.metric, lensDomain)))
     + '</div>'
     + '<div style="display:flex;flex-direction:column;gap:12px">'
-    + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+    + '<div style="padding:12px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
     + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">10-20 anchor map</div>'
     + renderBrainMap10_20({ size: 250, highlightSites: headHighlights })
     + '<div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">Highlighted channels are the strongest current ' + esc(state.metric === 'zscore' ? 'normative deviations' : 'spectral contributors') + ' for ' + esc(state.band) + '.</div>'
     + '</div>'
-    + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+    + '<div style="padding:12px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
     + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Top channels</div>'
     + (sortedChannels.length ? sortedChannels.slice(0, 8).map(function (row, index) {
       return '<div style="display:flex;justify-content:space-between;gap:12px;font-size:12px;padding:4px 0;color:var(--text-secondary)">'
@@ -543,34 +586,49 @@ function renderAnalysisWorkspace(data, bands, ratios, artifact, normDev, analyse
           + badge(normSummary.significant + ' significant z-flags', normSummary.significant ? 'var(--amber)' : 'var(--green)')
         + '</div>'
       + '</div>'
-      + '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">'
-        + Object.keys(QEEG_WORKSPACE_LENS_META).map(function (lens) {
-          var meta = QEEG_WORKSPACE_LENS_META[lens];
-          var active = state.lens === lens;
-          return '<button class="btn btn-sm ' + (active ? 'btn-primary' : 'btn-outline') + '"'
-            + (active ? ' style="background:' + meta.color + ';border-color:' + meta.color + ';color:#081019"' : '')
-            + ' onclick="window._qeegSetWorkspaceLens(\'' + lens + '\')">' + esc(meta.label) + '</button>';
-        }).join('')
-        + '<div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">'
+      + '<div role="toolbar" aria-label="qEEG workspace controls" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">'
+        + '<div role="group" aria-label="Lens" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'
+          + '<span style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em;margin-right:2px">Lens</span>'
+          + '<button class="btn btn-ghost btn-sm" data-qeeg-help="lens" aria-expanded="false" aria-controls="qeeg-lens-help" aria-label="What do these lenses mean?" title="What do these lenses mean?" style="padding:2px 7px;font-size:12px;border-radius:50%;width:22px;height:22px;line-height:1">?</button>'
+          + Object.keys(QEEG_WORKSPACE_LENS_META).map(function (lens) {
+            var meta = QEEG_WORKSPACE_LENS_META[lens];
+            var active = state.lens === lens;
+            return '<button class="btn btn-sm ' + (active ? 'btn-primary' : 'btn-outline') + '"'
+              + ' aria-pressed="' + (active ? 'true' : 'false') + '"'
+              + ' title="' + esc(meta.help) + '"'
+              + (active ? ' style="background:' + meta.color + ';border-color:' + meta.color + ';color:#081019"' : '')
+              + ' onclick="window._qeegSetWorkspaceLens(\'' + lens + '\')">' + esc(meta.label) + '</button>';
+          }).join('')
+        + '</div>'
+        + '<div role="group" aria-label="Band and metric" style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
+          + '<span style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em;margin-right:2px">Band</span>'
           + bandNames.map(function (band) {
             var active = state.band === band;
             return '<button class="btn btn-sm ' + (active ? 'btn-primary' : 'btn-outline') + '"'
+              + ' aria-pressed="' + (active ? 'true' : 'false') + '"'
+              + ' title="View topography for the ' + esc(band) + ' band"'
               + ' onclick="window._qeegSetWorkspaceBand(\'' + band + '\')">' + esc(band) + '</button>';
           }).join('')
-          + '<button class="btn btn-sm ' + (state.metric === 'relative' ? 'btn-primary' : 'btn-outline') + '" onclick="window._qeegSetWorkspaceMetric(\'relative\')">Relative</button>'
-          + '<button class="btn btn-sm ' + (state.metric === 'zscore' ? 'btn-primary' : 'btn-outline') + '" onclick="window._qeegSetWorkspaceMetric(\'zscore\')">Z-score</button>'
+          + '<button class="btn btn-sm ' + (state.metric === 'relative' ? 'btn-primary' : 'btn-outline') + '" aria-pressed="' + (state.metric === 'relative' ? 'true' : 'false') + '" title="Relative band power (proportion of total)" onclick="window._qeegSetWorkspaceMetric(\'relative\')">Relative</button>'
+          + '<button class="btn btn-sm ' + (state.metric === 'zscore' ? 'btn-primary' : 'btn-outline') + '" aria-pressed="' + (state.metric === 'zscore' ? 'true' : 'false') + '" title="Deviation from age-matched normative baseline" onclick="window._qeegSetWorkspaceMetric(\'zscore\')">Z-score</button>'
         + '</div>'
+      + '</div>'
+      + '<div id="qeeg-lens-help" hidden style="margin-top:8px;padding:12px 14px;border-radius:10px;background:rgba(255,255,255,0.025);border:1px solid var(--border);font-size:12px;color:var(--text-secondary);line-height:1.7">'
+        + Object.keys(QEEG_WORKSPACE_LENS_META).map(function (lens) {
+          var meta = QEEG_WORKSPACE_LENS_META[lens];
+          return '<div><strong style="color:' + meta.color + '">' + esc(meta.label) + '</strong> — ' + esc(meta.help) + '</div>';
+        }).join('')
       + '</div>'
       + '<div style="display:grid;grid-template-columns:minmax(0,1.65fr) minmax(300px,.9fr);gap:16px;align-items:start">'
         + '<div style="display:flex;flex-direction:column;gap:16px">'
           + _renderWorkspacePrimaryLens(data, bands, normDev, state)
-          + '<div style="padding:12px 14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+          + '<div style="padding:12px 14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
             + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Lens guidance</div>'
             + '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6">Use <strong>' + esc(QEEG_WORKSPACE_LENS_META[state.lens].label) + '</strong> to inspect the dominant pattern in ' + esc(state.band) + '. Switch to z-score when you want deviation from the normative baseline rather than raw distribution.</div>'
           + '</div>'
         + '</div>'
         + '<div style="display:flex;flex-direction:column;gap:12px">'
-          + '<div style="padding:14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+          + '<div style="padding:14px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
             + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Session summary</div>'
             + '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;font-size:12px;color:var(--text-secondary)">'
               + '<div><div style="color:var(--text-tertiary)">Recording</div><div style="color:var(--text-primary);font-weight:600">' + esc(data.original_filename || 'qEEG session') + '</div></div>'
@@ -580,7 +638,7 @@ function renderAnalysisWorkspace(data, bands, ratios, artifact, normDev, analyse
             + '</div>'
           + '</div>'
           + (ratioRail ? '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px">' + ratioRail + '</div>' : '')
-          + '<div style="padding:14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+          + '<div style="padding:14px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
             + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Normative severity</div>'
             + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px">'
               + badge(normSummary.significant + ' significant', normSummary.significant ? 'var(--amber)' : 'var(--green)')
@@ -589,15 +647,15 @@ function renderAnalysisWorkspace(data, bands, ratios, artifact, normDev, analyse
             + '</div>'
             + '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6">Significant means |z| >= 2. Mild means |z| between 1 and 2. Review z-score mode before relying on narrative interpretation.</div>'
           + '</div>'
-          + (comparison ? '<div style="padding:14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+          + (comparison ? '<div style="padding:14px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
               + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Compare readiness</div>'
               + renderCompareSelectionSummary(comparison.baseline, comparison.followup)
             + '</div>' : '')
-          + '<div style="padding:14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+          + '<div style="padding:14px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
             + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Next actions</div>'
             + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
-              + '<button class="btn btn-sm btn-outline" onclick="window._qeegTab=\'report\';window._nav(\'qeeg-analysis\')">Open AI report</button>'
-              + '<button class="btn btn-sm btn-outline" onclick="window._qeegTab=\'compare\';window._nav(\'qeeg-analysis\')">Open compare</button>'
+              + '<button class="btn btn-sm btn-outline" aria-label="Open AI report for this analysis" onclick="window._qeegSwitchTab(\'report\')">Open AI report</button>'
+              + '<button class="btn btn-sm btn-outline" aria-label="Open compare tab" onclick="window._qeegSwitchTab(\'compare\')">Open compare</button>'
             + '</div>'
           + '</div>'
         + '</div>'
@@ -617,6 +675,14 @@ function renderQEEGSessionRail(data, options) {
   var qualityTone = qualityPct == null ? 'var(--text-secondary)' : (qualityPct >= 80 ? 'var(--green)' : qualityPct >= 60 ? 'var(--amber)' : 'var(--red)');
   var normDev = data.normative_deviations_json || data.normative_deviations || null;
   var normSummary = _getWorkspaceNormativeSummary(normDev);
+  var hasAdvanced = data.advanced_analyses && data.advanced_analyses.meta && data.advanced_analyses.meta.completed > 0;
+  var hasReport = data.ai_report_json || data.report_json;
+  var hasProtocol = data.protocol_recommendation_json || (data.advanced_analyses && data.advanced_analyses.results && data.advanced_analyses.results.protocol_recommendation);
+  var quickActions = '';
+  if (!hasAdvanced) quickActions += '<button class="btn btn-sm btn-primary" style="margin-left:4px" onclick="window._qeegTab=\'analysis\';window._nav(\'qeeg-analysis\');setTimeout(function(){var b=document.getElementById(\'qeeg-run-advanced-btn\');b&&b.click()},300)" title="Run advanced analyses">Run Advanced</button>';
+  if (!hasReport) quickActions += '<button class="btn btn-sm btn-outline" style="margin-left:4px" onclick="window._qeegTab=\'report\';window._nav(\'qeeg-analysis\')" title="Generate AI report">AI Report</button>';
+  if (!hasProtocol) quickActions += '<button class="btn btn-sm btn-outline" style="margin-left:4px" onclick="window._qeegTab=\'analysis\';window._nav(\'qeeg-analysis\');setTimeout(function(){var b=document.querySelector(\'[data-qeeg-ai-action=protocol]\');b&&b.click()},300)" title="Recommend neuromodulation protocol">Protocol</button>';
+  quickActions += '<button class="btn btn-sm btn-outline" style="margin-left:4px" onclick="window._qeegExportBandPowerCSV&&window._qeegExportBandPowerCSV()" title="Export band power CSV">Export CSV</button>';
   return '<div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px;padding:14px 16px;border-radius:14px;background:linear-gradient(135deg, rgba(11,23,37,0.94), rgba(16,28,48,0.9));border:1px solid rgba(255,255,255,0.08)">'
     + '<div style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:flex-start">'
       + '<div>'
@@ -630,13 +696,15 @@ function renderQEEGSessionRail(data, options) {
         + (data.eyes_condition ? badge('Eyes ' + data.eyes_condition, 'var(--violet)') : '')
         + (qualityPct != null ? badge('Quality ' + qualityPct + '%', qualityTone) : '')
         + badge(normSummary.significant + ' significant z-flags', normSummary.significant ? 'var(--amber)' : 'var(--green)')
+        + '<button class="btn btn-sm btn-outline" style="margin-left:4px" onclick="window._qeegOpenRawTab&&window._qeegOpenRawTab()" title="Open raw EEG viewer">View Raw EEG</button>'
+        + quickActions
       + '</div>'
     + '</div>'
     + '<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px">'
-      + '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)"><div style="font-size:11px;color:var(--text-tertiary)">TBR</div><div style="font-size:18px;font-weight:700;margin-top:4px">' + (ratios.theta_beta_ratio != null ? Number(ratios.theta_beta_ratio).toFixed(2) : 'N/A') + '</div></div>'
-      + '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)"><div style="font-size:11px;color:var(--text-tertiary)">PAF</div><div style="font-size:18px;font-weight:700;margin-top:4px">' + (ratios.alpha_peak_frequency_hz != null ? Number(ratios.alpha_peak_frequency_hz).toFixed(2) + ' Hz' : 'N/A') + '</div></div>'
-      + '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)"><div style="font-size:11px;color:var(--text-tertiary)">FAA</div><div style="font-size:18px;font-weight:700;margin-top:4px">' + (ratios.frontal_alpha_asymmetry != null ? Number(ratios.frontal_alpha_asymmetry).toFixed(2) : 'N/A') + '</div></div>'
-      + '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)"><div style="font-size:11px;color:var(--text-tertiary)">Normative</div><div style="font-size:18px;font-weight:700;margin-top:4px;color:' + (normSummary.significant ? 'var(--amber)' : 'var(--green)') + '">' + normSummary.significant + ' high</div></div>'
+      + '<div style="padding:10px 12px;border-radius:10px;background:var(--surface-tint-1);border:1px solid var(--border)"><div style="font-size:11px;color:var(--text-tertiary)">TBR</div><div style="font-size:18px;font-weight:700;margin-top:4px">' + (ratios.theta_beta_ratio != null ? Number(ratios.theta_beta_ratio).toFixed(2) : 'N/A') + '</div></div>'
+      + '<div style="padding:10px 12px;border-radius:10px;background:var(--surface-tint-1);border:1px solid var(--border)"><div style="font-size:11px;color:var(--text-tertiary)">PAF</div><div style="font-size:18px;font-weight:700;margin-top:4px">' + (ratios.alpha_peak_frequency_hz != null ? Number(ratios.alpha_peak_frequency_hz).toFixed(2) + ' Hz' : 'N/A') + '</div></div>'
+      + '<div style="padding:10px 12px;border-radius:10px;background:var(--surface-tint-1);border:1px solid var(--border)"><div style="font-size:11px;color:var(--text-tertiary)">FAA</div><div style="font-size:18px;font-weight:700;margin-top:4px">' + (ratios.frontal_alpha_asymmetry != null ? Number(ratios.frontal_alpha_asymmetry).toFixed(2) : 'N/A') + '</div></div>'
+      + '<div style="padding:10px 12px;border-radius:10px;background:var(--surface-tint-1);border:1px solid var(--border)"><div style="font-size:11px;color:var(--text-tertiary)">Normative</div><div style="font-size:18px;font-weight:700;margin-top:4px;color:' + (normSummary.significant ? 'var(--amber)' : 'var(--green)') + '">' + normSummary.significant + ' high</div></div>'
     + '</div>'
   + '</div>';
 }
@@ -679,6 +747,8 @@ function _demoFusionSummary(patientId) {
     recommendations: ['qEEG data is available. Add MRI targeting to upgrade this into a dual-modality recommendation.'],
     summary: 'Partial fusion available from one modality only. Add MRI data to strengthen target confidence.',
     confidence: 0.4,
+    confidence_disclaimer: 'Confidence score is algorithmic heuristic and not evidence-graded clinical validation. Always review recommendations against patient-specific context.',
+    confidence_grade: 'heuristic',
     generated_at: new Date().toISOString(),
   };
 }
@@ -707,17 +777,27 @@ export function renderFusionSummaryCard(fusion, patientId) {
   if (fusion.qeeg_analysis_id) meta.push('qEEG ready');
   if (fusion.mri_analysis_id) meta.push('MRI ready');
   if (fusion.confidence != null) meta.push('confidence ' + Math.round(Number(fusion.confidence || 0) * 100) + '%');
+  if (fusion.confidence_grade) meta.push('grade: ' + esc(fusion.confidence_grade));
   var recHtml = recs.length
     ? '<ul style="margin:10px 0 0 18px;padding:0;color:var(--text-secondary);font-size:12.5px;line-height:1.5">'
         + recs.map(function (item) { return '<li>' + esc(item) + '</li>'; }).join('')
       + '</ul>'
     : '<div style="margin-top:10px;color:var(--text-tertiary);font-size:12px">No recommendations yet.</div>';
+  var disclaimerHtml = fusion.confidence_disclaimer
+    ? '<div style="margin-top:10px;font-size:11px;color:var(--text-tertiary);line-height:1.5;border-left:2px solid var(--amber);padding-left:8px">'
+        + esc(fusion.confidence_disclaimer) + '</div>'
+    : '';
+  var workbenchLink = patientId
+    ? '<div style="margin-top:10px;"><a href="/fusion-workbench?patient_id=' + encodeURIComponent(patientId) + '" style="font-size:12px;color:var(--teal);text-decoration:none;">Open Fusion Workbench &rarr;</a></div>'
+    : '';
   return card('Fusion summary',
     '<div style="font-size:13px;color:var(--text-primary);line-height:1.55">' + esc(fusion.summary || '') + '</div>'
     + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">' + meta.map(function (item) {
       return badge(item, 'var(--teal)');
     }).join('') + '</div>'
     + recHtml
+    + disclaimerHtml
+    + workbenchLink
   );
 }
 
@@ -758,17 +838,76 @@ async function _openQEEGAnnotationDrawer(context) {
   var host = document.getElementById('qeeg-annotation-drawer-host');
   if (!host) return;
   host.innerHTML = '<div class="analysis-anno-backdrop" data-annotation-close="1"></div>'
-    + '<aside class="analysis-anno-drawer">'
+    + '<aside class="analysis-anno-drawer" role="dialog" aria-modal="true" aria-label="Study notes">'
     + '<div class="analysis-anno-drawer__hd"><div><strong>Study notes</strong><div class="analysis-anno-drawer__sub">'
-    + esc(context.anchor_label || 'qEEG analysis') + '</div></div><button class="analysis-anno-drawer__close" data-annotation-close="1">Close</button></div>'
+    + esc(context.anchor_label || 'qEEG analysis') + '</div></div><button class="analysis-anno-drawer__close" data-annotation-close="1" aria-label="Close notes drawer">Close</button></div>'
     + '<div id="qeeg-annotation-list" class="analysis-anno-list">' + spinner('Loading notes...') + '</div>'
     + '<div class="analysis-anno-form">'
-    + '<input id="qeeg-annotation-title" class="form-control" maxlength="160" placeholder="Short title (optional)"/>'
-    + '<textarea id="qeeg-annotation-body" class="form-control" rows="4" maxlength="5000" placeholder="Add a note for this study"></textarea>'
-    + '<input id="qeeg-annotation-anchor" class="form-control" maxlength="120" placeholder="Anchor label (optional)" value="' + esc(context.anchor_label || '') + '"/>'
-    + '<div style="display:flex;justify-content:flex-end;gap:8px"><button class="btn btn-sm btn-primary" id="qeeg-annotation-save">Save note</button></div>'
+    + '<label for="qeeg-annotation-title" style="font-size:11px;color:var(--text-tertiary);display:flex;justify-content:space-between"><span>Title</span><span><span id="qeeg-annotation-title-count">0</span>/160</span></label>'
+    + '<input id="qeeg-annotation-title" class="form-control" maxlength="160" placeholder="Short title (optional)" aria-describedby="qeeg-annotation-title-count"/>'
+    + '<label for="qeeg-annotation-body" style="font-size:11px;color:var(--text-tertiary);display:flex;justify-content:space-between"><span>Note <span aria-hidden="true" style="color:var(--red)">*</span></span><span><span id="qeeg-annotation-body-count">0</span>/5000</span></label>'
+    + '<textarea id="qeeg-annotation-body" class="form-control" rows="4" maxlength="5000" required aria-required="true" placeholder="Add a note for this study" aria-describedby="qeeg-annotation-body-count qeeg-annotation-body-error"></textarea>'
+    + '<div id="qeeg-annotation-body-error" role="alert" aria-live="polite" style="font-size:11px;color:var(--red);min-height:14px;margin-top:-4px"></div>'
+    + '<label for="qeeg-annotation-anchor" style="font-size:11px;color:var(--text-tertiary);display:flex;justify-content:space-between"><span>Anchor</span><span><span id="qeeg-annotation-anchor-count">' + (context.anchor_label || '').length + '</span>/120</span></label>'
+    + '<input id="qeeg-annotation-anchor" class="form-control" maxlength="120" placeholder="Anchor label (optional)" value="' + esc(context.anchor_label || '') + '" aria-describedby="qeeg-annotation-anchor-count"/>'
+    + '<div style="display:flex;justify-content:flex-end;gap:8px"><button class="btn btn-sm btn-primary" id="qeeg-annotation-save" disabled aria-disabled="true">Save note</button></div>'
     + '</div></aside>';
   host.classList.add('analysis-anno-host--open');
+  // Wire character counters
+  ['title', 'body', 'anchor'].forEach(function (k) {
+    var input = document.getElementById('qeeg-annotation-' + k);
+    var count = document.getElementById('qeeg-annotation-' + k + '-count');
+    if (!input || !count) return;
+    var sync = function () { count.textContent = (input.value || '').length; };
+    input.addEventListener('input', sync);
+    sync();
+  });
+  // Body required → keep Save disabled until body has trimmed text; clear inline error as user types.
+  (function () {
+    var bodyInput = document.getElementById('qeeg-annotation-body');
+    var saveBtnEl = document.getElementById('qeeg-annotation-save');
+    var errorEl = document.getElementById('qeeg-annotation-body-error');
+    if (!bodyInput || !saveBtnEl) return;
+    var syncEnabled = function () {
+      var hasText = (bodyInput.value || '').trim().length > 0;
+      saveBtnEl.disabled = !hasText;
+      saveBtnEl.setAttribute('aria-disabled', hasText ? 'false' : 'true');
+      if (hasText && errorEl) errorEl.textContent = '';
+    };
+    bodyInput.addEventListener('input', syncEnabled);
+    syncEnabled();
+  })();
+  // Focus management — store previous focus, focus first field, restore on close
+  var _annoPrevFocus = document.activeElement;
+  setTimeout(function () { var f = document.getElementById('qeeg-annotation-title'); if (f) f.focus(); }, 30);
+  function _annoCloseFocusRestore() {
+    if (_annoPrevFocus && typeof _annoPrevFocus.focus === 'function') {
+      try { _annoPrevFocus.focus(); } catch (_e) {}
+    }
+  }
+  // Trap focus inside the drawer (Tab cycles within first/last focusable)
+  var _annoTrap = function (ev) {
+    if (ev.key !== 'Tab') return;
+    var nodes = host.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    if (!nodes.length) return;
+    var first = nodes[0], last = nodes[nodes.length - 1];
+    if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+    else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+  };
+  host.addEventListener('keydown', _annoTrap);
+  // Escape closes the drawer
+  var _annoEsc = function (ev) {
+    if (ev.key === 'Escape' && host.classList.contains('analysis-anno-host--open')) {
+      ev.preventDefault();
+      host.classList.remove('analysis-anno-host--open');
+      host.innerHTML = '';
+      host.removeEventListener('keydown', _annoTrap);
+      document.removeEventListener('keydown', _annoEsc);
+      _annoCloseFocusRestore();
+    }
+  };
+  document.addEventListener('keydown', _annoEsc);
+  host.__annoCloseFocusRestore = _annoCloseFocusRestore;
   _qeegAnnotationDrawerLoadedFor = context;
   var listEl = document.getElementById('qeeg-annotation-list');
   try {
@@ -779,13 +918,16 @@ async function _openQEEGAnnotationDrawer(context) {
     });
     if (listEl) listEl.innerHTML = _renderAnnotationList(rows);
   } catch (err) {
-    if (listEl) listEl.innerHTML = '<div class="analysis-anno-empty">Could not load notes: ' + esc(err.message || err) + '</div>';
+    if (listEl) listEl.innerHTML = '<div class="analysis-anno-empty">Could not load notes: ' + esc(String(err && err.message ? err.message : err || "Unknown error")) + '</div>';
   }
 
   host.querySelectorAll('[data-annotation-close="1"]').forEach(function (node) {
     node.addEventListener('click', function () {
       host.classList.remove('analysis-anno-host--open');
       host.innerHTML = '';
+      host.removeEventListener('keydown', _annoTrap);
+      document.removeEventListener('keydown', _annoEsc);
+      if (typeof host.__annoCloseFocusRestore === 'function') host.__annoCloseFocusRestore();
     });
   });
   host.querySelectorAll('[data-annotation-delete]').forEach(function (node) {
@@ -809,6 +951,9 @@ async function _openQEEGAnnotationDrawer(context) {
       var anchorEl = document.getElementById('qeeg-annotation-anchor');
       var body = bodyEl && bodyEl.value ? bodyEl.value.trim() : '';
       if (!body) {
+        var errorEl = document.getElementById('qeeg-annotation-body-error');
+        if (errorEl) errorEl.textContent = 'Note text is required.';
+        if (bodyEl) bodyEl.focus();
         showToast('Add some note text first', 'warning');
         return;
       }
@@ -1743,9 +1888,167 @@ export function renderAINarrativeWithCitations(narrative, literatureRefs) {
 // Composite renderer — returns all MNE sections, in the order the contract
 // dictates, concatenated. Null-guarded at every step so analyses without
 // these fields render zero extra HTML.
+// ── QC flags + observed-vs-inferred decision-support card (2026-04-26) ──────
+//
+// Reads the night-shift-promoted top-level keys (`qc_flags`, `confidence`,
+// `limitations`, `clinical_summary.observed_findings`,
+// `clinical_summary.derived_interpretations`) and renders three badged
+// sub-blocks. Designed as a no-op when the keys are absent so existing
+// non-MNE analyses still render unchanged.
+export function renderQEEGDecisionSupport(analysis) {
+  if (!analysis) return '';
+  var cs = analysis.clinical_summary || (analysis.features && analysis.features.clinical_summary) || {};
+  var qcFlags = Array.isArray(analysis.qc_flags) && analysis.qc_flags.length
+    ? analysis.qc_flags
+    : (Array.isArray(cs.qc_flags) ? cs.qc_flags : []);
+  var limitations = Array.isArray(analysis.limitations) && analysis.limitations.length
+    ? analysis.limitations
+    : (Array.isArray(cs.limitations) ? cs.limitations : []);
+  var confidence = analysis.confidence && Object.keys(analysis.confidence).length
+    ? analysis.confidence
+    : (cs.confidence || {});
+  var observed = Array.isArray(cs.observed_findings) ? cs.observed_findings : [];
+  var derived = Array.isArray(cs.derived_interpretations) ? cs.derived_interpretations : [];
+
+  if (!qcFlags.length && !limitations.length && !observed.length && !derived.length
+      && !(confidence && confidence.level)) {
+    return '';
+  }
+
+  function severityColor(s) {
+    s = String(s || '').toLowerCase();
+    if (s === 'high') return 'var(--red)';
+    if (s === 'medium') return 'var(--amber)';
+    if (s === 'low') return 'var(--blue)';
+    if (s === 'info') return 'var(--text-secondary)';
+    return 'var(--text-secondary)';
+  }
+
+  var html = '';
+
+  // Confidence banner
+  if (confidence && confidence.level) {
+    html += '<div class="qeeg-ds-confidence" data-testid="qeeg-ds-confidence" '
+      + 'style="display:flex;align-items:center;gap:12px;padding:10px 14px;'
+      + 'background:var(--surface-1);border-radius:8px;margin-bottom:12px;font-size:13px">'
+      + '<span style="font-weight:600">Overall confidence</span>'
+      + '<span style="padding:3px 10px;border-radius:99px;background:var(--surface-2);color:'
+      + severityColor(confidence.level === 'low' ? 'high' : confidence.level === 'moderate' ? 'medium' : 'low')
+      + ';font-weight:700;text-transform:uppercase">' + esc(String(confidence.level)) + '</span>'
+      + (confidence.score != null ? '<span style="color:var(--text-secondary)">'
+        + 'score ' + esc(String(confidence.score)) + '</span>' : '')
+      + (confidence.rationale ? '<span style="color:var(--text-secondary);font-size:12px">'
+        + esc(String(confidence.rationale)) + '</span>' : '')
+      + '</div>';
+  }
+
+  // QC flags grid
+  if (qcFlags.length) {
+    html += '<div class="qeeg-ds-flags" data-testid="qeeg-ds-flags" style="margin-bottom:14px">'
+      + '<div style="font-weight:600;margin-bottom:6px">Quality flags</div>'
+      + '<ul style="list-style:none;padding:0;margin:0;display:grid;gap:6px">';
+    qcFlags.forEach(function (f) {
+      html += '<li style="display:flex;align-items:flex-start;gap:8px;'
+        + 'padding:8px 10px;background:var(--surface-1);border-left:3px solid '
+        + severityColor(f.severity) + ';border-radius:4px">'
+        + '<span style="font-weight:700;color:' + severityColor(f.severity)
+        + ';text-transform:uppercase;font-size:11px;min-width:60px">'
+        + esc(String(f.severity || 'info')) + '</span>'
+        + '<span style="flex:1">'
+        + '<span style="font-family:monospace;font-size:12px;color:var(--text-secondary);'
+        + 'margin-right:8px">' + esc(String(f.code || '')) + '</span>'
+        + esc(String(f.message || '')) + '</span></li>';
+    });
+    html += '</ul></div>';
+  }
+
+  // Observed findings (signal-level — not inference)
+  if (observed.length) {
+    html += '<div class="qeeg-ds-observed" data-testid="qeeg-ds-observed" style="margin-bottom:14px">'
+      + '<div style="font-weight:600;margin-bottom:6px">Observed (signal features)</div>'
+      + '<ul style="list-style:none;padding:0;margin:0;display:grid;gap:6px">';
+    observed.forEach(function (o) {
+      var ev = o.evidence || {};
+      var evChip;
+      if (ev.status === 'found' && Array.isArray(ev.citations) && ev.citations.length) {
+        evChip = '<span style="padding:2px 8px;border-radius:99px;background:rgba(0,180,120,0.12);'
+          + 'color:var(--green);font-size:11px;font-weight:600">'
+          + ev.citations.length + ' refs</span>';
+      } else {
+        evChip = '<span data-testid="evidence-pending-chip" style="padding:2px 8px;'
+          + 'border-radius:99px;background:rgba(255,180,0,0.12);color:var(--amber);'
+          + 'font-size:11px;font-weight:600">evidence pending</span>';
+      }
+      html += '<li style="padding:8px 10px;background:var(--surface-1);border-radius:4px">'
+        + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
+        + '<span style="font-weight:600">' + esc(String(o.label || o.type || 'finding')) + '</span>'
+        + (o.value != null ? '<span style="font-family:monospace;color:var(--text-secondary)">'
+          + esc(String(o.value)) + (o.unit ? ' ' + esc(String(o.unit)) : '') + '</span>' : '')
+        + evChip
+        + '</div>'
+        + '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">'
+        + esc(String(o.statement || '')) + '</div>';
+      if (ev.status === 'found') {
+        html += '<ul style="list-style:none;padding:0;margin:6px 0 0 0;display:grid;gap:3px">';
+        ev.citations.forEach(function (c) {
+          var label = esc(String(c.title || c.pmid || c.url || 'reference'));
+          if (c.url) {
+            html += '<li style="font-size:11px"><a href="' + esc(c.url)
+              + '" target="_blank" rel="noopener noreferrer">' + label + '</a></li>';
+          } else {
+            html += '<li style="font-size:11px">' + label + '</li>';
+          }
+        });
+        html += '</ul>';
+      }
+      html += '</li>';
+    });
+    html += '</ul></div>';
+  }
+
+  // Derived interpretations (model-derived, hedged)
+  if (derived.length) {
+    html += '<div class="qeeg-ds-derived" data-testid="qeeg-ds-derived" style="margin-bottom:14px">'
+      + '<div style="font-weight:600;margin-bottom:6px">Inferred (model-derived, hedged)</div>'
+      + '<ul style="list-style:none;padding:0;margin:0;display:grid;gap:6px">';
+    derived.forEach(function (d) {
+      html += '<li style="padding:8px 10px;background:var(--surface-1);border-radius:4px;'
+        + 'border-left:3px solid var(--violet)">'
+        + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
+        + '<span style="font-weight:600">' + esc(String(d.label || 'interpretation')) + '</span>'
+        + (d.confidence ? '<span style="padding:2px 8px;border-radius:99px;'
+          + 'background:var(--surface-2);font-size:11px">conf: '
+          + esc(String(d.confidence)) + '</span>' : '')
+        + '</div>'
+        + '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">'
+        + esc(String(d.statement || '')) + '</div></li>';
+    });
+    html += '</ul></div>';
+  }
+
+  // Limitations (structured)
+  if (limitations.length) {
+    html += '<div class="qeeg-ds-limitations" data-testid="qeeg-ds-limitations">'
+      + '<div style="font-weight:600;margin-bottom:6px">Limitations</div>'
+      + '<ul style="list-style:none;padding:0;margin:0;display:grid;gap:4px;font-size:12px">';
+    limitations.forEach(function (l) {
+      var msg = typeof l === 'string' ? l : l && l.message;
+      var sev = typeof l === 'object' && l ? l.severity : 'info';
+      html += '<li style="display:flex;gap:8px"><span style="color:'
+        + severityColor(sev) + ';font-weight:700;text-transform:uppercase;font-size:10px;'
+        + 'min-width:50px">' + esc(String(sev || 'info')) + '</span><span>'
+        + esc(String(msg || '')) + '</span></li>';
+    });
+    html += '</ul></div>';
+  }
+
+  return card('Decision Support — QC, Observed vs Inferred, Evidence', html);
+}
+
 export function renderMNEPipelineSections(analysis) {
   if (!analysis) return '';
   var parts = [
+    renderQEEGDecisionSupport(analysis),
     renderPipelineQualityStrip(analysis),
     renderSpecParamPanel(analysis),
     renderELoretaROIPanel(analysis),
@@ -1860,11 +2163,71 @@ var _catSummaryExtractors = {
 // ── Module-scoped state for exports ──────────────────────────────────────────
 var _currentAnalysis = null;
 var _currentReport = null;
+var _qeegSavedEvidenceCitations = [];
+
+function _getQEEGReportEvidenceContext() {
+  return {
+    kind: 'qeeg',
+    patientId: (_currentAnalysis && _currentAnalysis.patient_id) || _getContextPatientIdForQEEG() || '',
+    analysisId: (_currentAnalysis && _currentAnalysis.id) || window._qeegSelectedId || '',
+    reportId: (_currentReport && _currentReport.id) || window._qeegSelectedReportId || '',
+  };
+}
+
+function _filterQEEGSavedEvidenceCitations(rows, context) {
+  rows = Array.isArray(rows) ? rows : [];
+  if (!context || !context.analysisId) return [];
+  return rows.filter(function (item) {
+    var savedCtx = item && item.citation_payload ? item.citation_payload.report_context : null;
+    if (!savedCtx || savedCtx.kind !== 'qeeg') return false;
+    if (savedCtx.analysisId !== context.analysisId) return false;
+    if (context.reportId && savedCtx.reportId && savedCtx.reportId !== context.reportId) return false;
+    return true;
+  });
+}
+
+async function _loadQEEGSavedEvidenceCitations(patientId) {
+  if (!patientId || patientId === 'qeeg-context') {
+    _qeegSavedEvidenceCitations = [];
+    return [];
+  }
+  try {
+    var ctx = _getQEEGReportEvidenceContext();
+    var rows = await api.listEvidenceSavedCitations({
+      patient_id: patientId,
+      context_kind: ctx.kind,
+      analysis_id: ctx.analysisId,
+      report_id: ctx.reportId,
+    });
+    _qeegSavedEvidenceCitations = Array.isArray(rows) ? rows : (rows && rows.items) || [];
+  } catch (_) {
+    _qeegSavedEvidenceCitations = [];
+  }
+  return _qeegSavedEvidenceCitations;
+}
+
+function _renderQEEGSavedEvidencePanel(citations) {
+  citations = Array.isArray(citations) ? citations : [];
+  return card('Evidence citations saved for report',
+    citations.length
+      ? '<div class="qeeg-report-callouts">'
+        + citations.slice(0, 6).map(function (item) {
+          var meta = [item.finding_label, item.pmid ? ('PMID ' + item.pmid) : '', item.doi || ''].filter(Boolean).join(' · ');
+          return '<div class="qeeg-report-callout"><div class="qeeg-report-callout__label">'
+            + esc(item.paper_title || 'Evidence citation')
+            + '</div><div class="qeeg-report-callout__value">'
+            + esc(meta || item.claim || 'Saved evidence citation')
+            + '</div></div>';
+        }).join('')
+        + '</div>'
+      : '<div style="font-size:12px;color:var(--text-tertiary)">No evidence citations have been added from the evidence drawer for this patient yet.</div>'
+  );
+}
 var _coherenceBand = 'alpha';
 
 // ── Comprehensive Report Renderer ────────────────────────────────────────────
 // Generates the full clinical qEEG report HTML from a report object + analysis data.
-function _renderComprehensiveReport(report, analysis) {
+function _renderComprehensiveReport(report, analysis, savedEvidenceCitations) {
   var narrative = report.ai_narrative || report.ai_narrative_json || {};
   var conditions = report.condition_matches || report.condition_matches_json || [];
   var suggestions = report.protocol_suggestions || report.protocol_suggestions_json || [];
@@ -1875,7 +2238,7 @@ function _renderComprehensiveReport(report, analysis) {
   var normDev = analysis ? (analysis.normative_deviations_json || analysis.normative_deviations || null) : null;
   var html = '';
 
-  var pdfViewerUrl = _getQEEGReportPdfUrl(report, analysis);
+  var hasPrintableReport = _canRenderQEEGPrintableReport(report, analysis);
   var callouts = [];
   if (analysis) {
     var flagged = Array.isArray(analysis.flagged_conditions) ? analysis.flagged_conditions : [];
@@ -1889,32 +2252,64 @@ function _renderComprehensiveReport(report, analysis) {
     if (analysis.source_roi && analysis.source_roi.method) callouts.push({ label: 'Source method', value: analysis.source_roi.method });
   }
 
+  // ── Provenance banner: surface when report is a deterministic fallback ────
+  // Detect when the LLM was unavailable and the API returned a stub:
+  //   - report.model_used / report.model_version is null/empty, AND
+  //   - narrative.confidence_level === 'low' (set by _deterministic_fallback)
+  // OR when the report explicitly carries source === 'deterministic_stub'.
+  var _modelUsed = report && (report.model_used || report.model_version);
+  var _reportSource = report && (report.source || report.ai_source || (narrative && narrative.source));
+  var _isFallback = (_reportSource === 'deterministic_stub' || _reportSource === 'fallback_no_llm')
+    || (!_modelUsed && narrative && narrative.confidence_level === 'low' && Array.isArray(narrative.findings) && narrative.findings.length === 0);
+  if (_isFallback) {
+    html += '<div role="alert" style="margin-bottom:12px;padding:12px 14px;border-radius:10px;background:rgba(251,191,36,0.10);border:1px solid rgba(251,191,36,0.35);font-size:13px;color:var(--text-primary);line-height:1.55">'
+      + '<strong>AI interpretation unavailable.</strong> '
+      + 'This report was generated by the deterministic fallback (numerical features + condition matching) — no LLM narrative was produced. '
+      + 'Decision-support text below should not be treated as AI-derived.'
+      + '</div>';
+  }
+
   // ── Print / Download button bar ─────────────────────────────────────────
-  html += '<div class="qeeg-export-bar" style="justify-content:flex-end;margin-bottom:8px">'
-    + '<button class="btn btn-sm btn-outline" aria-label="Print AI report" onclick="window._qeegPrintReport()">Print Report</button>'
-    + '<button class="btn btn-sm btn-outline" aria-label="Download report as PDF" onclick="window._qeegDownloadPDF()">Download PDF</button></div>';
-  if (pdfViewerUrl || callouts.length) {
+  // The brain-map buttons are only shown when the saved report row has a
+  // resolvable id — without it the backend renderer 404s. The renderer
+  // pulls from QEEGAIReport.report_payload (with legacy fallback to
+  // patient_facing_report_json) so it always tracks whatever the analyzer
+  // generated, automatically or manually, when the AI report saved.
+  var _brainMapBtns = '';
+  if (report && report.id) {
+    var _bmId = encodeURIComponent(report.id);
+    _brainMapBtns = ''
+      + '<button class="btn btn-sm btn-primary" aria-label="Open qEEG Brain Map report in a new tab" onclick="window._qeegOpenBrainMapReport(\'' + _bmId + '\')">Open Brain Map Report</button>'
+      + '<button class="btn btn-sm btn-outline" aria-label="Download qEEG Brain Map PDF" onclick="window._qeegDownloadBrainMapReport(\'' + _bmId + '\')">Brain Map PDF</button>';
+  }
+  html += '<div class="qeeg-export-bar" style="justify-content:flex-end;margin-bottom:8px;gap:6px;display:flex;flex-wrap:wrap">'
+    + _brainMapBtns
+    + '<button class="btn btn-sm btn-outline" aria-label="Print AI report" onclick="window._qeegPrintReport()">Print HTML Report</button>'
+    + '<button class="btn btn-sm btn-outline" aria-label="Download printable report" onclick="window._qeegDownloadPDF()">Download Printable Report</button></div>';
+  if (hasPrintableReport || callouts.length) {
     html += '<div class="qeeg-report-layout">';
-    if (pdfViewerUrl) {
-      html += card('PDF Viewer',
+    if (hasPrintableReport) {
+      html += card('Printable Report Viewer',
         '<div class="qeeg-report-viewer">'
-          + '<iframe class="qeeg-report-viewer__frame" src="' + esc(pdfViewerUrl) + '#toolbar=0" title="qEEG PDF report viewer" loading="lazy"></iframe>'
+          + '<iframe class="qeeg-report-viewer__frame" id="qeeg-printable-report-frame" title="qEEG printable report viewer" loading="lazy"></iframe>'
         + '</div>'
       );
     }
     html += card('Report Side Panel',
       '<div class="qeeg-report-callouts">'
-        + '<div class="qeeg-report-callouts__intro">Interactive HTML stays below. This mirrors the standalone analyzer integration pattern with a live PDF view plus key pipeline callouts.</div>'
+        + '<div class="qeeg-report-callouts__intro">Interactive HTML stays below. The viewer loads the authenticated printable report when the backend render is available, alongside key pipeline callouts.</div>'
         + (callouts.length
           ? callouts.map(function (item) {
             return '<div class="qeeg-report-callout"><div class="qeeg-report-callout__label">' + esc(item.label)
               + '</div><div class="qeeg-report-callout__value">' + esc(item.value) + '</div></div>';
           }).join('')
-          : '<div class="qeeg-report-callout"><div class="qeeg-report-callout__value">PDF rendering becomes available when the backend report endpoint returns a file.</div></div>')
+          : '<div class="qeeg-report-callout"><div class="qeeg-report-callout__value">Printable report rendering becomes available when the backend report endpoint returns a downloadable artifact.</div></div>')
       + '</div>'
     );
     html += '</div>';
   }
+
+  html += _renderQEEGSavedEvidencePanel(savedEvidenceCitations);
 
   // ── MNE narrative + RAG citations (§4.6 of CONTRACT.md) ─────────────────
   // Rendered when the new-shape narrative is present (executive_summary or
@@ -2117,7 +2512,7 @@ function _renderComprehensiveReport(report, analysis) {
     }
 
     // Planned connectivity metrics (Coming Soon)
-    connHtml += '<div style="margin-top:16px;padding:12px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px dashed rgba(255,255,255,0.08)">'
+    connHtml += '<div style="margin-top:16px;padding:12px;border-radius:8px;background:var(--surface-tint-1);border:1px dashed rgba(255,255,255,0.08)">'
       + '<div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Planned Connectivity Metrics</div>'
       + '<div style="display:flex;gap:10px;flex-wrap:wrap">'
       + '<div style="font-size:11px;color:var(--text-tertiary)">dwPLI <span class="ds-coming-soon">Coming Soon</span>'
@@ -2252,7 +2647,7 @@ function _renderComprehensiveReport(report, analysis) {
     regionOrder.forEach(function (reg) {
       if (!obs[reg]) return;
       var regColor = regionColors[reg] || 'var(--teal)';
-      obsHtml += '<div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:12px;border-left:3px solid ' + regColor + '">'
+      obsHtml += '<div style="background:var(--surface-tint-1);border-radius:8px;padding:12px;border-left:3px solid ' + regColor + '">'
         + '<div style="font-weight:700;font-size:12px;text-transform:uppercase;color:' + regColor + ';margin-bottom:4px">' + esc(reg) + '</div>'
         + '<div style="font-size:12px;color:var(--text-secondary)">' + esc(obs[reg]) + '</div></div>';
     });
@@ -2424,14 +2819,14 @@ function _renderComprehensiveReport(report, analysis) {
     if (bioMetrics.length) {
       bioHtml += '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:12px">';
       bioMetrics.forEach(function (m) {
-        bioHtml += '<div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:12px 16px;border:1px solid rgba(255,255,255,0.06);min-width:160px">'
+        bioHtml += '<div style="background:var(--surface-tint-1);border-radius:8px;padding:12px 16px;border:1px solid var(--border);min-width:160px">'
           + '<div style="font-size:18px;font-weight:700;color:var(--text-primary)">' + esc(m.value) + '</div>'
           + '<div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">' + esc(m.label) + '</div></div>';
       });
       bioHtml += '</div>';
     }
     // Disclaimer
-    bioHtml += '<div style="margin-top:12px;padding:10px;background:rgba(255,255,255,0.03);border-radius:6px;border:1px solid rgba(255,255,255,0.06);font-size:11px;color:var(--text-tertiary);font-style:italic">'
+    bioHtml += '<div style="margin-top:12px;padding:10px;background:var(--surface-tint-1);border-radius:6px;border:1px solid var(--border);font-size:11px;color:var(--text-tertiary);font-style:italic">'
       + 'These biomarkers reflect momentary patterns in brainwave activity based on mathematical models. They are not diagnostic conclusions.</div>';
     html += card('Biomarker Analysis', bioHtml);
   }
@@ -2489,7 +2884,7 @@ function _renderComprehensiveReport(report, analysis) {
     + esc(report.clinician_amendments || '') + '</textarea>'
     + '<div style="margin-top:8px;text-align:right">'
     + '<button class="btn btn-sm btn-outline" id="qeeg-save-review">Save & Mark Reviewed</button></div>'
-    + '<div id="qeeg-review-status" aria-live="polite" style="margin-top:8px"></div></div>'
+    + '<div id="qeeg-review-status" role="status" aria-live="polite" style="margin-top:8px"></div></div>'
   );
 
   return html;
@@ -2501,6 +2896,7 @@ const TAB_META = {
   raw:       { label: 'Raw Data',          color: 'var(--green)' },
   report:    { label: 'AI Report',         color: 'var(--violet)' },
   compare:   { label: 'Compare',           color: 'var(--amber)' },
+  learning:  { label: 'Learning EEG',      color: 'var(--rose)' },
 };
 
 // ── Demo Mode ────────────────────────────────────────────────────────────────
@@ -2511,8 +2907,43 @@ function _isDemoMode() {
 }
 
 function _demoBanner() {
-  return '<div style="background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.2);border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:12px;color:var(--amber);display:flex;align-items:center;gap:8px">'
-    + '<span>&#x1F4CB;</span> Sample data shown for demonstration purposes. Upload a real EDF file for actual analysis.</div>';
+  return '<div data-demo="true" data-testid="qeeg-demo-banner" style="background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.2);border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:12px;color:var(--amber);display:flex;align-items:center;gap:8px">'
+    + '<span>&#x1F4CB;</span><span><strong>Sample recording loaded — clinician review required.</strong> '
+    + 'All findings, brain maps, and exports below are labelled <code>DEMO — not for clinical use</code>. '
+    + 'Upload a real EDF/BDF/SET recording to run the live qEEG pipeline.</span></div>';
+}
+
+// ── Clinical safety footer (always visible) ─────────────────────────────────
+// Audit requirement: disclaimers must be visible on the Analyzer page so a
+// reviewing clinician cannot miss them. These are static strings — they are
+// not gated on demo mode and never disappear once the analyzer renders.
+function _qeegClinicalSafetyFooter() {
+  return '<div data-testid="qeeg-safety-footer" class="qeeg-safety-footer" style="margin-top:24px;padding:14px 16px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border);font-size:12px;color:var(--text-secondary);line-height:1.6">'
+    + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-tertiary);margin-bottom:6px">Clinical safety disclaimers</div>'
+    + '<ul style="margin:0;padding-left:18px">'
+    + '<li>qEEG findings <strong>support clinical decision-making and require clinician review</strong>.</li>'
+    + '<li>Z-scores are referenced against the embedded normative dataset (see Normative Model Card).</li>'
+    + '<li>Protocol-fit suggestions are decision-support and <strong>are not prescriptive</strong>.</li>'
+    + '<li>Red flags require clinician review per local policy before any treatment action.</li>'
+    + '<li>AI interpretation runs after deterministic numerics — it summarises, it does not generate findings.</li>'
+    + '</ul></div>';
+}
+
+// ── Best-effort audit logger ─────────────────────────────────────────────────
+// Posts a qEEG audit event via api.logAudit. Never throws. Never blocks UI.
+function _qeegAudit(event, extra) {
+  try {
+    var payload = Object.assign({
+      event: event,
+      analysis_id: (window._qeegSelectedId && window._qeegSelectedId !== 'demo') ? window._qeegSelectedId : null,
+      patient_id: window._qeegPatientId || null,
+      using_demo_data: !!(window._qeegSelectedId === 'demo' && _isDemoMode()),
+    }, extra || {});
+    if (api && typeof api.logAudit === 'function') {
+      var p = api.logAudit(payload);
+      if (p && typeof p.catch === 'function') p.catch(function () {});
+    }
+  } catch (_) { /* audit must never break UI */ }
 }
 
 /* 19 standard 10-20 channels */
@@ -3306,36 +3737,31 @@ var DEMO_QEEG_REPORT = {
   id: 'demo-report',
   ai_narrative: {
     summary: 'This eyes-open qEEG recording from a 30-channel setup reveals moderate alterations in cortical activity with regional imbalances in power distribution and asymmetry, particularly affecting the frontal and temporal areas.',
-    detailed_findings: 'SPECTRAL ANALYSIS:\n'
-      + 'Delta band power shows expected frontal predominance (Fp1: 30%, Fp2: 29%) with appropriate posterior attenuation (O1: 15%, O2: 15%). '
-      + 'No focal delta abnormalities suggestive of structural lesions.\n\n'
-      + 'Theta band demonstrates mild frontal-central elevation, particularly at Fz (22%) and Cz (20%). This midline theta excess is consistent with attentional processing demands '
-      + 'and may correlate with subjective concentration difficulties. The theta/beta ratio of 3.82 at Fz is approaching the clinical significance threshold of 4.5.\n\n'
-      + 'Alpha band shows healthy posterior dominance with robust occipital alpha (O1: 42%, O2: 41%). The alpha peak frequency of 9.24 Hz is in the low-normal range. '
-      + 'Frontal alpha asymmetry (F3-F4 pair: 0.18) suggests relative left-sided alpha excess, corresponding to reduced left frontal activation.\n\n'
-      + 'Beta and high-beta distributions are within normal limits with appropriate frontal weighting. No excessive beta activity suggestive of anxiety or medication effects.\n\n'
+    detailed_findings: 'SPECTRAL ANALYSIS (research observations only):\n'
+      + 'Delta band power shows expected frontal predominance (Fp1: 30%, Fp2: 29%) with appropriate posterior attenuation (O1: 15%, O2: 15%).\n\n'
+      + 'Theta band shows mild frontal-central elevation, particularly at Fz (22%) and Cz (20%). The theta/beta ratio of 3.82 at Fz is associated with attentional-regulation profiles in the research literature.\n\n'
+      + 'Alpha band shows posterior dominance with prominent occipital alpha (O1: 42%, O2: 41%). The alpha peak frequency is 9.24 Hz. '
+      + 'Frontal alpha asymmetry (F3-F4 pair: 0.18) is associated with relative left-sided alpha excess in the research literature.\n\n'
+      + 'Beta and high-beta distributions are within typical research-norm bands with frontal weighting.\n\n'
       + 'CONNECTIVITY:\n'
-      + 'Alpha coherence shows an expected posterior-to-anterior gradient. Three long-range pairs (Fp1-O2, F7-T6, Fp2-O1) show reduced coherence, '
-      + 'which is developmentally normal. Small-world index of 2.4 confirms intact network topology.\n\n'
+      + 'Alpha coherence shows the typical posterior-to-anterior gradient. Three long-range pairs (Fp1-O2, F7-T6, Fp2-O1) show lower coherence values. Small-world index is 2.4.\n\n'
       + 'COMPLEXITY:\n'
-      + 'Sample entropy (1.52), Higuchi fractal dimension (1.62), and Lempel-Ziv complexity (0.71) are all within normal ranges, '
-      + 'indicating healthy cortical dynamics without pathological regularity or excessive randomness.\n\n'
-      + 'CLINICAL IMPRESSION:\n'
-      + 'The combination of mild frontal theta excess, borderline TBR, and left frontal alpha asymmetry suggests a profile consistent with '
-      + 'mild attentional and mood-related dysregulation. These findings warrant clinical correlation with presenting symptoms.',
-    clinical_overview: 'The QEEG analysis reveals that the frontal brain regions, particularly in channels such as F3, F4, and Fz, show elevated theta oscillations (~4.5Hz) with decreased alpha activity. Parietal regions display reduced alpha power integral to sensory integration. Temporal lobe analysis indicates isolated focal slowing and sporadic sharp transients in T3. Occipital regions show normal alpha peak frequencies (O1: 10.2Hz, O2: 10.0Hz).',
+      + 'Sample entropy (1.52), Higuchi fractal dimension (1.62), and Lempel-Ziv complexity (0.71) are within typical research-norm ranges.\n\n'
+      + 'RESEARCH SUMMARY:\n'
+      + 'This is a research and wellness brain map summary. It is informational, is not a medical diagnosis or treatment recommendation, and any findings should be discussed with a qualified clinician.',
+    clinical_overview: 'This research brain map summary describes the relative distribution of EEG features across cortical regions. Frontal channels (F3, F4, Fz) show theta-band elevation with reduced alpha; parietal channels (P3, Pz, P4) show lower alpha amplitude relative to age-norm research databases; occipital channels (O1, O2) show alpha peak frequencies of 10.2Hz and 10.0Hz. Temporal-channel features are within research-norm bands. Discuss any observations with a qualified clinician.',
     key_observations: {
-      frontal: {channels: 'F3, F4, Fz', finding: 'Increased theta power (~4.5Hz), reduced alpha', impact: 'Difficulties with focus and decision-making'},
-      parietal: {channels: 'P3, Pz, P4', finding: 'Marked reduction in alpha power', impact: 'Affects sensory integration and spatial processing'},
-      temporal: {channels: 'T3, T4, T5, T6', finding: 'Focal slowing, isolated sharp transients', impact: 'Difficulties in auditory processing and memory recall'},
-      occipital: {channels: 'O1, O2', finding: 'Normal alpha peaks (O1: 10.2Hz, O2: 10.0Hz)', impact: 'Visual perception largely intact'}
+      frontal: {channels: 'F3, F4, Fz', finding: 'Theta-band elevation (~4.5Hz), reduced alpha (research observation)', impact: 'Associated with attentional-regulation profiles in the research literature'},
+      parietal: {channels: 'P3, Pz, P4', finding: 'Lower alpha amplitude relative to research norms', impact: 'Associated with sensory-integration profiles in the research literature'},
+      temporal: {channels: 'T3, T4, T5, T6', finding: 'Within research-norm bands', impact: 'No deviation flagged at the research-norm threshold'},
+      occipital: {channels: 'O1, O2', finding: 'Alpha peaks O1: 10.2Hz, O2: 10.0Hz', impact: 'Within research-norm bands'}
     },
-    firda_oirda: {firda: 'Detected sporadically in frontal channels (Fp1, F7)', oirda: 'Observed in occipital/temporal channels (T3)', impact: 'Transient lapses in alertness'},
-    epileptiform: {findings: 'Occasional focal spikes in temporal region, burst durations under 3 seconds', tbr: 3.2, normal_tbr: '2.5-3.0', impact: 'Difficulty sustaining attention'},
+    firda_oirda: null,
+    epileptiform: null,
     sections: [
-      {title: 'Cognitive and Neurological Profile', content: 'Elevated IAPF with frontal high-arousal patterns. Theta/beta ratio of 3.17 indicates attentional regulation imbalance. High delta dominance across channels suggests reduced cortical activation. Notable asymmetries in temporal (~39.9%) and occipital (~90.5%) regions.'},
-      {title: 'Mental Health and Brain Function', content: 'Subtle frontal asymmetries correlate with emotional regulation. Significant inattention index (6.3 at Fz vs norm of 2). Intermittent low-amplitude epileptiform discharges in temporal regions. Overall pattern of increased delta with reduced beta2/gamma consistent with hyperarousal.'},
-      {title: 'Sensory Processing and Brain Function', content: 'Occipital channels show normal alpha peaks ensuring visual processing. Temporal channels show prominent delta and occasional sharp waves affecting auditory processing. High delta dominance affects sensorimotor integration.'},
+      {title: 'Cognitive and Neurological Profile', content: 'Elevated IAPF with frontal high-arousal patterns. Theta/beta ratio of 3.17 is associated with attentional-regulation profiles in the research literature. Higher delta amplitude across channels relative to research norms. Asymmetry indices in temporal (~39.9%) and occipital (~90.5%) regions are surfaced for clinician review.'},
+      {title: 'Mental Health and Brain Function', content: 'Subtle frontal asymmetries are associated with affective-processing profiles in the research literature. Inattention index 6.3 at Fz (research norm 2). Pattern of increased delta with reduced beta2/gamma is associated with hyperarousal profiles in the research literature.'},
+      {title: 'Sensory Processing and Brain Function', content: 'Occipital channels show alpha peaks within research-norm bands. Temporal channels show higher delta amplitude relative to research norms. The overall delta-band distribution is associated with sensorimotor-integration profiles in the research literature.'},
       {title: 'Nonverbal Communication and Brain Activity', content: 'Elevated frontal synchronisation with atypical temporal activity may affect facial expression recognition and social cue integration. Temporal asymmetry may correlate with difficulties in auditory-linguistic processing.'},
       {title: 'Everyday Strengths and Challenges', content: 'Enhanced frontal activation supports executive functions. Persistent asymmetries denote multisensory integration challenges. Elevated attention indices create a mixed adaptability profile.'},
       {title: 'Cognitive and Behavioural Trends', content: 'Sustained elevated theta/beta ratio indicates attentional control issues. Reduced beta2 and gamma power correlates with cognitive fatigability. Dynamic microstate patterns hint at reduced neural flexibility.'},
@@ -3343,7 +3769,7 @@ var DEMO_QEEG_REPORT = {
       {title: 'Tailored Lifestyle Recommendations', content: 'Regular aerobic exercise 3-4 times weekly. Mind-body practices like yoga for stress regulation. Cognitive training exercises. Structured daily schedule with planned breaks.'},
       {title: 'Long-Term Learning and Career Guidance', content: 'Structured environments with clear task delineation suit the profile. Roles emphasising systematic planning and detailed task management. Productivity tools and organisational apps recommended.'},
       {title: 'Social and Recreational Support', content: 'Structured group activities. Social skills training. Recreational pursuits combining physical movement with social interaction.'},
-      {title: 'Treatment and Assistive Strategies', content: 'Neurofeedback sessions for brainwave control. Mindfulness and meditation for hyperarousal reduction. CBT for anxiety and attention difficulties. Assistive technologies for executive dysfunction.'},
+      {title: 'Illustrative Wellness Strategies (not treatment recommendations)', content: 'Examples discussed in the research literature for similar EEG profiles include: neurofeedback training; mindfulness and meditation practice; cognitive training; behavioural therapies for attentional regulation. Any actual treatment plan must be set by a qualified clinician — these are illustrative examples only.'},
       {title: 'Ongoing Development and Monitoring', content: 'Follow-up QEEG evaluations every 3-6 months. Detailed symptom diary. Regular consultations with neuropsychological and nutritional specialists. Adjust interventions based on longitudinal data.'}
     ]
   },
@@ -3433,6 +3859,65 @@ var DEMO_ANALYSIS_ENTRY = {
   analyzed_at: new Date().toISOString(),
 };
 
+/* Demo patients — synthetic roster for the qEEG analyzer. Deliberately
+   prefixed `demo-*` so we can tell them apart from real patients and skip
+   the api round-trip when the user picks one. The names match the
+   DeepTwin demo seed (apps/web/src/deeptwin/mockData.js) so a clinician
+   reviewing the preview sees a consistent set of "patients" across pages. */
+var DEMO_PATIENTS = [
+  {
+    id: 'demo-sarah-johnson', first_name: 'Sarah', last_name: 'Johnson',
+    dob: '1992-04-18', gender: 'F', primary_condition: 'ADHD (combined)',
+    is_demo: true,
+  },
+  {
+    id: 'demo-robert-kim', first_name: 'Robert', last_name: 'Kim',
+    dob: '1983-09-02', gender: 'M', primary_condition: 'Major depressive disorder',
+    is_demo: true,
+  },
+  {
+    id: 'demo-emma-clarke', first_name: 'Emma', last_name: 'Clarke',
+    dob: '1996-12-11', gender: 'F', primary_condition: 'PTSD',
+    is_demo: true,
+  },
+];
+
+/* Synthetic medical-history payload for the demo patients. Shaped to match
+   the api.getPatientMedicalHistory response so renderClinicalInfo lights
+   up every collapsible section. */
+function _demoMedicalHistoryFor(demoId) {
+  var COMMON = {
+    presenting: { chief_complaint: 'Decision-support demo profile', symptom_onset: 'Synthetic', severity: 'moderate', functional_impact: 'Demo data — not a real patient.', patient_goals: 'Show analyzer features end-to-end.' },
+    diagnoses:  { primary_dx: 'Demo profile', working_dx: 'Demo profile', dx_notes: 'Synthetic data for review only.' },
+    safety:     { seizure_history: 'no', seizure_meds: 'none', seizure_risk: 'low', metal_implants: 'none', pacemaker: 'no', pregnancy: 'no', photosensitivity: 'no', prior_ae_neuromod: 'no', contra_notes: 'Synthetic — no contraindications encoded.', contra_cleared: 'cleared' },
+    lifestyle:  { sleep_quality: 'fair', sleep_hours: '6.5', alcohol: 'occasional', tobacco: 'none', cannabis: 'none', other_substances: 'none', occupation: 'demo', activity_level: 'moderate' },
+  };
+  if (demoId === 'demo-sarah-johnson') {
+    return { sections: Object.assign({}, COMMON, {
+      diagnoses:    { primary_dx: 'ADHD (combined presentation)', secondary_dx: 'Generalised anxiety', working_dx: 'ADHD-C', dx_notes: 'TBR > 3 on Cz; frontal alpha asymmetry within range.' },
+      medications:  { current_meds: 'atomoxetine 40 mg daily', supplements: 'omega-3', past_meds: 'methylphenidate (3 mo, GI side effects)', med_interactions: 'none flagged' },
+      neurological: { neuro_conditions: 'none', brain_injury: 'none', neuro_tests: 'qEEG (this study)', chronic_conditions: 'sleep onset insomnia', surgeries: 'none' },
+    }) };
+  }
+  if (demoId === 'demo-robert-kim') {
+    return { sections: Object.assign({}, COMMON, {
+      diagnoses:    { primary_dx: 'Major depressive disorder', secondary_dx: 'Chronic fatigue', working_dx: 'MDD', dx_notes: 'Frontal alpha asymmetry positive (R>L).' },
+      medications:  { current_meds: 'escitalopram 10 mg', supplements: 'vitamin D', past_meds: 'sertraline (12 mo)', med_interactions: 'monitor QT' },
+      neurological: { neuro_conditions: 'none', brain_injury: 'none', neuro_tests: 'qEEG, MRI (unremarkable)', chronic_conditions: 'fatigue', surgeries: 'none' },
+    }) };
+  }
+  // emma-clarke / fallback
+  return { sections: Object.assign({}, COMMON, {
+    diagnoses:    { primary_dx: 'PTSD', secondary_dx: 'Sleep fragmentation', working_dx: 'PTSD', dx_notes: 'Beta elevation; reduced alpha amplitude.' },
+    medications:  { current_meds: 'prazosin 2 mg pm', supplements: 'magnesium', past_meds: 'sertraline (rotated)', med_interactions: 'BP monitoring' },
+    neurological: { neuro_conditions: 'none', brain_injury: 'none', neuro_tests: 'qEEG (this study)', chronic_conditions: 'sleep fragmentation', surgeries: 'none' },
+  }) };
+}
+
+function _isDemoPatientId(pid) {
+  return typeof pid === 'string' && pid.indexOf('demo-') === 0;
+}
+
 /* Demo assessment correlation data */
 var DEMO_ASSESSMENT_CORRELATION = {
   success: true, qeeg_analyses_count: 2, assessments_count: 6,
@@ -3464,6 +3949,16 @@ async function _exportQEEGArtifact(kind) {
     showToast('Select a patient before exporting', 'warning');
     return;
   }
+  // In demo mode the backend bundle endpoints will 404 / 403 because the
+  // demo patient_id has no real DB row. Keep the export honest: we don't
+  // synthesize a fake bundle file, we surface the limitation.
+  var _demoExport = (window._qeegSelectedId === 'demo' && _isDemoMode());
+  if (_demoExport) {
+    showToast('FHIR/BIDS bundles require a real patient record — demo only supports CSV/JSON export', 'warning');
+    _qeegAudit('export_blocked_demo', { note: 'kind=' + kind });
+    return;
+  }
+  _qeegAudit('export_' + kind + '_requested', { patient_id: payload.patient_id });
   try {
     const blob = kind === 'fhir'
       ? await api.exportFHIRBundle(payload)
@@ -3473,8 +3968,10 @@ async function _exportQEEGArtifact(kind) {
       ? `qeeg_fhir_bundle_${payload.patient_id}_${suffix}.json`
       : `qeeg_bids_derivatives_${payload.patient_id}_${suffix}.zip`;
     downloadBlob(blob, filename);
+    _qeegAudit('export_' + kind + '_completed', { patient_id: payload.patient_id });
     showToast(kind === 'fhir' ? 'FHIR bundle exported' : 'BIDS package exported', 'success');
   } catch (err) {
+    _qeegAudit('export_' + kind + '_failed', { note: (err && err.message ? err.message : String(err)).slice(0, 200) });
     showToast('Export failed: ' + (err?.message || String(err)), 'error');
   }
 }
@@ -3494,18 +3991,116 @@ window._exportCurrentBIDSPackage = function () {
   return window._qeegExportBIDSPackage();
 };
 let _fusionSummary = null;
-let _collapsedSections = { medications: true, neurological: true, lifestyle: true };
+let _collapsedSections = (function () {
+  const fallback = { medications: true, neurological: true, lifestyle: true };
+  try {
+    const raw = sessionStorage.getItem('qeeg_collapsed_sections');
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    return Object.assign({}, fallback, parsed);
+  } catch (_e) { return fallback; }
+})();
+function _persistCollapsedSections() {
+  try { sessionStorage.setItem('qeeg_collapsed_sections', JSON.stringify(_collapsedSections)); } catch (_e) {}
+}
 
 function renderTabBar(activeTab) {
-  return '<div class="ch-tab-bar" style="margin-bottom:20px">' +
+  return '<div class="ch-tab-bar" role="tablist" aria-label="qEEG analyzer sections" style="margin-bottom:20px">' +
     Object.entries(TAB_META).map(function (entry) {
       const id = entry[0], m = entry[1];
       const active = activeTab === id;
       return '<button class="ch-tab' + (active ? ' ch-tab--active' : '') + '"'
+        + ' role="tab"'
+        + ' id="qeeg-tab-' + id + '"'
+        + ' aria-selected="' + (active ? 'true' : 'false') + '"'
+        + ' aria-controls="qeeg-tab-content"'
+        + ' tabindex="' + (active ? '0' : '-1') + '"'
+        + ' data-qeeg-tab-id="' + id + '"'
         + (active ? ' style="--tab-color:' + m.color + '"' : '')
-        + ' onclick="window._qeegTab=\'' + id + '\';window._nav(\'qeeg-analysis\')">'
+        + ' onclick="window._qeegSwitchTab(\'' + id + '\')">'
         + esc(m.label) + '</button>';
     }).join('') + '</div>';
+}
+
+// Tab switch entrypoint: captures the current scroll position keyed on the
+// outgoing tab so we can restore it when the user comes back to that tab,
+// then triggers the standard route handler. Idempotent.
+if (typeof window !== 'undefined') {
+  window._qeegTabScroll = window._qeegTabScroll || {};
+  window._qeegSwitchTab = function (newTab) {
+    try { window._qeegTabScroll[window._qeegTab || 'patient'] = window.scrollY || 0; } catch (_e) {}
+    window._qeegTab = newTab;
+    if (typeof window._nav === 'function') window._nav('qeeg-analysis');
+  };
+}
+
+// Restore scroll position once the tab content has rendered.
+function _qeegRestoreScroll(tabId) {
+  const targetY = (window._qeegTabScroll && window._qeegTabScroll[tabId]) || 0;
+  const el = document.getElementById('qeeg-tab-content');
+  if (!el) { try { window.scrollTo(0, targetY); } catch (_e) {} return; }
+  let restored = false;
+  function tryRestore() {
+    if (restored) return;
+    if (el.children.length || el.textContent.trim().length) {
+      try { window.scrollTo(0, targetY); } catch (_e) {}
+      restored = true;
+    }
+  }
+  tryRestore();
+  if (restored) return;
+  let obs;
+  try {
+    obs = new MutationObserver(function () { tryRestore(); if (restored && obs) obs.disconnect(); });
+    obs.observe(el, { childList: true, subtree: false });
+  } catch (_e) {}
+  setTimeout(function () { tryRestore(); if (obs) obs.disconnect(); }, 1500);
+}
+
+// Idempotent delegated handler — toggles the inline lens-help panel when
+// the workspace help (?) button is clicked.
+if (typeof document !== 'undefined' && !window._qeegLensHelpWired) {
+  window._qeegLensHelpWired = true;
+  document.addEventListener('click', function (ev) {
+    var btn = ev.target && ev.target.closest && ev.target.closest('[data-qeeg-help="lens"]');
+    if (!btn) return;
+    var panelId = btn.getAttribute('aria-controls') || 'qeeg-lens-help';
+    var panel = document.getElementById(panelId);
+    if (!panel) return;
+    var open = !panel.hasAttribute('hidden');
+    if (open) panel.setAttribute('hidden', '');
+    else panel.removeAttribute('hidden');
+    btn.setAttribute('aria-expanded', open ? 'false' : 'true');
+  });
+}
+
+// Wires arrow-key / Home / End navigation across the qEEG analyzer tab strip.
+// Idempotent — safe to call after every renderTabBar() reflow.
+function _wireQEEGTabKeyboard() {
+  if (window._qeegTabKbWired) return;
+  window._qeegTabKbWired = true;
+  document.addEventListener('keydown', function (ev) {
+    const t = ev.target;
+    if (!t || !t.classList || !t.classList.contains('ch-tab')) return;
+    if (!t.hasAttribute('data-qeeg-tab-id')) return;
+    const bar = t.parentElement;
+    if (!bar || !bar.classList.contains('ch-tab-bar')) return;
+    const tabs = Array.prototype.slice.call(bar.querySelectorAll('button.ch-tab[data-qeeg-tab-id]'));
+    if (!tabs.length) return;
+    const idx = tabs.indexOf(t);
+    let next = idx;
+    if (ev.key === 'ArrowRight' || ev.key === 'ArrowDown') next = (idx + 1) % tabs.length;
+    else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowUp') next = (idx - 1 + tabs.length) % tabs.length;
+    else if (ev.key === 'Home') next = 0;
+    else if (ev.key === 'End') next = tabs.length - 1;
+    else return;
+    ev.preventDefault();
+    const target = tabs[next];
+    target.focus();
+    const id = target.getAttribute('data-qeeg-tab-id');
+    if (id && typeof window._qeegSwitchTab === 'function') window._qeegSwitchTab(id);
+    else if (id) { window._qeegTab = id; if (typeof window._nav === 'function') window._nav('qeeg-analysis'); }
+  });
 }
 
 // ── Patient Selector ─────────────────────────────────────────────────────────
@@ -3518,13 +4113,18 @@ function renderPatientSelector(patients, selectedId) {
     + '<label style="font-size:11px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px">Patient</label>'
     + '<div style="display:flex;gap:8px;align-items:center">'
     + '<input type="text" id="qeeg-patient-search" class="form-control" '
+    + 'role="combobox" '
+    + 'aria-expanded="false" '
+    + 'aria-controls="qeeg-patient-dropdown" '
+    + 'aria-autocomplete="list" '
+    + 'aria-haspopup="listbox" '
     + 'placeholder="Search patients by name..." '
     + 'value="' + displayName + '" '
     + 'autocomplete="off" '
     + 'style="flex:1">'
-    + (selectedId ? '<button class="btn btn-sm btn-outline" onclick="window._qeegClearPatient()" title="Clear selection" style="padding:4px 8px">&times;</button>' : '')
+    + (selectedId ? '<button class="btn btn-sm btn-outline" onclick="window._qeegClearPatient()" title="Clear selection" aria-label="Clear patient selection" style="padding:4px 8px">&times;</button>' : '')
     + '</div>'
-    + '<div id="qeeg-patient-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:240px;overflow-y:auto;background:var(--surface-2);border:1px solid rgba(255,255,255,0.1);border-radius:8px;z-index:100;margin-top:4px;box-shadow:0 8px 24px rgba(0,0,0,0.4)"></div>'
+    + '<div id="qeeg-patient-dropdown" role="listbox" aria-label="Patient suggestions" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:240px;overflow-y:auto;background:var(--surface-2);border:1px solid rgba(255,255,255,0.1);border-radius:8px;z-index:100;margin-top:4px;box-shadow:0 8px 24px rgba(0,0,0,0.4)"></div>'
     + '</div>';
 }
 
@@ -3532,6 +4132,33 @@ function initPatientSelector() {
   const input = document.getElementById('qeeg-patient-search');
   const dropdown = document.getElementById('qeeg-patient-dropdown');
   if (!input || !dropdown) return;
+
+  let activeIdx = -1;
+  let currentItems = [];
+
+  function setExpanded(expanded) {
+    input.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    dropdown.style.display = expanded ? 'block' : 'none';
+    if (!expanded) {
+      activeIdx = -1;
+      input.removeAttribute('aria-activedescendant');
+    }
+  }
+
+  function setActive(idx) {
+    const opts = dropdown.querySelectorAll('[role="option"]');
+    opts.forEach(function (el, i) {
+      el.setAttribute('aria-selected', i === idx ? 'true' : 'false');
+      el.style.background = i === idx ? 'rgba(255,255,255,0.06)' : 'transparent';
+    });
+    activeIdx = idx;
+    if (idx >= 0 && opts[idx]) {
+      input.setAttribute('aria-activedescendant', opts[idx].id);
+      opts[idx].scrollIntoView({ block: 'nearest' });
+    } else {
+      input.removeAttribute('aria-activedescendant');
+    }
+  }
 
   input.addEventListener('focus', function () {
     if (!window._qeegPatientId) showDropdown('');
@@ -3541,10 +4168,33 @@ function initPatientSelector() {
     showDropdown(input.value);
   });
 
+  input.addEventListener('keydown', function (ev) {
+    const visible = dropdown.style.display !== 'none';
+    if (ev.key === 'ArrowDown') {
+      ev.preventDefault();
+      if (!visible) { showDropdown(input.value); return; }
+      if (currentItems.length) setActive((activeIdx + 1) % currentItems.length);
+    } else if (ev.key === 'ArrowUp') {
+      ev.preventDefault();
+      if (!visible) { showDropdown(input.value); return; }
+      if (currentItems.length) setActive((activeIdx - 1 + currentItems.length) % currentItems.length);
+    } else if (ev.key === 'Enter') {
+      if (visible && activeIdx >= 0 && currentItems[activeIdx]) {
+        ev.preventDefault();
+        if (typeof window._qeegSelectPatient === 'function') window._qeegSelectPatient(currentItems[activeIdx].id);
+      }
+    } else if (ev.key === 'Escape') {
+      if (visible) { ev.preventDefault(); setExpanded(false); }
+    } else if (ev.key === 'Home' && visible) {
+      ev.preventDefault(); if (currentItems.length) setActive(0);
+    } else if (ev.key === 'End' && visible) {
+      ev.preventDefault(); if (currentItems.length) setActive(currentItems.length - 1);
+    }
+  });
+
   document.addEventListener('click', function (e) {
     if (!e.target.closest('#qeeg-patient-selector')) {
-      dropdown.style.display = 'none';
-      // Restore display name if we have a selected patient
+      setExpanded(false);
       if (window._qeegPatientId && _patient) {
         input.value = (_patient.first_name || '') + ' ' + (_patient.last_name || '');
       }
@@ -3557,24 +4207,37 @@ function initPatientSelector() {
       const name = ((p.first_name || '') + ' ' + (p.last_name || '')).toLowerCase();
       return !q || name.indexOf(q) !== -1;
     }).slice(0, 20);
+    currentItems = filtered;
 
     if (!filtered.length) {
-      dropdown.innerHTML = '<div style="padding:12px;color:var(--text-tertiary);font-size:13px">No patients found</div>';
+      dropdown.innerHTML = '<div role="status" style="padding:12px;color:var(--text-tertiary);font-size:13px">No patients found</div>';
     } else {
-      dropdown.innerHTML = filtered.map(function (p) {
+      dropdown.innerHTML = filtered.map(function (p, i) {
         const initials = ((p.first_name || '')[0] || '') + ((p.last_name || '')[0] || '');
-        return '<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.04)" '
-          + 'onmouseover="this.style.background=\'rgba(255,255,255,0.06)\'" '
-          + 'onmouseout="this.style.background=\'transparent\'" '
-          + 'onclick="window._qeegSelectPatient(\'' + p.id + '\')">'
-          + '<div style="width:32px;height:32px;border-radius:50%;background:var(--blue);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0">' + esc(initials.toUpperCase()) + '</div>'
+        const isDemo = !!p.is_demo || (typeof p.id === 'string' && p.id.indexOf('demo-') === 0);
+        const avatarBg = isDemo ? 'var(--amber)' : 'var(--blue)';
+        const demoBadge = isDemo
+          ? '<span style="font-size:10px;font-weight:700;color:var(--amber);background:rgba(251,191,36,0.18);padding:2px 6px;border-radius:8px;margin-left:6px">DEMO</span>'
+          : '';
+        return '<div id="qeeg-patient-opt-' + i + '" role="option" aria-selected="false" '
+          + 'data-patient-id="' + esc(p.id) + '" '
+          + 'style="display:flex;align-items:center;gap:10px;padding:8px 12px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.04)">'
+          + '<div style="width:32px;height:32px;border-radius:50%;background:' + avatarBg + ';display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0">' + esc(initials.toUpperCase()) + '</div>'
           + '<div style="flex:1;min-width:0">'
-          + '<div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc((p.first_name || '') + ' ' + (p.last_name || '')) + '</div>'
+          + '<div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc((p.first_name || '') + ' ' + (p.last_name || '')) + demoBadge + '</div>'
           + '<div style="font-size:11px;color:var(--text-tertiary)">' + esc(p.primary_condition || 'No condition') + (p.dob ? ' | ' + esc(p.dob) : '') + '</div>'
           + '</div></div>';
       }).join('');
+      dropdown.querySelectorAll('[role="option"]').forEach(function (el, i) {
+        el.addEventListener('mouseenter', function () { setActive(i); });
+        el.addEventListener('click', function () {
+          const id = el.getAttribute('data-patient-id');
+          if (id && typeof window._qeegSelectPatient === 'function') window._qeegSelectPatient(id);
+        });
+      });
     }
-    dropdown.style.display = 'block';
+    setExpanded(true);
+    setActive(filtered.length ? 0 : -1);
   }
 }
 
@@ -3585,7 +4248,7 @@ function renderClinicalInfo(patient, medHistory) {
   const s = (medHistory && medHistory.sections) || {};
 
   // Demographics strip
-  let html = '<div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:16px;margin-bottom:16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">'
+  let html = '<div style="background:var(--surface-tint-1);border-radius:10px;padding:16px;margin-bottom:16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">'
     + '<div style="flex:1;min-width:160px">'
     + '<div style="font-size:18px;font-weight:700">' + esc((patient.first_name || '') + ' ' + (patient.last_name || '')) + '</div>'
     + '<div style="font-size:12px;color:var(--text-tertiary);margin-top:2px">'
@@ -3599,7 +4262,7 @@ function renderClinicalInfo(patient, medHistory) {
 
   // Check if medical history exists
   if (!medHistory || !medHistory.sections || Object.keys(medHistory.sections).length === 0) {
-    html += '<div style="text-align:center;padding:24px;color:var(--text-tertiary);font-size:13px;border:1px dashed rgba(255,255,255,0.1);border-radius:8px">'
+    html += '<div style="text-align:center;padding:24px;color:var(--text-tertiary);font-size:13px;border:1px dashed var(--border-hover);border-radius:8px">'
       + 'No medical history recorded for this patient.<br>'
       + '<a href="#" onclick="window._nav(\'patients-hub\');return false" style="color:var(--blue);font-size:12px">Go to Patient Hub to add medical history</a>'
       + '</div>';
@@ -3672,7 +4335,7 @@ function renderUploadArea(patientId) {
     + '<div><label class="form-label" style="display:block;margin-bottom:4px">Recording Date</label>'
     + '<input type="date" id="qeeg-rec-date" class="form-control" style="width:100%;font-size:12px"></div>'
     + '</div>'
-    + '<div id="qeeg-upload-status" aria-live="polite" style="margin-top:12px"></div>'
+    + '<div id="qeeg-upload-status" role="status" aria-live="polite" aria-atomic="true" style="margin-top:12px"></div>'
     + '<div id="qeeg-quality-indicator"></div>'
     + '</div>'
   );
@@ -3700,22 +4363,44 @@ function initUploadHandlers(patientId) {
 
 async function handleUpload(file, patientId) {
   const statusEl = document.getElementById('qeeg-upload-status');
+  function setStatus(html) {
+    if (!statusEl) return;
+    statusEl.setAttribute('role', 'status');
+    statusEl.setAttribute('aria-live', 'polite');
+    statusEl.innerHTML = html;
+  }
+  function setError(msg) {
+    if (statusEl) {
+      statusEl.setAttribute('role', 'alert');
+      statusEl.removeAttribute('aria-live');
+      statusEl.innerHTML = '<div style="color:var(--red);font-size:13px">' + esc(msg) + '</div>';
+    }
+    showToast(msg, 'error');
+  }
   if (!patientId) {
-    if (statusEl) statusEl.innerHTML = '<div style="color:var(--red);font-size:13px">Please select a patient first.</div>';
+    setError('Please select a patient first.');
+    return;
+  }
+  if (!file || !file.name) {
+    setError('No file selected.');
     return;
   }
   // Client-side validation
   const ext = (file.name || '').split('.').pop().toLowerCase();
   if (!['edf', 'bdf', 'vhdr', 'set'].includes(ext)) {
-    if (statusEl) statusEl.innerHTML = '<div style="color:var(--red);font-size:13px">Invalid file type. Accepted: ' + esc(formatSupportedUploadTypes()) + '</div>';
+    setError('Invalid file type "' + (ext || 'unknown') + '". Accepted: ' + formatSupportedUploadTypes());
     return;
   }
   if (file.size > 100 * 1024 * 1024) {
-    if (statusEl) statusEl.innerHTML = '<div style="color:var(--red);font-size:13px">File too large. Maximum: 100 MB</div>';
+    setError('File too large (' + Math.round(file.size / 1024 / 1024) + ' MB). Maximum: 100 MB.');
+    return;
+  }
+  if (file.size === 0) {
+    setError('File is empty. Please select a valid recording.');
     return;
   }
 
-  if (statusEl) statusEl.innerHTML = spinner('Uploading ' + esc(file.name) + '...');
+  setStatus(spinner('Uploading ' + esc(file.name) + '...'));
   try {
     const fd = new FormData();
     fd.append('file', file);
@@ -3728,6 +4413,11 @@ async function handleUpload(file, patientId) {
     if (recDate) fd.append('recording_date', recDate);
 
     const result = await api.uploadQEEGAnalysis(fd);
+    _qeegAudit('recording_uploaded', {
+      analysis_id: result && result.id,
+      patient_id: patientId,
+      note: 'file=' + (file && file.name ? String(file.name).slice(0, 120) : '') + '; size=' + (file && file.size ? file.size : 0),
+    });
     showToast('File uploaded successfully', 'success');
     if (statusEl) statusEl.innerHTML = '<div style="color:var(--green);font-size:13px">Uploaded successfully! '
       + badge('pending', 'var(--amber)')
@@ -3740,7 +4430,7 @@ async function handleUpload(file, patientId) {
       var sr = result.sample_rate_hz || 0;
       var chColor = chCount >= 19 ? 'var(--green)' : chCount >= 10 ? 'var(--amber)' : 'var(--red)';
       var srColor = sr >= 256 ? 'var(--green)' : sr >= 128 ? 'var(--amber)' : 'var(--red)';
-      var qualityHtml = '<div style="margin-top:12px;padding:12px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.06)">'
+      var qualityHtml = '<div style="margin-top:12px;padding:12px;background:var(--surface-tint-1);border-radius:8px;border:1px solid var(--border)">'
         + '<div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Recording Quality</div>'
         + '<div style="display:flex;gap:12px;flex-wrap:wrap">';
       qualityHtml += '<div style="font-size:12px"><span style="color:' + chColor + ';font-weight:600">' + chCount + '</span> channels</div>'
@@ -3777,7 +4467,17 @@ async function handleUpload(file, patientId) {
     // Refresh analyses list
     refreshAnalysesList(patientId);
   } catch (err) {
-    if (statusEl) statusEl.innerHTML = '<div style="color:var(--red);font-size:13px">Upload failed: ' + esc(err.message || err) + '</div>';
+    const msg = String(err && err.message ? err.message : err || 'Unknown error');
+    if (statusEl) {
+      statusEl.setAttribute('role', 'alert');
+      statusEl.removeAttribute('aria-live');
+      statusEl.innerHTML = '<div style="color:var(--red);font-size:13px">'
+        + '<strong>Upload failed.</strong>'
+        + '<div style="margin-top:4px">' + esc(msg) + '</div>'
+        + '<div style="margin-top:6px;font-size:12px;color:var(--text-tertiary)">Try refreshing the page. If the error persists, contact support.</div>'
+        + '</div>';
+    }
+    showToast('Upload failed: ' + msg, 'error');
   }
 }
 
@@ -3787,6 +4487,7 @@ async function refreshAnalysesList(patientId) {
     _analyses = (resp && resp.items) || (Array.isArray(resp) ? resp : []);
     const listEl = document.getElementById('qeeg-analyses-list');
     if (listEl) listEl.innerHTML = renderAnalysisList(_analyses);
+    _wireQEEGAnalysisCopyButtons();
   } catch (err) { showToast('Failed to refresh analyses list: ' + (err.message || err), 'error'); }
 }
 
@@ -3798,22 +4499,54 @@ function renderAnalysisList(analyses) {
   analyses.forEach(function (a) {
     const status = a.analysis_status || 'pending';
     const statusColor = status === 'completed' ? 'var(--green)' : status === 'failed' ? 'var(--red)' : 'var(--amber)';
-    html += '<div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;transition:background .15s" '
-      + 'onmouseover="this.style.background=\'rgba(255,255,255,0.06)\'" onmouseout="this.style.background=\'rgba(255,255,255,0.03)\'" '
-      + 'onclick="window._qeegSelectedId=\'' + a.id + '\';window._qeegTab=\'analysis\';window._nav(\'qeeg-analysis\')">'
-      + '<div style="min-width:0;flex:1">'
+    const idShort = String(a.id || '').slice(0, 8);
+    html += '<div class="qeeg-analysis-row" style="background:rgba(255,255,255,0.03);border-radius:8px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;transition:background .15s">'
+      + '<div style="min-width:0;flex:1;cursor:pointer" '
+      + 'onclick="window._qeegSelectedId=\'' + a.id + '\';window._qeegSwitchTab(\'analysis\')">'
       + '<div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.original_filename || 'EDF File') + '</div>'
       + '<div style="font-size:11px;color:var(--text-tertiary)">'
       + (a.channels_used || a.channel_count || '?') + ' ch'
       + (a.sample_rate_hz ? ', ' + a.sample_rate_hz + ' Hz' : '')
       + (a.eyes_condition ? ' | ' + esc(a.eyes_condition) : '')
       + (a.analyzed_at ? ' | ' + new Date(a.analyzed_at).toLocaleDateString() : '')
+      + (idShort ? ' | <span style="font-family:var(--font-mono,monospace);color:var(--text-secondary)">id:' + esc(idShort) + '</span>' : '')
       + '</div>'
       + renderAnalysisCapabilityChips(a)
       + '</div>'
-      + '<div style="margin-left:8px">' + badge(status, statusColor) + '</div></div>';
+      + '<div style="margin-left:8px;display:flex;align-items:center;gap:6px">'
+      + (a.id ? '<button class="btn btn-ghost btn-sm" data-qeeg-copy-id="' + esc(a.id) + '" aria-label="Copy analysis ID to clipboard" title="Copy analysis ID" style="padding:4px 6px;font-size:11px">Copy</button>' : '')
+      + badge(status, statusColor)
+      + '</div></div>';
   });
   return html;
+}
+
+// Wire copy buttons inside the analyses list. Idempotent — re-run after re-render.
+function _wireQEEGAnalysisCopyButtons() {
+  document.querySelectorAll('[data-qeeg-copy-id]').forEach(function (btn) {
+    if (btn.__qeegCopyWired) return;
+    btn.__qeegCopyWired = true;
+    btn.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      const id = btn.getAttribute('data-qeeg-copy-id') || '';
+      if (!id) return;
+      const onCopied = function () {
+        const original = btn.textContent;
+        btn.textContent = 'Copied';
+        setTimeout(function () { btn.textContent = original; }, 1200);
+        try { showToast('Analysis ID copied', 'success'); } catch (_e) {}
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(id).then(onCopied).catch(function () {
+          try {
+            const ta = document.createElement('textarea');
+            ta.value = id; document.body.appendChild(ta); ta.select();
+            document.execCommand('copy'); document.body.removeChild(ta); onCopied();
+          } catch (_e) {}
+        });
+      }
+    });
+  });
 }
 
 // ── Main page function ───────────────────────────────────────────────────────
@@ -3823,14 +4556,31 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   window._qeegTab = tab;
   const el = document.getElementById('content');
 
+  // Global helper to open raw tab from session rail
+  window._qeegOpenRawTab = function () {
+    window._qeegTab = 'raw';
+    if (typeof window._nav === 'function') window._nav('qeeg-analysis');
+  };
+
   setTopbar('qEEG Analyzer', '');
 
-  // Load patients list (cached)
+  // Load patients list (cached). In demo mode we always prepend the synthetic
+  // demo patients so the analyzer is clickable end-to-end on the preview
+  // even when the backend returns no real patients.
   if (!_patients.length) {
     try {
       const resp = await api.listPatients();
       _patients = Array.isArray(resp) ? resp : (resp && resp.items ? resp.items : []);
-    } catch (err) { _patients = []; showToast('Failed to load patients: ' + (err.message || err), 'error'); }
+    } catch (err) {
+      _patients = [];
+      if (!_isDemoMode()) showToast('Failed to load patients: ' + (err.message || err), 'error');
+    }
+    if (_isDemoMode()) {
+      // Avoid duplicates if the backend already returns demo seeds for any reason.
+      var existingIds = new Set(_patients.map(function (p) { return p.id; }));
+      var demoToAdd = DEMO_PATIENTS.filter(function (p) { return !existingIds.has(p.id); });
+      _patients = demoToAdd.concat(_patients);
+    }
   }
 
   // Load patient data if selected
@@ -3841,18 +4591,29 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
     window._qeegPatientId = patientId;
   }
   if (patientId && (!_patient || _patient.id !== patientId)) {
-    try {
-      const [p, mh, aResp] = await Promise.all([
-        api.getPatient(patientId),
-        api.getPatientMedicalHistory(patientId),
-        api.listPatientQEEGAnalyses(patientId).catch(function () { return { items: [] }; }),
-      ]);
-      _patient = p;
-      _medHistory = mh;
-      _analyses = (aResp && aResp.items) || (Array.isArray(aResp) ? aResp : []);
-    } catch (err) {
-      _patient = null; _medHistory = null; _analyses = [];
-      showToast('Failed to load patient data: ' + (err.message || err), 'error');
+    if (_isDemoPatientId(patientId)) {
+      // Synthetic patient — skip the API round-trip and rebuild the page-
+      // local caches from the in-memory demo seed. The analyses entry uses
+      // the same id='demo' shape the rest of the analyzer already handles
+      // so every tab (Analysis / Raw / Report / Compare) lights up.
+      var seed = DEMO_PATIENTS.find(function (p) { return p.id === patientId; }) || DEMO_PATIENTS[0];
+      _patient = Object.assign({}, seed);
+      _medHistory = _demoMedicalHistoryFor(patientId);
+      _analyses = [DEMO_ANALYSIS_ENTRY];
+    } else {
+      try {
+        const [p, mh, aResp] = await Promise.all([
+          api.getPatient(patientId),
+          api.getPatientMedicalHistory(patientId),
+          api.listPatientQEEGAnalyses(patientId).catch(function () { return { items: [] }; }),
+        ]);
+        _patient = p;
+        _medHistory = mh;
+        _analyses = (aResp && aResp.items) || (Array.isArray(aResp) ? aResp : []);
+      } catch (err) {
+        _patient = null; _medHistory = null; _analyses = [];
+        showToast('Failed to load patient data: ' + (err.message || err), 'error');
+      }
     }
   } else if (!patientId) {
     _patient = null; _medHistory = null; _analyses = [];
@@ -3880,6 +4641,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   };
   window._qeegToggleSection = function (sectionId) {
     _collapsedSections[sectionId] = !_collapsedSections[sectionId];
+    _persistCollapsedSections();
     const infoEl = document.getElementById('qeeg-clinical-info');
     if (infoEl && _patient) {
       infoEl.innerHTML = renderClinicalInfo(_patient, _medHistory);
@@ -3899,23 +4661,121 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   };
 
   // Build page shell
+  // Hero export buttons. Only enabled when there is something to export
+  // (a real selected analysis id or a demo session). Disabled buttons keep
+  // the affordance visible so reviewers see the export surface, but the
+  // click is a no-op and the disabled state is announced.
+  var heroAnalysisId = window._qeegSelectedId || null;
+  var heroHasExportTarget = !!heroAnalysisId;
+  var heroExportDisabled = heroHasExportTarget ? '' : ' disabled title="Select or upload a recording first"';
+  var heroIsDemo = !!(heroAnalysisId === 'demo' && _isDemoMode());
+  var heroDemoFlag = heroIsDemo ? ' data-demo="true"' : '';
+
   let pageHtml = '<div class="ch-shell">';
-  pageHtml += '<div class="qeeg-hero">'
+  pageHtml += '<div class="qeeg-hero"' + heroDemoFlag + '>'
     + '<div class="qeeg-hero__icon qeeg-hero__icon--3d">' + render3DBrainMapMini('alpha') + '</div>'
     + '<div><div class="qeeg-hero__title">qEEG Analyzer</div>'
     + '<div class="qeeg-hero__sub">Spectral analysis &middot; AI interpretation &middot; Pre/post comparison</div>'
     + '<div style="font-size:12px;color:var(--text-tertiary);margin-top:6px">Decision-support only. Review acquisition quality and clinician context before acting on AI summaries.</div></div>'
-    + '<div class="qeeg-export-bar" style="margin-left:auto">'
-    + '<button class="btn btn-sm btn-outline" aria-label="Export patient FHIR bundle" onclick="window._qeegExportFHIRBundle()">FHIR</button>'
-    + '<button class="btn btn-sm btn-outline" aria-label="Export patient BIDS derivatives package" onclick="window._qeegExportBIDSPackage()">BIDS</button>'
+    + '<div class="qeeg-export-bar" style="margin-left:auto" data-testid="qeeg-hero-actions">'
+    + '<button class="btn btn-sm btn-outline" aria-label="Open the canonical Raw EEG Workbench for this recording" id="qeeg-hero-open-workbench"' + heroExportDisabled + '>Open Raw Workbench</button>'
+    + '<button class="btn btn-sm btn-outline" aria-label="Export band powers and z-scores as CSV" id="qeeg-hero-export-csv"' + heroExportDisabled + '>CSV</button>'
+    + '<button class="btn btn-sm btn-outline" aria-label="Export patient FHIR bundle" onclick="window._qeegExportFHIRBundle()"' + heroExportDisabled + '>FHIR</button>'
+    + '<button class="btn btn-sm btn-outline" aria-label="Export patient BIDS derivatives package" onclick="window._qeegExportBIDSPackage()"' + heroExportDisabled + '>BIDS</button>'
+    + '<button class="btn btn-sm btn-outline" aria-label="Download printable PDF report" onclick="window._qeegDownloadPDF()"' + heroExportDisabled + '>PDF</button>'
     + '</div>'
     + '</div>';
+  // Persistent demo banner — shows whenever the build is demo-flagged OR
+  // a synthetic patient is selected. Stays visible across tab switches so
+  // a clinician always knows when they are looking at synthetic data.
+  var _demoActive = _isDemoMode() || _isDemoPatientId(patientId) || window._qeegSelectedId === 'demo';
+  if (_demoActive) {
+    pageHtml += '<div role="status" aria-live="polite" style="margin-bottom:12px;padding:10px 14px;border-radius:10px;'
+      + 'background:rgba(251,191,36,0.10);border:1px solid rgba(251,191,36,0.40);'
+      + 'display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:13px;color:var(--text-primary)">'
+      + '<span style="font-size:14px">⚠️</span>'
+      + '<strong>DEMO MODE</strong>'
+      + '<span style="color:var(--text-secondary)">— synthetic patients and synthetic EEG data. Not for clinical use.</span>'
+      + (_isDemoPatientId(patientId) ? '<span class="badge" style="margin-left:auto;font-size:11px;font-weight:700;color:var(--amber);background:rgba(251,191,36,0.18);padding:3px 8px;border-radius:12px">Demo patient</span>' : '')
+      + '</div>';
+  }
   pageHtml += renderPatientSelector(_patients, patientId);
   pageHtml += renderTabBar(tab);
-  pageHtml += '<div id="qeeg-tab-content"></div>';
+  pageHtml += '<div id="qeeg-tab-content" role="tabpanel" tabindex="0" aria-labelledby="qeeg-tab-' + tab + '"></div>';
+  pageHtml += _qeegClinicalSafetyFooter();
   pageHtml += '</div>';
   el.innerHTML = pageHtml;
-  initEvidenceDrawer({ patientId: patientId || _getContextPatientIdForQEEG() || 'qeeg-context' });
+  _wireQEEGTabKeyboard();
+  _qeegRestoreScroll(tab);
+
+  // Wire hero export + workbench buttons. Both fall back honestly when no
+  // analysis is selected — we never silently swallow the click.
+  var _heroOpenBtn = document.getElementById('qeeg-hero-open-workbench');
+  if (_heroOpenBtn) {
+    _heroOpenBtn.addEventListener('click', function () {
+      if (!heroAnalysisId) {
+        showToast('Select or upload a recording first', 'warning');
+        return;
+      }
+      _qeegAudit('open_raw_workbench', { analysis_id: heroAnalysisId });
+      // Use the canonical helper if it has been wired by the raw tab, else
+      // do the navigation inline so this works from any tab.
+      if (typeof window._qeegOpenWorkbench === 'function') {
+        window._qeegOpenWorkbench(heroAnalysisId, heroIsDemo ? 'demo' : 'real');
+        return;
+      }
+      var hash = '#/qeeg-raw-workbench/' + encodeURIComponent(heroAnalysisId)
+        + '?mode=' + encodeURIComponent(heroIsDemo ? 'demo' : 'real');
+      window.location.hash = hash;
+      if (typeof window._nav === 'function') window._nav('qeeg-raw-workbench');
+    });
+  }
+  var _heroCsvBtn = document.getElementById('qeeg-hero-export-csv');
+  if (_heroCsvBtn) {
+    _heroCsvBtn.addEventListener('click', async function () {
+      if (!heroAnalysisId) {
+        showToast('Select or upload a recording first', 'warning');
+        return;
+      }
+      _qeegAudit('export_csv_requested', { analysis_id: heroAnalysisId });
+      // Prefer the in-memory band-power CSV when we have it (faster, also
+      // works for the demo session). Fall back to the backend endpoint for
+      // real analyses where in-memory band powers are missing.
+      if (heroIsDemo || (_currentAnalysis && _currentAnalysis.band_powers)) {
+        if (typeof window._qeegExportBandPowerCSV === 'function') {
+          window._qeegExportBandPowerCSV();
+          return;
+        }
+      }
+      try {
+        var resp = await api.exportQEEGAnalysisCSV(heroAnalysisId);
+        if (!resp || typeof resp.csv !== 'string' || !resp.csv.length) {
+          showToast('No band powers to export yet — run analysis first', 'warning');
+          return;
+        }
+        var prefix = resp.demo ? 'DEMO_' : '';
+        _downloadCSV(resp.csv, prefix + 'qeeg_analysis_' + heroAnalysisId + '.csv');
+        showToast(resp.rows + ' channel rows exported', 'success');
+      } catch (err) {
+        showToast('CSV export failed: ' + (err && err.message ? err.message : err), 'error');
+      }
+    });
+  }
+
+  // Page-load audit event. Best-effort, fire-and-forget. Captures the active
+  // tab, whether demo data is being shown, and whether a recording is open.
+  _qeegAudit('analyzer_loaded', {
+    note: 'tab=' + tab + (heroIsDemo ? '; mode=demo' : '; mode=live'),
+  });
+  initEvidenceDrawer({
+    patientId: patientId || _getContextPatientIdForQEEG() || 'qeeg-context',
+    getReportContext: function () { return _getQEEGReportEvidenceContext(); },
+    onAddToReport: async function (payload) {
+      var all = Array.isArray(payload && payload.savedCitations) ? payload.savedCitations : [];
+      _qeegSavedEvidenceCitations = _filterQEEGSavedEvidenceCitations(all, payload && payload.reportContext ? payload.reportContext : _getQEEGReportEvidenceContext());
+      if (window._qeegTab === 'report') window._nav('qeeg-analysis');
+    },
+  });
   wireEvidenceChips(el, { onOpen: (query) => openEvidenceDrawer(query) });
 
   // Init patient selector
@@ -3954,6 +4814,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         + '<div style="margin-top:16px">' + renderQEEGStackCard() + '</div>'
         + '<div style="margin-top:16px"><h4 style="font-size:14px;font-weight:600;margin:0 0 8px">Recent Analyses</h4>'
         + '<div id="qeeg-analyses-list">' + renderAnalysisList(displayAnalyses) + '</div></div>';
+      _wireQEEGAnalysisCopyButtons();
     }
 
     initUploadHandlers(patientId);
@@ -3970,15 +4831,22 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   // TAB 2: ANALYSIS
   // ══════════════════════════════════════════════════════════════════════════
   if (tab === 'analysis') {
-    // In demo mode, auto-select the sample analysis so the populated page
-    // loads immediately instead of an empty state — the reviewer on the
-    // Netlify preview has no real patients to pick from.
-    if (!window._qeegSelectedId && _isDemoMode()) {
-      window._qeegSelectedId = 'demo';
-    }
     const analysisId = window._qeegSelectedId;
     if (!analysisId) {
-      tabEl.innerHTML = emptyState('&#x1F4CA;', 'No Analysis Selected', 'Select an analysis from the Patient & Upload tab to view results.', 'Go to Patient & Upload', "window._qeegTab='patient';window._nav('qeeg-analysis')");
+      const demoBtn = _isDemoMode()
+        ? '<button class="btn btn-primary btn-sm" onclick="window._qeegSelectedId=\'demo\';window._qeegTab=\'analysis\';window._nav(\'qeeg-analysis\')">Open Analysis (demo data)</button>'
+        : '';
+      tabEl.innerHTML =
+        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);text-align:center">'
+        + '<div style="font-size:32px;margin-bottom:8px">📊</div>'
+        + '<div style="font-size:18px;font-weight:700;margin-bottom:6px">No analysis selected</div>'
+        + '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px">Open the analysis view with sample data, jump to an existing analysis, or upload a new EDF.</div>'
+        + '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">'
+        +   demoBtn
+        +   '<button class="btn btn-outline btn-sm" onclick="window._qeegTab=\'patient\';window._nav(\'qeeg-analysis\')">Use existing analysis</button>'
+        +   '<button class="btn btn-outline btn-sm" onclick="window._nav(\'qeeg-raw-workbench\')">Pick patient &amp; upload</button>'
+        + '</div>'
+        + '</div>';
       return;
     }
 
@@ -4006,7 +4874,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           + '<button class="btn btn-outline btn-sm" onclick="window._qeegTab=\'patient\';window._nav(\'qeeg-analysis\')">Back to upload</button>'
           + '<button class="btn btn-outline btn-sm" onclick="window._qeegTab=\'report\';window._nav(\'qeeg-analysis\')">Open report tab</button>'
           + '</div>'
-          + '<div id="qeeg-analyze-status" aria-live="polite" style="margin-top:12px"></div></div>'
+          + '<div id="qeeg-analyze-status" role="status" aria-live="polite" style="margin-top:12px"></div></div>'
         );
         const runBtn = document.getElementById('qeeg-run-btn');
         if (runBtn) {
@@ -4016,6 +4884,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
             if (st) st.innerHTML = spinner('Running spectral analysis...');
             try {
               await api.analyzeQEEG(analysisId);
+              _qeegAudit('analysis_started', { analysis_id: analysisId });
               showToast('Spectral analysis started', 'success');
               // Start polling for status updates
               if (st) st.innerHTML = spinner('Processing...') + '<div id="qeeg-analysis-progress"></div>';
@@ -4027,8 +4896,8 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
                   if (progressEl && statusResp.progress_pct != null) {
                     progressEl.innerHTML = '<div style="margin-top:8px">'
                       + '<div style="background:rgba(255,255,255,0.1);border-radius:4px;height:6px;overflow:hidden">'
-                      + '<div style="width:' + statusResp.progress_pct + '%;background:var(--teal);height:100%;border-radius:4px;transition:width 0.3s"></div></div>'
-                      + '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">' + (statusResp.completed_analyses || 0) + '/' + (statusResp.total_analyses || 25) + ' analyses completed</div></div>';
+                      + '<div style="width:' + (Number(statusResp.progress_pct) || 0) + '%;background:var(--teal);height:100%;border-radius:4px;transition:width 0.3s"></div></div>'
+                      + '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">' + (Number(statusResp.completed_analyses) || 0) + '/' + (Number(statusResp.total_analyses) || 25) + ' analyses completed</div></div>';
                   }
                   if (statusResp.status === 'completed' || statusResp.status === 'failed') {
                     clearInterval(pollInterval);
@@ -4037,7 +4906,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
                 } catch (_e) { /* silent polling failure */ }
               }, 2000);
             } catch (err) {
-              if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px">Error: ' + esc(err.message || err) + '</div>';
+              if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px">Error: ' + esc(String(err && err.message ? err.message : err || "Unknown error")) + '</div>';
               runBtn.disabled = false;
             }
           });
@@ -4050,7 +4919,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         tabEl.innerHTML = renderLaunchNotice('Analysis running', 'Wait for preprocessing and quantification to finish. If the run stalls, return to the upload tab and verify session metadata.', 'info')
           + '<div style="text-align:center;padding:48px">'
           + spinner('Analysis in progress... This usually takes a few seconds.')
-          + '<div id="qeeg-analysis-progress" aria-live="polite"></div>'
+          + '<div id="qeeg-analysis-progress" role="status" aria-live="polite"></div>'
           + '</div>';
         var pollInterval = setInterval(async function () {
           try {
@@ -4060,8 +4929,8 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
             if (progressEl && statusResp.progress_pct != null) {
               progressEl.innerHTML = '<div style="margin-top:8px">'
                 + '<div style="background:rgba(255,255,255,0.1);border-radius:4px;height:6px;overflow:hidden">'
-                + '<div style="width:' + statusResp.progress_pct + '%;background:var(--teal);height:100%;border-radius:4px;transition:width 0.3s"></div></div>'
-                + '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">' + (statusResp.completed_analyses || 0) + '/' + (statusResp.total_analyses || 25) + ' analyses completed</div></div>';
+                + '<div style="width:' + (Number(statusResp.progress_pct) || 0) + '%;background:var(--teal);height:100%;border-radius:4px;transition:width 0.3s"></div></div>'
+                + '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">' + (Number(statusResp.completed_analyses) || 0) + '/' + (Number(statusResp.total_analyses) || 25) + ' analyses completed</div></div>';
             }
             if (statusResp.status === 'completed' || statusResp.status === 'failed') {
               clearInterval(pollInterval);
@@ -4074,16 +4943,48 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
 
       // If failed
       if (data.analysis_status === 'failed') {
+        var failureReason = data.analysis_error || data.failure_reason || 'Unknown error';
         tabEl.innerHTML = card('Analysis Failed',
           renderLaunchNotice('Analysis needs review', 'Do not rely on downstream reports until this session is re-run or the upload issue is understood.', 'error')
-          + '<div style="color:var(--red);padding:12px" aria-live="assertive" role="alert">'
-          + '<div style="margin-bottom:8px">' + badge('failed', 'var(--red)') + '</div>'
-          + '<div style="font-size:13px">' + esc(data.analysis_error || 'Unknown error') + '</div>'
-          + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">'
-          + '<button class="btn btn-outline btn-sm" onclick="window._qeegTab=\'patient\';window._nav(\'qeeg-analysis\')">Review upload</button>'
-          + '<button class="btn btn-primary btn-sm" onclick="window._qeegTab=\'analysis\';window._nav(\'qeeg-analysis\')">Retry view</button>'
+          + '<div role="alert" aria-live="polite" style="padding:14px 16px;border-radius:12px;background:rgba(239,68,68,0.10);border:1px solid rgba(239,68,68,0.24);margin-top:12px">'
+          + '<div style="font-size:14px;font-weight:700;color:#fca5a5;margin-bottom:6px">Analysis failed</div>'
+          + '<div style="font-size:12.5px;color:var(--text-secondary);line-height:1.55">' + esc(failureReason) + '</div>'
+          + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">'
+          + '<button class="btn btn-primary btn-sm" id="qeeg-reupload-btn">Re-upload</button>'
+          + '<button class="btn btn-outline btn-sm" id="qeeg-support-btn">Contact support</button>'
           + '</div></div>'
         );
+        var qeegReuploadBtn = document.getElementById('qeeg-reupload-btn');
+        if (qeegReuploadBtn) {
+          qeegReuploadBtn.addEventListener('click', function () {
+            window._qeegSelectedId = null;
+            window._qeegTab = 'patient';
+            window._nav('qeeg-analysis');
+          });
+        }
+        var qeegSupportBtn = document.getElementById('qeeg-support-btn');
+        if (qeegSupportBtn) {
+          qeegSupportBtn.addEventListener('click', function () {
+            // Honest support handoff — no silent console-only stub. We open
+            // the user's mail client with a pre-filled subject containing the
+            // analysis id and the failure reason so the support team has
+            // enough context to triage. Audit the action.
+            _qeegAudit('analysis_support_contact', {
+              analysis_id: analysisId,
+              note: 'failure=' + (failureReason || '').slice(0, 200),
+            });
+            var subject = encodeURIComponent('qEEG analysis failed: ' + (analysisId || 'unknown'));
+            var body = encodeURIComponent(
+              'qEEG analysis ID: ' + (analysisId || 'unknown') + '\n' +
+              'Failure reason: ' + (failureReason || 'Unknown error') + '\n\n' +
+              'Please describe what you were trying to do:\n'
+            );
+            try {
+              window.location.href = 'mailto:support@deepsynaps.net?subject=' + subject + '&body=' + body;
+            } catch (_) { /* browsers without mailto fall back to no-op */ }
+            showToast('Opening support email…', 'info');
+          });
+        }
         return;
       }
 
@@ -4251,6 +5152,11 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         if (_aiUpgradesFeatureFlagEnabled()) {
           html += renderAiUpgradePanels(data);
         }
+        // Clinical Intelligence Workbench panels (Migration 048)
+        html += '<div id="qeeg-safety-cockpit-panel"></div>';
+        html += '<div id="qeeg-red-flags-panel"></div>';
+        html += '<div id="qeeg-normative-card-panel"></div>';
+        html += '<div id="qeeg-protocol-fit-panel"></div>';
         html += renderFusionSummaryCard(_fusionSummary, data && data.patient_id);
 
         // Action buttons
@@ -4285,8 +5191,8 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           anchor_label: (data && data.original_filename) || 'qEEG analysis',
         })
       )
-        + '<div id="qeeg-mne-run-status" aria-live="polite" style="text-align:center;margin-top:8px"></div>'
-        + '<div id="qeeg-ai-run-status" aria-live="polite" style="text-align:center;margin-top:4px"></div>'
+        + '<div id="qeeg-mne-run-status" role="status" aria-live="polite" style="text-align:center;margin-top:8px"></div>'
+        + '<div id="qeeg-ai-run-status" role="status" aria-live="polite" style="text-align:center;margin-top:4px"></div>'
         + '<div id="qeeg-annotation-drawer-host" class="analysis-anno-host"></div>';
 
       // ── Advanced Analyses Section ───────────────────────────────────────
@@ -4328,6 +5234,13 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           }).catch(function (err) {
             vizMount.innerHTML = '<p style="color:var(--text-secondary);font-size:12px;padding:8px;">Viz v2 not available: ' + esc(String(err.message || err)) + '</p>';
           });
+        }
+        // ── Mount Clinical Intelligence Workbench panels (Migration 048) ────
+        if (analysisId && analysisId !== 'demo') {
+          mountSafetyCockpit('qeeg-safety-cockpit-panel', analysisId, api);
+          mountRedFlags('qeeg-red-flags-panel', analysisId, api);
+          mountNormativeModelCard('qeeg-normative-card-panel', analysisId, api);
+          mountProtocolFit('qeeg-protocol-fit-panel', analysisId, api);
         }
         var runBtn = document.getElementById('qeeg-run-advanced-btn');
         if (runBtn) {
@@ -4442,7 +5355,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         });
       }, 50);
     } catch (err) {
-      tabEl.innerHTML = '<div style="color:var(--red);padding:24px" aria-live="assertive" role="alert">Failed to load analysis: ' + esc(err.message || err) + '</div>';
+      tabEl.innerHTML = '<div role="alert" style="color:var(--red);padding:24px"><strong>Failed to load analysis.</strong><div style="margin-top:6px;font-size:13px">' + esc(String(err.message || err)) + '</div><div style="margin-top:8px;font-size:12px;color:var(--text-tertiary)">Try refreshing the page. If the error persists, contact support.</div></div>';
     }
     return;
   }
@@ -4451,13 +5364,22 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   // TAB 3: AI REPORT
   // ══════════════════════════════════════════════════════════════════════════
   if (tab === 'report') {
-    // Same demo auto-select as the Analysis tab — no real patients on the preview.
-    if (!window._qeegSelectedId && _isDemoMode()) {
-      window._qeegSelectedId = 'demo';
-    }
     const analysisId = window._qeegSelectedId;
     if (!analysisId) {
-      tabEl.innerHTML = emptyState('&#x1F4DD;', 'No Analysis Selected', 'Select an analysis first to generate an AI report.', 'Go to Patient & Upload', "window._qeegTab='patient';window._nav('qeeg-analysis')");
+      const demoBtn = _isDemoMode()
+        ? '<button class="btn btn-primary btn-sm" onclick="window._qeegSelectedId=\'demo\';window._qeegTab=\'report\';window._nav(\'qeeg-analysis\')">Open AI Report (demo data)</button>'
+        : '';
+      tabEl.innerHTML =
+        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);text-align:center">'
+        + '<div style="font-size:32px;margin-bottom:8px">📝</div>'
+        + '<div style="font-size:18px;font-weight:700;margin-bottom:6px">No analysis selected</div>'
+        + '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px">Open the AI report with sample data, jump to an existing analysis, or upload a new EDF.</div>'
+        + '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">'
+        +   demoBtn
+        +   '<button class="btn btn-outline btn-sm" onclick="window._qeegTab=\'patient\';window._nav(\'qeeg-analysis\')">Use existing analysis</button>'
+        +   '<button class="btn btn-outline btn-sm" onclick="window._nav(\'qeeg-raw-workbench\')">Pick patient &amp; upload</button>'
+        + '</div>'
+        + '</div>';
       return;
     }
 
@@ -4471,8 +5393,13 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       } catch (_) { /* no reports yet */ }
       reports = reports.slice().sort(function (a, b) { return _getReportSortTimestamp(b) - _getReportSortTimestamp(a); });
 
-      // Demo mode fallback when no reports available
+      // Demo mode fallback when no reports available — only swap in the demo
+      // payload when the analysis itself is the synthetic 'demo' record AND
+      // the build was flagged as demo. Audit-log the swap so a clinician
+      // reviewing audit history can tell that the rendered report came from
+      // a demo seed, not a real LLM call.
       if (reports.length === 0 && _isDemoMode() && analysisId === 'demo') {
+        try { _qeegAudit('ai_report_demo_fallback', { analysis_id: analysisId, source: 'demo_seed' }); } catch (_e) {}
         reports = [DEMO_QEEG_REPORT];
       }
 
@@ -4493,7 +5420,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           + '</select>'
           + '<button class="btn btn-primary" id="qeeg-gen-report-btn">Generate AI Report</button>'
           + '</div>'
-          + '<div id="qeeg-gen-status" aria-live="polite" style="margin-top:12px"></div></div>'
+          + '<div id="qeeg-gen-status" role="status" aria-live="polite" style="margin-top:12px"></div></div>'
         );
         const btn = document.getElementById('qeeg-gen-report-btn');
         if (btn) {
@@ -4504,13 +5431,22 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
             const st = document.getElementById('qeeg-gen-status');
             if (st) st.innerHTML = spinner('Generating AI interpretation...');
             try {
+              _qeegAudit('ai_interpretation_requested', {
+                analysis_id: analysisId,
+                note: 'report_type=' + selectedType,
+              });
               await api.generateQEEGAIReport(analysisId, { report_type: selectedType });
+              _qeegAudit('ai_interpretation_completed', { analysis_id: analysisId });
               showToast('AI report generated', 'success');
               window._qeegTab = 'report';
               window._nav('qeeg-analysis');
             } catch (err) {
+              _qeegAudit('ai_interpretation_failed', {
+                analysis_id: analysisId,
+                note: (err && err.message ? err.message : String(err)).slice(0, 200),
+              });
               showToast('AI report generation failed: ' + (err.message || err), 'error');
-              if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px" role="alert">Error: ' + esc(err.message || err) + '</div>';
+              if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px" role="alert">Error: ' + esc(String(err && err.message ? err.message : err || "Unknown error")) + '</div>';
               btn.disabled = false;
             }
           });
@@ -4534,11 +5470,14 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         } catch (_) { /* analysis data enhances report but is not required */ }
       }
       if (analysisData) _currentAnalysis = analysisData;
+      var reportPatientId = (analysisData && analysisData.patient_id) || _getContextPatientIdForQEEG() || (_patient && _patient.id) || null;
+      await _loadQEEGSavedEvidenceCitations(reportPatientId);
+      _qeegSavedEvidenceCitations = _filterQEEGSavedEvidenceCitations(_qeegSavedEvidenceCitations, _getQEEGReportEvidenceContext());
 
       var html = renderQEEGSessionRail(analysisData, {
         title: 'qEEG report context',
         note: 'This rail keeps the recording and quality context visible while reviewing AI narrative output.'
-      }) + _renderComprehensiveReport(report, analysisData);
+      }) + _renderComprehensiveReport(report, analysisData, _qeegSavedEvidenceCitations);
       if (reports.length > 1) {
         html = card('Report Versions',
           '<div class="qeeg-report-version-bar">'
@@ -4552,17 +5491,34 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           + '</div>'
         ) + html;
       }
+      // Brain Map (Phase 1) — patient + clinician renderers consuming the
+      // QEEGBrainMapReport contract from Phase 0. Local toggle, default
+      // clinician view. Legacy panels stay below.
+      html += '<div class="qeeg-brainmap-toggle ds-card" style="margin:12px 0">'
+        + '<div class="ds-card__body" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+        + '<strong style="margin-right:8px;font-size:13px">Brain Map view:</strong>'
+        + '<button type="button" class="btn btn--small" id="qeeg-brainmap-view-clinician">Clinician</button>'
+        + '<button type="button" class="btn btn--small btn--ghost" id="qeeg-brainmap-view-patient">Patient</button>'
+        + '</div></div>';
+      html += '<div id="qeeg-brainmap-clinician-panel"></div>';
+      html += '<div id="qeeg-brainmap-patient-panel" hidden></div>';
+      // Clinical Workbench — review + patient-facing report panels (legacy)
+      html += '<div id="qeeg-clinician-review-panel"></div>';
+      html += '<div id="qeeg-patient-report-panel"></div>';
+      html += '<div id="qeeg-timeline-panel"></div>';
+
       // Contract V2 §10 — copilot widget mount point (floating / fixed
       // position). Appended inside the tab so it survives tab re-renders
       // but is removed when the tab is navigated away from.
       if (_aiUpgradesFeatureFlagEnabled()) {
-        html += '<div id="qeeg-copilot-mount" aria-live="polite"></div>';
+        html += '<div id="qeeg-copilot-mount" role="status" aria-live="polite"></div>';
       }
 
       if (analysisId === 'demo' && _isDemoMode()) {
         html = _demoBanner() + html;
       }
       tabEl.innerHTML = html;
+      _revokeQEEGPrintableReportViewerUrl();
 
       var reportVersionSel = document.getElementById('qeeg-report-version');
       if (reportVersionSel) {
@@ -4573,12 +5529,52 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         });
       }
 
+      if (_canRenderQEEGPrintableReport(report, analysisData)) {
+        _mountQEEGPrintableReportViewer(report, analysisData).catch(function (err) {
+          showToast('Printable report preview failed: ' + (err && err.message ? err.message : err), 'error');
+        });
+      }
+
       // Mount the copilot once the DOM is ready. Re-mounts on every report
       // render so the widget stays in sync with the selected analysis.
       if (_aiUpgradesFeatureFlagEnabled()) {
         setTimeout(function () {
           try { mountCopilotWidget('qeeg-copilot-mount', analysisId); } catch (_) {}
         }, 30);
+      }
+      // Mount Clinical Workbench panels (Migration 048)
+      if (report && report.id && analysisId && analysisId !== 'demo') {
+        setTimeout(function () {
+          try { mountClinicianReview('qeeg-clinician-review-panel', analysisId, report.id, api); } catch (_) {}
+          try { mountPatientReport('qeeg-patient-report-panel', report.id, api); } catch (_) {}
+          // Phase 1 Brain Map renderers consuming QEEGBrainMapReport contract
+          try { mountClinicianReport('qeeg-brainmap-clinician-panel', report.id, api); } catch (_) {}
+          try { mountPatientReport('qeeg-brainmap-patient-panel', report.id, api); } catch (_) {}
+          var _bmClin = document.getElementById('qeeg-brainmap-view-clinician');
+          var _bmPat = document.getElementById('qeeg-brainmap-view-patient');
+          var _bmClinPanel = document.getElementById('qeeg-brainmap-clinician-panel');
+          var _bmPatPanel = document.getElementById('qeeg-brainmap-patient-panel');
+          function _bmSetView(v) {
+            if (v === 'patient') {
+              if (_bmClinPanel) _bmClinPanel.hidden = true;
+              if (_bmPatPanel) _bmPatPanel.hidden = false;
+              if (_bmClin) _bmClin.classList.add('btn--ghost');
+              if (_bmPat) _bmPat.classList.remove('btn--ghost');
+            } else {
+              if (_bmClinPanel) _bmClinPanel.hidden = false;
+              if (_bmPatPanel) _bmPatPanel.hidden = true;
+              if (_bmClin) _bmClin.classList.remove('btn--ghost');
+              if (_bmPat) _bmPat.classList.add('btn--ghost');
+            }
+          }
+          if (_bmClin) _bmClin.addEventListener('click', function () { _bmSetView('clinician'); });
+          if (_bmPat) _bmPat.addEventListener('click', function () { _bmSetView('patient'); });
+        }, 40);
+      }
+      if (analysisData && analysisData.patient_id && analysisId && analysisId !== 'demo') {
+        setTimeout(function () {
+          try { mountTimeline('qeeg-timeline-panel', analysisData.patient_id, api); } catch (_) {}
+        }, 50);
       }
 
       // Review handler
@@ -4590,18 +5586,58 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           reviewBtn.disabled = true;
           try {
             await api.amendQEEGReport(report.id, { clinician_reviewed: true, clinician_amendments: amendments });
-            showToast('Review saved', 'success');
-            if (st) st.innerHTML = '<div style="color:var(--green);font-size:13px">Review saved successfully.</div>';
+            showToast('Review recorded', 'success');
+            if (st) st.innerHTML = '<div style="color:var(--green);font-size:13px">Clinician review recorded for this report.</div>';
           } catch (err) {
             showToast('Failed to save review: ' + (err.message || err), 'error');
-            if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px">Error: ' + esc(err.message || err) + '</div>';
+            if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px">Error: ' + esc(String(err && err.message ? err.message : err || "Unknown error")) + '</div>';
             reviewBtn.disabled = false;
           }
         });
       }
     } catch (err) {
-      tabEl.innerHTML = '<div style="color:var(--red);padding:24px" aria-live="assertive" role="alert">Failed to load report: ' + esc(err.message || err) + '</div>';
+      tabEl.innerHTML = '<div role="alert" style="color:var(--red);padding:24px"><strong>Failed to load report.</strong><div style="margin-top:6px;font-size:13px">' + esc(String(err.message || err)) + '</div><div style="margin-top:8px;font-size:12px;color:var(--text-tertiary)">Try refreshing the page. If the error persists, contact support.</div></div>';
     }
+    return;
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // TAB: LEARNING EEG
+  // ══════════════════════════════════════════════════════════════════════════
+  if (tab === 'learning') {
+    var learningHtml = '';
+    learningHtml += renderLaunchNotice(
+      'Educational reference only',
+      'Use this tab to cross-check qEEG and raw EEG findings against standard EEG teaching concepts. These summaries support interpretation but do not replace direct waveform review or supervised clinical training.',
+      'info'
+    );
+    learningHtml += card('Learning EEG Workflow',
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">'
+        + '<div style="padding:12px;border-radius:10px;background:var(--surface-tint-1);border:1px solid var(--border)">'
+        + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--blue)">1. Check raw signal</div>'
+        + '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-top:6px">Confirm artefact, montage, state, and basic morphology before trusting derived metrics.</div>'
+        + '</div>'
+        + '<div style="padding:12px;border-radius:10px;background:var(--surface-tint-1);border:1px solid var(--border)">'
+        + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--teal)">2. Review quantitative output</div>'
+        + '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-top:6px">Map band-power, asymmetry, and normative deviations back to standard EEG language and age/state context.</div>'
+        + '</div>'
+        + '<div style="padding:12px;border-radius:10px;background:var(--surface-tint-1);border:1px solid var(--border)">'
+        + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--amber)">3. Escalate carefully</div>'
+        + '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-top:6px">Suspicious rhythmic or sharply contoured events still require direct EEG review for evolution, field, and context.</div>'
+        + '</div>'
+      + '</div>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">'
+      + '<button class="btn btn-outline btn-sm" onclick="window._qeegTab=\'analysis\';window._nav(\'qeeg-analysis\')">Open Analysis</button>'
+      + '<button class="btn btn-outline btn-sm" onclick="window._qeegTab=\'raw\';window._nav(\'qeeg-analysis\')">Open Raw Data</button>'
+      + '<button class="btn btn-outline btn-sm" onclick="window._qeegTab=\'report\';window._nav(\'qeeg-analysis\')">Open AI Report</button>'
+      + '</div>'
+    );
+    learningHtml += renderLearningEEGReferenceCard({
+      audience: 'analyzer',
+      title: 'Learning EEG Library',
+      intro: 'Verified topic map for the qEEG analyzer and raw-data workbench. The app stores original summaries and links to the source site rather than copying the full educational content.'
+    });
+    tabEl.innerHTML = learningHtml;
     return;
   }
 
@@ -4609,18 +5645,58 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   // TAB: RAW DATA
   // ══════════════════════════════════════════════════════════════════════════
   if (tab === 'raw') {
-    if (!window._qeegSelectedId && _isDemoMode()) {
-      window._qeegSelectedId = 'demo';
-    }
     const analysisId = window._qeegSelectedId;
     if (!analysisId) {
-      tabEl.innerHTML = emptyState('&#x1F4C8;', 'No Analysis Selected', 'Select an analysis from the Patient & Upload tab to view raw EEG data.', 'Go to Patient & Upload', "window._qeegTab='patient';window._nav('qeeg-analysis')");
+      const editorBtn = _isDemoMode()
+        ? '<button class="btn btn-primary btn-sm" onclick="window._qeegSelectedId=\'demo\';window._qeegTab=\'raw\';window._nav(\'qeeg-analysis\')">Open Raw Data Editor</button>'
+        : '';
+      const workbenchOnclick = _isDemoMode()
+        ? "window._qeegSelectedId='demo';window.location.hash='#/qeeg-raw-workbench/demo';window._nav('qeeg-raw-workbench')"
+        : "window._nav('qeeg-raw-workbench')";
+      tabEl.innerHTML =
+        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:var(--surface-tint-1);border:1px solid var(--border);text-align:center">'
+        + '<div style="font-size:32px;margin-bottom:8px">📈</div>'
+        + '<div style="font-size:18px;font-weight:700;margin-bottom:6px">No EEG selected</div>'
+        + '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px">Open the inline editor with sample data, pick a patient and upload a new EDF, jump to an existing analysis, or open the full-screen workbench for manual analysis.</div>'
+        + '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">'
+        +   editorBtn
+        +   '<button class="btn btn-outline btn-sm" onclick="window._nav(\'qeeg-raw-workbench\')">Pick patient &amp; upload</button>'
+        +   '<button class="btn btn-outline btn-sm" onclick="window._qeegTab=\'patient\';window._nav(\'qeeg-analysis\')">Use existing analysis</button>'
+        +   '<button class="btn btn-outline btn-sm" onclick="' + workbenchOnclick + '">Open Raw EEG Workbench (full-screen)</button>'
+        + '</div>'
+        + '</div>';
       return;
     }
     tabEl.innerHTML = '<div style="text-align:center;padding:48px"><div class="spinner"></div><div style="margin-top:12px;font-size:13px;color:var(--text-secondary)">Loading Raw Data viewer&hellip;</div></div>';
     try {
       const { renderRawDataTab } = await import('./pages-qeeg-raw.js');
       await renderRawDataTab(tabEl, analysisId, patientId);
+      // Compact workbench link bar below the viewer
+      var summaryBar = document.createElement('div');
+      summaryBar.style.cssText = 'display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px;padding:10px 14px;border-radius:10px;background:var(--surface-tint-1);border:1px solid var(--border);font-size:11px;color:var(--text-secondary)';
+      summaryBar.id = 'qeeg-raw-summary-bar';
+      summaryBar.innerHTML = '<span>Need full-screen editing? <a href="#" style="color:var(--blue)" onclick="window._qeegOpenWorkbench&&window._qeegOpenWorkbench(\'' + esc(analysisId) + '\');return false;">Open Raw EEG Workbench</a></span>'
+        + '<span style="margin-left:auto;display:flex;gap:10px;align-items:center">'
+        + '<span id="qeeg-raw-summary-ch">-- channels</span>'
+        + '<span id="qeeg-raw-summary-quality">--% good</span>'
+        + '<span id="qeeg-raw-summary-band">-- dominant</span>'
+        + '</span>';
+      tabEl.appendChild(summaryBar);
+      var learningWrap = document.createElement('div');
+      learningWrap.style.marginTop = '12px';
+      learningWrap.innerHTML = renderLearningEEGReferenceCard({
+        audience: 'analyzer',
+        title: 'Learning EEG Companion',
+        intro: 'Structured reference material for the qEEG analyzer and raw viewer. Use it to connect quantitative outputs back to standard EEG interpretation concepts.'
+      });
+      tabEl.appendChild(learningWrap);
+      window._qeegOpenWorkbench = function(id, mode) {
+        window._qeegSelectedId = id;
+        window.location.hash = '#/qeeg-raw-workbench/' + encodeURIComponent(id) + (mode ? '?mode=' + encodeURIComponent(mode) : '');
+        if (typeof window._nav === 'function') window._nav('qeeg-raw-workbench');
+      };
+      // Wire live summary updates from the raw viewer state
+      _wireRawViewerSummary(tabEl, analysisId);
     } catch (err) {
       tabEl.innerHTML = '<div style="color:var(--red);padding:24px" role="alert">Failed to load Raw Data viewer: ' + esc(String(err.message || err)) + '</div>';
     }
@@ -4654,7 +5730,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         }
         tabEl.innerHTML = compHtml;
       } catch (err) {
-        tabEl.innerHTML = '<div style="color:var(--red);padding:24px" aria-live="assertive" role="alert">Failed: ' + esc(err.message || err) + '</div>';
+        tabEl.innerHTML = '<div role="alert" style="color:var(--red);padding:24px"><strong>Comparison failed.</strong><div style="margin-top:6px;font-size:13px">' + esc(String(err.message || err)) + '</div><div style="margin-top:8px;font-size:12px;color:var(--text-tertiary)">Try refreshing or pick different analyses. If this persists, contact support.</div></div>';
       }
       return;
     }
@@ -4705,7 +5781,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       + '<div><label style="font-size:11px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;display:block;margin-bottom:4px">Follow-up Analysis</label>'
       + '<select id="qeeg-followup-sel" class="form-control"><option value="">Select follow-up...</option>' + optionsList('', defaultFollowup && defaultFollowup.id) + '</select></div></div>'
       + '<div style="text-align:center"><button class="btn btn-primary" id="qeeg-compare-btn">Compare</button></div>'
-      + '<div id="qeeg-compare-status" aria-live="polite" style="margin-top:12px"></div></div>'
+      + '<div id="qeeg-compare-status" role="status" aria-live="polite" style="margin-top:12px"></div></div>'
     );
 
     var baselineSel = document.getElementById('qeeg-baseline-sel');
@@ -4714,32 +5790,71 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
     if (followupSel && defaultFollowup && !followupSel.value) followupSel.value = defaultFollowup.id;
 
     const cmpBtn = document.getElementById('qeeg-compare-btn');
+    const cmpBtnDefaultText = cmpBtn ? cmpBtn.textContent : 'Compare';
+
+    function _qeegRevalidateCompare() {
+      const baseId = baselineSel ? baselineSel.value : '';
+      const followId = followupSel ? followupSel.value : '';
+      const st = document.getElementById('qeeg-compare-status');
+      if (!baseId || !followId) {
+        if (cmpBtn) { cmpBtn.disabled = true; cmpBtn.setAttribute('aria-disabled', 'true'); }
+        if (st) st.innerHTML = '<div style="color:var(--text-tertiary);font-size:12px">Pick a baseline and a follow-up to compare.</div>';
+        return;
+      }
+      if (baseId === followId) {
+        if (cmpBtn) { cmpBtn.disabled = true; cmpBtn.setAttribute('aria-disabled', 'true'); }
+        if (st) st.innerHTML = '<div role="alert" style="color:var(--amber);font-size:13px">Baseline and follow-up must be different analyses.</div>';
+        return;
+      }
+      const base = completedAnalyses.find(function (a) { return a.id === baseId; });
+      const foll = completedAnalyses.find(function (a) { return a.id === followId; });
+      let warning = '';
+      if (base && foll) {
+        const dt = Math.abs(_getAnalysisSortTimestamp(foll) - _getAnalysisSortTimestamp(base));
+        const days = dt / (1000 * 60 * 60 * 24);
+        if (days > 0 && days < 7) {
+          warning = '<div role="status" style="color:var(--amber);font-size:12px;margin-top:4px">⚠️ Sessions are less than 7 days apart — small changes may not be reliable.</div>';
+        }
+      }
+      if (cmpBtn) { cmpBtn.disabled = false; cmpBtn.removeAttribute('aria-disabled'); }
+      if (st) st.innerHTML = '<div style="color:var(--text-tertiary);font-size:12px">Ready to compare.</div>' + warning;
+    }
+    if (baselineSel) baselineSel.addEventListener('change', _qeegRevalidateCompare);
+    if (followupSel) followupSel.addEventListener('change', _qeegRevalidateCompare);
+    _qeegRevalidateCompare();
+
     if (cmpBtn) {
       cmpBtn.addEventListener('click', async function () {
-        const baseId = document.getElementById('qeeg-baseline-sel')?.value;
-        const followId = document.getElementById('qeeg-followup-sel')?.value;
+        const baseId = baselineSel ? baselineSel.value : '';
+        const followId = followupSel ? followupSel.value : '';
         const st = document.getElementById('qeeg-compare-status');
-        if (!baseId || !followId) {
-          if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px">Both analyses must be selected.</div>';
-          return;
-        }
-        if (baseId === followId) {
-          if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px">Baseline and follow-up must be different analyses.</div>';
-          return;
-        }
+        if (!baseId || !followId || baseId === followId) { _qeegRevalidateCompare(); return; }
         cmpBtn.disabled = true;
+        cmpBtn.textContent = 'Creating comparison…';
         if (st) st.innerHTML = spinner('Computing comparison...');
         try {
           const result = await api.createQEEGComparison({ baseline_id: baseId, followup_id: followId });
+          _qeegAudit('comparison_created', {
+            note: 'baseline=' + baseId + '; followup=' + followId,
+          });
           showToast('Comparison ready', 'success');
           window._qeegComparisonId = result.id;
           window._nav('qeeg-analysis');
         } catch (err) {
           showToast('Comparison failed: ' + (err.message || err), 'error');
-          if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px">Error: ' + esc(err.message || err) + '</div>';
+          if (st) st.innerHTML = '<div role="alert" style="color:var(--red);font-size:13px">Error: ' + esc(String(err.message || err)) + '</div>';
           cmpBtn.disabled = false;
+          cmpBtn.textContent = cmpBtnDefaultText;
         }
       });
+    }
+
+    // Hint when only 2 analyses exist — trend section unlocks at 3
+    if (completedAnalyses.length === 2) {
+      var trendHintHost = document.createElement('div');
+      trendHintHost.style.cssText = 'margin-top:16px;padding:14px;border-radius:10px;background:rgba(255,255,255,0.02);border:1px dashed rgba(255,255,255,0.12);font-size:12px;color:var(--text-secondary);text-align:center';
+      trendHintHost.innerHTML = '<strong>Longitudinal trend</strong> requires <strong>3+ completed analyses</strong>. Upload one more recording to unlock trend tracking.';
+      tabEl.appendChild(trendHintHost);
     }
 
     // Longitudinal trend section when 3+ completed analyses available
@@ -4833,7 +5948,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
               tHtml += '</tbody></table></div>';
               contentEl.innerHTML = tHtml;
             } catch (err) {
-              contentEl.innerHTML = '<div style="color:var(--red);font-size:13px" role="alert">Failed to load trend: ' + esc(err.message || err) + '</div>';
+              contentEl.innerHTML = '<div style="color:var(--red);font-size:13px" role="alert">Failed to load trend: ' + esc(String(err && err.message ? err.message : err || "Unknown error")) + '</div>';
             }
           });
         }
@@ -4923,7 +6038,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
             if (strongestCorr.metric) {
               var direction = strongestCorr.value > 0 ? 'positive' : 'negative';
               var strength = Math.abs(strongestCorr.value) > 0.6 ? 'strong' : Math.abs(strongestCorr.value) > 0.3 ? 'moderate' : 'weak';
-              cHtml += '<div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:12px;border:1px solid rgba(255,255,255,0.06)">'
+              cHtml += '<div style="background:var(--surface-tint-1);border-radius:8px;padding:12px;border:1px solid var(--border)">'
                 + '<div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Interpretation</div>'
                 + '<div style="font-size:12px;color:var(--text-secondary)">Strongest correlation: <strong>' + esc(strongestCorr.metric) + '</strong> and <strong>' + esc(strongestCorr.assessment) + '</strong> '
                 + '(r = ' + strongestCorr.value.toFixed(2) + ', ' + strength + ' ' + direction + '). '
@@ -4935,7 +6050,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
             corrData.correlations.forEach(function (c) {
               var trendColor = c.trend === 'improving' ? 'var(--green)' : c.trend === 'worsening' ? 'var(--red)' : 'var(--amber)';
               var changePfx = c.score_change > 0 ? '+' : '';
-              cHtml += '<div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:14px;border:1px solid rgba(255,255,255,0.06)">'
+              cHtml += '<div style="background:var(--surface-tint-1);border-radius:10px;padding:14px;border:1px solid var(--border)">'
                 + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
                 + '<strong style="font-size:13px;color:var(--text-primary)">' + esc(c.assessment) + '</strong>'
                 + badge(c.trend, trendColor)
@@ -4953,7 +6068,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
             cHtml += '</div>';
             contentEl.innerHTML = cHtml;
           } catch (err) {
-            contentEl.innerHTML = '<div style="color:var(--red);font-size:13px" role="alert">Failed to load correlations: ' + esc(err.message || err) + '</div>';
+            contentEl.innerHTML = '<div style="color:var(--red);font-size:13px" role="alert">Failed to load correlations: ' + esc(String(err && err.message ? err.message : err || "Unknown error")) + '</div>';
             corrBtn.disabled = false;
           }
         });
@@ -5149,7 +6264,7 @@ function renderComparison(comp) {
     corrData.correlations.forEach(function (c) {
       var trendColor = c.trend === 'improving' ? 'var(--green)' : c.trend === 'worsening' ? 'var(--red)' : 'var(--amber)';
       var changePfx = c.score_change > 0 ? '+' : '';
-      corrHtml += '<div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:14px;border:1px solid rgba(255,255,255,0.06)">'
+      corrHtml += '<div style="background:var(--surface-tint-1);border-radius:10px;padding:14px;border:1px solid var(--border)">'
         + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
         + '<strong style="font-size:13px;color:var(--text-primary)">' + esc(c.assessment) + '</strong>'
         + badge(c.trend, trendColor)
@@ -5192,6 +6307,11 @@ window._qeegExportBandPowerCSV = function () {
   var bands = bp.bands || {};
   var bandNames = Object.keys(bands);
   if (!bandNames.length) return showToast('No band power data', 'warning');
+  var _isDemoExport = !!(window._qeegSelectedId === 'demo' && _isDemoMode());
+  _qeegAudit('export_csv', {
+    analysis_id: _currentAnalysis.id || window._qeegSelectedId || null,
+    note: 'bands=' + bandNames.length + (_isDemoExport ? '; demo' : ''),
+  });
   var normDev = _currentAnalysis.normative_deviations_json || _currentAnalysis.normative_deviations || null;
   var chSet = new Set();
   bandNames.forEach(function (b) { Object.keys(bands[b]?.channels || {}).forEach(function (ch) { chSet.add(ch); }); });
@@ -5209,8 +6329,12 @@ window._qeegExportBandPowerCSV = function () {
     }
     rows.push(row);
   });
-  _downloadCSV(rows.join('\n'), 'qeeg_band_powers.csv');
-  showToast('Band power CSV exported', 'success');
+  var _filename = (_isDemoExport ? 'DEMO_' : '') + 'qeeg_band_powers.csv';
+  // Stamp DEMO recordings explicitly inside the file body so downstream
+  // viewers cannot mistake a demo download for clinical data.
+  var _csv = (_isDemoExport ? '# DEMO — not for clinical use\n' : '') + rows.join('\n');
+  _downloadCSV(_csv, _filename);
+  showToast(_isDemoExport ? 'DEMO band power CSV exported' : 'Band power CSV exported', 'success');
 };
 
 window._qeegExportAdvancedCSV = function () {
@@ -5228,6 +6352,7 @@ window._qeegExportAdvancedCSV = function () {
 window._qeegExportJSON = function () {
   if (!_currentAnalysis) return showToast('No analysis data loaded', 'warning');
   var patientName = _patient ? ((_patient.first_name || '') + ' ' + (_patient.last_name || '')).trim() : '';
+  var _isDemoExport = !!(window._qeegSelectedId === 'demo' && _isDemoMode());
   var exportData = {
     metadata: {
       patient_name: patientName,
@@ -5237,17 +6362,26 @@ window._qeegExportJSON = function () {
       sample_rate_hz: _currentAnalysis.sample_rate_hz || 0,
       eyes_condition: _currentAnalysis.eyes_condition || '',
       exported_at: new Date().toISOString(),
+      demo: _isDemoExport,
+      disclaimer: _isDemoExport
+        ? 'DEMO — not for clinical use. Synthetic sample recording.'
+        : 'qEEG findings support clinical decision-making and require clinician review.',
     },
     analysis: _currentAnalysis,
   };
+  _qeegAudit('export_json', {
+    analysis_id: _currentAnalysis.id || window._qeegSelectedId || null,
+    note: _isDemoExport ? 'demo' : 'live',
+  });
   var json = JSON.stringify(exportData, null, 2);
   var blob = new Blob([json], { type: 'application/json' });
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a');
   var d = new Date().toISOString().split('T')[0];
-  a.href = url; a.download = 'qeeg_analysis_' + (_currentAnalysis.id || 'data') + '_' + d + '.json'; a.click();
+  var prefix = _isDemoExport ? 'DEMO_' : '';
+  a.href = url; a.download = prefix + 'qeeg_analysis_' + (_currentAnalysis.id || 'data') + '_' + d + '.json'; a.click();
   URL.revokeObjectURL(url);
-  showToast('Full analysis JSON exported', 'success');
+  showToast(_isDemoExport ? 'DEMO analysis JSON exported' : 'Full analysis JSON exported', 'success');
 };
 
 window._qeegPrintReport = function () {
@@ -5292,19 +6426,156 @@ window._qeegPrintReport = function () {
   if (_currentReport.clinician_amendments) {
     html += '<h2>Clinician Amendments</h2><p>' + esc(_currentReport.clinician_amendments) + '</p>';
   }
+  if (_qeegSavedEvidenceCitations && _qeegSavedEvidenceCitations.length) {
+    html += '<h2>Evidence Citations Added from Drawer</h2><ul>';
+    _qeegSavedEvidenceCitations.slice(0, 8).forEach(function (item) {
+      var meta = [item.finding_label, item.pmid ? ('PMID ' + item.pmid) : '', item.doi || ''].filter(Boolean).join(' · ');
+      html += '<li><strong>' + esc(item.paper_title || 'Evidence citation') + '</strong>' + (meta ? ' — ' + esc(meta) : '') + '</li>';
+    });
+    html += '</ul>';
+  }
   html += '<button class="print-btn" onclick="window.print()">Print / Save PDF</button>';
   html += '</body></html>';
   w.document.write(html);
   w.document.close();
 };
 
+// ── qEEG Brain Map report ─────────────────────────────────────────────────────
+// Opens / downloads the server-rendered brain-map report (Jinja template at
+// apps/api/app/templates/qeeg_brain_map_report.html). The backend resolves
+// the brain_map payload from the saved QEEGAIReport row, so this works for
+// any report — automatic pipeline output OR clinician-amended manual run.
+//
+// The demo report id ('demo-report') has no DB row, so the backend would
+// 404. To keep the demo flow walkable we render a synthetic HTML preview
+// from DEMO_QEEG_REPORT and open it locally instead of fetching.
+function _qeegBuildDemoBrainMapHTML() {
+  var report = DEMO_QEEG_REPORT || {};
+  var narrative = report.ai_narrative || {};
+  var data = report.data || {};
+  var refs = report.literature_refs || [];
+  var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>qEEG Brain Map Report (Demo)</title>'
+    + '<style>body{font-family:Georgia,serif;max-width:820px;margin:40px auto;color:#222;line-height:1.6;padding:0 20px}'
+    + 'h1{font-size:24px;border-bottom:2px solid #0a4d68;padding-bottom:8px}'
+    + 'h2{font-size:17px;color:#0a4d68;margin-top:28px;border-left:3px solid #0a4d68;padding-left:10px}'
+    + 'p{font-size:13px;margin:0 0 10px}'
+    + '.banner{background:#fff7ed;border:1px solid #fdba74;color:#7c2d12;padding:12px 14px;border-radius:8px;margin-bottom:18px;font-size:13px}'
+    + '.finding{background:#f5f9fb;border-left:3px solid #0a4d68;padding:10px 14px;margin:8px 0;border-radius:4px}'
+    + 'ol,ul{padding-left:22px}li{margin-bottom:8px;font-size:13px}'
+    + '.ref{font-size:12px;color:#444}'
+    + '.print-btn{background:#0a4d68;color:#fff;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;font-size:14px;margin:20px 0}'
+    + '@media print{.print-btn,.banner{display:none}}</style></head><body>';
+  html += '<div class="banner"><strong>Demo data.</strong> This brain-map report is a synthetic preview generated locally from the demo dataset — it is not stored on the server and does not represent a real recording.</div>';
+  html += '<h1>qEEG Brain Map Report</h1>';
+  html += '<p style="color:#666;font-size:12px">Generated: ' + new Date().toLocaleString() + ' · Demo report</p>';
+  if (data.executive_summary) {
+    html += '<h2>Executive Summary</h2><p>' + esc(data.executive_summary) + '</p>';
+  } else if (narrative.summary) {
+    html += '<h2>Executive Summary</h2><p>' + esc(narrative.summary) + '</p>';
+  }
+  if (Array.isArray(data.findings) && data.findings.length) {
+    html += '<h2>Key Findings</h2>';
+    data.findings.forEach(function (f) {
+      html += '<div class="finding"><strong>' + esc((f.region || '') + (f.band ? ' · ' + f.band : '')) + '</strong><br>' + esc(f.observation || '') + '</div>';
+    });
+  } else if (narrative.detailed_findings) {
+    html += '<h2>Detailed Findings</h2>' + _formatNarrative(narrative.detailed_findings);
+  }
+  if (Array.isArray(data.protocol_recommendations) && data.protocol_recommendations.length) {
+    html += '<h2>Protocol Recommendations</h2><ol>';
+    data.protocol_recommendations.forEach(function (p) {
+      html += '<li><strong>' + esc(p.protocol || '') + '</strong>' + (p.rationale ? ' — ' + esc(p.rationale) : '') + '</li>';
+    });
+    html += '</ol>';
+  }
+  if (refs.length) {
+    html += '<h2>Literature References</h2><ol>';
+    refs.forEach(function (r) {
+      var line = esc(r.title || '') + (r.year ? ' (' + r.year + ')' : '');
+      if (r.pmid) line += ' · PMID ' + esc(String(r.pmid));
+      if (r.doi) line += ' · doi:' + esc(String(r.doi));
+      html += '<li class="ref">' + line + '</li>';
+    });
+    html += '</ol>';
+  }
+  html += '<button class="print-btn" onclick="window.print()">Print / Save PDF</button>';
+  html += '</body></html>';
+  return html;
+}
+function _qeegIsDemoReportId(reportId) {
+  return reportId === 'demo-report' || reportId === encodeURIComponent('demo-report');
+}
+window._qeegOpenBrainMapReport = function (reportId) {
+  if (!reportId) return showToast('No report id available', 'warning');
+  _qeegAudit('open_brain_map_report', { report_id: reportId });
+  if (_qeegIsDemoReportId(reportId)) {
+    var w = window.open('', '_blank');
+    if (!w) return showToast('Popup blocked', 'error');
+    w.document.write(_qeegBuildDemoBrainMapHTML());
+    w.document.close();
+    return;
+  }
+  try {
+    var url = api.getQEEGBrainMapReportURL(reportId, 'html');
+    window.open(url, '_blank', 'noopener,noreferrer');
+  } catch (err) {
+    showToast('Could not open brain map report: ' + (err && err.message ? err.message : err), 'error');
+  }
+};
+window._qeegDownloadBrainMapReport = function (reportId) {
+  if (!reportId) return showToast('No report id available', 'warning');
+  _qeegAudit('download_brain_map_report', { report_id: reportId });
+  if (_qeegIsDemoReportId(reportId)) {
+    try {
+      var blob = new Blob([_qeegBuildDemoBrainMapHTML()], { type: 'text/html' });
+      downloadBlob(blob, 'qeeg_brain_map_demo.html');
+      showToast('Demo brain map HTML downloaded — open it in a browser and use Print to save as PDF.', 'success');
+    } catch (err) {
+      showToast('Could not build demo brain map: ' + (err && err.message ? err.message : err), 'error');
+    }
+    return;
+  }
+  api.getQEEGBrainMapReportPDF(reportId)
+    .then(function (file) {
+      var filename = file.filename || ('qeeg_brain_map_' + reportId + '.pdf');
+      downloadBlob(file.blob, filename);
+      showToast('Brain map PDF downloaded', 'success');
+    })
+    .catch(function (err) {
+      var msg = (err && err.message ? err.message : String(err));
+      _qeegAudit('download_brain_map_failed', { note: msg.slice(0, 200) });
+      // The backend returns 503 when WeasyPrint isn't installed; surface it
+      // honestly so a clinician knows it's an infra issue, not a data one.
+      if (/503|renderer.*unavailable/i.test(msg)) {
+        showToast('Brain map PDF renderer is not configured on this server. Open the HTML version instead.', 'warning');
+      } else {
+        showToast('Brain map PDF download failed: ' + msg, 'error');
+      }
+    });
+};
+
 // ── PDF download via backend endpoint ────────────────────────────────────────
 window._qeegDownloadPDF = function () {
   if (!_currentReport) return showToast('No report data loaded', 'warning');
-  var pdfUrl = _getQEEGReportPdfUrl(_currentReport, _currentAnalysis);
-  if (!pdfUrl) return showToast('PDF report is not available for this analysis yet', 'warning');
-  window.open(pdfUrl, '_blank');
-  showToast('Downloading PDF report...', 'success');
+  if (!_canRenderQEEGPrintableReport(_currentReport, _currentAnalysis)) {
+    return showToast('Printable report is not available for this analysis yet', 'warning');
+  }
+  _qeegAudit('export_pdf_requested', {
+    analysis_id: _currentAnalysis && _currentAnalysis.id,
+    note: 'report=' + (_currentReport && _currentReport.id ? _currentReport.id : ''),
+  });
+  api.getQEEGPrintableReport(_currentAnalysis.id, _currentReport.id)
+    .then(function (file) {
+      var filename = file.filename || ('qeeg_report_' + _currentReport.id + '.html');
+      downloadBlob(file.blob, filename);
+      var contentType = (file.contentType || '').toLowerCase();
+      _qeegAudit('export_pdf_completed', { analysis_id: _currentAnalysis && _currentAnalysis.id });
+      showToast(contentType.indexOf('pdf') >= 0 ? 'PDF report downloaded' : 'Printable report downloaded', 'success');
+    })
+    .catch(function (err) {
+      _qeegAudit('export_pdf_failed', { note: (err && err.message ? err.message : String(err)).slice(0, 200) });
+      showToast('Printable report download failed: ' + (err && err.message ? err.message : err), 'error');
+    });
 };
 
 // ── Coherence band switcher ──────────────────────────────────────────────────
@@ -5344,7 +6615,7 @@ function _renderAdvancedAnalyses(data, analysisId) {
     + '</div></div>';
 
   if (!adv || !adv.results || Object.keys(adv.results).length === 0) {
-    html += '<div style="text-align:center;padding:32px;background:rgba(255,255,255,0.03);border-radius:12px;border:1px dashed rgba(255,255,255,0.1)">'
+    html += '<div style="text-align:center;padding:32px;background:var(--surface-tint-1);border-radius:12px;border:1px dashed rgba(255,255,255,0.1)">'
       + '<div style="font-size:28px;margin-bottom:8px;opacity:0.5">&#x2699;</div>'
       + '<p style="color:var(--text-secondary);font-size:13px;margin-bottom:14px">Run 25 advanced analyses including connectivity, complexity, microstates, and more.</p>'
       + '<button class="btn btn-primary" id="qeeg-run-advanced-btn">Run Advanced Analyses</button>'
@@ -5597,7 +6868,7 @@ function _renderSingleAnalysis(slug, r) {
       ['A', 'B', 'C', 'D'].forEach(function (cls) {
         var c = d.classes[cls];
         if (!c) return;
-        html += '<div style="text-align:center;background:rgba(255,255,255,0.04);border-radius:6px;padding:8px">'
+        html += '<div style="text-align:center;background:var(--surface-tint-2);border-radius:6px;padding:8px">'
           + '<div style="font-size:18px;font-weight:700;color:var(--text-primary)">' + cls + '</div>'
           + '<div style="font-size:10px;color:var(--text-tertiary)">' + c.coverage_pct + '% coverage</div>'
           + '<div style="font-size:10px;color:var(--text-tertiary)">' + c.mean_duration_ms + 'ms</div>'
@@ -5710,4 +6981,43 @@ function _renderAsymmetryTable(pairs) {
     html += '</tr>';
   });
   return html + '</tbody></table></div>';
+}
+
+// ── Raw viewer live summary bar (below inline viewer on Analysis > Raw Data tab) ──
+function _wireRawViewerSummary(tabEl, analysisId) {
+  var chEl = document.getElementById('qeeg-raw-summary-ch');
+  var qualityEl = document.getElementById('qeeg-raw-summary-quality');
+  var bandEl = document.getElementById('qeeg-raw-summary-band');
+  if (!chEl && !qualityEl && !bandEl) return;
+
+  function _update() {
+    var st = window._qeegRawState;
+    if (!st) return;
+    var info = st.channelInfo || {};
+    var nCh = info.n_channels || 0;
+    if (chEl) chEl.textContent = nCh + ' channels';
+    // Quality: count good vs total from quality map
+    var qualityMap = st.channelManager ? st.channelManager._qualityCache : {};
+    var totalQ = 0, goodQ = 0;
+    for (var k in qualityMap) {
+      totalQ++;
+      if (qualityMap[k] && (qualityMap[k].grade === 'good' || qualityMap[k].grade === 'moderate')) goodQ++;
+    }
+    if (qualityEl) qualityEl.textContent = (totalQ ? Math.round(goodQ / totalQ * 100) : 0) + '% good';
+    // Dominant band
+    var bp = st.bandPower || {};
+    var dom = '—', domVal = -1;
+    for (var b in bp) {
+      if (bp[b] > domVal) { domVal = bp[b]; dom = b; }
+    }
+    if (bandEl) bandEl.textContent = dom ? dom.charAt(0).toUpperCase() + dom.slice(1) + ' dominant' : '—';
+  }
+
+  // Poll every 500ms while tab is visible
+  var iv = setInterval(_update, 500);
+  // Stop polling when tab changes away
+  var observer = new MutationObserver(function (mutations) {
+    if (!document.body.contains(tabEl)) { clearInterval(iv); observer.disconnect(); }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
 }

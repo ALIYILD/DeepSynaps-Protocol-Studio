@@ -52,13 +52,46 @@ def _trigger_vc_risk_recompute(patient_id: str, trigger: str, db_sess):
 router = APIRouter(prefix="/api/v1/virtual-care", tags=["Virtual Care"])
 
 _DEMO_PATIENT_ACTOR_ID = "actor-patient-demo"
+_DEMO_ALLOWED_ENVS = frozenset({"development", "test"})
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────────
 
 def _require_patient(actor: AuthenticatedActor, db: Session) -> Patient:
+    """Resolve the Patient row for the calling actor.
+
+    Pre-fix this helper had two gaps (same pattern fixed in PRs
+    #201, #206 for home_device_portal and patient_portal):
+
+    * No ``actor.role`` check — any non-patient role (clinician,
+      technician, reviewer, guest) whose ``user.email`` matched a
+      Patient row could resolve as that patient. Virtual-care
+      surfaces biometrics, voice / video analysis, and AI session
+      summaries — high-PHI surfaces.
+    * The demo bypass (``actor.actor_id == "actor-patient-demo"``)
+      was reachable in any environment, including production.
+
+    Post-fix only ``patient`` and ``admin`` roles pass; the demo
+    bypass is gated to ``app_env in {development, test}``.
+    """
     from app.persistence.models import User
+
+    if actor.role not in ("patient", "admin"):
+        raise ApiServiceError(
+            code="patient_role_required",
+            message="Virtual care is only available to patient accounts.",
+            status_code=403,
+        )
+
     if actor.actor_id == _DEMO_PATIENT_ACTOR_ID:
+        from app.settings import get_settings
+        app_env = (getattr(get_settings(), "app_env", None) or "production").lower()
+        if app_env not in _DEMO_ALLOWED_ENVS:
+            raise ApiServiceError(
+                code="demo_disabled",
+                message="Demo patient bypass is not available in this environment.",
+                status_code=403,
+            )
         patient = db.query(Patient).filter(Patient.email == "patient@demo.com").first()
         if patient:
             return patient
@@ -305,8 +338,8 @@ def end_session(
         session.duration_seconds = int((now - session.started_at).total_seconds())
 
     # Generate simple AI summary from available analysis
-    voice_rows = db.query(VoiceAnalysis).filter(VoiceAnalysis.session_id == session_id).order_by(VoiceAnalysis.segment_start_sec).all()
-    video_rows = db.query(VideoAnalysis).filter(VideoAnalysis.session_id == session_id).order_by(VideoAnalysis.segment_start_sec).all()
+    voice_rows = db.query(VoiceAnalysis).filter(VoiceAnalysis.session_id == session_id).order_by(VoiceAnalysis.segment_start_sec).limit(200).all()
+    video_rows = db.query(VideoAnalysis).filter(VideoAnalysis.session_id == session_id).order_by(VideoAnalysis.segment_start_sec).limit(200).all()
 
     summaries = []
     if voice_rows:
@@ -375,6 +408,7 @@ def list_biometrics(
         db.query(BiometricsSnapshot)
         .filter(BiometricsSnapshot.session_id == session_id, BiometricsSnapshot.patient_id == patient.id)
         .order_by(BiometricsSnapshot.recorded_at.desc())
+        .limit(200)
         .all()
     )
     return {"biometrics": [_bio_to_dict(r) for r in rows]}
@@ -434,6 +468,7 @@ def list_voice_analysis(
         db.query(VoiceAnalysis)
         .filter(VoiceAnalysis.session_id == session_id, VoiceAnalysis.patient_id == patient.id)
         .order_by(VoiceAnalysis.segment_start_sec.asc())
+        .limit(200)
         .all()
     )
     return {"voice_analysis": [_voice_to_dict(r) for r in rows]}
@@ -493,6 +528,7 @@ def list_video_analysis(
         db.query(VideoAnalysis)
         .filter(VideoAnalysis.session_id == session_id, VideoAnalysis.patient_id == patient.id)
         .order_by(VideoAnalysis.segment_start_sec.asc())
+        .limit(200)
         .all()
     )
     return {"video_analysis": [_video_to_dict(r) for r in rows]}
@@ -524,12 +560,14 @@ def get_unified_analysis(
         db.query(VoiceAnalysis)
         .filter(VoiceAnalysis.session_id == session_id)
         .order_by(VoiceAnalysis.segment_start_sec.asc())
+        .limit(200)
         .all()
     )
     video_rows = (
         db.query(VideoAnalysis)
         .filter(VideoAnalysis.session_id == session_id)
         .order_by(VideoAnalysis.segment_start_sec.asc())
+        .limit(200)
         .all()
     )
 

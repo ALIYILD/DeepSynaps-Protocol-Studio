@@ -29,7 +29,7 @@ const T = {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function esc(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
 }
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
@@ -39,6 +39,11 @@ function _list(v) {
     .split(/[,;|]/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function _items(v) {
+  if (Array.isArray(v?.items)) return v.items;
+  return Array.isArray(v) ? v : [];
 }
 
 function _brainMapTargetQuery(code) {
@@ -117,6 +122,72 @@ function _normalizeEvidence(rows) {
     delta: row?.research_summary || row?.trial_protocol_parameter_summary || '',
     n: row?.citation_count || null,
   }));
+}
+
+function _normalizeTemplateMatches(rows) {
+  return _items(rows).map((row, index) => ({
+    id: row?.protocol_id || row?.template_id || `template-${index}`,
+    title: row?.protocol_name || row?.template_name || row?.condition_label || row?.title || 'Protocol template',
+    target: row?.target_region || row?.target || '',
+    grade: String(row?.evidence_grade || row?.evidence_tier || '').replace(/^EV-/, '') || '',
+    modality: row?.modality_name || row?.modality_id || '',
+    placement: row?.coil_or_electrode_placement || row?.placement_summary || '',
+    indication: row?.condition_label || row?.condition_slug || row?.indication || '',
+    support: row?.supporting_paper_count || row?.paper_count || row?.support_count || row?.linked_paper_count || null,
+  })).filter((row) => row.title);
+}
+
+function _normalizeGraphLinks(rows) {
+  return _items(rows).map((row, index) => ({
+    id: row?.edge_id || row?.id || `graph-${index}`,
+    label: row?.relationship_label || row?.edge_label || row?.signal || row?.finding || row?.title || 'Evidence link',
+    source: row?.source_label || row?.source_target || row?.source || row?.from_node || '',
+    target: row?.target_label || row?.target_region || row?.target || row?.to_node || '',
+    weight: row?.supporting_paper_count || row?.paper_count || row?.weight || row?.evidence_count || null,
+    summary: row?.summary || row?.edge_summary || row?.notes || '',
+  })).filter((row) => row.label);
+}
+
+function _normalizeSafetySignals(rows) {
+  return _items(rows).map((row, index) => ({
+    id: row?.signal_id || row?.id || `signal-${index}`,
+    label: row?.signal || row?.title || row?.label || row?.risk || 'Safety signal',
+    severity: String(row?.severity || row?.level || row?.risk_level || '').toLowerCase(),
+    count: row?.paper_count || row?.supporting_paper_count || row?.mention_count || null,
+    summary: row?.summary || row?.notes || row?.description || '',
+  })).filter((row) => row.label);
+}
+
+async function _loadBrainMapEvidenceBundle(targetRegion) {
+  const target = _brainMapTargetQuery(targetRegion);
+  const modality = 'tDCS';
+  const data = { evidence: null, templates: null, graph: null, safetySignals: null };
+  try {
+    if (typeof api.listProtocolEvidence === 'function') {
+      data.evidence = await api.listProtocolEvidence({ target, modality, limit: 8 });
+    }
+  } catch (_) { data.evidence = null; }
+  try {
+    if (typeof api.listResearchExactProtocols === 'function') {
+      data.templates = await api.listResearchExactProtocols({ target, modality, limit: 4 });
+    }
+  } catch (_) { data.templates = null; }
+  try {
+    if (typeof api.listResearchEvidenceGraph === 'function') {
+      data.graph = await api.listResearchEvidenceGraph({ target, modality, limit: 4 });
+    }
+  } catch (_) { data.graph = null; }
+  try {
+    if (typeof api.listResearchSafetySignals === 'function') {
+      data.safetySignals = await api.listResearchSafetySignals({ target, modality, limit: 5 });
+    }
+  } catch (_) { data.safetySignals = null; }
+  return {
+    evidence: _normalizeEvidence(data.evidence),
+    templates: _normalizeTemplateMatches(data.templates),
+    graph: _normalizeGraphLinks(data.graph),
+    safetySignals: _normalizeSafetySignals(data.safetySignals),
+  };
 }
 
 // Default state factory
@@ -208,26 +279,19 @@ export async function pgBrainMapPlanner(setTopbar, navigate) {
   const S = window._bmState;
 
   // Data fetch (all endpoints optional, graceful stubs)
-  const data = { targets: null, montages: null, evidence: null, efield: null };
+  const data = { targets: null, montages: null, efield: null };
   try {
     if (typeof api.listTargets === 'function') data.targets = await api.listTargets();
   } catch (_) { data.targets = null; }
   try {
     if (typeof api.listMontages === 'function') data.montages = await api.listMontages();
   } catch (_) { data.montages = null; }
-  try {
-    if (typeof api.listProtocolEvidence === 'function') {
-      data.evidence = await api.listProtocolEvidence({ target: _brainMapTargetQuery(S.targetRegion), modality: 'tDCS', limit: 8 });
-    }
-  } catch (_) { data.evidence = null; }
-
   const liveAtlas = _normalizeAtlas(data.targets);
   const liveMontages = _normalizeMontages(data.montages);
-  const liveEvidence = _normalizeEvidence(data.evidence);
+  let bundle = await _loadBrainMapEvidenceBundle(S.targetRegion);
   const atlas = liveAtlas.length ? liveAtlas : TARGET_ATLAS_FALLBACK;
   const montages = liveMontages.length ? liveMontages : MONTAGE_LIBRARY_FALLBACK;
-  const evidence = liveEvidence.length ? liveEvidence : EVIDENCE_FALLBACK;
-  const usingFallback = !(liveAtlas.length && liveMontages.length && liveEvidence.length);
+  const usingFallback = !(liveAtlas.length && liveMontages.length && bundle.evidence.length);
   const topbarMeta = document.getElementById('dv2bm-topbar-meta');
   if (topbarMeta) {
     topbarMeta.textContent = usingFallback
@@ -235,21 +299,37 @@ export async function pgBrainMapPlanner(setTopbar, navigate) {
       : 'tDCS · 10-20 montage · evidence-graded';
   }
 
+  const _ctx = () => ({
+    atlas,
+    montages,
+    evidence: bundle.evidence.length ? bundle.evidence : EVIDENCE_FALLBACK,
+    templates: bundle.templates || [],
+    graph: bundle.graph || [],
+    safetySignals: bundle.safetySignals || [],
+    navigate,
+    usingFallback,
+  });
+
+  const _refreshEvidence = async () => {
+    bundle = await _loadBrainMapEvidenceBundle(S.targetRegion);
+  };
+
   // Handlers
-  window._bmSwitchTab = (tab) => { S.tab = tab; render(root, { atlas, montages, evidence, navigate, usingFallback }); };
-  window._bmSelectSite = (code, anchor) => {
+  window._bmSwitchTab = (tab) => { S.tab = tab; render(root, _ctx()); };
+  window._bmSelectSite = async (code, anchor) => {
     S.selectedRegion = code;
     S.targetRegion   = code;
     S.targetAnchor   = anchor;
-    render(root, { atlas, montages, evidence, navigate, usingFallback });
+    await _refreshEvidence();
+    render(root, _ctx());
   };
   window._bmApplyRole = (role, anchor) => {
     if (role === 'anode')   S.anode = anchor;
     if (role === 'cathode') S.cathode = anchor;
     if (role === 'target') { S.targetAnchor = anchor; }
-    render(root, { atlas, montages, evidence, navigate, usingFallback });
+    render(root, _ctx());
   };
-  window._bmSetViewMode = (mode) => { S.viewMode = mode; render(root, { atlas, montages, evidence, navigate, usingFallback }); };
+  window._bmSetViewMode = (mode) => { S.viewMode = mode; render(root, _ctx()); };
   window._bmSetCurrent = (v) => {
     S.currentMA = clamp(parseFloat(v) || 0.5, 0.5, 2.5);
     const valEl = document.getElementById('dv2bm-current-val');
@@ -266,7 +346,7 @@ export async function pgBrainMapPlanner(setTopbar, navigate) {
     const valEl = document.getElementById('dv2bm-sessions-val');
     if (valEl) valEl.textContent = S.sessions + ' sessions';
   };
-  window._bmLoadMontage = (id) => {
+  window._bmLoadMontage = async (id) => {
     const m = montages.find(x => x.id === id);
     if (!m) return;
     S.anode        = m.anode        || S.anode;
@@ -274,7 +354,8 @@ export async function pgBrainMapPlanner(setTopbar, navigate) {
     S.targetRegion = m.targetRegion || S.targetRegion;
     S.targetAnchor = (atlas.flatMap(g => g.sites).find(s => s.code === S.targetRegion)?.anchor) || m.anode;
     S.tab = 'clinical';
-    render(root, { atlas, montages, evidence, navigate, usingFallback });
+    await _refreshEvidence();
+    render(root, _ctx());
   };
   window._bmSave = async () => {
     const snapshot = {
@@ -313,7 +394,7 @@ export async function pgBrainMapPlanner(setTopbar, navigate) {
     else console.info('[brainmap]', title, body);
   }
 
-  render(root, { atlas, montages, evidence, navigate, usingFallback });
+  render(root, _ctx());
 }
 
 // ── Top-level render ─────────────────────────────────────────────────────────
@@ -334,6 +415,7 @@ function render(root, ctx) {
         ${S.tab === 'clinical' ? renderClinical(ctx) : ''}
         ${S.tab === 'montage'  ? renderMontage(ctx)  : ''}
         ${S.tab === 'research' ? renderResearch(ctx) : ''}
+        ${S.tab === 'qeeg'     ? renderQEEGOverlay(ctx) : ''}
       </div>
     </div>
   `;
@@ -349,6 +431,7 @@ function tabBar(active) {
       ${tab('clinical','Clinical','01')}
       ${tab('montage','Montage','02')}
       ${tab('research','Research','03')}
+      ${tab('qeeg','qEEG Overlay','04')}
       <div class="dv2bm-tab-spacer"></div>
       <span class="dv2bm-tab-hint">Screen 06 · merge-map</span>
     </div>
@@ -361,7 +444,7 @@ function renderClinical(ctx) {
     <div class="dv2bm-clinical">
       ${leftRail(ctx.atlas)}
       ${centerCanvas()}
-      ${rightRail(ctx.evidence)}
+      ${rightRail(ctx)}
     </div>
   `;
 }
@@ -511,11 +594,12 @@ function viewPlaceholder(mode) {
   `;
 }
 
-function rightRail(evidence) {
+function rightRail(ctx) {
   const S = window._bmState;
-  const currentWarn = S.currentMA > 2.0
-    ? `<div class="dv2bm-warn amb"><b>Current &gt; 2 mA</b><span>Moderate risk — confirm patient tolerance and supervised session.</span></div>`
-    : `<div class="dv2bm-warn ok"><b>Within safety envelope</b><span>Current density ≈ ${(S.currentMA/35).toFixed(3)} mA/cm² · below 0.08 mA/cm² NIBS limit.</span></div>`;
+  const evidence = ctx.evidence || [];
+  const templates = ctx.templates || [];
+  const graph = ctx.graph || [];
+  const safetySignals = ctx.safetySignals || [];
 
   return `
     <aside class="dv2bm-right">
@@ -544,6 +628,11 @@ function rightRail(evidence) {
         <div class="dv2bm-group">
           <div class="dv2bm-group-title"><span class="num">03</span>Safety</div>
           <div id="dv2bm-safety">${safetyBanners()}</div>
+          ${safetySignals.length ? `
+            <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
+              ${safetySignals.slice(0, 3).map(safetySignalCard).join('')}
+            </div>
+          ` : `<div style="margin-top:8px;color:${T.t3};font-size:11px">No bundle-backed safety signals matched this target.</div>`}
         </div>
 
         <div class="dv2bm-group">
@@ -552,7 +641,17 @@ function rightRail(evidence) {
         </div>
 
         <div class="dv2bm-group">
-          <div class="dv2bm-group-title"><span class="num">05</span>Contraindications</div>
+          <div class="dv2bm-group-title"><span class="num">05</span>Protocol support</div>
+          ${templates.length ? templates.slice(0, 3).map(templateCard).join('') : `<div style="color:${T.t3};font-size:11px">No exact protocol templates matched this target.</div>`}
+          ${graph.length ? `
+            <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
+              ${graph.slice(0, 3).map(graphCard).join('')}
+            </div>
+          ` : ''}
+        </div>
+
+        <div class="dv2bm-group">
+          <div class="dv2bm-group-title"><span class="num">06</span>Contraindications</div>
           ${CONTRAINDICATIONS.map(c => `
             <label class="dv2bm-contra">
               <input type="checkbox"/>
@@ -614,6 +713,51 @@ function evidenceCard(e) {
   `;
 }
 
+function templateCard(tpl) {
+  return `
+    <div class="dv2bm-evi" style="border-left-color:${T.blue}">
+      <div class="dv2bm-evi-hd">
+        <span class="dv2bm-evi-title">${esc(tpl.title)}</span>
+        ${tpl.grade ? `<span class="dv2bm-evi-grade" style="color:${T.blue};border-color:${T.blue}">${esc(tpl.grade)}</span>` : ''}
+      </div>
+      <div class="dv2bm-evi-meta">${esc(tpl.indication || tpl.modality || 'Protocol template')}${tpl.support ? ` · ${esc(String(tpl.support))} papers` : ''}</div>
+      ${tpl.target ? `<div class="dv2bm-evi-delta">Target: ${esc(tpl.target)}</div>` : ''}
+      ${tpl.placement ? `<div class="dv2bm-evi-doi">${esc(tpl.placement)}</div>` : ''}
+    </div>
+  `;
+}
+
+function graphCard(edge) {
+  const label = [edge.source, edge.target].filter(Boolean).join(' → ') || edge.label;
+  return `
+    <div style="padding:8px 10px;border:1px solid ${T.border};border-radius:8px;background:${T.surface}">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <div style="font-size:11px;font-weight:600;color:${T.t1}">${esc(edge.label)}</div>
+        ${edge.weight ? `<span style="font-size:10px;font-family:${T.fmono};color:${T.teal}">${esc(String(edge.weight))} refs</span>` : ''}
+      </div>
+      <div style="margin-top:4px;font-size:10.5px;color:${T.t2}">${esc(label)}</div>
+      ${edge.summary ? `<div style="margin-top:4px;font-size:10.5px;color:${T.t3}">${esc(edge.summary)}</div>` : ''}
+    </div>
+  `;
+}
+
+function safetySignalCard(signal) {
+  const color = signal.severity.includes('high') || signal.severity.includes('severe')
+    ? T.rose
+    : signal.severity.includes('mod') || signal.severity.includes('warn')
+      ? T.amber
+      : T.blue;
+  return `
+    <div style="padding:8px 10px;border:1px solid ${color}55;border-radius:8px;background:${color}12">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <div style="font-size:11px;font-weight:600;color:${T.t1}">${esc(signal.label)}</div>
+        ${signal.count ? `<span style="font-size:10px;font-family:${T.fmono};color:${color}">${esc(String(signal.count))} papers</span>` : ''}
+      </div>
+      ${signal.summary ? `<div style="margin-top:4px;font-size:10.5px;color:${T.t2}">${esc(signal.summary)}</div>` : ''}
+    </div>
+  `;
+}
+
 // ── MONTAGE TAB ──────────────────────────────────────────────────────────────
 function renderMontage(ctx) {
   return `
@@ -653,7 +797,7 @@ function renderResearch(ctx) {
       <div class="dv2bm-research-card dv2bm-research-wide">
         <div class="dv2bm-research-title">E-field simulation</div>
         <div class="dv2bm-research-body">
-          Finite-element modeling (ROAST / SimNIBS) · coming soon. Current overlay on the Clinical tab is a qualitative heatmap derived from electrode geometry only.
+          Finite-element modeling (ROAST / SimNIBS) is unavailable in this beta build. The current overlay on the Clinical tab is a qualitative heatmap derived from electrode geometry only.
         </div>
       </div>
       <div class="dv2bm-research-card">
@@ -677,6 +821,221 @@ function renderResearch(ctx) {
     </div>
   `;
 }
+
+// ── qEEG OVERLAY TAB (Phase 5a) ─────────────────────────────────────────────
+// Reads the latest QEEGAIReport for the selected patient, groups the DK
+// 68-ROI z-scores by lobe, color-codes each row by deviation severity, and
+// lets the clinician click "Use as target" to set the planner's
+// targetRegion. Honest empty states. Forward-compat with the Phase 0
+// QEEGBrainMapReport contract; falls back to legacy patient_facing_report_json
+// when the new payload isn't present yet.
+
+function _bmZBand(z) {
+  if (z == null || isNaN(z)) return null;
+  const n = Number(z);
+  if (n >= 2.58)  return 'severe_excess';
+  if (n >= 1.96)  return 'excess';
+  if (n <= -2.58) return 'severe_deficit';
+  if (n <= -1.96) return 'deficit';
+  return 'typical';
+}
+
+function _bmZColor(z) {
+  const band = _bmZBand(z);
+  if (band === 'severe_excess')  return '#b91c1c';
+  if (band === 'excess')         return '#ef4444';
+  if (band === 'severe_deficit') return '#1d4ed8';
+  if (band === 'deficit')        return '#3b82f6';
+  if (band === 'typical')        return '#10b981';
+  return '#6b7280';
+}
+
+function _bmGroupDKByLobe(dkAtlas) {
+  const grouped = {};
+  (dkAtlas || []).forEach((row) => {
+    if (!row || !row.roi) return;
+    const lobe = row.lobe || 'unknown';
+    if (!grouped[lobe]) grouped[lobe] = {};
+    if (!grouped[lobe][row.roi]) {
+      grouped[lobe][row.roi] = {
+        code: row.code, roi: row.roi, name: row.name, lobe,
+        lt_pct: null, rt_pct: null, max_abs_z: 0, z_score: null,
+      };
+    }
+    const agg = grouped[lobe][row.roi];
+    if (row.hemisphere === 'lh' && row.lt_percentile != null) agg.lt_pct = row.lt_percentile;
+    if (row.hemisphere === 'rh' && row.rt_percentile != null) agg.rt_pct = row.rt_percentile;
+    if (row.z_score != null && Math.abs(row.z_score) > agg.max_abs_z) {
+      agg.max_abs_z = Math.abs(row.z_score);
+      agg.z_score = row.z_score;
+    }
+  });
+  const out = {};
+  Object.keys(grouped).forEach((lobe) => {
+    out[lobe] = Object.values(grouped[lobe]).sort((a, b) =>
+      String(a.code || '').localeCompare(String(b.code || ''), undefined, { numeric: true })
+    );
+  });
+  return out;
+}
+
+function _bmRenderQEEGRow(roi) {
+  const z = roi.z_score;
+  const color = _bmZColor(z);
+  const fmtPct = (p) => (p == null ? '—' : Math.round(p * 10) / 10 + '%ile');
+  const fmtZ = (v) => (v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(2));
+  return `
+    <tr style="border-bottom:1px solid ${T.border}">
+      <td style="padding:6px 10px;font-size:11px;color:${T.t2};font-family:${T.fmono}">${esc(roi.code || '—')}</td>
+      <td style="padding:6px 10px;font-size:12px">${esc(roi.name || roi.roi)}</td>
+      <td style="padding:6px 10px;font-size:11px;color:${T.t2}">${esc(fmtPct(roi.lt_pct))}</td>
+      <td style="padding:6px 10px;font-size:11px;color:${T.t2}">${esc(fmtPct(roi.rt_pct))}</td>
+      <td style="padding:6px 10px;font-size:12px;color:${color};font-weight:600">${esc(fmtZ(z))}</td>
+      <td style="padding:6px 10px">
+        <button class="dv2bm-tab" style="padding:3px 9px;font-size:10px"
+                onclick="window._bmUseAsTarget('${esc(roi.roi)}','${esc(roi.code || '')}')">
+          Use as target
+        </button>
+      </td>
+    </tr>
+  `;
+}
+
+function _bmRenderQEEGLobeBlock(title, rows) {
+  if (!rows || !rows.length) return '';
+  return `
+    <section style="margin-bottom:18px">
+      <h4 style="margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:${T.t2};font-weight:700">${esc(title)}</h4>
+      <table style="width:100%;border-collapse:collapse;background:${T.surface}">
+        <thead style="background:${T.surface2}">
+          <tr>
+            <th style="padding:6px 10px;text-align:left;font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:${T.t3}">Code</th>
+            <th style="padding:6px 10px;text-align:left;font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:${T.t3}">Region</th>
+            <th style="padding:6px 10px;text-align:left;font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:${T.t3}">L</th>
+            <th style="padding:6px 10px;text-align:left;font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:${T.t3}">R</th>
+            <th style="padding:6px 10px;text-align:left;font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:${T.t3}">|z|</th>
+            <th style="padding:6px 10px;text-align:left;font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:${T.t3}">Action</th>
+          </tr>
+        </thead>
+        <tbody>${rows.map(_bmRenderQEEGRow).join('')}</tbody>
+      </table>
+    </section>
+  `;
+}
+
+function renderQEEGOverlay(ctx) {
+  const S = window._bmState;
+  const ovl = S._qeegOverlay || { state: 'idle', report: null, error: null, patientId: '' };
+  S._qeegOverlay = ovl;
+
+  // Top input — patient ID picker. Keep it simple and explicit; the Brain
+  // Map Planner doesn't currently know a patient context, so we ask once.
+  const inputBar = `
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 14px;background:${T.panel};border-radius:10px;margin-bottom:14px">
+      <span style="font-size:12px;color:${T.t2}">Patient ID:</span>
+      <input id="dv2bm-qeeg-patient-id" value="${esc(ovl.patientId || '')}"
+             placeholder="paste patient UUID"
+             style="flex:1;min-width:240px;padding:6px 10px;border-radius:8px;background:${T.surface};border:1px solid ${T.border};color:${T.t1};font-family:${T.fmono};font-size:12px" />
+      <button class="dv2bm-tab" style="background:${T.teal}22;color:${T.teal};border-color:${T.teal}"
+              onclick="window._bmLoadQEEGOverlay()">Load</button>
+      <button class="dv2bm-tab"
+              onclick="window._bmClearQEEGOverlay()">Clear</button>
+    </div>
+  `;
+
+  let body = '';
+  if (ovl.state === 'loading') {
+    body = `<div style="padding:24px;text-align:center;color:${T.t2};font-size:12px">Loading qEEG data…</div>`;
+  } else if (ovl.state === 'error') {
+    body = `<div style="padding:24px;text-align:center;color:#ef4444;font-size:12px">${esc(ovl.error || 'Unable to load qEEG.')}</div>`;
+  } else if (ovl.state === 'empty') {
+    body = `<div style="padding:24px;text-align:center;color:${T.t2};font-size:12px;line-height:1.6">No qEEG report on file for that patient yet.<br>The overlay will appear here once an analysis has been run and approved.</div>`;
+  } else if (ovl.state === 'ready' && ovl.report) {
+    const payload = ovl.report.report_payload || ovl.report;
+    let parsed = payload;
+    if (typeof parsed === 'string') {
+      try { parsed = JSON.parse(parsed); } catch (_) { parsed = {}; }
+    }
+    const dkAtlas = parsed && parsed.dk_atlas ? parsed.dk_atlas : [];
+    if (!dkAtlas.length) {
+      body = `<div style="padding:24px;text-align:center;color:${T.t2};font-size:12px;line-height:1.6">qEEG report exists but no DK atlas data is populated yet (legacy or in-progress payload).</div>`;
+    } else {
+      const grouped = _bmGroupDKByLobe(dkAtlas);
+      body =
+        _bmRenderQEEGLobeBlock('Frontal Lobe', grouped.frontal) +
+        _bmRenderQEEGLobeBlock('Temporal Lobe', grouped.temporal) +
+        _bmRenderQEEGLobeBlock('Parietal Lobe', grouped.parietal) +
+        _bmRenderQEEGLobeBlock('Occipital Lobe', grouped.occipital) +
+        _bmRenderQEEGLobeBlock('Cingulate', grouped.cingulate) +
+        `<p style="margin:12px 0 0;font-size:11px;color:${T.t3};line-height:1.5">
+           Color scale: blue = lower-than-typical (z ≤ −1.96), red = higher-than-typical (z ≥ 1.96).
+           Research and wellness use only — this overlay is informational, not a medical diagnosis
+           or treatment recommendation. Discuss any findings with a qualified clinician.
+         </p>`;
+    }
+  } else {
+    body = `<div style="padding:24px;text-align:center;color:${T.t2};font-size:12px;line-height:1.6">Enter a patient ID and click <em>Load</em> to overlay the most recent qEEG analysis on the planner. Click <em>Use as target</em> on any region to populate the planner's target.</div>`;
+  }
+
+  // Wire window-scoped handlers (mirrors the planner's existing pattern of
+  // attaching to window so onclick attributes can find them after re-render).
+  window._bmLoadQEEGOverlay = async function () {
+    const inp = document.getElementById('dv2bm-qeeg-patient-id');
+    const id = inp ? inp.value.trim() : '';
+    if (!id) {
+      ovl.state = 'error';
+      ovl.error = 'Please enter a patient ID first.';
+      render(document.getElementById('content'), ctx);
+      return;
+    }
+    ovl.patientId = id;
+    ovl.state = 'loading';
+    render(document.getElementById('content'), ctx);
+    try {
+      const list = await api.listPatientQEEGAnalyses(id);
+      const items = (list && (list.items || list.analyses || list)) || [];
+      if (!Array.isArray(items) || !items.length) {
+        ovl.state = 'empty';
+        render(document.getElementById('content'), ctx);
+        return;
+      }
+      const latest = items[0];
+      const reportId = latest.report_id || latest.latest_report_id || null;
+      if (!reportId) { ovl.state = 'empty'; render(document.getElementById('content'), ctx); return; }
+      const report = await api.getQEEGPatientFacingReport(reportId);
+      ovl.report = report;
+      ovl.state = 'ready';
+      ovl.error = null;
+    } catch (e) {
+      ovl.state = 'error';
+      ovl.error = (e && e.message) ? e.message : 'Unable to load.';
+    }
+    render(document.getElementById('content'), ctx);
+  };
+  window._bmClearQEEGOverlay = function () {
+    S._qeegOverlay = { state: 'idle', report: null, error: null, patientId: '' };
+    render(document.getElementById('content'), ctx);
+  };
+  window._bmUseAsTarget = function (roi, code) {
+    S.targetRegion = code || roi;
+    S.tab = 'clinical';
+    render(document.getElementById('content'), ctx);
+  };
+
+  return `
+    <div style="padding:18px">
+      <h3 style="margin:0 0 6px;font-size:14px;font-family:${T.fdisp};color:${T.t1}">qEEG Overlay</h3>
+      <p style="margin:0 0 14px;font-size:12px;color:${T.t2};line-height:1.5;max-width:680px">
+        Brings the most recent QEEGBrainMapReport into the planner. Each DK region is colored by z-score deviation against age and sex-matched norms. Click <em>Use as target</em> to send a region to the Clinical tab.
+      </p>
+      ${inputBar}
+      ${body}
+    </div>
+  `;
+}
+
+// Helpers exported only for tests
+export { _bmZBand, _bmZColor, _bmGroupDKByLobe };
 
 // ── Style block ──────────────────────────────────────────────────────────────
 function styleBlock() {

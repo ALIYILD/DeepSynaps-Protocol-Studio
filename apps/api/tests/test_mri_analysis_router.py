@@ -6,16 +6,66 @@ stack (nibabel, nilearn, dipy, antspyx, weasyprint) to be installed.
 
 Covers every endpoint in ``packages/mri-pipeline/portal_integration/
 api_contract.md`` §1–§8 plus auth guardrails.
+
+Updated 2026-04-26 night-shift to provide a valid hand-built NIfTI-1
+gzipped payload so the new strict-validation upload gate accepts the
+fixture. See ``_make_valid_nifti_gz`` below for the byte layout.
 """
 from __future__ import annotations
 
+import gzip
 import io
 import json
+import struct
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+
+
+def _make_valid_nifti_gz() -> bytes:
+    """Return a gzipped NIfTI-1 header + 256 bytes of zero data.
+
+    Built by hand to avoid pulling nibabel into the test environment.
+    Header layout per the NIfTI-1.1 spec
+    (https://nifti.nimh.nih.gov/nifti-1/documentation):
+      sizeof_hdr = 348, dim[0]=3, dim[1..3]=4, datatype=16 (float32),
+      bitpix=32, pixdim[1..3]=1mm, sform/qform_code = 1, magic = "n+1\\0".
+    Total volume size is small (4×4×4 voxels) so the test fixture stays
+    tiny.
+    """
+    header = bytearray(348)
+    struct.pack_into("i", header, 0, 348)
+    struct.pack_into("h", header, 40, 3)        # dim[0] = 3
+    struct.pack_into("h", header, 42, 4)        # dim[1]
+    struct.pack_into("h", header, 44, 4)        # dim[2]
+    struct.pack_into("h", header, 46, 4)        # dim[3]
+    struct.pack_into("h", header, 48, 1)        # dim[4]
+    struct.pack_into("h", header, 50, 1)        # dim[5]
+    struct.pack_into("h", header, 52, 1)        # dim[6]
+    struct.pack_into("h", header, 54, 1)        # dim[7]
+    struct.pack_into("h", header, 70, 16)       # datatype = float32
+    struct.pack_into("h", header, 72, 32)       # bitpix
+    struct.pack_into("f", header, 76, 1.0)      # pixdim[0]
+    struct.pack_into("f", header, 80, 1.0)      # pixdim[1]
+    struct.pack_into("f", header, 84, 1.0)      # pixdim[2]
+    struct.pack_into("f", header, 88, 1.0)      # pixdim[3]
+    struct.pack_into("f", header, 108, 352.0)   # vox_offset
+    struct.pack_into("h", header, 252, 1)       # qform_code = 1
+    struct.pack_into("h", header, 254, 1)       # sform_code = 1
+    struct.pack_into("4f", header, 280, 1.0, 0.0, 0.0, 0.0)  # srow_x
+    struct.pack_into("4f", header, 296, 0.0, 1.0, 0.0, 0.0)  # srow_y
+    struct.pack_into("4f", header, 312, 0.0, 0.0, 1.0, 0.0)  # srow_z
+    header[344:348] = b"n+1\x00"
+    nifti = bytes(header) + bytes(4) + bytes(256)
+    buf = io.BytesIO()
+    with gzip.GzipFile(fileobj=buf, mode="wb") as gz:
+        gz.write(nifti)
+    return buf.getvalue()
+
+
+VALID_NIFTI_GZ: bytes = _make_valid_nifti_gz()
 
 from app.database import SessionLocal
 from app.persistence.models import (
@@ -75,7 +125,7 @@ def test_upload_201_persists_row(
     auth_headers: dict,
     media_root: Path,
 ) -> None:
-    files = {"file": ("scan.nii.gz", io.BytesIO(b"FAKE_NIFTI_BYTES" * 64), "application/gzip")}
+    files = {"file": ("scan.nii.gz", io.BytesIO(VALID_NIFTI_GZ), "application/gzip")}
     resp = client.post(
         "/api/v1/mri/upload",
         data={"patient_id": "pat-mri-1"},
@@ -105,7 +155,9 @@ def test_upload_rejects_guest(
     auth_headers: dict,
     media_root: Path,
 ) -> None:
-    files = {"file": ("scan.nii.gz", io.BytesIO(b"x" * 128), "application/gzip")}
+    # Guest must be rejected before validation runs — payload contents
+    # don't matter, but use a valid one anyway to avoid any ambiguity.
+    files = {"file": ("scan.nii.gz", io.BytesIO(VALID_NIFTI_GZ), "application/gzip")}
     resp = client.post(
         "/api/v1/mri/upload",
         data={"patient_id": "pat-mri-1"},
@@ -119,7 +171,7 @@ def test_upload_rejects_guest(
 
 
 def _do_upload(client: TestClient, auth_headers: dict) -> str:
-    files = {"file": ("scan.nii.gz", io.BytesIO(b"FAKE_NIFTI" * 32), "application/gzip")}
+    files = {"file": ("scan.nii.gz", io.BytesIO(VALID_NIFTI_GZ), "application/gzip")}
     resp = client.post(
         "/api/v1/mri/upload",
         data={"patient_id": "pat-mri-1"},
@@ -662,6 +714,187 @@ def test_medrag_404_for_missing_analysis(
 ) -> None:
     resp = client.get(
         "/api/v1/mri/medrag/ghost-id",
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 404
+
+
+# ── Upload-validation hardening (added 2026-04-26 night) ─────────────────────
+
+
+def test_upload_rejects_non_whitelisted_extension(
+    client: TestClient,
+    auth_headers: dict,
+    media_root: Path,
+) -> None:
+    """A .dcm raw upload must be rejected with a clear 422."""
+    files = {"file": ("scan.dcm", io.BytesIO(b"\x00" * 1024), "application/dicom")}
+    resp = client.post(
+        "/api/v1/mri/upload",
+        data={"patient_id": "pat-mri-1"},
+        files=files,
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["code"] == "unsupported_extension"
+
+
+def test_upload_rejects_garbage_nifti_magic(
+    client: TestClient,
+    auth_headers: dict,
+    media_root: Path,
+) -> None:
+    """A .nii.gz with garbage bytes must be caught by the magic-byte check."""
+    garbage = b"\x00" * 4096
+    files = {"file": ("scan.nii.gz", io.BytesIO(garbage), "application/gzip")}
+    resp = client.post(
+        "/api/v1/mri/upload",
+        data={"patient_id": "pat-mri-1"},
+        files=files,
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["code"] in ("nifti_too_short", "nifti_bad_magic")
+
+
+def test_upload_rejects_corrupt_zip(
+    client: TestClient,
+    auth_headers: dict,
+    media_root: Path,
+) -> None:
+    files = {"file": ("bundle.zip", io.BytesIO(b"NOT_A_REAL_ZIP_FILE"), "application/zip")}
+    resp = client.post(
+        "/api/v1/mri/upload",
+        data={"patient_id": "pat-mri-1"},
+        files=files,
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["code"] in ("zip_corrupt", "zip_unreadable")
+
+
+# ── Report shape includes findings + safer brain-age (added 2026-04-26) ──────
+
+
+def test_report_includes_findings_array_and_disclaimer(
+    client: TestClient,
+    auth_headers: dict,
+    media_root: Path,
+    force_demo_mode: None,
+) -> None:
+    """Report must surface the new ``findings`` array with safer language."""
+    upload_id = _do_upload(client, auth_headers)
+    analyze = client.post(
+        "/api/v1/mri/analyze",
+        data={
+            "upload_id": upload_id,
+            "patient_id": "pat-mri-1",
+            "condition": "mdd",
+        },
+        headers=auth_headers["clinician"],
+    )
+    analysis_id = analyze.json()["job_id"]
+
+    resp = client.get(
+        f"/api/v1/mri/report/{analysis_id}",
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert "findings" in body
+    assert isinstance(body["findings"], list)
+    if body["findings"]:
+        first = body["findings"][0]
+        assert first["requires_clinical_correlation"] is True
+        assert "observation" in first["observation_text"].lower()
+        assert "diagnos" not in first["observation_text"].lower()
+    assert "disclaimer" in body
+    assert "decision-support" in body["disclaimer"].lower()
+
+
+def test_report_brain_age_carries_calibration_provenance(
+    client: TestClient,
+    auth_headers: dict,
+    media_root: Path,
+    force_demo_mode: None,
+) -> None:
+    """Brain-age block must always carry calibration_provenance after the safety wrap."""
+    upload_id = _do_upload(client, auth_headers)
+    analyze = client.post(
+        "/api/v1/mri/analyze",
+        data={
+            "upload_id": upload_id,
+            "patient_id": "pat-mri-1",
+            "condition": "mdd",
+        },
+        headers=auth_headers["clinician"],
+    )
+    analysis_id = analyze.json()["job_id"]
+
+    resp = client.get(
+        f"/api/v1/mri/report/{analysis_id}",
+        headers=auth_headers["clinician"],
+    )
+    body = resp.json()
+    structural = body.get("structural") or {}
+    if structural.get("brain_age"):
+        ba = structural["brain_age"]
+        assert ba.get("calibration_provenance"), (
+            "brain_age block must carry calibration_provenance after safety wrap"
+        )
+        # When predicted age is ok, confidence band must be present.
+        if ba.get("status") == "ok" and ba.get("predicted_age_years") is not None:
+            assert ba.get("confidence_band_years"), (
+                "brain_age ok-path must carry confidence_band_years"
+            )
+
+
+# ── Fusion payload endpoint ──────────────────────────────────────────────────
+
+
+def test_fusion_payload_returns_narrow_shape(
+    client: TestClient,
+    auth_headers: dict,
+    media_root: Path,
+    force_demo_mode: None,
+) -> None:
+    upload_id = _do_upload(client, auth_headers)
+    analyze = client.post(
+        "/api/v1/mri/analyze",
+        data={
+            "upload_id": upload_id,
+            "patient_id": "pat-mri-1",
+            "condition": "mdd",
+        },
+        headers=auth_headers["clinician"],
+    )
+    analysis_id = analyze.json()["job_id"]
+
+    resp = client.get(
+        f"/api/v1/mri/report/{analysis_id}/fusion_payload",
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+    assert payload["schema_version"] == "mri.v1"
+    assert payload["modality"] == "mri"
+    assert payload["subject_id"] == "pat-mri-1"
+    assert "qc" in payload
+    assert "findings" in payload
+    assert "stim_targets" in payload
+    assert "provenance" in payload
+    assert "decision-support" in payload["provenance"]["disclaimer"].lower()
+
+
+def test_fusion_payload_404_when_analysis_missing(
+    client: TestClient,
+    auth_headers: dict,
+) -> None:
+    resp = client.get(
+        "/api/v1/mri/report/no-such-id/fusion_payload",
         headers=auth_headers["clinician"],
     )
     assert resp.status_code == 404

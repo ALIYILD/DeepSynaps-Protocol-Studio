@@ -10,13 +10,19 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Form, Response, UploadFile
+from fastapi import APIRouter, Depends, Form, Request, Response, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.limiter import limiter
 from app.persistence.models import (
     AiSummaryAudit,
     AuditEventRecord,
@@ -31,7 +37,9 @@ from app.persistence.models import (
     PatientMediaTranscript,
     PatientMediaUpload,
     TreatmentCourse,
+    User,
 )
+from app.repositories.patients import resolve_patient_clinic_id
 from app.services import media_analysis_service, media_storage, transcription_service
 from app.settings import get_settings
 
@@ -136,6 +144,65 @@ def _check_patient_access(patient_id: str, actor: AuthenticatedActor, db: Sessio
             message="Patient not found.",
             status_code=404,
         )
+
+
+def _check_patient_clinic_access(
+    patient_id: str, actor: AuthenticatedActor, db: Session
+) -> None:
+    """Cross-clinic ownership gate for the review pipeline.
+
+    Pre-fix the review-queue list and the per-upload review/analyze/
+    approve/amend/dismiss routes loaded uploads (and their analyses /
+    red-flags) by id alone — any clinician/reviewer at clinic A could
+    see, action, and approve uploads belonging to patients at clinic B.
+
+    Uses the canonical ``resolve_patient_clinic_id`` +
+    ``require_patient_owner`` helpers so every refusal goes through one
+    code path. Cross-clinic 403 is converted to 404 so the row's
+    existence isn't leaked. Orphan patients (patient row with no
+    clinician.clinic_id) are refused for non-admins so a crafted
+    patient_id can't become a covert read target.
+    """
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if not exists:
+        raise ApiServiceError(
+            code="not_found",
+            message="Patient not found.",
+            status_code=404,
+        )
+    try:
+        require_patient_owner(actor, clinic_id)
+    except ApiServiceError as exc:
+        if exc.status_code == 403:
+            raise ApiServiceError(
+                code="not_found",
+                message="Patient not found.",
+                status_code=404,
+            ) from exc
+        raise
+
+
+def _scope_uploads_query_to_clinic(q, actor: AuthenticatedActor):
+    """Restrict a ``PatientMediaUpload`` query to the actor's clinic.
+
+    Pre-fix ``GET /api/v1/media/review-queue`` returned every upload in
+    ``pending_review`` / ``reupload_requested`` across every clinic. A
+    clinician at clinic A could see — and via the per-id review action
+    routes, action — uploads from clinic B. Joining
+    ``Patient`` -> ``User`` and filtering on ``actor.clinic_id``
+    scopes the queue to the actor's clinic. Admin / supervisor still
+    cross-clinic by design (platform operators / quality reviewers).
+    """
+    if actor.role in ("admin", "supervisor"):
+        return q
+    if not getattr(actor, "clinic_id", None):
+        # No clinic -> no rows. Better than leaking every clinic's queue.
+        return q.filter(PatientMediaUpload.id.is_(None))
+    return (
+        q.join(Patient, Patient.id == PatientMediaUpload.patient_id)
+        .join(User, User.id == Patient.clinician_id)
+        .filter(User.clinic_id == actor.clinic_id)
+    )
 
 
 def _write_audit(
@@ -380,7 +447,9 @@ def get_consents(
 
 
 @router.post("/patient/upload/text")
+@limiter.limit("30/minute")
 def patient_upload_text(
+    request: Request,
     body: TextUploadRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
@@ -437,7 +506,9 @@ def patient_upload_text(
 
 
 @router.post("/patient/upload/audio")
+@limiter.limit("10/minute")
 async def patient_upload_audio(
+    request: Request,
     file: UploadFile,
     course_id: Optional[str] = Form(default=None),
     session_id: Optional[str] = Form(default=None),
@@ -487,8 +558,21 @@ async def patient_upload_audio(
             status_code=422,
         )
 
+    # Magic-byte verification — refuses arbitrary binary tagged as
+    # audio. Client-controlled ``Content-Type`` header was the only
+    # check pre-fix.
+    if not media_storage.looks_like_audio(file_bytes):
+        raise ApiServiceError(
+            code="invalid_file_content",
+            message="Upload bytes do not match an accepted audio format.",
+            status_code=422,
+        )
+
     upload_id = str(uuid.uuid4())
-    ext = (file.filename or "audio.webm").rsplit(".", 1)[-1]
+    # Pin the on-disk extension to the validated MIME type instead of
+    # taking it from the user-supplied filename. Pre-fix a filename of
+    # ``audio.php`` would write ``…/audio.php`` to disk.
+    ext = media_storage.safe_audio_ext(file.content_type)
 
     try:
         file_ref = await media_storage.save_upload(
@@ -547,7 +631,9 @@ async def patient_upload_audio(
 
 
 @router.post("/patient/upload/video")
+@limiter.limit("10/minute")
 async def patient_upload_video(
+    request: Request,
     file: UploadFile,
     course_id: Optional[str] = Form(default=None),
     session_id: Optional[str] = Form(default=None),
@@ -594,8 +680,19 @@ async def patient_upload_video(
             status_code=422,
         )
 
+    # Magic-byte verification — refuses arbitrary binary tagged as
+    # video by the client-controlled Content-Type header.
+    if not media_storage.looks_like_video(file_bytes):
+        raise ApiServiceError(
+            code="invalid_file_content",
+            message="Upload bytes do not match an accepted video format.",
+            status_code=422,
+        )
+
     upload_id = str(uuid.uuid4())
-    ext = (file.filename or "video.webm").rsplit(".", 1)[-1]
+    # Pin the on-disk extension to the validated MIME — never trust the
+    # user-supplied filename suffix.
+    ext = media_storage.safe_video_ext(file.content_type)
 
     try:
         file_ref = await media_storage.save_upload(
@@ -773,15 +870,14 @@ def get_review_queue(
     """Return uploads pending review, urgent items first."""
     _require_clinician_or_reviewer(actor)
 
-    uploads = (
-        db.query(PatientMediaUpload)
-        .filter(
-            PatientMediaUpload.status.in_(["pending_review", "reupload_requested"]),
-            PatientMediaUpload.deleted_at.is_(None),
-        )
-        .order_by(PatientMediaUpload.created_at.asc())
-        .all()
+    base_q = db.query(PatientMediaUpload).filter(
+        PatientMediaUpload.status.in_(["pending_review", "reupload_requested"]),
+        PatientMediaUpload.deleted_at.is_(None),
     )
+    # Clinic-scope: a clinician/reviewer at clinic A must NOT see
+    # clinic B's queue. Admin / supervisor cross-clinic by design.
+    base_q = _scope_uploads_query_to_clinic(base_q, actor)
+    uploads = base_q.order_by(PatientMediaUpload.created_at.asc()).all()
 
     # Retrieve urgent flag status for all uploads in one pass
     upload_ids = [u.id for u in uploads]
@@ -859,6 +955,9 @@ def review_action(
     if upload is None:
         raise ApiServiceError(code="not_found", message="Upload not found.", status_code=404)
 
+    # Clinic-scope: refuses cross-clinic actions on uploads loaded by id.
+    _check_patient_clinic_access(upload.patient_id, actor, db)
+
     _VALID_ACTIONS = {
         "approve", "reject", "request_reupload", "flag_urgent", "mark_reviewed",
     }
@@ -919,7 +1018,9 @@ def review_action(
 
 
 @router.post("/review/{upload_id}/analyze")
+@limiter.limit("10/minute")
 async def analyze_upload(
+    request: Request,
     upload_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
@@ -936,6 +1037,9 @@ async def analyze_upload(
     )
     if upload is None:
         raise ApiServiceError(code="not_found", message="Upload not found.", status_code=404)
+
+    # Clinic-scope before any AI work or state mutation.
+    _check_patient_clinic_access(upload.patient_id, actor, db)
 
     if upload.status != "approved_for_analysis":
         raise ApiServiceError(
@@ -1105,6 +1209,8 @@ def get_analysis(
             )
     else:
         _require_clinician_or_reviewer(actor)
+        # Clinic-scope so a clinician at clinic A can't read clinic B's analyses.
+        _check_patient_clinic_access(upload.patient_id, actor, db)
 
     analysis = db.query(PatientMediaAnalysis).filter_by(upload_id=upload_id).first()
     if analysis is None:
@@ -1119,7 +1225,9 @@ class ApproveAnalysisRequest(BaseModel):
 
 
 @router.post("/analysis/{upload_id}/approve")
+@limiter.limit("20/minute")
 def approve_analysis(
+    request: Request,
     upload_id: str,
     body: ApproveAnalysisRequest = None,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
@@ -1127,6 +1235,12 @@ def approve_analysis(
 ) -> dict:
     """Clinician approves AI analysis for clinical use, optionally saving edits."""
     _require_clinician(actor)
+
+    upload = db.query(PatientMediaUpload).filter_by(id=upload_id).first()
+    if upload is None:
+        raise ApiServiceError(code="not_found", message="Upload not found.", status_code=404)
+    # Clinic-scope before approving analysis bound to a cross-clinic upload.
+    _check_patient_clinic_access(upload.patient_id, actor, db)
 
     analysis = db.query(PatientMediaAnalysis).filter_by(upload_id=upload_id).first()
     if analysis is None:
@@ -1142,9 +1256,7 @@ def approve_analysis(
         if body.clinician_amendments is not None:
             analysis.clinician_amendments = body.clinician_amendments
 
-    upload = db.query(PatientMediaUpload).filter_by(id=upload_id).first()
-    if upload:
-        upload.status = "clinician_reviewed"
+    upload.status = "clinician_reviewed"
 
     _write_audit(
         db,
@@ -1168,6 +1280,13 @@ def amend_analysis(
 ) -> dict:
     """Clinician amends AI analysis with their own notes."""
     _require_clinician(actor)
+
+    upload = db.query(PatientMediaUpload).filter_by(id=upload_id).first()
+    if upload is None:
+        raise ApiServiceError(code="not_found", message="Upload not found.", status_code=404)
+    # Clinic-scope: a clinician at clinic A cannot amend an analysis
+    # bound to a clinic-B patient.
+    _check_patient_clinic_access(upload.patient_id, actor, db)
 
     analysis = db.query(PatientMediaAnalysis).filter_by(upload_id=upload_id).first()
     if analysis is None:
@@ -1224,6 +1343,12 @@ def dismiss_red_flag(
     flag = db.query(MediaRedFlag).filter_by(id=flag_id).first()
     if flag is None:
         raise ApiServiceError(code="not_found", message="Red flag not found.", status_code=404)
+
+    # Clinic-scope: a flag attached to a clinic-B patient cannot be
+    # dismissed by a clinic-A clinician (suppressing safety signals
+    # across clinics is a HIPAA-relevant abuse path).
+    if flag.patient_id:
+        _check_patient_clinic_access(flag.patient_id, actor, db)
 
     flag.dismissed = True
     flag.reviewed_at = datetime.now(timezone.utc)
@@ -1329,10 +1454,30 @@ async def clinician_note_text(
         note.id, body.patient_id, actor.actor_id,
     )
 
+    openmed_block: dict = {}
+    try:
+        from app.services.openmed import adapter as _openmed_adapter
+        from app.services.openmed.schemas import ClinicalTextInput as _OpenMedInput
+
+        _result = _openmed_adapter.analyze(
+            _OpenMedInput(text=body.text_content, source_type="clinician_note")
+        )
+        openmed_block = {
+            "backend": _result.backend,
+            "entity_count": len(_result.entities),
+            "pii_count": len(_result.pii),
+            "summary": _result.summary,
+            "entities": [e.model_dump() for e in _result.entities[:50]],
+            "safety_footer": _result.safety_footer,
+        }
+    except Exception as exc:
+        _logger.warning("openmed analyze on clinician note failed: %s", exc)
+
     return {
         "note_id": note.id,
         "draft_id": draft.id,
         "draft": _draft_to_dict(draft, patient_id=body.patient_id),
+        "openmed": openmed_block,
     }
 
 
@@ -1368,8 +1513,17 @@ async def clinician_note_audio(
             status_code=422,
         )
 
+    # Magic-byte sniff — same defense as the patient-facing route.
+    if not media_storage.looks_like_audio(file_bytes):
+        raise ApiServiceError(
+            code="invalid_file_content",
+            message="Upload bytes do not match an accepted audio format.",
+            status_code=422,
+        )
+
     note_id = str(uuid.uuid4())
-    ext = (file.filename or "audio.webm").rsplit(".", 1)[-1]
+    # Pin the disk extension to the validated MIME, not the filename.
+    ext = media_storage.safe_audio_ext(file.content_type)
 
     try:
         file_ref = await media_storage.save_upload(

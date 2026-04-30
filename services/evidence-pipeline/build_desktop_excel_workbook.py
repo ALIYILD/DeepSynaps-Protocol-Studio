@@ -20,46 +20,58 @@ SHEET_SPECS = [
     {
         "title": "Master",
         "path": "neuromodulation_master_database_enriched.csv",
+        "asset_key": "neuromodulation_master_database_enriched",
         "limit": 100_000,
     },
     {
         "title": "Priority_View",
         "path": "neuromodulation_master_database_enriched.csv",
+        "asset_key": "neuromodulation_master_database_enriched",
         "limit": PREVIEW_LIMIT,
     },
     {
         "title": "Clinical_Trials",
         "path": "derived/neuromodulation_clinical_trials.csv",
+        "asset_key": "neuromodulation_clinical_trials",
         "limit": None,
     },
     {
         "title": "FDA_510k",
         "path": "derived/neuromodulation_fda_510k_devices.csv",
+        "asset_key": "neuromodulation_fda_510k_devices",
         "limit": None,
     },
     {
         "title": "Condition_Mentions",
         "path": "derived/neuromodulation_condition_mentions.csv",
+        "asset_key": "neuromodulation_condition_mentions",
         "limit": 100_000,
     },
     {
         "title": "Patient_Outcomes",
         "path": "derived/neuromodulation_patient_outcomes.csv",
+        "asset_key": "neuromodulation_patient_outcomes",
         "limit": None,
     },
     {
         "title": "Evidence_Graph",
-        "path": "neuromodulation_evidence_graph.csv",
+        "path": "derived/neuromodulation_evidence_graph.csv",
+        "asset_key": "neuromodulation_evidence_graph",
+        "legacy_path": "neuromodulation_evidence_graph.csv",
         "limit": None,
     },
     {
         "title": "Protocol_Templates",
-        "path": "neuromodulation_protocol_template_candidates.csv",
+        "path": "derived/neuromodulation_protocol_template_candidates.csv",
+        "asset_key": "neuromodulation_protocol_template_candidates",
+        "legacy_path": "neuromodulation_protocol_template_candidates.csv",
         "limit": None,
     },
     {
         "title": "Ind_Mod_Summary",
-        "path": "neuromodulation_indication_modality_summary.csv",
+        "path": "derived/neuromodulation_indication_modality_summary.csv",
+        "asset_key": "neuromodulation_indication_modality_summary",
+        "legacy_path": "neuromodulation_indication_modality_summary.csv",
         "limit": None,
     },
 ]
@@ -94,6 +106,38 @@ def count_csv_rows(path: Path) -> int:
         return sum(1 for _ in reader)
 
 
+def load_manifest_assets(bundle_root: Path) -> dict[str, dict[str, object]]:
+    manifest_path = bundle_root / "manifest.json"
+    if not manifest_path.exists():
+        return {}
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    assets = payload.get("assets") or []
+    return {str(asset.get("asset_key")): asset for asset in assets if asset.get("asset_key")}
+
+
+def resolve_bundle_asset(bundle_root: Path, spec: dict[str, object], manifest_assets: dict[str, dict[str, object]]) -> tuple[Path, str]:
+    candidates: list[str] = []
+    asset_key = spec.get("asset_key")
+    if asset_key and asset_key in manifest_assets:
+        manifest_rel = manifest_assets[asset_key].get("relative_path")
+        if manifest_rel:
+            candidates.append(str(manifest_rel))
+    primary = str(spec["path"])
+    if primary not in candidates:
+        candidates.append(primary)
+    legacy = spec.get("legacy_path")
+    if legacy and legacy not in candidates:
+        candidates.append(str(legacy))
+    for rel in candidates:
+        path = bundle_root / rel
+        if path.exists():
+            return path, rel
+    return bundle_root / primary, primary
+
+
 def bounded_sheet_titles(base_title: str, total_rows: int, row_limit: int) -> list[str]:
     parts = max(1, math.ceil(total_rows / row_limit))
     if parts == 1:
@@ -116,12 +160,11 @@ def apply_sheet_layout(ws, fieldnames: list[str]) -> None:
 def append_csv_sheet(
     wb: xlsxwriter.Workbook,
     header_fmt,
-    bundle_root: Path,
+    path: Path,
     rel_path: str,
     title: str,
     limit: int | None,
 ) -> dict[str, object]:
-    path = bundle_root / rel_path
     if not path.exists():
         return {
             "title": title,
@@ -282,12 +325,13 @@ def append_overview_sheet(wb: xlsxwriter.Workbook, header_fmt, overview_rows: li
 
 
 def append_data_dictionary_sheet(wb: xlsxwriter.Workbook, header_fmt, bundle_root: Path) -> None:
+    manifest_assets = load_manifest_assets(bundle_root)
     ws = wb.add_worksheet("Workbook_Index")
     fieldnames = ["Sheet", "Source CSV", "Intent", "Row limit"]
     apply_sheet_layout(ws, fieldnames)
     ws.write_row(0, 0, fieldnames, header_fmt)
     for idx, spec in enumerate(SHEET_SPECS, start=1):
-        path = bundle_root / spec["path"]
+        path, resolved_rel = resolve_bundle_asset(bundle_root, spec, manifest_assets)
         intent = {
             "Master": "Full enriched paper-level database for software ingestion.",
             "Priority_View": "Top-ranked slice for fast analyst review.",
@@ -304,7 +348,7 @@ def append_data_dictionary_sheet(wb: xlsxwriter.Workbook, header_fmt, bundle_roo
             0,
             [
                 spec["title"],
-                spec["path"] if path.exists() else f"{spec['path']} (missing)",
+                resolved_rel if path.exists() else f"{resolved_rel} (missing)",
                 intent,
                 str(spec["limit"] or "full"),
             ],
@@ -312,6 +356,7 @@ def append_data_dictionary_sheet(wb: xlsxwriter.Workbook, header_fmt, bundle_roo
 
 
 def build_workbook(bundle_root: Path, output_path: Path) -> dict[str, object]:
+    manifest_assets = load_manifest_assets(bundle_root)
     wb = xlsxwriter.Workbook(
         str(output_path),
         {
@@ -335,12 +380,13 @@ def build_workbook(bundle_root: Path, output_path: Path) -> dict[str, object]:
 
     sheet_results = []
     for spec in SHEET_SPECS:
+        path, rel_path = resolve_bundle_asset(bundle_root, spec, manifest_assets)
         sheet_results.append(
             append_csv_sheet(
                 wb=wb,
                 header_fmt=header_fmt,
-                bundle_root=bundle_root,
-                rel_path=spec["path"],
+                path=path,
+                rel_path=rel_path,
                 title=spec["title"],
                 limit=spec["limit"],
             )

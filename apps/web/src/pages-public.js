@@ -2327,7 +2327,14 @@ export function pgSignupProfessional() {
       document.getElementById('pip-3').className = 'step-pip done';
 
       setCurrentUser(user);
-      setTimeout(() => { localStorage.removeItem('ds_onboarding_done'); showApp(); updateUserBar(); window._bootApp(); }, 1200);
+      // New registration → ensure both the legacy and the canonical onboarding
+      // completion flags are cleared so the bootApp() router gate routes a
+      // fresh clinician to the setup wizard rather than straight to dashboard.
+      setTimeout(() => {
+        try { localStorage.removeItem('ds_onboarding_done'); } catch {}
+        try { localStorage.removeItem('ds_onboarding_complete'); } catch {}
+        showApp(); updateUserBar(); window._bootApp();
+      }, 1200);
     } catch (e) {
       err.textContent = e.message || 'Registration failed. Please check your details and try again.';
       err.style.display = '';
@@ -2406,7 +2413,7 @@ export function pgSignupPatient() {
         <div id="pt-done" style="display:none;text-align:center;padding:24px 0">
           <div style="width:56px;height:56px;border-radius:50%;background:rgba(74,158,255,0.1);border:1px solid var(--border-blue);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:22px;color:var(--blue)">&#9673;</div>
           <div style="font-family:var(--font-display);font-size:18px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Portal Activated</div>
-          <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.6">Welcome. Opening your portal now&hellip;</div>
+          <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.6">Welcome. Loading your portal&hellip;</div>
         </div>
       </div>
       <div style="text-align:center;margin-top:20px;font-size:12px;color:var(--text-tertiary)">
@@ -2811,7 +2818,7 @@ export async function pgPermissionsAdmin(setTopbar) {
         <h3 style="font-size:1rem;font-weight:700;margin-bottom:14px">Password Policy</h3>
         <div style="margin-bottom:12px">
           <label style="font-size:.85rem;font-weight:600;display:block;margin-bottom:6px">Minimum Length: <span id="sec-pwlen-val">${cfg.passwordMinLength}</span></label>
-          <input id="sec-pwlen" type="range" min="6" max="32" value="${cfg.passwordMinLength}" style="width:200px;accent-color:var(--accent-teal)" oninput="document.getElementById('sec-pwlen-val').textContent=this.value"/>
+          <input id="sec-pwlen" type="range" min="6" max="32" value="${cfg.passwordMinLength}" style="width:200px;accent-color:var(--teal)" oninput="document.getElementById('sec-pwlen-val').textContent=this.value"/>
         </div>
         <div class="perm-toggle"><input type="checkbox" id="sec-upper"${cfg.passwordRequireUppercase?' checked':''} onchange="window._secToggle('passwordRequireUppercase',this.checked)"/><span style="font-size:.875rem">Require uppercase letter</span></div>
         <div class="perm-toggle"><input type="checkbox" id="sec-special"${cfg.passwordRequireSpecial?' checked':''} onchange="window._secToggle('passwordRequireSpecial',this.checked)"/><span style="font-size:.875rem">Require special character</span></div>
@@ -2880,12 +2887,12 @@ export async function pgPermissionsAdmin(setTopbar) {
           <h3 style="font-size:1rem;font-weight:700;margin-bottom:6px">Step 1 — Choose your 2FA method</h3>
           <p style="font-size:.8rem;color:var(--text-muted);margin-bottom:16px">Select how you want to receive authentication codes.</p>
           <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:20px">
-            <label style="display:flex;align-items:flex-start;gap:12px;padding:12px;border-radius:8px;border:2px solid ${_twoFaMethod==='totp'?'var(--accent-teal)':'var(--border)'};cursor:pointer" onclick="window._2faSelectMethod('totp')">
+            <label style="display:flex;align-items:flex-start;gap:12px;padding:12px;border-radius:8px;border:2px solid ${_twoFaMethod==='totp'?'var(--teal)':'var(--border)'};cursor:pointer" onclick="window._2faSelectMethod('totp')">
               <input type="radio" name="twofa-m" value="totp"${_twoFaMethod==='totp'?' checked':''} style="margin-top:2px"/>
               <div><div style="font-weight:600;font-size:.875rem">TOTP — Authenticator App</div>
               <div style="font-size:.78rem;color:var(--text-muted)">Use Google Authenticator, Authy, or any TOTP app</div></div>
             </label>
-            <label style="display:flex;align-items:flex-start;gap:12px;padding:12px;border-radius:8px;border:2px solid ${_twoFaMethod==='email'?'var(--accent-teal)':'var(--border)'};cursor:pointer" onclick="window._2faSelectMethod('email')">
+            <label style="display:flex;align-items:flex-start;gap:12px;padding:12px;border-radius:8px;border:2px solid ${_twoFaMethod==='email'?'var(--teal)':'var(--border)'};cursor:pointer" onclick="window._2faSelectMethod('email')">
               <input type="radio" name="twofa-m" value="email"${_twoFaMethod==='email'?' checked':''} style="margin-top:2px"/>
               <div><div style="font-weight:600;font-size:.875rem">Email OTP</div>
               <div style="font-size:.78rem;color:var(--text-muted)">Receive a one-time code via email each login</div></div>
@@ -2921,7 +2928,7 @@ export async function pgPermissionsAdmin(setTopbar) {
         stepContent = `
           <div class="twofa-step">
             <h3 style="font-size:1rem;font-weight:700;margin-bottom:6px">Step 2 — Email Verification</h3>
-            <p style="font-size:.85rem;color:var(--text-muted);margin-bottom:16px">A code has been sent to your email address.</p>
+            <p style="font-size:.85rem;color:var(--text-muted);margin-bottom:16px">Use the demo verification code shown below. This step does not send a real email from the beta environment.</p>
             <div style="padding:12px;border-radius:8px;background:var(--hover-bg);margin-bottom:16px;font-size:.85rem">
               📧 <strong>demo@clinic.local</strong> — check your inbox for the 6-digit code.
             </div>
@@ -2996,10 +3003,10 @@ export async function pgPermissionsAdmin(setTopbar) {
       if (checked) { if (!_workPerms[role].includes(fid)) _workPerms[role].push(fid); }
       else _workPerms[role] = _workPerms[role].filter(id => id !== fid);
     };
-    window._permSave   = () => { savePermissions(_workPerms); _permToast('Permissions saved.'); };
+    window._permSave   = () => { savePermissions(_workPerms); _permToast('Permissions saved in this browser view.'); };
     window._permReset  = () => {
       if (!confirm('Reset all permissions to defaults? This cannot be undone.')) return;
-      resetPermissions(); _workPerms = getPermissions(); render(); _permToast('Permissions reset to defaults.');
+      resetPermissions(); _workPerms = getPermissions(); render(); _permToast('Permissions reset to defaults in this browser view.');
     };
     window._permFilterCategory = cat => { _filterCat = cat; render(); };
     window._permToggleRole     = role => { if (_hiddenRoles.has(role)) _hiddenRoles.delete(role); else _hiddenRoles.add(role); render(); };
@@ -3020,7 +3027,7 @@ export async function pgPermissionsAdmin(setTopbar) {
     };
     window._apiKeyRevoke = id => {
       if (!confirm('Revoke this API key? This cannot be undone.')) return;
-      revokeApiKey(id); _revealedKeys.delete(id); render(); _permToast('API key revoked.');
+      revokeApiKey(id); _revealedKeys.delete(id); render(); _permToast('API key revoked in this browser view.');
     };
 
     window._secToggle       = (f, v)  => { const c = getSecurityConfig(); c[f] = v; saveSecurityConfig(c); };
@@ -3043,7 +3050,7 @@ export async function pgPermissionsAdmin(setTopbar) {
       c.sessionRecordingRetentionDays = parseInt(document.getElementById('sec-ret-sessions')?.value || '180', 10);
       c.allowGuestAccess = !!document.getElementById('sec-guest')?.checked;
       c.ipWhitelist      = document.getElementById('sec-ip')?.value || '';
-      saveSecurityConfig(c); _permToast('Security config saved.');
+      saveSecurityConfig(c); _permToast('Security config saved in this browser view.');
     };
 
     window._2faSelectMethod = method => { _twoFaMethod = method; render(); };
@@ -3059,7 +3066,7 @@ export async function pgPermissionsAdmin(setTopbar) {
     };
     window._2faDisable = () => {
       if (!confirm('Disable two-factor authentication? Your account will be less secure.')) return;
-      save2FAState(null); _twoFaStep = 1; _twoFaMethod = 'totp'; render(); _permToast('2FA has been disabled.');
+      save2FAState(null); _twoFaStep = 1; _twoFaMethod = 'totp'; render(); _permToast('2FA was disabled in this browser view.');
     };
     window._2faDownloadCodes = () => {
       const state = get2FAState();
@@ -3704,7 +3711,7 @@ export async function pgMultiSiteDashboard(setTopbar) {
     document.getElementById('hhh-transfer-modal')?.remove();
     const tbody = document.getElementById('hhh-transfers-body');
     if (tbody) tbody.innerHTML = renderTransferRows(transfers);
-    window._announce?.('Transfer request submitted');
+    window._announce?.('Transfer request saved in this browser view.');
   };
 
   window._hhhExportNetworkCSV = function() {
@@ -3717,6 +3724,6 @@ export async function pgMultiSiteDashboard(setTopbar) {
     });
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    window._announce?.('CSV export downloaded');
+    window._announce?.('CSV export download started.');
   };
 }

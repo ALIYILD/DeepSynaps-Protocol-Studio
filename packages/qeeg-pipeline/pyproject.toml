@@ -54,6 +54,11 @@ edf = [
     "pyedflib>=0.1.36",
     "edfio>=0.4",
 ]
+# `pip install -e '.[source]'` to enable eLORETA / source localization.
+# nibabel is required by MNE for reading brain surface geometry (fsaverage).
+source = [
+    "nibabel>=4.0",
+]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=4.1",

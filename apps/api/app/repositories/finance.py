@@ -7,20 +7,26 @@ claims. The router layer stays thin and focuses on auth + serialization.
 Key behaviours:
 - Invoice numbers auto-increment per clinician (``INV-00001``, ``INV-00002`` ...).
 - Claim numbers auto-increment per clinician (``INS-00001`` ...).
+- Number allocation is concurrency-safe: uses DB-level ``MAX()`` inside the
+  active transaction plus unique constraints to prevent duplicates. On rare
+  collision the operation retries once automatically.
 - Creating a ``PatientPayment`` linked to an invoice increments ``invoice.paid``
   and flips the invoice status to ``partial`` or ``paid`` as appropriate.
 - ``finance_summary`` / ``monthly_revenue`` power the Analytics tab.
 """
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timezone
 from typing import Optional
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.persistence.models import InsuranceClaim, Invoice, PatientPayment
 
+_log = logging.getLogger(__name__)
 
 # ── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -35,39 +41,47 @@ def _compute_totals(amount: float, vat_rate: float) -> tuple[float, float]:
     return vat, total
 
 
+_MAX_NUMBER_RETRIES = 2
+
+
 def _next_invoice_number(session: Session, clinician_id: str) -> str:
-    # Pull the max numeric suffix for this clinician's invoice numbers.
-    # Using a Python-side max keeps the logic portable across SQLite/Postgres.
-    rows = session.scalars(
-        select(Invoice.invoice_number).where(Invoice.clinician_id == clinician_id)
-    ).all()
+    """Allocate the next invoice number using DB-level MAX().
+
+    Uses ``func.max()`` inside the current transaction so the query is
+    serialized by the DB's transaction isolation. The caller wraps this
+    in a retry loop protected by the ``uq_invoices_clinician_number``
+    unique constraint — a duplicate INSERT will raise IntegrityError
+    and be retried with a fresh MAX.
+    """
+    max_num = session.scalar(
+        select(func.max(Invoice.invoice_number)).where(
+            Invoice.clinician_id == clinician_id
+        )
+    )
     highest = 0
-    for num in rows:
-        if not num:
-            continue
-        tail = num.rsplit("-", 1)[-1]
+    if max_num:
+        tail = max_num.rsplit("-", 1)[-1]
         try:
-            highest = max(highest, int(tail))
+            highest = int(tail)
         except ValueError:
-            continue
+            pass
     return f"INV-{highest + 1:05d}"
 
 
 def _next_claim_number(session: Session, clinician_id: str) -> str:
-    rows = session.scalars(
-        select(InsuranceClaim.claim_number).where(
+    """Allocate the next claim number using DB-level MAX()."""
+    max_num = session.scalar(
+        select(func.max(InsuranceClaim.claim_number)).where(
             InsuranceClaim.clinician_id == clinician_id
         )
-    ).all()
+    )
     highest = 0
-    for num in rows:
-        if not num:
-            continue
-        tail = num.rsplit("-", 1)[-1]
+    if max_num:
+        tail = max_num.rsplit("-", 1)[-1]
         try:
-            highest = max(highest, int(tail))
+            highest = int(tail)
         except ValueError:
-            continue
+            pass
     return f"INS-{highest + 1:05d}"
 
 
@@ -119,27 +133,41 @@ def create_invoice(session: Session, clinician_id: str, **fields) -> Invoice:
     vat_rate = float(fields.get("vat_rate", 0.20))
     vat, total = _compute_totals(amount, vat_rate)
 
-    invoice = Invoice(
-        clinician_id=clinician_id,
-        invoice_number=_next_invoice_number(session, clinician_id),
-        patient_id=fields.get("patient_id"),
-        patient_name=fields.get("patient_name", ""),
-        service=fields.get("service", ""),
-        amount=amount,
-        vat_rate=vat_rate,
-        vat=vat,
-        total=total,
-        paid=float(fields.get("paid") or 0.0),
-        currency=fields.get("currency", "GBP"),
-        issue_date=fields.get("issue_date"),
-        due_date=fields.get("due_date"),
-        status=fields.get("status", "draft"),
-        notes=fields.get("notes"),
-    )
-    session.add(invoice)
-    session.commit()
-    session.refresh(invoice)
-    return invoice
+    for attempt in range(_MAX_NUMBER_RETRIES):
+        invoice_number = _next_invoice_number(session, clinician_id)
+        invoice = Invoice(
+            clinician_id=clinician_id,
+            invoice_number=invoice_number,
+            patient_id=fields.get("patient_id"),
+            patient_name=fields.get("patient_name", ""),
+            service=fields.get("service", ""),
+            amount=amount,
+            vat_rate=vat_rate,
+            vat=vat,
+            total=total,
+            paid=float(fields.get("paid") or 0.0),
+            currency=fields.get("currency", "GBP"),
+            issue_date=fields.get("issue_date"),
+            due_date=fields.get("due_date"),
+            status=fields.get("status", "draft"),
+            notes=fields.get("notes"),
+        )
+        session.add(invoice)
+        try:
+            session.commit()
+            session.refresh(invoice)
+            return invoice
+        except IntegrityError:
+            session.rollback()
+            if attempt < _MAX_NUMBER_RETRIES - 1:
+                _log.warning(
+                    "Invoice number collision on %s for clinician %s, retrying",
+                    invoice_number, clinician_id,
+                )
+                continue
+            raise
+    # Unreachable — the loop always returns or raises
+    raise RuntimeError("Invoice number allocation failed")
 
 
 def update_invoice(
@@ -308,24 +336,39 @@ def create_claim(session: Session, clinician_id: str, **fields) -> InsuranceClai
     submitted_date = fields.get("submitted_date")
     if submitted_date is None and status in ("submitted", "pending", "approved", "rejected", "paid"):
         submitted_date = today
-    claim = InsuranceClaim(
-        clinician_id=clinician_id,
-        claim_number=_next_claim_number(session, clinician_id),
-        patient_id=fields.get("patient_id"),
-        patient_name=fields.get("patient_name", ""),
-        insurer=fields.get("insurer", ""),
-        policy_number=fields.get("policy_number"),
-        description=fields.get("description", ""),
-        amount=float(fields.get("amount") or 0.0),
-        status=status,
-        submitted_date=submitted_date,
-        decision_date=fields.get("decision_date"),
-        notes=fields.get("notes"),
-    )
-    session.add(claim)
-    session.commit()
-    session.refresh(claim)
-    return claim
+
+    for attempt in range(_MAX_NUMBER_RETRIES):
+        claim_number = _next_claim_number(session, clinician_id)
+        claim = InsuranceClaim(
+            clinician_id=clinician_id,
+            claim_number=claim_number,
+            patient_id=fields.get("patient_id"),
+            patient_name=fields.get("patient_name", ""),
+            insurer=fields.get("insurer", ""),
+            policy_number=fields.get("policy_number"),
+            description=fields.get("description", ""),
+            amount=float(fields.get("amount") or 0.0),
+            status=status,
+            submitted_date=submitted_date,
+            decision_date=fields.get("decision_date"),
+            notes=fields.get("notes"),
+        )
+        session.add(claim)
+        try:
+            session.commit()
+            session.refresh(claim)
+            return claim
+        except IntegrityError:
+            session.rollback()
+            if attempt < _MAX_NUMBER_RETRIES - 1:
+                _log.warning(
+                    "Claim number collision on %s for clinician %s, retrying",
+                    claim_number, clinician_id,
+                )
+                continue
+            raise
+    # Unreachable — the loop always returns or raises
+    raise RuntimeError("Claim number allocation failed")
 
 
 def update_claim(

@@ -6,6 +6,7 @@
 //     opened from a row click, deep-linked from URL, or DeepTwin tile.
 
 import { DEMO_PATIENT_ROSTER, demoPtFromRoster } from './patient-dashboard-helpers.js';
+import { api } from './api.js';
 import {
   EvidenceChip,
   PatientEvidenceTab,
@@ -14,6 +15,15 @@ import {
   openEvidenceDrawer,
   wireEvidenceChips,
 } from './evidence-intelligence.js';
+import { emptyPatientEvidenceContext, loadPatientEvidenceContext } from './patient-evidence-context.js';
+
+function emptyAnalyticsEvidenceContext(patientId = '') {
+  return emptyPatientEvidenceContext(patientId);
+}
+
+async function loadAnalyticsEvidenceContext(patientId) {
+  return loadPatientEvidenceContext(patientId, { fetchReports: true });
+}
 
 // ── Demo telemetry generators ────────────────────────────────────────────────
 // Deterministic pseudo-random so the same patient renders the same view
@@ -632,10 +642,16 @@ function widgetPredictions(_tel, patientId) {
   }).join('')}</div>`;
 }
 
-function widgetEhr() {
+function widgetEhr(context = null) {
+  const live = !!context?.live;
+  const latestReportTitle = context?.latestReport?.title || context?.latestReport?.report_title || null;
   return `<div class="pa-ehr">
-    <div><span>Connected EMR</span><span>Epic Hyperspace</span></div>
-    <div><span>Last sync</span><span class="mono">14m ago</span></div>
+    <div><span>EMR preview</span><span>${live ? 'Epic sample feed + live evidence context' : 'Epic sample feed'}</span></div>
+    <div><span>Last sample refresh</span><span class="mono">14m ago</span></div>
+    <div><span>Saved citations</span><span>${context?.savedCitationCount ?? 0}</span></div>
+    <div><span>Evidence highlights</span><span>${context?.highlightCount ?? 0}</span></div>
+    <div><span>Reports available</span><span>${context?.reportCount ?? 0}</span></div>
+    <div><span>Latest report</span><span>${latestReportTitle ? esc(latestReportTitle) : 'No saved report yet'}</span></div>
     <div><span>Documents</span><span>132</span></div>
     <div><span>Lab panels</span><span>14</span></div>
     <div><span>Allergies</span><span style="color:#F6B23C">Penicillin</span></div>
@@ -657,7 +673,7 @@ const WIDGETS = [
   { id: 'video',       title: 'Video / facial affect',   icon: '🎥', source: 'Session capture',           col: 'span 2', h: 180, body: widgetVideo, ai: true, color: '#FF6B8B' },
   { id: 'text',        title: 'Text sentiment',          icon: '💬', source: 'Journals + chat',           col: 'span 2', h: 180, body: widgetText,  ai: true, color: '#5BB6FF' },
   { id: 'location',    title: 'Location & mobility',     icon: '📍', source: 'GPS · activity',            col: 'span 3', h: 140, body: () => widgetLocation(), color: '#B6E66A' },
-  { id: 'ehr',         title: 'EMR & medical records',   icon: '📄', source: 'Connected: Epic',           col: 'span 3', h: 140, body: () => widgetEhr(),  color: '#9BAEC2' },
+  { id: 'ehr',         title: 'EMR & medical records',   icon: '📄', source: 'Preview: Epic sample feed', col: 'span 3', h: 140, body: (context) => widgetEhr(context),  color: '#9BAEC2' },
 ];
 
 function renderWidget(w, body) {
@@ -675,7 +691,7 @@ function renderWidget(w, body) {
 }
 
 // ── Patient header strip ────────────────────────────────────────────────────
-function renderHeader(p, tel, activeTab = 'analytics') {
+function renderHeader(p, tel, activeTab = 'analytics', context = null) {
   const phqDelta = Math.round(tel.seriesPHQ[tel.seriesPHQ.length - 1] - tel.phqStart);
   return `<div class="pa-header">
     <div class="pa-header-tabs">
@@ -688,6 +704,7 @@ function renderHeader(p, tel, activeTab = 'analytics') {
         <div class="pa-header-name-row">
           <h1>${esc((p.first_name||'') + ' ' + (p.last_name||''))}</h1>
           <span class="pa-chip pa-chip-sky">DEMO PATIENT</span>
+          ${context?.live ? '<span class="pa-chip pa-chip-mint">LIVE EVIDENCE</span>' : ''}
           ${tel.seriesPHQ[tel.seriesPHQ.length - 1] <= 10 ? '<span class="pa-chip pa-chip-mint">RESPONDER</span>' : ''}
           <span class="pa-chip pa-chip-amber">2 ALERTS</span>
         </div>
@@ -709,6 +726,9 @@ function renderHeader(p, tel, activeTab = 'analytics') {
       ${stripStat('Sessions', `${tel.sessionsCompleted}/${tel.sessionsTotal}`, '2 missed', '#3EE0C5')}
       ${stripStat('PHQ-9 Delta', `${phqDelta}`, `${tel.phqStart} -> ${Math.round(tel.seriesPHQ[tel.seriesPHQ.length - 1])}`, '#3EE0C5')}
       ${stripStat('Adherence', tel.adherence + '%', '30-day', '#3EE0C5')}
+      ${stripStat('Evidence highlights', String(context?.highlightCount ?? 0), context?.live ? 'Live patient evidence' : 'Unavailable', '#5BB6FF')}
+      ${stripStat('Saved citations', String(context?.savedCitationCount ?? 0), context?.live ? 'Report-ready evidence' : 'Unavailable', '#8B7DFF')}
+      ${stripStat('Reports', String(context?.reportCount ?? 0), context?.latestReport ? (context.latestReport.title || context.latestReport.report_title || 'Latest report saved') : 'No saved reports', '#B6E66A')}
       ${stripStat('Risk index', String(tel.riskScore), '↓ low', '#F6B23C')}
       ${stripStat('Last session', 'Yesterday', '09:14 · 30 min', 'var(--text-primary)')}
       ${stripStat('Next session', 'Tomorrow', '09:00 · ' + esc(p.primary_modality || 'tDCS'), '#5BB6FF')}
@@ -748,21 +768,55 @@ function renderTimelineHero(tel) {
   </div>`;
 }
 
+function renderEvidenceContextBanner(context) {
+  if (!context?.live) {
+    return `<div style="margin-bottom:14px;padding:12px 14px;border:1px solid rgba(245,158,11,0.28);border-radius:12px;background:rgba(245,158,11,0.08);font-size:12px;line-height:1.5;color:var(--text-secondary)">
+      Demo telemetry preview only. This page does not currently have verified live evidence or saved report context for this patient.
+    </div>`;
+  }
+  return `<div style="margin-bottom:14px;padding:12px 14px;border:1px solid rgba(62,224,197,0.22);border-radius:12px;background:rgba(62,224,197,0.08);font-size:12px;line-height:1.5;color:var(--text-secondary)">
+    <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between">
+      <div>
+        <strong style="color:var(--text-primary)">Mixed-source patient analytics.</strong>
+        Telemetry widgets remain preview/sample data, but evidence highlights, saved citations, and report availability below are loaded from the live patient evidence/report store.
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px 14px">
+        <span><strong style="color:var(--text-primary)">${context.highlightCount}</strong> evidence highlights</span>
+        <span><strong style="color:var(--text-primary)">${context.savedCitationCount}</strong> saved citations</span>
+        <span><strong style="color:var(--text-primary)">${context.reportCount}</strong> saved reports</span>
+        <span><strong style="color:var(--text-primary)">${context.reportCitationCount}</strong> report citations</span>
+      </div>
+    </div>
+    ${context.phenotypeTags.length ? `<div style="margin-top:8px;color:var(--text-tertiary)">Phenotype tags: ${esc(context.phenotypeTags.slice(0, 6).join(' · '))}</div>` : ''}
+  </div>`;
+}
+
 // ── Cohort tab body (shown when no specific patient selected) ───────────────
 export async function pgPatientAnalyticsCohort(setTopbar) {
   const el = document.getElementById('content');
   setTopbar('Patients', '');
 
   const roster = DEMO_PATIENT_ROSTER;
+  // Tab bar buttons use the in-place tab switcher (window._phSwitchTab) when
+  // available — no route hop, no module re-import, no flash. The legacy
+  // _nav('patients-hub') path is kept as a defensive fallback for any caller
+  // that imports this cohort view stand-alone (outside the patient hub host).
+  const _switch = (id, label, active) =>
+    '<button class="ch-tab' + (active ? ' ch-tab--active' : '') + '"' +
+    ' data-tab="' + id + '"' +
+    (id === 'analytics' ? ' data-testid="ds-patients-tab-analytics"' : '') +
+    (active ? ' style="--tab-color:var(--teal)"' : '') +
+    ' onclick="(window._phSwitchTab||function(t){window._patientHubTab=t;window._nav(\'patients-hub\')})(\'' + id + '\')">' +
+    label + '</button>';
   const tabs = `<div class="d2p7-tab-bar">
-    <button class="ch-tab" onclick="window._patientHubTab='patients';window._nav('patients-hub')">Patients</button>
-    <button class="ch-tab ch-tab--active" style="--tab-color:var(--teal)">Analytics</button>
-    <button class="ch-tab" onclick="window._patientHubTab='alerts';window._nav('patients-hub')">Alerts</button>
-    <button class="ch-tab" onclick="window._patientHubTab='reports';window._nav('patients-hub')">Reports</button>
+    ${_switch('patients',  'Patients',  false)}
+    ${_switch('analytics', 'Analytics', true)}
+    ${_switch('alerts',    'Alerts',    false)}
+    ${_switch('reports',   'Reports',   false)}
   </div>`;
 
   const cohortKpis = `
-    <div class="ch-kpi-strip">
+    <div class="ch-kpi-strip" data-testid="ds-patients-analytics-kpis">
       <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">−6.2</div><div class="ch-kpi-label">Mean PHQ-9 Δ</div></div>
       <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">64%</div><div class="ch-kpi-label">Response rate</div></div>
       <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">78%</div><div class="ch-kpi-label">Avg adherence</div></div>
@@ -830,6 +884,7 @@ export async function pgPatientAnalyticsDetail(setTopbar, patientId) {
   const id = patientId || window._paPatientId || (DEMO_PATIENT_ROSTER[0] && DEMO_PATIENT_ROSTER[0].id);
   const p = demoPtFromRoster(id) || DEMO_PATIENT_ROSTER[0];
   const tel = buildPatientTelemetry(p);
+  const evidenceContext = await loadAnalyticsEvidenceContext(id).catch(() => emptyAnalyticsEvidenceContext(id));
 
   setTopbar(`${p.first_name} ${p.last_name}`,
     `<button class="btn btn-sm" onclick="window._patientHubTab='analytics';window._nav('patients-hub')">← All patients</button>` +
@@ -837,14 +892,15 @@ export async function pgPatientAnalyticsDetail(setTopbar, patientId) {
   );
 
   const activeTab = window._paActiveTab || 'analytics';
-  const header = renderHeader(p, tel, activeTab);
+  const header = renderHeader(p, tel, activeTab, evidenceContext);
   const timeline = renderTimelineHero(tel);
-  const grid = WIDGETS.map(w => renderWidget(w, w.body(tel, id))).join('');
-  const evidenceTab = PatientEvidenceTab({ patientId: id });
+  const grid = WIDGETS.map(w => renderWidget(w, w.id === 'ehr' ? w.body(evidenceContext) : w.body(tel, id))).join('');
+  const evidenceTab = PatientEvidenceTab(evidenceContext.overview || { patientId: id });
 
   el.innerHTML = `<div class="pa-shell">
     ${header}
     <div class="pa-body" style="${activeTab === 'analytics' ? '' : 'display:none'}">
+      ${renderEvidenceContextBanner(evidenceContext)}
       ${timeline}
       <div class="pa-grid-head">
         <div class="pa-overline">DOMAIN GRID</div>
@@ -861,9 +917,9 @@ export async function pgPatientAnalyticsDetail(setTopbar, patientId) {
       <span>·</span>
       <span>HIPAA · GDPR · 21 CFR Part 11</span>
       <span style="flex:1"></span>
-      <span>Last sync 4m ago</span>
+      <span>Last sample refresh 4m ago</span>
       <span>·</span>
-      <span class="pa-foot-live"><span class="pa-foot-dot"></span> All systems live</span>
+      <span class="pa-foot-live"><span class="pa-foot-dot"></span> ${evidenceContext.live ? 'Telemetry preview · evidence context live' : 'Demo preview'}</span>
     </footer>
   </div>`;
 
@@ -886,7 +942,11 @@ export async function pgPatientAnalyticsDetail(setTopbar, patientId) {
   el.querySelectorAll('[data-pa-action="reports"]').forEach(b =>
     b.addEventListener('click', () => { window._patientHubTab = 'reports'; window._nav('patients-hub'); }));
   el.querySelectorAll('[data-pa-action="report"]').forEach(b =>
-    b.addEventListener('click', () => { window._dsToast?.({ title: 'Report', body: 'Per-widget report generation queued.', severity: 'info' }); }));
+    b.addEventListener('click', () => {
+      window._patientHubTab = 'reports';
+      window._dsToast?.({ title: 'Reports Hub', body: 'Open the reports hub to generate or review patient reports.', severity: 'info' });
+      window._nav('patients-hub');
+    }));
   el.querySelectorAll('[data-pa-tab]').forEach(t => t.addEventListener('click', () => {
     const which = t.getAttribute('data-pa-tab');
     if (which === 'analytics' || which === 'evidence') {
