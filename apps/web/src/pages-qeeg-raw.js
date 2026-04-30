@@ -173,7 +173,7 @@ export async function renderRawDataTab(tabEl, analysisId, patientId) {
     state.channelInfo = info;
   } catch (err) {
     tabEl.innerHTML = emptyState('&#x26A0;', 'Failed to Load EEG Data',
-      'Could not load channel information.<br><small>' + esc(err.message || err) + '</small>');
+      'Could not load channel information.<br><small>' + esc(String(err && err.message ? err.message : err || "Unknown error")) + '</small>');
     return;
   }
 
@@ -1258,7 +1258,7 @@ function _wireToolbar(analysisId, state, renderer, spectralPanel) {
       if (content) content.innerHTML = _renderICAGrid(state);
       _wireICAButtons(state);
     } catch (err) {
-      if (content) content.innerHTML = '<div class="eeg-sb__hint">ICA unavailable: ' + esc(err.message || err) + '</div>';
+      if (content) content.innerHTML = '<div class="eeg-sb__hint">ICA unavailable: ' + esc(String(err && err.message ? err.message : err || "Unknown error")) + '</div>';
     }
   };
 }
