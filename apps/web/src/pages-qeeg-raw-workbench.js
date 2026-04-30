@@ -590,6 +590,20 @@ function aiExplainPopover(state) {
   </div>`;
 }
 
+function channelAnatomyPopover(state) {
+  return `
+  <div id="qwb-channel-anatomy" class="qwb-ai-explain" data-testid="qwb-channel-anatomy" style="display:none">
+    <div class="qwb-ai-explain-card">
+      <div class="qwb-ai-explain-head">
+        <span class="qwb-ai-explain-dot" style="background:#1d6f7a"></span>
+        <b id="qwb-ch-anat-title">Channel</b>
+        <button class="qwb-tb-btn" id="qwb-channel-anatomy-close" style="margin-left:auto;width:22px;height:22px;padding:0;justify-content:center">×</button>
+      </div>
+      <div class="qwb-channel-anatomy-body" id="qwb-ch-anat-body"></div>
+    </div>
+  </div>`;
+}
+
 function clinicalCss() {
   return `
     .qwb-clinical {
@@ -3226,6 +3240,38 @@ function closeAIExplain(state) {
   if (root) root.style.display = 'none';
 }
 
+function openChannelAnatomy(state, ch, x, y) {
+  const anatomy = CHANNEL_ANATOMY[ch];
+  if (!anatomy) return;
+  const root = document.getElementById('qwb-channel-anatomy');
+  const title = document.getElementById('qwb-ch-anat-title');
+  const body = document.getElementById('qwb-ch-anat-body');
+  if (!root || !title || !body) return;
+  title.textContent = ch;
+  body.innerHTML = `
+    <div class="qwb-anatomy-row"><span class="qwb-anatomy-key">Region</span><span class="qwb-anatomy-val">${esc(anatomy.region)}</span></div>
+    <div class="qwb-anatomy-row"><span class="qwb-anatomy-key">Brodmann</span><span class="qwb-anatomy-val">${esc(anatomy.brodmann)}</span></div>
+    <div class="qwb-anatomy-row"><span class="qwb-anatomy-key">Networks</span><span class="qwb-anatomy-val">${esc(anatomy.networks)}</span></div>
+    <div class="qwb-anatomy-row"><span class="qwb-anatomy-key">Artifacts</span><span class="qwb-anatomy-val">${esc(anatomy.artifacts)}</span></div>
+    <div class="qwb-anatomy-clinical">${esc(anatomy.clinical)}</div>
+  `;
+  const card = root.querySelector('.qwb-ai-explain-card');
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const cw = card ? card.offsetWidth : 320;
+  const chh = card ? card.offsetHeight : 240;
+  const left = Math.max(8, Math.min(x + 12, vw - cw - 8));
+  const top = Math.max(8, Math.min(y + 12, vh - chh - 8));
+  root.style.left = left + 'px';
+  root.style.top = top + 'px';
+  root.style.display = 'block';
+}
+
+function closeChannelAnatomy() {
+  const root = document.getElementById('qwb-channel-anatomy');
+  if (root) root.style.display = 'none';
+}
+
 function aiExplainFeatures(sugg) {
   const k = String(sugg.ai_label || '').toLowerCase();
   if (k.includes('blink') || k.includes('eye')) {
@@ -4030,7 +4076,10 @@ async function generateAISuggestions(state) {
     return;
   }
   try {
-    const r = await api.generateQEEGAIArtefactSuggestions(state.analysisId);
+    const body = state.medicationConfounds
+      ? { medication_confounds: state.medicationConfounds.split(',').map(s => s.trim()).filter(Boolean) }
+      : undefined;
+    const r = await api.generateQEEGAIArtefactSuggestions(state.analysisId, body);
     state.aiSuggestions = r.items || [];
     if (state.rightTab === 'ai') renderRightPanel(state);
     redrawCanvas(state); renderStatusBar(state);
