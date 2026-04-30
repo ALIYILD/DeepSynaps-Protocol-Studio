@@ -16,7 +16,7 @@ response so the UI can render the safety stamps without re-deriving them.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Literal
+from typing import Any, Iterable, Literal
 
 import numpy as np
 

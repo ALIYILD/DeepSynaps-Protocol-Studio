@@ -39,6 +39,10 @@ import { buildReport, reportToMarkdown, reportToJSONString, downloadBlob, render
 import { startHandoff } from './deeptwin/handoff.js';
 import { PRESET_SCENARIOS } from './deeptwin/mockData.js';
 import { renderTribeCompare, wireTribeCompare } from './deeptwin/tribe.js';
+import {
+  renderDashboard360, renderDashboard360Skeleton,
+  wireDashboard360Actions, loadDashboard360,
+} from './deeptwin/dashboard360.js';
 
 const HOST_TIMELINE = 'dt-timeline-host';
 const HOST_CORR     = 'dt-corr-host';
@@ -124,6 +128,7 @@ function _renderAll() {
   const condition = _resolveCondition(STATE.patientId);
   const html = `
     <div class="dt-page">
+      ${_renderTabStrip(STATE.activeTab || 'overview')}
       ${decisionSupportBanner()}
       ${renderHeader({ patientLabel, condition, summary: STATE.summary, dataSources: STATE.dataSources })}
       ${renderDataSources({ summary: STATE.summary, dataSources: STATE.dataSources })}
@@ -154,6 +159,7 @@ function _renderAll() {
   wireTribeCompare(() => STATE.patientId);
   _wireReportButtons();
   _wireHandoffButtons();
+  _wireTabStrip();
   _wireHistoryReviewButtons();
   _wireClinicianNoteForm();
 }
@@ -404,23 +410,101 @@ function _setTopbar(setTopbar) {
   });
 }
 
+function _renderTabStrip(active) {
+  const tabs = [
+    { id: 'overview', label: 'Overview' },
+    { id: '360', label: '360 Dashboard' },
+    { id: 'simulations', label: 'Simulations' },
+    { id: 'notes', label: 'Notes' },
+    { id: 'review', label: 'Review' },
+  ];
+  return `
+    <nav class="dt-tabs" role="tablist" aria-label="DeepTwin views">
+      ${tabs.map(t => `
+        <button class="dt-tab ${t.id === active ? 'dt-tab--active' : ''}"
+                data-dt-tab="${t.id}" role="tab" aria-selected="${t.id === active}">
+          ${t.label}
+        </button>
+      `).join('')}
+    </nav>
+  `;
+}
+
+let _setTopbarRef = null;
+
+function _wireTabStrip(setTopbar) {
+  if (setTopbar) _setTopbarRef = setTopbar;
+  document.querySelectorAll('button[data-dt-tab]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const tab = btn.dataset.dtTab;
+      STATE.activeTab = tab;
+      sessionStorage.setItem('ds_dt_active_tab', tab);
+      await _renderActiveTab(_setTopbarRef);
+    });
+  });
+}
+
+async function _renderActiveTab(setTopbar) {
+  const patientId = STATE.patientId;
+  const active = STATE.activeTab || 'overview';
+  if (active === '360') {
+    _setMain(`<div class="dt-page">${_renderTabStrip('360')}${renderDashboard360Skeleton()}</div>`);
+    try {
+      const payload = await loadDashboard360(patientId);
+      const root = document.getElementById('dt360-root');
+      if (root) root.outerHTML = renderDashboard360(payload);
+      wireDashboard360Actions();
+    } catch (e) {
+      _setMain(`<div class="dt-page">${_renderTabStrip('360')}${errorBlock('Failed to load 360 dashboard: ' + (e.message || e))}${renderSafetyFooter()}</div>`);
+    }
+    return;
+  }
+  if (active === 'notes' || active === 'review' || active === 'simulations') {
+    const titles = {
+      notes: 'Clinician notes',
+      review: 'Clinician review',
+      simulations: 'Simulations (use the Simulation Lab below)',
+    };
+    _setMain(`
+      <div class="dt-page">
+        ${_renderTabStrip(active)}
+        <section class="card dt-section">
+          <h3 style="margin:0 0 8px">${titles[active]}</h3>
+          <p style="margin:0;color:var(--text-tertiary)">
+            ${active === 'simulations'
+              ? 'Switch to Overview to use the full Simulation Lab and Compare Protocols panel.'
+              : 'This tab will surface dedicated UI in a future PR. Decision-support only — clinician review required.'}
+          </p>
+        </section>
+        ${renderSafetyFooter()}
+      </div>
+    `);
+    return;
+  }
+  // overview (default) — original full layout
+  _setMain(`<div class="dt-page">${_renderTabStrip('overview')}${loadingBlock('Loading DeepTwin…')}</div>`);
+  await _loadAll(patientId);
+  _renderAll();
+}
+
 export async function pgDeeptwin(setTopbar /* , navigate */) {
   _injectStylesOnce();
   const patientId = _selectedPatientId();
   STATE.patientId = patientId;
+  STATE.activeTab = sessionStorage.getItem('ds_dt_active_tab') || 'overview';
   _setTopbar(setTopbar);
 
   if (!patientId) {
-    _setMain(`<div class="dt-page">${decisionSupportBanner()}${emptyPatientBlock()}${renderSafetyFooter()}</div>`);
+    _setMain(`<div class="dt-page">${_renderTabStrip(STATE.activeTab)}${decisionSupportBanner()}${emptyPatientBlock()}${renderSafetyFooter()}</div>`);
     return;
   }
 
-  _setMain(`<div class="dt-page">${decisionSupportBanner()}${loadingBlock('Loading DeepTwin…')}</div>`);
+
   try {
-    await _loadAll(patientId);
-    _renderAll();
+    await _renderActiveTab(setTopbar);
     _setTopbar(setTopbar);
+    _wireTabStrip(setTopbar);
   } catch (e) {
-    _setMain(`<div class="dt-page">${decisionSupportBanner()}${errorBlock('Failed to load DeepTwin: ' + (e.message || e))}${renderSafetyFooter()}</div>`);
+    _setMain(`<div class="dt-page">${_renderTabStrip(STATE.activeTab)}${decisionSupportBanner()}${errorBlock('Failed to load DeepTwin: ' + (e.message || e))}${renderSafetyFooter()}</div>`);
   }
 }
