@@ -144,8 +144,25 @@ function sortPatients(items, key, direction = 'asc', getCourseLabel = courseLabe
 // pgPatientHub — Merged: Patients + Treatment Courses + Prescriptions
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgPatientHub(setTopbar, navigate) {
-  const tab = window._patientHubTab || 'patients';
+  // ── Tab is read from (priority): URL ?tab= → window._patientHubTab → default
+  //    so deep-links and refresh land on the right tab without route hops.
+  let _urlTab = null;
+  try {
+    if (typeof location !== 'undefined') {
+      _urlTab = new URL(location.href).searchParams.get('tab');
+    }
+  } catch {}
+  const tab = _urlTab || window._patientHubTab || 'patients';
   window._patientHubTab = tab;
+
+  // ── Pre-fetch the analytics module in parallel with the initial patient
+  //    list so a subsequent tab click renders the KPIs synchronously. We
+  //    fire-and-forget — the analytics tab branch reads the cache or awaits.
+  if (!window._phAnalyticsModule && !window._phAnalyticsModulePending) {
+    window._phAnalyticsModulePending = import('./pages-patient-analytics.js')
+      .then(m => { window._phAnalyticsModule = m; return m; })
+      .catch(() => null);
+  }
 
   const TAB_META = {
     patients:   { label: 'Patients',       color: 'var(--blue)'   },
@@ -154,12 +171,37 @@ export async function pgPatientHub(setTopbar, navigate) {
     reports:    { label: 'Reports',        color: 'var(--violet)' },
   };
 
+  // ── In-place tab switcher. Replaces the previous _nav('patients-hub') route
+  //    hop. Sets window._patientHubTab, updates the URL via replaceState (so
+  //    deep-links + refresh still work, no history entry, no flash), and
+  //    re-runs pgPatientHub against the still-mounted #content host. The
+  //    page module never unloads, so module re-import / loading skeleton are
+  //    skipped — KPIs render synchronously from the in-memory roster.
+  window._phSwitchTab = function _phSwitchTab(id) {
+    if (!Object.prototype.hasOwnProperty.call(TAB_META, id)) return;
+    window._patientHubTab = id;
+    try {
+      if (typeof history !== 'undefined' && history.replaceState) {
+        const u = new URL(location.href);
+        // Keep the page param exactly as the user landed on (patients-v2 or
+        // patients-hub) — only the in-page tab marker changes.
+        u.searchParams.set('tab', id);
+        history.replaceState({ ...(history.state || {}), tab: id }, '', u.toString());
+      }
+    } catch {}
+    // Re-render in place against the same content host. We pass through the
+    // existing setTopbar/navigate so child tabs still get the topbar slot.
+    pgPatientHub(setTopbar, navigate);
+  };
+
   function tabBar() {
-    return Object.entries(TAB_META).map(([id, m]) =>
-      '<button class="ch-tab' + (tab === id ? ' ch-tab--active' : '') + '"' +
-      (tab === id ? ' style="--tab-color:' + m.color + '"' : '') +
-      ' onclick="window._patientHubTab=\'' + id + '\';window._nav(\'patients-hub\')">' + m.label + '</button>'
-    ).join('');
+    return Object.entries(TAB_META).map(([id, m]) => {
+      const testid = id === 'analytics' ? ' data-testid="ds-patients-tab-analytics"' : '';
+      return '<button class="ch-tab' + (tab === id ? ' ch-tab--active' : '') + '"' +
+        ' data-tab="' + id + '"' + testid +
+        (tab === id ? ' style="--tab-color:' + m.color + '"' : '') +
+        ' onclick="window._phSwitchTab(\'' + id + '\')">' + m.label + '</button>';
+    }).join('');
   }
 
   const el = document.getElementById('content');
@@ -1902,10 +1944,13 @@ export async function pgPatientHub(setTopbar, navigate) {
   // ── ANALYTICS TAB ─────────────────────────────────────────────────────────
   // Delegated to pages-patient-analytics.js — the design-system Bloomberg-style
   // cohort view with one row per demo patient and click-through to a per-patient
-  // data terminal (which itself links into DeepTwin).
+  // data terminal (which itself links into DeepTwin). The module is cached at
+  // window._phAnalyticsModule so subsequent tab switches render synchronously
+  // (no dynamic-import flash, no loading skeleton between tab click and KPIs).
   else if (tab === 'analytics') {
-    const { pgPatientAnalyticsCohort } = await import('./pages-patient-analytics.js');
-    await pgPatientAnalyticsCohort(setTopbar);
+    const mod = window._phAnalyticsModule
+      || (window._phAnalyticsModule = await import('./pages-patient-analytics.js'));
+    await mod.pgPatientAnalyticsCohort(setTopbar);
   }
 
   // ── ALERTS TAB ────────────────────────────────────────────────────────────
