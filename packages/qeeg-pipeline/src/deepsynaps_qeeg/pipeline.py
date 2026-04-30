@@ -63,6 +63,7 @@ def run_full_pipeline(
     sex: str | None = None,
     prev_session_id: str | None = None,
     recording_state: str | None = None,
+    medications: list[str] | None = None,
     notch_hz: float = NOTCH_HZ,
     bandpass: tuple[float, float] = BANDPASS,
     resample: float = RESAMPLE_SFREQ,
@@ -123,6 +124,8 @@ def run_full_pipeline(
     if recording_state:
         # Stored for longitudinal state-mismatch validation (e.g. eyes-open vs eyes-closed).
         result.quality["recording_state"] = str(recording_state)
+    if medications is not None:
+        result.quality["medications"] = list(medications)
 
     # --- Stage 1 — I/O ---
     raw = load_raw(eeg_path)
