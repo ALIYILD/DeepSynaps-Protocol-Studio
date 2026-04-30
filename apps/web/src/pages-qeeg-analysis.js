@@ -5155,12 +5155,22 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   // TAB: RAW DATA
   // ══════════════════════════════════════════════════════════════════════════
   if (tab === 'raw') {
-    if (!window._qeegSelectedId && _isDemoMode()) {
-      window._qeegSelectedId = 'demo';
-    }
     const analysisId = window._qeegSelectedId;
     if (!analysisId) {
-      tabEl.innerHTML = emptyState('&#x1F4C8;', 'No Analysis Selected', 'Select an analysis from the Patient & Upload tab to view raw EEG data.', 'Go to Patient & Upload', "window._qeegTab='patient';window._nav('qeeg-analysis')");
+      const demoBtn = _isDemoMode()
+        ? '<button class="btn btn-outline btn-sm" onclick="window._qeegSelectedId=\'demo\';window._qeegTab=\'raw\';window._nav(\'qeeg-analysis\')">Load synthetic demo</button>'
+        : '';
+      tabEl.innerHTML =
+        '<div style="max-width:560px;margin:48px auto;padding:32px;border-radius:14px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);text-align:center">'
+        + '<div style="font-size:32px;margin-bottom:8px">📈</div>'
+        + '<div style="font-size:18px;font-weight:700;margin-bottom:6px">No EEG selected</div>'
+        + '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px">Pick a patient and choose an existing recording, or upload a new EDF, to load Raw Data.</div>'
+        + '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">'
+        +   '<button class="btn btn-primary btn-sm" onclick="window._nav(\'qeeg-raw-workbench\')">Pick patient &amp; upload</button>'
+        +   '<button class="btn btn-outline btn-sm" onclick="window._qeegTab=\'patient\';window._nav(\'qeeg-analysis\')">Use existing analysis</button>'
+        +   demoBtn
+        + '</div>'
+        + '</div>';
       return;
     }
     tabEl.innerHTML = '<div style="text-align:center;padding:48px"><div class="spinner"></div><div style="margin-top:12px;font-size:13px;color:var(--text-secondary)">Loading Raw Data viewer&hellip;</div></div>';
