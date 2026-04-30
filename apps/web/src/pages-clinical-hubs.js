@@ -4303,11 +4303,78 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   // Honest empty-state rule:
   //   - sessions === null  → backend call errored → OK to show demo data so the
   //                          UI layout doesn't collapse (banner explains it).
-  //   - sessions === []    → backend returned zero results for the week → this
-  //                          is a real "no appointments scheduled" state and we
-  //                          must NOT fabricate mock rows to fill the grid.
+  //   - sessions === []    → backend returned zero results for the week → in
+  //                          demo mode, seed a representative set so reviewers
+  //                          can exercise the calendar; in production builds
+  //                          we still render the honest "no appointments"
+  //                          state.
   events = Array.isArray(sessions) ? sessions.map(sessionToEvent).filter(Boolean) : [];
   eventsIsDemo = false;
+
+  // ── Demo-mode seed for empty schedule ─────────────────────────────────
+  // Mirrors the Patients page Today's Queue / qEEG workbench pattern: when
+  // VITE_ENABLE_DEMO is on AND the API returned an empty week, seed a
+  // realistic Mon–Sun calendar so the layout has something to render.
+  // The gate is two-layered: (1) demo build flag must be set, (2) the
+  // sessions response must be `[]` (NOT `null`, which means error). Real
+  // bookings always win — this never overwrites real data.
+  function _schedDemoEnabled() {
+    try {
+      if (typeof __VITE_ENABLE_DEMO__ !== 'undefined' && __VITE_ENABLE_DEMO__) return true;
+    } catch (_) { /* not defined */ }
+    try {
+      if (import.meta?.env?.VITE_ENABLE_DEMO === '1') return true;
+    } catch (_) { /* not in vite env */ }
+    try {
+      if (import.meta?.env?.DEV) return true;
+    } catch (_) { /* no env */ }
+    return false;
+  }
+  const _schedSeededFromDemo = (Array.isArray(sessions) && sessions.length === 0 && _schedDemoEnabled());
+  if (_schedSeededFromDemo) {
+    // 12 sessions across Mon–Sun. Patient names mirror the existing Patients
+    // demo seed so chips line up. Each id is stable & deterministic so the
+    // detail panel + chain renderer key correctly across re-renders.
+    const _demoClin = clinicians[0]?.id || 'current-clinician';
+    const _demoClinName = clinicians[0]?.name || 'Assigned clinician';
+    const _demoRoom1 = rooms[0]?.name || 'Room A';
+    const _demoRoom2 = rooms[1]?.name || rooms[0]?.name || 'Room B';
+    const SEED = [
+      // day index: 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat, 6=Sun
+      { id:'demo-sched-mon-0900', day:0, start:9.0,  duration:30, type:'tdcs',      patient:'Samantha Li',     room:_demoRoom1, notes:'DLPFC-L 2.0 mA, 20 min', course_position:6,  course_total:20 },
+      { id:'demo-sched-mon-1430', day:0, start:14.5, duration:30, type:'rtms',      patient:'Marcus Chen',     room:_demoRoom2, notes:'DLPFC-L 10 Hz protocol', course_position:8,  course_total:30 },
+      { id:'demo-sched-tue-1000', day:1, start:10.0, duration:60, type:'session',   patient:'Elena Vasquez',   room:_demoRoom1, notes:'tFUS · M1 sonication',    course_position:3,  course_total:12 },
+      { id:'demo-sched-tue-1600', day:1, start:16.0, duration:60, type:'nf',        patient:'James Okonkwo',   room:_demoRoom2, notes:'SMR/theta neurofeedback', course_position:14, course_total:30 },
+      { id:'demo-sched-wed-0930', day:2, start:9.5,  duration:30, type:'session',   patient:'Aisha Rahman',    room:_demoRoom1, notes:'TPS · mPFC pulses',       course_position:2,  course_total:6  },
+      { id:'demo-sched-wed-1300', day:2, start:13.0, duration:60, type:'intake',    patient:'New patient',     room:_demoRoom2, notes:'60 min intake assessment' },
+      { id:'demo-sched-thu-0800', day:3, start:8.0,  duration:30, type:'rtms',      patient:'Marcus Chen',     room:_demoRoom2, notes:'rTMS continuation',       course_position:9,  course_total:30 },
+      { id:'demo-sched-thu-1100', day:3, start:11.0, duration:30, type:'tele',      patient:'Telehealth follow-up', room:'Telehealth', notes:'30 min video follow-up' },
+      { id:'demo-sched-fri-1030', day:4, start:10.5, duration:30, type:'tdcs',      patient:'Samantha Li',     room:_demoRoom1, notes:'tDCS continuation',       course_position:7,  course_total:20 },
+      { id:'demo-sched-fri-1500', day:4, start:15.0, duration:60, type:'bio',       patient:'Group · Biofeedback', room:_demoRoom2, notes:'4-patient HRV biofeedback group' },
+      // A pair of weekend sessions to match real clinic flexibility.
+      { id:'demo-sched-tue-1130', day:1, start:11.5, duration:30, type:'assess',    patient:'Priya Nambiar',   room:_demoRoom1, notes:'PHQ-9 / GAD-7 review',     course_position:1,  course_total:1  },
+      { id:'demo-sched-thu-1530', day:3, start:15.5, duration:30, type:'tdcs',      patient:'Aisha Rahman',    room:_demoRoom1, notes:'tDCS adjunct · 1.5 mA',   course_position:3,  course_total:6  },
+    ];
+    events = SEED.map(s => ({
+      id: s.id,
+      day: s.day,
+      clin: _demoClin,
+      clinician: _demoClinName,
+      start: s.start,
+      end: Math.min(s.start + (s.duration / 60), 24),
+      type: s.type,
+      patient: s.patient,
+      meta: s.room || '',
+      warn: null,
+      duration: s.duration,
+      course_position: s.course_position || null,
+      course_total: s.course_total || null,
+      status: 'scheduled',
+      notes: s.notes || '',
+      _demoSeed: true,
+    }));
+    eventsIsDemo = true;
+  }
 
   // ── Client-side conflict detector ─────────────────────────────────────
   // Runs deterministically on each render so warnings stay accurate even
@@ -4355,8 +4422,9 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   const conflictCount = events.filter(e => e.warn === 'err').length;
   const prereqCount   = events.filter(e => e.warn === 'amb').length;
 
-  // Demo banner visibility: show when sessions are seeded OR sessions endpoint failed.
-  const showDemoBanner = false;
+  // Demo banner visibility: show when the calendar is showing seeded
+  // demo data so reviewers know the sessions aren't real bookings.
+  const showDemoBanner = !!eventsIsDemo;
 
   const TAB_META = {
     appointments: { label:'Appointments', count: events.filter(eventPasses).length },
@@ -4370,8 +4438,21 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   }
 
   function renderDemoBanner() {
-    return '';
+    if (!showDemoBanner) return '';
+    if (window._schedDemoBannerDismissed === true) return '';
+    const n = events.length;
+    return '<div class="dv2s-demo-banner" data-testid="ds-schedule-demo-banner" role="status">'
+      + '<span class="dv2s-demo-dot" aria-hidden="true"></span>'
+      + '<span>&#9432; Demo schedule &mdash; ' + n + ' sample sessions for this week. '
+      + 'Real bookings from the API will replace these when available.</span>'
+      + '<button type="button" class="dv2s-demo-btn" onclick="window._schedDismissDemoBanner()">Dismiss</button>'
+      + '</div>';
   }
+  window._schedDismissDemoBanner = function _schedDismissDemoBanner() {
+    window._schedDemoBannerDismissed = true;
+    const banner = document.querySelector('[data-testid="ds-schedule-demo-banner"]');
+    if (banner && banner.parentNode) banner.parentNode.removeChild(banner);
+  };
 
   setTopbar('Schedule', '<button class="btn btn-primary btn-sm" onclick="window._schedNewBookingIntent()">+ New booking</button>');
   window._schedNewBookingIntent = () => { window._schedOpenWizard({}); };
@@ -4730,6 +4811,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
         + '<div class="dv2s-side-row"><div class="lbl">Device</div><div class="val">'+esc(sel.device || sel.meta || '—')+'</div></div>'
         + '<div class="dv2s-side-row"><div class="lbl">Duration</div><div class="val">'+esc(sel.duration+' min')+'</div></div>'
         + (sel.course_position ? '<div class="dv2s-side-row"><div class="lbl">Course</div><div class="val">Session '+sel.course_position+' of '+(sel.course_total||'—')+'</div></div>' : '')
+        + (sel.notes ? '<div class="dv2s-side-row"><div class="lbl">Notes</div><div class="val" style="white-space:pre-wrap">'+esc(sel.notes)+'</div></div>' : '')
         + '<div class="dv2s-side-section">Risk signals</div>'
         + '<div class="dv2s-side-row"><div class="lbl">No-show</div><div class="val" style="color:'+noShowColor+'">'+noShowScore+'% &middot; '+noShowLevel+'</div></div>'
         + (rem ? ('<div class="dv2s-side-row"><div class="lbl">Remaining</div><div class="val">'+rem+' sessions</div></div>') : '')
