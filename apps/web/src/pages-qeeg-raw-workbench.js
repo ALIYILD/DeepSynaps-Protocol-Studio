@@ -1533,17 +1533,17 @@ function rightPanelHtml(state) {
       title="${state.rightCollapsed ? 'Expand panel' : 'Collapse panel'}">
       ${state.rightCollapsed ? '◀' : '▶'}
     </button>
-    <div class="qwb-right-tabs" id="qwb-right-tabs" ${state.rightCollapsed ? 'style="display:none"' : ''}>
+    <div class="qwb-right-tabs" id="qwb-right-tabs" role="tablist" aria-label="Workbench panels" ${state.rightCollapsed ? 'style="display:none"' : ''}>
       ${tabs.map(t => {
         const active = state.rightTab === t.id;
         // Explicit id="..." pins the testid to a stable element identity so
         // selector-based test polyfills don't conflate this button with
         // anonymous siblings registered at the same byte position in a
         // different selector scan.
-        return `<button id="${t.testid}" class="qwb-tab${active ? ' is-active active' : ''}" data-tab="${t.id}" data-testid="${t.testid}">${esc(t.label)}${t.badge ? `<span class="qwb-tab-count" data-tab-count="${t.id}">${t.badge}</span>` : ''}</button>`;
+        return `<button id="${t.testid}" class="qwb-tab${active ? ' is-active active' : ''}" data-tab="${t.id}" data-testid="${t.testid}" role="tab" aria-selected="${active ? 'true' : 'false'}" aria-controls="qwb-right-body" tabindex="${active ? '0' : '-1'}">${esc(t.label)}${t.badge ? `<span class="qwb-tab-count" data-tab-count="${t.id}">${t.badge}</span>` : ''}</button>`;
       }).join('')}
     </div>
-    <div id="qwb-right-body" class="qwb-right-body" ${state.rightCollapsed ? 'style="display:none"' : ''}></div>
+    <div id="qwb-right-body" class="qwb-right-body" role="tabpanel" aria-labelledby="${(tabs.find(t => t.id === state.rightTab) || tabs[0]).testid}" ${state.rightCollapsed ? 'style="display:none"' : ''}></div>
   </aside>`;
 }
 
@@ -3287,17 +3287,56 @@ function attachRightPanel(state) {
       renderRightPanel(state);
     });
   });
+  // Roving-tabindex arrow-key navigation on the tablist (WAI-ARIA APG).
+  const tablist = document.getElementById('qwb-right-tabs');
+  if (tablist) {
+    tablist.addEventListener('keydown', (e) => {
+      const tabs = Array.from(tablist.querySelectorAll('.qwb-tab'));
+      if (!tabs.length) return;
+      const currentIdx = tabs.findIndex(t => t === document.activeElement);
+      let nextIdx = -1;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        nextIdx = currentIdx < 0 ? 0 : (currentIdx + 1) % tabs.length;
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        nextIdx = currentIdx < 0 ? 0 : (currentIdx - 1 + tabs.length) % tabs.length;
+      } else if (e.key === 'Home') {
+        nextIdx = 0;
+      } else if (e.key === 'End') {
+        nextIdx = tabs.length - 1;
+      } else {
+        return;
+      }
+      e.preventDefault();
+      const next = tabs[nextIdx];
+      if (!next) return;
+      state.rightTab = next.dataset.tab;
+      syncTabActive(state);
+      renderRightPanel(state);
+      if (typeof next.focus === 'function') next.focus();
+    });
+  }
   renderRightPanel(state);
 }
 
 // Toggle both .active (legacy) and .is-active (new) so tab styling and any
-// downstream selectors stay aligned.
+// downstream selectors stay aligned. Keep ARIA tab semantics in lockstep:
+// aria-selected, roving tabindex, and the panel's aria-labelledby.
 function syncTabActive(state) {
+  let activeTabId = null;
   document.querySelectorAll('.qwb-tab').forEach(t => {
     const on = t.dataset.tab === state.rightTab;
     t.classList.toggle('active', on);
     t.classList.toggle('is-active', on);
+    if (t.setAttribute) {
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+      t.setAttribute('tabindex', on ? '0' : '-1');
+    }
+    if (on && t.id) activeTabId = t.id;
   });
+  const panel = document.getElementById('qwb-right-body');
+  if (panel && activeTabId && panel.setAttribute) {
+    panel.setAttribute('aria-labelledby', activeTabId);
+  }
 }
 
 function attachStatusBar(state) {
@@ -3619,40 +3658,139 @@ function attachKeyboard(state, navigate) {
   });
 }
 
+// ── Modal focus management ───────────────────────────────────────────────────
+// Maps each modal element to its open-time bookkeeping: the focus-trap
+// teardown returned by window._trapFocus, the previously-focused element to
+// restore on close, and a one-off Escape listener. We keep this in a WeakMap
+// so a stale modal node is GC'd cleanly without leaking listeners.
+const _qwbModalState = new WeakMap();
+
+function _qwbOpenModal(modal, opts) {
+  if (!modal) return;
+  const previouslyFocused = (typeof document !== 'undefined' && document.activeElement) || null;
+  modal.style.display = 'flex';
+  // Hand control to the global focus trap (defined at app.js:40-56). It
+  // returns a teardown function we keep around for close.
+  let teardown = null;
+  if (typeof window !== 'undefined' && typeof window._trapFocus === 'function') {
+    try { teardown = window._trapFocus(modal); } catch (_e) { teardown = null; }
+  }
+  // Auto-focus the most-relevant control (e.g. the notes textarea on the
+  // sign-off modal). Falls back to the trap's default first-focusable.
+  if (opts && opts.autoFocus) {
+    // Defer one tick so the trap's initial focus doesn't race ours.
+    const tryFocus = () => {
+      let target = null;
+      try {
+        target = typeof opts.autoFocus === 'function'
+          ? opts.autoFocus(modal)
+          : (modal.querySelector ? modal.querySelector(opts.autoFocus) : null);
+      } catch (_e) { target = null; }
+      if (target && typeof target.focus === 'function') target.focus();
+    };
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(tryFocus);
+    else tryFocus();
+  }
+  // Escape closes the modal via the supplied cancel path.
+  let escapeHandler = null;
+  if (opts && typeof opts.onEscape === 'function') {
+    escapeHandler = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        try { opts.onEscape(); } catch (_e) {}
+      }
+    };
+    modal.addEventListener('keydown', escapeHandler);
+  }
+  _qwbModalState.set(modal, { previouslyFocused, teardown, escapeHandler });
+}
+
+function _qwbCloseModal(modal) {
+  if (!modal) return;
+  modal.style.display = 'none';
+  const meta = _qwbModalState.get(modal);
+  if (!meta) return;
+  if (typeof meta.teardown === 'function') {
+    try { meta.teardown(); } catch (_e) {}
+  }
+  if (meta.escapeHandler) {
+    try { modal.removeEventListener('keydown', meta.escapeHandler); } catch (_e) {}
+  }
+  if (meta.previouslyFocused && typeof meta.previouslyFocused.focus === 'function') {
+    try { meta.previouslyFocused.focus(); } catch (_e) {}
+  }
+  _qwbModalState.delete(modal);
+}
+
 function toggleShortcuts(state, show) {
   const m = document.getElementById('qwb-shortcuts-modal');
-  if (m) m.style.display = show ? 'flex' : 'none';
+  if (!m) { state.showShortcuts = !!show; return; }
+  if (show) {
+    _qwbOpenModal(m, {
+      autoFocus: '#qwb-close-shortcuts',
+      onEscape: () => toggleShortcuts(state, false),
+    });
+  } else {
+    _qwbCloseModal(m);
+  }
   state.showShortcuts = !!show;
 }
 
 function toggleExport(state, show) {
   const m = document.getElementById('qwb-export-modal');
-  if (m) m.style.display = show ? 'flex' : 'none';
+  if (!m) { state.showExport = !!show; return; }
+  if (show) {
+    _qwbOpenModal(m, {
+      // First button inside the modal — the format picker's primary choice.
+      autoFocus: (modal) => modal.querySelector ? modal.querySelector('button') : null,
+      onEscape: () => toggleExport(state, false),
+    });
+  } else {
+    _qwbCloseModal(m);
+  }
   state.showExport = !!show;
 }
 
 function toggleSignOff(state, show) {
   const existing = document.getElementById('qwb-signoff-modal');
-  if (existing) { existing.style.display = show ? 'flex' : 'none'; return; }
+  if (existing) {
+    if (show) {
+      _qwbOpenModal(existing, {
+        autoFocus: '#qwb-signoff-notes',
+        onEscape: () => toggleSignOff(state, false),
+      });
+    } else {
+      _qwbCloseModal(existing);
+    }
+    return;
+  }
   if (!show) return;
   const tmp = document.createElement('div');
   tmp.innerHTML = signOffModal(state);
   const modal = tmp.firstElementChild;
-  modal.style.display = 'flex';
   document.body.appendChild(modal);
   document.getElementById('qwb-signoff-cancel')?.addEventListener('click', () => toggleSignOff(state, false));
   document.getElementById('qwb-signoff-confirm')?.addEventListener('click', () => handleSignOff(state));
+  _qwbOpenModal(modal, {
+    autoFocus: '#qwb-signoff-notes',
+    onEscape: () => toggleSignOff(state, false),
+  });
 }
 
 function openUnsaved(state, pending) {
   state.pendingNav = pending;
   const m = document.getElementById('qwb-unsaved-modal');
-  if (m) m.style.display = 'flex';
+  if (!m) return;
+  _qwbOpenModal(m, {
+    // Cancel is the safest default — keeps the user in place.
+    autoFocus: '#qwb-unsaved-cancel',
+    onEscape: () => closeUnsaved(state),
+  });
 }
 
 function closeUnsaved(state) {
   const m = document.getElementById('qwb-unsaved-modal');
-  if (m) m.style.display = 'none';
+  if (m) _qwbCloseModal(m);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

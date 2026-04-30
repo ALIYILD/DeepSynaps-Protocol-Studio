@@ -160,4 +160,22 @@ test.describe('qEEG Raw Workbench', () => {
     // Cleaning panel should show signed-off card
     await expect(page.locator('#qwb-right-body')).toContainText('Signed off');
   });
+
+  // ── A11y: tabs ARIA + modal focus management (PR #3 of frontend hygiene) ──
+  test('right-panel tabs expose tablist/tab ARIA semantics', async ({ page }) => {
+    await page.goto('/#/qeeg-raw-workbench/demo');
+    await page.waitForSelector('#qwb-canvas', { timeout: 10000 });
+    await expect(page.locator('#qwb-right-tabs')).toHaveAttribute('role', 'tablist');
+    await expect(page.locator('.qwb-tab[data-tab="ai"]')).toHaveAttribute('role', 'tab');
+    await expect(page.locator('.qwb-tab[data-tab="cleaning"]')).toHaveAttribute('aria-selected', 'true');
+  });
+
+  test('sign-off modal autofocuses notes textarea on open', async ({ page }) => {
+    await page.goto('/#/qeeg-raw-workbench/demo');
+    await page.waitForSelector('#qwb-canvas', { timeout: 10000 });
+    await page.click('.qwb-tab[data-tab="cleaning"]');
+    await page.click('#qwb-open-signoff');
+    await expect(page.locator('#qwb-signoff-modal')).toBeVisible();
+    await expect(page.locator('#qwb-signoff-notes')).toBeFocused();
+  });
 });
