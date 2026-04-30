@@ -163,6 +163,26 @@ def test_sanitize_for_patient_strips_blocked():
     assert "diagnoses" not in out["executive_summary"].lower()
     # Blocked finding should be removed entirely
     assert not any("confirm" in (f.get("observation") or "").lower() for f in out.get("findings", []))
+    assert "raw_review_handoff" not in out
+
+
+def test_sanitize_for_patient_scrubs_nested_internal_metadata():
+    from app.services.qeeg_claim_governance import sanitize_for_patient
+
+    report = {
+        "executive_summary": "General summary.",
+        "findings": [{"region": "frontal", "observation": "Mild frontal variation."}],
+        "protocol_recommendations": [],
+        "band_analysis": {},
+        "key_biomarkers": {},
+        "raw_review_handoff": {"cleaning_version_id": "cv-1"},
+        "clinical_flags": [
+            {"label": "artifact", "detail": {"medication_confounds": ["stimulant"], "note": "internal"}}
+        ],
+    }
+    out = sanitize_for_patient(report)
+    assert "raw_review_handoff" not in out
+    assert "medication_confounds" not in json.dumps(out)
 
 
 def test_scan_for_banned_words():

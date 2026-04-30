@@ -20,6 +20,7 @@ from app.errors import ApiServiceError
 from app.persistence.models import QEEGAIReport, QEEGAnalysis, QEEGReportAudit
 from app.services.media_storage import read_upload
 from app.services.qeeg_clinician_review import can_export
+from app.services.qeeg_claim_governance import sanitize_for_patient
 from app.settings import get_settings
 
 _log = logging.getLogger(__name__)
@@ -144,6 +145,10 @@ def build_bids_package(
 
         # Derivatives: AI report
         if report:
+            ai_narrative = _json_loads(report.ai_narrative_json)
+            patient_facing_report = _json_loads(report.patient_facing_report_json)
+            if isinstance(patient_facing_report, dict):
+                patient_facing_report = sanitize_for_patient(patient_facing_report)
             zf.writestr(
                 f"derivatives/deepsynaps/{sub_id}_task-{task}_run-{run}_desc-ai_report.json",
                 _json_dumps({
@@ -153,12 +158,22 @@ def build_bids_package(
                     "model_version": report.model_version,
                     "prompt_version": report.prompt_version,
                     "report_version": report.report_version,
-                    "ai_narrative": _json_loads(report.ai_narrative_json),
+                    "ai_narrative": ai_narrative,
                     "claim_governance": _json_loads(report.claim_governance_json),
-                    "patient_facing_report": _json_loads(report.patient_facing_report_json),
+                    "patient_facing_report": patient_facing_report,
                     "disclaimer": "Decision-support only. Requires clinician review. Not a diagnosis.",
                 }),
             )
+            if isinstance(ai_narrative, dict) and ai_narrative.get("raw_review_handoff"):
+                zf.writestr(
+                    f"derivatives/deepsynaps/{sub_id}_task-{task}_run-{run}_desc-raw_review_handoff.json",
+                    _json_dumps(ai_narrative.get("raw_review_handoff")),
+                )
+            if patient_facing_report:
+                zf.writestr(
+                    f"derivatives/deepsynaps/{sub_id}_task-{task}_run-{run}_desc-patient_report.json",
+                    _json_dumps(patient_facing_report),
+                )
 
             # Derivatives: clinician review state
             zf.writestr(

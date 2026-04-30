@@ -1,0 +1,474 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "atlas": "Desikan-Killiany",
+    "n_rois_per_hemisphere": 34,
+    "n_rois_total": 68,
+    "narrative_source": "iSyncBrain Brain Function Mapping summary report (sample 87394_summary_report_EEG-Patel.pdf, 2025-10-13)",
+    "narrative_coverage": "33 of 34 DK regions per hemisphere have functions/decline_symptoms populated. isthmuscingulate has empty arrays (Phase 1 to source).",
+    "regulatory_note": "Narrative content is reference material for research/wellness use. Not for diagnosis, diagnostic decisions, or treatment recommendations."
+  },
+  "frontalpole": {
+    "code": "F1",
+    "lobe": "frontal",
+    "display_name": "Frontal Pole",
+    "functions": [
+      "Plan and organize for action. Predict outcomes based on current events.",
+      "Monitor and evaluate the outcomes.",
+      "Maintain or transition attention."
+    ],
+    "decline_symptoms": [
+      "Difficulties in planning and making decisions.",
+      "Tendency to repeat similar mistakes."
+    ]
+  },
+  "parsopercularis": {
+    "code": "F2",
+    "lobe": "frontal",
+    "display_name": "Pars Opercularis",
+    "functions": [
+      "Transmit motor signals to the motor area to vocalize composed sentences (Broca's area component)."
+    ],
+    "decline_symptoms": [
+      "Functional decline in the left side (Broca's area) leads to difficulties in the expression of words.",
+      "Functional decline in the right side leads to difficulties in the expression of intentions."
+    ]
+  },
+  "parsorbitalis": {
+    "code": "F3",
+    "lobe": "frontal",
+    "display_name": "Pars Orbitalis",
+    "functions": [
+      "Construct sentences for communication."
+    ],
+    "decline_symptoms": [
+      "Difficulties in the expression of words on the left side.",
+      "Difficulties in the expression of intentions on the right side."
+    ]
+  },
+  "parstriangularis": {
+    "code": "F4",
+    "lobe": "frontal",
+    "display_name": "Pars Triangularis",
+    "functions": [
+      "Generate intentional dialogue."
+    ],
+    "decline_symptoms": [
+      "Difficulties in the expression of words on the left side.",
+      "Difficulties in the expression of intentions on the right side."
+    ]
+  },
+  "rostralmiddlefrontal": {
+    "code": "F5",
+    "lobe": "frontal",
+    "display_name": "Rostral Middle Frontal",
+    "functions": [
+      "Responsible for working memory, concentration, execution, and emotional control.",
+      "Left hemisphere is responsible for: planning, evaluating, focusing, problem-solving, controlling emotional impulse, storing episodic memory.",
+      "Right hemisphere is responsible for: contextual, creative, and metaphorical thoughts, spatial memory."
+    ],
+    "decline_symptoms": [
+      "Poor concentration and executive function.",
+      "Poor working memory.",
+      "Left side: Poor regulation and control of emotions/impulses, poor episodic memory.",
+      "Right side: Struggling to understand context and lowered metaphorical thoughts. Poor spatial memory."
+    ]
+  },
+  "caudalmiddlefrontal": {
+    "code": "F6",
+    "lobe": "frontal",
+    "display_name": "Caudal Middle Frontal",
+    "functions": [
+      "Working memory and execution-control with the rostral middle frontal."
+    ],
+    "decline_symptoms": [
+      "Poor working memory and executive control.",
+      "Reduced sustained attention."
+    ]
+  },
+  "superiorfrontal": {
+    "code": "F7",
+    "lobe": "frontal",
+    "display_name": "Superior Frontal",
+    "functions": [
+      "Responsible for higher cognition related to working memory.",
+      "Simulation and planning of sophisticated and complex body control.",
+      "The left hemisphere is responsible for working memory.",
+      "The right hemisphere analyzes and processes spatial information."
+    ],
+    "decline_symptoms": [
+      "Difficulties in the execution of complex movements.",
+      "Left side: Relatively poor working memory.",
+      "Right side: Spatial processing difficulties."
+    ]
+  },
+  "medialorbitofrontal": {
+    "code": "F8",
+    "lobe": "frontal",
+    "display_name": "Medial Orbitofrontal",
+    "functions": [
+      "Reinforced in situations related to rewards, contributes to positive decision making.",
+      "Responsible for self-control, emotional regulation, and social behaviors."
+    ],
+    "decline_symptoms": [
+      "Desensitized to rewards.",
+      "Difficulties in making decisions related to a positive thinking."
+    ]
+  },
+  "lateralorbitofrontal": {
+    "code": "F9",
+    "lobe": "frontal",
+    "display_name": "Lateral Orbitofrontal",
+    "functions": [
+      "Activated for situations concerning punishment, controls negative decision making.",
+      "Responsible for self-control, emotional, and social behavior regulations."
+    ],
+    "decline_symptoms": [
+      "Desensitized to punishments.",
+      "Difficulties in controlling decisions through negative thinking."
+    ]
+  },
+  "precentral": {
+    "code": "F10",
+    "lobe": "frontal",
+    "display_name": "Precentral",
+    "functions": [
+      "Primary motor cortex. Voluntary movement by established sequence."
+    ],
+    "decline_symptoms": [
+      "Declined voluntary motor control of the contralateral side."
+    ]
+  },
+  "paracentral": {
+    "code": "F11",
+    "lobe": "frontal",
+    "display_name": "Paracentral",
+    "functions": [
+      "Responsible for lower body movements along with the precentral motor cortex.",
+      "Voluntary control of defecation and urination.",
+      "Planning of voluntary and spontaneous sequential movements."
+    ],
+    "decline_symptoms": [
+      "Difficulty with voluntary control of defecation or urination.",
+      "Difficulty with voluntary control of lower extremity."
+    ]
+  },
+  "rostralanteriorcingulate": {
+    "code": "F12",
+    "lobe": "frontal",
+    "display_name": "Rostral Anterior Cingulate",
+    "functions": [
+      "A region related to emotions such as empathy, attention, monitoring, and emotional control.",
+      "Also connected to the autonomic nervous system, regulating blood pressure and heart rate responses to stressors."
+    ],
+    "decline_symptoms": [
+      "Difficulties in controlling/sympathizing with others' emotions.",
+      "Difficulty in controlling stress response."
+    ]
+  },
+  "caudalanteriorcingulate": {
+    "code": "F13",
+    "lobe": "frontal",
+    "display_name": "Caudal Anterior Cingulate",
+    "functions": [
+      "A region related to cognitive function, which includes attention and motor control.",
+      "Detects errors from inconsistency and controls automatic reflexes.",
+      "Also connected to the autonomic nervous system, regulating blood pressure and heart rate responses to stressors."
+    ],
+    "decline_symptoms": [
+      "Decreased attention and cognitive function.",
+      "Difficulty in controlling stress response."
+    ]
+  },
+  "temporalpole": {
+    "code": "T1",
+    "lobe": "temporal",
+    "display_name": "Temporal Pole",
+    "functions": [
+      "A region for perceiving others' feelings or intentions. It also relates to moral behavior.",
+      "The left side is responsible for processing the meaning of words.",
+      "The right side is responsible for response to auditory stimuli."
+    ],
+    "decline_symptoms": [
+      "Poor social relationships.",
+      "Left side: Difficulty processing meaning of words.",
+      "Right side: Difficulty responding to auditory stimuli."
+    ]
+  },
+  "superiortemporal": {
+    "code": "T2",
+    "lobe": "temporal",
+    "display_name": "Superior Temporal",
+    "functions": [
+      "Responsible for auditory perception and signal processing, which enables the understanding of speech as language."
+    ],
+    "decline_symptoms": [
+      "May result in tinnitus.",
+      "Deterioration of the left side (Wernicke's area) results in poor understanding of language and difficulties in speaking according to the context.",
+      "Deterioration of the right side results in difficulties in understanding the meaning or context of words."
+    ]
+  },
+  "middletemporal": {
+    "code": "T3",
+    "lobe": "temporal",
+    "display_name": "Middle Temporal",
+    "functions": [
+      "Perceives visual and auditory information and processes language.",
+      "The left side is responsible for semantic processing.",
+      "The right side is responsible for integrating the tunes and rhythms of a language."
+    ],
+    "decline_symptoms": [
+      "Fails to integrate received visual and auditory information, causing difficulties in verbal comprehension.",
+      "Deterioration of the left side: difficulties in processing the meaning of speech.",
+      "Deterioration of the right side: difficulties in the integration of the tunes and rhythms of speech."
+    ]
+  },
+  "inferiortemporal": {
+    "code": "T4",
+    "lobe": "temporal",
+    "display_name": "Inferior Temporal",
+    "functions": [
+      "Involved in high-level processing of visual information such as objects, places, faces, colors, letters, and characters.",
+      "The left hemisphere is responsible for semantic processing.",
+      "The right hemisphere is responsible for instantaneous information storage and retrieval from working memory."
+    ],
+    "decline_symptoms": [
+      "Deterioration of the left hemisphere: Difficulties in semantic processing. Difficulties in comprehension of objects.",
+      "Deterioration of the right hemisphere: Difficulties in melody integration. Difficulties locating objects."
+    ]
+  },
+  "transversetemporal": {
+    "code": "T5",
+    "lobe": "temporal",
+    "display_name": "Transverse Temporal",
+    "functions": [
+      "Primary auditory cortex. The auditory stimulus entered through the ear is transmitted to the lateral temporal lobe for analysis of loudness."
+    ],
+    "decline_symptoms": [
+      "Unable to hear clearly, resulting in communication difficulties.",
+      "Possible hearing loss in severe cases."
+    ]
+  },
+  "bankssts": {
+    "code": "T6",
+    "lobe": "temporal",
+    "display_name": "Banks of Superior Temporal Sulcus",
+    "functions": [
+      "Responsible for general lingual function.",
+      "A region highly involved with theory of mind, gestures, face, and voice. Recognizes other people's feelings or intentions."
+    ],
+    "decline_symptoms": [
+      "Unable to recognize faces or voices.",
+      "Lingual dysfunction.",
+      "Autism spectrum features in severe cases."
+    ]
+  },
+  "fusiform": {
+    "code": "T7",
+    "lobe": "temporal",
+    "display_name": "Fusiform",
+    "functions": [
+      "Responsible for facial recognition.",
+      "Involved in the analysis of others' emotions based on their facial gestures.",
+      "The left side identifies individual faces.",
+      "The right side identifies individual emotions behind the faces."
+    ],
+    "decline_symptoms": [
+      "Deterioration of the left side: poor recognition of faces.",
+      "Deterioration of the right side: poor comprehension of facial expression of emotions."
+    ]
+  },
+  "entorhinal": {
+    "code": "T8",
+    "lobe": "temporal",
+    "display_name": "Entorhinal",
+    "functions": [
+      "Combines spatial information (where) in the hippocampus and temporal information (when) in the entorhinal cortex for episodic memory.",
+      "Crucial for memory consolidation and retrieval; acts as a hub for various cognitive networks.",
+      "The left side is responsible for verbal memory.",
+      "The right side is responsible for visual memory."
+    ],
+    "decline_symptoms": [
+      "Poor episodic memory.",
+      "Deterioration of the left side: Difficulty recalling words and sentences.",
+      "Deterioration of the right side: Difficulty recalling visual information such as location, shape, and pattern."
+    ]
+  },
+  "parahippocampal": {
+    "code": "T9",
+    "lobe": "temporal",
+    "display_name": "Parahippocampal",
+    "functions": [
+      "Essential to register and recall spatial information (where) in the hippocampus for episodic memory.",
+      "The left side is responsible for non-spatial information such as objects and people.",
+      "The right side is responsible for spatial information such as the venue, location, relationship between locations and direction."
+    ],
+    "decline_symptoms": [
+      "Poor memory recall.",
+      "Deterioration of the left side: Difficulty recalling non-spatial information such as objects and people.",
+      "Deterioration of the right side: Difficulty recalling spatial information such as the venue, location, relationship between locations, and direction."
+    ]
+  },
+  "insula": {
+    "code": "T10",
+    "lobe": "temporal",
+    "display_name": "Insula",
+    "functions": [
+      "Involved in the control of internal sensations, hand-eye coordination, swallowing, and gastrointestinal motility.",
+      "Participates in various homeostatic functions related to survival, such as taste, interoception, and autonomic control.",
+      "Involved in recognition and understanding of internal and external situations, which enables self-awareness and social interaction."
+    ],
+    "decline_symptoms": [
+      "Poor control of emotions.",
+      "Possible autonomic dysfunction.",
+      "A very slight touch may feel like great pain.",
+      "Painful sensation when touching something cold or hot."
+    ]
+  },
+  "postcentral": {
+    "code": "P1",
+    "lobe": "parietal",
+    "display_name": "Postcentral",
+    "functions": [
+      "Processes somatosensory signals coming from all areas of the body."
+    ],
+    "decline_symptoms": [
+      "Numb to pain.",
+      "Poor recognition of three-dimensional shapes.",
+      "Numb limbs."
+    ]
+  },
+  "superiorparietal": {
+    "code": "P2",
+    "lobe": "parietal",
+    "display_name": "Superior Parietal",
+    "functions": [
+      "Plays an important role in the integration of sensory input and motor movements, through recognition and maintenance of the body's current movement.",
+      "The left side is responsible for writing letters within the given space.",
+      "The right side is responsible for spatiotemporal processing."
+    ],
+    "decline_symptoms": [
+      "Difficulties in sensory perception and translating it to movements.",
+      "The left side: Difficult to write letters in a line.",
+      "The right side: Poor awareness of spatial information and directional movement."
+    ]
+  },
+  "inferiorparietal": {
+    "code": "P3",
+    "lobe": "parietal",
+    "display_name": "Inferior Parietal",
+    "functions": [
+      "Receives sensory information and processes actions, through the use of various cognitive functions including attention, language, and behavior processing.",
+      "The left side is responsible for language-related functions such as generating and reading sentences or numeric comprehension.",
+      "The right side is responsible for spatiotemporal processing through visual information."
+    ],
+    "decline_symptoms": [
+      "The left side: Difficult to process numbers and read text.",
+      "The right side: Difficult to perform assembling tasks such as drawing or assembling toy blocks (constructional apraxia)."
+    ]
+  },
+  "supramarginal": {
+    "code": "P4",
+    "lobe": "parietal",
+    "display_name": "Supramarginal",
+    "functions": [
+      "Interprets touch sensation, perceives body position in space.",
+      "The left side is responsible for word selection and language processing.",
+      "The right side is responsible for empathizing with others' emotions."
+    ],
+    "decline_symptoms": [
+      "Poor spatial perception.",
+      "The left side: Difficulty selecting appropriate words.",
+      "The right side: Difficulty understanding others' emotions."
+    ]
+  },
+  "precuneus": {
+    "code": "P5",
+    "lobe": "parietal",
+    "display_name": "Precuneus",
+    "functions": [
+      "Related to self-image and self-esteem.",
+      "The left hemisphere is responsible for episodic memory.",
+      "The right hemisphere is responsible for spatiotemporal processing."
+    ],
+    "decline_symptoms": [
+      "Difficulties in self-insight.",
+      "The left side: Difficulty integrating memory and environmental information.",
+      "The right side: Difficulties in spatiotemporal processing."
+    ]
+  },
+  "posteriorcingulate": {
+    "code": "P6",
+    "lobe": "parietal",
+    "display_name": "Posterior Cingulate",
+    "functions": [
+      "Metacognition (active when relaxed and immersed in your inner thoughts and feelings).",
+      "Involved in learning, memory, reward, and task participation. Performance of working memory decreases once the posterior cingulate cortex is activated.",
+      "The left side is responsible for semantic processing.",
+      "The right side is responsible for episodic processing."
+    ],
+    "decline_symptoms": [
+      "The left side: Poor memory.",
+      "The right side: Poor spatial perception."
+    ]
+  },
+  "lateraloccipital": {
+    "code": "O1",
+    "lobe": "occipital",
+    "display_name": "Lateral Occipital",
+    "functions": [
+      "Recognition of an object and imagining its shape."
+    ],
+    "decline_symptoms": [
+      "Poor visual perception."
+    ]
+  },
+  "cuneus": {
+    "code": "O2",
+    "lobe": "occipital",
+    "display_name": "Cuneus",
+    "functions": [
+      "Processes light intensity of an object along with other visuospatial analysis.",
+      "Responsible for visuospatial working memory."
+    ],
+    "decline_symptoms": [
+      "Poor visual perception.",
+      "Possible hallucinations in severe cases."
+    ]
+  },
+  "pericalcarine": {
+    "code": "O3",
+    "lobe": "occipital",
+    "display_name": "Pericalcarine",
+    "functions": [
+      "Responsible for primary processing of visual information.",
+      "Able to recognize whether an object is moving or stationary, as well as its shape, color, and texture."
+    ],
+    "decline_symptoms": [
+      "Poor visual perception.",
+      "Poor recognition of the shape and movement of objects."
+    ]
+  },
+  "lingual": {
+    "code": "O4",
+    "lobe": "occipital",
+    "display_name": "Lingual",
+    "functions": [
+      "Recognize the letters and texts we use.",
+      "Responsible for matching visual information with the previously memorized information. Crucial for the identification and recognition of words.",
+      "Contributes to visualization of dreams."
+    ],
+    "decline_symptoms": [
+      "Difficulties reading text (e.g., dyslexia).",
+      "Visual snow syndrome."
+    ]
+  },
+  "isthmuscingulate": {
+    "code": "C1",
+    "lobe": "cingulate",
+    "display_name": "Isthmus Cingulate",
+    "functions": [],
+    "decline_symptoms": [],
+    "narrative_source": null
+  }
+}

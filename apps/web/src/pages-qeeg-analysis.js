@@ -3701,36 +3701,31 @@ var DEMO_QEEG_REPORT = {
   id: 'demo-report',
   ai_narrative: {
     summary: 'This eyes-open qEEG recording from a 30-channel setup reveals moderate alterations in cortical activity with regional imbalances in power distribution and asymmetry, particularly affecting the frontal and temporal areas.',
-    detailed_findings: 'SPECTRAL ANALYSIS:\n'
-      + 'Delta band power shows expected frontal predominance (Fp1: 30%, Fp2: 29%) with appropriate posterior attenuation (O1: 15%, O2: 15%). '
-      + 'No focal delta abnormalities suggestive of structural lesions.\n\n'
-      + 'Theta band demonstrates mild frontal-central elevation, particularly at Fz (22%) and Cz (20%). This midline theta excess is consistent with attentional processing demands '
-      + 'and may correlate with subjective concentration difficulties. The theta/beta ratio of 3.82 at Fz is approaching the clinical significance threshold of 4.5.\n\n'
-      + 'Alpha band shows healthy posterior dominance with robust occipital alpha (O1: 42%, O2: 41%). The alpha peak frequency of 9.24 Hz is in the low-normal range. '
-      + 'Frontal alpha asymmetry (F3-F4 pair: 0.18) suggests relative left-sided alpha excess, corresponding to reduced left frontal activation.\n\n'
-      + 'Beta and high-beta distributions are within normal limits with appropriate frontal weighting. No excessive beta activity suggestive of anxiety or medication effects.\n\n'
+    detailed_findings: 'SPECTRAL ANALYSIS (research observations only):\n'
+      + 'Delta band power shows expected frontal predominance (Fp1: 30%, Fp2: 29%) with appropriate posterior attenuation (O1: 15%, O2: 15%).\n\n'
+      + 'Theta band shows mild frontal-central elevation, particularly at Fz (22%) and Cz (20%). The theta/beta ratio of 3.82 at Fz is associated with attentional-regulation profiles in the research literature.\n\n'
+      + 'Alpha band shows posterior dominance with prominent occipital alpha (O1: 42%, O2: 41%). The alpha peak frequency is 9.24 Hz. '
+      + 'Frontal alpha asymmetry (F3-F4 pair: 0.18) is associated with relative left-sided alpha excess in the research literature.\n\n'
+      + 'Beta and high-beta distributions are within typical research-norm bands with frontal weighting.\n\n'
       + 'CONNECTIVITY:\n'
-      + 'Alpha coherence shows an expected posterior-to-anterior gradient. Three long-range pairs (Fp1-O2, F7-T6, Fp2-O1) show reduced coherence, '
-      + 'which is developmentally normal. Small-world index of 2.4 confirms intact network topology.\n\n'
+      + 'Alpha coherence shows the typical posterior-to-anterior gradient. Three long-range pairs (Fp1-O2, F7-T6, Fp2-O1) show lower coherence values. Small-world index is 2.4.\n\n'
       + 'COMPLEXITY:\n'
-      + 'Sample entropy (1.52), Higuchi fractal dimension (1.62), and Lempel-Ziv complexity (0.71) are all within normal ranges, '
-      + 'indicating healthy cortical dynamics without pathological regularity or excessive randomness.\n\n'
-      + 'CLINICAL IMPRESSION:\n'
-      + 'The combination of mild frontal theta excess, borderline TBR, and left frontal alpha asymmetry suggests a profile consistent with '
-      + 'mild attentional and mood-related dysregulation. These findings warrant clinical correlation with presenting symptoms.',
-    clinical_overview: 'The QEEG analysis reveals that the frontal brain regions, particularly in channels such as F3, F4, and Fz, show elevated theta oscillations (~4.5Hz) with decreased alpha activity. Parietal regions display reduced alpha power integral to sensory integration. Temporal lobe analysis indicates isolated focal slowing and sporadic sharp transients in T3. Occipital regions show normal alpha peak frequencies (O1: 10.2Hz, O2: 10.0Hz).',
+      + 'Sample entropy (1.52), Higuchi fractal dimension (1.62), and Lempel-Ziv complexity (0.71) are within typical research-norm ranges.\n\n'
+      + 'RESEARCH SUMMARY:\n'
+      + 'This is a research and wellness brain map summary. It is informational, is not a medical diagnosis or treatment recommendation, and any findings should be discussed with a qualified clinician.',
+    clinical_overview: 'This research brain map summary describes the relative distribution of EEG features across cortical regions. Frontal channels (F3, F4, Fz) show theta-band elevation with reduced alpha; parietal channels (P3, Pz, P4) show lower alpha amplitude relative to age-norm research databases; occipital channels (O1, O2) show alpha peak frequencies of 10.2Hz and 10.0Hz. Temporal-channel features are within research-norm bands. Discuss any observations with a qualified clinician.',
     key_observations: {
-      frontal: {channels: 'F3, F4, Fz', finding: 'Increased theta power (~4.5Hz), reduced alpha', impact: 'Difficulties with focus and decision-making'},
-      parietal: {channels: 'P3, Pz, P4', finding: 'Marked reduction in alpha power', impact: 'Affects sensory integration and spatial processing'},
-      temporal: {channels: 'T3, T4, T5, T6', finding: 'Focal slowing, isolated sharp transients', impact: 'Difficulties in auditory processing and memory recall'},
-      occipital: {channels: 'O1, O2', finding: 'Normal alpha peaks (O1: 10.2Hz, O2: 10.0Hz)', impact: 'Visual perception largely intact'}
+      frontal: {channels: 'F3, F4, Fz', finding: 'Theta-band elevation (~4.5Hz), reduced alpha (research observation)', impact: 'Associated with attentional-regulation profiles in the research literature'},
+      parietal: {channels: 'P3, Pz, P4', finding: 'Lower alpha amplitude relative to research norms', impact: 'Associated with sensory-integration profiles in the research literature'},
+      temporal: {channels: 'T3, T4, T5, T6', finding: 'Within research-norm bands', impact: 'No deviation flagged at the research-norm threshold'},
+      occipital: {channels: 'O1, O2', finding: 'Alpha peaks O1: 10.2Hz, O2: 10.0Hz', impact: 'Within research-norm bands'}
     },
-    firda_oirda: {firda: 'Detected sporadically in frontal channels (Fp1, F7)', oirda: 'Observed in occipital/temporal channels (T3)', impact: 'Transient lapses in alertness'},
-    epileptiform: {findings: 'Occasional focal spikes in temporal region, burst durations under 3 seconds', tbr: 3.2, normal_tbr: '2.5-3.0', impact: 'Difficulty sustaining attention'},
+    firda_oirda: null,
+    epileptiform: null,
     sections: [
-      {title: 'Cognitive and Neurological Profile', content: 'Elevated IAPF with frontal high-arousal patterns. Theta/beta ratio of 3.17 indicates attentional regulation imbalance. High delta dominance across channels suggests reduced cortical activation. Notable asymmetries in temporal (~39.9%) and occipital (~90.5%) regions.'},
-      {title: 'Mental Health and Brain Function', content: 'Subtle frontal asymmetries correlate with emotional regulation. Significant inattention index (6.3 at Fz vs norm of 2). Intermittent low-amplitude epileptiform discharges in temporal regions. Overall pattern of increased delta with reduced beta2/gamma consistent with hyperarousal.'},
-      {title: 'Sensory Processing and Brain Function', content: 'Occipital channels show normal alpha peaks ensuring visual processing. Temporal channels show prominent delta and occasional sharp waves affecting auditory processing. High delta dominance affects sensorimotor integration.'},
+      {title: 'Cognitive and Neurological Profile', content: 'Elevated IAPF with frontal high-arousal patterns. Theta/beta ratio of 3.17 is associated with attentional-regulation profiles in the research literature. Higher delta amplitude across channels relative to research norms. Asymmetry indices in temporal (~39.9%) and occipital (~90.5%) regions are surfaced for clinician review.'},
+      {title: 'Mental Health and Brain Function', content: 'Subtle frontal asymmetries are associated with affective-processing profiles in the research literature. Inattention index 6.3 at Fz (research norm 2). Pattern of increased delta with reduced beta2/gamma is associated with hyperarousal profiles in the research literature.'},
+      {title: 'Sensory Processing and Brain Function', content: 'Occipital channels show alpha peaks within research-norm bands. Temporal channels show higher delta amplitude relative to research norms. The overall delta-band distribution is associated with sensorimotor-integration profiles in the research literature.'},
       {title: 'Nonverbal Communication and Brain Activity', content: 'Elevated frontal synchronisation with atypical temporal activity may affect facial expression recognition and social cue integration. Temporal asymmetry may correlate with difficulties in auditory-linguistic processing.'},
       {title: 'Everyday Strengths and Challenges', content: 'Enhanced frontal activation supports executive functions. Persistent asymmetries denote multisensory integration challenges. Elevated attention indices create a mixed adaptability profile.'},
       {title: 'Cognitive and Behavioural Trends', content: 'Sustained elevated theta/beta ratio indicates attentional control issues. Reduced beta2 and gamma power correlates with cognitive fatigability. Dynamic microstate patterns hint at reduced neural flexibility.'},
@@ -3738,7 +3733,7 @@ var DEMO_QEEG_REPORT = {
       {title: 'Tailored Lifestyle Recommendations', content: 'Regular aerobic exercise 3-4 times weekly. Mind-body practices like yoga for stress regulation. Cognitive training exercises. Structured daily schedule with planned breaks.'},
       {title: 'Long-Term Learning and Career Guidance', content: 'Structured environments with clear task delineation suit the profile. Roles emphasising systematic planning and detailed task management. Productivity tools and organisational apps recommended.'},
       {title: 'Social and Recreational Support', content: 'Structured group activities. Social skills training. Recreational pursuits combining physical movement with social interaction.'},
-      {title: 'Treatment and Assistive Strategies', content: 'Neurofeedback sessions for brainwave control. Mindfulness and meditation for hyperarousal reduction. CBT for anxiety and attention difficulties. Assistive technologies for executive dysfunction.'},
+      {title: 'Illustrative Wellness Strategies (not treatment recommendations)', content: 'Examples discussed in the research literature for similar EEG profiles include: neurofeedback training; mindfulness and meditation practice; cognitive training; behavioural therapies for attentional regulation. Any actual treatment plan must be set by a qualified clinician — these are illustrative examples only.'},
       {title: 'Ongoing Development and Monitoring', content: 'Follow-up QEEG evaluations every 3-6 months. Detailed symptom diary. Regular consultations with neuropsychological and nutritional specialists. Adjust interventions based on longitudinal data.'}
     ]
   },

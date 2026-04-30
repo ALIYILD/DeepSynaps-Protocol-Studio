@@ -24,11 +24,45 @@ function _stateColor(state) {
   return '#6b7280';
 }
 
+function _normalizeReviewContext(report, findings) {
+  var payload = (report && (report.ai_narrative || report.ai_narrative_json || report.report_payload)) || {};
+  var outFindings = Array.isArray(findings) ? findings.slice() : [];
+  if (!outFindings.length) {
+    if (Array.isArray(payload.findings) && payload.findings.length) {
+      outFindings = payload.findings.map(function (f, idx) {
+        return {
+          id: f.id || ('finding-' + idx),
+          finding_text: f.observation || f.statement || '',
+          claim_type: f.claim_type || 'PENDING',
+          status: f.status || 'PENDING',
+          evidence_grade: f.evidence_grade || '—',
+        };
+      });
+    } else if (Array.isArray(report && report.claim_governance) && report.claim_governance.length) {
+      outFindings = report.claim_governance.map(function (f, idx) {
+        return {
+          id: f.id || ('claim-' + idx),
+          finding_text: f.finding_text || '',
+          claim_type: f.claim_type || 'PENDING',
+          status: f.status || 'PENDING',
+          evidence_grade: f.evidence_grade || '—',
+        };
+      });
+    }
+  }
+  return {
+    findings: outFindings,
+    rawReviewHandoff: payload.raw_review_handoff || null,
+    localGrounding: payload.local_grounding || payload.courseware_guidance || null,
+  };
+}
+
 function renderClinicianReview(report, findings) {
   if (!report) return '';
   var state = report.report_state || 'DRAFT_AI';
   var signed = !!report.signed_by;
-  var findingsList = findings || [];
+  var ctx = _normalizeReviewContext(report, findings);
+  var findingsList = ctx.findings || [];
 
   var header = '<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">'
     + _pill(esc(state), _stateColor(state))
@@ -65,11 +99,34 @@ function renderClinicianReview(report, findings) {
       + '<tbody>' + rows + '</tbody></table>'
     : '<p style="color:var(--text-secondary);font-size:13px">No granular findings.</p>';
 
+  var rawReviewPanel = '';
+  if (ctx.rawReviewHandoff) {
+    var rr = ctx.rawReviewHandoff;
+    var rrRows = [];
+    if (rr.cleaning_version_number != null) rrRows.push('Cleaning version v' + esc(rr.cleaning_version_number));
+    if (Array.isArray(rr.bad_channels) && rr.bad_channels.length) rrRows.push('Bad channels: ' + esc(rr.bad_channels.join(', ')));
+    if (Array.isArray(rr.medication_confounds) && rr.medication_confounds.length) rrRows.push('Medication confounds: ' + esc(rr.medication_confounds.join(', ')));
+    rawReviewPanel = '<div style="margin:12px 0"><h4 style="margin:0 0 8px;font-size:13px">Raw Review Handoff</h4>'
+      + '<div style="display:grid;gap:6px;font-size:12px;color:var(--text-secondary)">' + rrRows.map(function (line) {
+        return '<div>' + line + '</div>';
+      }).join('')
+      + (rr.notes ? '<div>' + esc(rr.notes) + '</div>' : '')
+      + '</div></div>';
+  }
+
+  var groundingPanel = '';
+  if (ctx.localGrounding) {
+    groundingPanel = '<div style="margin:12px 0"><h4 style="margin:0 0 8px;font-size:13px">Local qEEG Grounding</h4>'
+      + '<div style="font-size:12px;color:var(--text-secondary)">Local courseware and research grounding is attached to this clinician report payload.</div></div>';
+  }
+
   return '<div class="ds-card qeeg-ai-card">'
     + '<div class="ds-card__header"><h3>Clinician Review</h3></div>'
     + '<div class="ds-card__body">'
     + header
     + '<div style="margin-bottom:12px">' + actions + '</div>'
+    + rawReviewPanel
+    + groundingPanel
     + findingsTable
     + '</div></div>';
 }

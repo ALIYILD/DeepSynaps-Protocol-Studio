@@ -2144,6 +2144,11 @@ class QEEGAIReport(Base):
     patient_facing_report_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     signed_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     signed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    # ── Brain Map Report contract (migration 064) ─────────────────────────────
+    # JSON-serialized QEEGBrainMapReport (see services/qeeg_report_template.py).
+    # Stored as Text for SQLite/Postgres dual-dialect compat per repo convention.
+    report_payload: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    report_payload_schema_version: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 

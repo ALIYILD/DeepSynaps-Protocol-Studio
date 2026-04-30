@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+import io
 import json
+import logging
 import os
 import re
 import uuid
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -28,6 +31,17 @@ from app.repositories.patients import resolve_patient_clinic_id
 from app.settings import get_settings
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
+
+_logger = logging.getLogger(__name__)
+
+# Documents Hub launch-audit (2026-04-30) — clinical-safety disclaimers
+# rendered on the page banner and in /summary so reviewers always see the
+# regulatory ceiling for this view.
+DOCUMENTS_PAGE_DISCLAIMERS = [
+    "Documents are clinical records and require clinician sign-off.",
+    "Signed documents are immutable; supersede creates a revision with audit trail.",
+    "Patient-identifiable documents must comply with local privacy law.",
+]
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -138,10 +152,50 @@ def _record_to_out(r: FormDefinition) -> "DocumentOut":
         notes=meta.get("notes"),
         file_ref=meta.get("file_ref"),
         signed_at=meta.get("signed_at"),
+        signed_by=meta.get("signed_by_actor_id"),
         template_id=meta.get("template_id"),
+        supersedes=meta.get("supersedes"),
+        superseded_by=meta.get("superseded_by"),
+        revision=int(meta.get("revision", 1) or 1),
+        is_demo=bool(meta.get("is_demo", False)),
         created_at=r.created_at.isoformat(),
         updated_at=r.updated_at.isoformat(),
     )
+
+
+def _audit(
+    db: Session,
+    actor: AuthenticatedActor,
+    *,
+    event: str,
+    target_id: str,
+    note: str,
+) -> None:
+    """Best-effort audit-trail write. Must never raise back at the caller.
+
+    Mirrors the pattern in ``reports_router._audit`` so events show up in
+    ``/api/v1/audit-trail`` under ``target_type='documents'``.
+    """
+    try:
+        from app.repositories.audit import create_audit_event
+
+        now = datetime.now(timezone.utc)
+        event_id = (
+            f"documents-{event}-{actor.actor_id}-{int(now.timestamp())}-{uuid.uuid4().hex[:6]}"
+        )
+        create_audit_event(
+            db,
+            event_id=event_id,
+            target_id=str(target_id),
+            target_type="documents",
+            action=f"documents.{event}",
+            role=actor.role,
+            actor_id=actor.actor_id,
+            note=(note or event)[:1024],
+            created_at=now.isoformat(),
+        )
+    except Exception:  # pragma: no cover — audit must never block the API
+        _logger.debug("documents audit write skipped", exc_info=True)
 
 
 def _validate_document_status(status: str) -> None:
@@ -262,7 +316,12 @@ class DocumentOut(BaseModel):
     notes: Optional[str]
     file_ref: Optional[str]
     signed_at: Optional[str]
+    signed_by: Optional[str] = None
     template_id: Optional[str]
+    supersedes: Optional[str] = None
+    superseded_by: Optional[str] = None
+    revision: int = 1
+    is_demo: bool = False
     created_at: str
     updated_at: str
 

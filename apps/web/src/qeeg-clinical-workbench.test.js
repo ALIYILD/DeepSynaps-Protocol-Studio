@@ -147,6 +147,30 @@ test('renderClinicianReview shows sign button for approved', () => {
   assert.ok(html.includes('Sign Report'));
 });
 
+test('renderClinicianReview surfaces raw review handoff and claim governance fallback', () => {
+  const html = review.renderClinicianReview({
+    id: 'r1',
+    report_state: 'NEEDS_REVIEW',
+    reviewer_id: 'clin_1',
+    signed_by: null,
+    ai_narrative: {
+      raw_review_handoff: {
+        cleaning_version_number: 2,
+        bad_channels: ['Fp1', 'T7'],
+        medication_confounds: ['methylphenidate'],
+      },
+    },
+    claim_governance: [
+      { finding_text: 'Theta elevation', claim_type: 'INFERRED', status: 'PENDING', evidence_grade: 'B' },
+    ],
+  }, []);
+  assert.ok(html.includes('Raw Review Handoff'));
+  assert.ok(html.includes('Cleaning version v2'));
+  assert.ok(html.includes('Fp1, T7'));
+  assert.ok(html.includes('methylphenidate'));
+  assert.ok(html.includes('Theta elevation'));
+});
+
 // ── Patient Report ───────────────────────────────────────────────────────────
 
 test('renderPatientReport shows not-generated fallback', () => {
