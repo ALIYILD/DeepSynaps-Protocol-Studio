@@ -86,6 +86,11 @@ class IndicatorValue(BaseModel):
     unit: Optional[str] = None
     percentile: Optional[float] = None
     band: Optional[str] = None  # "low" | "typical" | "high" | "flag"
+    # Evidence-tier gating (added 2026-04-30 from QEEG evidence-citation audit).
+    # See deepsynaps-qeeg-evidence-gaps.md. Downstream UIs must surface these
+    # so unvalidated indicators are not implied to be cleared biomarkers.
+    evidence_grade: Optional[str] = None
+    evidence_caveat: Optional[str] = None
 
 
 class Indicators(BaseModel):
@@ -252,6 +257,53 @@ def _percentile_to_band(p: Optional[float]) -> Optional[str]:
     return "balanced"
 
 
+# Per-indicator evidence-tier metadata. Source: QEEG evidence-citation audit
+# (subagent run 2026-04-30, see memory deepsynaps-qeeg-evidence-gaps.md).
+# Every indicator MUST carry both fields so downstream UIs cannot accidentally
+# present an unvalidated indicator as a cleared biomarker.
+_INDICATOR_EVIDENCE: dict[str, dict[str, str]] = {
+    "tbr": {
+        "evidence_grade": "FDA_CLEARED_AID_CONTESTED",
+        "evidence_caveat": (
+            "FDA-cleared as an ADHD assessment aid (K112926, 2013); specificity is "
+            "contested in post-2015 literature; spectral method standardization is "
+            "required."
+        ),
+    },
+    "occipital_paf": {
+        "evidence_grade": "RESEARCH_HEURISTIC",
+        "evidence_caveat": (
+            "Research-grade heuristic only — not a regulatory-cleared biomarker. "
+            "Interpret descriptively in the context of the full report."
+        ),
+    },
+    "alpha_reactivity": {
+        "evidence_grade": "RESEARCH_HEURISTIC",
+        "evidence_caveat": (
+            "Foundational EEG science (Berger effect) but no formal diagnostic-"
+            "accuracy validation or regulatory clearance. Surface as a research-"
+            "grade descriptive metric only."
+        ),
+    },
+    "brain_balance": {
+        "evidence_grade": "RESEARCH_INVESTIGATIONAL",
+        "evidence_caveat": (
+            "Underlying construct is Frontal Alpha Asymmetry (FAA); has research "
+            "literature support but is not regulatory-cleared. Investigational / "
+            "research-only — do not use as a clinical biomarker."
+        ),
+    },
+    "ai_brain_age": {
+        "evidence_grade": "INVESTIGATIONAL_NO_REGULATORY_CLEARANCE",
+        "evidence_caveat": (
+            "Investigational — no FDA/CE clearance for any EEG-derived brain-age "
+            "model and no validated published model. Do not use as a clinical "
+            "biomarker."
+        ),
+    },
+}
+
+
 def compute_indicators(features: dict[str, Any]) -> Indicators:
     """Compute the 5 cover indicators from the pipeline feature dict."""
     spec = features.get("spectral") or {}
@@ -269,30 +321,40 @@ def compute_indicators(features: dict[str, Any]) -> Indicators:
             unit="ratio",
             percentile=_to_float(tbr_pct),
             band=_percentile_to_band(_to_float(tbr_pct)),
+            evidence_grade=_INDICATOR_EVIDENCE["tbr"]["evidence_grade"],
+            evidence_caveat=_INDICATOR_EVIDENCE["tbr"]["evidence_caveat"],
         ),
         occipital_paf=IndicatorValue(
             value=_to_float(paf_hz),
             unit="Hz",
             percentile=_to_float(paf_pct),
             band=_percentile_to_band(_to_float(paf_pct)),
+            evidence_grade=_INDICATOR_EVIDENCE["occipital_paf"]["evidence_grade"],
+            evidence_caveat=_INDICATOR_EVIDENCE["occipital_paf"]["evidence_caveat"],
         ),
         alpha_reactivity=IndicatorValue(
             value=_to_float(spec.get("alpha_reactivity_ratio")),
             unit="EO/EC",
             percentile=_to_float(spec.get("alpha_reactivity_percentile")),
             band=_percentile_to_band(_to_float(spec.get("alpha_reactivity_percentile"))),
+            evidence_grade=_INDICATOR_EVIDENCE["alpha_reactivity"]["evidence_grade"],
+            evidence_caveat=_INDICATOR_EVIDENCE["alpha_reactivity"]["evidence_caveat"],
         ),
         brain_balance=IndicatorValue(
             value=_to_float(asymmetry.get("hemisphere_laterality_index")),
             unit="laterality",
             percentile=_to_float(asymmetry.get("hemisphere_laterality_percentile")),
             band=_percentile_to_band(_to_float(asymmetry.get("hemisphere_laterality_percentile"))),
+            evidence_grade=_INDICATOR_EVIDENCE["brain_balance"]["evidence_grade"],
+            evidence_caveat=_INDICATOR_EVIDENCE["brain_balance"]["evidence_caveat"],
         ),
         ai_brain_age=IndicatorValue(
             value=_to_float(aperiodic.get("ai_estimated_brain_age_years")),
             unit="years",
             percentile=None,
             band=None,
+            evidence_grade=_INDICATOR_EVIDENCE["ai_brain_age"]["evidence_grade"],
+            evidence_caveat=_INDICATOR_EVIDENCE["ai_brain_age"]["evidence_caveat"],
         ),
     )
 

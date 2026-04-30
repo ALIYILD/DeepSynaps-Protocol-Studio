@@ -226,29 +226,88 @@ def _json_loads(raw: Optional[str]) -> Any:
 # DK ROI → modality+target hints. Z-score sign-aware: deficit (z <= -1.5)
 # vs excess (z >= 1.5) drive different recommendations. Hands-off zones
 # (motor cortex, etc.) carry mandatory required_checks.
+# Evidence-grade tags applied per QEEG evidence-citation audit (2026-04-30).
+# See memory file deepsynaps-qeeg-evidence-gaps.md for the full audit. Two
+# mappings (tDCS-O1/O2 and tACS-Pz) are NOT supported by any published trial
+# and are gated with `enabled: False` so suggest_protocols_from_report skips
+# them. Do not delete the entries — they document what was considered and
+# rejected, and downstream code may want to surface the gap.
 _DK_ROI_PROTOCOL_HINTS: dict[str, dict] = {
     "rostralmiddlefrontal": {
-        "lh_deficit": {"modality": "rTMS", "target": "left DLPFC", "frequency": "10 Hz", "rationale": "Reduced left rostral middle frontal activity is associated with depressive and inattentive presentations."},
-        "rh_excess":  {"modality": "rTMS", "target": "right DLPFC", "frequency": "1 Hz", "rationale": "Right-frontal excess is associated with anxious presentations."},
+        "lh_deficit": {
+            "modality": "rTMS", "target": "left DLPFC", "frequency": "10 Hz",
+            "rationale": "Reduced left rostral middle frontal activity is associated with depressive and inattentive presentations.",
+            "evidence_grade": "STRONG_FDA_CLEARED",
+            "evidence_caveat": "Left DLPFC rTMS at 10 Hz is FDA-cleared for treatment-resistant MDD (multiple meta-analyses).",
+            "enabled": True,
+        },
+        "rh_excess": {
+            "modality": "rTMS", "target": "right DLPFC", "frequency": "1 Hz",
+            "rationale": "Right-frontal excess is associated with anxious presentations.",
+            "evidence_grade": "WEAK_OFF_LABEL_FOR_ANXIETY",
+            "evidence_caveat": "Right DLPFC 1 Hz rTMS for primary anxiety is off-label; surface only with explicit clinician review.",
+            "enabled": True,
+        },
     },
     "superiorfrontal": {
-        "lh_deficit": {"modality": "rTMS", "target": "left DLPFC", "frequency": "10 Hz", "rationale": "Left superior frontal hypoactivation is associated with executive-function difficulties."},
+        "lh_deficit": {
+            "modality": "rTMS", "target": "left DLPFC", "frequency": "10 Hz",
+            "rationale": "Left superior frontal hypoactivation is associated with executive-function difficulties.",
+            "evidence_grade": "STRONG_FDA_CLEARED",
+            "evidence_caveat": "Left DLPFC rTMS at 10 Hz is FDA-cleared for treatment-resistant MDD; executive-function indication is supportive but secondary.",
+            "enabled": True,
+        },
     },
     "superiortemporal": {
-        "lh_deficit": {"modality": "tDCS", "target": "left STG (Wernicke)", "montage": "anodal 1 mA", "rationale": "Left superior temporal hypoactivation is associated with language-comprehension difficulties."},
+        "lh_deficit": {
+            "modality": "tDCS", "target": "left STG (Wernicke)", "montage": "anodal 1 mA",
+            "rationale": "Left superior temporal hypoactivation is associated with language-comprehension difficulties.",
+            "evidence_grade": "EV-C",
+            "evidence_caveat": "Heuristic mapping — pilot-level evidence only.",
+            "enabled": True,
+        },
     },
     "lateraloccipital": {
-        "bilateral_deficit": {"modality": "tDCS", "target": "O1/O2", "montage": "bipolar 1 mA", "rationale": "Posterior alpha hypoactivation is associated with sleep and visual-perception complaints."},
+        # AUDIT-DISABLED 2026-04-30: tDCS at O1/O2 is NOT supported by any
+        # published trial for insomnia or chronic pain. Published tDCS for
+        # insomnia uses bifrontal montages; chronic pain uses M1 or DLPFC.
+        "bilateral_deficit": {
+            "modality": "tDCS", "target": "O1/O2", "montage": "bipolar 1 mA",
+            "rationale": "Posterior alpha hypoactivation is associated with sleep and visual-perception complaints.",
+            "evidence_grade": "NOT_SUPPORTED_DO_NOT_SURFACE",
+            "evidence_caveat": "No published trial uses tDCS at O1/O2 for insomnia or chronic pain. Disabled at v1 pending evidence; do not surface.",
+            "enabled": False,
+        },
     },
     "precuneus": {
-        "bilateral_excess": {"modality": "tACS", "target": "Pz", "frequency": "10 Hz", "rationale": "Precuneus excess is associated with rumination patterns; clinician review required."},
+        # AUDIT-DISABLED 2026-04-30: tACS Pz 10 Hz for rumination/depression
+        # is investigational — no trial tests this specific mapping.
+        "bilateral_excess": {
+            "modality": "tACS", "target": "Pz", "frequency": "10 Hz",
+            "rationale": "Precuneus excess is associated with rumination patterns; clinician review required.",
+            "evidence_grade": "NOT_SUPPORTED_DO_NOT_SURFACE",
+            "evidence_caveat": "No published trial tests tACS Pz 10 Hz for rumination or depression. Disabled at v1 pending evidence; do not surface.",
+            "enabled": False,
+        },
     },
     "rostralanteriorcingulate": {
-        "bilateral_deficit": {"modality": "rTMS", "target": "DMPFC", "frequency": "10 Hz", "rationale": "Anterior cingulate hypoactivation is associated with emotion-regulation difficulties."},
+        "bilateral_deficit": {
+            "modality": "rTMS", "target": "DMPFC", "frequency": "10 Hz",
+            "rationale": "Anterior cingulate hypoactivation is associated with emotion-regulation difficulties.",
+            "evidence_grade": "MODERATE_NO_RCT_OPEN_LABEL_LARGE_SERIES",
+            "evidence_caveat": "DMPFC rTMS for ACC hypoactivation: open-label large case series support; no RCT yet. Requires H-coil or neuronavigation.",
+            "enabled": True,
+        },
     },
     "precentral": {
         # Motor cortex — flag rather than recommend.
-        "any_deviation": {"modality": "review_only", "target": "M1", "rationale": "Motor cortex deviations require clinician review before any neuromodulation protocol is considered."},
+        "any_deviation": {
+            "modality": "review_only", "target": "M1",
+            "rationale": "Motor cortex deviations require clinician review before any neuromodulation protocol is considered.",
+            "evidence_grade": "EV-D",
+            "evidence_caveat": "Hands-off zone — review-only flag, never a direct suggestion.",
+            "enabled": True,
+        },
     },
 }
 
@@ -332,6 +391,10 @@ def suggest_protocols_from_report(report_payload: dict[str, Any]) -> list[dict]:
             key = _hint_key(hemi, band)
             if key and key in hints:
                 hint = hints[key]
+                if not hint.get("enabled", True):
+                    # Audit-disabled mapping: do not surface (see audit
+                    # 2026-04-30, deepsynaps-qeeg-evidence-gaps.md).
+                    continue
                 suggestions.append({
                     "pattern": f"{roi}_{key}",
                     "modality": hint.get("modality"),
@@ -340,7 +403,8 @@ def suggest_protocols_from_report(report_payload: dict[str, Any]) -> list[dict]:
                     "montage": hint.get("montage"),
                     "rationale": hint.get("rationale"),
                     "fit_score": min(1.0, agg["max_abs"] / 3.0),
-                    "evidence_grade": "EV-C",
+                    "evidence_grade": hint.get("evidence_grade", "EV-C"),
+                    "evidence_caveat": hint.get("evidence_caveat"),
                     "contraindications": ["seizure_history"] if hint.get("modality") == "rTMS" else [],
                     "required_checks": [
                         "Verify no seizure history" if hint.get("modality") == "rTMS" else "Inspect scalp at electrode sites",
@@ -353,50 +417,56 @@ def suggest_protocols_from_report(report_payload: dict[str, Any]) -> list[dict]:
         if lh_band and rh_band:
             if "deficit" in lh_band and "deficit" in rh_band and "bilateral_deficit" in hints:
                 hint = hints["bilateral_deficit"]
-                suggestions.append({
-                    "pattern": f"{roi}_bilateral_deficit",
-                    "modality": hint.get("modality"),
-                    "target": hint.get("target"),
-                    "frequency": hint.get("frequency"),
-                    "montage": hint.get("montage"),
-                    "rationale": hint.get("rationale"),
-                    "fit_score": min(1.0, agg["max_abs"] / 3.0),
-                    "evidence_grade": "EV-C",
-                    "contraindications": ["skin_lesion_at_site"] if hint.get("modality") == "tDCS" else [],
-                    "required_checks": [
-                        "Inspect scalp at electrode sites" if hint.get("modality") == "tDCS" else "Confirm assessment by qualified clinician",
-                    ],
-                    "related_rois": [f"lh.{roi}", f"rh.{roi}"],
-                })
+                if hint.get("enabled", True):
+                    suggestions.append({
+                        "pattern": f"{roi}_bilateral_deficit",
+                        "modality": hint.get("modality"),
+                        "target": hint.get("target"),
+                        "frequency": hint.get("frequency"),
+                        "montage": hint.get("montage"),
+                        "rationale": hint.get("rationale"),
+                        "fit_score": min(1.0, agg["max_abs"] / 3.0),
+                        "evidence_grade": hint.get("evidence_grade", "EV-C"),
+                        "evidence_caveat": hint.get("evidence_caveat"),
+                        "contraindications": ["skin_lesion_at_site"] if hint.get("modality") == "tDCS" else [],
+                        "required_checks": [
+                            "Inspect scalp at electrode sites" if hint.get("modality") == "tDCS" else "Confirm assessment by qualified clinician",
+                        ],
+                        "related_rois": [f"lh.{roi}", f"rh.{roi}"],
+                    })
             if "excess" in lh_band and "excess" in rh_band and "bilateral_excess" in hints:
                 hint = hints["bilateral_excess"]
-                suggestions.append({
-                    "pattern": f"{roi}_bilateral_excess",
-                    "modality": hint.get("modality"),
-                    "target": hint.get("target"),
-                    "frequency": hint.get("frequency"),
-                    "rationale": hint.get("rationale"),
-                    "fit_score": min(1.0, agg["max_abs"] / 3.0),
-                    "evidence_grade": "EV-C",
-                    "contraindications": [],
-                    "required_checks": ["Confirm assessment by qualified clinician"],
-                    "related_rois": [f"lh.{roi}", f"rh.{roi}"],
-                })
+                if hint.get("enabled", True):
+                    suggestions.append({
+                        "pattern": f"{roi}_bilateral_excess",
+                        "modality": hint.get("modality"),
+                        "target": hint.get("target"),
+                        "frequency": hint.get("frequency"),
+                        "rationale": hint.get("rationale"),
+                        "fit_score": min(1.0, agg["max_abs"] / 3.0),
+                        "evidence_grade": hint.get("evidence_grade", "EV-C"),
+                        "evidence_caveat": hint.get("evidence_caveat"),
+                        "contraindications": [],
+                        "required_checks": ["Confirm assessment by qualified clinician"],
+                        "related_rois": [f"lh.{roi}", f"rh.{roi}"],
+                    })
 
         # Hands-off zones (motor cortex, etc.) — flag any deviation
         if "any_deviation" in hints and (lh_band or rh_band):
             hint = hints["any_deviation"]
-            suggestions.append({
-                "pattern": f"{roi}_review_required",
-                "modality": hint.get("modality"),
-                "target": hint.get("target"),
-                "rationale": hint.get("rationale"),
-                "fit_score": 0.0,
-                "evidence_grade": "EV-D",
-                "contraindications": [],
-                "required_checks": ["Mandatory clinician review before any protocol selection."],
-                "related_rois": [f"lh.{roi}", f"rh.{roi}"],
-            })
+            if hint.get("enabled", True):
+                suggestions.append({
+                    "pattern": f"{roi}_review_required",
+                    "modality": hint.get("modality"),
+                    "target": hint.get("target"),
+                    "rationale": hint.get("rationale"),
+                    "fit_score": 0.0,
+                    "evidence_grade": hint.get("evidence_grade", "EV-D"),
+                    "evidence_caveat": hint.get("evidence_caveat"),
+                    "contraindications": [],
+                    "required_checks": ["Mandatory clinician review before any protocol selection."],
+                    "related_rois": [f"lh.{roi}", f"rh.{roi}"],
+                })
 
     # Rank descending by fit_score, then alphabetical for stability
     suggestions.sort(key=lambda s: (-(s.get("fit_score") or 0.0), s.get("pattern") or ""))
