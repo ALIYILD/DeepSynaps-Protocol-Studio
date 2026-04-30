@@ -1532,7 +1532,11 @@ async function renderPage() {
     case 'schedule-v2':        { const m = await loadClinicalHubs(); await m.pgSchedulingHub(setTopbar, navigate); break; }
     case 'assessments-v2':     { const m = await loadClinicalHubs(); await m.pgAssessmentsHub(setTopbar, navigate); break; }
     case 'patients-v2':        { const m = await loadClinicalHubs(); await m.pgPatientHub(setTopbar, navigate); break; }
-    case 'brain-twin':         { const m = await loadBrainTwin(); await m.pgBrainTwin(setTopbar, navigate); break; }
+    // 'brain-twin' is the legacy flagship route; consolidated onto 'deeptwin'.
+    // route-id.js already aliases the id, but redirect here too as a belt for
+    // any caller that bypasses normaliseRouteId. pages-brain-twin.js is
+    // preserved on disk for direct deep-link recovery via archive tags.
+    case 'brain-twin':         { window._nav('deeptwin'); break; }
     case 'deeptwin':           { const m = await loadDeeptwin(); await m.pgDeeptwin(setTopbar, navigate); break; }
     case 'monitor':            { const m = await loadMonitor(); await m.pgMonitor(setTopbar, navigate); break; }
     case 'device-dashboard':   { const m = await loadDeviceDashboard(); await m.pgDeviceDashboard(setTopbar, navigate); break; }
