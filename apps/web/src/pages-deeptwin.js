@@ -18,7 +18,10 @@
 
 import {
   getTwinSummary, getTwinSignals, getTwinTimeline, getTwinCorrelations,
-  getTwinPredictions, runTwinSimulation, getDemoPatient,
+  getTwinPredictions, runTwinSimulation, getDemoPatient, getDeepTwinDataSources,
+  createAnalysisRun, listAnalysisRuns, reviewAnalysisRun,
+  createSimulationRun, listSimulationRuns, reviewSimulationRun,
+  createClinicianNote, listClinicianNotes,
 } from './deeptwin/service.js';
 import {
   renderHeader, renderDataSources, renderSignalMatrix,
@@ -28,6 +31,7 @@ import {
   renderPrediction, mountPrediction,
   renderSimulationLab, renderSimulationDetail, mountSimulation,
   renderReportCenter, renderHandoff, renderSafetyFooter,
+  renderHistoryPanel, renderClinicianNotesPanel,
   loadingBlock, errorBlock, emptyPatientBlock,
 } from './deeptwin/components.js';
 import { decisionSupportBanner } from './deeptwin/safety.js';
@@ -76,6 +80,10 @@ const STATE = {
   predictionHorizon: '6w',
   scenarios: [],     // persisted for compare
   timelineFilters: ['session', 'assessment', 'qeeg', 'symptom', 'biometric'],
+  dataSources: null,
+  analysisRuns: [],
+  simulationRuns: [],
+  clinicianNotes: [],
 };
 
 function _setMain(html) {
@@ -89,18 +97,26 @@ function _setMain(html) {
 
 async function _loadAll(patientId) {
   STATE.patientId = patientId;
-  const [summary, signals, timeline, correlations, prediction] = await Promise.all([
+  const [summary, signals, timeline, correlations, prediction, dataSources, analysisRuns, simulationRuns, notes] = await Promise.all([
     getTwinSummary(patientId),
     getTwinSignals(patientId),
     getTwinTimeline(patientId, 90),
     getTwinCorrelations(patientId),
     getTwinPredictions(patientId, STATE.predictionHorizon),
+    getDeepTwinDataSources(patientId),
+    listAnalysisRuns(patientId),
+    listSimulationRuns(patientId),
+    listClinicianNotes(patientId),
   ]);
   STATE.summary = summary;
   STATE.signals = signals?.signals || [];
   STATE.timeline = timeline?.events || [];
   STATE.correlations = correlations;
   STATE.prediction = prediction;
+  STATE.dataSources = dataSources;
+  STATE.analysisRuns = Array.isArray(analysisRuns) ? analysisRuns : [];
+  STATE.simulationRuns = Array.isArray(simulationRuns) ? simulationRuns : [];
+  STATE.clinicianNotes = Array.isArray(notes) ? notes : [];
 }
 
 function _renderAll() {
@@ -109,8 +125,8 @@ function _renderAll() {
   const html = `
     <div class="dt-page">
       ${decisionSupportBanner()}
-      ${renderHeader({ patientLabel, condition, summary: STATE.summary })}
-      ${renderDataSources({ summary: STATE.summary })}
+      ${renderHeader({ patientLabel, condition, summary: STATE.summary, dataSources: STATE.dataSources })}
+      ${renderDataSources({ summary: STATE.summary, dataSources: STATE.dataSources })}
       ${renderSignalMatrix({ signals: STATE.signals })}
       ${renderTimeline({ patientId: STATE.patientId }, HOST_TIMELINE)}
       ${renderCorrelations({ correlations: STATE.correlations }, HOST_CORR)}
@@ -120,6 +136,8 @@ function _renderAll() {
       ${renderTribeCompare()}
       ${renderReportCenter()}
       ${renderHandoff()}
+      ${renderHistoryPanel({ analysisRuns: STATE.analysisRuns, simulationRuns: STATE.simulationRuns })}
+      ${renderClinicianNotesPanel({ notes: STATE.clinicianNotes })}
       ${renderSafetyFooter()}
     </div>
   `;
@@ -136,6 +154,8 @@ function _renderAll() {
   wireTribeCompare(() => STATE.patientId);
   _wireReportButtons();
   _wireHandoffButtons();
+  _wireHistoryReviewButtons();
+  _wireClinicianNoteForm();
 }
 
 function _wireTimelineFilters() {
@@ -216,6 +236,21 @@ function _wireSimulationLab() {
         setTimeout(() => reject(new Error('Simulation timed out after 30s. The backend may still be processing — try again or refresh shortly.')), TIMEOUT_MS)
       );
       const sim = await Promise.race([runTwinSimulation(STATE.patientId, params), timeoutP]);
+      // Persist the simulation run to backend for audit trail.
+      try {
+        await createSimulationRun(STATE.patientId, {
+          proposed_protocol_json: { modality: params.modality, target: params.target, frequency_hz: params.frequency_hz, current_ma: params.current_ma, duration_min: params.duration_min, sessions_per_week: params.sessions_per_week, weeks: params.weeks },
+          assumptions_json: { adherence_assumption_pct: params.adherence_assumption_pct, contraindications: params.contraindications },
+          predicted_direction_json: sim?.outputs || {},
+          confidence: sim?.outputs?.confidence || null,
+          limitations: 'Simulation uses exploratory modeling. Not a prescription. Clinician review required.',
+        });
+        // Refresh history panel in background.
+        listSimulationRuns(STATE.patientId).then(runs => { STATE.simulationRuns = Array.isArray(runs) ? runs : []; });
+      } catch (persistErr) {
+        // Non-fatal: simulation worked but persistence failed. Log quietly.
+        console.warn('Simulation persistence failed:', persistErr);
+      }
       if (addToCompare) {
         const willEvict = STATE.scenarios.length >= 3;
         STATE.scenarios = [...STATE.scenarios, sim].slice(-3);
@@ -242,6 +277,61 @@ function _wireSimulationLab() {
   document.getElementById('dt-sim-room')?.addEventListener('click', async () => {
     const { openSimRoom } = await import('./deeptwin/sim-room.js');
     openSimRoom(STATE.patientId);
+  });
+}
+
+function _wireHistoryReviewButtons() {
+  document.querySelectorAll('.dt-history-item [data-review]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const item = btn.closest('.dt-history-item');
+      const runId = item?.dataset.runId;
+      const runType = item?.dataset.runType;
+      if (!runId || !runType) return;
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+      try {
+        if (runType === 'analysis') {
+          await reviewAnalysisRun(runId);
+        } else {
+          await reviewSimulationRun(runId);
+        }
+        window._showToast?.('Marked as reviewed', 'success');
+        // Refresh history in background.
+        if (runType === 'analysis') {
+          listAnalysisRuns(STATE.patientId).then(runs => { STATE.analysisRuns = Array.isArray(runs) ? runs : []; _renderAll(); });
+        } else {
+          listSimulationRuns(STATE.patientId).then(runs => { STATE.simulationRuns = Array.isArray(runs) ? runs : []; _renderAll(); });
+        }
+      } catch (e) {
+        btn.disabled = false;
+        btn.textContent = 'Mark reviewed';
+        window._showToast?.('Review failed: ' + (e.message || e), 'warning');
+      }
+    });
+  });
+}
+
+function _wireClinicianNoteForm() {
+  const saveBtn = document.getElementById('dt-note-save');
+  const input = document.getElementById('dt-note-input');
+  if (!saveBtn || !input) return;
+  saveBtn.addEventListener('click', async () => {
+    const text = input.value.trim();
+    if (!text) return;
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving…';
+    try {
+      await createClinicianNote(STATE.patientId, { note_text: text });
+      input.value = '';
+      window._showToast?.('Note saved', 'success');
+      const notes = await listClinicianNotes(STATE.patientId);
+      STATE.clinicianNotes = Array.isArray(notes) ? notes : [];
+      _renderAll();
+    } catch (e) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save note';
+      window._showToast?.('Note failed: ' + (e.message || e), 'warning');
+    }
   });
 }
 

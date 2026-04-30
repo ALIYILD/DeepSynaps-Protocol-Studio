@@ -79,6 +79,55 @@ export async function postTwinAgentHandoff(patientId, payload) {
   }));
 }
 
+export async function getDeepTwinDataSources(patientId) {
+  return withFallback(() => api.getDeepTwinDataSources(patientId), () => ({
+    patient_id: patientId,
+    sources: {},
+    completeness_score: 0,
+  }));
+}
+
+export async function createAnalysisRun(patientId, payload) {
+  return withFallback(() => api.createAnalysisRun(patientId, payload), () => ({
+    id: 'demo-' + Date.now(), patient_id: patientId, clinician_id: 'demo', analysis_type: payload.analysis_type,
+    status: 'completed', created_at: new Date().toISOString(),
+  }));
+}
+
+export async function listAnalysisRuns(patientId) {
+  return withFallback(() => api.listAnalysisRuns(patientId), () => []);
+}
+
+export async function reviewAnalysisRun(runId) {
+  return withFallback(() => api.reviewAnalysisRun(runId), () => ({ id: runId, reviewed_at: new Date().toISOString() }));
+}
+
+export async function createSimulationRun(patientId, payload) {
+  return withFallback(() => api.createSimulationRun(patientId, payload), () => ({
+    id: 'demo-' + Date.now(), patient_id: patientId, clinician_id: 'demo',
+    clinician_review_required: true, created_at: new Date().toISOString(),
+  }));
+}
+
+export async function listSimulationRuns(patientId) {
+  return withFallback(() => api.listSimulationRuns(patientId), () => []);
+}
+
+export async function reviewSimulationRun(runId) {
+  return withFallback(() => api.reviewSimulationRun(runId), () => ({ id: runId, reviewed_at: new Date().toISOString() }));
+}
+
+export async function createClinicianNote(patientId, payload) {
+  return withFallback(() => api.createClinicianNote(patientId, payload), () => ({
+    id: 'demo-' + Date.now(), patient_id: patientId, clinician_id: 'demo',
+    note_text: payload.note_text, created_at: new Date().toISOString(),
+  }));
+}
+
+export async function listClinicianNotes(patientId) {
+  return withFallback(() => api.listClinicianNotes(patientId), () => []);
+}
+
 export function getDemoPatient(patientId) {
   return getDemoPatientHeader(patientId);
 }

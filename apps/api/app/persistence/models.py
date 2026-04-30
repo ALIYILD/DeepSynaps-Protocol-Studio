@@ -3016,3 +3016,70 @@ class OnboardingEvent(Base):
         nullable=False,
         index=True,
     )
+
+
+# ── Phase 13 — DeepTwin persistence and clinician review (migration 062) ──────
+#
+# DeepTwin previously computed every output on-the-fly with no historical
+# record.  These tables add auditability: every analysis run, simulation,
+# and clinician note is now persisted and reviewable.
+
+
+class DeepTwinAnalysisRun(Base):
+    """Persisted output of a DeepTwin analysis (correlation, prediction, AI summary)."""
+
+    __tablename__ = "deeptwin_analysis_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    analysis_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    input_sources_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    output_summary_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    limitations_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    confidence: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    model_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="completed")
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    reviewed_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
+
+class DeepTwinSimulationRun(Base):
+    """Persisted output of a DeepTwin simulation run."""
+
+    __tablename__ = "deeptwin_simulation_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    proposed_protocol_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    assumptions_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    predicted_direction_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    evidence_links_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    confidence: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    limitations: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    clinician_review_required: Mapped[bool] = mapped_column(Boolean(), default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    reviewed_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
+
+class DeepTwinClinicianNote(Base):
+    """Clinician annotation attached to a patient twin context."""
+
+    __tablename__ = "deeptwin_clinician_notes"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    note_text: Mapped[str] = mapped_column(Text(), nullable=False)
+    related_analysis_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    related_simulation_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))

@@ -28,10 +28,16 @@ const DOMAIN_LABEL = {
 };
 
 // 1. Twin status header --------------------------------------------------
-export function renderHeader({ patientLabel, condition, summary }) {
-  const compl = summary?.completeness_pct ?? 0;
-  const sources = (summary?.sources_connected || []).length;
-  const total = sources + (summary?.sources_missing || []).length;
+export function renderHeader({ patientLabel, condition, summary, dataSources }) {
+  const compl = dataSources?.completeness_score != null
+    ? Math.round(dataSources.completeness_score * 100)
+    : (summary?.completeness_pct ?? 0);
+  const sources = dataSources?.sources
+    ? Object.values(dataSources.sources).filter(s => s.available).length
+    : (summary?.sources_connected || []).length;
+  const total = dataSources?.sources
+    ? Object.keys(dataSources.sources).length
+    : (sources + (summary?.sources_missing || []).length);
   const updated = summary?.last_updated ? new Date(summary.last_updated).toLocaleString() : '—';
   return `
     <section class="dt-header card">
@@ -58,7 +64,33 @@ export function renderHeader({ patientLabel, condition, summary }) {
 }
 
 // 2. Data source grid ----------------------------------------------------
-export function renderDataSources({ summary }) {
+export function renderDataSources({ summary, dataSources }) {
+  // Prefer real data-sources map (migration 063); fall back to summary shape.
+  if (dataSources?.sources) {
+    const entries = Object.entries(dataSources.sources);
+    const cells = entries.filter(([, s]) => s.available).map(([key, s]) => `
+      <div class="dt-src dt-src-on">
+        <div class="dt-src-label">${escHtml(DOMAIN_LABEL[key] || key)}</div>
+        <div class="dt-src-meta">${s.count} records · updated ${s.last_updated ? new Date(s.last_updated).toLocaleDateString() : '—'}</div>
+      </div>
+    `).join('');
+    const off = entries.filter(([, s]) => !s.available).map(([key]) => `
+      <div class="dt-src dt-src-off">
+        <div class="dt-src-label">${escHtml(DOMAIN_LABEL[key] || key)}</div>
+        <div class="dt-src-meta">no data</div>
+      </div>
+    `).join('');
+    const score = Math.round((dataSources.completeness_score || 0) * 100);
+    return `
+      <section class="card dt-section">
+        <header class="dt-section-h"><h3>Data sources</h3>
+          <span class="dt-section-sub">Real availability · ${score}% complete</span>
+        </header>
+        <div class="dt-src-grid">${cells}${off}</div>
+        ${off ? dataCompletenessWarning(off.split('dt-src-off').length - 1 + ' sources missing') : ''}
+      </section>
+    `;
+  }
   const connected = summary?.sources_connected || [];
   const missing = summary?.sources_missing || [];
   const cells = connected.map(s => `
@@ -444,6 +476,80 @@ export function emptyPatientBlock() {
       <h3>Select a patient to load their DeepTwin</h3>
       <p class="dt-muted">DeepTwin is patient-scoped. Pick a patient from the roster, then return here.</p>
       <button class="btn btn-primary btn-sm" onclick="window._nav('patients-hub')">Go to Patients</button>
+    </section>
+  `;
+}
+
+
+// 12. Analysis & Simulation history ---------------------------------------
+export function renderHistoryPanel({ analysisRuns = [], simulationRuns = [] }) {
+  const analysisItems = analysisRuns.map(r => `
+    <div class="dt-history-item" data-run-id="${escHtml(r.id)}" data-run-type="analysis">
+      <div class="dt-history-meta">
+        <span class="dt-history-type">${escHtml(r.analysis_type)}</span>
+        <span class="dt-history-date">${new Date(r.created_at).toLocaleString()}</span>
+        ${r.reviewed_at ? '<span class="dt-chip dt-chip-teal">Reviewed</span>' : '<span class="dt-chip dt-chip-amber">Pending review</span>'}
+      </div>
+      <div class="dt-history-actions">
+        ${!r.reviewed_at ? `<button class="btn btn-ghost btn-sm" data-review>Mark reviewed</button>` : ''}
+      </div>
+    </div>
+  `).join('') || '<div class="dt-muted">No analysis runs yet.</div>';
+
+  const simulationItems = simulationRuns.map(r => `
+    <div class="dt-history-item" data-run-id="${escHtml(r.id)}" data-run-type="simulation">
+      <div class="dt-history-meta">
+        <span class="dt-history-type">Simulation</span>
+        <span class="dt-history-date">${new Date(r.created_at).toLocaleString()}</span>
+        ${r.reviewed_at ? '<span class="dt-chip dt-chip-teal">Reviewed</span>' : '<span class="dt-chip dt-chip-amber">Pending review</span>'}
+      </div>
+      <div class="dt-history-actions">
+        ${!r.reviewed_at ? `<button class="btn btn-ghost btn-sm" data-review>Mark reviewed</button>` : ''}
+      </div>
+    </div>
+  `).join('') || '<div class="dt-muted">No simulation runs yet.</div>';
+
+  return `
+    <section class="card dt-section">
+      <header class="dt-section-h"><h3>History & Review</h3>
+        <span class="dt-section-sub">Past analyses and simulations requiring clinician review</span>
+      </header>
+      <div class="dt-history-grid">
+        <div class="dt-history-col">
+          <h4>Analysis runs (${analysisRuns.length})</h4>
+          ${analysisItems}
+        </div>
+        <div class="dt-history-col">
+          <h4>Simulation runs (${simulationRuns.length})</h4>
+          ${simulationItems}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+// 13. Clinician notes -----------------------------------------------------
+export function renderClinicianNotesPanel({ notes = [] }) {
+  const items = notes.map(n => `
+    <div class="dt-note-item">
+      <div class="dt-note-meta">
+        <span class="dt-note-author">${escHtml(n.clinician_id)}</span>
+        <span class="dt-note-date">${new Date(n.created_at).toLocaleString()}</span>
+      </div>
+      <div class="dt-note-text">${escHtml(n.note_text)}</div>
+    </div>
+  `).join('') || '<div class="dt-muted">No clinician notes yet.</div>';
+
+  return `
+    <section class="card dt-section">
+      <header class="dt-section-h"><h3>Clinician notes</h3>
+        <span class="dt-section-sub">Annotations on this twin context</span>
+      </header>
+      <div class="dt-notes-list">${items}</div>
+      <div class="dt-note-form">
+        <textarea id="dt-note-input" class="dt-textarea" rows="2" placeholder="Add a clinician note…"></textarea>
+        <button class="btn btn-primary btn-sm" id="dt-note-save">Save note</button>
+      </div>
     </section>
   `;
 }

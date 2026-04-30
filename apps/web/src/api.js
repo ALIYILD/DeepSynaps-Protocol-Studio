@@ -894,6 +894,32 @@ export const api = {
       method: 'POST', body: JSON.stringify(payload),
     }),
 
+  // ── DeepTwin persistence & review (migration 063) ────────────────────────
+  getDeepTwinDataSources: (patientId) =>
+    apiFetch(`/api/v1/deeptwin/patients/${encodeURIComponent(patientId)}/data-sources`),
+  createAnalysisRun: (patientId, payload) =>
+    apiFetch(`/api/v1/deeptwin/patients/${encodeURIComponent(patientId)}/analysis-runs`, {
+      method: 'POST', body: JSON.stringify(payload),
+    }),
+  listAnalysisRuns: (patientId) =>
+    apiFetch(`/api/v1/deeptwin/patients/${encodeURIComponent(patientId)}/analysis-runs`),
+  reviewAnalysisRun: (runId) =>
+    apiFetch(`/api/v1/deeptwin/analysis-runs/${encodeURIComponent(runId)}/review`, { method: 'POST', body: '{}' }),
+  createSimulationRun: (patientId, payload) =>
+    apiFetch(`/api/v1/deeptwin/patients/${encodeURIComponent(patientId)}/simulation-runs`, {
+      method: 'POST', body: JSON.stringify(payload),
+    }),
+  listSimulationRuns: (patientId) =>
+    apiFetch(`/api/v1/deeptwin/patients/${encodeURIComponent(patientId)}/simulation-runs`),
+  reviewSimulationRun: (runId) =>
+    apiFetch(`/api/v1/deeptwin/simulation-runs/${encodeURIComponent(runId)}/review`, { method: 'POST', body: '{}' }),
+  createClinicianNote: (patientId, payload) =>
+    apiFetch(`/api/v1/deeptwin/patients/${encodeURIComponent(patientId)}/clinician-notes`, {
+      method: 'POST', body: JSON.stringify(payload),
+    }),
+  listClinicianNotes: (patientId) =>
+    apiFetch(`/api/v1/deeptwin/patients/${encodeURIComponent(patientId)}/clinician-notes`),
+
   // ── Registry endpoints (public — no auth needed but token attached if present) ──
   conditions: () => apiFetchWithRetry('/api/v1/registry/conditions'),
   listConditions: () => api.conditions(),

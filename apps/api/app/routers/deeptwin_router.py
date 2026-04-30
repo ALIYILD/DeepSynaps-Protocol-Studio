@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import importlib
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -18,6 +20,18 @@ from app.auth import (
 )
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.persistence.models import (
+    AssessmentRecord,
+    ClinicalSession,
+    DeepTwinAnalysisRun,
+    DeepTwinClinicianNote,
+    DeepTwinSimulationRun,
+    MriAnalysis,
+    OutcomeEvent,
+    QEEGAnalysis,
+    WearableObservation,
+)
+from app.repositories.audit import create_audit_event
 from app.repositories.patients import resolve_patient_clinic_id
 from app.services.deeptwin_decision_support import (
     ANALYZE_SCHEMA_VERSION,
@@ -1216,7 +1230,6 @@ from app.services.deeptwin_tribe import (  # noqa: E402  (intentional late impor
     ProtocolSpec as TribeProtocolSpec,
     compare_protocols as tribe_compare_protocols,
     compute_patient_latent as tribe_compute_patient_latent,
-    encode_all as tribe_encode_all,
     simulate_protocol as tribe_simulate_protocol,
     to_jsonable as tribe_to_jsonable,
 )
@@ -1561,3 +1574,516 @@ def deeptwin_report_payload(
         audit_ref=audit_ref,
         generated_at=datetime.now(timezone.utc).isoformat(),
     )
+
+
+# ---------------------------------------------------------------------------
+# DeepTwin persistence and clinician review layer (migration 063)
+# ---------------------------------------------------------------------------
+
+
+class DataSourceInfo(BaseModel):
+    available: bool
+    count: int
+    last_updated: str | None = None
+
+
+class DataSourcesOut(BaseModel):
+    patient_id: str
+    sources: dict[str, DataSourceInfo]
+    completeness_score: float
+
+
+class AnalysisRunIn(BaseModel):
+    analysis_type: str = Field(..., min_length=1)
+    input_sources_json: dict[str, Any] | None = None
+    output_summary_json: dict[str, Any] | None = None
+    limitations_json: list[str] | None = None
+    confidence: float | None = None
+    model_name: str | None = None
+
+
+class AnalysisRunOut(BaseModel):
+    id: str
+    patient_id: str
+    clinician_id: str
+    analysis_type: str
+    input_sources_json: dict[str, Any] | None = None
+    output_summary_json: dict[str, Any] | None = None
+    limitations_json: list[str] | None = None
+    confidence: float | None = None
+    model_name: str | None = None
+    status: str
+    created_at: str
+    reviewed_at: str | None = None
+    reviewed_by: str | None = None
+
+
+class SimulationRunIn(BaseModel):
+    proposed_protocol_json: dict[str, Any] | None = None
+    assumptions_json: dict[str, Any] | None = None
+    predicted_direction_json: dict[str, Any] | None = None
+    evidence_links_json: list[str] | None = None
+    confidence: float | None = None
+    limitations: str | None = None
+
+
+class SimulationRunOut(BaseModel):
+    id: str
+    patient_id: str
+    clinician_id: str
+    proposed_protocol_json: dict[str, Any] | None = None
+    assumptions_json: dict[str, Any] | None = None
+    predicted_direction_json: dict[str, Any] | None = None
+    evidence_links_json: list[str] | None = None
+    confidence: float | None = None
+    limitations: str | None = None
+    clinician_review_required: bool
+    created_at: str
+    reviewed_at: str | None = None
+    reviewed_by: str | None = None
+
+
+class ClinicianNoteIn(BaseModel):
+    note_text: str = Field(..., min_length=1)
+    related_analysis_id: str | None = None
+    related_simulation_id: str | None = None
+
+
+class ClinicianNoteOut(BaseModel):
+    id: str
+    patient_id: str
+    clinician_id: str
+    note_text: str
+    related_analysis_id: str | None = None
+    related_simulation_id: str | None = None
+    created_at: str
+
+
+class ReviewIn(BaseModel):
+    pass
+
+
+def _serialize_dt(dt: Any) -> str | None:
+    if dt is None:
+        return None
+    return dt.isoformat() if hasattr(dt, "isoformat") else str(dt)
+
+
+@router.get("/patients/{patient_id}/data-sources", response_model=DataSourcesOut)
+def deeptwin_get_data_sources(
+    patient_id: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> DataSourcesOut:
+    _require_clinician_review_actor(actor)
+    _gate_patient_access(actor, patient_id, db)
+
+    assessment_count = db.scalar(
+        select(func.count()).where(AssessmentRecord.patient_id == patient_id)
+    ) or 0
+    qeeg_count = db.scalar(
+        select(func.count()).where(QEEGAnalysis.patient_id == patient_id)
+    ) or 0
+    mri_count = db.scalar(
+        select(func.count()).where(MriAnalysis.patient_id == patient_id)
+    ) or 0
+    session_count = db.scalar(
+        select(func.count()).where(ClinicalSession.patient_id == patient_id)
+    ) or 0
+    wearable_count = db.scalar(
+        select(func.count()).where(WearableObservation.patient_id == patient_id)
+    ) or 0
+    outcome_count = db.scalar(
+        select(func.count()).where(OutcomeEvent.patient_id == patient_id)
+    ) or 0
+
+    def _last_updated(model_cls) -> str | None:
+        ts_col = getattr(model_cls, 'created_at', None) or getattr(model_cls, 'observed_at', None) or getattr(model_cls, 'synced_at', None)
+        if ts_col is None:
+            return None
+        row = db.execute(
+            select(ts_col)
+            .where(model_cls.patient_id == patient_id)
+            .order_by(ts_col.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        return _serialize_dt(row)
+
+    sources = {
+        "assessments": DataSourceInfo(
+            available=assessment_count > 0,
+            count=assessment_count,
+            last_updated=_last_updated(AssessmentRecord),
+        ),
+        "qeeg": DataSourceInfo(
+            available=qeeg_count > 0,
+            count=qeeg_count,
+            last_updated=_last_updated(QEEGAnalysis),
+        ),
+        "mri": DataSourceInfo(
+            available=mri_count > 0,
+            count=mri_count,
+            last_updated=_last_updated(MriAnalysis),
+        ),
+        "sessions": DataSourceInfo(
+            available=session_count > 0,
+            count=session_count,
+            last_updated=_last_updated(ClinicalSession),
+        ),
+        "wearables": DataSourceInfo(
+            available=wearable_count > 0,
+            count=wearable_count,
+            last_updated=_last_updated(WearableObservation),
+        ),
+        "outcomes": DataSourceInfo(
+            available=outcome_count > 0,
+            count=outcome_count,
+            last_updated=_last_updated(OutcomeEvent),
+        ),
+    }
+
+    total_sources = 6
+    present = sum(1 for s in sources.values() if s.available)
+    completeness = round(present / total_sources, 2)
+
+    create_audit_event(
+        db,
+        event_id=f"dt-ds-{actor.actor_id}-{uuid.uuid4().hex[:12]}",
+        target_id=patient_id,
+        target_type="patient",
+        action="deeptwin.data_source.opened",
+        role=actor.role,
+        actor_id=actor.actor_id,
+        note=f"completeness={completeness}; sources={present}",
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+    return DataSourcesOut(
+        patient_id=patient_id,
+        sources={k: v.model_dump() for k, v in sources.items()},
+        completeness_score=completeness,
+    )
+
+
+@router.post("/patients/{patient_id}/analysis-runs", response_model=AnalysisRunOut)
+def deeptwin_create_analysis_run(
+    patient_id: str,
+    payload: AnalysisRunIn,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> AnalysisRunOut:
+    _require_clinician_review_actor(actor)
+    _gate_patient_access(actor, patient_id, db)
+    run = DeepTwinAnalysisRun(
+        patient_id=patient_id,
+        clinician_id=actor.actor_id,
+        analysis_type=payload.analysis_type,
+        input_sources_json=payload.input_sources_json,
+        output_summary_json=payload.output_summary_json,
+        limitations_json=payload.limitations_json,
+        confidence=payload.confidence,
+        model_name=payload.model_name,
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    create_audit_event(
+        db,
+        event_id=f"dt-analysis-{actor.actor_id}-{uuid.uuid4().hex[:12]}",
+        target_id=patient_id,
+        target_type="patient",
+        action="deeptwin.ai.analysis.completed",
+        role=actor.role,
+        actor_id=actor.actor_id,
+        note=f"type={payload.analysis_type}; run={run.id}",
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+    return AnalysisRunOut(
+        id=run.id,
+        patient_id=run.patient_id,
+        clinician_id=run.clinician_id,
+        analysis_type=run.analysis_type,
+        input_sources_json=run.input_sources_json,
+        output_summary_json=run.output_summary_json,
+        limitations_json=run.limitations_json,
+        confidence=run.confidence,
+        model_name=run.model_name,
+        status=run.status,
+        created_at=_serialize_dt(run.created_at),
+        reviewed_at=_serialize_dt(run.reviewed_at),
+        reviewed_by=run.reviewed_by,
+    )
+
+
+@router.get("/patients/{patient_id}/analysis-runs", response_model=list[AnalysisRunOut])
+def deeptwin_list_analysis_runs(
+    patient_id: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[AnalysisRunOut]:
+    _require_clinician_review_actor(actor)
+    _gate_patient_access(actor, patient_id, db)
+    runs = db.execute(
+        select(DeepTwinAnalysisRun)
+        .where(DeepTwinAnalysisRun.patient_id == patient_id)
+        .order_by(DeepTwinAnalysisRun.created_at.desc())
+    ).scalars().all()
+    return [
+        AnalysisRunOut(
+            id=r.id,
+            patient_id=r.patient_id,
+            clinician_id=r.clinician_id,
+            analysis_type=r.analysis_type,
+            input_sources_json=r.input_sources_json,
+            output_summary_json=r.output_summary_json,
+            limitations_json=r.limitations_json,
+            confidence=r.confidence,
+            model_name=r.model_name,
+            status=r.status,
+            created_at=_serialize_dt(r.created_at),
+            reviewed_at=_serialize_dt(r.reviewed_at),
+            reviewed_by=r.reviewed_by,
+        )
+        for r in runs
+    ]
+
+
+@router.post("/analysis-runs/{run_id}/review", response_model=AnalysisRunOut)
+def deeptwin_review_analysis_run(
+    run_id: str,
+    _payload: ReviewIn,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> AnalysisRunOut:
+    _require_clinician_review_actor(actor)
+    run = db.get(DeepTwinAnalysisRun, run_id)
+    if run is None:
+        raise ApiServiceError(status_code=404, message="Analysis run not found")
+    _gate_patient_access(actor, run.patient_id, db)
+    from datetime import datetime, timezone
+    run.reviewed_at = datetime.now(timezone.utc)
+    run.reviewed_by = actor.actor_id
+    db.commit()
+    db.refresh(run)
+    create_audit_event(
+        db,
+        event_id=f"dt-review-{actor.actor_id}-{uuid.uuid4().hex[:12]}",
+        target_id=run.patient_id,
+        target_type="patient",
+        action="deeptwin.analysis.reviewed",
+        role=actor.role,
+        actor_id=actor.actor_id,
+        note=f"run={run_id}; type={run.analysis_type}",
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+    return AnalysisRunOut(
+        id=run.id,
+        patient_id=run.patient_id,
+        clinician_id=run.clinician_id,
+        analysis_type=run.analysis_type,
+        input_sources_json=run.input_sources_json,
+        output_summary_json=run.output_summary_json,
+        limitations_json=run.limitations_json,
+        confidence=run.confidence,
+        model_name=run.model_name,
+        status=run.status,
+        created_at=_serialize_dt(run.created_at),
+        reviewed_at=_serialize_dt(run.reviewed_at),
+        reviewed_by=run.reviewed_by,
+    )
+
+
+@router.post("/patients/{patient_id}/simulation-runs", response_model=SimulationRunOut)
+def deeptwin_create_simulation_run(
+    patient_id: str,
+    payload: SimulationRunIn,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> SimulationRunOut:
+    _require_clinician_review_actor(actor)
+    _gate_patient_access(actor, patient_id, db)
+    run = DeepTwinSimulationRun(
+        patient_id=patient_id,
+        clinician_id=actor.actor_id,
+        proposed_protocol_json=payload.proposed_protocol_json,
+        assumptions_json=payload.assumptions_json,
+        predicted_direction_json=payload.predicted_direction_json,
+        evidence_links_json=payload.evidence_links_json,
+        confidence=payload.confidence,
+        limitations=payload.limitations,
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    create_audit_event(
+        db,
+        event_id=f"dt-sim-{actor.actor_id}-{uuid.uuid4().hex[:12]}",
+        target_id=patient_id,
+        target_type="patient",
+        action="deeptwin.simulation.completed",
+        role=actor.role,
+        actor_id=actor.actor_id,
+        note=f"run={run.id}",
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+    return SimulationRunOut(
+        id=run.id,
+        patient_id=run.patient_id,
+        clinician_id=run.clinician_id,
+        proposed_protocol_json=run.proposed_protocol_json,
+        assumptions_json=run.assumptions_json,
+        predicted_direction_json=run.predicted_direction_json,
+        evidence_links_json=run.evidence_links_json,
+        confidence=run.confidence,
+        limitations=run.limitations,
+        clinician_review_required=run.clinician_review_required,
+        created_at=_serialize_dt(run.created_at),
+        reviewed_at=_serialize_dt(run.reviewed_at),
+        reviewed_by=run.reviewed_by,
+    )
+
+
+@router.get("/patients/{patient_id}/simulation-runs", response_model=list[SimulationRunOut])
+def deeptwin_list_simulation_runs(
+    patient_id: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[SimulationRunOut]:
+    _require_clinician_review_actor(actor)
+    _gate_patient_access(actor, patient_id, db)
+    runs = db.execute(
+        select(DeepTwinSimulationRun)
+        .where(DeepTwinSimulationRun.patient_id == patient_id)
+        .order_by(DeepTwinSimulationRun.created_at.desc())
+    ).scalars().all()
+    return [
+        SimulationRunOut(
+            id=r.id,
+            patient_id=r.patient_id,
+            clinician_id=r.clinician_id,
+            proposed_protocol_json=r.proposed_protocol_json,
+            assumptions_json=r.assumptions_json,
+            predicted_direction_json=r.predicted_direction_json,
+            evidence_links_json=r.evidence_links_json,
+            confidence=r.confidence,
+            limitations=r.limitations,
+            clinician_review_required=r.clinician_review_required,
+            created_at=_serialize_dt(r.created_at),
+            reviewed_at=_serialize_dt(r.reviewed_at),
+            reviewed_by=r.reviewed_by,
+        )
+        for r in runs
+    ]
+
+
+@router.post("/simulation-runs/{run_id}/review", response_model=SimulationRunOut)
+def deeptwin_review_simulation_run(
+    run_id: str,
+    _payload: ReviewIn,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> SimulationRunOut:
+    _require_clinician_review_actor(actor)
+    run = db.get(DeepTwinSimulationRun, run_id)
+    if run is None:
+        raise ApiServiceError(status_code=404, message="Simulation run not found")
+    _gate_patient_access(actor, run.patient_id, db)
+    from datetime import datetime, timezone
+    run.reviewed_at = datetime.now(timezone.utc)
+    run.reviewed_by = actor.actor_id
+    db.commit()
+    db.refresh(run)
+    create_audit_event(
+        db,
+        event_id=f"dt-sim-review-{actor.actor_id}-{uuid.uuid4().hex[:12]}",
+        target_id=run.patient_id,
+        target_type="patient",
+        action="deeptwin.simulation.reviewed",
+        role=actor.role,
+        actor_id=actor.actor_id,
+        note=f"run={run_id}",
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+    return SimulationRunOut(
+        id=run.id,
+        patient_id=run.patient_id,
+        clinician_id=run.clinician_id,
+        proposed_protocol_json=run.proposed_protocol_json,
+        assumptions_json=run.assumptions_json,
+        predicted_direction_json=run.predicted_direction_json,
+        evidence_links_json=run.evidence_links_json,
+        confidence=run.confidence,
+        limitations=run.limitations,
+        clinician_review_required=run.clinician_review_required,
+        created_at=_serialize_dt(run.created_at),
+        reviewed_at=_serialize_dt(run.reviewed_at),
+        reviewed_by=run.reviewed_by,
+    )
+
+
+@router.post("/patients/{patient_id}/clinician-notes", response_model=ClinicianNoteOut)
+def deeptwin_create_clinician_note(
+    patient_id: str,
+    payload: ClinicianNoteIn,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> ClinicianNoteOut:
+    _require_clinician_review_actor(actor)
+    _gate_patient_access(actor, patient_id, db)
+    note = DeepTwinClinicianNote(
+        patient_id=patient_id,
+        clinician_id=actor.actor_id,
+        note_text=payload.note_text,
+        related_analysis_id=payload.related_analysis_id,
+        related_simulation_id=payload.related_simulation_id,
+    )
+    db.add(note)
+    db.commit()
+    db.refresh(note)
+    create_audit_event(
+        db,
+        event_id=f"dt-note-{actor.actor_id}-{uuid.uuid4().hex[:12]}",
+        target_id=patient_id,
+        target_type="patient",
+        action="deeptwin.clinician_note.created",
+        role=actor.role,
+        actor_id=actor.actor_id,
+        note=f"note={note.id}",
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+    return ClinicianNoteOut(
+        id=note.id,
+        patient_id=note.patient_id,
+        clinician_id=note.clinician_id,
+        note_text=note.note_text,
+        related_analysis_id=note.related_analysis_id,
+        related_simulation_id=note.related_simulation_id,
+        created_at=_serialize_dt(note.created_at),
+    )
+
+
+@router.get("/patients/{patient_id}/clinician-notes", response_model=list[ClinicianNoteOut])
+def deeptwin_list_clinician_notes(
+    patient_id: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[ClinicianNoteOut]:
+    _require_clinician_review_actor(actor)
+    _gate_patient_access(actor, patient_id, db)
+    notes = db.execute(
+        select(DeepTwinClinicianNote)
+        .where(DeepTwinClinicianNote.patient_id == patient_id)
+        .order_by(DeepTwinClinicianNote.created_at.desc())
+    ).scalars().all()
+    return [
+        ClinicianNoteOut(
+            id=n.id,
+            patient_id=n.patient_id,
+            clinician_id=n.clinician_id,
+            note_text=n.note_text,
+            related_analysis_id=n.related_analysis_id,
+            related_simulation_id=n.related_simulation_id,
+            created_at=_serialize_dt(n.created_at),
+        )
+        for n in notes
+    ]
