@@ -441,6 +441,50 @@ def test_qeeg_list_patient_analyses_guest_blocked(
     assert resp.status_code == 403, resp.text
 
 
+def test_qeeg_pdf_export_other_clinic_blocked(
+    client: TestClient, cross_clinic_setup: dict[str, Any]
+) -> None:
+    """``GET /qeeg-analysis/{id}/reports/{report_id}/pdf`` exports the
+    full clinician-facing brain map as a print-optimized HTML payload
+    (the route name is `_pdf` for legacy reasons; it returns inline
+    HTML). The Phase 0–5b launch-audit caught that this endpoint was
+    skipping the cross-clinic gate while every other report-fetching
+    endpoint enforces it. Regression test for
+    ``chore/qeeg-pdf-export-tenant-gate-2026-04-30``.
+    """
+    import json as _json
+
+    from app.persistence.models import QEEGAIReport
+
+    db: Session = SessionLocal()
+    try:
+        analysis_id = _seed_qeeg_analysis(
+            db, cross_clinic_setup["patient_id"], cross_clinic_setup["clin_a_id"]
+        )
+        report_id = str(uuid.uuid4())
+        db.add(
+            QEEGAIReport(
+                id=report_id,
+                analysis_id=analysis_id,
+                patient_id=cross_clinic_setup["patient_id"],
+                clinician_id=cross_clinic_setup["clin_a_id"],
+                report_type="standard",
+                report_state="APPROVED",
+                patient_facing_report_json=_json.dumps({"content": {"executive_summary": "x"}}),
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    resp = client.get(
+        f"/api/v1/qeeg-analysis/{analysis_id}/reports/{report_id}/pdf",
+        headers=_auth(cross_clinic_setup["token_clin_b"]),
+    )
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["code"] == "cross_clinic_access_denied"
+
+
 # ── MRI router: patient_id endpoints ──────────────────────────────────────────
 
 
