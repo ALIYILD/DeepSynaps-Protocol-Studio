@@ -632,7 +632,6 @@ _ALIASES: dict[str, str] = {
     "alprazolam": "Benzodiazepines (e.g., lorazepam, diazepam, clonazepam)",
     "midazolam": "Benzodiazepines (e.g., lorazepam, diazepam, clonazepam)",
     "temazepam": "Benzodiazepines (e.g., lorazepam, diazepam, clonazepam)",
-    "clonazepam": "Benzodiazepines (e.g., lorazepam, diazepam, clonazepam)",
     "valium": "Benzodiazepines (e.g., lorazepam, diazepam, clonazepam)",
     "ativan": "Benzodiazepines (e.g., lorazepam, diazepam, clonazepam)",
     # Barbiturates

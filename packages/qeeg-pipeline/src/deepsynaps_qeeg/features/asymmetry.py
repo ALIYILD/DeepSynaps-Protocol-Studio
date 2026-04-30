@@ -132,7 +132,7 @@ def compute(
     result["qc_flags"] = qc_flags  # type: ignore[assignment]
     result["method_provenance"] = {  # type: ignore[assignment]
         "method": "ln(right_alpha_uv2) - ln(left_alpha_uv2)",
-        "pairs": [{"key": k, "left": l, "right": r} for k, l, r in _ASYMMETRY_PAIRS],
+        "pairs": [{"key": k, "left": left, "right": r} for k, left, r in _ASYMMETRY_PAIRS],
         "reference": "Davidson approach/withdrawal; Coan & Allen (2004).",
     }
     return result

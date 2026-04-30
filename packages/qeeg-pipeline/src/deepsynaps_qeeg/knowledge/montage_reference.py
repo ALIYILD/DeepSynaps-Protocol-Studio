@@ -7,7 +7,6 @@ reformatting in qEEG analysis pipelines.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
 
 
 @dataclass(frozen=True)

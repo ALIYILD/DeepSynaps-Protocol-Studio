@@ -10,7 +10,6 @@ copilot's ``tool_explain_feature`` without branching logic.
 """
 from __future__ import annotations
 
-from typing import Any
 
 
 DOMAIN_ENCYCLOPEDIA: dict[str, dict[str, str]] = {

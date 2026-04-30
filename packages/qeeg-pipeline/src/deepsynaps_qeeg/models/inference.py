@@ -20,7 +20,7 @@ def _require_torch() -> Any:
 def _build_model(model_class: str | None, *, n_times: int) -> Any:
     """Instantiate a model without importing training-only dependencies."""
 
-    torch = _require_torch()
+    _require_torch()
 
     if model_class is None or model_class.lower() in ("deep4net", "braindecode.deep4net"):
         try:
