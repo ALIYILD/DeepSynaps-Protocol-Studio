@@ -125,7 +125,11 @@ test('renderIndicatorGrid renders all 5 indicator cards', function () {
   assert.match(html, /Frontal Lobe Development/);
   assert.match(html, /Information Processing Speed/);
   assert.match(html, /Alpha Wave Reactivity/);
-  assert.match(html, /Brain Balance/);
+  // The "Brain Balance" indicator was renamed to "Frontal Alpha Asymmetry (FAA)"
+  // per the QEEG evidence-citation audit (2026-04-30). The contract field
+  // `brain_balance` is unchanged; only the user-facing label moved.
+  assert.match(html, /Frontal Alpha Asymmetry/);
+  assert.equal(/Brain Balance/.test(html), false, 'old "Brain Balance" UI label must not appear');
   assert.match(html, /AI Brain Development Age/);
 });
 
