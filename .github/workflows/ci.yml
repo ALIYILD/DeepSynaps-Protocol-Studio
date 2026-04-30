@@ -141,6 +141,7 @@ jobs:
           pip install pytest pytest-asyncio pytest-xdist pytest-timeout httpx
           pip install \
             -e packages/evidence \
+            -e packages/qeeg-pipeline \
             -e packages/core-schema \
             -e packages/condition-registry \
             -e packages/modality-registry \
