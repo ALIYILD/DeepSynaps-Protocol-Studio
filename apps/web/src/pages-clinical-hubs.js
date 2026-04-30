@@ -231,11 +231,237 @@ export async function pgPatientHub(setTopbar, navigate) {
       return '<span class="chip">Weekly check-in</span>';
     }
 
+    // ── Doctor-friendly helpers (status pill, today-session derivation,
+    //    inline action icons). Status hierarchy:
+    //    Adverse > Overdue assessment > Session today > Stable.
+    function todaysSessionTimeFor(p) {
+      // Real backend field first; fallback to derived patterns; then a deterministic
+      // demo time for offline mode so the panel is never silently empty.
+      const candidates = [
+        p?.todays_session_time,
+        p?.todaysSessionTime,
+        p?.next_session_at && new Date(p.next_session_at).toDateString() === new Date().toDateString()
+          ? new Date(p.next_session_at).toTimeString().slice(0,5)
+          : null,
+        p?.next_session_date && new Date(p.next_session_date).toDateString() === new Date().toDateString()
+          ? '09:00'
+          : null,
+      ];
+      for (const c of candidates) if (c) return String(c).slice(0,5);
+      return null;
+    }
+    function patientStatusKind(p) {
+      if (p?.has_adverse_event) return 'adverse';
+      if (p?.assessment_overdue || p?.needs_review) return 'overdue';
+      if (todaysSessionTimeFor(p)) return 'today';
+      return 'stable';
+    }
+    function statusPill(p) {
+      const kind = patientStatusKind(p);
+      if (kind === 'adverse') {
+        return '<span class="ds-status-pill ds-status-pill--adverse" data-testid="ds-patient-status-pill" data-status="adverse" title="Adverse event flagged">🔴 Adverse event flagged</span>';
+      }
+      if (kind === 'overdue') {
+        return '<span class="ds-status-pill ds-status-pill--overdue" data-testid="ds-patient-status-pill" data-status="overdue" title="Assessment review needed">🟡 Needs review</span>';
+      }
+      if (kind === 'today') {
+        const t = todaysSessionTimeFor(p);
+        return '<span class="ds-status-pill ds-status-pill--today" data-testid="ds-patient-status-pill" data-status="today" title="Session today">🟢 Session today @ ' + esc(t) + '</span>';
+      }
+      return '<span class="ds-status-pill ds-status-pill--stable" data-testid="ds-patient-status-pill" data-status="stable" title="Stable">⚪ Stable</span>';
+    }
+
+    // 4-icon action strip per row. Each icon is a real button with a real (or
+    // honestly-stubbed) handler — never silent.
+    function actionIcons(p) {
+      const pid = esc(p?.id || '');
+      const stop = 'event.stopPropagation();';
+      return '<div class="ds-pt-actions" role="group" aria-label="Patient quick actions">' +
+        '<button type="button" class="ds-pt-action" data-action="start-session" title="Start session" aria-label="Start session" ' +
+          'onclick="' + stop + 'window._phStartSession(\'' + pid + '\')">▶</button>' +
+        '<button type="button" class="ds-pt-action" data-action="quick-note" title="Quick note" aria-label="Quick note" ' +
+          'onclick="' + stop + 'window._phQuickNote(\'' + pid + '\')">✎</button>' +
+        '<button type="button" class="ds-pt-action" data-action="message" title="Message" aria-label="Message" ' +
+          'onclick="' + stop + 'window._phMessage(\'' + pid + '\')">✉</button>' +
+        '<button type="button" class="ds-pt-action" data-action="open-chart" title="Open chart" aria-label="Open chart" ' +
+          'onclick="' + stop + 'window._phOpenChart(\'' + pid + '\')">📂</button>' +
+      '</div>';
+    }
+
+    // Quick-filter cohort counts. Pulled from server summary when present and
+    // augmented by client-side scan over the current page so chips always
+    // reflect *something* real, never a hardcoded constant.
+    function quickFilterCounts() {
+      const items = (_currentList?.items) || [];
+      const summary = _currentSummary || {};
+      const all = (summary.total != null ? summary.total : items.length) || items.length;
+      const today = items.filter(p => todaysSessionTimeFor(p)).length;
+      const overdueServer = (summary.kpis?.follow_up_count) ?? null;
+      const overdue = overdueServer != null ? overdueServer : items.filter(p => p.assessment_overdue || p.needs_review).length;
+      const adverse = items.filter(p => p.has_adverse_event).length;
+      const recent  = items.filter(p => {
+        if (!p.created_at) return false;
+        const d = new Date(p.created_at);
+        if (Number.isNaN(d.getTime())) return false;
+        return (Date.now() - d.getTime()) < 14 * 86400000;
+      }).length;
+      return { today, overdue, adverse, recent, all };
+    }
+    function quickFilterChipsHtml() {
+      const c = quickFilterCounts();
+      const active = window._phState.activeQuickFilter || 'all';
+      const chips = [
+        { id:'today',   label:"Today's Queue", n:c.today },
+        { id:'overdue', label:'Overdue',        n:c.overdue },
+        { id:'adverse', label:'Adverse Events', n:c.adverse },
+        { id:'recent',  label:'Recently Added', n:c.recent },
+        { id:'all',     label:'All',            n:c.all },
+      ];
+      return '<div class="ds-qf-row" data-testid="ds-patients-quick-filters" role="tablist" aria-label="Quick filter">' +
+        chips.map(ch => {
+          const isActive = (active === ch.id);
+          return '<button type="button" class="ds-qf-chip' + (isActive ? ' ds-qf-chip--active' : '') + '" ' +
+            'data-quick-filter="' + ch.id + '" role="tab" aria-selected="' + (isActive ? 'true' : 'false') + '" ' +
+            'onclick="window._phSetQuickFilter(\'' + ch.id + '\')">' +
+            esc(ch.label) + ' <span class="ds-qf-count">' + ch.n + '</span></button>';
+        }).join('') +
+      '</div>';
+    }
+
+    // Apply the active quick-filter chip to the current page items. The chip
+    // mirrors the cohort sidebar — it never replaces existing facet filters,
+    // just narrows further.
+    function applyQuickFilter(items) {
+      const f = window._phState.activeQuickFilter || 'all';
+      if (f === 'all') return items;
+      if (f === 'today')   return items.filter(p => todaysSessionTimeFor(p));
+      if (f === 'overdue') return items.filter(p => p.assessment_overdue || p.needs_review);
+      if (f === 'adverse') return items.filter(p => p.has_adverse_event);
+      if (f === 'recent')  return items.filter(p => {
+        if (!p.created_at) return false;
+        const d = new Date(p.created_at);
+        return !Number.isNaN(d.getTime()) && (Date.now() - d.getTime()) < 14 * 86400000;
+      });
+      return items;
+    }
+
+    // Today's Queue: real-data first, deterministic demo entries as fallback so
+    // the panel is never silently empty in the demo build.
+    function todaysQueueEntries() {
+      const items = (_currentList?.items) || [];
+      const real = items
+        .map(p => {
+          const t = todaysSessionTimeFor(p);
+          if (!t) return null;
+          const fname = p.first_name || '';
+          const lname = p.last_name || '';
+          const name  = (fname + ' ' + lname).trim() || 'Unknown';
+          const modality = (p.primary_modality || '').replace(/_/g,' ') || '—';
+          return { id: p.id, time: t, name, modality, sessionId: p.next_session_id || null };
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.time.localeCompare(b.time));
+      if (real.length) return real.slice(0, 8);
+      // Demo fallback — only used when no real session-today data is present.
+      const _demoOk = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
+      if (!_demoOk) return [];
+      return [
+        { id:'demo-pt-aisha-rahman', time:'09:00', name:'Aisha Rahman',     modality:'TPS',           sessionId:null, demo:true },
+        { id:'demo-pt-samantha-li',  time:'10:30', name:'Samantha Li',      modality:'tDCS',          sessionId:null, demo:true },
+        { id:'demo-pt-marcus-chen',  time:'13:15', name:'Marcus Chen',      modality:'rTMS',          sessionId:null, demo:true },
+        { id:'demo-pt-james-okonkwo',time:'15:45', name:'James Okonkwo',    modality:'Neurofeedback', sessionId:null, demo:true },
+      ];
+    }
+    function todaysQueueHtml() {
+      const queue = todaysQueueEntries();
+      const cs = quickFilterCounts();
+      const overdueN = cs.overdue || 0;
+      const adverseN = cs.adverse || 0;
+      const items = queue.map(q => (
+        '<div class="ds-tq-row" data-pid="' + esc(q.id) + '">' +
+          '<div class="ds-tq-time">' + esc(q.time) + '</div>' +
+          '<div class="ds-tq-name">' + esc(q.name) + '</div>' +
+          '<div class="ds-tq-mod">' + esc(q.modality) + '</div>' +
+          '<button class="ds-tq-start" type="button" onclick="window._phStartSession(\'' + esc(q.id) + '\')">Start →</button>' +
+        '</div>'
+      )).join('') || '<div class="ds-tq-empty">No sessions scheduled today.</div>';
+      return '<aside class="ds-tq" data-testid="ds-patients-todays-queue" aria-label="Today\'s queue">' +
+        '<div class="ds-tq-hd">Today\'s Queue · <span class="ds-tq-count">' + queue.length + ' sessions</span></div>' +
+        '<div class="ds-tq-list">' + items + '</div>' +
+        '<div class="ds-tq-mini">' +
+          '<button type="button" class="ds-tq-mini-btn" onclick="window._phSetQuickFilter(\'overdue\')">Overdue Follow-ups <span class="ds-tq-mini-count">' + overdueN + '</span></button>' +
+          '<button type="button" class="ds-tq-mini-btn" onclick="window._phSetQuickFilter(\'adverse\')">Adverse Events <span class="ds-tq-mini-count">' + adverseN + '</span></button>' +
+        '</div>' +
+      '</aside>';
+    }
+
+    function selectedPatientPreviewHtml() {
+      const id = window._phState.selectedPatientId;
+      if (!id) return '';
+      const items = (_currentList?.items) || [];
+      const p = items.find(x => x.id === id);
+      if (!p) return '';
+      const fname = p.first_name || '';
+      const lname = p.last_name || '';
+      const name = (fname + ' ' + lname).trim() || 'Unknown';
+      const cond = (p.condition_slug||'').replace(/-/g,' ') || (p.primary_condition||'—');
+      return '<aside class="ds-tq" aria-label="Selected patient preview">' +
+        '<div class="ds-tq-hd">Selected · <span class="ds-tq-count">' + esc(name) + '</span></div>' +
+        '<div class="ds-sp-body">' +
+          '<div class="ds-sp-row"><span>Condition</span><strong>' + esc(cond) + '</strong></div>' +
+          '<div class="ds-sp-row"><span>Modality</span><strong>' + esc((p.primary_modality||'—').replace(/_/g,' ')) + '</strong></div>' +
+          '<div class="ds-sp-row"><span>Status</span>' + statusPill(p) + '</div>' +
+          '<div class="ds-sp-actions">' +
+            '<button class="ds-tq-start" type="button" onclick="window._phOpenChart(\'' + esc(p.id) + '\')">Open chart →</button>' +
+            '<button class="ds-tq-start ds-tq-start--ghost" type="button" onclick="window._phQuickNote(\'' + esc(p.id) + '\')">Quick note</button>' +
+            '<button class="ds-tq-start ds-tq-start--ghost" type="button" onclick="window._phState.selectedPatientId=null;window._phRenderRightPanel()">Close</button>' +
+          '</div>' +
+        '</div>' +
+      '</aside>';
+    }
+
+    function shortcutsModalHtml() {
+      if (!window._phState.shortcutsOpen) return '';
+      const rows = [
+        ['/',     'Focus search'],
+        ['j',     'Next patient row'],
+        ['k',     'Previous patient row'],
+        ['Enter', 'Open selected chart'],
+        ['n',     'Quick note on selected'],
+        ['s',     'Start session for selected'],
+        ['?',     'Toggle this help overlay'],
+        ['Esc',   'Close overlay'],
+      ];
+      return '<div class="ds-kbd-overlay" data-testid="ds-patients-shortcuts-modal" role="dialog" aria-modal="true" ' +
+        'aria-label="Keyboard shortcuts" onclick="if(event.target===this)window._phToggleShortcuts()">' +
+        '<div class="ds-kbd-modal" role="document">' +
+          '<div class="ds-kbd-hd"><span>Keyboard shortcuts</span>' +
+            '<button type="button" class="ds-kbd-close" aria-label="Close shortcuts" onclick="window._phToggleShortcuts()">×</button></div>' +
+          '<div class="ds-kbd-body">' +
+            rows.map(([k,v]) => '<div class="ds-kbd-row"><kbd>' + esc(k) + '</kbd><span>' + esc(v) + '</span></div>').join('') +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }
+
     // Persistent state across re-renders (survives tab navigation in-session).
     window._phState = window._phState || {
       status: 'all', q: '', condition: '', modality: '', clinician: '',
       sort: 'last_activity', page: 1,
     };
+    // Doctor-friendly redesign state (density, quick filter chip, kbd selection,
+    // shortcuts modal). Density persists in localStorage; default = compact.
+    if (window._phState.density == null) {
+      let stored = null;
+      try { stored = localStorage.getItem('ds.patients.density'); } catch {}
+      window._phState.density = (stored === 'comfortable' || stored === 'compact')
+        ? stored
+        : 'compact';
+    }
+    if (window._phState.activeQuickFilter == null) window._phState.activeQuickFilter = 'all';
+    if (window._phState.selectedRowIndex == null) window._phState.selectedRowIndex = -1;
+    if (window._phState.selectedPatientId == null) window._phState.selectedPatientId = null;
+    if (window._phState.shortcutsOpen == null) window._phState.shortcutsOpen = false;
     const PAGE_SIZE = 10;
 
     const STATUS_TABS = [
@@ -408,48 +634,50 @@ export async function pgPatientHub(setTopbar, navigate) {
     function renderList() {
       const out = document.getElementById('d2p7-list');
       if (!out) return;
-      const items = _currentList?.items || [];
+      const itemsRaw = _currentList?.items || [];
+      const items = applyQuickFilter(itemsRaw);
       const total = _currentList?.total || 0;
+      // Clamp the keyboard-selected row into range whenever the list shrinks.
+      if (window._phState.selectedRowIndex >= items.length) {
+        window._phState.selectedRowIndex = items.length ? items.length - 1 : -1;
+      }
+      const density = window._phState.density === 'comfortable' ? 'comfortable' : 'compact';
+      out.classList.toggle('ds-density-compact', density === 'compact');
+      out.classList.toggle('ds-density-comfortable', density === 'comfortable');
       if (!items.length) {
         out.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary)">' +
-          (window._phState.q || window._phState.status !== 'all'
+          (window._phState.q || window._phState.status !== 'all' || window._phState.activeQuickFilter !== 'all'
             ? 'No patients match the current filters.'
             : 'No patients yet — add your first patient to get started.') +
           '</div>';
       } else {
-        out.innerHTML = items.map(p => {
+        out.innerHTML = items.map((p, idx) => {
           const fname = p.first_name || '';
           const lname = p.last_name || '';
           const name  = (fname + ' ' + lname).trim() || 'Unknown';
           const ini   = ((fname[0]||'') + (lname[0]||'')).toUpperCase() || '?';
           const av    = AVATAR_TONES[Math.abs(String(p.id||name).split('').reduce((a,c)=>a+c.charCodeAt(0),0)) % AVATAR_TONES.length];
-          const cond  = (p.condition_slug||'').replace(/-/g,' ') || (p.primary_condition||'—');
-          const age   = p.age || (p.dob ? (new Date().getFullYear() - new Date(p.dob).getFullYear()) : null);
-          const sex   = (p.gender||'').charAt(0).toUpperCase();
-          const sub   = (age ? age + (sex||'') + ' · ' : '') + cond + (p.mrn ? ' · MRN ' + esc(p.mrn) : '');
           const demoChip = isDemoSeed(p) ? ' <span class="chip amber">Demo patient</span>' : '';
           const delivered = p.sessions_delivered ?? 0;
           const planned   = p.planned_sessions_total ?? 0;
           const prog = planned > 0 ? Math.min(100, Math.round(delivered / planned * 100)) : 0;
+          const isFocused = idx === window._phState.selectedRowIndex;
           // Row click → Analytics terminal (per-patient Bloomberg dashboard).
-          // The chevron still opens the standard profile for clinicians who
-          // want the full chart. Demo patients render with seeded telemetry.
-          return '<div class="queue-row pt-row" style="grid-template-columns:1.8fr 1.1fr 1fr 1fr 1fr 120px" ' +
-            'onclick="window._paPatientId=\'' + esc(p.id) + '\';window._selectedPatientId=\'' + esc(p.id) + '\';try{sessionStorage.setItem(\'ds_pat_selected_id\',\'' + esc(p.id) + '\')}catch(e){}window._nav(\'patient-analytics\')">' +
+          // Inline action icons (4-icon strip) replace the previous open buttons,
+          // but the 📂 icon still navigates to the original chart route — no
+          // existing function lost. Demo patients render with seeded telemetry.
+          return '<div class="queue-row pt-row ds-pt-row' + (isFocused ? ' ds-pt-row--focus' : '') + '" data-row-idx="' + idx + '" data-pid="' + esc(p.id) + '" ' +
+            'style="grid-template-columns:1.8fr 1.1fr 1fr 1fr 1fr 160px" ' +
+            'onclick="window._phState.selectedRowIndex=' + idx + ';window._paPatientId=\'' + esc(p.id) + '\';window._selectedPatientId=\'' + esc(p.id) + '\';try{sessionStorage.setItem(\'ds_pat_selected_id\',\'' + esc(p.id) + '\')}catch(e){}window._nav(\'patient-analytics\')">' +
               '<div class="queue-pt"><div class="pt-av ' + av + '">' + esc(ini) + '</div>' +
                 '<div><div class="queue-pt-name">' + esc(name) + demoChip + (p.is_responder ? ' <span class="pl-responder-chip">Responder</span>' : '') + '</div>' +
-                  '<div class="queue-pt-cond">' + esc(sub) + '</div></div></div>' +
+                  '<div class="queue-pt-cond">' + statusPill(p) + '</div></div></div>' +
               '<div>' + protocolChip(p) + '</div>' +
               '<div class="queue-progress"><div class="queue-progress-bar"><div style="width:' + prog + '%"></div></div>' +
                 '<span style="font-family:var(--font-mono);font-size:10.5px;color:var(--text-tertiary)">' + delivered + '/' + (planned||'—') + '</span></div>' +
               '<div>' + outcomeCell(p) + '</div>' +
               '<div>' + nextStepChip(p) + '</div>' +
-              '<div style="text-align:right;display:flex;gap:4px;justify-content:flex-end">' +
-                '<button class="topbar-btn d2p7-chev" aria-label="Open analytics" title="Open analytics" style="width:26px;height:26px" onclick="event.stopPropagation();window._paPatientId=\'' + esc(p.id) + '\';window._nav(\'patient-analytics\')">' +
-                  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/></svg></button>' +
-                '<button class="topbar-btn d2p7-chev" aria-label="Open patient profile" title="Open profile" style="width:26px;height:26px" onclick="event.stopPropagation();window._selectedPatientId=\'' + esc(p.id) + '\';window._profilePatientId=\'' + esc(p.id) + '\';window._nav(\'patient-profile\')">' +
-                  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button>' +
-              '</div>' +
+              actionIcons(p) +
             '</div>';
         }).join('');
       }
@@ -467,6 +695,8 @@ export async function pgPatientHub(setTopbar, navigate) {
             '<button class="topbar-btn" style="width:26px;height:26px" onclick="window._phGoPage(1)" ' + (window._phState.page>=pages?'disabled':'') + '>›</button>' +
           '</div>';
       }
+      window._phRenderRightPanel();
+      window._phRenderQuickFilters();
     }
 
     function renderHeader() {
@@ -478,7 +708,26 @@ export async function pgPatientHub(setTopbar, navigate) {
       if (tr) tr.innerHTML = renderTabs();
       const fr = document.getElementById('d2p7-filter-row');
       if (fr) fr.innerHTML = renderFilterRow();
+      window._phRenderQuickFilters();
     }
+
+    // Right-panel renderer: Today's Queue when nothing selected, otherwise a
+    // selected-patient summary card (the in-page preview — full chart routes
+    // away via 📂 / Open chart). Shortcuts overlay is rendered alongside.
+    window._phRenderRightPanel = function() {
+      const right = document.getElementById('ds-pt-right');
+      if (!right) return;
+      const id = window._phState.selectedPatientId;
+      const items = (_currentList?.items) || [];
+      const found = id ? items.find(p => p.id === id) : null;
+      right.innerHTML = (found ? selectedPatientPreviewHtml() : todaysQueueHtml());
+      const overlayHost = document.getElementById('ds-pt-overlay');
+      if (overlayHost) overlayHost.innerHTML = shortcutsModalHtml();
+    };
+    window._phRenderQuickFilters = function() {
+      const host = document.getElementById('ds-pt-quickfilters');
+      if (host) host.innerHTML = quickFilterChipsHtml();
+    };
 
     async function refreshAll() {
       await Promise.all([fetchSummary(), fetchList()]);
@@ -537,6 +786,210 @@ export async function pgPatientHub(setTopbar, navigate) {
       if (fr) fr.innerHTML = renderFilterRow();
       await refreshListOnly();
     };
+
+    // ── Density toggle (persists in localStorage; default = compact) ───────
+    window._phToggleDensity = () => {
+      const next = window._phState.density === 'compact' ? 'comfortable' : 'compact';
+      window._phState.density = next;
+      try { localStorage.setItem('ds.patients.density', next); } catch {}
+      const wrap = document.querySelector('.d2p7-wrap');
+      if (wrap) {
+        wrap.classList.toggle('ds-density-compact', next === 'compact');
+        wrap.classList.toggle('ds-density-comfortable', next === 'comfortable');
+      }
+      const btn = document.querySelector('[data-testid="ds-patients-density-toggle"]');
+      if (btn) btn.textContent = next === 'compact' ? 'Comfortable' : 'Compact';
+      renderList();
+    };
+
+    // ── Quick-filter chips (mirrors cohort sidebar) ────────────────────────
+    window._phSetQuickFilter = (id) => {
+      const valid = ['today','overdue','adverse','recent','all'];
+      window._phState.activeQuickFilter = valid.includes(id) ? id : 'all';
+      window._phState.selectedRowIndex = -1;
+      window._phRenderQuickFilters();
+      renderList();
+    };
+
+    // ── Honest toast helper. Real backend toast first, then fallback. ──────
+    function _phToast(msg, kind) {
+      const k = kind || 'info';
+      if (typeof window._dsToast === 'function') {
+        try { window._dsToast({ title: 'Patients', body: msg, severity: k }); return; } catch {}
+      }
+      if (typeof window._showToast === 'function') {
+        try { window._showToast(msg, k === 'warn' ? 'warning' : k); return; } catch {}
+      }
+      // Last resort — write into the table footer status text so the user
+      // *always* sees feedback. This is the "honest demo" path.
+      const foot = document.getElementById('d2p7-foot');
+      if (foot) {
+        const span = foot.querySelector('span');
+        if (span) span.textContent = msg;
+      } else {
+        // Final-final fallback — never silent.
+        try { console.info('[patients]', msg); } catch {}
+      }
+    }
+    window._phToast = _phToast;
+
+    // ── Inline action handlers. Each is real-wired or honestly stubbed. ────
+    window._phStartSession = (pid) => {
+      const items = (_currentList?.items) || [];
+      const p = items.find(x => x.id === pid);
+      const sid = p?.next_session_id || p?.todays_session_id || null;
+      const tToday = p ? todaysSessionTimeFor(p) : null;
+      if (sid && typeof window._nav === 'function') {
+        window._nav('session-runner', sid);
+        return;
+      }
+      if (tToday) {
+        // Today scheduled but no session id surfaced — open the scheduling hub
+        // for that patient. Better than a silent click.
+        window._paPatientId = pid; window._selectedPatientId = pid;
+        if (typeof window._nav === 'function') { window._nav('scheduling-hub'); return; }
+      }
+      _phToast('No session scheduled today (demo)', 'info');
+    };
+
+    window._phQuickNote = (pid) => {
+      const right = document.getElementById('ds-pt-right');
+      if (!right) { _phToast('Quick-note panel unavailable', 'warn'); return; }
+      // Inline drawer at the bottom of the right panel.
+      let drawer = document.getElementById('ds-pt-quicknote');
+      if (drawer) drawer.remove();
+      drawer = document.createElement('div');
+      drawer.id = 'ds-pt-quicknote';
+      drawer.className = 'ds-tq ds-quicknote-drawer';
+      drawer.innerHTML =
+        '<div class="ds-tq-hd">Quick note</div>' +
+        '<textarea id="ds-pt-quicknote-text" rows="4" placeholder="Type clinical note…" style="width:100%;background:var(--bg-surface);border:1px solid var(--border);border-radius:8px;padding:8px;color:var(--text-primary);font:inherit;font-size:12.5px;resize:vertical"></textarea>' +
+        '<div style="display:flex;gap:6px;justify-content:flex-end;margin-top:8px">' +
+          '<button class="ds-tq-start ds-tq-start--ghost" type="button" onclick="document.getElementById(\'ds-pt-quicknote\').remove()">Cancel</button>' +
+          '<button class="ds-tq-start" type="button" onclick="window._phSubmitQuickNote(\'' + esc(pid) + '\')">Save note</button>' +
+        '</div>';
+      right.appendChild(drawer);
+      const ta = document.getElementById('ds-pt-quicknote-text');
+      if (ta) ta.focus();
+    };
+    window._phSubmitQuickNote = async (pid) => {
+      const ta = document.getElementById('ds-pt-quicknote-text');
+      const text = (ta?.value || '').trim();
+      if (!text) { _phToast('Note is empty', 'warn'); return; }
+      const fn = api?.createPatientNote || api?.createClinicianNote;
+      if (typeof fn === 'function') {
+        try {
+          await fn({ patient_id: pid, content: text, body: text });
+          _phToast('Note saved', 'success');
+        } catch (e) {
+          _phToast('Note save failed: ' + (e?.message || e) + ' (demo only)', 'warn');
+        }
+      } else {
+        _phToast('Note saved (demo)', 'info');
+      }
+      const drawer = document.getElementById('ds-pt-quicknote');
+      if (drawer) drawer.remove();
+    };
+
+    window._phMessage = (pid) => {
+      // Real compose drawer if it exists; otherwise route to messaging.
+      if (typeof window._openMessageCompose === 'function') {
+        try { window._openMessageCompose(pid); return; } catch {}
+      }
+      if (typeof window._nav === 'function') {
+        window._selectedPatientId = pid;
+        window._nav('messaging', pid);
+        return;
+      }
+      _phToast('Messaging unavailable (demo)', 'info');
+    };
+
+    window._phOpenChart = (pid) => {
+      // Existing route the legacy "Open Chart" button used. Stable behavior.
+      window._selectedPatientId = pid;
+      window._profilePatientId = pid;
+      try { sessionStorage.setItem('ds_pat_selected_id', pid); } catch {}
+      if (typeof window._nav === 'function') {
+        window._nav('patient-profile');
+      } else {
+        _phToast('Chart unavailable (demo)', 'info');
+      }
+    };
+
+    // ── Shortcuts overlay ──────────────────────────────────────────────────
+    window._phToggleShortcuts = () => {
+      window._phState.shortcutsOpen = !window._phState.shortcutsOpen;
+      const overlayHost = document.getElementById('ds-pt-overlay');
+      if (overlayHost) overlayHost.innerHTML = shortcutsModalHtml();
+    };
+
+    // ── Keyboard shortcuts. Bound on document while pgPatientHub is mounted.
+    //    Auto-detached if the content root is replaced (single-page navigate).
+    function _isTypingTarget(t) {
+      if (!t || !t.tagName) return false;
+      const tag = t.tagName.toUpperCase();
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+      if (t.isContentEditable) return true;
+      return false;
+    }
+    function _phKbdHandler(ev) {
+      // Detach if the page has been replaced.
+      if (!document.querySelector('.d2p7-wrap')) {
+        document.removeEventListener('keydown', _phKbdHandler, true);
+        return;
+      }
+      const k = ev.key;
+      // Esc always closes the shortcut overlay.
+      if (k === 'Escape' && window._phState.shortcutsOpen) {
+        ev.preventDefault();
+        window._phToggleShortcuts();
+        return;
+      }
+      if (_isTypingTarget(ev.target)) return;
+      const items = applyQuickFilter((_currentList?.items) || []);
+      const max = items.length - 1;
+      if (k === '/') {
+        ev.preventDefault();
+        const inp = document.getElementById('d2p7-search');
+        if (inp) inp.focus();
+        return;
+      }
+      if (k === '?' ) {
+        ev.preventDefault();
+        window._phToggleShortcuts();
+        return;
+      }
+      if (k === 'j') {
+        ev.preventDefault();
+        if (!items.length) return;
+        const next = window._phState.selectedRowIndex < 0 ? 0
+          : Math.min(max, window._phState.selectedRowIndex + 1);
+        window._phState.selectedRowIndex = next;
+        window._phState.selectedPatientId = items[next]?.id || null;
+        renderList();
+        return;
+      }
+      if (k === 'k') {
+        ev.preventDefault();
+        if (!items.length) return;
+        const next = window._phState.selectedRowIndex < 0 ? 0
+          : Math.max(0, window._phState.selectedRowIndex - 1);
+        window._phState.selectedRowIndex = next;
+        window._phState.selectedPatientId = items[next]?.id || null;
+        renderList();
+        return;
+      }
+      const sel = window._phState.selectedRowIndex;
+      const p = sel >= 0 ? items[sel] : null;
+      if (k === 'Enter' && p) { ev.preventDefault(); window._phOpenChart(p.id); return; }
+      if (k === 'n' && p)     { ev.preventDefault(); window._phQuickNote(p.id);    return; }
+      if (k === 's' && p)     { ev.preventDefault(); window._phStartSession(p.id); return; }
+    }
+    // Re-bind on every mount; use capture so it runs ahead of inputs that
+    // stopPropagation on themselves.
+    document.removeEventListener('keydown', window._phKbdHandlerRef || (() => {}), true);
+    window._phKbdHandlerRef = _phKbdHandler;
+    document.addEventListener('keydown', _phKbdHandler, true);
 
     // Notifications bell (header). Count comes from real backend.
     async function refreshBell() {
@@ -645,12 +1098,95 @@ export async function pgPatientHub(setTopbar, navigate) {
         .d2p7-wrap .topbar-btn { background:transparent; border:1px solid var(--border); color:var(--text-secondary); border-radius:6px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; }
         .d2p7-wrap .topbar-btn:hover { border-color:var(--border-hover); color:var(--text-primary); }
         .pl-responder-chip { font-size:9.5px; font-weight:700; padding:1px 6px; border-radius:4px; background:rgba(0,212,188,0.12); color:var(--teal); border:1px solid rgba(0,212,188,0.3); vertical-align:middle; }
+
+        /* ── Doctor-friendly redesign (2026-04-30) ─────────────────────── */
+        /* 2-column shell: patient table left, right panel (Today's Queue or selected preview) */
+        .ds-pt-shell { display:grid; grid-template-columns: minmax(0,1fr) 320px; gap:16px; align-items:flex-start; }
+        @media (max-width:1100px) { .ds-pt-shell { grid-template-columns: 1fr; } }
+
+        /* Quick filter chip row (above search; mirrors cohort sidebar). */
+        .ds-qf-row { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
+        .ds-qf-chip { padding:6px 12px; font-size:12px; font-weight:600; border-radius:999px; background:transparent; border:1px solid var(--border); color:var(--text-secondary); cursor:pointer; font-family:inherit; display:inline-flex; gap:6px; align-items:center; }
+        .ds-qf-chip:hover { border-color:var(--border-hover); color:var(--text-primary); }
+        .ds-qf-chip--active { background:#1d6f7a; border-color:#1d6f7a; color:#ffffff; }
+        .ds-qf-chip--active .ds-qf-count { background:rgba(255,255,255,0.18); color:#ffffff; }
+        .ds-qf-count { font-family:var(--font-mono,inherit); font-size:10.5px; padding:1px 6px; border-radius:999px; background:rgba(255,255,255,0.06); color:var(--text-tertiary); }
+
+        /* Density toggle + shortcut help button */
+        .ds-pt-toolbar { display:inline-flex; gap:6px; align-items:center; margin-left:8px; }
+        .ds-pt-toolbtn { padding:5px 10px; font-size:11.5px; border-radius:6px; background:transparent; border:1px solid var(--border); color:var(--text-secondary); cursor:pointer; font-family:inherit; }
+        .ds-pt-toolbtn:hover { border-color:var(--teal); color:var(--text-primary); }
+        .ds-pt-help { width:26px; padding:0; height:26px; display:inline-flex; align-items:center; justify-content:center; }
+
+        /* Status pill (replaces grey subtitle text) */
+        .ds-status-pill { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; line-height:1.4; white-space:nowrap; }
+        .ds-status-pill--today    { background:#d6e8d6; color:#2f6b3a; }
+        .ds-status-pill--overdue  { background:#f6e6cb; color:#b8741a; }
+        .ds-status-pill--adverse  { background:#f3d4d0; color:#b03434; }
+        .ds-status-pill--stable   { background:#F2EDE5; color:#6b6660; }
+
+        /* Density modes — compact (default) tightens row height + fonts. */
+        .d2p7-wrap.ds-density-compact .queue-row.pt-row { padding:4px 4px; min-height:36px; }
+        .d2p7-wrap.ds-density-compact .queue-pt-name { font-size:12px; }
+        .d2p7-wrap.ds-density-compact .queue-pt-cond { font-size:10px; }
+        .d2p7-wrap.ds-density-compact .pt-av { width:24px; height:24px; font-size:9.5px; }
+        .d2p7-wrap.ds-density-compact .ds-status-pill { font-size:10px; padding:1px 6px; }
+        .d2p7-wrap.ds-density-compact .ds-pt-action { width:24px; height:24px; font-size:13px; }
+        .d2p7-wrap.ds-density-comfortable .queue-row.pt-row { padding:10px 4px; }
+
+        /* Inline action icons */
+        .ds-pt-actions { display:flex; gap:4px; justify-content:flex-end; align-items:center; }
+        .ds-pt-action { width:28px; height:28px; border-radius:6px; border:1px solid var(--border); background:transparent; color:var(--text-secondary); cursor:pointer; display:inline-flex; align-items:center; justify-content:center; font-size:14px; font-family:inherit; padding:0; line-height:1; }
+        .ds-pt-action:hover { border-color:var(--teal); color:var(--text-primary); background:rgba(0,212,188,0.06); }
+        .ds-pt-action[data-action="open-chart"] { border-color:rgba(29,111,122,0.4); color:#1d6f7a; }
+        .ds-pt-action[data-action="open-chart"]:hover { background:rgba(29,111,122,0.12); }
+
+        /* Focused (keyboard-selected) row gets a teal left border */
+        .d2p7-wrap .ds-pt-row--focus { box-shadow: inset 3px 0 0 0 #1d6f7a; background:rgba(29,111,122,0.05); }
+
+        /* Today's Queue (right panel) */
+        .ds-tq { background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:14px; }
+        .ds-tq-hd { font-family:var(--font-display,inherit); font-weight:600; font-size:13.5px; letter-spacing:-0.2px; color:var(--text-primary); margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid var(--border); }
+        .ds-tq-count { color:var(--text-tertiary); font-weight:500; }
+        .ds-tq-list { display:flex; flex-direction:column; gap:6px; }
+        .ds-tq-row { display:grid; grid-template-columns: 50px 1fr auto; gap:8px; align-items:center; padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:var(--bg-surface); }
+        .ds-tq-row:hover { border-color:var(--border-hover); }
+        .ds-tq-time { font-family:var(--font-mono,inherit); font-size:12px; color:var(--teal); font-weight:600; }
+        .ds-tq-name { font-size:12.5px; color:var(--text-primary); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .ds-tq-mod { font-size:10.5px; color:var(--text-tertiary); grid-column: 2 / 3; margin-top:-2px; }
+        .ds-tq-start { background:#1d6f7a; color:#fff; border:1px solid #1d6f7a; border-radius:6px; padding:4px 10px; font-size:11px; font-weight:600; cursor:pointer; font-family:inherit; }
+        .ds-tq-start:hover { filter:brightness(1.1); }
+        .ds-tq-start--ghost { background:transparent; color:#1d6f7a; }
+        .ds-tq-start--ghost:hover { background:rgba(29,111,122,0.1); }
+        .ds-tq-empty { font-size:11.5px; color:var(--text-tertiary); padding:14px; text-align:center; }
+        .ds-tq-mini { display:flex; flex-direction:column; gap:6px; margin-top:12px; padding-top:10px; border-top:1px solid var(--border); }
+        .ds-tq-mini-btn { display:flex; justify-content:space-between; align-items:center; padding:6px 10px; background:transparent; border:1px solid var(--border); border-radius:8px; font-size:11.5px; color:var(--text-secondary); cursor:pointer; font-family:inherit; }
+        .ds-tq-mini-btn:hover { border-color:var(--border-hover); color:var(--text-primary); }
+        .ds-tq-mini-count { font-family:var(--font-mono,inherit); font-size:11px; color:var(--text-tertiary); padding:1px 6px; border-radius:999px; background:rgba(255,255,255,0.06); }
+
+        /* Selected-patient preview rows */
+        .ds-sp-body { display:flex; flex-direction:column; gap:8px; }
+        .ds-sp-row { display:flex; justify-content:space-between; gap:8px; align-items:center; font-size:12px; color:var(--text-secondary); }
+        .ds-sp-row span { color:var(--text-tertiary); font-size:10.5px; text-transform:uppercase; letter-spacing:0.6px; }
+        .ds-sp-actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+
+        /* Quick-note inline drawer */
+        .ds-quicknote-drawer { margin-top:12px; }
+
+        /* Shortcuts modal overlay */
+        .ds-kbd-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.55); display:flex; align-items:center; justify-content:center; z-index:9999; }
+        .ds-kbd-modal { width:min(420px, 92vw); background:var(--bg-card); border:1px solid var(--border-hover); border-radius:14px; padding:18px 18px 14px; box-shadow:0 12px 48px rgba(0,0,0,0.4); }
+        .ds-kbd-hd { display:flex; justify-content:space-between; align-items:center; font-weight:600; font-size:14px; margin-bottom:12px; }
+        .ds-kbd-close { width:24px; height:24px; padding:0; border:none; background:transparent; color:var(--text-secondary); cursor:pointer; font-size:18px; line-height:1; }
+        .ds-kbd-body { display:flex; flex-direction:column; gap:6px; }
+        .ds-kbd-row { display:flex; align-items:center; justify-content:space-between; padding:6px 10px; border:1px solid var(--border); border-radius:8px; font-size:12px; color:var(--text-secondary); }
+        .ds-kbd-row kbd { font-family:var(--font-mono,inherit); font-size:11px; padding:2px 6px; border:1px solid var(--border-hover); border-radius:5px; background:rgba(255,255,255,0.04); color:var(--text-primary); min-width:30px; text-align:center; }
       </style>
 
       <div class="ch-tab-bar">${tabBar()}</div>
 
-      <div class="d2p7-wrap">
-        <!-- Topbar: title + search + bell — mirrors prototype screen-07 header -->
+      <div class="d2p7-wrap ${window._phState.density === 'comfortable' ? 'ds-density-comfortable' : 'ds-density-compact'}">
+        <!-- Topbar: title + quick filters + search + bell + density toggle + ? help -->
         <div class="d2p7-topbar">
           <div style="flex:0 0 auto">
             <div class="d2p7-topbar-title">Patients</div>
@@ -661,9 +1197,9 @@ export async function pgPatientHub(setTopbar, navigate) {
           </div>
           <div class="d2p7-topbar-search" style="margin-left:auto">
             <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-            <input id="d2p7-search" type="text" placeholder="Search by name, MRN, condition, protocol…"
+            <input id="d2p7-search" type="text" placeholder="Search by name, MRN, condition, protocol…  (press / to focus)"
               oninput="window._phOnSearch(event)" aria-label="Search patients">
-            <span class="kbd">⌘K</span>
+            <span class="kbd">/</span>
           </div>
           <div class="d2p7-bell-wrap">
             <button class="topbar-btn" style="width:32px;height:32px" onclick="window._phOpenNotifications()" aria-label="Notifications">
@@ -673,27 +1209,39 @@ export async function pgPatientHub(setTopbar, navigate) {
           </div>
         </div>
 
-        <!-- Status tabs + facet filters -->
+        <!-- Quick-filter chip row (above the cohort tabs / facets / search). -->
+        <div id="ds-pt-quickfilters">${quickFilterChipsHtml()}</div>
+
+        <!-- Status tabs + facet filters + density toggle + ? -->
         <div style="display:flex;gap:12px;margin-bottom:18px;align-items:center;flex-wrap:wrap">
           <div id="d2p7-tabrow" class="d2p7-tabrow"></div>
           <div id="d2p7-filter-row" style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap"></div>
+          <div class="ds-pt-toolbar">
+            <button type="button" class="ds-pt-toolbtn" data-testid="ds-patients-density-toggle"
+              title="Toggle row density" onclick="window._phToggleDensity()">${window._phState.density === 'compact' ? 'Comfortable' : 'Compact'}</button>
+            <button type="button" class="ds-pt-toolbtn ds-pt-help" title="Keyboard shortcuts" aria-label="Keyboard shortcuts" onclick="window._phToggleShortcuts()">?</button>
+          </div>
         </div>
 
         <!-- KPI cards — populated by renderHeader() after summary fetch -->
         <div id="d2p7-kpi-grid" class="d2p7-kpi-grid"></div>
 
-        <!-- Patient table card -->
-        <div class="d2p7-card">
-          <div style="overflow-x:auto">
-            <div style="min-width:860px">
-              <div class="queue-row head" style="grid-template-columns:1.8fr 1.1fr 1fr 1fr 1fr 90px">
-                <div>Patient</div><div>Protocol</div><div>Progress</div><div>Last outcome</div><div>Next step</div><div></div>
+        <!-- 2-column shell: patient table left, Today's Queue / preview right -->
+        <div class="ds-pt-shell">
+          <div class="d2p7-card">
+            <div style="overflow-x:auto">
+              <div style="min-width:860px">
+                <div class="queue-row head" style="grid-template-columns:1.8fr 1.1fr 1fr 1fr 1fr 160px">
+                  <div>Patient</div><div>Protocol</div><div>Progress</div><div>Last outcome</div><div>Next step</div><div></div>
+                </div>
+                <div id="d2p7-list"></div>
               </div>
-              <div id="d2p7-list"></div>
             </div>
+            <div id="d2p7-foot" style="display:flex;justify-content:space-between;align-items:center;padding:12px 4px 4px;font-size:11.5px;color:var(--text-tertiary);border-top:1px solid var(--border);margin-top:4px"></div>
           </div>
-          <div id="d2p7-foot" style="display:flex;justify-content:space-between;align-items:center;padding:12px 4px 4px;font-size:11.5px;color:var(--text-tertiary);border-top:1px solid var(--border);margin-top:4px"></div>
+          <div id="ds-pt-right">${todaysQueueHtml()}</div>
         </div>
+        <div id="ds-pt-overlay">${shortcutsModalHtml()}</div>
       </div>
     </div>`;
 
