@@ -204,6 +204,46 @@ test('renderPatientReport unwraps a stringified report_payload', function () {
   assert.match(html, /Demo Patient/);
 });
 
+test('renderPatientReport prefers patient-facing payload over mixed clinician payload', function () {
+  var mixed = fixtureReport({
+    ai_narrative: {
+      executive_summary: 'Clinician summary should not win.',
+      findings: [{ description: 'clinician finding', clinician_only: true }],
+    },
+    patient_facing_report: {
+      content: {
+        executive_summary: 'Patient-safe summary.',
+        findings: [{ description: 'patient-safe finding' }],
+      },
+      disclaimer: 'Patient-safe disclaimer.',
+    },
+    raw_review_handoff: { bad_channels: ['Fp1'] },
+    local_grounding: { anchors: ['internal'] },
+  });
+  var html = patient.renderPatientReport(mixed);
+  assert.match(html, /Patient-safe summary/);
+  assert.match(html, /patient-safe finding/);
+  assert.doesNotMatch(html, /Clinician summary should not win/);
+  assert.doesNotMatch(html, /Fp1/);
+});
+
+test('renderPatientReport strips clinician-only findings from mixed payloads', function () {
+  var html = patient.renderPatientReport({
+    patient_facing_payload: {
+      content: {
+        executive_summary: 'Summary here.',
+        findings: [
+          { description: 'Patient-safe finding' },
+          { description: 'Clinician-only finding', clinician_only: true },
+        ],
+      },
+      disclaimer: 'For info only.',
+    },
+  });
+  assert.match(html, /Patient-safe finding/);
+  assert.doesNotMatch(html, /Clinician-only finding/);
+});
+
 test('patient report contains no banned regulatory terms', function () {
   var html = _stripDisclaimerPhrase(patient.renderPatientReport(fixtureReport()));
   assert.equal(/\bdiagnosis\b/i.test(html), false, 'patient report contains "diagnosis"');

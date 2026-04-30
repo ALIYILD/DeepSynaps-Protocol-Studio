@@ -159,6 +159,9 @@ test('renderClinicianReview surfaces raw review handoff and claim governance fal
         bad_channels: ['Fp1', 'T7'],
         medication_confounds: ['methylphenidate'],
       },
+      local_grounding: {
+        source_count: 3,
+      },
     },
     claim_governance: [
       { finding_text: 'Theta elevation', claim_type: 'INFERRED', status: 'PENDING', evidence_grade: 'B' },
@@ -169,6 +172,7 @@ test('renderClinicianReview surfaces raw review handoff and claim governance fal
   assert.ok(html.includes('Fp1, T7'));
   assert.ok(html.includes('methylphenidate'));
   assert.ok(html.includes('Theta elevation'));
+  assert.ok(html.includes('Local qEEG Grounding'));
 });
 
 // ── Patient Report ───────────────────────────────────────────────────────────
