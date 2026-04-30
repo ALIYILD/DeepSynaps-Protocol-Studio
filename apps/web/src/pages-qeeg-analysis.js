@@ -3838,6 +3838,65 @@ var DEMO_ANALYSIS_ENTRY = {
   analyzed_at: new Date().toISOString(),
 };
 
+/* Demo patients — synthetic roster for the qEEG analyzer. Deliberately
+   prefixed `demo-*` so we can tell them apart from real patients and skip
+   the api round-trip when the user picks one. The names match the
+   DeepTwin demo seed (apps/web/src/deeptwin/mockData.js) so a clinician
+   reviewing the preview sees a consistent set of "patients" across pages. */
+var DEMO_PATIENTS = [
+  {
+    id: 'demo-sarah-johnson', first_name: 'Sarah', last_name: 'Johnson',
+    dob: '1992-04-18', gender: 'F', primary_condition: 'ADHD (combined)',
+    is_demo: true,
+  },
+  {
+    id: 'demo-robert-kim', first_name: 'Robert', last_name: 'Kim',
+    dob: '1983-09-02', gender: 'M', primary_condition: 'Major depressive disorder',
+    is_demo: true,
+  },
+  {
+    id: 'demo-emma-clarke', first_name: 'Emma', last_name: 'Clarke',
+    dob: '1996-12-11', gender: 'F', primary_condition: 'PTSD',
+    is_demo: true,
+  },
+];
+
+/* Synthetic medical-history payload for the demo patients. Shaped to match
+   the api.getPatientMedicalHistory response so renderClinicalInfo lights
+   up every collapsible section. */
+function _demoMedicalHistoryFor(demoId) {
+  var COMMON = {
+    presenting: { chief_complaint: 'Decision-support demo profile', symptom_onset: 'Synthetic', severity: 'moderate', functional_impact: 'Demo data — not a real patient.', patient_goals: 'Show analyzer features end-to-end.' },
+    diagnoses:  { primary_dx: 'Demo profile', working_dx: 'Demo profile', dx_notes: 'Synthetic data for review only.' },
+    safety:     { seizure_history: 'no', seizure_meds: 'none', seizure_risk: 'low', metal_implants: 'none', pacemaker: 'no', pregnancy: 'no', photosensitivity: 'no', prior_ae_neuromod: 'no', contra_notes: 'Synthetic — no contraindications encoded.', contra_cleared: 'cleared' },
+    lifestyle:  { sleep_quality: 'fair', sleep_hours: '6.5', alcohol: 'occasional', tobacco: 'none', cannabis: 'none', other_substances: 'none', occupation: 'demo', activity_level: 'moderate' },
+  };
+  if (demoId === 'demo-sarah-johnson') {
+    return { sections: Object.assign({}, COMMON, {
+      diagnoses:    { primary_dx: 'ADHD (combined presentation)', secondary_dx: 'Generalised anxiety', working_dx: 'ADHD-C', dx_notes: 'TBR > 3 on Cz; frontal alpha asymmetry within range.' },
+      medications:  { current_meds: 'atomoxetine 40 mg daily', supplements: 'omega-3', past_meds: 'methylphenidate (3 mo, GI side effects)', med_interactions: 'none flagged' },
+      neurological: { neuro_conditions: 'none', brain_injury: 'none', neuro_tests: 'qEEG (this study)', chronic_conditions: 'sleep onset insomnia', surgeries: 'none' },
+    }) };
+  }
+  if (demoId === 'demo-robert-kim') {
+    return { sections: Object.assign({}, COMMON, {
+      diagnoses:    { primary_dx: 'Major depressive disorder', secondary_dx: 'Chronic fatigue', working_dx: 'MDD', dx_notes: 'Frontal alpha asymmetry positive (R>L).' },
+      medications:  { current_meds: 'escitalopram 10 mg', supplements: 'vitamin D', past_meds: 'sertraline (12 mo)', med_interactions: 'monitor QT' },
+      neurological: { neuro_conditions: 'none', brain_injury: 'none', neuro_tests: 'qEEG, MRI (unremarkable)', chronic_conditions: 'fatigue', surgeries: 'none' },
+    }) };
+  }
+  // emma-clarke / fallback
+  return { sections: Object.assign({}, COMMON, {
+    diagnoses:    { primary_dx: 'PTSD', secondary_dx: 'Sleep fragmentation', working_dx: 'PTSD', dx_notes: 'Beta elevation; reduced alpha amplitude.' },
+    medications:  { current_meds: 'prazosin 2 mg pm', supplements: 'magnesium', past_meds: 'sertraline (rotated)', med_interactions: 'BP monitoring' },
+    neurological: { neuro_conditions: 'none', brain_injury: 'none', neuro_tests: 'qEEG (this study)', chronic_conditions: 'sleep fragmentation', surgeries: 'none' },
+  }) };
+}
+
+function _isDemoPatientId(pid) {
+  return typeof pid === 'string' && pid.indexOf('demo-') === 0;
+}
+
 /* Demo assessment correlation data */
 var DEMO_ASSESSMENT_CORRELATION = {
   success: true, qeeg_analyses_count: 2, assessments_count: 6,
@@ -4134,12 +4193,17 @@ function initPatientSelector() {
     } else {
       dropdown.innerHTML = filtered.map(function (p, i) {
         const initials = ((p.first_name || '')[0] || '') + ((p.last_name || '')[0] || '');
+        const isDemo = !!p.is_demo || (typeof p.id === 'string' && p.id.indexOf('demo-') === 0);
+        const avatarBg = isDemo ? 'var(--amber)' : 'var(--blue)';
+        const demoBadge = isDemo
+          ? '<span style="font-size:10px;font-weight:700;color:var(--amber);background:rgba(251,191,36,0.18);padding:2px 6px;border-radius:8px;margin-left:6px">DEMO</span>'
+          : '';
         return '<div id="qeeg-patient-opt-' + i + '" role="option" aria-selected="false" '
           + 'data-patient-id="' + esc(p.id) + '" '
           + 'style="display:flex;align-items:center;gap:10px;padding:8px 12px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.04)">'
-          + '<div style="width:32px;height:32px;border-radius:50%;background:var(--blue);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0">' + esc(initials.toUpperCase()) + '</div>'
+          + '<div style="width:32px;height:32px;border-radius:50%;background:' + avatarBg + ';display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0">' + esc(initials.toUpperCase()) + '</div>'
           + '<div style="flex:1;min-width:0">'
-          + '<div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc((p.first_name || '') + ' ' + (p.last_name || '')) + '</div>'
+          + '<div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc((p.first_name || '') + ' ' + (p.last_name || '')) + demoBadge + '</div>'
           + '<div style="font-size:11px;color:var(--text-tertiary)">' + esc(p.primary_condition || 'No condition') + (p.dob ? ' | ' + esc(p.dob) : '') + '</div>'
           + '</div></div>';
       }).join('');
@@ -4480,12 +4544,23 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
 
   setTopbar('qEEG Analyzer', '');
 
-  // Load patients list (cached)
+  // Load patients list (cached). In demo mode we always prepend the synthetic
+  // demo patients so the analyzer is clickable end-to-end on the preview
+  // even when the backend returns no real patients.
   if (!_patients.length) {
     try {
       const resp = await api.listPatients();
       _patients = Array.isArray(resp) ? resp : (resp && resp.items ? resp.items : []);
-    } catch (err) { _patients = []; showToast('Failed to load patients: ' + (err.message || err), 'error'); }
+    } catch (err) {
+      _patients = [];
+      if (!_isDemoMode()) showToast('Failed to load patients: ' + (err.message || err), 'error');
+    }
+    if (_isDemoMode()) {
+      // Avoid duplicates if the backend already returns demo seeds for any reason.
+      var existingIds = new Set(_patients.map(function (p) { return p.id; }));
+      var demoToAdd = DEMO_PATIENTS.filter(function (p) { return !existingIds.has(p.id); });
+      _patients = demoToAdd.concat(_patients);
+    }
   }
 
   // Load patient data if selected
@@ -4496,18 +4571,29 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
     window._qeegPatientId = patientId;
   }
   if (patientId && (!_patient || _patient.id !== patientId)) {
-    try {
-      const [p, mh, aResp] = await Promise.all([
-        api.getPatient(patientId),
-        api.getPatientMedicalHistory(patientId),
-        api.listPatientQEEGAnalyses(patientId).catch(function () { return { items: [] }; }),
-      ]);
-      _patient = p;
-      _medHistory = mh;
-      _analyses = (aResp && aResp.items) || (Array.isArray(aResp) ? aResp : []);
-    } catch (err) {
-      _patient = null; _medHistory = null; _analyses = [];
-      showToast('Failed to load patient data: ' + (err.message || err), 'error');
+    if (_isDemoPatientId(patientId)) {
+      // Synthetic patient — skip the API round-trip and rebuild the page-
+      // local caches from the in-memory demo seed. The analyses entry uses
+      // the same id='demo' shape the rest of the analyzer already handles
+      // so every tab (Analysis / Raw / Report / Compare) lights up.
+      var seed = DEMO_PATIENTS.find(function (p) { return p.id === patientId; }) || DEMO_PATIENTS[0];
+      _patient = Object.assign({}, seed);
+      _medHistory = _demoMedicalHistoryFor(patientId);
+      _analyses = [DEMO_ANALYSIS_ENTRY];
+    } else {
+      try {
+        const [p, mh, aResp] = await Promise.all([
+          api.getPatient(patientId),
+          api.getPatientMedicalHistory(patientId),
+          api.listPatientQEEGAnalyses(patientId).catch(function () { return { items: [] }; }),
+        ]);
+        _patient = p;
+        _medHistory = mh;
+        _analyses = (aResp && aResp.items) || (Array.isArray(aResp) ? aResp : []);
+      } catch (err) {
+        _patient = null; _medHistory = null; _analyses = [];
+        showToast('Failed to load patient data: ' + (err.message || err), 'error');
+      }
     }
   } else if (!patientId) {
     _patient = null; _medHistory = null; _analyses = [];
@@ -4579,6 +4665,20 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
     + '<button class="btn btn-sm btn-outline" aria-label="Download printable PDF report" onclick="window._qeegDownloadPDF()"' + heroExportDisabled + '>PDF</button>'
     + '</div>'
     + '</div>';
+  // Persistent demo banner — shows whenever the build is demo-flagged OR
+  // a synthetic patient is selected. Stays visible across tab switches so
+  // a clinician always knows when they are looking at synthetic data.
+  var _demoActive = _isDemoMode() || _isDemoPatientId(patientId) || window._qeegSelectedId === 'demo';
+  if (_demoActive) {
+    pageHtml += '<div role="status" aria-live="polite" style="margin-bottom:12px;padding:10px 14px;border-radius:10px;'
+      + 'background:rgba(251,191,36,0.10);border:1px solid rgba(251,191,36,0.40);'
+      + 'display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:13px;color:var(--text-primary)">'
+      + '<span style="font-size:14px">⚠️</span>'
+      + '<strong>DEMO MODE</strong>'
+      + '<span style="color:var(--text-secondary)">— synthetic patients and synthetic EEG data. Not for clinical use.</span>'
+      + (_isDemoPatientId(patientId) ? '<span class="badge" style="margin-left:auto;font-size:11px;font-weight:700;color:var(--amber);background:rgba(251,191,36,0.18);padding:3px 8px;border-radius:12px">Demo patient</span>' : '')
+      + '</div>';
+  }
   pageHtml += renderPatientSelector(_patients, patientId);
   pageHtml += renderTabBar(tab);
   pageHtml += '<div id="qeeg-tab-content" role="tabpanel" tabindex="0" aria-labelledby="qeeg-tab-' + tab + '"></div>';
