@@ -900,7 +900,7 @@ async function _openQEEGAnnotationDrawer(context) {
     });
     if (listEl) listEl.innerHTML = _renderAnnotationList(rows);
   } catch (err) {
-    if (listEl) listEl.innerHTML = '<div class="analysis-anno-empty">Could not load notes: ' + esc(err.message || err) + '</div>';
+    if (listEl) listEl.innerHTML = '<div class="analysis-anno-empty">Could not load notes: ' + esc(String(err && err.message ? err.message : err || "Unknown error")) + '</div>';
   }
 
   host.querySelectorAll('[data-annotation-close="1"]').forEach(function (node) {
@@ -4354,7 +4354,17 @@ async function handleUpload(file, patientId) {
     // Refresh analyses list
     refreshAnalysesList(patientId);
   } catch (err) {
-    if (statusEl) statusEl.innerHTML = '<div style="color:var(--red);font-size:13px">Upload failed: ' + esc(err.message || err) + '</div>';
+    const msg = String(err && err.message ? err.message : err || 'Unknown error');
+    if (statusEl) {
+      statusEl.setAttribute('role', 'alert');
+      statusEl.removeAttribute('aria-live');
+      statusEl.innerHTML = '<div style="color:var(--red);font-size:13px">'
+        + '<strong>Upload failed.</strong>'
+        + '<div style="margin-top:4px">' + esc(msg) + '</div>'
+        + '<div style="margin-top:6px;font-size:12px;color:var(--text-tertiary)">Try refreshing the page. If the error persists, contact support.</div>'
+        + '</div>';
+    }
+    showToast('Upload failed: ' + msg, 'error');
   }
 }
 
@@ -4747,7 +4757,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
                 } catch (_e) { /* silent polling failure */ }
               }, 2000);
             } catch (err) {
-              if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px">Error: ' + esc(err.message || err) + '</div>';
+              if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px">Error: ' + esc(String(err && err.message ? err.message : err || "Unknown error")) + '</div>';
               runBtn.disabled = false;
             }
           });
@@ -5282,7 +5292,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
                 note: (err && err.message ? err.message : String(err)).slice(0, 200),
               });
               showToast('AI report generation failed: ' + (err.message || err), 'error');
-              if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px" role="alert">Error: ' + esc(err.message || err) + '</div>';
+              if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px" role="alert">Error: ' + esc(String(err && err.message ? err.message : err || "Unknown error")) + '</div>';
               btn.disabled = false;
             }
           });
@@ -5393,7 +5403,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
             if (st) st.innerHTML = '<div style="color:var(--green);font-size:13px">Clinician review recorded for this report.</div>';
           } catch (err) {
             showToast('Failed to save review: ' + (err.message || err), 'error');
-            if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px">Error: ' + esc(err.message || err) + '</div>';
+            if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px">Error: ' + esc(String(err && err.message ? err.message : err || "Unknown error")) + '</div>';
             reviewBtn.disabled = false;
           }
         });
@@ -5751,7 +5761,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
               tHtml += '</tbody></table></div>';
               contentEl.innerHTML = tHtml;
             } catch (err) {
-              contentEl.innerHTML = '<div style="color:var(--red);font-size:13px" role="alert">Failed to load trend: ' + esc(err.message || err) + '</div>';
+              contentEl.innerHTML = '<div style="color:var(--red);font-size:13px" role="alert">Failed to load trend: ' + esc(String(err && err.message ? err.message : err || "Unknown error")) + '</div>';
             }
           });
         }
@@ -5871,7 +5881,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
             cHtml += '</div>';
             contentEl.innerHTML = cHtml;
           } catch (err) {
-            contentEl.innerHTML = '<div style="color:var(--red);font-size:13px" role="alert">Failed to load correlations: ' + esc(err.message || err) + '</div>';
+            contentEl.innerHTML = '<div style="color:var(--red);font-size:13px" role="alert">Failed to load correlations: ' + esc(String(err && err.message ? err.message : err || "Unknown error")) + '</div>';
             corrBtn.disabled = false;
           }
         });
