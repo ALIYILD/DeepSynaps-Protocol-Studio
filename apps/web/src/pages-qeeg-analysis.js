@@ -28,6 +28,7 @@ import { renderNormativeModelCard, mountNormativeModelCard } from './qeeg-normat
 import { renderProtocolFit, mountProtocolFit } from './qeeg-protocol-fit.js';
 import { renderClinicianReview, mountClinicianReview } from './qeeg-clinician-review.js';
 import { renderPatientReport, mountPatientReport } from './qeeg-patient-report.js';
+import { renderClinicianReport, mountClinicianReport } from './qeeg-clinician-report.js';
 import { renderTimeline, mountTimeline } from './qeeg-timeline.js';
 import { EvidenceChip, createEvidenceQueryForTarget, initEvidenceDrawer, openEvidenceDrawer, wireEvidenceChips } from './evidence-intelligence.js';
 import { renderLearningEEGReferenceCard } from './learning-eeg-reference.js';
@@ -5355,7 +5356,18 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           + '</div>'
         ) + html;
       }
-      // Clinical Workbench — review + patient-facing report panels
+      // Brain Map (Phase 1) — patient + clinician renderers consuming the
+      // QEEGBrainMapReport contract from Phase 0. Local toggle, default
+      // clinician view. Legacy panels stay below.
+      html += '<div class="qeeg-brainmap-toggle ds-card" style="margin:12px 0">'
+        + '<div class="ds-card__body" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+        + '<strong style="margin-right:8px;font-size:13px">Brain Map view:</strong>'
+        + '<button type="button" class="btn btn--small" id="qeeg-brainmap-view-clinician">Clinician</button>'
+        + '<button type="button" class="btn btn--small btn--ghost" id="qeeg-brainmap-view-patient">Patient</button>'
+        + '</div></div>';
+      html += '<div id="qeeg-brainmap-clinician-panel"></div>';
+      html += '<div id="qeeg-brainmap-patient-panel" hidden></div>';
+      // Clinical Workbench — review + patient-facing report panels (legacy)
       html += '<div id="qeeg-clinician-review-panel"></div>';
       html += '<div id="qeeg-patient-report-panel"></div>';
       html += '<div id="qeeg-timeline-panel"></div>';
@@ -5400,6 +5412,28 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         setTimeout(function () {
           try { mountClinicianReview('qeeg-clinician-review-panel', analysisId, report.id, api); } catch (_) {}
           try { mountPatientReport('qeeg-patient-report-panel', report.id, api); } catch (_) {}
+          // Phase 1 Brain Map renderers consuming QEEGBrainMapReport contract
+          try { mountClinicianReport('qeeg-brainmap-clinician-panel', report.id, api); } catch (_) {}
+          try { mountPatientReport('qeeg-brainmap-patient-panel', report.id, api); } catch (_) {}
+          var _bmClin = document.getElementById('qeeg-brainmap-view-clinician');
+          var _bmPat = document.getElementById('qeeg-brainmap-view-patient');
+          var _bmClinPanel = document.getElementById('qeeg-brainmap-clinician-panel');
+          var _bmPatPanel = document.getElementById('qeeg-brainmap-patient-panel');
+          function _bmSetView(v) {
+            if (v === 'patient') {
+              if (_bmClinPanel) _bmClinPanel.hidden = true;
+              if (_bmPatPanel) _bmPatPanel.hidden = false;
+              if (_bmClin) _bmClin.classList.add('btn--ghost');
+              if (_bmPat) _bmPat.classList.remove('btn--ghost');
+            } else {
+              if (_bmClinPanel) _bmClinPanel.hidden = false;
+              if (_bmPatPanel) _bmPatPanel.hidden = true;
+              if (_bmClin) _bmClin.classList.remove('btn--ghost');
+              if (_bmPat) _bmPat.classList.add('btn--ghost');
+            }
+          }
+          if (_bmClin) _bmClin.addEventListener('click', function () { _bmSetView('clinician'); });
+          if (_bmPat) _bmPat.addEventListener('click', function () { _bmSetView('patient'); });
         }, 40);
       }
       if (analysisData && analysisData.patient_id && analysisId && analysisId !== 'demo') {

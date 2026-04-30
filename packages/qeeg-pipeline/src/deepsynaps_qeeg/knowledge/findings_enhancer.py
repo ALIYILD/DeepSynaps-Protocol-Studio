@@ -13,7 +13,7 @@ from typing import Any
 
 from ..narrative.types import Finding
 from .artifact_atlas import flag_artifact_confounds
-from .medication_eeg import flag_medication_confounds
+from .medication_eeg import flag_medication_confounds, MedicationEEGAtlas
 from .normative import NormativeContext, age_aware_band_range
 
 
@@ -58,6 +58,25 @@ def enhance_findings(
         if isinstance(meds, (list, tuple)):
             medications = [str(m) for m in meds]
 
+    # Build consolidated medication summary from all unique medications.
+    medication_summary: list[dict[str, Any]] = []
+    seen_meds: set[str] = set()
+    for med_name in medications:
+        profile = MedicationEEGAtlas.lookup(med_name)
+        if profile is None:
+            continue
+        if profile.name in seen_meds:
+            continue
+        seen_meds.add(profile.name)
+        medication_summary.append(
+            {
+                "medication": profile.name,
+                "affected_bands": list(profile.affected_bands),
+                "drug_class": profile.drug_class,
+                "clinical_note": profile.clinical_note,
+            }
+        )
+
     for f in findings:
         # Artifact advisory.
         artifact_flags = flag_artifact_confounds(f.region, f.band, f.metric)
@@ -82,6 +101,7 @@ def enhance_findings(
                 "severity": f.severity,
                 "artifact_flags": artifact_flags,
                 "medication_flags": medication_flags,
+                "medication_summary": medication_summary,
                 "normative_context": {
                     "expected_pdr_min_hz": norm_ctx.expected_pdr_min_hz,
                     "expected_pdr_max_hz": norm_ctx.expected_pdr_max_hz,

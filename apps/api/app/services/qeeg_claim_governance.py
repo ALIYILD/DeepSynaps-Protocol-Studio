@@ -34,6 +34,14 @@ _BLOCKED_PATTERNS: list[tuple[re.Pattern, str]] = [
 
 # ── Banned words for any clinical-facing output ──────────────────────────────
 _BANNED_WORDS = ["diagnose", "diagnostic", "diagnosis", "probability of disease"]
+_PATIENT_FACING_INTERNAL_KEYS = {
+    "raw_review_handoff",
+    "medication_confounds",
+    "internal_review_notes",
+    "courseware_guidance",
+    "local_research",
+    "local_grounding",
+}
 
 
 def classify_claims(ai_narrative: dict) -> list[dict]:
@@ -207,7 +215,7 @@ def sanitize_for_patient(report: dict) -> dict:
         band_summary[band] = f"{band.title()} activity appears {sev}."
     sanitized["band_summary"] = band_summary
 
-    return sanitized
+    return _scrub_patient_facing_payload(sanitized)
 
 
 def scan_for_banned_words(text: str) -> list[str]:
@@ -280,3 +288,16 @@ def _remove_technical_jargon(text: str) -> str:
     # Clean up extra spaces
     text = re.sub(r"\s+", " ", text).strip()
     return text
+
+
+def _scrub_patient_facing_payload(value: Any) -> Any:
+    if isinstance(value, dict):
+        cleaned: dict[str, Any] = {}
+        for key, item in value.items():
+            if key in _PATIENT_FACING_INTERNAL_KEYS:
+                continue
+            cleaned[key] = _scrub_patient_facing_payload(item)
+        return cleaned
+    if isinstance(value, list):
+        return [_scrub_patient_facing_payload(item) for item in value]
+    return value

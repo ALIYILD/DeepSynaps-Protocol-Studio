@@ -56,7 +56,7 @@ _DOC_UPLOAD_ALLOWED = {
     "image/webp",
     "text/plain",
 }
-_DOC_ALLOWED_STATUSES = {"pending", "uploaded", "signed", "completed"}
+_DOC_ALLOWED_STATUSES = {"pending", "uploaded", "signed", "completed", "superseded"}
 _DOC_SIGNABLE_STATUSES = {"signed", "completed"}
 
 # Pin every accepted MIME type to a known-safe extension. Pre-fix the
@@ -336,22 +336,77 @@ class DocumentListResponse(BaseModel):
 @router.get("", response_model=DocumentListResponse)
 def list_documents(
     patient_id: Optional[str] = None,
+    kind: Optional[str] = None,
+    status: Optional[str] = None,
+    since: Optional[str] = None,
+    until: Optional[str] = None,
+    q: Optional[str] = None,
+    clinic_id: Optional[str] = None,  # accepted for forward-compat
+    limit: int = Query(default=200, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> DocumentListResponse:
-    """List documents for the authenticated clinician's clinic, optionally filtered by patient."""
+    """List documents for the authenticated clinician's clinic.
+
+    Filters (Documents Hub launch-audit 2026-04-30):
+
+    * ``patient_id`` — restrict to a single patient (clinic-isolation enforced).
+    * ``kind`` — match the metadata ``doc_type`` field, case-insensitive
+      substring (e.g. ``intake``, ``consent``, ``letter``, ``uploaded``).
+    * ``status`` — exact status match (``pending``, ``uploaded``, ``signed``,
+      ``completed``, ``superseded``).
+    * ``since`` / ``until`` — ISO-8601 cutoffs (inclusive) on ``created_at``.
+    * ``q`` — case-insensitive substring search across title, notes, and id.
+    * ``clinic_id`` — accepted for forward-compat; the per-clinic scope is
+      already enforced by ``_scope_documents_query_to_clinic`` against the
+      actor's clinic, so this parameter is a documented no-op.
+    * ``limit`` / ``offset`` — pagination.
+    """
     require_minimum_role(actor, "clinician")
     _assert_document_patient_access(patient_id, actor, session)
     base_q = session.query(FormDefinition).filter(
         FormDefinition.form_type == _DOC_FORM_TYPE,
     )
     base_q = _scope_documents_query_to_clinic(base_q, actor)
-    rows = base_q.all()
 
+    # SQL-level filters (status / since / until / q) execute in the DB so
+    # pagination is correct. ``patient_id`` and ``kind`` live in the JSON
+    # ``questions_json`` blob, so we apply them in Python after fetch.
+    if status:
+        base_q = base_q.filter(FormDefinition.status == status)
+    if since:
+        try:
+            cutoff = datetime.fromisoformat(since.replace("Z", "+00:00"))
+            base_q = base_q.filter(FormDefinition.created_at >= cutoff)
+        except ValueError:
+            pass
+    if until:
+        try:
+            cutoff_to = datetime.fromisoformat(until.replace("Z", "+00:00"))
+            base_q = base_q.filter(FormDefinition.created_at <= cutoff_to)
+        except ValueError:
+            pass
+    if q:
+        like = f"%{q.lower()}%"
+        from sqlalchemy import func
+        base_q = base_q.filter(
+            or_(
+                func.lower(func.coalesce(FormDefinition.title, "")).like(like),
+                func.lower(func.coalesce(FormDefinition.questions_json, "")).like(like),
+                func.lower(FormDefinition.id).like(like),
+            )
+        )
+
+    base_q = base_q.order_by(FormDefinition.created_at.desc())
+    rows = base_q.offset(offset).limit(limit).all()
     items = [_record_to_out(r) for r in rows]
 
     if patient_id:
         items = [i for i in items if i.patient_id == patient_id]
+    if kind:
+        kk = kind.lower()
+        items = [i for i in items if kk in (i.doc_type or "").lower()]
 
     return DocumentListResponse(items=items, total=len(items))
 

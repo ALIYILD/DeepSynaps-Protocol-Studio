@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 from urllib.request import urlretrieve
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class ModelSpec:
     task: str
     version: str

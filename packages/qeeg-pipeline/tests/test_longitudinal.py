@@ -30,8 +30,13 @@ def _synthetic_session(
     coh_mat: list[list[float]],
     state: str = "eyes_closed",
 ) -> SessionData:
-    band_payload = lambda vals: {ch: float(v) for ch, v in zip(channels, vals, strict=True)}
-    z_band_payload = lambda vals: {ch: float(v) for ch, v in zip(channels, vals, strict=True)}
+    def _band_payload(vals):
+        if len(channels) != len(vals):
+            raise ValueError(f"Length mismatch: {len(channels)} channels vs {len(vals)} values")
+        return {ch: float(v) for ch, v in zip(channels, vals)}
+
+    band_payload = _band_payload
+    z_band_payload = _band_payload
 
     features = {
         "spectral": {
