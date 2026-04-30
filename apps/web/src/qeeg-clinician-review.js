@@ -95,15 +95,37 @@ async function mountClinicianReview(containerId, analysisId, reportId, api) {
   }
 }
 
+function _audit(api, event, extra) {
+  try {
+    if (api && typeof api.logAudit === 'function') {
+      var p = api.logAudit(Object.assign({ event: event }, extra || {}));
+      if (p && typeof p.catch === 'function') p.catch(function () {});
+    }
+  } catch (_) { /* best-effort */ }
+}
+
+function _showFailure(container, message) {
+  // Render an inline error banner instead of a blocking alert(). Alerts hide
+  // failures from automated tests and screen-reader workflows; an inline
+  // [role=alert] node is announced and dismissable on the next refresh.
+  var banner = document.createElement('div');
+  banner.setAttribute('role', 'alert');
+  banner.style.cssText = 'margin-top:8px;padding:8px 12px;border-radius:8px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.28);color:#fca5a5;font-size:12px';
+  banner.textContent = message;
+  container.appendChild(banner);
+}
+
 function _wireActions(container, reportId, api, refresh) {
   container.querySelectorAll('[data-action="transition"]').forEach(function (btn) {
     btn.addEventListener('click', async function () {
       var target = btn.dataset.target;
       try {
         await api.transitionQEEGReportState(reportId, { action: target, note: '' });
+        _audit(api, 'clinician_review_transition', { note: 'report=' + reportId + '; target=' + target });
         await refresh();
       } catch (e) {
-        alert('Transition failed: ' + (e.message || 'Unknown error'));
+        _audit(api, 'clinician_review_transition_failed', { note: 'report=' + reportId + '; ' + (e && e.message ? e.message : '') });
+        _showFailure(container, 'Transition failed: ' + (e.message || 'Unknown error'));
       }
     });
   });
@@ -111,9 +133,11 @@ function _wireActions(container, reportId, api, refresh) {
     btn.addEventListener('click', async function () {
       try {
         await api.signQEEGReport(reportId);
+        _audit(api, 'clinician_review_signed', { note: 'report=' + reportId });
         await refresh();
       } catch (e) {
-        alert('Sign failed: ' + (e.message || 'Unknown error'));
+        _audit(api, 'clinician_review_sign_failed', { note: 'report=' + reportId + '; ' + (e && e.message ? e.message : '') });
+        _showFailure(container, 'Sign failed: ' + (e.message || 'Unknown error'));
       }
     });
   });

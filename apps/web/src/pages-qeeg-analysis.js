@@ -2796,8 +2796,43 @@ function _isDemoMode() {
 }
 
 function _demoBanner() {
-  return '<div style="background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.2);border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:12px;color:var(--amber);display:flex;align-items:center;gap:8px">'
-    + '<span>&#x1F4CB;</span> Sample data shown for demonstration purposes. Upload a real EDF file for actual analysis.</div>';
+  return '<div data-demo="true" data-testid="qeeg-demo-banner" style="background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.2);border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:12px;color:var(--amber);display:flex;align-items:center;gap:8px">'
+    + '<span>&#x1F4CB;</span><span><strong>Sample recording loaded — clinician review required.</strong> '
+    + 'All findings, brain maps, and exports below are labelled <code>DEMO — not for clinical use</code>. '
+    + 'Upload a real EDF/BDF/SET recording to run the live qEEG pipeline.</span></div>';
+}
+
+// ── Clinical safety footer (always visible) ─────────────────────────────────
+// Audit requirement: disclaimers must be visible on the Analyzer page so a
+// reviewing clinician cannot miss them. These are static strings — they are
+// not gated on demo mode and never disappear once the analyzer renders.
+function _qeegClinicalSafetyFooter() {
+  return '<div data-testid="qeeg-safety-footer" class="qeeg-safety-footer" style="margin-top:24px;padding:14px 16px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);font-size:12px;color:var(--text-secondary);line-height:1.6">'
+    + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-tertiary);margin-bottom:6px">Clinical safety disclaimers</div>'
+    + '<ul style="margin:0;padding-left:18px">'
+    + '<li>qEEG findings <strong>support clinical decision-making and require clinician review</strong>.</li>'
+    + '<li>Z-scores are referenced against the embedded normative dataset (see Normative Model Card).</li>'
+    + '<li>Protocol-fit suggestions are decision-support and <strong>are not prescriptive</strong>.</li>'
+    + '<li>Red flags require clinician review per local policy before any treatment action.</li>'
+    + '<li>AI interpretation runs after deterministic numerics — it summarises, it does not generate findings.</li>'
+    + '</ul></div>';
+}
+
+// ── Best-effort audit logger ─────────────────────────────────────────────────
+// Posts a qEEG audit event via api.logAudit. Never throws. Never blocks UI.
+function _qeegAudit(event, extra) {
+  try {
+    var payload = Object.assign({
+      event: event,
+      analysis_id: (window._qeegSelectedId && window._qeegSelectedId !== 'demo') ? window._qeegSelectedId : null,
+      patient_id: window._qeegPatientId || null,
+      using_demo_data: !!(window._qeegSelectedId === 'demo' && _isDemoMode()),
+    }, extra || {});
+    if (api && typeof api.logAudit === 'function') {
+      var p = api.logAudit(payload);
+      if (p && typeof p.catch === 'function') p.catch(function () {});
+    }
+  } catch (_) { /* audit must never break UI */ }
 }
 
 /* 19 standard 10-20 channels */
@@ -3749,6 +3784,16 @@ async function _exportQEEGArtifact(kind) {
     showToast('Select a patient before exporting', 'warning');
     return;
   }
+  // In demo mode the backend bundle endpoints will 404 / 403 because the
+  // demo patient_id has no real DB row. Keep the export honest: we don't
+  // synthesize a fake bundle file, we surface the limitation.
+  var _demoExport = (window._qeegSelectedId === 'demo' && _isDemoMode());
+  if (_demoExport) {
+    showToast('FHIR/BIDS bundles require a real patient record — demo only supports CSV/JSON export', 'warning');
+    _qeegAudit('export_blocked_demo', { note: 'kind=' + kind });
+    return;
+  }
+  _qeegAudit('export_' + kind + '_requested', { patient_id: payload.patient_id });
   try {
     const blob = kind === 'fhir'
       ? await api.exportFHIRBundle(payload)
@@ -3758,8 +3803,10 @@ async function _exportQEEGArtifact(kind) {
       ? `qeeg_fhir_bundle_${payload.patient_id}_${suffix}.json`
       : `qeeg_bids_derivatives_${payload.patient_id}_${suffix}.zip`;
     downloadBlob(blob, filename);
+    _qeegAudit('export_' + kind + '_completed', { patient_id: payload.patient_id });
     showToast(kind === 'fhir' ? 'FHIR bundle exported' : 'BIDS package exported', 'success');
   } catch (err) {
+    _qeegAudit('export_' + kind + '_failed', { note: (err && err.message ? err.message : String(err)).slice(0, 200) });
     showToast('Export failed: ' + (err?.message || String(err)), 'error');
   }
 }
@@ -4013,6 +4060,11 @@ async function handleUpload(file, patientId) {
     if (recDate) fd.append('recording_date', recDate);
 
     const result = await api.uploadQEEGAnalysis(fd);
+    _qeegAudit('recording_uploaded', {
+      analysis_id: result && result.id,
+      patient_id: patientId,
+      note: 'file=' + (file && file.name ? String(file.name).slice(0, 120) : '') + '; size=' + (file && file.size ? file.size : 0),
+    });
     showToast('File uploaded successfully', 'success');
     if (statusEl) statusEl.innerHTML = '<div style="color:var(--green);font-size:13px">Uploaded successfully! '
       + badge('pending', 'var(--amber)')
@@ -4190,22 +4242,96 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   };
 
   // Build page shell
+  // Hero export buttons. Only enabled when there is something to export
+  // (a real selected analysis id or a demo session). Disabled buttons keep
+  // the affordance visible so reviewers see the export surface, but the
+  // click is a no-op and the disabled state is announced.
+  var heroAnalysisId = window._qeegSelectedId || null;
+  var heroHasExportTarget = !!heroAnalysisId;
+  var heroExportDisabled = heroHasExportTarget ? '' : ' disabled aria-disabled="true" title="Select or upload a recording first"';
+  var heroIsDemo = !!(heroAnalysisId === 'demo' && _isDemoMode());
+  var heroDemoFlag = heroIsDemo ? ' data-demo="true"' : '';
+
   let pageHtml = '<div class="ch-shell">';
-  pageHtml += '<div class="qeeg-hero">'
+  pageHtml += '<div class="qeeg-hero"' + heroDemoFlag + '>'
     + '<div class="qeeg-hero__icon qeeg-hero__icon--3d">' + render3DBrainMapMini('alpha') + '</div>'
     + '<div><div class="qeeg-hero__title">qEEG Analyzer</div>'
     + '<div class="qeeg-hero__sub">Spectral analysis &middot; AI interpretation &middot; Pre/post comparison</div>'
     + '<div style="font-size:12px;color:var(--text-tertiary);margin-top:6px">Decision-support only. Review acquisition quality and clinician context before acting on AI summaries.</div></div>'
-    + '<div class="qeeg-export-bar" style="margin-left:auto">'
-    + '<button class="btn btn-sm btn-outline" aria-label="Export patient FHIR bundle" onclick="window._qeegExportFHIRBundle()">FHIR</button>'
-    + '<button class="btn btn-sm btn-outline" aria-label="Export patient BIDS derivatives package" onclick="window._qeegExportBIDSPackage()">BIDS</button>'
+    + '<div class="qeeg-export-bar" style="margin-left:auto" data-testid="qeeg-hero-actions">'
+    + '<button class="btn btn-sm btn-outline" aria-label="Open the canonical Raw EEG Workbench for this recording" id="qeeg-hero-open-workbench"' + heroExportDisabled + '>Open Raw Workbench</button>'
+    + '<button class="btn btn-sm btn-outline" aria-label="Export band powers and z-scores as CSV" id="qeeg-hero-export-csv"' + heroExportDisabled + '>CSV</button>'
+    + '<button class="btn btn-sm btn-outline" aria-label="Export patient FHIR bundle" onclick="window._qeegExportFHIRBundle()"' + heroExportDisabled + '>FHIR</button>'
+    + '<button class="btn btn-sm btn-outline" aria-label="Export patient BIDS derivatives package" onclick="window._qeegExportBIDSPackage()"' + heroExportDisabled + '>BIDS</button>'
+    + '<button class="btn btn-sm btn-outline" aria-label="Download printable PDF report" onclick="window._qeegDownloadPDF()"' + heroExportDisabled + '>PDF</button>'
     + '</div>'
     + '</div>';
   pageHtml += renderPatientSelector(_patients, patientId);
   pageHtml += renderTabBar(tab);
   pageHtml += '<div id="qeeg-tab-content"></div>';
+  pageHtml += _qeegClinicalSafetyFooter();
   pageHtml += '</div>';
   el.innerHTML = pageHtml;
+
+  // Wire hero export + workbench buttons. Both fall back honestly when no
+  // analysis is selected — we never silently swallow the click.
+  var _heroOpenBtn = document.getElementById('qeeg-hero-open-workbench');
+  if (_heroOpenBtn) {
+    _heroOpenBtn.addEventListener('click', function () {
+      if (!heroAnalysisId) {
+        showToast('Select or upload a recording first', 'warning');
+        return;
+      }
+      _qeegAudit('open_raw_workbench', { analysis_id: heroAnalysisId });
+      // Use the canonical helper if it has been wired by the raw tab, else
+      // do the navigation inline so this works from any tab.
+      if (typeof window._qeegOpenWorkbench === 'function') {
+        window._qeegOpenWorkbench(heroAnalysisId, heroIsDemo ? 'demo' : 'real');
+        return;
+      }
+      var hash = '#/qeeg-raw-workbench/' + encodeURIComponent(heroAnalysisId)
+        + '?mode=' + encodeURIComponent(heroIsDemo ? 'demo' : 'real');
+      window.location.hash = hash;
+      if (typeof window._nav === 'function') window._nav('qeeg-raw-workbench');
+    });
+  }
+  var _heroCsvBtn = document.getElementById('qeeg-hero-export-csv');
+  if (_heroCsvBtn) {
+    _heroCsvBtn.addEventListener('click', async function () {
+      if (!heroAnalysisId) {
+        showToast('Select or upload a recording first', 'warning');
+        return;
+      }
+      _qeegAudit('export_csv_requested', { analysis_id: heroAnalysisId });
+      // Prefer the in-memory band-power CSV when we have it (faster, also
+      // works for the demo session). Fall back to the backend endpoint for
+      // real analyses where in-memory band powers are missing.
+      if (heroIsDemo || (_currentAnalysis && _currentAnalysis.band_powers)) {
+        if (typeof window._qeegExportBandPowerCSV === 'function') {
+          window._qeegExportBandPowerCSV();
+          return;
+        }
+      }
+      try {
+        var resp = await api.exportQEEGAnalysisCSV(heroAnalysisId);
+        if (!resp || typeof resp.csv !== 'string' || !resp.csv.length) {
+          showToast('No band powers to export yet — run analysis first', 'warning');
+          return;
+        }
+        var prefix = resp.demo ? 'DEMO_' : '';
+        _downloadCSV(resp.csv, prefix + 'qeeg_analysis_' + heroAnalysisId + '.csv');
+        showToast(resp.rows + ' channel rows exported', 'success');
+      } catch (err) {
+        showToast('CSV export failed: ' + (err && err.message ? err.message : err), 'error');
+      }
+    });
+  }
+
+  // Page-load audit event. Best-effort, fire-and-forget. Captures the active
+  // tab, whether demo data is being shown, and whether a recording is open.
+  _qeegAudit('analyzer_loaded', {
+    note: 'tab=' + tab + (heroIsDemo ? '; mode=demo' : '; mode=live'),
+  });
   initEvidenceDrawer({
     patientId: patientId || _getContextPatientIdForQEEG() || 'qeeg-context',
     getReportContext: function () { return _getQEEGReportEvidenceContext(); },
@@ -4315,6 +4441,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
             if (st) st.innerHTML = spinner('Running spectral analysis...');
             try {
               await api.analyzeQEEG(analysisId);
+              _qeegAudit('analysis_started', { analysis_id: analysisId });
               showToast('Spectral analysis started', 'success');
               // Start polling for status updates
               if (st) st.innerHTML = spinner('Processing...') + '<div id="qeeg-analysis-progress"></div>';
@@ -4395,7 +4522,24 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         var qeegSupportBtn = document.getElementById('qeeg-support-btn');
         if (qeegSupportBtn) {
           qeegSupportBtn.addEventListener('click', function () {
-            console.log('Support contact initiated for qEEG analysis failure');
+            // Honest support handoff — no silent console-only stub. We open
+            // the user's mail client with a pre-filled subject containing the
+            // analysis id and the failure reason so the support team has
+            // enough context to triage. Audit the action.
+            _qeegAudit('analysis_support_contact', {
+              analysis_id: analysisId,
+              note: 'failure=' + (failureReason || '').slice(0, 200),
+            });
+            var subject = encodeURIComponent('qEEG analysis failed: ' + (analysisId || 'unknown'));
+            var body = encodeURIComponent(
+              'qEEG analysis ID: ' + (analysisId || 'unknown') + '\n' +
+              'Failure reason: ' + (failureReason || 'Unknown error') + '\n\n' +
+              'Please describe what you were trying to do:\n'
+            );
+            try {
+              window.location.href = 'mailto:support@deepsynaps.net?subject=' + subject + '&body=' + body;
+            } catch (_) { /* browsers without mailto fall back to no-op */ }
+            showToast('Opening support email…', 'info');
           });
         }
         return;
@@ -4830,11 +4974,20 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
             const st = document.getElementById('qeeg-gen-status');
             if (st) st.innerHTML = spinner('Generating AI interpretation...');
             try {
+              _qeegAudit('ai_interpretation_requested', {
+                analysis_id: analysisId,
+                note: 'report_type=' + selectedType,
+              });
               await api.generateQEEGAIReport(analysisId, { report_type: selectedType });
+              _qeegAudit('ai_interpretation_completed', { analysis_id: analysisId });
               showToast('AI report generated', 'success');
               window._qeegTab = 'report';
               window._nav('qeeg-analysis');
             } catch (err) {
+              _qeegAudit('ai_interpretation_failed', {
+                analysis_id: analysisId,
+                note: (err && err.message ? err.message : String(err)).slice(0, 200),
+              });
               showToast('AI report generation failed: ' + (err.message || err), 'error');
               if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px" role="alert">Error: ' + esc(err.message || err) + '</div>';
               btn.disabled = false;
@@ -5150,6 +5303,9 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         if (st) st.innerHTML = spinner('Computing comparison...');
         try {
           const result = await api.createQEEGComparison({ baseline_id: baseId, followup_id: followId });
+          _qeegAudit('comparison_created', {
+            note: 'baseline=' + baseId + '; followup=' + followId,
+          });
           showToast('Comparison ready', 'success');
           window._qeegComparisonId = result.id;
           window._nav('qeeg-analysis');
@@ -5611,6 +5767,11 @@ window._qeegExportBandPowerCSV = function () {
   var bands = bp.bands || {};
   var bandNames = Object.keys(bands);
   if (!bandNames.length) return showToast('No band power data', 'warning');
+  var _isDemoExport = !!(window._qeegSelectedId === 'demo' && _isDemoMode());
+  _qeegAudit('export_csv', {
+    analysis_id: _currentAnalysis.id || window._qeegSelectedId || null,
+    note: 'bands=' + bandNames.length + (_isDemoExport ? '; demo' : ''),
+  });
   var normDev = _currentAnalysis.normative_deviations_json || _currentAnalysis.normative_deviations || null;
   var chSet = new Set();
   bandNames.forEach(function (b) { Object.keys(bands[b]?.channels || {}).forEach(function (ch) { chSet.add(ch); }); });
@@ -5628,8 +5789,12 @@ window._qeegExportBandPowerCSV = function () {
     }
     rows.push(row);
   });
-  _downloadCSV(rows.join('\n'), 'qeeg_band_powers.csv');
-  showToast('Band power CSV exported', 'success');
+  var _filename = (_isDemoExport ? 'DEMO_' : '') + 'qeeg_band_powers.csv';
+  // Stamp DEMO recordings explicitly inside the file body so downstream
+  // viewers cannot mistake a demo download for clinical data.
+  var _csv = (_isDemoExport ? '# DEMO — not for clinical use\n' : '') + rows.join('\n');
+  _downloadCSV(_csv, _filename);
+  showToast(_isDemoExport ? 'DEMO band power CSV exported' : 'Band power CSV exported', 'success');
 };
 
 window._qeegExportAdvancedCSV = function () {
@@ -5647,6 +5812,7 @@ window._qeegExportAdvancedCSV = function () {
 window._qeegExportJSON = function () {
   if (!_currentAnalysis) return showToast('No analysis data loaded', 'warning');
   var patientName = _patient ? ((_patient.first_name || '') + ' ' + (_patient.last_name || '')).trim() : '';
+  var _isDemoExport = !!(window._qeegSelectedId === 'demo' && _isDemoMode());
   var exportData = {
     metadata: {
       patient_name: patientName,
@@ -5656,17 +5822,26 @@ window._qeegExportJSON = function () {
       sample_rate_hz: _currentAnalysis.sample_rate_hz || 0,
       eyes_condition: _currentAnalysis.eyes_condition || '',
       exported_at: new Date().toISOString(),
+      demo: _isDemoExport,
+      disclaimer: _isDemoExport
+        ? 'DEMO — not for clinical use. Synthetic sample recording.'
+        : 'qEEG findings support clinical decision-making and require clinician review.',
     },
     analysis: _currentAnalysis,
   };
+  _qeegAudit('export_json', {
+    analysis_id: _currentAnalysis.id || window._qeegSelectedId || null,
+    note: _isDemoExport ? 'demo' : 'live',
+  });
   var json = JSON.stringify(exportData, null, 2);
   var blob = new Blob([json], { type: 'application/json' });
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a');
   var d = new Date().toISOString().split('T')[0];
-  a.href = url; a.download = 'qeeg_analysis_' + (_currentAnalysis.id || 'data') + '_' + d + '.json'; a.click();
+  var prefix = _isDemoExport ? 'DEMO_' : '';
+  a.href = url; a.download = prefix + 'qeeg_analysis_' + (_currentAnalysis.id || 'data') + '_' + d + '.json'; a.click();
   URL.revokeObjectURL(url);
-  showToast('Full analysis JSON exported', 'success');
+  showToast(_isDemoExport ? 'DEMO analysis JSON exported' : 'Full analysis JSON exported', 'success');
 };
 
 window._qeegPrintReport = function () {
@@ -5731,14 +5906,20 @@ window._qeegDownloadPDF = function () {
   if (!_canRenderQEEGPrintableReport(_currentReport, _currentAnalysis)) {
     return showToast('Printable report is not available for this analysis yet', 'warning');
   }
+  _qeegAudit('export_pdf_requested', {
+    analysis_id: _currentAnalysis && _currentAnalysis.id,
+    note: 'report=' + (_currentReport && _currentReport.id ? _currentReport.id : ''),
+  });
   api.getQEEGPrintableReport(_currentAnalysis.id, _currentReport.id)
     .then(function (file) {
       var filename = file.filename || ('qeeg_report_' + _currentReport.id + '.html');
       downloadBlob(file.blob, filename);
       var contentType = (file.contentType || '').toLowerCase();
+      _qeegAudit('export_pdf_completed', { analysis_id: _currentAnalysis && _currentAnalysis.id });
       showToast(contentType.indexOf('pdf') >= 0 ? 'PDF report downloaded' : 'Printable report downloaded', 'success');
     })
     .catch(function (err) {
+      _qeegAudit('export_pdf_failed', { note: (err && err.message ? err.message : String(err)).slice(0, 200) });
       showToast('Printable report download failed: ' + (err && err.message ? err.message : err), 'error');
     });
 };
