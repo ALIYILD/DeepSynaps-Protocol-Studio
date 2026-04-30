@@ -128,6 +128,7 @@ if (localStorage.getItem('ds_high_contrast') === '1') document.body.classList.ad
 // Modules are imported on first navigation to a page in that group,
 // then cached for all subsequent navigations (Vite chunks them automatically).
 import { normalizeRouteId } from './route-id.js';
+import { migrateOnboardingCompletionKey } from './onboarding-key-migration.js';
 
 let _modPublic    = null;
 let _modPatient   = null;
@@ -1429,11 +1430,11 @@ async function renderPage() {
       break;
     }
     // ── Governance ───────────────────────────────────────────────────────
-    case 'onboarding': {
-      const m = await loadOnboarding();
-      await m.pgOnboarding(setTopbar, navigate);
-      break;
-    }
+    // Single onboarding flow: 'onboarding' is also aliased to
+    // 'onboarding-wizard' in route-id.js so navigate() normalizes the id
+    // before this switch — but we keep an explicit case here as a defensive
+    // fallback in case a caller bypasses normalization.
+    case 'onboarding':
     case 'onboarding-wizard': {
       const { pgOnboardingWizard } = await loadOnboarding();
       await pgOnboardingWizard(setTopbar);
@@ -2074,6 +2075,14 @@ async function _warmPatientRoster() {
 window._warmPatientRoster = _warmPatientRoster;
 
 async function bootApp() {
+  // ── Boot-time onboarding-key migration shim ────────────────────────────────
+  //   Older clients wrote `ds_onboarding_done` (the legacy 4-step pgOnboarding
+  //   flow). PR #4 of the frontend hygiene rollout collapses to a single
+  //   wizard that uses `ds_onboarding_complete`. Copy the old key forward and
+  //   delete it so existing users aren't re-prompted to onboard. This must
+  //   run before the router gate below reads `ds_onboarding_complete`.
+  try { migrateOnboardingCompletionKey(); } catch {}
+
   if (currentPage === 'dashboard') {
     // Role-based entry: redirect technician → session-execution, reviewer → review-queue, etc.
     const role  = currentUser?.role || 'clinician';
@@ -2092,6 +2101,7 @@ async function bootApp() {
   //    routes, is bridged to the legacy globals (window._qeegSelectedId,
   //    window._qeegRawWorkbenchMode, window._currentPatientId, etc.) so
   //    page modules read it as if the user had clicked the launcher.
+  let _hadValidDeepLink = false;
   {
     let deepLinkId = null;
     let deepLinkArg = null;
@@ -2123,6 +2133,7 @@ async function bootApp() {
     } catch {}
     if (deepLinkId && /^[a-z0-9][a-z0-9-]{0,63}$/i.test(deepLinkId)) {
       currentPage = normalizeRouteId(deepLinkId);
+      _hadValidDeepLink = true;
       // Bridge entity ids to the per-page globals the existing modules read.
       if (deepLinkArg && /^[a-z0-9][a-z0-9_\-]{0,127}$/i.test(deepLinkArg)) {
         if (currentPage === 'qeeg-raw-workbench' || currentPage === 'qeeg-analysis' || currentPage === 'qeeg-raw') {
@@ -2139,6 +2150,34 @@ async function bootApp() {
       }
     }
   }
+
+  // ── First-login router gate ───────────────────────────────────────────────
+  //   Push a clinician/technician who hasn't completed (or skipped) the setup
+  //   wizard into onboarding-wizard before the dashboard / role-default page
+  //   renders. Other roles (patient, guardian, admin, resident, reviewer,
+  //   supervisor, guest) are NOT gated here — patients have their own
+  //   onboarding surface in the patient portal, and the rest land on
+  //   role-specific entry pages from ROLE_ENTRY_PAGE.
+  //
+  //   The gate is suppressed when:
+  //     * the user explicitly deep-linked somewhere (URL ?page=… or hash),
+  //     * they are already on the onboarding wizard, or
+  //     * `ds_onboarding_complete=true` is already set — covers both
+  //        finishers and Skip-setup users, since _wizSkip now writes the
+  //        flag too. The migration shim above also seeds this flag for
+  //        clients that previously wrote `ds_onboarding_done`.
+  if (!_hadValidDeepLink
+      && currentPage !== 'onboarding-wizard'
+      && currentPage !== 'onboarding') {
+    const role = currentUser?.role;
+    const ONBOARDING_GATED_ROLES = new Set(['clinician', 'technician']);
+    let _onboardingComplete = false;
+    try { _onboardingComplete = localStorage.getItem('ds_onboarding_complete') === 'true'; } catch {}
+    if (ONBOARDING_GATED_ROLES.has(role) && !_onboardingComplete) {
+      currentPage = 'onboarding-wizard';
+    }
+  }
+
   // ── Hashchange listener: keep the SPA in sync when the user edits the URL
   //    bar (back/forward, manual edit, copy-paste). Same parsing rules as
   //    the boot-time deep-link block above.

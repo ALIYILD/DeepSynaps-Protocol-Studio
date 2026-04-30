@@ -2327,7 +2327,14 @@ export function pgSignupProfessional() {
       document.getElementById('pip-3').className = 'step-pip done';
 
       setCurrentUser(user);
-      setTimeout(() => { localStorage.removeItem('ds_onboarding_done'); showApp(); updateUserBar(); window._bootApp(); }, 1200);
+      // New registration → ensure both the legacy and the canonical onboarding
+      // completion flags are cleared so the bootApp() router gate routes a
+      // fresh clinician to the setup wizard rather than straight to dashboard.
+      setTimeout(() => {
+        try { localStorage.removeItem('ds_onboarding_done'); } catch {}
+        try { localStorage.removeItem('ds_onboarding_complete'); } catch {}
+        showApp(); updateUserBar(); window._bootApp();
+      }, 1200);
     } catch (e) {
       err.textContent = e.message || 'Registration failed. Please check your details and try again.';
       err.style.display = '';
