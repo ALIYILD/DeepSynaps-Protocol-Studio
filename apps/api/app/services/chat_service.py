@@ -356,7 +356,15 @@ async def _llm_chat_async(
             )
             return _sanitize_llm_output(resp.choices[0].message.content or "")
         except Exception as exc:
-            _llm_log.warning("LLM async call failed, trying fallback: %s", exc)
+            # Mirror the sync path so async failures land in the audit feed
+            # with provider/model/exception class — previously logged a bare
+            # message that was hard to triage.
+            _llm_log.warning(
+                "LLM async primary path failed (provider=openai/openrouter model=%s exc=%s: %s); falling back to anthropic",
+                _llm_model(),
+                exc.__class__.__name__,
+                exc,
+            )
     if settings.anthropic_api_key:
         import anthropic as _anthropic
         client = _anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
