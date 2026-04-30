@@ -568,6 +568,50 @@ def _enrich_comparison_payload(
     })
 
 
+# ── Channel anatomy lookup ───────────────────────────────────────────────────
+try:
+    from deepsynaps_qeeg.knowledge.channel_anatomy import explain_channel
+except Exception:  # pragma: no cover
+    explain_channel = None  # type: ignore[assignment]
+
+_LEGACY_CHANNEL_MAP = {"T3": "T7", "T4": "T8", "T5": "P7", "T6": "P8"}
+
+def _normalize_channel_name(name: str) -> str:
+    """Strip reference suffixes (-Av, -Ref, -Cz, etc.), title-case, and map legacy 10-20 names."""
+    base = name.strip()
+    for suffix in ("-Av", "-Ref", "-Cz", "-A1", "-A2", "-M1", "-M2", "-Avg", "-Average"):
+        if base.upper().endswith(suffix.upper()):
+            base = base[: -len(suffix)]
+            break
+    # Title-case: FP1 → Fp1, CZ → Cz
+    base = base[:1].upper() + base[1:].lower() if len(base) > 1 else base.upper()
+    # Map legacy T3/T4/T5/T6 → modern T7/T8/P7/P8
+    return _LEGACY_CHANNEL_MAP.get(base, base)
+
+class ChannelAnatomyResponse(BaseModel):
+    channel: str
+    cortical_region: str
+    brodmann_areas: str
+    functional_networks: str
+    common_artifacts: str
+    clinical_relevance: str
+    notes: str
+
+@router.get("/channel-anatomy/{channel_name}", response_model=ChannelAnatomyResponse)
+async def channel_anatomy(
+    channel_name: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> ChannelAnatomyResponse:
+    """Return functional anatomy, Brodmann areas, networks and artifacts for a 10-20 channel."""
+    if explain_channel is None:
+        raise ApiServiceError("Channel anatomy knowledge module not available", status_code=503)
+    normalized = _normalize_channel_name(channel_name)
+    data = explain_channel(normalized)
+    if data is None:
+        raise ApiServiceError(f"Unknown channel: {channel_name}", status_code=404)
+    return ChannelAnatomyResponse(**data)
+
+
 # ── Upload EDF File ──────────────────────────────────────────────────────────
 
 @router.post("/upload", response_model=AnalysisOut, status_code=201)

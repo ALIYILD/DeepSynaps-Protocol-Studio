@@ -37,6 +37,29 @@ const VIEW_MODES = [
 ];
 const TIMEBASES = [5, 10, 12, 30];
 
+// ── Channel Anatomy Tooltips (from structured clinical EEG knowledge base) ──
+const CHANNEL_ANATOMY = {
+  'Fp1-Av': 'Left anterior prefrontal (BA 10/11) — executive function, DMN. Watch for eye blinks.',
+  'Fp2-Av': 'Right anterior prefrontal (BA 10/11) — approach motivation, DMN. Watch for eye blinks.',
+  'F7-Av':  'Left anterior temporal / Broca vicinity (BA 44/45) — language, attention. Watch for eye movements.',
+  'F8-Av':  'Right anterior temporal / prosody (BA 44/45) — social cognition. Watch for eye movements.',
+  'F3-Av':  'Left DLPFC (BA 9/46) — working memory, rTMS target for depression.',
+  'F4-Av':  'Right DLPFC (BA 9/46) — attention, motor planning. FAA comparison with F3.',
+  'Fz-Av':  'SMA / pre-SMA (BA 6) — motor planning, response inhibition. Mu rhythm site.',
+  'T3-Av':  'Left superior temporal / Wernicke vicinity (BA 21/22) — auditory, language.',
+  'T4-Av':  'Right superior temporal (BA 21/22) — auditory, emotional prosody.',
+  'C3-Av':  'Left sensorimotor cortex (BA 1/2/3/4) — right body. Mu rhythm site.',
+  'C4-Av':  'Right sensorimotor cortex (BA 1/2/3/4) — left body. Mu rhythm site.',
+  'Cz-Av':  'Paracentral lobule / SMA (BA 4/6) — leg motor area. Vertex waves in sleep.',
+  'T5-Av':  'Left temporoparietal junction (BA 39/40) — semantics, spatial attention.',
+  'T6-Av':  'Right temporoparietal junction (BA 39/40) — visuospatial, facial recognition.',
+  'P3-Av':  'Left superior parietal / precuneus (BA 7) — sensorimotor integration, attention.',
+  'P4-Av':  'Right superior parietal / precuneus (BA 7) — visuospatial attention.',
+  'Pz-Av':  'Precuneus / PCC (BA 7/23/31) — DMN hub, self-referential processing. PDR maximum.',
+  'O1-Av':  'Left primary visual cortex (BA 17/18) — PDR origin. End-of-chain caution.',
+  'O2-Av':  'Right primary visual cortex (BA 17/18) — PDR origin. End-of-chain caution.',
+};
+
 const TITLE_MENUS = ['File','Edit','View','Format','Recording','Analysis','Setup','Window','Language','Help'];
 
 const ARTEFACT_EXAMPLES = [
@@ -379,6 +402,7 @@ export async function pgQEEGRawWorkbench(setTopbar, navigate) {
     aiThreshold: 0.7,       // confidence threshold filter for AI Review
     aiCursor: 0,            // J/K artefact navigation index
     signOff: null,          // { signedBy, signedAt, notes, readinessScore }
+    medicationConfounds: '', // free-text medication list for knowledge-enhanced reporting
     // Recording-event timeline — separate from the constant EVENT_TIMELINE so
     // demo seeding can pre-populate Eyes Closed / Photic markers without
     // mutating module-level state.
@@ -1474,8 +1498,10 @@ function channelGutterHtml(state) {
   const rows = DEFAULT_CHANNELS.map(ch => {
     const isBad = state.badChannels.has(ch);
     const isSel = state.selectedChannel === ch;
+    const anatomyTip = CHANNEL_ANATOMY[ch] || '';
+    const tipAttr = anatomyTip ? ` title="${esc(anatomyTip)}"` : '';
     return `<div class="qwb-ch-row ${isBad?'bad qwb-bad-channel':''} ${isSel?'active':''}" data-channel="${esc(ch)}">
-      <span class="qwb-ch-name">${esc(ch)}${isBad?' ⚠':''}</span>
+      <span class="qwb-ch-name"${tipAttr} data-channel="${esc(ch)}">${esc(ch)}${isBad?' ⚠':''}</span>
       <span class="qwb-ch-scale">${state.gain} µV/cm</span>
     </div>`;
   }).join('');
@@ -2287,12 +2313,23 @@ function renderRecordingInfoSection(state) {
     ['Reference',   r.reference],
     ['File',        r.file],
   ];
+  const meds = state.medicationConfounds || '';
   return `
     <div class="qwb-side-section" data-testid="qwb-recording-info">
       <h4>Recording Info</h4>
       <dl class="qwb-rec-info-grid">
         ${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}
       </dl>
+      <div class="qwb-meds-input-wrap" style="margin-top:10px">
+        <label class="qwb-meds-label" for="qwb-meds-input" style="display:block;font-size:11px;color:#8a837a;margin-bottom:3px">Medications (confounds)</label>
+        <input id="qwb-meds-input" class="qwb-meds-input" type="text"
+          placeholder="e.g. lorazepam, valproate, zolpidem…"
+          value="${esc(meds)}"
+          data-testid="qwb-meds-input"
+          style="width:100%;padding:4px 6px;border:1px solid #dcd6ce;border-radius:4px;font-size:12px;background:#faf7f2;color:#3a3633"
+        />
+        <div class="qwb-meds-hint" style="font-size:10px;color:#a39d94;margin-top:2px">Comma-separated drug names; included in AI report.</div>
+      </div>
     </div>`;
 }
 
@@ -3478,6 +3515,13 @@ function attachCleaningPanelHandlers(state) {
   document.querySelectorAll('#qwb-right-body [data-action]').forEach(b => {
     b.addEventListener('click', () => handleCleaningAction(state, b.dataset.action));
   });
+  const medsInput = document.getElementById('qwb-meds-input');
+  if (medsInput) {
+    medsInput.addEventListener('input', (e) => {
+      state.medicationConfounds = e.target.value;
+      state.isDirty = true;
+    });
+  }
   attachMiniHeadmap(state);
   document.getElementById('qwb-open-signoff')?.addEventListener('click', () => toggleSignOff(state, true));
   document.getElementById('qwb-revoke-signoff')?.addEventListener('click', () => {
