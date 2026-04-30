@@ -616,6 +616,14 @@ def _append_session_event(
 @router.get("", response_model=SessionListResponse)
 def list_sessions_endpoint(
     patient_id: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    clinician_id: Optional[str] = None,
+    room_id: Optional[str] = None,
+    modality: Optional[str] = None,
+    status: Optional[str] = None,
+    appointment_type: Optional[str] = None,
+    telehealth: Optional[bool] = None,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> SessionListResponse:
@@ -642,6 +650,25 @@ def list_sessions_endpoint(
                 return SessionListResponse(items=[], total=0)
             raise
         query = query.filter(ClinicalSession.patient_id == patient_id)
+    if start_date:
+        query = query.filter(ClinicalSession.scheduled_at >= start_date)
+    if end_date:
+        query = query.filter(ClinicalSession.scheduled_at < end_date)
+    if clinician_id:
+        query = query.filter(ClinicalSession.clinician_id == clinician_id)
+    if room_id:
+        query = query.filter(ClinicalSession.room_id == room_id)
+    if modality:
+        query = query.filter(ClinicalSession.modality == modality)
+    if status:
+        query = query.filter(ClinicalSession.status == status)
+    if appointment_type:
+        query = query.filter(ClinicalSession.appointment_type == appointment_type)
+    if telehealth is not None:
+        if telehealth:
+            query = query.filter(ClinicalSession.room_id == "telehealth")
+        else:
+            query = query.filter(ClinicalSession.room_id != "telehealth")
     records = list(query.order_by(ClinicalSession.scheduled_at.desc()).all())
     items = [SessionOut.from_record(r) for r in records]
     return SessionListResponse(items=items, total=len(items))
