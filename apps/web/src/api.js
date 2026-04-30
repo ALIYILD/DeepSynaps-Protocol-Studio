@@ -1932,13 +1932,19 @@ export const api = {
     const qs = cleaningVersionId ? `?cleaning_version_id=${encodeURIComponent(cleaningVersionId)}` : '';
     return apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/raw-vs-cleaned-summary${qs}`);
   },
-  generateQEEGAIArtefactSuggestions: (analysisId) =>
-    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/ai-artefact-suggestions`, { method: 'POST' }),
+  generateQEEGAIArtefactSuggestions: (analysisId, body = null) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/ai-artefact-suggestions`, {
+      method: 'POST',
+      body: body ? JSON.stringify(body) : undefined,
+    }),
   rerunQEEGAnalysisWithCleaning: (analysisId, cleaningVersionId) =>
     apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/rerun-analysis`, {
       method: 'POST',
       body: JSON.stringify({ cleaning_version_id: cleaningVersionId }),
     }),
+  // Dashboard endpoints
+  getDashboardOverview: () => apiFetchWithRetry('/api/v1/dashboard/overview'),
+  dashboardSearch: (q) => apiFetch('/api/v1/dashboard/search?q=' + encodeURIComponent(q || '')),
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).

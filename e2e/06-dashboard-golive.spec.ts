@@ -33,6 +33,7 @@ function mockDashboardAPIs(page: Page, overrides: Record<string, any> = {}) {
   page.route('**/api/v1/outcomes/aggregate**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(data.outcomes ?? {}) }));
   page.route('**/api/v1/consent-records**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: data.consents }) }));
   page.route('**/api/v1/media/review-queue**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(data.mediaQueue) }));
+  page.route('**/api/v1/dashboard/overview**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(overrides.overview ?? { is_demo: false, metrics: {}, schedule: [], safety_flags: [], activity_feed: [], system_health: {} }) }));
   page.route('**/api/v1/wearables/clinic/alerts/summary**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(data.wearableAlerts ?? {}) }));
   page.route('**/api/v1/**', (route) => {
     if (!route.request().url().includes('/auth/me')) route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });

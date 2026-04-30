@@ -797,15 +797,26 @@ export async function pgPatientAnalyticsCohort(setTopbar) {
   setTopbar('Patients', '');
 
   const roster = DEMO_PATIENT_ROSTER;
+  // Tab bar buttons use the in-place tab switcher (window._phSwitchTab) when
+  // available — no route hop, no module re-import, no flash. The legacy
+  // _nav('patients-hub') path is kept as a defensive fallback for any caller
+  // that imports this cohort view stand-alone (outside the patient hub host).
+  const _switch = (id, label, active) =>
+    '<button class="ch-tab' + (active ? ' ch-tab--active' : '') + '"' +
+    ' data-tab="' + id + '"' +
+    (id === 'analytics' ? ' data-testid="ds-patients-tab-analytics"' : '') +
+    (active ? ' style="--tab-color:var(--teal)"' : '') +
+    ' onclick="(window._phSwitchTab||function(t){window._patientHubTab=t;window._nav(\'patients-hub\')})(\'' + id + '\')">' +
+    label + '</button>';
   const tabs = `<div class="d2p7-tab-bar">
-    <button class="ch-tab" onclick="window._patientHubTab='patients';window._nav('patients-hub')">Patients</button>
-    <button class="ch-tab ch-tab--active" style="--tab-color:var(--teal)">Analytics</button>
-    <button class="ch-tab" onclick="window._patientHubTab='alerts';window._nav('patients-hub')">Alerts</button>
-    <button class="ch-tab" onclick="window._patientHubTab='reports';window._nav('patients-hub')">Reports</button>
+    ${_switch('patients',  'Patients',  false)}
+    ${_switch('analytics', 'Analytics', true)}
+    ${_switch('alerts',    'Alerts',    false)}
+    ${_switch('reports',   'Reports',   false)}
   </div>`;
 
   const cohortKpis = `
-    <div class="ch-kpi-strip">
+    <div class="ch-kpi-strip" data-testid="ds-patients-analytics-kpis">
       <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">−6.2</div><div class="ch-kpi-label">Mean PHQ-9 Δ</div></div>
       <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">64%</div><div class="ch-kpi-label">Response rate</div></div>
       <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">78%</div><div class="ch-kpi-label">Avg adherence</div></div>

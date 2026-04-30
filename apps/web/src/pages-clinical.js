@@ -718,7 +718,8 @@ export async function pgDash(setTopbar, navigate) {
     Promise.race([promise, new Promise(resolve => setTimeout(() => resolve(null), ms))]);
   let _apiFailCount = 0;
   try {
-    const [ptsRes, coursesRes, queueRes, aeRes, outRes, consentsRes, mediaQueueRes, wearableAlertsRes, riskRes] = await Promise.all([
+    let _overview = null;
+    const [ptsRes, coursesRes, queueRes, aeRes, outRes, consentsRes, mediaQueueRes, wearableAlertsRes, riskRes, overviewRes] = await Promise.all([
       _withTimeout(api.listPatients().catch(() => null)),
       _withTimeout(api.listCourses().catch(() => null)),
       _withTimeout(api.listReviewQueue({ status: 'pending' }).catch(() => null)),
@@ -728,7 +729,9 @@ export async function pgDash(setTopbar, navigate) {
       _withTimeout(api.listMediaQueue().catch(() => null)),
       _withTimeout(api.getClinicAlertSummary().catch(() => null)),
       _withTimeout(api.getClinicRiskSummary().catch(() => null)),
+      _withTimeout(api.getDashboardOverview().catch(() => null), 6000),
     ]);
+    if (overviewRes) _overview = overviewRes;
     if (ptsRes)       allPatients    = ptsRes.items || []; else _apiFailCount++;
     if (coursesRes)   allCourses     = coursesRes.items || []; else _apiFailCount++;
     if (queueRes)     pendingQueue   = queueRes.items || []; else _apiFailCount++;
@@ -992,6 +995,17 @@ export async function pgDash(setTopbar, navigate) {
   // Compute risk counts early — used in agent context and later in risk card
   const _totalRed   = riskSummaryData.reduce((n, p) => n + (p.categories || []).filter(c => c.level === 'red').length, 0);
   const _totalAmber = riskSummaryData.reduce((n, p) => n + (p.categories || []).filter(c => c.level === 'amber').length, 0);
+
+  // Hoisted: KPI values from /api/v1/dashboard/overview when available, else local fallbacks.
+  // Must be in scope before window._dashAgentCtx + the actions strip render below.
+  const _ovm = (_overview && _overview.metrics) ? _overview.metrics : {};
+  const _kpiCaseload = _ovm.active_caseload ? _ovm.active_caseload.value : (activePatientIds.length || patCount);
+  const _kpiSessions = _ovm.sessions_delivered ? _ovm.sessions_delivered.value : totalDelivered;
+  const _kpiResponder = _ovm.responder_rate ? _ovm.responder_rate.value : responderRate;
+  const _kpiPending = _ovm.pending_review ? _ovm.pending_review.value : pendingQueue.length;
+  const _kpiSafety = _ovm.safety_flags ? _ovm.safety_flags.value : (seriousAEs.length);
+  const _kpiConsent = _ovm.consent_alerts ? _ovm.consent_alerts.value : consentAlertCount;
+  if (_overview && _overview.is_demo) _isDemo = true;
 
   window._dashAgentCtx = [
     '[Clinic dashboard snapshot — use for operational context; not a substitute for chart review.]',
@@ -1437,25 +1451,25 @@ export async function pgDash(setTopbar, navigate) {
   const _kpiGrid = `<div class="dh2-kpi-grid">
     <div class="dh2-kpi" ${_kb} onclick="window._nav('patients')">
       <div class="dh2-kpi-lbl"><span class="dh2-kpi-dot teal"></span>Active caseload</div>
-      <div class="dh2-kpi-num">${activePatientIds.length || patCount}</div>
+      <div class="dh2-kpi-num">${_kpiCaseload}</div>
       <div class="dh2-kpi-delta ${activeCourses.length > 0 ? 'up' : 'flat'}">${activeCourses.length} active course${activeCourses.length!==1?'s':''}</div>
       <svg class="dh2-kpi-spark" viewBox="0 0 100 40" fill="none"><path d="M0 30 L14 24 L28 28 L42 18 L56 22 L70 12 L84 15 L100 6" stroke="#00d4bc" stroke-width="1.5"/></svg>
     </div>
     <div class="dh2-kpi" ${_kb} onclick="window._nav('courses')">
       <div class="dh2-kpi-lbl blue"><span class="dh2-kpi-dot blue"></span>Sessions delivered</div>
-      <div class="dh2-kpi-num">${totalDelivered}<span class="unit">/ wk ${sessionsPerWeek}</span></div>
+      <div class="dh2-kpi-num">${_kpiSessions}<span class="unit">/ wk ${sessionsPerWeek}</span></div>
       <div class="dh2-kpi-delta ${_utilPct >= 70 ? 'up' : 'flat'}">${_utilPct}% utilization</div>
       <svg class="dh2-kpi-spark" viewBox="0 0 100 40" fill="none"><path d="M0 18 L14 20 L28 14 L42 22 L56 12 L70 16 L84 10 L100 14" stroke="#4a9eff" stroke-width="1.5"/></svg>
     </div>
     <div class="dh2-kpi" ${_kb} onclick="window._nav('outcomes')">
       <div class="dh2-kpi-lbl violet"><span class="dh2-kpi-dot violet"></span>Responder rate</div>
-      <div class="dh2-kpi-num">${responderRate}</div>
+      <div class="dh2-kpi-num">${_kpiResponder}</div>
       <div class="dh2-kpi-delta ${_phqDelta != null && _phqDelta < 0 ? 'up' : 'flat'}">PHQ-9 Δ ${_phqDeltaStr}</div>
       <svg class="dh2-kpi-spark" viewBox="0 0 100 40" fill="none"><path d="M0 10 L14 14 L28 18 L42 22 L56 20 L70 26 L84 30 L100 34" stroke="#9b7fff" stroke-width="1.5"/></svg>
     </div>
     <div class="dh2-kpi" ${_kb} onclick="window._nav('${pendingQueue.length > 0 ? 'review-queue' : 'outcomes'}')">
       <div class="dh2-kpi-lbl amber"><span class="dh2-kpi-dot amber"></span>Pending review</div>
-      <div class="dh2-kpi-num">${pendingQueue.length}</div>
+      <div class="dh2-kpi-num">${_kpiPending}</div>
       <div class="dh2-kpi-delta ${flaggedCourses.length > 0 ? 'down' : 'flat'}">${flaggedCourses.length > 0 ? flaggedCourses.length + ' need re-render' : 'all current'}</div>
       <svg class="dh2-kpi-spark" viewBox="0 0 100 40" fill="none"><path d="M0 28 L14 24 L28 26 L42 18 L56 22 L70 16 L84 12 L100 14" stroke="#ffb547" stroke-width="1.5"/></svg>
     </div>
@@ -11764,7 +11778,7 @@ export async function pgPatientProfile(setTopbar) {
     savePatientProfile(p);
     _ppEditMode = false;
     _ppRerender();
-    window._announce?.('Demographics saved in this browser view');
+    window._announce?.('Saving demographics…');
     // ── Sync core fields to backend ────────────────────────────────────────
     const nameParts = (p.name || '').trim().split(/\s+/);
     const backendData = {
@@ -11777,6 +11791,7 @@ export async function pgPatientProfile(setTopbar) {
     };
     try {
       await api.updatePatient(_ppCurrentId, backendData);
+      window._announce?.('Demographics saved');
       window._showNotifToast?.({ title: 'Saved', body: 'Patient profile updated.', severity: 'success' });
     } catch(e) {
       window._showNotifToast?.({ title: 'Save failed', body: e.message || 'Could not sync to server.', severity: 'warn' });

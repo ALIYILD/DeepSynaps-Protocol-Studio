@@ -144,8 +144,25 @@ function sortPatients(items, key, direction = 'asc', getCourseLabel = courseLabe
 // pgPatientHub — Merged: Patients + Treatment Courses + Prescriptions
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgPatientHub(setTopbar, navigate) {
-  const tab = window._patientHubTab || 'patients';
+  // ── Tab is read from (priority): URL ?tab= → window._patientHubTab → default
+  //    so deep-links and refresh land on the right tab without route hops.
+  let _urlTab = null;
+  try {
+    if (typeof location !== 'undefined') {
+      _urlTab = new URL(location.href).searchParams.get('tab');
+    }
+  } catch {}
+  const tab = _urlTab || window._patientHubTab || 'patients';
   window._patientHubTab = tab;
+
+  // ── Pre-fetch the analytics module in parallel with the initial patient
+  //    list so a subsequent tab click renders the KPIs synchronously. We
+  //    fire-and-forget — the analytics tab branch reads the cache or awaits.
+  if (!window._phAnalyticsModule && !window._phAnalyticsModulePending) {
+    window._phAnalyticsModulePending = import('./pages-patient-analytics.js')
+      .then(m => { window._phAnalyticsModule = m; return m; })
+      .catch(() => null);
+  }
 
   const TAB_META = {
     patients:   { label: 'Patients',       color: 'var(--blue)'   },
@@ -154,12 +171,114 @@ export async function pgPatientHub(setTopbar, navigate) {
     reports:    { label: 'Reports',        color: 'var(--violet)' },
   };
 
+  // ── In-place tab switcher. Replaces the previous _nav('patients-hub') route
+  //    hop. Sets window._patientHubTab, updates the URL via replaceState (so
+  //    deep-links + refresh still work, no history entry, no flash), and
+  //    re-runs pgPatientHub against the still-mounted #content host. The
+  //    page module never unloads, so module re-import / loading skeleton are
+  //    skipped — KPIs render synchronously from the in-memory roster.
+  window._phSwitchTab = function _phSwitchTab(id) {
+    if (!Object.prototype.hasOwnProperty.call(TAB_META, id)) return;
+    window._patientHubTab = id;
+    try {
+      if (typeof history !== 'undefined' && history.replaceState) {
+        const u = new URL(location.href);
+        // Keep the page param exactly as the user landed on (patients-v2 or
+        // patients-hub) — only the in-page tab marker changes.
+        u.searchParams.set('tab', id);
+        history.replaceState({ ...(history.state || {}), tab: id }, '', u.toString());
+      }
+    } catch {}
+    // Re-render in place against the same content host. We pass through the
+    // existing setTopbar/navigate so child tabs still get the topbar slot.
+    pgPatientHub(setTopbar, navigate);
+  };
+
   function tabBar() {
-    return Object.entries(TAB_META).map(([id, m]) =>
-      '<button class="ch-tab' + (tab === id ? ' ch-tab--active' : '') + '"' +
-      (tab === id ? ' style="--tab-color:' + m.color + '"' : '') +
-      ' onclick="window._patientHubTab=\'' + id + '\';window._nav(\'patients-hub\')">' + m.label + '</button>'
-    ).join('');
+    return Object.entries(TAB_META).map(([id, m]) => {
+      const testid = id === 'analytics' ? ' data-testid="ds-patients-tab-analytics"' : '';
+      return '<button class="ch-tab' + (tab === id ? ' ch-tab--active' : '') + '"' +
+        ' data-tab="' + id + '"' + testid +
+        (tab === id ? ' style="--tab-color:' + m.color + '"' : '') +
+        ' onclick="window._phSwitchTab(\'' + id + '\')">' + m.label + '</button>';
+    }).join('');
+  }
+
+  // ── Global toast helper. The page-wide _dsToast is referenced at 30+ call
+  //    sites but never defined anywhere — every honest-demo fallback was
+  //    silently dropping. Define a minimal fixed-position toast container
+  //    once per session so EVERY caller surfaces a visible response.
+  if (typeof window !== 'undefined' && typeof window._dsToast !== 'function') {
+    window._dsToast = function _dsToast(opts) {
+      try {
+        const o = (opts && typeof opts === 'object') ? opts : { body: String(opts || '') };
+        const title = o.title ? String(o.title) : '';
+        const body  = o.body != null ? String(o.body) : '';
+        const sev   = String(o.severity || 'info').toLowerCase();
+        let host = document.getElementById('ds-pt-toast-host');
+        if (!host) {
+          host = document.createElement('div');
+          host.id = 'ds-pt-toast-host';
+          host.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none';
+          document.body.appendChild(host);
+        }
+        const colorMap = {
+          success: '#2f6b3a', ok: '#2f6b3a',
+          warn:    '#b8741a', warning: '#b8741a',
+          error:   '#b03434',
+          info:    '#1d6f7a',
+        };
+        const accent = colorMap[sev] || colorMap.info;
+        const t = document.createElement('div');
+        t.setAttribute('data-testid', 'ds-pt-toast');
+        t.setAttribute('data-severity', sev);
+        t.setAttribute('role', sev === 'error' ? 'alert' : 'status');
+        t.style.cssText = 'pointer-events:auto;background:#1c1f24;color:#f3eee5;border-left:3px solid '+accent+';border:1px solid rgba(255,255,255,0.08);border-left:3px solid '+accent+';border-radius:8px;padding:10px 14px;min-width:240px;max-width:360px;box-shadow:0 8px 24px rgba(0,0,0,0.45);font:13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
+        const safeTitle = title.replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+        const safeBody  = body.replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+        t.innerHTML = (title ? '<div style="font-weight:600;font-size:12.5px;margin-bottom:2px">' + safeTitle + '</div>' : '') +
+                      (body  ? '<div style="font-size:12px;color:#cfc8b8">' + safeBody + '</div>' : '');
+        host.appendChild(t);
+        setTimeout(() => { try { t.style.transition='opacity 220ms'; t.style.opacity='0'; setTimeout(()=>t.remove(),250); } catch {} }, 3000);
+      } catch (err) {
+        try { console.info('[toast]', opts); } catch {}
+      }
+    };
+  }
+
+  // ── window.showAddPatient fallback. The legacy modal lives in pages-
+  //    clinical.js and is only attached when that page mounts. The patients-v2
+  //    topbar references window.showAddPatient() directly, throwing
+  //    `TypeError: window.showAddPatient is not a function` when v2 is the
+  //    first page loaded. Provide a fallback that lazy-loads the legacy
+  //    module (which then defines the real handler), or surfaces a toast.
+  if (typeof window !== 'undefined' && typeof window.showAddPatient !== 'function') {
+    window.showAddPatient = async function showAddPatientFallback() {
+      try {
+        const mod = await import('./pages-clinical.js');
+        // Calling pgPatients renders the legacy patient list AND assigns the
+        // real window.showAddPatient. We don't want to navigate the user
+        // off this page — just attempt to load the module so the modal
+        // markup + handler exist, then open it.
+        if (mod && typeof mod.pgPatients === 'function' && !document.getElementById('add-patient-panel')) {
+          // Module imported but markup isn't on the page. Surface an honest
+          // toast and route to the legacy patient page where the modal lives.
+          window._dsToast?.({ title: 'Add patient', body: 'Opening intake form…', severity: 'info' });
+          if (typeof window._nav === 'function') { window._nav('patients'); return; }
+        }
+        const panel = document.getElementById('add-patient-panel');
+        if (panel) { panel.style.display = 'flex'; return; }
+        window._dsToast?.({ title: 'Add patient unavailable', body: 'Open the legacy Patients page to add a patient.', severity: 'warn' });
+      } catch (err) {
+        window._dsToast?.({ title: 'Add patient failed', body: (err && err.message) || 'Module load error.', severity: 'error' });
+      }
+    };
+  }
+  if (typeof window !== 'undefined' && typeof window.showImportCSV !== 'function') {
+    window.showImportCSV = function showImportCSVFallback() {
+      window._dsToast?.({ title: 'Import CSV', body: 'CSV import opens in the legacy Patients page.', severity: 'info' });
+      if (typeof window._nav === 'function') window._nav('patients');
+    };
   }
 
   const el = document.getElementById('content');
@@ -890,7 +1009,19 @@ export async function pgPatientHub(setTopbar, navigate) {
         window._paPatientId = pid; window._selectedPatientId = pid;
         if (typeof window._nav === 'function') { window._nav('scheduling-hub'); return; }
       }
-      _phToast('No session scheduled today (demo)', 'info');
+      // No session scheduled today — surface a visible toast naming the patient
+      // so the click is never silent. The toast helper above guarantees a
+      // fixed-position container with data-testid="ds-pt-toast" exists.
+      const pname = p
+        ? ([p.first_name, p.last_name].filter(Boolean).join(' ').trim() || p.name || 'this patient')
+        : 'this patient';
+      window._dsToast?.({
+        title: 'No session scheduled',
+        body: 'No session scheduled for ' + pname + ' today.',
+        severity: 'info',
+      });
+      // Keep the legacy footer-status fallback too so older surfaces stay updated.
+      _phToast('No session scheduled for ' + pname + ' today', 'info');
     };
 
     window._phQuickNote = (pid) => {
@@ -1902,79 +2033,74 @@ export async function pgPatientHub(setTopbar, navigate) {
   // ── ANALYTICS TAB ─────────────────────────────────────────────────────────
   // Delegated to pages-patient-analytics.js — the design-system Bloomberg-style
   // cohort view with one row per demo patient and click-through to a per-patient
-  // data terminal (which itself links into DeepTwin).
+  // data terminal (which itself links into DeepTwin). The module is cached at
+  // window._phAnalyticsModule so subsequent tab switches render synchronously
+  // (no dynamic-import flash, no loading skeleton between tab click and KPIs).
   else if (tab === 'analytics') {
-    const { pgPatientAnalyticsCohort } = await import('./pages-patient-analytics.js');
-    await pgPatientAnalyticsCohort(setTopbar);
+    const mod = window._phAnalyticsModule
+      || (window._phAnalyticsModule = await import('./pages-patient-analytics.js'));
+    await mod.pgPatientAnalyticsCohort(setTopbar);
   }
 
   // ── ALERTS TAB ────────────────────────────────────────────────────────────
+  // Honest stub: there's no live alerts feed wired to the patients-v2 surface
+  // yet, so we surface a real, role-appropriate empty state with a visible
+  // CTA that re-routes back to the Patients tab + activates the Overdue
+  // quick-filter chip. Every interaction on this pane produces a visible
+  // response. Rich-fake-alert markup was removed — see PR fix/patients-hub-
+  // silent-buttons-2026-04-30 — because it carried fabricated patient names.
   else if (tab === 'alerts') {
     setTopbar('Patients', '');
     el.innerHTML = `<div class="ch-shell">
       <div class="d2p7-tab-bar">${tabBar()}</div>
-      <div class="card" style="padding:24px">
-        <h3 style="color:var(--text-primary);margin:0 0 16px;font-size:15px">&#128276; Clinical Alerts</h3>
-        <div style="display:flex;flex-direction:column;gap:8px">
-          <div style="padding:12px 16px;border-radius:8px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);display:flex;align-items:center;gap:12px">
-            <span style="font-size:18px">&#9888;</span>
-            <div style="flex:1"><div style="font-size:13px;font-weight:600;color:var(--amber)">Assessment Overdue</div><div style="font-size:11px;color:var(--text-secondary)">Samantha Li - PHQ-9 assessment due 2 days ago</div></div>
-            <button class="btn btn-sm" onclick="window._patientHubTab='patients';window._nav('patients-hub')">View</button>
-          </div>
-          <div style="padding:12px 16px;border-radius:8px;background:rgba(0,212,188,0.06);border:1px solid rgba(0,212,188,0.15);display:flex;align-items:center;gap:12px">
-            <span style="font-size:18px">&#10003;</span>
-            <div style="flex:1"><div style="font-size:13px;font-weight:600;color:var(--teal)">Treatment Milestone</div><div style="font-size:11px;color:var(--text-secondary)">Marcus Chen completed session 10 of 15 (rTMS course)</div></div>
-            <button class="btn btn-sm" onclick="window._patientHubTab='patients';window._nav('patients-hub')">View</button>
-          </div>
-          <div style="padding:12px 16px;border-radius:8px;background:rgba(74,158,255,0.06);border:1px solid rgba(74,158,255,0.15);display:flex;align-items:center;gap:12px">
-            <span style="font-size:18px">&#128200;</span>
-            <div style="flex:1"><div style="font-size:13px;font-weight:600;color:var(--blue)">Outcome Improvement</div><div style="font-size:11px;color:var(--text-secondary)">Elena Vasquez - Pain VAS decreased 30% over 4 weeks</div></div>
-            <button class="btn btn-sm" onclick="window._patientHubTab='patients';window._nav('patients-hub')">View</button>
-          </div>
-          <div style="padding:12px 16px;border-radius:8px;background:rgba(139,92,246,0.06);border:1px solid rgba(139,92,246,0.15);display:flex;align-items:center;gap:12px">
-            <span style="font-size:18px">&#128268;</span>
-            <div style="flex:1"><div style="font-size:13px;font-weight:600;color:var(--violet)">Wearable Alert</div><div style="font-size:11px;color:var(--text-secondary)">Aisha Rahman - HRV dropped below baseline for 3 consecutive days</div></div>
-            <button class="btn btn-sm" onclick="window._patientHubTab='patients';window._nav('patients-hub')">View</button>
-          </div>
+      <div class="ds-tab-empty" data-testid="ds-patients-alerts-pane" style="padding:32px;background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;color:var(--text-primary);max-width:640px;margin:24px auto;text-align:left">
+        <h3 style="margin:0 0 10px;font-size:16px;color:var(--text-primary)">&#128276; Alerts</h3>
+        <p style="margin:0 0 16px;font-size:13px;color:var(--text-secondary);line-height:1.5">No active alerts. Adverse events and overdue assessments will surface here.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="ds-btn-secondary btn btn-sm" data-action="view-overdue" onclick="window._phViewOverdueFromAlerts && window._phViewOverdueFromAlerts()">View overdue assessments</button>
         </div>
       </div>
     </div>`;
+    // Wire the view-overdue CTA: switch to Patients tab + activate Overdue chip.
+    window._phViewOverdueFromAlerts = function _phViewOverdueFromAlerts() {
+      try {
+        window._patientHubTab = 'patients';
+        // Quick-filter chip ids: 'today','overdue','adverse','recent','all'.
+        // Pre-set so the patients-tab init reads the right chip on first paint.
+        window._phState = window._phState || {};
+        window._phState.activeQuickFilter = 'overdue';
+        if (typeof window._phSwitchTab === 'function') { window._phSwitchTab('patients'); return; }
+        if (typeof window._nav === 'function') { window._nav('patients-hub'); return; }
+      } catch (err) {
+        window._dsToast?.({ title: 'Could not open overdue filter', body: (err && err.message) || 'Unknown error', severity: 'warn' });
+      }
+    };
   }
 
   // ── REPORTS TAB ───────────────────────────────────────────────────────────
+  // Honest stub: governed exports live in the dedicated Reports Hub. The
+  // patients-v2 Reports tab is just a discovery shim — point clinicians at
+  // the real surface. Every interaction here produces a visible response.
   else if (tab === 'reports') {
     setTopbar('Patients', '');
     el.innerHTML = `<div class="ch-shell">
       <div class="d2p7-tab-bar">${tabBar()}</div>
-      <div class="card" style="padding:24px">
-        <h3 style="color:var(--text-primary);margin:0 0 16px;font-size:15px">&#128196; Clinical Reports</h3>
-        <div style="font-size:12px;color:var(--text-secondary);margin:0 0 14px">
-          Reporting exports are being wired to governed backend generators. The items below are roadmap placeholders and are intentionally disabled until export, audit, and reviewer stamps are complete.
-        </div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">
-          <div class="card" aria-disabled="true" style="padding:16px;cursor:not-allowed;opacity:.72;border-left:3px solid var(--teal)">
-            <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Treatment Summary</div>
-            <div style="font-size:11px;color:var(--text-secondary)">Generate a comprehensive treatment summary report for any patient.</div>
-            <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;text-transform:uppercase;letter-spacing:.08em">Roadmap item</div>
-          </div>
-          <div class="card" aria-disabled="true" style="padding:16px;cursor:not-allowed;opacity:.72;border-left:3px solid var(--blue)">
-            <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Outcome Report</div>
-            <div style="font-size:11px;color:var(--text-secondary)">Export outcome measures, trends, and response rates as PDF or FHIR.</div>
-            <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;text-transform:uppercase;letter-spacing:.08em">Roadmap item</div>
-          </div>
-          <div class="card" aria-disabled="true" style="padding:16px;cursor:not-allowed;opacity:.72;border-left:3px solid var(--violet)">
-            <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">DeepTwin Report</div>
-            <div style="font-size:11px;color:var(--text-secondary)">Full digital twin analysis including EEG, MRI, and biometric correlations.</div>
-            <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;text-transform:uppercase;letter-spacing:.08em">Roadmap item</div>
-          </div>
-          <div class="card" aria-disabled="true" style="padding:16px;cursor:not-allowed;opacity:.72;border-left:3px solid var(--amber)">
-            <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Cohort Comparison</div>
-            <div style="font-size:11px;color:var(--text-secondary)">Compare patient outcomes against similar cohorts and benchmarks.</div>
-            <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;text-transform:uppercase;letter-spacing:.08em">Roadmap item</div>
-          </div>
+      <div class="ds-tab-empty" data-testid="ds-patients-reports-pane" style="padding:32px;background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;color:var(--text-primary);max-width:640px;margin:24px auto;text-align:left">
+        <h3 style="margin:0 0 10px;font-size:16px;color:var(--text-primary)">&#128196; Reports</h3>
+        <p style="margin:0 0 16px;font-size:13px;color:var(--text-secondary);line-height:1.5">Course completion summaries, treatment outcomes, and population reports will live here.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="ds-btn-secondary btn btn-sm" data-action="open-reports-hub" onclick="window._phOpenReportsHub && window._phOpenReportsHub()">Open Reports Hub &rarr;</button>
         </div>
       </div>
     </div>`;
+    window._phOpenReportsHub = function _phOpenReportsHub() {
+      try {
+        if (typeof window._nav === 'function') { window._nav('reports-hub'); return; }
+        window._dsToast?.({ title: 'Reports Hub', body: 'Reports Hub navigation unavailable in this build.', severity: 'warn' });
+      } catch (err) {
+        window._dsToast?.({ title: 'Could not open Reports Hub', body: (err && err.message) || 'Unknown error', severity: 'warn' });
+      }
+    };
   }
 }
 
@@ -3793,7 +3919,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
 .dv2s-body{flex:1;min-height:0;display:flex;overflow:hidden;}
 .dv2s-grid-wrap{flex:1;min-width:0;overflow:auto;background:var(--bg);}
 .dv2s-col-heads{display:grid;position:sticky;top:0;z-index:5;background:var(--bg-panel,var(--bg-surface));border-bottom:1px solid var(--border);}
-.dv2s-col-heads.v-week{grid-template-columns:64px repeat(28,minmax(120px,1fr));min-width:2000px;}
+.dv2s-col-heads.v-week{grid-template-columns:64px repeat(28,minmax(0,1fr));min-width:720px;}
 .dv2s-col-heads.v-day{grid-template-columns:64px repeat(var(--dv2s-cols,4),minmax(200px,1fr));min-width:900px;}
 .dv2s-col-heads.v-resources{grid-template-columns:64px repeat(var(--dv2s-cols,6),minmax(160px,1fr));min-width:1100px;}
 .dv2s-hours-head{grid-column:1;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--text-tertiary);font-family:var(--font-mono);letter-spacing:.08em;text-transform:uppercase;border-right:1px solid var(--border);}
@@ -3811,7 +3937,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
 .dv2s-res-head{padding:10px 8px;border-right:1px solid var(--border);font-size:11px;font-weight:600;color:var(--text-primary);background:var(--bg-surface);}
 .dv2s-res-head .sub{display:block;font-size:10px;color:var(--text-tertiary);font-weight:500;margin-top:2px;}
 .dv2s-grid{display:grid;position:relative;}
-.dv2s-grid.v-week{grid-template-columns:64px repeat(28,minmax(120px,1fr));min-width:2000px;}
+.dv2s-grid.v-week{grid-template-columns:64px repeat(28,minmax(0,1fr));min-width:720px;}
 .dv2s-grid.v-day{grid-template-columns:64px repeat(var(--dv2s-cols,4),minmax(200px,1fr));min-width:900px;}
 .dv2s-grid.v-resources{grid-template-columns:64px repeat(var(--dv2s-cols,6),minmax(160px,1fr));min-width:1100px;}
 .dv2s-hour-col{grid-column:1;background:var(--bg-panel,var(--bg-surface));border-right:1px solid var(--border);position:sticky;left:0;z-index:4;}
@@ -3950,9 +4076,9 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   .dv2s-range-sub{display:none;}
   .dv2s-view{display:none;}
   .dv2s-chip{font-size:10.5px;padding:3px 8px;}
-  .dv2s-col-heads.v-week{min-width:1200px;}
-  .dv2s-col-heads.v-week{grid-template-columns:48px repeat(28,minmax(90px,1fr));}
-  .dv2s-grid.v-week{grid-template-columns:48px repeat(28,minmax(90px,1fr));min-width:1200px;}
+  .dv2s-col-heads.v-week{min-width:720px;}
+  .dv2s-col-heads.v-week{grid-template-columns:48px repeat(28,minmax(0,1fr));}
+  .dv2s-grid.v-week{grid-template-columns:48px repeat(28,minmax(0,1fr));min-width:720px;}
   .dv2s-hour-col{width:48px;}
   .dv2s-hours-head{font-size:8px;}
   .dv2s-hour-row{padding:2px 4px;font-size:8px;}
@@ -4177,11 +4303,78 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   // Honest empty-state rule:
   //   - sessions === null  → backend call errored → OK to show demo data so the
   //                          UI layout doesn't collapse (banner explains it).
-  //   - sessions === []    → backend returned zero results for the week → this
-  //                          is a real "no appointments scheduled" state and we
-  //                          must NOT fabricate mock rows to fill the grid.
+  //   - sessions === []    → backend returned zero results for the week → in
+  //                          demo mode, seed a representative set so reviewers
+  //                          can exercise the calendar; in production builds
+  //                          we still render the honest "no appointments"
+  //                          state.
   events = Array.isArray(sessions) ? sessions.map(sessionToEvent).filter(Boolean) : [];
   eventsIsDemo = false;
+
+  // ── Demo-mode seed for empty schedule ─────────────────────────────────
+  // Mirrors the Patients page Today's Queue / qEEG workbench pattern: when
+  // VITE_ENABLE_DEMO is on AND the API returned an empty week, seed a
+  // realistic Mon–Sun calendar so the layout has something to render.
+  // The gate is two-layered: (1) demo build flag must be set, (2) the
+  // sessions response must be `[]` (NOT `null`, which means error). Real
+  // bookings always win — this never overwrites real data.
+  function _schedDemoEnabled() {
+    try {
+      if (typeof __VITE_ENABLE_DEMO__ !== 'undefined' && __VITE_ENABLE_DEMO__) return true;
+    } catch (_) { /* not defined */ }
+    try {
+      if (import.meta?.env?.VITE_ENABLE_DEMO === '1') return true;
+    } catch (_) { /* not in vite env */ }
+    try {
+      if (import.meta?.env?.DEV) return true;
+    } catch (_) { /* no env */ }
+    return false;
+  }
+  const _schedSeededFromDemo = (Array.isArray(sessions) && sessions.length === 0 && _schedDemoEnabled());
+  if (_schedSeededFromDemo) {
+    // 12 sessions across Mon–Sun. Patient names mirror the existing Patients
+    // demo seed so chips line up. Each id is stable & deterministic so the
+    // detail panel + chain renderer key correctly across re-renders.
+    const _demoClin = clinicians[0]?.id || 'current-clinician';
+    const _demoClinName = clinicians[0]?.name || 'Assigned clinician';
+    const _demoRoom1 = rooms[0]?.name || 'Room A';
+    const _demoRoom2 = rooms[1]?.name || rooms[0]?.name || 'Room B';
+    const SEED = [
+      // day index: 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat, 6=Sun
+      { id:'demo-sched-mon-0900', day:0, start:9.0,  duration:30, type:'tdcs',      patient:'Samantha Li',     room:_demoRoom1, notes:'DLPFC-L 2.0 mA, 20 min', course_position:6,  course_total:20 },
+      { id:'demo-sched-mon-1430', day:0, start:14.5, duration:30, type:'rtms',      patient:'Marcus Chen',     room:_demoRoom2, notes:'DLPFC-L 10 Hz protocol', course_position:8,  course_total:30 },
+      { id:'demo-sched-tue-1000', day:1, start:10.0, duration:60, type:'session',   patient:'Elena Vasquez',   room:_demoRoom1, notes:'tFUS · M1 sonication',    course_position:3,  course_total:12 },
+      { id:'demo-sched-tue-1600', day:1, start:16.0, duration:60, type:'nf',        patient:'James Okonkwo',   room:_demoRoom2, notes:'SMR/theta neurofeedback', course_position:14, course_total:30 },
+      { id:'demo-sched-wed-0930', day:2, start:9.5,  duration:30, type:'session',   patient:'Aisha Rahman',    room:_demoRoom1, notes:'TPS · mPFC pulses',       course_position:2,  course_total:6  },
+      { id:'demo-sched-wed-1300', day:2, start:13.0, duration:60, type:'intake',    patient:'New patient',     room:_demoRoom2, notes:'60 min intake assessment' },
+      { id:'demo-sched-thu-0800', day:3, start:8.0,  duration:30, type:'rtms',      patient:'Marcus Chen',     room:_demoRoom2, notes:'rTMS continuation',       course_position:9,  course_total:30 },
+      { id:'demo-sched-thu-1100', day:3, start:11.0, duration:30, type:'tele',      patient:'Telehealth follow-up', room:'Telehealth', notes:'30 min video follow-up' },
+      { id:'demo-sched-fri-1030', day:4, start:10.5, duration:30, type:'tdcs',      patient:'Samantha Li',     room:_demoRoom1, notes:'tDCS continuation',       course_position:7,  course_total:20 },
+      { id:'demo-sched-fri-1500', day:4, start:15.0, duration:60, type:'bio',       patient:'Group · Biofeedback', room:_demoRoom2, notes:'4-patient HRV biofeedback group' },
+      // A pair of weekend sessions to match real clinic flexibility.
+      { id:'demo-sched-tue-1130', day:1, start:11.5, duration:30, type:'assess',    patient:'Priya Nambiar',   room:_demoRoom1, notes:'PHQ-9 / GAD-7 review',     course_position:1,  course_total:1  },
+      { id:'demo-sched-thu-1530', day:3, start:15.5, duration:30, type:'tdcs',      patient:'Aisha Rahman',    room:_demoRoom1, notes:'tDCS adjunct · 1.5 mA',   course_position:3,  course_total:6  },
+    ];
+    events = SEED.map(s => ({
+      id: s.id,
+      day: s.day,
+      clin: _demoClin,
+      clinician: _demoClinName,
+      start: s.start,
+      end: Math.min(s.start + (s.duration / 60), 24),
+      type: s.type,
+      patient: s.patient,
+      meta: s.room || '',
+      warn: null,
+      duration: s.duration,
+      course_position: s.course_position || null,
+      course_total: s.course_total || null,
+      status: 'scheduled',
+      notes: s.notes || '',
+      _demoSeed: true,
+    }));
+    eventsIsDemo = true;
+  }
 
   // ── Client-side conflict detector ─────────────────────────────────────
   // Runs deterministically on each render so warnings stay accurate even
@@ -4229,8 +4422,9 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   const conflictCount = events.filter(e => e.warn === 'err').length;
   const prereqCount   = events.filter(e => e.warn === 'amb').length;
 
-  // Demo banner visibility: show when sessions are seeded OR sessions endpoint failed.
-  const showDemoBanner = false;
+  // Demo banner visibility: show when the calendar is showing seeded
+  // demo data so reviewers know the sessions aren't real bookings.
+  const showDemoBanner = !!eventsIsDemo;
 
   const TAB_META = {
     appointments: { label:'Appointments', count: events.filter(eventPasses).length },
@@ -4244,8 +4438,21 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   }
 
   function renderDemoBanner() {
-    return '';
+    if (!showDemoBanner) return '';
+    if (window._schedDemoBannerDismissed === true) return '';
+    const n = events.length;
+    return '<div class="dv2s-demo-banner" data-testid="ds-schedule-demo-banner" role="status">'
+      + '<span class="dv2s-demo-dot" aria-hidden="true"></span>'
+      + '<span>&#9432; Demo schedule &mdash; ' + n + ' sample sessions for this week. '
+      + 'Real bookings from the API will replace these when available.</span>'
+      + '<button type="button" class="dv2s-demo-btn" onclick="window._schedDismissDemoBanner()">Dismiss</button>'
+      + '</div>';
   }
+  window._schedDismissDemoBanner = function _schedDismissDemoBanner() {
+    window._schedDemoBannerDismissed = true;
+    const banner = document.querySelector('[data-testid="ds-schedule-demo-banner"]');
+    if (banner && banner.parentNode) banner.parentNode.removeChild(banner);
+  };
 
   setTopbar('Schedule', '<button class="btn btn-primary btn-sm" onclick="window._schedNewBookingIntent()">+ New booking</button>');
   window._schedNewBookingIntent = () => { window._schedOpenWizard({}); };
@@ -4604,6 +4811,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
         + '<div class="dv2s-side-row"><div class="lbl">Device</div><div class="val">'+esc(sel.device || sel.meta || '—')+'</div></div>'
         + '<div class="dv2s-side-row"><div class="lbl">Duration</div><div class="val">'+esc(sel.duration+' min')+'</div></div>'
         + (sel.course_position ? '<div class="dv2s-side-row"><div class="lbl">Course</div><div class="val">Session '+sel.course_position+' of '+(sel.course_total||'—')+'</div></div>' : '')
+        + (sel.notes ? '<div class="dv2s-side-row"><div class="lbl">Notes</div><div class="val" style="white-space:pre-wrap">'+esc(sel.notes)+'</div></div>' : '')
         + '<div class="dv2s-side-section">Risk signals</div>'
         + '<div class="dv2s-side-row"><div class="lbl">No-show</div><div class="val" style="color:'+noShowColor+'">'+noShowScore+'% &middot; '+noShowLevel+'</div></div>'
         + (rem ? ('<div class="dv2s-side-row"><div class="lbl">Remaining</div><div class="val">'+rem+' sessions</div></div>') : '')

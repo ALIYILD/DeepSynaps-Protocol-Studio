@@ -122,6 +122,7 @@ def _analysis_snapshot(analysis: QEEGAnalysis) -> dict:
         "red_flags": _maybe("red_flags_json"),
         "normative_metadata": _maybe("normative_metadata_json"),
         "interpretability_status": getattr(analysis, "interpretability_status", None),
+        "medication_confounds": getattr(analysis, "medication_confounds", None),
     }
 
 
@@ -286,6 +287,7 @@ async def copilot_ws(
                 risk_scores=snapshot["risk_scores"],
                 recommendation=recommendation,
                 papers=[],
+                medication_confounds=snapshot.get("medication_confounds"),
             )
         except Exception as exc:  # pragma: no cover — should not happen
             _log.warning("render_system_prompt failed: %s", exc)
@@ -325,6 +327,7 @@ async def copilot_ws(
         "red_flags": snapshot.get("red_flags"),
         "normative_metadata": snapshot.get("normative_metadata"),
         "interpretability_status": snapshot.get("interpretability_status"),
+        "medication_confounds": snapshot.get("medication_confounds"),
     }
 
     # Conversation history (used by :func:`real_llm_tool_dispatch`). Each
