@@ -176,3 +176,38 @@ class TestAuditEvents:
             json={"event": "analyzer_loaded"},
         )
         assert r.status_code != 200
+
+    def test_audit_event_supports_brain_map_planner_surface(
+        self, client: TestClient, clinician_token: str
+    ) -> None:
+        """The Brain Map Planner shares this endpoint with surface prefix.
+        Whitelisted prefixes only — 'qeeg' (default) and 'brain_map_planner'.
+        """
+        r = client.post(
+            "/api/v1/qeeg-analysis/audit-events",
+            json={
+                "event": "page_loaded",
+                "surface": "brain_map_planner",
+                "note": "tab=clinical",
+            },
+            headers=_auth_headers(clinician_token),
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["accepted"] is True
+        assert body["event_id"].startswith("brain_map_planner-page_loaded-")
+
+    def test_audit_event_unknown_surface_falls_back_to_qeeg(
+        self, client: TestClient, clinician_token: str
+    ) -> None:
+        """Whitelist gate: arbitrary surface strings must not propagate to the
+        audit `action` field. They should fall back to the default `qeeg`
+        prefix so the audit trail stays clean.
+        """
+        r = client.post(
+            "/api/v1/qeeg-analysis/audit-events",
+            json={"event": "page_loaded", "surface": "../malicious"},
+            headers=_auth_headers(clinician_token),
+        )
+        assert r.status_code == 200
+        assert r.json()["event_id"].startswith("qeeg-page_loaded-")
