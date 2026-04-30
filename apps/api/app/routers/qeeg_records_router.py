@@ -301,3 +301,166 @@ def update_qeeg_record(
     db.commit()
     db.refresh(record)
     return QEEGRecordOut.from_record(record)
+
+
+# ── Phase 5b: file upload endpoint ──────────────────────────────────────────
+# POST /api/v1/qeeg-records/upload
+#
+# Accepts an .edf / .edf+ / .bdf / .vhdr / .set / .fif file plus minimal
+# metadata, persists the file under a per-patient namespace, creates a
+# QEEGRecord row pointing at it, and returns a suggested_path so the
+# Phase 3 launcher can route the user to either the auto-pipeline or the
+# manual cleaning workbench.
+
+import os  # noqa: E402
+import uuid as _uuid  # noqa: E402
+
+from fastapi import File, Form, UploadFile  # noqa: E402
+
+from app.settings import get_settings  # noqa: E402
+
+_QEEG_UPLOAD_ALLOWED_EXTS = frozenset({"edf", "bdf", "vhdr", "vmrk", "eeg", "set", "fdt", "fif"})
+_QEEG_UPLOAD_MIN_BYTES = 1 * 1024 * 1024            # 1 MB
+_QEEG_UPLOAD_MAX_BYTES = 500 * 1024 * 1024          # 500 MB hard cap
+_QEEG_UPLOAD_LARGE_BYTES = 250 * 1024 * 1024        # advisory threshold for "manual"
+
+
+def _qeeg_save_recording_file(
+    patient_id: str,
+    record_id: str,
+    file_bytes: bytes,
+    filename: str,
+    settings,
+) -> tuple[str, str]:
+    """Persist the uploaded file under media_uploads/qeeg/<patient>/.
+
+    Returns (raw_data_ref, ext). Path is sandboxed inside the per-patient
+    directory; refuses any traversal escape. Mirrors the same hardening
+    pattern as ``reports_router._save_report_file``.
+    """
+    media_root = getattr(settings, "media_storage_root", "media_uploads")
+    dest_dir = os.path.join(media_root, "qeeg", patient_id)
+    os.makedirs(dest_dir, exist_ok=True)
+    raw_ext = (filename or "recording.edf").rsplit(".", 1)[-1].lower()
+    if raw_ext not in _QEEG_UPLOAD_ALLOWED_EXTS:
+        raise ApiServiceError(
+            code="invalid_qeeg_extension",
+            message=(
+                "qEEG file extension must be one of: " + ", ".join(sorted(_QEEG_UPLOAD_ALLOWED_EXTS))
+            ),
+            status_code=422,
+        )
+    dest_path = os.path.join(dest_dir, f"{record_id}.{raw_ext}")
+    abs_dest = os.path.realpath(dest_path)
+    abs_root = os.path.realpath(dest_dir)
+    if not (abs_dest == abs_root or abs_dest.startswith(abs_root + os.sep)):
+        raise ApiServiceError(
+            code="invalid_qeeg_destination",
+            message="Resolved qEEG path escapes the patient directory.",
+            status_code=422,
+        )
+    with open(abs_dest, "wb") as fh:
+        fh.write(file_bytes)
+    return f"fixtures://qeeg/{patient_id}/{record_id}.{raw_ext}", raw_ext
+
+
+def _qeeg_suggest_path(size_bytes: int, ext: str) -> str:
+    """Advisory routing: 'auto' for typical resting-state recordings,
+    'manual' for very small / very large files or EEGLAB exports."""
+    if size_bytes < _QEEG_UPLOAD_MIN_BYTES:
+        return "manual"
+    if size_bytes > _QEEG_UPLOAD_LARGE_BYTES:
+        return "manual"
+    if ext in {"set", "fdt"}:
+        return "manual"
+    return "auto"
+
+
+def _qeeg_suggest_reason(size_bytes: int, ext: str, suggested: str) -> str:
+    if suggested == "auto":
+        return "typical resting-state recording — auto pipeline recommended"
+    if size_bytes < _QEEG_UPLOAD_MIN_BYTES:
+        return "small file (< 1 MB) — likely too short, manual review recommended"
+    if size_bytes > _QEEG_UPLOAD_LARGE_BYTES:
+        return "large file (> 250 MB) — manual review recommended"
+    if ext in {"set", "fdt"}:
+        return "EEGLAB export — manual review recommended"
+    return "manual review recommended"
+
+
+class QEEGUploadResponse(BaseModel):
+    record_id: str
+    raw_data_ref: str
+    suggested_path: str  # "auto" | "manual"
+    qc: dict
+
+
+@router.post("/upload", response_model=QEEGUploadResponse, status_code=201)
+async def upload_qeeg_recording(
+    patient_id: str = Form(...),
+    course_id: Optional[str] = Form(default=None),
+    recording_type: str = Form(default="resting"),
+    eyes_condition: Optional[str] = Form(default=None),
+    equipment: Optional[str] = Form(default=None),
+    file: UploadFile = File(...),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> QEEGUploadResponse:
+    """Upload a raw qEEG file and create a QEEGRecord pointing at it.
+
+    Used by the Phase 3 unified launcher so the user can upload + auto-route
+    in one round-trip. The pipeline is NOT triggered here — the launcher
+    decides whether to call `/qeeg-analysis/<id>/run` or open the raw
+    workbench for manual cleaning, based on `suggested_path`.
+    """
+    require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
+
+    file_bytes = await file.read()
+    size = len(file_bytes)
+    if size <= 0:
+        raise ApiServiceError(code="empty_qeeg_upload", message="Uploaded qEEG file is empty.", status_code=422)
+    if size > _QEEG_UPLOAD_MAX_BYTES:
+        raise ApiServiceError(
+            code="qeeg_upload_too_large",
+            message=f"qEEG file exceeds {_QEEG_UPLOAD_MAX_BYTES // (1024 * 1024)} MB hard cap.",
+            status_code=413,
+        )
+
+    record_id = str(_uuid.uuid4())
+    raw_data_ref, ext = _qeeg_save_recording_file(
+        patient_id=patient_id,
+        record_id=record_id,
+        file_bytes=file_bytes,
+        filename=file.filename or "recording.edf",
+        settings=get_settings(),
+    )
+
+    record = QEEGRecord(
+        id=record_id,
+        patient_id=patient_id,
+        clinician_id=actor.actor_id,
+        course_id=course_id,
+        recording_type=recording_type,
+        eyes_condition=eyes_condition,
+        equipment=equipment,
+        raw_data_ref=raw_data_ref,
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+
+    suggested = _qeeg_suggest_path(size, ext)
+    qc = {
+        "size_bytes": size,
+        "extension": ext,
+        "filename": file.filename,
+        "suggested_path_reason": _qeeg_suggest_reason(size, ext, suggested),
+    }
+
+    return QEEGUploadResponse(
+        record_id=record_id,
+        raw_data_ref=raw_data_ref,
+        suggested_path=suggested,
+        qc=qc,
+    )
