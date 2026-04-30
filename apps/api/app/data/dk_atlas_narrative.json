@@ -268,15 +268,16 @@
     "lobe": "temporal",
     "display_name": "Fusiform",
     "functions": [
-      "Responsible for facial recognition.",
-      "Involved in the analysis of others' emotions based on their facial gestures.",
-      "The left side identifies individual faces.",
-      "The right side identifies individual emotions behind the faces."
+      "Object and face perception.",
+      "The right side is dominant for identification of individual faces (right Fusiform Face Area; Kanwisher 1997, Sergent 1992).",
+      "The left side contributes to processing of written words (Visual Word Form Area overlap) and configural aspects of face perception.",
+      "Both hemispheres contribute to processing of emotional expressions in faces, with right-hemisphere weighting in the research literature."
     ],
     "decline_symptoms": [
-      "Deterioration of the left side: poor recognition of faces.",
-      "Deterioration of the right side: poor comprehension of facial expression of emotions."
-    ]
+      "Deterioration of the right side: poor recognition of individual faces (prosopagnosia-spectrum presentation).",
+      "Deterioration of the left side: difficulty with word-form recognition; difficulty with configural face features."
+    ],
+    "narrative_source": "deepsynaps-2026-04-30-correction-of-isyncbrain-lateralization"
   },
   "entorhinal": {
     "code": "T8",
