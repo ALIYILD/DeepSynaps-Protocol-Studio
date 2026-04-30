@@ -3121,3 +3121,80 @@ class DeepTwinClinicianNote(Base):
     related_analysis_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     related_simulation_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
+# ── QA Findings (launch-audit 2026-04-30) ────────────────────────────────────
+# Non-conformance / CAPA records surfaced by the Quality Assurance page.
+# Distinct from the artifact-level QA scoring engine in deepsynaps_qa.
+class QualityFinding(Base):
+    """A QA non-conformance / CAPA item.
+
+    Honest, regulator-credible record. ``status`` transitions are append-only
+    via :class:`QualityFindingRevision`; closed findings are immutable
+    (reopen creates a new revision so audit trail is preserved). ``source_*``
+    fields enable cross-surface drill-out into adverse_events / sessions /
+    reports / documents / qeeg / brain_map_planner.
+    """
+
+    __tablename__ = "quality_findings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clinic_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text(), nullable=False, default="")
+    finding_type: Mapped[str] = mapped_column(
+        String(48),
+        nullable=False,
+        default="non_conformance",
+        index=True,
+    )  # non_conformance | sae_followup | documentation_gap | protocol_deviation | capa | observation
+    severity: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="minor",
+        index=True,
+    )  # minor | major | critical
+    status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="open",
+        index=True,
+    )  # open | in_progress | closed | reopened
+    owner_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    capa_text: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    capa_due_date: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, index=True)
+    source_target_type: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, index=True)
+    source_target_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    evidence_links_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    is_demo: Mapped[bool] = mapped_column(Boolean(), default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+    closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    closed_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    closure_note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    reporter_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+
+
+class QualityFindingRevision(Base):
+    """Immutable revision row for every QualityFinding state change."""
+
+    __tablename__ = "quality_finding_revisions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    finding_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("quality_findings.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    revision_idx: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    action: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    snapshot_json: Mapped[str] = mapped_column(Text(), nullable=False)
+    actor_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_role: Mapped[str] = mapped_column(String(32), nullable=False)
+    note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))

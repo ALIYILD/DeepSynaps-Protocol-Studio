@@ -4207,259 +4207,716 @@ function _qaRenderActions(filterStatus) {
   return filterHTML + tableHTML;
 }
 
+// ── QA Findings / CAPA Register (launch-audit 2026-04-30) ────────────────────
+//
+// Real, API-backed Quality Assurance findings register. Replaces the prior
+// localStorage-only peer-review prototype. Every visible control is wired to
+// `/api/v1/qa/findings*` or honestly disabled. Closed findings are immutable;
+// reopen creates a new revision; CAPA owners must be real users (the API
+// validates owner_id against the User table).
+//
+// Cross-surface drill-out: rows with source_target_type/id navigate to the
+// originating record (adverse_events, sessions, reports, documents, qeeg,
+// brain_map_planner). When the API returns an empty list, we render a clear
+// "No findings yet" empty state — never invented rows. Demo rows are tagged
+// `is_demo=true` and exports prefix with `# DEMO`.
+
+const _QA_PAGE_DISCLAIMERS = [
+  'Quality Assurance findings require timely owner action and clinician sign-off.',
+  'CAPA owners and due dates support regulator inspection — keep them current.',
+  'Closed findings are immutable; reopen creates a new revision with audit trail.',
+];
+
+const _QA_FINDING_TYPES = [
+  ['non_conformance',    'Non-conformance'],
+  ['sae_followup',       'SAE follow-up'],
+  ['documentation_gap',  'Documentation gap'],
+  ['protocol_deviation', 'Protocol deviation'],
+  ['capa',               'CAPA action'],
+  ['observation',        'Observation'],
+];
+
+const _QA_SEVERITIES = [
+  ['minor',    'Minor'],
+  ['major',    'Major'],
+  ['critical', 'Critical'],
+];
+
+const _QA_STATUSES = [
+  ['open',        'Open'],
+  ['in_progress', 'In progress'],
+  ['closed',      'Closed'],
+  ['reopened',    'Reopened'],
+];
+
+const _QA_SOURCE_TARGETS = [
+  ['adverse_events',    'Adverse Event'],
+  ['sessions',          'Session'],
+  ['reports',           'Report'],
+  ['documents',         'Document'],
+  ['qeeg',              'qEEG analysis'],
+  ['brain_map_planner', 'Brain Map plan'],
+];
+
+function _qaEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function _qaSeverityBadge(sev) {
+  const map = {
+    critical: ['#dc2626', '#fee2e2', 'Critical'],
+    major:    ['#ea580c', '#fed7aa', 'Major'],
+    minor:    ['#2563eb', '#dbeafe', 'Minor'],
+  };
+  const [color, bg, label] = map[sev] || map.minor;
+  return `<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:9999px;background:${bg};color:${color}">${label}</span>`;
+}
+
+function _qaFindingStatusBadge(status) {
+  const map = {
+    open:        ['#dc2626', '#fee2e2', 'Open'],
+    in_progress: ['#d97706', '#fef3c7', 'In progress'],
+    closed:      ['#059669', '#d1fae5', 'Closed'],
+    reopened:    ['#7c3aed', '#ede9fe', 'Reopened'],
+  };
+  const [color, bg, label] = map[status] || map.open;
+  return `<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:9999px;background:${bg};color:${color}">${label}</span>`;
+}
+
+function _qaDrillOutHref(targetType, targetId) {
+  if (!targetType || !targetId) return null;
+  const id = encodeURIComponent(targetId);
+  switch ((targetType || '').toLowerCase()) {
+    case 'adverse_events':    return `?page=adverse-events&id=${id}`;
+    case 'sessions':          return `?page=session-execution&id=${id}`;
+    case 'reports':           return `?page=reports&id=${id}`;
+    case 'documents':         return `?page=documents&id=${id}`;
+    case 'qeeg':              return `?page=qeegmaps&id=${id}`;
+    case 'brain_map_planner': return `?page=brain-map-planner&id=${id}`;
+    default:                  return null;
+  }
+}
+
 // ── Main exported page function ───────────────────────────────────────────────
 export async function pgQualityAssurance(setTopbar) {
-  setTopbar('Quality Assurance & Peer Review', '');
+  setTopbar('Quality Assurance & Peer Review', `
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-primary btn-sm" onclick="window._qaShowCreate()">+ Log Finding</button>
+      <button class="btn btn-ghost btn-sm" onclick="window._qaExportCSV()">Export CSV</button>
+      <button class="btn btn-ghost btn-sm" onclick="window._qaExportNDJSON()" title="Newline-delimited JSON, one finding per line — preferred regulator format">Export NDJSON</button>
+    </div>
+  `);
   const el = document.getElementById('content');
+  el.innerHTML = spinner();
 
-  // Internal state
-  let _activeTab       = 'dashboard';
-  let _filterStatus    = 'all';
-  let _filterClinician = '';
-  let _filterDateFrom  = '';
-  let _filterDateTo    = '';
-  let _filterActions   = 'all';
-  let _openReviewId    = null;
+  // ── Page state ────────────────────────────────────────────────────────────
+  // Persisted on window so re-entry from a drill-out preserves the filter set.
+  const state = (window._qaState = window._qaState || {
+    filters: {
+      status: '',
+      severity: '',
+      finding_type: '',
+      since: '',
+      until: '',
+      owner_id: '',
+      q: '',
+      capa_overdue_only: false,
+    },
+    selectedId: null,
+  });
 
-  // Criteria and score working state (keyed by reviewId)
-  const _wip = {};
-  function _getWip(id) {
-    if (!_wip[id]) {
-      const r = getQAReviews().find(x=>x.id===id);
-      _wip[id] = r ? JSON.parse(JSON.stringify(r)) : null;
+  // ── Page-load audit ───────────────────────────────────────────────────────
+  try {
+    if (api && typeof api.logQualityAssuranceAudit === 'function') {
+      const p = api.logQualityAssuranceAudit({ event: 'page_loaded', note: 'quality_assurance_page' });
+      if (p && p.catch) p.catch(() => {});
     }
-    return _wip[id];
+  } catch (_) {}
+
+  // ── Data loading ──────────────────────────────────────────────────────────
+  async function _qaLoad() {
+    let listRes = null;
+    let summary = null;
+    let listError = null;
+    try {
+      const [lr, sr] = await Promise.all([
+        api.listQualityFindings(state.filters).catch((e) => { listError = e; return null; }),
+        api.getQualityFindingsSummary().catch(() => null),
+      ]);
+      listRes = lr;
+      summary = sr;
+    } catch (e) {
+      listError = e;
+    }
+
+    const items = (listRes && Array.isArray(listRes.items)) ? listRes.items : [];
+    const total = (listRes && typeof listRes.total === 'number') ? listRes.total : items.length;
+    const disclaimers = (listRes && Array.isArray(listRes.disclaimers) && listRes.disclaimers.length)
+      ? listRes.disclaimers
+      : _QA_PAGE_DISCLAIMERS;
+
+    // Honest demo fallback: only seed demo rows when the live API call FAILED
+    // entirely. An empty list from a healthy backend stays empty so reviewers
+    // see the truth ("No findings yet").
+    const apiFailed = !!listError && items.length === 0;
+    const displayItems = apiFailed ? _qaDemoFindings() : items;
+    const displaySummary = summary || (apiFailed ? _qaDemoSummary() : { total: 0, open: 0, in_progress: 0, closed: 0, reopened: 0, by_severity: {}, by_finding_type: {}, sae_related: 0, capa_overdue: 0, demo_rows: 0 });
+    const displayTotal = apiFailed ? displayItems.length : total;
+
+    state.items = displayItems;
+    state.summary = displaySummary;
+    state.apiFailed = apiFailed;
+    state.disclaimers = disclaimers;
+    state.total = displayTotal;
   }
 
+  // ── Render ────────────────────────────────────────────────────────────────
   function render() {
-    const tabBar = `
-      <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px">
-        ${[['dashboard','QA Dashboard'],['reviews','Case Reviews'],['actions','Corrective Actions']].map(([id,label])=>`
-          <button onclick="window._qaTab('${id}')" style="padding:10px 18px;border:none;background:none;cursor:pointer;font-size:.88rem;font-weight:600;
-            color:${_activeTab===id?'var(--teal)':'var(--text-muted)'};
-            border-bottom:${_activeTab===id?'2px solid var(--teal)':'2px solid transparent'};
-            margin-bottom:-2px;transition:color .15s">${label}</button>`).join('')}
+    const s = state.summary || {};
+    const items = state.items || [];
+    const apiFailed = !!state.apiFailed;
+
+    const banner = `
+      <div class="card" style="padding:12px 14px;border-left:3px solid var(--teal);margin-bottom:14px;background:rgba(20,184,166,0.05)">
+        <div style="font-weight:600;font-size:.85rem;margin-bottom:6px">Clinical safety</div>
+        <ul style="margin:0;padding-left:18px;font-size:.8rem;color:var(--text-muted);line-height:1.5">
+          ${(state.disclaimers || _QA_PAGE_DISCLAIMERS).map(d => `<li>${_qaEsc(d)}</li>`).join('')}
+        </ul>
+        ${apiFailed ? `<div style="margin-top:8px;padding:6px 10px;background:#fef3c7;border-radius:4px;font-size:.78rem;color:#92400e"><b>Backend unreachable.</b> Showing DEMO rows for layout review only — these are <b>NOT</b> regulator-submittable. Refresh once the API is restored.</div>` : ''}
       </div>`;
 
-    let body = '';
-    if (_activeTab === 'dashboard') body = _qaRenderDashboard();
-    else if (_activeTab === 'reviews') body = _qaRenderReviews(_filterStatus, _filterClinician, _filterDateFrom, _filterDateTo);
-    else if (_activeTab === 'actions') body = _qaRenderActions(_filterActions);
+    const counts = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">
+        ${_qaCountCard('Open',          s.open || 0,           '#dc2626')}
+        ${_qaCountCard('In progress',   s.in_progress || 0,    '#d97706')}
+        ${_qaCountCard('Closed',        s.closed || 0,         '#059669')}
+        ${_qaCountCard('Reopened',      s.reopened || 0,       '#7c3aed')}
+        ${_qaCountCard('SAE-related',   s.sae_related || 0,    '#ef4444')}
+        ${_qaCountCard('CAPA overdue',  s.capa_overdue || 0,   '#b91c1c', s.capa_overdue ? 'window._qaToggleOverdue()' : null)}
+      </div>`;
 
-    el.innerHTML = tabBar + `<div id="qa-tab-body">${body}</div>`;
+    const filters = _qaRenderFilters();
+    const list    = _qaRenderList(items);
 
-    // Re-open review form if it was open
-    if (_activeTab === 'reviews' && _openReviewId) {
-      const formEl = document.getElementById(`qa-form-${_openReviewId}`);
-      if (formEl) formEl.style.display = 'block';
+    el.innerHTML = banner + counts + filters + list + _qaRenderModalSlot();
+
+    // Re-attach search debounce hook every render
+    const searchEl = document.getElementById('qa-filter-q');
+    if (searchEl) {
+      searchEl.addEventListener('input', _qaDebouncedSearch, { once: false });
     }
   }
 
-  // ── Global handlers ───────────────────────────────────────────────────────
+  function _qaCountCard(label, value, color, onclick) {
+    const click = onclick ? `onclick="${onclick}" style="cursor:pointer"` : '';
+    return `
+      <div class="card" style="padding:12px;text-align:center" ${click}>
+        <div style="font-size:1.6rem;font-weight:700;color:${color}">${_qaEsc(value)}</div>
+        <div style="font-size:.72rem;color:var(--text-muted);margin-top:4px;text-transform:uppercase;letter-spacing:.04em">${_qaEsc(label)}</div>
+      </div>`;
+  }
 
-  window._qaTab = function(tab) {
-    _activeTab = tab;
-    _openReviewId = null;
-    render();
+  function _qaRenderFilters() {
+    const f = state.filters;
+    return `
+      <div class="card" style="padding:12px;margin-bottom:12px">
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+          <select class="form-control" id="qa-filter-status" style="width:auto" onchange="window._qaSetFilter('status', this.value)">
+            <option value="">All statuses</option>
+            ${_QA_STATUSES.map(([v,l]) => `<option value="${v}" ${f.status===v?'selected':''}>${l}</option>`).join('')}
+          </select>
+          <select class="form-control" id="qa-filter-severity" style="width:auto" onchange="window._qaSetFilter('severity', this.value)">
+            <option value="">All severities</option>
+            ${_QA_SEVERITIES.map(([v,l]) => `<option value="${v}" ${f.severity===v?'selected':''}>${l}</option>`).join('')}
+          </select>
+          <select class="form-control" id="qa-filter-type" style="width:auto" onchange="window._qaSetFilter('finding_type', this.value)">
+            <option value="">All types</option>
+            ${_QA_FINDING_TYPES.map(([v,l]) => `<option value="${v}" ${f.finding_type===v?'selected':''}>${l}</option>`).join('')}
+          </select>
+          <input type="date"   class="form-control" id="qa-filter-since" style="width:auto" value="${_qaEsc(f.since)}" onchange="window._qaSetFilter('since', this.value)" title="From (created on or after)">
+          <input type="date"   class="form-control" id="qa-filter-until" style="width:auto" value="${_qaEsc(f.until)}" onchange="window._qaSetFilter('until', this.value)" title="Until (created on or before)">
+          <input type="text"   class="form-control" id="qa-filter-owner" placeholder="Owner ID" style="width:140px" value="${_qaEsc(f.owner_id)}" onchange="window._qaSetFilter('owner_id', this.value)">
+          <input type="search" class="form-control" id="qa-filter-q"     placeholder="Search title / description / CAPA" style="flex:1;min-width:220px" value="${_qaEsc(f.q)}">
+          <label style="display:flex;align-items:center;gap:6px;font-size:.82rem;cursor:pointer">
+            <input type="checkbox" id="qa-filter-overdue" ${f.capa_overdue_only?'checked':''} onchange="window._qaSetFilter('capa_overdue_only', this.checked)">
+            CAPA overdue only
+          </label>
+          <button class="btn btn-ghost btn-sm" onclick="window._qaClearFilters()">Clear</button>
+        </div>
+      </div>`;
+  }
+
+  function _qaRenderList(items) {
+    if (!items.length) {
+      return `<div class="card" style="padding:32px;text-align:center;color:var(--text-muted)">
+        <div style="font-size:1rem;font-weight:600;margin-bottom:6px">No findings yet</div>
+        <div style="font-size:.85rem">QA reviews will land here as reviewers log non-conformances and CAPA actions.</div>
+        <div style="margin-top:12px"><button class="btn btn-primary btn-sm" onclick="window._qaShowCreate()">+ Log first finding</button></div>
+      </div>`;
+    }
+    const rows = items.map(_qaRenderRow).join('');
+    return `<div style="display:flex;flex-direction:column;gap:10px">${rows}</div>`;
+  }
+
+  function _qaRenderRow(it) {
+    const drillHref = _qaDrillOutHref(it.source_target_type, it.source_target_id);
+    const drillBtn = drillHref
+      ? `<a class="btn btn-ghost btn-sm" href="${drillHref}" onclick="window._qaLogDrillOut('${_qaEsc(it.id)}','${_qaEsc(it.source_target_type)}','${_qaEsc(it.source_target_id)}')">Open source ${_qaEsc(it.source_target_type)}</a>`
+      : `<span style="font-size:.72rem;color:var(--text-muted)">No source record linked</span>`;
+    const overdueChip = it.capa_overdue
+      ? `<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:9999px;background:#fee2e2;color:#b91c1c">CAPA overdue</span>`
+      : '';
+    const demoChip = it.is_demo
+      ? `<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:9999px;background:#fef3c7;color:#92400e">DEMO</span>`
+      : '';
+    const ownerLine = it.owner_display_name || it.owner_id
+      ? `Owner: <b style="color:var(--text)">${_qaEsc(it.owner_display_name || it.owner_id)}</b>`
+      : `<span style="color:var(--text-muted)">No owner assigned</span>`;
+    const dueLine = it.capa_due_date
+      ? `Due: <b style="color:${it.capa_overdue?'#b91c1c':'var(--text)'}">${_qaEsc(it.capa_due_date)}</b>`
+      : '';
+    return `
+      <div class="card" style="padding:14px" id="qa-row-${_qaEsc(it.id)}">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap">
+          <div style="flex:1;min-width:240px">
+            <div style="font-weight:700;font-size:.95rem">${_qaEsc(it.title)}</div>
+            <div style="font-size:.78rem;color:var(--text-muted);margin-top:3px">${_qaEsc((it.description || '').slice(0, 220))}${(it.description||'').length>220?'…':''}</div>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            ${_qaSeverityBadge(it.severity)}
+            ${_qaFindingStatusBadge(it.status)}
+            ${overdueChip}
+            ${demoChip}
+          </div>
+        </div>
+        <div style="margin-top:8px;display:flex;gap:14px;flex-wrap:wrap;font-size:.78rem;color:var(--text-muted)">
+          <span>Type: <b style="color:var(--text)">${_qaEsc(it.finding_type)}</b></span>
+          <span>${ownerLine}</span>
+          ${dueLine?`<span>${dueLine}</span>`:''}
+          <span>Reporter: <b style="color:var(--text)">${_qaEsc(it.reporter_id)}</b></span>
+          <span>Created: <b style="color:var(--text)">${_qaEsc((it.created_at || '').slice(0,10))}</b></span>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-sm" onclick="window._qaOpenDetail('${_qaEsc(it.id)}')">Detail</button>
+          ${drillBtn}
+        </div>
+      </div>`;
+  }
+
+  function _qaRenderModalSlot() {
+    return `<div id="qa-modal-slot"></div>`;
+  }
+
+  // ── Filter handlers ───────────────────────────────────────────────────────
+  let _searchTimer = null;
+  const _qaDebouncedSearch = (ev) => {
+    if (_searchTimer) clearTimeout(_searchTimer);
+    _searchTimer = setTimeout(() => {
+      state.filters.q = ev.target.value || '';
+      try { api.logQualityAssuranceAudit?.({ event: 'filter_changed', note: 'q=' + state.filters.q.slice(0,80) }); } catch (_) {}
+      _qaReload();
+    }, 300);
   };
 
-  window._qaRandomSample = function() {
-    const reviews  = getQAReviews();
-    const sampled  = new Set(reviews.map(r=>r.caseId));
-    const pool     = Array.from({length:50},(_,i)=>`CASE-${String(i+1).padStart(3,'0')}`);
-    const unsampled = pool.filter(c => !sampled.has(c));
-    const msgEl = document.getElementById('qa-sample-msg');
-    if (unsampled.length === 0) {
-      if (msgEl) msgEl.textContent = 'All cases in pool already sampled.';
+  window._qaSetFilter = function(key, value) {
+    state.filters[key] = value;
+    try { api.logQualityAssuranceAudit?.({ event: 'filter_changed', note: key + '=' + String(value).slice(0,80) }); } catch (_) {}
+    _qaReload();
+  };
+
+  window._qaClearFilters = function() {
+    state.filters = { status:'', severity:'', finding_type:'', since:'', until:'', owner_id:'', q:'', capa_overdue_only:false };
+    try { api.logQualityAssuranceAudit?.({ event: 'filters_cleared', note: 'all' }); } catch (_) {}
+    _qaReload();
+  };
+
+  window._qaToggleOverdue = function() {
+    state.filters.capa_overdue_only = !state.filters.capa_overdue_only;
+    try { api.logQualityAssuranceAudit?.({ event: 'filter_changed', note: 'capa_overdue_only=' + state.filters.capa_overdue_only }); } catch (_) {}
+    _qaReload();
+  };
+
+  async function _qaReload() {
+    el.innerHTML = spinner();
+    try { await _qaLoad(); } catch (_) {}
+    render();
+  }
+
+  // ── Drill-out logging ─────────────────────────────────────────────────────
+  window._qaLogDrillOut = function(findingId, targetType, targetId) {
+    try {
+      api.logQualityAssuranceAudit?.({
+        event: 'drill_out',
+        finding_id: findingId,
+        note: `target=${targetType}:${targetId}`,
+      });
+    } catch (_) {}
+    // Allow the anchor's default href navigation to proceed.
+    return true;
+  };
+
+  // ── Modal / detail / create / close / reopen ──────────────────────────────
+  window._qaShowCreate = function() {
+    const slot = document.getElementById('qa-modal-slot');
+    if (!slot) return;
+    slot.innerHTML = `
+      <div class="qa-modal-bg" style="position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999" onclick="if(event.target===this)window._qaCloseModal()">
+        <div class="card" style="max-width:560px;width:92%;padding:18px;max-height:90vh;overflow:auto">
+          <div style="font-weight:700;font-size:1rem;margin-bottom:10px">Log new QA finding</div>
+          <div style="display:grid;gap:10px">
+            <input class="form-control" id="qa-new-title" placeholder="Short title (required)">
+            <textarea class="form-control" id="qa-new-desc" rows="3" placeholder="Description / context"></textarea>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <select class="form-control" id="qa-new-type">
+                ${_QA_FINDING_TYPES.map(([v,l]) => `<option value="${v}">${l}</option>`).join('')}
+              </select>
+              <select class="form-control" id="qa-new-sev">
+                ${_QA_SEVERITIES.map(([v,l]) => `<option value="${v}">${l}</option>`).join('')}
+              </select>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <select class="form-control" id="qa-new-source-type">
+                <option value="">No source surface</option>
+                ${_QA_SOURCE_TARGETS.map(([v,l]) => `<option value="${v}">${l}</option>`).join('')}
+              </select>
+              <input class="form-control" id="qa-new-source-id" placeholder="Source record ID (optional)">
+            </div>
+            <input class="form-control" id="qa-new-owner" placeholder="CAPA owner (real user ID; leave blank if none)">
+            <textarea class="form-control" id="qa-new-capa" rows="2" placeholder="CAPA action (corrective/preventive plan)"></textarea>
+            <input type="date" class="form-control" id="qa-new-due" title="CAPA due date">
+            <div id="qa-new-error" style="font-size:.8rem;color:#b91c1c"></div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
+              <button class="btn" onclick="window._qaCloseModal()">Cancel</button>
+              <button class="btn btn-primary" id="qa-new-save" onclick="window._qaSubmitCreate()">Save finding</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  };
+
+  window._qaCloseModal = function() {
+    const slot = document.getElementById('qa-modal-slot');
+    if (slot) slot.innerHTML = '';
+  };
+
+  window._qaSubmitCreate = async function() {
+    const title = (document.getElementById('qa-new-title')?.value || '').trim();
+    if (!title) {
+      const err = document.getElementById('qa-new-error');
+      if (err) err.textContent = 'Title is required.';
       return;
     }
-    const caseId   = unsampled[Math.floor(Math.random()*unsampled.length)];
-    const reviewer = document.getElementById('qa-sample-reviewer')?.value || QA_REVIEWERS[0];
-    const today    = new Date().toISOString().slice(0,10);
-    const newId    = 'QA-' + String(reviews.length+1).padStart(3,'0');
-    const newReview = {
-      id: newId,
-      caseId,
-      patientName: 'New Patient',
-      clinician: QA_CLINICIANS[Math.floor(Math.random()*QA_CLINICIANS.length)],
-      reviewer,
-      sampledDate: today,
-      reviewDate: null,
-      criteria: _qaBlankCriteria(),
-      scores: _qaBlankScores(),
-      overallVerdict: 'pending',
-      reviewerNotes: '',
-      correctiveActionRequired: false,
-      correctiveActionId: null,
+    const body = {
+      title,
+      description: document.getElementById('qa-new-desc')?.value || '',
+      finding_type: document.getElementById('qa-new-type')?.value || 'non_conformance',
+      severity:    document.getElementById('qa-new-sev')?.value || 'minor',
+      owner_id:    (document.getElementById('qa-new-owner')?.value || '').trim() || null,
+      capa_text:   document.getElementById('qa-new-capa')?.value || null,
+      capa_due_date: document.getElementById('qa-new-due')?.value || null,
+      source_target_type: document.getElementById('qa-new-source-type')?.value || null,
+      source_target_id:   (document.getElementById('qa-new-source-id')?.value || '').trim() || null,
     };
-    saveQAReview(newReview);
-    if (msgEl) msgEl.textContent = `Sampled ${caseId} — assigned to ${reviewer}`;
-    setTimeout(() => {
-      _activeTab = 'reviews';
-      _filterStatus = 'pending';
-      render();
-    }, 800);
-  };
-
-  window._qaOpenReview = function(id) {
-    if (_activeTab !== 'reviews') { _activeTab = 'reviews'; render(); }
-    _openReviewId = _openReviewId === id ? null : id;
-    const formEl = document.getElementById(`qa-form-${id}`);
-    if (formEl) formEl.style.display = _openReviewId === id ? 'block' : 'none';
-  };
-
-  window._qaSetCriterion = function(id, criterion, value) {
-    const wip = _getWip(id); if (!wip) return;
-    wip.criteria[criterion] = value;
-    // Update button styles
-    const row = document.querySelector(`#qa-form-${id} [onclick*="_qaSetCriterion('${id}','${criterion}',true)"]`)?.closest('.qa-criteria-row');
-    if (row) {
-      row.querySelectorAll('.qa-verdict-btn').forEach(b => { b.classList.remove('pass','fail'); });
-      const btns = row.querySelectorAll('.qa-verdict-btn');
-      if (value === true && btns[0]) btns[0].classList.add('pass');
-      if (value === false && btns[1]) btns[1].classList.add('fail');
+    const btn = document.getElementById('qa-new-save');
+    if (btn) btn.disabled = true;
+    try {
+      const created = await api.createQualityFinding(body);
+      try { api.logQualityAssuranceAudit?.({ event: 'created', finding_id: created?.id, note: `severity=${body.severity}` }); } catch (_) {}
+      window._qaCloseModal();
+      await _qaReload();
+    } catch (e) {
+      const err = document.getElementById('qa-new-error');
+      if (err) err.textContent = (e && e.message) || 'Failed to create finding. The backend may be unreachable; demo mode does not persist creations.';
+      if (btn) btn.disabled = false;
     }
   };
 
-  window._qaSetScore = function(id, key, value) {
-    const wip = _getWip(id); if (!wip) return;
-    if (!wip.scores) wip.scores = _qaBlankScores();
-    wip.scores[key] = value;
-  };
-
-  window._qaSetVerdict = function(id, verdict) {
-    const wip = _getWip(id); if (!wip) return;
-    wip.overallVerdict = verdict;
-    const formEl = document.getElementById(`qa-form-${id}`);
-    if (formEl) {
-      formEl.querySelectorAll('.qa-verdict-btn[onclick*="_qaSetVerdict"]').forEach(b => {
-        b.classList.remove('pass','fail');
-        if (b.getAttribute('onclick').includes(`'${verdict}'`)) {
-          b.classList.add(verdict==='fail' ? 'fail' : 'pass');
-        }
-      });
+  window._qaOpenDetail = async function(id) {
+    const slot = document.getElementById('qa-modal-slot');
+    if (!slot) return;
+    slot.innerHTML = `<div class="qa-modal-bg" style="position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999" onclick="if(event.target===this)window._qaCloseModal()"><div class="card" style="padding:24px;max-width:520px;width:92%">${spinner()}</div></div>`;
+    let it = null;
+    try {
+      it = await api.getQualityFinding(id);
+    } catch (_) {
+      // fall back to any matching list item (covers demo mode)
+      it = (state.items || []).find(x => x.id === id) || null;
     }
-  };
-
-  window._qaToggleCorrective = function(id, checked) {
-    const wip = _getWip(id); if (!wip) return;
-    wip.correctiveActionRequired = checked;
-    const inlineEl = document.getElementById(`qa-ca-inline-${id}`);
-    if (inlineEl) inlineEl.style.display = checked ? 'block' : 'none';
-  };
-
-  window._qaSubmitReview = function(id) {
-    const wip = _getWip(id); if (!wip) return;
-    wip.reviewerNotes = document.getElementById(`qa-notes-${id}`)?.value || wip.reviewerNotes;
-    wip.reviewDate    = new Date().toISOString().slice(0,10);
-    if (!wip.overallVerdict || wip.overallVerdict === 'pending') wip.overallVerdict = 'pending';
-    saveQAReview(wip);
-    delete _wip[id];
-
-    // Handle corrective action creation
-    if (wip.correctiveActionRequired) {
-      const issue   = document.getElementById(`qa-ca-issue-${id}`)?.value || '';
-      const action  = document.getElementById(`qa-ca-action-${id}`)?.value || '';
-      const dueDate = document.getElementById(`qa-ca-due-${id}`)?.value || '';
-      if (issue || action) {
-        const actions = getCorrectiveActions();
-        const newCA = {
-          id: 'CA-' + String(actions.length+1).padStart(3,'0'),
-          reviewId: wip.id,
-          patientName: wip.patientName,
-          clinician: wip.clinician,
-          issue,
-          action,
-          dueDate,
-          status: 'open',
-          completedDate: null,
-        };
-        saveCorrectiveAction(newCA);
-        wip.correctiveActionId = newCA.id;
-        saveQAReview(wip);
-      }
+    try { api.logQualityAssuranceAudit?.({ event: 'finding_viewed', finding_id: id, note: '' }); } catch (_) {}
+    if (!it) {
+      slot.innerHTML = `<div class="qa-modal-bg" style="position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999" onclick="if(event.target===this)window._qaCloseModal()"><div class="card" style="padding:24px;max-width:480px;width:92%">
+        <div style="font-weight:700;margin-bottom:8px">Finding not found</div>
+        <div style="font-size:.85rem;color:var(--text-muted);margin-bottom:12px">It may have been deleted or is not visible at your role.</div>
+        <div style="text-align:right"><button class="btn" onclick="window._qaCloseModal()">Close</button></div>
+      </div></div>`;
+      return;
     }
-
-    _openReviewId = null;
-    render();
-  };
-
-  window._qaFilterStatus = function(s) {
-    _filterStatus = s;
-    if (_activeTab !== 'reviews') _activeTab = 'reviews';
-    render();
-  };
-
-  window._qaFilterClinician = function(name) {
-    _filterClinician = name;
-    if (_activeTab !== 'reviews') _activeTab = 'reviews';
-    render();
-  };
-
-  window._qaApplyDateFilter = function() {
-    _filterDateFrom = document.getElementById('qa-date-from')?.value || '';
-    _filterDateTo   = document.getElementById('qa-date-to')?.value   || '';
-    render();
-  };
-
-  window._qaCompleteAction = function(id) {
-    const actions = getCorrectiveActions();
-    const action  = actions.find(a=>a.id===id);
-    if (!action) return;
-    action.status        = 'completed';
-    action.completedDate = new Date().toISOString().slice(0,10);
-    saveCorrectiveAction(action);
-    render();
-  };
-
-  window._qaNewAction = function() {
-    const formEl = document.getElementById('qa-new-action-form');
-    if (!formEl) return;
-    formEl.style.display = formEl.style.display === 'none' ? 'block' : 'none';
-    formEl.innerHTML = `
-      <div class="card" style="padding:14px">
-        <div style="font-weight:600;font-size:.85rem;margin-bottom:10px">New Corrective Action</div>
-        <div style="display:grid;gap:8px">
-          <input class="form-control" id="qa-new-ca-caseid"  placeholder="Case ID (e.g. QA-001)">
-          <input class="form-control" id="qa-new-ca-patient" placeholder="Patient name">
-          <select class="form-control" id="qa-new-ca-clinician">
-            ${QA_CLINICIANS.map(c=>`<option value="${c}">${c}</option>`).join('')}
-          </select>
-          <input class="form-control" id="qa-new-ca-issue"   placeholder="Issue description">
-          <input class="form-control" id="qa-new-ca-action"  placeholder="Action required">
-          <input type="date" class="form-control" id="qa-new-ca-due">
-        </div>
-        <div style="margin-top:10px;display:flex;gap:8px">
-          <button class="btn btn-primary" onclick="window._qaSaveAction()">Save Action</button>
-          <button class="btn" onclick="window._qaNewAction()">Cancel</button>
+    state.selectedId = id;
+    const drillHref = _qaDrillOutHref(it.source_target_type, it.source_target_id);
+    const drillRow = drillHref
+      ? `<div style="margin-top:6px"><a class="btn btn-ghost btn-sm" href="${drillHref}" onclick="window._qaLogDrillOut('${_qaEsc(it.id)}','${_qaEsc(it.source_target_type)}','${_qaEsc(it.source_target_id)}')">Open source ${_qaEsc(it.source_target_type)}: ${_qaEsc(it.source_target_id)}</a></div>`
+      : '';
+    const isClosed = it.status === 'closed';
+    const isReopened = it.status === 'reopened';
+    const ownerVal = _qaEsc(it.owner_id || '');
+    const capaVal = _qaEsc(it.capa_text || '');
+    const dueVal = _qaEsc(it.capa_due_date || '');
+    slot.innerHTML = `
+      <div class="qa-modal-bg" style="position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999" onclick="if(event.target===this)window._qaCloseModal()">
+        <div class="card" style="max-width:680px;width:94%;padding:18px;max-height:92vh;overflow:auto">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+            <div>
+              <div style="font-weight:700;font-size:1rem">${_qaEsc(it.title)}</div>
+              <div style="font-size:.74rem;color:var(--text-muted);margin-top:2px">${_qaEsc(it.id)} · revision_count=${_qaEsc(it.revision_count||0)} · payload_hash=${_qaEsc(it.payload_hash||'-')}</div>
+            </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">${_qaSeverityBadge(it.severity)}${_qaFindingStatusBadge(it.status)}${it.is_demo?'<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:9999px;background:#fef3c7;color:#92400e">DEMO</span>':''}</div>
+          </div>
+          <div style="margin-top:10px;font-size:.85rem;white-space:pre-wrap">${_qaEsc(it.description||'(no description)')}</div>
+          ${drillRow}
+          <hr style="border:0;border-top:1px solid var(--border);margin:14px 0">
+          <div style="font-weight:600;font-size:.82rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px">Update fields</div>
+          <div style="display:grid;gap:8px">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <select class="form-control" id="qa-d-sev" ${isClosed?'disabled':''}>
+                ${_QA_SEVERITIES.map(([v,l])=>`<option value="${v}" ${it.severity===v?'selected':''}>${l}</option>`).join('')}
+              </select>
+              <select class="form-control" id="qa-d-status" ${isClosed?'disabled':''}>
+                ${_QA_STATUSES.filter(([v]) => v !== 'closed' && v !== 'reopened').map(([v,l])=>`<option value="${v}" ${it.status===v?'selected':''}>${l}</option>`).join('')}
+                ${isReopened?`<option value="reopened" selected>Reopened</option>`:''}
+              </select>
+            </div>
+            <input class="form-control" id="qa-d-owner" placeholder="CAPA owner user ID" value="${ownerVal}" ${isClosed?'disabled':''}>
+            <textarea class="form-control" id="qa-d-capa" rows="2" placeholder="CAPA action" ${isClosed?'disabled':''}>${capaVal}</textarea>
+            <input type="date" class="form-control" id="qa-d-due" value="${dueVal}" ${isClosed?'disabled':''}>
+            <div id="qa-d-error" style="font-size:.8rem;color:#b91c1c"></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+              ${isClosed
+                ? `<button class="btn btn-primary" onclick="window._qaShowReopen('${_qaEsc(it.id)}')">Reopen finding</button>`
+                : `<button class="btn btn-primary" onclick="window._qaSavePatch('${_qaEsc(it.id)}')">Save changes</button>
+                   <button class="btn" onclick="window._qaShowClose('${_qaEsc(it.id)}')">Sign-off &amp; close</button>`}
+              <button class="btn btn-ghost" onclick="window._qaCloseModal()">Close</button>
+            </div>
+            ${isClosed ? `<div style="margin-top:10px;padding:10px;background:rgba(5,150,105,.06);border-left:3px solid #059669;font-size:.8rem"><b>Closed</b> by <code>${_qaEsc(it.closed_by||'-')}</code> at <code>${_qaEsc(it.closed_at||'-')}</code><div style="margin-top:4px;color:var(--text-muted)">${_qaEsc(it.closure_note||'')}</div></div>` : ''}
+          </div>
         </div>
       </div>`;
   };
 
-  window._qaSaveAction = function() {
-    const actions = getCorrectiveActions();
-    const newCA = {
-      id:          'CA-' + String(actions.length+1).padStart(3,'0'),
-      reviewId:    document.getElementById('qa-new-ca-caseid')?.value  || '',
-      patientName: document.getElementById('qa-new-ca-patient')?.value || '',
-      clinician:   document.getElementById('qa-new-ca-clinician')?.value || '',
-      issue:       document.getElementById('qa-new-ca-issue')?.value   || '',
-      action:      document.getElementById('qa-new-ca-action')?.value  || '',
-      dueDate:     document.getElementById('qa-new-ca-due')?.value     || '',
-      status:      'open',
-      completedDate: null,
+  window._qaSavePatch = async function(id) {
+    const body = {
+      severity:    document.getElementById('qa-d-sev')?.value || null,
+      status:      document.getElementById('qa-d-status')?.value || null,
+      owner_id:    (document.getElementById('qa-d-owner')?.value || '').trim(),
+      capa_text:   document.getElementById('qa-d-capa')?.value || null,
+      capa_due_date: document.getElementById('qa-d-due')?.value || null,
     };
-    saveCorrectiveAction(newCA);
-    _activeTab = 'actions';
-    render();
+    try {
+      await api.patchQualityFinding(id, body);
+      try { api.logQualityAssuranceAudit?.({ event: 'updated', finding_id: id, note: 'severity='+body.severity+';status='+body.status }); } catch (_) {}
+      window._qaCloseModal();
+      await _qaReload();
+    } catch (e) {
+      const err = document.getElementById('qa-d-error');
+      if (err) err.textContent = (e && e.message) || 'Update failed.';
+    }
   };
 
-  window._qaFilterActions = function(status) {
-    _filterActions = status;
-    render();
+  window._qaShowClose = function(id) {
+    const slot = document.getElementById('qa-modal-slot');
+    if (!slot) return;
+    slot.innerHTML = `
+      <div class="qa-modal-bg" style="position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999" onclick="if(event.target===this)window._qaCloseModal()">
+        <div class="card" style="max-width:520px;width:92%;padding:18px">
+          <div style="font-weight:700;font-size:1rem;margin-bottom:6px">Sign-off &amp; close</div>
+          <div style="font-size:.82rem;color:var(--text-muted);margin-bottom:10px">Closure is immutable. Record what corrective action satisfied this finding — a regulator will review this note.</div>
+          <textarea class="form-control" id="qa-close-note" rows="4" placeholder="Closure note (required)"></textarea>
+          <input class="form-control" id="qa-close-sig" placeholder="Sign-off signature (optional, e.g. clinician initials)" style="margin-top:8px">
+          <div id="qa-close-error" style="font-size:.8rem;color:#b91c1c;margin-top:6px"></div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+            <button class="btn" onclick="window._qaOpenDetail('${_qaEsc(id)}')">Back</button>
+            <button class="btn btn-primary" onclick="window._qaConfirmClose('${_qaEsc(id)}')">Sign &amp; close</button>
+          </div>
+        </div>
+      </div>`;
   };
 
+  window._qaConfirmClose = async function(id) {
+    const note = (document.getElementById('qa-close-note')?.value || '').trim();
+    const sig  = (document.getElementById('qa-close-sig')?.value || '').trim();
+    if (!note) {
+      const err = document.getElementById('qa-close-error');
+      if (err) err.textContent = 'Closure note is required.';
+      return;
+    }
+    try {
+      await api.closeQualityFinding(id, { note, signature: sig || null });
+      try { api.logQualityAssuranceAudit?.({ event: 'closed', finding_id: id, note: '' }); } catch (_) {}
+      window._qaCloseModal();
+      await _qaReload();
+    } catch (e) {
+      const err = document.getElementById('qa-close-error');
+      if (err) err.textContent = (e && e.message) || 'Close failed.';
+    }
+  };
+
+  window._qaShowReopen = function(id) {
+    const slot = document.getElementById('qa-modal-slot');
+    if (!slot) return;
+    slot.innerHTML = `
+      <div class="qa-modal-bg" style="position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999" onclick="if(event.target===this)window._qaCloseModal()">
+        <div class="card" style="max-width:520px;width:92%;padding:18px">
+          <div style="font-weight:700;font-size:1rem;margin-bottom:6px">Reopen finding</div>
+          <div style="font-size:.82rem;color:var(--text-muted);margin-bottom:10px">Reopening creates a new immutable revision in the audit trail. The prior closure metadata is preserved in the revision history.</div>
+          <textarea class="form-control" id="qa-reopen-reason" rows="4" placeholder="Reason for reopening (required)"></textarea>
+          <div id="qa-reopen-error" style="font-size:.8rem;color:#b91c1c;margin-top:6px"></div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+            <button class="btn" onclick="window._qaOpenDetail('${_qaEsc(id)}')">Back</button>
+            <button class="btn btn-primary" onclick="window._qaConfirmReopen('${_qaEsc(id)}')">Reopen</button>
+          </div>
+        </div>
+      </div>`;
+  };
+
+  window._qaConfirmReopen = async function(id) {
+    const reason = (document.getElementById('qa-reopen-reason')?.value || '').trim();
+    if (!reason) {
+      const err = document.getElementById('qa-reopen-error');
+      if (err) err.textContent = 'Reason is required.';
+      return;
+    }
+    try {
+      await api.reopenQualityFinding(id, { reason });
+      try { api.logQualityAssuranceAudit?.({ event: 'reopened', finding_id: id, note: reason.slice(0,80) }); } catch (_) {}
+      window._qaCloseModal();
+      await _qaReload();
+    } catch (e) {
+      const err = document.getElementById('qa-reopen-error');
+      if (err) err.textContent = (e && e.message) || 'Reopen failed.';
+    }
+  };
+
+  // ── Exports ───────────────────────────────────────────────────────────────
+  window._qaExportCSV = async function() {
+    try { api.logQualityAssuranceAudit?.({ event: 'export_csv', note: JSON.stringify(state.filters).slice(0,200) }); } catch (_) {}
+    try {
+      const blob = await api.exportQualityFindingsCsv(state.filters);
+      downloadBlob(blob, 'quality_findings.csv');
+    } catch (e) {
+      alert('CSV export failed: ' + ((e && e.message) || 'unknown error'));
+    }
+  };
+
+  window._qaExportNDJSON = async function() {
+    try { api.logQualityAssuranceAudit?.({ event: 'export_ndjson', note: JSON.stringify(state.filters).slice(0,200) }); } catch (_) {}
+    try {
+      const blob = await api.exportQualityFindingsNdjson(state.filters);
+      downloadBlob(blob, 'quality_findings.ndjson');
+    } catch (e) {
+      alert('NDJSON export failed: ' + ((e && e.message) || 'unknown error'));
+    }
+  };
+
+  // ── Initial load ──────────────────────────────────────────────────────────
+  await _qaLoad();
   render();
+}
+
+// ── Honest demo seeds for offline / API-down preview ─────────────────────────
+function _qaDemoFindings() {
+  const today = new Date();
+  const iso = (n) => { const d = new Date(today); d.setDate(d.getDate()+n); return d.toISOString(); };
+  const day = (n) => iso(n).slice(0,10);
+  return [
+    {
+      id: 'demo-finding-1',
+      title: 'Documentation gap on consent re-attestation',
+      description: 'Consent attestation missing for protocol amendment v2 in 3 cases.',
+      finding_type: 'documentation_gap',
+      severity: 'major',
+      status: 'open',
+      owner_id: 'demo-owner-1',
+      owner_display_name: 'Dr. Demo Clinician',
+      capa_text: 'Re-attest consent; review staff training.',
+      capa_due_date: day(-2),
+      capa_overdue: true,
+      source_target_type: 'documents',
+      source_target_id: 'demo-doc-1',
+      evidence_links: [],
+      is_demo: true,
+      created_at: iso(-7),
+      updated_at: iso(-1),
+      reporter_id: 'demo-reporter',
+      revision_count: 1,
+      payload_hash: 'demo0001',
+    },
+    {
+      id: 'demo-finding-2',
+      title: 'SAE follow-up overdue (rTMS protocol B)',
+      description: 'Adverse event AE-demo-009 lacks 14-day follow-up note.',
+      finding_type: 'sae_followup',
+      severity: 'critical',
+      status: 'in_progress',
+      owner_id: 'demo-owner-2',
+      owner_display_name: 'NP. Demo Reviewer',
+      capa_text: 'Schedule follow-up; document outcome.',
+      capa_due_date: day(3),
+      capa_overdue: false,
+      source_target_type: 'adverse_events',
+      source_target_id: 'AE-demo-009',
+      evidence_links: [],
+      is_demo: true,
+      created_at: iso(-3),
+      updated_at: iso(0),
+      reporter_id: 'demo-reporter',
+      revision_count: 2,
+      payload_hash: 'demo0002',
+    },
+    {
+      id: 'demo-finding-3',
+      title: 'Closed: protocol fidelity in qEEG cleaning step',
+      description: 'Resolved — staff retrained on artifact rejection threshold.',
+      finding_type: 'protocol_deviation',
+      severity: 'minor',
+      status: 'closed',
+      owner_id: null,
+      owner_display_name: null,
+      capa_text: 'Training delivered 2026-04-20.',
+      capa_due_date: day(-10),
+      capa_overdue: false,
+      source_target_type: 'qeeg',
+      source_target_id: 'demo-qeeg-1',
+      evidence_links: [],
+      is_demo: true,
+      created_at: iso(-21),
+      updated_at: iso(-9),
+      closed_at: iso(-9),
+      closed_by: 'demo-admin',
+      closure_note: 'Training records on file.',
+      reporter_id: 'demo-reporter',
+      revision_count: 3,
+      payload_hash: 'demo0003',
+    },
+  ];
+}
+
+function _qaDemoSummary() {
+  return {
+    total: 3,
+    open: 1,
+    in_progress: 1,
+    closed: 1,
+    reopened: 0,
+    by_severity: { minor: 1, major: 1, critical: 1 },
+    by_finding_type: { documentation_gap: 1, sae_followup: 1, protocol_deviation: 1 },
+    sae_related: 1,
+    capa_overdue: 1,
+    demo_rows: 3,
+  };
 }
 
 // ── Device & Equipment Management ─────────────────────────────────────────────
