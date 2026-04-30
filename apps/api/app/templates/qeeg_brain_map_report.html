@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>qEEG Brain Map — {{ header.client_name or 'Report' }}</title>
+<style>
+  @page { size: A4; margin: 18mm 14mm 22mm 14mm; }
+  body { font-family: 'Helvetica Neue', Arial, sans-serif; color: #111; font-size: 11pt; line-height: 1.5; }
+  h1 { font-size: 18pt; margin: 0 0 6pt; }
+  h2 { font-size: 14pt; margin: 18pt 0 6pt; border-bottom: 1px solid #ddd; padding-bottom: 4pt; }
+  h3 { font-size: 12pt; margin: 12pt 0 4pt; }
+  h4 { font-size: 10pt; margin: 8pt 0 4pt; text-transform: uppercase; letter-spacing: 0.4pt; color: #555; }
+  .meta { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8pt; font-size: 9.5pt; color: #555; }
+  .meta dt { font-weight: 600; color: #111; }
+  .meta dd { margin: 0 0 4pt; }
+  .indicator-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8pt; margin-bottom: 12pt; }
+  .indicator { border-left: 3pt solid #888; padding: 6pt 8pt; background: #fafbfc; }
+  .indicator__label { font-size: 9pt; text-transform: uppercase; letter-spacing: 0.3pt; color: #666; margin: 0 0 2pt; }
+  .indicator__value { font-size: 14pt; font-weight: 600; }
+  .indicator__pct { font-size: 10pt; color: #555; }
+  .indicator--low { border-color: #3b82f6; }
+  .indicator--high { border-color: #ef4444; }
+  .indicator--balanced { border-color: #10b981; }
+  table { width: 100%; border-collapse: collapse; margin: 8pt 0 12pt; font-size: 10pt; }
+  th, td { border: 0.5pt solid #ccc; padding: 4pt 6pt; text-align: left; }
+  th { background: #f4f6f8; font-weight: 600; }
+  .lobe-section { page-break-inside: avoid; margin-bottom: 12pt; }
+  .roi { padding: 6pt 8pt; border-left: 2pt solid #ddd; margin-bottom: 4pt; background: #fafbfc; }
+  .roi__head { display: flex; justify-content: space-between; font-size: 10pt; }
+  .roi__pct { color: #555; }
+  .roi ul { margin: 4pt 0 4pt 16pt; padding: 0; font-size: 9.5pt; }
+  .findings li { margin-bottom: 3pt; }
+  .citation { font-size: 9.5pt; margin-bottom: 3pt; }
+  .disclaimer { margin-top: 18pt; padding: 10pt; background: #f8fafc; border: 0.5pt solid #ddd; font-size: 9pt; color: #555; line-height: 1.5; }
+  .qc { font-size: 9.5pt; color: #555; }
+  .pageno:after { content: counter(page); }
+</style>
+</head>
+<body>
+  <header>
+    <h1>qEEG Brain Map — {{ header.client_name or 'Patient' }}</h1>
+    <dl class="meta">
+      {% if header.client_name %}<div><dt>Name</dt><dd>{{ header.client_name }}</dd></div>{% endif %}
+      {% if header.sex %}<div><dt>Sex</dt><dd>{{ header.sex }}</dd></div>{% endif %}
+      {% if header.dob or header.age_years is not none %}<div><dt>DOB / Age</dt><dd>{{ header.dob or '' }}{% if header.age_years is not none %} ({{ '%.1f'|format(header.age_years) }}y){% endif %}</dd></div>{% endif %}
+      {% if header.eeg_acquisition_date %}<div><dt>EEG date</dt><dd>{{ header.eeg_acquisition_date }}</dd></div>{% endif %}
+      {% if header.eyes_condition %}<div><dt>Condition</dt><dd>{{ header.eyes_condition.replace('_', ' ') }}</dd></div>{% endif %}
+    </dl>
+  </header>
+
+  <h2>Cover Indicators</h2>
+  <div class="indicator-grid">
+    {% for label, ind in [
+        ('Frontal Lobe Development (TBR)', indicators.tbr),
+        ('Information Processing Speed', indicators.occipital_paf),
+        ('Alpha Wave Reactivity', indicators.alpha_reactivity),
+        ('Brain Balance', indicators.brain_balance),
+        ('AI Brain Development Age', indicators.ai_brain_age),
+    ] %}
+      <div class="indicator indicator--{{ (ind.band if ind and ind.band else 'unknown') }}">
+        <p class="indicator__label">{{ label }}</p>
+        <div class="indicator__value">{{ '%.1f'|format(ind.value) if ind and ind.value is not none else '—' }}{% if ind and ind.unit %} <span style="font-size:9pt;color:#888">{{ ind.unit }}</span>{% endif %}</div>
+        <div class="indicator__pct">{% if ind and ind.percentile is not none %}{{ '%.1f'|format(ind.percentile) }}%ile{% else %}—{% endif %}</div>
+      </div>
+    {% endfor %}
+  </div>
+
+  <h2>Brain Activity by Hemisphere</h2>
+  <table>
+    <thead><tr><th>Lobe</th><th>Function</th><th>Left</th><th>Right</th></tr></thead>
+    <tbody>
+      {% for name, fn, lobe in [
+          ('Frontal',   'Voluntary movement, high-level cognition', lobe_summary.frontal),
+          ('Temporal',  'Auditory processing, memory encoding',     lobe_summary.temporal),
+          ('Parietal',  'Sensory integration, learning',            lobe_summary.parietal),
+          ('Occipital', 'Visual perception',                        lobe_summary.occipital),
+      ] %}
+        <tr>
+          <th>{{ name }}</th>
+          <td>{{ fn }}</td>
+          <td>{% if lobe and lobe.lt_percentile is not none %}{{ '%.1f'|format(lobe.lt_percentile) }}%ile{% else %}—{% endif %}</td>
+          <td>{% if lobe and lobe.rt_percentile is not none %}{{ '%.1f'|format(lobe.rt_percentile) }}%ile{% else %}—{% endif %}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Standardized Brain Function Score</h2>
+  <p style="font-size:24pt;font-weight:700;margin:0">{% if brain_function_score and brain_function_score.score_0_100 is not none %}{{ '%.1f'|format(brain_function_score.score_0_100) }}{% else %}—{% endif %}</p>
+  <p class="qc">Aggregate score across the four lobes versus age and sex-matched norms. Formula: {{ (brain_function_score and brain_function_score.formula_version) or 'phase0_placeholder_v1' }}.</p>
+
+  {% if ai_narrative and ai_narrative.executive_summary %}
+    <h2>Summary</h2>
+    <p>{{ ai_narrative.executive_summary }}</p>
+  {% endif %}
+
+  {% if ai_narrative and ai_narrative.findings %}
+    <h2>Observed Patterns</h2>
+    <ul class="findings">
+      {% for f in ai_narrative.findings %}
+        <li>{{ f.description }}{% if f.severity %} <span style="color:#888">({{ f.severity }})</span>{% endif %}</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  {% set lobes = [('Frontal Lobe', 'frontal'), ('Temporal Lobe', 'temporal'), ('Parietal Lobe', 'parietal'), ('Occipital Lobe', 'occipital')] %}
+  {% for title, key in lobes %}
+    {% set rows = grouped_dk_atlas.get(key, []) %}
+    {% if rows %}
+      <h2>{{ title }} — Per-Region Drill-down</h2>
+      <div class="lobe-section">
+        {% for r in rows %}
+          <div class="roi">
+            <div class="roi__head">
+              <strong>{{ r.code or r.roi }} — {{ r.name }}</strong>
+              <span class="roi__pct">L: {% if r.lt_percentile is not none %}{{ '%.1f'|format(r.lt_percentile) }}%ile{% else %}—{% endif %} &nbsp; R: {% if r.rt_percentile is not none %}{{ '%.1f'|format(r.rt_percentile) }}%ile{% else %}—{% endif %}</span>
+            </div>
+            {% if r.functions %}
+              <h4>Key functions</h4>
+              <ul>{% for fn in r.functions %}<li>{{ fn }}</li>{% endfor %}</ul>
+            {% endif %}
+            {% if r.decline_symptoms %}
+              <h4>Symptoms associated with functional decline</h4>
+              <ul>{% for s in r.decline_symptoms %}<li>{{ s }}</li>{% endfor %}</ul>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endfor %}
+
+  {% if quality and (quality.qc_flags or quality.limitations or quality.n_clean_epochs is not none) %}
+    <h2>Recording Quality</h2>
+    <div class="qc">
+      {% if quality.n_clean_epochs is not none %}<p>Clean epochs: <strong>{{ quality.n_clean_epochs }}</strong></p>{% endif %}
+      {% if quality.channels_used %}<p>Channels used: {{ quality.channels_used|join(', ') }}</p>{% endif %}
+      {% if quality.qc_flags %}<p>QC flags: {{ quality.qc_flags|join(', ') }}</p>{% endif %}
+      {% if quality.limitations %}<p>Limitations: {{ quality.limitations|join('; ') }}</p>{% endif %}
+    </div>
+  {% endif %}
+
+  {% if ai_narrative and ai_narrative.citations %}
+    <h2>Citations</h2>
+    <ol>
+      {% for c in ai_narrative.citations %}
+        <li class="citation">
+          {{ c.title or 'Reference' }}{% if c.year %} ({{ c.year }}){% endif %}
+          {% if c.pmid %} — PMID <a href="https://pubmed.ncbi.nlm.nih.gov/{{ c.pmid }}/">{{ c.pmid }}</a>{% endif %}
+          {% if c.doi %} — DOI <a href="https://doi.org/{{ c.doi }}">{{ c.doi }}</a>{% endif %}
+        </li>
+      {% endfor %}
+    </ol>
+  {% endif %}
+
+  <footer class="disclaimer">
+    <p><strong>Disclaimer.</strong> {{ disclaimer }}</p>
+    <p>Generated by DeepSynaps Studio. Schema version: {{ provenance.schema_version or '?' }}. Pipeline: {{ provenance.pipeline_version or '?' }}. Norm DB: {{ provenance.norm_db_version or '?' }}. Generated at: {{ provenance.generated_at or '' }}.</p>
+  </footer>
+</body>
+</html>

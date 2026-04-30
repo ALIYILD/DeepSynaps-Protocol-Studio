@@ -3695,7 +3695,15 @@ def get_patient_facing_report(
     report = db.query(QEEGAIReport).filter_by(id=report_id).first()
     if not report:
         raise ApiServiceError(code="not_found", message="Report not found", status_code=404)
-    _gate_patient_access(actor, report.patient_id, db)
+    # Phase 2 fix (audit P1-1): suppress cross-tenant access to 404 so that
+    # an actor in clinic A cannot enumerate report IDs that belong to clinic B.
+    # Previously the gate raised a 403 that revealed the row's existence.
+    try:
+        _gate_patient_access(actor, report.patient_id, db)
+    except ApiServiceError as gate_exc:
+        if getattr(gate_exc, "status_code", None) == 403:
+            raise ApiServiceError(code="not_found", message="Report not found", status_code=404) from None
+        raise
 
     if report.report_state not in ("APPROVED", "REVIEWED_WITH_AMENDMENTS"):
         raise ApiServiceError(
@@ -3704,6 +3712,14 @@ def get_patient_facing_report(
             status_code=403,
         )
 
+    # Phase 2: prefer the canonical QEEGBrainMapReport payload from Phase 0.
+    # Fall back to the legacy patient_facing_report_json shape so older rows
+    # keep rendering until backfill ships.
+    if getattr(report, "report_payload", None):
+        try:
+            return json.loads(report.report_payload)
+        except (TypeError, ValueError):
+            pass
     if not report.patient_facing_report_json:
         return {"disclaimer": "Patient-facing report not yet generated.", "content": None}
     return json.loads(report.patient_facing_report_json)

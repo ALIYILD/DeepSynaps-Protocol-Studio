@@ -54,7 +54,7 @@ _PATTERN_LIBRARY: list[dict] = [
         "conditions": ["ADHD"],
         "evidence_grade": "EV-C",
         "contraindications": ["seizure_history"],
-        "required_checks": ["Verify no seizure history", "Confirm ADHD diagnosis by qualified clinician"],
+        "required_checks": ["Verify no seizure history", "Confirm ADHD assessment by qualified clinician"],
     },
 ]
 
@@ -215,3 +215,189 @@ def _json_loads(raw: Optional[str]) -> Any:
         return json.loads(raw)
     except (TypeError, ValueError):
         return None
+
+
+# ── Phase 2: Brain Map contract → protocol suggestions ───────────────────────
+# Consumes the QEEGBrainMapReport payload from Phase 0
+# (apps/api/app/services/qeeg_report_template.py) and produces a list of
+# ranked protocol candidates for the Protocol Studio "From qEEG" source.
+# This is intentionally heuristic and clinician-review only.
+
+# DK ROI → modality+target hints. Z-score sign-aware: deficit (z <= -1.5)
+# vs excess (z >= 1.5) drive different recommendations. Hands-off zones
+# (motor cortex, etc.) carry mandatory required_checks.
+_DK_ROI_PROTOCOL_HINTS: dict[str, dict] = {
+    "rostralmiddlefrontal": {
+        "lh_deficit": {"modality": "rTMS", "target": "left DLPFC", "frequency": "10 Hz", "rationale": "Reduced left rostral middle frontal activity is associated with depressive and inattentive presentations."},
+        "rh_excess":  {"modality": "rTMS", "target": "right DLPFC", "frequency": "1 Hz", "rationale": "Right-frontal excess is associated with anxious presentations."},
+    },
+    "superiorfrontal": {
+        "lh_deficit": {"modality": "rTMS", "target": "left DLPFC", "frequency": "10 Hz", "rationale": "Left superior frontal hypoactivation is associated with executive-function difficulties."},
+    },
+    "superiortemporal": {
+        "lh_deficit": {"modality": "tDCS", "target": "left STG (Wernicke)", "montage": "anodal 1 mA", "rationale": "Left superior temporal hypoactivation is associated with language-comprehension difficulties."},
+    },
+    "lateraloccipital": {
+        "bilateral_deficit": {"modality": "tDCS", "target": "O1/O2", "montage": "bipolar 1 mA", "rationale": "Posterior alpha hypoactivation is associated with sleep and visual-perception complaints."},
+    },
+    "precuneus": {
+        "bilateral_excess": {"modality": "tACS", "target": "Pz", "frequency": "10 Hz", "rationale": "Precuneus excess is associated with rumination patterns; clinician review required."},
+    },
+    "rostralanteriorcingulate": {
+        "bilateral_deficit": {"modality": "rTMS", "target": "DMPFC", "frequency": "10 Hz", "rationale": "Anterior cingulate hypoactivation is associated with emotion-regulation difficulties."},
+    },
+    "precentral": {
+        # Motor cortex — flag rather than recommend.
+        "any_deviation": {"modality": "review_only", "target": "M1", "rationale": "Motor cortex deviations require clinician review before any neuromodulation protocol is considered."},
+    },
+}
+
+
+def _band_from_z(z: Optional[float]) -> Optional[str]:
+    if z is None:
+        return None
+    if z >= 2.58:
+        return "severe_excess"
+    if z >= 1.5:
+        return "excess"
+    if z <= -2.58:
+        return "severe_deficit"
+    if z <= -1.5:
+        return "deficit"
+    return None
+
+
+def _hint_key(hemi: str, band: Optional[str]) -> Optional[str]:
+    if not band:
+        return None
+    if "deficit" in band:
+        return f"{hemi}_deficit"
+    if "excess" in band:
+        return f"{hemi}_excess"
+    return None
+
+
+def suggest_protocols_from_report(report_payload: dict[str, Any]) -> list[dict]:
+    """Map a QEEGBrainMapReport payload to ranked protocol suggestions.
+
+    Parameters
+    ----------
+    report_payload
+        A dict matching the QEEGBrainMapReport contract from Phase 0
+        (apps/api/app/services/qeeg_report_template.py). Tolerant of
+        missing keys.
+
+    Returns
+    -------
+    list of suggestion dicts with keys: pattern, modality, target,
+    rationale, fit_score (0-1), evidence_grade, contraindications,
+    required_checks, related_rois.
+    """
+    if not isinstance(report_payload, dict):
+        return []
+    dk_atlas = report_payload.get("dk_atlas") or []
+    if not isinstance(dk_atlas, list):
+        return []
+
+    # Aggregate by ROI: take the largest-magnitude z across hemispheres,
+    # but track per-hemisphere band for sign-aware mapping.
+    by_roi: dict[str, dict] = {}
+    for row in dk_atlas:
+        if not isinstance(row, dict):
+            continue
+        roi = row.get("roi")
+        hemi = row.get("hemisphere")
+        z = row.get("z_score")
+        if roi is None or hemi not in ("lh", "rh") or z is None:
+            continue
+        try:
+            zf = float(z)
+        except (TypeError, ValueError):
+            continue
+        agg = by_roi.setdefault(roi, {"lh_z": None, "rh_z": None, "max_abs": 0.0})
+        agg[f"{hemi}_z"] = zf
+        if abs(zf) > agg["max_abs"]:
+            agg["max_abs"] = abs(zf)
+
+    suggestions: list[dict] = []
+    for roi, agg in by_roi.items():
+        hints = _DK_ROI_PROTOCOL_HINTS.get(roi)
+        if not hints:
+            continue
+        lh_band = _band_from_z(agg.get("lh_z"))
+        rh_band = _band_from_z(agg.get("rh_z"))
+
+        # Try unilateral hints first
+        for hemi, band in (("lh", lh_band), ("rh", rh_band)):
+            key = _hint_key(hemi, band)
+            if key and key in hints:
+                hint = hints[key]
+                suggestions.append({
+                    "pattern": f"{roi}_{key}",
+                    "modality": hint.get("modality"),
+                    "target": hint.get("target"),
+                    "frequency": hint.get("frequency"),
+                    "montage": hint.get("montage"),
+                    "rationale": hint.get("rationale"),
+                    "fit_score": min(1.0, agg["max_abs"] / 3.0),
+                    "evidence_grade": "EV-C",
+                    "contraindications": ["seizure_history"] if hint.get("modality") == "rTMS" else [],
+                    "required_checks": [
+                        "Verify no seizure history" if hint.get("modality") == "rTMS" else "Inspect scalp at electrode sites",
+                        "Confirm assessment by qualified clinician",
+                    ],
+                    "related_rois": [f"lh.{roi}" if hemi == "lh" else f"rh.{roi}"],
+                })
+
+        # Bilateral patterns
+        if lh_band and rh_band:
+            if "deficit" in lh_band and "deficit" in rh_band and "bilateral_deficit" in hints:
+                hint = hints["bilateral_deficit"]
+                suggestions.append({
+                    "pattern": f"{roi}_bilateral_deficit",
+                    "modality": hint.get("modality"),
+                    "target": hint.get("target"),
+                    "frequency": hint.get("frequency"),
+                    "montage": hint.get("montage"),
+                    "rationale": hint.get("rationale"),
+                    "fit_score": min(1.0, agg["max_abs"] / 3.0),
+                    "evidence_grade": "EV-C",
+                    "contraindications": ["skin_lesion_at_site"] if hint.get("modality") == "tDCS" else [],
+                    "required_checks": [
+                        "Inspect scalp at electrode sites" if hint.get("modality") == "tDCS" else "Confirm assessment by qualified clinician",
+                    ],
+                    "related_rois": [f"lh.{roi}", f"rh.{roi}"],
+                })
+            if "excess" in lh_band and "excess" in rh_band and "bilateral_excess" in hints:
+                hint = hints["bilateral_excess"]
+                suggestions.append({
+                    "pattern": f"{roi}_bilateral_excess",
+                    "modality": hint.get("modality"),
+                    "target": hint.get("target"),
+                    "frequency": hint.get("frequency"),
+                    "rationale": hint.get("rationale"),
+                    "fit_score": min(1.0, agg["max_abs"] / 3.0),
+                    "evidence_grade": "EV-C",
+                    "contraindications": [],
+                    "required_checks": ["Confirm assessment by qualified clinician"],
+                    "related_rois": [f"lh.{roi}", f"rh.{roi}"],
+                })
+
+        # Hands-off zones (motor cortex, etc.) — flag any deviation
+        if "any_deviation" in hints and (lh_band or rh_band):
+            hint = hints["any_deviation"]
+            suggestions.append({
+                "pattern": f"{roi}_review_required",
+                "modality": hint.get("modality"),
+                "target": hint.get("target"),
+                "rationale": hint.get("rationale"),
+                "fit_score": 0.0,
+                "evidence_grade": "EV-D",
+                "contraindications": [],
+                "required_checks": ["Mandatory clinician review before any protocol selection."],
+                "related_rois": [f"lh.{roi}", f"rh.{roi}"],
+            })
+
+    # Rank descending by fit_score, then alphabetical for stability
+    suggestions.sort(key=lambda s: (-(s.get("fit_score") or 0.0), s.get("pattern") or ""))
+    return suggestions

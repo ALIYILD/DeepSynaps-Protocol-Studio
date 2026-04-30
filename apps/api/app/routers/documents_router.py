@@ -609,6 +609,253 @@ def delete_document_template(
     session.commit()
 
 
+# ── Static-path Documents Hub endpoints (declared BEFORE dynamic /{doc_id}
+# routes so FastAPI's declaration-order matching does not route GET /summary
+# into get_document(doc_id="summary"). Same pattern as the templates block
+# above.) ─────────────────────────────────────────────────────────────────
+
+
+@router.get("/summary")
+def documents_summary(
+    patient_id: Optional[str] = None,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> dict:
+    """Counts: total / by_kind / by_status. Honest about empty cases.
+
+    Does NOT log a self-audit event (the Hub page-load audit handles that
+    at /audit-events). Returns disclaimers so the UI banner can render
+    them server-side rather than hardcoding strings in the frontend.
+    """
+    require_minimum_role(actor, "clinician")
+    if patient_id:
+        _assert_document_patient_access(patient_id, actor, session)
+
+    base_q = session.query(FormDefinition).filter(
+        FormDefinition.form_type == _DOC_FORM_TYPE,
+    )
+    base_q = _scope_documents_query_to_clinic(base_q, actor)
+    rows = base_q.all()
+
+    if patient_id:
+        rows = [r for r in rows if (_meta_from_record(r) or {}).get("patient_id") == patient_id]
+
+    by_status: dict[str, int] = {}
+    by_kind: dict[str, int] = {}
+    demo_count = 0
+    for r in rows:
+        st = r.status or "pending"
+        by_status[st] = by_status.get(st, 0) + 1
+        meta = _meta_from_record(r)
+        kk = (meta.get("doc_type") or "clinical").lower()
+        by_kind[kk] = by_kind.get(kk, 0) + 1
+        if meta.get("is_demo"):
+            demo_count += 1
+
+    return {
+        "total": len(rows),
+        "draft": by_status.get("pending", 0),
+        "uploaded": by_status.get("uploaded", 0),
+        "signed": by_status.get("signed", 0) + by_status.get("completed", 0),
+        "superseded": by_status.get("superseded", 0),
+        "demo": demo_count,
+        "by_status": by_status,
+        "by_kind": by_kind,
+        "disclaimers": list(DOCUMENTS_PAGE_DISCLAIMERS),
+        "scope_limitations": [
+            "clinic_id filter is accepted but a no-op — clinic scope is "
+            "enforced via the actor's clinic_id on the User model.",
+            "Upload storage backend: local disk under media_storage_root. "
+            "S3/blob storage is not configured in this deployment.",
+        ],
+    }
+
+
+def _csv_quote(value: object) -> str:
+    s = "" if value is None else str(value)
+    if any(ch in s for ch in [",", "\"", "\n", "\r"]):
+        return '"' + s.replace('"', '""') + '"'
+    return s
+
+
+@router.get("/export.zip")
+def export_documents_zip(
+    patient_id: Optional[str] = None,
+    kind: Optional[str] = None,
+    status: Optional[str] = None,
+    since: Optional[str] = None,
+    until: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = Query(default=200, ge=1, le=500),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> Response:
+    """Filtered bulk export — returns a ZIP with manifest.csv + uploaded blobs.
+
+    The manifest is prefixed with a ``# DEMO`` header line if any of the
+    matched documents are flagged ``is_demo`` so importers can drop demo
+    rows trivially. Filters mirror the GET / list endpoint.
+    """
+    require_minimum_role(actor, "clinician")
+    if patient_id:
+        _assert_document_patient_access(patient_id, actor, session)
+
+    base_q = session.query(FormDefinition).filter(
+        FormDefinition.form_type == _DOC_FORM_TYPE,
+    )
+    base_q = _scope_documents_query_to_clinic(base_q, actor)
+    if status:
+        base_q = base_q.filter(FormDefinition.status == status)
+    if since:
+        try:
+            cutoff = datetime.fromisoformat(since.replace("Z", "+00:00"))
+            base_q = base_q.filter(FormDefinition.created_at >= cutoff)
+        except ValueError:
+            pass
+    if until:
+        try:
+            cutoff_to = datetime.fromisoformat(until.replace("Z", "+00:00"))
+            base_q = base_q.filter(FormDefinition.created_at <= cutoff_to)
+        except ValueError:
+            pass
+    if q:
+        like = f"%{q.lower()}%"
+        from sqlalchemy import func
+        base_q = base_q.filter(
+            or_(
+                func.lower(func.coalesce(FormDefinition.title, "")).like(like),
+                func.lower(func.coalesce(FormDefinition.questions_json, "")).like(like),
+                func.lower(FormDefinition.id).like(like),
+            )
+        )
+
+    rows = base_q.order_by(FormDefinition.created_at.desc()).limit(limit).all()
+    items = [_record_to_out(r) for r in rows]
+    if patient_id:
+        items = [i for i in items if i.patient_id == patient_id]
+    if kind:
+        kk = kind.lower()
+        items = [i for i in items if kk in (i.doc_type or "").lower()]
+
+    has_demo = any(i.is_demo for i in items)
+    header = [
+        "id", "title", "doc_type", "patient_id", "status", "revision",
+        "supersedes", "superseded_by", "signed_by", "signed_at",
+        "created_at", "updated_at", "is_demo", "file_ref",
+    ]
+    csv_lines: list[str] = []
+    if has_demo:
+        csv_lines.append("# DEMO — not regulator-submittable")
+    csv_lines.append(",".join(header))
+    for it in items:
+        row = [
+            it.id, it.title, it.doc_type, it.patient_id or "", it.status, it.revision,
+            it.supersedes or "", it.superseded_by or "", it.signed_by or "",
+            it.signed_at or "", it.created_at, it.updated_at,
+            "1" if it.is_demo else "0", it.file_ref or "",
+        ]
+        csv_lines.append(",".join(_csv_quote(v) for v in row))
+    manifest = "\n".join(csv_lines) + "\n"
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("manifest.csv", manifest)
+        # Best-effort: include actual file blobs if they exist on disk.
+        # Schema-naming uses the document id so importers can join back.
+        settings_root = Path(get_settings().media_storage_root).resolve()
+        for it in items:
+            if not it.file_ref:
+                continue
+            try:
+                _validate_document_file_ref(it.file_ref)
+            except ApiServiceError:
+                continue
+            target = (settings_root / it.file_ref).resolve()
+            if not str(target).startswith(str(settings_root) + os.sep):
+                continue
+            if not target.is_file():
+                continue
+            ext = target.suffix.lstrip(".") or "bin"
+            zf.write(target, f"files/{it.id}.{ext}")
+
+    _audit(
+        session, actor,
+        event="exported_zip",
+        target_id=patient_id or actor.clinic_id or actor.actor_id,
+        note=f"export.zip n={len(items)} demo={has_demo}",
+    )
+
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": 'attachment; filename="documents-export.zip"',
+        },
+    )
+
+
+# Page-level audit ingestion (declared with the static endpoints so the
+# /audit-events path is not eaten by /{doc_id}). Mirrors the Reports Hub
+# pattern (POST /api/v1/reports/audit-events).
+
+class DocumentsAuditEventIn(BaseModel):
+    event: str = Field(..., max_length=120)
+    document_id: Optional[str] = Field(None, max_length=64)
+    patient_id: Optional[str] = Field(None, max_length=64)
+    note: Optional[str] = Field(None, max_length=1024)
+    using_demo_data: Optional[bool] = False
+
+
+class DocumentsAuditEventOut(BaseModel):
+    accepted: bool
+    event_id: str
+
+
+@router.post("/audit-events", response_model=DocumentsAuditEventOut)
+def record_documents_audit_event(
+    payload: DocumentsAuditEventIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> DocumentsAuditEventOut:
+    """Best-effort page-level audit ingestion for the Documents Hub UI."""
+    require_minimum_role(actor, "clinician")
+    from app.repositories.audit import create_audit_event
+
+    now = datetime.now(timezone.utc)
+    event_id = (
+        f"documents-{payload.event}-{actor.actor_id}-{int(now.timestamp())}-{uuid.uuid4().hex[:6]}"
+    )
+    target_id = (
+        payload.document_id or payload.patient_id or actor.clinic_id or actor.actor_id
+    )
+    note_parts: list[str] = []
+    if payload.using_demo_data:
+        note_parts.append("DEMO")
+    if payload.patient_id:
+        note_parts.append(f"patient={payload.patient_id}")
+    if payload.document_id:
+        note_parts.append(f"document={payload.document_id}")
+    if payload.note:
+        note_parts.append(payload.note[:500])
+    note = "; ".join(note_parts) or payload.event
+    try:
+        create_audit_event(
+            session,
+            event_id=event_id,
+            target_id=str(target_id),
+            target_type="documents",
+            action=f"documents.{payload.event}",
+            role=actor.role,
+            actor_id=actor.actor_id,
+            note=note[:1024],
+            created_at=now.isoformat(),
+        )
+    except Exception:  # pragma: no cover
+        _logger.exception("documents audit-event persistence failed")
+        return DocumentsAuditEventOut(accepted=False, event_id=event_id)
+    return DocumentsAuditEventOut(accepted=True, event_id=event_id)
+
+
 @router.get("/{doc_id}", response_model=DocumentOut)
 def get_document(
     doc_id: str,
@@ -855,6 +1102,170 @@ def download_document(
         media_type=meta.get("file_mime") or "application/octet-stream",
         filename=meta.get("file_name") or record.title,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Documents Hub launch-audit (2026-04-30)
+#
+# Below: /{id}/sign, /{id}/supersede. (Static-path endpoints — /summary,
+# /export.zip, /audit-events — are declared BEFORE the dynamic /{doc_id}
+# routes earlier in the file so FastAPI's declaration-order matching does
+# not route ``GET /summary`` into ``get_document(doc_id="summary")``.)
+#
+# Mirrors the pattern landed for the Reports Hub in #310. The storage model
+# (FormDefinition with metadata in ``questions_json``) carries no dedicated
+# signed_by / supersedes columns, so the helpers below encode that state in
+# the JSON metadata — honest about the schema gap and audited.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class DocumentSignRequest(BaseModel):
+    note: Optional[str] = Field(default=None, max_length=512)
+
+
+@router.post("/{doc_id}/sign", response_model=DocumentOut)
+def sign_document(
+    doc_id: str,
+    body: DocumentSignRequest = DocumentSignRequest(),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> DocumentOut:
+    """Mark a document as clinician-signed. Signed documents are immutable.
+
+    Idempotent for the same actor: signing an already-signed document is a
+    no-op (returns the existing record). Signing a superseded document is
+    blocked (HTTP 409).
+    """
+    require_minimum_role(actor, "clinician")
+    base_q = session.query(FormDefinition).filter(
+        FormDefinition.id == doc_id,
+        FormDefinition.form_type == _DOC_FORM_TYPE,
+    )
+    record = _scope_documents_query_to_clinic(base_q, actor).first()
+    if record is None:
+        raise ApiServiceError(code="not_found", message="Document not found.", status_code=404)
+    if record.status == "superseded":
+        raise ApiServiceError(
+            code="document_superseded",
+            message="Cannot sign a superseded document.",
+            status_code=409,
+        )
+    meta = _meta_from_record(record)
+    if record.status in {"signed", "completed"} and meta.get("signed_by_actor_id") == actor.actor_id:
+        return _record_to_out(record)
+    now = datetime.now(timezone.utc).isoformat()
+    meta["signed_by_actor_id"] = actor.actor_id
+    meta["signed_at"] = now
+    meta["signed_recorded_at"] = now
+    if body.note:
+        meta["sign_note"] = body.note[:512]
+    _stamp_document_provenance(meta, actor, event="signed")
+    record.questions_json = json.dumps(meta)
+    record.status = "signed"
+    record.updated_at = datetime.now(timezone.utc)
+    session.commit()
+    session.refresh(record)
+    _audit(
+        session,
+        actor,
+        event="signed",
+        target_id=record.id,
+        note=(body.note or "document signed")[:512],
+    )
+    return _record_to_out(record)
+
+
+class DocumentSupersedeRequest(BaseModel):
+    reason: str = Field(..., min_length=3, max_length=512)
+    new_title: Optional[str] = Field(default=None, max_length=255)
+    new_notes: Optional[str] = Field(default=None, max_length=10_000)
+
+
+@router.post("/{doc_id}/supersede", response_model=DocumentOut)
+def supersede_document(
+    doc_id: str,
+    body: DocumentSupersedeRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> DocumentOut:
+    """Create a new revision that supersedes this document.
+
+    The original is marked ``superseded`` (with ``superseded_by`` pointer)
+    and a new record is created with ``supersedes`` pointing back. Both
+    actions are audited. The new revision inherits doc_type / patient_id /
+    template_id / file_ref from the original; uploaded blobs are NOT copied
+    on disk — both records point at the same storage path. (Honest tradeoff:
+    the file_ref is treated as an immutable artifact identifier.)
+    """
+    require_minimum_role(actor, "clinician")
+    base_q = session.query(FormDefinition).filter(
+        FormDefinition.id == doc_id,
+        FormDefinition.form_type == _DOC_FORM_TYPE,
+    )
+    original = _scope_documents_query_to_clinic(base_q, actor).first()
+    if original is None:
+        raise ApiServiceError(code="not_found", message="Document not found.", status_code=404)
+    if original.status == "superseded":
+        raise ApiServiceError(
+            code="already_superseded",
+            message="Document is already superseded.",
+            status_code=409,
+        )
+
+    orig_meta = _meta_from_record(original)
+    new_id = str(uuid.uuid4())
+    new_meta = {
+        "doc_type": orig_meta.get("doc_type", "clinical"),
+        "patient_id": orig_meta.get("patient_id"),
+        "template_id": orig_meta.get("template_id"),
+        "notes": body.new_notes if body.new_notes is not None else orig_meta.get("notes"),
+        "file_ref": orig_meta.get("file_ref"),
+        "file_name": orig_meta.get("file_name"),
+        "file_mime": orig_meta.get("file_mime"),
+        "file_size": orig_meta.get("file_size"),
+        "supersedes": original.id,
+        "revision": int(orig_meta.get("revision", 1) or 1) + 1,
+        "supersede_reason": body.reason[:512],
+        "is_demo": bool(orig_meta.get("is_demo", False)),
+        "signed_at": None,
+        "created_by_actor_id": actor.actor_id,
+        "created_by_actor_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _stamp_document_provenance(new_meta, actor, event="created_revision")
+
+    new_record = FormDefinition(
+        id=new_id,
+        clinician_id=actor.actor_id,
+        title=body.new_title or original.title,
+        form_type=_DOC_FORM_TYPE,
+        questions_json=json.dumps(new_meta),
+        status="pending",
+    )
+    session.add(new_record)
+
+    orig_meta["superseded_by"] = new_id
+    _stamp_document_provenance(orig_meta, actor, event="superseded")
+    original.questions_json = json.dumps(orig_meta)
+    original.status = "superseded"
+    original.updated_at = datetime.now(timezone.utc)
+    session.commit()
+    session.refresh(new_record)
+
+    _audit(
+        session,
+        actor,
+        event="superseded",
+        target_id=original.id,
+        note=f"superseded by {new_id}: {body.reason[:200]}",
+    )
+    _audit(
+        session,
+        actor,
+        event="created_revision",
+        target_id=new_id,
+        note=f"revision {new_meta['revision']} of {original.id}",
+    )
+    return _record_to_out(new_record)
 
 
 # ── Patient-scoped sub-resource ────────────────────────────────────────────────

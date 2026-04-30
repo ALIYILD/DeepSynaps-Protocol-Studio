@@ -1253,3 +1253,120 @@ def record_reports_audit_event(
         _logger.exception("reports audit-event persistence failed")
         return ReportsAuditEventOut(accepted=False, event_id=event_id)
     return ReportsAuditEventOut(accepted=True, event_id=event_id)
+
+
+# ── Phase 2: QEEG Brain Map render endpoints (from cross-surface branch) ───
+# Renders the canonical QEEGBrainMapReport payload into clinician/patient PDF
+# or HTML. WeasyPrint absence → 503.
+
+from app.persistence.models import QEEGAIReport  # noqa: E402
+from app.routers.qeeg_analysis_router import _gate_patient_access  # noqa: E402
+from app.services.qeeg_pdf_export import (  # noqa: E402
+    QEEGPdfRendererUnavailable,
+    render_qeeg_html,
+    render_qeeg_pdf,
+)
+
+
+def _resolve_qeeg_brain_map_payload(report: QEEGAIReport) -> dict:
+    """Return the QEEGBrainMapReport payload for a row, falling back to the
+    legacy patient_facing_report_json shape when the new column is empty."""
+    import json as _json
+    raw = getattr(report, "report_payload", None)
+    if raw:
+        try:
+            data = _json.loads(raw)
+            if isinstance(data, dict):
+                return data
+        except (TypeError, ValueError):
+            pass
+    raw = getattr(report, "patient_facing_report_json", None)
+    if raw:
+        try:
+            data = _json.loads(raw)
+            if isinstance(data, dict):
+                return data
+        except (TypeError, ValueError):
+            pass
+    return {}
+
+
+@router.get("/qeeg/{report_id}.pdf")
+def render_qeeg_brain_map_pdf(
+    report_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Render a qEEG brain-map report as a print-grade PDF.
+
+    Auth: clinician+ role; cross-clinic access returns 404 (not 403) so the
+    endpoint cannot be used to enumerate report IDs across tenants.
+    """
+    require_minimum_role(actor, "clinician")
+    report = db.query(QEEGAIReport).filter_by(id=report_id).first()
+    if not report:
+        raise ApiServiceError(code="not_found", message="Report not found.", status_code=404)
+    try:
+        _gate_patient_access(actor, report.patient_id, db)
+    except ApiServiceError as gate_exc:
+        if getattr(gate_exc, "status_code", None) == 403:
+            raise ApiServiceError(code="not_found", message="Report not found.", status_code=404) from None
+        raise
+
+    payload = _resolve_qeeg_brain_map_payload(report)
+    if not payload:
+        raise ApiServiceError(
+            code="payload_missing",
+            message="No brain-map payload available for this report.",
+            status_code=404,
+        )
+
+    try:
+        pdf_bytes = render_qeeg_pdf(payload)
+    except QEEGPdfRendererUnavailable as exc:
+        raise ApiServiceError(
+            code="pdf_renderer_unavailable",
+            message=str(exc),
+            status_code=503,
+        ) from exc
+    if not pdf_bytes:
+        raise ApiServiceError(
+            code="pdf_render_empty",
+            message="QEEG PDF renderer returned empty bytes.",
+            status_code=500,
+        )
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="qeeg-brain-map-{report_id}.pdf"'},
+    )
+
+
+@router.get("/qeeg/{report_id}.html")
+def render_qeeg_brain_map_html(
+    report_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Render a qEEG brain-map report as standalone HTML (print-friendly)."""
+    require_minimum_role(actor, "clinician")
+    report = db.query(QEEGAIReport).filter_by(id=report_id).first()
+    if not report:
+        raise ApiServiceError(code="not_found", message="Report not found.", status_code=404)
+    try:
+        _gate_patient_access(actor, report.patient_id, db)
+    except ApiServiceError as gate_exc:
+        if getattr(gate_exc, "status_code", None) == 403:
+            raise ApiServiceError(code="not_found", message="Report not found.", status_code=404) from None
+        raise
+
+    payload = _resolve_qeeg_brain_map_payload(report)
+    if not payload:
+        raise ApiServiceError(
+            code="payload_missing",
+            message="No brain-map payload available for this report.",
+            status_code=404,
+        )
+
+    html_doc = render_qeeg_html(payload)
+    return HTMLResponse(content=html_doc, status_code=200)

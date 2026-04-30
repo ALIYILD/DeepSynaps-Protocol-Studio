@@ -75,6 +75,7 @@ KNOWN_SURFACES = {
     "adverse_events",
     "audit_trail",
     "reports",
+    "documents",
 }
 
 
