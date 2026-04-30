@@ -204,6 +204,83 @@ export async function pgPatientHub(setTopbar, navigate) {
     }).join('');
   }
 
+  // ── Global toast helper. The page-wide _dsToast is referenced at 30+ call
+  //    sites but never defined anywhere — every honest-demo fallback was
+  //    silently dropping. Define a minimal fixed-position toast container
+  //    once per session so EVERY caller surfaces a visible response.
+  if (typeof window !== 'undefined' && typeof window._dsToast !== 'function') {
+    window._dsToast = function _dsToast(opts) {
+      try {
+        const o = (opts && typeof opts === 'object') ? opts : { body: String(opts || '') };
+        const title = o.title ? String(o.title) : '';
+        const body  = o.body != null ? String(o.body) : '';
+        const sev   = String(o.severity || 'info').toLowerCase();
+        let host = document.getElementById('ds-pt-toast-host');
+        if (!host) {
+          host = document.createElement('div');
+          host.id = 'ds-pt-toast-host';
+          host.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none';
+          document.body.appendChild(host);
+        }
+        const colorMap = {
+          success: '#2f6b3a', ok: '#2f6b3a',
+          warn:    '#b8741a', warning: '#b8741a',
+          error:   '#b03434',
+          info:    '#1d6f7a',
+        };
+        const accent = colorMap[sev] || colorMap.info;
+        const t = document.createElement('div');
+        t.setAttribute('data-testid', 'ds-pt-toast');
+        t.setAttribute('data-severity', sev);
+        t.setAttribute('role', sev === 'error' ? 'alert' : 'status');
+        t.style.cssText = 'pointer-events:auto;background:#1c1f24;color:#f3eee5;border-left:3px solid '+accent+';border:1px solid rgba(255,255,255,0.08);border-left:3px solid '+accent+';border-radius:8px;padding:10px 14px;min-width:240px;max-width:360px;box-shadow:0 8px 24px rgba(0,0,0,0.45);font:13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
+        const safeTitle = title.replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+        const safeBody  = body.replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+        t.innerHTML = (title ? '<div style="font-weight:600;font-size:12.5px;margin-bottom:2px">' + safeTitle + '</div>' : '') +
+                      (body  ? '<div style="font-size:12px;color:#cfc8b8">' + safeBody + '</div>' : '');
+        host.appendChild(t);
+        setTimeout(() => { try { t.style.transition='opacity 220ms'; t.style.opacity='0'; setTimeout(()=>t.remove(),250); } catch {} }, 3000);
+      } catch (err) {
+        try { console.info('[toast]', opts); } catch {}
+      }
+    };
+  }
+
+  // ── window.showAddPatient fallback. The legacy modal lives in pages-
+  //    clinical.js and is only attached when that page mounts. The patients-v2
+  //    topbar references window.showAddPatient() directly, throwing
+  //    `TypeError: window.showAddPatient is not a function` when v2 is the
+  //    first page loaded. Provide a fallback that lazy-loads the legacy
+  //    module (which then defines the real handler), or surfaces a toast.
+  if (typeof window !== 'undefined' && typeof window.showAddPatient !== 'function') {
+    window.showAddPatient = async function showAddPatientFallback() {
+      try {
+        const mod = await import('./pages-clinical.js');
+        // Calling pgPatients renders the legacy patient list AND assigns the
+        // real window.showAddPatient. We don't want to navigate the user
+        // off this page — just attempt to load the module so the modal
+        // markup + handler exist, then open it.
+        if (mod && typeof mod.pgPatients === 'function' && !document.getElementById('add-patient-panel')) {
+          // Module imported but markup isn't on the page. Surface an honest
+          // toast and route to the legacy patient page where the modal lives.
+          window._dsToast?.({ title: 'Add patient', body: 'Opening intake form…', severity: 'info' });
+          if (typeof window._nav === 'function') { window._nav('patients'); return; }
+        }
+        const panel = document.getElementById('add-patient-panel');
+        if (panel) { panel.style.display = 'flex'; return; }
+        window._dsToast?.({ title: 'Add patient unavailable', body: 'Open the legacy Patients page to add a patient.', severity: 'warn' });
+      } catch (err) {
+        window._dsToast?.({ title: 'Add patient failed', body: (err && err.message) || 'Module load error.', severity: 'error' });
+      }
+    };
+  }
+  if (typeof window !== 'undefined' && typeof window.showImportCSV !== 'function') {
+    window.showImportCSV = function showImportCSVFallback() {
+      window._dsToast?.({ title: 'Import CSV', body: 'CSV import opens in the legacy Patients page.', severity: 'info' });
+      if (typeof window._nav === 'function') window._nav('patients');
+    };
+  }
+
   const el = document.getElementById('content');
 
   // ── PATIENTS TAB (design-v2 screen 07) ──────────────────────────────────
@@ -932,7 +1009,19 @@ export async function pgPatientHub(setTopbar, navigate) {
         window._paPatientId = pid; window._selectedPatientId = pid;
         if (typeof window._nav === 'function') { window._nav('scheduling-hub'); return; }
       }
-      _phToast('No session scheduled today (demo)', 'info');
+      // No session scheduled today — surface a visible toast naming the patient
+      // so the click is never silent. The toast helper above guarantees a
+      // fixed-position container with data-testid="ds-pt-toast" exists.
+      const pname = p
+        ? ([p.first_name, p.last_name].filter(Boolean).join(' ').trim() || p.name || 'this patient')
+        : 'this patient';
+      window._dsToast?.({
+        title: 'No session scheduled',
+        body: 'No session scheduled for ' + pname + ' today.',
+        severity: 'info',
+      });
+      // Keep the legacy footer-status fallback too so older surfaces stay updated.
+      _phToast('No session scheduled for ' + pname + ' today', 'info');
     };
 
     window._phQuickNote = (pid) => {
@@ -1954,72 +2043,64 @@ export async function pgPatientHub(setTopbar, navigate) {
   }
 
   // ── ALERTS TAB ────────────────────────────────────────────────────────────
+  // Honest stub: there's no live alerts feed wired to the patients-v2 surface
+  // yet, so we surface a real, role-appropriate empty state with a visible
+  // CTA that re-routes back to the Patients tab + activates the Overdue
+  // quick-filter chip. Every interaction on this pane produces a visible
+  // response. Rich-fake-alert markup was removed — see PR fix/patients-hub-
+  // silent-buttons-2026-04-30 — because it carried fabricated patient names.
   else if (tab === 'alerts') {
     setTopbar('Patients', '');
     el.innerHTML = `<div class="ch-shell">
       <div class="d2p7-tab-bar">${tabBar()}</div>
-      <div class="card" style="padding:24px">
-        <h3 style="color:var(--text-primary);margin:0 0 16px;font-size:15px">&#128276; Clinical Alerts</h3>
-        <div style="display:flex;flex-direction:column;gap:8px">
-          <div style="padding:12px 16px;border-radius:8px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);display:flex;align-items:center;gap:12px">
-            <span style="font-size:18px">&#9888;</span>
-            <div style="flex:1"><div style="font-size:13px;font-weight:600;color:var(--amber)">Assessment Overdue</div><div style="font-size:11px;color:var(--text-secondary)">Samantha Li - PHQ-9 assessment due 2 days ago</div></div>
-            <button class="btn btn-sm" onclick="window._patientHubTab='patients';window._nav('patients-hub')">View</button>
-          </div>
-          <div style="padding:12px 16px;border-radius:8px;background:rgba(0,212,188,0.06);border:1px solid rgba(0,212,188,0.15);display:flex;align-items:center;gap:12px">
-            <span style="font-size:18px">&#10003;</span>
-            <div style="flex:1"><div style="font-size:13px;font-weight:600;color:var(--teal)">Treatment Milestone</div><div style="font-size:11px;color:var(--text-secondary)">Marcus Chen completed session 10 of 15 (rTMS course)</div></div>
-            <button class="btn btn-sm" onclick="window._patientHubTab='patients';window._nav('patients-hub')">View</button>
-          </div>
-          <div style="padding:12px 16px;border-radius:8px;background:rgba(74,158,255,0.06);border:1px solid rgba(74,158,255,0.15);display:flex;align-items:center;gap:12px">
-            <span style="font-size:18px">&#128200;</span>
-            <div style="flex:1"><div style="font-size:13px;font-weight:600;color:var(--blue)">Outcome Improvement</div><div style="font-size:11px;color:var(--text-secondary)">Elena Vasquez - Pain VAS decreased 30% over 4 weeks</div></div>
-            <button class="btn btn-sm" onclick="window._patientHubTab='patients';window._nav('patients-hub')">View</button>
-          </div>
-          <div style="padding:12px 16px;border-radius:8px;background:rgba(139,92,246,0.06);border:1px solid rgba(139,92,246,0.15);display:flex;align-items:center;gap:12px">
-            <span style="font-size:18px">&#128268;</span>
-            <div style="flex:1"><div style="font-size:13px;font-weight:600;color:var(--violet)">Wearable Alert</div><div style="font-size:11px;color:var(--text-secondary)">Aisha Rahman - HRV dropped below baseline for 3 consecutive days</div></div>
-            <button class="btn btn-sm" onclick="window._patientHubTab='patients';window._nav('patients-hub')">View</button>
-          </div>
+      <div class="ds-tab-empty" data-testid="ds-patients-alerts-pane" style="padding:32px;background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;color:var(--text-primary);max-width:640px;margin:24px auto;text-align:left">
+        <h3 style="margin:0 0 10px;font-size:16px;color:var(--text-primary)">&#128276; Alerts</h3>
+        <p style="margin:0 0 16px;font-size:13px;color:var(--text-secondary);line-height:1.5">No active alerts. Adverse events and overdue assessments will surface here.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="ds-btn-secondary btn btn-sm" data-action="view-overdue" onclick="window._phViewOverdueFromAlerts && window._phViewOverdueFromAlerts()">View overdue assessments</button>
         </div>
       </div>
     </div>`;
+    // Wire the view-overdue CTA: switch to Patients tab + activate Overdue chip.
+    window._phViewOverdueFromAlerts = function _phViewOverdueFromAlerts() {
+      try {
+        window._patientHubTab = 'patients';
+        // Quick-filter chip ids: 'today','overdue','adverse','recent','all'.
+        // Pre-set so the patients-tab init reads the right chip on first paint.
+        window._phState = window._phState || {};
+        window._phState.activeQuickFilter = 'overdue';
+        if (typeof window._phSwitchTab === 'function') { window._phSwitchTab('patients'); return; }
+        if (typeof window._nav === 'function') { window._nav('patients-hub'); return; }
+      } catch (err) {
+        window._dsToast?.({ title: 'Could not open overdue filter', body: (err && err.message) || 'Unknown error', severity: 'warn' });
+      }
+    };
   }
 
   // ── REPORTS TAB ───────────────────────────────────────────────────────────
+  // Honest stub: governed exports live in the dedicated Reports Hub. The
+  // patients-v2 Reports tab is just a discovery shim — point clinicians at
+  // the real surface. Every interaction here produces a visible response.
   else if (tab === 'reports') {
     setTopbar('Patients', '');
     el.innerHTML = `<div class="ch-shell">
       <div class="d2p7-tab-bar">${tabBar()}</div>
-      <div class="card" style="padding:24px">
-        <h3 style="color:var(--text-primary);margin:0 0 16px;font-size:15px">&#128196; Clinical Reports</h3>
-        <div style="font-size:12px;color:var(--text-secondary);margin:0 0 14px">
-          Reporting exports are being wired to governed backend generators. The items below are roadmap placeholders and are intentionally disabled until export, audit, and reviewer stamps are complete.
-        </div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">
-          <div class="card" aria-disabled="true" style="padding:16px;cursor:not-allowed;opacity:.72;border-left:3px solid var(--teal)">
-            <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Treatment Summary</div>
-            <div style="font-size:11px;color:var(--text-secondary)">Generate a comprehensive treatment summary report for any patient.</div>
-            <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;text-transform:uppercase;letter-spacing:.08em">Roadmap item</div>
-          </div>
-          <div class="card" aria-disabled="true" style="padding:16px;cursor:not-allowed;opacity:.72;border-left:3px solid var(--blue)">
-            <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Outcome Report</div>
-            <div style="font-size:11px;color:var(--text-secondary)">Export outcome measures, trends, and response rates as PDF or FHIR.</div>
-            <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;text-transform:uppercase;letter-spacing:.08em">Roadmap item</div>
-          </div>
-          <div class="card" aria-disabled="true" style="padding:16px;cursor:not-allowed;opacity:.72;border-left:3px solid var(--violet)">
-            <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">DeepTwin Report</div>
-            <div style="font-size:11px;color:var(--text-secondary)">Full digital twin analysis including EEG, MRI, and biometric correlations.</div>
-            <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;text-transform:uppercase;letter-spacing:.08em">Roadmap item</div>
-          </div>
-          <div class="card" aria-disabled="true" style="padding:16px;cursor:not-allowed;opacity:.72;border-left:3px solid var(--amber)">
-            <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Cohort Comparison</div>
-            <div style="font-size:11px;color:var(--text-secondary)">Compare patient outcomes against similar cohorts and benchmarks.</div>
-            <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px;text-transform:uppercase;letter-spacing:.08em">Roadmap item</div>
-          </div>
+      <div class="ds-tab-empty" data-testid="ds-patients-reports-pane" style="padding:32px;background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;color:var(--text-primary);max-width:640px;margin:24px auto;text-align:left">
+        <h3 style="margin:0 0 10px;font-size:16px;color:var(--text-primary)">&#128196; Reports</h3>
+        <p style="margin:0 0 16px;font-size:13px;color:var(--text-secondary);line-height:1.5">Course completion summaries, treatment outcomes, and population reports will live here.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="ds-btn-secondary btn btn-sm" data-action="open-reports-hub" onclick="window._phOpenReportsHub && window._phOpenReportsHub()">Open Reports Hub &rarr;</button>
         </div>
       </div>
     </div>`;
+    window._phOpenReportsHub = function _phOpenReportsHub() {
+      try {
+        if (typeof window._nav === 'function') { window._nav('reports-hub'); return; }
+        window._dsToast?.({ title: 'Reports Hub', body: 'Reports Hub navigation unavailable in this build.', severity: 'warn' });
+      } catch (err) {
+        window._dsToast?.({ title: 'Could not open Reports Hub', body: (err && err.message) || 'Unknown error', severity: 'warn' });
+      }
+    };
   }
 }
 
