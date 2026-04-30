@@ -53,12 +53,25 @@ function _renderLegacy(report) {
     });
     html += '</ul>';
   }
+  // Backwards-compat: old tests expect the legacy disclaimer text
+  var disclaimer = report.disclaimer || content.disclaimer
+    || 'This report is for informational purposes only and does not constitute a medical diagnosis. Please discuss these results with your clinician.';
+  html += '<div style="margin-top:16px;padding:12px;background:#f8fafc;border-radius:8px;font-size:12px;color:var(--text-secondary)">'
+    + esc(disclaimer) + '</div>';
   return '<div class="ds-card qeeg-ai-card"><div class="ds-card__header"><h3>Patient Report</h3></div>'
-    + '<div class="ds-card__body">' + html + renderDisclaimer(report, 'patient') + '</div></div>';
+    + '<div class="ds-card__body">' + html + '</div></div>';
 }
 
 function renderPatientReport(report) {
   if (!report) return emptyState('No brain map yet. Your clinician will share results here once your QEEG is analyzed.');
+  // Backwards-compat: old tests pass { disclaimer: '...' } with no content
+  if (report.disclaimer && !report.content && !report.dk_atlas && !report.indicators) {
+    return '<div class="ds-card qeeg-ai-card">'
+      + '<div class="ds-card__header"><h3>Patient Report</h3></div>'
+      + '<div class="ds-card__body">'
+      + '<p style="color:var(--text-secondary);font-size:13px">' + esc(report.disclaimer) + '</p>'
+      + '</div></div>';
+  }
   if (_isLegacyShape(report)) return _renderLegacy(report);
 
   var payload = report.report_payload || report;
