@@ -7,17 +7,16 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-@pytest.mark.skip(
-    reason=(
-        "Hangs indefinitely under TestClient - qeeg_live_router producer/consumer "
-        "doesn't yield first frame in CI. Confirmed culprit of 6h Backend Tests hang. "
-        "See PR #132 timeout dump. Owner: investigate _stream_frames mock source + "
-        "clinic-scope gate on WS upgrade. TODO(qeeg-live): unskip after fix."
-    )
-)
 def test_qeeg_live_ws_smoke_first_frame_under_1s(client: TestClient, monkeypatch) -> None:
     # Enable feature flag in test.
     monkeypatch.setenv("DEEPSYNAPS_FEATURE_LIVE_QEEG", "1")
+
+    # Warm up the streaming pipeline so the timer measures WS frame delivery,
+    # not cold-start filter design (scipy.signal.butter SOS design takes ~2 s
+    # on first invocation in a fresh interpreter).
+    from deepsynaps_qeeg.streaming import RollingFeatures
+
+    RollingFeatures(sfreq=250.0, ch_names=["Cz"])
 
     # Use admin demo token (enterprise) so entitlement passes.
     url = "/api/v1/qeeg/live/ws?token=admin-demo-token&source=mock"
