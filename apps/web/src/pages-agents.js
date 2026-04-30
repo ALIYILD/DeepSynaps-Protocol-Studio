@@ -739,6 +739,19 @@ function _isMarketplaceDemoMode() {
   } catch { return false; }
 }
 
+// Returns the rendered agent list, falling back to MARKETPLACE_DEMO_AGENTS
+// only inside an explicit demo build. In production (no demo flag / no
+// demo token) returns the empty array so callers can render an honest
+// empty state instead of fabricated marketplace entries.
+function _agentsOrDemo(agents) {
+  if (Array.isArray(agents) && agents.length) return agents;
+  return _isMarketplaceDemoMode() ? MARKETPLACE_DEMO_AGENTS : [];
+}
+
+// Tracks whether the last marketplace fetch landed empty in prod mode so
+// the catalog/activity panels can show an "Offline — retry" affordance.
+let _marketplaceAgentsLoadFailed = false;
+
 function _marketplaceApiBase() {
   try { return import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'; }
   catch { return 'http://127.0.0.1:8000'; }
@@ -765,7 +778,17 @@ async function _fetchMarketplaceAgents() {
     if (payload && Array.isArray(payload.agents)) agents = payload.agents;
     else if (payload && Array.isArray(payload.items)) agents = payload.items;
 
-    if (!agents.length) agents = MARKETPLACE_DEMO_AGENTS.slice();
+    if (!agents.length) {
+      // Only synthesise demo data when we're in an explicit demo build with
+      // a demo token. Outside demo mode an empty backend response stays
+      // empty and the UI renders an "offline — retry" CTA so clinicians
+      // never see fabricated marketplace agents in production.
+      if (_isMarketplaceDemoMode()) {
+        agents = MARKETPLACE_DEMO_AGENTS.slice();
+      } else {
+        _marketplaceAgentsLoadFailed = true;
+      }
+    }
     _marketplaceAgents = agents;
     _marketplaceLoaded = true;
     return _marketplaceAgents;
@@ -1177,10 +1200,20 @@ function _renderActivitySection(agents) {
   // any of the surrounding tab strip / other tab bodies.
   const chartSection = _renderUsageChartSection(agents);
 
+  // If the catalog fetch landed empty in production (no demo flag), show
+  // an honest "offline — retry" banner instead of fabricating runs from
+  // demo seed data.
+  const offlineBanner = _marketplaceAgentsLoadFailed && !_isMarketplaceDemoMode()
+    ? `<div role="alert" data-test="marketplace-offline" style="margin-bottom:12px;padding:10px 12px;border-radius:8px;background:rgba(251,191,36,0.10);border:1px solid rgba(251,191,36,0.35);font-size:12px;color:var(--text-primary);display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <span><strong>Marketplace is offline.</strong> No agents could be loaded from the backend — runs and SLA metrics may be incomplete.</span>
+        <button class="btn btn-sm btn-outline" onclick="window._agentMarketplaceRetry &amp;&amp; window._agentMarketplaceRetry()">Retry</button>
+       </div>`
+    : '';
+
   // Filter dropdown options come from whatever marketplace catalog we've
   // hydrated; fall back to whatever runs we already have so the dropdown is
   // never empty in demo mode before the catalog finishes loading.
-  const agentOptions = Array.isArray(agents) && agents.length ? agents : MARKETPLACE_DEMO_AGENTS;
+  const agentOptions = _agentsOrDemo(agents);
   const optionsHtml = ['<option value="">All agents</option>']
     .concat(agentOptions.map(a => {
       const sel = _activityAgentFilter === a.id ? ' selected' : '';
@@ -1259,6 +1292,7 @@ function _renderActivitySection(agents) {
   const footerLine = `Total this view: £${(totalPence / 100).toFixed(2)} from ${_activityRuns.length} run${_activityRuns.length === 1 ? '' : 's'}`;
 
   return `
+    ${offlineBanner}
     ${chartSection}
     ${filterRow}
     <div style="overflow-x:auto">
@@ -1281,6 +1315,15 @@ function _renderActivitySection(agents) {
     </div>
     <div class="muted" style="margin-top:8px;font-size:11px;color:var(--text-tertiary)">${footerLine}</div>
   `;
+}
+
+if (typeof window !== 'undefined' && !window._agentMarketplaceRetry) {
+  window._agentMarketplaceRetry = function () {
+    _marketplaceAgentsLoadFailed = false;
+    _marketplaceLoaded = false;
+    _marketplaceAgents = null;
+    if (typeof window._nav === 'function') window._nav('agents');
+  };
 }
 
 // ── Phase 13: Token & cost trend (sparklines) ────────────────────────────────
@@ -1396,7 +1439,7 @@ function _formatTokensCompact(n) {
 
 function _renderUsageChartSection(agents) {
   const agentNameById = new Map();
-  const opts = Array.isArray(agents) && agents.length ? agents : MARKETPLACE_DEMO_AGENTS;
+  const opts = _agentsOrDemo(agents);
   for (const a of opts) agentNameById.set(a.id, a.name || a.id);
 
   const pillStyle = (active) => active
@@ -1745,7 +1788,7 @@ async function _fetchOpsAbuse() {
 }
 
 function _renderOpsRunsCard(agents) {
-  const agentOptions = Array.isArray(agents) && agents.length ? agents : MARKETPLACE_DEMO_AGENTS;
+  const agentOptions = _agentsOrDemo(agents);
   const optionsHtml = ['<option value="">All agents</option>']
     .concat(agentOptions.map(a => {
       const sel = _opsAgentFilter === a.id ? ' selected' : '';
@@ -1914,7 +1957,7 @@ function _renderOpsSlaCard(agents) {
     body = `<div data-test="sla-empty" class="muted" style="padding:8px 0;font-size:11.5px;color:var(--text-tertiary)">No agent runs in the selected window.</div>`;
   } else {
     const agentNameById = new Map();
-    const agentList = Array.isArray(agents) && agents.length ? agents : MARKETPLACE_DEMO_AGENTS;
+    const agentList = _agentsOrDemo(agents);
     for (const a of agentList) agentNameById.set(a.id, a.name || a.id);
     const fmtMs = v => (Number.isFinite(Number(v)) ? `${Math.round(Number(v))} ms` : '—');
     const fmtPence = v => {
@@ -2495,7 +2538,7 @@ function _renderPromptOverridesSection(agents) {
   } else {
     // Use the loaded marketplace catalog so the table covers every agent the
     // backend knows about. Falls back to demo agents on first paint.
-    const catalogAgents = Array.isArray(agents) && agents.length ? agents : MARKETPLACE_DEMO_AGENTS;
+    const catalogAgents = _agentsOrDemo(agents);
     if (!catalogAgents.length) {
       tableBlock = `<div class="card" style="padding:14px 16px;font-size:11.5px;color:var(--text-tertiary)">No agents in the catalog yet.</div>`;
     } else {
