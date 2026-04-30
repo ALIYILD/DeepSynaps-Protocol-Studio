@@ -460,7 +460,7 @@ function _renderWorkspaceRatioRail(ratios) {
         featureSummary: [{ name: item.label, value: val, modality: 'qEEG', direction: 'observed', contribution: 0.18 }],
       }),
     });
-    html += '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+    html += '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
       + '<div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em">' + esc(item.label) + '</div>'
       + '<div style="font-size:18px;font-weight:700;margin-top:4px">' + (typeof val === 'number' ? val.toFixed(2) : esc(val)) + '</div>'
       + '<div style="font-size:11px;color:var(--text-secondary);margin-top:2px">' + esc(item.ref) + '</div>'
@@ -483,11 +483,11 @@ function _renderWorkspacePrimaryLens(data, bands, normDev, state) {
       return '<div style="display:grid;grid-template-columns:minmax(0,1.35fr) minmax(260px,.85fr);gap:16px;align-items:start">'
         + '<div style="overflow-x:auto">' + renderConnectivityMatrix(matrix, d.channels, { band: state.band + ' coherence', size: 420 }) + '</div>'
         + '<div style="display:flex;flex-direction:column;gap:12px">'
-        + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+        + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
         + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Spatial network view</div>'
         + renderConnectivityBrainMap(topEdges, { band: state.band + ' coherence', size: 260, threshold: 0 })
         + '</div>'
-        + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+        + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
         + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Strongest pairs</div>'
         + topEdges.map(function (edge) {
           return '<div style="display:flex;justify-content:space-between;gap:12px;font-size:12px;padding:4px 0;color:var(--text-secondary)">'
@@ -502,8 +502,8 @@ function _renderWorkspacePrimaryLens(data, bands, normDev, state) {
     if (data && data.asymmetry_detail && data.asymmetry_detail.regions && typeof renderAsymmetryMap === 'function') {
       var regions = Object.keys(data.asymmetry_detail.regions || {});
       return '<div style="display:grid;grid-template-columns:minmax(0,1.2fr) minmax(240px,.8fr);gap:16px;align-items:start">'
-        + '<div style="text-align:center;padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">' + renderAsymmetryMap(data.asymmetry_detail.regions) + '</div>'
-        + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+        + '<div style="text-align:center;padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">' + renderAsymmetryMap(data.asymmetry_detail.regions) + '</div>'
+        + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
         + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Asymmetry regions</div>'
         + regions.map(function (region) {
           return '<div style="display:flex;justify-content:space-between;gap:12px;font-size:12px;padding:4px 0;color:var(--text-secondary)">'
@@ -528,13 +528,13 @@ function _renderWorkspacePrimaryLens(data, bands, normDev, state) {
       biomarkerHtml += renderSignalDeviationChart(data.signal_deviations);
     }
     if (biomarkerHtml) {
-      return '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">' + biomarkerHtml + '</div>';
+      return '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">' + biomarkerHtml + '</div>';
     }
     return '<div style="padding:24px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px dashed rgba(255,255,255,0.12);font-size:13px;color:var(--text-secondary)">No biomarker visualization is available yet for this session.</div>';
   }
   var lensDomain = _getTopomapValueDomain(state.band, state.metric, [metricMap]);
   return '<div style="display:grid;grid-template-columns:minmax(0,1.25fr) minmax(220px,.75fr);gap:16px;align-items:start">'
-    + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+    + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
     + renderTopoHeatmap(metricMap, Object.assign({
       band: state.band + ' ' + (state.metric === 'zscore' ? 'z-score' : 'relative power'),
       unit: state.metric === 'zscore' ? 'z' : '%',
@@ -543,12 +543,12 @@ function _renderWorkspacePrimaryLens(data, bands, normDev, state) {
     }, _getTopomapLegendOptions(state.metric, lensDomain)))
     + '</div>'
     + '<div style="display:flex;flex-direction:column;gap:12px">'
-    + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+    + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
     + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">10-20 anchor map</div>'
     + renderBrainMap10_20({ size: 250, highlightSites: headHighlights })
     + '<div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">Highlighted channels are the strongest current ' + esc(state.metric === 'zscore' ? 'normative deviations' : 'spectral contributors') + ' for ' + esc(state.band) + '.</div>'
     + '</div>'
-    + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+    + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
     + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Top channels</div>'
     + (sortedChannels.length ? sortedChannels.slice(0, 8).map(function (row, index) {
       return '<div style="display:flex;justify-content:space-between;gap:12px;font-size:12px;padding:4px 0;color:var(--text-secondary)">'
@@ -627,7 +627,7 @@ function renderAnalysisWorkspace(data, bands, ratios, artifact, normDev, analyse
           + '</div>'
         + '</div>'
         + '<div style="display:flex;flex-direction:column;gap:12px">'
-          + '<div style="padding:14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+          + '<div style="padding:14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
             + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Session summary</div>'
             + '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;font-size:12px;color:var(--text-secondary)">'
               + '<div><div style="color:var(--text-tertiary)">Recording</div><div style="color:var(--text-primary);font-weight:600">' + esc(data.original_filename || 'qEEG session') + '</div></div>'
@@ -637,7 +637,7 @@ function renderAnalysisWorkspace(data, bands, ratios, artifact, normDev, analyse
             + '</div>'
           + '</div>'
           + (ratioRail ? '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px">' + ratioRail + '</div>' : '')
-          + '<div style="padding:14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+          + '<div style="padding:14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
             + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Normative severity</div>'
             + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px">'
               + badge(normSummary.significant + ' significant', normSummary.significant ? 'var(--amber)' : 'var(--green)')
@@ -646,11 +646,11 @@ function renderAnalysisWorkspace(data, bands, ratios, artifact, normDev, analyse
             + '</div>'
             + '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6">Significant means |z| >= 2. Mild means |z| between 1 and 2. Review z-score mode before relying on narrative interpretation.</div>'
           + '</div>'
-          + (comparison ? '<div style="padding:14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+          + (comparison ? '<div style="padding:14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
               + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Compare readiness</div>'
               + renderCompareSelectionSummary(comparison.baseline, comparison.followup)
             + '</div>' : '')
-          + '<div style="padding:14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+          + '<div style="padding:14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
             + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Next actions</div>'
             + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
               + '<button class="btn btn-sm btn-outline" aria-label="Open AI report for this analysis" onclick="window._qeegSwitchTab(\'report\')">Open AI report</button>'
@@ -700,10 +700,10 @@ function renderQEEGSessionRail(data, options) {
       + '</div>'
     + '</div>'
     + '<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px">'
-      + '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)"><div style="font-size:11px;color:var(--text-tertiary)">TBR</div><div style="font-size:18px;font-weight:700;margin-top:4px">' + (ratios.theta_beta_ratio != null ? Number(ratios.theta_beta_ratio).toFixed(2) : 'N/A') + '</div></div>'
-      + '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)"><div style="font-size:11px;color:var(--text-tertiary)">PAF</div><div style="font-size:18px;font-weight:700;margin-top:4px">' + (ratios.alpha_peak_frequency_hz != null ? Number(ratios.alpha_peak_frequency_hz).toFixed(2) + ' Hz' : 'N/A') + '</div></div>'
-      + '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)"><div style="font-size:11px;color:var(--text-tertiary)">FAA</div><div style="font-size:18px;font-weight:700;margin-top:4px">' + (ratios.frontal_alpha_asymmetry != null ? Number(ratios.frontal_alpha_asymmetry).toFixed(2) : 'N/A') + '</div></div>'
-      + '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)"><div style="font-size:11px;color:var(--text-tertiary)">Normative</div><div style="font-size:18px;font-weight:700;margin-top:4px;color:' + (normSummary.significant ? 'var(--amber)' : 'var(--green)') + '">' + normSummary.significant + ' high</div></div>'
+      + '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid var(--border)"><div style="font-size:11px;color:var(--text-tertiary)">TBR</div><div style="font-size:18px;font-weight:700;margin-top:4px">' + (ratios.theta_beta_ratio != null ? Number(ratios.theta_beta_ratio).toFixed(2) : 'N/A') + '</div></div>'
+      + '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid var(--border)"><div style="font-size:11px;color:var(--text-tertiary)">PAF</div><div style="font-size:18px;font-weight:700;margin-top:4px">' + (ratios.alpha_peak_frequency_hz != null ? Number(ratios.alpha_peak_frequency_hz).toFixed(2) + ' Hz' : 'N/A') + '</div></div>'
+      + '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid var(--border)"><div style="font-size:11px;color:var(--text-tertiary)">FAA</div><div style="font-size:18px;font-weight:700;margin-top:4px">' + (ratios.frontal_alpha_asymmetry != null ? Number(ratios.frontal_alpha_asymmetry).toFixed(2) : 'N/A') + '</div></div>'
+      + '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid var(--border)"><div style="font-size:11px;color:var(--text-tertiary)">Normative</div><div style="font-size:18px;font-weight:700;margin-top:4px;color:' + (normSummary.significant ? 'var(--amber)' : 'var(--green)') + '">' + normSummary.significant + ' high</div></div>'
     + '</div>'
   + '</div>';
 }
@@ -2766,14 +2766,14 @@ function _renderComprehensiveReport(report, analysis, savedEvidenceCitations) {
     if (bioMetrics.length) {
       bioHtml += '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:12px">';
       bioMetrics.forEach(function (m) {
-        bioHtml += '<div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:12px 16px;border:1px solid rgba(255,255,255,0.06);min-width:160px">'
+        bioHtml += '<div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:12px 16px;border:1px solid var(--border);min-width:160px">'
           + '<div style="font-size:18px;font-weight:700;color:var(--text-primary)">' + esc(m.value) + '</div>'
           + '<div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">' + esc(m.label) + '</div></div>';
       });
       bioHtml += '</div>';
     }
     // Disclaimer
-    bioHtml += '<div style="margin-top:12px;padding:10px;background:rgba(255,255,255,0.03);border-radius:6px;border:1px solid rgba(255,255,255,0.06);font-size:11px;color:var(--text-tertiary);font-style:italic">'
+    bioHtml += '<div style="margin-top:12px;padding:10px;background:rgba(255,255,255,0.03);border-radius:6px;border:1px solid var(--border);font-size:11px;color:var(--text-tertiary);font-style:italic">'
       + 'These biomarkers reflect momentary patterns in brainwave activity based on mathematical models. They are not diagnostic conclusions.</div>';
     html += card('Biomarker Analysis', bioHtml);
   }
@@ -2865,7 +2865,7 @@ function _demoBanner() {
 // reviewing clinician cannot miss them. These are static strings — they are
 // not gated on demo mode and never disappear once the analyzer renders.
 function _qeegClinicalSafetyFooter() {
-  return '<div data-testid="qeeg-safety-footer" class="qeeg-safety-footer" style="margin-top:24px;padding:14px 16px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);font-size:12px;color:var(--text-secondary);line-height:1.6">'
+  return '<div data-testid="qeeg-safety-footer" class="qeeg-safety-footer" style="margin-top:24px;padding:14px 16px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border);font-size:12px;color:var(--text-secondary);line-height:1.6">'
     + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-tertiary);margin-bottom:6px">Clinical safety disclaimers</div>'
     + '<ul style="margin:0;padding-left:18px">'
     + '<li>qEEG findings <strong>support clinical decision-making and require clinician review</strong>.</li>'
@@ -4317,7 +4317,7 @@ async function handleUpload(file, patientId) {
       var sr = result.sample_rate_hz || 0;
       var chColor = chCount >= 19 ? 'var(--green)' : chCount >= 10 ? 'var(--amber)' : 'var(--red)';
       var srColor = sr >= 256 ? 'var(--green)' : sr >= 128 ? 'var(--amber)' : 'var(--red)';
-      var qualityHtml = '<div style="margin-top:12px;padding:12px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.06)">'
+      var qualityHtml = '<div style="margin-top:12px;padding:12px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid var(--border)">'
         + '<div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Recording Quality</div>'
         + '<div style="display:flex;gap:12px;flex-wrap:wrap">';
       qualityHtml += '<div style="font-size:12px"><span style="color:' + chColor + ';font-weight:600">' + chCount + '</span> channels</div>'
@@ -4688,7 +4688,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         ? '<button class="btn btn-primary btn-sm" onclick="window._qeegSelectedId=\'demo\';window._qeegTab=\'analysis\';window._nav(\'qeeg-analysis\')">Open Analysis (demo data)</button>'
         : '';
       tabEl.innerHTML =
-        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);text-align:center">'
+        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:rgba(255,255,255,0.02);border:1px solid var(--border);text-align:center">'
         + '<div style="font-size:32px;margin-bottom:8px">📊</div>'
         + '<div style="font-size:18px;font-weight:700;margin-bottom:6px">No analysis selected</div>'
         + '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px">Open the analysis view with sample data, jump to an existing analysis, or upload a new EDF.</div>'
@@ -5221,7 +5221,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         ? '<button class="btn btn-primary btn-sm" onclick="window._qeegSelectedId=\'demo\';window._qeegTab=\'report\';window._nav(\'qeeg-analysis\')">Open AI Report (demo data)</button>'
         : '';
       tabEl.innerHTML =
-        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);text-align:center">'
+        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:rgba(255,255,255,0.02);border:1px solid var(--border);text-align:center">'
         + '<div style="font-size:32px;margin-bottom:8px">📝</div>'
         + '<div style="font-size:18px;font-weight:700;margin-bottom:6px">No analysis selected</div>'
         + '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px">Open the AI report with sample data, jump to an existing analysis, or upload a new EDF.</div>'
@@ -5426,15 +5426,15 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
     );
     learningHtml += card('Learning EEG Workflow',
       '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">'
-        + '<div style="padding:12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+        + '<div style="padding:12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
         + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--blue)">1. Check raw signal</div>'
         + '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-top:6px">Confirm artefact, montage, state, and basic morphology before trusting derived metrics.</div>'
         + '</div>'
-        + '<div style="padding:12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+        + '<div style="padding:12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
         + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--teal)">2. Review quantitative output</div>'
         + '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-top:6px">Map band-power, asymmetry, and normative deviations back to standard EEG language and age/state context.</div>'
         + '</div>'
-        + '<div style="padding:12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
+        + '<div style="padding:12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
         + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--amber)">3. Escalate carefully</div>'
         + '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-top:6px">Suspicious rhythmic or sharply contoured events still require direct EEG review for evolution, field, and context.</div>'
         + '</div>'
@@ -5467,7 +5467,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         ? "window._qeegSelectedId='demo';window.location.hash='#/qeeg-raw-workbench/demo';window._nav('qeeg-raw-workbench')"
         : "window._nav('qeeg-raw-workbench')";
       tabEl.innerHTML =
-        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);text-align:center">'
+        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:rgba(255,255,255,0.02);border:1px solid var(--border);text-align:center">'
         + '<div style="font-size:32px;margin-bottom:8px">📈</div>'
         + '<div style="font-size:18px;font-weight:700;margin-bottom:6px">No EEG selected</div>'
         + '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px">Open the inline editor with sample data, pick a patient and upload a new EDF, jump to an existing analysis, or open the full-screen workbench for manual analysis.</div>'
@@ -5486,7 +5486,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       await renderRawDataTab(tabEl, analysisId, patientId);
       // Compact workbench link bar below the viewer
       var summaryBar = document.createElement('div');
-      summaryBar.style.cssText = 'display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px;padding:10px 14px;border-radius:10px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);font-size:11px;color:var(--text-secondary)';
+      summaryBar.style.cssText = 'display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px;padding:10px 14px;border-radius:10px;background:rgba(255,255,255,0.02);border:1px solid var(--border);font-size:11px;color:var(--text-secondary)';
       summaryBar.id = 'qeeg-raw-summary-bar';
       summaryBar.innerHTML = '<span>Need full-screen editing? <a href="#" style="color:var(--blue)" onclick="window._qeegOpenWorkbench&&window._qeegOpenWorkbench(\'' + esc(analysisId) + '\');return false;">Open Raw EEG Workbench</a></span>'
         + '<span style="margin-left:auto;display:flex;gap:10px;align-items:center">'
@@ -5851,7 +5851,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
             if (strongestCorr.metric) {
               var direction = strongestCorr.value > 0 ? 'positive' : 'negative';
               var strength = Math.abs(strongestCorr.value) > 0.6 ? 'strong' : Math.abs(strongestCorr.value) > 0.3 ? 'moderate' : 'weak';
-              cHtml += '<div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:12px;border:1px solid rgba(255,255,255,0.06)">'
+              cHtml += '<div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:12px;border:1px solid var(--border)">'
                 + '<div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Interpretation</div>'
                 + '<div style="font-size:12px;color:var(--text-secondary)">Strongest correlation: <strong>' + esc(strongestCorr.metric) + '</strong> and <strong>' + esc(strongestCorr.assessment) + '</strong> '
                 + '(r = ' + strongestCorr.value.toFixed(2) + ', ' + strength + ' ' + direction + '). '
@@ -5863,7 +5863,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
             corrData.correlations.forEach(function (c) {
               var trendColor = c.trend === 'improving' ? 'var(--green)' : c.trend === 'worsening' ? 'var(--red)' : 'var(--amber)';
               var changePfx = c.score_change > 0 ? '+' : '';
-              cHtml += '<div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:14px;border:1px solid rgba(255,255,255,0.06)">'
+              cHtml += '<div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:14px;border:1px solid var(--border)">'
                 + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
                 + '<strong style="font-size:13px;color:var(--text-primary)">' + esc(c.assessment) + '</strong>'
                 + badge(c.trend, trendColor)
@@ -6077,7 +6077,7 @@ function renderComparison(comp) {
     corrData.correlations.forEach(function (c) {
       var trendColor = c.trend === 'improving' ? 'var(--green)' : c.trend === 'worsening' ? 'var(--red)' : 'var(--amber)';
       var changePfx = c.score_change > 0 ? '+' : '';
-      corrHtml += '<div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:14px;border:1px solid rgba(255,255,255,0.06)">'
+      corrHtml += '<div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:14px;border:1px solid var(--border)">'
         + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
         + '<strong style="font-size:13px;color:var(--text-primary)">' + esc(c.assessment) + '</strong>'
         + badge(c.trend, trendColor)
