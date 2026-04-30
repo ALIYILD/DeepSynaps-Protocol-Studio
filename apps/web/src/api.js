@@ -1372,6 +1372,20 @@ export const api = {
     apiFetch(`/api/v1/qeeg-analysis/${analysisId}/quality-check`, { method: 'POST' }),
   getQEEGPrintableReport: (analysisId, reportId) =>
     apiFetchBinary(`/api/v1/qeeg-analysis/${encodeURIComponent(analysisId)}/reports/${encodeURIComponent(reportId)}/pdf`),
+  // qEEG Brain Map report — server-rendered HTML/PDF from the saved
+  // QEEGAIReport's brain_map payload. The backend resolves the payload via
+  // _resolve_qeeg_brain_map_payload (report_payload column with legacy
+  // fallback to patient_facing_report_json).
+  getQEEGBrainMapReportHTML: (reportId) =>
+    apiFetchBinary(`/api/v1/reports/qeeg/${encodeURIComponent(reportId)}.html`),
+  getQEEGBrainMapReportPDF: (reportId) =>
+    apiFetchBinary(`/api/v1/reports/qeeg/${encodeURIComponent(reportId)}.pdf`),
+  // Returns the public URL for the HTML brain map report so we can open it
+  // in a new tab without going through the binary helper.
+  getQEEGBrainMapReportURL: (reportId, format = 'html') => {
+    const ext = format === 'pdf' ? 'pdf' : 'html';
+    return `${API_BASE}/api/v1/reports/qeeg/${encodeURIComponent(reportId)}.${ext}`;
+  },
   getQEEGLongitudinalTrend: (patientId, metric) =>
     apiFetch('/api/v1/qeeg-analysis/longitudinal', { method: 'POST', body: JSON.stringify({ patient_id: patientId, metric }) }),
   getQEEGAssessmentCorrelation: (analysisId, assessments) =>

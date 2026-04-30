@@ -2249,7 +2249,20 @@ function _renderComprehensiveReport(report, analysis, savedEvidenceCitations) {
   }
 
   // ── Print / Download button bar ─────────────────────────────────────────
-  html += '<div class="qeeg-export-bar" style="justify-content:flex-end;margin-bottom:8px">'
+  // The brain-map buttons are only shown when the saved report row has a
+  // resolvable id — without it the backend renderer 404s. The renderer
+  // pulls from QEEGAIReport.report_payload (with legacy fallback to
+  // patient_facing_report_json) so it always tracks whatever the analyzer
+  // generated, automatically or manually, when the AI report saved.
+  var _brainMapBtns = '';
+  if (report && report.id) {
+    var _bmId = encodeURIComponent(report.id);
+    _brainMapBtns = ''
+      + '<button class="btn btn-sm btn-primary" aria-label="Open qEEG Brain Map report in a new tab" onclick="window._qeegOpenBrainMapReport(\'' + _bmId + '\')">Open Brain Map Report</button>'
+      + '<button class="btn btn-sm btn-outline" aria-label="Download qEEG Brain Map PDF" onclick="window._qeegDownloadBrainMapReport(\'' + _bmId + '\')">Brain Map PDF</button>';
+  }
+  html += '<div class="qeeg-export-bar" style="justify-content:flex-end;margin-bottom:8px;gap:6px;display:flex;flex-wrap:wrap">'
+    + _brainMapBtns
     + '<button class="btn btn-sm btn-outline" aria-label="Print AI report" onclick="window._qeegPrintReport()">Print HTML Report</button>'
     + '<button class="btn btn-sm btn-outline" aria-label="Download printable report" onclick="window._qeegDownloadPDF()">Download Printable Report</button></div>';
   if (hasPrintableReport || callouts.length) {
@@ -6308,6 +6321,43 @@ window._qeegPrintReport = function () {
   html += '</body></html>';
   w.document.write(html);
   w.document.close();
+};
+
+// ── qEEG Brain Map report ─────────────────────────────────────────────────────
+// Opens / downloads the server-rendered brain-map report (Jinja template at
+// apps/api/app/templates/qeeg_brain_map_report.html). The backend resolves
+// the brain_map payload from the saved QEEGAIReport row, so this works for
+// any report — automatic pipeline output OR clinician-amended manual run.
+window._qeegOpenBrainMapReport = function (reportId) {
+  if (!reportId) return showToast('No report id available', 'warning');
+  _qeegAudit('open_brain_map_report', { report_id: reportId });
+  try {
+    var url = api.getQEEGBrainMapReportURL(reportId, 'html');
+    window.open(url, '_blank', 'noopener,noreferrer');
+  } catch (err) {
+    showToast('Could not open brain map report: ' + (err && err.message ? err.message : err), 'error');
+  }
+};
+window._qeegDownloadBrainMapReport = function (reportId) {
+  if (!reportId) return showToast('No report id available', 'warning');
+  _qeegAudit('download_brain_map_report', { report_id: reportId });
+  api.getQEEGBrainMapReportPDF(reportId)
+    .then(function (file) {
+      var filename = file.filename || ('qeeg_brain_map_' + reportId + '.pdf');
+      downloadBlob(file.blob, filename);
+      showToast('Brain map PDF downloaded', 'success');
+    })
+    .catch(function (err) {
+      var msg = (err && err.message ? err.message : String(err));
+      _qeegAudit('download_brain_map_failed', { note: msg.slice(0, 200) });
+      // The backend returns 503 when WeasyPrint isn't installed; surface it
+      // honestly so a clinician knows it's an infra issue, not a data one.
+      if (/503|renderer.*unavailable/i.test(msg)) {
+        showToast('Brain map PDF renderer is not configured on this server. Open the HTML version instead.', 'warning');
+      } else {
+        showToast('Brain map PDF download failed: ' + msg, 'error');
+      }
+    });
 };
 
 // ── PDF download via backend endpoint ────────────────────────────────────────
