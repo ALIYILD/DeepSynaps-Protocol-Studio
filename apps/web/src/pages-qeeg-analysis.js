@@ -638,8 +638,8 @@ function renderAnalysisWorkspace(data, bands, ratios, artifact, normDev, analyse
           + '<div style="padding:14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">'
             + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Next actions</div>'
             + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
-              + '<button class="btn btn-sm btn-outline" onclick="window._qeegTab=\'report\';window._nav(\'qeeg-analysis\')">Open AI report</button>'
-              + '<button class="btn btn-sm btn-outline" onclick="window._qeegTab=\'compare\';window._nav(\'qeeg-analysis\')">Open compare</button>'
+              + '<button class="btn btn-sm btn-outline" aria-label="Open AI report for this analysis" onclick="window._qeegSwitchTab(\'report\')">Open AI report</button>'
+              + '<button class="btn btn-sm btn-outline" aria-label="Open compare tab" onclick="window._qeegSwitchTab(\'compare\')">Open compare</button>'
             + '</div>'
           + '</div>'
         + '</div>'
@@ -4321,6 +4321,7 @@ async function refreshAnalysesList(patientId) {
     _analyses = (resp && resp.items) || (Array.isArray(resp) ? resp : []);
     const listEl = document.getElementById('qeeg-analyses-list');
     if (listEl) listEl.innerHTML = renderAnalysisList(_analyses);
+    _wireQEEGAnalysisCopyButtons();
   } catch (err) { showToast('Failed to refresh analyses list: ' + (err.message || err), 'error'); }
 }
 
@@ -4332,22 +4333,54 @@ function renderAnalysisList(analyses) {
   analyses.forEach(function (a) {
     const status = a.analysis_status || 'pending';
     const statusColor = status === 'completed' ? 'var(--green)' : status === 'failed' ? 'var(--red)' : 'var(--amber)';
-    html += '<div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;transition:background .15s" '
-      + 'onmouseover="this.style.background=\'rgba(255,255,255,0.06)\'" onmouseout="this.style.background=\'rgba(255,255,255,0.03)\'" '
-      + 'onclick="window._qeegSelectedId=\'' + a.id + '\';window._qeegTab=\'analysis\';window._nav(\'qeeg-analysis\')">'
-      + '<div style="min-width:0;flex:1">'
+    const idShort = String(a.id || '').slice(0, 8);
+    html += '<div class="qeeg-analysis-row" style="background:rgba(255,255,255,0.03);border-radius:8px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;transition:background .15s">'
+      + '<div style="min-width:0;flex:1;cursor:pointer" '
+      + 'onclick="window._qeegSelectedId=\'' + a.id + '\';window._qeegSwitchTab(\'analysis\')">'
       + '<div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.original_filename || 'EDF File') + '</div>'
       + '<div style="font-size:11px;color:var(--text-tertiary)">'
       + (a.channels_used || a.channel_count || '?') + ' ch'
       + (a.sample_rate_hz ? ', ' + a.sample_rate_hz + ' Hz' : '')
       + (a.eyes_condition ? ' | ' + esc(a.eyes_condition) : '')
       + (a.analyzed_at ? ' | ' + new Date(a.analyzed_at).toLocaleDateString() : '')
+      + (idShort ? ' | <span style="font-family:var(--font-mono,monospace);color:var(--text-secondary)">id:' + esc(idShort) + '</span>' : '')
       + '</div>'
       + renderAnalysisCapabilityChips(a)
       + '</div>'
-      + '<div style="margin-left:8px">' + badge(status, statusColor) + '</div></div>';
+      + '<div style="margin-left:8px;display:flex;align-items:center;gap:6px">'
+      + (a.id ? '<button class="btn btn-ghost btn-sm" data-qeeg-copy-id="' + esc(a.id) + '" aria-label="Copy analysis ID to clipboard" title="Copy analysis ID" style="padding:4px 6px;font-size:11px">Copy</button>' : '')
+      + badge(status, statusColor)
+      + '</div></div>';
   });
   return html;
+}
+
+// Wire copy buttons inside the analyses list. Idempotent — re-run after re-render.
+function _wireQEEGAnalysisCopyButtons() {
+  document.querySelectorAll('[data-qeeg-copy-id]').forEach(function (btn) {
+    if (btn.__qeegCopyWired) return;
+    btn.__qeegCopyWired = true;
+    btn.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      const id = btn.getAttribute('data-qeeg-copy-id') || '';
+      if (!id) return;
+      const onCopied = function () {
+        const original = btn.textContent;
+        btn.textContent = 'Copied';
+        setTimeout(function () { btn.textContent = original; }, 1200);
+        try { showToast('Analysis ID copied', 'success'); } catch (_e) {}
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(id).then(onCopied).catch(function () {
+          try {
+            const ta = document.createElement('textarea');
+            ta.value = id; document.body.appendChild(ta); ta.select();
+            document.execCommand('copy'); document.body.removeChild(ta); onCopied();
+          } catch (_e) {}
+        });
+      }
+    });
+  });
 }
 
 // ── Main page function ───────────────────────────────────────────────────────
@@ -4578,6 +4611,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         + '<div style="margin-top:16px">' + renderQEEGStackCard() + '</div>'
         + '<div style="margin-top:16px"><h4 style="font-size:14px;font-weight:600;margin:0 0 8px">Recent Analyses</h4>'
         + '<div id="qeeg-analyses-list">' + renderAnalysisList(displayAnalyses) + '</div></div>';
+      _wireQEEGAnalysisCopyButtons();
     }
 
     initUploadHandlers(patientId);
