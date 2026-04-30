@@ -463,14 +463,14 @@ function workbenchShell(state) {
         <div id="qwb-canvas-wrap" class="qwb-canvas-wrap" data-testid="qwb-trace">
           <div class="qwb-time-ruler" id="qwb-time-ruler" data-testid="qwb-time-ruler"></div>
           <div class="qwb-immutable-notice" id="qwb-immutable-banner">Original raw EEG preserved · Decision-support only</div>
-          <canvas id="qwb-canvas" class="qwb-canvas-el"></canvas>
+          <canvas id="qwb-canvas" class="qwb-canvas-el" role="img" aria-label="EEG trace, 19 channels Fp1 through O2. Drag to mark a bad segment; right-click for tools."></canvas>
           <div id="qwb-overlays" class="qwb-overlays" data-testid="qwb-overlays"></div>
           ${inlineTraceEventsHtml(state)}
           <div id="qwb-rerun-notice" class="qwb-rerun-notice" style="display:none"></div>
         </div>
         <div class="qwb-spectro-strip" data-testid="qwb-spectro-strip">
           <span class="qwb-spectro-label">SPECTROGRAM · 0–50 Hz</span>
-          <canvas id="qwb-spectro-canvas" class="qwb-spectro-canvas"></canvas>
+          <canvas id="qwb-spectro-canvas" class="qwb-spectro-canvas" role="img" aria-label="Spectrogram, 0 to 50 Hz, current window."></canvas>
         </div>
       </div>
       ${rightPanelHtml(state)}

@@ -11776,7 +11776,7 @@ export async function pgPatientProfile(setTopbar) {
     savePatientProfile(p);
     _ppEditMode = false;
     _ppRerender();
-    window._announce?.('Demographics saved in this browser view');
+    window._announce?.('Saving demographics…');
     // ── Sync core fields to backend ────────────────────────────────────────
     const nameParts = (p.name || '').trim().split(/\s+/);
     const backendData = {
@@ -11789,6 +11789,7 @@ export async function pgPatientProfile(setTopbar) {
     };
     try {
       await api.updatePatient(_ppCurrentId, backendData);
+      window._announce?.('Demographics saved');
       window._showNotifToast?.({ title: 'Saved', body: 'Patient profile updated.', severity: 'success' });
     } catch(e) {
       window._showNotifToast?.({ title: 'Save failed', body: e.message || 'Could not sync to server.', severity: 'warn' });
