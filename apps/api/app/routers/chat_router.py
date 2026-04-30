@@ -290,6 +290,27 @@ def clinician_chat(
         except Exception:
             pass  # risk context is optional enrichment
     reply = chat_clinician(msgs, patient_context)
+    # Audit every clinician chat — wearable_clinician_chat already logs via
+    # _log_ai_summary; this path was previously missing from the audit
+    # surface entirely. We pass the assembled sources_used list so the
+    # downstream feed shows what context the LLM saw.
+    try:
+        sources_used = ["clinician_chat"]
+        if patient_context:
+            sources_used.append("patient_context")
+        if body.patient_id:
+            sources_used.append("patient_id_scoped")
+        _log_ai_summary(
+            body.patient_id,
+            actor,
+            "clinician_chat",
+            reply,
+            sources_used,
+            _llm_model(),
+            db,
+        )
+    except Exception:
+        pass  # never let audit logging break the chat reply
     return ChatResponse(reply=reply)
 
 
