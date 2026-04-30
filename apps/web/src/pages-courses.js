@@ -1119,6 +1119,12 @@ export async function pgCourseDetail(setTopbar, navigate) {
     : 0;
   const statusCol = STATUS_COLOR[course.status] || 'var(--text-tertiary)';
   const finalization = _courseFinalizationSummary(sessions, adverseEvents, aeSummary);
+
+  // Mount-time audit ping — best-effort, fire-and-forget. Surfaces this view
+  // event in the audit timeline (see /audit-events) so regulators can see who
+  // opened the Course Detail page and when. Soft-fails on any backend error.
+  try { api.recordCourseAuditEvent(course.id, { event: 'view', note: window._cdTab || 'overview' }); } catch (_) {}
+
   setTopbar(
     `${course.condition_slug ? course.condition_slug.replace(/-/g,' ') : 'Course'} · ${course.modality_slug || ''}`,
     `<button class="btn btn-ghost btn-sm" onclick="window._nav('courses')">← Courses</button>
@@ -1176,7 +1182,10 @@ export async function pgCourseDetail(setTopbar, navigate) {
         <button class="btn btn-sm" id="cd-exp-protocol" onclick="window._cdExport('protocol')">Protocol Report .docx</button>
         <button class="btn btn-sm" id="cd-exp-guide" onclick="window._cdExport('guide')">Patient Guide .docx</button>
         <button class="btn btn-sm" id="cd-exp-summary" onclick="window._cdExport('summary')">Full Course Summary</button>
+        <button class="btn btn-sm" id="cd-exp-csv" onclick="window._cdExport('csv')" title="Course + delivered sessions as CSV. Demo courses are # DEMO-prefixed.">↓ CSV (course + sessions)</button>
+        <button class="btn btn-sm" id="cd-exp-ndjson" onclick="window._cdExport('ndjson')" title="Course + delivered sessions + audit timeline as NDJSON. Demo courses include _meta:DEMO.">↓ NDJSON (incl. audit)</button>
         <button class="btn btn-sm no-print" onclick="window._cdPrint()">&#128424; Print Course Report</button>
+        <button class="btn btn-primary btn-sm" onclick="window._cdSwitchTab('reports')" title="Open the Course Completion Report tab">📄 Completion Report</button>
       </div>
       <div id="cd-exp-notice" style="display:none;margin-top:10px;font-size:12px;color:var(--text-secondary)"></div>
     </div>
@@ -1284,7 +1293,11 @@ export async function pgCourseDetail(setTopbar, navigate) {
   };
 
   window._cdExport = async function(type) {
-    const btnId  = type === 'protocol' ? 'cd-exp-protocol' : type === 'guide' ? 'cd-exp-guide' : 'cd-exp-summary';
+    const btnId  = type === 'protocol' ? 'cd-exp-protocol'
+                 : type === 'guide'    ? 'cd-exp-guide'
+                 : type === 'csv'      ? 'cd-exp-csv'
+                 : type === 'ndjson'   ? 'cd-exp-ndjson'
+                 : 'cd-exp-summary';
     const btn    = document.getElementById(btnId);
     const notice = document.getElementById('cd-exp-notice');
     const origText = btn ? btn.textContent : '';
@@ -1311,6 +1324,14 @@ export async function pgCourseDetail(setTopbar, navigate) {
           language: 'English',
         });
         downloadBlob(blob, 'patient-guide-' + (course.condition_slug || course.id) + '.docx');
+      } else if (type === 'csv') {
+        const r = await api.exportCourseCSV(course.id);
+        downloadBlob(r.blob, r.filename || ('course-' + course.id + '.csv'));
+        try { api.recordCourseAuditEvent(course.id, { event: 'export_csv.client', note: 'frontend export' }); } catch (_) {}
+      } else if (type === 'ndjson') {
+        const r = await api.exportCourseNDJSON(course.id);
+        downloadBlob(r.blob, r.filename || ('course-' + course.id + '.ndjson'));
+        try { api.recordCourseAuditEvent(course.id, { event: 'export_ndjson.client', note: 'frontend export' }); } catch (_) {}
       } else if (type === 'summary') {
         const res = await api.caseSummary({
           condition: course.condition_slug || '',
@@ -1809,26 +1830,29 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
       </div>
     </div>
     ${(() => {
-      // Prefer real audit-trail data when the backend returned it. If the
-      // endpoint was not reachable (or the course has no audit entries yet),
-      // render an illustrative placeholder so the card is never silently
-      // populated with fake timestamps presented as real.
+      // Render the real audit timeline only. If the backend was unreachable
+      // we surface that as a load-error banner; we never fabricate
+      // "illustrative" rows that look like real audit history (launch-audit
+      // 2026-04-30).
       const trail = Array.isArray(auditTrail?.items) ? auditTrail.items : null;
       const typeColor = { generate: 'var(--teal)', edit: 'var(--blue)', approve: 'var(--green)',
                           'course.activate': 'var(--green)', 'course.activate.safety_override': 'var(--amber)',
+                          'course_detail.pause': 'var(--amber)', 'course_detail.resume': 'var(--teal)',
+                          'course_detail.close': 'var(--red)', 'course_detail.detail.read': 'var(--text-tertiary)',
+                          'course_detail.export_csv': 'var(--blue)', 'course_detail.export_ndjson': 'var(--blue)',
                           reject: 'var(--red)' };
       const typeIcon  = { generate: '&#x2605;', edit: '&#x270E;', approve: '&#x2713;', reject: '&#x2715;',
-                          'course.activate': '&#x2713;', 'course.activate.safety_override': '&#x26A0;&#xFE0F;' };
-      const banner = (trail && trail.length === 0)
-        ? `<div style="font-size:11px;color:var(--text-tertiary);padding:8px 0">No audit events recorded yet for this course.</div>`
-        : (trail == null
-            ? `<div style="font-size:11px;color:var(--amber);padding:6px 10px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:6px;margin-bottom:8px">⚠ Audit trail unavailable — showing illustrative examples.</div>`
-            : '');
-      const records = (trail && trail.length > 0) ? trail : [
-        { action: 'generate', actor_id: 'demo', role: 'clinician', note: 'Illustrative: Protocol generated', created_at: '2026-04-08' },
-        { action: 'edit',     actor_id: 'demo', role: 'clinician', note: 'Illustrative: Parameters adjusted', created_at: '2026-04-09' },
-        { action: 'approve',  actor_id: 'demo', role: 'reviewer',  note: 'Illustrative: Protocol approved', created_at: '2026-04-10' },
-      ];
+                          'course.activate': '&#x2713;', 'course.activate.safety_override': '&#x26A0;&#xFE0F;',
+                          'course_detail.pause': '&#x23F8;&#xFE0F;', 'course_detail.resume': '&#x25B6;&#xFE0F;',
+                          'course_detail.close': '&#x25A0;', 'course_detail.export_csv': '&#x2193;',
+                          'course_detail.export_ndjson': '&#x2193;' };
+      let banner = '';
+      if (trail == null) {
+        banner = `<div role="status" style="font-size:11px;color:var(--amber);padding:6px 10px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:6px;margin-bottom:8px">⚠ Audit trail unavailable — backend did not respond. No history shown.</div>`;
+      } else if (trail.length === 0) {
+        banner = `<div role="status" style="font-size:11px;color:var(--text-tertiary);padding:8px 0">No audit events recorded yet for this course.</div>`;
+      }
+      const records = (trail && trail.length > 0) ? trail : [];
       const entries = records.map((e, i) => {
         const col = typeColor[e.action] || 'var(--text-tertiary)';
         const ic = typeIcon[e.action] || '&#x25CF;';
@@ -1846,7 +1870,7 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
           </div>`;
       }).join('');
       return `<div class="ds-card" style="margin-top:16px">
-        <h4 style="margin-bottom:14px;font-size:13px;font-weight:600">Protocol Change Log</h4>
+        <h4 style="margin-bottom:14px;font-size:13px;font-weight:600">Audit Timeline (${records.length})</h4>
         ${banner}
         <div id="proto-changelog-${_cdEscHtml(course.id)}" style="position:relative">
           ${entries}
@@ -2105,10 +2129,12 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
 
   if (tab === 'governance') {
     const warnings = course.governance_warnings || [];
-    const canPause = ['active', 'approved'].includes(course.status);
-    const canDiscontinue = ['active', 'approved', 'pending_approval', 'paused'].includes(course.status);
-    const canResume = course.status === 'paused';
-    const canApprove = course.status === 'pending_approval';
+    const isTerminal = ['completed', 'closed', 'discontinued'].includes(course.status);
+    const canPause = !isTerminal && ['active', 'approved'].includes(course.status);
+    const canClose = !isTerminal && ['active', 'approved', 'pending_approval', 'paused'].includes(course.status);
+    const canDiscontinue = canClose;
+    const canResume = !isTerminal && course.status === 'paused';
+    const canApprove = !isTerminal && course.status === 'pending_approval';
 
     return `<div class="g2">
       <div>
@@ -2121,7 +2147,10 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
           fr('Clinician ID',   `<span class="mono" style="font-size:11px">${course.clinician_id || '—'}</span>`)
         )}
         ${cardWrap('Course Actions',
-          `<div id="cd-gov-error" style="color:var(--red);font-size:12px;display:none;margin-bottom:8px"></div>
+          `<div id="cd-gov-error" role="alert" style="color:var(--red);font-size:12px;display:none;margin-bottom:8px"></div>
+          ${isTerminal
+            ? `<div role="status" style="font-size:12.5px;color:var(--text-tertiary);padding:8px 10px;background:rgba(0,0,0,0.18);border-radius:6px;margin-bottom:8px">⛔ Course is in terminal state <strong>${_cdEscHtml(course.status)}</strong> and is immutable. No further state changes are permitted.</div>`
+            : ''}
           <div style="display:flex;flex-direction:column;gap:10px">
             ${canApprove ? `
               <div>
@@ -2130,24 +2159,38 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
               </div>` : ''}
             ${canResume ? `
               <div>
-                <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">Resume a paused treatment course.</div>
-                <button class="btn btn-sm" style="border-color:var(--teal);color:var(--teal)" onclick="window._cdGovAction('resume')">▶ Resume Course</button>
+                <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">Resume a paused treatment course. A clinician note is required and is audited.</div>
+                <div style="display:flex;gap:8px;align-items:flex-start">
+                  <textarea id="cd-resume-note" class="form-control" style="flex:1;font-size:12px" rows="2" placeholder="Clinical rationale for resuming (required)…" aria-label="Resume note"></textarea>
+                  <button class="btn btn-sm" style="border-color:var(--teal);color:var(--teal);white-space:nowrap" onclick="window._cdGovAction('resume')">▶ Resume</button>
+                </div>
               </div>` : ''}
             ${canPause ? `
               <div>
-                <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">Temporarily halt sessions. Patient remains enrolled.</div>
-                <button class="btn btn-sm" style="border-color:var(--amber);color:var(--amber)" onclick="window._cdGovAction('pause')">⏸ Pause Course</button>
+                <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">Temporarily halt sessions. Patient remains enrolled. A clinician note is required and is audited.</div>
+                <div style="display:flex;gap:8px;align-items:flex-start">
+                  <textarea id="cd-pause-note" class="form-control" style="flex:1;font-size:12px" rows="2" placeholder="Reason to pause (required)…" aria-label="Pause note"></textarea>
+                  <button class="btn btn-sm" style="border-color:var(--amber);color:var(--amber);white-space:nowrap" onclick="window._cdGovAction('pause')">⏸ Pause</button>
+                </div>
+              </div>` : ''}
+            ${canClose ? `
+              <div style="padding-top:${(canPause || canResume) ? '10px' : '0'};border-top:${(canPause || canResume) ? '1px solid var(--border)' : 'none'}">
+                <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">Close the course (terminal). Sessions stop and the course becomes immutable. A clinician note is required and is audited.</div>
+                <div style="display:flex;gap:8px;align-items:flex-start">
+                  <textarea id="cd-close-note" class="form-control" style="flex:1;font-size:12px" rows="2" placeholder="Closure rationale (required)…" aria-label="Close note"></textarea>
+                  <button class="btn btn-sm" style="border-color:var(--red);color:var(--red);white-space:nowrap" onclick="window._cdGovAction('close')">⬛ Close</button>
+                </div>
               </div>` : ''}
             ${canDiscontinue ? `
-              <div style="padding-top:${canPause ? '10px' : '0'};border-top:${canPause ? '1px solid var(--border)' : 'none'}">
-                <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">Permanently discontinue. This cannot be reversed.</div>
+              <div style="padding-top:10px;border-top:1px solid var(--border)">
+                <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">Permanent discontinuation (legacy path). Status will be set via PATCH; prefer Close above for new audits.</div>
                 <div style="display:flex;gap:8px;align-items:flex-start">
-                  <textarea id="cd-discont-reason" class="form-control" style="flex:1;font-size:12px" rows="2" placeholder="Reason for discontinuation (required)…"></textarea>
+                  <textarea id="cd-discont-reason" class="form-control" style="flex:1;font-size:12px" rows="2" placeholder="Reason for discontinuation (required)…" aria-label="Discontinuation reason"></textarea>
                   <button class="btn btn-sm" style="border-color:var(--red);color:var(--red);white-space:nowrap" onclick="window._cdGovAction('discontinue')">⬛ Discontinue</button>
                 </div>
               </div>` : ''}
-            ${!canPause && !canDiscontinue && !canResume && !canApprove
-              ? `<div style="color:var(--text-tertiary);font-size:12.5px;padding:8px 0">No actions available for status <strong>${course.status}</strong>.</div>`
+            ${!canPause && !canDiscontinue && !canResume && !canApprove && !canClose && !isTerminal
+              ? `<div style="color:var(--text-tertiary);font-size:12.5px;padding:8px 0">No actions available for status <strong>${_cdEscHtml(course.status)}</strong>.</div>`
               : ''}
           </div>`
         )}
@@ -2159,24 +2202,57 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
             : warnings.map(w => govFlag(w, 'warn')).join('')
         )}
         ${cardWrap('Approval History', (() => {
-          const createdDate = course.created_at ? new Date(course.created_at) : null;
-          const submittedDate = course.submitted_at ? new Date(course.submitted_at) : (createdDate ? new Date(createdDate.getTime() + 86400000) : null);
-          const approvedDate  = (course.status === 'active' || course.status === 'completed') && course.updated_at ? new Date(course.updated_at) : null;
-          const events = [
-            { label: `Created by ${course.clinician_id ? 'Clinician' : 'System'}`, date: createdDate, color: 'var(--blue)' },
-            { label: 'Submitted for review', date: submittedDate, color: 'var(--amber)' },
-            ...(approvedDate ? [{ label: 'Approved &amp; Activated', date: approvedDate, color: 'var(--green)' }] : []),
-            ...(course.status === 'paused' ? [{ label: 'Course paused', date: course.updated_at ? new Date(course.updated_at) : null, color: 'var(--amber)' }] : []),
-            ...(course.status === 'discontinued' ? [{ label: 'Course discontinued', date: course.updated_at ? new Date(course.updated_at) : null, color: 'var(--red)' }] : []),
-          ].filter(e => e.date);
-          if (events.length === 0) return '<div style="font-size:12px;color:var(--text-tertiary)">No approval history available.</div>';
+          // Real audit events only — never fabricate timeline dates from
+          // created_at offsets (launch-audit 2026-04-30).
+          const trail = Array.isArray(auditTrail?.items) ? auditTrail.items : [];
+          const KEEP = new Set([
+            'course.activate',
+            'course.activate.safety_override',
+            'course_detail.pause',
+            'course_detail.resume',
+            'course_detail.close',
+          ]);
+          const labelFor = (e) => {
+            switch (e.action) {
+              case 'course.activate': return 'Approved &amp; Activated';
+              case 'course.activate.safety_override': return 'Activated with safety override';
+              case 'course_detail.pause': return 'Course paused';
+              case 'course_detail.resume': return 'Course resumed';
+              case 'course_detail.close': return 'Course closed';
+              default: return _cdEscHtml(e.action || '—');
+            }
+          };
+          const colorFor = (action) => action === 'course.activate' ? 'var(--green)'
+            : action === 'course.activate.safety_override' ? 'var(--amber)'
+            : action === 'course_detail.pause' ? 'var(--amber)'
+            : action === 'course_detail.resume' ? 'var(--teal)'
+            : action === 'course_detail.close' ? 'var(--red)'
+            : 'var(--text-tertiary)';
+          const created = course.created_at
+            ? { label: 'Course created', date: new Date(course.created_at), color: 'var(--blue)', action: 'course.created', note: '' }
+            : null;
+          const filtered = trail
+            .filter(e => KEEP.has(e.action))
+            .map(e => ({
+              label: labelFor(e),
+              date: e.created_at ? new Date(e.created_at) : null,
+              color: colorFor(e.action),
+              action: e.action,
+              note: e.note || '',
+            }))
+            .filter(e => e.date && !isNaN(e.date.getTime()));
+          // Show creation first, then real audit events oldest→newest.
+          const events = [created, ...filtered.reverse()].filter(Boolean);
+          if (events.length === 0) {
+            return '<div style="font-size:12px;color:var(--text-tertiary)">No approval history recorded yet.</div>';
+          }
           return `<div style="position:relative;padding-left:20px">
             <div style="position:absolute;left:7px;top:6px;bottom:6px;width:2px;background:var(--border)"></div>
             ${events.map((e, i) => `<div style="position:relative;margin-bottom:${i < events.length - 1 ? '16' : '0'}px;display:flex;align-items:flex-start;gap:10px">
               <div style="position:absolute;left:-16px;width:10px;height:10px;border-radius:50%;background:${e.color};border:2px solid var(--navy-850);flex-shrink:0;margin-top:2px"></div>
               <div>
                 <div style="font-size:12.5px;font-weight:500;color:var(--text-primary)">${e.label}</div>
-                <div style="font-size:11px;color:var(--text-tertiary)">${e.date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+                <div style="font-size:11px;color:var(--text-tertiary)">${e.date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}${e.note ? ' &middot; ' + _cdEscHtml(String(e.note).slice(0, 120)) : ''}</div>
               </div>
             </div>`).join('')}
           </div>`;
@@ -2621,27 +2697,38 @@ window._cdGovAction = async function(action) {
   if (errEl) errEl.style.display = 'none';
   const courseId = window._selectedCourseId;
   if (!courseId) return;
+  const setErr = (msg) => { if (errEl) { errEl.textContent = msg; errEl.style.display = ''; } };
+  const readNote = (id) => (document.getElementById(id)?.value || '').trim();
 
   try {
     if (action === 'approve') {
       await api.activateCourse(courseId);
     } else if (action === 'pause') {
-      await api.updateCourse(courseId, { status: 'paused' });
+      const note = readNote('cd-pause-note');
+      if (!note) { setErr('A clinician note is required to pause this course.'); return; }
+      await api.pauseCourse(courseId, note);
     } else if (action === 'resume') {
-      await api.updateCourse(courseId, { status: 'active' });
+      const note = readNote('cd-resume-note');
+      if (!note) { setErr('A clinician note is required to resume this course.'); return; }
+      await api.resumeCourse(courseId, note);
+    } else if (action === 'close') {
+      const note = readNote('cd-close-note');
+      if (!note) { setErr('A clinician note is required to close this course.'); return; }
+      if (!confirm('Close this treatment course? The course becomes terminal/immutable.')) return;
+      await api.closeCourse(courseId, note);
     } else if (action === 'discontinue') {
-      const reason = document.getElementById('cd-discont-reason')?.value?.trim();
-      if (!reason) {
-        if (errEl) { errEl.textContent = 'Reason required to discontinue.'; errEl.style.display = ''; }
-        return;
-      }
+      const reason = readNote('cd-discont-reason');
+      if (!reason) { setErr('A reason is required to discontinue this course.'); return; }
       if (!confirm('Permanently discontinue this treatment course? This cannot be undone.')) return;
       await api.updateCourse(courseId, { status: 'discontinued', clinician_notes: reason });
+    } else {
+      setErr('Unknown action.');
+      return;
     }
     window._cdTab = 'governance';
     window._nav('course-detail');
   } catch (e) {
-    if (errEl) { errEl.textContent = e.message || 'Action failed.'; errEl.style.display = ''; }
+    setErr(e?.message || 'Action failed.');
   }
 };
 
