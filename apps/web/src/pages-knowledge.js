@@ -5952,7 +5952,7 @@ export async function pgClinicalTrials(setTopbar) {
   setTopbar('Clinical Trial Management', '');
   var el = document.getElementById('content');
 
-  var _activeTab = 'registry';
+  var _activeTab = 'trials-register';
   var _filterStatus = '';
   var _filterPhase = '';
   var _selectedTrialId = '';
@@ -5964,22 +5964,242 @@ export async function pgClinicalTrials(setTopbar) {
 
   var OUTCOME_MEASURES = ['PHQ-9','GAD-7','ADHD-RS','HAM-D','CGI','BIS-11','Custom'];
 
+  // ── API-backed Clinical Trials register state (launch-audit 2026-04-30) ──
+  // Mirrors the IRB Manager (#334) pattern: a regulator-credible register
+  // tab that talks to /api/v1/clinical-trials/trials, alongside the legacy
+  // localStorage-backed demo tabs which are clearly marked as such.
+  var _apiTrials = null;       // null = not loaded yet
+  var _apiSummary = null;
+  var _apiError = null;
+  var _apiFilterStatus = '';
+  var _apiFilterPhase = '';
+  var _apiFilterPI = '';
+  var _apiFilterNct = '';
+  var _apiFilterIrb = '';
+  var _apiFilterSiteId = '';
+  var _apiFilterQ = '';
+  var _apiFilterSince = '';
+  var _apiFilterUntil = '';
+
+  function _ctApi() {
+    // The module-level `api` import is the authoritative client. Defensive
+    // wrapper here keeps any future window.api fallback honest if a downstream
+    // bundler swaps the shell, and avoids hard-crashing if the import is
+    // missing during a partial reload.
+    try {
+      if (api && typeof api === 'object') return api;
+    } catch (_) {}
+    if (typeof window !== 'undefined' && window.api && typeof window.api === 'object') {
+      return window.api;
+    }
+    return null;
+  }
+
+  function _ctEsc(s) {
+    if (s === null || s === undefined) return '';
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function _emitCtAudit(event, opts) {
+    try {
+      var api = _ctApi();
+      if (api && typeof api.logClinicalTrialsAudit === 'function') {
+        api.logClinicalTrialsAudit(Object.assign({ event: event }, opts || {}));
+      }
+    } catch (_) { /* swallow — audit must never block UI */ }
+  }
+
+  function _ctBuildFilterParams() {
+    var p = {};
+    if (_apiFilterStatus) p.status = _apiFilterStatus;
+    if (_apiFilterPhase) p.phase = _apiFilterPhase;
+    if (_apiFilterPI) p.pi_user_id = _apiFilterPI;
+    if (_apiFilterNct) p.nct_number = _apiFilterNct;
+    if (_apiFilterIrb) p.irb_protocol_id = _apiFilterIrb;
+    if (_apiFilterSiteId) p.site_id = _apiFilterSiteId;
+    if (_apiFilterQ) p.q = _apiFilterQ;
+    if (_apiFilterSince) p.since = _apiFilterSince;
+    if (_apiFilterUntil) p.until = _apiFilterUntil;
+    return p;
+  }
+
+  async function _ctLoadTrials() {
+    _apiError = null;
+    var api = _ctApi();
+    if (!api || typeof api.listClinicalTrials !== 'function') {
+      _apiError = 'API client not available; cannot load clinical trials.';
+      _apiTrials = [];
+      _apiSummary = null;
+      return;
+    }
+    try {
+      var params = _ctBuildFilterParams();
+      var listP = api.listClinicalTrials(params);
+      var sumP = (typeof api.getClinicalTrialsSummary === 'function')
+        ? api.getClinicalTrialsSummary().catch(function() { return null; })
+        : Promise.resolve(null);
+      var results = await Promise.all([listP, sumP]);
+      var list = results[0];
+      var summary = results[1];
+      _apiTrials = (list && Array.isArray(list.items)) ? list.items : [];
+      _apiSummary = summary;
+    } catch (err) {
+      _apiError = (err && err.message) ? err.message : 'Failed to load clinical trials.';
+      _apiTrials = [];
+      _apiSummary = null;
+    }
+  }
+
+  function _ctStatusBadge(status) {
+    var color = ({
+      planning: 'var(--text-muted)',
+      recruiting: 'var(--blue)',
+      active: 'var(--teal)',
+      paused: 'var(--amber)',
+      closed: 'var(--text-muted)',
+      completed: '#9b7fff',
+      terminated: 'var(--rose)',
+    })[status] || 'var(--text-muted)';
+    return '<span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;background:' + color + '22;color:' + color + ';border:1px solid ' + color + '55">' + _ctEsc(status) + '</span>';
+  }
+
+  function _ctRenderTopCounts(s) {
+    if (!s) {
+      s = { total: 0, active: 0, recruiting: 0, paused: 0, closed: 0, completed: 0, terminated: 0, planning: 0, enrollment_open: 0, sae_flagged: 0, pending_irb: 0, demo_rows: 0 };
+    }
+    var counts = [
+      ['Total', s.total != null ? s.total : 0, 'var(--text)'],
+      ['Active', s.active != null ? s.active : 0, 'var(--teal)'],
+      ['Recruiting', s.recruiting != null ? s.recruiting : 0, 'var(--blue)'],
+      ['Pending IRB', s.pending_irb != null ? s.pending_irb : 0, 'var(--amber)'],
+      ['Paused', s.paused != null ? s.paused : 0, 'var(--amber)'],
+      ['Closed', s.closed != null ? s.closed : 0, 'var(--text-muted)'],
+      ['Enrolment Open', s.enrollment_open != null ? s.enrollment_open : 0, 'var(--teal)'],
+      ['SAE-Flagged', s.sae_flagged != null ? s.sae_flagged : 0, 'var(--rose)'],
+    ];
+    return '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">' + counts.map(function(c) {
+      return '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:10px 14px;min-width:120px"><div style="font-size:10.5px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px">' + _ctEsc(c[0]) + '</div><div style="font-size:18px;font-weight:800;color:' + c[2] + ';margin-top:3px">' + _ctEsc(c[1]) + '</div></div>';
+    }).join('') + '</div>';
+  }
+
+  function _ctRenderFilters() {
+    var statuses = ['', 'planning','recruiting','active','paused','closed','completed','terminated'];
+    var phases = ['', 'i','ii','iii','iv','observational','pilot','feasibility','registry'];
+    return '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;align-items:flex-end">'
+      + '<div><label style="font-size:11px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:3px">Status</label><select class="form-control" style="font-size:12px;width:auto" onchange="window._ctApiSetFilter(\'status\',this.value)">'
+      + statuses.map(function(v) { return '<option value="' + v + '"' + (_apiFilterStatus===v?' selected':'') + '>' + (v||'All') + '</option>'; }).join('') + '</select></div>'
+      + '<div><label style="font-size:11px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:3px">Phase</label><select class="form-control" style="font-size:12px;width:auto" onchange="window._ctApiSetFilter(\'phase\',this.value)">'
+      + phases.map(function(v) { return '<option value="' + v + '"' + (_apiFilterPhase===v?' selected':'') + '>' + (v||'All') + '</option>'; }).join('') + '</select></div>'
+      + '<div><label style="font-size:11px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:3px">PI user_id</label><input class="form-control" style="font-size:12px;width:160px" placeholder="actor-…" value="' + _ctEsc(_apiFilterPI) + '" oninput="window._ctApiSetFilter(\'pi\',this.value)"></div>'
+      + '<div><label style="font-size:11px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:3px">NCT number</label><input class="form-control" style="font-size:12px;width:140px" placeholder="NCT…" value="' + _ctEsc(_apiFilterNct) + '" oninput="window._ctApiSetFilter(\'nct\',this.value)"></div>'
+      + '<div><label style="font-size:11px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:3px">IRB protocol_id</label><input class="form-control" style="font-size:12px;width:160px" placeholder="proto-…" value="' + _ctEsc(_apiFilterIrb) + '" oninput="window._ctApiSetFilter(\'irb\',this.value)"></div>'
+      + '<div><label style="font-size:11px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:3px">Site id</label><input class="form-control" style="font-size:12px;width:140px" placeholder="site-…" value="' + _ctEsc(_apiFilterSiteId) + '" oninput="window._ctApiSetFilter(\'site\',this.value)"></div>'
+      + '<div><label style="font-size:11px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:3px">Search</label><input class="form-control" style="font-size:12px;width:180px" placeholder="title / sponsor / NCT" value="' + _ctEsc(_apiFilterQ) + '" oninput="window._ctApiSetFilter(\'q\',this.value)"></div>'
+      + '<div><label style="font-size:11px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:3px">Since</label><input type="date" class="form-control" style="font-size:12px;width:auto" value="' + _ctEsc(_apiFilterSince) + '" onchange="window._ctApiSetFilter(\'since\',this.value)"></div>'
+      + '<div><label style="font-size:11px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:3px">Until</label><input type="date" class="form-control" style="font-size:12px;width:auto" value="' + _ctEsc(_apiFilterUntil) + '" onchange="window._ctApiSetFilter(\'until\',this.value)"></div>'
+      + '<button class="btn btn-ghost" style="font-size:.78rem;padding:5px 12px" onclick="window._ctApiApply()">Apply</button>'
+      + '<button class="btn btn-ghost" style="font-size:.78rem;padding:5px 12px" onclick="window._ctApiClearFilters()">Clear</button>'
+      + '</div>';
+  }
+
+  function _ctRenderActions() {
+    return '<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">'
+      + '<button class="btn btn-primary" style="font-size:.82rem;padding:6px 14px" onclick="window._ctApiNewModal()">+ Register New Trial</button>'
+      + '<button class="btn btn-ghost" style="font-size:.78rem;padding:5px 12px" onclick="window._ctApiExport(\'csv\')">Export CSV</button>'
+      + '<button class="btn btn-ghost" style="font-size:.78rem;padding:5px 12px" onclick="window._ctApiExport(\'ndjson\')">Export NDJSON</button>'
+      + '<button class="btn btn-ghost" style="font-size:.78rem;padding:5px 12px" onclick="window._ctApiRefresh()">Refresh</button>'
+      + '</div>';
+  }
+
+  function _ctRenderTrialsRegister() {
+    if (_apiTrials === null) {
+      return '<div style="padding:40px;text-align:center;color:var(--text-muted)">Loading clinical trials register…</div>';
+    }
+    var s = _apiSummary || {};
+    var disclaimers = (s.disclaimers || []);
+    var demoRows = s.demo_rows != null ? s.demo_rows : 0;
+    var banner = '<div style="background:var(--blue)12;border:1px solid var(--blue)44;border-radius:8px;padding:11px 14px;margin-bottom:14px;font-size:12px;color:var(--text)"><strong style="color:var(--blue)">Regulator-credible register:</strong> All entries below FK to a real IRB-approved protocol and are persisted server-side with append-only audit trail. The other tabs are local demo data only.</div>';
+    if (_apiError) {
+      banner += '<div style="background:var(--rose)18;border:1px solid var(--rose)55;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--rose);font-weight:600">API error: ' + _ctEsc(_apiError) + '. Retry or check authentication.</div>';
+    }
+    if (demoRows > 0) {
+      banner += '<div style="background:var(--amber)18;border:1px solid var(--amber)55;border-radius:8px;padding:8px 12px;margin-bottom:14px;font-size:12px;color:var(--amber);font-weight:600">' + demoRows + ' demo row' + (demoRows>1?'s':'') + ' visible — exports will carry a DEMO prefix and are NOT regulator-submittable.</div>';
+    }
+    var disclList = disclaimers.length
+      ? '<div style="background:var(--hover-bg);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:11.5px;color:var(--text-muted);line-height:1.6"><strong>Disclaimers:</strong><ul style="margin:6px 0 0 18px;padding:0">' + disclaimers.map(function(d) { return '<li>' + _ctEsc(d) + '</li>'; }).join('') + '</ul></div>'
+      : '';
+    var counts = _ctRenderTopCounts(s);
+    var filters = _ctRenderFilters();
+    var actions = _ctRenderActions();
+
+    var rows;
+    if (!_apiTrials.length) {
+      rows = '<div style="text-align:center;padding:40px 20px;color:var(--text-muted);background:var(--hover-bg);border:1px dashed var(--border);border-radius:10px">No clinical trials registered yet.</div>';
+    } else {
+      rows = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="border-bottom:2px solid var(--border)">'
+        + ['NCT','Title','PI','Phase','Status','Sponsor','Sites','Enrolled','IRB','Demo',''].map(function(h) {
+            return '<th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">' + _ctEsc(h) + '</th>';
+          }).join('') + '</tr></thead><tbody>'
+        + _apiTrials.map(function(t) {
+            var sites = Array.isArray(t.sites) ? t.sites : [];
+            var enrol = (t.enrolled_active != null ? t.enrolled_active : 0) + (t.enrollment_target ? (' / ' + t.enrollment_target) : '');
+            var demoBadge = t.is_demo
+              ? '<span style="display:inline-block;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;background:var(--amber)22;color:var(--amber);border:1px solid var(--amber)55">DEMO</span>'
+              : '';
+            var irbLink = t.irb_protocol_id
+              ? '<a href="?page=irb-manager&protocol_id=' + encodeURIComponent(t.irb_protocol_id) + '" style="color:var(--blue);text-decoration:none">' + _ctEsc(t.irb_protocol_code || t.irb_protocol_id.slice(0,8)) + '</a>'
+              : '—';
+            return '<tr style="border-bottom:1px solid var(--border)">'
+              + '<td style="padding:8px 10px;font-family:monospace;font-size:11.5px">' + _ctEsc(t.nct_number || '—') + '</td>'
+              + '<td style="padding:8px 10px;font-weight:600">' + _ctEsc(t.title) + '</td>'
+              + '<td style="padding:8px 10px">' + _ctEsc(t.pi_display_name || t.pi_user_id || '—') + '</td>'
+              + '<td style="padding:8px 10px">' + _ctEsc(t.phase || '—') + '</td>'
+              + '<td style="padding:8px 10px">' + _ctStatusBadge(t.status) + '</td>'
+              + '<td style="padding:8px 10px;color:var(--text-muted)">' + _ctEsc(t.sponsor || '—') + '</td>'
+              + '<td style="padding:8px 10px">' + sites.length + '</td>'
+              + '<td style="padding:8px 10px">' + _ctEsc(enrol) + '</td>'
+              + '<td style="padding:8px 10px">' + irbLink + '</td>'
+              + '<td style="padding:8px 10px">' + demoBadge + '</td>'
+              + '<td style="padding:8px 10px;white-space:nowrap"><button class="btn btn-ghost" style="font-size:.72rem;padding:3px 10px" onclick="window._ctApiDetail(\'' + _ctEsc(t.id) + '\')">Detail</button></td>'
+              + '</tr>';
+          }).join('') + '</tbody></table></div>';
+    }
+    return '<div>' + banner + counts + disclList + filters + actions + rows + '</div>';
+  }
+
   function render() {
     var trials = getTrials();
-    var tabBar = '<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">'
-      + ['registry','participants','data'].map(function(t) {
-          var labels = { registry: '🧪 Trial Registry', participants: '👥 Participants', data: '📊 Data Collection' };
-          var active = _activeTab === t;
-          return '<button onclick="window._trialTabSwitch(\'' + t + '\')" style="padding:10px 20px;border:none;background:none;cursor:pointer;font-size:.88rem;font-weight:' + (active?'700':'400') + ';color:' + (active?'var(--teal)':'var(--text-muted)') + ';border-bottom:' + (active?'2px solid var(--teal)':'2px solid transparent') + ';margin-bottom:-2px;transition:all .15s">' + labels[t] + '</button>';
+    var tabs = [
+      { id: 'trials-register', label: 'Trials Register' },
+      { id: 'registry', label: 'Trial Registry (legacy demo)' },
+      { id: 'participants', label: 'Participants (legacy demo)' },
+      { id: 'data', label: 'Data Collection (legacy demo)' },
+    ];
+    var tabBar = '<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px;overflow-x:auto">'
+      + tabs.map(function(t) {
+          var active = _activeTab === t.id;
+          return '<button onclick="window._trialTabSwitch(\'' + t.id + '\')" style="padding:10px 18px;border:none;background:none;cursor:pointer;font-size:.85rem;font-weight:' + (active?'700':'400') + ';color:' + (active?'var(--teal)':'var(--text-muted)') + ';border-bottom:' + (active?'2px solid var(--teal)':'2px solid transparent') + ';margin-bottom:-2px;white-space:nowrap;transition:all .15s">' + t.label + '</button>';
         }).join('')
       + '</div>';
     var body = '';
-    if (_activeTab === 'registry') body = renderRegistry(trials);
+    if (_activeTab === 'trials-register') body = _ctRenderTrialsRegister();
+    else if (_activeTab === 'registry') body = renderRegistry(trials);
     else if (_activeTab === 'participants') body = renderParticipants(trials);
     else body = renderDataCollection(trials);
     el.innerHTML = tabBar + body;
     bindHandlers();
+    _ctBindHandlers();
   }
+
+  // Initial API load — kick off then re-render so the spinner is replaced.
+  _ctLoadTrials().then(function() {
+    _emitCtAudit('page_loaded', { note: 'trials-register' });
+    render();
+  });
 
   function renderRegistry(trials) {
     var phases = [];
@@ -6470,6 +6690,342 @@ export async function pgClinicalTrials(setTopbar) {
       a.download = 'trial-data-' + trialId + '-' + new Date().toISOString().slice(0, 10) + '.csv';
       a.click();
       URL.revokeObjectURL(url);
+    };
+  }
+
+  // ── API-backed Clinical Trials register handlers (launch-audit) ─────────
+  function _ctBindHandlers() {
+    window._trialTabSwitch = function(tab) { _activeTab = tab; render(); };
+
+    window._ctApiSetFilter = function(key, value) {
+      if (key === 'status') _apiFilterStatus = value;
+      else if (key === 'phase') _apiFilterPhase = value;
+      else if (key === 'pi') _apiFilterPI = value;
+      else if (key === 'nct') _apiFilterNct = value;
+      else if (key === 'irb') _apiFilterIrb = value;
+      else if (key === 'site') _apiFilterSiteId = value;
+      else if (key === 'q') _apiFilterQ = value;
+      else if (key === 'since') _apiFilterSince = value;
+      else if (key === 'until') _apiFilterUntil = value;
+    };
+
+    window._ctApiApply = function() {
+      _emitCtAudit('filter_changed', { note: 'status=' + (_apiFilterStatus||'-') + ' phase=' + (_apiFilterPhase||'-') + ' nct=' + (_apiFilterNct||'-') + ' q=' + ((_apiFilterQ||'-').slice(0,80)) });
+      _ctLoadTrials().then(function() { _activeTab = 'trials-register'; render(); });
+    };
+
+    window._ctApiClearFilters = function() {
+      _apiFilterStatus = ''; _apiFilterPhase = ''; _apiFilterPI = '';
+      _apiFilterNct = ''; _apiFilterIrb = ''; _apiFilterSiteId = '';
+      _apiFilterQ = ''; _apiFilterSince = ''; _apiFilterUntil = '';
+      _ctLoadTrials().then(function() { _activeTab = 'trials-register'; render(); });
+    };
+
+    window._ctApiRefresh = function() {
+      _ctLoadTrials().then(function() { render(); });
+    };
+
+    window._ctApiExport = function(format) {
+      var api = _ctApi();
+      if (!api) return;
+      var fn = (format === 'ndjson') ? api.exportClinicalTrialsNdjson : api.exportClinicalTrialsCsv;
+      if (typeof fn !== 'function') return;
+      try {
+        var p = fn.call(api, _ctBuildFilterParams());
+        if (p && typeof p.then === 'function') {
+          p.then(function(blob) {
+            try {
+              var url = URL.createObjectURL(blob);
+              var a = document.createElement('a');
+              a.href = url;
+              a.download = 'clinical_trials.' + (format === 'ndjson' ? 'ndjson' : 'csv');
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            } catch (_) {}
+          });
+        }
+        _emitCtAudit('export_' + format, { note: 'rows=' + ((_apiTrials || []).length) });
+      } catch (_) {}
+    };
+
+    window._ctApiNewModal = function() {
+      var existing = document.getElementById('ct-new-modal');
+      if (existing) existing.remove();
+      var html = '<div id="ct-new-modal" onclick="if(event.target.id===\'ct-new-modal\')window._ctCloseModal(\'ct-new-modal\')" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px">'
+        + '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:600px;max-height:90vh;overflow-y:auto">'
+        + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px"><h3 style="margin:0;font-size:15px;font-weight:800;color:var(--text)">Register New Clinical Trial</h3><button onclick="window._ctCloseModal(\'ct-new-modal\')" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:20px;line-height:1">x</button></div>'
+        + '<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:14px;background:var(--hover-bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px">Trials must FK to a real IRB-approved protocol id. PI must be a real user_id. NCT number is optional but recommended for regulator submission.</div>'
+        + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+        + '<div style="grid-column:1/-1"><label class="form-label">Trial Title *</label><input class="form-control" id="ct-new-title" placeholder="e.g. Theta Burst TMS for TRD: Multi-Site RCT"></div>'
+        + '<div style="grid-column:1/-1"><label class="form-label">IRB protocol_id *</label><input class="form-control" id="ct-new-irb" placeholder="UUID of an IRB protocol from /api/v1/irb/protocols"></div>'
+        + '<div><label class="form-label">PI user_id *</label><input class="form-control" id="ct-new-pi" placeholder="actor-clinician-…"></div>'
+        + '<div><label class="form-label">NCT number</label><input class="form-control" id="ct-new-nct" placeholder="NCT12345678"></div>'
+        + '<div><label class="form-label">Phase</label><select class="form-control" id="ct-new-phase">'
+        + ['','i','ii','iii','iv','observational','pilot','feasibility','registry'].map(function(v) { return '<option value="' + v + '">' + (v || '—') + '</option>'; }).join('')
+        + '</select></div>'
+        + '<div><label class="form-label">Sponsor</label><input class="form-control" id="ct-new-sponsor" placeholder="Sponsor / funder"></div>'
+        + '<div><label class="form-label">Enrolment Target</label><input type="number" class="form-control" id="ct-new-target" placeholder="e.g. 60" min="0"></div>'
+        + '<div><label class="form-label">Primary Site Name</label><input class="form-control" id="ct-new-site" placeholder="e.g. London Main Site"></div>'
+        + '<div style="grid-column:1/-1"><label class="form-label">Description</label><textarea class="form-control" id="ct-new-desc" rows="3" placeholder="Brief description"></textarea></div>'
+        + '<div style="grid-column:1/-1;display:flex;align-items:center;gap:8px"><input type="checkbox" id="ct-new-demo"><label for="ct-new-demo" style="font-size:.8rem">Mark as demo data (NOT regulator-submittable)</label></div>'
+        + '</div>'
+        + '<div id="ct-new-msg" style="display:none;margin-top:10px;font-size:.82rem"></div>'
+        + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px"><button class="btn btn-ghost" onclick="window._ctCloseModal(\'ct-new-modal\')">Cancel</button><button class="btn btn-primary" onclick="window._ctApiCreate()">Register Trial</button></div>'
+        + '</div></div>';
+      document.body.insertAdjacentHTML('beforeend', html);
+    };
+
+    window._ctCloseModal = function(id) {
+      var m = document.getElementById(id);
+      if (m) m.remove();
+    };
+
+    window._ctApiCreate = function() {
+      var api = _ctApi();
+      if (!api || typeof api.createClinicalTrial !== 'function') return;
+      var get = function(id) { var el = document.getElementById(id); return el ? el.value : ''; };
+      var title = (get('ct-new-title') || '').trim();
+      var irb = (get('ct-new-irb') || '').trim();
+      var pi = (get('ct-new-pi') || '').trim();
+      var nct = (get('ct-new-nct') || '').trim();
+      var phase = (get('ct-new-phase') || '').trim();
+      var sponsor = (get('ct-new-sponsor') || '').trim();
+      var target = parseInt(get('ct-new-target'), 10);
+      var siteName = (get('ct-new-site') || '').trim();
+      var desc = (get('ct-new-desc') || '').trim();
+      var demoEl = document.getElementById('ct-new-demo');
+      var isDemo = demoEl ? !!demoEl.checked : false;
+      var msg = document.getElementById('ct-new-msg');
+      function showErr(text) {
+        if (msg) {
+          msg.style.display = 'block';
+          msg.style.color = 'var(--rose)';
+          msg.textContent = text;
+        }
+      }
+      if (!title) { showErr('Title is required.'); return; }
+      if (!irb) { showErr('IRB protocol_id is required.'); return; }
+      if (!pi) { showErr('PI user_id is required.'); return; }
+      var body = {
+        title: title,
+        irb_protocol_id: irb,
+        pi_user_id: pi,
+        description: desc,
+        is_demo: isDemo,
+      };
+      if (nct) body.nct_number = nct;
+      if (phase) body.phase = phase;
+      if (sponsor) body.sponsor = sponsor;
+      if (!isNaN(target)) body.enrollment_target = target;
+      if (siteName) body.sites = [{ name: siteName }];
+      api.createClinicalTrial(body).then(function(created) {
+        _ctCloseModalSafe('ct-new-modal');
+        _emitCtAudit('trial_created', { trial_id: created && created.id, note: 'phase=' + (created && created.phase || '-') });
+        _ctLoadTrials().then(function() { render(); });
+      }).catch(function(err) {
+        var text = (err && err.message) ? err.message : 'Failed to register trial.';
+        try {
+          var data = err && err.data;
+          if (data && data.message) text = data.message;
+        } catch (_) {}
+        showErr(text);
+      });
+    };
+
+    function _ctCloseModalSafe(id) { var m = document.getElementById(id); if (m) m.remove(); }
+
+    window._ctApiDetail = function(trialId) {
+      var api = _ctApi();
+      if (!api || typeof api.getClinicalTrial !== 'function' || !trialId) return;
+      api.getClinicalTrial(trialId).then(function(t) {
+        if (!t) return;
+        _emitCtAudit('trial_viewed', { trial_id: t.id });
+        _ctRenderDetailModal(t);
+      }).catch(function(err) {
+        var text = (err && err.message) ? err.message : 'Failed to load trial detail.';
+        try { if (err && err.data && err.data.message) text = err.data.message; } catch (_) {}
+        alert(text);
+      });
+    };
+
+    function _ctRenderDetailModal(t) {
+      var existing = document.getElementById('ct-detail-modal');
+      if (existing) existing.remove();
+      var sites = Array.isArray(t.sites) ? t.sites : [];
+      var enrollments = Array.isArray(t.enrollments) ? t.enrollments : [];
+      var pid = encodeURIComponent(t.id);
+      var protoId = t.irb_protocol_id ? encodeURIComponent(t.irb_protocol_id) : '';
+      var drillButtons = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">'
+        + (protoId ? '<a class="btn btn-ghost" style="font-size:.72rem;padding:3px 10px;text-decoration:none" href="?page=irb-manager&protocol_id=' + protoId + '">↗ IRB Protocol</a>' : '')
+        + '<a class="btn btn-ghost" style="font-size:.72rem;padding:3px 10px;text-decoration:none" href="?page=patients-hub&trial_id=' + pid + '">↗ Enrolled Patients</a>'
+        + '<a class="btn btn-ghost" style="font-size:.72rem;padding:3px 10px;text-decoration:none" href="?page=documents-hub&source_target_type=clinical_trials&source_target_id=' + pid + '">↗ Sponsor Docs</a>'
+        + '<a class="btn btn-ghost" style="font-size:.72rem;padding:3px 10px;text-decoration:none" href="?page=adverse-events&trial_id=' + pid + '">↗ Adverse Events</a>'
+        + '<a class="btn btn-ghost" style="font-size:.72rem;padding:3px 10px;text-decoration:none" href="?page=reports-hub&trial_id=' + pid + '">↗ Sponsor Reports</a>'
+        + '</div>';
+
+      var lifecycleButtons = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">';
+      var canPause = (t.status === 'recruiting' || t.status === 'active');
+      var canResume = (t.status === 'paused');
+      var canClose = (t.status !== 'closed' && t.status !== 'completed' && t.status !== 'terminated');
+      var canEnroll = (t.status === 'recruiting' || t.status === 'active');
+      if (canPause) lifecycleButtons += '<button class="btn btn-ghost" style="font-size:.72rem;padding:3px 10px" onclick="window._ctApiPause(\'' + _ctEsc(t.id) + '\')">Pause</button>';
+      if (canResume) lifecycleButtons += '<button class="btn btn-ghost" style="font-size:.72rem;padding:3px 10px" onclick="window._ctApiResume(\'' + _ctEsc(t.id) + '\')">Resume</button>';
+      if (canClose) lifecycleButtons += '<button class="btn btn-ghost" style="font-size:.72rem;padding:3px 10px;color:var(--rose)" onclick="window._ctApiClose(\'' + _ctEsc(t.id) + '\')">Close (one-way)</button>';
+      if (canEnroll) lifecycleButtons += '<button class="btn btn-primary" style="font-size:.72rem;padding:3px 10px" onclick="window._ctApiEnrollModal(\'' + _ctEsc(t.id) + '\')">+ Enrol Patient</button>';
+      lifecycleButtons += '</div>';
+
+      var enrollRows = enrollments.length === 0
+        ? '<tr><td colspan="6" style="padding:10px;text-align:center;color:var(--text-muted)">No enrolments yet.</td></tr>'
+        : enrollments.map(function(e) {
+            var withdrawBtn = (e.status === 'active')
+              ? '<button class="btn btn-ghost" style="font-size:.7rem;padding:2px 8px;color:var(--rose)" onclick="window._ctApiWithdraw(\'' + _ctEsc(t.id) + '\',\'' + _ctEsc(e.id) + '\')">Withdraw</button>'
+              : '';
+            return '<tr style="border-bottom:1px solid var(--border)">'
+              + '<td style="padding:6px 10px;font-size:.78rem">' + _ctEsc(e.patient_display_name || e.patient_id) + '</td>'
+              + '<td style="padding:6px 10px;font-size:.78rem">' + _ctEsc(e.arm || '—') + '</td>'
+              + '<td style="padding:6px 10px;font-size:.78rem">' + _ctEsc(e.status) + '</td>'
+              + '<td style="padding:6px 10px;font-size:.78rem;color:var(--text-muted)">' + _ctEsc((e.enrolled_at || '').slice(0,10)) + '</td>'
+              + '<td style="padding:6px 10px;font-size:.78rem;color:var(--text-muted)">' + _ctEsc(e.withdrawal_reason || '—') + '</td>'
+              + '<td style="padding:6px 10px">' + withdrawBtn + '</td>'
+              + '</tr>';
+          }).join('');
+
+      var siteRows = sites.length === 0
+        ? '<div style="font-size:.78rem;color:var(--text-muted)">No sites registered.</div>'
+        : '<ul style="margin:0;padding-left:18px;font-size:.8rem">' + sites.map(function(s) {
+            return '<li><strong>' + _ctEsc(s.name) + '</strong>' + (s.id ? ' <code style="font-size:.72rem;color:var(--text-muted)">id=' + _ctEsc(s.id) + '</code>' : '') + (s.address ? ' — ' + _ctEsc(s.address) : '') + (s.pi_user_id ? ' (PI: ' + _ctEsc(s.pi_user_id) + ')' : '') + '</li>';
+          }).join('') + '</ul>';
+
+      var html = '<div id="ct-detail-modal" onclick="if(event.target.id===\'ct-detail-modal\')window._ctCloseModal(\'ct-detail-modal\')" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px">'
+        + '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:760px;max-height:92vh;overflow-y:auto">'
+        + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px">'
+        + '<div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px"><span style="font-family:monospace;font-size:11.5px;color:var(--blue)">' + _ctEsc(t.nct_number || '—') + '</span>' + _ctStatusBadge(t.status) + (t.is_demo ? '<span style="display:inline-block;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;background:var(--amber)22;color:var(--amber);border:1px solid var(--amber)55">DEMO</span>' : '') + '</div>'
+        + '<h3 style="margin:0;font-size:15px;font-weight:800;color:var(--text);line-height:1.3">' + _ctEsc(t.title) + '</h3>'
+        + '<div style="font-size:11.5px;color:var(--text-muted);margin-top:4px;display:flex;flex-wrap:wrap;gap:12px">'
+        + '<span>PI: <strong style="color:var(--text)">' + _ctEsc(t.pi_display_name || t.pi_user_id || '—') + '</strong></span>'
+        + '<span>Sponsor: <strong style="color:var(--text)">' + _ctEsc(t.sponsor || '—') + '</strong></span>'
+        + '<span>Phase: <strong style="color:var(--text)">' + _ctEsc(t.phase || '—') + '</strong></span>'
+        + '<span>Enrolled: <strong style="color:var(--text)">' + (t.enrolled_active != null ? t.enrolled_active : 0) + (t.enrollment_target ? (' / ' + t.enrollment_target) : '') + '</strong></span>'
+        + '</div></div>'
+        + '<button onclick="window._ctCloseModal(\'ct-detail-modal\')" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:20px;line-height:1">x</button>'
+        + '</div>'
+        + drillButtons + lifecycleButtons
+        + (t.description ? '<div style="margin-top:14px;font-size:.82rem;color:var(--text);line-height:1.6">' + _ctEsc(t.description) + '</div>' : '')
+        + '<div style="margin-top:14px"><div style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Sites</div>' + siteRows + '</div>'
+        + '<div style="margin-top:14px"><div style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Enrolments (' + enrollments.length + ')</div>'
+        + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">'
+        + '<thead><tr style="border-bottom:2px solid var(--border)"><th style="padding:6px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Patient</th><th style="padding:6px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Arm</th><th style="padding:6px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Status</th><th style="padding:6px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Enrolled</th><th style="padding:6px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Withdrawal Reason</th><th style="padding:6px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase"></th></tr></thead>'
+        + '<tbody>' + enrollRows + '</tbody></table></div></div>'
+        + '<div style="margin-top:14px;font-size:11px;color:var(--text-muted)">Closed trials are immutable and cannot be reopened. Withdrawals require a non-empty reason.</div>'
+        + '</div></div>';
+      document.body.insertAdjacentHTML('beforeend', html);
+    }
+
+    window._ctApiPause = function(trialId) {
+      var note = window.prompt('Pause note (required for regulator audit):', '');
+      if (note === null) return;
+      if (!note.trim()) { alert('Pause note is required.'); return; }
+      var api = _ctApi();
+      if (!api || typeof api.pauseClinicalTrial !== 'function') return;
+      api.pauseClinicalTrial(trialId, { note: note.trim() }).then(function() {
+        _emitCtAudit('trial_paused', { trial_id: trialId });
+        _ctCloseModalSafe('ct-detail-modal');
+        _ctLoadTrials().then(function() { render(); });
+      }).catch(function(err) { alert((err && err.message) || 'Failed to pause trial.'); });
+    };
+
+    window._ctApiResume = function(trialId) {
+      var note = window.prompt('Resume note (required):', '');
+      if (note === null) return;
+      if (!note.trim()) { alert('Resume note is required.'); return; }
+      var api = _ctApi();
+      if (!api || typeof api.resumeClinicalTrial !== 'function') return;
+      api.resumeClinicalTrial(trialId, { note: note.trim() }).then(function() {
+        _emitCtAudit('trial_resumed', { trial_id: trialId });
+        _ctCloseModalSafe('ct-detail-modal');
+        _ctLoadTrials().then(function() { render(); });
+      }).catch(function(err) { alert((err && err.message) || 'Failed to resume trial.'); });
+    };
+
+    window._ctApiClose = function(trialId) {
+      var note = window.prompt('Closure note (required, ONE-WAY — trials cannot be reopened):', '');
+      if (note === null) return;
+      if (!note.trim()) { alert('Closure note is required.'); return; }
+      var api = _ctApi();
+      if (!api || typeof api.closeClinicalTrial !== 'function') return;
+      api.closeClinicalTrial(trialId, { note: note.trim() }).then(function() {
+        _emitCtAudit('trial_closed', { trial_id: trialId });
+        _ctCloseModalSafe('ct-detail-modal');
+        _ctLoadTrials().then(function() { render(); });
+      }).catch(function(err) { alert((err && err.message) || 'Failed to close trial.'); });
+    };
+
+    window._ctApiEnrollModal = function(trialId) {
+      var existing = document.getElementById('ct-enroll-modal');
+      if (existing) existing.remove();
+      var html = '<div id="ct-enroll-modal" onclick="if(event.target.id===\'ct-enroll-modal\')window._ctCloseModal(\'ct-enroll-modal\')" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9100;display:flex;align-items:center;justify-content:center;padding:20px">'
+        + '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:480px">'
+        + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><h3 style="margin:0;font-size:15px;font-weight:800;color:var(--text)">Enrol Patient</h3><button onclick="window._ctCloseModal(\'ct-enroll-modal\')" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:20px;line-height:1">x</button></div>'
+        + '<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:12px">Patient must be a real Patient row in your clinic.</div>'
+        + '<div class="form-group" style="margin-bottom:10px"><label class="form-label">Patient id *</label><input class="form-control" id="ct-enroll-pid" placeholder="patient UUID"></div>'
+        + '<div class="form-group" style="margin-bottom:10px"><label class="form-label">Arm</label><input class="form-control" id="ct-enroll-arm" placeholder="e.g. Active TBS"></div>'
+        + '<div class="form-group" style="margin-bottom:10px"><label class="form-label">Consent doc id (optional)</label><input class="form-control" id="ct-enroll-consent" placeholder="document_id"></div>'
+        + '<div id="ct-enroll-msg" style="display:none;margin-top:8px;font-size:.82rem;color:var(--rose)"></div>'
+        + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px"><button class="btn btn-ghost" onclick="window._ctCloseModal(\'ct-enroll-modal\')">Cancel</button><button class="btn btn-primary" onclick="window._ctApiEnrollSubmit(\'' + trialId + '\')">Enrol</button></div>'
+        + '</div></div>';
+      document.body.insertAdjacentHTML('beforeend', html);
+    };
+
+    window._ctApiEnrollSubmit = function(trialId) {
+      var api = _ctApi();
+      if (!api || typeof api.enrollClinicalTrialPatient !== 'function') return;
+      var pid = (document.getElementById('ct-enroll-pid') || {}).value || '';
+      var arm = (document.getElementById('ct-enroll-arm') || {}).value || '';
+      var consent = (document.getElementById('ct-enroll-consent') || {}).value || '';
+      var msg = document.getElementById('ct-enroll-msg');
+      function showErr(t) { if (msg) { msg.style.display = 'block'; msg.textContent = t; } }
+      pid = pid.trim();
+      if (!pid) { showErr('patient_id is required.'); return; }
+      var body = { patient_id: pid };
+      if (arm.trim()) body.arm = arm.trim();
+      if (consent.trim()) body.consent_doc_id = consent.trim();
+      api.enrollClinicalTrialPatient(trialId, body).then(function(e) {
+        _ctCloseModalSafe('ct-enroll-modal');
+        _emitCtAudit('patient_enrolled', { trial_id: trialId, note: 'enrollment_id=' + (e && e.id) });
+        // Reload detail + list
+        if (typeof api.getClinicalTrial === 'function') {
+          api.getClinicalTrial(trialId).then(function(t) {
+            _ctCloseModalSafe('ct-detail-modal');
+            _ctRenderDetailModal(t);
+          });
+        }
+        _ctLoadTrials().then(function() { render(); });
+      }).catch(function(err) {
+        var text = (err && err.message) ? err.message : 'Failed to enrol patient.';
+        try { if (err && err.data && err.data.message) text = err.data.message; } catch (_) {}
+        showErr(text);
+      });
+    };
+
+    window._ctApiWithdraw = function(trialId, enrollmentId) {
+      var reason = window.prompt('Withdrawal reason (required for regulator audit):', '');
+      if (reason === null) return;
+      if (!reason.trim()) { alert('Withdrawal reason is required.'); return; }
+      var api = _ctApi();
+      if (!api || typeof api.withdrawClinicalTrialEnrollment !== 'function') return;
+      api.withdrawClinicalTrialEnrollment(trialId, enrollmentId, { reason: reason.trim() }).then(function() {
+        _emitCtAudit('enrollment_withdrawn', { trial_id: trialId, note: 'enrollment_id=' + enrollmentId });
+        // Refresh detail
+        if (typeof api.getClinicalTrial === 'function') {
+          api.getClinicalTrial(trialId).then(function(t) {
+            _ctCloseModalSafe('ct-detail-modal');
+            _ctRenderDetailModal(t);
+          });
+        }
+        _ctLoadTrials().then(function() { render(); });
+      }).catch(function(err) { alert((err && err.message) || 'Failed to withdraw enrollment.'); });
     };
   }
 
