@@ -203,6 +203,167 @@ DOMAIN_ENCYCLOPEDIA: dict[str, dict[str, str]] = {
         ),
         "normal_range": "Intact in all awake adults and children >3 years",
     },
+    # ── Psychopharmacology & neurophysiology ────────────────────────────────
+    "withdrawal": {
+        "name": "Withdrawal EEG effects",
+        "definition": (
+            "Abrupt cessation of chronic psychotropic or substance use can produce "
+            "rebound EEG changes reflecting neuroadaptation reversal."
+        ),
+        "clinical_relevance": (
+            "Benzodiazepine or alcohol withdrawal produces low-voltage fast activity, "
+            "theta excess, and eventually seizures. SSRI discontinuation may transiently "
+            "increase beta. Opioid withdrawal shows diffuse beta and REM sleep disruption."
+        ),
+        "normal_range": "N/A — depends on substance and duration of use",
+    },
+    "medication_confound": {
+        "name": "Medication confound",
+        "definition": (
+            "Systematic alteration of EEG spectral or temporal features by "
+            "prescribed or over-the-counter psychotropic drugs."
+        ),
+        "clinical_relevance": (
+            "Without medication history, drug-induced beta elevation may be misread "
+            "as anxiety, or drug-induced alpha slowing as encephalopathy. The copilot "
+            "flags affected bands when medication lists are provided."
+        ),
+        "normal_range": "N/A — interpretive confound rather than biomarker",
+    },
+    "benzodiazepine_effect": {
+        "name": "Benzodiazepine EEG effect",
+        "definition": (
+            "Diffuse increase in beta (15–30 Hz) activity with a concurrent reduction "
+            "in alpha amplitude and frequency, mediated by GABA-A receptor potentiation."
+        ),
+        "clinical_relevance": (
+            "Lorazepam, diazepam, clonazepam, and alprazolam all produce this signature. "
+            "It can mask underlying focal slowing and may be mistaken for hyperarousal. "
+            "Chronic use leads to tolerance and withdrawal rebound."
+        ),
+        "normal_range": "N/A — pharmacologic effect",
+    },
+    "stimulant_effect": {
+        "name": "Stimulant EEG effect",
+        "definition": (
+            "Decrease in theta and increase in beta activity following administration "
+            "of psychostimulants such as methylphenidate or amphetamines."
+        ),
+        "clinical_relevance": (
+            "Stimulants lower the theta/beta ratio (TBR), a commonly used ADHD marker. "
+            "Acute caffeine produces a similar but milder pattern. Interpretation of "
+            "TBR during stimulant treatment should account for medication timing."
+        ),
+        "normal_range": "N/A — pharmacologic effect",
+    },
+    "cannabis_effect": {
+        "name": "Cannabis EEG effect",
+        "definition": (
+            "Acute THC increases frontal alpha amplitude and power; chronic use is "
+            "associated with increased inter-hemispheric coherence (hypercoherence)."
+        ),
+        "clinical_relevance": (
+            "Frontal alpha increase can be misinterpreted as relaxed wakefulness or "
+            "meditative state. Chronic hypercoherence may obscure true focal pathology. "
+            "CBD has less consistent EEG effects and may mildly increase beta."
+        ),
+        "normal_range": "N/A — substance effect",
+    },
+    "alcohol_chronic": {
+        "name": "Chronic alcohol EEG effect",
+        "definition": (
+            "Long-term alcohol misuse produces beta elevation, alpha and theta "
+            "attenuation, and increased epileptiform susceptibility including PLEDS."
+        ),
+        "clinical_relevance": (
+            "Wernicke–Korsakoff syndrome shows diffuse theta-delta slowing. Alcohol "
+            "withdrawal can precipitate seizures and triphasic waves. Chronic drinkers "
+            "may have a persistently fast low-voltage background."
+        ),
+        "normal_range": "N/A — toxic/metabolic effect",
+    },
+    "theta_beta_ratio": {
+        "name": "Theta/Beta Ratio (TBR)",
+        "definition": (
+            "The ratio of theta (4–8 Hz) to beta (13–21 Hz) power, most commonly "
+            "measured at frontal or midline electrodes."
+        ),
+        "clinical_relevance": (
+            "Elevated TBR is a well-replicated group-level marker of ADHD in children, "
+            "though diagnostic utility at the individual level remains debated. TBR is "
+            "lowered by stimulants and raised by antihistamines, sedatives, and sleep loss."
+        ),
+        "normal_range": "Highly labile; >1.5 in frontal leads is often used as ADHD cutoff in children",
+    },
+    "peak_alpha_frequency": {
+        "name": "Peak Alpha Frequency (PAF)",
+        "definition": (
+            "The frequency within the alpha band (typically 7–13 Hz) at which power "
+            "is maximal, often measured at O1/O2/Pz with eyes closed."
+        ),
+        "clinical_relevance": (
+            "PAF declines with age and cognitive load. Carbamazepine and gabapentin "
+            "can slow PAF by 0.5–1.5 Hz. A PAF <8 Hz in adults suggests mild generalized "
+            "slowing or medication effect."
+        ),
+        "normal_range": "8.5–11 Hz in healthy adults; ~0.5 Hz/decade decline after age 60",
+    },
+    "sleep_spindles": {
+        "name": "Sleep spindles",
+        "definition": (
+            "Brief bursts of 12–14 Hz (sigma band) activity generated in the thalamic "
+            "reticular nucleus, maximal at central electrodes during Stage II NREM sleep."
+        ),
+        "clinical_relevance": (
+            "Spindle density and duration correlate with sleep quality and memory "
+            "consolidation. Benzodiazepines and barbiturates markedly enhance spindle "
+            "amplitude and frequency. Absent spindles may indicate thalamic or "
+            "metabolic dysfunction."
+        ),
+        "normal_range": "12–14 Hz; central-maximal; Stage II NREM",
+    },
+    "epileptiform_activity": {
+        "name": "Epileptiform activity",
+        "definition": (
+            "Paroxysmal waveforms including spikes (<70 ms), sharp waves (70–200 ms), "
+            "and spike-and-wave complexes that indicate neuronal hyperexcitability."
+        ),
+        "clinical_relevance": (
+            "Certain medications lower seizure threshold and potentiate epileptiform "
+            "activity on EEG: lithium, tramadol, bupropion, clozapine, and PCP. "
+            "Conversely, AEDs suppress these discharges. Distinguish from benign "
+            "variants (BETS, wicket waves) by aftergoing slow wave and background disruption."
+        ),
+        "normal_range": "Absent in awake and sleep EEG; any epileptiform discharge is abnormal",
+    },
+    "posterior_alpha": {
+        "name": "Posterior alpha (PAF/PDR)",
+        "definition": (
+            "Alpha activity maximal over occipital and parietal regions with eyes "
+            "closed, reflecting visual cortex idling."
+        ),
+        "clinical_relevance": (
+            "In ADHD, methylphenidate can produce a paradoxical increase in posterior "
+            "alpha power via improved cortical inhibition. PAF slowing is seen in "
+            "encephalopathy, dementia, and with some anticonvulsants."
+        ),
+        "normal_range": "8.5–12 Hz symmetric; attenuates with eye opening",
+    },
+    "frontal_alpha_asymmetry": {
+        "name": "Frontal alpha asymmetry (FAA)",
+        "definition": (
+            "Difference in alpha power between left and right frontal electrodes "
+            "(typically F3/F4 or F7/F8). Reduced left alpha implies relatively greater "
+            "left frontal activation."
+        ),
+        "clinical_relevance": (
+            "FAA is linked to approach/avoidance motivation and affective style. "
+            "Greater right-sided alpha (left hypoactivation) is associated with "
+            "depression and withdrawal behavior. FAA is state-dependent and sensitive "
+            "to eye-movement and muscle artifact."
+        ),
+        "normal_range": "Near-zero asymmetry at rest; >0.5 log-ratio may be clinically notable",
+    },
 }
 
 

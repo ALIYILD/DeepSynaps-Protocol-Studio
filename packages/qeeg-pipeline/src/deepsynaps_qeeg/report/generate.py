@@ -225,6 +225,23 @@ HTML_TEMPLATE = """\
   </div>
   {% endif %}
 
+  {% if medication_confounds %}
+  <h2>Medication Confounds</h2>
+  <div class="card">
+    <p class="note">The following medications may confound EEG interpretation:</p>
+    <ul>
+    {% for mc in medication_confounds %}
+      <li>
+        <strong>{{ mc.medication }}</strong>
+        <span class="badge">{{ mc.drug_class }}</span><br/>
+        <span class="note">Affected bands: {{ mc.affected_bands | join(", ") }}</span><br/>
+        <span class="note">{{ mc.clinical_note }}</span>
+      </li>
+    {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
   {% if narrative %}
   <h2>Discussion</h2>
   <div>
@@ -323,6 +340,10 @@ def build(
                 },
             )
             narrative_html = _markdown_to_html(report.discussion_markdown)
+            # Extract consolidated medication confounds from first enriched finding
+            medication_confounds: list[dict[str, Any]] = []
+            if enriched_findings and enriched_findings[0].get("medication_summary"):
+                medication_confounds = enriched_findings[0]["medication_summary"]
             narrative_refs = [
                 {
                     "citation_id": c.citation_id,
@@ -350,6 +371,7 @@ def build(
         "longitudinal": (getattr(result, "longitudinal", None) or {}) if result is not None else {},
         "narrative": narrative_html,
         "references": narrative_refs,
+        "medication_confounds": medication_confounds,
         "clinical_summary": clinical_summary,
         "clinical_summary_json": _json_dumps(clinical_summary) if clinical_summary else "",
         "enriched_findings": enriched_findings,

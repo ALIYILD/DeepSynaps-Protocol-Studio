@@ -10,8 +10,10 @@ from deepsynaps_qeeg.knowledge import (
     MedicationEEGAtlas,
     SleepStagingEngine,
     enhance_findings,
+    flag_medication_confounds,
 )
 from deepsynaps_qeeg.knowledge.channel_anatomy import explain_channel, channels_for_artifact
+from deepsynaps_qeeg.knowledge.medication_eeg import _ALIASES
 from deepsynaps_qeeg.knowledge.normative import expected_pdr_hz, age_aware_band_range
 from deepsynaps_qeeg.narrative.types import Finding
 
@@ -99,6 +101,83 @@ def test_all_classes() -> None:
     profiles = MedicationEEGAtlas.all_profiles()
     classes = {p.drug_class for p in profiles}
     assert len(classes) >= 3
+
+
+def test_all_aliases_resolve() -> None:
+    for alias in _ALIASES:
+        profile = MedicationEEGAtlas.lookup(alias)
+        assert profile is not None, f"alias {alias!r} did not resolve"
+
+
+def test_by_band_returns_non_empty() -> None:
+    for band in ("beta", "theta", "alpha", "delta"):
+        profiles = MedicationEEGAtlas.by_band(band)
+        assert len(profiles) > 0, f"by_band({band!r}) returned empty list"
+
+
+def test_by_drug_class_multiple_classes() -> None:
+    classes = [
+        "GABA-A positive allosteric modulator / anxiolytic-sedative",
+        "Dopamine-norepinephrine reuptake inhibitor",
+        "Mood stabilizer",
+        "Mu-opioid receptor agonist",
+        "Histamine H1 receptor antagonist",
+    ]
+    for cls in classes:
+        profiles = MedicationEEGAtlas.by_drug_class(cls)
+        assert len(profiles) > 0, f"by_drug_class({cls!r}) returned empty list"
+
+
+def test_flag_medication_confounds_beta() -> None:
+    flags = flag_medication_confounds("beta", ["lorazepam", "cocaine", "caffeine"])
+    names = {f["medication"] for f in flags}
+    assert any("Benzodiazepines" in n for n in names)
+    assert any("Cocaine" in n for n in names)
+    assert any("Caffeine" in n for n in names)
+    assert len(flags) == 3
+
+
+def test_flag_medication_confounds_theta() -> None:
+    flags = flag_medication_confounds("theta", ["lithium", "heroin"])
+    names = {f["medication"] for f in flags}
+    assert any("Lithium" in n for n in names)
+    assert any("Heroin" in n for n in names)
+    assert len(flags) == 2
+
+
+def test_all_profiles_count() -> None:
+    profiles = MedicationEEGAtlas.all_profiles()
+    assert len(profiles) == 37
+
+
+def test_lookup_key_profiles() -> None:
+    key_profiles = [
+        ("cannabis", "Cannabis / THC / Marijuana"),
+        ("thc", "Cannabis / THC / Marijuana"),
+        ("lsd", "LSD"),
+        ("pcp", "PCP (Phencyclidine)"),
+        ("heroin", "Heroin"),
+        ("nicotine", "Nicotine"),
+        ("meprobamate", "Meprobamate"),
+        ("antihistamine", "Antihistamines (sedating and non-sedating)"),
+        ("antibiotics", "Antibiotics (chronic use)"),
+        ("solvents", "Solvents / Inhalants"),
+        ("withdrawal", "Medication withdrawal — general"),
+    ]
+    for alias, expected_name in key_profiles:
+        profile = MedicationEEGAtlas.lookup(alias)
+        assert profile is not None, f"lookup({alias!r}) returned None"
+        assert profile.name == expected_name, f"lookup({alias!r}) name mismatch"
+
+
+def test_profile_affected_bands() -> None:
+    cocaine = MedicationEEGAtlas.lookup("cocaine")
+    assert cocaine is not None
+    assert set(cocaine.affected_bands) == {"alpha", "beta"}
+
+    cannabis = MedicationEEGAtlas.lookup("cannabis")
+    assert cannabis is not None
+    assert set(cannabis.affected_bands) == {"alpha", "delta", "beta"}
 
 
 # ── Artifact Atlas Tests ────────────────────────────────────────────────────
@@ -231,6 +310,50 @@ def test_enhance_findings_clinical_note() -> None:
     assert "Cz" in enriched[0]["clinical_note"]
 
 
+def test_enhance_findings_includes_medication_summary() -> None:
+    finding = Finding(
+        region="Fz",
+        band="beta",
+        metric="spectral.bands.beta.absolute_uv2",
+        value=25.0,
+        z=2.5,
+        direction="elevated",
+        severity="significant",
+    )
+    enriched = enhance_findings(
+        [finding],
+        patient_meta={"medications": ["lorazepam", "sertraline"]},
+    )
+    assert len(enriched) == 1
+    summary = enriched[0].get("medication_summary")
+    assert summary is not None
+    assert isinstance(summary, list)
+    assert len(summary) == 2
+    names = [m["medication"] for m in summary]
+    assert any("Benzodiazepines" in n for n in names)
+    assert any("SSRIs" in n for n in names)
+    for m in summary:
+        assert "affected_bands" in m
+        assert isinstance(m["affected_bands"], list)
+        assert "drug_class" in m
+        assert "clinical_note" in m
+
+
+def test_enhance_findings_empty_medication_summary_when_no_meds() -> None:
+    finding = Finding(
+        region="Cz",
+        band="theta",
+        metric="spectral.bands.theta.absolute_uv2",
+        value=15.0,
+        z=2.2,
+        direction="elevated",
+        severity="significant",
+    )
+    enriched = enhance_findings([finding])
+    assert len(enriched) == 1
+    assert enriched[0].get("medication_summary") == []
+
+
 # ── Encyclopedia Tests ──────────────────────────────────────────────────────
 
 
@@ -247,7 +370,7 @@ def test_domain_encyclopedia_has_mu() -> None:
 
 
 def test_domain_encyclopedia_count() -> None:
-    assert len(DOMAIN_ENCYCLOPEDIA) == 14
+    assert len(DOMAIN_ENCYCLOPEDIA) == 26
 
 
 # ── Sleep Staging Tests ─────────────────────────────────────────────────────
