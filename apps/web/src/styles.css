@@ -84,6 +84,11 @@
   --card-bg:       rgba(255,255,255,0.04);
   --hover-bg:      rgba(255,255,255,0.06);
   --bg-secondary:  rgba(255,255,255,0.04);
+  /* Subtle tints used as panel/card backgrounds inside cards.
+     surface-tint-1 is the lightest (used behind nested cards),
+     surface-tint-2 matches --card-bg / --bg-secondary. */
+  --surface-tint-1: rgba(255,255,255,0.03);
+  --surface-tint-2: rgba(255,255,255,0.04);
   --text-muted:    #8892a4;
   --text:          #e8edf5;
   --bg:            #080d1a;
@@ -3087,6 +3092,8 @@ body.light-theme {
   --card-bg:       #ffffff;
   --hover-bg:      #f1f5f9;
   --bg-secondary:  #f8fafc;
+  --surface-tint-1: rgba(15,23,42,0.025);
+  --surface-tint-2: rgba(15,23,42,0.04);
   --text-muted:    #64748b;
   --text:          #0f172a;
   --bg:            #f0f4f8;
