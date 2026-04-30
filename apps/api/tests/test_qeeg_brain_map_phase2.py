@@ -177,15 +177,22 @@ def test_render_qeeg_pdf_503_when_weasyprint_missing(monkeypatch) -> None:
 
 
 def test_dk_narrative_bank_has_no_banned_terms() -> None:
+    import json as _json
     path = Path(__file__).resolve().parent.parent / "app" / "data" / "dk_atlas_narrative.json"
     if not path.exists():
         pytest.skip("Phase 0 narrative bank not yet on this branch")
-    text = path.read_text(encoding="utf-8")
+    data = _json.loads(path.read_text(encoding="utf-8"))
     # The bank reproduces functions/decline-symptoms strings verbatim from the
     # iSyncBrain sample and must not contain "diagnosis"/"diagnostic" — those
     # words would re-introduce the audit P1-3 leak.
+    # Safety disclaimers in _meta.regulatory_note are allowed.
+    meta = data.pop("_meta", {})
+    regulatory_note = meta.get("regulatory_note", "")
+    text = _json.dumps(data)
     assert "diagnosis" not in text.lower(), "narrative bank contains 'diagnosis'"
     assert "diagnostic" not in text.lower(), "narrative bank contains 'diagnostic'"
+    # Verify the regulatory disclaimer itself exists and is intact
+    assert "not for diagnosis" in regulatory_note.lower(), "regulatory_note missing safety disclaimer"
 
 
 # ── Protocol-fit pattern library regression (audit P1-3) ────────────────────

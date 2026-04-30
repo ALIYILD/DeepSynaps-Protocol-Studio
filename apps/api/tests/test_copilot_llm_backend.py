@@ -77,6 +77,7 @@ def test_tools_schema_has_five_tools() -> None:
         "tool_compare_to_norm",
         "tool_get_recommendation_detail",
         "tool_explain_channel",
+        "tool_explain_medication",
     }
     for tool in schema:
         assert "description" in tool and tool["description"]
