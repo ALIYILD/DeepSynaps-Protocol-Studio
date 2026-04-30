@@ -1112,24 +1112,31 @@ def get_analysis_brain_payload(
 @router.get("/patient/{patient_id}", response_model=AnalysisListResponse)
 def list_patient_analyses(
     patient_id: str,
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> AnalysisListResponse:
-    """List all qEEG analyses for a patient."""
+    """List qEEG analyses for a patient with pagination.
+
+    `total` is the full filter match so the UI can paginate; `items` is the
+    requested window. Default page is 50; previous behaviour silently capped
+    at 100 which masked overflow on high-volume patients.
+    """
     require_minimum_role(actor, "clinician")
     _gate_patient_access(actor, patient_id, db)
 
-    analyses = (
+    base = (
         db.query(QEEGAnalysis)
         .filter_by(patient_id=patient_id)
         .order_by(QEEGAnalysis.created_at.desc())
-        .limit(100)
-        .all()
     )
+    total = base.count()
+    analyses = list(base.offset(offset).limit(limit).all())
 
     return AnalysisListResponse(
         items=[AnalysisOut.from_record(a) for a in analyses],
-        total=len(analyses),
+        total=total,
     )
 
 
