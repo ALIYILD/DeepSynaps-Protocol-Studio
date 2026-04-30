@@ -2223,6 +2223,12 @@ def export_report_html(
     if not analysis:
         raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
 
+    # Cross-clinic ownership gate. Without this, a clinician at clinic A
+    # who guesses or harvests an analysis_id from clinic B can pull the
+    # PDF directly. Every other report-fetching endpoint in this router
+    # already calls _gate_patient_access; this one was missed in Phase 2.
+    _gate_patient_access(actor, analysis.patient_id, db)
+
     report = db.query(QEEGAIReport).filter_by(id=report_id, analysis_id=analysis_id).first()
     if not report:
         raise ApiServiceError(code="not_found", message="Report not found", status_code=404)
