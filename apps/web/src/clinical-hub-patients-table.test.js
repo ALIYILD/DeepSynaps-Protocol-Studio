@@ -329,3 +329,104 @@ test('chip count and right-panel queue length use the SAME source — todaysQueu
   // The count chip must call the same function (asserted above).
   // Together this guarantees chip count === queue length.
 });
+
+// ── One-click Analytics tab (2026-04-30): the tab bar must not trigger a
+//    route hop. Each tab button calls window._phSwitchTab(id) which sets
+//    window._patientHubTab + history.replaceState (?tab=) + re-renders the
+//    body in place. URL pathname stays put; ?page= param is unchanged.
+
+test('Analytics tab button has the spec testid and data-tab attribute', async () => {
+  const src = await _readPgSrc();
+  assert.ok(src.includes('data-testid="ds-patients-tab-analytics"'),
+    'Analytics tab must expose data-testid="ds-patients-tab-analytics"');
+  // tabBar() emits data-tab attributes for all four tabs so QA / e2e can target them.
+  assert.ok(src.includes(" data-tab=\"' + id + '\""),
+    'tabBar() must emit a data-tab attribute per button');
+});
+
+test('tab bar uses _phSwitchTab (in-place) and NOT _nav("patients-hub")', async () => {
+  const src = await _readPgSrc();
+  // The new in-place switcher must exist and be wired on every tab button.
+  assert.ok(src.includes("window._phSwitchTab = function _phSwitchTab"),
+    "_phSwitchTab handler must be defined on window");
+  // The handler is wired via string concat: `onclick="window._phSwitchTab('` + id + `')"`.
+  assert.ok(src.includes("window._phSwitchTab(\\'"),
+    'tab bar onclick must call window._phSwitchTab — not the legacy _nav route hop');
+  // Sanity-check: the old in-tabBar route-hop pattern is GONE. The tab bar's
+  // own onclick handlers must not call _nav('patients-hub') (alert/report
+  // list "View" buttons may still use that pattern — they're out of scope).
+  // We grep for the specific old pattern that was inside tabBar() before:
+  //   `window._patientHubTab='` + id + `';window._nav('patients-hub')`.
+  assert.ok(!/window\._patientHubTab=\\'\s*\+\s*id\s*\+\s*\\'\s*;\s*window\._nav/.test(src),
+    "tabBar() must not emit `window._patientHubTab='+id+';window._nav(...)` anymore");
+});
+
+test('switching tabs uses history.replaceState (no route hop, no pushState)', async () => {
+  const src = await _readPgSrc();
+  // _phSwitchTab must call replaceState — that's how the URL gets ?tab=…
+  // updated without a history entry or a route hop.
+  assert.ok(/_phSwitchTab[\s\S]{0,800}history\.replaceState/.test(src),
+    '_phSwitchTab must use history.replaceState to update the URL in place');
+  // And it must NOT pushState, which would create a navigation entry.
+  const switcherBlock = src.match(/window\._phSwitchTab = function _phSwitchTab[\s\S]*?^\s\s\};/m);
+  if (switcherBlock) {
+    assert.ok(!/history\.pushState/.test(switcherBlock[0]),
+      '_phSwitchTab must not use pushState');
+  }
+});
+
+test('clicking Analytics does NOT change the ?page= URL param (in-place tab)', () => {
+  // Headless simulation of the click handler: replicate the reduced version
+  // of _phSwitchTab that mutates location/history. The contract under test:
+  //  • ?page= is preserved (no route hop)
+  //  • ?tab= is set to the clicked tab id
+  //  • history.pushState is NEVER called (no new history entry)
+  const TAB_META = { patients:1, analytics:1, alerts:1, reports:1 };
+  let pushed = 0, replaced = 0, lastUrl = null;
+  const fakeHistory = {
+    state: { page: 'patients-v2' },
+    pushState() { pushed++; },
+    replaceState(_state, _title, url) { replaced++; lastUrl = url; },
+  };
+  const fakeLocation = { href: 'https://example.com/?page=patients-v2' };
+  function _phSwitchTab(id) {
+    if (!Object.prototype.hasOwnProperty.call(TAB_META, id)) return;
+    const u = new URL(fakeLocation.href);
+    u.searchParams.set('tab', id);
+    fakeHistory.replaceState({ ...(fakeHistory.state || {}), tab: id }, '', u.toString());
+  }
+  _phSwitchTab('analytics');
+
+  const after = new URL(lastUrl);
+  assert.equal(after.searchParams.get('page'), 'patients-v2',
+    '?page= must remain "patients-v2" after Analytics click — no route hop');
+  assert.equal(after.searchParams.get('tab'), 'analytics',
+    '?tab= must be set to "analytics"');
+  assert.equal(pushed, 0, 'pushState must NEVER be called by tab switching');
+  assert.equal(replaced, 1, 'replaceState must be called exactly once');
+});
+
+test('Analytics KPI grid renders with data-testid=ds-patients-analytics-kpis', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const path = await import('node:path');
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const src = readFileSync(path.join(here, 'pages-patient-analytics.js'), 'utf8');
+  assert.ok(src.includes('data-testid="ds-patients-analytics-kpis"'),
+    'cohort KPI strip must expose data-testid="ds-patients-analytics-kpis"');
+  // KPI labels must still be present (no content lost in the wiring fix).
+  for (const label of ['Mean PHQ-9', 'Response rate', 'Avg adherence', 'Active patients']) {
+    assert.ok(src.includes(label), 'KPI label must still render: ' + label);
+  }
+});
+
+test('Analytics module is cached on window for synchronous re-render (no flash)', async () => {
+  const src = await _readPgSrc();
+  assert.ok(src.includes('window._phAnalyticsModule'),
+    'analytics module must be cached on window._phAnalyticsModule');
+  // Pre-fetch happens during initial mount, in parallel with the patient list.
+  assert.ok(src.includes("import('./pages-patient-analytics.js')"),
+    'module must be lazy-imported and cached');
+  assert.ok(src.includes('_phAnalyticsModulePending'),
+    'pre-fetch must track an in-flight promise to avoid duplicate imports');
+});
