@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 
 export default defineConfig(({ mode }) => ({
-  base: './',
+  base: '/',
   esbuild: {
     // Strip noisy debug calls in prod builds. console.error / console.warn
     // are kept because the codebase uses them for legitimate error logging

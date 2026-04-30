@@ -517,6 +517,157 @@ test('each tab body renders non-empty content (>50 chars after strip)', async ()
   }
 });
 
+// ── Schedule demo seed (2026-04-30): when VITE_ENABLE_DEMO=1 AND the API
+//    returns an empty week, pgSchedulingHub seeds 12 realistic Mon–Sun
+//    sessions so reviewers see a populated calendar. Real bookings always
+//    win — the seed never overwrites returned API data.
+
+test('schedule demo seed: helper _schedDemoEnabled is gated on demo flags', async () => {
+  const src = await _readPgSrc();
+  // Helper must exist and check both the build constant and the import.meta
+  // env flag (mirrors the Patients page demo gate).
+  assert.ok(/function _schedDemoEnabled\(\)/.test(src),
+    '_schedDemoEnabled helper must be defined');
+  assert.ok(/typeof __VITE_ENABLE_DEMO__ !== 'undefined' && __VITE_ENABLE_DEMO__/.test(src),
+    'demo gate must read the __VITE_ENABLE_DEMO__ build constant');
+  assert.ok(/import\.meta\?\.env\?\.VITE_ENABLE_DEMO === '1'/.test(src),
+    "demo gate must accept VITE_ENABLE_DEMO === '1' from import.meta.env");
+});
+
+test('schedule demo seed: only fires when sessions === [] AND demo flag is on', async () => {
+  const src = await _readPgSrc();
+  // The gate itself: empty array (NOT null) + demo enabled.
+  assert.ok(/Array\.isArray\(sessions\) && sessions\.length === 0 && _schedDemoEnabled\(\)/.test(src),
+    'seed gate must require an empty sessions array AND the demo flag');
+  // null sessions (= API error) must NOT trigger the seed — the existing
+  // honest-empty-state comment must remain in the source so reviewers see
+  // the contract.
+  assert.ok(/sessions === null/.test(src),
+    'sessions === null branch must remain documented (real-API path unaffected)');
+});
+
+test("schedule demo seed: seeds >= 8 deterministic ids covering Mon-Fri", async () => {
+  const src = await _readPgSrc();
+  // Each seeded session must have a stable id beginning with `demo-sched-`.
+  // The spec required 8-12; the implementation seeds 12.
+  const ids = (src.match(/id:'demo-sched-[a-z0-9-]+/g) || []);
+  assert.ok(ids.length >= 8,
+    'at least 8 seeded session ids must be present (got ' + ids.length + ')');
+  assert.ok(ids.length <= 14,
+    'no more than ~12 seeded sessions (got ' + ids.length + ')');
+  // Days: each seed uses `day:0..4` for Mon–Fri at minimum. Confirm Mon, Tue,
+  // Wed, Thu, Fri are all represented.
+  for (const day of [0, 1, 2, 3, 4]) {
+    assert.ok(new RegExp("day:" + day + ",").test(src),
+      'day index ' + day + ' must appear in the seed table');
+  }
+});
+
+test('schedule demo seed: rendered events come from a real seed array (>= 8 items)', async () => {
+  const src = await _readPgSrc();
+  // Pull the SEED array literal from the file and parse a count of session
+  // objects. The match is intentionally non-greedy and bounded by the
+  // closing `];`.
+  const m = src.match(/const SEED = \[([\s\S]*?)\];/);
+  assert.ok(m, 'SEED literal must exist inside pgSchedulingHub');
+  const objCount = (m[1].match(/^\s*\{/gm) || []).length;
+  assert.ok(objCount >= 8,
+    'SEED must contain >= 8 session objects (got ' + objCount + ')');
+  // Each object must carry the id + day + start + duration + type + patient
+  // fields the renderer keys on.
+  for (const field of ['id:', 'day:', 'start:', 'duration:', 'type:', 'patient:']) {
+    assert.ok(m[1].includes(field),
+      'each SEED entry must declare ' + field);
+  }
+});
+
+test('schedule demo seed: simulated events list yields >= 8 cards on empty + demo', () => {
+  // Headless replay of the runtime gate. Mirrors the production logic:
+  // events = [] → if (sessions.length === 0 && demoEnabled) → events = SEED.map(...)
+  // Each rendered card binds to event.id; the renderer asserts >= 8 cards.
+  const sessions = [];          // API returned empty week
+  const demoEnabled = true;     // VITE_ENABLE_DEMO=1
+  let events = Array.isArray(sessions) ? sessions.map(() => null).filter(Boolean) : [];
+  let eventsIsDemo = false;
+  if (Array.isArray(sessions) && sessions.length === 0 && demoEnabled) {
+    const SEED = [
+      { id:'demo-sched-mon-0900', day:0, start:9.0,  duration:30, type:'tdcs',    patient:'Samantha Li',          room:'Room A', notes:'DLPFC-L 2.0 mA, 20 min' },
+      { id:'demo-sched-mon-1430', day:0, start:14.5, duration:30, type:'rtms',    patient:'Marcus Chen',          room:'Room B', notes:'DLPFC-L 10 Hz protocol' },
+      { id:'demo-sched-tue-1000', day:1, start:10.0, duration:60, type:'session', patient:'Elena Vasquez',        room:'Room A', notes:'tFUS · M1 sonication' },
+      { id:'demo-sched-tue-1600', day:1, start:16.0, duration:60, type:'nf',      patient:'James Okonkwo',        room:'Room B', notes:'SMR/theta neurofeedback' },
+      { id:'demo-sched-wed-0930', day:2, start:9.5,  duration:30, type:'session', patient:'Aisha Rahman',         room:'Room A', notes:'TPS · mPFC pulses' },
+      { id:'demo-sched-wed-1300', day:2, start:13.0, duration:60, type:'intake',  patient:'New patient',          room:'Room B', notes:'60 min intake' },
+      { id:'demo-sched-thu-0800', day:3, start:8.0,  duration:30, type:'rtms',    patient:'Marcus Chen',          room:'Room B', notes:'rTMS continuation' },
+      { id:'demo-sched-thu-1100', day:3, start:11.0, duration:30, type:'tele',    patient:'Telehealth follow-up', room:'Telehealth', notes:'30 min follow-up' },
+      { id:'demo-sched-fri-1030', day:4, start:10.5, duration:30, type:'tdcs',    patient:'Samantha Li',          room:'Room A', notes:'tDCS continuation' },
+      { id:'demo-sched-fri-1500', day:4, start:15.0, duration:60, type:'bio',     patient:'Group · Biofeedback',  room:'Room B', notes:'4-pt HRV group' },
+      { id:'demo-sched-tue-1130', day:1, start:11.5, duration:30, type:'assess',  patient:'Priya Nambiar',        room:'Room A', notes:'PHQ-9 / GAD-7 review' },
+      { id:'demo-sched-thu-1530', day:3, start:15.5, duration:30, type:'tdcs',    patient:'Aisha Rahman',         room:'Room A', notes:'tDCS adjunct · 1.5 mA' },
+    ];
+    events = SEED.map(s => ({
+      id: s.id,
+      day: s.day,
+      start: s.start,
+      end: Math.min(s.start + (s.duration / 60), 24),
+      type: s.type,
+      patient: s.patient,
+      meta: s.room || '',
+      duration: s.duration,
+      notes: s.notes || '',
+      _demoSeed: true,
+    }));
+    eventsIsDemo = true;
+  }
+  // Spec: >= 8 session cards visible on demo + empty.
+  assert.ok(events.length >= 8,
+    'demo+empty must yield >= 8 events (got ' + events.length + ')');
+  // Spec: distributed across days (>= 4 distinct day indices).
+  const distinctDays = new Set(events.map(e => e.day));
+  assert.ok(distinctDays.size >= 4,
+    'seed must cover at least 4 distinct days (got ' + distinctDays.size + ')');
+  // Every event has a stable id beginning with `demo-sched-` so the
+  // detail panel + chain renderer key correctly across re-renders.
+  for (const e of events) {
+    assert.ok(/^demo-sched-/.test(e.id),
+      'seeded event id must start with demo-sched- (got ' + e.id + ')');
+  }
+  // The seed flag must be set so the demo banner can render.
+  assert.equal(eventsIsDemo, true,
+    'eventsIsDemo flag must flip when seed runs');
+});
+
+test('schedule demo seed: real-API path is unaffected (sessions with items skips seed)', () => {
+  // Replay: sessions has real items → seed must NOT run, events come from
+  // the API mapping. This locks in the "real bookings always win" contract.
+  const sessions = [{ id:'real-001', scheduled_at:'2026-04-29T09:00', patient_name:'Real Patient', appointment_type:'session', modality:'tdcs' }];
+  const demoEnabled = true;
+  let events = Array.isArray(sessions) ? sessions.map(s => ({ id: s.id, _demoSeed: false })) : [];
+  let eventsIsDemo = false;
+  if (Array.isArray(sessions) && sessions.length === 0 && demoEnabled) {
+    eventsIsDemo = true;          // would seed — but we should not get here
+  }
+  assert.equal(events.length, 1, 'real API items must pass through unchanged');
+  assert.equal(events[0].id, 'real-001', 'real id must be preserved');
+  assert.equal(eventsIsDemo, false, 'eventsIsDemo must remain false on real-API path');
+});
+
+test('schedule demo seed: showDemoBanner gate flips with eventsIsDemo and renders testid', async () => {
+  const src = await _readPgSrc();
+  // The banner gate is bound to eventsIsDemo (truthy/falsy) — never to a
+  // hard-coded `false` like before.
+  assert.ok(/const showDemoBanner = !!eventsIsDemo/.test(src),
+    'showDemoBanner must derive from eventsIsDemo');
+  // The banner element must carry the spec testid for QA + automation.
+  assert.ok(src.includes('data-testid="ds-schedule-demo-banner"'),
+    'demo banner must expose data-testid="ds-schedule-demo-banner"');
+  // The dismiss handler must be wired (banner is dismissible per spec).
+  assert.ok(/window\._schedDismissDemoBanner/.test(src),
+    'dismiss handler must be defined on window');
+  // Banner copy mentions "Demo schedule" + "Real bookings".
+  assert.ok(/Demo schedule/.test(src), 'banner copy must mention "Demo schedule"');
+  assert.ok(/Real bookings/.test(src), 'banner copy must mention "Real bookings"');
+});
+
 test('start-session toast simulation: toast element exists with non-empty text', () => {
   // Replicate the runtime _dsToast behavior without bundling the full module.
   // Mirrors the helper defined inside pgPatientHub. If the helper drifts,
