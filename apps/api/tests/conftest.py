@@ -4,6 +4,7 @@ import sys
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 
 
 # Use a per-process DB file so parallel pytest invocations don't collide.
@@ -120,6 +121,18 @@ def isolated_database() -> None:
         _db.close()
     yield
     reset_database(fast=True)   # clean up after each test
+
+
+@pytest.fixture(autouse=True)
+def _clean_adverse_events() -> None:
+    yield
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        db.execute(text("DELETE FROM adverse_events"))
+        db.commit()
+    finally:
+        db.close()
 
 
 @pytest.fixture
