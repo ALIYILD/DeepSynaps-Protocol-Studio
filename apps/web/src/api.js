@@ -1932,6 +1932,60 @@ export const api = {
     }
   },
 
+  // ── Quality Assurance launch-audit (2026-04-30) ────────────────────────
+  // QA findings / non-conformance / CAPA register. Distinct from the
+  // artifact-level QA scoring engine at /api/v1/qa/run.
+  listQualityFindings: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch('/api/v1/qa/findings' + (q ? '?' + q : ''));
+  },
+  getQualityFindingsSummary: () => apiFetch('/api/v1/qa/findings/summary'),
+  getQualityFinding: (findingId) =>
+    apiFetch(`/api/v1/qa/findings/${encodeURIComponent(findingId)}`),
+  createQualityFinding: (body) =>
+    apiFetch('/api/v1/qa/findings', { method: 'POST', body: JSON.stringify(body || {}) }),
+  patchQualityFinding: (findingId, body) =>
+    apiFetch(`/api/v1/qa/findings/${encodeURIComponent(findingId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body || {}),
+    }),
+  closeQualityFinding: (findingId, body) =>
+    apiFetch(`/api/v1/qa/findings/${encodeURIComponent(findingId)}/close`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  reopenQualityFinding: (findingId, body) =>
+    apiFetch(`/api/v1/qa/findings/${encodeURIComponent(findingId)}/reopen`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  exportQualityFindingsCsv: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetchBinary('/api/v1/qa/findings/export.csv' + (q ? '?' + q : ''));
+  },
+  exportQualityFindingsNdjson: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetchBinary('/api/v1/qa/findings/export.ndjson' + (q ? '?' + q : ''));
+  },
+  // Best-effort page-level audit ingestion for the QA Hub.
+  logQualityAssuranceAudit: (event) => {
+    try {
+      const body = JSON.stringify(event || {});
+      return apiFetch('/api/v1/qa/findings/audit-events', {
+        method: 'POST',
+        body,
+      });
+    } catch (_) {
+      return Promise.resolve(null);
+    }
+  },
+
   // ── Patient outcomes (portal alias) ─────────────────────────────────────
   patientOutcomes: () => apiFetch('/api/v1/patient-portal/outcomes'),
 

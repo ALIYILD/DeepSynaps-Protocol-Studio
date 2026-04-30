@@ -76,6 +76,7 @@ KNOWN_SURFACES = {
     "audit_trail",
     "reports",
     "documents",
+    "quality_assurance",
 }
 
 
