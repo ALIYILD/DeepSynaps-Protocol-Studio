@@ -622,7 +622,6 @@ function renderAnalysisWorkspace(data, bands, ratios, artifact, normDev, analyse
       + '<div style="display:grid;grid-template-columns:minmax(0,1.65fr) minmax(300px,.9fr);gap:16px;align-items:start">'
         + '<div style="display:flex;flex-direction:column;gap:16px">'
           + _renderWorkspacePrimaryLens(data, bands, normDev, state)
-          + '<div style="padding:12px 14px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
           + '<div style="padding:12px 14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
             + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Lens guidance</div>'
             + '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6">Use <strong>' + esc(QEEG_WORKSPACE_LENS_META[state.lens].label) + '</strong> to inspect the dominant pattern in ' + esc(state.band) + '. Switch to z-score when you want deviation from the normative baseline rather than raw distribution.</div>'
@@ -886,6 +885,7 @@ async function _openQEEGAnnotationDrawer(context) {
       ev.preventDefault();
       host.classList.remove('analysis-anno-host--open');
       host.innerHTML = '';
+      host.removeEventListener('keydown', _annoTrap);
       document.removeEventListener('keydown', _annoEsc);
       _annoCloseFocusRestore();
     }
@@ -909,6 +909,8 @@ async function _openQEEGAnnotationDrawer(context) {
     node.addEventListener('click', function () {
       host.classList.remove('analysis-anno-host--open');
       host.innerHTML = '';
+      host.removeEventListener('keydown', _annoTrap);
+      document.removeEventListener('keydown', _annoEsc);
       if (typeof host.__annoCloseFocusRestore === 'function') host.__annoCloseFocusRestore();
     });
   });
@@ -4479,7 +4481,6 @@ function renderAnalysisList(analyses) {
     const status = a.analysis_status || 'pending';
     const statusColor = status === 'completed' ? 'var(--green)' : status === 'failed' ? 'var(--red)' : 'var(--amber)';
     const idShort = String(a.id || '').slice(0, 8);
-    html += '<div class="qeeg-analysis-row" style="background:var(--surface-tint-1);border-radius:8px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;transition:background .15s">'
     html += '<div class="qeeg-analysis-row" style="background:rgba(255,255,255,0.03);border-radius:8px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;transition:background .15s">'
       + '<div style="min-width:0;flex:1;cursor:pointer" '
       + 'onclick="window._qeegSelectedId=\'' + a.id + '\';window._qeegSwitchTab(\'analysis\')">'
@@ -4817,7 +4818,6 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         ? '<button class="btn btn-primary btn-sm" onclick="window._qeegSelectedId=\'demo\';window._qeegTab=\'analysis\';window._nav(\'qeeg-analysis\')">Open Analysis (demo data)</button>'
         : '';
       tabEl.innerHTML =
-        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:var(--surface-tint-1);border:1px solid var(--border);text-align:center">'
         '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);text-align:center">'
         + '<div style="font-size:32px;margin-bottom:8px">📊</div>'
         + '<div style="font-size:18px;font-weight:700;margin-bottom:6px">No analysis selected</div>'
@@ -5351,7 +5351,6 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         ? '<button class="btn btn-primary btn-sm" onclick="window._qeegSelectedId=\'demo\';window._qeegTab=\'report\';window._nav(\'qeeg-analysis\')">Open AI Report (demo data)</button>'
         : '';
       tabEl.innerHTML =
-        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:var(--surface-tint-1);border:1px solid var(--border);text-align:center">'
         '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);text-align:center">'
         + '<div style="font-size:32px;margin-bottom:8px">📝</div>'
         + '<div style="font-size:18px;font-weight:700;margin-bottom:6px">No analysis selected</div>'
@@ -5834,7 +5833,6 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
     // Hint when only 2 analyses exist — trend section unlocks at 3
     if (completedAnalyses.length === 2) {
       var trendHintHost = document.createElement('div');
-      trendHintHost.style.cssText = 'margin-top:16px;padding:14px;border-radius:10px;background:var(--surface-tint-1);border:1px dashed rgba(255,255,255,0.12);font-size:12px;color:var(--text-secondary);text-align:center';
       trendHintHost.style.cssText = 'margin-top:16px;padding:14px;border-radius:10px;background:rgba(255,255,255,0.02);border:1px dashed rgba(255,255,255,0.12);font-size:12px;color:var(--text-secondary);text-align:center';
       trendHintHost.innerHTML = '<strong>Longitudinal trend</strong> requires <strong>3+ completed analyses</strong>. Upload one more recording to unlock trend tracking.';
       tabEl.appendChild(trendHintHost);
@@ -6428,9 +6426,76 @@ window._qeegPrintReport = function () {
 // apps/api/app/templates/qeeg_brain_map_report.html). The backend resolves
 // the brain_map payload from the saved QEEGAIReport row, so this works for
 // any report — automatic pipeline output OR clinician-amended manual run.
+//
+// The demo report id ('demo-report') has no DB row, so the backend would
+// 404. To keep the demo flow walkable we render a synthetic HTML preview
+// from DEMO_QEEG_REPORT and open it locally instead of fetching.
+function _qeegBuildDemoBrainMapHTML() {
+  var report = DEMO_QEEG_REPORT || {};
+  var narrative = report.ai_narrative || {};
+  var data = report.data || {};
+  var refs = report.literature_refs || [];
+  var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>qEEG Brain Map Report (Demo)</title>'
+    + '<style>body{font-family:Georgia,serif;max-width:820px;margin:40px auto;color:#222;line-height:1.6;padding:0 20px}'
+    + 'h1{font-size:24px;border-bottom:2px solid #0a4d68;padding-bottom:8px}'
+    + 'h2{font-size:17px;color:#0a4d68;margin-top:28px;border-left:3px solid #0a4d68;padding-left:10px}'
+    + 'p{font-size:13px;margin:0 0 10px}'
+    + '.banner{background:#fff7ed;border:1px solid #fdba74;color:#7c2d12;padding:12px 14px;border-radius:8px;margin-bottom:18px;font-size:13px}'
+    + '.finding{background:#f5f9fb;border-left:3px solid #0a4d68;padding:10px 14px;margin:8px 0;border-radius:4px}'
+    + 'ol,ul{padding-left:22px}li{margin-bottom:8px;font-size:13px}'
+    + '.ref{font-size:12px;color:#444}'
+    + '.print-btn{background:#0a4d68;color:#fff;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;font-size:14px;margin:20px 0}'
+    + '@media print{.print-btn,.banner{display:none}}</style></head><body>';
+  html += '<div class="banner"><strong>Demo data.</strong> This brain-map report is a synthetic preview generated locally from the demo dataset — it is not stored on the server and does not represent a real recording.</div>';
+  html += '<h1>qEEG Brain Map Report</h1>';
+  html += '<p style="color:#666;font-size:12px">Generated: ' + new Date().toLocaleString() + ' · Demo report</p>';
+  if (data.executive_summary) {
+    html += '<h2>Executive Summary</h2><p>' + esc(data.executive_summary) + '</p>';
+  } else if (narrative.summary) {
+    html += '<h2>Executive Summary</h2><p>' + esc(narrative.summary) + '</p>';
+  }
+  if (Array.isArray(data.findings) && data.findings.length) {
+    html += '<h2>Key Findings</h2>';
+    data.findings.forEach(function (f) {
+      html += '<div class="finding"><strong>' + esc((f.region || '') + (f.band ? ' · ' + f.band : '')) + '</strong><br>' + esc(f.observation || '') + '</div>';
+    });
+  } else if (narrative.detailed_findings) {
+    html += '<h2>Detailed Findings</h2>' + _formatNarrative(narrative.detailed_findings);
+  }
+  if (Array.isArray(data.protocol_recommendations) && data.protocol_recommendations.length) {
+    html += '<h2>Protocol Recommendations</h2><ol>';
+    data.protocol_recommendations.forEach(function (p) {
+      html += '<li><strong>' + esc(p.protocol || '') + '</strong>' + (p.rationale ? ' — ' + esc(p.rationale) : '') + '</li>';
+    });
+    html += '</ol>';
+  }
+  if (refs.length) {
+    html += '<h2>Literature References</h2><ol>';
+    refs.forEach(function (r) {
+      var line = esc(r.title || '') + (r.year ? ' (' + r.year + ')' : '');
+      if (r.pmid) line += ' · PMID ' + esc(String(r.pmid));
+      if (r.doi) line += ' · doi:' + esc(String(r.doi));
+      html += '<li class="ref">' + line + '</li>';
+    });
+    html += '</ol>';
+  }
+  html += '<button class="print-btn" onclick="window.print()">Print / Save PDF</button>';
+  html += '</body></html>';
+  return html;
+}
+function _qeegIsDemoReportId(reportId) {
+  return reportId === 'demo-report' || reportId === encodeURIComponent('demo-report');
+}
 window._qeegOpenBrainMapReport = function (reportId) {
   if (!reportId) return showToast('No report id available', 'warning');
   _qeegAudit('open_brain_map_report', { report_id: reportId });
+  if (_qeegIsDemoReportId(reportId)) {
+    var w = window.open('', '_blank');
+    if (!w) return showToast('Popup blocked', 'error');
+    w.document.write(_qeegBuildDemoBrainMapHTML());
+    w.document.close();
+    return;
+  }
   try {
     var url = api.getQEEGBrainMapReportURL(reportId, 'html');
     window.open(url, '_blank', 'noopener,noreferrer');
@@ -6441,6 +6506,16 @@ window._qeegOpenBrainMapReport = function (reportId) {
 window._qeegDownloadBrainMapReport = function (reportId) {
   if (!reportId) return showToast('No report id available', 'warning');
   _qeegAudit('download_brain_map_report', { report_id: reportId });
+  if (_qeegIsDemoReportId(reportId)) {
+    try {
+      var blob = new Blob([_qeegBuildDemoBrainMapHTML()], { type: 'text/html' });
+      downloadBlob(blob, 'qeeg_brain_map_demo.html');
+      showToast('Demo brain map HTML downloaded — open it in a browser and use Print to save as PDF.', 'success');
+    } catch (err) {
+      showToast('Could not build demo brain map: ' + (err && err.message ? err.message : err), 'error');
+    }
+    return;
+  }
   api.getQEEGBrainMapReportPDF(reportId)
     .then(function (file) {
       var filename = file.filename || ('qeeg_brain_map_' + reportId + '.pdf');
