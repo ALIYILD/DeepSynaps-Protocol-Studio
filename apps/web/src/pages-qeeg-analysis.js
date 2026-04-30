@@ -5435,20 +5435,47 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
     if (followupSel && defaultFollowup && !followupSel.value) followupSel.value = defaultFollowup.id;
 
     const cmpBtn = document.getElementById('qeeg-compare-btn');
+    const cmpBtnDefaultText = cmpBtn ? cmpBtn.textContent : 'Compare';
+
+    function _qeegRevalidateCompare() {
+      const baseId = baselineSel ? baselineSel.value : '';
+      const followId = followupSel ? followupSel.value : '';
+      const st = document.getElementById('qeeg-compare-status');
+      if (!baseId || !followId) {
+        if (cmpBtn) { cmpBtn.disabled = true; cmpBtn.setAttribute('aria-disabled', 'true'); }
+        if (st) st.innerHTML = '<div style="color:var(--text-tertiary);font-size:12px">Pick a baseline and a follow-up to compare.</div>';
+        return;
+      }
+      if (baseId === followId) {
+        if (cmpBtn) { cmpBtn.disabled = true; cmpBtn.setAttribute('aria-disabled', 'true'); }
+        if (st) st.innerHTML = '<div role="alert" style="color:var(--amber);font-size:13px">Baseline and follow-up must be different analyses.</div>';
+        return;
+      }
+      const base = completedAnalyses.find(function (a) { return a.id === baseId; });
+      const foll = completedAnalyses.find(function (a) { return a.id === followId; });
+      let warning = '';
+      if (base && foll) {
+        const dt = Math.abs(_getAnalysisSortTimestamp(foll) - _getAnalysisSortTimestamp(base));
+        const days = dt / (1000 * 60 * 60 * 24);
+        if (days > 0 && days < 7) {
+          warning = '<div role="status" style="color:var(--amber);font-size:12px;margin-top:4px">⚠️ Sessions are less than 7 days apart — small changes may not be reliable.</div>';
+        }
+      }
+      if (cmpBtn) { cmpBtn.disabled = false; cmpBtn.removeAttribute('aria-disabled'); }
+      if (st) st.innerHTML = '<div style="color:var(--text-tertiary);font-size:12px">Ready to compare.</div>' + warning;
+    }
+    if (baselineSel) baselineSel.addEventListener('change', _qeegRevalidateCompare);
+    if (followupSel) followupSel.addEventListener('change', _qeegRevalidateCompare);
+    _qeegRevalidateCompare();
+
     if (cmpBtn) {
       cmpBtn.addEventListener('click', async function () {
-        const baseId = document.getElementById('qeeg-baseline-sel')?.value;
-        const followId = document.getElementById('qeeg-followup-sel')?.value;
+        const baseId = baselineSel ? baselineSel.value : '';
+        const followId = followupSel ? followupSel.value : '';
         const st = document.getElementById('qeeg-compare-status');
-        if (!baseId || !followId) {
-          if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px">Both analyses must be selected.</div>';
-          return;
-        }
-        if (baseId === followId) {
-          if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px">Baseline and follow-up must be different analyses.</div>';
-          return;
-        }
+        if (!baseId || !followId || baseId === followId) { _qeegRevalidateCompare(); return; }
         cmpBtn.disabled = true;
+        cmpBtn.textContent = 'Creating comparison…';
         if (st) st.innerHTML = spinner('Computing comparison...');
         try {
           const result = await api.createQEEGComparison({ baseline_id: baseId, followup_id: followId });
@@ -5460,8 +5487,9 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           window._nav('qeeg-analysis');
         } catch (err) {
           showToast('Comparison failed: ' + (err.message || err), 'error');
-          if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px">Error: ' + esc(err.message || err) + '</div>';
+          if (st) st.innerHTML = '<div role="alert" style="color:var(--red);font-size:13px">Error: ' + esc(String(err.message || err)) + '</div>';
           cmpBtn.disabled = false;
+          cmpBtn.textContent = cmpBtnDefaultText;
         }
       });
     }
