@@ -123,7 +123,7 @@ def compute_safety_cockpit(analysis: QEEGAnalysis) -> dict[str, Any]:
         "checks": checks,
         "red_flags": red_flags,
         "overall_status": _overall_status(checks, red_flags),
-        "disclaimer": "Decision-support only. Requires clinician review. Not a diagnosis.",
+        "disclaimer": "Research and wellness use only. Decision-support output requires clinician review and is not a medical diagnosis or treatment recommendation. Discuss any findings with a qualified clinician.",
     }
 
 
@@ -307,7 +307,7 @@ def detect_red_flags(analysis: QEEGAnalysis, notes: Optional[str] = None) -> dic
         "flags": flags,
         "flag_count": len(flags),
         "high_severity_count": sum(1 for f in flags if f["severity"] == "high"),
-        "disclaimer": "Decision-support only. Requires clinician review. Not a diagnosis.",
+        "disclaimer": "Research and wellness use only. Decision-support output requires clinician review and is not a medical diagnosis or treatment recommendation. Discuss any findings with a qualified clinician.",
     }
 
 

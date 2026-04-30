@@ -969,7 +969,8 @@ function renderQEEGOverlay(ctx) {
         _bmRenderQEEGLobeBlock('Cingulate', grouped.cingulate) +
         `<p style="margin:12px 0 0;font-size:11px;color:${T.t3};line-height:1.5">
            Color scale: blue = lower-than-typical (z ≤ −1.96), red = higher-than-typical (z ≥ 1.96).
-           This overlay is decision-support only; it is not a diagnosis or treatment recommendation.
+           Research and wellness use only — this overlay is informational, not a medical diagnosis
+           or treatment recommendation. Discuss any findings with a qualified clinician.
          </p>`;
     }
   } else {

@@ -6747,7 +6747,12 @@ export async function pgPatientBrainMap() {
     const reportMod = await import('./qeeg-patient-report.js');
     await reportMod.mountPatientReport('pt-brainmap-mount', reportId, api);
   } catch (e) {
-    el.innerHTML = '<div class="ds-alert ds-alert--error">Unable to load your brain map right now. Please try again later.</div>';
+    el.innerHTML =
+      '<div class="ds-alert ds-alert--error">Unable to load your brain map right now. Please try again later.</div>'
+      + '<p style="margin-top:12px;font-size:12px;color:var(--text-secondary);line-height:1.5">'
+      + 'Research and wellness use only. Brain map summaries are informational and are not a medical '
+      + 'diagnosis or treatment recommendation. Discuss any findings with a qualified clinician.'
+      + '</p>';
   }
 }
 
