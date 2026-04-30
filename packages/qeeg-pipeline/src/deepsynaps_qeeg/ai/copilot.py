@@ -578,6 +578,9 @@ Protocol recommendation:
 Medication / confound awareness:
 {medication_confounds_summary}
 
+Manual qEEG workflow reference:
+{workflow_reference_summary}
+
 Cited papers:
 {papers_summary}
 """
@@ -624,6 +627,7 @@ def render_system_prompt(
     recommendation: Any = None,
     papers: Iterable[dict[str, Any]] | None = None,
     medication_confounds: Any = None,
+    workflow_reference: Any = None,
 ) -> str:
     """Hydrate :data:`SYSTEM_PROMPT_TEMPLATE` with the live analysis payload.
 
@@ -655,6 +659,7 @@ def render_system_prompt(
         risk_summary=_safe(risk_scores),
         recommendation_summary=_safe(recommendation),
         medication_confounds_summary=medication_confounds_summary,
+        workflow_reference_summary=_safe(workflow_reference),
         papers_summary=papers_summary,
     )
 
@@ -1109,6 +1114,7 @@ def _render_context_system_prompt(context: dict[str, Any]) -> str:
         recommendation=context.get("recommendation"),
         papers=context.get("papers") or [],
         medication_confounds=context.get("medication_confounds"),
+        workflow_reference=context.get("workflow_reference"),
     )
 
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from pydantic import BaseModel, Field
@@ -530,6 +530,8 @@ _VALID_ANNOTATION_KINDS = frozenset({
     "interpolated_channel",
     "ica_decision",
     "ai_suggestion",
+    "event_marker",
+    "manual_finding",
     "note",
 })
 
@@ -569,6 +571,64 @@ class WorkbenchMetadataResponse(BaseModel):
         "Original raw EEG is preserved and cannot be overwritten. All "
         "cleaning is stored as a separate version."
     )
+
+
+class WorkbenchReferenceLibraryResponse(BaseModel):
+    source: str
+    version: str
+    status: str
+    native_file_ingestion: bool = False
+    clinical_disclaimer: str
+    workflows: list[dict[str, Any]] = Field(default_factory=list)
+    concepts: list[dict[str, Any]] = Field(default_factory=list)
+    ui_crosswalk: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ManualAnalysisChecklistItem(BaseModel):
+    category: str
+    title: str
+    action: str
+    safety_notes: list[str] = Field(default_factory=list)
+
+
+class ManualAnalysisChecklistResponse(BaseModel):
+    analysis_id: str
+    items: list[ManualAnalysisChecklistItem] = Field(default_factory=list)
+    notice: str = (
+        "Reference workflow only. Decision-support only; clinician review "
+        "required before interpretation or report export."
+    )
+
+
+class ManualFindingIn(BaseModel):
+    patient_id: Optional[str] = Field(default=None, max_length=64)
+    recording_id: Optional[str] = Field(default=None, max_length=64)
+    session_id: Optional[str] = Field(default=None, max_length=64)
+    channels: list[str] = Field(default_factory=list)
+    bands: list[str] = Field(default_factory=list)
+    finding_type: str = Field(min_length=1, max_length=80)
+    severity: str = Field(default="moderate", max_length=40)
+    confidence: str = Field(default="review_needed", max_length=40)
+    possible_confounds: list[str] = Field(default_factory=list)
+    note: Optional[str] = Field(default=None, max_length=2000)
+    clinician_review_required: bool = True
+
+
+class ManualFindingOut(BaseModel):
+    id: str
+    analysis_id: str
+    patient_id: Optional[str] = None
+    recording_id: Optional[str] = None
+    session_id: Optional[str] = None
+    channels: list[str] = Field(default_factory=list)
+    bands: list[str] = Field(default_factory=list)
+    finding_type: str
+    severity: str
+    confidence: str
+    possible_confounds: list[str] = Field(default_factory=list)
+    note: Optional[str] = None
+    clinician_review_required: bool = True
+    created_at: str
 
 
 class CleaningAnnotationIn(BaseModel):
@@ -833,6 +893,40 @@ def get_workbench_metadata(
     )
 
 
+@router.get(
+    "/{analysis_id}/reference-library",
+    response_model=WorkbenchReferenceLibraryResponse,
+)
+def get_reference_library(
+    analysis_id: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> WorkbenchReferenceLibraryResponse:
+    require_minimum_role(actor, "clinician")
+    _load_analysis(analysis_id, db, actor)
+    from deepsynaps_qeeg.knowledge import load_wineeg_reference_library
+
+    library = load_wineeg_reference_library()
+    return WorkbenchReferenceLibraryResponse(**library)
+
+
+@router.get(
+    "/{analysis_id}/manual-analysis-checklist",
+    response_model=ManualAnalysisChecklistResponse,
+)
+def get_manual_analysis_checklist(
+    analysis_id: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> ManualAnalysisChecklistResponse:
+    require_minimum_role(actor, "clinician")
+    _load_analysis(analysis_id, db, actor)
+    from deepsynaps_qeeg.knowledge import manual_analysis_checklist
+
+    items = [ManualAnalysisChecklistItem(**item) for item in manual_analysis_checklist()]
+    return ManualAnalysisChecklistResponse(analysis_id=analysis_id, items=items)
+
+
 @router.get("/{analysis_id}/cleaning-log", response_model=CleaningLogResponse)
 def get_cleaning_log(
     analysis_id: str,
@@ -866,6 +960,16 @@ def get_cleaning_log(
         for r in rows
     ]
     return CleaningLogResponse(analysis_id=analysis_id, items=items, total=len(items))
+
+
+def _annotation_note_json(note: Optional[str]) -> dict[str, Any]:
+    if not note:
+        return {}
+    try:
+        payload = json.loads(note)
+    except (TypeError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 @router.post(
@@ -949,6 +1053,71 @@ def create_annotation(
     db.commit()
     db.refresh(row)
     return CleaningAnnotationOut.from_record(row)
+
+
+@router.post(
+    "/{analysis_id}/manual-findings",
+    response_model=ManualFindingOut,
+    status_code=201,
+)
+def create_manual_finding(
+    analysis_id: str,
+    body: ManualFindingIn,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> ManualFindingOut:
+    require_minimum_role(actor, "clinician")
+    analysis = _load_analysis(analysis_id, db, actor)
+
+    if not body.clinician_review_required:
+        raise ApiServiceError(
+            code="clinician_review_required",
+            message="Manual findings must remain clinician-review-required.",
+            status_code=422,
+        )
+
+    payload = {
+        "patient_id": body.patient_id or analysis.patient_id,
+        "recording_id": body.recording_id or analysis_id,
+        "session_id": body.session_id,
+        "channels": body.channels,
+        "bands": body.bands,
+        "finding_type": body.finding_type,
+        "severity": body.severity,
+        "confidence": body.confidence,
+        "possible_confounds": body.possible_confounds,
+        "note": body.note,
+        "clinician_review_required": True,
+    }
+    row = QeegCleaningAnnotation(
+        analysis_id=analysis_id,
+        kind="manual_finding",
+        channel=(body.channels[0] if body.channels else None),
+        source="clinician",
+        decision_status="accepted",
+        note=json.dumps(payload),
+        actor_id=getattr(actor, "actor_id", None),
+    )
+    db.add(row)
+    db.flush()
+    _audit(
+        db,
+        analysis_id=analysis_id,
+        action_type="annotation:manual_finding",
+        actor=actor,
+        channel=row.channel,
+        new_value=payload,
+        note=body.note,
+        source="clinician",
+    )
+    db.commit()
+    db.refresh(row)
+    return ManualFindingOut(
+        id=row.id,
+        analysis_id=analysis_id,
+        created_at=(row.created_at or datetime.now(timezone.utc)).isoformat(),
+        **payload,
+    )
 
 
 @router.get(

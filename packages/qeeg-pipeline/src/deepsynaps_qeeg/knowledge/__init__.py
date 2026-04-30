@@ -14,6 +14,13 @@ from .medication_eeg import MedicationEEGAtlas, flag_medication_confounds
 from .normative import NormativeContext, age_aware_band_range, expected_pdr_hz
 from .sleep_classifier import SleepClassifier, extract_epoch_features_mne
 from .sleep_staging import SleepArchitecture, SleepStagingEngine, describe_sleep_stage
+from .wineeg_reference import (
+    format_wineeg_workflow_context,
+    load_wineeg_reference_library,
+    manual_analysis_checklist,
+    required_workflow_categories,
+    validate_wineeg_reference_library,
+)
 
 __all__ = [
     "ArtifactAtlas",
@@ -34,4 +41,9 @@ __all__ = [
     "extract_epoch_features_mne",
     "flag_artifact_confounds",
     "flag_medication_confounds",
+    "format_wineeg_workflow_context",
+    "load_wineeg_reference_library",
+    "manual_analysis_checklist",
+    "required_workflow_categories",
+    "validate_wineeg_reference_library",
 ]

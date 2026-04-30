@@ -2253,6 +2253,10 @@ export const api = {
   // require clinician confirmation before AI suggestions become accepted.
   getQEEGWorkbenchMetadata: (analysisId) =>
     apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/metadata`),
+  getQEEGWorkbenchReferenceLibrary: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/reference-library`),
+  getQEEGManualAnalysisChecklist: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/manual-analysis-checklist`),
   getQEEGCleaningLog: (analysisId, limit = 200) =>
     apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/cleaning-log?limit=${limit}`),
   listQEEGCleaningAnnotations: (analysisId, params = {}) => {
@@ -2265,6 +2269,11 @@ export const api = {
   },
   createQEEGCleaningAnnotation: (analysisId, body) =>
     apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/annotations`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  createQEEGManualFinding: (analysisId, body) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/manual-findings`, {
       method: 'POST',
       body: JSON.stringify(body),
     }),

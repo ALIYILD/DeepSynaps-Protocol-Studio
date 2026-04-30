@@ -155,6 +155,22 @@ def test_render_system_prompt_medication_confounds_fallback() -> None:
     assert "Medication / confound awareness" in rendered
     assert "(none)" in rendered
 
+
+def test_render_system_prompt_includes_manual_workflow_caveats() -> None:
+    from deepsynaps_qeeg.ai import copilot
+
+    rendered = copilot.render_system_prompt(
+        analysis_id="test-789",
+        workflow_reference=(
+            "WinEEG-style workflow reference only.\n"
+            "Do not claim native WinEEG compatibility or equivalence.\n"
+            "Decision-support only. Clinician review required."
+        ),
+    )
+    assert "Manual qEEG workflow reference" in rendered
+    assert "Do not claim native WinEEG compatibility" in rendered
+    assert "Clinician review required" in rendered
+
 def test_banned_word_sanitiser_rewrites_all_forms() -> None:
     """The sanitiser must rewrite ``diagnos*`` and
     ``treatment recommendation`` case-insensitively."""

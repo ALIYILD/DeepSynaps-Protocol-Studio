@@ -1,0 +1,292 @@
+{
+  "source": "WinEEG manuals reference summary",
+  "version": "3.11.24 reference",
+  "status": "reference_only",
+  "native_file_ingestion": false,
+  "clinical_disclaimer": "Decision-support only. Requires clinician review. Artifact quality, medication effects, sleep/state, and recording conditions should be considered before interpretation.",
+  "workflows": [
+    {
+      "id": "recording_setup",
+      "title": "Recording setup",
+      "category": "recording_setup",
+      "description": "Confirm channel inventory, sampling rate, reference choice, recording condition, and hardware context before any interpretation.",
+      "deep_synaps_surfaces": ["raw_workbench", "qeeg_analyzer"],
+      "ui_suggestions": ["Signal Quality panel", "Recording metadata strip"],
+      "safety_notes": ["Decision-support only.", "Clinician review required before reporting."]
+    },
+    {
+      "id": "impedance_check",
+      "title": "Impedance check",
+      "category": "impedance",
+      "description": "Review impedance completeness and note when impedance data is unavailable so signal-quality uncertainty is explicit.",
+      "deep_synaps_surfaces": ["raw_workbench", "qeeg_analyzer"],
+      "ui_suggestions": ["Impedance checklist", "Signal quality warnings"],
+      "safety_notes": ["High or unknown impedance can mimic artifact or asymmetry.", "Recording quality matters before interpretation."]
+    },
+    {
+      "id": "montage_review",
+      "title": "Montage review",
+      "category": "montage",
+      "description": "Confirm the active montage and derived reference context before marking channels or comparing asymmetry/coherence patterns.",
+      "deep_synaps_surfaces": ["raw_workbench", "qeeg_analyzer"],
+      "ui_suggestions": ["Montage selector", "10-20 / 10-10 helper"],
+      "safety_notes": ["Unknown montage should downgrade confidence.", "Comparisons across montages require caution."]
+    },
+    {
+      "id": "filter_review",
+      "title": "Filter review",
+      "category": "filters",
+      "description": "Document high-pass, low-pass, notch, and resampling choices because filtering changes what the clinician sees and can alter artifact visibility.",
+      "deep_synaps_surfaces": ["raw_workbench", "qeeg_analyzer"],
+      "ui_suggestions": ["Filter panel", "Applied filter summary"],
+      "safety_notes": ["Filtering changes interpretation.", "Line-noise cleanup should be verified visually and spectrally."]
+    },
+    {
+      "id": "manual_artifact_marking",
+      "title": "Manual artifact marking",
+      "category": "artifact_marking",
+      "description": "Mark eye, muscle, movement, line-noise, flat, and electrode-pop artifacts directly on the timeline before re-running analysis or building findings.",
+      "deep_synaps_surfaces": ["raw_workbench"],
+      "ui_suggestions": ["Artifact timeline", "Reject epoch controls"],
+      "safety_notes": ["Artifact quality matters.", "Clinician review required before any exclusion is treated as final."]
+    },
+    {
+      "id": "ica_pca_review",
+      "title": "ICA/PCA artifact review",
+      "category": "ica_pca",
+      "description": "Use ICA/PCA as guided cleanup support for blink, muscle, and mixed components, but document manual confirmation and residual uncertainty.",
+      "deep_synaps_surfaces": ["raw_workbench", "qeeg_analyzer"],
+      "ui_suggestions": ["ICA panel", "Reference-only PCA guidance"],
+      "safety_notes": ["Do not over-clean.", "Component removal requires clinician review."]
+    },
+    {
+      "id": "events_and_labels",
+      "title": "Events and labels",
+      "category": "events_and_labels",
+      "description": "Create event markers for recording segments, stimulation phases, task periods, and notable behavioral state changes.",
+      "deep_synaps_surfaces": ["raw_workbench"],
+      "ui_suggestions": ["Event marker panel", "Recording label timeline"],
+      "safety_notes": ["Event labels should describe observed context, not diagnosis."]
+    },
+    {
+      "id": "spectral_review",
+      "title": "Spectral review",
+      "category": "spectra",
+      "description": "Inspect spectra and topographic summaries after quality control to localize slowing, excess fast activity, posterior alpha organization, and focal deviations.",
+      "deep_synaps_surfaces": ["raw_workbench", "qeeg_analyzer"],
+      "ui_suggestions": ["Spectra panel", "Topomap strip"],
+      "safety_notes": ["Reference-only labels must be explicit where computation is absent.", "State and drowsiness can change spectra."]
+    },
+    {
+      "id": "band_power_review",
+      "title": "Band power review",
+      "category": "band_power",
+      "description": "Compare absolute and relative band power with recording state, age context, artifacts, and medication confounds before writing findings.",
+      "deep_synaps_surfaces": ["raw_workbench", "qeeg_analyzer"],
+      "ui_suggestions": ["Band power review", "Confound checklist"],
+      "safety_notes": ["Band power is not diagnostic by itself.", "Medication, sleep, and vigilance confounds should be considered."]
+    },
+    {
+      "id": "asymmetry_review",
+      "title": "Asymmetry review",
+      "category": "asymmetry",
+      "description": "Review asymmetry only after checking montage, artifact burden, and state because frontal and posterior asymmetries can be distorted by technical factors.",
+      "deep_synaps_surfaces": ["raw_workbench", "qeeg_analyzer"],
+      "ui_suggestions": ["Asymmetry map card", "Manual findings builder"],
+      "safety_notes": ["Interpret with artifact and reference awareness.", "Clinician review required."]
+    },
+    {
+      "id": "coherence_review",
+      "title": "Coherence review",
+      "category": "coherence",
+      "description": "Check coherence and connectivity-style measures only after confirming adequate artifact control and channel quality across the compared regions.",
+      "deep_synaps_surfaces": ["raw_workbench", "qeeg_analyzer"],
+      "ui_suggestions": ["Coherence panel", "Connectivity caveat helper"],
+      "safety_notes": ["Coherence is sensitive to artifact, reference, and volume conduction.", "Not diagnostic by itself."]
+    },
+    {
+      "id": "average_coherence_review",
+      "title": "Average coherence review",
+      "category": "average_coherence",
+      "description": "Use average coherence as a summary descriptor only after the underlying pairwise quality checks are acceptable.",
+      "deep_synaps_surfaces": ["raw_workbench", "qeeg_analyzer"],
+      "ui_suggestions": ["Average coherence card", "Quality gate summary"],
+      "safety_notes": ["Summary measures can hide bad channels or contaminated pairs."]
+    },
+    {
+      "id": "interaction_diagram_review",
+      "title": "Interaction diagram review",
+      "category": "interaction_diagrams",
+      "description": "Treat interaction diagrams as network-style visual aids for manual review, not as stand-alone evidence.",
+      "deep_synaps_surfaces": ["qeeg_analyzer"],
+      "ui_suggestions": ["Reference-only terminology panel"],
+      "safety_notes": ["Reference only unless computed in this build."]
+    },
+    {
+      "id": "bispectrum_reference",
+      "title": "Bispectrum / bicoherence terminology",
+      "category": "bispectrum_bicoherence",
+      "description": "Expose bispectrum and bicoherence terminology as reference concepts and future module placeholders when those metrics are not computed.",
+      "deep_synaps_surfaces": ["raw_workbench", "qeeg_analyzer"],
+      "ui_suggestions": ["Reference-only analysis card"],
+      "safety_notes": ["Not computed in this build unless explicit results are present."]
+    },
+    {
+      "id": "erp_sync_reference",
+      "title": "ERP sync notes",
+      "category": "erp_sync",
+      "description": "Use ERP sync terminology to document event alignment concepts, stimulus timing, and synchronization caveats without claiming ERP analysis where none is computed.",
+      "deep_synaps_surfaces": ["raw_workbench"],
+      "ui_suggestions": ["Event marker panel", "ERP sync notes helper"],
+      "safety_notes": ["Reference only unless ERP workflow is active."]
+    },
+    {
+      "id": "source_analysis_reference",
+      "title": "LORETA / sLORETA terminology",
+      "category": "source_analysis_loreta",
+      "description": "Describe source-analysis terminology and caveats as future guidance only unless a validated source engine is actually available.",
+      "deep_synaps_surfaces": ["raw_workbench", "qeeg_analyzer"],
+      "ui_suggestions": ["Source-analysis terminology panel"],
+      "safety_notes": ["Future module.", "Do not imply source localization is computed when it is not."]
+    },
+    {
+      "id": "reporting_review",
+      "title": "Manual findings and reporting",
+      "category": "reporting",
+      "description": "Write manual findings with channels, bands, confounds, and clinician notes so raw-review reasoning is explicit in the report.",
+      "deep_synaps_surfaces": ["raw_workbench", "qeeg_analyzer", "reporting"],
+      "ui_suggestions": ["Findings builder", "Clinician review report export"],
+      "safety_notes": ["Decision-support only.", "Clinician review required.", "Avoid causal claims unsupported by the recording."]
+    }
+  ],
+  "concepts": [
+    {
+      "id": "spectra",
+      "label": "Spectra",
+      "category": "spectra",
+      "summary": "Spectral review helps organize slowing, alpha rhythm quality, excess beta, and focal deviations after artifact control.",
+      "deep_synaps_mapping": "Use spectra and topomap panels after cleaning review.",
+      "caveats": ["Recording state affects spectra.", "Reference and filters can change appearance."]
+    },
+    {
+      "id": "band_power",
+      "label": "Band power",
+      "category": "band_power",
+      "summary": "Absolute and relative band power support descriptive review of delta, theta, alpha, beta, and related patterns.",
+      "deep_synaps_mapping": "Use band-power review with medication and sleep/state caveats.",
+      "caveats": ["Not diagnostic by itself.", "Artifact and medication confounds should be considered."]
+    },
+    {
+      "id": "asymmetry",
+      "label": "Asymmetry",
+      "category": "asymmetry",
+      "summary": "Asymmetry compares lateralized activity and is useful only after confirming reference, montage, and artifact adequacy.",
+      "deep_synaps_mapping": "Use asymmetry maps and manual findings builder together.",
+      "caveats": ["Eye and muscle artifact can distort asymmetry.", "Interpret in context."]
+    },
+    {
+      "id": "coherence",
+      "label": "Coherence",
+      "category": "coherence",
+      "summary": "Coherence describes frequency-domain coupling between channels or regions and is sensitive to contamination and reference effects.",
+      "deep_synaps_mapping": "Use coherence cards only after quality gates are met.",
+      "caveats": ["Artifact, reference, and volume conduction can inflate values.", "Clinician review required."]
+    },
+    {
+      "id": "average_coherence",
+      "label": "Average coherence",
+      "category": "average_coherence",
+      "summary": "Average coherence collapses multiple coherence relationships into a compact summary for manual review.",
+      "deep_synaps_mapping": "Use as a summary aid, not as a stand-alone decision point.",
+      "caveats": ["Summary views can hide local failures."]
+    },
+    {
+      "id": "interaction_diagrams",
+      "label": "Interaction diagrams",
+      "category": "interaction_diagrams",
+      "summary": "Interaction diagrams provide a network-style visual shorthand for connectivity relationships across channels.",
+      "deep_synaps_mapping": "Show as reference language until a validated computation path is present.",
+      "caveats": ["Reference only if not computed."]
+    },
+    {
+      "id": "bicoherence",
+      "label": "Bispectrum / bicoherence",
+      "category": "bispectrum_bicoherence",
+      "summary": "Bispectrum and bicoherence are higher-order spectral concepts that may be clinically interesting but require explicit computation support.",
+      "deep_synaps_mapping": "Label as future or reference-only in this build.",
+      "caveats": ["Do not fabricate results.", "Future module unless implemented."]
+    },
+    {
+      "id": "erp_sync",
+      "label": "ERP sync terminology",
+      "category": "erp_sync",
+      "summary": "ERP synchronization notes help document event alignment and timing context during task or stimulus recordings.",
+      "deep_synaps_mapping": "Use event labels and ERP sync notes without implying ERP metrics are computed.",
+      "caveats": ["Reference only unless ERP workflow is active."]
+    },
+    {
+      "id": "source_analysis",
+      "label": "LORETA / sLORETA concepts",
+      "category": "source_analysis_loreta",
+      "summary": "Source-analysis terminology can guide future workbench design but should remain clearly separated from computed scalp-space outputs.",
+      "deep_synaps_mapping": "Expose as terminology panel or future module placeholder.",
+      "caveats": ["No validated source-analysis engine should be implied unless present."]
+    }
+  ],
+  "ui_crosswalk": [
+    {
+      "wineeg_style_operation": "raw signal review",
+      "deep_synaps_surface": "Raw Data Workbench",
+      "deep_synaps_component": "Signal Quality panel",
+      "implementation_status": "new"
+    },
+    {
+      "wineeg_style_operation": "montage handling",
+      "deep_synaps_surface": "Raw Data Workbench",
+      "deep_synaps_component": "Montage panel",
+      "implementation_status": "new"
+    },
+    {
+      "wineeg_style_operation": "filter review",
+      "deep_synaps_surface": "Raw Data Workbench",
+      "deep_synaps_component": "Filter panel",
+      "implementation_status": "new"
+    },
+    {
+      "wineeg_style_operation": "manual artifact marking",
+      "deep_synaps_surface": "Raw Data Workbench",
+      "deep_synaps_component": "Artifact panel",
+      "implementation_status": "new"
+    },
+    {
+      "wineeg_style_operation": "event markers and labels",
+      "deep_synaps_surface": "Raw Data Workbench",
+      "deep_synaps_component": "Event Marker panel",
+      "implementation_status": "new"
+    },
+    {
+      "wineeg_style_operation": "spectra and maps",
+      "deep_synaps_surface": "qEEG Analyzer",
+      "deep_synaps_component": "Analysis panel",
+      "implementation_status": "existing"
+    },
+    {
+      "wineeg_style_operation": "coherence and average coherence",
+      "deep_synaps_surface": "qEEG Analyzer",
+      "deep_synaps_component": "Analysis panel",
+      "implementation_status": "existing"
+    },
+    {
+      "wineeg_style_operation": "LORETA / sLORETA terminology",
+      "deep_synaps_surface": "Raw Data Workbench",
+      "deep_synaps_component": "Source-analysis terminology panel",
+      "implementation_status": "future"
+    },
+    {
+      "wineeg_style_operation": "manual findings and reporting",
+      "deep_synaps_surface": "Raw Data Workbench",
+      "deep_synaps_component": "Findings Builder",
+      "implementation_status": "new"
+    }
+  ]
+}

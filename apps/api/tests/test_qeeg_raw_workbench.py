@@ -20,6 +20,7 @@ Covers:
 """
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Any
 
@@ -147,6 +148,38 @@ def test_metadata_cross_clinic_returns_404(
     assert r.status_code == 404, r.text
 
 
+def test_reference_library_is_reference_only(
+    client: TestClient, two_clinics_with_analysis: dict[str, Any]
+) -> None:
+    aid = two_clinics_with_analysis["analysis_id"]
+    r = client.get(
+        f"/api/v1/qeeg-raw/{aid}/reference-library",
+        headers=_auth(two_clinics_with_analysis["token_a"]),
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "reference_only"
+    assert body["native_file_ingestion"] is False
+    categories = {item["category"] for item in body["workflows"]}
+    for required in ("impedance", "coherence", "source_analysis_loreta", "reporting"):
+        assert required in categories
+
+
+def test_manual_analysis_checklist_contains_caveats(
+    client: TestClient, two_clinics_with_analysis: dict[str, Any]
+) -> None:
+    aid = two_clinics_with_analysis["analysis_id"]
+    r = client.get(
+        f"/api/v1/qeeg-raw/{aid}/manual-analysis-checklist",
+        headers=_auth(two_clinics_with_analysis["token_a"]),
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["analysis_id"] == aid
+    assert len(body["items"]) >= 6
+    assert "clinician review" in body["notice"].lower()
+
+
 # ── /annotations ─────────────────────────────────────────────────────────────
 def test_create_annotation_writes_row_and_audit(
     client: TestClient, two_clinics_with_analysis: dict[str, Any]
@@ -208,6 +241,57 @@ def test_create_annotation_cross_clinic_returns_404(
         headers=_auth(two_clinics_with_analysis["token_b"]),
     )
     assert r.status_code == 404, r.text
+
+
+def test_manual_finding_payload_validates_and_persists(
+    client: TestClient, two_clinics_with_analysis: dict[str, Any]
+) -> None:
+    aid = two_clinics_with_analysis["analysis_id"]
+    r = client.post(
+        f"/api/v1/qeeg-raw/{aid}/manual-findings",
+        json={
+            "channels": ["Fp1", "F3"],
+            "bands": ["alpha", "beta"],
+            "finding_type": "frontal asymmetry review",
+            "severity": "moderate",
+            "confidence": "review_needed",
+            "possible_confounds": ["eye blink", "lorazepam"],
+            "note": "Manual review notes.",
+            "clinician_review_required": True,
+        },
+        headers=_auth(two_clinics_with_analysis["token_a"]),
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["channels"] == ["Fp1", "F3"]
+    assert body["clinician_review_required"] is True
+    assert body["finding_type"] == "frontal asymmetry review"
+
+    db: Session = SessionLocal()
+    try:
+        row = db.query(QeegCleaningAnnotation).filter_by(analysis_id=aid, kind="manual_finding").one()
+        payload = json.loads(row.note)
+        assert payload["clinician_review_required"] is True
+        assert payload["bands"] == ["alpha", "beta"]
+    finally:
+        db.close()
+
+
+def test_manual_finding_rejects_non_clinician_review_required(
+    client: TestClient, two_clinics_with_analysis: dict[str, Any]
+) -> None:
+    aid = two_clinics_with_analysis["analysis_id"]
+    r = client.post(
+        f"/api/v1/qeeg-raw/{aid}/manual-findings",
+        json={
+            "channels": ["Cz"],
+            "bands": ["theta"],
+            "finding_type": "theta review",
+            "clinician_review_required": False,
+        },
+        headers=_auth(two_clinics_with_analysis["token_a"]),
+    )
+    assert r.status_code == 422, r.text
 
 
 # ── /cleaning-version ────────────────────────────────────────────────────────

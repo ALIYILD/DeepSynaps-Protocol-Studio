@@ -278,8 +278,12 @@ async def copilot_ws(
     snapshot = _analysis_snapshot(analysis)
     recommendation = _latest_recommendation(db, analysis_id)
     system_prompt: str = ""
+    workflow_reference: str | None = None
     if copilot is not None:
         try:
+            from deepsynaps_qeeg.knowledge import format_wineeg_workflow_context
+
+            workflow_reference = format_wineeg_workflow_context()
             system_prompt = copilot.render_system_prompt(
                 analysis_id=analysis_id,
                 features=snapshot["features"],
@@ -288,6 +292,7 @@ async def copilot_ws(
                 recommendation=recommendation,
                 papers=[],
                 medication_confounds=snapshot.get("medication_confounds"),
+                workflow_reference=workflow_reference,
             )
         except Exception as exc:  # pragma: no cover — should not happen
             _log.warning("render_system_prompt failed: %s", exc)
@@ -328,6 +333,7 @@ async def copilot_ws(
         "normative_metadata": snapshot.get("normative_metadata"),
         "interpretability_status": snapshot.get("interpretability_status"),
         "medication_confounds": snapshot.get("medication_confounds"),
+        "workflow_reference": workflow_reference,
     }
 
     # Conversation history (used by :func:`real_llm_tool_dispatch`). Each

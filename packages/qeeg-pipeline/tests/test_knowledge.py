@@ -11,6 +11,10 @@ from deepsynaps_qeeg.knowledge import (
     SleepStagingEngine,
     enhance_findings,
     flag_medication_confounds,
+    load_wineeg_reference_library,
+    manual_analysis_checklist,
+    required_workflow_categories,
+    validate_wineeg_reference_library,
 )
 from deepsynaps_qeeg.knowledge.channel_anatomy import explain_channel, channels_for_artifact
 from deepsynaps_qeeg.knowledge.medication_eeg import _ALIASES
@@ -216,6 +220,29 @@ def test_zscore_delta_adult() -> None:
     assert min_hz == 8.5
     assert max_hz == 12.0
     assert "Adult" in note
+
+
+def test_wineeg_reference_library_loads_and_is_reference_only() -> None:
+    library = load_wineeg_reference_library()
+    assert library["status"] == "reference_only"
+    assert library["native_file_ingestion"] is False
+    assert "clinician review" in library["clinical_disclaimer"].lower()
+
+
+def test_wineeg_reference_library_has_required_workflow_categories() -> None:
+    validation = validate_wineeg_reference_library()
+    assert validation["valid"] is True
+    assert validation["missing_categories"] == []
+    categories = {item["category"] for item in load_wineeg_reference_library()["workflows"]}
+    for category in required_workflow_categories():
+        assert category in categories
+
+
+def test_manual_analysis_checklist_carries_safety_notes() -> None:
+    checklist = manual_analysis_checklist()
+    assert len(checklist) >= 6
+    assert checklist[0]["category"] == "recording_setup"
+    assert any("clinician" in " ".join(item["safety_notes"]).lower() for item in checklist)
 
 
 def test_reference_range_theta() -> None:

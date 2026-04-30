@@ -403,6 +403,10 @@ export async function pgQEEGRawWorkbench(setTopbar, navigate) {
     aiCursor: 0,            // J/K artefact navigation index
     signOff: null,          // { signedBy, signedAt, notes, readinessScore }
     medicationConfounds: '', // free-text medication list for knowledge-enhanced reporting
+    manualReference: null,
+    manualChecklist: [],
+    manualFindings: [],
+    impedanceStatus: 'Unknown / not captured',
     // Recording-event timeline — separate from the constant EVENT_TIMELINE so
     // demo seeding can pre-populate Eyes Closed / Photic markers without
     // mutating module-level state.
@@ -1550,9 +1554,10 @@ function channelGutterHtml(state) {
 function rightPanelHtml(state) {
   const aiPending = (state.aiSuggestions || []).filter(s => (s.decision_status || 'suggested') === 'suggested').length;
   const icaBad = state.rejectedICA ? state.rejectedICA.size : 0;
-  // 5-tab right panel — Cleaning / AI Review / Best-Practice / ICA / Audit.
+  // 6-tab right panel — Cleaning / Manual Analysis / AI Review / Best-Practice / ICA / Audit.
   const tabs = [
     { id: 'cleaning', label: 'Cleaning',      testid: 'qwb-tab-cleaning' },
+    { id: 'manual',   label: 'Manual Analysis', testid: 'qwb-tab-manual' },
     { id: 'ai',       label: 'AI Review',     testid: 'qwb-tab-ai',    badge: aiPending },
     { id: 'help',     label: 'Best-Practice', testid: 'qwb-tab-bp' },
     { id: 'ica',      label: 'ICA',           testid: 'qwb-tab-ica',   badge: icaBad },
@@ -2296,6 +2301,7 @@ function renderRightPanel(state) {
   if (!body) return;
   switch (state.rightTab) {
     case 'cleaning': body.innerHTML = renderCleaningPanel(state); attachCleaningPanelHandlers(state); break;
+    case 'manual':   body.innerHTML = renderManualAnalysisPanel(state); attachManualAnalysisHandlers(state); break;
     case 'ai':       body.innerHTML = renderAIPanel(state);       attachAIPanelHandlers(state);       break;
     // Best-Practice now hosts the cleaning quality score + checklist alongside
     // the per-topic guidance and reference artefact examples.
@@ -2505,6 +2511,149 @@ function renderCleaningPanel(state) {
     <div class="qwb-side-section">
       <h4><span class="qwb-letter">G</span>Clinician Sign‑Off</h4>
       ${_renderSignOffSection(state)}
+    </div>`;
+}
+
+function _manualReferenceOnlyPill(label) {
+  return `<span style="display:inline-flex;align-items:center;padding:2px 6px;border-radius:999px;border:1px solid #d8d1c3;background:#f3eee5;color:#6b6660;font-size:10px;font-family:var(--qwb-mono)">${esc(label)}</span>`;
+}
+
+function _manualSignalQualityRows(state) {
+  const r = recordingMeta(state);
+  const artifactBurden = (state.aiSuggestions || []).filter(s => (s.decision_status || 'accepted') !== 'rejected').length;
+  return [
+    ['Channel count', String(r.channelCount || state.metadata?.channel_count || DEFAULT_CHANNELS.length)],
+    ['Sampling rate', `${r.sampleRate || state.metadata?.sample_rate_hz || 0} Hz`],
+    ['Recording duration', r.duration || `${Math.round(r.durationSec || state.metadata?.duration_sec || 0)} s`],
+    ['Bad channels', state.badChannels.size ? Array.from(state.badChannels).join(', ') : 'None marked'],
+    ['Impedance status', state.impedanceStatus || 'Unknown / not captured'],
+    ['Artifact burden', `${artifactBurden} flagged item${artifactBurden === 1 ? '' : 's'}`],
+  ];
+}
+
+function _manualChecklistHtml(state) {
+  const checklist = Array.isArray(state.manualChecklist) && state.manualChecklist.length
+    ? state.manualChecklist
+    : [
+        { title: 'Recording setup', action: 'Confirm recording metadata and condition.', safety_notes: ['Decision-support only.'] },
+        { title: 'Artifact review', action: 'Mark blink, muscle, movement, and line-noise artifacts first.', safety_notes: ['Artifact quality matters.'] },
+        { title: 'Band/coherence review', action: 'Interpret spectra, asymmetry, and coherence only after quality control.', safety_notes: ['Clinician review required.'] },
+      ];
+  return `<div style="display:flex;flex-direction:column;gap:8px">${checklist.map(item => `
+      <div class="qwb-card">
+        <div style="font-weight:600;font-size:12px">${esc(item.title || item.category || 'Checklist item')}</div>
+        <div style="font-size:11px;color:#1a1a1a;line-height:1.45;margin-top:3px">${esc(item.action || '')}</div>
+        <div style="font-size:10px;color:#6b6660;margin-top:4px">${esc((item.safety_notes || []).join(' · ') || 'Clinician review required.')}</div>
+      </div>`).join('')}</div>`;
+}
+
+function renderManualAnalysisPanel(state) {
+  const reference = state.manualReference || {};
+  const concepts = Array.isArray(reference.concepts) ? reference.concepts : [];
+  const manualFindings = Array.isArray(state.manualFindings) ? state.manualFindings : [];
+  const rows = _manualSignalQualityRows(state);
+  return `
+    <div class="qwb-side-section" data-testid="qwb-manual-analysis">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">
+        <h4 style="margin:0">Manual Analysis Mode</h4>
+        ${_manualReferenceOnlyPill('Decision-support only')}
+      </div>
+      <div style="font-size:11px;color:#6b6660;line-height:1.45">
+        WinEEG-style workflow reference only. DeepSynaps does not claim native WinEEG compatibility here. Clinician review required.
+      </div>
+    </div>
+    <div class="qwb-side-section">
+      <h4>1. Signal Quality Panel</h4>
+      <dl class="qwb-rec-info-grid">
+        ${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}
+      </dl>
+      <div style="font-size:10px;color:#6b6660;margin-top:6px">Impedance may be unknown for imported recordings. Document uncertainty explicitly.</div>
+    </div>
+    <div class="qwb-side-section">
+      <h4>2. Montage Panel</h4>
+      <div style="font-size:11px;line-height:1.45;color:#1a1a1a">Current montage: <b>${esc(state.montage)}</b></div>
+      <div style="font-size:11px;line-height:1.45;color:#1a1a1a;margin-top:4px">Derived montages: Referential, Average, Longitudinal bipolar, Transverse bipolar.</div>
+      <div style="font-size:10px;color:#6b6660;margin-top:6px">Unknown montage should lower confidence for asymmetry and coherence review.</div>
+    </div>
+    <div class="qwb-side-section">
+      <h4>3. Filter Panel</h4>
+      <dl class="qwb-rec-info-grid">
+        <dt>High-pass</dt><dd>${esc(String(state.lowCut))} Hz</dd>
+        <dt>Low-pass</dt><dd>${esc(String(state.highCut))} Hz</dd>
+        <dt>Notch</dt><dd>${esc(String(state.notch || 'Off'))}</dd>
+        <dt>Warning</dt><dd>Filtering changes interpretation</dd>
+      </dl>
+    </div>
+    <div class="qwb-side-section">
+      <h4>4. Artifact Panel</h4>
+      <div class="qwb-side-grid">
+        <button class="qwb-side-btn" data-manual-action="mark-blink">Mark eye blink</button>
+        <button class="qwb-side-btn" data-manual-action="mark-muscle">Mark muscle</button>
+        <button class="qwb-side-btn" data-manual-action="mark-movement">Mark movement</button>
+        <button class="qwb-side-btn" data-manual-action="mark-artifact">Manual artifact</button>
+        <button class="qwb-side-btn" data-manual-action="reject-epoch">Reject epoch</button>
+        <button class="qwb-side-btn" data-manual-action="open-ica">ICA / PCA guidance</button>
+      </div>
+      <div style="font-size:10px;color:#6b6660;margin-top:6px">ICA/PCA guidance is decision-support only. Do not over-clean.</div>
+    </div>
+    <div class="qwb-side-section">
+      <h4>5. Event Marker Panel</h4>
+      <input id="qwb-event-label-input" type="text" placeholder="e.g. Eyes closed, task start, photic 6 Hz" style="width:100%;padding:5px 6px;border:1px solid #dcd6ce;border-radius:4px;background:#faf7f2;color:#3a3633;font-size:12px" />
+      <div class="qwb-side-grid" style="margin-top:8px">
+        <button class="qwb-side-btn" data-manual-action="add-event-marker">Create event marker</button>
+        <button class="qwb-side-btn" data-manual-action="label-segment">Label recording segment</button>
+      </div>
+      <div style="font-size:10px;color:#6b6660;margin-top:6px">ERP sync terms are reference only unless an ERP workflow is active.</div>
+    </div>
+    <div class="qwb-side-section">
+      <h4>6. Analysis Panel</h4>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+        ${['Spectra', 'Absolute power', 'Relative power', 'Asymmetry', 'Coherence', 'Average coherence'].map(item => _manualReferenceOnlyPill(item)).join('')}
+        ${_manualReferenceOnlyPill('Bicoherence / bispectrum: Future module')}
+        ${_manualReferenceOnlyPill('LORETA / sLORETA: Not computed in this build')}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        ${concepts.slice(0, 5).map(item => `<div class="qwb-card"><div style="font-weight:600;font-size:12px">${esc(item.label || item.id || 'Concept')}</div><div style="font-size:11px;line-height:1.45;margin-top:3px">${esc(item.summary || '')}</div><div style="font-size:10px;color:#6b6660;margin-top:4px">${esc((item.caveats || []).join(' · ') || 'Clinician review required.')}</div></div>`).join('')}
+      </div>
+    </div>
+    <div class="qwb-side-section">
+      <h4>7. Findings Builder</h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <label style="font-size:11px;color:#6b6660">Finding type
+          <input id="qwb-manual-finding-type" type="text" value="manual qEEG review finding" style="width:100%;margin-top:3px;padding:5px 6px;border:1px solid #dcd6ce;border-radius:4px;background:#faf7f2;color:#3a3633;font-size:12px" />
+        </label>
+        <label style="font-size:11px;color:#6b6660">Channels
+          <input id="qwb-manual-finding-channels" type="text" value="${esc(state.selectedChannel || '')}" style="width:100%;margin-top:3px;padding:5px 6px;border:1px solid #dcd6ce;border-radius:4px;background:#faf7f2;color:#3a3633;font-size:12px" />
+        </label>
+        <label style="font-size:11px;color:#6b6660">Bands
+          <input id="qwb-manual-finding-bands" type="text" placeholder="alpha, beta" style="width:100%;margin-top:3px;padding:5px 6px;border:1px solid #dcd6ce;border-radius:4px;background:#faf7f2;color:#3a3633;font-size:12px" />
+        </label>
+        <label style="font-size:11px;color:#6b6660">Severity
+          <select id="qwb-manual-finding-severity" style="width:100%;margin-top:3px;padding:5px 6px;border:1px solid #dcd6ce;border-radius:4px;background:#faf7f2;color:#3a3633;font-size:12px">
+            <option>low</option><option selected>moderate</option><option>high</option>
+          </select>
+        </label>
+        <label style="font-size:11px;color:#6b6660">Confidence
+          <select id="qwb-manual-finding-confidence" style="width:100%;margin-top:3px;padding:5px 6px;border:1px solid #dcd6ce;border-radius:4px;background:#faf7f2;color:#3a3633;font-size:12px">
+            <option selected>review_needed</option><option>low</option><option>moderate</option><option>high</option>
+          </select>
+        </label>
+        <label style="font-size:11px;color:#6b6660">Possible confounds
+          <input id="qwb-manual-finding-confounds" type="text" placeholder="blink, sleep deprivation, caffeine" style="width:100%;margin-top:3px;padding:5px 6px;border:1px solid #dcd6ce;border-radius:4px;background:#faf7f2;color:#3a3633;font-size:12px" />
+        </label>
+      </div>
+      <label style="display:block;font-size:11px;color:#6b6660;margin-top:8px">Clinician note
+        <textarea id="qwb-manual-finding-note" rows="3" style="width:100%;margin-top:3px;padding:6px;border:1px solid #dcd6ce;border-radius:4px;background:#faf7f2;color:#3a3633;font-size:12px"></textarea>
+      </label>
+      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+        <button class="qwb-side-btn ink" data-manual-action="save-finding">Add to report</button>
+        ${_manualReferenceOnlyPill('Clinician review required')}
+      </div>
+      ${manualFindings.length ? `<div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">${manualFindings.slice(0, 4).map(item => `<div class="qwb-card"><div style="font-weight:600;font-size:12px">${esc(item.finding_type || 'Manual finding')}</div><div style="font-size:11px;color:#1a1a1a;margin-top:3px">${esc((item.channels || []).join(', ') || 'No channels listed')} · ${esc((item.bands || []).join(', ') || 'No bands listed')}</div><div style="font-size:10px;color:#6b6660;margin-top:4px">${esc((item.possible_confounds || []).join(', ') || 'No confounds noted')}</div></div>`).join('')}</div>` : '<div style="font-size:10px;color:#6b6660;margin-top:8px">No manual findings saved yet.</div>'}
+    </div>
+    <div class="qwb-side-section">
+      <h4>Manual workflow checklist</h4>
+      ${_manualChecklistHtml(state)}
     </div>`;
 }
 
