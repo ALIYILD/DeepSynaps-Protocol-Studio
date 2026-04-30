@@ -1523,8 +1523,16 @@ function channelGutterHtml(state) {
       ? `${anatomy.region} (${anatomy.brodmann}) — ${anatomy.networks}. Watch for: ${anatomy.artifacts}.`
       : '';
     const tipAttr = tipText ? ` title="${esc(tipText)}"` : '';
+    // Primary artifact warning icon from knowledge base
+    const artifactIcon = anatomy && anatomy.artifacts.includes('eye')
+      ? '<span class="qwb-ch-artifact" style="color:#b8741a;font-size:9px;margin-left:2px" title="Common: eye blink">●</span>'
+      : anatomy && anatomy.artifacts.includes('muscle')
+      ? '<span class="qwb-ch-artifact" style="color:#b03434;font-size:9px;margin-left:2px" title="Common: muscle">●</span>'
+      : anatomy && anatomy.artifacts.includes('ECG')
+      ? '<span class="qwb-ch-artifact" style="color:#1d6f7a;font-size:9px;margin-left:2px" title="Common: ECG">●</span>'
+      : '';
     return `<div class="qwb-ch-row ${isBad?'bad qwb-bad-channel':''} ${isSel?'active':''}" data-channel="${esc(ch)}">
-      <span class="qwb-ch-name"${tipAttr} data-channel="${esc(ch)}">${esc(ch)}${isBad?' ⚠':''}</span>
+      <span class="qwb-ch-name"${tipAttr} data-channel="${esc(ch)}">${esc(ch)}${artifactIcon}${isBad?' ⚠':''}</span>
       <span class="qwb-ch-scale">${state.gain} µV/cm</span>
     </div>`;
   }).join('');
