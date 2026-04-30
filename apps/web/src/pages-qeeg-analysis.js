@@ -287,10 +287,10 @@ function badge(text, color) {
 }
 
 const QEEG_WORKSPACE_LENS_META = {
-  spectral: { label: 'Spectral', color: 'var(--teal)' },
-  connectivity: { label: 'Connectivity', color: 'var(--blue)' },
-  asymmetry: { label: 'Asymmetry', color: 'var(--amber)' },
-  biomarkers: { label: 'Biomarkers', color: 'var(--violet)' },
+  spectral:     { label: 'Spectral',     color: 'var(--teal)',   help: 'Band-power topography — where in the cortex each EEG rhythm is concentrated.' },
+  connectivity: { label: 'Connectivity', color: 'var(--blue)',   help: 'Functional links between regions — coherence and phase synchrony across the scalp.' },
+  asymmetry:    { label: 'Asymmetry',    color: 'var(--amber)',  help: 'Hemispheric balance — left/right power differences relevant to mood, anxiety, motor lateralization.' },
+  biomarkers:   { label: 'Biomarkers',   color: 'var(--violet)', help: 'Composite clinical markers — theta/beta ratio, alpha peak, frontal asymmetry score.' },
 };
 
 function _getQEEGWorkspaceState(bands) {
@@ -585,23 +585,38 @@ function renderAnalysisWorkspace(data, bands, ratios, artifact, normDev, analyse
           + badge(normSummary.significant + ' significant z-flags', normSummary.significant ? 'var(--amber)' : 'var(--green)')
         + '</div>'
       + '</div>'
-      + '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">'
-        + Object.keys(QEEG_WORKSPACE_LENS_META).map(function (lens) {
-          var meta = QEEG_WORKSPACE_LENS_META[lens];
-          var active = state.lens === lens;
-          return '<button class="btn btn-sm ' + (active ? 'btn-primary' : 'btn-outline') + '"'
-            + (active ? ' style="background:' + meta.color + ';border-color:' + meta.color + ';color:#081019"' : '')
-            + ' onclick="window._qeegSetWorkspaceLens(\'' + lens + '\')">' + esc(meta.label) + '</button>';
-        }).join('')
-        + '<div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">'
+      + '<div role="toolbar" aria-label="qEEG workspace controls" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">'
+        + '<div role="group" aria-label="Lens" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'
+          + '<span style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em;margin-right:2px">Lens</span>'
+          + '<button class="btn btn-ghost btn-sm" data-qeeg-help="lens" aria-expanded="false" aria-controls="qeeg-lens-help" aria-label="What do these lenses mean?" title="What do these lenses mean?" style="padding:2px 7px;font-size:12px;border-radius:50%;width:22px;height:22px;line-height:1">?</button>'
+          + Object.keys(QEEG_WORKSPACE_LENS_META).map(function (lens) {
+            var meta = QEEG_WORKSPACE_LENS_META[lens];
+            var active = state.lens === lens;
+            return '<button class="btn btn-sm ' + (active ? 'btn-primary' : 'btn-outline') + '"'
+              + ' aria-pressed="' + (active ? 'true' : 'false') + '"'
+              + ' title="' + esc(meta.help) + '"'
+              + (active ? ' style="background:' + meta.color + ';border-color:' + meta.color + ';color:#081019"' : '')
+              + ' onclick="window._qeegSetWorkspaceLens(\'' + lens + '\')">' + esc(meta.label) + '</button>';
+          }).join('')
+        + '</div>'
+        + '<div role="group" aria-label="Band and metric" style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
+          + '<span style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em;margin-right:2px">Band</span>'
           + bandNames.map(function (band) {
             var active = state.band === band;
             return '<button class="btn btn-sm ' + (active ? 'btn-primary' : 'btn-outline') + '"'
+              + ' aria-pressed="' + (active ? 'true' : 'false') + '"'
+              + ' title="View topography for the ' + esc(band) + ' band"'
               + ' onclick="window._qeegSetWorkspaceBand(\'' + band + '\')">' + esc(band) + '</button>';
           }).join('')
-          + '<button class="btn btn-sm ' + (state.metric === 'relative' ? 'btn-primary' : 'btn-outline') + '" onclick="window._qeegSetWorkspaceMetric(\'relative\')">Relative</button>'
-          + '<button class="btn btn-sm ' + (state.metric === 'zscore' ? 'btn-primary' : 'btn-outline') + '" onclick="window._qeegSetWorkspaceMetric(\'zscore\')">Z-score</button>'
+          + '<button class="btn btn-sm ' + (state.metric === 'relative' ? 'btn-primary' : 'btn-outline') + '" aria-pressed="' + (state.metric === 'relative' ? 'true' : 'false') + '" title="Relative band power (proportion of total)" onclick="window._qeegSetWorkspaceMetric(\'relative\')">Relative</button>'
+          + '<button class="btn btn-sm ' + (state.metric === 'zscore' ? 'btn-primary' : 'btn-outline') + '" aria-pressed="' + (state.metric === 'zscore' ? 'true' : 'false') + '" title="Deviation from age-matched normative baseline" onclick="window._qeegSetWorkspaceMetric(\'zscore\')">Z-score</button>'
         + '</div>'
+      + '</div>'
+      + '<div id="qeeg-lens-help" hidden style="margin-top:8px;padding:12px 14px;border-radius:10px;background:rgba(255,255,255,0.025);border:1px solid var(--border);font-size:12px;color:var(--text-secondary);line-height:1.7">'
+        + Object.keys(QEEG_WORKSPACE_LENS_META).map(function (lens) {
+          var meta = QEEG_WORKSPACE_LENS_META[lens];
+          return '<div><strong style="color:' + meta.color + '">' + esc(meta.label) + '</strong> — ' + esc(meta.help) + '</div>';
+        }).join('')
       + '</div>'
       + '<div style="display:grid;grid-template-columns:minmax(0,1.65fr) minmax(300px,.9fr);gap:16px;align-items:start">'
         + '<div style="display:flex;flex-direction:column;gap:16px">'
@@ -3869,7 +3884,18 @@ window._exportCurrentBIDSPackage = function () {
   return window._qeegExportBIDSPackage();
 };
 let _fusionSummary = null;
-let _collapsedSections = { medications: true, neurological: true, lifestyle: true };
+let _collapsedSections = (function () {
+  const fallback = { medications: true, neurological: true, lifestyle: true };
+  try {
+    const raw = sessionStorage.getItem('qeeg_collapsed_sections');
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    return Object.assign({}, fallback, parsed);
+  } catch (_e) { return fallback; }
+})();
+function _persistCollapsedSections() {
+  try { sessionStorage.setItem('qeeg_collapsed_sections', JSON.stringify(_collapsedSections)); } catch (_e) {}
+}
 
 function renderTabBar(activeTab) {
   return '<div class="ch-tab-bar" role="tablist" aria-label="qEEG analyzer sections" style="margin-bottom:20px">' +
@@ -3921,6 +3947,23 @@ function _qeegRestoreScroll(tabId) {
     obs.observe(el, { childList: true, subtree: false });
   } catch (_e) {}
   setTimeout(function () { tryRestore(); if (obs) obs.disconnect(); }, 1500);
+}
+
+// Idempotent delegated handler — toggles the inline lens-help panel when
+// the workspace help (?) button is clicked.
+if (typeof document !== 'undefined' && !window._qeegLensHelpWired) {
+  window._qeegLensHelpWired = true;
+  document.addEventListener('click', function (ev) {
+    var btn = ev.target && ev.target.closest && ev.target.closest('[data-qeeg-help="lens"]');
+    if (!btn) return;
+    var panelId = btn.getAttribute('aria-controls') || 'qeeg-lens-help';
+    var panel = document.getElementById(panelId);
+    if (!panel) return;
+    var open = !panel.hasAttribute('hidden');
+    if (open) panel.setAttribute('hidden', '');
+    else panel.removeAttribute('hidden');
+    btn.setAttribute('aria-expanded', open ? 'false' : 'true');
+  });
 }
 
 // Wires arrow-key / Home / End navigation across the qEEG analyzer tab strip.
@@ -4453,6 +4496,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   };
   window._qeegToggleSection = function (sectionId) {
     _collapsedSections[sectionId] = !_collapsedSections[sectionId];
+    _persistCollapsedSections();
     const infoEl = document.getElementById('qeeg-clinical-info');
     if (infoEl && _patient) {
       infoEl.innerHTML = renderClinicalInfo(_patient, _medHistory);
