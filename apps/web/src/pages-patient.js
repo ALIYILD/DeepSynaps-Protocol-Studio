@@ -37,6 +37,7 @@ function _patientNav() {
     { id: 'pt-outcomes',         label: 'Progress',             icon: '📈', tone: 'green',  group: 'main' },
     { id: 'patient-assessments', label: 'Assessments',          icon: '📋', tone: 'rose',   group: 'main' },
     { id: 'patient-reports',     label: 'My Reports',           icon: '📄', tone: 'blue',   group: 'main' },
+    { id: 'patient-brainmap',    label: 'My Brain Map',         icon: '🧠', tone: 'violet', group: 'main' },
 
     // ── CONNECT ───────────────────────────────────────────────────────────────
     { section: 'Connect', sectionId: 'pt-connect', collapsed: false },
@@ -6703,6 +6704,51 @@ export async function pgPatientReports() {
     if (more) more.removeAttribute('hidden');
     if (btn)  btn.remove();
   };
+}
+
+// \u2500\u2500 My Brain Map (Phase 1) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// Renders the patient-facing QEEGBrainMapReport for the current patient's
+// most recent qEEG analysis. Honest empty state when none exists.
+export async function pgPatientBrainMap() {
+  setTopbar('My Brain Map');
+  const el = document.getElementById('patient-content');
+  if (!el) return;
+  el.innerHTML = spinner();
+
+  const patientId = (currentUser && (currentUser.patient_id || currentUser.id)) || null;
+  if (!patientId) {
+    el.innerHTML = '<div class="ds-card"><div class="ds-card__body" style="padding:32px;text-align:center;color:var(--text-secondary)">'
+      + 'Please sign in to view your brain map.</div></div>';
+    return;
+  }
+
+  let analyses = null;
+  try { analyses = await api.listPatientQEEGAnalyses(patientId); } catch (_) { analyses = null; }
+  const items = (analyses && (analyses.items || analyses.analyses || analyses)) || [];
+  if (!Array.isArray(items) || items.length === 0) {
+    el.innerHTML = '<div class="ds-card"><div class="ds-card__body" style="padding:48px;text-align:center;color:var(--text-secondary);font-size:14px;line-height:1.6">'
+      + '<h3 style="margin:0 0 8px;color:var(--text-primary)">No brain map yet</h3>'
+      + 'Your clinician will share results here once your qEEG is analyzed. There is no brain map on file for your account at the moment.'
+      + '</div></div>';
+    return;
+  }
+
+  const latest = items[0] || {};
+  const reportId = latest.report_id || latest.latest_report_id || null;
+  if (!reportId) {
+    el.innerHTML = '<div class="ds-card"><div class="ds-card__body" style="padding:32px;text-align:center;color:var(--text-secondary)">'
+      + 'Your most recent qEEG is being analyzed. Check back shortly.'
+      + '</div></div>';
+    return;
+  }
+
+  el.innerHTML = '<div id="pt-brainmap-mount"></div>';
+  try {
+    const reportMod = await import('./qeeg-patient-report.js');
+    await reportMod.mountPatientReport('pt-brainmap-mount', reportId, api);
+  } catch (e) {
+    el.innerHTML = '<div class="ds-alert ds-alert--error">Unable to load your brain map right now. Please try again later.</div>';
+  }
 }
 
 // \u2500\u2500 Messages \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
