@@ -6073,73 +6073,164 @@ export async function pgOutcomes(setTopbar, navigate) {
   };
 }
 
-// ── pgAdverseEvents — Clinic-wide AE monitoring ───────────────────────────────
+// ── pgAdverseEvents — Clinic-wide AE log (launch-audit 2026-04-30) ────────────
+//
+// Standalone "full log" view. Surfaces every visible filter as a real query
+// against /api/v1/adverse-events. Counts come from /summary so they include
+// rows beyond the first page. Detail review / sign-off / escalation /
+// classification edits live in the monitor-hub modal (one shared codepath).
+//
 export async function pgAdverseEvents(setTopbar, navigate) {
-  setTopbar('Adverse Events Monitor', `<button class="btn btn-sm" onclick="window._nav('courses')">← Courses</button>`);
+  setTopbar(
+    'Adverse Events',
+    `<button class="btn btn-sm" onclick="window._aeExportCsv()">Export CSV</button>
+     <button class="btn btn-sm" style="margin-left:6px" onclick="window._nav('courses')">← Courses</button>`
+  );
   const el = document.getElementById('content');
   el.innerHTML = spinner();
 
-  let aes = [], courses = [], patients = [];
+  // Persistent filter state for this page (separate key from monitor-hub).
+  const aeF = (window._aeFilters = window._aeFilters || {});
+  const params = {};
+  if (aeF.severity)    params.severity = aeF.severity;
+  if (aeF.body_system) params.body_system = aeF.body_system;
+  if (aeF.status)      params.status = aeF.status;
+  if (aeF.expected)    params.expected = aeF.expected;
+  if (aeF.sae === true)        params.sae = 'true';
+  if (aeF.reportable === true) params.reportable = 'true';
+
+  let aes = [], summary = null, courses = [], patients = [];
   try {
-    [aes, courses, patients] = await Promise.all([
-      api.listAdverseEvents().then(r => r?.items || []).catch(() => []),
+    [aes, summary, courses, patients] = await Promise.all([
+      api.listAdverseEvents(params).then(r => r?.items || []).catch(() => []),
+      api.getAdverseEventsSummary?.().catch(() => null) || Promise.resolve(null),
       api.listCourses().then(r => r?.items || []).catch(() => []),
       api.listPatients().then(r => r?.items || []).catch(() => []),
     ]);
   } catch {}
+
+  // Best-effort audit (page open).
+  try {
+    if (api && typeof api.logAudit === 'function') {
+      const p = api.logAudit({ surface: 'adverse_events', event: 'page_loaded', note: 'standalone_full_log' });
+      if (p && p.catch) p.catch(() => {});
+    }
+  } catch (_) {}
 
   const courseMap = {};
   courses.forEach(c => { courseMap[c.id] = c; });
   const patMap = {};
   patients.forEach(p => { patMap[p.id] = `${p.first_name} ${p.last_name}`; });
 
-  const counts = { mild: 0, moderate: 0, severe: 0, serious: 0 };
-  aes.forEach(ae => { if (counts[ae.severity] !== undefined) counts[ae.severity]++; });
+  // Real KPI roll-up — always derive from /summary when available, fall back
+  // to deriving from the visible list. Either way the values are real, never
+  // hardcoded. The legacy "by severity" tiles below stay useful but read from
+  // the summary when present.
+  const summaryFallback = (() => {
+    const counts = { mild: 0, moderate: 0, severe: 0, serious: 0 };
+    aes.forEach(ae => { if (counts[ae.severity] !== undefined) counts[ae.severity]++; });
+    return {
+      total: aes.length,
+      sae: aes.filter(a => a.is_serious || a.severity === 'serious').length,
+      reportable: aes.filter(a => a.reportable).length,
+      awaiting_review: aes.filter(a => !a.reviewed_at && !a.resolved_at).length,
+      by_severity: counts,
+    };
+  })();
+  const sm = summary || summaryFallback;
+  const bySev = (sm.by_severity || summaryFallback.by_severity) || {};
 
   const SEV_COLOR = { mild: 'var(--text-secondary)', moderate: 'var(--amber)', severe: 'var(--red)', serious: 'var(--red)' };
+  const filterActive = Object.values(params).some(v => v != null && v !== '');
 
   el.innerHTML = `
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px">
+    <div style="background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.35);padding:8px 12px;border-radius:6px;margin-bottom:14px;font-size:11.5px;color:var(--text-secondary);line-height:1.6">
+      <span style="color:var(--red);font-weight:700">⚠</span>
+      Adverse events require timely clinician review per local policy.
+      Serious adverse events may require regulatory reporting (IRB / FDA / MHRA).
+      Demo data is not for actual clinical reporting.
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:18px">
+      <div class="metric-card"><div class="metric-label">Total</div><div class="metric-value" style="color:var(--blue)">${sm.total||0}</div><div class="metric-delta">all events</div></div>
+      <div class="metric-card"><div class="metric-label">SAE</div><div class="metric-value" style="color:var(--red)">${sm.sae||0}</div><div class="metric-delta">serious adverse events</div></div>
+      <div class="metric-card"><div class="metric-label">Reportable</div><div class="metric-value" style="color:var(--red)">${sm.reportable||0}</div><div class="metric-delta">SAE+unexpected+related</div></div>
+      <div class="metric-card"><div class="metric-label">Awaiting review</div><div class="metric-value" style="color:var(--amber)">${sm.awaiting_review||0}</div><div class="metric-delta">unreviewed + unresolved</div></div>
+      <div class="metric-card"><div class="metric-label">Open</div><div class="metric-value" style="color:var(--amber)">${sm.open != null ? sm.open : (aes.filter(a=>!a.resolved_at).length)}</div><div class="metric-delta">not resolved</div></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px">
       ${['mild','moderate','severe','serious'].map(s => `
-        <div class="metric-card" style="cursor:pointer" onclick="window._aeFilter('${s}')">
+        <div class="metric-card" style="cursor:pointer" onclick="window._aeSetFilter('severity','${s}')">
           <div class="metric-label">${s.charAt(0).toUpperCase()+s.slice(1)}</div>
-          <div class="metric-value" style="color:${SEV_COLOR[s]}">${counts[s]}</div>
-          <div class="metric-delta">reported events</div>
+          <div class="metric-value" style="color:${SEV_COLOR[s]}">${bySev[s]||0}</div>
+          <div class="metric-delta">click to filter</div>
         </div>`).join('')}
     </div>
 
     <div class="card" style="margin-bottom:16px">
-      <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <select id="ae-sev-filter" class="form-control" style="width:auto;font-size:12px" onchange="window._aeFilter()">
-          <option value="">All Severities</option>
-          <option value="mild">Mild</option>
-          <option value="moderate">Moderate</option>
-          <option value="severe">Severe</option>
-          <option value="serious">Serious</option>
+      <div style="padding:10px 14px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select id="ae-sev-filter" class="form-control" style="width:auto;font-size:12px" onchange="window._aeSetFilter('severity', this.value)">
+          <option value=""${!aeF.severity?' selected':''}>All Severities</option>
+          <option value="mild"${aeF.severity==='mild'?' selected':''}>Mild</option>
+          <option value="moderate"${aeF.severity==='moderate'?' selected':''}>Moderate</option>
+          <option value="severe"${aeF.severity==='severe'?' selected':''}>Severe</option>
+          <option value="serious"${aeF.severity==='serious'?' selected':''}>Serious</option>
         </select>
-        <input id="ae-search" class="form-control" placeholder="Search event type or notes…" style="flex:1;min-width:180px;font-size:12px" oninput="window._aeFilter()">
-        <span id="ae-count" style="font-size:11px;color:var(--text-tertiary);white-space:nowrap">${aes.length} events</span>
+        <select id="ae-status-filter" class="form-control" style="width:auto;font-size:12px" onchange="window._aeSetFilter('status', this.value)">
+          <option value=""${!aeF.status?' selected':''}>All Statuses</option>
+          <option value="open"${aeF.status==='open'?' selected':''}>Open</option>
+          <option value="reviewed"${aeF.status==='reviewed'?' selected':''}>Reviewed</option>
+          <option value="resolved"${aeF.status==='resolved'?' selected':''}>Resolved</option>
+          <option value="escalated"${aeF.status==='escalated'?' selected':''}>Escalated</option>
+        </select>
+        <select id="ae-bs-filter" class="form-control" style="width:auto;font-size:12px" onchange="window._aeSetFilter('body_system', this.value)">
+          <option value=""${!aeF.body_system?' selected':''}>All Body Systems</option>
+          ${['nervous','psychiatric','cardiac','gi','skin','general','other'].map(b=>'<option value="'+b+'"'+(aeF.body_system===b?' selected':'')+'>'+b.toUpperCase()+'</option>').join('')}
+        </select>
+        <select id="ae-exp-filter" class="form-control" style="width:auto;font-size:12px" onchange="window._aeSetFilter('expected', this.value)">
+          <option value=""${!aeF.expected?' selected':''}>All Expectedness</option>
+          <option value="expected"${aeF.expected==='expected'?' selected':''}>Expected</option>
+          <option value="unexpected"${aeF.expected==='unexpected'?' selected':''}>Unexpected</option>
+        </select>
+        <label style="display:flex;gap:4px;align-items:center;font-size:11.5px;color:var(--text-secondary)">
+          <input type="checkbox" ${aeF.sae===true?'checked':''} onchange="window._aeSetFilter('sae', this.checked?true:'')"> SAE only
+        </label>
+        <label style="display:flex;gap:4px;align-items:center;font-size:11.5px;color:var(--text-secondary)">
+          <input type="checkbox" ${aeF.reportable===true?'checked':''} onchange="window._aeSetFilter('reportable', this.checked?true:'')"> Reportable only
+        </label>
+        <input id="ae-search" class="form-control" placeholder="Search event type or notes…" style="flex:1;min-width:180px;font-size:12px" oninput="window._aeTextFilter()">
+        ${filterActive ? '<button class="btn btn-sm" onclick="window._aeClearFilters()">Clear</button>' : ''}
+        <span id="ae-count" style="font-size:11px;color:var(--text-tertiary);white-space:nowrap">${aes.length} shown${filterActive?' (filtered)':''}</span>
       </div>
       <div style="overflow-x:auto">
-        ${aes.length === 0 ? emptyState('🛡️', 'No adverse events reported', 'Adverse events will be logged here when reported during sessions.') : `
+        ${aes.length === 0 ? emptyState('🛡️', filterActive?'No adverse events match the active filters':'No adverse events reported', 'Reporters land here when sessions surface adverse events.') : `
         <table class="ds-table" id="ae-table">
-          <thead><tr><th>Date</th><th>Patient</th><th>Course</th><th>Event Type</th><th>Severity</th><th>Onset</th><th>Action</th><th>Resolution</th><th></th></tr></thead>
+          <thead><tr><th>Date</th><th>Patient</th><th>Course</th><th>Event Type</th><th>Severity</th><th>Body system</th><th>Status</th><th>Flags</th><th></th></tr></thead>
           <tbody id="ae-tbody">
             ${aes.map(ae => {
               const sev = ae.severity || 'mild';
               const sc = SEV_COLOR[sev] || 'var(--text-secondary)';
               const course = courseMap[ae.course_id] || {};
               const patName = patMap[ae.patient_id] || (course.patient_id ? patMap[course.patient_id] : '') || '—';
+              const status = ae.resolved_at ? 'resolved' : ae.escalated_at ? 'escalated' : ae.reviewed_at ? 'reviewed' : 'open';
+              const stColor = status==='resolved'?'var(--green)':status==='escalated'?'var(--red)':status==='reviewed'?'var(--blue)':'var(--amber)';
               return `<tr data-sev="${sev}" data-text="${_esc((ae.event_type||'') + ' ' + (ae.description||ae.notes||''))}">
-                <td style="font-size:11.5px;color:var(--text-secondary);white-space:nowrap">${ae.reported_at ? ae.reported_at.split('T')[0] : ae.occurred_at ? ae.occurred_at.split('T')[0] : ae.created_at?.split('T')[0] || '—'}</td>
-                <td style="font-size:12px">${_esc(patName)}</td>
+                <td style="font-size:11.5px;color:var(--text-secondary);white-space:nowrap">${ae.reported_at ? ae.reported_at.split('T')[0] : ae.created_at?.split('T')[0] || '—'}</td>
+                <td style="font-size:12px">${_esc(patName)}${ae.is_demo?' <span style="color:var(--amber);font-size:10px;font-weight:600;letter-spacing:0.5px">DEMO</span>':''}</td>
                 <td style="font-size:12px">${course.condition_slug ? _esc(course.condition_slug.replace(/-/g,' ')) + ' · ' + _esc(course.modality_slug||'') : '—'}</td>
                 <td style="font-size:12.5px;font-weight:500">${_esc(ae.event_type) || '—'}</td>
                 <td><span style="font-size:11px;padding:2px 8px;border-radius:4px;background:${sc}22;color:${sc};font-weight:600">${_esc(sev)}</span></td>
-                <td style="font-size:11.5px">${_esc(ae.onset_timing) || '—'}</td>
-                <td style="font-size:11.5px">${_esc(ae.action_taken) || '—'}</td>
-                <td style="font-size:11.5px">${ae.resolved_at || ae.resolution === 'resolved' ? '<span style="color:var(--green)">Resolved</span>' : '<span style="color:var(--amber)">Ongoing</span>'}</td>
-                <td>${ae.course_id ? `<button class="btn btn-sm" onclick="window._openCourse('${ae.course_id}')">View →</button>` : ''}</td>
+                <td style="font-size:11.5px">${_esc(ae.body_system) || '—'}</td>
+                <td><span style="font-size:11px;padding:2px 8px;border-radius:4px;background:${stColor}22;color:${stColor};font-weight:600">${status}</span></td>
+                <td style="font-size:10px">
+                  ${ae.is_serious || sev==='serious' ? '<span style="color:var(--red);font-weight:700;margin-right:4px">SAE</span>' : ''}
+                  ${ae.reportable ? '<span style="color:var(--red);font-weight:700">REPORTABLE</span>' : ''}
+                </td>
+                <td>
+                  <button class="btn btn-sm" onclick="window._aeOpenDetail('${ae.id}')">Open</button>
+                  ${ae.course_id ? `<button class="btn btn-sm" onclick="window._openCourse('${ae.course_id}')" style="margin-left:4px">Course →</button>` : ''}
+                </td>
               </tr>`;
             }).join('')}
           </tbody>
@@ -6147,21 +6238,71 @@ export async function pgAdverseEvents(setTopbar, navigate) {
       </div>
     </div>`;
 
-  window._aeFilter = function(directSev) {
-    const sevEl = document.getElementById('ae-sev-filter');
-    const q     = (document.getElementById('ae-search')?.value || '').toLowerCase();
-    if (directSev && sevEl) sevEl.value = directSev;
-    const sev = sevEl?.value || '';
+  // ── Filter helpers ──────────────────────────────────────────────────────
+  window._aeSetFilter = function(key, value) {
+    const F = window._aeFilters = window._aeFilters || {};
+    if (value === '' || value === false || value == null) {
+      delete F[key];
+    } else {
+      F[key] = value;
+    }
+    try {
+      if (api && typeof api.logAudit === 'function') {
+        api.logAudit({ surface: 'adverse_events', event: 'filter_changed', note: key+'='+String(value) }).catch(() => {});
+      }
+    } catch (_) {}
+    window._nav('adverse-events-full');
+  };
+
+  window._aeClearFilters = function() {
+    window._aeFilters = {};
+    window._nav('adverse-events-full');
+  };
+
+  window._aeTextFilter = function() {
+    const q = (document.getElementById('ae-search')?.value || '').toLowerCase();
     const rows = document.querySelectorAll('#ae-tbody tr');
     let visible = 0;
     rows.forEach(row => {
-      const matchSev  = !sev  || row.dataset.sev === sev;
-      const matchText = !q    || (row.dataset.text || '').toLowerCase().includes(q);
-      row.style.display = matchSev && matchText ? '' : 'none';
-      if (matchSev && matchText) visible++;
+      const matchText = !q || (row.dataset.text || '').toLowerCase().includes(q);
+      row.style.display = matchText ? '' : 'none';
+      if (matchText) visible++;
     });
     const countEl = document.getElementById('ae-count');
-    if (countEl) countEl.textContent = visible + ' event' + (visible !== 1 ? 's' : '');
+    if (countEl) countEl.textContent = visible + ' shown' + (Object.keys(params).length||q?' (filtered)':'');
+  };
+
+  // ── Detail jump: route through the monitor-hub modal so we keep one
+  // codepath for review/sign-off/escalation/classification edits.
+  window._aeOpenDetail = function(id) {
+    if (!id) return;
+    window._monitorHubAEId = id;
+    window._monitorHubTab = 'adverse';
+    // The drawer auto-opens via the monitor-hub deep-link block.
+    setTimeout(() => {
+      try { window._mhAeOpenDetail?.(id); } catch (_) {}
+    }, 50);
+    window._nav('monitor-hub');
+  };
+
+  window._aeExportCsv = async function() {
+    try {
+      const result = await api.exportAdverseEventsCsv?.(params);
+      if (!result || !result.blob) {
+        window._dsToast?.({title:'Export failed', body:'CSV export endpoint unavailable.', severity:'error'});
+        return;
+      }
+      try { api.logAudit?.({ surface:'adverse_events', event:'export_csv', note: JSON.stringify(params).slice(0,200) }).catch(() => {}); } catch (_) {}
+      const url = URL.createObjectURL(result.blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = result.filename || ('adverse-events-'+new Date().toISOString().slice(0,10)+'.csv');
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      window._dsToast?.({title:'CSV exported', severity:'success'});
+    } catch (e) {
+      window._dsToast?.({title:'Export failed', body:e?.message||'Try again.', severity:'error'});
+    }
   };
 }
 
