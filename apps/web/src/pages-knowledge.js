@@ -10901,11 +10901,70 @@ export async function pgTrialEnrollment(setTopbar) {
   render();
 }
 
-// ── IRB Protocol Manager ──────────────────────────────────────────────────────
+// ── IRB Protocol Manager (launch-audit 2026-04-30) ──────────────────────────
+// Tab "Protocols Register" is API-backed against /api/v1/irb/protocols (real
+// register, audit-trailed). Tabs "Adverse Events", "Consent Tracking",
+// "Regulatory Documents", "Study Design Builder" are legacy demo surfaces
+// retained for parity with prior screenshots; they are explicitly labelled
+// "Local demo (legacy)" so reviewers know they are NOT regulator-submittable.
+// New PRs migrate AEs/Consent/Documents to their dedicated hubs (already
+// shipped) — IRB Manager links *out* to those surfaces filtered by
+// protocol_id rather than re-implementing them locally.
 export async function pgIRBManager(setTopbar) {
   setTopbar('IRB Manager', '');
   const el = document.getElementById('content');
 
+  // ── API-backed protocol register state ──────────────────────────────────
+  let _apiProtocols = null;       // null = not loaded yet
+  let _apiSummary = null;
+  let _apiError = null;           // set when fetch fails so we degrade honestly
+  let _filterStatus = '';
+  let _filterPhase = '';
+  let _filterRiskLevel = '';
+  let _filterPI = '';
+  let _filterQ = '';
+  let _filterSince = '';
+  let _filterUntil = '';
+
+  function _emitAudit(event, opts) {
+    // Best-effort: never block UI on audit failure.
+    try {
+      if (api && typeof api.logIrbManagerAudit === 'function') {
+        api.logIrbManagerAudit({ event, ...(opts || {}) });
+      }
+    } catch (_) { /* swallow */ }
+  }
+
+  function _buildFilterParams() {
+    const p = {};
+    if (_filterStatus)     p.status = _filterStatus;
+    if (_filterPhase)      p.phase = _filterPhase;
+    if (_filterRiskLevel)  p.risk_level = _filterRiskLevel;
+    if (_filterPI)         p.pi_user_id = _filterPI;
+    if (_filterQ)          p.q = _filterQ;
+    if (_filterSince)      p.since = _filterSince;
+    if (_filterUntil)      p.until = _filterUntil;
+    return p;
+  }
+
+  async function _loadProtocols() {
+    _apiError = null;
+    try {
+      const params = _buildFilterParams();
+      const [list, summary] = await Promise.all([
+        api.listIrbProtocols(params),
+        api.getIrbProtocolsSummary().catch(() => null),
+      ]);
+      _apiProtocols = list && Array.isArray(list.items) ? list.items : [];
+      _apiSummary = summary;
+    } catch (err) {
+      _apiError = err && err.message ? err.message : 'Failed to load IRB protocols.';
+      _apiProtocols = [];
+      _apiSummary = null;
+    }
+  }
+
+  // ── Legacy (demo) seeds — clearly labelled in the UI ────────────────────
   const IRB_STUDIES_SEED = [
     { id:'irb1', studyId:'DS-2024-001', title:'Theta Burst TMS for Treatment-Resistant Depression: A Pilot RCT', board:'Western IRB', pi:'Dr. Sarah Kim', approved:'2024-03-15', expiry:'2026-03-15', status:'active', enrolled:18, target:24, phase:'Phase II', description:'This pilot RCT evaluates the efficacy and safety of theta burst stimulation as an accelerated TMS protocol for patients with treatment-resistant MDD who have failed at least two antidepressant trials. Uses iTBS active arm versus sham control, HDRS-17 as primary outcome.', inclusion:['Age 22-65','DSM-5 MDD diagnosis','PHQ-9 >= 15','Failed >= 2 antidepressant trials','Stable medications >= 4 weeks'], exclusion:['Active suicidal ideation with plan','Seizure history','Implanted metal/devices','Current ECT','Pregnancy'], procedures:['iTBS protocol (600 pulses/session, 10 sessions over 5 days)','Sham TMS control arm','HDRS-17 at baseline/week2/week4','PHQ-9 weekly','Neuropsychological battery at baseline and week 4'], amendments:[{date:'2024-06-10',type:'Protocol Change',description:'Added MRI sub-study at week 4',status:'Approved'},{date:'2025-01-20',type:'Consent Update',description:'Updated consent for MRI sub-study',status:'Approved'}], contact:'sarah.kim@deepsynaps.clinic | 555-0101' },
     { id:'irb2', studyId:'DS-2024-003', title:'Neurofeedback vs Stimulant Medication for Adult ADHD: Comparative Effectiveness', board:'University Hospital IRB', pi:'Dr. James Osei', approved:'2024-08-01', expiry:'2026-04-30', status:'pending_renewal', enrolled:31, target:40, phase:'Phase III', description:'A comparative effectiveness study examining 20-session theta/beta neurofeedback training versus optimized stimulant medication management in adults with ADHD-combined presentation. Primary outcomes include CAARS scores and QbTest at 12 weeks.', inclusion:['Age 18-55','DSM-5 ADHD-combined presentation','CAARS-S:SV T-score >= 65','No current medication or willing to washout 2 weeks'], exclusion:['Comorbid bipolar I or psychosis','Active substance use disorder','Prior neurofeedback (>5 sessions)','Unstable medical conditions'], procedures:['QbTest at baseline/6wk/12wk','CAARS-S:SV weekly','20 sessions neurofeedback or stimulant titration','BRIEF-A cognitive battery'], amendments:[{date:'2024-11-05',type:'Personnel Change',description:'Added co-investigator Dr. Lin Chen',status:'Approved'},{date:'2025-03-12',type:'Protocol Change',description:'Extended follow-up from 12 to 24 weeks for responders',status:'Pending'}], contact:'james.osei@deepsynaps.clinic | 555-0202' },
@@ -10959,7 +11018,7 @@ export async function pgIRBManager(setTopbar) {
   function getDrafts()   { return lsGet('ds_irb_drafts', []); }
   function studyLabel(id) { const s = getStudies().find(x => x.id === id); return s ? s.studyId : id; }
 
-  let _activeTab     = 'active-studies';
+  let _activeTab     = 'protocols-register';
   let _expandedStudy = null;
   let _wizardStep    = 1;
   let _wizardDraft   = { info:{}, population:{}, arms:[{name:'',intervention:'',sessions:'',duration:'',frequency:''}], regulatory:{} };
@@ -11013,7 +11072,14 @@ export async function pgIRBManager(setTopbar) {
   }
 
   function tabBar() {
-    var tabs = [{id:'active-studies',label:'Active Studies'},{id:'study-design',label:'Study Design Builder'},{id:'adverse-events',label:'Adverse Event Reporting'},{id:'consent-tracking',label:'Consent Tracking'},{id:'reg-documents',label:'Regulatory Documents'}];
+    var tabs = [
+      {id:'protocols-register',label:'Protocols Register'},
+      {id:'active-studies',label:'Active Studies (legacy demo)'},
+      {id:'study-design',label:'Study Design Builder (legacy demo)'},
+      {id:'adverse-events',label:'Adverse Events (legacy demo)'},
+      {id:'consent-tracking',label:'Consent Tracking (legacy demo)'},
+      {id:'reg-documents',label:'Regulatory Documents (legacy demo)'},
+    ];
     return '<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:22px;overflow-x:auto">' +
       tabs.map(function(t) {
         var active = _activeTab === t.id;
@@ -11023,7 +11089,8 @@ export async function pgIRBManager(setTopbar) {
 
   function renderActiveStudies() {
     var studies = getStudies();
-    return '<div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px"><div><h2 style="margin:0;font-size:1.1rem;font-weight:800;color:var(--text)">IRB-Approved Studies</h2><div style="font-size:12px;color:var(--text-muted);margin-top:3px">' + studies.length + ' registered studies</div></div></div>' +
+    var legacyBanner = '<div style="background:var(--amber)18;border:1px solid var(--amber)55;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--text)"><strong style="color:var(--amber)">Legacy demo tab — local storage only.</strong> Use the Protocols Register tab for the API-backed, audit-trailed register. The studies shown here are seeded fixtures and are NOT regulator-submittable.</div>';
+    return '<div>' + legacyBanner + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px"><div><h2 style="margin:0;font-size:1.1rem;font-weight:800;color:var(--text)">IRB-Approved Studies (legacy demo)</h2><div style="font-size:12px;color:var(--text-muted);margin-top:3px">' + studies.length + ' registered studies (local-only)</div></div></div>' +
       studies.map(renderStudyCard).join('') + '</div>';
   }
 
@@ -11064,7 +11131,8 @@ export async function pgIRBManager(setTopbar) {
       var active = _wizardStep === i, done = _wizardStep > i;
       return '<div class="nnna-step-node' + (active?' active':'') + (done?' done':'') + '" onclick="window._irbWizardStep(' + i + ')" style="cursor:pointer"><div class="nnna-step-circle">' + (done ? '&#10003;' : i) + '</div><div class="nnna-step-label">' + labels[i-1] + '</div></div>';
     }).join('<div class="nnna-step-connector"></div>');
-    return '<div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:8px"><div><h2 style="margin:0;font-size:1.1rem;font-weight:800;color:var(--text)">Study Design Builder</h2><div style="font-size:12px;color:var(--text-muted);margin-top:3px">Draft a new IRB submission in 4 steps</div></div><button class="nnna-btn-sm" onclick="window._irbLoadDraft()">Load Saved Draft</button></div><div class="nnna-step-wizard">' + stepNodes + '</div>' + renderWizardStep() + '</div>';
+    var legacyBanner = '<div style="background:var(--amber)18;border:1px solid var(--amber)55;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--text)"><strong style="color:var(--amber)">Legacy demo tab — local drafts only.</strong> The Submit to IRB button saves drafts to local storage. Use the Protocols Register tab and "Register New Protocol" to persist a real, audit-trailed entry.</div>';
+    return '<div>' + legacyBanner + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:8px"><div><h2 style="margin:0;font-size:1.1rem;font-weight:800;color:var(--text)">Study Design Builder (legacy demo)</h2><div style="font-size:12px;color:var(--text-muted);margin-top:3px">Draft a new IRB submission in 4 steps (local only)</div></div><button class="nnna-btn-sm" onclick="window._irbLoadDraft()">Load Saved Draft</button></div><div class="nnna-step-wizard">' + stepNodes + '</div>' + renderWizardStep() + '</div>';
   }
 
   function renderWizardStep() {
@@ -11174,6 +11242,7 @@ export async function pgIRBManager(setTopbar) {
 
   function render() {
     var body = '';
+    if (_activeTab === 'protocols-register') body = renderProtocolsRegister();
     if (_activeTab === 'active-studies')   body = renderActiveStudies();
     if (_activeTab === 'study-design')     body = renderStudyDesign();
     if (_activeTab === 'adverse-events')   body = renderAEReporting();
@@ -11181,6 +11250,121 @@ export async function pgIRBManager(setTopbar) {
     if (_activeTab === 'reg-documents')    body = renderRegDocuments();
     el.innerHTML = '<div style="padding:20px;max-width:1300px;margin:0 auto">' + tabBar() + body + '</div>';
   }
+
+  // ── API-backed Protocols Register tab ───────────────────────────────────
+  function renderProtocolsRegister() {
+    if (_apiProtocols === null) {
+      // First render — kick off load + show spinner. Subsequent renders use
+      // _apiProtocols so a re-render after a mutation does not flicker.
+      return '<div style="padding:40px;text-align:center;color:var(--text-muted)">Loading IRB protocols register…</div>';
+    }
+    var s = _apiSummary || {};
+    var topCounts = {
+      total:           s.total           != null ? s.total           : 0,
+      active:          s.active          != null ? s.active          : 0,
+      pending:         s.pending         != null ? s.pending         : 0,
+      closed:          s.closed          != null ? s.closed          : 0,
+      amendments_due:  s.amendments_due  != null ? s.amendments_due  : 0,
+      expiring_30d:    s.expiring_within_30d != null ? s.expiring_within_30d : 0,
+      expired:         s.expired         != null ? s.expired         : 0,
+      demo_rows:       s.demo_rows       != null ? s.demo_rows       : 0,
+    };
+    var disclaimers = (s.disclaimers || []);
+    var banner = '<div style="background:var(--blue)12;border:1px solid var(--blue)44;border-radius:8px;padding:11px 14px;margin-bottom:14px;font-size:12px;color:var(--text)"><strong style="color:var(--blue)">Regulator-credible register:</strong> All entries below are persisted on the server and audit-trailed. The other tabs are local demo data only.</div>';
+    if (_apiError) {
+      banner += '<div style="background:var(--rose)18;border:1px solid var(--rose)55;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--rose);font-weight:600">API error: ' + _kEsc(_apiError) + '. Retry or check authentication.</div>';
+    }
+    if (topCounts.demo_rows > 0) {
+      banner += '<div style="background:var(--amber)18;border:1px solid var(--amber)55;border-radius:8px;padding:8px 12px;margin-bottom:14px;font-size:12px;color:var(--amber);font-weight:600">' + topCounts.demo_rows + ' demo row' + (topCounts.demo_rows>1?'s':'') + ' visible — exports will carry a DEMO prefix and are NOT regulator-submittable.</div>';
+    }
+
+    var disclList = disclaimers.length
+      ? '<div style="background:var(--hover-bg);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:11.5px;color:var(--text-muted);line-height:1.6"><strong>Disclaimers:</strong><ul style="margin:6px 0 0 18px;padding:0">' + disclaimers.map(function(d){return '<li>'+_kEsc(d)+'</li>';}).join('') + '</ul></div>'
+      : '';
+
+    var counts = '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">' +
+      [
+        ['Total', topCounts.total, 'var(--text)'],
+        ['Active', topCounts.active, 'var(--teal)'],
+        ['Pending', topCounts.pending, 'var(--amber)'],
+        ['Closed', topCounts.closed, 'var(--text-muted)'],
+        ['Amendments Due (≤60d)', topCounts.amendments_due, 'var(--amber)'],
+        ['Expiring (≤30d)', topCounts.expiring_30d, 'var(--rose)'],
+        ['Expired', topCounts.expired, 'var(--rose)'],
+      ].map(function(c) {
+        return '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:10px 14px;min-width:120px"><div style="font-size:10.5px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px">'+_kEsc(c[0])+'</div><div style="font-size:18px;font-weight:800;color:'+c[2]+';margin-top:3px">'+_kEsc(c[1])+'</div></div>';
+      }).join('') + '</div>';
+
+    var filters = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;align-items:flex-end">' +
+      '<div><label style="font-size:11px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:3px">Status</label><select class="form-control" style="font-size:12px;width:auto" onchange="window._irbApiSetFilter(\'status\',this.value)">' +
+      ['','pending','active','suspended','closed','reopened'].map(function(v){return '<option value="'+v+'"'+(_filterStatus===v?' selected':'')+'>'+(v||'All')+'</option>';}).join('') +
+      '</select></div>' +
+      '<div><label style="font-size:11px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:3px">Phase</label><select class="form-control" style="font-size:12px;width:auto" onchange="window._irbApiSetFilter(\'phase\',this.value)">' +
+      ['','i','ii','iii','iv','observational','pilot','feasibility','registry'].map(function(v){return '<option value="'+v+'"'+(_filterPhase===v?' selected':'')+'>'+(v||'All')+'</option>';}).join('') +
+      '</select></div>' +
+      '<div><label style="font-size:11px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:3px">Risk</label><select class="form-control" style="font-size:12px;width:auto" onchange="window._irbApiSetFilter(\'risk_level\',this.value)">' +
+      [['',''],['minimal','Minimal'],['greater_than_minimal','Greater than minimal']].map(function(v){return '<option value="'+v[0]+'"'+(_filterRiskLevel===v[0]?' selected':'')+'>'+(v[1]||'All')+'</option>';}).join('') +
+      '</select></div>' +
+      '<div><label style="font-size:11px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:3px">PI user_id</label><input class="form-control" style="font-size:12px;width:160px" placeholder="actor-…" value="' + _kEsc(_filterPI) + '" oninput="window._irbApiSetFilter(\'pi\',this.value)"></div>' +
+      '<div><label style="font-size:11px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:3px">Search</label><input class="form-control" style="font-size:12px;width:200px" placeholder="title / code / IRB number" value="' + _kEsc(_filterQ) + '" oninput="window._irbApiSetFilter(\'q\',this.value)"></div>' +
+      '<div><label style="font-size:11px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:3px">Since</label><input type="date" class="form-control" style="font-size:12px;width:auto" value="' + _kEsc(_filterSince) + '" onchange="window._irbApiSetFilter(\'since\',this.value)"></div>' +
+      '<div><label style="font-size:11px;color:var(--text-muted);font-weight:600;display:block;margin-bottom:3px">Until</label><input type="date" class="form-control" style="font-size:12px;width:auto" value="' + _kEsc(_filterUntil) + '" onchange="window._irbApiSetFilter(\'until\',this.value)"></div>' +
+      '<button class="nnna-btn-sm" onclick="window._irbApiApply()">Apply</button>' +
+      '<button class="nnna-btn-sm" onclick="window._irbApiClearFilters()">Clear</button>' +
+      '</div>';
+
+    var actions = '<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">' +
+      '<button class="nnna-btn-primary" onclick="window._irbApiNewModal()">Register New Protocol</button>' +
+      '<button class="nnna-btn-sm" onclick="window._irbApiExport(\'csv\')">Export CSV</button>' +
+      '<button class="nnna-btn-sm" onclick="window._irbApiExport(\'ndjson\')">Export NDJSON</button>' +
+      '<button class="nnna-btn-sm" onclick="window._irbApiRefresh()">Refresh</button>' +
+      '</div>';
+
+    var rows = '';
+    if (!_apiProtocols.length) {
+      rows = '<div style="text-align:center;padding:40px 20px;color:var(--text-muted);background:var(--hover-bg);border:1px dashed var(--border);border-radius:10px">No IRB protocols registered yet.</div>';
+    } else {
+      rows = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="border-bottom:2px solid var(--border)">' +
+        ['Code','Title','PI','Phase','Status','Risk','Approved','Expires','Enrolled','Amendments','Demo',''].map(function(h) {
+          return '<th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">'+_kEsc(h)+'</th>';
+        }).join('') + '</tr></thead><tbody>' +
+        _apiProtocols.map(function(p) {
+          var color = p.status === 'active' ? 'var(--teal)' :
+                      p.status === 'pending' ? 'var(--amber)' :
+                      p.status === 'closed' ? 'var(--text-muted)' :
+                      p.status === 'reopened' ? 'var(--blue)' :
+                      p.status === 'suspended' ? 'var(--rose)' : 'var(--text-muted)';
+          var statusBadge = '<span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;background:'+color+'22;color:'+color+';border:1px solid '+color+'55">'+_kEsc(p.status)+'</span>';
+          var demoBadge = p.is_demo
+            ? '<span style="display:inline-block;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;background:var(--amber)22;color:var(--amber);border:1px solid var(--amber)55">DEMO</span>'
+            : '';
+          var enroll = (p.enrolled_count != null ? p.enrolled_count : 0) + (p.enrollment_target ? ' / '+p.enrollment_target : '');
+          return '<tr style="border-bottom:1px solid var(--border)">' +
+            '<td style="padding:8px 10px;font-family:monospace;font-size:11.5px">'+_kEsc(p.protocol_code || '—')+'</td>' +
+            '<td style="padding:8px 10px;font-weight:600">'+_kEsc(p.title)+'</td>' +
+            '<td style="padding:8px 10px">'+_kEsc(p.pi_display_name || p.pi_user_id || '—')+'</td>' +
+            '<td style="padding:8px 10px">'+_kEsc(p.phase || '—')+'</td>' +
+            '<td style="padding:8px 10px">'+statusBadge+'</td>' +
+            '<td style="padding:8px 10px">'+_kEsc(p.risk_level || '—')+'</td>' +
+            '<td style="padding:8px 10px;color:var(--text-muted)">'+_kEsc(p.approval_date || '—')+'</td>' +
+            '<td style="padding:8px 10px;color:var(--text-muted)">'+_kEsc(p.expiry_date || '—')+'</td>' +
+            '<td style="padding:8px 10px">'+_kEsc(enroll)+'</td>' +
+            '<td style="padding:8px 10px">'+_kEsc(p.amendments_count || 0)+'</td>' +
+            '<td style="padding:8px 10px">'+demoBadge+'</td>' +
+            '<td style="padding:8px 10px;white-space:nowrap"><button class="nnna-btn-sm" onclick="window._irbApiDetail(\''+_kEsc(p.id)+'\')">Detail</button></td>' +
+            '</tr>';
+        }).join('') + '</tbody></table></div>';
+    }
+
+    return '<div>' + banner + counts + disclList + filters + actions + rows + '</div>';
+  }
+
+  // Initial load + first render. Sets _apiProtocols then re-renders so the
+  // table replaces the spinner.
+  _loadProtocols().then(function() {
+    _emitAudit('page_loaded', { note: 'protocols-register' });
+    render();
+  });
 
   render();
 
@@ -11401,6 +11585,264 @@ export async function pgIRBManager(setTopbar) {
     window._irbCloseModal('irb-upload-modal'); toast('Document recorded'); render();
   };
   window._irbCloseModal = function(id) { var m = document.getElementById(id); if (m) m.remove(); document.body.style.overflow = ''; };
+
+  // ── API-backed protocols register window handlers ─────────────────────
+  window._irbApiSetFilter = function(field, val) {
+    if (field === 'status')      _filterStatus = val;
+    else if (field === 'phase')  _filterPhase = val;
+    else if (field === 'risk_level') _filterRiskLevel = val;
+    else if (field === 'pi')     _filterPI = val;
+    else if (field === 'q')      _filterQ = val;
+    else if (field === 'since')  _filterSince = val;
+    else if (field === 'until')  _filterUntil = val;
+    // Don't re-render mid-typing on free-text inputs; an Apply button drives reload.
+    if (field === 'status' || field === 'phase' || field === 'risk_level' || field === 'since' || field === 'until') {
+      window._irbApiApply();
+    }
+  };
+  window._irbApiApply = function() {
+    _emitAudit('filter_changed', { note: 'status='+(_filterStatus||'-')+' phase='+(_filterPhase||'-')+' risk='+(_filterRiskLevel||'-')+' q='+((_filterQ||'-').slice(0,80)) });
+    _loadProtocols().then(function() { _activeTab = 'protocols-register'; render(); });
+  };
+  window._irbApiClearFilters = function() {
+    _filterStatus = ''; _filterPhase = ''; _filterRiskLevel = ''; _filterPI = ''; _filterQ = ''; _filterSince = ''; _filterUntil = '';
+    window._irbApiApply();
+  };
+  window._irbApiRefresh = function() {
+    _loadProtocols().then(function() { _activeTab = 'protocols-register'; render(); });
+  };
+  window._irbApiExport = function(format) {
+    var fn = format === 'ndjson' ? api.exportIrbProtocolsNdjson : api.exportIrbProtocolsCsv;
+    fn(_buildFilterParams()).then(function(blob) {
+      try {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a'); a.href = url;
+        a.download = 'irb_protocols.' + (format === 'ndjson' ? 'ndjson' : 'csv');
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+        _emitAudit('export_'+format, { note: 'rows='+(_apiProtocols||[]).length });
+        toast(format.toUpperCase() + ' exported');
+      } catch (err) { toast('Export failed: ' + (err && err.message ? err.message : 'unknown'), false); }
+    }).catch(function(err) {
+      toast('Export failed: ' + (err && err.message ? err.message : 'unknown'), false);
+    });
+  };
+
+  window._irbApiNewModal = function() {
+    document.getElementById('irb-api-new-modal') && document.getElementById('irb-api-new-modal').remove();
+    var html = '<div id="irb-api-new-modal" onclick="if(event.target.id===\'irb-api-new-modal\')window._irbCloseModal(\'irb-api-new-modal\')" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px"><div style="background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:600px;max-height:90vh;overflow-y:auto"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px"><h3 style="margin:0;font-size:15px;font-weight:800;color:var(--text)">Register New IRB Protocol</h3><button onclick="window._irbCloseModal(\'irb-api-new-modal\')" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:20px;line-height:1">x</button></div>' +
+      '<div style="background:var(--blue)12;border:1px solid var(--blue)44;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:11.5px;color:var(--text)"><strong style="color:var(--blue)">PI must be a real user</strong> (e.g. <code>actor-clinician-demo</code>). Free-form names are rejected by the server with 422 to keep the register regulator-credible.</div>' +
+      '<div class="nnna-form-grid">' +
+      '<div class="nnna-form-group" style="grid-column:1/-1"><label>Title *</label><input class="form-control" id="irbn-title" placeholder="Full study title"></div>' +
+      '<div class="nnna-form-group"><label>Protocol Code</label><input class="form-control" id="irbn-code" placeholder="e.g. DS-2026-001"></div>' +
+      '<div class="nnna-form-group"><label>IRB Number</label><input class="form-control" id="irbn-number" placeholder="e.g. WIRB-12345"></div>' +
+      '<div class="nnna-form-group"><label>IRB Board</label><input class="form-control" id="irbn-board" placeholder="e.g. Western IRB"></div>' +
+      '<div class="nnna-form-group"><label>Sponsor</label><input class="form-control" id="irbn-sponsor" placeholder="optional"></div>' +
+      '<div class="nnna-form-group"><label>PI user_id *</label><input class="form-control" id="irbn-pi" placeholder="actor-clinician-demo"></div>' +
+      '<div class="nnna-form-group"><label>Phase *</label><select class="form-control" id="irbn-phase">' + ['','i','ii','iii','iv','observational','pilot','feasibility','registry'].map(function(v){return '<option value="'+v+'">'+(v||'Select…')+'</option>';}).join('') + '</select></div>' +
+      '<div class="nnna-form-group"><label>Risk Level *</label><select class="form-control" id="irbn-risk"><option value="">Select…</option><option value="minimal">Minimal</option><option value="greater_than_minimal">Greater than minimal</option></select></div>' +
+      '<div class="nnna-form-group"><label>Approval Date</label><input class="form-control" id="irbn-approval" type="date"></div>' +
+      '<div class="nnna-form-group"><label>Expiry Date</label><input class="form-control" id="irbn-expiry" type="date"></div>' +
+      '<div class="nnna-form-group"><label>Enrollment Target</label><input class="form-control" id="irbn-target" type="number" min="0"></div>' +
+      '<div class="nnna-form-group"><label>Consent Version</label><input class="form-control" id="irbn-consent" placeholder="e.g. v1.0"></div>' +
+      '<div class="nnna-form-group" style="grid-column:1/-1"><label>Description</label><textarea class="form-control" id="irbn-desc" rows="3" placeholder="Hypothesis, primary endpoint, brief design…"></textarea></div>' +
+      '<div class="nnna-form-group" style="grid-column:1/-1"><label style="display:flex;align-items:center;gap:6px;font-weight:600;color:var(--text-muted)"><input type="checkbox" id="irbn-demo"> Mark as DEMO row (will prefix all exports with # DEMO)</label></div>' +
+      '</div>' +
+      '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px"><button class="nnna-btn-sm" onclick="window._irbCloseModal(\'irb-api-new-modal\')">Cancel</button><button class="nnna-btn-primary" onclick="window._irbApiSubmitNew()">Register</button></div>' +
+      '</div></div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+  };
+  window._irbApiSubmitNew = function() {
+    function val(id) { var e = document.getElementById(id); return e ? (e.value || '').trim() : ''; }
+    function num(id) { var v = val(id); return v === '' ? null : parseInt(v, 10); }
+    var title = val('irbn-title');
+    var pi = val('irbn-pi');
+    var phase = val('irbn-phase');
+    var risk = val('irbn-risk');
+    if (!title || !pi) { toast('Title and PI user_id are required.', false); return; }
+    var body = {
+      title: title,
+      protocol_code: val('irbn-code') || null,
+      irb_number: val('irbn-number') || null,
+      irb_board: val('irbn-board') || null,
+      sponsor: val('irbn-sponsor') || null,
+      pi_user_id: pi,
+      phase: phase || null,
+      risk_level: risk || null,
+      approval_date: val('irbn-approval') || null,
+      expiry_date: val('irbn-expiry') || null,
+      enrollment_target: num('irbn-target'),
+      consent_version: val('irbn-consent') || null,
+      description: val('irbn-desc'),
+      is_demo: !!(document.getElementById('irbn-demo') && document.getElementById('irbn-demo').checked),
+    };
+    Object.keys(body).forEach(function(k) { if (body[k] === null || body[k] === '') delete body[k]; });
+    api.createIrbProtocol(body).then(function(p) {
+      window._irbCloseModal('irb-api-new-modal');
+      toast('Protocol registered (' + (p && p.id ? p.id.slice(0,8) : '') + ')');
+      _emitAudit('protocol_created', { protocol_id: p && p.id, note: 'phase='+(p && p.phase || '-')+' risk='+(p && p.risk_level || '-') });
+      window._irbApiRefresh();
+    }).catch(function(err) {
+      var msg = err && err.message ? err.message : 'Create failed';
+      // Show the server's friendly code where available — e.g. invalid_pi.
+      toast('Create failed: ' + msg, false);
+    });
+  };
+
+  window._irbApiDetail = function(protocolId) {
+    api.getIrbProtocol(protocolId).then(function(p) {
+      _emitAudit('protocol_viewed', { protocol_id: p.id });
+      _showApiDetailModal(p);
+    }).catch(function(err) {
+      toast('Detail load failed: ' + (err && err.message ? err.message : ''), false);
+    });
+  };
+
+  function _showApiDetailModal(p) {
+    document.getElementById('irb-api-detail-modal') && document.getElementById('irb-api-detail-modal').remove();
+    var amendments = (p.amendments || []);
+    var amendRows = amendments.length === 0
+      ? '<div style="color:var(--text-muted);font-size:12px;padding:10px">No amendments recorded.</div>'
+      : '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="border-bottom:1px solid var(--border)"><th style="padding:6px 10px;text-align:left;font-size:11px;color:var(--text-muted)">Submitted</th><th style="padding:6px 10px;text-align:left;font-size:11px;color:var(--text-muted)">Type</th><th style="padding:6px 10px;text-align:left;font-size:11px;color:var(--text-muted)">Description</th><th style="padding:6px 10px;text-align:left;font-size:11px;color:var(--text-muted)">Reason</th><th style="padding:6px 10px;text-align:left;font-size:11px;color:var(--text-muted)">Status</th></tr></thead><tbody>' +
+        amendments.map(function(a) {
+          return '<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 10px;color:var(--text-muted);font-size:11px">'+_kEsc((a.submitted_at||'').slice(0,10))+'</td><td style="padding:6px 10px">'+_kEsc(a.amendment_type)+'</td><td style="padding:6px 10px">'+_kEsc(a.description)+'</td><td style="padding:6px 10px">'+_kEsc(a.reason)+'</td><td style="padding:6px 10px">'+_kEsc(a.status)+'</td></tr>';
+        }).join('') + '</tbody></table>';
+
+    var enrolledHref = '?page=patients-hub&protocol_id=' + encodeURIComponent(p.id);
+    var docsHref     = '?page=documents-hub&source_target_type=irb_manager&source_target_id=' + encodeURIComponent(p.id);
+    var aeHref       = '?page=adverse-events&protocol_id=' + encodeURIComponent(p.id);
+
+    var actionsHtml = '';
+    if (p.status === 'closed') {
+      actionsHtml = '<button class="nnna-btn-sm nnna-btn-amber" onclick="window._irbApiReopenModal(\''+_kEsc(p.id)+'\')">Reopen Protocol</button>';
+    } else {
+      actionsHtml = '<button class="nnna-btn-sm" onclick="window._irbApiAmendModal(\''+_kEsc(p.id)+'\')">Log Amendment</button>' +
+                    '<button class="nnna-btn-sm nnna-btn-rose" onclick="window._irbApiCloseModal(\''+_kEsc(p.id)+'\')">Close Protocol</button>';
+    }
+
+    var rows = [
+      ['Protocol Code', p.protocol_code || '—'],
+      ['IRB Board', p.irb_board || '—'],
+      ['IRB Number', p.irb_number || '—'],
+      ['Sponsor', p.sponsor || '—'],
+      ['PI', (p.pi_display_name || p.pi_user_id || '—') + ' (' + (p.pi_user_id || '') + ')'],
+      ['Phase', p.phase || '—'],
+      ['Status', p.status],
+      ['Risk Level', p.risk_level || '—'],
+      ['Approval Date', p.approval_date || '—'],
+      ['Expiry Date', p.expiry_date || '—'],
+      ['Enrolled', (p.enrolled_count != null ? p.enrolled_count : 0) + (p.enrollment_target ? ' / ' + p.enrollment_target : '')],
+      ['Consent Version', p.consent_version || '—'],
+      ['Demo Row', p.is_demo ? 'YES — not regulator-submittable' : 'No'],
+      ['Created', (p.created_at || '').slice(0,19).replace('T',' ')],
+      ['Created By', p.created_by || '—'],
+      ['Revisions', String(p.revision_count != null ? p.revision_count : 0)],
+      ['Closed At', p.closed_at ? p.closed_at.slice(0,19).replace('T',' ') : '—'],
+      ['Closed By', p.closed_by || '—'],
+      ['Closure Note', p.closure_note || '—'],
+      ['Payload Hash', p.payload_hash || '—'],
+    ].map(function(pair) {
+      return '<div style="margin-bottom:8px"><div style="font-size:10.5px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">'+_kEsc(pair[0])+'</div><div style="font-size:12.5px;color:var(--text);margin-top:2px;word-break:break-word">'+_kEsc(pair[1])+'</div></div>';
+    }).join('');
+
+    var demoBanner = p.is_demo
+      ? '<div style="background:var(--amber)18;border:1px solid var(--amber)55;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:12px;color:var(--amber);font-weight:600">DEMO row — exports prefixed with # DEMO and NOT regulator-submittable.</div>'
+      : '';
+
+    var html = '<div id="irb-api-detail-modal" onclick="if(event.target.id===\'irb-api-detail-modal\')window._irbCloseModal(\'irb-api-detail-modal\')" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px"><div style="background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:780px;max-height:92vh;overflow-y:auto">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><h3 style="margin:0;font-size:15px;font-weight:800;color:var(--text)">'+_kEsc(p.title)+'</h3><button onclick="window._irbCloseModal(\'irb-api-detail-modal\')" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:20px;line-height:1">x</button></div>' +
+      demoBanner +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">'+rows+'</div>' +
+      '<div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">' +
+        '<a class="nnna-btn-sm" href="'+enrolledHref+'">Enrolled patients →</a>' +
+        '<a class="nnna-btn-sm" href="'+docsHref+'">Consent / regulatory docs →</a>' +
+        '<a class="nnna-btn-sm" href="'+aeHref+'">Adverse events →</a>' +
+      '</div>' +
+      '<div style="margin-top:18px"><div style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Amendments ('+amendments.length+')</div>'+amendRows+'</div>' +
+      '<div style="margin-top:18px;display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap">'+actionsHtml+'<button class="nnna-btn-sm" onclick="window._irbCloseModal(\'irb-api-detail-modal\')">Close</button></div>' +
+      '</div></div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+  }
+
+  window._irbApiAmendModal = function(protocolId) {
+    document.getElementById('irb-api-amend-modal') && document.getElementById('irb-api-amend-modal').remove();
+    var typeOpts = ['protocol_change','consent_update','personnel_change','enrollment_expansion','site_addition','safety_update','other'].map(function(v){return '<option value="'+v+'">'+v+'</option>';}).join('');
+    var html = '<div id="irb-api-amend-modal" onclick="if(event.target.id===\'irb-api-amend-modal\')window._irbCloseModal(\'irb-api-amend-modal\')" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9100;display:flex;align-items:center;justify-content:center;padding:20px"><div style="background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:560px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><h3 style="margin:0;font-size:15px;font-weight:800">Log Amendment</h3><button onclick="window._irbCloseModal(\'irb-api-amend-modal\')" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:20px;line-height:1">x</button></div>' +
+      '<div class="nnna-form-group" style="margin-bottom:10px"><label>Type *</label><select class="form-control" id="irba-type">'+typeOpts+'</select></div>' +
+      '<div class="nnna-form-group" style="margin-bottom:10px"><label>Description *</label><textarea class="form-control" id="irba-desc" rows="2" placeholder="Describe the change…"></textarea></div>' +
+      '<div class="nnna-form-group" style="margin-bottom:10px"><label>Reason * (audit-trailed)</label><textarea class="form-control" id="irba-reason" rows="2" placeholder="Scientific or regulatory rationale (required)…"></textarea></div>' +
+      '<div class="nnna-form-group" style="margin-bottom:14px"><label>Consent Version After (optional)</label><input class="form-control" id="irba-consent" placeholder="e.g. v1.2 — propagates to protocol if set"></div>' +
+      '<div style="display:flex;justify-content:flex-end;gap:8px"><button class="nnna-btn-sm" onclick="window._irbCloseModal(\'irb-api-amend-modal\')">Cancel</button><button class="nnna-btn-primary" onclick="window._irbApiSubmitAmend(\''+_kEsc(protocolId)+'\')">Submit Amendment</button></div>' +
+      '</div></div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+  };
+  window._irbApiSubmitAmend = function(protocolId) {
+    function val(id) { var e = document.getElementById(id); return e ? (e.value || '').trim() : ''; }
+    var body = {
+      amendment_type: val('irba-type'),
+      description: val('irba-desc'),
+      reason: val('irba-reason'),
+      consent_version_after: val('irba-consent') || null,
+    };
+    if (!body.description || !body.reason) { toast('Description and reason are required.', false); return; }
+    api.createIrbProtocolAmendment(protocolId, body).then(function() {
+      window._irbCloseModal('irb-api-amend-modal');
+      window._irbCloseModal('irb-api-detail-modal');
+      toast('Amendment logged');
+      _emitAudit('amendment_logged', { protocol_id: protocolId, note: 'type='+body.amendment_type });
+      window._irbApiRefresh();
+    }).catch(function(err) {
+      toast('Amendment failed: ' + (err && err.message ? err.message : ''), false);
+    });
+  };
+
+  window._irbApiCloseModal = function(protocolId) {
+    document.getElementById('irb-api-close-modal') && document.getElementById('irb-api-close-modal').remove();
+    var html = '<div id="irb-api-close-modal" onclick="if(event.target.id===\'irb-api-close-modal\')window._irbCloseModal(\'irb-api-close-modal\')" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9100;display:flex;align-items:center;justify-content:center;padding:20px"><div style="background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:520px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><h3 style="margin:0;font-size:15px;font-weight:800">Close Protocol</h3><button onclick="window._irbCloseModal(\'irb-api-close-modal\')" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:20px;line-height:1">x</button></div>' +
+      '<div style="background:var(--rose)18;border:1px solid var(--rose)55;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:var(--text)"><strong style="color:var(--rose)">Closed protocols are immutable in-place.</strong> A closure note is mandatory for regulator audit. To re-edit later you must reopen with a documented reason.</div>' +
+      '<div class="nnna-form-group" style="margin-bottom:14px"><label>Closure Note *</label><textarea class="form-control" id="irbc-note" rows="3" placeholder="Reason for closure: study completed, suspension, withdrawal, etc."></textarea></div>' +
+      '<div style="display:flex;justify-content:flex-end;gap:8px"><button class="nnna-btn-sm" onclick="window._irbCloseModal(\'irb-api-close-modal\')">Cancel</button><button class="nnna-btn-primary" onclick="window._irbApiSubmitClose(\''+_kEsc(protocolId)+'\')">Close Protocol</button></div>' +
+      '</div></div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+  };
+  window._irbApiSubmitClose = function(protocolId) {
+    var noteEl = document.getElementById('irbc-note');
+    var note = noteEl && noteEl.value ? noteEl.value.trim() : '';
+    if (!note) { toast('A closure note is required.', false); return; }
+    api.closeIrbProtocol(protocolId, { note: note }).then(function() {
+      window._irbCloseModal('irb-api-close-modal');
+      window._irbCloseModal('irb-api-detail-modal');
+      toast('Protocol closed');
+      _emitAudit('protocol_closed', { protocol_id: protocolId });
+      window._irbApiRefresh();
+    }).catch(function(err) {
+      toast('Close failed: ' + (err && err.message ? err.message : ''), false);
+    });
+  };
+
+  window._irbApiReopenModal = function(protocolId) {
+    document.getElementById('irb-api-reopen-modal') && document.getElementById('irb-api-reopen-modal').remove();
+    var html = '<div id="irb-api-reopen-modal" onclick="if(event.target.id===\'irb-api-reopen-modal\')window._irbCloseModal(\'irb-api-reopen-modal\')" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9100;display:flex;align-items:center;justify-content:center;padding:20px"><div style="background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:520px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><h3 style="margin:0;font-size:15px;font-weight:800">Reopen Protocol</h3><button onclick="window._irbCloseModal(\'irb-api-reopen-modal\')" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:20px;line-height:1">x</button></div>' +
+      '<div style="background:var(--blue)12;border:1px solid var(--blue)44;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:var(--text)">Reopening creates a new revision — the prior closure stays visible in the audit trail. A reason is required.</div>' +
+      '<div class="nnna-form-group" style="margin-bottom:14px"><label>Reopen Reason *</label><textarea class="form-control" id="irbr-reason" rows="3" placeholder="Why does this protocol need to be reopened? (audit-trailed)"></textarea></div>' +
+      '<div style="display:flex;justify-content:flex-end;gap:8px"><button class="nnna-btn-sm" onclick="window._irbCloseModal(\'irb-api-reopen-modal\')">Cancel</button><button class="nnna-btn-primary" onclick="window._irbApiSubmitReopen(\''+_kEsc(protocolId)+'\')">Reopen Protocol</button></div>' +
+      '</div></div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+  };
+  window._irbApiSubmitReopen = function(protocolId) {
+    var rEl = document.getElementById('irbr-reason');
+    var reason = rEl && rEl.value ? rEl.value.trim() : '';
+    if (!reason) { toast('A reopen reason is required.', false); return; }
+    api.reopenIrbProtocol(protocolId, { reason: reason }).then(function() {
+      window._irbCloseModal('irb-api-reopen-modal');
+      window._irbCloseModal('irb-api-detail-modal');
+      toast('Protocol reopened');
+      _emitAudit('protocol_reopened', { protocol_id: protocolId });
+      window._irbApiRefresh();
+    }).catch(function(err) {
+      toast('Reopen failed: ' + (err && err.message ? err.message : ''), false);
+    });
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

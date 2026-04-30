@@ -77,6 +77,7 @@ KNOWN_SURFACES = {
     "reports",
     "documents",
     "quality_assurance",
+    "irb_manager",
 }
 
 

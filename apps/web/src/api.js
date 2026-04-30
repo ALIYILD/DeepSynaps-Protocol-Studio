@@ -2002,6 +2002,66 @@ export const api = {
     }
   },
 
+  // ── IRB Manager launch-audit (2026-04-30) ──────────────────────────────
+  // IRB-approved protocol register. Distinct from /api/v1/irb/studies (legacy).
+  // Real-User PI validation; closed protocols are immutable in-place; reopen
+  // creates a new revision; amendments require a non-empty reason.
+  listIrbProtocols: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch('/api/v1/irb/protocols' + (q ? '?' + q : ''));
+  },
+  getIrbProtocolsSummary: () => apiFetch('/api/v1/irb/protocols/summary'),
+  getIrbProtocol: (protocolId) =>
+    apiFetch(`/api/v1/irb/protocols/${encodeURIComponent(protocolId)}`),
+  createIrbProtocol: (body) =>
+    apiFetch('/api/v1/irb/protocols', { method: 'POST', body: JSON.stringify(body || {}) }),
+  patchIrbProtocol: (protocolId, body) =>
+    apiFetch(`/api/v1/irb/protocols/${encodeURIComponent(protocolId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body || {}),
+    }),
+  createIrbProtocolAmendment: (protocolId, body) =>
+    apiFetch(`/api/v1/irb/protocols/${encodeURIComponent(protocolId)}/amendments`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  closeIrbProtocol: (protocolId, body) =>
+    apiFetch(`/api/v1/irb/protocols/${encodeURIComponent(protocolId)}/close`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  reopenIrbProtocol: (protocolId, body) =>
+    apiFetch(`/api/v1/irb/protocols/${encodeURIComponent(protocolId)}/reopen`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  exportIrbProtocolsCsv: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetchBinary('/api/v1/irb/protocols/export.csv' + (q ? '?' + q : ''));
+  },
+  exportIrbProtocolsNdjson: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetchBinary('/api/v1/irb/protocols/export.ndjson' + (q ? '?' + q : ''));
+  },
+  // Best-effort page-level audit ingestion for the IRB Manager.
+  logIrbManagerAudit: (event) => {
+    try {
+      const body = JSON.stringify(event || {});
+      return apiFetch('/api/v1/irb/protocols/audit-events', {
+        method: 'POST',
+        body,
+      });
+    } catch (_) {
+      return Promise.resolve(null);
+    }
+  },
+
   // ── Patient outcomes (portal alias) ─────────────────────────────────────
   patientOutcomes: () => apiFetch('/api/v1/patient-portal/outcomes'),
 
