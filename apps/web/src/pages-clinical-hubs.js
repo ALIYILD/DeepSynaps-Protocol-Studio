@@ -7409,31 +7409,75 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
 
   const TEMPLATES = DOCUMENT_TEMPLATES;
 
+  // Documents Hub launch-audit (2026-04-30): the local cache is browser-only
+  // and never seeds fake rows. If the backend list call fails the user sees
+  // an empty state with a clear "couldn't reach the documents service" hint
+  // — we never silently swap in pretend data.
   const _docsKey = 'ds_docs_v1';
-  function loadDocs() { try { return JSON.parse(localStorage.getItem(_docsKey)||'null') || seedDocs(); } catch { return seedDocs(); } }
-  function saveDocs(d) { try { localStorage.setItem(_docsKey, JSON.stringify(d)); } catch {} }
-  function seedDocs() {
-    const d = { docs:[
-      { id:'DOC-001', name:'TMS Consent — Demo Patient A',    type:'Consent',  patient:'Demo Patient A',  date:'2026-04-14', status:'signed',  size:'125 KB' },
-      { id:'DOC-002', name:'Initial Assessment — Demo Patient B', type:'Report',patient:'Demo Patient B', date:'2026-04-12', status:'final',   size:'340 KB' },
-      { id:'DOC-003', name:'Privacy Policy — Demo Patient C', type:'Privacy',  patient:'Demo Patient C',  date:'2026-04-10', status:'signed',  size:'85 KB'  },
-      { id:'DOC-004', name:'Session Note 09 — Demo Patient A',type:'Note',     patient:'Demo Patient A',  date:'2026-04-16', status:'draft',   size:'45 KB'  },
-      { id:'DOC-005', name:'GP Letter — Marcus Webb',         type:'Letter',   patient:'Marcus Webb',     date:'2026-04-08', status:'sent',    size:'62 KB'  },
-      { id:'DOC-006', name:'Home Program — Demo Patient B',   type:'Home Care',patient:'Demo Patient B',  date:'2026-04-05', status:'issued',  size:'95 KB'  },
-    ]};
-    saveDocs(d); return d;
+  function loadDocs() {
+    try { return { docs: JSON.parse(localStorage.getItem(_docsKey) || '[]') }; }
+    catch { return { docs: [] }; }
+  }
+  function saveDocs(docs) {
+    try { localStorage.setItem(_docsKey, JSON.stringify(docs || [])); } catch {}
   }
 
+  // Filters live on `window` so they survive navigate-back the same way the
+  // Reports Hub filters do (#310).
+  const docsFilters = window._docsFiltersObj || {};
+
   let backendDocs = null;
+  let backendError = null;
   try {
-    const r = await api.listDocuments();
+    // Backend filters mirror the API: kind, status, since, until, q, patient_id.
+    // The "All" list deliberately omits status so superseded rows are visible
+    // (they are filtered out only on tab switches that don't want them).
+    const r = await api.listDocuments({
+      kind: docsFilters.kind || undefined,
+      patient_id: docsFilters.patient_id || undefined,
+      since: docsFilters.since || undefined,
+      until: docsFilters.until || undefined,
+      q: docsFilters.q || undefined,
+      limit: 200,
+    });
     backendDocs = (r?.items || []).map(d => ({
       id: d.id, name: d.title, type: d.doc_type, patient: d.patient_id || '—',
-      date: (d.updated_at||'').slice(0,10), status: d.status, size: '—',
+      date: (d.updated_at||'').slice(0,10), status: d.status,
+      size: d.file_ref ? 'file' : '—',
       template_id: d.template_id, notes: d.notes, file_ref: d.file_ref,
+      signed_by: d.signed_by, signed_at: d.signed_at,
+      supersedes: d.supersedes, superseded_by: d.superseded_by,
+      revision: d.revision || 1, is_demo: !!d.is_demo,
     }));
-  } catch {}
+    saveDocs(backendDocs);
+  } catch (err) {
+    backendError = err?.message || 'Documents API unreachable.';
+    console.warn('[documents-hub] listDocuments failed; using local cache:', backendError);
+  }
   const data = backendDocs ? { docs: backendDocs } : loadDocs();
+
+  // Top counts pulled from the same scope as the list, so they're honest
+  // about empty cases. Falls back to client-side counts on API error.
+  let docsSummary = null;
+  try {
+    docsSummary = await api.getDocumentsSummary({
+      patient_id: docsFilters.patient_id || undefined,
+    });
+  } catch (err) {
+    console.warn('[documents-hub] getDocumentsSummary failed:', err?.message || err);
+  }
+  const summaryCounts = docsSummary || {
+    total: data.docs.length,
+    draft: data.docs.filter(d => d.status === 'pending').length,
+    uploaded: data.docs.filter(d => d.status === 'uploaded').length,
+    signed: data.docs.filter(d => d.status === 'signed' || d.status === 'completed' || d.status === 'final').length,
+    superseded: data.docs.filter(d => d.status === 'superseded').length,
+  };
+
+  // Best-effort page-load audit. Non-blocking by design.
+  if (api.logDocumentsAudit) {
+    api.logDocumentsAudit({ event: 'page_loaded', note: 'tab=' + tab }).catch(() => {});
+  }
 
   // Custom (clinician-authored) templates from the backend, shaped to match
   // the bundled DOCUMENT_TEMPLATES rows the templates list already renders.
@@ -7677,7 +7721,14 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
   };
 
   function docRows(list) {
-    if (!list.length) return '<div class="ch-empty">No documents found.</div>';
+    if (!list.length) {
+      // Honest empty-state: distinguish "no rows yet" from "API unreachable".
+      if (backendError) {
+        return '<div class="ch-empty">Documents service unreachable. Showing local cache (' + data.docs.length + ' rows). ' +
+          '<button class="ch-btn-sm" style="margin-left:8px" onclick="window._nav(\'documents-hub\')">Retry</button></div>';
+      }
+      return '<div class="ch-empty">No documents yet. Upload the first one.</div>';
+    }
     const esc = s => String(s==null?'':s).replace(/'/g,"\\'");
     return list.map(d => {
       const hasFile = !!(d.file_ref || d.status === 'uploaded');
@@ -7685,16 +7736,108 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       const downloadArg = hasFile ? "'"+esc(d.id)+"'" : (d.template_id ? "'"+esc(d.template_id)+"'" : 'null');
       const nameArg = "'"+esc(d.name)+"'";
       const hasFileArg = hasFile ? 'true' : 'false';
+      const idArg = "'"+esc(d.id)+"'";
+      const isBackend = !d.id || /^[0-9a-fA-F-]{8,}$/.test(String(d.id));
+      const signed = d.status === 'signed' || d.status === 'completed' || d.status === 'final';
+      const superseded = d.status === 'superseded';
+      // Sign / supersede / delete are only offered for real backend rows.
+      // Local-cache rows show download only — pre-fix the "Sign" button
+      // would call api.signDocument with a synthetic id and throw.
+      const signBtn = (isBackend && !signed && !superseded)
+        ? '<button class="ch-btn-sm ch-btn-teal" title="Sign-off" onclick="window._docsSign('+idArg+')">Sign</button>'
+        : '';
+      const supersedeBtn = (isBackend && !superseded)
+        ? '<button class="ch-btn-sm" title="Create new revision" onclick="window._docsSupersede('+idArg+','+nameArg+')">Revise</button>'
+        : '';
+      const deleteBtn = (isBackend && !signed)
+        ? '<button class="ch-btn-sm" title="Delete" onclick="window._docsDelete('+idArg+','+nameArg+')">Delete</button>'
+        : '';
+      const demoBadge = d.is_demo ? '<span class="book-status-badge" style="color:var(--amber);background:rgba(245,158,11,0.12);margin-right:4px">DEMO</span>' : '';
+      const revLabel = d.revision && d.revision > 1 ? ' · v' + d.revision : '';
       return '<div class="book-row">'+
-        '<div class="book-datetime"><div class="book-date">'+d.date+'</div><div class="book-time">'+d.size+'</div></div>'+
-        '<div class="book-info"><div class="book-patient">'+d.name+'</div><div class="book-clinician">'+d.patient+' · '+d.type+'</div></div>'+
-        '<div class="book-status-col"><span class="book-status-badge" style="color:'+(stC[d.status]||'var(--text-tertiary)')+';background:'+(stC[d.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+d.status+'</span></div>'+
-        '<div class="book-actions">'+
-          '<button class="ch-btn-sm" onclick="window._docsDownload('+downloadArg+','+nameArg+','+hasFileArg+')">↓</button>'+
+        '<div class="book-datetime"><div class="book-date">'+(d.date||'—')+'</div><div class="book-time">'+(d.size||'—')+'</div></div>'+
+        '<div class="book-info"><div class="book-patient">'+d.name+revLabel+'</div><div class="book-clinician">'+d.patient+' · '+d.type+'</div></div>'+
+        '<div class="book-status-col">'+demoBadge+'<span class="book-status-badge" style="color:'+(stC[d.status]||'var(--text-tertiary)')+';background:'+(stC[d.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+d.status+'</span></div>'+
+        '<div class="book-actions" style="display:flex;gap:4px;flex-wrap:wrap">'+
+          '<button class="ch-btn-sm" title="Download" onclick="window._docsDownload('+downloadArg+','+nameArg+','+hasFileArg+')">↓</button>'+
+          signBtn + supersedeBtn + deleteBtn +
         '</div>'+
       '</div>';
     }).join('');
   }
+
+  // Real sign / supersede / delete handlers — wired to the backend
+  // /api/v1/documents/{id}/sign and /supersede endpoints. All three log
+  // an audit event on success/failure (success path goes through the
+  // server-side _audit hook; the UI also fires its own log for path
+  // attribution).
+  window._docsSign = async (docId) => {
+    const note = window.prompt('Sign-off note (optional):') || '';
+    try {
+      await api.signDocument(docId, note || null);
+      window._dsToast?.({title:'Signed',body:'Document marked signed and immutable.',severity:'success'});
+      api.logDocumentsAudit?.({event:'signed', document_id: docId, note: 'ui sign-off'}).catch(()=>{});
+      window._nav('documents-hub');
+    } catch (err) {
+      const msg = err?.message || 'Sign failed.';
+      window._dsToast?.({title:'Sign failed',body:String(msg),severity:'error'});
+    }
+  };
+  window._docsSupersede = async (docId, name) => {
+    const reason = window.prompt('Reason for new revision (3-512 chars):', 'correction');
+    if (!reason || reason.trim().length < 3) {
+      window._dsToast?.({title:'Reason required',body:'Supersede needs a written reason.',severity:'info'});
+      return;
+    }
+    const newTitle = window.prompt('New title (blank keeps "'+ (name||'document') +'"):') || null;
+    try {
+      const out = await api.supersedeDocument(docId, { reason: reason.trim(), new_title: newTitle });
+      window._dsToast?.({title:'Revision created',body:'New revision v'+(out?.revision||2)+' created. Original marked superseded.',severity:'success'});
+      api.logDocumentsAudit?.({event:'superseded', document_id: docId, note: 'ui supersede: ' + reason.slice(0,200)}).catch(()=>{});
+      window._nav('documents-hub');
+    } catch (err) {
+      const msg = err?.message || 'Supersede failed.';
+      window._dsToast?.({title:'Revise failed',body:String(msg),severity:'error'});
+    }
+  };
+  window._docsDelete = async (docId, name) => {
+    if (!window.confirm('Delete document "'+ (name||docId) +'"? Signed documents cannot be deleted.')) return;
+    try {
+      await api.deleteDocument(docId);
+      window._dsToast?.({title:'Deleted',body:'Document removed.',severity:'success'});
+      api.logDocumentsAudit?.({event:'deleted', document_id: docId, note: 'ui delete'}).catch(()=>{});
+      window._nav('documents-hub');
+    } catch (err) {
+      const msg = err?.message || 'Delete failed.';
+      window._dsToast?.({title:'Delete failed',body:String(msg),severity:'error'});
+    }
+  };
+
+  // Filtered ZIP export — streams a Blob from /export.zip. The server
+  // prefixes the manifest with a "# DEMO" line if any matched rows are
+  // demo, so importers can drop demo content trivially.
+  window._docsExport = async () => {
+    const f = window._docsFiltersObj || {};
+    try {
+      const blob = await api.exportDocumentsZip({
+        kind: f.kind || undefined,
+        patient_id: f.patient_id || undefined,
+        since: f.since || undefined,
+        until: f.until || undefined,
+        q: f.q || undefined,
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'documents-export.zip';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      window._dsToast?.({title:'Export ready',body:'documents-export.zip downloaded.',severity:'success'});
+      api.logDocumentsAudit?.({event:'exported', note: 'ui export.zip'}).catch(()=>{});
+    } catch (err) {
+      const msg = err?.message || 'Export failed.';
+      window._dsToast?.({title:'Export failed',body:String(msg),severity:'error'});
+    }
+  };
 
   let main = '';
 
@@ -7703,12 +7846,22 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
     const filt = window._docsFilter||'All';
     const types = ['All',...new Set(data.docs.map(d=>d.type))];
     const rows = data.docs.filter(d=>(filt==='All'||d.type===filt)&&(!q||(d.name+d.patient).toLowerCase().includes(q)));
-    main = `
+    // Top KPIs come from the server-side /summary so they are honest
+    // about empty cases. The fallback (`summaryCounts || …`) above keeps
+    // the UI working when the API is down.
+    const totalK   = summaryCounts.total      ?? data.docs.length;
+    const signedK  = summaryCounts.signed     ?? rows.filter(d=>d.status==='signed'||d.status==='completed').length;
+    const draftK   = summaryCounts.draft      ?? rows.filter(d=>d.status==='pending').length;
+    const supersK  = summaryCounts.superseded ?? rows.filter(d=>d.status==='superseded').length;
+    const errBanner = backendError
+      ? '<div style="padding:8px 12px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:8px;color:var(--red);font-size:12px;margin-bottom:12px">Documents API unreachable — '+ String(backendError).replace(/[<>]/g,'') +'. Counts are local-cache only. <button class="ch-btn-sm" style="margin-left:8px" onclick="window._nav(\'documents-hub\')">Retry</button></div>'
+      : '';
+    main = errBanner + `
       <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
-        <div class="ch-kpi-card dv2-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val dv2-kpi-val">${data.docs.length}</div><div class="ch-kpi-label dv2-kpi-label">Total Docs</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${data.docs.filter(d=>d.status==='signed'||d.status==='final').length}</div><div class="ch-kpi-label">Finalised</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${data.docs.filter(d=>d.status==='draft'||d.status==='pending').length}</div><div class="ch-kpi-label">Drafts</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${new Set(data.docs.map(d=>d.patient)).size}</div><div class="ch-kpi-label">Patients</div></div>
+        <div class="ch-kpi-card dv2-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val dv2-kpi-val">${totalK}</div><div class="ch-kpi-label dv2-kpi-label">Total</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${signedK}</div><div class="ch-kpi-label">Signed</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${draftK}</div><div class="ch-kpi-label">Drafts</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--text-tertiary)"><div class="ch-kpi-val">${supersK}</div><div class="ch-kpi-label">Superseded</div></div>
       </div>
       <div class="ch-card">
         <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px">
@@ -7717,9 +7870,10 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
             <input type="text" placeholder="Search…" class="ph-search-input" value="${window._docsSearch||''}" oninput="window._docsSearch=this.value;window._nav('documents-hub')">
             <svg viewBox="0 0 24 24" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;stroke:var(--text-tertiary);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           </div>
+          <button class="ch-btn-sm" title="Download filtered ZIP (manifest.csv + uploaded blobs)" onclick="window._docsExport()">⤓ Export ZIP</button>
         </div>
         <div style="padding:10px 16px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border)">
-          ${types.map(t=>'<button class="reg-domain-pill'+(t===filt?' active':'')+'" onclick="window._docsFilter=\''+t+'\';window._nav(\'documents-hub\')">'+t+'</button>').join('')}
+          ${types.map(t=>'<button class="reg-domain-pill'+(t===filt?' active':'')+'" onclick="window._docsFilter=\''+t+'\';window._docsLogFilter(\'kind\','+JSON.stringify(t)+');window._nav(\'documents-hub\')">'+t+'</button>').join('')}
         </div>
         ${docRows(rows)}
       </div>`;

@@ -19,6 +19,23 @@ RUN npm run build:web
 FROM python:3.11-slim
 WORKDIR /app
 
+# WeasyPrint native deps (Phase 4 audit P2-3 fix).
+# WeasyPrint renders the qEEG Brain Map PDF (services/qeeg_pdf_export.py).
+# It depends on Pango, Cairo, GDK-PixBuf, and HarfBuzz at the C level — without
+# these the PDF endpoint returns HTTP 503. Keep this layer near the top so the
+# slow apt install is cached across most rebuilds.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libpango-1.0-0 \
+        libpangoft2-1.0-0 \
+        libcairo2 \
+        libgdk-pixbuf-2.0-0 \
+        libharfbuzz0b \
+        libffi8 \
+        shared-mime-info \
+        fonts-liberation \
+        fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY packages ./packages
 COPY apps/api ./apps/api
 COPY pyproject.toml ./

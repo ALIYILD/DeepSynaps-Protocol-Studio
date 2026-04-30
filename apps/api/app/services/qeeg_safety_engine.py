@@ -327,3 +327,91 @@ def _mean_band_z(z_by_channel: dict[str, dict[str, float]], band: str) -> Option
     if not values:
         return None
     return sum(values) / len(values)
+
+
+# ── Phase 4: red-flag → AdverseEvent escalation ──────────────────────────────
+# When detect_red_flags() surfaces a high-severity pattern (epileptiform,
+# severe focal asymmetry, severe slowing, very poor signal quality, acute
+# neuro concern, self-harm wording), enqueue a corresponding AdverseEvent
+# row so the existing Clinical Hub adverse-events feed surfaces it without
+# clinician hand-curation. Decision-support only — never auto-resolves.
+
+_AE_TYPE_BY_FLAG: dict[str, str] = {
+    "EPILEPTIFORM_HEURISTIC": "qeeg_red_flag_epileptiform",
+    "FOCAL_ASYMMETRY_SEVERE": "qeeg_red_flag_focal_asymmetry",
+    "EXCESSIVE_SLOWING_DELTA": "qeeg_red_flag_slowing",
+    "EXCESSIVE_SLOWING_THETA": "qeeg_red_flag_slowing",
+    "SIGNAL_QUALITY_POOR": "qeeg_quality_alert",
+    "ACUTE_NEURO_CONCERN": "qeeg_red_flag_acute_neuro",
+    "SELF_HARM_EMERGENCY": "qeeg_red_flag_self_harm",
+}
+
+
+def escalate_red_flags_to_adverse_events(
+    analysis: "QEEGAnalysis",
+    red_flags: list[dict[str, Any]] | None,
+    db,
+) -> list[str]:
+    """Persist one AdverseEvent row per high-severity red flag.
+
+    Idempotent across calls within the same minute: if a same-type AE for
+    this patient already exists in the last 60 seconds, the new one is
+    skipped (covers re-runs of the safety engine on the same analysis).
+
+    Returns the list of AdverseEvent.ids that were created.
+    """
+    if not red_flags:
+        return []
+    # Local imports to avoid cycles at module load time
+    from datetime import datetime, timedelta, timezone
+    from app.persistence.models import AdverseEvent
+
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(seconds=60)
+    created: list[str] = []
+    for flag in red_flags:
+        if not isinstance(flag, dict):
+            continue
+        if flag.get("severity") != "high":
+            continue
+        code = flag.get("code")
+        ae_type = _AE_TYPE_BY_FLAG.get(code or "")
+        if not ae_type:
+            continue
+        # Idempotency: skip if a recent same-type AE already exists for this patient
+        try:
+            existing = (
+                db.query(AdverseEvent)
+                .filter(
+                    AdverseEvent.patient_id == analysis.patient_id,
+                    AdverseEvent.event_type == ae_type,
+                    AdverseEvent.reported_at >= cutoff,
+                )
+                .first()
+            )
+        except Exception:
+            existing = None
+        if existing is not None:
+            continue
+        ae = AdverseEvent(
+            patient_id=analysis.patient_id,
+            clinician_id=analysis.clinician_id,
+            event_type=ae_type,
+            severity="high",
+            description=(
+                f"qEEG red flag: {flag.get('title') or code}. "
+                f"{flag.get('message') or ''} "
+                f"Recommended action: {flag.get('action') or 'Clinician review.'}"
+            ).strip(),
+            onset_timing="during_session",
+            resolution="open",
+            action_taken="auto_flagged_for_review",
+            reported_at=now,
+        )
+        try:
+            db.add(ae)
+            db.flush()
+            created.append(ae.id)
+        except Exception as exc:
+            _log.warning("escalate_red_flags AE persist failed for %s: %s", code, exc)
+    return created
