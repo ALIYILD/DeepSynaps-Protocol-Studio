@@ -83,3 +83,8 @@ qeeg = [
 
 [tool.setuptools]
 py-modules = []
+
+[dependency-groups]
+dev = [
+    "pytest-asyncio>=1.3.0",
+]
