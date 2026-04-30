@@ -102,7 +102,7 @@ function renderIndicatorGrid(indicators) {
     ['Frontal Lobe Development (TBR)', ind.tbr, 'Theta/Beta ratio. May indicate frontal-lobe maturation status when measured eyes-open.'],
     ['Information Processing Speed', ind.occipital_paf, 'Peak alpha frequency at occipital electrodes. Best measured eyes-closed.'],
     ['Alpha Wave Reactivity', ind.alpha_reactivity, 'Eyes-open vs eyes-closed alpha modulation. A typical brain shows roughly 2× alpha eyes-closed.'],
-    ['Brain Balance', ind.brain_balance, 'Inter-hemispheric alpha-band connectivity laterality.'],
+    ['Frontal Alpha Asymmetry (FAA)', ind.brain_balance, 'Inter-hemispheric alpha-band laterality. Research-grade marker — not regulatory-cleared.'],
     ['AI Brain Development Age', ind.ai_brain_age, 'Model-estimated brain age compared to chronological age.'],
   ];
   return '<section class="qeeg-cover__indicators ds-print" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:24px">'
