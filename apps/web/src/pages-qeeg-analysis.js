@@ -2459,7 +2459,7 @@ function _renderComprehensiveReport(report, analysis, savedEvidenceCitations) {
     }
 
     // Planned connectivity metrics (Coming Soon)
-    connHtml += '<div style="margin-top:16px;padding:12px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px dashed rgba(255,255,255,0.08)">'
+    connHtml += '<div style="margin-top:16px;padding:12px;border-radius:8px;background:var(--surface-tint-1);border:1px dashed rgba(255,255,255,0.08)">'
       + '<div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Planned Connectivity Metrics</div>'
       + '<div style="display:flex;gap:10px;flex-wrap:wrap">'
       + '<div style="font-size:11px;color:var(--text-tertiary)">dwPLI <span class="ds-coming-soon">Coming Soon</span>'
@@ -3904,6 +3904,7 @@ function renderTabBar(activeTab) {
       const active = activeTab === id;
       return '<button class="ch-tab' + (active ? ' ch-tab--active' : '') + '"'
         + ' role="tab"'
+        + ' id="qeeg-tab-' + id + '"'
         + ' aria-selected="' + (active ? 'true' : 'false') + '"'
         + ' aria-controls="qeeg-tab-content"'
         + ' tabindex="' + (active ? '0' : '-1') + '"'
@@ -4149,7 +4150,7 @@ function renderClinicalInfo(patient, medHistory) {
 
   // Check if medical history exists
   if (!medHistory || !medHistory.sections || Object.keys(medHistory.sections).length === 0) {
-    html += '<div style="text-align:center;padding:24px;color:var(--text-tertiary);font-size:13px;border:1px dashed rgba(255,255,255,0.1);border-radius:8px">'
+    html += '<div style="text-align:center;padding:24px;color:var(--text-tertiary);font-size:13px;border:1px dashed var(--border-hover);border-radius:8px">'
       + 'No medical history recorded for this patient.<br>'
       + '<a href="#" onclick="window._nav(\'patients-hub\');return false" style="color:var(--blue);font-size:12px">Go to Patient Hub to add medical history</a>'
       + '</div>';
@@ -4552,7 +4553,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
     + '</div>';
   pageHtml += renderPatientSelector(_patients, patientId);
   pageHtml += renderTabBar(tab);
-  pageHtml += '<div id="qeeg-tab-content"></div>';
+  pageHtml += '<div id="qeeg-tab-content" role="tabpanel" tabindex="0" aria-labelledby="qeeg-tab-' + tab + '"></div>';
   pageHtml += _qeegClinicalSafetyFooter();
   pageHtml += '</div>';
   el.innerHTML = pageHtml;
@@ -4688,7 +4689,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         ? '<button class="btn btn-primary btn-sm" onclick="window._qeegSelectedId=\'demo\';window._qeegTab=\'analysis\';window._nav(\'qeeg-analysis\')">Open Analysis (demo data)</button>'
         : '';
       tabEl.innerHTML =
-        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:rgba(255,255,255,0.02);border:1px solid var(--border);text-align:center">'
+        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:var(--surface-tint-1);border:1px solid var(--border);text-align:center">'
         + '<div style="font-size:32px;margin-bottom:8px">📊</div>'
         + '<div style="font-size:18px;font-weight:700;margin-bottom:6px">No analysis selected</div>'
         + '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px">Open the analysis view with sample data, jump to an existing analysis, or upload a new EDF.</div>'
@@ -5221,7 +5222,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         ? '<button class="btn btn-primary btn-sm" onclick="window._qeegSelectedId=\'demo\';window._qeegTab=\'report\';window._nav(\'qeeg-analysis\')">Open AI Report (demo data)</button>'
         : '';
       tabEl.innerHTML =
-        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:rgba(255,255,255,0.02);border:1px solid var(--border);text-align:center">'
+        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:var(--surface-tint-1);border:1px solid var(--border);text-align:center">'
         + '<div style="font-size:32px;margin-bottom:8px">📝</div>'
         + '<div style="font-size:18px;font-weight:700;margin-bottom:6px">No analysis selected</div>'
         + '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px">Open the AI report with sample data, jump to an existing analysis, or upload a new EDF.</div>'
@@ -5467,7 +5468,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         ? "window._qeegSelectedId='demo';window.location.hash='#/qeeg-raw-workbench/demo';window._nav('qeeg-raw-workbench')"
         : "window._nav('qeeg-raw-workbench')";
       tabEl.innerHTML =
-        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:rgba(255,255,255,0.02);border:1px solid var(--border);text-align:center">'
+        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:var(--surface-tint-1);border:1px solid var(--border);text-align:center">'
         + '<div style="font-size:32px;margin-bottom:8px">📈</div>'
         + '<div style="font-size:18px;font-weight:700;margin-bottom:6px">No EEG selected</div>'
         + '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px">Open the inline editor with sample data, pick a patient and upload a new EDF, jump to an existing analysis, or open the full-screen workbench for manual analysis.</div>'
@@ -5486,7 +5487,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       await renderRawDataTab(tabEl, analysisId, patientId);
       // Compact workbench link bar below the viewer
       var summaryBar = document.createElement('div');
-      summaryBar.style.cssText = 'display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px;padding:10px 14px;border-radius:10px;background:rgba(255,255,255,0.02);border:1px solid var(--border);font-size:11px;color:var(--text-secondary)';
+      summaryBar.style.cssText = 'display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px;padding:10px 14px;border-radius:10px;background:var(--surface-tint-1);border:1px solid var(--border);font-size:11px;color:var(--text-secondary)';
       summaryBar.id = 'qeeg-raw-summary-bar';
       summaryBar.innerHTML = '<span>Need full-screen editing? <a href="#" style="color:var(--blue)" onclick="window._qeegOpenWorkbench&&window._qeegOpenWorkbench(\'' + esc(analysisId) + '\');return false;">Open Raw EEG Workbench</a></span>'
         + '<span style="margin-left:auto;display:flex;gap:10px;align-items:center">'
@@ -5665,7 +5666,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
     // Hint when only 2 analyses exist — trend section unlocks at 3
     if (completedAnalyses.length === 2) {
       var trendHintHost = document.createElement('div');
-      trendHintHost.style.cssText = 'margin-top:16px;padding:14px;border-radius:10px;background:rgba(255,255,255,0.02);border:1px dashed rgba(255,255,255,0.12);font-size:12px;color:var(--text-secondary);text-align:center';
+      trendHintHost.style.cssText = 'margin-top:16px;padding:14px;border-radius:10px;background:var(--surface-tint-1);border:1px dashed rgba(255,255,255,0.12);font-size:12px;color:var(--text-secondary);text-align:center';
       trendHintHost.innerHTML = '<strong>Longitudinal trend</strong> requires <strong>3+ completed analyses</strong>. Upload one more recording to unlock trend tracking.';
       tabEl.appendChild(trendHintHost);
     }
