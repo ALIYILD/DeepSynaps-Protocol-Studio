@@ -80,6 +80,7 @@ KNOWN_SURFACES = {
     "irb_manager",
     "clinical_trials",
     "course_detail",
+    "patient_profile",
 }
 
 

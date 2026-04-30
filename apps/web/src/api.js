@@ -382,9 +382,30 @@ export const api = {
     apiFetch('/api/v1/patients/invite', { method: 'POST', body: JSON.stringify(data) }),
   getPatientSessions: (patientId) => apiFetch(`/api/v1/patients/${patientId}/sessions`),
   getPatientCourse: (patientId) => apiFetch(`/api/v1/patients/${patientId}/courses`),
+  getPatientCourses: (patientId) => apiFetch(`/api/v1/patients/${patientId}/courses`),
   getPatientAssessments: (patientId) => apiFetch(`/api/v1/patients/${patientId}/assessments`),
   getPatientReports: (patientId) => apiFetch(`/api/v1/patients/${patientId}/reports`),
   getPatientMessages: (patientId) => apiFetch(`/api/v1/patients/${patientId}/messages`),
+  // ── Patient Profile launch-audit (2026-04-30) ────────────────────────────
+  // Aggregated detail, real consent timeline, audit-event ingestion + listing,
+  // and DEMO-prefixed CSV / NDJSON exports. Closes the per-patient regulatory
+  // record loop after Audit Trail (#305), Reports Hub (#310), Documents Hub,
+  // Quality Assurance (#321), IRB Manager (#334), Clinical Trials (#336),
+  // Course Detail (#335).
+  getPatientDetail: (patientId) => apiFetch(`/api/v1/patients/${encodeURIComponent(patientId)}/detail`),
+  getPatientConsentHistory: (patientId, opts = {}) =>
+    apiFetch(`/api/v1/patients/${encodeURIComponent(patientId)}/consent-history${opts.limit ? '?limit=' + encodeURIComponent(opts.limit) : ''}`),
+  listPatientProfileAuditEvents: (patientId, opts = {}) =>
+    apiFetch(`/api/v1/patients/${encodeURIComponent(patientId)}/audit-events${opts.limit ? '?limit=' + encodeURIComponent(opts.limit) : ''}`),
+  recordPatientProfileAuditEvent: (patientId, payload) =>
+    apiFetch(`/api/v1/patients/${encodeURIComponent(patientId)}/audit-events`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+  exportPatientCsv: (patientId) =>
+    apiFetchBinary(`/api/v1/patients/${encodeURIComponent(patientId)}/export.csv`),
+  exportPatientNdjson: (patientId) =>
+    apiFetchBinary(`/api/v1/patients/${encodeURIComponent(patientId)}/export.ndjson`),
   sendPatientMessage: (patientId, messageOrPayload) => {
     const payload = (messageOrPayload && typeof messageOrPayload === 'object')
       ? messageOrPayload
