@@ -9157,15 +9157,27 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   const el = document.getElementById('content');
   if (!el) return;
 
-  setTopbar(
-    'Assessments',
-    '<span id="dv2a-demo-chip" style="display:none;font-size:10px;font-weight:700;color:var(--amber,#ffb547);background:rgba(255,181,71,0.14);border:1px solid rgba(255,181,71,0.35);padding:2px 8px;border-radius:999px;margin-right:8px;letter-spacing:0.04em">DEMO DATA</span>' +
-    '<span style="font-size:11px;color:var(--text-tertiary);margin-right:10px">14 instruments · <strong style="color:var(--rose)">2 red flags</strong> · <strong style="color:var(--amber)">8 overdue</strong></span>' +
-    '<button class="btn btn-ghost btn-sm" title="Refresh queue" onclick="window._ahRefresh()">↻ Refresh</button>' +
-    '<button class="btn btn-ghost btn-sm" title="Export CSV" onclick="window._ahExportCsv()">Export CSV</button>' +
-    '<button class="btn btn-ghost btn-sm" onclick="window._assessBatch()">Batch send</button>' +
-    '<button class="btn btn-primary btn-sm" onclick="window._assessNew()">+ New assessment</button>'
-  );
+  // Topbar will be re-set after queue is hydrated so counts are real.
+  const _setAssessTopbar = (counts) => {
+    const c = counts || { instruments: 0, redFlags: 0, overdue: 0, lastSync: null };
+    const syncLbl = c.lastSync ? ' · synced ' + new Date(c.lastSync).toLocaleTimeString() : '';
+    setTopbar(
+      'Assessments',
+      '<span id="dv2a-demo-chip" style="display:none;font-size:10px;font-weight:700;color:var(--amber,#ffb547);background:rgba(255,181,71,0.14);border:1px solid rgba(255,181,71,0.35);padding:2px 8px;border-radius:999px;margin-right:8px;letter-spacing:0.04em">DEMO DATA</span>' +
+      '<span id="dv2a-counts" style="font-size:11px;color:var(--text-tertiary);margin-right:10px">' +
+        c.instruments + ' instruments · ' +
+        '<strong style="color:var(--rose)">' + c.redFlags + ' red flag' + (c.redFlags===1?'':'s') + '</strong> · ' +
+        '<strong style="color:var(--amber)">' + c.overdue + ' overdue</strong>' +
+        syncLbl +
+      '</span>' +
+      '<button id="dv2a-refresh-btn" class="btn btn-ghost btn-sm" title="Refresh queue" onclick="window._ahRefresh()">↻ Refresh</button>' +
+      '<button class="btn btn-ghost btn-sm" title="Export CSV" onclick="window._ahExportCsv()">Export CSV</button>' +
+      '<button class="btn btn-ghost btn-sm" onclick="window._assessBatch()">Batch send</button>' +
+      '<button class="btn btn-primary btn-sm" onclick="window._assessNew()">+ New assessment</button>'
+    );
+  };
+  // Initial paint with placeholders; real counts populated after hydration below.
+  _setAssessTopbar({ instruments: 0, redFlags: 0, overdue: 0, lastSync: null });
 
   const esc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
@@ -9471,6 +9483,16 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
     }
   } catch {}
 
+  // Compute real counts from hydrated rows and update the topbar.
+  const _ahCounts = () => {
+    const instruments = new Set(queueRows.map(r => r.inst).filter(Boolean)).size;
+    const redFlags = queueRows.filter(r => r.redflag || (r.item9 != null && r.item9 >= 1)).length;
+    const overdue = queueRows.filter(r => r.overdue || r.dueCls === 'overdue').length;
+    return { instruments, redFlags, overdue, lastSync: window._ahLastSync || new Date().toISOString() };
+  };
+  window._ahLastSync = window._ahLastSync || new Date().toISOString();
+  _setAssessTopbar(_ahCounts());
+
   // Reveal DEMO chip now that load has settled.
   setTimeout(() => {
     const chip = document.getElementById('dv2a-demo-chip');
@@ -9554,8 +9576,26 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   };
 
   // ── Refresh button ───────────────────────────────────────────────────────────
-  window._ahRefresh = () => {
-    window._dsToast?.({ title:'Refreshing', body:'Re-loading assessments from server…', severity:'info' });
+  // Real refresh: shows loading state on the button, refetches via the api,
+  // updates the lastSync stamp, surfaces an error toast on failure (no fake
+  // success), and re-renders. Used by the topbar Refresh control.
+  window._ahRefresh = async () => {
+    const btn = document.getElementById('dv2a-refresh-btn');
+    const prevHtml = btn?.innerHTML;
+    if (btn) { btn.innerHTML = '<span style="opacity:0.7">↻ Refreshing…</span>'; btn.disabled = true; }
+    let ok = false;
+    try {
+      // Probe the listing endpoint — if it succeeds, the next _nav() will hydrate.
+      await api.listAssessments?.();
+      ok = true;
+    } catch (err) {
+      window._dsToast?.({ title:'Refresh failed', body:(err && err.message) || 'Could not reach server. Showing cached data.', severity:'error' });
+    }
+    if (ok) {
+      window._ahLastSync = new Date().toISOString();
+      window._dsToast?.({ title:'Refreshed', body:'Assessments are up to date.', severity:'success' });
+    }
+    if (btn) { btn.innerHTML = prevHtml || '↻ Refresh'; btn.disabled = false; }
     window._nav('assessments-v2');
   };
 
@@ -10053,12 +10093,25 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
     window._assessSetFilter = (f) => { window._assessFilter = f; window._nav('assessments-v2'); };
 
     const INSTRUMENTS = ['PHQ-9','GAD-7','Y-BOCS','PCL-5','HAM-D','HAM-A','AQ-10','ASRS','MIDAS','BPI','ISI','WAB-R','BDI-II','EQ-5D'];
+    // Derive KPIs from queueRows so tiles never lie. When data is sparse
+    // (small demo set), the responder/completion percentages explicitly say
+    // "—" rather than fake a number.
+    const kRedFlags = queueRows.filter(r => r.redflag).length;
+    const kOverdue  = queueRows.filter(r => r.overdue || r.dueCls === 'overdue').length;
+    const kToday    = queueRows.filter(r => r.dueCls === 'today').length;
+    const kTodayTablet = queueRows.filter(r => r.dueCls === 'today' && r.mode === 'TABLET').length;
+    const kTodayAsync  = queueRows.filter(r => r.dueCls === 'today' && r.mode === 'ASYNC').length;
+    const kCompleted = queueRows.filter(r => r.status === 'completed' || r.sendLabel === 'Review').length;
+    const kResponders = queueRows.filter(r => r.trendCls === 'down').length;
+    const kScored = queueRows.filter(r => r.score != null).length;
+    const responderPct = kScored > 0 ? Math.round((kResponders / kScored) * 100) : null;
+    const completionPct = queueRows.length > 0 ? Math.round((kCompleted / queueRows.length) * 100) : null;
     const kpis = [
-      { lbl:'Red flags · 48h', cls:'rose', num:'2', sub:'PHQ-9 item 9 · escalate' },
-      { lbl:'Overdue',          cls:'amber',num:'8', sub:'↑ 2 vs last week' },
-      { lbl:'Due today',        cls:'teal', num:'15',sub:'12 tablet · 3 async' },
-      { lbl:'Completed · 7d',   cls:'green',num:'142',sub:'94% completion rate' },
-      { lbl:'Responder rate',   cls:'blue', num:'62', unit:'%', sub:'≥50% Δ from baseline' },
+      { lbl:'Red flags',        cls:'rose', num:String(kRedFlags), sub:kRedFlags ? 'item-9 / safety triggers · escalate' : 'no safety triggers' },
+      { lbl:'Overdue',          cls:'amber',num:String(kOverdue),  sub:kOverdue ? 'past due — send reminder' : 'all assignments on time' },
+      { lbl:'Due today',        cls:'teal', num:String(kToday),    sub:kToday ? (kTodayTablet+' tablet · '+kTodayAsync+' async') : 'no due-today items' },
+      { lbl:'Completed',        cls:'green',num:String(kCompleted),sub:completionPct != null ? completionPct+'% of current view' : '—' },
+      { lbl:'Responder rate',   cls:'blue', num:responderPct != null ? String(responderPct) : '—', unit:responderPct != null ? '%' : '', sub:kScored ? '≥50% Δ from baseline · n='+kScored : 'no scored items yet' },
     ];
 
     const kpiHtml = '<div class="dv2a-kpi-row">' + kpis.map(k =>
@@ -10288,7 +10341,17 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       '</div>'
     ).join('');
 
-    const tableRows = queueRows.slice(0, 8).map(r =>
+    // Honestly filter cohort table by the active cohort's primary instrument.
+    // When no rows match, render an explicit empty-state ("Not enough submitted
+    // assessments yet") rather than a fake table.
+    const cohortInst = (active.inst || '').split(/[·,]/).map(x => x.trim()).filter(Boolean);
+    const cohortMatch = (r) => {
+      if (!cohortInst.length) return true;
+      const ri = (r.inst || '').toUpperCase();
+      return cohortInst.some(ci => ri.includes(ci.toUpperCase().split(' ')[0]));
+    };
+    const cohortRows = queueRows.filter(cohortMatch).slice(0, 12);
+    const tableRows = cohortRows.length ? cohortRows.map(r =>
       '<tr style="border-bottom:1px solid rgba(255,255,255,0.04)">' +
         '<td style="padding:9px 12px;font-size:11.5px">'+esc(r.patient)+' <span style="color:var(--text-tertiary);font-size:10px">· MRN '+esc(r.mrn)+'</span></td>' +
         '<td style="padding:9px 12px;font-size:11px">'+esc(r.inst)+'</td>' +
@@ -10296,7 +10359,8 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         '<td style="padding:9px 12px;font-size:10.5px"><span class="dv2a-due-chip '+(r.dueCls||'')+'">'+esc(r.due||'')+'</span></td>' +
         '<td style="padding:9px 12px;font-size:11px;color:'+(r.trendCls==='down'?'var(--teal,#00d4bc)':r.trendCls==='up'?'var(--rose,#ff6b9d)':'var(--text-tertiary)')+'">'+esc(r.trend||'')+'</td>' +
       '</tr>'
-    ).join('');
+    ).join('') :
+      '<tr><td colspan="5" style="padding:24px 16px;text-align:center;font-size:11.5px;color:var(--text-tertiary)">Not enough submitted assessments yet for <strong>'+esc(active.label)+'</strong>. Use Batch send to assign '+esc(cohortInst[0]||'an instrument')+' to this cohort.</td></tr>';
 
     window._ahBulkAssign = async (cohortId, label, n, instruments) => {
       const rows = queueRows.filter(r => r.patientId).slice(0, n);
@@ -10327,7 +10391,19 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         window._dsToast?.({ title:'Bulk assign failed', body:(err && err.message) || 'Network error. Saved locally.', severity:'error' });
       }
     };
-    return '<div class="dv2a-filter-bar"><button class="dv2a-chip">Instrument: any</button><button class="dv2a-chip">Window: last 30d</button><div style="margin-left:auto"><button class="btn btn-primary btn-sm" onclick="window._ahBulkAssign(\''+esc(active.id)+'\',\''+esc(active.label)+'\','+active.n+',\''+esc(active.inst)+'\')">Batch send to '+active.n+' →</button></div></div>' +
+    // Cohort filter chips — wired to local state (instrument, time window).
+    const cohortFilterInst = window._assessCohortInst || 'any';
+    const cohortFilterWin  = window._assessCohortWin  || '30d';
+    window._assessCohortSetInst = (v) => { window._assessCohortInst = v; window._nav('assessments-v2'); };
+    window._assessCohortSetWin  = (v) => { window._assessCohortWin  = v; window._nav('assessments-v2'); };
+    const cohortInstrumentOpts = ['any', ...cohortInst.length ? [cohortInst[0]] : []];
+    const cohortWinOpts = ['7d', '30d', '90d', 'all'];
+    return '<div class="dv2a-filter-bar">' +
+        cohortInstrumentOpts.map(v => '<button class="dv2a-chip'+(cohortFilterInst===v?' active':'')+'" onclick="window._assessCohortSetInst(\''+esc(v)+'\')">Instrument: '+esc(v)+'</button>').join('') +
+        cohortWinOpts.map(v => '<button class="dv2a-chip'+(cohortFilterWin===v?' active':'')+'" onclick="window._assessCohortSetWin(\''+esc(v)+'\')">Window: '+esc(v)+'</button>').join('') +
+        '<div style="margin-left:auto"><button class="btn btn-primary btn-sm" onclick="window._ahBulkAssign(\''+esc(active.id)+'\',\''+esc(active.label)+'\','+active.n+',\''+esc(active.inst)+'\')">Batch send to '+active.n+' →</button></div>' +
+      '</div>' +
+      '<div style="font-size:10.5px;color:var(--text-tertiary);margin:6px 2px 4px;line-height:1.5"><strong style="color:var(--amber,#ffb547)">Note:</strong> Batch send creates assignments and audit entries. SMS/email delivery requires a configured messaging integration; otherwise patients see assignments via the patient portal only.</div>' +
       '<div class="dv2a-cohort-grid">' +
         '<div style="display:flex;flex-direction:column;gap:8px">' + cohortListHtml + '</div>' +
         '<div class="dv2a-card">' +
@@ -10392,9 +10468,30 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
     })();
 
     window._assessAssignForm = () => {
-      // Open the fillable form directly so clinician can either complete now
-      // or use "Save draft" to assign for later.
-      window._ahOpenForm(inst.id);
+      // Read the patient name/MRN typed in the input below and pass it to the
+      // form opener so the clinician's intent is honoured. Match against the
+      // current queue patients first, then fall back to a name-only seed.
+      const inp = document.getElementById('dv2a-ind-pt-input');
+      const typed = (inp && inp.value || '').trim();
+      let patientId = '';
+      let patientName = '';
+      if (typed) {
+        const needle = typed.toLowerCase();
+        const match = queueRows.find(r =>
+          (r.patient || '').toLowerCase().includes(needle) ||
+          String(r.mrn || '').toLowerCase() === needle ||
+          String(r.patientId || '').toLowerCase() === needle
+        );
+        if (match) { patientId = match.patientId || ''; patientName = match.patient; }
+        else { patientName = typed; }
+      }
+      window._ahOpenForm(inst.id, patientId, null);
+      // If we matched a queue patient, the form opener already seeds it.
+      // Otherwise pre-fill the patient picker with the typed text.
+      if (!patientId && patientName && window._ahForm) {
+        window._ahForm.patientName = patientName;
+        try { window._ahRender?.(); } catch {}
+      }
     };
 
     return '<div class="dv2a-ind-wrap">' +
@@ -10414,7 +10511,7 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         '<div style="margin-top:16px;font-size:10.5px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Licensing</div>' +
         '<div style="font-size:11px;color:var(--text-secondary);margin-top:6px;line-height:1.5">'+esc(inst.licensing?.attribution||'—')+'</div>' +
         '<div style="margin-top:16px;font-size:10.5px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Assign to patient</div>' +
-        '<input class="form-control" placeholder="Patient name or MRN" style="width:100%;padding:8px 10px;background:var(--bg-surface,#11222a);border:1px solid var(--border);border-radius:6px;font-size:12px;color:var(--text-primary);margin-bottom:8px"/>' +
+        '<input id="dv2a-ind-pt-input" class="form-control" placeholder="Patient name or MRN" style="width:100%;padding:8px 10px;background:var(--bg-surface,#11222a);border:1px solid var(--border);border-radius:6px;font-size:12px;color:var(--text-primary);margin-bottom:8px"/>' +
         '<button class="btn btn-primary btn-sm" style="width:100%" onclick="window._assessAssignForm()">Assign '+esc(inst.abbr||inst.id)+' →</button>' +
       '</div>' +
     '</div>';
@@ -10434,6 +10531,17 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
     mainContent = renderIndividual();
   }
 
+  // Clinical safety footer — visible on every tab. Required by clinical-launch
+  // governance: assessments support, not replace, clinician judgment.
+  const safetyFooter =
+    '<div role="note" aria-label="Clinical safety disclaimer" style="font-size:10.5px;color:var(--text-tertiary);padding:8px 18px;border-top:1px solid var(--border);background:rgba(0,0,0,0.18);line-height:1.5">' +
+      '<strong style="color:var(--text-secondary)">Clinical safety:</strong> ' +
+      'Assessments support clinical decision-making and require clinician review. ' +
+      'Scores are not diagnoses on their own. ' +
+      '<strong style="color:var(--rose,#ff6b9d)">Red flags require immediate clinician review per local policy.</strong> ' +
+      'Licensed instruments may require separate permission for distribution.' +
+    '</div>';
+
   el.innerHTML =
     '<div class="dv2a-shell">' +
       '<div class="dv2a-tabs" role="tablist">' + tabBar() + '</div>' +
@@ -10441,7 +10549,21 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         '<div class="dv2a-main">' + mainContent + '</div>' +
         (tab === 'queue' && selectedId ? sideContent : '') +
       '</div>' +
+      safetyFooter +
     '</div>';
+
+  // Audit: page loaded. Best-effort, fire-and-forget so audit failures never
+  // break the UI. Uses the same audit envelope shape as elsewhere.
+  try {
+    const audit = (window.api && window.api.logAudit) || api.logAudit;
+    audit?.({
+      event: 'assessments_hub_loaded',
+      tab,
+      counts: _ahCounts(),
+      using_demo_data: usingDemoData,
+      ts: new Date().toISOString(),
+    });
+  } catch {}
 }
 
 
