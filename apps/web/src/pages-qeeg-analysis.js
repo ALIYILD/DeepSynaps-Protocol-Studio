@@ -4128,22 +4128,44 @@ function initUploadHandlers(patientId) {
 
 async function handleUpload(file, patientId) {
   const statusEl = document.getElementById('qeeg-upload-status');
+  function setStatus(html) {
+    if (!statusEl) return;
+    statusEl.setAttribute('role', 'status');
+    statusEl.setAttribute('aria-live', 'polite');
+    statusEl.innerHTML = html;
+  }
+  function setError(msg) {
+    if (statusEl) {
+      statusEl.setAttribute('role', 'alert');
+      statusEl.removeAttribute('aria-live');
+      statusEl.innerHTML = '<div style="color:var(--red);font-size:13px">' + esc(msg) + '</div>';
+    }
+    showToast(msg, 'error');
+  }
   if (!patientId) {
-    if (statusEl) statusEl.innerHTML = '<div style="color:var(--red);font-size:13px">Please select a patient first.</div>';
+    setError('Please select a patient first.');
+    return;
+  }
+  if (!file || !file.name) {
+    setError('No file selected.');
     return;
   }
   // Client-side validation
   const ext = (file.name || '').split('.').pop().toLowerCase();
   if (!['edf', 'bdf', 'vhdr', 'set'].includes(ext)) {
-    if (statusEl) statusEl.innerHTML = '<div style="color:var(--red);font-size:13px">Invalid file type. Accepted: ' + esc(formatSupportedUploadTypes()) + '</div>';
+    setError('Invalid file type "' + (ext || 'unknown') + '". Accepted: ' + formatSupportedUploadTypes());
     return;
   }
   if (file.size > 100 * 1024 * 1024) {
-    if (statusEl) statusEl.innerHTML = '<div style="color:var(--red);font-size:13px">File too large. Maximum: 100 MB</div>';
+    setError('File too large (' + Math.round(file.size / 1024 / 1024) + ' MB). Maximum: 100 MB.');
+    return;
+  }
+  if (file.size === 0) {
+    setError('File is empty. Please select a valid recording.');
     return;
   }
 
-  if (statusEl) statusEl.innerHTML = spinner('Uploading ' + esc(file.name) + '...');
+  setStatus(spinner('Uploading ' + esc(file.name) + '...'));
   try {
     const fd = new FormData();
     fd.append('file', file);
