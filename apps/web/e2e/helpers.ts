@@ -88,10 +88,14 @@ export async function mockApiSuccess(page: Page) {
 }
 
 export async function setAuthToken(page: Page, role: 'clinician' | 'patient' = 'clinician') {
-  // Inject mock auth state directly into localStorage to skip login UI
+  // Inject mock auth state directly into localStorage to skip login UI.
+  // Sets BOTH the legacy `ds_onboarding_done` and the canonical
+  // `ds_onboarding_complete` flag so this helper works against builds
+  // before AND after the PR #4 onboarding-key migration.
   await page.addInitScript((r) => {
     localStorage.setItem('ds_access_token', 'mock-token');
     localStorage.setItem('ds_refresh_token', 'mock-refresh');
     localStorage.setItem('ds_onboarding_done', '1');
+    localStorage.setItem('ds_onboarding_complete', 'true');
   }, role);
 }
