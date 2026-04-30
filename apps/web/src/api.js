@@ -1942,6 +1942,9 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ cleaning_version_id: cleaningVersionId }),
     }),
+  // Dashboard endpoints
+  getDashboardOverview: () => apiFetchWithRetry('/api/v1/dashboard/overview'),
+  dashboardSearch: (q) => apiFetch('/api/v1/dashboard/search?q=' + encodeURIComponent(q || '')),
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).
