@@ -27846,6 +27846,52 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
 .dt-chip--warn { background: rgba(255,179,71,.10); color: var(--amber); }
 .dt-chip--low { background: rgba(255,255,255,.03); color: var(--text-tertiary); }
 
+/* ──────────────────────────────────────────────────────────────────────────
+   DeepTwin 360 Dashboard (.dt360-*) and tab strip (.dt-tabs)
+   ────────────────────────────────────────────────────────────────────────── */
+.dt-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+.dt-tab { background: transparent; border: 0; color: var(--text-tertiary); padding: 10px 14px; font-size: 13.5px; cursor: pointer; border-bottom: 2px solid transparent; }
+.dt-tab:hover { color: var(--text); }
+.dt-tab--active { color: var(--text); border-bottom-color: var(--teal); font-weight: 600; }
+
+.dt360-page { display: flex; flex-direction: column; gap: 14px; padding: 0; max-width: 1400px; margin: 0 auto; }
+.dt360-loading { padding: 24px; color: var(--text-tertiary); }
+
+.dt360-top-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 1100px) { .dt360-top-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px)  { .dt360-top-grid { grid-template-columns: 1fr; } }
+.dt360-top-card { padding: 14px 16px; border: 1px solid var(--border); border-radius: 14px; background: rgba(255,255,255,.02); display: flex; flex-direction: column; gap: 4px; }
+.dt360-top-h { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-tertiary); }
+.dt360-top-v { font-size: 22px; font-weight: 700; color: var(--text); }
+.dt360-top-sub { font-size: 12px; color: var(--text-secondary); }
+
+.dt360-section-h { font-size: 13px; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: .08em; margin: 8px 2px 0; }
+
+.dt360-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.dt360-card { padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+.dt360-card-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.dt360-card-label { font-weight: 650; color: var(--text); font-size: 13.5px; }
+.dt360-card-meta { display: flex; gap: 6px; flex-wrap: wrap; font-size: 11.5px; color: var(--text-tertiary); }
+.dt360-card-summary { font-size: 12.5px; color: var(--text-secondary); line-height: 1.45; }
+.dt360-card-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; }
+.dt360-link { font-size: 12px; color: var(--teal); text-decoration: none; padding: 4px 8px; border-radius: 6px; background: rgba(0,212,188,.06); }
+.dt360-link:hover { background: rgba(0,212,188,.12); }
+.dt360-upload { font-size: 11.5px; }
+.dt360-warn { font-size: 11.5px; color: var(--amber); padding: 4px 0; }
+
+.dt360-bottom-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 1100px) { .dt360-bottom-grid { grid-template-columns: 1fr; } }
+.dt360-bottom { padding: 14px 16px; }
+.dt360-bottom-h { font-size: 13px; font-weight: 650; margin-bottom: 8px; }
+.dt360-bottom-body { font-size: 12.5px; color: var(--text-secondary); display: flex; flex-direction: column; gap: 6px; }
+.dt360-bottom-note { margin-top: 8px; font-size: 11.5px; color: var(--text-tertiary); }
+.dt360-tl-row, .dt360-corr-row, .dt360-note-row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,.04); }
+.dt360-pred-head { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.dt360-pred-summary { font-size: 12.5px; color: var(--text); }
+.dt360-pred-limits { margin: 8px 0 0 18px; padding: 0; font-size: 12px; color: var(--text-tertiary); }
+.dt360-stat-row { font-size: 14px; color: var(--text); margin-bottom: 4px; }
+.dt360-footer { margin-top: 8px; }
+
 /* ── Device Dashboard ──────────────────────────────────────────────────────── */
 .dd-shell { display:flex; flex-direction:column; gap:20px; padding:24px; max-width:1400px; margin:0 auto; }
 .dd-topbar { display:flex; align-items:center; gap:12px; }

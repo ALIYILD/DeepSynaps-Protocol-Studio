@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -1304,3 +1304,49 @@ def deeptwin_report_payload(
         audit_ref=audit_ref,
         generated_at=datetime.now(timezone.utc).isoformat(),
     )
+
+
+# ---------------------------------------------------------------------------
+# DeepTwin 360 Dashboard — single endpoint that returns the doctor-facing
+# 22-domain rollup. The card payload includes upload_links so the dashboard
+# also acts as a quick-upload hub back to the existing surfaces.
+# ---------------------------------------------------------------------------
+
+from app.persistence.models import Patient as _DT360_Patient  # noqa: E402
+from app.services.deeptwin_dashboard import build_dashboard_payload  # noqa: E402
+from app.services.deeptwin_dashboard_audit import log_dashboard_opened  # noqa: E402
+
+
+@router.get("/patients/{patient_id}/dashboard", tags=["deeptwin-360"])
+def deeptwin_get_360_dashboard(
+    patient_id: str,
+    _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Return the unified DeepTwin 360 payload for one patient.
+
+    Enforces:
+    - clinician/clinical-reviewer role (no patient/guest access)
+    - cross-clinic ownership (404 for unknown patients,
+      ApiServiceError for cross-clinic access)
+    - audit log: deeptwin.dashboard.opened (separate session)
+    """
+    _require_clinician_review_actor(_actor)
+
+    patient = session.get(_DT360_Patient, patient_id)
+    if patient is None:
+        raise HTTPException(status_code=404, detail="patient_not_found")
+    _gate_patient_access(_actor, patient_id, db=session)
+
+    try:
+        log_dashboard_opened(
+            patient_id=patient_id,
+            actor_id=getattr(_actor, "user_id", "") or "",
+            role=getattr(_actor, "role", "") or "",
+        )
+    except Exception:
+        # Audit failures must not break the dashboard read.
+        pass
+
+    return build_dashboard_payload(session, patient)
+

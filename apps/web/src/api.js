@@ -781,6 +781,8 @@ export const api = {
     apiFetch('/api/v1/deeptwin/explain', { method: 'POST', body: JSON.stringify(data) }),
   deeptwinReportPayload: (data) =>
     apiFetch('/api/v1/deeptwin/report-payload', { method: 'POST', body: JSON.stringify(data) }),
+  deeptwinDashboard360: (patientId) =>
+    apiFetch(`/api/v1/deeptwin/patients/${encodeURIComponent(patientId)}/dashboard`),
   deeptwinEvidence: (data) =>
     apiFetch('/api/v1/deeptwin/evidence', { method: 'POST', body: JSON.stringify(data) }),
 
