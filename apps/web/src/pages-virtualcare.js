@@ -728,9 +728,12 @@ async function _vcSwitchTab(tabId) {
   u.activeTab = tabId;
   // Clear ward bio polling when leaving dashboard
   if (tabId !== 'dashboard' && _wardBioPollInt) { clearInterval(_wardBioPollInt); _wardBioPollInt = null; }
-  // Update tab buttons
+  // Update tab buttons (also keep ARIA selection state + roving tabindex in sync)
   document.querySelectorAll('.vc-utab').forEach(b => {
-    b.classList.toggle('vc-utab-active', b.dataset.tab === tabId);
+    const active = b.dataset.tab === tabId;
+    b.classList.toggle('vc-utab-active', active);
+    b.setAttribute('aria-selected', active ? 'true' : 'false');
+    b.setAttribute('tabindex', active ? '0' : '-1');
   });
   // Show / hide panels
   ['dashboard', 'messaging', 'livesession'].forEach(id => {
@@ -774,19 +777,41 @@ export async function pgVirtualCare(setTopbar, navigate) {
       .vc-tab-badge{font-size:10px;font-family:var(--font-mono,monospace);background:rgba(0,212,188,.15);color:#00d4bc;padding:2px 6px;border-radius:4px;margin-left:6px;animation:vc-badge-pulse 2s infinite}
       @keyframes vc-badge-pulse{0%,100%{opacity:1}50%{opacity:.6}}
     </style>
-    <div class="vc-unified-tabs">
-      <button class="vc-utab" data-tab="dashboard" onclick="window._vcSwitchTab('dashboard')">Dashboard</button>
-      <button class="vc-utab" data-tab="messaging" onclick="window._vcSwitchTab('messaging')">Communications</button>
-      <button class="vc-utab" data-tab="livesession" onclick="window._vcSwitchTab('livesession')">Live Session<span id="vc-tab-ls-badge" class="vc-tab-badge" style="display:none"></span></button>
+    <div class="vc-unified-tabs" role="tablist" aria-label="Virtual Care sections">
+      <button class="vc-utab" role="tab" id="vc-tab-dashboard" data-tab="dashboard" aria-controls="vc-panel-dashboard" aria-selected="false" tabindex="-1" onclick="window._vcSwitchTab('dashboard')">Dashboard</button>
+      <button class="vc-utab" role="tab" id="vc-tab-messaging" data-tab="messaging" aria-controls="vc-panel-messaging" aria-selected="false" tabindex="-1" onclick="window._vcSwitchTab('messaging')">Communications</button>
+      <button class="vc-utab" role="tab" id="vc-tab-livesession" data-tab="livesession" aria-controls="vc-panel-livesession" aria-selected="false" tabindex="-1" onclick="window._vcSwitchTab('livesession')">Live Session<span id="vc-tab-ls-badge" class="vc-tab-badge" style="display:none"></span></button>
     </div>
-    <div id="vc-panel-dashboard" class="vc-unified-panel"></div>
-    <div id="vc-panel-messaging" class="vc-unified-panel"></div>
-    <div id="vc-panel-livesession" class="vc-unified-panel"></div>`;
+    <div id="vc-panel-dashboard" class="vc-unified-panel" role="tabpanel" aria-labelledby="vc-tab-dashboard" tabindex="0"></div>
+    <div id="vc-panel-messaging" class="vc-unified-panel" role="tabpanel" aria-labelledby="vc-tab-messaging" tabindex="0"></div>
+    <div id="vc-panel-livesession" class="vc-unified-panel" role="tabpanel" aria-labelledby="vc-tab-livesession" tabindex="0"></div>`;
 
   // Decide default tab
   let defaultTab = 'dashboard';
   if (window._lsSessionSeed) defaultTab = 'livesession';
   else if (window._vcUnifiedDefaultTab) { defaultTab = window._vcUnifiedDefaultTab; delete window._vcUnifiedDefaultTab; }
+
+  // Roving-tabindex keyboard nav for the unified tablist (Left/Right/Home/End).
+  const _vcTabList = mount.querySelector('.vc-unified-tabs');
+  if (_vcTabList && !_vcTabList.dataset.kbWired) {
+    _vcTabList.dataset.kbWired = '1';
+    _vcTabList.addEventListener('keydown', (ev) => {
+      const tabs = Array.from(_vcTabList.querySelectorAll('[role="tab"]'));
+      if (!tabs.length) return;
+      const currentIdx = tabs.findIndex(t => t === document.activeElement);
+      let nextIdx = -1;
+      if (ev.key === 'ArrowRight') nextIdx = (currentIdx + 1 + tabs.length) % tabs.length;
+      else if (ev.key === 'ArrowLeft') nextIdx = (currentIdx - 1 + tabs.length) % tabs.length;
+      else if (ev.key === 'Home') nextIdx = 0;
+      else if (ev.key === 'End') nextIdx = tabs.length - 1;
+      if (nextIdx < 0) return;
+      ev.preventDefault();
+      const target = tabs[nextIdx];
+      target.focus();
+      const id = target.dataset.tab;
+      if (id) window._vcSwitchTab(id);
+    });
+  }
 
   await _vcSwitchTab(defaultTab);
 }
