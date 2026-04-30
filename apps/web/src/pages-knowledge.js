@@ -1928,57 +1928,110 @@ export function bindHandbooks() {
   };
 }
 
-// ── Audit Trail ───────────────────────────────────────────────────────────────
+// ── Audit Trail (launch-audit 2026-04-30) ─────────────────────────────────────
+//
+// Regulator-credible record of every clinical action. The qEEG Analyzer,
+// Brain Map Planner, Session Runner, and Adverse Events surfaces all write
+// through ``apps/api/app/repositories/audit.py::create_audit_event`` with a
+// ``surface=`` whitelist. This page surfaces the live trail with rich
+// filters, a drill-out to the source surface, regulator-grade exports
+// (CSV + NDJSON), and audits its own reads.
+//
+// Hard rules — no silent fakery:
+//   * Filter changes hit the API, not a client-side derivation.
+//   * Empty state is honest ("no events yet"), never demo rows pretending
+//     to be real. When the API call fails we keep going with demo rows
+//     CLEARLY tagged so reviewers can spot them.
+//   * Exports stream from /api/v1/audit-trail/export.csv|ndjson — never
+//     fabricated client-side.
+//   * Drill-out CTAs link to the originating surface using the route
+//     contract documented above.
+//   * Page load + filter changes + drill-outs + exports are themselves
+//     audited via ``api.logAudit({ surface: 'audit_trail', event: ... })``.
+//
 export async function pgAuditTrail(setTopbar) {
   // ── Topbar ────────────────────────────────────────────────────────────────
   setTopbar('Audit Trail', `
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <button id="audit-view-timeline" class="btn btn-primary btn-sm" onclick="window._setAuditView('timeline')">Timeline</button>
       <button id="audit-view-table" class="btn btn-ghost btn-sm" onclick="window._setAuditView('table')">Table</button>
-      <button class="btn btn-ghost btn-sm" onclick="window._exportAuditCSV()">Export CSV</button>
+      <button id="audit-export-csv" class="btn btn-ghost btn-sm" onclick="window._exportAuditCSV()">Export CSV</button>
+      <button id="audit-export-ndjson" class="btn btn-ghost btn-sm" onclick="window._exportAuditNDJSON()" title="Newline-delimited JSON, one event per line — preferred regulator format">Export NDJSON</button>
     </div>`);
 
   const el = document.getElementById('content');
   el.innerHTML = spinner();
 
-  // ── Data loading ──────────────────────────────────────────────────────────
-  const res = await api.auditTrail().catch(() => null);
-  let entries = res?.items || res || [];
-  if (!Array.isArray(entries)) entries = [];
+  // ── Filter state (persisted on window for re-entry) ──────────────────────
+  const auditF = (window._auditFilters = window._auditFilters || {});
 
-  const DEMO_ENTRIES = [
-    { created_at: new Date().toISOString(), actor: 'Dr. Chen', action: 'LOGIN', resource_type: 'session', resource_id: '' },
-    { created_at: new Date(Date.now()-3600000).toISOString(), actor: 'Dr. Patel', action: 'APPROVE', resource_type: 'course', resource_id: 'course-abc123' },
-    { created_at: new Date(Date.now()-7200000).toISOString(), actor: 'Tech Kim', action: 'CREATE', resource_type: 'session_log', resource_id: 'sess-xyz789' },
-    { created_at: new Date(Date.now()-86400000).toISOString(), actor: 'Dr. Chen', action: 'GENERATE', resource_type: 'protocol', resource_id: '' },
-    { created_at: new Date(Date.now()-172800000).toISOString(), actor: 'Admin', action: 'DELETE', resource_type: 'patient', resource_id: 'pat-old001' },
-  ];
-  const isDemo = entries.length === 0;
+  // ── Page-load audit ───────────────────────────────────────────────────────
+  try {
+    if (api && typeof api.logAudit === 'function') {
+      const p = api.logAudit({ surface: 'audit_trail', event: 'page_loaded', note: 'audit_trail_page' });
+      if (p && p.catch) p.catch(() => {});
+    }
+  } catch (_) {}
+
+  // ── Data loading (real API + summary in parallel) ─────────────────────────
+  let entries = [];
+  let total = 0;
+  let summary = null;
+  let apiError = null;
+  let apiDisclaimers = null;
+  try {
+    const [listRes, sumRes] = await Promise.all([
+      api.auditTrail(auditF).catch((e) => { apiError = e; return null; }),
+      api.auditTrailSummary().catch(() => null),
+    ]);
+    entries = (listRes?.items) || [];
+    total = listRes?.total ?? entries.length;
+    summary = sumRes;
+    apiDisclaimers = listRes?.disclaimers || null;
+  } catch (e) {
+    apiError = e;
+  }
+
+  // Honest empty/demo policy. We only fall back to local demo rows when
+  // the API call FAILED entirely; an empty list from a healthy API stays
+  // empty so reviewers see the truth.
+  const apiFailed = apiError && entries.length === 0;
+  const DEMO_ENTRIES = apiFailed ? [
+    { event_id: 'demo-1', created_at: new Date().toISOString(), actor_id: 'Dr. Chen', action: 'qeeg.viewed', surface: 'qeeg', event_type: 'viewed', target_type: 'qeeg', target_id: 'demo-analysis-1', note: 'DEMO row — backend unreachable', is_demo: true },
+    { event_id: 'demo-2', created_at: new Date(Date.now()-3600000).toISOString(), actor_id: 'Dr. Patel', action: 'adverse_events.create', surface: 'adverse_events', event_type: 'create', target_type: 'adverse_events', target_id: 'AE-demo-001', note: 'DEMO row — backend unreachable', is_demo: true },
+  ] : [];
+  const isDemo = apiFailed;
   const displayEntries = isDemo ? DEMO_ENTRIES : entries;
 
   window._auditData = displayEntries;
   window._auditFiltered = displayEntries;
   window._auditPage = 0;
   window._auditView = 'timeline';
+  window._auditSummary = summary;
 
   // ── Helpers ───────────────────────────────────────────────────────────────
-  function actionColor(action) {
-    const a = (action || '').toUpperCase();
-    if (a === 'CREATE') return 'var(--teal)';
-    if (a === 'UPDATE' || a === 'APPROVE') return 'var(--blue)';
-    if (a === 'DELETE' || a === 'REJECT' || a === 'DISCONTINUE') return 'var(--red)';
-    if (a === 'LOGIN' || a === 'LOGOUT') return 'var(--violet)';
-    if (a === 'EXPORT' || a === 'GENERATE') return 'var(--amber)';
+  // Surface palette mirrors the source-of-truth surfaces in the qEEG audit
+  // ingestion whitelist. Anything outside the whitelist falls back to neutral.
+  function surfaceColor(surface) {
+    const s = (surface || '').toLowerCase();
+    if (s === 'qeeg') return 'var(--teal)';
+    if (s === 'brain_map_planner') return 'var(--blue)';
+    if (s === 'session_runner') return 'var(--violet)';
+    if (s === 'adverse_events') return 'var(--red)';
+    if (s === 'audit_trail') return 'var(--amber)';
     return 'var(--text-tertiary)';
   }
 
-  function isHighRisk(action) {
-    return ['DELETE','REJECT','DISCONTINUE','EXPORT'].includes((action||'').toUpperCase());
+  function isHighRisk(action, surface) {
+    const a = (action || '').toLowerCase();
+    if (surface === 'adverse_events') return true;
+    return /(delete|reject|discontinue|export|escalate|sign|destroy)/.test(a);
   }
 
   function fmtDate(iso) {
     if (!iso) return { date: '—', time: '' };
     const d = new Date(iso);
+    if (isNaN(d.getTime())) return { date: iso, time: '' };
     return {
       date: d.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }),
       time: d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', second:'2-digit' })
@@ -1987,25 +2040,47 @@ export async function pgAuditTrail(setTopbar) {
 
   function uniqueActors(arr) {
     const s = new Set();
-    arr.forEach(e => { const a = e.actor || e.user_id; if (a) s.add(a); });
+    arr.forEach(e => { const a = e.actor_id || e.actor || e.user_id; if (a) s.add(a); });
     return [...s];
   }
 
   function todayStr() { return new Date().toISOString().split('T')[0]; }
 
   // ── Stats computation ─────────────────────────────────────────────────────
-  function computeStats(arr) {
+  // Prefers backend ``/summary`` when present (counts are real, not derived
+  // from the visible page). Falls back to deriving from current rows.
+  function computeStats(arr, sum) {
     const today = todayStr();
     const todayEntries = arr.filter(e => (e.created_at || '').startsWith(today));
-    const highRisk = arr.filter(e => isHighRisk(e.action)).length;
+    const highRisk = arr.filter(e => isHighRisk(e.action || e.event_type, e.surface)).length;
     const lastEntry = arr.length ? arr[0] : null;
     const lastTime = lastEntry ? fmtDate(lastEntry.created_at) : null;
     return {
+      totalEvents: sum?.total ?? arr.length,
       totalToday: todayEntries.length,
-      uniqueActorsToday: new Set(todayEntries.map(e => e.actor || e.user_id).filter(Boolean)).size,
+      uniqueActorsToday: new Set(todayEntries.map(e => e.actor_id || e.actor || e.user_id).filter(Boolean)).size,
       highRisk,
+      saeRelated: sum?.sae_related ?? 0,
+      regulatoryFlagged: sum?.regulatory_flagged ?? 0,
       lastEvent: lastTime ? `${lastTime.date} ${lastTime.time}` : '—',
     };
+  }
+
+  // ── Drill-out routing ─────────────────────────────────────────────────────
+  // Translates a surface + target_id pair into the deep-link the source page
+  // uses. Returns null when the surface is unknown so the UI can render an
+  // honest "no source page" fallback rather than a broken link.
+  function drillOutHref(ev) {
+    if (!ev) return null;
+    const surface = (ev.surface || ev.target_type || '').toLowerCase();
+    const id = ev.target_id || '';
+    if (!id) return null;
+    if (surface === 'adverse_events') return `?page=adverse-events&id=${encodeURIComponent(id)}`;
+    if (surface === 'session_runner') return `?page=session-execution&id=${encodeURIComponent(id)}`;
+    if (surface === 'qeeg') return `?page=qeeg-analysis&id=${encodeURIComponent(id)}`;
+    if (surface === 'brain_map_planner') return `?page=brain-map-planner&plan_id=${encodeURIComponent(id)}`;
+    if (surface === 'assessments' || surface === 'assessment') return `?page=assessments&id=${encodeURIComponent(id)}`;
+    return null;
   }
 
   // ── Build unique actors list for filter dropdown ───────────────────────────
@@ -2082,7 +2157,7 @@ export async function pgAuditTrail(setTopbar) {
                   ${item.label}
                 </div>`).join('')}
               </div>
-              <button class="btn btn-ghost btn-sm" style="width:100%;font-size:11px;opacity:0.5;cursor:not-allowed" disabled>Download Report</button>
+              <div style="font-size:10.5px;color:var(--text-tertiary);font-style:italic;margin-top:4px">Framework summary — formal compliance reports are out of scope for this view. Use the regulator-grade Export NDJSON button above for the immutable event trail.</div>
             </div>
           </div>`).join('')}
         </div>
@@ -2092,41 +2167,57 @@ export async function pgAuditTrail(setTopbar) {
 
   // ── Filters HTML ──────────────────────────────────────────────────────────
   function filtersHTML() {
+    const f = window._auditFilters || {};
+    const optSel = (val, current) => val === current ? ' selected' : '';
     return `
     <div class="card" style="margin-bottom:16px">
       <div class="card-body" style="padding:12px 16px">
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-          <input id="audit-search" type="text" placeholder="Search actor / action / resource…"
+          <input id="audit-search" type="text" placeholder="Search actor / target / note…"
+            value="${_kEsc(f.q || '')}"
+            aria-label="Search audit events"
             style="flex:1;min-width:180px;background:var(--bg-surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none"
-            oninput="window._filterAudit()" />
-          <select id="audit-action"
+            oninput="window._auditFilterDebounced()" />
+          <select id="audit-surface" aria-label="Filter by surface"
             style="background:var(--bg-surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;font-size:12px;color:var(--text-primary);cursor:pointer"
-            onchange="window._filterAudit()">
-            <option value="">All Actions</option>
-            <option value="CREATE">CREATE</option>
-            <option value="READ">READ</option>
-            <option value="UPDATE">UPDATE</option>
-            <option value="DELETE">DELETE</option>
-            <option value="LOGIN">LOGIN</option>
-            <option value="LOGOUT">LOGOUT</option>
-            <option value="APPROVE">APPROVE</option>
-            <option value="REJECT">REJECT</option>
-            <option value="EXPORT">EXPORT</option>
-            <option value="GENERATE">GENERATE</option>
+            onchange="window._setAuditFilter('surface', this.value)">
+            <option value=""${optSel('', f.surface || '')}>All Surfaces</option>
+            <option value="qeeg"${optSel('qeeg', f.surface || '')}>qEEG Analyzer</option>
+            <option value="brain_map_planner"${optSel('brain_map_planner', f.surface || '')}>Brain Map Planner</option>
+            <option value="session_runner"${optSel('session_runner', f.surface || '')}>Session Runner</option>
+            <option value="adverse_events"${optSel('adverse_events', f.surface || '')}>Adverse Events</option>
+            <option value="audit_trail"${optSel('audit_trail', f.surface || '')}>Audit Trail</option>
+            <option value="protocol"${optSel('protocol', f.surface || '')}>Protocol Review</option>
+            <option value="evidence"${optSel('evidence', f.surface || '')}>Evidence Review</option>
+            <option value="upload"${optSel('upload', f.surface || '')}>Upload Review</option>
           </select>
-          <select id="audit-user"
+          <input id="audit-event-type" type="text" placeholder="event_type (e.g. create, escalate)"
+            value="${_kEsc(f.event_type || '')}"
+            aria-label="Filter by event type"
+            style="background:var(--bg-surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;font-size:12px;color:var(--text-primary)"
+            onchange="window._setAuditFilter('event_type', this.value)" />
+          <select id="audit-user" aria-label="Filter by actor"
             style="background:var(--bg-surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;font-size:12px;color:var(--text-primary);cursor:pointer"
-            onchange="window._filterAudit()">
-            <option value="">All Users</option>
-            ${allActors.map(a => `<option value="${a}">${a}</option>`).join('')}
+            onchange="window._setAuditFilter('actor_id', this.value)">
+            <option value=""${optSel('', f.actor_id || '')}>All Actors</option>
+            ${allActors.map(a => `<option value="${_kEsc(a)}"${optSel(a, f.actor_id || '')}>${_kEsc(a)}</option>`).join('')}
           </select>
-          <input id="audit-from" type="date"
+          <input id="audit-from" type="date" aria-label="Since date"
+            value="${_kEsc(f.since || '')}"
             style="background:var(--bg-surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;font-size:12px;color:var(--text-primary);cursor:pointer"
-            onchange="window._filterAudit()" />
-          <input id="audit-to" type="date"
+            onchange="window._setAuditFilter('since', this.value)" />
+          <input id="audit-to" type="date" aria-label="Until date"
+            value="${_kEsc(f.until || '')}"
             style="background:var(--bg-surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;font-size:12px;color:var(--text-primary);cursor:pointer"
-            onchange="window._filterAudit()" />
+            onchange="window._setAuditFilter('until', this.value)" />
           <button class="btn btn-ghost btn-sm" onclick="window._clearAuditFilters()">Clear</button>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px">
+          <span style="font-size:11px;color:var(--text-tertiary);margin-right:4px">Quick range:</span>
+          <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:3px 8px" onclick="window._auditPreset('today')">Today</button>
+          <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:3px 8px" onclick="window._auditPreset('7d')">Last 7d</button>
+          <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:3px 8px" onclick="window._auditPreset('30d')">Last 30d</button>
+          <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:3px 8px" onclick="window._auditPreset('90d')">Last 90d</button>
         </div>
       </div>
     </div>`;
@@ -2134,44 +2225,66 @@ export async function pgAuditTrail(setTopbar) {
 
   // ── Stats strip ───────────────────────────────────────────────────────────
   function statsHTML(arr) {
-    const s = computeStats(arr);
+    const s = computeStats(arr, window._auditSummary);
+    const sum = window._auditSummary;
+    const surfaceTiles = sum?.by_surface ? Object.entries(sum.by_surface).slice(0, 6) : [];
     return `
-    <div class="g3" style="margin-bottom:16px;grid-template-columns:repeat(4,minmax(0,1fr))">
+    <div class="g3" style="margin-bottom:12px;grid-template-columns:repeat(4,minmax(0,1fr))">
       <div class="metric-card">
-        <div class="metric-label">Events Today</div>
-        <div class="metric-value">${s.totalToday}</div>
+        <div class="metric-label">Total Events</div>
+        <div class="metric-value">${s.totalEvents}</div>
+        <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">in your scope</div>
       </div>
       <div class="metric-card">
-        <div class="metric-label">Unique Actors Today</div>
-        <div class="metric-value">${s.uniqueActorsToday}</div>
+        <div class="metric-label">SAE-related</div>
+        <div class="metric-value" style="color:${s.saeRelated > 0 ? 'var(--red)' : 'var(--text-primary)'}">${s.saeRelated}</div>
+        <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">adverse_events surface</div>
       </div>
       <div class="metric-card">
-        <div class="metric-label">High-Risk Actions</div>
-        <div class="metric-value" style="color:${s.highRisk > 0 ? 'var(--red)' : 'var(--text-primary)'}">${s.highRisk}</div>
+        <div class="metric-label">Regulatory-flagged</div>
+        <div class="metric-value" style="color:${s.regulatoryFlagged > 0 ? 'var(--amber)' : 'var(--text-primary)'}">${s.regulatoryFlagged}</div>
+        <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">escalate / sign / IRB</div>
       </div>
       <div class="metric-card">
         <div class="metric-label">Last Event</div>
         <div style="font-family:var(--font-display);font-size:13px;font-weight:700;color:var(--text-primary);line-height:1.3;margin-top:4px">${s.lastEvent}</div>
       </div>
-    </div>`;
+    </div>
+    ${surfaceTiles.length ? `
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
+      ${surfaceTiles.map(([surface, count]) => `
+        <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:3px 9px"
+          onclick="window._setAuditFilter('surface', '${_kEsc(surface)}')">
+          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${surfaceColor(surface)};margin-right:5px"></span>
+          ${_kEsc(surface)} <span style="color:var(--text-tertiary);margin-left:5px">${count}</span>
+        </button>
+      `).join('')}
+    </div>` : ''}`;
   }
 
   // ── Timeline entry renderer ───────────────────────────────────────────────
   function renderTimelineEntry(e, i) {
     const { date, time } = fmtDate(e.created_at);
-    const actor = e.actor || e.user_id || '—';
+    const actor = e.actor_id || e.actor || e.user_id || '—';
     const action = e.action || '—';
-    const resType = e.resource_type || '';
-    const resId = e.resource_id || e.target_id || '';
-    const color = actionColor(action);
-    const highRisk = isHighRisk(action);
-    const payload = e.payload || e.changes || null;
+    const surface = (e.surface || e.target_type || '').toLowerCase();
+    const eventType = e.event_type || (action.includes('.') ? action.split('.').slice(1).join('.') : action);
+    const targetType = e.target_type || surface;
+    const targetId = e.target_id || '';
+    const color = surfaceColor(surface);
+    const highRisk = isHighRisk(eventType, surface);
+    const isDemoRow = !!e.is_demo;
+    const drillHref = drillOutHref(e);
+    const payloadHash = e.payload_hash || '';
+    const note = e.note || '';
+    const eventId = e.event_id || `idx-${i}`;
+    const safeNote = _kEsc(note);
     return `
-    <div style="display:flex;gap:16px;padding:10px 0;border-bottom:1px solid var(--border)">
+    <div style="display:flex;gap:16px;padding:10px 0;border-bottom:1px solid var(--border)" data-event-id="${_kEsc(eventId)}">
       <div style="width:140px;flex-shrink:0;text-align:right">
         <div style="font-size:11px;color:var(--text-secondary)">${date}</div>
         <div style="font-size:10.5px;color:var(--text-tertiary)">${time}</div>
-        <div style="font-size:10.5px;color:var(--teal);margin-top:2px">${actor}</div>
+        <div style="font-size:10.5px;color:var(--teal);margin-top:2px">${_kEsc(actor)}</div>
       </div>
       <div style="display:flex;flex-direction:column;align-items:center;width:20px;flex-shrink:0">
         <div style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0;margin-top:4px"></div>
@@ -2179,14 +2292,18 @@ export async function pgAuditTrail(setTopbar) {
       </div>
       <div style="flex:1;padding-bottom:8px">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <span style="font-size:12.5px;font-weight:600;color:var(--text-primary)">${action}</span>
-          ${resType ? `<span class="tag">${resType}</span>` : ''}
+          <span style="font-size:12.5px;font-weight:600;color:var(--text-primary)">${_kEsc(eventType)}</span>
+          ${surface ? `<span class="tag" style="background:${color}20;color:${color};border-color:${color}40">${_kEsc(surface)}</span>` : ''}
           ${highRisk ? `<span style="font-size:9px;font-weight:700;padding:2px 5px;border-radius:3px;background:rgba(255,107,107,0.15);color:var(--red)">HIGH RISK</span>` : ''}
+          ${isDemoRow ? `<span style="font-size:9px;font-weight:700;padding:2px 5px;border-radius:3px;background:rgba(255,181,71,0.18);color:var(--amber)">DEMO</span>` : ''}
         </div>
-        ${resId ? `<div style="font-size:11.5px;color:var(--text-secondary);margin-top:3px">${resId}</div>` : ''}
-        ${payload ? `
-        <button onclick="(function(){var p=document.getElementById('audit-payload-${i}');var b=document.getElementById('audit-toggle-${i}');if(p.style.display==='none'){p.style.display='block';b.textContent='Hide details ×';}else{p.style.display='none';b.textContent='Show details ›'}})()" id="audit-toggle-${i}" style="font-size:10px;color:var(--text-tertiary);background:none;border:none;cursor:pointer;margin-top:4px">Show details ›</button>
-        <pre id="audit-payload-${i}" style="display:none;font-size:10.5px;color:var(--text-secondary);background:rgba(0,0,0,0.2);padding:8px;border-radius:4px;margin-top:6px;overflow-x:auto;white-space:pre-wrap">${JSON.stringify(payload, null, 2)}</pre>` : ''}
+        ${targetId ? `<div style="font-size:11.5px;color:var(--text-secondary);margin-top:3px"><span style="color:var(--text-tertiary)">${_kEsc(targetType)}:</span> ${_kEsc(targetId)}</div>` : ''}
+        ${note ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:3px">${safeNote}</div>` : ''}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px">
+          <button id="audit-toggle-${i}" onclick="window._auditToggleDetails(${i})" style="font-size:10px;color:var(--text-tertiary);background:none;border:none;cursor:pointer">Show details ›</button>
+          ${drillHref ? `<a href="${drillHref}" onclick="window._auditDrillOut(event, '${_kEsc(eventId)}', '${_kEsc(surface)}', '${_kEsc(targetId)}')" style="font-size:10px;color:var(--teal);text-decoration:none">Open source ${_kEsc(surface)} →</a>` : `<span style="font-size:10px;color:var(--text-tertiary);font-style:italic" title="No drill-out target available">No source link</span>`}
+        </div>
+        <pre id="audit-payload-${i}" style="display:none;font-size:10.5px;color:var(--text-secondary);background:rgba(0,0,0,0.2);padding:8px;border-radius:4px;margin-top:6px;overflow-x:auto;white-space:pre-wrap">${_kEsc(JSON.stringify({ event_id: eventId, action, role: e.role, actor_id: actor, target_type: targetType, target_id: targetId, note, surface, event_type: eventType, payload_hash: payloadHash, created_at: e.created_at }, null, 2))}</pre>
       </div>
     </div>`;
   }
@@ -2195,25 +2312,36 @@ export async function pgAuditTrail(setTopbar) {
   window._renderAuditTimeline = function(slice) {
     const container = document.getElementById('audit-timeline');
     if (!container) return;
-    const isFirstPage = window._auditPage === 0;
-    const html = slice.map((e, i) => renderTimelineEntry(e, (window._auditPage * 50) + i)).join('');
-    if (isFirstPage) {
-      container.innerHTML = html || `<div style="padding:32px 0;text-align:center;color:var(--text-tertiary);font-size:13px">No events match the current filters.</div>`;
-    } else {
-      container.insertAdjacentHTML('beforeend', html);
-    }
+    const html = (slice || []).map((e, i) => renderTimelineEntry(e, i)).join('');
+    container.innerHTML = html || `<div style="padding:32px 0;text-align:center;color:var(--text-tertiary);font-size:13px">No events match the current filters. Actions across the app will appear here.</div>`;
+    // Hide the legacy "Load more" button — the API ``limit/offset`` query
+    // params can be wired in if a clinic ever sees >500 events per filter.
     const loadMoreBtn = document.getElementById('audit-load-more');
-    const filtered = window._auditFiltered || [];
-    const shown = (window._auditPage + 1) * 50;
-    if (loadMoreBtn) {
-      loadMoreBtn.style.display = shown < filtered.length ? 'block' : 'none';
-    }
+    if (loadMoreBtn) loadMoreBtn.style.display = 'none';
   };
 
   // ── Table render function ─────────────────────────────────────────────────
   window._renderAuditTable = function(arr) {
     const container = document.getElementById('audit-table-container');
     if (!container) return;
+    const safeRow = (e) => {
+      const { date, time } = fmtDate(e.created_at);
+      const surface = (e.surface || e.target_type || '').toLowerCase();
+      const eventType = e.event_type || (e.action || '').split('.').slice(1).join('.') || (e.action || '');
+      const hr = isHighRisk(eventType, surface);
+      const drillHref = drillOutHref(e);
+      const eventId = e.event_id || '';
+      return `<tr>
+        <td class="mono" style="white-space:nowrap;font-size:11px;color:var(--text-tertiary)">${date} ${time}</td>
+        <td style="font-size:11.5px;color:var(--teal)">${_kEsc(e.actor_id || e.actor || e.user_id || '—')}</td>
+        <td><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${surfaceColor(surface)};margin-right:5px"></span>${_kEsc(surface || '—')}</td>
+        <td style="color:var(--text-primary)">${_kEsc(eventType || '—')}</td>
+        <td style="color:var(--text-secondary)">${_kEsc(e.target_type || '—')}</td>
+        <td class="mono" style="font-size:11px;color:var(--text-tertiary)">${_kEsc(e.target_id || '—')}</td>
+        <td>${e.is_demo ? `<span style="font-size:9px;font-weight:700;padding:2px 5px;border-radius:3px;background:rgba(255,181,71,0.18);color:var(--amber)">DEMO</span>` : (hr ? `<span style="font-size:9px;font-weight:700;padding:2px 5px;border-radius:3px;background:rgba(255,107,107,0.15);color:var(--red)">HIGH</span>` : `<span style="font-size:10px;color:var(--text-tertiary)">Normal</span>`)}</td>
+        <td>${drillHref ? `<a href="${drillHref}" onclick="window._auditDrillOut(event, '${_kEsc(eventId)}', '${_kEsc(surface)}', '${_kEsc(e.target_id || '')}')" style="font-size:10.5px;color:var(--teal);text-decoration:none">Open →</a>` : `<span style="font-size:10.5px;color:var(--text-tertiary)">—</span>`}</td>
+      </tr>`;
+    };
     container.innerHTML = `
     <div style="overflow-x:auto">
       <table class="ds-table">
@@ -2221,29 +2349,17 @@ export async function pgAuditTrail(setTopbar) {
           <tr>
             <th>Timestamp</th>
             <th>Actor</th>
-            <th>Action</th>
-            <th>Resource Type</th>
-            <th>Resource ID</th>
-            <th>IP Address</th>
-            <th>Risk Level</th>
+            <th>Surface</th>
+            <th>Event</th>
+            <th>Target Type</th>
+            <th>Target ID</th>
+            <th>Risk</th>
+            <th>Drill-out</th>
           </tr>
         </thead>
         <tbody>
-          ${arr.map(e => {
-            const { date, time } = fmtDate(e.created_at);
-            const action = e.action || '—';
-            const hr = isHighRisk(action);
-            return `<tr>
-              <td class="mono" style="white-space:nowrap;font-size:11px;color:var(--text-tertiary)">${date} ${time}</td>
-              <td style="font-size:11.5px;color:var(--teal)">${e.actor || e.user_id || '—'}</td>
-              <td><span class="tag" style="color:${actionColor(action)}">${action}</span></td>
-              <td style="color:var(--text-secondary)">${e.resource_type || e.target_type || '—'}</td>
-              <td class="mono" style="font-size:11px;color:var(--text-tertiary)">${e.resource_id || e.target_id || '—'}</td>
-              <td class="mono" style="font-size:11px;color:var(--text-tertiary)">${e.ip_address || '—'}</td>
-              <td>${hr ? `<span style="font-size:9px;font-weight:700;padding:2px 5px;border-radius:3px;background:rgba(255,107,107,0.15);color:var(--red)">HIGH RISK</span>` : `<span style="font-size:10px;color:var(--text-tertiary)">Normal</span>`}</td>
-            </tr>`;
-          }).join('')}
-          ${arr.length === 0 ? `<tr><td colspan="7" style="text-align:center;color:var(--text-tertiary);padding:32px">No events match the current filters.</td></tr>` : ''}
+          ${(arr || []).map(safeRow).join('')}
+          ${(!arr || arr.length === 0) ? `<tr><td colspan="8" style="text-align:center;color:var(--text-tertiary);padding:32px">No events match the current filters. Actions across the app will appear here.</td></tr>` : ''}
         </tbody>
       </table>
     </div>`;
@@ -2263,65 +2379,175 @@ export async function pgAuditTrail(setTopbar) {
     if (view === 'table') {
       window._renderAuditTable(window._auditFiltered || window._auditData || []);
     }
+    try { api.logAudit?.({ surface: 'audit_trail', event: 'view_toggled', note: 'view='+view }).catch(() => {}); } catch (_) {}
   };
 
-  // ── Filter logic ──────────────────────────────────────────────────────────
-  window._filterAudit = function() {
-    const q = document.getElementById('audit-search')?.value.toLowerCase() || '';
-    const action = document.getElementById('audit-action')?.value || '';
-    const user = document.getElementById('audit-user')?.value || '';
-    const dateFrom = document.getElementById('audit-from')?.value;
-    const dateTo = document.getElementById('audit-to')?.value;
-
-    let filtered = window._auditData || [];
-    if (q) filtered = filtered.filter(e =>
-      (e.actor || e.user_id || '').toLowerCase().includes(q) ||
-      (e.action || '').toLowerCase().includes(q) ||
-      (e.resource_type || '').toLowerCase().includes(q) ||
-      (e.resource_id || '').toLowerCase().includes(q)
-    );
-    if (action) filtered = filtered.filter(e => (e.action || '').toUpperCase().startsWith(action));
-    if (user) filtered = filtered.filter(e => (e.actor || e.user_id) === user);
-    if (dateFrom) filtered = filtered.filter(e => e.created_at >= dateFrom);
-    if (dateTo) filtered = filtered.filter(e => e.created_at <= dateTo + 'T23:59:59');
-
-    window._auditFiltered = filtered;
-    window._auditPage = 0;
-    if (window._auditView === 'table') {
-      window._renderAuditTable(filtered);
+  // ── Toggle JSON details inline ───────────────────────────────────────────
+  window._auditToggleDetails = function(i) {
+    const p = document.getElementById('audit-payload-' + i);
+    const b = document.getElementById('audit-toggle-' + i);
+    if (!p || !b) return;
+    if (p.style.display === 'none' || !p.style.display) {
+      p.style.display = 'block';
+      b.textContent = 'Hide details ×';
+      try { api.logAudit?.({ surface: 'audit_trail', event: 'event_viewed', note: 'idx='+i }).catch(() => {}); } catch (_) {}
     } else {
-      window._renderAuditTimeline(filtered.slice(0, 50));
+      p.style.display = 'none';
+      b.textContent = 'Show details ›';
+    }
+  };
+
+  // ── Drill-out handler ─────────────────────────────────────────────────────
+  window._auditDrillOut = function(ev, eventId, surface, targetId) {
+    try { api.logAudit?.({ surface: 'audit_trail', event: 'drill_out', note: `event_id=${eventId} surface=${surface} target=${targetId}` }).catch(() => {}); } catch (_) {}
+    // Honest fallback when target_id is missing — block navigation.
+    if (!targetId) {
+      try { ev.preventDefault(); } catch (_) {}
+      const t = document.getElementById('audit-toast');
+      if (t) {
+        t.textContent = 'No target_id on this event — cannot open source ' + (surface || 'page');
+        t.style.display = 'block';
+        setTimeout(() => { t.style.display = 'none'; }, 4000);
+      }
+      return false;
+    }
+    // Otherwise let the SPA navigate via the href.
+    return true;
+  };
+
+  // ── Filter persistence + API re-fetch ─────────────────────────────────────
+  let _auditDebounceTimer = null;
+  window._auditFilterDebounced = function() {
+    clearTimeout(_auditDebounceTimer);
+    _auditDebounceTimer = setTimeout(() => {
+      const q = document.getElementById('audit-search')?.value || '';
+      window._setAuditFilter('q', q);
+    }, 250);
+  };
+
+  window._setAuditFilter = function(key, value) {
+    const f = window._auditFilters = window._auditFilters || {};
+    if (value == null || value === '') delete f[key];
+    else f[key] = value;
+    try { api.logAudit?.({ surface: 'audit_trail', event: 'filter_changed', note: key + '=' + String(value) }).catch(() => {}); } catch (_) {}
+    window._refetchAudit();
+  };
+
+  window._auditPreset = function(preset) {
+    const f = window._auditFilters = window._auditFilters || {};
+    const today = new Date();
+    const ymd = (d) => d.toISOString().slice(0, 10);
+    if (preset === 'today') {
+      f.since = ymd(today);
+      delete f.until;
+    } else if (preset === '7d') {
+      const d = new Date(today.getTime() - 6 * 86400000);
+      f.since = ymd(d);
+      delete f.until;
+    } else if (preset === '30d') {
+      const d = new Date(today.getTime() - 29 * 86400000);
+      f.since = ymd(d);
+      delete f.until;
+    } else if (preset === '90d') {
+      const d = new Date(today.getTime() - 89 * 86400000);
+      f.since = ymd(d);
+      delete f.until;
+    }
+    try { api.logAudit?.({ surface: 'audit_trail', event: 'preset_applied', note: preset }).catch(() => {}); } catch (_) {}
+    window._refetchAudit();
+  };
+
+  window._refetchAudit = async function() {
+    const container = document.getElementById('audit-timeline');
+    if (container) container.innerHTML = '<div style="padding:24px 0;text-align:center;color:var(--text-tertiary);font-size:12px">Loading…</div>';
+    try {
+      const f = window._auditFilters || {};
+      const [listRes, sumRes] = await Promise.all([
+        api.auditTrail(f),
+        api.auditTrailSummary().catch(() => null),
+      ]);
+      const items = listRes?.items || [];
+      window._auditData = items;
+      window._auditFiltered = items;
+      window._auditSummary = sumRes;
+      // Re-render filters bar (so user dropdown reflects new actor universe)
+      const stripEl = document.getElementById('audit-stats-strip');
+      if (stripEl) stripEl.innerHTML = statsHTML(items);
+      if (window._auditView === 'table') {
+        window._renderAuditTable(items);
+      } else {
+        window._renderAuditTimeline(items);
+      }
+      const headerCount = document.getElementById('audit-event-count');
+      if (headerCount) headerCount.textContent = `${listRes?.total ?? items.length} total events`;
+    } catch (e) {
+      if (container) container.innerHTML = `<div role="alert" style="padding:24px 0;text-align:center;color:var(--red);font-size:12px">Audit trail fetch failed: ${_kEsc(e?.message || 'unknown')}</div>`;
     }
   };
 
   // ── Clear filters ─────────────────────────────────────────────────────────
   window._clearAuditFilters = function() {
-    const ids = ['audit-search','audit-action','audit-user','audit-from','audit-to'];
+    window._auditFilters = {};
+    const ids = ['audit-search','audit-event-type','audit-user','audit-from','audit-to','audit-surface'];
     ids.forEach(id => { const el2 = document.getElementById(id); if (el2) el2.value = ''; });
-    window._filterAudit();
+    try { api.logAudit?.({ surface: 'audit_trail', event: 'filters_cleared', note: 'all' }).catch(() => {}); } catch (_) {}
+    window._refetchAudit();
   };
 
-  // ── CSV Export ────────────────────────────────────────────────────────────
-  window._exportAuditCSV = function() {
-    const data = window._auditFiltered || window._auditData || [];
-    const rows = [['Timestamp','Actor','Action','Resource Type','Resource ID','IP']];
-    data.forEach(e => rows.push([
-      e.created_at || '', e.actor || e.user_id || '', e.action || '',
-      e.resource_type || '', e.resource_id || '', e.ip_address || ''
-    ]));
-    const csv = rows.map(r => r.map(v => '"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
-    const blob = new Blob([csv], {type:'text/csv'});
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'audit-trail.csv';
-    a.click();
+  // ── CSV Export (real server-rendered file) ───────────────────────────────
+  window._exportAuditCSV = async function() {
+    const btn = document.getElementById('audit-export-csv');
+    if (btn) { btn.disabled = true; btn.dataset.label = btn.textContent; btn.textContent = 'Exporting…'; }
+    try {
+      const { blob, filename } = await api.auditTrailExportCsv(window._auditFilters || {});
+      downloadBlob(blob, filename || 'audit-trail.csv');
+      try { api.logAudit?.({ surface: 'audit_trail', event: 'export_csv', note: JSON.stringify(window._auditFilters || {}).slice(0,200) }).catch(() => {}); } catch (_) {}
+    } catch (e) {
+      const t = document.getElementById('audit-toast');
+      if (t) { t.textContent = 'CSV export failed: ' + (e?.message || 'unknown'); t.style.display='block'; setTimeout(()=>{t.style.display='none';},5000); }
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = btn.dataset.label || 'Export CSV'; }
+    }
+  };
+
+  // ── NDJSON Export (regulator format) ─────────────────────────────────────
+  window._exportAuditNDJSON = async function() {
+    const btn = document.getElementById('audit-export-ndjson');
+    if (btn) { btn.disabled = true; btn.dataset.label = btn.textContent; btn.textContent = 'Exporting…'; }
+    try {
+      const { blob, filename } = await api.auditTrailExportNdjson(window._auditFilters || {});
+      downloadBlob(blob, filename || 'audit-trail.ndjson');
+      try { api.logAudit?.({ surface: 'audit_trail', event: 'export_ndjson', note: JSON.stringify(window._auditFilters || {}).slice(0,200) }).catch(() => {}); } catch (_) {}
+    } catch (e) {
+      const t = document.getElementById('audit-toast');
+      if (t) { t.textContent = 'NDJSON export failed: ' + (e?.message || 'unknown'); t.style.display='block'; setTimeout(()=>{t.style.display='none';},5000); }
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = btn.dataset.label || 'Export NDJSON'; }
+    }
   };
 
   // ── Render page ───────────────────────────────────────────────────────────
+  // Disclaimers come from the API (when present) for honest, source-of-truth
+  // wording, falling back to the regulator-required strings shipped with the
+  // launch audit. The demo / empty / error notices are honest about the
+  // current data state — never hide a real failure.
+  const disclaimers = (Array.isArray(apiDisclaimers) && apiDisclaimers.length ? apiDisclaimers : [
+    'Audit trail records clinical actions for regulatory review.',
+    'Events are immutable; redactions require admin sign-off and create their own audit event.',
+    'Demo events are not regulator-submittable.',
+  ]);
   el.innerHTML = `
-  <div style="max-width:900px;margin:0 auto;padding-bottom:40px">
-    ${isDemo ? `<div class="notice notice-info" style="margin-bottom:16px">No audit events recorded yet. Events are logged automatically as you use the platform.</div>
-    <div class="notice notice-warn" style="margin-bottom:16px">Demo data — connect backend for live events</div>` : ''}
+  <div style="max-width:1100px;margin:0 auto;padding-bottom:40px">
+    ${apiError ? `<div role="alert" class="notice notice-warn" style="margin-bottom:16px">Audit-trail API unavailable (${_kEsc(apiError?.message || 'unknown error')}). Showing demo rows tagged DEMO; regulator review must use the live API.</div>` : ''}
+    ${(!apiError && entries.length === 0) ? `<div class="notice notice-info" style="margin-bottom:16px">No audit events yet. Actions across the app will appear here.</div>` : ''}
+
+    <div role="region" aria-label="Audit-trail clinical safety disclaimers" style="margin-bottom:14px;padding:10px 14px;background:rgba(74,222,128,0.06);border-left:3px solid var(--green);border-radius:4px">
+      <ul style="margin:0;padding-left:18px;font-size:11.5px;color:var(--text-secondary);line-height:1.55">
+        ${disclaimers.map(d => `<li>${_kEsc(d)}</li>`).join('')}
+      </ul>
+    </div>
+
+    <div id="audit-toast" role="status" aria-live="polite" style="display:none;margin-bottom:12px;padding:8px 14px;background:rgba(255,107,107,0.10);border:1px solid rgba(255,107,107,0.4);border-radius:4px;font-size:12px;color:var(--red)"></div>
 
     ${complianceSummaryHTML()}
 
@@ -2334,17 +2560,12 @@ export async function pgAuditTrail(setTopbar) {
       <div class="card">
         <div class="card-header">
           <h3>Event Timeline</h3>
-          <span style="font-size:11px;color:var(--text-tertiary)">${displayEntries.length} total events</span>
+          <span id="audit-event-count" style="font-size:11px;color:var(--text-tertiary)">${total} total events</span>
         </div>
         <div class="card-body" style="padding:0 18px">
-          <div id="audit-timeline"></div>
+          <div id="audit-timeline" role="list" aria-label="Audit events timeline"></div>
           <div style="text-align:center;padding:16px 0">
-            <button id="audit-load-more" class="btn btn-ghost btn-sm" style="display:none" onclick="
-              window._auditPage++;
-              const start = window._auditPage * 50;
-              const next = (window._auditFiltered || []).slice(start, start + 50);
-              window._renderAuditTimeline(next);
-            ">Load more events</button>
+            <button id="audit-load-more" class="btn btn-ghost btn-sm" style="display:none">Load more events</button>
           </div>
         </div>
       </div>
@@ -2358,7 +2579,7 @@ export async function pgAuditTrail(setTopbar) {
 
   // Initial render
   window._auditPage = 0;
-  window._renderAuditTimeline(displayEntries.slice(0, 50));
+  window._renderAuditTimeline(displayEntries);
 }
 
 // ── Pricing ───────────────────────────────────────────────────────────────────

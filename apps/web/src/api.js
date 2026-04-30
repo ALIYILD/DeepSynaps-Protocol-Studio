@@ -313,6 +313,18 @@ function extractHomeProgramTaskTransport(res) {
   };
 }
 
+// Audit-trail query-string builder. Skips empty/null/undefined values so the
+// URL stays clean. Encodes safely for any user-supplied search text.
+function _auditQs(filters = {}) {
+  const out = [];
+  Object.keys(filters || {}).forEach((k) => {
+    const v = filters[k];
+    if (v === null || v === undefined || v === '') return;
+    out.push(`${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
+  });
+  return out.join('&');
+}
+
 export const api = {
   getToken, setToken, clearToken,
   getRefreshToken, setRefreshToken, clearRefreshToken,
@@ -837,7 +849,30 @@ export const api = {
     };
     return apiFetch('/api/v1/review-queue/actions', { method: 'POST', body: JSON.stringify(body) });
   },
-  auditTrail: () => apiFetch('/api/v1/audit-trail'),
+  // ── Audit Trail (launch-audit 2026-04-30) ─────────────────────────────
+  // The page reads /api/v1/audit-trail with rich filters, drills into
+  // /audit-trail/{event_id}, fetches /summary for the top counts, and
+  // exports through /export.csv | /export.ndjson. All five endpoints
+  // share the same query-string contract; ``filters`` is an object whose
+  // keys map 1:1 to the FastAPI query params.
+  auditTrail: (filters = {}) => {
+    const qs = _auditQs(filters);
+    return apiFetch(`/api/v1/audit-trail${qs ? '?' + qs : ''}`);
+  },
+  auditTrailSummary: () => apiFetch('/api/v1/audit-trail/summary'),
+  auditTrailEvent: (eventId) =>
+    apiFetch(`/api/v1/audit-trail/${encodeURIComponent(eventId)}`),
+  // Returns a {blob, contentType, filename} triple via apiFetchBinary so
+  // the bearer token is attached and a real server-rendered file lands on
+  // the caller's machine. No client-side fabrication.
+  auditTrailExportCsv: (filters = {}) => {
+    const qs = _auditQs(filters);
+    return apiFetchBinary(`/api/v1/audit-trail/export.csv${qs ? '?' + qs : ''}`);
+  },
+  auditTrailExportNdjson: (filters = {}) => {
+    const qs = _auditQs(filters);
+    return apiFetchBinary(`/api/v1/audit-trail/export.ndjson${qs ? '?' + qs : ''}`);
+  },
   // Authoritative governance rules (registry-backed). Used by the Governance
   // page to surface real policy items in the regulatory checklist.
   listGovernanceRules: () => apiFetchWithRetry('/api/v1/registries/governance-rules'),

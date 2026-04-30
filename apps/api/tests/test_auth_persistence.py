@@ -76,15 +76,26 @@ def test_review_actions_are_persisted_to_audit_trail(
     assert payload["items"][0]["note"] == "Clinician review completed for deterministic draft."
 
 
-def test_audit_trail_requires_admin_role(
+def test_audit_trail_requires_clinician_role(
     client: TestClient,
     auth_headers: dict[str, dict[str, str]],
 ) -> None:
-    response = client.get("/api/v1/audit-trail", headers=auth_headers["clinician"])
-
+    """Audit Trail launch-audit (2026-04-30) lowered the gate from admin to
+    clinician — clinical staff and regulators must be able to read their own
+    audit history, while cross-clinic isolation is enforced inside the router.
+    Guests and patients still get 403 ``insufficient_role``.
+    """
+    # Guest is below clinician → 403.
+    response = client.get("/api/v1/audit-trail", headers=auth_headers["guest"])
     assert response.status_code == 403
     payload = response.json()
     assert payload["code"] == "insufficient_role"
+
+    # Clinician is allowed; only sees own events (admin sees all).
+    clinician = client.get("/api/v1/audit-trail", headers=auth_headers["clinician"])
+    assert clinician.status_code == 200
+    body = clinician.json()
+    assert "items" in body and "total" in body
 
 
 # ── Refresh-token rotation regression ─────────────────────────────────────────

@@ -20,7 +20,6 @@ from sqlalchemy.orm import Session
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from deepsynaps_core_schema import (
-    AuditTrailResponse,
     BrainRegionListResponse,
     CaseSummaryRequest,
     CaseSummaryResponse,
@@ -134,9 +133,9 @@ except ImportError as _qa_imp_err:
     )
 from app.routers.qeeg_raw_router import router as qeeg_raw_router
 from app.routers.ai_health_router import router as ai_health_router
+from app.routers.audit_trail_router import router as audit_trail_router
 from app.sentry_setup import init_sentry
 from app.settings import get_settings
-from app.services.audit import get_audit_trail
 from app.services.brain_regions import list_brain_regions
 from app.services.brain_targets import (
     get_brain_target,
@@ -322,6 +321,7 @@ if _HAS_QA_ROUTER and qa_router is not None:
     app.include_router(qa_router)
 app.include_router(qeeg_raw_router)
 app.include_router(ai_health_router)
+app.include_router(audit_trail_router)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -645,12 +645,11 @@ def review_action(
     return record_review_action(payload, actor, session)
 
 
-@app.get("/api/v1/audit-trail", response_model=AuditTrailResponse)
-def audit_trail(
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-    session: Session = Depends(get_db_session),
-) -> AuditTrailResponse:
-    return get_audit_trail(actor, session)
+# NOTE: GET /api/v1/audit-trail moved to apps/api/app/routers/audit_trail_router.py
+# (launch-audit 2026-04-30). The router exposes filters, summary, NDJSON / CSV
+# exports, single-event detail, and audits its own reads — all required for
+# regulator-credible review. The legacy admin-only endpoint that lived here is
+# subsumed by router.list_audit_trail (clinician minimum + admin sees-all).
 
 
 # ── Static asset mounts ──────────────────────────────────────────────────────
