@@ -17,8 +17,11 @@ depends_on = None
 
 
 def _has_column(bind, table_name: str, column_name: str) -> bool:
-    cols = sa.inspect(bind).get_columns(table_name)
-    return any(col["name"] == column_name for col in cols)
+    try:
+        cols = sa.inspect(bind).get_columns(table_name)
+        return any(col["name"] == column_name for col in cols)
+    except Exception:
+        return False
 
 
 def upgrade() -> None:

@@ -119,6 +119,7 @@ from app.routers.deeptwin_router import brain_twin_router, router as deeptwin_ro
 from app.routers.feature_store_router import router as feature_store_router
 from app.routers.citation_validator_router import router as citation_validator_router
 from app.routers.command_center_router import router as command_center_router
+from app.routers.dashboard_router import router as dashboard_router
 from app.routers.device_sync_router import router as device_sync_router
 try:
     from app.routers.qa_router import router as qa_router
@@ -308,6 +309,7 @@ app.include_router(admin_pgvector_router)
 app.include_router(feature_store_router)
 app.include_router(citation_validator_router)
 app.include_router(command_center_router)
+app.include_router(dashboard_router)
 app.include_router(device_sync_router)
 if _HAS_QA_ROUTER and qa_router is not None:
     app.include_router(qa_router)

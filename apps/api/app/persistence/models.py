@@ -1879,6 +1879,8 @@ class QEEGAnalysis(Base):
     red_flags_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     normative_metadata_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     interpretability_status: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    # ── Knowledge-layer confounds (migration 060) ─────────────────────────────
+    medication_confounds: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

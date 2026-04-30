@@ -266,6 +266,47 @@ def tool_explain_feature(feature_name: str) -> dict[str, str]:
     }
 
 
+def tool_explain_channel(channel_name: str) -> dict[str, Any]:
+    """Return channel anatomy + expected artifact profiles for a qEEG channel.
+
+    Uses the knowledge-base ``ChannelAtlas`` and ``ArtifactAtlas`` to
+    give deterministic, citation-free advisory context.
+    """
+    if not channel_name:
+        return {"channel": "", "anatomy": "", "artifacts": []}
+
+    try:
+        from deepsynaps_qeeg.knowledge import (
+            ArtifactAtlas,
+            ChannelAtlas,
+            explain_channel,
+        )
+    except Exception as exc:
+        log.warning("Knowledge layer unavailable for tool_explain_channel: %s", exc)
+        return {"channel": channel_name, "anatomy": "", "artifacts": []}
+
+    anatomy = explain_channel(channel_name)
+    artifacts: list[dict[str, Any]] = []
+    try:
+        for profile in ArtifactAtlas.lookup(channel_name):
+            artifacts.append(
+                {
+                    "artifact_type": profile.artifact_type,
+                    "typical_bands": list(profile.typical_bands),
+                    "signature": profile.signature,
+                    "differentiation_tip": profile.differentiation_tip,
+                }
+            )
+    except Exception:
+        pass
+
+    return {
+        "channel": channel_name,
+        "anatomy": anatomy,
+        "artifacts": artifacts,
+    }
+
+
 # ── Search papers (via medrag) ──────────────────────────────────────────────
 
 
@@ -473,6 +514,7 @@ Your role:
 Tools available:
 - tool_search_papers(query): literature retrieval
 - tool_explain_feature(feature_name): feature encyclopedia
+- tool_explain_channel(channel): channel anatomy + expected artifacts
 - tool_compare_to_norm(feature_name, value, age, sex): centile lookup
 - tool_get_recommendation_detail(section, recommendation): protocol drill-down
 
@@ -489,6 +531,9 @@ Similarity indices (research-only):
 
 Protocol recommendation:
 {recommendation_summary}
+
+Medication / confound awareness:
+{medication_confounds_summary}
 
 Cited papers:
 {papers_summary}
@@ -510,6 +555,7 @@ def render_system_prompt(
     risk_scores: Any = None,
     recommendation: Any = None,
     papers: Iterable[dict[str, Any]] | None = None,
+    medication_confounds: Any = None,
 ) -> str:
     """Hydrate :data:`SYSTEM_PROMPT_TEMPLATE` with the live analysis payload.
 
@@ -531,6 +577,8 @@ def render_system_prompt(
         papers_summary_lines.append(f"[{i}] {title} ({year}) {pmid}")
     papers_summary = "\n".join(papers_summary_lines) or "(none)"
 
+    medication_confounds_summary = _safe(medication_confounds)
+
     return SYSTEM_PROMPT_TEMPLATE.format(
         refusal_message=REFUSAL_MESSAGE,
         analysis_id=analysis_id or "(unknown)",
@@ -538,6 +586,7 @@ def render_system_prompt(
         zscores_summary=_safe(zscores),
         risk_summary=_safe(risk_scores),
         recommendation_summary=_safe(recommendation),
+        medication_confounds_summary=medication_confounds_summary,
         papers_summary=papers_summary,
     )
 
@@ -704,6 +753,23 @@ def _tools_schema() -> list[dict[str, Any]]:
                     },
                 },
                 "required": ["feature_name"],
+            },
+        },
+        {
+            "name": "tool_explain_channel",
+            "description": (
+                "Return channel anatomy and expected artifact profiles "
+                "for an EEG channel (e.g. 'Fp1', 'F3', 'O1')."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "channel_name": {
+                        "type": "string",
+                        "description": "EEG channel name, e.g. 'Fp1' or 'Cz'.",
+                    },
+                },
+                "required": ["channel_name"],
             },
         },
         {
@@ -910,6 +976,8 @@ def _dispatch_tool_call(
             )
         if tool_name == "tool_explain_feature":
             return tool_explain_feature(str(tool_input.get("feature_name", "")))
+        if tool_name == "tool_explain_channel":
+            return tool_explain_channel(str(tool_input.get("channel_name", "")))
         if tool_name == "tool_compare_to_norm":
             return tool_compare_to_norm(
                 str(tool_input.get("feature_name", "")),
@@ -942,6 +1010,7 @@ def _render_context_system_prompt(context: dict[str, Any]) -> str:
         risk_scores=context.get("risk_scores"),
         recommendation=context.get("recommendation"),
         papers=context.get("papers") or [],
+        medication_confounds=context.get("medication_confounds"),
     )
 
 
@@ -1363,6 +1432,7 @@ __all__ = [
     "is_unsafe_query",
     "tool_search_papers",
     "tool_explain_feature",
+    "tool_explain_channel",
     "tool_compare_to_norm",
     "tool_get_recommendation_detail",
     "render_system_prompt",

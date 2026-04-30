@@ -657,6 +657,29 @@ function renderNav() {
       }).join('');
     }
     box.style.display = 'block';
+    if (trimmed.length >= 2 && api.dashboardSearch) {
+      api.dashboardSearch(trimmed).then(res => {
+        if (!res || !res.groups) return;
+        const patients = res.groups.Patients || [];
+        const sessions = res.groups.Sessions || [];
+        const courses  = res.groups.Courses || [];
+        const all = [...patients, ...sessions, ...courses].slice(0, 8);
+        if (!all.length) return;
+        const html = all.map(item => {
+          const ini = item.title ? item.title.split(' ').map(s => s[0]).join('').toUpperCase().slice(0,2) : '??';
+          return `<div onclick="window._nav('${esc(item.url_path || '')}')"
+            style="display:flex;align-items:center;gap:9px;padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--border);transition:background 0.1s"
+            onmouseover="this.style.background='rgba(255,255,255,0.04)'" onmouseout="this.style.background=''">
+            <div style="width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--violet),var(--blue));display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#000;flex-shrink:0;text-transform:uppercase">${esc(ini)}</div>
+            <div style="min-width:0">
+              <div style="font-size:12.5px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(item.title)}</div>
+              <div style="font-size:10.5px;color:var(--text-tertiary)">${esc(item.type)} · ${esc(item.subtitle || '')}</div>
+            </div>
+          </div>`;
+        }).join('');
+        box.innerHTML = `<div style="padding:6px 12px;font-size:10px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px">Search results</div>` + html + box.innerHTML;
+      }).catch(() => {});
+    }
   };
   window._navPtOpen = function(id) {
     window._selectedPatientId = id;

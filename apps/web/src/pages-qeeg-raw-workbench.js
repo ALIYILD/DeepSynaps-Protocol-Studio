@@ -39,25 +39,25 @@ const TIMEBASES = [5, 10, 12, 30];
 
 // ── Channel Anatomy Tooltips (from structured clinical EEG knowledge base) ──
 const CHANNEL_ANATOMY = {
-  'Fp1-Av': 'Left anterior prefrontal (BA 10/11) — executive function, DMN. Watch for eye blinks.',
-  'Fp2-Av': 'Right anterior prefrontal (BA 10/11) — approach motivation, DMN. Watch for eye blinks.',
-  'F7-Av':  'Left anterior temporal / Broca vicinity (BA 44/45) — language, attention. Watch for eye movements.',
-  'F8-Av':  'Right anterior temporal / prosody (BA 44/45) — social cognition. Watch for eye movements.',
-  'F3-Av':  'Left DLPFC (BA 9/46) — working memory, rTMS target for depression.',
-  'F4-Av':  'Right DLPFC (BA 9/46) — attention, motor planning. FAA comparison with F3.',
-  'Fz-Av':  'SMA / pre-SMA (BA 6) — motor planning, response inhibition. Mu rhythm site.',
-  'T3-Av':  'Left superior temporal / Wernicke vicinity (BA 21/22) — auditory, language.',
-  'T4-Av':  'Right superior temporal (BA 21/22) — auditory, emotional prosody.',
-  'C3-Av':  'Left sensorimotor cortex (BA 1/2/3/4) — right body. Mu rhythm site.',
-  'C4-Av':  'Right sensorimotor cortex (BA 1/2/3/4) — left body. Mu rhythm site.',
-  'Cz-Av':  'Paracentral lobule / SMA (BA 4/6) — leg motor area. Vertex waves in sleep.',
-  'T5-Av':  'Left temporoparietal junction (BA 39/40) — semantics, spatial attention.',
-  'T6-Av':  'Right temporoparietal junction (BA 39/40) — visuospatial, facial recognition.',
-  'P3-Av':  'Left superior parietal / precuneus (BA 7) — sensorimotor integration, attention.',
-  'P4-Av':  'Right superior parietal / precuneus (BA 7) — visuospatial attention.',
-  'Pz-Av':  'Precuneus / PCC (BA 7/23/31) — DMN hub, self-referential processing. PDR maximum.',
-  'O1-Av':  'Left primary visual cortex (BA 17/18) — PDR origin. End-of-chain caution.',
-  'O2-Av':  'Right primary visual cortex (BA 17/18) — PDR origin. End-of-chain caution.',
+  'Fp1-Av': { region: 'Left anterior prefrontal', brodmann: 'BA 10, BA 11, BA 47', networks: 'Default Mode Network (anterior), Frontoparietal Control', artifacts: 'Eye blinks, myogenic frontal, electrical interference', clinical: 'Executive function, emotional regulation, working memory. Focal dysfunction may reflect left frontal lobe lesions, depression (FAA), or ADHD (theta excess).' },
+  'Fp2-Av': { region: 'Right anterior prefrontal', brodmann: 'BA 10, BA 11, BA 47', networks: 'Default Mode Network (anterior), Frontoparietal Control', artifacts: 'Eye blinks, myogenic frontal, electrical interference', clinical: 'Executive function, approach/avoidance behavior. Right frontal hypoactivation (less alpha = more activation) is linked to approach motivation and depression research.' },
+  'F7-Av':  { region: 'Left inferior frontal / Broca vicinity', brodmann: 'BA 44, BA 45, BA 47', networks: 'Ventral Attention, Language', artifacts: 'Lateral eye movement, myogenic frontal, chewing', clinical: 'Language production (Broca), speech motor planning. Focal slowing or epileptiform activity may affect speech output. F7 overlies anterior temporal region, not purely frontal.' },
+  'F8-Av':  { region: 'Right inferior frontal / prosody', brodmann: 'BA 44, BA 45, BA 47', networks: 'Ventral Attention, Language (prosody)', artifacts: 'Lateral eye movement, myogenic frontal, chewing', clinical: 'Social cognition, emotional prosody. Right frontal dysfunction can impair social inference and emotional regulation.' },
+  'F3-Av':  { region: 'Left DLPFC', brodmann: 'BA 9, BA 46', networks: 'Frontoparietal Control, Dorsal Attention', artifacts: 'Myogenic frontal, eye movement', clinical: 'Working memory, executive function. Primary rTMS target for depression (left DLPFC stimulation). FAA comparison with F4.' },
+  'F4-Av':  { region: 'Right DLPFC', brodmann: 'BA 9, BA 46', networks: 'Frontoparietal Control, Dorsal Attention', artifacts: 'Myogenic frontal, eye movement', clinical: 'Attention, motor planning. Right DLPFC hypoactivation linked to depression and anxiety. Compare FAA with F3.' },
+  'Fz-Av':  { region: 'SMA / pre-SMA', brodmann: 'BA 6', networks: 'Sensorimotor, Frontoparietal Control', artifacts: 'Myogenic frontal, vertex waves', clinical: 'Motor planning, response inhibition. Mu rhythm site. SMA stimulation targets OCD and movement disorders.' },
+  'T3-Av':  { region: 'Left superior temporal / Wernicke vicinity', brodmann: 'BA 21, BA 22, BA 41, BA 42', networks: 'Language (Wernicke), Auditory', artifacts: 'Myogenic temporal, chewing, ECG', clinical: 'Auditory processing, language comprehension. TIRDA here is epileptogenic and suggests left temporal lesion. Sleep spindles may appear in Stage II.' },
+  'T4-Av':  { region: 'Right superior temporal', brodmann: 'BA 21, BA 22, BA 41, BA 42', networks: 'Language (prosody), Auditory', artifacts: 'Myogenic temporal, chewing, ECG', clinical: 'Auditory processing, emotional prosody. Right temporal dysfunction can impair music and voice emotion recognition.' },
+  'C3-Av':  { region: 'Left sensorimotor cortex', brodmann: 'BA 1, BA 2, BA 3, BA 4', networks: 'Sensorimotor, Dorsal Attention', artifacts: 'Electrode pop, EMG, ECG', clinical: 'Right body motor/sensory. Mu rhythm site (8-13 Hz attenuates with movement). Common rTMS target for stroke rehabilitation.' },
+  'C4-Av':  { region: 'Right sensorimotor cortex', brodmann: 'BA 1, BA 2, BA 3, BA 4', networks: 'Sensorimotor, Dorsal Attention', artifacts: 'Electrode pop, EMG, ECG', clinical: 'Left body motor/sensory. Mu rhythm site. Compare with C3 for symmetry.' },
+  'Cz-Av':  { region: 'Paracentral lobule / SMA', brodmann: 'BA 4, BA 6', networks: 'Sensorimotor', artifacts: 'Electrode pop, vertex waves', clinical: 'Lower extremity motor/sensory. Vertex waves in sleep are normal here. Mu rhythm may also be seen. Fast activity at Cz warrants scrutiny.' },
+  'T5-Av':  { region: 'Left temporoparietal junction', brodmann: 'BA 39, BA 40', networks: 'Default Mode, Language', artifacts: 'ECG, electrode pop, sweat', clinical: 'Semantic language, reading, spatial attention. Left temporoparietal dysfunction can produce Wernicke aphasia or neglect.' },
+  'T6-Av':  { region: 'Right temporoparietal junction', brodmann: 'BA 39, BA 40', networks: 'Default Mode, Ventral Attention', artifacts: 'ECG, electrode pop, sweat', clinical: 'Visuospatial attention, facial recognition, emotional memory. Right temporoparietal dysfunction can produce left hemispatial neglect.' },
+  'P3-Av':  { region: 'Left superior parietal / precuneus', brodmann: 'BA 7', networks: 'Dorsal Attention, Default Mode', artifacts: 'ECG, electrode pop, sweat', clinical: 'Sensorimotor integration, spatial attention. Parietal dysfunction can produce neglect or apraxia.' },
+  'P4-Av':  { region: 'Right superior parietal / precuneus', brodmann: 'BA 7', networks: 'Dorsal Attention, Default Mode', artifacts: 'ECG, electrode pop, sweat', clinical: 'Visuospatial attention, spatial navigation. Right parietal dysfunction can produce left neglect.' },
+  'Pz-Av':  { region: 'Precuneus / PCC', brodmann: 'BA 7, BA 23, BA 31', networks: 'Default Mode (hub)', artifacts: 'ECG, sweat, electrode pop', clinical: 'DMN hub, self-referential processing. Posterior dominant rhythm (PDR) maximum. Precuneus dysfunction linked to Alzheimer early changes.' },
+  'O1-Av':  { region: 'Left primary visual cortex', brodmann: 'BA 17, BA 18', networks: 'Visual', artifacts: 'ECG, sweat, electrode pop', clinical: 'PDR origin. End-of-chain caution: occipital slowing can be normal in drowsiness but pathological if persistent.' },
+  'O2-Av':  { region: 'Right primary visual cortex', brodmann: 'BA 17, BA 18', networks: 'Visual', artifacts: 'ECG, sweat, electrode pop', clinical: 'PDR origin. End-of-chain caution: occipital alpha asymmetry can indicate posterior circulation pathology.' },
 };
 
 const TITLE_MENUS = ['File','Edit','View','Format','Recording','Analysis','Setup','Window','Language','Help'];
@@ -463,14 +463,14 @@ function workbenchShell(state) {
         <div id="qwb-canvas-wrap" class="qwb-canvas-wrap" data-testid="qwb-trace">
           <div class="qwb-time-ruler" id="qwb-time-ruler" data-testid="qwb-time-ruler"></div>
           <div class="qwb-immutable-notice" id="qwb-immutable-banner">Original raw EEG preserved · Decision-support only</div>
-          <canvas id="qwb-canvas" class="qwb-canvas-el"></canvas>
+          <canvas id="qwb-canvas" class="qwb-canvas-el" role="img" aria-label="EEG trace, 19 channels Fp1 through O2. Drag to mark a bad segment; right-click for tools."></canvas>
           <div id="qwb-overlays" class="qwb-overlays" data-testid="qwb-overlays"></div>
           ${inlineTraceEventsHtml(state)}
           <div id="qwb-rerun-notice" class="qwb-rerun-notice" style="display:none"></div>
         </div>
         <div class="qwb-spectro-strip" data-testid="qwb-spectro-strip">
           <span class="qwb-spectro-label">SPECTROGRAM · 0–50 Hz</span>
-          <canvas id="qwb-spectro-canvas" class="qwb-spectro-canvas"></canvas>
+          <canvas id="qwb-spectro-canvas" class="qwb-spectro-canvas" role="img" aria-label="Spectrogram, 0 to 50 Hz, current window."></canvas>
         </div>
       </div>
       ${rightPanelHtml(state)}
@@ -481,6 +481,7 @@ function workbenchShell(state) {
     ${unsavedModal(state)}
     ${exportModal(state)}
     ${aiExplainPopover(state)}
+    ${channelAnatomyPopover(state)}
   </div>`;
 }
 
@@ -586,6 +587,20 @@ function aiExplainPopover(state) {
         <button class="qwb-side-btn" id="qwb-ai-explain-accept">Accept</button>
         <button class="qwb-side-btn" id="qwb-ai-explain-dismiss">Dismiss</button>
       </div>
+    </div>
+  </div>`;
+}
+
+function channelAnatomyPopover(state) {
+  return `
+  <div id="qwb-channel-anatomy" class="qwb-ai-explain" data-testid="qwb-channel-anatomy" style="display:none">
+    <div class="qwb-ai-explain-card">
+      <div class="qwb-ai-explain-head">
+        <span class="qwb-ai-explain-dot" style="background:#1d6f7a"></span>
+        <b id="qwb-ch-anat-title">Channel</b>
+        <button class="qwb-tb-btn" id="qwb-channel-anatomy-close" style="margin-left:auto;width:22px;height:22px;padding:0;justify-content:center">×</button>
+      </div>
+      <div class="qwb-channel-anatomy-body" id="qwb-ch-anat-body"></div>
     </div>
   </div>`;
 }
@@ -1275,6 +1290,11 @@ function clinicalCss() {
       font-size:10px; color:#6b6660;
       border-top:1px dotted #d8d1c3;
     }
+    .qwb-channel-anatomy-body { padding:6px 0; }
+    .qwb-anatomy-row { display:flex; gap:6px; margin-bottom:4px; font-size:11px; line-height:1.35; }
+    .qwb-anatomy-key { color:#8a837a; min-width:80px; flex-shrink:0; }
+    .qwb-anatomy-val { color:#3a3633; }
+    .qwb-anatomy-clinical { margin-top:6px; padding-top:6px; border-top:1px dotted #d8d1c3; font-size:10.5px; color:#5a544a; line-height:1.4; font-style:italic; }
 
     /* ── Drag selection + bad-segment label ──────────────────── */
     .qwb-drag-rect {
@@ -1498,10 +1518,21 @@ function channelGutterHtml(state) {
   const rows = DEFAULT_CHANNELS.map(ch => {
     const isBad = state.badChannels.has(ch);
     const isSel = state.selectedChannel === ch;
-    const anatomyTip = CHANNEL_ANATOMY[ch] || '';
-    const tipAttr = anatomyTip ? ` title="${esc(anatomyTip)}"` : '';
+    const anatomy = CHANNEL_ANATOMY[ch];
+    const tipText = anatomy
+      ? `${anatomy.region} (${anatomy.brodmann}) — ${anatomy.networks}. Watch for: ${anatomy.artifacts}.`
+      : '';
+    const tipAttr = tipText ? ` title="${esc(tipText)}"` : '';
+    // Primary artifact warning icon from knowledge base
+    const artifactIcon = anatomy && anatomy.artifacts.includes('eye')
+      ? '<span class="qwb-ch-artifact" style="color:#b8741a;font-size:9px;margin-left:2px" title="Common: eye blink">●</span>'
+      : anatomy && anatomy.artifacts.includes('muscle')
+      ? '<span class="qwb-ch-artifact" style="color:#b03434;font-size:9px;margin-left:2px" title="Common: muscle">●</span>'
+      : anatomy && anatomy.artifacts.includes('ECG')
+      ? '<span class="qwb-ch-artifact" style="color:#1d6f7a;font-size:9px;margin-left:2px" title="Common: ECG">●</span>'
+      : '';
     return `<div class="qwb-ch-row ${isBad?'bad qwb-bad-channel':''} ${isSel?'active':''}" data-channel="${esc(ch)}">
-      <span class="qwb-ch-name"${tipAttr} data-channel="${esc(ch)}">${esc(ch)}${isBad?' ⚠':''}</span>
+      <span class="qwb-ch-name"${tipAttr} data-channel="${esc(ch)}">${esc(ch)}${artifactIcon}${isBad?' ⚠':''}</span>
       <span class="qwb-ch-scale">${state.gain} µV/cm</span>
     </div>`;
   }).join('');
@@ -3187,6 +3218,9 @@ function attachToolBar(state, navigate) {
     closeAIExplain(state);
   });
 
+  // ── Channel anatomy popover handlers ────────────────────────
+  document.getElementById('qwb-channel-anatomy-close')?.addEventListener('click', () => closeChannelAnatomy());
+
   if (typeof window !== 'undefined') {
     window.addEventListener('resize', () => redrawCanvas(state));
   }
@@ -3226,6 +3260,38 @@ function closeAIExplain(state) {
   if (root) root.style.display = 'none';
 }
 
+function openChannelAnatomy(state, ch, x, y) {
+  const anatomy = CHANNEL_ANATOMY[ch];
+  if (!anatomy) return;
+  const root = document.getElementById('qwb-channel-anatomy');
+  const title = document.getElementById('qwb-ch-anat-title');
+  const body = document.getElementById('qwb-ch-anat-body');
+  if (!root || !title || !body) return;
+  title.textContent = ch;
+  body.innerHTML = `
+    <div class="qwb-anatomy-row"><span class="qwb-anatomy-key">Region</span><span class="qwb-anatomy-val">${esc(anatomy.region)}</span></div>
+    <div class="qwb-anatomy-row"><span class="qwb-anatomy-key">Brodmann</span><span class="qwb-anatomy-val">${esc(anatomy.brodmann)}</span></div>
+    <div class="qwb-anatomy-row"><span class="qwb-anatomy-key">Networks</span><span class="qwb-anatomy-val">${esc(anatomy.networks)}</span></div>
+    <div class="qwb-anatomy-row"><span class="qwb-anatomy-key">Artifacts</span><span class="qwb-anatomy-val">${esc(anatomy.artifacts)}</span></div>
+    <div class="qwb-anatomy-clinical">${esc(anatomy.clinical)}</div>
+  `;
+  const card = root.querySelector('.qwb-ai-explain-card');
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const cw = card ? card.offsetWidth : 320;
+  const chh = card ? card.offsetHeight : 240;
+  const left = Math.max(8, Math.min(x + 12, vw - cw - 8));
+  const top = Math.max(8, Math.min(y + 12, vh - chh - 8));
+  root.style.left = left + 'px';
+  root.style.top = top + 'px';
+  root.style.display = 'block';
+}
+
+function closeChannelAnatomy() {
+  const root = document.getElementById('qwb-channel-anatomy');
+  if (root) root.style.display = 'none';
+}
+
 function aiExplainFeatures(sugg) {
   const k = String(sugg.ai_label || '').toLowerCase();
   if (k.includes('blink') || k.includes('eye')) {
@@ -3259,6 +3325,14 @@ function attachExportModal(state) {
 
 function attachChannelRail(state) {
   document.getElementById('qwb-rail')?.addEventListener('click', e => {
+    // If clicking directly on the channel name, open anatomy popover
+    if (e.target.classList && e.target.classList.contains('qwb-ch-name')) {
+      e.stopPropagation();
+      const ch = e.target.dataset.channel;
+      const rect = e.target.getBoundingClientRect();
+      openChannelAnatomy(state, ch, rect.right, rect.top);
+      return;
+    }
     let row = e.target;
     while (row && !(row.classList && row.classList.contains('qwb-ch-row'))) row = row.parentElement;
     if (!row) return;
@@ -3892,7 +3966,10 @@ async function generateAISuggestions(state) {
     return;
   }
   try {
-    const r = await api.generateQEEGAIArtefactSuggestions(state.analysisId);
+    const body = state.medicationConfounds
+      ? { medication_confounds: state.medicationConfounds.split(',').map(s => s.trim()).filter(Boolean) }
+      : null;
+    const r = await api.generateQEEGAIArtefactSuggestions(state.analysisId, body);
     state.aiSuggestions = r.items || [];
     if (state.rightTab === 'ai') renderRightPanel(state);
     redrawCanvas(state); renderStatusBar(state);
@@ -4172,6 +4249,7 @@ async function saveCleaningVersion(state) {
       rejected_ica_components: Array.from(state.rejectedICA),
       interpolated_channels: [],
       annotation_ids: [],
+      medication_confounds: state.medicationConfounds,
     });
     state.cleaningVersion = r;
     state.isDirty = false;

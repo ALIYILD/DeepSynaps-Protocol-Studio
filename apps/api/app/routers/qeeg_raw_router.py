@@ -727,6 +727,13 @@ class AIArtefactSuggestion(BaseModel):
     )
 
 
+class AIArtefactSuggestionsRequest(BaseModel):
+    medication_confounds: Optional[list[str]] = Field(
+        default=None,
+        description="Optional list of medication names to enrich artifact suggestions.",
+    )
+
+
 class AISuggestionListResponse(BaseModel):
     analysis_id: str
     items: list[AIArtefactSuggestion] = Field(default_factory=list)
@@ -1130,6 +1137,7 @@ def get_raw_vs_cleaned_summary(
 )
 def generate_ai_artefact_suggestions(
     analysis_id: str,
+    body: Optional[AIArtefactSuggestionsRequest] = None,
     db: Session = Depends(get_db_session),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> AISuggestionListResponse:
@@ -1142,12 +1150,43 @@ def generate_ai_artefact_suggestions(
     is applied. The endpoint never modifies raw EDF bytes or the parent
     analysis row.
 
-    The current heuristic is intentionally simple — it returns canonical
-    artefact archetypes the workbench UI displays. A future iteration
-    will plug into MNE's autoreject/ICLabel signals.
+    When ``medication_confounds`` is provided, suggestions are enriched
+    with knowledge-base expected artifacts per channel via
+    ``ArtifactAtlas``.
     """
     require_minimum_role(actor, "clinician")
-    _load_analysis(analysis_id, db, actor)
+    analysis = _load_analysis(analysis_id, db, actor)
+
+    # Persist medication confounds on the analysis row for downstream
+    # copilot / report enrichment.
+    medications = []
+    if body and body.medication_confounds:
+        medications = list(body.medication_confounds)
+        analysis.medication_confounds = json.dumps(medications)
+        db.commit()
+
+    # Build enriched archetypes using ArtifactAtlas when available.
+    try:
+        from deepsynaps_qeeg.knowledge import ArtifactAtlas
+    except Exception:
+        ArtifactAtlas = None  # type: ignore[misc,assignment]
+
+    def _enrich_explanation(channel: Optional[str], base_explanation: str) -> str:
+        if not channel or ArtifactAtlas is None:
+            return base_explanation
+        try:
+            profiles = ArtifactAtlas.lookup(channel)
+            if profiles:
+                parts = [base_explanation]
+                parts.append(
+                    " Knowledge-base artifact profiles for this channel: "
+                    + ", ".join(p.artifact_type for p in profiles)
+                    + "."
+                )
+                return "".join(parts)
+        except Exception:
+            pass
+        return base_explanation
 
     archetypes = [
         {
@@ -1156,9 +1195,10 @@ def generate_ai_artefact_suggestions(
             "start_sec": 2.4,
             "end_sec": 3.1,
             "ai_confidence": 0.78,
-            "explanation": (
+            "explanation": _enrich_explanation(
+                "Fp1-Av",
                 "Frontal-channel high-amplitude deflection lasting <1s "
-                "is consistent with an eye-blink artefact."
+                "is consistent with an eye-blink artefact.",
             ),
             "suggested_action": "review_ica",
         },
@@ -1168,9 +1208,10 @@ def generate_ai_artefact_suggestions(
             "start_sec": 7.2,
             "end_sec": 8.4,
             "ai_confidence": 0.65,
-            "explanation": (
+            "explanation": _enrich_explanation(
+                "T3-Av",
                 "Sustained high-frequency (>20 Hz) burst over a temporal "
-                "channel suggests muscle contamination."
+                "channel suggests muscle contamination.",
             ),
             "suggested_action": "mark_bad_segment",
         },

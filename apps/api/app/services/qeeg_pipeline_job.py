@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.database import SessionLocal
-from app.persistence.models import QEEGAnalysis
+from app.persistence.models import Patient, PatientMedication, QEEGAnalysis
 from app.services import media_storage
 from app.services.qeeg_pipeline import run_pipeline_safe
 from app.services.spectral_analysis import compute_band_powers_from_pipeline
@@ -43,7 +43,44 @@ def run_mne_pipeline_job_sync(analysis_id: str) -> dict[str, Any]:
             tmp.write(file_bytes)
             tmp_path = tmp.name
 
-        result = run_pipeline_safe(tmp_path)
+        # Resolve patient metadata for normative context
+        patient: Patient | None = (
+            session.query(Patient).filter_by(id=analysis.patient_id).first()
+            if analysis.patient_id
+            else None
+        )
+        age_years: int | None = None
+        if patient and patient.dob:
+            try:
+                from datetime import date
+
+                dob = date.fromisoformat(patient.dob)
+                today = date.today()
+                age_years = (
+                    today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+                )
+            except (ValueError, TypeError):
+                pass
+        sex = (patient.gender or "")[:1].upper() if patient and patient.gender else None
+        if sex not in ("M", "F"):
+            sex = None
+
+        medications_list: list[str] = []
+        if patient:
+            meds = (
+                session.query(PatientMedication)
+                .filter_by(patient_id=patient.id, active=True)
+                .all()
+            )
+            medications_list = [m.name for m in meds if m.name]
+
+        result = run_pipeline_safe(
+            tmp_path,
+            age=age_years,
+            sex=sex,
+            recording_state=analysis.eyes_condition or "awake_eo",
+            medications=medications_list,
+        )
         if not result.get("success"):
             analysis.analysis_status = "failed"
             analysis.analysis_error = str(result.get("error", "pipeline failed"))[:500]

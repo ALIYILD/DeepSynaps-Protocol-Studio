@@ -9487,8 +9487,16 @@ body.light-theme .logo-wrap { border-bottom-color: rgba(0,0,0,0.08); }
 .ch-shell { display:flex; flex-direction:column; min-height:100%; }
 
 /* Tab bar */
-.ch-tab-bar {
+/* `.d2p7-tab-bar` is the per-page (Patients hub Analytics/Alerts/Reports) tab
+   wrapper used in pgPatientHub + pgPatientAnalyticsCohort. It must lay out the
+   same way as the global `.ch-tab-bar` — horizontal across the top of the
+   content area with an underline-on-active accent — otherwise the four tab
+   buttons stack vertically (because `.ch-tab` itself is `display:flex`, which
+   is block-level when its parent isn't a flex row). */
+.ch-tab-bar,
+.d2p7-tab-bar {
   display: flex;
+  flex-direction: row;
   gap: 4px;
   padding: 16px 20px 0;
   border-bottom: 1px solid var(--border);
@@ -9515,7 +9523,9 @@ body.light-theme .logo-wrap { border-bottom-color: rgba(0,0,0,0.08); }
   margin-bottom: -1px;
 }
 .ch-tab:hover { color: var(--text-primary); background: rgba(255,255,255,0.04); }
-.ch-tab--active {
+.ch-tab--active,
+.ch-tab.is-active,
+.ch-tab.active {
   color: var(--tab-color, var(--teal));
   border-bottom-color: var(--tab-color, var(--teal));
   background: rgba(255,255,255,0.04);
@@ -9768,7 +9778,8 @@ body.light-theme .ph-mh-meta-item { background:rgba(0,0,0,0.04); border-color:rg
 }
 
 /* Light theme */
-body.light-theme .ch-tab-bar { background:var(--bg-base); }
+body.light-theme .ch-tab-bar,
+body.light-theme .d2p7-tab-bar { background:var(--bg-base); }
 body.light-theme .ch-tab--active { background:rgba(0,0,0,0.04); }
 body.light-theme .ch-kpi-card { background:#fff; border-color:rgba(0,0,0,0.08); }
 body.light-theme .ch-card { background:#fff; border-color:rgba(0,0,0,0.08); }

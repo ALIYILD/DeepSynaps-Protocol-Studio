@@ -201,6 +201,14 @@ export function showToast(message, type = 'success') {
   }
   const toast = document.createElement('div');
   toast.className = 'ds-toast';
+  if (type === 'error') {
+    toast.setAttribute('role', 'alert');
+    toast.setAttribute('aria-live', 'assertive');
+  } else {
+    toast.setAttribute('role', 'status');
+    toast.setAttribute('aria-live', 'polite');
+  }
+  toast.setAttribute('aria-atomic', 'true');
   toast.style.cssText = `pointer-events:auto;display:flex;align-items:center;gap:10px;padding:10px 16px;border-radius:var(--radius-md);background:${bgs[type] || bgs.info};border:1px solid ${colors[type] || colors.info}33;color:${colors[type] || colors.info};font-size:12.5px;font-weight:500;font-family:var(--font-body);box-shadow:0 8px 32px rgba(0,0,0,0.3);transform:translateX(120%);transition:transform 0.3s cubic-bezier(0.4,0,0.2,1),opacity 0.3s;min-width:240px;max-width:380px`;
   toast.innerHTML = `<span style="font-size:15px;font-weight:700;flex-shrink:0">${icons[type] || icons.info}</span><span style="flex:1">${message}</span><button onclick="this.parentElement.remove()" style="background:none;border:none;color:inherit;cursor:pointer;font-size:14px;padding:0 2px;opacity:0.6">✕</button>`;
   container.appendChild(toast);
