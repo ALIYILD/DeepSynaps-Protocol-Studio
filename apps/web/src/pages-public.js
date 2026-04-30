@@ -2811,7 +2811,7 @@ export async function pgPermissionsAdmin(setTopbar) {
         <h3 style="font-size:1rem;font-weight:700;margin-bottom:14px">Password Policy</h3>
         <div style="margin-bottom:12px">
           <label style="font-size:.85rem;font-weight:600;display:block;margin-bottom:6px">Minimum Length: <span id="sec-pwlen-val">${cfg.passwordMinLength}</span></label>
-          <input id="sec-pwlen" type="range" min="6" max="32" value="${cfg.passwordMinLength}" style="width:200px;accent-color:var(--accent-teal)" oninput="document.getElementById('sec-pwlen-val').textContent=this.value"/>
+          <input id="sec-pwlen" type="range" min="6" max="32" value="${cfg.passwordMinLength}" style="width:200px;accent-color:var(--teal)" oninput="document.getElementById('sec-pwlen-val').textContent=this.value"/>
         </div>
         <div class="perm-toggle"><input type="checkbox" id="sec-upper"${cfg.passwordRequireUppercase?' checked':''} onchange="window._secToggle('passwordRequireUppercase',this.checked)"/><span style="font-size:.875rem">Require uppercase letter</span></div>
         <div class="perm-toggle"><input type="checkbox" id="sec-special"${cfg.passwordRequireSpecial?' checked':''} onchange="window._secToggle('passwordRequireSpecial',this.checked)"/><span style="font-size:.875rem">Require special character</span></div>
@@ -2880,12 +2880,12 @@ export async function pgPermissionsAdmin(setTopbar) {
           <h3 style="font-size:1rem;font-weight:700;margin-bottom:6px">Step 1 — Choose your 2FA method</h3>
           <p style="font-size:.8rem;color:var(--text-muted);margin-bottom:16px">Select how you want to receive authentication codes.</p>
           <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:20px">
-            <label style="display:flex;align-items:flex-start;gap:12px;padding:12px;border-radius:8px;border:2px solid ${_twoFaMethod==='totp'?'var(--accent-teal)':'var(--border)'};cursor:pointer" onclick="window._2faSelectMethod('totp')">
+            <label style="display:flex;align-items:flex-start;gap:12px;padding:12px;border-radius:8px;border:2px solid ${_twoFaMethod==='totp'?'var(--teal)':'var(--border)'};cursor:pointer" onclick="window._2faSelectMethod('totp')">
               <input type="radio" name="twofa-m" value="totp"${_twoFaMethod==='totp'?' checked':''} style="margin-top:2px"/>
               <div><div style="font-weight:600;font-size:.875rem">TOTP — Authenticator App</div>
               <div style="font-size:.78rem;color:var(--text-muted)">Use Google Authenticator, Authy, or any TOTP app</div></div>
             </label>
-            <label style="display:flex;align-items:flex-start;gap:12px;padding:12px;border-radius:8px;border:2px solid ${_twoFaMethod==='email'?'var(--accent-teal)':'var(--border)'};cursor:pointer" onclick="window._2faSelectMethod('email')">
+            <label style="display:flex;align-items:flex-start;gap:12px;padding:12px;border-radius:8px;border:2px solid ${_twoFaMethod==='email'?'var(--teal)':'var(--border)'};cursor:pointer" onclick="window._2faSelectMethod('email')">
               <input type="radio" name="twofa-m" value="email"${_twoFaMethod==='email'?' checked':''} style="margin-top:2px"/>
               <div><div style="font-weight:600;font-size:.875rem">Email OTP</div>
               <div style="font-size:.78rem;color:var(--text-muted)">Receive a one-time code via email each login</div></div>

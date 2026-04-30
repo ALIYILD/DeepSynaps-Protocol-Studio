@@ -4255,7 +4255,7 @@ function _renderProviderCard(p) {
       ${p.lastReferralDate ? `<div>Last referral: ${p.lastReferralDate}</div>` : ''}
     </div>
     <div style="margin-top:10px;display:flex;gap:8px;">
-      <button onclick="window._referToProvider('${p.id}')" style="flex:1;padding:5px 8px;border-radius:6px;border:none;background:var(--accent-teal);color:white;cursor:pointer;font-size:.8rem;font-weight:700;">Refer Patient</button>
+      <button onclick="window._referToProvider('${p.id}')" style="flex:1;padding:5px 8px;border-radius:6px;border:none;background:var(--teal);color:white;cursor:pointer;font-size:.8rem;font-weight:700;">Refer Patient</button>
       <button onclick="window._deleteReferralProvider('${p.id}')" style="padding:5px 10px;border-radius:6px;border:1px solid #fca5a5;background:#fee2e2;color:#991b1b;cursor:pointer;font-size:.8rem;">Delete</button>
     </div>
   </div>`;
@@ -4282,7 +4282,7 @@ function _renderCareTeamCard(team) {
     <div style="margin-top:12px;">
       <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px;">Handoff Note</label>
       <textarea id="handoff-note-${team.id}" style="width:100%;border:1px solid var(--border);border-radius:6px;background:var(--card-bg);color:var(--text);padding:8px;font-size:.85rem;resize:vertical;min-height:60px;">${team.handoffNote || ''}</textarea>
-      <button onclick="window._saveHandoffNote('${team.id}')" style="margin-top:6px;padding:5px 14px;border-radius:6px;border:none;background:var(--accent-teal);color:white;cursor:pointer;font-size:.8rem;font-weight:700;">Save Handoff Note</button>
+      <button onclick="window._saveHandoffNote('${team.id}')" style="margin-top:6px;padding:5px 14px;border-radius:6px;border:none;background:var(--teal);color:white;cursor:pointer;font-size:.8rem;font-weight:700;">Save Handoff Note</button>
     </div>
   </div>`;
 }
@@ -4345,7 +4345,7 @@ export async function pgReferrals(setTopbar) {
     const pills = statuses.map(s => {
       const active = s === referralStatusFilter;
       const label = s === 'all' ? 'All' : s === 'in-progress' ? 'In Progress' : s.charAt(0).toUpperCase() + s.slice(1);
-      return `<button onclick="window._filterReferrals('${s}')" style="padding:4px 14px;border-radius:20px;border:1px solid var(--border);cursor:pointer;font-size:.8rem;font-weight:${active ? '700' : '400'};background:${active ? 'var(--accent-teal)' : 'var(--card-bg)'};color:${active ? 'white' : 'var(--text)'};">${label}</button>`;
+      return `<button onclick="window._filterReferrals('${s}')" style="padding:4px 14px;border-radius:20px;border:1px solid var(--border);cursor:pointer;font-size:.8rem;font-weight:${active ? '700' : '400'};background:${active ? 'var(--teal)' : 'var(--card-bg)'};color:${active ? 'white' : 'var(--text)'};">${label}</button>`;
     }).join('');
 
     return `
@@ -4354,7 +4354,7 @@ export async function pgReferrals(setTopbar) {
       <div style="display:flex;gap:6px;flex-wrap:wrap;">${pills}</div>
       <input type="text" placeholder="Search patient..." value="${referralSearch}" oninput="window._searchReferrals(this.value)"
         style="padding:6px 12px;border:1px solid var(--border);border-radius:8px;background:var(--card-bg);color:var(--text);font-size:.85rem;min-width:180px;" />
-      <button onclick="window._newReferral()" style="margin-left:auto;padding:7px 16px;border-radius:8px;border:none;background:var(--accent-teal);color:white;cursor:pointer;font-size:.875rem;font-weight:700;">+ New Referral</button>
+      <button onclick="window._newReferral()" style="margin-left:auto;padding:7px 16px;border-radius:8px;border:none;background:var(--teal);color:white;cursor:pointer;font-size:.875rem;font-weight:700;">+ New Referral</button>
     </div>
     <div id="referrals-list">
       ${refs.length ? refs.map(_renderReferralCard).join('') : '<div style="padding:32px;text-align:center;color:var(--text-muted);">No referrals match the current filter.</div>'}
@@ -4374,7 +4374,7 @@ export async function pgReferrals(setTopbar) {
       <input type="text" placeholder="Search providers..." value="${providerSearch}" oninput="window._filterProvidersBySearch(this.value)"
         style="padding:6px 12px;border:1px solid var(--border);border-radius:8px;background:var(--card-bg);color:var(--text);font-size:.85rem;min-width:200px;" />
       <select onchange="window._filterProviders(this.value)" style="padding:6px 12px;border:1px solid var(--border);border-radius:8px;background:var(--card-bg);color:var(--text);font-size:.85rem;">${specOptions}</select>
-      <button onclick="window._addReferralProvider()" style="margin-left:auto;padding:7px 16px;border-radius:8px;border:none;background:var(--accent-teal);color:white;cursor:pointer;font-size:.875rem;font-weight:700;">+ Add Provider</button>
+      <button onclick="window._addReferralProvider()" style="margin-left:auto;padding:7px 16px;border-radius:8px;border:none;background:var(--teal);color:white;cursor:pointer;font-size:.875rem;font-weight:700;">+ Add Provider</button>
     </div>
     <div class="provider-grid">
       ${providers.length ? providers.map(_renderProviderCard).join('') : '<div style="padding:32px;text-align:center;color:var(--text-muted);grid-column:1/-1;">No providers found.</div>'}
@@ -4405,8 +4405,8 @@ export async function pgReferrals(setTopbar) {
       <div style="font-size:.8rem;font-weight:600;margin-bottom:6px;color:var(--text-muted);">Team Members</div>
       <div id="new-member-rows">${memberInputRows}</div>
       <div style="display:flex;gap:8px;margin-top:10px;">
-        <button onclick="window._addTeamMember()" style="padding:6px 14px;border-radius:6px;border:1px solid var(--accent-teal);color:var(--accent-teal);background:transparent;cursor:pointer;font-size:.8rem;">+ Add Member</button>
-        <button onclick="window._saveCareTeam()" style="padding:6px 16px;border-radius:6px;border:none;background:var(--accent-teal);color:white;cursor:pointer;font-size:.875rem;font-weight:700;">Save Team</button>
+        <button onclick="window._addTeamMember()" style="padding:6px 14px;border-radius:6px;border:1px solid var(--teal);color:var(--teal);background:transparent;cursor:pointer;font-size:.8rem;">+ Add Member</button>
+        <button onclick="window._saveCareTeam()" style="padding:6px 16px;border-radius:6px;border:none;background:var(--teal);color:white;cursor:pointer;font-size:.875rem;font-weight:700;">Save Team</button>
       </div>
     </div>
     <div id="care-teams-list">
@@ -4421,7 +4421,7 @@ export async function pgReferrals(setTopbar) {
       { id: 'careteams', label: 'Care Teams' },
     ];
     return `<div style="display:flex;gap:4px;border-bottom:2px solid var(--border);margin-bottom:18px;">
-      ${tabs.map(t => `<button onclick="window._switchReferralTab('${t.id}')" style="padding:8px 20px;border:none;background:none;cursor:pointer;font-size:.9rem;font-weight:${t.id===activeTab?'700':'400'};color:${t.id===activeTab?'var(--accent-teal)':'var(--text-muted)'};border-bottom:${t.id===activeTab?'2px solid var(--accent-teal)':'2px solid transparent'};margin-bottom:-2px;">${t.label}</button>`).join('')}
+      ${tabs.map(t => `<button onclick="window._switchReferralTab('${t.id}')" style="padding:8px 20px;border:none;background:none;cursor:pointer;font-size:.9rem;font-weight:${t.id===activeTab?'700':'400'};color:${t.id===activeTab?'var(--teal)':'var(--text-muted)'};border-bottom:${t.id===activeTab?'2px solid var(--teal)':'2px solid transparent'};margin-bottom:-2px;">${t.label}</button>`).join('')}
     </div>`;
   }
 
@@ -4454,7 +4454,7 @@ export async function pgReferrals(setTopbar) {
           <option value="urgent">Urgent</option>
         </select>
         <textarea id="nref-notes" placeholder="Additional notes (optional)" rows="3" style="padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--card-bg);color:var(--text);resize:vertical;"></textarea>
-        <button onclick="window._saveReferral()" style="padding:9px;border-radius:8px;border:none;background:var(--accent-teal);color:white;cursor:pointer;font-weight:700;font-size:.9rem;">Save Referral</button>
+        <button onclick="window._saveReferral()" style="padding:9px;border-radius:8px;border:none;background:var(--teal);color:white;cursor:pointer;font-weight:700;font-size:.9rem;">Save Referral</button>
       </div>`);
   }
 
@@ -4472,7 +4472,7 @@ export async function pgReferrals(setTopbar) {
         <input id="nprov-fax" type="text" placeholder="Fax (optional)" style="padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--card-bg);color:var(--text);" />
         <input id="nprov-npi" type="text" placeholder="NPI (optional)" style="padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--card-bg);color:var(--text);" />
         <textarea id="nprov-notes" placeholder="Notes (optional)" rows="2" style="padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--card-bg);color:var(--text);resize:vertical;"></textarea>
-        <button onclick="window._saveReferralProvider()" style="padding:9px;border-radius:8px;border:none;background:var(--accent-teal);color:white;cursor:pointer;font-weight:700;font-size:.9rem;">Add Provider</button>
+        <button onclick="window._saveReferralProvider()" style="padding:9px;border-radius:8px;border:none;background:var(--teal);color:white;cursor:pointer;font-weight:700;font-size:.9rem;">Add Provider</button>
       </div>`);
   }
 
@@ -4599,7 +4599,7 @@ export async function pgReferrals(setTopbar) {
       <h3 style="margin:0 0 14px;font-size:1rem;font-weight:700;">Referral Letter — ${r.patientName}</h3>
       ${letterHtml}
       <div style="margin-top:16px;text-align:center;">
-        <button onclick="window._printReferralLetter()" style="padding:8px 24px;border-radius:8px;border:none;background:var(--accent-teal);color:white;cursor:pointer;font-weight:700;">Print Letter</button>
+        <button onclick="window._printReferralLetter()" style="padding:8px 24px;border-radius:8px;border:none;background:var(--teal);color:white;cursor:pointer;font-weight:700;">Print Letter</button>
       </div>`));
   };
 
@@ -5470,7 +5470,7 @@ function _recBuildLibraryHTML(filter = '') {
     <summary style="font-size:.8rem;cursor:pointer;color:var(--text-secondary)">Transcript (${(r.transcript || []).length} entries)</summary>
     <div class="rec-transcript-panel" style="margin-top:6px">${transcriptHtml || '<span style="color:var(--text-tertiary)">No transcript available.</span>'}</div>
   </details>
-  ${r.notes ? `<div style="margin-top:8px;font-size:.8rem;background:var(--hover-bg);padding:8px 12px;border-radius:6px;border-left:3px solid var(--accent-teal)"><strong>Notes:</strong> ${r.notes}</div>` : ''}
+  ${r.notes ? `<div style="margin-top:8px;font-size:.8rem;background:var(--hover-bg);padding:8px 12px;border-radius:6px;border-left:3px solid var(--teal)"><strong>Notes:</strong> ${r.notes}</div>` : ''}
 </div>`;
   }).join('');
 }
@@ -6285,7 +6285,7 @@ function _insEligibilityTabHTML() {
           <div style="font-size:.78rem;color:var(--text-secondary)">Inactive / Error</div>
         </div>
         <div class="card" style="text-align:center;padding:16px">
-          <div style="font-size:1.6rem;font-weight:700;color:var(--accent-teal)">${checks.length}</div>
+          <div style="font-size:1.6rem;font-weight:700;color:var(--teal)">${checks.length}</div>
           <div style="font-size:.78rem;color:var(--text-secondary)">Total Checks</div>
         </div>
       </div>
@@ -6381,7 +6381,7 @@ function _insPATabHTML(filterStatus, filterPayer, filterClinician) {
         <div>
           <div style="font-weight:600;font-size:.9rem">${p.cptCode} — <span style="color:var(--text-secondary);font-size:.82rem">${p.patientName}</span></div>
           <div style="font-size:.78rem;color:var(--text-secondary)">${p.payer} · ${p.clinician} · Dx: ${p.diagnosisCode}</div>
-          ${p.authNumber ? `<div style="font-size:.78rem;color:var(--accent-teal)">Auth #: ${p.authNumber}</div>` : ''}
+          ${p.authNumber ? `<div style="font-size:.78rem;color:var(--teal)">Auth #: ${p.authNumber}</div>` : ''}
         </div>
         ${_insStatusBadge(p.status)}
       </div>
@@ -6458,7 +6458,7 @@ function _insClaimsBoardHTML() {
       <div style="font-size:.72rem;color:var(--text-secondary)">Total Denied</div>
     </div>
     <div class="card" style="flex:1;min-width:120px;padding:12px;text-align:center">
-      <div style="font-size:1.1rem;font-weight:700;color:var(--accent-teal)">${collectionRate}%</div>
+      <div style="font-size:1.1rem;font-weight:700;color:var(--teal)">${collectionRate}%</div>
       <div style="font-size:.72rem;color:var(--text-secondary)">Collection Rate</div>
     </div>
   </div>
@@ -6567,7 +6567,7 @@ function _insRenderTab(tab) {
   document.querySelectorAll('.ins-tab-btn').forEach(b => {
     const active = b.dataset.tab === tab;
     b.classList.toggle('active', active);
-    b.style.borderBottom = active ? '2px solid var(--accent-teal)' : '2px solid transparent';
+    b.style.borderBottom = active ? '2px solid var(--teal)' : '2px solid transparent';
   });
 }
 
@@ -6591,7 +6591,7 @@ export async function pgInsuranceVerification(setTopbar) {
       <div style="display:flex;gap:0;margin-bottom:18px;border-bottom:1px solid var(--border)">
         <button class="ins-tab-btn btn btn-ghost active" data-tab="eligibility"
           onclick="window._insTab('eligibility')"
-          style="border-radius:6px 6px 0 0;border-bottom:2px solid var(--accent-teal)">Eligibility</button>
+          style="border-radius:6px 6px 0 0;border-bottom:2px solid var(--teal)">Eligibility</button>
         <button class="ins-tab-btn btn btn-ghost" data-tab="priorauth"
           onclick="window._insTab('priorauth')"
           style="border-radius:6px 6px 0 0;border-bottom:2px solid transparent">Prior Auth</button>
@@ -6626,7 +6626,7 @@ export async function pgInsuranceVerification(setTopbar) {
     }
     const resultEl = document.getElementById('ins-chk-result');
     if (resultEl) resultEl.innerHTML = `<div style="margin-top:12px;display:flex;align-items:center;gap:8px;color:var(--text-secondary)">
-      <div style="width:18px;height:18px;border:2px solid var(--accent-teal);border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0"></div>
+      <div style="width:18px;height:18px;border:2px solid var(--teal);border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0"></div>
       Checking eligibility with ${payer}…
     </div>`;
     try {
@@ -9784,7 +9784,7 @@ export async function pgHomeTaskManager(setTopbar) {
         </div>
         ${t.instructions ? `<div style="font-size:.74rem;color:var(--text-secondary);line-height:1.45;margin-bottom:6px">${t.instructions}</div>` : ''}
         ${t.freq ? `<div style="font-size:.7rem;color:var(--text-tertiary);margin-bottom:4px">Suggested: <strong>${t.freq}</strong></div>` : ''}
-        ${t.evidence ? `<div style="font-size:.68rem;color:var(--accent-blue);margin-bottom:8px;font-style:italic">${t.evidence}</div>` : ''}
+        ${t.evidence ? `<div style="font-size:.68rem;color:var(--blue);margin-bottom:8px;font-style:italic">${t.evidence}</div>` : ''}
         <button class="btn btn-ghost btn-sm" style="font-size:.72rem;width:100%" onclick="window._htmUseTemplate('${t.title.replace(/'/g,"\\'").replace(/"/g,"&quot;")}')">Use Template</button>
       </div>`).join('') : '';
 

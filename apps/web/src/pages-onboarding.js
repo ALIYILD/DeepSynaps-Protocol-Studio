@@ -688,7 +688,7 @@ function _wizStep2() {
               <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:var(--text-secondary)">
                 <input type="checkbox" id="wiz-mod-${m.replace(/\s/g,'-')}" value="${m}"
                   ${(saved.modalities || []).includes(m) ? 'checked' : ''}
-                  style="accent-color:var(--accent-teal,#00d4bc)" />
+                  style="accent-color:var(--teal,#00d4bc)" />
                 ${m}
               </label>`).join('')}
           </div>
@@ -757,8 +757,8 @@ function _wizStep4() {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
         <div style="border:2px solid var(--border);border-radius:12px;padding:24px;cursor:pointer;transition:border-color 0.2s;text-align:center"
           id="wiz-card-import"
-          onmouseover="this.style.borderColor='var(--accent-teal,#00d4bc)'"
-          onmouseout="this.style.borderColor='${_wiz.dataChoice==='import' ? 'var(--accent-teal,#00d4bc)' : 'var(--border)'}'"
+          onmouseover="this.style.borderColor='var(--teal,#00d4bc)'"
+          onmouseout="this.style.borderColor='${_wiz.dataChoice==='import' ? 'var(--teal,#00d4bc)' : 'var(--border)'}'"
           onclick="window._wizChooseImport()">
           <div style="font-size:32px;margin-bottom:12px">📥</div>
           <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:6px">Import Existing Data</div>
@@ -766,15 +766,15 @@ function _wizStep4() {
         </div>
         <div style="border:2px solid var(--border);border-radius:12px;padding:24px;cursor:pointer;transition:border-color 0.2s;text-align:center"
           id="wiz-card-sample"
-          onmouseover="this.style.borderColor='var(--accent-teal,#00d4bc)'"
-          onmouseout="this.style.borderColor='${_wiz.dataChoice==='sample' ? 'var(--accent-teal,#00d4bc)' : 'var(--border)'}'"
+          onmouseover="this.style.borderColor='var(--teal,#00d4bc)'"
+          onmouseout="this.style.borderColor='${_wiz.dataChoice==='sample' ? 'var(--teal,#00d4bc)' : 'var(--border)'}'"
           onclick="window._wizChooseSample()">
           <div style="font-size:32px;margin-bottom:12px">🎯</div>
           <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:6px">Start with Sample Data</div>
           <div style="font-size:12px;color:var(--text-secondary);line-height:1.5">We'll set up demo patients, protocols, and sessions so you can explore immediately</div>
         </div>
       </div>
-      <div id="wiz-data-msg" style="display:none;font-size:12.5px;color:var(--accent-teal,#00d4bc);text-align:center;margin-bottom:8px;padding:8px;background:rgba(0,212,188,0.06);border-radius:8px"></div>
+      <div id="wiz-data-msg" style="display:none;font-size:12.5px;color:var(--teal,#00d4bc);text-align:center;margin-bottom:8px;padding:8px;background:rgba(0,212,188,0.06);border-radius:8px"></div>
       <div style="display:flex;gap:12px;justify-content:space-between;align-items:center">
         <button class="btn onboarding-nav-btn" onclick="window._wizGo(3)">← Back</button>
         <div style="display:flex;gap:8px;align-items:center">
@@ -833,7 +833,7 @@ function _wizStep6() {
       ${_wizDots(6)}
       <div id="wiz-confetti-anchor"></div>
       <div style="width:80px;height:80px;border-radius:50%;background:rgba(0,212,188,0.12);border:2px solid rgba(0,212,188,0.4);display:flex;align-items:center;justify-content:center;font-size:36px;margin:0 auto 20px;box-shadow:0 0 32px rgba(0,212,188,0.25)">✓</div>
-      <h2 style="font-size:24px;font-weight:800;color:var(--accent-teal,#00d4bc);margin:0 0 8px">Setup Complete!</h2>
+      <h2 style="font-size:24px;font-weight:800;color:var(--teal,#00d4bc);margin:0 0 8px">Setup Complete!</h2>
       <div style="font-size:15px;color:var(--text-primary);margin-bottom:8px">Your <strong>${roleLabel}</strong> workspace is ready.</div>
       ${ptMsg}
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:28px">
@@ -976,7 +976,7 @@ window._wizChooseImport = function() {
   // Highlight selected card
   const importCard = document.getElementById('wiz-card-import');
   const sampleCard = document.getElementById('wiz-card-sample');
-  if (importCard) importCard.style.borderColor = 'var(--accent-teal,#00d4bc)';
+  if (importCard) importCard.style.borderColor = 'var(--teal,#00d4bc)';
   if (sampleCard) sampleCard.style.borderColor = 'var(--border)';
 };
 
@@ -990,7 +990,7 @@ window._wizChooseSample = function() {
   }
   const importCard = document.getElementById('wiz-card-import');
   const sampleCard = document.getElementById('wiz-card-sample');
-  if (sampleCard) sampleCard.style.borderColor = 'var(--accent-teal,#00d4bc)';
+  if (sampleCard) sampleCard.style.borderColor = 'var(--teal,#00d4bc)';
   if (importCard) importCard.style.borderColor = 'var(--border)';
 };
 
