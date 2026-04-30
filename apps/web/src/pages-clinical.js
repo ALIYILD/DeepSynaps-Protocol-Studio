@@ -10800,7 +10800,7 @@ function _dsCheckboxGroup(items, name) {
   let html = '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:4px 12px">';
   for (const item of items) {
     html += `<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);cursor:pointer;padding:3px 0">
-      <input type="checkbox" value="${item.id}" data-ds="${name}" style="accent-color:var(--accent-teal,#00d4bc);width:14px;height:14px">
+      <input type="checkbox" value="${item.id}" data-ds="${name}" style="accent-color:var(--teal,#00d4bc);width:14px;height:14px">
       ${item.label}
     </label>`;
   }
@@ -10814,7 +10814,7 @@ function _dsRecCard(rec) {
   const hasWarnings = rec.warnings.length > 0;
 
   const condPills = rec.conditions.map(c =>
-    `<span style="background:rgba(0,212,188,0.12);color:var(--accent-teal,#00d4bc);padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500">${c}</span>`
+    `<span style="background:rgba(0,212,188,0.12);color:var(--teal,#00d4bc);padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500">${c}</span>`
   ).join('');
 
   const warnPills = rec.warnings.map(w =>
@@ -10838,7 +10838,7 @@ function _dsRecCard(rec) {
     <div style="margin-bottom:8px">
       <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-tertiary);margin-bottom:3px">
         <span>Match Score</span>
-        <span style="font-weight:600;color:var(--accent-teal,#00d4bc)">${rec.matchScore}%</span>
+        <span style="font-weight:600;color:var(--teal,#00d4bc)">${rec.matchScore}%</span>
       </div>
       <div class="rec-match-bar"><div class="rec-match-fill" style="width:${rec.matchScore}%"></div></div>
     </div>
@@ -11353,7 +11353,7 @@ function _ppRenderTabs(activeTab) {
   const tabs = ['demographics', 'insurance', 'medications', 'allergies', 'history', 'notes', 'assessments'];
   const labels = { demographics: 'Demographics', insurance: 'Insurance', medications: 'Medications', allergies: 'Allergies', history: 'Treatment History', notes: 'Notes', assessments: 'Assessments' };
   return `<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px;overflow-x:auto" role="tablist">
-    ${tabs.map(t => `<button role="tab" aria-selected="${t === activeTab}" class="btn" style="border-radius:0;border:none;border-bottom:${t === activeTab ? '2px solid var(--accent-teal)' : '2px solid transparent'};margin-bottom:-2px;padding:10px 18px;font-size:.875rem;font-weight:${t === activeTab ? '600' : '400'};color:${t === activeTab ? 'var(--accent-teal)' : 'var(--text-secondary)'};white-space:nowrap;background:none" onclick="window._profileTab('${t}')">${labels[t]}</button>`).join('')}
+    ${tabs.map(t => `<button role="tab" aria-selected="${t === activeTab}" class="btn" style="border-radius:0;border:none;border-bottom:${t === activeTab ? '2px solid var(--teal)' : '2px solid transparent'};margin-bottom:-2px;padding:10px 18px;font-size:.875rem;font-weight:${t === activeTab ? '600' : '400'};color:${t === activeTab ? 'var(--teal)' : 'var(--text-secondary)'};white-space:nowrap;background:none" onclick="window._profileTab('${t}')">${labels[t]}</button>`).join('')}
   </div>`;
 }
 
@@ -11528,9 +11528,9 @@ function _ppRenderHistory(profile, editMode) {
                   ${h.outcome != null ? `<div style="display:flex;align-items:center;gap:8px">
                     <span style="font-size:.75rem;color:var(--text-tertiary)">Outcome</span>
                     <div style="flex:1;max-width:160px;height:6px;background:var(--border);border-radius:3px;overflow:hidden">
-                      <div style="height:6px;border-radius:3px;background:var(--accent-teal);width:${h.outcome}%;transition:width .4s"></div>
+                      <div style="height:6px;border-radius:3px;background:var(--teal);width:${h.outcome}%;transition:width .4s"></div>
                     </div>
-                    <span style="font-size:.75rem;font-weight:600;color:var(--accent-teal)">${h.outcome}%</span>
+                    <span style="font-size:.75rem;font-weight:600;color:var(--teal)">${h.outcome}%</span>
                   </div>` : ''}
                 </div>
               </div>`).join('')}
@@ -11713,9 +11713,9 @@ export async function pgPatientProfile(setTopbar) {
         (name === 'allergies' && btn.textContent === 'Allergies') ||
         (name === 'notes' && btn.textContent === 'Notes') ||
         (name === 'assessments' && btn.textContent === 'Assessments');
-      btn.style.borderBottomColor = active ? 'var(--accent-teal)' : 'transparent';
+      btn.style.borderBottomColor = active ? 'var(--teal)' : 'transparent';
       btn.style.fontWeight        = active ? '600' : '400';
-      btn.style.color             = active ? 'var(--accent-teal)' : 'var(--text-secondary)';
+      btn.style.color             = active ? 'var(--teal)' : 'var(--text-secondary)';
     });
   };
 
@@ -11933,9 +11933,9 @@ export async function pgPatientProfile(setTopbar) {
     document.getElementById('pp-tab-content').innerHTML = _ppRenderTab(p, 'notes', true);
     document.querySelectorAll('[role="tab"]').forEach(btn => {
       const isNotes = btn.textContent.trim() === 'Notes';
-      btn.style.borderBottomColor = isNotes ? 'var(--accent-teal)' : 'transparent';
+      btn.style.borderBottomColor = isNotes ? 'var(--teal)' : 'transparent';
       btn.style.fontWeight        = isNotes ? '600' : '400';
-      btn.style.color             = isNotes ? 'var(--accent-teal)' : 'var(--text-secondary)';
+      btn.style.color             = isNotes ? 'var(--teal)' : 'var(--text-secondary)';
     });
     document.getElementById('pp-notes-area')?.focus();
     window._announce?.('Notes tab open — begin typing');

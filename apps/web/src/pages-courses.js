@@ -1662,7 +1662,7 @@ function renderNextSessionSuggestion(course, sessions = [], outcomes = []) {
   }
 
   const urgencyStyles = {
-    info:    { border: 'var(--accent-teal, #00d4bc)', bg: 'color-mix(in srgb,var(--accent-teal, #00d4bc) 8%,var(--card-bg, #1a2035))', label: '💡 Next Session Suggestion', labelColor: 'var(--accent-teal, #00d4bc)' },
+    info:    { border: 'var(--teal, #00d4bc)', bg: 'color-mix(in srgb,var(--teal, #00d4bc) 8%,var(--card-bg, #1a2035))', label: '💡 Next Session Suggestion', labelColor: 'var(--teal, #00d4bc)' },
     warn:    { border: '#f59e0b', bg: 'rgba(245,158,11,0.07)', label: '⚠ Clinical Alert', labelColor: '#f59e0b' },
     alert:   { border: '#ef4444', bg: 'rgba(239,68,68,0.07)', label: '🚨 Protocol Review Recommended', labelColor: '#ef4444' },
     success: { border: '#22c55e', bg: 'rgba(34,197,94,0.07)', label: '✓ Positive Progress', labelColor: '#22c55e' },
@@ -3931,7 +3931,7 @@ export async function pgSessionExecution(setTopbar, navigate) {
           liveWatchEl.innerHTML = `
             <div style="display:flex;flex-direction:column;gap:10px">
               ${coverage ? `<div style="padding:10px 12px;border-radius:8px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.18)">
-                <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--accent-teal,#10b981);margin-bottom:4px">Coverage</div>
+                <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--teal,#00d4bc);margin-bottom:4px">Coverage</div>
                 <div style="font-size:12px;color:var(--text-secondary)">Coverage <strong style="color:var(--text-primary)">${esc(String(coverage.coverage ?? 0))}%</strong> across <strong style="color:var(--text-primary)">${Number(coverage.paper_count || 0).toLocaleString()}</strong> papers${coverage.gap && coverage.gap !== 'None' ? ` · gap ${esc(coverage.gap)}` : ''}</div>
               </div>` : ''}
               ${template ? `<div style="padding:10px 12px;border-radius:8px;background:rgba(74,158,255,0.08);border:1px solid rgba(74,158,255,0.18)">
@@ -7865,7 +7865,7 @@ function _drawWaveform(svgId, amplitude, frequency) {
     const y = (H / 2) - amp * Math.sin((x / W) * cycles * 2 * Math.PI);
     pts.push(`${x},${y.toFixed(1)}`);
   }
-  svg.innerHTML = `<polyline points="${pts.join(' ')}" fill="none" stroke="var(--accent-teal)" stroke-width="2" stroke-linecap="round"/>`;
+  svg.innerHTML = `<polyline points="${pts.join(' ')}" fill="none" stroke="var(--teal)" stroke-width="2" stroke-linecap="round"/>`;
 }
 
 function _drawSparkline(svgId, data, color) {
@@ -7880,7 +7880,7 @@ function _drawSparkline(svgId, data, color) {
     const y = H - ((v - min) / range) * (H - 4) - 2;
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   });
-  svg.innerHTML = `<polyline points="${pts.join(' ')}" fill="none" stroke="${color || 'var(--accent-teal)'}" stroke-width="1.5" stroke-linecap="round"/>`;
+  svg.innerHTML = `<polyline points="${pts.join(' ')}" fill="none" stroke="${color || 'var(--teal)'}" stroke-width="1.5" stroke-linecap="round"/>`;
 }
 
 function _monitorUpdateUI() {
@@ -7935,7 +7935,7 @@ function _monitorUpdateUI() {
   _drawWaveform('monitor-waveform-svg', _monitorSession.params.amplitude, _monitorSession.params.frequency);
 
   // Sparklines
-  _drawSparkline('monitor-spark-amp', _monitorParamHistory.amplitude, 'var(--accent-teal)');
+  _drawSparkline('monitor-spark-amp', _monitorParamHistory.amplitude, 'var(--teal)');
   _drawSparkline('monitor-spark-freq', _monitorParamHistory.frequency, '#a78bfa');
   _drawSparkline('monitor-spark-imp', _monitorParamHistory.impedance, '#fb923c');
 }
@@ -8248,14 +8248,14 @@ function _monitorStartFormHTML() {
           </label>
 
           <div style="display:flex;flex-direction:column;gap:4px;font-size:.85rem;font-weight:600">
-            Starting Amplitude: <span id="monitor-form-amp-val" style="color:var(--accent-teal);font-weight:700">50 mA</span>
+            Starting Amplitude: <span id="monitor-form-amp-val" style="color:var(--teal);font-weight:700">50 mA</span>
             <input id="monitor-form-amp" type="range" min="0" max="100" step="1" value="50"
               oninput="document.getElementById('monitor-form-amp-val').textContent=this.value+' mA'"
               style="width:100%;margin:4px 0">
           </div>
 
           <div style="display:flex;flex-direction:column;gap:4px;font-size:.85rem;font-weight:600">
-            Starting Frequency: <span id="monitor-form-freq-val" style="color:var(--accent-teal);font-weight:700">10 Hz</span>
+            Starting Frequency: <span id="monitor-form-freq-val" style="color:var(--teal);font-weight:700">10 Hz</span>
             <input id="monitor-form-freq" type="range" min="0.5" max="40" step="0.5" value="10"
               oninput="document.getElementById('monitor-form-freq-val').textContent=this.value+' Hz'"
               style="width:100%;margin:4px 0">
@@ -8387,7 +8387,7 @@ function _monitorDashboardHTML() {
       <div>
         <div class="monitor-param-card" style="text-align:center">
           <div style="font-size:.75rem;color:var(--text-muted);margin-bottom:4px">ELAPSED TIME</div>
-          <div id="monitor-timer-big" style="font-size:2.8rem;font-weight:800;font-variant-numeric:tabular-nums;color:var(--accent-teal)">00:00</div>
+          <div id="monitor-timer-big" style="font-size:2.8rem;font-weight:800;font-variant-numeric:tabular-nums;color:var(--teal)">00:00</div>
           <div class="monitor-progress-bar">
             <div class="monitor-progress-fill" id="monitor-progress-fill" style="width:0%"></div>
           </div>
@@ -8831,7 +8831,7 @@ function _predResultHTML(result, ci, patientEvidence = null) {
       <div>
         <div style="font-size:.78rem;color:var(--text-muted);margin-bottom:4px">Model confidence: ${Math.round(confidence * 100)}%</div>
         <div style="background:var(--border,#334155);border-radius:6px;height:8px;overflow:hidden">
-          <div style="width:${Math.round(confidence * 100)}%;height:100%;background:var(--accent-teal,#10b981);border-radius:6px;transition:width .4s ease"></div>
+          <div style="width:${Math.round(confidence * 100)}%;height:100%;background:var(--teal,#00d4bc);border-radius:6px;transition:width .4s ease"></div>
         </div>
       </div>
 
@@ -8917,7 +8917,7 @@ function _predHistoryTableHTML() {
         ${withActual.length >= 2 ? `<span style="color:var(--text-muted);font-size:.78rem">Correlation: computed from ${withActual.length} follow-up entries</span>` : ''}
       </div>
       <button onclick="window._qqExportCSV()"
-        style="padding:6px 14px;background:var(--accent-teal,#10b981);color:#fff;border:none;border-radius:8px;font-size:.82rem;font-weight:600;cursor:pointer">
+        style="padding:6px 14px;background:var(--teal,#00d4bc);color:#fff;border:none;border-radius:8px;font-size:.82rem;font-weight:600;cursor:pointer">
         Export CSV
       </button>
     </div>
@@ -8951,7 +8951,7 @@ export async function pgOutcomePrediction(setTopbar) {
     <div style="padding:16px 0;max-width:1200px;margin:0 auto">
 
       <div style="margin-bottom:16px;padding:14px 16px;border-radius:12px;border:1px solid ${patientEvidence.live ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.22)'};background:${patientEvidence.live ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.08)'};font-size:12px;line-height:1.55;color:var(--text-secondary)">
-        <div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:${patientEvidence.live ? 'var(--accent-teal,#10b981)' : 'var(--amber,#f59e0b)'};margin-bottom:6px">Prediction context</div>
+        <div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:${patientEvidence.live ? 'var(--teal,#00d4bc)' : 'var(--amber,#f59e0b)'};margin-bottom:6px">Prediction context</div>
         ${patientEvidence.live
           ? `Using live patient evidence context for <strong style="color:var(--text-primary)">${_esc(patientEvidence.patientName || 'selected patient')}</strong>: ${patientEvidence.highlightCount} evidence highlight${patientEvidence.highlightCount === 1 ? '' : 's'}, ${patientEvidence.savedCitationCount} saved citation${patientEvidence.savedCitationCount === 1 ? '' : 's'}, ${patientEvidence.reportCount} report${patientEvidence.reportCount === 1 ? '' : 's'}, and ${patientEvidence.reportCitationCount} citation${patientEvidence.reportCitationCount === 1 ? '' : 's'} already staged for reports.${patientEvidence.phenotypeTags.length ? ` Phenotype tags: ${_esc(patientEvidence.phenotypeTags.slice(0, 5).join(' · '))}.` : ''}`
           : `This prediction workspace is currently using general evidence/corpus context only. Select a course with a resolvable patient if you want live patient evidence and report context to appear here.`}
@@ -8959,7 +8959,7 @@ export async function pgOutcomePrediction(setTopbar) {
 
       <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:1px solid var(--border)">
         <button id="pred-tab-predict" onclick="window._qqSwitchPredTab('predict')"
-          style="padding:8px 18px;background:var(--accent-teal,#10b981);color:#fff;border:none;border-radius:8px 8px 0 0;font-size:.875rem;font-weight:600;cursor:pointer">
+          style="padding:8px 18px;background:var(--teal,#00d4bc);color:#fff;border:none;border-radius:8px 8px 0 0;font-size:.875rem;font-weight:600;cursor:pointer">
           Predict &amp; Analyze
         </button>
         <button id="pred-tab-history" onclick="window._qqSwitchPredTab('history')"
@@ -9074,11 +9074,11 @@ export async function pgOutcomePrediction(setTopbar) {
 
             <div style="display:flex;gap:10px;flex-wrap:wrap">
               <button onclick="window._qqRunPrediction()"
-                style="flex:1;padding:10px;background:var(--accent-teal,#10b981);color:#fff;border:none;border-radius:8px;font-size:.875rem;font-weight:600;cursor:pointer">
+                style="flex:1;padding:10px;background:var(--teal,#00d4bc);color:#fff;border:none;border-radius:8px;font-size:.875rem;font-weight:600;cursor:pointer">
                 Run Prediction
               </button>
               <button id="pred-save-btn" onclick="window._qqSavePrediction()"
-                style="display:none;flex:1;padding:10px;background:var(--accent-blue,#3b82f6);color:#fff;border:none;border-radius:8px;font-size:.875rem;font-weight:600;cursor:pointer">
+                style="display:none;flex:1;padding:10px;background:var(--blue,#4a9eff);color:#fff;border:none;border-radius:8px;font-size:.875rem;font-weight:600;cursor:pointer">
                 Save Prediction
               </button>
             </div>
@@ -9114,7 +9114,7 @@ export async function pgOutcomePrediction(setTopbar) {
     const panelHistory = document.getElementById('pred-panel-history');
     const tabPredict   = document.getElementById('pred-tab-predict');
     const tabHistory   = document.getElementById('pred-tab-history');
-    const activeStyle  = 'var(--accent-teal,#10b981)';
+    const activeStyle  = 'var(--teal,#00d4bc)';
     if (tab === 'predict') {
       panelPredict.style.display = '';
       panelHistory.style.display = 'none';
@@ -9664,7 +9664,7 @@ export async function pgRulesEngine(setTopbar) {
 
     const tabStyle = (id) => {
       const active = _reActiveTab === id;
-      return `style="padding:8px 18px;border:none;border-radius:8px 8px 0 0;font-size:.9rem;font-weight:${active?'700':'500'};cursor:pointer;background:${active?'var(--card-bg)':'transparent'};color:${active?'var(--text-primary)':'var(--text-muted)'};border-bottom:${active?'2px solid var(--accent-teal)':'2px solid transparent'}"`;
+      return `style="padding:8px 18px;border:none;border-radius:8px 8px 0 0;font-size:.9rem;font-weight:${active?'700':'500'};cursor:pointer;background:${active?'var(--card-bg)':'transparent'};color:${active?'var(--text-primary)':'var(--text-muted)'};border-bottom:${active?'2px solid var(--teal)':'2px solid transparent'}"`;
     };
 
     let tabContent = '';
@@ -9737,7 +9737,7 @@ export async function pgRulesEngine(setTopbar) {
         <div style="border-bottom:2px solid var(--border);margin-bottom:16px;display:flex;gap:4px">
           <button ${tabStyle('rules')} onclick="window._reSwitchTab('rules')">Rules</button>
           <button ${tabStyle('log')} onclick="window._reSwitchTab('log')">
-            Alert Log ${undismissed > 0 ? `<span style="background:var(--accent-teal);color:#fff;border-radius:10px;padding:1px 7px;font-size:.7rem;margin-left:4px">${undismissed}</span>` : ''}
+            Alert Log ${undismissed > 0 ? `<span style="background:var(--teal);color:#fff;border-radius:10px;padding:1px 7px;font-size:.7rem;margin-left:4px">${undismissed}</span>` : ''}
           </button>
           <button ${tabStyle('test')} onclick="window._reSwitchTab('test')">Test Rules</button>
         </div>
@@ -9855,7 +9855,7 @@ export async function pgRulesEngine(setTopbar) {
       const undismissed = getAlertLog().filter(e => !e.dismissed).length;
       logTab.querySelector('span')?.remove();
       if (undismissed > 0) {
-        logTab.insertAdjacentHTML('beforeend', `<span style="background:var(--accent-teal);color:#fff;border-radius:10px;padding:1px 7px;font-size:.7rem;margin-left:4px">${undismissed}</span>`);
+        logTab.insertAdjacentHTML('beforeend', `<span style="background:var(--teal);color:#fff;border-radius:10px;padding:1px 7px;font-size:.7rem;margin-left:4px">${undismissed}</span>`);
       }
     }
   };
@@ -9938,9 +9938,9 @@ export async function pgRulesEngine(setTopbar) {
       panel.innerHTML = `<div style="color:var(--text-muted);font-size:.9rem">No rules matched this trigger with the provided context.</div>`;
     } else {
       panel.innerHTML = `
-        <div style="font-weight:600;margin-bottom:10px;color:var(--accent-teal)">🔔 ${fired.length} rule${fired.length > 1 ? 's' : ''} fired:</div>
+        <div style="font-weight:600;margin-bottom:10px;color:var(--teal)">🔔 ${fired.length} rule${fired.length > 1 ? 's' : ''} fired:</div>
         ${fired.map(r => `
-          <div style="margin-bottom:8px;padding:10px;background:var(--card-bg);border-radius:8px;border:1px solid var(--accent-teal)">
+          <div style="margin-bottom:8px;padding:10px;background:var(--card-bg);border-radius:8px;border:1px solid var(--teal)">
             <div style="font-weight:600;font-size:.9rem">${r.name}</div>
             <div style="font-size:.78rem;color:var(--text-muted);margin-top:4px">
               Actions: ${r.actions.map(a => `${_reActionLabel(a.type)} via ${a.channel}`).join(', ') || 'none'}
@@ -10165,7 +10165,7 @@ export async function pgAINoteAssistant(setTopbar) {
         <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px">
           ${tabs.map(tab => `<button onclick="window._aiSetPhraseTab('${tab}')"
             style="padding:4px 12px;border-radius:6px;font-size:0.78rem;font-weight:600;cursor:pointer;border:1px solid var(--border);
-            background:${_aiPhraseTab === tab ? 'var(--accent-teal,#00d4bc)' : 'var(--surface-2)'};
+            background:${_aiPhraseTab === tab ? 'var(--teal,#00d4bc)' : 'var(--surface-2)'};
             color:${_aiPhraseTab === tab ? '#000' : 'var(--text-primary)'}">${tab}</button>`).join('')}
         </div>
         <div id="ai-phrase-items">
@@ -10676,7 +10676,7 @@ function _ccrBuildSvgChart(outcomes) {
   const minSess = Math.min(...allSessions, 0);
   const sessRange = maxSess - minSess || 1;
 
-  const colors = ['var(--teal,#00d4bc)', 'var(--accent-blue,#3b82f6)', 'var(--accent-violet,#8b5cf6)', 'var(--accent-amber,#f59e0b)', 'var(--accent-rose,#f43f5e)'];
+  const colors = ['var(--teal,#00d4bc)', 'var(--blue,#4a9eff)', 'var(--violet,#9b7fff)', 'var(--amber,#ffb547)', 'var(--rose,#ff6b9d)'];
   const templateKeys = Object.keys(byTemplate);
 
   const toX = (s) => padL + ((s - minSess) / sessRange) * chartW;
