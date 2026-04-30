@@ -175,6 +175,8 @@ let _modQEEGAnalysis = null;
 async function loadQEEGAnalysis() { return (_modQEEGAnalysis ??= await import('./pages-qeeg-analysis.js')); }
 let _modQEEGRawWorkbench = null;
 async function loadQEEGRawWorkbench() { return (_modQEEGRawWorkbench ??= await import('./pages-qeeg-raw-workbench.js')); }
+let _modQEEGRawLauncher = null;
+async function loadQEEGRawLauncher() { return (_modQEEGRawLauncher ??= await import('./pages-qeeg-raw-launcher.js')); }
 let _modMRIAnalysis = null;
 async function loadMRIAnalysis() { return (_modMRIAnalysis ??= await import('./pages-mri-analysis.js')); }
 let _modFusionWorkbench = null;
@@ -1544,7 +1546,27 @@ async function renderPage() {
     case 'protocol-studio':    { const m = await loadClinicalHubs(); await m.pgProtocolHub(setTopbar, navigate); break; }
     case 'brainmap-v2':        { const { pgBrainMapPlanner } = await loadClinicalTools(); await pgBrainMapPlanner(setTopbar, navigate); break; }
     case 'qeeg-analysis':      { const m = await loadQEEGAnalysis(); await m.pgQEEGAnalysis(setTopbar, navigate); break; }
-    case 'qeeg-raw-workbench': { const m = await loadQEEGRawWorkbench(); await m.pgQEEGRawWorkbench(setTopbar, navigate); break; }
+    case 'qeeg-raw-workbench': {
+      // Route shape:
+      //   qeeg-raw-workbench           → launcher (pick patient + recording / upload EDF)
+      //   qeeg-raw-workbench/<id>      → existing workbench loaded for that analysis
+      //   qeeg-raw-workbench/demo      → workbench with synthetic demo data
+      const hash = (window.location && window.location.hash) || '';
+      const m = hash.match(/qeeg-raw-workbench[\/=:]([A-Za-z0-9_\-]+)/);
+      let analysisId = m ? m[1] : null;
+      try {
+        const url = new URL(window.location.href);
+        if (!analysisId) analysisId = url.searchParams.get('analysisId');
+      } catch (_e) {}
+      if (!analysisId) {
+        const launcher = await loadQEEGRawLauncher();
+        await launcher.pgQEEGRawLauncher(setTopbar, navigate);
+      } else {
+        const m2 = await loadQEEGRawWorkbench();
+        await m2.pgQEEGRawWorkbench(setTopbar, navigate);
+      }
+      break;
+    }
     case 'mri-analysis':       { const m = await loadMRIAnalysis(); await m.pgMRIAnalysis(setTopbar, navigate); break; }
     case 'fusion-workbench':   { const m = await loadFusionWorkbench(); await m.pgFusionWorkbench(setTopbar, navigate); break; }
     case 'patient-timeline':   { const m = await loadPatientTimeline(); await m.pgPatientTimeline(setTopbar, navigate); break; }

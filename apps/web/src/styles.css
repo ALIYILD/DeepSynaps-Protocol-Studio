@@ -28545,3 +28545,249 @@ body[data-sr-open="1"] { overflow:hidden; }
   .pg-programs-table tbody tr { display:block; border-bottom:1px solid var(--border); padding:10px 0; }
 }
 
+
+/* ── qEEG Raw Workbench launcher (pages-qeeg-raw-launcher.js) ───────────── */
+.qrl-page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 32px 24px 80px;
+  font-family: var(--font-body);
+}
+.qrl-header { margin-bottom: 28px; }
+.qrl-header h1 {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+.qrl-sub {
+  font-size: 13px;
+  color: var(--text-secondary);
+  max-width: 60ch;
+  line-height: 1.5;
+}
+.qrl-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+@media (max-width: 760px) {
+  .qrl-grid { grid-template-columns: 1fr; }
+}
+.qrl-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 240px;
+}
+.qrl-card-disabled { opacity: 0.55; }
+.qrl-card-h { display: flex; align-items: center; justify-content: space-between; }
+.qrl-card-h h2 {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  margin: 0;
+}
+.qrl-srlabel {
+  position: absolute;
+  width: 1px; height: 1px; padding: 0; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.qrl-mini { font-size: var(--text-xs); color: var(--text-tertiary); }
+.qrl-input {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 9px 12px;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: var(--font-body);
+}
+.qrl-input:focus {
+  outline: none;
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px var(--teal-glow);
+}
+.qrl-patient-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 240px;
+  overflow: auto;
+}
+.qrl-patient {
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.qrl-patient:hover { background: var(--bg-surface); border-color: var(--border); }
+.qrl-patient-name { font-size: 13px; font-weight: 500; }
+.qrl-patient-id {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+.qrl-empty {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  padding: 10px 4px;
+}
+.qrl-selected {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+}
+.qrl-selected-name { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+.qrl-selected-id {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  margin-top: 2px;
+}
+.qrl-records {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+}
+.qrl-record {
+  text-align: left;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.qrl-record:hover { border-color: var(--teal); }
+.qrl-record-selected {
+  border-color: var(--teal);
+  background: var(--teal-ghost);
+}
+.qrl-record-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.qrl-record-label { font-size: 13px; font-weight: 500; }
+.qrl-record-status {
+  font-size: var(--text-xs);
+  text-transform: lowercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-surface-2);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+.qrl-status-completed, .qrl-status-ready { color: var(--green); }
+.qrl-status-processing, .qrl-status-pending { color: var(--amber); }
+.qrl-status-error, .qrl-status-failed { color: var(--red); }
+.qrl-record-meta {
+  display: flex;
+  gap: 6px;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+.qrl-or {
+  text-align: center;
+  position: relative;
+  margin: 4px 0;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.qrl-or::before, .qrl-or::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: calc(50% - 50px);
+  height: 1px;
+  background: var(--border);
+}
+.qrl-or::before { left: 0; }
+.qrl-or::after { right: 0; }
+.qrl-upload {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.qrl-upload:hover { border-color: var(--teal); background: var(--teal-ghost); }
+.qrl-upload[data-state="staged"] { border-style: solid; border-color: var(--teal); background: var(--teal-ghost); }
+.qrl-upload input[type="file"] { position: absolute; opacity: 0; pointer-events: none; }
+.qrl-upload-hint { font-size: 12px; color: var(--text-secondary); text-align: center; }
+.qrl-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.qrl-actions-right { display: flex; gap: 10px; }
+.qrl-btn {
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border-radius: var(--radius-md);
+  padding: 9px 18px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.qrl-btn:hover:not(:disabled) { border-color: var(--teal); }
+.qrl-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.qrl-btn-secondary { background: var(--bg-surface-2); }
+.qrl-btn-primary {
+  background: var(--teal);
+  color: #061318;
+  border-color: var(--teal);
+  font-weight: 600;
+}
+.qrl-btn-primary:hover:not(:disabled) {
+  background: var(--teal-dim);
+  border-color: var(--teal-dim);
+}
+.qrl-link {
+  background: none;
+  border: 0;
+  color: var(--teal);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  padding: 0;
+}
+.qrl-link:hover { color: var(--teal-dim); }
+.qrl-link-muted { color: var(--text-tertiary); }
+.qrl-link-muted:hover { color: var(--text-secondary); }
