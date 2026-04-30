@@ -162,3 +162,92 @@ test('helpers are still defined inside pages-clinical-hubs.js', async () => {
     assert.ok(src.includes(sym), 'pages-clinical-hubs.js must still define ' + sym);
   }
 });
+
+// ── Doctor-friendly redesign (2026-04-30): assert the new surfaces are wired.
+//    These are HTML-source assertions — the patients tab is a giant string
+//    template, so we grep the file for testids + handlers + behaviors.
+async function _readPgSrc() {
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const path = await import('node:path');
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  return readFileSync(path.join(here, 'pages-clinical-hubs.js'), 'utf8');
+}
+
+test('density toggle renders with testid and persists via localStorage', async () => {
+  const src = await _readPgSrc();
+  assert.ok(src.includes('data-testid="ds-patients-density-toggle"'), 'density toggle testid must exist');
+  assert.ok(src.includes("localStorage.setItem('ds.patients.density'"), 'density toggle must persist');
+  assert.ok(src.includes("localStorage.getItem('ds.patients.density')"), 'density toggle must read on init');
+  assert.ok(src.includes("window._phToggleDensity"), 'density toggle handler must exist');
+  // Compact is the default; the button label flips to the OTHER mode.
+  assert.ok(src.includes("'compact'"), 'compact density value must exist');
+  assert.ok(src.includes("'comfortable'"), 'comfortable density value must exist');
+});
+
+test('row renders 4 inline action icons with the spec data-actions', async () => {
+  const src = await _readPgSrc();
+  for (const a of ['start-session','quick-note','message','open-chart']) {
+    assert.ok(src.includes('data-action="' + a + '"'), 'row must include action icon ' + a);
+  }
+  // Each action icon wires a real handler (no silent buttons).
+  for (const fn of ['_phStartSession','_phQuickNote','_phMessage','_phOpenChart']) {
+    assert.ok(src.includes('window.' + fn), 'handler ' + fn + ' must be wired');
+  }
+});
+
+test("Today's Queue right panel renders with testid", async () => {
+  const src = await _readPgSrc();
+  assert.ok(src.includes('data-testid="ds-patients-todays-queue"'),
+    "Today's Queue panel must expose testid");
+  // Mini-section CTAs must exist and re-route to quick filters.
+  assert.ok(src.includes("Overdue Follow-ups"),  "Overdue Follow-ups mini-section");
+  assert.ok(src.includes("Adverse Events"),      "Adverse Events mini-section");
+});
+
+test('quick-filter chip row exposes testid + the spec chip ids', async () => {
+  const src = await _readPgSrc();
+  assert.ok(src.includes('data-testid="ds-patients-quick-filters"'), 'wrapper testid must exist');
+  // Chip ids are emitted at render-time via string concat — assert the
+  // attribute prefix exists, then assert each chip id appears in the chips
+  // definition array near the same handler.
+  assert.ok(src.includes("'data-quick-filter=\"' + ch.id"), 'data-quick-filter attribute must be emitted per chip');
+  for (const id of ['today','overdue','adverse','recent','all']) {
+    assert.ok(src.includes("id:'" + id + "'"), 'chip id ' + id + ' must exist in chips definition');
+  }
+  // Active chip uses the spec teal background.
+  assert.ok(src.includes('#1d6f7a'), 'active chip must use #1d6f7a');
+  // Quick-filter handler validates against the same id list.
+  for (const id of ['today','overdue','adverse','recent','all']) {
+    assert.ok(src.includes("'" + id + "'"), 'quick-filter id ' + id + ' must appear in source');
+  }
+});
+
+test('status pill component exists with the 4 priority levels', async () => {
+  const src = await _readPgSrc();
+  assert.ok(src.includes('data-testid="ds-patient-status-pill"'), 'pill testid must exist');
+  for (const kind of ['adverse','overdue','today','stable']) {
+    assert.ok(src.includes('data-status="' + kind + '"'), 'status kind ' + kind + ' must render');
+  }
+  // Spec colors must be present verbatim.
+  for (const c of ['#d6e8d6','#2f6b3a','#f6e6cb','#b8741a','#f3d4d0','#b03434','#F2EDE5','#6b6660']) {
+    assert.ok(src.includes(c), 'spec color ' + c + ' must exist');
+  }
+});
+
+test('shortcuts overlay exists with testid and binds the spec keys', async () => {
+  const src = await _readPgSrc();
+  assert.ok(src.includes('data-testid="ds-patients-shortcuts-modal"'), 'overlay testid must exist');
+  assert.ok(src.includes('window._phToggleShortcuts'), 'toggle handler must exist');
+  // Source of truth check for the kbd handler — slash, j, k, Enter, n, s, ?.
+  for (const k of ["'/'", "'j'", "'k'", "'Enter'", "'n'", "'s'", "'?'"]) {
+    assert.ok(src.includes(k), 'shortcut binding for ' + k + ' must exist');
+  }
+});
+
+test('patient row uses 6-column grid (160px action strip)', async () => {
+  const src = await _readPgSrc();
+  // The action strip column widened from 90px/120px → 160px to fit 4 icons.
+  assert.ok(src.includes('1.8fr 1.1fr 1fr 1fr 1fr 160px'),
+    'row must use the new 6-column grid template (160px action strip)');
+});
