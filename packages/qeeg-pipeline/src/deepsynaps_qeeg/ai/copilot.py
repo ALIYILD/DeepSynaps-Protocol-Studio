@@ -4,11 +4,13 @@ Upgrade 10 in ``AI_UPGRADES.md`` / ``CONTRACT_V2.md`` §1.10. The WebSocket
 endpoint lives in ``apps/api/app/routers/qeeg_copilot_router.py``; this
 module exposes:
 
-1. Four tool functions the endpoint can dispatch to:
+1. Six tool functions the endpoint can dispatch to:
    * :func:`tool_search_papers`
    * :func:`tool_explain_feature`
+   * :func:`tool_explain_channel`
    * :func:`tool_compare_to_norm`
    * :func:`tool_get_recommendation_detail`
+   * :func:`tool_explain_medication`
 2. A safety gate (:func:`is_unsafe_query` + :data:`SAFETY_REFUSAL_PATTERNS`).
 3. A system-prompt template (:data:`SYSTEM_PROMPT_TEMPLATE`) with a
    :func:`render_system_prompt` helper that hydrates it from analysis
@@ -436,6 +438,43 @@ def tool_compare_to_norm(
 # ── Recommendation detail ───────────────────────────────────────────────────
 
 
+def tool_explain_medication(medication_name: str) -> dict[str, Any]:
+    """Return EEG-effect profile for a medication.
+
+    Uses the knowledge-base ``MedicationEEGAtlas`` to give deterministic,
+    citation-free advisory context about expected EEG changes.
+    """
+    if not medication_name:
+        return {"name": "", "drug_class": "", "eeg_effects": [], "clinical_note": ""}
+
+    try:
+        from deepsynaps_qeeg.knowledge import MedicationEEGAtlas
+    except Exception as exc:
+        log.warning("Knowledge layer unavailable for tool_explain_medication: %s", exc)
+        return {"name": medication_name, "drug_class": "", "eeg_effects": [], "clinical_note": ""}
+
+    profile = MedicationEEGAtlas.lookup(medication_name)
+    if profile is None:
+        return {
+            "name": medication_name,
+            "drug_class": "Unknown",
+            "eeg_effects": [],
+            "affected_bands": [],
+            "clinical_note": "No EEG-effect profile found for this medication.",
+        }
+
+    return {
+        "name": profile.name,
+        "drug_class": profile.drug_class,
+        "eeg_effects": list(profile.eeg_effects),
+        "affected_bands": list(profile.affected_bands),
+        "typical_channels": list(profile.typical_channels),
+        "onset_hours": profile.onset_hours,
+        "washout_days": profile.washout_days,
+        "clinical_note": profile.clinical_note,
+    }
+
+
 def tool_get_recommendation_detail(
     section: str,
     recommendation: dict[str, Any],
@@ -517,6 +556,7 @@ Tools available:
 - tool_explain_channel(channel): channel anatomy + expected artifacts
 - tool_compare_to_norm(feature_name, value, age, sex): centile lookup
 - tool_get_recommendation_detail(section, recommendation): protocol drill-down
+- tool_explain_medication(medication_name): medication EEG effects
 
 Current analysis context (id={analysis_id}):
 
@@ -651,6 +691,15 @@ def mock_llm_tool_dispatch(user_message: str, context: dict[str, Any]) -> dict[s
             "tool": "tool_get_recommendation_detail",
             "result": res,
             "reply": f"tool result: section={res.get('section')}",
+        }
+
+    if lower.startswith("medication:"):
+        med = text.split(":", 1)[1].strip()
+        res = tool_explain_medication(med)
+        return {
+            "tool": "tool_explain_medication",
+            "result": res,
+            "reply": f"tool result: {res.get('name', med)}",
         }
 
     return {"tool": None, "result": None, "reply": f"tool result: {text[:200]}"}

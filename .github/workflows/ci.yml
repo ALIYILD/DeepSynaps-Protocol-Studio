@@ -138,7 +138,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pytest-xdist pytest-timeout httpx
+          pip install pytest pytest-asyncio pytest-xdist pytest-timeout httpx
           pip install \
             -e packages/evidence \
             -e packages/core-schema \
@@ -203,7 +203,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pytest numpy pydantic
-          pip install -e apps/worker
+          pip install \
+            -e packages/generation-engine \
+            -e packages/render-engine \
+            -e apps/worker
       - name: Run worker tests
         working-directory: apps/worker
         run: python -m pytest -q --tb=short

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 
 def test_tools_schema_stability() -> None:
-    """Snapshot the 5 tool names + required fields."""
+    """Snapshot the 6 tool names + required fields."""
     from deepsynaps_qeeg.ai import copilot
 
     schema = copilot._tools_schema()
@@ -23,6 +23,7 @@ def test_tools_schema_stability() -> None:
         "tool_explain_channel",
         "tool_compare_to_norm",
         "tool_get_recommendation_detail",
+        "tool_explain_medication",
     ]
     by_name = {t["name"]: t for t in schema}
     assert by_name["tool_search_papers"]["input_schema"]["required"] == ["query"]
@@ -37,6 +38,9 @@ def test_tools_schema_stability() -> None:
     ) == {"feature_name", "value"}
     assert by_name["tool_get_recommendation_detail"]["input_schema"]["required"] == [
         "section"
+    ]
+    assert by_name["tool_explain_medication"]["input_schema"]["required"] == [
+        "medication_name"
     ]
 
 
@@ -107,6 +111,19 @@ def test_mock_dispatch_still_works() -> None:
     # Bare text (no prefix) -> echo with no tool.
     echo = copilot.mock_llm_tool_dispatch("hello there", {})
     assert echo["tool"] is None
+
+
+def test_mock_medication_prefix() -> None:
+    """Regression: medication: prefix routes to tool_explain_medication."""
+    from deepsynaps_qeeg.ai import copilot
+
+    res = copilot.mock_llm_tool_dispatch("medication: lorazepam", {})
+    assert res["tool"] == "tool_explain_medication"
+    assert "lorazepam" in res["reply"].lower() or "Benzodiazepines" in res["reply"]
+
+    unknown = copilot.mock_llm_tool_dispatch("medication: not_a_drug_xyz", {})
+    assert unknown["tool"] == "tool_explain_medication"
+    assert unknown["result"]["drug_class"] == "Unknown"
 
 
 def test_banned_word_sanitiser_rewrites_all_forms() -> None:
