@@ -460,7 +460,7 @@ function _renderWorkspaceRatioRail(ratios) {
         featureSummary: [{ name: item.label, value: val, modality: 'qEEG', direction: 'observed', contribution: 0.18 }],
       }),
     });
-    html += '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
+    html += '<div style="padding:10px 12px;border-radius:10px;background:var(--surface-tint-1);border:1px solid var(--border)">'
       + '<div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em">' + esc(item.label) + '</div>'
       + '<div style="font-size:18px;font-weight:700;margin-top:4px">' + (typeof val === 'number' ? val.toFixed(2) : esc(val)) + '</div>'
       + '<div style="font-size:11px;color:var(--text-secondary);margin-top:2px">' + esc(item.ref) + '</div>'
@@ -483,11 +483,11 @@ function _renderWorkspacePrimaryLens(data, bands, normDev, state) {
       return '<div style="display:grid;grid-template-columns:minmax(0,1.35fr) minmax(260px,.85fr);gap:16px;align-items:start">'
         + '<div style="overflow-x:auto">' + renderConnectivityMatrix(matrix, d.channels, { band: state.band + ' coherence', size: 420 }) + '</div>'
         + '<div style="display:flex;flex-direction:column;gap:12px">'
-        + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
+        + '<div style="padding:12px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
         + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Spatial network view</div>'
         + renderConnectivityBrainMap(topEdges, { band: state.band + ' coherence', size: 260, threshold: 0 })
         + '</div>'
-        + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
+        + '<div style="padding:12px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
         + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Strongest pairs</div>'
         + topEdges.map(function (edge) {
           return '<div style="display:flex;justify-content:space-between;gap:12px;font-size:12px;padding:4px 0;color:var(--text-secondary)">'
@@ -496,14 +496,14 @@ function _renderWorkspacePrimaryLens(data, bands, normDev, state) {
         }).join('')
         + '</div></div></div>';
     }
-    return '<div style="padding:24px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px dashed rgba(255,255,255,0.12);font-size:13px;color:var(--text-secondary)">Run advanced connectivity analyses to unlock the connectivity lens.</div>';
+    return '<div style="padding:24px;border-radius:12px;background:var(--surface-tint-1);border:1px dashed rgba(255,255,255,0.12);font-size:13px;color:var(--text-secondary)">Run advanced connectivity analyses to unlock the connectivity lens.</div>';
   }
   if (state.lens === 'asymmetry') {
     if (data && data.asymmetry_detail && data.asymmetry_detail.regions && typeof renderAsymmetryMap === 'function') {
       var regions = Object.keys(data.asymmetry_detail.regions || {});
       return '<div style="display:grid;grid-template-columns:minmax(0,1.2fr) minmax(240px,.8fr);gap:16px;align-items:start">'
-        + '<div style="text-align:center;padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">' + renderAsymmetryMap(data.asymmetry_detail.regions) + '</div>'
-        + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
+        + '<div style="text-align:center;padding:12px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">' + renderAsymmetryMap(data.asymmetry_detail.regions) + '</div>'
+        + '<div style="padding:12px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
         + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Asymmetry regions</div>'
         + regions.map(function (region) {
           return '<div style="display:flex;justify-content:space-between;gap:12px;font-size:12px;padding:4px 0;color:var(--text-secondary)">'
@@ -514,7 +514,7 @@ function _renderWorkspacePrimaryLens(data, bands, normDev, state) {
         }).join('')
         + '</div></div>';
     }
-    return '<div style="padding:24px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px dashed rgba(255,255,255,0.12);font-size:13px;color:var(--text-secondary)">No asymmetry region data available for this session.</div>';
+    return '<div style="padding:24px;border-radius:12px;background:var(--surface-tint-1);border:1px dashed rgba(255,255,255,0.12);font-size:13px;color:var(--text-secondary)">No asymmetry region data available for this session.</div>';
   }
   if (state.lens === 'biomarkers') {
     var biomarkerHtml = '';
@@ -528,13 +528,13 @@ function _renderWorkspacePrimaryLens(data, bands, normDev, state) {
       biomarkerHtml += renderSignalDeviationChart(data.signal_deviations);
     }
     if (biomarkerHtml) {
-      return '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">' + biomarkerHtml + '</div>';
+      return '<div style="padding:12px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">' + biomarkerHtml + '</div>';
     }
-    return '<div style="padding:24px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px dashed rgba(255,255,255,0.12);font-size:13px;color:var(--text-secondary)">No biomarker visualization is available yet for this session.</div>';
+    return '<div style="padding:24px;border-radius:12px;background:var(--surface-tint-1);border:1px dashed rgba(255,255,255,0.12);font-size:13px;color:var(--text-secondary)">No biomarker visualization is available yet for this session.</div>';
   }
   var lensDomain = _getTopomapValueDomain(state.band, state.metric, [metricMap]);
   return '<div style="display:grid;grid-template-columns:minmax(0,1.25fr) minmax(220px,.75fr);gap:16px;align-items:start">'
-    + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
+    + '<div style="padding:12px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
     + renderTopoHeatmap(metricMap, Object.assign({
       band: state.band + ' ' + (state.metric === 'zscore' ? 'z-score' : 'relative power'),
       unit: state.metric === 'zscore' ? 'z' : '%',
@@ -543,12 +543,12 @@ function _renderWorkspacePrimaryLens(data, bands, normDev, state) {
     }, _getTopomapLegendOptions(state.metric, lensDomain)))
     + '</div>'
     + '<div style="display:flex;flex-direction:column;gap:12px">'
-    + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
+    + '<div style="padding:12px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
     + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">10-20 anchor map</div>'
     + renderBrainMap10_20({ size: 250, highlightSites: headHighlights })
     + '<div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">Highlighted channels are the strongest current ' + esc(state.metric === 'zscore' ? 'normative deviations' : 'spectral contributors') + ' for ' + esc(state.band) + '.</div>'
     + '</div>'
-    + '<div style="padding:12px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
+    + '<div style="padding:12px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
     + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Top channels</div>'
     + (sortedChannels.length ? sortedChannels.slice(0, 8).map(function (row, index) {
       return '<div style="display:flex;justify-content:space-between;gap:12px;font-size:12px;padding:4px 0;color:var(--text-secondary)">'
@@ -621,13 +621,13 @@ function renderAnalysisWorkspace(data, bands, ratios, artifact, normDev, analyse
       + '<div style="display:grid;grid-template-columns:minmax(0,1.65fr) minmax(300px,.9fr);gap:16px;align-items:start">'
         + '<div style="display:flex;flex-direction:column;gap:16px">'
           + _renderWorkspacePrimaryLens(data, bands, normDev, state)
-          + '<div style="padding:12px 14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
+          + '<div style="padding:12px 14px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
             + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Lens guidance</div>'
             + '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6">Use <strong>' + esc(QEEG_WORKSPACE_LENS_META[state.lens].label) + '</strong> to inspect the dominant pattern in ' + esc(state.band) + '. Switch to z-score when you want deviation from the normative baseline rather than raw distribution.</div>'
           + '</div>'
         + '</div>'
         + '<div style="display:flex;flex-direction:column;gap:12px">'
-          + '<div style="padding:14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
+          + '<div style="padding:14px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
             + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Session summary</div>'
             + '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;font-size:12px;color:var(--text-secondary)">'
               + '<div><div style="color:var(--text-tertiary)">Recording</div><div style="color:var(--text-primary);font-weight:600">' + esc(data.original_filename || 'qEEG session') + '</div></div>'
@@ -637,7 +637,7 @@ function renderAnalysisWorkspace(data, bands, ratios, artifact, normDev, analyse
             + '</div>'
           + '</div>'
           + (ratioRail ? '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px">' + ratioRail + '</div>' : '')
-          + '<div style="padding:14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
+          + '<div style="padding:14px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
             + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Normative severity</div>'
             + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px">'
               + badge(normSummary.significant + ' significant', normSummary.significant ? 'var(--amber)' : 'var(--green)')
@@ -646,11 +646,11 @@ function renderAnalysisWorkspace(data, bands, ratios, artifact, normDev, analyse
             + '</div>'
             + '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6">Significant means |z| >= 2. Mild means |z| between 1 and 2. Review z-score mode before relying on narrative interpretation.</div>'
           + '</div>'
-          + (comparison ? '<div style="padding:14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
+          + (comparison ? '<div style="padding:14px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
               + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Compare readiness</div>'
               + renderCompareSelectionSummary(comparison.baseline, comparison.followup)
             + '</div>' : '')
-          + '<div style="padding:14px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
+          + '<div style="padding:14px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
             + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Next actions</div>'
             + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
               + '<button class="btn btn-sm btn-outline" aria-label="Open AI report for this analysis" onclick="window._qeegSwitchTab(\'report\')">Open AI report</button>'
@@ -700,10 +700,10 @@ function renderQEEGSessionRail(data, options) {
       + '</div>'
     + '</div>'
     + '<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px">'
-      + '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid var(--border)"><div style="font-size:11px;color:var(--text-tertiary)">TBR</div><div style="font-size:18px;font-weight:700;margin-top:4px">' + (ratios.theta_beta_ratio != null ? Number(ratios.theta_beta_ratio).toFixed(2) : 'N/A') + '</div></div>'
-      + '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid var(--border)"><div style="font-size:11px;color:var(--text-tertiary)">PAF</div><div style="font-size:18px;font-weight:700;margin-top:4px">' + (ratios.alpha_peak_frequency_hz != null ? Number(ratios.alpha_peak_frequency_hz).toFixed(2) + ' Hz' : 'N/A') + '</div></div>'
-      + '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid var(--border)"><div style="font-size:11px;color:var(--text-tertiary)">FAA</div><div style="font-size:18px;font-weight:700;margin-top:4px">' + (ratios.frontal_alpha_asymmetry != null ? Number(ratios.frontal_alpha_asymmetry).toFixed(2) : 'N/A') + '</div></div>'
-      + '<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid var(--border)"><div style="font-size:11px;color:var(--text-tertiary)">Normative</div><div style="font-size:18px;font-weight:700;margin-top:4px;color:' + (normSummary.significant ? 'var(--amber)' : 'var(--green)') + '">' + normSummary.significant + ' high</div></div>'
+      + '<div style="padding:10px 12px;border-radius:10px;background:var(--surface-tint-1);border:1px solid var(--border)"><div style="font-size:11px;color:var(--text-tertiary)">TBR</div><div style="font-size:18px;font-weight:700;margin-top:4px">' + (ratios.theta_beta_ratio != null ? Number(ratios.theta_beta_ratio).toFixed(2) : 'N/A') + '</div></div>'
+      + '<div style="padding:10px 12px;border-radius:10px;background:var(--surface-tint-1);border:1px solid var(--border)"><div style="font-size:11px;color:var(--text-tertiary)">PAF</div><div style="font-size:18px;font-weight:700;margin-top:4px">' + (ratios.alpha_peak_frequency_hz != null ? Number(ratios.alpha_peak_frequency_hz).toFixed(2) + ' Hz' : 'N/A') + '</div></div>'
+      + '<div style="padding:10px 12px;border-radius:10px;background:var(--surface-tint-1);border:1px solid var(--border)"><div style="font-size:11px;color:var(--text-tertiary)">FAA</div><div style="font-size:18px;font-weight:700;margin-top:4px">' + (ratios.frontal_alpha_asymmetry != null ? Number(ratios.frontal_alpha_asymmetry).toFixed(2) : 'N/A') + '</div></div>'
+      + '<div style="padding:10px 12px;border-radius:10px;background:var(--surface-tint-1);border:1px solid var(--border)"><div style="font-size:11px;color:var(--text-tertiary)">Normative</div><div style="font-size:18px;font-weight:700;margin-top:4px;color:' + (normSummary.significant ? 'var(--amber)' : 'var(--green)') + '">' + normSummary.significant + ' high</div></div>'
     + '</div>'
   + '</div>';
 }
@@ -2594,7 +2594,7 @@ function _renderComprehensiveReport(report, analysis, savedEvidenceCitations) {
     regionOrder.forEach(function (reg) {
       if (!obs[reg]) return;
       var regColor = regionColors[reg] || 'var(--teal)';
-      obsHtml += '<div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:12px;border-left:3px solid ' + regColor + '">'
+      obsHtml += '<div style="background:var(--surface-tint-1);border-radius:8px;padding:12px;border-left:3px solid ' + regColor + '">'
         + '<div style="font-weight:700;font-size:12px;text-transform:uppercase;color:' + regColor + ';margin-bottom:4px">' + esc(reg) + '</div>'
         + '<div style="font-size:12px;color:var(--text-secondary)">' + esc(obs[reg]) + '</div></div>';
     });
@@ -2766,14 +2766,14 @@ function _renderComprehensiveReport(report, analysis, savedEvidenceCitations) {
     if (bioMetrics.length) {
       bioHtml += '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:12px">';
       bioMetrics.forEach(function (m) {
-        bioHtml += '<div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:12px 16px;border:1px solid var(--border);min-width:160px">'
+        bioHtml += '<div style="background:var(--surface-tint-1);border-radius:8px;padding:12px 16px;border:1px solid var(--border);min-width:160px">'
           + '<div style="font-size:18px;font-weight:700;color:var(--text-primary)">' + esc(m.value) + '</div>'
           + '<div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">' + esc(m.label) + '</div></div>';
       });
       bioHtml += '</div>';
     }
     // Disclaimer
-    bioHtml += '<div style="margin-top:12px;padding:10px;background:rgba(255,255,255,0.03);border-radius:6px;border:1px solid var(--border);font-size:11px;color:var(--text-tertiary);font-style:italic">'
+    bioHtml += '<div style="margin-top:12px;padding:10px;background:var(--surface-tint-1);border-radius:6px;border:1px solid var(--border);font-size:11px;color:var(--text-tertiary);font-style:italic">'
       + 'These biomarkers reflect momentary patterns in brainwave activity based on mathematical models. They are not diagnostic conclusions.</div>';
     html += card('Biomarker Analysis', bioHtml);
   }
@@ -2865,7 +2865,7 @@ function _demoBanner() {
 // reviewing clinician cannot miss them. These are static strings — they are
 // not gated on demo mode and never disappear once the analyzer renders.
 function _qeegClinicalSafetyFooter() {
-  return '<div data-testid="qeeg-safety-footer" class="qeeg-safety-footer" style="margin-top:24px;padding:14px 16px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border);font-size:12px;color:var(--text-secondary);line-height:1.6">'
+  return '<div data-testid="qeeg-safety-footer" class="qeeg-safety-footer" style="margin-top:24px;padding:14px 16px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border);font-size:12px;color:var(--text-secondary);line-height:1.6">'
     + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-tertiary);margin-bottom:6px">Clinical safety disclaimers</div>'
     + '<ul style="margin:0;padding-left:18px">'
     + '<li>qEEG findings <strong>support clinical decision-making and require clinician review</strong>.</li>'
@@ -4135,7 +4135,7 @@ function renderClinicalInfo(patient, medHistory) {
   const s = (medHistory && medHistory.sections) || {};
 
   // Demographics strip
-  let html = '<div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:16px;margin-bottom:16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">'
+  let html = '<div style="background:var(--surface-tint-1);border-radius:10px;padding:16px;margin-bottom:16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">'
     + '<div style="flex:1;min-width:160px">'
     + '<div style="font-size:18px;font-weight:700">' + esc((patient.first_name || '') + ' ' + (patient.last_name || '')) + '</div>'
     + '<div style="font-size:12px;color:var(--text-tertiary);margin-top:2px">'
@@ -4317,7 +4317,7 @@ async function handleUpload(file, patientId) {
       var sr = result.sample_rate_hz || 0;
       var chColor = chCount >= 19 ? 'var(--green)' : chCount >= 10 ? 'var(--amber)' : 'var(--red)';
       var srColor = sr >= 256 ? 'var(--green)' : sr >= 128 ? 'var(--amber)' : 'var(--red)';
-      var qualityHtml = '<div style="margin-top:12px;padding:12px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid var(--border)">'
+      var qualityHtml = '<div style="margin-top:12px;padding:12px;background:var(--surface-tint-1);border-radius:8px;border:1px solid var(--border)">'
         + '<div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Recording Quality</div>'
         + '<div style="display:flex;gap:12px;flex-wrap:wrap">';
       qualityHtml += '<div style="font-size:12px"><span style="color:' + chColor + ';font-weight:600">' + chCount + '</span> channels</div>'
@@ -4387,7 +4387,7 @@ function renderAnalysisList(analyses) {
     const status = a.analysis_status || 'pending';
     const statusColor = status === 'completed' ? 'var(--green)' : status === 'failed' ? 'var(--red)' : 'var(--amber)';
     const idShort = String(a.id || '').slice(0, 8);
-    html += '<div class="qeeg-analysis-row" style="background:rgba(255,255,255,0.03);border-radius:8px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;transition:background .15s">'
+    html += '<div class="qeeg-analysis-row" style="background:var(--surface-tint-1);border-radius:8px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;transition:background .15s">'
       + '<div style="min-width:0;flex:1;cursor:pointer" '
       + 'onclick="window._qeegSelectedId=\'' + a.id + '\';window._qeegSwitchTab(\'analysis\')">'
       + '<div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.original_filename || 'EDF File') + '</div>'
@@ -5426,15 +5426,15 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
     );
     learningHtml += card('Learning EEG Workflow',
       '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">'
-        + '<div style="padding:12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
+        + '<div style="padding:12px;border-radius:10px;background:var(--surface-tint-1);border:1px solid var(--border)">'
         + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--blue)">1. Check raw signal</div>'
         + '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-top:6px">Confirm artefact, montage, state, and basic morphology before trusting derived metrics.</div>'
         + '</div>'
-        + '<div style="padding:12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
+        + '<div style="padding:12px;border-radius:10px;background:var(--surface-tint-1);border:1px solid var(--border)">'
         + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--teal)">2. Review quantitative output</div>'
         + '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-top:6px">Map band-power, asymmetry, and normative deviations back to standard EEG language and age/state context.</div>'
         + '</div>'
-        + '<div style="padding:12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">'
+        + '<div style="padding:12px;border-radius:10px;background:var(--surface-tint-1);border:1px solid var(--border)">'
         + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--amber)">3. Escalate carefully</div>'
         + '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-top:6px">Suspicious rhythmic or sharply contoured events still require direct EEG review for evolution, field, and context.</div>'
         + '</div>'
@@ -5851,7 +5851,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
             if (strongestCorr.metric) {
               var direction = strongestCorr.value > 0 ? 'positive' : 'negative';
               var strength = Math.abs(strongestCorr.value) > 0.6 ? 'strong' : Math.abs(strongestCorr.value) > 0.3 ? 'moderate' : 'weak';
-              cHtml += '<div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:12px;border:1px solid var(--border)">'
+              cHtml += '<div style="background:var(--surface-tint-1);border-radius:8px;padding:12px;border:1px solid var(--border)">'
                 + '<div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Interpretation</div>'
                 + '<div style="font-size:12px;color:var(--text-secondary)">Strongest correlation: <strong>' + esc(strongestCorr.metric) + '</strong> and <strong>' + esc(strongestCorr.assessment) + '</strong> '
                 + '(r = ' + strongestCorr.value.toFixed(2) + ', ' + strength + ' ' + direction + '). '
@@ -5863,7 +5863,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
             corrData.correlations.forEach(function (c) {
               var trendColor = c.trend === 'improving' ? 'var(--green)' : c.trend === 'worsening' ? 'var(--red)' : 'var(--amber)';
               var changePfx = c.score_change > 0 ? '+' : '';
-              cHtml += '<div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:14px;border:1px solid var(--border)">'
+              cHtml += '<div style="background:var(--surface-tint-1);border-radius:10px;padding:14px;border:1px solid var(--border)">'
                 + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
                 + '<strong style="font-size:13px;color:var(--text-primary)">' + esc(c.assessment) + '</strong>'
                 + badge(c.trend, trendColor)
@@ -6077,7 +6077,7 @@ function renderComparison(comp) {
     corrData.correlations.forEach(function (c) {
       var trendColor = c.trend === 'improving' ? 'var(--green)' : c.trend === 'worsening' ? 'var(--red)' : 'var(--amber)';
       var changePfx = c.score_change > 0 ? '+' : '';
-      corrHtml += '<div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:14px;border:1px solid var(--border)">'
+      corrHtml += '<div style="background:var(--surface-tint-1);border-radius:10px;padding:14px;border:1px solid var(--border)">'
         + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
         + '<strong style="font-size:13px;color:var(--text-primary)">' + esc(c.assessment) + '</strong>'
         + badge(c.trend, trendColor)
@@ -6314,7 +6314,7 @@ function _renderAdvancedAnalyses(data, analysisId) {
     + '</div></div>';
 
   if (!adv || !adv.results || Object.keys(adv.results).length === 0) {
-    html += '<div style="text-align:center;padding:32px;background:rgba(255,255,255,0.03);border-radius:12px;border:1px dashed rgba(255,255,255,0.1)">'
+    html += '<div style="text-align:center;padding:32px;background:var(--surface-tint-1);border-radius:12px;border:1px dashed rgba(255,255,255,0.1)">'
       + '<div style="font-size:28px;margin-bottom:8px;opacity:0.5">&#x2699;</div>'
       + '<p style="color:var(--text-secondary);font-size:13px;margin-bottom:14px">Run 25 advanced analyses including connectivity, complexity, microstates, and more.</p>'
       + '<button class="btn btn-primary" id="qeeg-run-advanced-btn">Run Advanced Analyses</button>'
@@ -6567,7 +6567,7 @@ function _renderSingleAnalysis(slug, r) {
       ['A', 'B', 'C', 'D'].forEach(function (cls) {
         var c = d.classes[cls];
         if (!c) return;
-        html += '<div style="text-align:center;background:rgba(255,255,255,0.04);border-radius:6px;padding:8px">'
+        html += '<div style="text-align:center;background:var(--surface-tint-2);border-radius:6px;padding:8px">'
           + '<div style="font-size:18px;font-weight:700;color:var(--text-primary)">' + cls + '</div>'
           + '<div style="font-size:10px;color:var(--text-tertiary)">' + c.coverage_pct + '% coverage</div>'
           + '<div style="font-size:10px;color:var(--text-tertiary)">' + c.mean_duration_ms + 'ms</div>'
