@@ -433,6 +433,26 @@ export const api = {
     apiFetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}/video/end`, { method: 'POST' }),
   remoteMonitorSnapshot: (sessionId) =>
     apiFetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}/remote-monitor-snapshot`),
+  // ── Session Runner launch-audit endpoints (2026-04-30) ─────────────────
+  // Live telemetry — flagged is_demo:true when no real device is attached.
+  // Frontend must surface a banner so the clinician never mistakes
+  // rehearsal stub values for a real measurement.
+  getSessionTelemetry: (sessionId) =>
+    apiFetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}/telemetry`),
+  // NRS-SE comfort rating (0-10). Clinician input only — AI must NEVER
+  // auto-fill this.
+  recordSessionComfort: (sessionId, payload) =>
+    apiFetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}/comfort`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+  // Clinician sign-off — without it, downstream consumers treat the
+  // session record as an unsigned draft.
+  signSession: (sessionId, payload = {}) =>
+    apiFetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}/sign`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   setSessionImpedance: (sessionId, impedance_kohm) =>
     apiFetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}/impedance`, {
       method: 'POST',

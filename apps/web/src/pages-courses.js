@@ -2783,6 +2783,33 @@ export async function pgSessionExecution(setTopbar, navigate) {
 
   <div id="sex-root">
 
+    <!-- ── Clinical safety disclaimers (always visible) ────────────────── -->
+    <!-- launch-audit 2026-04-30: hard-coded clinician-facing reminders so
+         the runner never silently runs without governance copy on screen. -->
+    <div id="sex-safety-disclaimers" class="card" style="margin-bottom:12px;border:1px solid rgba(245,158,11,0.25);background:rgba(245,158,11,0.05)">
+      <div style="padding:10px 14px;font-size:11.5px;color:var(--text-secondary);line-height:1.5">
+        <div style="font-weight:600;color:var(--amber);margin-bottom:4px;font-size:12px">Clinical safety reminders</div>
+        <ul style="margin:0;padding-left:18px">
+          <li>Verify device, montage, and patient consent before starting.</li>
+          <li>Monitor patient throughout. Stop if an adverse event occurs.</li>
+          <li>Stimulation parameters require device-specific safety review.</li>
+          <li>Sessions are clinical decisions. AI suggestions are decision-support only.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ── Plan handoff banner (Brain Map Planner / qEEG Analyzer) ─────── -->
+    <!-- Populated by _seConsumePrefilledPlan() once a real plan was pushed
+         via window._rxPrefilledProto. Stays hidden when no plan was sent. -->
+    <div id="sex-plan-banner" style="display:none;margin-bottom:12px;padding:10px 14px;border-radius:6px;background:rgba(0,212,188,0.07);border:1px solid rgba(0,212,188,0.25);font-size:12px;color:var(--text-secondary)"></div>
+
+    <!-- ── Demo-mode banner (shown when no active courses) ─────────────── -->
+    <div id="sex-demo-banner" style="display:none;margin-bottom:12px;padding:10px 14px;border-radius:6px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);font-size:12px;color:var(--amber)">
+      <strong>Sample session — clinician review required.</strong>
+      No live courses are loaded. Any session saved from this view is flagged
+      <code style="font-size:11px">is_demo: true</code> and exports stamped DEMO.
+    </div>
+
     <!-- ── STEP 0: SELECT PATIENT ─────────────────────────────────────── -->
     <div id="sex-select">
       ${currentUser?.role === 'technician' ? `<div class="notice notice-info" style="margin-bottom:14px">◧ Technician mode — log session parameters only. Course management is handled by your supervising clinician.</div>` : ''}
@@ -2944,10 +2971,38 @@ export async function pgSessionExecution(setTopbar, navigate) {
             <div id="sex-consent-display" style="margin:0 16px 12px"></div>
             <!-- Begin button -->
             <div style="padding:0 16px 16px;display:flex;gap:10px;align-items:center">
-              <button id="sex-begin-btn" class="btn btn-primary" onclick="window._seSetPhase('active')" disabled style="opacity:0.5;flex:1">
+              <button id="sex-begin-btn" class="btn btn-primary" onclick="window._seBeginSession()" disabled style="opacity:0.5;flex:1">
                 Begin Session →
               </button>
               <button class="btn btn-sm" onclick="window._seSetPhase('select')">← Change</button>
+            </div>
+            <div id="sex-begin-blocker" style="display:none;padding:0 16px 12px;font-size:11.5px;color:var(--amber)"></div>
+          </div>
+
+          <!-- ── Impedance check + telemetry honesty (launch-audit 2026-04-30) ── -->
+          <div class="card" style="margin-bottom:12px">
+            <div class="sex-section-hd">
+              Impedance Check
+              <span id="sex-imp-status" style="font-size:11px;font-weight:400;color:var(--text-tertiary)">Not measured</span>
+            </div>
+            <div id="sex-telemetry-banner" style="display:none;margin:10px 16px;padding:8px 12px;border-radius:6px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);font-size:11.5px;color:var(--amber)">
+              <strong>DEMO TELEMETRY</strong> — clinician must verify on real device. Values shown below are deterministic stubs.
+            </div>
+            <div style="padding:0 16px 14px">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+                <label class="sex-field-lbl" style="margin:0">Impedance (kΩ)</label>
+                <input id="sex-imp-input" class="form-control sex-field-input" type="number" step="0.1" min="0" max="100" placeholder="e.g. 4.8" style="width:90px">
+                <button class="btn btn-sm" onclick="window._seMeasureImpedance()">Measure</button>
+                <button class="btn btn-sm" onclick="window._seSubmitImpedance()">Record</button>
+                <span id="sex-imp-readout" style="font-size:11.5px;color:var(--text-tertiary)"></span>
+              </div>
+              <div style="font-size:11px;color:var(--text-tertiary);line-height:1.5">
+                Threshold: ≤ 10 kΩ to begin. Above threshold requires written override below.
+              </div>
+              <div id="sex-imp-override-wrap" style="display:none;margin-top:8px">
+                <label class="sex-field-lbl">Override reason (required when impedance &gt; 10 kΩ)</label>
+                <textarea id="sex-imp-override" class="form-control" rows="2" placeholder="Clinical rationale for proceeding above threshold…" style="font-size:12px;margin-top:4px;resize:vertical"></textarea>
+              </div>
             </div>
           </div>
         </div>
@@ -3102,6 +3157,17 @@ export async function pgSessionExecution(setTopbar, navigate) {
                   ).join('')}
                 </div>
               </div>
+              <div style="margin-bottom:14px">
+                <div class="sex-obs-label">
+                  Comfort / Side-effect rating <span style="font-weight:400;color:var(--text-tertiary)">(NRS-SE 0–10, clinician input)</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
+                  <input id="sex-comfort-input" type="number" min="0" max="10" step="1" class="form-control sex-field-input" placeholder="0–10" style="width:80px">
+                  <input id="sex-comfort-note" class="form-control sex-field-input" placeholder="Verbatim patient quote (optional)…" style="flex:1">
+                  <button class="btn btn-sm" onclick="window._seRecordComfort()">Record NRS-SE</button>
+                </div>
+                <div id="sex-comfort-log" style="margin-top:6px;font-size:11.5px;color:var(--text-tertiary)"></div>
+              </div>
               <div>
                 <label class="sex-obs-label">
                   Patient Comments &amp; Notes
@@ -3110,6 +3176,11 @@ export async function pgSessionExecution(setTopbar, navigate) {
                   placeholder="Patient reports, observations during stimulation…"
                   style="font-size:12.5px;margin-top:6px"></textarea>
               </div>
+              <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn btn-sm" style="border-color:var(--amber);color:var(--amber)" onclick="window._seOpenAEReporter()">⚠ Report Adverse Event</button>
+                <button class="btn btn-sm" onclick="window._seAbortSession()">⏹ Abort Session</button>
+              </div>
+              <div id="sex-ae-active-panel" style="display:none;margin-top:10px"></div>
             </div>
           </div>
         </div>
@@ -3249,6 +3320,21 @@ export async function pgSessionExecution(setTopbar, navigate) {
             </div>
           </div>
 
+          <!-- Clinician sign-off (launch-audit 2026-04-30) ─────────────── -->
+          <div class="card" style="margin-bottom:12px">
+            <div class="sex-section-hd">
+              Clinician Sign-off
+              <span id="sex-sign-status" style="font-size:11px;font-weight:400;color:var(--text-tertiary)">Unsigned draft</span>
+            </div>
+            <div style="padding:0 16px 14px">
+              <div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:8px;line-height:1.5">
+                Sign-off marks this session record ready for billing review. Without it, the record is a draft.
+              </div>
+              <input id="sex-sign-note" class="form-control sex-field-input" placeholder="Optional sign-off note…" style="margin-bottom:8px">
+              <button class="btn btn-sm" onclick="window._seSignSession()" id="sex-sign-btn">✓ Sign session record</button>
+            </div>
+          </div>
+
           <!-- Next Actions -->
           <div class="card sex-actions-card" style="margin-bottom:12px">
             <div class="sex-section-hd">Next Actions</div>
@@ -3283,6 +3369,268 @@ export async function pgSessionExecution(setTopbar, navigate) {
   window._seCurrentPhase     = 'select';
   window._seSideEffects      = [];
   window._seCurrentTolerance = null;
+  // Session Runner launch-audit 2026-04-30 — runtime state.
+  window._seCurrentSessionId    = null;   // ClinicalSession.id once started
+  window._seImpedanceMeasured   = false;  // pre-flight gate
+  window._seImpedanceValue      = null;   // last recorded kΩ
+  window._seImpedanceOverride   = false;  // override granted (with reason)
+  window._seIsDemoMode          = false;  // no real plan / course
+  window._seHasRealDevice       = false;  // telemetry honesty
+  window._seIsSigned            = false;  // post-session sign-off
+  window._seComfortRatings      = [];     // [{nrs, note, at}]
+  window._sePrefilledPlan       = null;   // captured from _rxPrefilledProto
+
+  // ── Audit helper — surface 'session_runner' (launch-audit 2026-04-30) ──────
+  // Best-effort POST to /api/v1/qeeg-analysis/audit-events. NEVER throws,
+  // NEVER blocks UI. Surface whitelist extended server-side to allow this
+  // string. Audit-trail outages must not break clinical workflow.
+  window._seAudit = function(event, extra) {
+    try {
+      if (!api || typeof api.logAudit !== 'function') return;
+      const payload = Object.assign({
+        surface: 'session_runner',
+        event: String(event || 'unknown'),
+        analysis_id: window._seCurrentSessionId || null,
+        patient_id: window._seCurrentPatientId || null,
+        using_demo_data: !!window._seIsDemoMode,
+      }, extra || {});
+      const p = api.logAudit(payload);
+      if (p && typeof p.catch === 'function') p.catch(function() {});
+    } catch (_) { /* never break UI */ }
+  };
+
+  // ── Consume window._rxPrefilledProto (Brain Map Planner / qEEG handoff) ────
+  // The planner pushes a real plan into the global, then navigates here. We
+  // honor it by surfacing a banner + auto-selecting the course whose target
+  // matches the plan target when possible. Demo flag is set when no live
+  // course is found — saves are honestly flagged is_demo.
+  window._seConsumePrefilledPlan = function() {
+    const proto = window._rxPrefilledProto;
+    if (!proto || typeof proto !== 'object') return;
+    window._sePrefilledPlan = proto;
+    // Mark the global as consumed so a back-nav doesn't re-trigger it.
+    window._rxPrefilledProto = null;
+    const banner = document.getElementById('sex-plan-banner');
+    if (!banner) return;
+    const src = proto.source === 'brain-map-planner' ? 'Brain Map Planner'
+              : proto.source === 'designer'          ? 'Protocol Designer'
+              : (proto.source || 'plan');
+    const targetTxt = proto.target?.region_id || proto.target?.region || proto.target || '—';
+    const params = proto.parameters || {};
+    const paramTxt = [
+      params.frequency_hz ? params.frequency_hz + ' Hz' : null,
+      params.intensity ? params.intensity : null,
+      params.duration_min ? params.duration_min + ' min' : null,
+    ].filter(Boolean).join(' · ') || '—';
+    banner.style.display = '';
+    banner.innerHTML = '<strong style="color:var(--teal)">Plan handoff from ' + esc(src) + ':</strong> '
+      + 'target <strong>' + esc(targetTxt) + '</strong> · ' + esc(paramTxt)
+      + ' · clinician must verify against course before starting.';
+    window._seAudit('plan_loaded', { note: 'source=' + src + ' target=' + targetTxt });
+    // Try to auto-select a matching course if exactly one matches the target.
+    try {
+      const t = String(targetTxt || '').toLowerCase();
+      const matches = (window._seActiveCourses || []).filter(c =>
+        (c.target_region || '').toLowerCase().includes(t) ||
+        (c.coil_placement || '').toLowerCase().includes(t)
+      );
+      if (matches.length === 1) {
+        setTimeout(() => window._seSelectCourse(matches[0].id), 0);
+      }
+    } catch (_) {}
+  };
+
+  // ── Pre-flight gate guard for Begin Session ────────────────────────────────
+  // Hard governance: all 8 safety checks complete AND impedance recorded
+  // (≤ threshold OR override reason provided). Without both the button
+  // refuses to advance the phase. Replaces the prior naive ``onclick``
+  // that just called `_seSetPhase('active')` without the impedance gate.
+  window._seBeginSession = function() {
+    const blocker = document.getElementById('sex-begin-blocker');
+    const reasons = [];
+    const ids = ['sex-ck-identity','sex-ck-contra','sex-ck-consent','sex-ck-ae','sex-ck-assess','sex-ck-device','sex-ck-target','sex-ck-ready'];
+    const safetyCount = ids.filter(id => document.getElementById(id)?.checked).length;
+    if (safetyCount < 8) reasons.push('Complete all ' + (8 - safetyCount) + ' remaining safety check(s).');
+    if (!window._seImpedanceMeasured) reasons.push('Record an impedance measurement.');
+    if (window._seImpedanceMeasured && window._seImpedanceValue != null && window._seImpedanceValue > 10 && !window._seImpedanceOverride) {
+      reasons.push('Impedance ' + window._seImpedanceValue.toFixed(1) + ' kΩ exceeds 10 kΩ threshold — supply override reason.');
+    }
+    if (window._seConsentBlocked) reasons.push('No valid treatment consent on file.');
+    if (reasons.length > 0) {
+      if (blocker) { blocker.style.display = ''; blocker.innerHTML = '⚠ ' + reasons.map(esc).join('<br>'); }
+      window._seAudit('begin_blocked', { note: reasons.join(' | ') });
+      return;
+    }
+    if (blocker) blocker.style.display = 'none';
+    window._seAudit('session_started', {
+      note: 'impedance=' + (window._seImpedanceValue ?? '?') + ' override=' + (window._seImpedanceOverride ? 'yes' : 'no'),
+    });
+    window._seSetPhase('active');
+  };
+
+  // ── Impedance handlers (Phase 1) ───────────────────────────────────────────
+  // _seMeasureImpedance pulls a deterministic stub from the live telemetry
+  // endpoint when no real device is connected. The DEMO TELEMETRY banner is
+  // surfaced based on the server's is_demo flag — values are never random.
+  window._seMeasureImpedance = async function() {
+    const sessionId = window._seCurrentSessionId;
+    const banner = document.getElementById('sex-telemetry-banner');
+    const input = document.getElementById('sex-imp-input');
+    const readout = document.getElementById('sex-imp-readout');
+    if (!sessionId) {
+      // Without a backing ClinicalSession we still produce a deterministic
+      // demo number client-side and flag is_demo. This keeps the rehearsal
+      // workflow honest without lying to the clinician.
+      if (banner) banner.style.display = '';
+      window._seHasRealDevice = false;
+      const stub = (Math.abs((window._seCurrentCourseId || 'demo').split('').reduce((a,c)=>(a*31+c.charCodeAt(0))|0,0)) % 800) / 100 + 2;
+      const v = Math.round(stub * 10) / 10;
+      if (input) input.value = v.toFixed(1);
+      if (readout) readout.textContent = 'Stub reading ' + v.toFixed(1) + ' kΩ — clinician must verify.';
+      window._seAudit('impedance_measured', { note: 'stub=' + v + ' demo=true' });
+      return;
+    }
+    try {
+      const t = await api.getSessionTelemetry(sessionId);
+      window._seHasRealDevice = !t.is_demo;
+      if (banner) banner.style.display = t.is_demo ? '' : 'none';
+      if (t.impedance_kohm != null) {
+        if (input) input.value = Number(t.impedance_kohm).toFixed(1);
+        if (readout) readout.textContent = (t.is_demo ? 'Stub reading ' : 'Live device reading ') + Number(t.impedance_kohm).toFixed(1) + ' kΩ';
+      }
+      window._seAudit('impedance_measured', { note: 'value=' + t.impedance_kohm + ' demo=' + t.is_demo });
+    } catch (e) {
+      if (readout) readout.textContent = 'Telemetry unavailable: ' + (e?.message || 'error');
+    }
+  };
+
+  window._seSubmitImpedance = async function() {
+    const input = document.getElementById('sex-imp-input');
+    const readout = document.getElementById('sex-imp-readout');
+    const status = document.getElementById('sex-imp-status');
+    const overrideWrap = document.getElementById('sex-imp-override-wrap');
+    const overrideEl = document.getElementById('sex-imp-override');
+    const v = parseFloat(input?.value);
+    if (isNaN(v) || v < 0 || v > 100) {
+      if (readout) readout.textContent = 'Enter a value 0–100 kΩ.';
+      return;
+    }
+    window._seImpedanceValue = v;
+    window._seImpedanceMeasured = true;
+    const above = v > 10;
+    if (overrideWrap) overrideWrap.style.display = above ? '' : 'none';
+    window._seImpedanceOverride = above && !!(overrideEl?.value || '').trim();
+    if (status) {
+      status.textContent = (above ? '⚠ ' : '✓ ') + v.toFixed(1) + ' kΩ' + (above ? ' (above threshold)' : '');
+      status.style.color = above ? 'var(--amber)' : 'var(--teal)';
+    }
+    // Persist as a server event when a backing session exists.
+    if (window._seCurrentSessionId) {
+      try { await api.setSessionImpedance(window._seCurrentSessionId, v); } catch (_) {}
+    }
+    window._seAudit('impedance_recorded', { note: 'value=' + v + ' above_threshold=' + above });
+    // Re-evaluate Begin button state.
+    window._seCheckSafety();
+  };
+
+  // Wire the override textarea to live-update the override flag.
+  document.addEventListener('input', function(e) {
+    if (e.target && e.target.id === 'sex-imp-override') {
+      window._seImpedanceOverride = (e.target.value || '').trim().length > 0;
+    }
+  }, true);
+
+  // ── Comfort / NRS-SE rating (Phase 2, clinician input only) ────────────────
+  // AI must NEVER auto-fill this. The handler refuses to send anything when
+  // the clinician hasn't entered a number — there are no defaults.
+  window._seRecordComfort = async function() {
+    const input = document.getElementById('sex-comfort-input');
+    const noteEl = document.getElementById('sex-comfort-note');
+    const log = document.getElementById('sex-comfort-log');
+    const v = parseInt(input?.value, 10);
+    if (isNaN(v) || v < 0 || v > 10) {
+      if (log) log.innerHTML = '<span style="color:var(--amber)">Enter 0–10.</span>';
+      return;
+    }
+    const note = (noteEl?.value || '').trim() || null;
+    const at = new Date().toLocaleTimeString();
+    window._seComfortRatings.push({ nrs: v, note, at });
+    if (log) {
+      log.innerHTML = window._seComfortRatings.map(r =>
+        '<div>' + r.at + ' — NRS-SE <strong>' + r.nrs + '/10</strong>'
+        + (r.note ? ' · "' + esc(r.note) + '"' : '') + '</div>'
+      ).join('');
+    }
+    if (input) input.value = '';
+    if (noteEl) noteEl.value = '';
+    if (window._seCurrentSessionId) {
+      try { await api.recordSessionComfort(window._seCurrentSessionId, { nrs_se: v, note }); } catch (_) {}
+    }
+    window._seAudit('comfort_recorded', { note: 'nrs=' + v + (note ? ' has_note=true' : '') });
+  };
+
+  // ── Adverse Event reporter (Phase 2, opens in-place panel) ─────────────────
+  // Real submission via window._submitAE → /api/v1/adverse-events. Severity,
+  // body system, timing, and action MUST come from clinician input — never
+  // generated by AI.
+  window._seOpenAEReporter = function() {
+    const panel = document.getElementById('sex-ae-active-panel');
+    const courseId = window._seCurrentCourseId;
+    const patientId = window._seCurrentPatientId;
+    if (!panel) return;
+    panel.style.display = '';
+    panel.innerHTML = renderAEForm(courseId || '', patientId || '')
+      + '<div id="ae-error" style="display:none;color:var(--red);font-size:12px;margin-top:6px"></div>'
+      + '<div style="display:flex;gap:8px;margin-top:10px">'
+      + '<button class="btn btn-sm" style="border-color:var(--amber);color:var(--amber)" onclick="window._submitAE(\'' + (courseId || '') + '\',\'' + (patientId || '') + '\')">Submit AE Report</button>'
+      + '<button class="btn btn-sm" onclick="document.getElementById(\'sex-ae-active-panel\').style.display=\'none\'">Cancel</button>'
+      + '</div>';
+    window._seAudit('adverse_event_opened', {});
+  };
+
+  // ── Abort session (Phase 2) ────────────────────────────────────────────────
+  window._seAbortSession = async function() {
+    const reason = window.prompt('Reason for aborting session (required):', '');
+    if (!reason || !reason.trim()) return;
+    if (window._seCurrentSessionId) {
+      try {
+        await api.logSessionEvent(window._seCurrentSessionId, {
+          type: 'OPER',
+          note: 'Session aborted: ' + reason.trim(),
+          payload: { action: 'abort', reason: reason.trim() },
+        });
+      } catch (_) {}
+    }
+    window._seAudit('session_aborted', { note: reason.trim().slice(0, 200) });
+    window._seSetPhase('post');
+    const outcomeEl = document.getElementById('se-outcome');
+    if (outcomeEl) outcomeEl.value = 'stopped_early';
+    const notesEl = document.getElementById('se-notes');
+    if (notesEl && !notesEl.value.includes(reason)) {
+      notesEl.value = (notesEl.value ? notesEl.value + '\n' : '') + '[Abort reason] ' + reason.trim();
+    }
+  };
+
+  // ── Clinician sign-off (Phase 3) ───────────────────────────────────────────
+  window._seSignSession = async function() {
+    const note = (document.getElementById('sex-sign-note')?.value || '').trim();
+    const status = document.getElementById('sex-sign-status');
+    const btn = document.getElementById('sex-sign-btn');
+    if (window._seIsSigned) return;
+    if (window._seCurrentSessionId) {
+      try {
+        await api.signSession(window._seCurrentSessionId, { note: note || null, is_demo: !!window._seIsDemoMode });
+      } catch (e) {
+        if (status) { status.textContent = 'Sign-off failed: ' + (e?.message || 'error'); status.style.color = 'var(--red)'; }
+        return;
+      }
+    }
+    window._seIsSigned = true;
+    if (status) { status.textContent = '✓ Signed' + (window._seIsDemoMode ? ' (DEMO)' : ''); status.style.color = 'var(--teal)'; }
+    if (btn) { btn.disabled = true; btn.textContent = '✓ Signed'; btn.style.opacity = '0.6'; }
+    window._seAudit('session_signed', { note: 'demo=' + !!window._seIsDemoMode });
+  };
+
 
   window._seSetPhase = function(phase) {
     window._seCurrentPhase = phase;
@@ -3395,8 +3743,16 @@ export async function pgSessionExecution(setTopbar, navigate) {
     const btn   = document.getElementById('sex-begin-btn');
     const err   = document.getElementById('sex-safety-err');
     if (tally) tally.textContent = `${n} / 8`;
-    if (btn)   { btn.disabled = n < 8; btn.style.opacity = n === 8 ? '' : '0.5'; }
+    // Pre-flight gate (launch-audit 2026-04-30): all 8 checks AND impedance
+    // measured AND (impedance ≤ 10 kΩ OR override reason provided). Without
+    // both the Begin button refuses to advance.
+    const impedanceOK = window._seImpedanceMeasured
+      && (window._seImpedanceValue == null || window._seImpedanceValue <= 10 || window._seImpedanceOverride);
+    const ready = n === 8 && impedanceOK && !window._seConsentBlocked;
+    if (btn)   { btn.disabled = !ready; btn.style.opacity = ready ? '' : '0.5'; }
     if (err)   err.style.display = n === 8 ? 'none' : '';
+    // When a check is toggled, log it for the audit trail.
+    window._seAudit && window._seAudit('safety_check_state', { note: n + '/8 imp_ok=' + (impedanceOK ? '1' : '0') });
   };
 
   window._seSetTolerance = function(val) {
@@ -3530,6 +3886,12 @@ export async function pgSessionExecution(setTopbar, navigate) {
       }
 
       const session = await api.logSession(courseId, sessionData);
+      window._seAudit && window._seAudit('post_summary_saved', {
+        note: 'outcome=' + outcomeVal + ' tolerance=' + (toleranceVal || '?')
+              + ' deviation=' + (sessionData.protocol_deviation ? '1' : '0')
+              + ' interrupt=' + (sessionData.interruptions ? '1' : '0')
+              + ' demo=' + !!window._seIsDemoMode,
+      });
 
       const course    = (window._seActiveCourses || []).find(c => c.id === courseId) || {};
       const patientId = course.patient_id || null;
@@ -3568,6 +3930,7 @@ export async function pgSessionExecution(setTopbar, navigate) {
     } catch (e) {
       if (errEl) { errEl.textContent = e.message || 'Failed to log session.'; errEl.style.display = ''; }
       if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Save Session'; }
+      window._seAudit && window._seAudit('post_summary_save_failed', { note: String(e?.message || e).slice(0, 200) });
     }
   };
 
@@ -3633,11 +3996,20 @@ export async function pgSessionExecution(setTopbar, navigate) {
       ? '<h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Clinician Notes</h3>'
         + '<div style="font-size:10pt;line-height:1.6;padding:10px;background:#f9f9f9;border:1px solid #ddd;border-radius:4px;margin-bottom:20px;white-space:pre-wrap">' + notes + '</div>'
       : '';
+    // launch-audit 2026-04-30: stamp DEMO when no live courses backed the
+    // saved record, so paper exports never get mistaken for real clinical
+    // documentation.
+    const _isDemoExport = !!window._seIsDemoMode;
+    const _demoStamp = _isDemoExport
+      ? '<div style="background:#f59e0b;color:white;padding:2px 8px;border-radius:3px;font-weight:700;margin-top:4px;display:inline-block">DEMO — clinician review required</div>'
+      : '';
     snFrame.innerHTML = [
       '<div style="border-bottom:2px solid #003366;padding-bottom:12px;margin-bottom:20px">',
       '<div style="display:flex;justify-content:space-between;align-items:flex-start">',
       '<div><div style="font-size:18pt;font-weight:700;color:#003366">DeepSynaps Protocol Studio</div>',
-      '<div style="font-size:10pt;color:#555;margin-top:2px">Session Notes</div></div>',
+      '<div style="font-size:10pt;color:#555;margin-top:2px">Session Notes</div>',
+      _demoStamp,
+      '</div>',
       '<div style="text-align:right;font-size:9pt;color:#555"><div>Date: ' + sessionDate + '</div>',
       '<div style="background:#cc0000;color:white;padding:2px 8px;border-radius:3px;font-weight:700;margin-top:4px">CONFIDENTIAL</div></div>',
       '</div></div>',
@@ -3674,6 +4046,7 @@ export async function pgSessionExecution(setTopbar, navigate) {
       '</div>',
     ].join('');
     document.body.appendChild(snFrame);
+    window._seAudit && window._seAudit('export_session_notes', { note: 'demo=' + !!window._seIsDemoMode });
   };
 
   // ── Session Timer ──────────────────────────────────────────────────────────
@@ -3691,6 +4064,7 @@ export async function pgSessionExecution(setTopbar, navigate) {
     if (window._seTimerInterval) clearInterval(window._seTimerInterval);
     const dur = parseInt(document.getElementById('se-timer-dur')?.value) || 25;
     window._seTimerRemaining = dur * 60;
+    window._seAudit && window._seAudit('timer_started', { note: 'duration_min=' + dur });
     const startBtn    = document.getElementById('se-timer-start-btn');
     const stopBtn     = document.getElementById('se-timer-stop-btn');
     const pulse       = document.getElementById('se-timer-pulse');
@@ -3731,6 +4105,7 @@ export async function pgSessionExecution(setTopbar, navigate) {
     if (stopBtn)  stopBtn.style.display  = 'none';
     if (pulse)    pulse.style.display    = 'none';
     if (activeLabel) activeLabel.style.display = 'none';
+    window._seAudit && window._seAudit('timer_stopped', { note: 'remaining_sec=' + (window._seTimerRemaining || 0) });
   };
 
   // ── Auto-fill from course data ─────────────────────────────────────────────
@@ -3841,7 +4216,10 @@ export async function pgSessionExecution(setTopbar, navigate) {
       const phase = course.phase || (sessDone < 5 ? 'Initiation' : sessDone < 15 ? 'Treatment' : 'Maintenance');
       const goal = course.goal || course.treatment_goal || 'Symptom reduction via neuromodulation';
       const lastOutcome = course.last_outcome_score != null ? `${course.last_outcome_score} (${course.last_outcome_template || 'score'})` : '—';
-      const lastTol = course.last_tolerance || (course.sessions_delivered > 0 ? (course.last_tolerance || 'Well tolerated') : '—');
+      // Honest unknown: never default tolerance to "Well tolerated" when there
+      // is no real prior reading on file — that would fabricate a clinical
+      // observation. (launch-audit 2026-04-30)
+      const lastTol = course.last_tolerance || '—';
       txOv.innerHTML = `
         <div class="sex-tx-overview-grid">
           <div class="sex-tx-stat">
@@ -4002,6 +4380,20 @@ export async function pgSessionExecution(setTopbar, navigate) {
       }
     }
   };
+
+  // ── Final wiring (launch-audit 2026-04-30) ─────────────────────────────────
+  // 1. Set demo-mode flag when no live courses (drives banner + is_demo flag
+  //    on saved records).
+  // 2. Surface the demo banner if applicable.
+  // 3. Consume any plan handed off via window._rxPrefilledProto.
+  // 4. Fire page_loaded audit event.
+  window._seIsDemoMode = !activeCourses.length;
+  const demoBanner = document.getElementById('sex-demo-banner');
+  if (demoBanner) demoBanner.style.display = window._seIsDemoMode ? '' : 'none';
+  try { window._seConsumePrefilledPlan(); } catch (_) {}
+  window._seAudit('page_loaded', {
+    note: 'courses=' + activeCourses.length + ' demo=' + !!window._seIsDemoMode,
+  });
 }
 
 
