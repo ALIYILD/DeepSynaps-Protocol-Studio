@@ -3840,9 +3840,44 @@ function renderTabBar(activeTab) {
         + ' tabindex="' + (active ? '0' : '-1') + '"'
         + ' data-qeeg-tab-id="' + id + '"'
         + (active ? ' style="--tab-color:' + m.color + '"' : '')
-        + ' onclick="window._qeegTab=\'' + id + '\';window._nav(\'qeeg-analysis\')">'
+        + ' onclick="window._qeegSwitchTab(\'' + id + '\')">'
         + esc(m.label) + '</button>';
     }).join('') + '</div>';
+}
+
+// Tab switch entrypoint: captures the current scroll position keyed on the
+// outgoing tab so we can restore it when the user comes back to that tab,
+// then triggers the standard route handler. Idempotent.
+if (typeof window !== 'undefined') {
+  window._qeegTabScroll = window._qeegTabScroll || {};
+  window._qeegSwitchTab = function (newTab) {
+    try { window._qeegTabScroll[window._qeegTab || 'patient'] = window.scrollY || 0; } catch (_e) {}
+    window._qeegTab = newTab;
+    if (typeof window._nav === 'function') window._nav('qeeg-analysis');
+  };
+}
+
+// Restore scroll position once the tab content has rendered.
+function _qeegRestoreScroll(tabId) {
+  const targetY = (window._qeegTabScroll && window._qeegTabScroll[tabId]) || 0;
+  const el = document.getElementById('qeeg-tab-content');
+  if (!el) { try { window.scrollTo(0, targetY); } catch (_e) {} return; }
+  let restored = false;
+  function tryRestore() {
+    if (restored) return;
+    if (el.children.length || el.textContent.trim().length) {
+      try { window.scrollTo(0, targetY); } catch (_e) {}
+      restored = true;
+    }
+  }
+  tryRestore();
+  if (restored) return;
+  let obs;
+  try {
+    obs = new MutationObserver(function () { tryRestore(); if (restored && obs) obs.disconnect(); });
+    obs.observe(el, { childList: true, subtree: false });
+  } catch (_e) {}
+  setTimeout(function () { tryRestore(); if (obs) obs.disconnect(); }, 1500);
 }
 
 // Wires arrow-key / Home / End navigation across the qEEG analyzer tab strip.
@@ -3869,7 +3904,8 @@ function _wireQEEGTabKeyboard() {
     const target = tabs[next];
     target.focus();
     const id = target.getAttribute('data-qeeg-tab-id');
-    if (id) { window._qeegTab = id; if (typeof window._nav === 'function') window._nav('qeeg-analysis'); }
+    if (id && typeof window._qeegSwitchTab === 'function') window._qeegSwitchTab(id);
+    else if (id) { window._qeegTab = id; if (typeof window._nav === 'function') window._nav('qeeg-analysis'); }
   });
 }
 
@@ -4391,6 +4427,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   pageHtml += '</div>';
   el.innerHTML = pageHtml;
   _wireQEEGTabKeyboard();
+  _qeegRestoreScroll(tab);
 
   // Wire hero export + workbench buttons. Both fall back honestly when no
   // analysis is selected — we never silently swallow the click.
