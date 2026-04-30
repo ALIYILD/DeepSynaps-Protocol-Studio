@@ -504,6 +504,40 @@ export const api = {
   getCourseAssessmentSummary: (courseId) => apiFetch(`/api/v1/treatment-courses/${encodeURIComponent(courseId)}/assessment-summary`),
   getCourseAuditTrail: (courseId) => apiFetch(`/api/v1/treatment-courses/${encodeURIComponent(courseId)}/audit-trail`),
   getCourseAdverseEventsSummary: (courseId) => apiFetch(`/api/v1/treatment-courses/${encodeURIComponent(courseId)}/adverse-events-summary`),
+  // ── Course Detail launch-audit (PR feat/course-detail-launch-audit-2026-04-30) ──
+  // Aggregated detail for the page header + DEMO/terminal-state flags.
+  getCourseDetail: (courseId) => apiFetch(`/api/v1/treatment-courses/${encodeURIComponent(courseId)}/detail`),
+  // Roll-up: counts, interruption / deviation / tolerance breakdown.
+  getCourseSessionsSummary: (courseId) => apiFetch(`/api/v1/treatment-courses/${encodeURIComponent(courseId)}/sessions/summary`),
+  // Real audit timeline (treatment_course + course_detail rows merged).
+  listCourseAuditEvents: (courseId, opts) => apiFetch(`/api/v1/treatment-courses/${encodeURIComponent(courseId)}/audit-events${opts && opts.limit ? '?limit=' + encodeURIComponent(opts.limit) : ''}`),
+  // Page-level audit ingestion. Best-effort, soft-fails.
+  recordCourseAuditEvent: (courseId, payload) =>
+    apiFetch(`/api/v1/treatment-courses/${encodeURIComponent(courseId)}/audit-events`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }).catch((e) => { try { console.warn('course audit event failed:', e?.message); } catch (_) {} return null; }),
+  // Note-required state transitions.
+  pauseCourse: (courseId, note) =>
+    apiFetch(`/api/v1/treatment-courses/${encodeURIComponent(courseId)}/pause`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note || '' }),
+    }),
+  resumeCourse: (courseId, note) =>
+    apiFetch(`/api/v1/treatment-courses/${encodeURIComponent(courseId)}/resume`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note || '' }),
+    }),
+  closeCourse: (courseId, note) =>
+    apiFetch(`/api/v1/treatment-courses/${encodeURIComponent(courseId)}/close`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note || '' }),
+    }),
+  // Per-course exports (DEMO-prefixed when course is demo).
+  exportCourseCSV: (courseId) =>
+    apiFetchBinary(`/api/v1/treatment-courses/${encodeURIComponent(courseId)}/export.csv`),
+  exportCourseNDJSON: (courseId) =>
+    apiFetchBinary(`/api/v1/treatment-courses/${encodeURIComponent(courseId)}/export.ndjson`),
 
   // ── Medical History ─────────────────────────────────────────────────────
   // Soft-fail load: returns null on error so non-critical consumers can keep rendering.

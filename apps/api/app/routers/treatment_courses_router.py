@@ -14,12 +14,16 @@ GET    /api/v1/review-queue                                 List pending review 
 """
 from __future__ import annotations
 
+import csv
+import io
 import json
+import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, Query, Response
+from pydantic import BaseModel, Field
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -35,6 +39,8 @@ from app.persistence.models import (
 )
 from app.services.protocol_registry import build_course_structure_from_protocol, get_protocol_parameters
 from app.services.registries import get_protocol
+
+_log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/treatment-courses", tags=["Treatment Courses"])
 review_router = APIRouter(prefix="/api/v1/review-queue", tags=["Review Queue"])
@@ -1246,3 +1252,680 @@ def _compute_course_lobe_delta(
             "direction": direction,
         }
     return out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Course Detail launch-audit (PR feat/course-detail-launch-audit-2026-04-30)
+#
+# Aggregates the data the Course Detail page needs in one round-trip, exposes
+# a real audit timeline (replacing the prior "illustrative" fallback in the
+# UI), wires note-required pause/resume/close transitions with audit hooks,
+# and adds DEMO-prefixed CSV / NDJSON exports. Mirrors the IRB Manager
+# launch-audit pattern (PR #334) and follows the existing surface whitelist
+# in audit_trail_router.KNOWN_SURFACES + qeeg_analysis_router audit-events.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+_COURSE_DETAIL_DISCLAIMERS = (
+    "Course Detail aggregates data for clinical review only.",
+    "Pause / resume / close transitions require a clinician note and are immutably audited.",
+    "Demo courses are not regulator-submittable; exports are tagged accordingly.",
+)
+_TERMINAL_COURSE_STATUSES = {"completed", "closed", "discontinued"}
+_DEMO_CLINIC_IDS = {"clinic-demo-default", "clinic-cd-demo"}
+
+
+def _course_is_demo(db: Session, course: TreatmentCourse) -> bool:
+    """Treat a course as DEMO when its clinician belongs to a demo clinic.
+
+    TreatmentCourse has no `is_demo` column today (unlike IRBProtocol). To
+    avoid silently mislabeling exports we follow the seeded clinic IDs used
+    by the test fixture and the deployed demo tenant.
+    """
+    try:
+        from app.persistence.models import User  # noqa: PLC0415
+        u = db.query(User).filter_by(id=course.clinician_id).first()
+        if u is None or not u.clinic_id:
+            return False
+        return u.clinic_id in _DEMO_CLINIC_IDS
+    except Exception:
+        return False
+
+
+def _self_audit_course(
+    db: Session,
+    actor: AuthenticatedActor,
+    *,
+    event: str,
+    course_id: str,
+    note: str,
+) -> None:
+    """Best-effort audit hook for course_detail surface; never raises."""
+    try:
+        from app.repositories.audit import create_audit_event  # noqa: PLC0415
+
+        now = datetime.now(timezone.utc)
+        event_id = (
+            f"course_detail-{event}-{actor.actor_id}-{int(now.timestamp())}"
+            f"-{uuid.uuid4().hex[:6]}"
+        )
+        create_audit_event(
+            db,
+            event_id=event_id,
+            target_id=str(course_id) or actor.actor_id,
+            target_type="course_detail",
+            action=f"course_detail.{event}",
+            role=actor.role,
+            actor_id=actor.actor_id,
+            note=(note or event)[:1024],
+            created_at=now.isoformat(),
+        )
+    except Exception:  # pragma: no cover — audit must never block UI
+        _log.debug("Course detail self-audit skipped", exc_info=True)
+
+
+def _audit_event_to_dict(r) -> dict:
+    return {
+        "event_id": r.event_id,
+        "target_id": r.target_id,
+        "target_type": r.target_type,
+        "action": r.action,
+        "role": r.role,
+        "actor_id": r.actor_id,
+        "note": r.note,
+        "created_at": r.created_at,
+    }
+
+
+def _course_audit_rows(db: Session, course_id: str, limit: int = 200) -> list:
+    """Return audit_events rows matching this course (legacy or course_detail)."""
+    from app.persistence.models import AuditEventRecord  # noqa: PLC0415
+    return (
+        db.query(AuditEventRecord)
+        .filter(
+            AuditEventRecord.target_id == course_id,
+            AuditEventRecord.target_type.in_(("treatment_course", "course_detail")),
+        )
+        .order_by(AuditEventRecord.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+
+# ── GET /{course_id}/detail — aggregated payload ─────────────────────────────
+
+
+class CourseDetailResponse(BaseModel):
+    """Aggregated read used by the Course Detail page header & tabs.
+
+    Does not duplicate large nested payloads (sessions, AE) — those still
+    have dedicated endpoints — but does provide enough scalar context for
+    the page header, status banners, and DEMO labelling without N+1.
+    """
+
+    course: CourseOut
+    sessions_total: int
+    sessions_delivered: int
+    sessions_planned: int
+    completion_pct: int
+    has_serious_ae: bool
+    is_demo: bool
+    is_terminal: bool
+    last_session_at: Optional[str] = None
+    disclaimers: list[str] = Field(default_factory=lambda: list(_COURSE_DETAIL_DISCLAIMERS))
+
+
+@router.get("/{course_id}/detail", response_model=CourseDetailResponse)
+def get_course_detail(
+    course_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> CourseDetailResponse:
+    require_minimum_role(actor, "clinician")
+    course = _get_course_or_404(db, course_id, actor)
+
+    delivered_q = db.query(DeliveredSessionParameters).filter_by(course_id=course_id)
+    sessions_total = delivered_q.count()
+    last = (
+        delivered_q.order_by(DeliveredSessionParameters.created_at.desc()).first()
+    )
+    last_session_at = last.created_at.isoformat() if last and last.created_at else None
+
+    has_serious_ae = False
+    try:
+        from app.persistence.models import AdverseEvent  # noqa: PLC0415
+        has_serious_ae = (
+            db.query(AdverseEvent)
+            .filter_by(course_id=course_id)
+            .filter(AdverseEvent.severity.in_(("serious", "severe", "critical")))
+            .first()
+            is not None
+        )
+    except Exception:
+        has_serious_ae = False
+
+    planned = course.planned_sessions_total or 0
+    delivered = course.sessions_delivered or sessions_total
+    pct = (
+        max(0, min(100, round(delivered / planned * 100)))
+        if planned > 0
+        else 0
+    )
+
+    _self_audit_course(
+        db,
+        actor,
+        event="detail.read",
+        course_id=course_id,
+        note=f"sessions={sessions_total} demo={int(_course_is_demo(db, course))}",
+    )
+
+    return CourseDetailResponse(
+        course=CourseOut.from_record(course),
+        sessions_total=sessions_total,
+        sessions_delivered=delivered,
+        sessions_planned=planned,
+        completion_pct=pct,
+        has_serious_ae=has_serious_ae,
+        is_demo=_course_is_demo(db, course),
+        is_terminal=course.status in _TERMINAL_COURSE_STATUSES,
+        last_session_at=last_session_at,
+    )
+
+
+# ── GET /{course_id}/sessions/summary — counts + interruption / AE roll-up ──
+
+
+class CourseSessionsSummaryResponse(BaseModel):
+    course_id: str
+    sessions_total: int
+    sessions_planned: int
+    sessions_delivered: int
+    interrupted: int
+    deviations: int
+    with_post_notes: int
+    with_checklist: int
+    by_tolerance: dict[str, int] = Field(default_factory=dict)
+    last_session_at: Optional[str] = None
+    first_session_at: Optional[str] = None
+    is_demo: bool = False
+
+
+@router.get("/{course_id}/sessions/summary", response_model=CourseSessionsSummaryResponse)
+def get_course_sessions_summary(
+    course_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> CourseSessionsSummaryResponse:
+    require_minimum_role(actor, "clinician")
+    course = _get_course_or_404(db, course_id, actor)
+
+    rows = (
+        db.query(DeliveredSessionParameters)
+        .filter_by(course_id=course_id)
+        .order_by(DeliveredSessionParameters.created_at.asc())
+        .all()
+    )
+    by_tol: dict[str, int] = {}
+    interrupted = 0
+    deviations = 0
+    with_post_notes = 0
+    with_checklist = 0
+    for r in rows:
+        tol = (getattr(r, "tolerance_rating", None) or "unspecified").lower()
+        by_tol[tol] = by_tol.get(tol, 0) + 1
+        if getattr(r, "interruptions", False):
+            interrupted += 1
+        # protocol_deviation may exist as a column on newer migrations; fall
+        # back to checklist['deviation'] when missing.
+        if getattr(r, "protocol_deviation", False):
+            deviations += 1
+        if getattr(r, "post_session_notes", None):
+            with_post_notes += 1
+        if getattr(r, "checklist_json", None):
+            with_checklist += 1
+
+    return CourseSessionsSummaryResponse(
+        course_id=course_id,
+        sessions_total=len(rows),
+        sessions_planned=course.planned_sessions_total or 0,
+        sessions_delivered=course.sessions_delivered or len(rows),
+        interrupted=interrupted,
+        deviations=deviations,
+        with_post_notes=with_post_notes,
+        with_checklist=with_checklist,
+        by_tolerance=by_tol,
+        last_session_at=rows[-1].created_at.isoformat() if rows else None,
+        first_session_at=rows[0].created_at.isoformat() if rows else None,
+        is_demo=_course_is_demo(db, course),
+    )
+
+
+# ── GET /{course_id}/audit-events — typed audit timeline ────────────────────
+
+
+class CourseAuditEventOut(BaseModel):
+    event_id: str
+    target_id: str
+    target_type: str
+    action: str
+    role: str
+    actor_id: str
+    note: str
+    created_at: str
+
+
+class CourseAuditEventsResponse(BaseModel):
+    course_id: str
+    items: list[CourseAuditEventOut] = Field(default_factory=list)
+    total: int = 0
+    disclaimers: list[str] = Field(default_factory=lambda: list(_COURSE_DETAIL_DISCLAIMERS))
+
+
+@router.get("/{course_id}/audit-events", response_model=CourseAuditEventsResponse)
+def list_course_audit_events(
+    course_id: str,
+    limit: int = Query(default=200, ge=1, le=1000),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> CourseAuditEventsResponse:
+    """Audit timeline for a course (treatment_course + course_detail rows).
+
+    Distinct from the legacy ``/audit-trail`` endpoint, which only returns
+    rows whose ``target_type == treatment_course``. This one merges the new
+    ``course_detail`` page-level events so the UI can render a single
+    unified timeline without fabricating placeholder rows.
+    """
+    require_minimum_role(actor, "clinician")
+    _get_course_or_404(db, course_id, actor)
+    rows = _course_audit_rows(db, course_id, limit=limit)
+    items = [CourseAuditEventOut(**_audit_event_to_dict(r)) for r in rows]
+    return CourseAuditEventsResponse(
+        course_id=course_id, items=items, total=len(items)
+    )
+
+
+# ── POST /{course_id}/audit-events — page-level audit ingestion ─────────────
+
+
+class CourseAuditEventIn(BaseModel):
+    event: str = Field(..., min_length=1, max_length=64)
+    note: Optional[str] = Field(default=None, max_length=512)
+    using_demo_data: bool = False
+
+
+class CourseAuditEventAck(BaseModel):
+    accepted: bool
+    event_id: str
+
+
+@router.post("/{course_id}/audit-events", response_model=CourseAuditEventAck)
+def record_course_audit_event(
+    course_id: str,
+    payload: CourseAuditEventIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> CourseAuditEventAck:
+    require_minimum_role(actor, "clinician")
+    _get_course_or_404(db, course_id, actor)
+    now = datetime.now(timezone.utc)
+    event_id = (
+        f"course_detail-{payload.event}-{actor.actor_id}-{int(now.timestamp())}"
+        f"-{uuid.uuid4().hex[:6]}"
+    )
+    note_parts: list[str] = []
+    if payload.using_demo_data:
+        note_parts.append("DEMO")
+    if payload.note:
+        note_parts.append(payload.note[:500])
+    note = "; ".join(note_parts) or payload.event
+    try:
+        from app.repositories.audit import create_audit_event  # noqa: PLC0415
+        create_audit_event(
+            db,
+            event_id=event_id,
+            target_id=course_id,
+            target_type="course_detail",
+            action=f"course_detail.{payload.event}",
+            role=actor.role,
+            actor_id=actor.actor_id,
+            note=note[:1024],
+            created_at=now.isoformat(),
+        )
+    except Exception:  # pragma: no cover — audit must never block UI
+        _log.exception("Course detail audit-event persistence failed")
+        return CourseAuditEventAck(accepted=False, event_id=event_id)
+    return CourseAuditEventAck(accepted=True, event_id=event_id)
+
+
+# ── POST /{course_id}/pause | resume | close — note required ────────────────
+
+
+class CourseTransitionBody(BaseModel):
+    note: str = Field(..., min_length=1, max_length=1024)
+
+
+def _transition_course(
+    db: Session,
+    actor: AuthenticatedActor,
+    course_id: str,
+    *,
+    new_status: str,
+    valid_from: set[str],
+    transition_event: str,
+    note: str,
+) -> CourseOut:
+    course = _get_course_or_404(db, course_id, actor)
+    note_clean = (note or "").strip()
+    if len(note_clean) < 1:
+        raise ApiServiceError(
+            code="note_required",
+            message=f"A clinician note is required to {transition_event} this course.",
+            status_code=422,
+        )
+    if course.status in _TERMINAL_COURSE_STATUSES:
+        raise ApiServiceError(
+            code="course_immutable",
+            message=(
+                f"Course is in terminal state '{course.status}' and cannot be modified."
+            ),
+            status_code=409,
+        )
+    if course.status not in valid_from:
+        raise ApiServiceError(
+            code="invalid_state",
+            message=(
+                f"Cannot {transition_event} a course in status '{course.status}'."
+            ),
+            status_code=422,
+        )
+
+    now = datetime.now(timezone.utc)
+    course.status = new_status
+    course.updated_at = now
+    if new_status in _TERMINAL_COURSE_STATUSES:
+        course.completed_at = now
+    if course.clinician_notes:
+        course.clinician_notes = (
+            f"{course.clinician_notes}\n[{transition_event}@{now.isoformat()}] "
+            f"{note_clean}"
+        )
+    else:
+        course.clinician_notes = (
+            f"[{transition_event}@{now.isoformat()}] {note_clean}"
+        )
+    db.commit()
+    db.refresh(course)
+
+    _self_audit_course(
+        db,
+        actor,
+        event=transition_event,
+        course_id=course_id,
+        note=f"new_status={new_status}; note={note_clean[:300]}",
+    )
+    return CourseOut.from_record(course)
+
+
+@router.post("/{course_id}/pause", response_model=CourseOut)
+def pause_course(
+    course_id: str,
+    body: CourseTransitionBody,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> CourseOut:
+    require_minimum_role(actor, "clinician")
+    return _transition_course(
+        db,
+        actor,
+        course_id,
+        new_status="paused",
+        valid_from={"active", "approved"},
+        transition_event="pause",
+        note=body.note,
+    )
+
+
+@router.post("/{course_id}/resume", response_model=CourseOut)
+def resume_course(
+    course_id: str,
+    body: CourseTransitionBody,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> CourseOut:
+    require_minimum_role(actor, "clinician")
+    return _transition_course(
+        db,
+        actor,
+        course_id,
+        new_status="active",
+        valid_from={"paused"},
+        transition_event="resume",
+        note=body.note,
+    )
+
+
+@router.post("/{course_id}/close", response_model=CourseOut)
+def close_course(
+    course_id: str,
+    body: CourseTransitionBody,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> CourseOut:
+    require_minimum_role(actor, "clinician")
+    return _transition_course(
+        db,
+        actor,
+        course_id,
+        new_status="closed",
+        valid_from={"active", "approved", "paused", "pending_approval"},
+        transition_event="close",
+        note=body.note,
+    )
+
+
+# ── GET /{course_id}/export.csv | export.ndjson ─────────────────────────────
+
+
+_COURSE_EXPORT_COLUMNS = (
+    "course_id",
+    "patient_id",
+    "clinician_id",
+    "protocol_id",
+    "condition_slug",
+    "modality_slug",
+    "device_slug",
+    "target_region",
+    "evidence_grade",
+    "on_label",
+    "status",
+    "review_required",
+    "planned_sessions_total",
+    "sessions_delivered",
+    "started_at",
+    "completed_at",
+    "created_at",
+    "updated_at",
+    "is_demo",
+)
+
+
+def _course_export_row(course: TreatmentCourse, *, is_demo: bool) -> dict:
+    return {
+        "course_id": course.id,
+        "patient_id": course.patient_id,
+        "clinician_id": course.clinician_id,
+        "protocol_id": course.protocol_id,
+        "condition_slug": course.condition_slug,
+        "modality_slug": course.modality_slug,
+        "device_slug": course.device_slug or "",
+        "target_region": course.target_region or "",
+        "evidence_grade": course.evidence_grade or "",
+        "on_label": int(bool(course.on_label)),
+        "status": course.status,
+        "review_required": int(bool(course.review_required)),
+        "planned_sessions_total": course.planned_sessions_total or 0,
+        "sessions_delivered": course.sessions_delivered or 0,
+        "started_at": course.started_at.isoformat() if course.started_at else "",
+        "completed_at": course.completed_at.isoformat() if course.completed_at else "",
+        "created_at": course.created_at.isoformat() if course.created_at else "",
+        "updated_at": course.updated_at.isoformat() if course.updated_at else "",
+        "is_demo": int(bool(is_demo)),
+    }
+
+
+@router.get("/{course_id}/export.csv")
+def export_course_csv(
+    course_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> Response:
+    require_minimum_role(actor, "clinician")
+    course = _get_course_or_404(db, course_id, actor)
+    is_demo = _course_is_demo(db, course)
+    sessions = (
+        db.query(DeliveredSessionParameters)
+        .filter_by(course_id=course_id)
+        .order_by(DeliveredSessionParameters.created_at.asc())
+        .all()
+    )
+    buf = io.StringIO()
+    if is_demo:
+        buf.write(
+            "# DEMO — this course is demo data and is NOT regulator-submittable.\n"
+        )
+    writer = csv.writer(buf)
+    # Header row 1: course summary block
+    writer.writerow(["section", "course"])
+    writer.writerow(list(_COURSE_EXPORT_COLUMNS))
+    row = _course_export_row(course, is_demo=is_demo)
+    writer.writerow([row[c] for c in _COURSE_EXPORT_COLUMNS])
+    writer.writerow([])
+    # Section 2: delivered sessions
+    writer.writerow(["section", "sessions"])
+    writer.writerow([
+        "session_id",
+        "course_id",
+        "device_slug",
+        "frequency_hz",
+        "intensity_pct_rmt",
+        "duration_minutes",
+        "tolerance_rating",
+        "interruptions",
+        "created_at",
+    ])
+    for s in sessions:
+        writer.writerow([
+            s.id,
+            s.course_id,
+            s.device_slug or "",
+            s.frequency_hz or "",
+            s.intensity_pct_rmt or "",
+            s.duration_minutes if s.duration_minutes is not None else "",
+            s.tolerance_rating or "",
+            int(bool(s.interruptions)),
+            s.created_at.isoformat() if s.created_at else "",
+        ])
+    _self_audit_course(
+        db,
+        actor,
+        event="export_csv",
+        course_id=course_id,
+        note=f"sessions={len(sessions)} demo={int(is_demo)}",
+    )
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename=course-{course_id}.csv"
+            ),
+            "Cache-Control": "no-store",
+            "X-Course-Demo": "1" if is_demo else "0",
+        },
+    )
+
+
+@router.get("/{course_id}/export.ndjson")
+def export_course_ndjson(
+    course_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> Response:
+    require_minimum_role(actor, "clinician")
+    course = _get_course_or_404(db, course_id, actor)
+    is_demo = _course_is_demo(db, course)
+    sessions = (
+        db.query(DeliveredSessionParameters)
+        .filter_by(course_id=course_id)
+        .order_by(DeliveredSessionParameters.created_at.asc())
+        .all()
+    )
+    audit_rows = _course_audit_rows(db, course_id, limit=500)
+    lines: list[str] = []
+    if is_demo:
+        lines.append(
+            json.dumps(
+                {
+                    "_meta": "DEMO",
+                    "warning": (
+                        "This course is demo data and is NOT regulator-submittable."
+                    ),
+                },
+                separators=(",", ":"),
+            )
+        )
+    lines.append(
+        json.dumps(
+            {"_kind": "course", **_course_export_row(course, is_demo=is_demo)},
+            separators=(",", ":"),
+        )
+    )
+    for s in sessions:
+        lines.append(
+            json.dumps(
+                {
+                    "_kind": "session",
+                    "session_id": s.id,
+                    "course_id": s.course_id,
+                    "device_slug": s.device_slug,
+                    "frequency_hz": s.frequency_hz,
+                    "intensity_pct_rmt": s.intensity_pct_rmt,
+                    "duration_minutes": s.duration_minutes,
+                    "tolerance_rating": s.tolerance_rating,
+                    "interruptions": bool(s.interruptions),
+                    "created_at": (
+                        s.created_at.isoformat() if s.created_at else None
+                    ),
+                },
+                separators=(",", ":"),
+            )
+        )
+    for r in audit_rows:
+        lines.append(
+            json.dumps(
+                {"_kind": "audit", **_audit_event_to_dict(r)},
+                separators=(",", ":"),
+            )
+        )
+    body = "\n".join(lines) + ("\n" if lines else "")
+    _self_audit_course(
+        db,
+        actor,
+        event="export_ndjson",
+        course_id=course_id,
+        note=(
+            f"sessions={len(sessions)} audit={len(audit_rows)} demo={int(is_demo)}"
+        ),
+    )
+    return Response(
+        content=body,
+        media_type="application/x-ndjson",
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename=course-{course_id}.ndjson"
+            ),
+            "Cache-Control": "no-store",
+            "X-Course-Demo": "1" if is_demo else "0",
+        },
+    )

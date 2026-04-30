@@ -79,6 +79,7 @@ KNOWN_SURFACES = {
     "quality_assurance",
     "irb_manager",
     "clinical_trials",
+    "course_detail",
 }
 
 
