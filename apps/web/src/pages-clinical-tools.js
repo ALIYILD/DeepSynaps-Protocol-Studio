@@ -3052,10 +3052,10 @@ export async function pgMedInteractionChecker(setTopbar) {
   document.getElementById('app-content').innerHTML = `
     <div style="max-width:1100px;margin:0 auto;padding:0 4px">
       <div class="qqq-tabs" role="tablist" aria-label="Medication Interaction Checker tabs">
-        <button class="qqq-tab-btn active" role="tab" aria-selected="true"  aria-controls="qqq-panel-0" id="qqq-tab-0" onclick="window._micTab(0)">Patient Review</button>
-        <button class="qqq-tab-btn"        role="tab" aria-selected="false" aria-controls="qqq-panel-1" id="qqq-tab-1" onclick="window._micTab(1)">Protocol Safety</button>
-        <button class="qqq-tab-btn"        role="tab" aria-selected="false" aria-controls="qqq-panel-2" id="qqq-tab-2" onclick="window._micTab(2)">Drug Database</button>
-        <button class="qqq-tab-btn"        role="tab" aria-selected="false" aria-controls="qqq-panel-3" id="qqq-tab-3" onclick="window._micTab(3)">Interaction Log</button>
+        <button class="qqq-tab-btn active" role="tab" aria-selected="true"  aria-controls="qqq-panel-0" id="qqq-tab-0" tabindex="0"  onclick="window._micTab(0)">Patient Review</button>
+        <button class="qqq-tab-btn"        role="tab" aria-selected="false" aria-controls="qqq-panel-1" id="qqq-tab-1" tabindex="-1" onclick="window._micTab(1)">Protocol Safety</button>
+        <button class="qqq-tab-btn"        role="tab" aria-selected="false" aria-controls="qqq-panel-2" id="qqq-tab-2" tabindex="-1" onclick="window._micTab(2)">Drug Database</button>
+        <button class="qqq-tab-btn"        role="tab" aria-selected="false" aria-controls="qqq-panel-3" id="qqq-tab-3" tabindex="-1" onclick="window._micTab(3)">Interaction Log</button>
       </div>
 
       <!-- Tab 1: Patient Medication Review -->
@@ -3149,12 +3149,33 @@ export async function pgMedInteractionChecker(setTopbar) {
     document.querySelectorAll('.qqq-tab-btn').forEach((b, i) => {
       b.classList.toggle('active', i === idx);
       b.setAttribute('aria-selected', i === idx ? 'true' : 'false');
+      b.setAttribute('tabindex', i === idx ? '0' : '-1');
     });
     document.querySelectorAll('.qqq-tab-panel').forEach((p, i) => p.classList.toggle('active', i === idx));
     if (idx === 1) window._micRenderSafety(document.getElementById('mic-safety-patient')?.value || firstPt);
     if (idx === 2) window._micFilterDrugs();
     if (idx === 3) window._micRenderLog();
   };
+  // Roving-tabindex keyboard nav (Arrow Left/Right, Home, End) for the MIC tablist.
+  (function () {
+    const tablist = document.querySelector('.qqq-tabs[role="tablist"]');
+    if (!tablist || tablist.dataset.kbWired) return;
+    tablist.dataset.kbWired = '1';
+    tablist.addEventListener('keydown', (ev) => {
+      const tabs = Array.from(tablist.querySelectorAll('[role="tab"]'));
+      if (!tabs.length) return;
+      const currentIdx = tabs.findIndex(t => t === document.activeElement);
+      let nextIdx = -1;
+      if (ev.key === 'ArrowRight') nextIdx = (currentIdx + 1 + tabs.length) % tabs.length;
+      else if (ev.key === 'ArrowLeft') nextIdx = (currentIdx - 1 + tabs.length) % tabs.length;
+      else if (ev.key === 'Home') nextIdx = 0;
+      else if (ev.key === 'End') nextIdx = tabs.length - 1;
+      if (nextIdx < 0) return;
+      ev.preventDefault();
+      tabs[nextIdx].focus();
+      window._micTab(nextIdx);
+    });
+  })();
 
   // ── Render medication list ──────────────────────────────────────────────────
   function _renderMedList(patientId) {
