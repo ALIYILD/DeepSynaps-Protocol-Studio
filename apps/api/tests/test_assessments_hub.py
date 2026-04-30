@@ -240,3 +240,43 @@ def test_approve_sets_reviewer_and_status(client: TestClient, auth_headers: dict
     body = r.json()
     assert body["approved_status"] == "approved"
     assert body["reviewed_by"]
+
+
+# ── CSV export (launch-audit 2026-04-30) ──────────────────────────────────────
+
+
+def test_csv_export_returns_real_rows(client: TestClient, auth_headers: dict):
+    """The /export endpoint must return real CSV with the clinician's data,
+    not fake rows. Demo flag must be false. Headers must include audit fields.
+    """
+    patient_id = _create_patient(client, auth_headers, email="csv_p@example.com")
+    client.post(
+        "/api/v1/assessments",
+        json={
+            "patient_id": patient_id,
+            "template_id": "phq9",
+            "template_title": "PHQ-9",
+            "status": "completed",
+            "score": "12",
+            "phase": "baseline",
+        },
+        headers=auth_headers["clinician"],
+    )
+    r = client.get("/api/v1/assessments/export", headers=auth_headers["clinician"])
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["demo"] is False
+    assert body["rows"] >= 1
+    csv_text = body["csv"]
+    # Header row contains the audit-friendly columns.
+    first_line = csv_text.split("\n", 1)[0]
+    for col in ("id", "patient_id", "instrument", "score", "severity", "red_flag"):
+        assert col in first_line, f"missing column {col} in {first_line}"
+    # The created row appears.
+    assert "phq9" in csv_text
+    assert "12" in csv_text
+
+
+def test_csv_export_requires_clinician(client: TestClient, auth_headers: dict):
+    r = client.get("/api/v1/assessments/export", headers=auth_headers["patient"])
+    assert r.status_code in (401, 403)

@@ -1019,6 +1019,86 @@ def create_assessment_endpoint(
     return AssessmentOut.from_record(record)
 
 
+# ── CSV export (launch-audit 2026-04-30) ──────────────────────────────────────
+#
+# Real CSV export — not fake rows, not a fake success toast. Returns the
+# clinician's assessments (or a single patient's) with audit-friendly columns.
+# Registered BEFORE `/{assessment_id}` so the path-param route does not catch
+# it.
+
+class CsvExportResponseV2(BaseModel):
+    csv: str
+    rows: int
+    generated_at: str
+    demo: bool = False
+
+
+def _build_csv_export(
+    patient_id: Optional[str],
+    actor: AuthenticatedActor,
+    session: Session,
+) -> CsvExportResponseV2:
+    require_minimum_role(actor, "clinician")
+    if patient_id:
+        _gate_patient_access(actor, patient_id, session)
+        records = list_assessments_for_patient(session, patient_id, actor.actor_id)
+    else:
+        records = list_assessments_for_clinician(session, actor.actor_id)
+
+    headers = [
+        "id", "patient_id", "instrument", "status", "due_date",
+        "completed_at", "score", "severity", "severity_label",
+        "red_flag", "reviewed_by", "reviewed_at", "respondent_type",
+        "phase", "created_at", "updated_at",
+    ]
+
+    def _esc(v: Any) -> str:
+        if v is None:
+            return ""
+        s = str(v)
+        if any(ch in s for ch in (",", '"', "\n", "\r")):
+            return '"' + s.replace('"', '""') + '"'
+        return s
+
+    lines: list[str] = [",".join(headers)]
+    for r in records:
+        out = AssessmentOut.from_record(r)
+        red = bool(out.escalated)
+        if (out.template_id or "").lower() in ("phq9", "phq-9") and out.items:
+            try:
+                arr = (out.items.get("items") if isinstance(out.items, dict) else out.items) or []
+                if isinstance(arr, list) and len(arr) >= 9 and (arr[8] or 0) >= 1:
+                    red = True
+            except Exception:
+                pass
+        row = [
+            out.id, out.patient_id or "", out.template_id, out.status,
+            out.due_date or "", out.completed_at or "", out.score or "",
+            out.severity or "", out.severity_label or "",
+            "1" if red else "0",
+            out.reviewed_by or "", out.reviewed_at or "",
+            out.respondent_type or "", out.phase or "",
+            out.created_at, out.updated_at,
+        ]
+        lines.append(",".join(_esc(v) for v in row))
+
+    return CsvExportResponseV2(
+        csv="\n".join(lines),
+        rows=len(records),
+        generated_at=datetime.now(timezone.utc).isoformat(),
+        demo=False,
+    )
+
+
+@router.get("/export", response_model=CsvExportResponseV2)
+def export_assessments_csv_endpoint(
+    patient_id: Optional[str] = Query(None),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> CsvExportResponseV2:
+    return _build_csv_export(patient_id, actor, session)
+
+
 @router.get("/{assessment_id}", response_model=AssessmentOut)
 def get_assessment_endpoint(
     assessment_id: str,
@@ -1441,3 +1521,6 @@ def ai_summary_assessment_endpoint(
         red_flags=red_flags,
         source=source,
     )
+
+
+# (CSV export endpoint defined earlier in the file, before /{assessment_id}.)
