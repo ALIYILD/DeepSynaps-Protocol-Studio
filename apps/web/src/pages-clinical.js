@@ -1000,9 +1000,9 @@ export async function pgDash(setTopbar, navigate) {
     '[Clinic dashboard snapshot — use for operational context; not a substitute for chart review.]',
     `Patients in system: ${patCount}`,
     `Active courses: ${activeCourses.length}; pending approval: ${pendingCourses.length}; paused: ${pausedCourses.length}; completed: ${completedCourses.length}`,
-    `Pending review queue items: ${_kpiPending}`,
+    `Pending review queue items: ${pendingQueue.length}`,
     `Open adverse events: ${openAEs.length}; serious unresolved: ${seriousAEs.length}`,
-    `Responder rate (aggregate): ${_kpiResponder}; assessment completion: ${assessCompletionPct}`,
+    `Responder rate (aggregate): ${responderRate}; assessment completion: ${assessCompletionPct}`,
     `Sessions per week (planned sum): ${sessionsPerWeek}`,
     `Wearable alerts: ${wearableAlertCount} (${wearableUrgentCount} urgent); media items needing attention: ${mediaNeedsAttention.length}`,
     `Patients flagged for attention: ${patientsNeedingAttention.length}`,
@@ -1392,7 +1392,7 @@ export async function pgDash(setTopbar, navigate) {
   const _todaySessions = activeCourses.length;
   const _greetSub = `<strong style="color:var(--teal)">${_todaySessions} session${_todaySessions!==1?'s':''}</strong> in your active caseload · `
     + (pendingQueue.length > 0
-        ? `<strong style="color:var(--amber)">${_kpiPending} item${pendingQueue.length!==1?'s':''}</strong> pending review`
+        ? `<strong style="color:var(--amber)">${pendingQueue.length} item${pendingQueue.length!==1?'s':''}</strong> pending review`
         : `queue is clear`);
 
   // ── Demo banner ───────────────────────────────────────────────────────────────
