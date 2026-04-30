@@ -225,6 +225,46 @@ class RemoteMonitorSnapshotOut(BaseModel):
     adherence: str = "unknown"
 
 
+class SessionTelemetryOut(BaseModel):
+    """Live telemetry for a session.
+
+    When no real device is connected the response is flagged ``is_demo: True``
+    and the values are deterministic stubs derived from the session id so the
+    UI can render a rehearsal flow without ever pretending a fake number is
+    a real measurement. The frontend MUST show a "DEMO TELEMETRY — clinician
+    must verify on real device" banner whenever ``is_demo`` is true.
+    """
+    session_id: str
+    is_demo: bool
+    impedance_kohm: Optional[float] = None
+    intensity_pct_rmt: Optional[float] = None
+    elapsed_sec: Optional[int] = None
+    sampled_at: str
+
+
+class SessionComfortIn(BaseModel):
+    """NRS-SE side-effect rating (0-10) recorded by the clinician.
+
+    AI must NEVER auto-fill this — comfort is a patient-reported outcome
+    captured by the clinician at the bedside. The endpoint accepts a
+    free-text ``note`` so the clinician can record verbatim what the
+    patient said.
+    """
+    nrs_se: int = Field(ge=0, le=10)
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class SessionSignIn(BaseModel):
+    """Clinician sign-off on the post-session record.
+
+    The presence of a sign-off event marks the session as ready for billing
+    review. Without it, the session is "unsigned" and downstream consumers
+    (billing, reports) treat it as a draft.
+    """
+    note: Optional[str] = Field(default=None, max_length=500)
+    is_demo: Optional[bool] = False
+
+
 def _patient_name(patient: Optional[Patient]) -> str:
     if patient is None:
         return "Patient"
@@ -936,6 +976,154 @@ def set_session_impedance_endpoint(
         event_type="IMPEDANCE",
         note=f"Impedance {body.impedance_kohm:.1f} kOhm",
         payload={"impedance_kohm": body.impedance_kohm},
+    )
+    return _event_out(row)
+
+
+# ── Session Runner launch-audit endpoints (2026-04-30) ────────────────────────
+
+
+def _session_has_real_device(record: ClinicalSession) -> bool:
+    """Return True if the session has a real device id attached.
+
+    A "real device" is any non-empty ``device_id`` that is not the demo
+    sentinel. When false, telemetry must be flagged ``is_demo=True`` so the
+    clinician knows the live readouts are deterministic stubs.
+    """
+    did = (record.device_id or "").strip().lower()
+    if not did:
+        return False
+    if did in {"demo", "rehearsal", "none", "stub"}:
+        return False
+    return True
+
+
+def _deterministic_demo_telemetry(record: ClinicalSession) -> dict:
+    """Stable per-session demo numbers — never random.
+
+    Hashing the session id keeps the values consistent across reloads so the
+    clinician sees the same rehearsal numbers each time, instead of a fake
+    "live changing" value that could be mistaken for a real measurement.
+    """
+    h = abs(hash(record.id))
+    impedance = round(2.0 + (h % 600) / 100.0, 2)  # 2.00 - 7.99 kOhm
+    intensity = round(1.0 + ((h >> 8) % 200) / 100.0, 2)  # 1.00 - 2.99
+    return {"impedance_kohm": impedance, "intensity_pct_rmt": intensity}
+
+
+@router.get("/{session_id}/telemetry", response_model=SessionTelemetryOut)
+def get_session_telemetry_endpoint(
+    session_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> SessionTelemetryOut:
+    """Return live telemetry for a session.
+
+    Honesty rule: if no real device is attached, ``is_demo=True`` and the
+    values are deterministic stubs. The UI must surface a banner so the
+    clinician never mistakes rehearsal data for a real measurement.
+    """
+    require_minimum_role(actor, "clinician")
+    record = _resolve_session_for_actor(session, session_id, actor)
+
+    is_real = _session_has_real_device(record)
+    sampled_at = datetime.now(timezone.utc).isoformat()
+
+    if is_real:
+        # When a real device is attached, surface the most recently logged
+        # impedance event (real measurement) instead of stubbing.
+        impedance_payload = _latest_event_payload(session, session_id, "IMPEDANCE") or {}
+        impedance = (
+            float(impedance_payload["impedance_kohm"])
+            if impedance_payload.get("impedance_kohm") is not None
+            else None
+        )
+        runtime_ctx = _course_runtime_context(session, record)
+        intensity = runtime_ctx.get("intensity_mA")
+        return SessionTelemetryOut(
+            session_id=session_id,
+            is_demo=False,
+            impedance_kohm=impedance,
+            intensity_pct_rmt=intensity,
+            elapsed_sec=None,
+            sampled_at=sampled_at,
+        )
+
+    stub = _deterministic_demo_telemetry(record)
+    # Compute elapsed seconds since checked_in_at if known.
+    elapsed = None
+    if record.checked_in_at:
+        try:
+            started = datetime.fromisoformat(record.checked_in_at.replace("Z", "+00:00"))
+            elapsed = max(0, int((datetime.now(timezone.utc) - started).total_seconds()))
+        except ValueError:
+            elapsed = None
+    return SessionTelemetryOut(
+        session_id=session_id,
+        is_demo=True,
+        impedance_kohm=stub["impedance_kohm"],
+        intensity_pct_rmt=stub["intensity_pct_rmt"],
+        elapsed_sec=elapsed,
+        sampled_at=sampled_at,
+    )
+
+
+@router.post("/{session_id}/comfort", response_model=SessionEventOut, status_code=201)
+def record_session_comfort_endpoint(
+    session_id: str,
+    body: SessionComfortIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> SessionEventOut:
+    """Record an NRS-SE comfort/side-effect rating (0-10).
+
+    Persists as a ``COMFORT`` event on the clinical session so the rating
+    flows through the same audit trail as impedance / phase / AE events.
+    AI must NEVER auto-fill this — clinician input only.
+    """
+    require_minimum_role(actor, "clinician")
+    record = _resolve_session_for_actor(session, session_id, actor)
+    row = _append_session_event(
+        session,
+        record=record,
+        actor=actor,
+        event_type="COMFORT",
+        note=f"NRS-SE {body.nrs_se}/10" + (f" — {body.note}" if body.note else ""),
+        payload={"nrs_se": body.nrs_se, "note": body.note or None},
+    )
+    return _event_out(row)
+
+
+@router.post("/{session_id}/sign", response_model=SessionEventOut, status_code=201)
+def sign_session_endpoint(
+    session_id: str,
+    body: SessionSignIn = SessionSignIn(),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> SessionEventOut:
+    """Record clinician sign-off on a session.
+
+    Without a sign-off event the session is treated as an unsigned draft by
+    downstream consumers (billing, reports). The optional ``is_demo`` flag
+    is propagated into the event payload so PDF exports can stamp DEMO when
+    appropriate.
+    """
+    require_minimum_role(actor, "clinician")
+    record = _resolve_session_for_actor(session, session_id, actor)
+    payload: dict = {
+        "signed_by": actor.actor_id,
+        "signed_at": datetime.now(timezone.utc).isoformat(),
+        "is_demo": bool(body.is_demo),
+    }
+    if body.note:
+        payload["note"] = body.note
+    row = _append_session_event(
+        session,
+        record=record,
+        actor=actor,
+        event_type="SIGN",
+        note=f"Signed by {actor.display_name}" + (f" — {body.note}" if body.note else ""),
+        payload=payload,
     )
     return _event_out(row)
 
