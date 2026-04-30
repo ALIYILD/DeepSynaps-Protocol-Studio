@@ -886,6 +886,7 @@ async function _openQEEGAnnotationDrawer(context) {
       ev.preventDefault();
       host.classList.remove('analysis-anno-host--open');
       host.innerHTML = '';
+      host.removeEventListener('keydown', _annoTrap);
       document.removeEventListener('keydown', _annoEsc);
       _annoCloseFocusRestore();
     }
@@ -909,6 +910,8 @@ async function _openQEEGAnnotationDrawer(context) {
     node.addEventListener('click', function () {
       host.classList.remove('analysis-anno-host--open');
       host.innerHTML = '';
+      host.removeEventListener('keydown', _annoTrap);
+      document.removeEventListener('keydown', _annoEsc);
       if (typeof host.__annoCloseFocusRestore === 'function') host.__annoCloseFocusRestore();
     });
   });
