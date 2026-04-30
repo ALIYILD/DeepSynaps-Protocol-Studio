@@ -218,6 +218,26 @@ def sanitize_for_patient(report: dict) -> dict:
     return _scrub_patient_facing_payload(sanitized)
 
 
+def resolve_patient_facing_report(
+    *,
+    ai_narrative_json: Optional[str] = None,
+    report_payload: Optional[str] = None,
+    patient_facing_report_json: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
+    """Resolve the safest patient-facing payload from available report fields.
+
+    Order matters:
+    1. Current clinician AI narrative, re-sanitized on read
+    2. Legacy report payload, re-sanitized on read
+    3. Stored patient-facing payload, re-sanitized on read
+    """
+    for raw in (ai_narrative_json, report_payload, patient_facing_report_json):
+        decoded = _load_json_dict(raw)
+        if decoded is not None:
+            return sanitize_for_patient(decoded)
+    return None
+
+
 def scan_for_banned_words(text: str) -> list[str]:
     """Return list of banned words found in text (case-insensitive)."""
     found: list[str] = []
@@ -301,3 +321,13 @@ def _scrub_patient_facing_payload(value: Any) -> Any:
     if isinstance(value, list):
         return [_scrub_patient_facing_payload(item) for item in value]
     return value
+
+
+def _load_json_dict(raw: Optional[str]) -> Optional[dict[str, Any]]:
+    if not raw:
+        return None
+    try:
+        decoded = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return decoded if isinstance(decoded, dict) else None

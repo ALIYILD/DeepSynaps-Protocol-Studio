@@ -3720,17 +3720,17 @@ def get_patient_facing_report(
             status_code=403,
         )
 
-    # Phase 2: prefer the canonical QEEGBrainMapReport payload from Phase 0.
-    # Fall back to the legacy patient_facing_report_json shape so older rows
-    # keep rendering until backfill ships.
-    if getattr(report, "report_payload", None):
-        try:
-            return json.loads(report.report_payload)
-        except (TypeError, ValueError):
-            pass
-    if not report.patient_facing_report_json:
-        return {"disclaimer": "Patient-facing report not yet generated.", "content": None}
-    return json.loads(report.patient_facing_report_json)
+    from app.services.qeeg_claim_governance import resolve_patient_facing_report
+
+    resolved = resolve_patient_facing_report(
+        ai_narrative_json=report.ai_narrative_json,
+        report_payload=getattr(report, "report_payload", None),
+        patient_facing_report_json=report.patient_facing_report_json,
+    )
+    if resolved is not None:
+        return resolved
+
+    return {"disclaimer": "Patient-facing report not yet generated.", "content": None}
 
 
 @router.get("/patient/{patient_id}/timeline", response_model=list[TimelineEventOut])

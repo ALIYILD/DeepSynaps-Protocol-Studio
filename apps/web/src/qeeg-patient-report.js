@@ -28,6 +28,19 @@ import {
   emptyState,
 } from './qeeg-brain-map-template.js';
 
+var _CLINICIAN_ONLY_KEYS = {
+  local_grounding: true,
+  courseware_guidance: true,
+  raw_review_handoff: true,
+  claim_governance: true,
+};
+
+var _CLINICIAN_ONLY_TAGS = {
+  clinician_only: true,
+  internal: true,
+  reviewer_only: true,
+};
+
 function _isLegacyShape(report) {
   return report && report.content && !report.dk_atlas && !report.indicators;
 }
@@ -62,6 +75,51 @@ function _renderLegacy(report) {
     + '<div class="ds-card__body">' + html + '</div></div>';
 }
 
+function _parseMaybeJson(value) {
+  if (typeof value !== 'string') return value;
+  try { return JSON.parse(value); } catch (e) { return {}; }
+}
+
+function _isClinicianOnlyFinding(finding) {
+  if (!finding || typeof finding !== 'object') return false;
+  if (finding.patient_safe === false) return true;
+  if (finding.clinician_only === true) return true;
+  if (finding.audience === 'clinician') return true;
+  if (finding.visibility === 'clinician') return true;
+  var tags = Array.isArray(finding.tags) ? finding.tags : [];
+  return tags.some(function (tag) { return _CLINICIAN_ONLY_TAGS[tag]; });
+}
+
+function _stripClinicianOnly(value) {
+  if (Array.isArray(value)) {
+    return value
+      .filter(function (item) { return !_isClinicianOnlyFinding(item); })
+      .map(_stripClinicianOnly);
+  }
+  if (!value || typeof value !== 'object') return value;
+  var cleaned = {};
+  Object.keys(value).forEach(function (key) {
+    if (_CLINICIAN_ONLY_KEYS[key]) return;
+    cleaned[key] = _stripClinicianOnly(value[key]);
+  });
+  return cleaned;
+}
+
+function _resolvePatientPayload(report) {
+  if (!report) return report;
+  var patientFacing = report.patient_facing_report
+    || report.patient_facing_payload
+    || report.patient_facing_report_json;
+  if (patientFacing) {
+    return _stripClinicianOnly(_parseMaybeJson(patientFacing) || {});
+  }
+  var payload = _parseMaybeJson(report.report_payload || report);
+  if (payload && (payload.patient_facing_report || payload.patient_facing_payload || payload.patient_facing_report_json)) {
+    return _resolvePatientPayload(payload);
+  }
+  return _stripClinicianOnly(payload || {});
+}
+
 function renderPatientReport(report) {
   if (!report) return emptyState('No brain map yet. Your clinician will share results here once your QEEG is analyzed.');
   // Backwards-compat: old tests pass { disclaimer: '...' } with no content
@@ -74,10 +132,8 @@ function renderPatientReport(report) {
   }
   if (_isLegacyShape(report)) return _renderLegacy(report);
 
-  var payload = report.report_payload || report;
-  if (typeof payload === 'string') {
-    try { payload = JSON.parse(payload); } catch (e) { payload = {}; }
-  }
+  var payload = _resolvePatientPayload(report);
+  if (_isLegacyShape(payload)) return _renderLegacy(payload);
   if (!payload || (!payload.indicators && !payload.dk_atlas && !payload.header)) {
     return emptyState('Brain map is being generated. Refresh this page in a few minutes.');
   }

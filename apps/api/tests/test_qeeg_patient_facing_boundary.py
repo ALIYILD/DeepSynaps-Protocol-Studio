@@ -36,11 +36,26 @@ def test_patient_facing_report_excludes_raw_review_handoff(client) -> None:
             clinician_id=user.id,
             report_type="standard",
             report_state="APPROVED",
+            ai_narrative_json=json.dumps(
+                {
+                    "executive_summary": "Clinician-facing synthesis.",
+                    "findings": [{"region": "frontal", "observation": "Mild frontal variation."}],
+                    "protocol_recommendations": [],
+                    "band_analysis": {},
+                    "key_biomarkers": {},
+                    "raw_review_handoff": {
+                        "bad_channels": ["Fp1"],
+                        "medication_confounds": ["stimulant"],
+                    },
+                }
+            ),
             patient_facing_report_json=json.dumps(
                 {
                     "disclaimer": "This is a research/wellness summary. Please discuss with your clinician.",
-                    "executive_summary": "Signals appear to show mild variation.",
+                    "executive_summary": "stale",
                     "findings": [{"region": "frontal", "observation": "Mild frontal variation."}],
+                    "raw_review_handoff": {"bad_channels": ["Fp1"]},
+                    "medication_confounds": ["stimulant"],
                     "protocol_recommendations": [],
                 }
             ),
@@ -65,4 +80,6 @@ def test_patient_facing_report_excludes_raw_review_handoff(client) -> None:
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert "raw_review_handoff" not in body
+    assert "medication_confounds" not in json.dumps(body)
     assert "disclaimer" in body
+    assert body["executive_summary"] != "stale"

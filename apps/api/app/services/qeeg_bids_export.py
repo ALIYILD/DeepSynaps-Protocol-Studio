@@ -20,7 +20,7 @@ from app.errors import ApiServiceError
 from app.persistence.models import QEEGAIReport, QEEGAnalysis, QEEGReportAudit
 from app.services.media_storage import read_upload
 from app.services.qeeg_clinician_review import can_export
-from app.services.qeeg_claim_governance import sanitize_for_patient
+from app.services.qeeg_claim_governance import resolve_patient_facing_report
 from app.settings import get_settings
 
 _log = logging.getLogger(__name__)
@@ -45,15 +45,15 @@ def build_bids_package(
         .order_by(QEEGAIReport.created_at.desc())
         .first()
     )
-    if report and not can_export(report):
+    if not report or not can_export(report):
         _log.warning(
             "qeeg_bids_export_denied",
             extra={
                 "event": "qeeg_bids_export_denied",
                 "analysis_id": analysis_id,
-                "report_id": report.id,
-                "report_state": report.report_state,
-                "signed_by": report.signed_by is not None,
+                "report_id": getattr(report, "id", None),
+                "report_state": getattr(report, "report_state", None),
+                "signed_by": getattr(report, "signed_by", None) is not None,
                 "actor_id": actor.actor_id,
                 "actor_role": actor.role,
             },
@@ -146,9 +146,11 @@ def build_bids_package(
         # Derivatives: AI report
         if report:
             ai_narrative = _json_loads(report.ai_narrative_json)
-            patient_facing_report = _json_loads(report.patient_facing_report_json)
-            if isinstance(patient_facing_report, dict):
-                patient_facing_report = sanitize_for_patient(patient_facing_report)
+            patient_facing_report = resolve_patient_facing_report(
+                ai_narrative_json=report.ai_narrative_json,
+                report_payload=getattr(report, "report_payload", None),
+                patient_facing_report_json=report.patient_facing_report_json,
+            )
             zf.writestr(
                 f"derivatives/deepsynaps/{sub_id}_task-{task}_run-{run}_desc-ai_report.json",
                 _json_dumps({

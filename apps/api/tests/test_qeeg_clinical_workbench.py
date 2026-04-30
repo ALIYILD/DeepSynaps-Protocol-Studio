@@ -185,6 +185,34 @@ def test_sanitize_for_patient_scrubs_nested_internal_metadata():
     assert "medication_confounds" not in json.dumps(out)
 
 
+def test_resolve_patient_facing_report_prefers_sanitized_ai_narrative():
+    from app.services.qeeg_claim_governance import resolve_patient_facing_report
+
+    out = resolve_patient_facing_report(
+        ai_narrative_json=json.dumps(
+            {
+                "executive_summary": "Fresh summary.",
+                "findings": [{"region": "frontal", "observation": "Mild frontal variation."}],
+                "protocol_recommendations": [],
+                "band_analysis": {},
+                "key_biomarkers": {},
+                "raw_review_handoff": {"bad_channels": ["Fp1"]},
+            }
+        ),
+        patient_facing_report_json=json.dumps(
+            {
+                "disclaimer": "This is a research/wellness summary. Please discuss with your clinician.",
+                "executive_summary": "stale",
+                "raw_review_handoff": {"bad_channels": ["Fp1"]},
+            }
+        ),
+    )
+
+    assert out is not None
+    assert out["executive_summary"] != "stale"
+    assert "raw_review_handoff" not in out
+
+
 def test_scan_for_banned_words():
     from app.services.qeeg_claim_governance import scan_for_banned_words
 
@@ -382,16 +410,61 @@ def test_build_bids_package_returns_zip_buffer():
         created_at=datetime(2024, 1, 15, tzinfo=timezone.utc),
     )
 
+    report = MagicMock()
+    report.id = "r1"
+    report.report_state = "APPROVED"
+    report.signed_by = "clin_1"
+    report.signed_at = datetime(2024, 1, 16, tzinfo=timezone.utc)
+    report.model_used = None
+    report.model_version = None
+    report.prompt_version = None
+    report.report_version = "1.0.0"
+    report.ai_narrative_json = json.dumps({
+        "executive_summary": "Fresh summary.",
+        "findings": [{"region": "frontal", "observation": "Mild frontal variation."}],
+        "protocol_recommendations": [],
+        "band_analysis": {},
+        "key_biomarkers": {},
+        "raw_review_handoff": {"bad_channels": ["Fp1"]},
+    })
+    report.claim_governance_json = None
+    report.patient_facing_report_json = json.dumps({"executive_summary": "stale"})
+    report.reviewer_id = "clin_1"
+    report.reviewed_at = datetime(2024, 1, 16, tzinfo=timezone.utc)
+    report.clinician_reviewed = True
+    report.clinician_amendments = None
+
     db = MagicMock()
-    # First query: QEEGAnalysis; second query: QEEGAIReport (return None so export gating is skipped)
     db.query.return_value.filter_by.return_value.first.return_value = analysis
-    db.query.return_value.filter_by.return_value.order_by.return_value.first.return_value = None
+    db.query.return_value.filter_by.return_value.order_by.return_value.first.return_value = report
+    db.query.return_value.filter_by.return_value.order_by.return_value.all.return_value = []
 
     actor = MagicMock()
     actor.actor_id = "clin_1"
 
     buf = build_bids_package("a1", actor, db)
     assert hasattr(buf, "read")
+
+
+def test_build_bids_package_blocked_when_no_report():
+    from app.services.qeeg_bids_export import build_bids_package
+
+    analysis = _good_analysis(
+        id="a1",
+        patient_id="p1",
+        created_at=datetime(2024, 1, 15, tzinfo=timezone.utc),
+    )
+
+    db = MagicMock()
+    db.query.return_value.filter_by.return_value.first.return_value = analysis
+    db.query.return_value.filter_by.return_value.order_by.return_value.first.return_value = None
+
+    actor = MagicMock()
+    actor.actor_id = "clin_1"
+
+    with pytest.raises(ApiServiceError) as exc:
+        build_bids_package("a1", actor, db)
+    assert exc.value.code == "export_not_allowed"
 
 
 def test_build_bids_package_blocked_when_not_signed():
