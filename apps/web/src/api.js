@@ -1222,6 +1222,26 @@ export const api = {
     apiFetch(`/api/v1/qeeg-analysis/patient/${patientId}/timeline`),
   exportQEEGBidsPackage: (analysisId) =>
     apiFetchBinary(`/api/v1/qeeg-analysis/${analysisId}/export-bids`),
+  // Real CSV download for a single analysis (band powers + z-scores).
+  // Returns { csv, rows, generated_at, analysis_id, demo }.
+  exportQEEGAnalysisCSV: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-analysis/${encodeURIComponent(analysisId)}/export-csv`),
+
+  // ── Audit log ingestion (qEEG Analyzer launch-audit 2026-04-30) ─────────
+  // Best-effort, fire-and-forget. Promise resolves to a recorded event_id
+  // (or null on rejection). Audit-trail outages must not break the UI, so
+  // the caller does not need to await it.
+  logAudit: (event) => {
+    try {
+      const body = JSON.stringify(event || {});
+      return apiFetch('/api/v1/qeeg-analysis/audit-events', {
+        method: 'POST',
+        body,
+      });
+    } catch (_) {
+      return Promise.resolve(null);
+    }
+  },
 
   // ── MRI Analyzer (packages/mri-pipeline; see portal_integration/api_contract.md)
   // Multipart upload (.zip DICOM or .nii.gz NIfTI). FormData must include

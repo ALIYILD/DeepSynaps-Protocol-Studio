@@ -3746,3 +3746,136 @@ def export_bids_package(
             ),
         },
     )
+
+
+# ── CSV export (launch-audit 2026-04-30) ──────────────────────────────────────
+#
+# Real CSV envelope for a single qEEG analysis. Returns band-power rows
+# alongside z-scores when the analysis carries normative deviations. Used
+# by the Analyzer page for clinician-facing downloads. Never fakes data:
+# if no analysis exists, this is a 404; if no band powers exist yet,
+# rows is 0 and the response is honest about it.
+
+class QEEGCsvExportResponse(BaseModel):
+    csv: str
+    rows: int
+    generated_at: str
+    analysis_id: str
+    demo: bool = False
+
+
+def _qeeg_csv_escape(value: object) -> str:
+    if value is None:
+        return ""
+    s = str(value)
+    if any(ch in s for ch in (",", '"', "\n", "\r")):
+        return '"' + s.replace('"', '""') + '"'
+    return s
+
+
+@router.get("/{analysis_id}/export-csv", response_model=QEEGCsvExportResponse)
+def export_qeeg_csv(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> QEEGCsvExportResponse:
+    """Real per-analysis CSV download. No fake rows, no fake success toast."""
+    require_minimum_role(actor, "clinician")
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    bands_payload = _maybe_json_loads(analysis.band_powers_json) or {}
+    bands = (bands_payload or {}).get("bands") if isinstance(bands_payload, dict) else None
+    bands = bands or {}
+    norm = _maybe_json_loads(analysis.normative_deviations_json) or {}
+
+    band_names = list(bands.keys())
+    headers = ["channel"] + band_names + [f"{b}_zscore" for b in band_names]
+    lines = [",".join(headers)]
+
+    channel_set: set[str] = set()
+    for b in band_names:
+        for ch in (bands.get(b, {}) or {}).get("channels", {}).keys():
+            channel_set.add(ch)
+
+    for ch in sorted(channel_set):
+        row: list[object] = [ch]
+        for b in band_names:
+            v = ((bands.get(b, {}) or {}).get("channels", {}) or {}).get(ch, {}).get("relative_pct")
+            row.append(round(v, 2) if isinstance(v, (int, float)) else "")
+        for b in band_names:
+            z = (norm.get(ch) or {}).get(b) if isinstance(norm, dict) else None
+            row.append(round(z, 2) if isinstance(z, (int, float)) else "")
+        lines.append(",".join(_qeeg_csv_escape(v) for v in row))
+
+    return QEEGCsvExportResponse(
+        csv="\n".join(lines),
+        rows=len(channel_set),
+        generated_at=datetime.now(timezone.utc).isoformat(),
+        analysis_id=analysis_id,
+        demo=False,
+    )
+
+
+# ── Page-level audit ingestion (launch-audit 2026-04-30) ──────────────────────
+#
+# Lightweight audit event sink for the qEEG Analyzer page. The persistence
+# table is the same one used by /api/v1/audit-trail (admins see it through
+# the `get_audit_trail` service). Ingestion is best-effort and never raises
+# back at the UI: audit-trail outages must not break clinical workflow.
+
+class QEEGAuditEventIn(BaseModel):
+    event: str = Field(..., max_length=120)
+    analysis_id: Optional[str] = Field(None, max_length=64)
+    patient_id: Optional[str] = Field(None, max_length=64)
+    note: Optional[str] = Field(None, max_length=1024)
+    using_demo_data: Optional[bool] = False
+
+
+class QEEGAuditEventOut(BaseModel):
+    accepted: bool
+    event_id: str
+
+
+@router.post("/audit-events", response_model=QEEGAuditEventOut)
+def record_qeeg_audit_event(
+    payload: QEEGAuditEventIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> QEEGAuditEventOut:
+    require_minimum_role(actor, "clinician")
+    from app.repositories.audit import create_audit_event
+
+    now = datetime.now(timezone.utc)
+    event_id = f"qeeg-{payload.event}-{actor.actor_id}-{int(now.timestamp())}-{uuid.uuid4().hex[:6]}"
+    target_id = payload.analysis_id or payload.patient_id or actor.clinic_id or actor.actor_id
+    note_parts: list[str] = []
+    if payload.using_demo_data:
+        note_parts.append("DEMO")
+    if payload.patient_id:
+        note_parts.append(f"patient={payload.patient_id}")
+    if payload.analysis_id:
+        note_parts.append(f"analysis={payload.analysis_id}")
+    if payload.note:
+        note_parts.append(payload.note[:500])
+    note = "; ".join(note_parts) or payload.event
+
+    try:
+        create_audit_event(
+            db,
+            event_id=event_id,
+            target_id=str(target_id),
+            target_type="qeeg_analyzer",
+            action=f"qeeg.{payload.event}",
+            role=actor.role,
+            actor_id=actor.actor_id,
+            note=note[:1024],
+            created_at=now.isoformat(),
+        )
+    except Exception:  # pragma: no cover - audit must never block UI
+        _log.exception("qeeg audit-event persistence failed")
+        return QEEGAuditEventOut(accepted=False, event_id=event_id)
+
+    return QEEGAuditEventOut(accepted=True, event_id=event_id)
