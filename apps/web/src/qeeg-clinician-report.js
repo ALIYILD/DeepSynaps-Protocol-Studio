@@ -28,6 +28,41 @@ import {
   emptyState,
 } from './qeeg-brain-map-template.js';
 
+function _isLegacyShape(report) {
+  return report && report.content && !report.dk_atlas && !report.indicators;
+}
+
+function _renderLegacy(report) {
+  var content = report.content || {};
+  var html = '';
+  if (content.executive_summary) {
+    html += '<h4 style="margin:0 0 8px;font-size:14px">Executive Summary</h4>'
+      + '<p style="font-size:13px;line-height:1.5">' + esc(content.executive_summary) + '</p>';
+  }
+  if (content.findings && content.findings.length) {
+    html += '<h4 style="margin:12px 0 8px;font-size:14px">Findings</h4><ul style="margin:0 0 0 16px;font-size:13px;line-height:1.5">';
+    content.findings.forEach(function (f) {
+      html += '<li>' + esc(f.description || f) + '</li>';
+    });
+    html += '</ul>';
+  }
+  if (content.protocol_recommendations && content.protocol_recommendations.length) {
+    html += '<h4 style="margin:12px 0 8px;font-size:14px">Protocol Recommendations</h4><ul style="margin:0 0 0 16px;font-size:13px;line-height:1.5">';
+    content.protocol_recommendations.forEach(function (p) {
+      html += '<li>' + esc(typeof p === 'string' ? p : (p.name || p.description || JSON.stringify(p))) + '</li>';
+    });
+    html += '</ul>';
+  }
+  var body = '<section class="qeeg-legacy-clinician ds-card ds-print" style="margin-bottom:16px">'
+    + '<div class="ds-card__header"><h3 style="margin:0">Clinician Report</h3></div>'
+    + '<div class="ds-card__body">' + html + '</div>'
+    + '</section>';
+  return '<article class="qeeg-clinician ds-print" data-variant="clinician">'
+    + body
+    + renderDisclaimer(report, 'clinician')
+    + '</article>';
+}
+
 function _renderDKAtlasTable(dkAtlas) {
   if (!dkAtlas || !dkAtlas.length) return '';
   var rows = (dkAtlas || []).slice().sort(function (a, b) {
@@ -91,6 +126,7 @@ function _renderMethodProvenance(provenance, methodProv) {
 
 function renderClinicianReport(report) {
   if (!report) return emptyState('No brain map report available.');
+  if (_isLegacyShape(report)) return _renderLegacy(report);
   var payload = report.report_payload || report;
   if (typeof payload === 'string') {
     try { payload = JSON.parse(payload); } catch (e) { payload = {}; }
