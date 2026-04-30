@@ -22,7 +22,6 @@ from app.auth import (
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import (
-    ClinicalSession,
     DeviceResource,
     RoomResource,
     User,
@@ -145,7 +144,7 @@ def list_rooms(
         return []
     records = session.execute(
         select(RoomResource)
-        .where(RoomResource.clinic_id == actor.clinic_id, RoomResource.is_active == True)
+        .where(RoomResource.clinic_id == actor.clinic_id, RoomResource.is_active.is_(True))
         .order_by(RoomResource.name)
     ).scalars().all()
     return [RoomOut.from_record(r) for r in records]
@@ -188,7 +187,7 @@ def list_devices(
         return []
     records = session.execute(
         select(DeviceResource)
-        .where(DeviceResource.clinic_id == actor.clinic_id, DeviceResource.is_active == True)
+        .where(DeviceResource.clinic_id == actor.clinic_id, DeviceResource.is_active.is_(True))
         .order_by(DeviceResource.name)
     ).scalars().all()
     return [DeviceOut.from_record(r) for r in records]
