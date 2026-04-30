@@ -547,7 +547,7 @@ function _bmResponderRing(rate) {
   const gap  = (circ - rate * circ).toFixed(2);
   return `<svg width="68" height="68" style="display:block">
     <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--border)" stroke-width="5"/>
-    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--accent-teal)" stroke-width="5"
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--teal)" stroke-width="5"
       stroke-dasharray="${dash} ${gap}" stroke-dashoffset="${(circ * 0.25).toFixed(2)}"
       stroke-linecap="round" transform="rotate(-90 ${cx} ${cy})"/>
     <text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central"
@@ -570,7 +570,7 @@ function _bmBellCurveSVG(patientZ) {
   const mx = xScale(clampedZ).toFixed(1);
   const zSign = patientZ >= 0 ? '+' : '';
   return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="overflow:visible;width:100%;max-width:${W}px;height:auto">
-    <polyline points="${pts.join(' ')}" fill="none" stroke="var(--accent-teal)" stroke-width="2.5" stroke-linejoin="round"/>
+    <polyline points="${pts.join(' ')}" fill="none" stroke="var(--teal)" stroke-width="2.5" stroke-linejoin="round"/>
     <line x1="${mx}" y1="${(pad - 6)}" x2="${mx}" y2="${(H - pad + 4)}" stroke="#ef4444" stroke-width="2" stroke-dasharray="4 2"/>
     <circle cx="${mx}" cy="${yScale(gauss(clampedZ) / maxG).toFixed(1)}" r="4" fill="#ef4444"/>
     <text x="${pad}" y="${H - 4}" font-size="9" fill="var(--text-muted)">-3\u03c3</text>
@@ -673,7 +673,7 @@ function _bmCalcResultHTML(result, val) {
         <th style="text-align:right;padding:6px 4px;color:var(--text-muted)">Improvement</th>
       </tr></thead>
       <tbody>
-        <tr style="border-bottom:1px solid var(--border);font-weight:700;color:var(--accent-teal)">
+        <tr style="border-bottom:1px solid var(--border);font-weight:700;color:var(--teal)">
           <td style="padding:6px 4px">Your Patient</td><td style="text-align:right;padding:6px 4px">${val}%</td>
         </tr>
         <tr style="border-bottom:1px solid var(--border)">
@@ -795,13 +795,13 @@ function _bmClinicCompareHTML() {
       <div style="font-size:.85rem;font-weight:700;margin-bottom:4px">Clinic Summary</div>
       <div style="font-size:.78rem;color:var(--text-muted);margin-bottom:16px">vs. published literature</div>
       <div style="font-size:.8rem;margin-bottom:4px">Mean improvement</div>
-      <div style="font-size:1.6rem;font-weight:800;color:var(--accent-teal);margin-bottom:2px">${mockMean}%</div>
+      <div style="font-size:1.6rem;font-weight:800;color:var(--teal);margin-bottom:2px">${mockMean}%</div>
       <div style="font-size:.68rem;color:var(--text-muted);margin-bottom:12px">(literature benchmark)</div>
       <div style="font-size:.8rem;margin-bottom:4px">Responder rate</div>
-      <div style="font-size:1.6rem;font-weight:800;color:var(--accent-teal);margin-bottom:2px">${Math.round(mockRespond * 100)}%</div>
+      <div style="font-size:1.6rem;font-weight:800;color:var(--teal);margin-bottom:2px">${Math.round(mockRespond * 100)}%</div>
       <div style="font-size:.68rem;color:var(--text-muted);margin-bottom:12px">(literature benchmark)</div>
       <div style="font-size:.8rem;margin-bottom:4px">Mean sessions to response</div>
-      <div style="font-size:1.6rem;font-weight:800;color:var(--accent-teal);margin-bottom:16px">${mockSessions}</div>
+      <div style="font-size:1.6rem;font-weight:800;color:var(--teal);margin-bottom:16px">${mockSessions}</div>
       <div style="font-size:.8rem;font-weight:600;margin-bottom:4px">Overall Clinic Grade</div>
       <div class="clinic-grade" style="color:${gradeColor};background:${gradeBg};border-radius:10px;padding:8px 0">${gradeScore}</div>
       <button class="btn btn-sm" style="margin-top:12px;width:100%" onclick="window._benchmarkExport()">Download Benchmark Report</button>
@@ -1143,7 +1143,7 @@ export async function pgConsentAutomation(setTopbar) {
         <td style="white-space:nowrap">
           <button class="btn btn-secondary btn-xs" onclick="window._consentView('${r.id}')">View</button>
           <button class="btn btn-secondary btn-xs" style="margin:0 4px" onclick="window._consentResend('${r.id}')">Re-send</button>
-          <button class="btn btn-secondary btn-xs" style="color:var(--accent-rose)" onclick="window._consentRevoke('${r.id}')">Revoke</button>
+          <button class="btn btn-secondary btn-xs" style="color:var(--rose)" onclick="window._consentRevoke('${r.id}')">Revoke</button>
         </td>
       </tr>`;
     }).join('');
@@ -1234,7 +1234,7 @@ export async function pgConsentAutomation(setTopbar) {
         <div style="flex:1;min-width:0">
           <div style="font-weight:700;font-size:.9rem;color:var(--text)">
             ${v.docName}
-            ${v.active ? '<span style="font-size:.7rem;color:var(--accent-teal);margin-left:6px">CURRENT</span>' : ''}
+            ${v.active ? '<span style="font-size:.7rem;color:var(--teal);margin-left:6px">CURRENT</span>' : ''}
           </div>
           <div style="font-size:.78rem;color:var(--text-muted);margin:2px 0">
             Effective: ${fmtDate(v.effectiveDate)} &nbsp;|&nbsp; ${v.patientCount} patient${v.patientCount!==1?'s':''} using this version
@@ -1299,7 +1299,7 @@ export async function pgConsentAutomation(setTopbar) {
     const r     = 54;
     const circ  = 2 * Math.PI * r;
     const dash  = (score / 100) * circ;
-    const color = score >= 80 ? 'var(--accent-teal)' : score >= 50 ? 'var(--accent-amber)' : 'var(--accent-rose)';
+    const color = score >= 80 ? 'var(--teal)' : score >= 50 ? 'var(--amber)' : 'var(--rose)';
     const label = score >= 80 ? 'Good standing' : score >= 50 ? 'Needs attention' : 'Critical \u2014 action required';
     return `<div class="ggg-compliance-gauge">
       <svg width="140" height="140" viewBox="0 0 140 140">
@@ -1327,7 +1327,7 @@ export async function pgConsentAutomation(setTopbar) {
       <td>${badgeHTML(d.status)}</td>
       <td style="font-size:.8rem;color:var(--text-muted)">${_hubEscHtml(d.dataTypes)}</td>
       <td>${d.status !== 'completed'
-        ? `<button class="btn btn-secondary btn-xs" style="color:var(--accent-rose)" onclick="window._consentProcessDeletion('${_hubEscHtml(d.id)}')">Process</button>`
+        ? `<button class="btn btn-secondary btn-xs" style="color:var(--rose)" onclick="window._consentProcessDeletion('${_hubEscHtml(d.id)}')">Process</button>`
         : '<span style="color:var(--text-muted);font-size:.78rem">Done</span>'}</td>
     </tr>`).join('');
 
@@ -3754,7 +3754,7 @@ export async function pgFormsBuilder(setTopbar) {
     const tabBar = '<div class="ppp-tab-bar">' +
       '<div class="ppp-tab ' + (_fbTab==='builder'?'active':'') + '" onclick="window._fbSetTab(\'builder\')">Builder</div>' +
       '<div class="ppp-tab ' + (_fbTab==='responses'?'active':'') + '" onclick="window._fbSetTab(\'responses\')">Responses <span style="font-size:10px;background:rgba(0,212,188,0.12);color:var(--teal);border-radius:8px;padding:1px 6px;margin-left:4px">' + sc + '</span></div>' +
-      '<div class="ppp-tab ' + (_fbTab==='scales'?'active':'') + '" onclick="window._fbSetTab(\'scales\')" style="display:flex;align-items:center;gap:5px">Validated Scales <span style="font-size:10px;background:rgba(93,95,239,0.12);color:var(--accent-violet);border-radius:8px;padding:1px 6px">9</span></div>' +
+      '<div class="ppp-tab ' + (_fbTab==='scales'?'active':'') + '" onclick="window._fbSetTab(\'scales\')" style="display:flex;align-items:center;gap:5px">Validated Scales <span style="font-size:10px;background:rgba(93,95,239,0.12);color:var(--violet);border-radius:8px;padding:1px 6px">9</span></div>' +
     '</div>';
     let content;
     if (_fbTab === 'builder') content = '<div class="ppp-builder-layout" style="height:100%">' + _renderLibrary() + _renderCanvas(form) + _renderProperties(form) + '</div>';
@@ -3769,7 +3769,7 @@ export async function pgFormsBuilder(setTopbar) {
   // /api/v1/forms/responses endpoint is wired) would replace or augment these.
   function _renderResponses() {
     const subs = _fbGetSubs();
-    const banner = '<div style="background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.25);border-radius:8px;padding:8px 12px;margin:16px 24px 0;font-size:12px;color:var(--accent-amber,#ffb547)">Form submissions shown here are stored locally in this browser. Server-side responses collection is not yet wired to this view.</div>';
+    const banner = '<div style="background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.25);border-radius:8px;padding:8px 12px;margin:16px 24px 0;font-size:12px;color:var(--amber,#ffb547)">Form submissions shown here are stored locally in this browser. Server-side responses collection is not yet wired to this view.</div>';
     if (!subs.length) return banner + '<div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--text-tertiary);font-size:13px">No submissions yet.</div>';
     const rows = subs.map(s =>
       '<tr class="' + (s.flagged ? 'flagged' : '') + '" onclick="window._fbShowSubDetail(\'' + _e(s.id) + '\')" style="cursor:pointer"><td>' + _e(s.patientName) + '</td><td>' + _e(s.formName) + '</td><td>' + _fbFmt(s.date) + '</td><td>' + (s.score != null ? s.score : '\u2014') + '</td><td>' + (s.severity ? '<span class="ppp-severity-pill ' + _fbSevClass(s.severity) + '">' + _e(s.severity) + '</span>' : '\u2014') + '</td><td>' + (s.flagged ? '<span style="color:var(--red);font-size:11px">\uD83D\uDEA9</span>' : '<button class="ppp-lib-btn" style="flex:none" onclick="event.stopPropagation();window._fbFlagSub(\'' + _e(s.id) + '\')">Flag</button>') + '</td></tr>'
@@ -4233,10 +4233,10 @@ function _ebEvidenceLevel(design) {
 }
 
 function _ebLevelColor(level) {
-  if (level === 'Level I')   return 'var(--accent-teal)';
-  if (level === 'Level II')  return 'var(--accent-blue)';
-  if (level === 'Level III') return 'var(--accent-amber)';
-  return 'var(--accent-rose)';
+  if (level === 'Level I')   return 'var(--teal)';
+  if (level === 'Level II')  return 'var(--blue)';
+  if (level === 'Level III') return 'var(--amber)';
+  return 'var(--rose)';
 }
 
 function _ebDesignBadge(design) {
@@ -4265,13 +4265,13 @@ function _ebRenderMatchCard(paper) {
     <div style="margin-top:10px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
         <span style="font-size:10.5px;color:var(--text-muted);letter-spacing:0.4px;text-transform:uppercase">Relevance</span>
-        <span style="font-size:11px;font-weight:600;color:var(--accent-teal)">${rel}/100</span>
+        <span style="font-size:11px;font-weight:600;color:var(--teal)">${rel}/100</span>
       </div>
       <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden">
-        <div class="nnnc-effect-bar" style="height:100%;width:${barW}%;background:var(--accent-teal);border-radius:3px;transition:width 0.4s"></div>
+        <div class="nnnc-effect-bar" style="height:100%;width:${barW}%;background:var(--teal);border-radius:3px;transition:width 0.4s"></div>
       </div>
     </div>
-    ${paper.record_url ? `<div style="margin-top:10px;display:flex;justify-content:flex-end"><a href="${_ebEsc(paper.record_url)}" target="_blank" rel="noopener" style="font-size:11px;color:var(--accent-blue);text-decoration:none">Open source ↗</a></div>` : ''}
+    ${paper.record_url ? `<div style="margin-top:10px;display:flex;justify-content:flex-end"><a href="${_ebEsc(paper.record_url)}" target="_blank" rel="noopener" style="font-size:11px;color:var(--blue);text-decoration:none">Open source ↗</a></div>` : ''}
     <div style="margin-top:10px;display:flex;justify-content:flex-end">
       <button class="btn btn-sm" onclick="window._ebAddCitation('${_ebEsc(paper.id)}')" style="font-size:11px">+ Add to Protocol Notes</button>
     </div>
@@ -4298,14 +4298,14 @@ function _ebBuildComparisonSVG(pubES, pubCILow, pubCIHigh, clinicES, clinicSD) {
   return `<svg class="nnnc-comparison-chart" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:${W}px;height:auto;display:block">
     <text x="${PL - 8}" y="${midY1 + 4}" text-anchor="end" font-size="12" fill="var(--text-muted)">Published</text>
     <text x="${PL - 8}" y="${midY2 + 4}" text-anchor="end" font-size="12" fill="var(--text-muted)">Your Clinic</text>
-    <rect x="${PL}" y="${pubY}" width="${pubBarW}" height="${barH}" rx="4" fill="var(--accent-blue)" opacity="0.8"/>
-    <rect x="${PL}" y="${clinY}" width="${cliBarW}" height="${barH}" rx="4" fill="var(--accent-teal)" opacity="0.85"/>
-    <line x1="${ciLowX}" y1="${midY1 - 8}" x2="${ciLowX}" y2="${midY1 + 8}" stroke="var(--accent-blue)" stroke-width="2"/>
-    <line x1="${ciHighX}" y1="${midY1 - 8}" x2="${ciHighX}" y2="${midY1 + 8}" stroke="var(--accent-blue)" stroke-width="2"/>
-    <line x1="${ciLowX}" y1="${midY1}" x2="${ciHighX}" y2="${midY1}" stroke="var(--accent-blue)" stroke-width="1.5" stroke-dasharray="3,2"/>
-    <line x1="${cliLowX}" y1="${midY2 - 8}" x2="${cliLowX}" y2="${midY2 + 8}" stroke="var(--accent-teal)" stroke-width="2"/>
-    <line x1="${cliHighX}" y1="${midY2 - 8}" x2="${cliHighX}" y2="${midY2 + 8}" stroke="var(--accent-teal)" stroke-width="2"/>
-    <line x1="${cliLowX}" y1="${midY2}" x2="${cliHighX}" y2="${midY2}" stroke="var(--accent-teal)" stroke-width="1.5" stroke-dasharray="3,2"/>
+    <rect x="${PL}" y="${pubY}" width="${pubBarW}" height="${barH}" rx="4" fill="var(--blue)" opacity="0.8"/>
+    <rect x="${PL}" y="${clinY}" width="${cliBarW}" height="${barH}" rx="4" fill="var(--teal)" opacity="0.85"/>
+    <line x1="${ciLowX}" y1="${midY1 - 8}" x2="${ciLowX}" y2="${midY1 + 8}" stroke="var(--blue)" stroke-width="2"/>
+    <line x1="${ciHighX}" y1="${midY1 - 8}" x2="${ciHighX}" y2="${midY1 + 8}" stroke="var(--blue)" stroke-width="2"/>
+    <line x1="${ciLowX}" y1="${midY1}" x2="${ciHighX}" y2="${midY1}" stroke="var(--blue)" stroke-width="1.5" stroke-dasharray="3,2"/>
+    <line x1="${cliLowX}" y1="${midY2 - 8}" x2="${cliLowX}" y2="${midY2 + 8}" stroke="var(--teal)" stroke-width="2"/>
+    <line x1="${cliHighX}" y1="${midY2 - 8}" x2="${cliHighX}" y2="${midY2 + 8}" stroke="var(--teal)" stroke-width="2"/>
+    <line x1="${cliLowX}" y1="${midY2}" x2="${cliHighX}" y2="${midY2}" stroke="var(--teal)" stroke-width="1.5" stroke-dasharray="3,2"/>
     <text x="${PL + pubBarW + 6}" y="${midY1 + 4}" font-size="11" fill="var(--text)">d=${pubES.toFixed(2)}</text>
     <text x="${PL + cliBarW + 6}" y="${midY2 + 4}" font-size="11" fill="var(--text)">d=${clinicES.toFixed(2)}</text>
     <line x1="${PL}" y1="${H - PB}" x2="${W - PR}" y2="${H - PB}" stroke="var(--border)" stroke-width="1"/>
@@ -4327,7 +4327,7 @@ function _ebInterpretation(clinicES, pubCILow, pubCIHigh, condition, modality) {
   if (clinicES > pubCIHigh) pos = 'above';
   else if (clinicES < pubCILow) pos = 'below';
   const posLabel = { above: 'above', within: 'within', below: 'below' }[pos];
-  const posColor = { above: 'var(--accent-teal)', within: 'var(--accent-blue)', below: 'var(--accent-amber)' }[pos];
+  const posColor = { above: 'var(--teal)', within: 'var(--blue)', below: 'var(--amber)' }[pos];
   return `<div style="padding:12px 16px;border-radius:8px;border:1px solid ${posColor}33;background:${posColor}0d;font-size:13px;line-height:1.6">
     <strong style="color:${posColor}">Your clinic's outcomes are ${posLabel} the published range</strong> for <em>${_ebEsc(condition)}</em> treated with <em>${_ebEsc(modality)}</em>.
     Published benchmark: d = ${pubCILow.toFixed(2)}–${pubCIHigh.toFixed(2)} (95% CI). Your clinic: d ≈ ${clinicES.toFixed(2)}.
@@ -4366,7 +4366,7 @@ function _ebRenderGapSection(protocols, literature) {
       return `<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px">No live evidence gaps detected across the top protocol coverage rows.</div>`;
     }
     return items.map((g) => {
-      const sColor = g.severity === 'high' ? 'var(--accent-rose)' : 'var(--accent-amber)';
+      const sColor = g.severity === 'high' ? 'var(--rose)' : 'var(--amber)';
       const alreadyAdded = wishlist.some(i => i.protoId === g.proto.id && i.gapType === g.type);
       return `<div class="nnnc-gap-item">
         <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
@@ -4381,7 +4381,7 @@ function _ebRenderGapSection(protocols, literature) {
           </div>
           <button class="btn btn-sm" ${alreadyAdded ? 'disabled style="opacity:0.5"' : ''}
             onclick="window._ebAddToIRB('${_ebEsc(g.proto.id)}','${_ebEsc(g.proto.name)}','${_ebEsc(g.type)}')"
-            style="flex-shrink:0;font-size:11px;${alreadyAdded ? '' : 'border-color:var(--accent-violet);color:var(--accent-violet)'}">
+            style="flex-shrink:0;font-size:11px;${alreadyAdded ? '' : 'border-color:var(--violet);color:var(--violet)'}">
             ${alreadyAdded ? 'Added to IRB ✓' : '+ IRB Wishlist'}
           </button>
         </div>
@@ -4412,7 +4412,7 @@ function _ebRenderGapSection(protocols, literature) {
     return `<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px">No evidence gaps detected across active protocols.</div>`;
   }
   return gaps.map(g => {
-    const sColor = g.severity === 'high' ? 'var(--accent-rose)' : 'var(--accent-amber)';
+    const sColor = g.severity === 'high' ? 'var(--rose)' : 'var(--amber)';
     const irbList = _ebLoad('ds_irb_wishlist', []);
     const alreadyAdded = irbList.some(i => i.protoId === g.proto.id && i.gapType === g.type);
     return `<div class="nnnc-gap-item">
@@ -4427,7 +4427,7 @@ function _ebRenderGapSection(protocols, literature) {
         </div>
         <button class="btn btn-sm" ${alreadyAdded ? 'disabled style="opacity:0.5"' : ''}
           onclick="window._ebAddToIRB('${_ebEsc(g.proto.id)}','${_ebEsc(g.proto.name)}','${_ebEsc(g.type)}')"
-          style="flex-shrink:0;font-size:11px;${alreadyAdded ? '' : 'border-color:var(--accent-violet);color:var(--accent-violet)'}">
+          style="flex-shrink:0;font-size:11px;${alreadyAdded ? '' : 'border-color:var(--violet);color:var(--violet)'}">
           ${alreadyAdded ? 'Added to IRB ✓' : '+ IRB Wishlist'}
         </button>
       </div>
@@ -4453,7 +4453,7 @@ export async function pgEvidenceBuilder(setTopbar) {
 
     <!-- Page header -->
     <div style="margin-bottom:24px">
-      <div style="font-size:10px;color:var(--accent-teal);letter-spacing:1.2px;text-transform:uppercase;font-weight:600;margin-bottom:6px">Clinical Intelligence</div>
+      <div style="font-size:10px;color:var(--teal);letter-spacing:1.2px;text-transform:uppercase;font-weight:600;margin-bottom:6px">Clinical Intelligence</div>
       <div style="font-size:22px;font-weight:700;color:var(--text);margin-bottom:4px">Outcome Evidence Builder</div>
       <div style="font-size:13px;color:var(--text-muted)">Connect your real-world patient outcomes to published research evidence and identify gaps in your protocol portfolio.</div>
     </div>
@@ -4502,7 +4502,7 @@ export async function pgEvidenceBuilder(setTopbar) {
         <select id="eb-sum-proto-select" class="input" style="max-width:320px;font-size:13px">
           ${protocols.map(p => `<option value="${_ebEsc(p.id)}">${_ebEsc(p.name)}</option>`).join('')}
         </select>
-        <button class="btn btn-sm" onclick="window._ebGenerateSummary()" style="font-size:12px;background:var(--accent-blue)22;color:var(--accent-blue);border-color:var(--accent-blue)55">Generate Summary</button>
+        <button class="btn btn-sm" onclick="window._ebGenerateSummary()" style="font-size:12px;background:var(--blue)22;color:var(--blue);border-color:var(--blue)55">Generate Summary</button>
         <button class="btn btn-sm" onclick="window._ebCopySummary()" style="font-size:12px">Copy to Clipboard</button>
       </div>
       <div id="eb-summary-output" style="margin-top:16px"></div>
@@ -4512,7 +4512,7 @@ export async function pgEvidenceBuilder(setTopbar) {
     <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:20px 24px;margin-bottom:20px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;flex-wrap:wrap;gap:8px">
         <div style="font-size:14px;font-weight:700;color:var(--text)">Evidence Gap Finder</div>
-        <div style="font-size:11px;color:var(--text-muted)">IRB Wishlist: <span id="eb-irb-count" style="color:var(--accent-violet);font-weight:600">${_ebLoad('ds_irb_wishlist',[]).length}</span> item(s)</div>
+        <div style="font-size:11px;color:var(--text-muted)">IRB Wishlist: <span id="eb-irb-count" style="color:var(--violet);font-weight:600">${_ebLoad('ds_irb_wishlist',[]).length}</span> item(s)</div>
       </div>
       <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Automatically flags protocols with missing, weak, or conflicting evidence.</div>
       <div id="eb-gap-list">
@@ -4598,13 +4598,13 @@ export async function pgEvidenceBuilder(setTopbar) {
     panel.innerHTML = `
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px">
         <div style="background:var(--hover-bg);border:1px solid var(--border);border-radius:8px;padding:14px 16px">
-          <div style="font-size:10px;color:var(--accent-blue);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:8px">Published Benchmark</div>
+          <div style="font-size:10px;color:var(--blue);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:8px">Published Benchmark</div>
           <div style="font-size:22px;font-weight:700;color:var(--text)">d = ${avgES.toFixed(2)}</div>
           <div style="font-size:12px;color:var(--text-muted);margin-top:2px">95% CI: ${pubCILow.toFixed(2)}–${pubCIHigh.toFixed(2)}</div>
           <div style="font-size:12px;color:var(--text-muted)">Total N = ${totalN} across ${matched.length} study(ies)</div>
         </div>
         <div style="background:var(--hover-bg);border:1px solid var(--border);border-radius:8px;padding:14px 16px">
-          <div style="font-size:10px;color:var(--accent-teal);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:8px">Your Clinic</div>
+          <div style="font-size:10px;color:var(--teal);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:8px">Your Clinic</div>
           ${clinicRec ? `
             <div style="font-size:22px;font-weight:700;color:var(--text)">d ≈ ${clinicES.toFixed(2)}</div>
             <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${clinicPct}% improved</div>
@@ -4789,10 +4789,10 @@ export async function pgPatientQueue(setTopbar) {
   };
 
   const ALERT_TYPE_LABELS = {
-    'overdue-session':  { icon:'\uD83D\uDD50', color:'var(--accent-amber)',  label:'Overdue Session'   },
-    'parameter-drift':  { icon:'\uD83D\uDCCA', color:'var(--accent-blue)',   label:'Parameter Drift'   },
+    'overdue-session':  { icon:'\uD83D\uDD50', color:'var(--amber)',  label:'Overdue Session'   },
+    'parameter-drift':  { icon:'\uD83D\uDCCA', color:'var(--blue)',   label:'Parameter Drift'   },
     'unreviewed-ae':    { icon:'\uD83D\uDEA8', color:'#ff6b6b',             label:'Unreviewed AE'     },
-    'outcomes-overdue': { icon:'\uD83D\uDCCB', color:'var(--accent-violet)', label:'Outcomes Overdue'  },
+    'outcomes-overdue': { icon:'\uD83D\uDCCB', color:'var(--violet)', label:'Outcomes Overdue'  },
   };
 
   function _pqSummaryStrip(queue) {
@@ -4856,7 +4856,7 @@ export async function pgPatientQueue(setTopbar) {
       return '<div class="pq-adherence-card"><div class="pq-adherence-title">Protocol Adherence Alerts</div><div style="padding:16px;color:var(--text-tertiary);font-size:13px;text-align:center">\u2705 No active protocol adherence alerts.</div></div>';
     }
     const items = active.map(a => {
-      const cfg = ALERT_TYPE_LABELS[a.type] || { icon:'\u26a0\ufe0f', color:'var(--accent-amber)', label:a.type };
+      const cfg = ALERT_TYPE_LABELS[a.type] || { icon:'\u26a0\ufe0f', color:'var(--amber)', label:a.type };
       return '<div class="pq-adherence-item">' +
         '<div class="pq-adherence-item-icon" style="color:' + cfg.color + '">' + cfg.icon + '</div>' +
         '<div class="pq-adherence-item-body">' +
@@ -9825,7 +9825,7 @@ export async function pgDocumentsHub(setTopbar) {
     <button class="btn btn-primary btn-sm" onclick="window._dhShowAssignModal()">Assign Form</button>
     <button class="btn btn-sm" onclick="window._dhShowCreateModal()">Create Draft</button>
     <button class="btn btn-sm" onclick="window._dhShowUploadModal()">Upload</button>
-    <button class="btn btn-sm" style="border-color:var(--accent-violet);color:var(--accent-violet)" onclick="window._nav('forms-builder')">Form Builder →</button>
+    <button class="btn btn-sm" style="border-color:var(--violet);color:var(--violet)" onclick="window._nav('forms-builder')">Form Builder →</button>
   `);
   const el = document.getElementById('content');
   if (!el) return;
@@ -9912,18 +9912,18 @@ export async function pgDocumentsHub(setTopbar) {
 
   // ── Form bundles ──────────────────────────────────────────────────────────
   const BUNDLES = [
-    { id:'intake-pack',  name:'Intake Pack',       icon:'📋', color:'var(--accent-teal)',   templates:['intake-general','intake-clinical','privacy-clinic'],  desc:'Standard new patient intake — 3 forms.' },
-    { id:'consent-pack', name:'Consent Pack',      icon:'✍️', color:'var(--accent-blue)',   templates:['consent-general','consent-tms','privacy-clinic'],     desc:'Core treatment consent set for TMS patients.' },
+    { id:'intake-pack',  name:'Intake Pack',       icon:'📋', color:'var(--teal)',   templates:['intake-general','intake-clinical','privacy-clinic'],  desc:'Standard new patient intake — 3 forms.' },
+    { id:'consent-pack', name:'Consent Pack',      icon:'✍️', color:'var(--blue)',   templates:['consent-general','consent-tms','privacy-clinic'],     desc:'Core treatment consent set for TMS patients.' },
     { id:'homedev-pack', name:'Home-Device Pack',  icon:'🏠', color:'#f59e0b',              templates:['homedev-consent','homedev-safety','privacy-clinic'],   desc:'Required docs before issuing a home-use device.' },
-    { id:'virtual-pack', name:'Virtual Care Pack', icon:'💻', color:'var(--accent-violet)', templates:['telehealth-consent','privacy-clinic'],                 desc:'Telehealth and remote care consent pack.' },
+    { id:'virtual-pack', name:'Virtual Care Pack', icon:'💻', color:'var(--violet)', templates:['telehealth-consent','privacy-clinic'],                 desc:'Telehealth and remote care consent pack.' },
   ];
 
   // ── Status + category config ──────────────────────────────────────────────
   const STATUS_CFG = {
     required:       { label:'Required',      color:'#ef4444',            icon:'⚠' },
     pending:        { label:'Pending',       color:'#f59e0b',            icon:'⏳' },
-    completed:      { label:'Completed',     color:'var(--accent-teal)', icon:'✓' },
-    signed:         { label:'Signed',        color:'var(--accent-teal)', icon:'✓' },
+    completed:      { label:'Completed',     color:'var(--teal)', icon:'✓' },
+    signed:         { label:'Signed',        color:'var(--teal)', icon:'✓' },
     expired:        { label:'Expired',       color:'#ef4444',            icon:'⊘' },
     'needs-update': { label:'Needs Update',  color:'#f97316',            icon:'↺' },
     generated:      { label:'Generated',     color:'#60a5fa',            icon:'⬇' },
@@ -9931,8 +9931,8 @@ export async function pgDocumentsHub(setTopbar) {
   };
 
   const CAT_CFG = {
-    Intake:    { color:'var(--accent-teal)',   icon:'👤' },
-    Consent:   { color:'var(--accent-blue)',   icon:'✍️' },
+    Intake:    { color:'var(--teal)',   icon:'👤' },
+    Consent:   { color:'var(--blue)',   icon:'✍️' },
     Clinical:  { color:'#94a3b8',             icon:'📄' },
     Generated: { color:'#60a5fa',             icon:'⬇' },
     Uploaded:  { color:'#a78bfa',             icon:'↑' },
@@ -9940,7 +9940,7 @@ export async function pgDocumentsHub(setTopbar) {
   };
 
   const SIG_CFG = {
-    signed:          { label:'Signed',       color:'var(--accent-teal)' },
+    signed:          { label:'Signed',       color:'var(--teal)' },
     'pending-sig':   { label:'Pending Sig',  color:'#f59e0b' },
     unsigned:        { label:'Unsigned',     color:'#ef4444' },
     'not-required':  { label:'No Sig Req',   color:'#94a3b8' },
@@ -9991,7 +9991,7 @@ export async function pgDocumentsHub(setTopbar) {
     const allGood      = intakeDone >= intakeTotal && consentDone >= consentTotal && sigPending === 0 && expired === 0;
     const item = (label, done, total) => {
       const ok = done >= total;
-      return `<div class="dh-ready-item" style="color:${ok?'var(--accent-teal)':'#f59e0b'}"><span>${ok?'✓':'○'}</span><span>${label}: <strong>${done}/${total}</strong></span></div>`;
+      return `<div class="dh-ready-item" style="color:${ok?'var(--teal)':'#f59e0b'}"><span>${ok?'✓':'○'}</span><span>${label}: <strong>${done}/${total}</strong></span></div>`;
     };
     return `<div class="dh-readiness${allGood?' dh-readiness-ok':''}">
       <div class="dh-ready-label">${allGood?'✓ Treatment ready':'⚠ Treatment readiness'}</div>
@@ -10221,7 +10221,7 @@ export async function pgDocumentsHub(setTopbar) {
     const kpis = [
       { label:'Missing Required',   val:stats.missingRequired,  color:'#ef4444',            warn:stats.missingRequired>0 },
       { label:'Pending Signatures', val:stats.pendingSig,       color:'#f59e0b',            warn:stats.pendingSig>0 },
-      { label:'Intake Completed',   val:stats.completedIntake,  color:'var(--accent-teal)', warn:false },
+      { label:'Intake Completed',   val:stats.completedIntake,  color:'var(--teal)', warn:false },
       { label:'Expiring Consents',  val:stats.expiringConsents, color:'#f97316',            warn:stats.expiringConsents>0 },
       { label:'Expired',            val:stats.expiredConsents,  color:'#ef4444',            warn:stats.expiredConsents>0 },
       { label:'Generated Docs',     val:stats.generatedDocs,    color:'#60a5fa',            warn:false },
