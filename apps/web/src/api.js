@@ -2330,6 +2330,10 @@ export const api = {
   getQEEGRecord: (id) => apiFetch(`/api/v1/qeeg-records/${id}`),
   updateQEEGRecord: (id, data) =>
     apiFetch(`/api/v1/qeeg-records/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  // Phase 5b — POST /api/v1/qeeg-records/upload (multipart). Returns
+  // { record_id, raw_data_ref, suggested_path: "auto"|"manual", qc }.
+  uploadQEEGRecording: (formData) =>
+    apiFetch('/api/v1/qeeg-records/upload', { method: 'POST', body: formData }),
 
   // ── qEEG Analysis Pipeline ──────────────────────────────────────────────
   uploadQEEGAnalysis: (formData) =>
