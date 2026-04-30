@@ -717,8 +717,8 @@ export async function pgDash(setTopbar, navigate) {
   const _withTimeout = (promise, ms = 8000) =>
     Promise.race([promise, new Promise(resolve => setTimeout(() => resolve(null), ms))]);
   let _apiFailCount = 0;
+  let _overview = null;
   try {
-    let _overview = null;
     const [ptsRes, coursesRes, queueRes, aeRes, outRes, consentsRes, mediaQueueRes, wearableAlertsRes, riskRes, overviewRes] = await Promise.all([
       _withTimeout(api.listPatients().catch(() => null)),
       _withTimeout(api.listCourses().catch(() => null)),
