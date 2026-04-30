@@ -5157,9 +5157,9 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   if (tab === 'raw') {
     const analysisId = window._qeegSelectedId;
     if (!analysisId) {
-      const workbenchHref = _isDemoMode()
-        ? '#/qeeg-raw-workbench/demo'
-        : '#/qeeg-raw-workbench';
+      const workbenchOnclick = _isDemoMode()
+        ? "window._qeegSelectedId='demo';window.location.hash='#/qeeg-raw-workbench/demo';window._nav('qeeg-raw-workbench')"
+        : "window._nav('qeeg-raw-workbench')";
       const demoBtn = _isDemoMode()
         ? '<button class="btn btn-outline btn-sm" onclick="window._qeegSelectedId=\'demo\';window._qeegTab=\'raw\';window._nav(\'qeeg-analysis\')">Load synthetic demo</button>'
         : '';
@@ -5171,7 +5171,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         + '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">'
         +   '<button class="btn btn-primary btn-sm" onclick="window._nav(\'qeeg-raw-workbench\')">Pick patient &amp; upload</button>'
         +   '<button class="btn btn-outline btn-sm" onclick="window._qeegTab=\'patient\';window._nav(\'qeeg-analysis\')">Use existing analysis</button>'
-        +   '<a class="btn btn-outline btn-sm" href="' + workbenchHref + '" style="text-decoration:none">Open Raw EEG Workbench</a>'
+        +   '<button class="btn btn-outline btn-sm" onclick="' + workbenchOnclick + '">Open Raw EEG Workbench</button>'
         +   demoBtn
         + '</div>'
         + '</div>';
