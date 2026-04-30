@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -664,6 +664,8 @@ def list_sessions_endpoint(
     status: Optional[str] = None,
     appointment_type: Optional[str] = None,
     telehealth: Optional[bool] = None,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> SessionListResponse:
@@ -709,9 +711,14 @@ def list_sessions_endpoint(
             query = query.filter(ClinicalSession.room_id == "telehealth")
         else:
             query = query.filter(ClinicalSession.room_id != "telehealth")
-    records = list(query.order_by(ClinicalSession.scheduled_at.desc()).all())
+    # `total` reflects the full filter match — clients use it for pagination
+    # UI; `items` is the windowed slice. Order before slicing so paging is
+    # stable across calls.
+    ordered = query.order_by(ClinicalSession.scheduled_at.desc())
+    total = ordered.count()
+    records = list(ordered.offset(offset).limit(limit).all())
     items = [SessionOut.from_record(r) for r in records]
-    return SessionListResponse(items=items, total=len(items))
+    return SessionListResponse(items=items, total=total)
 
 
 @router.post("", response_model=SessionOut, status_code=201)

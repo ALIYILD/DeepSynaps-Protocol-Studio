@@ -409,18 +409,23 @@ export const api = {
 
   // ── Sessions ────────────────────────────────────────────────────────────
   // Accepts either a string patient_id (legacy) or a query-params object.
+  // Always sends a default `limit` (100) so a misuse can't pull the whole
+  // cohort. Callers can pass `limit`/`offset` to paginate explicitly.
   // Examples:
   //   api.listSessions('pt-123')
-  //   api.listSessions({ from: '2026-04-01', to: '2026-04-30' })
+  //   api.listSessions({ from: '2026-04-01', to: '2026-04-30', limit: 25 })
   //   api.listSessions({ patient_id: 'pt-123', status: 'scheduled' })
   listSessions: (arg) => {
-    let qs = '';
+    let params = {};
     if (arg && typeof arg === 'object') {
-      const entries = Object.entries(arg).filter(([_, v]) => v != null && v !== '');
-      if (entries.length) qs = '?' + new URLSearchParams(entries.map(([k, v]) => [k, String(v)])).toString();
+      params = { ...arg };
     } else if (arg) {
-      qs = `?patient_id=${encodeURIComponent(arg)}`;
+      params = { patient_id: arg };
     }
+    if (params.limit == null) params.limit = 100;
+    if (params.offset == null) params.offset = 0;
+    const entries = Object.entries(params).filter(([_, v]) => v != null && v !== '');
+    const qs = entries.length ? '?' + new URLSearchParams(entries.map(([k, v]) => [k, String(v)])).toString() : '';
     return apiFetchWithRetry(`/api/v1/sessions${qs}`);
   },
   getCurrentSession: () => apiFetch('/api/v1/sessions/current'),
@@ -1257,8 +1262,12 @@ export const api = {
     apiFetch(`/api/v1/qeeg-analysis/${id}`),
   getQEEGAnalysisStatus: (id) =>
     apiFetch(`/api/v1/qeeg-analysis/${id}/status`),
-  listPatientQEEGAnalyses: (patientId) =>
-    apiFetch(`/api/v1/qeeg-analysis/patient/${patientId}`),
+  listPatientQEEGAnalyses: (patientId, opts = {}) => {
+    const limit = opts.limit ?? 50;
+    const offset = opts.offset ?? 0;
+    const qs = `?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`;
+    return apiFetch(`/api/v1/qeeg-analysis/patient/${encodeURIComponent(patientId)}${qs}`);
+  },
   generateQEEGAIReport: (analysisId, body = {}) =>
     apiFetch(`/api/v1/qeeg-analysis/${analysisId}/ai-report`, { method: 'POST', body: JSON.stringify(body) }),
   listQEEGAnalysisReports: (analysisId) =>
