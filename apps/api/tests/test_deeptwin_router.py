@@ -87,7 +87,10 @@ def test_deeptwin_simulate_returns_forecast_biomarkers_and_monitoring_plan(
     assert resp.status_code == 200, resp.text
     body = resp.json()
 
-    assert body["engine"]["status"] in {"ok", "available"}
+    assert body["engine"]["status"] in {"ok", "available", "placeholder"}
+    # Stub engine must be honest about not being real AI
+    if body["engine"]["status"] == "placeholder":
+        assert body["engine"].get("real_ai") is False
     assert body["outputs"]["clinical_forecast"]["summary"]
     assert body["outputs"]["clinical_forecast"]["response_probability"] > 0
     assert body["outputs"]["biomarker_forecast"]

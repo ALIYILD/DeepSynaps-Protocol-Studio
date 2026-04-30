@@ -133,6 +133,7 @@ except ImportError as _qa_imp_err:
         "QA router unavailable (deepsynaps_qa not installed): %s", _qa_imp_err
     )
 from app.routers.qeeg_raw_router import router as qeeg_raw_router
+from app.routers.ai_health_router import router as ai_health_router
 from app.sentry_setup import init_sentry
 from app.settings import get_settings
 from app.services.audit import get_audit_trail
@@ -316,6 +317,7 @@ app.include_router(device_sync_router)
 if _HAS_QA_ROUTER and qa_router is not None:
     app.include_router(qa_router)
 app.include_router(qeeg_raw_router)
+app.include_router(ai_health_router)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)

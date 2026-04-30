@@ -5,7 +5,7 @@ from app.main import app
 
 client = TestClient(app)
 
-AUTH_HDR = {"Authorization": "Bearer token-testadmin"}
+AUTH_HDR = {"Authorization": "Bearer admin-demo-token"}
 
 
 def test_overview_requires_auth():
@@ -54,7 +54,8 @@ def test_overview_with_adverse_event():
     pid = pr.json()["id"]
 
     # Create a serious adverse event
-    client.post("/api/v1/patients/" + pid + "/adverse-events", json={
+    client.post("/api/v1/adverse-events", json={
+        "patient_id": pid,
         "event_type": "seizure",
         "severity": "serious",
         "reported_at": "2024-06-01T00:00:00Z",

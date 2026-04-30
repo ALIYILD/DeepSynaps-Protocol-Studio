@@ -4,3 +4,8 @@ Version: 0.1.0
 Requires-Python: >=3.11
 Requires-Dist: deepsynaps-core-schema
 Requires-Dist: python-docx>=1.1.0
+Provides-Extra: pdf
+Requires-Dist: weasyprint>=60; extra == "pdf"
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"
+Requires-Dist: pytest-cov>=4.1; extra == "dev"

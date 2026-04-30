@@ -2,7 +2,7 @@
 
 Covers:
 
-* The 4-tool schema names + required fields don't drift (stability).
+* The 5-tool schema names + required fields don't drift (stability).
 * :data:`SYSTEM_PROMPT_TEMPLATE` still contains only *negated* mentions
   of banned vocabulary — the template never *asserts* them.
 * :func:`mock_llm_tool_dispatch` still routes the canned prefixes to
@@ -13,13 +13,14 @@ from __future__ import annotations
 
 
 def test_tools_schema_stability() -> None:
-    """Snapshot the 4 tool names + required fields."""
+    """Snapshot the 5 tool names + required fields."""
     from deepsynaps_qeeg.ai import copilot
 
     schema = copilot._tools_schema()
     assert [t["name"] for t in schema] == [
         "tool_search_papers",
         "tool_explain_feature",
+        "tool_explain_channel",
         "tool_compare_to_norm",
         "tool_get_recommendation_detail",
     ]
@@ -27,6 +28,9 @@ def test_tools_schema_stability() -> None:
     assert by_name["tool_search_papers"]["input_schema"]["required"] == ["query"]
     assert by_name["tool_explain_feature"]["input_schema"]["required"] == [
         "feature_name"
+    ]
+    assert by_name["tool_explain_channel"]["input_schema"]["required"] == [
+        "channel_name"
     ]
     assert set(
         by_name["tool_compare_to_norm"]["input_schema"]["required"]
@@ -76,31 +80,31 @@ def test_mock_dispatch_still_works() -> None:
     """Regression: the deterministic mock dispatch routes prefixes."""
     from deepsynaps_qeeg.ai import copilot
 
-    # explain: prefix → tool_explain_feature
+    # explain: prefix -> tool_explain_feature
     explain = copilot.mock_llm_tool_dispatch("explain: theta_beta_ratio", {})
     assert explain["tool"] == "tool_explain_feature"
     assert "theta" in explain["reply"].lower() or "Theta" in explain["reply"]
 
-    # norm: prefix → tool_compare_to_norm
+    # norm: prefix -> tool_compare_to_norm
     norm = copilot.mock_llm_tool_dispatch(
         "norm: theta_beta_ratio=2.5", {"age": 35, "sex": "F"}
     )
     assert norm["tool"] == "tool_compare_to_norm"
     assert "centile" in norm["reply"]
 
-    # section: prefix → tool_get_recommendation_detail
+    # section: prefix -> tool_get_recommendation_detail
     section = copilot.mock_llm_tool_dispatch(
         "section: dose",
         {"recommendation": {"dose": {"sessions": 10}}},
     )
     assert section["tool"] == "tool_get_recommendation_detail"
 
-    # Unsafe query → refusal (no tool call).
+    # Unsafe query -> refusal (no tool call).
     refusal = copilot.mock_llm_tool_dispatch("Can you diagnose me?", {})
     assert refusal["tool"] is None
     assert refusal["reply"] == copilot.REFUSAL_MESSAGE
 
-    # Bare text (no prefix) → echo with no tool.
+    # Bare text (no prefix) -> echo with no tool.
     echo = copilot.mock_llm_tool_dispatch("hello there", {})
     assert echo["tool"] is None
 

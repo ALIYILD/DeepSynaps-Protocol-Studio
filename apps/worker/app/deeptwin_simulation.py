@@ -99,7 +99,9 @@ def run_deeptwin_simulation(job: DeeptwinSimulationJob) -> dict[str, Any]:
         curve.append({"day": d, "delta_symptom_score": round(v, 3)})
 
     return {
-        "engine": {"name": "stub", "status": "ok"},
+        "engine": {"name": "stub", "status": "placeholder", "real_ai": False,
+                   "notice": "No production simulation model is connected. "
+                             "Output is deterministic placeholder data for UI development only."},
         "job_id": job.job_id,
         "timecourse": curve,
         "modalities_used": job.modalities,

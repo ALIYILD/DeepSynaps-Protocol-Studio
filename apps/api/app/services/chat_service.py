@@ -242,12 +242,24 @@ def _llm_chat(
     if settings.glm_api_key:
         try:
             from openai import OpenAI
+            import openai as _openai_mod
+            from app.services.resilience import retry_call
             client = OpenAI(api_key=settings.glm_api_key, base_url=_LLM_BASE_URL, default_headers=_LLM_HEADERS)
-            resp = client.chat.completions.create(
-                model=_llm_model(),
-                max_tokens=max_tokens,
-                temperature=temperature,
-                messages=[{"role": "system", "content": system}] + messages,
+            resp = retry_call(
+                lambda: client.chat.completions.create(
+                    model=_llm_model(),
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    messages=[{"role": "system", "content": system}] + messages,
+                ),
+                retries=2,
+                base_delay=1.0,
+                retryable=(
+                    _openai_mod.APIConnectionError,
+                    _openai_mod.RateLimitError,
+                    _openai_mod.APITimeoutError,
+                ),
+                label="openai_chat",
             )
             _capture_openrouter_usage(resp, fallback_model=_llm_model())
             return _sanitize_llm_output(resp.choices[0].message.content or "")
@@ -315,12 +327,24 @@ async def _llm_chat_async(
     if settings.glm_api_key:
         try:
             from openai import AsyncOpenAI
+            import openai as _openai_mod
+            from app.services.resilience import retry_call_async
             client = AsyncOpenAI(api_key=settings.glm_api_key, base_url=_LLM_BASE_URL, default_headers=_LLM_HEADERS)
-            resp = await client.chat.completions.create(
-                model=_llm_model(),
-                max_tokens=max_tokens,
-                temperature=temperature,
-                messages=[{"role": "system", "content": system}] + messages,
+            resp = await retry_call_async(
+                lambda: client.chat.completions.create(
+                    model=_llm_model(),
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    messages=[{"role": "system", "content": system}] + messages,
+                ),
+                retries=2,
+                base_delay=1.0,
+                retryable=(
+                    _openai_mod.APIConnectionError,
+                    _openai_mod.RateLimitError,
+                    _openai_mod.APITimeoutError,
+                ),
+                label="openai_chat_async",
             )
             return _sanitize_llm_output(resp.choices[0].message.content or "")
         except Exception as exc:
@@ -490,12 +514,24 @@ def _agent_llm_dispatch(
             return "OpenAI key not configured. Add your key in Agent Settings or contact your admin."
         try:
             from openai import OpenAI
+            import openai as _openai_mod
+            from app.services.resilience import retry_call
             client_oa = OpenAI(api_key=key)
             msgs_oa = [{"role": "system", "content": system}] + messages
-            resp = client_oa.chat.completions.create(
-                model="gpt-4o-mini",
-                max_tokens=1024,
-                messages=msgs_oa,
+            resp = retry_call(
+                lambda: client_oa.chat.completions.create(
+                    model="gpt-4o-mini",
+                    max_tokens=1024,
+                    messages=msgs_oa,
+                ),
+                retries=2,
+                base_delay=1.0,
+                retryable=(
+                    _openai_mod.APIConnectionError,
+                    _openai_mod.RateLimitError,
+                    _openai_mod.APITimeoutError,
+                ),
+                label="agent_openai_chat",
             )
             return resp.choices[0].message.content
         except ImportError:

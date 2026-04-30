@@ -68,6 +68,10 @@ except Exception:  # pragma: no cover
     recommend_protocols = None  # type: ignore[assignment]
     summarize_for_recommender = None  # type: ignore[assignment]
     ProtocolLibrary = None  # type: ignore[assignment]
+    _log.warning(
+        "deepsynaps_qeeg.recommender not available — "
+        "qEEG protocol recommendation endpoints will return 503"
+    )
 
 # ── Max upload size for EDF files (100 MB) ───────────────────────────────────
 _MAX_EDF_BYTES = 100 * 1024 * 1024
@@ -3280,13 +3284,16 @@ def get_recommendations_endpoint(
         raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
 
     if recommend_protocols is None or summarize_for_recommender is None:
-        return RecommendationsResponse(
-            analysis_id=analysis_id,
-            success=False,
-            recommendations=[],
-            contraindications=[],
-            rules_fired=[],
-            disclaimer=RecommendationsResponse().disclaimer,
+        raise ApiServiceError(
+            code="feature_unavailable",
+            message="qEEG protocol recommendations are unavailable.",
+            status_code=503,
+            details={
+                "feature": "qeeg_protocol_recommendations",
+                "status": "unavailable",
+                "reason": "The deepsynaps_qeeg.recommender package is not installed in this environment.",
+                "remediation": "Install the deepsynaps-qeeg-pipeline package with the recommender extra.",
+            },
         )
 
     # Build a minimal pipeline_result-like payload for summarization.

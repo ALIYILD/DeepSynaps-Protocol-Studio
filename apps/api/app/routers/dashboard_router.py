@@ -5,6 +5,7 @@ Prefix: /api/v1/dashboard
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -369,7 +370,7 @@ def dashboard_overview(
     try:
         create_audit_event(
             session,
-            event_id=f"dash-load-{actor.actor_id}-{int(now.timestamp())}",
+            event_id=f"dash-load-{actor.actor_id}-{uuid.uuid4().hex[:12]}",
             target_id=actor.clinic_id or actor.actor_id,
             target_type="dashboard",
             action="dashboard.loaded",
@@ -483,7 +484,7 @@ def dashboard_search(
     try:
         create_audit_event(
             session,
-            event_id=f"search-{actor.actor_id}-{int(datetime.now(timezone.utc).timestamp())}",
+            event_id=f"search-{actor.actor_id}-{uuid.uuid4().hex[:12]}",
             target_id=actor.actor_id,
             target_type="search",
             action="search.performed",

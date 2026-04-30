@@ -11,6 +11,10 @@ dependencies = [
     "python-docx>=1.1.0",
 ]
 
+[project.optional-dependencies]
+pdf = ["weasyprint>=60"]
+dev = ["pytest>=8.0", "pytest-cov>=4.1"]
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 

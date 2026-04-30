@@ -11,6 +11,7 @@ license = { text = "Proprietary" }
 authors = [{ name = "Sehzade Yildirim", email = "sehzadeyildirim@hotmail.com" }]
 dependencies = [
     "pydantic>=2.5.0,<3.0.0",
+    "sqlalchemy>=2.0.0,<3.0.0",
 ]
 
 [project.optional-dependencies]

@@ -10573,6 +10573,7 @@ export async function pgSettingsHub(setTopbar, navigate) {
   ];
 
   TABS.push({ id: 'system-health', label: 'System Health', icon: '💚' });
+  TABS.push({ id: 'ai-status', label: 'AI Status', icon: '🤖' });
 
   const tabBar = TABS.map(t =>
     `<button role="tab" aria-selected="${tab === t.id}" tabindex="${tab === t.id ? '0' : '-1'}"
@@ -10595,6 +10596,8 @@ export async function pgSettingsHub(setTopbar, navigate) {
     await _renderSettingsGovernance(body, _esc, navigate);
   } else if (tab === 'system-health') {
     await _renderSettingsSystemHealth(body, _esc, navigate);
+  } else if (tab === 'ai-status') {
+    await _renderSettingsAIStatus(body, _esc);
   }
 }
 
@@ -10777,6 +10780,76 @@ async function _renderSettingsSystemHealth(body, _esc, navigate) {
     window._monitoringNavRoute = prevNavRoute;
     body.id = 'settings-hub-body';
     if (realContent) realContent.id = 'content';
+  }
+}
+
+/* ── AI Status tab ─────────────────────────────────────────────────────────── */
+async function _renderSettingsAIStatus(body, _esc) {
+  body.innerHTML = `<div style="padding:24px;max-width:900px">
+    <h3 style="margin:0 0 4px;font-size:18px;font-weight:600;color:var(--text-primary)">AI Feature Status</h3>
+    <p style="margin:0 0 20px;font-size:13px;color:var(--text-secondary)">
+      Real-time availability of AI and rule-based features. Items marked &ldquo;Not Live AI&rdquo; use deterministic rules or are pending deployment.
+    </p>
+    <div id="ai-status-grid" style="display:grid;gap:12px">
+      <div style="text-align:center;padding:40px;color:var(--text-tertiary)">Loading AI health data&hellip;</div>
+    </div>
+    <div id="ai-status-summary" style="margin-top:20px"></div>
+  </div>`;
+
+  const STATUS_COLORS = {
+    active: { bg: 'rgba(34,197,94,0.12)', fg: '#22c55e', label: 'Active' },
+    degraded: { bg: 'rgba(255,181,71,0.12)', fg: '#ffb547', label: 'Degraded' },
+    fallback: { bg: 'rgba(74,158,255,0.12)', fg: '#4a9eff', label: 'Fallback' },
+    unavailable: { bg: 'rgba(239,68,68,0.12)', fg: '#ef4444', label: 'Unavailable' },
+    not_configured: { bg: 'rgba(239,68,68,0.12)', fg: '#ef4444', label: 'Not Configured' },
+    not_implemented: { bg: 'rgba(156,163,175,0.12)', fg: '#9ca3af', label: 'Not Implemented' },
+    rule_based: { bg: 'rgba(155,127,255,0.12)', fg: '#9b7fff', label: 'Rule-Based' },
+  };
+
+  try {
+    const data = await api.aiHealth();
+    const grid = document.getElementById('ai-status-grid');
+    const summary = document.getElementById('ai-status-summary');
+    if (!grid || !data || !data.features) {
+      if (grid) grid.innerHTML = '<div style="color:var(--text-tertiary);padding:20px">Unable to reach AI health endpoint.</div>';
+      return;
+    }
+
+    // features is an array of {feature, status, real_ai, ...} dicts
+    const features = Array.isArray(data.features)
+      ? data.features.map(f => [f.feature || f.name || '?', f])
+      : Object.entries(data.features);
+    grid.innerHTML = features.map(([name, info]) => {
+      const st = STATUS_COLORS[info.status] || STATUS_COLORS.unavailable;
+      const realAiLabel = info.real_ai === false
+        ? '<span style="font-size:9px;padding:1px 6px;border-radius:6px;background:rgba(255,181,71,0.12);color:#ffb547;margin-left:4px">NOT LIVE AI</span>'
+        : '';
+      const detailLines = [];
+      if (info.reason) detailLines.push(_esc(info.reason));
+      if (info.env_hint) detailLines.push('<code style="font-size:11px;color:var(--text-tertiary)">' + _esc(info.env_hint) + '</code>');
+      return `<div style="display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border-radius:10px;border:1px solid var(--border);background:var(--surface)">
+        <span style="width:10px;height:10px;border-radius:50%;background:${st.fg};flex-shrink:0;margin-top:4px"></span>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:14px;font-weight:600;color:var(--text-primary)">${_esc(name.replace(/_/g, ' '))}</span>
+            <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:${st.bg};color:${st.fg};font-weight:600;text-transform:uppercase">${st.label}</span>
+            ${realAiLabel}
+          </div>
+          ${detailLines.length ? '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">' + detailLines.join(' &middot; ') + '</div>' : ''}
+        </div>
+      </div>`;
+    }).join('');
+
+    const counts = data.summary || {};
+    summary.innerHTML = `<div style="display:flex;gap:16px;flex-wrap:wrap;padding:12px 0">
+      ${Object.entries(counts).map(([k, v]) => {
+        const c = STATUS_COLORS[k] || STATUS_COLORS.unavailable;
+        return `<div style="font-size:13px;color:${c.fg};font-weight:500">${c.label}: <strong>${v}</strong></div>`;
+      }).join('')}
+    </div>`;
+  } catch (err) {
+    const grid = document.getElementById('ai-status-grid');
+    if (grid) grid.innerHTML = `<div style="color:var(--red, #ef4444);padding:20px">Failed to load AI status: ${_esc(String(err.message || err))}</div>`;
   }
 }
 

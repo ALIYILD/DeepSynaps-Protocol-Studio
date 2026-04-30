@@ -1602,6 +1602,7 @@ export const api = {
 
   // ── Health ──────────────────────────────────────────────────────────────
   health: () => apiFetch('/health'),
+  aiHealth: () => apiFetch('/api/v1/health/ai'),
 
   // ── Presence (real-time collaboration) ──────────────────────────────────
   pingPresence: (page_id) =>

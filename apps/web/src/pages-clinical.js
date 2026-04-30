@@ -4068,7 +4068,7 @@ function renderDashboardOverview(pt, sessions, courses, ctx = {}) {
         <div class="ptd-ac-icon" style="background:rgba(0,212,188,0.08)">&#129516;</div>
         <div class="ptd-ac-text">
           <div class="ptd-ac-title">Create DeepTwin</div>
-          <div class="ptd-ac-desc">Multi-modal AI analysis</div>
+          <div class="ptd-ac-desc">Multi-modal analysis (rule-based)</div>
         </div>
       </div>
       <div class="ptd-action-card ptd-ac-proto" onclick="window._patDashAIProtocol()">
