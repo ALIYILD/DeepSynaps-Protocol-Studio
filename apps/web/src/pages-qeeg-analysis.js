@@ -3829,15 +3829,48 @@ let _fusionSummary = null;
 let _collapsedSections = { medications: true, neurological: true, lifestyle: true };
 
 function renderTabBar(activeTab) {
-  return '<div class="ch-tab-bar" style="margin-bottom:20px">' +
+  return '<div class="ch-tab-bar" role="tablist" aria-label="qEEG analyzer sections" style="margin-bottom:20px">' +
     Object.entries(TAB_META).map(function (entry) {
       const id = entry[0], m = entry[1];
       const active = activeTab === id;
       return '<button class="ch-tab' + (active ? ' ch-tab--active' : '') + '"'
+        + ' role="tab"'
+        + ' aria-selected="' + (active ? 'true' : 'false') + '"'
+        + ' aria-controls="qeeg-tab-content"'
+        + ' tabindex="' + (active ? '0' : '-1') + '"'
+        + ' data-qeeg-tab-id="' + id + '"'
         + (active ? ' style="--tab-color:' + m.color + '"' : '')
         + ' onclick="window._qeegTab=\'' + id + '\';window._nav(\'qeeg-analysis\')">'
         + esc(m.label) + '</button>';
     }).join('') + '</div>';
+}
+
+// Wires arrow-key / Home / End navigation across the qEEG analyzer tab strip.
+// Idempotent — safe to call after every renderTabBar() reflow.
+function _wireQEEGTabKeyboard() {
+  if (window._qeegTabKbWired) return;
+  window._qeegTabKbWired = true;
+  document.addEventListener('keydown', function (ev) {
+    const t = ev.target;
+    if (!t || !t.classList || !t.classList.contains('ch-tab')) return;
+    if (!t.hasAttribute('data-qeeg-tab-id')) return;
+    const bar = t.parentElement;
+    if (!bar || !bar.classList.contains('ch-tab-bar')) return;
+    const tabs = Array.prototype.slice.call(bar.querySelectorAll('button.ch-tab[data-qeeg-tab-id]'));
+    if (!tabs.length) return;
+    const idx = tabs.indexOf(t);
+    let next = idx;
+    if (ev.key === 'ArrowRight' || ev.key === 'ArrowDown') next = (idx + 1) % tabs.length;
+    else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowUp') next = (idx - 1 + tabs.length) % tabs.length;
+    else if (ev.key === 'Home') next = 0;
+    else if (ev.key === 'End') next = tabs.length - 1;
+    else return;
+    ev.preventDefault();
+    const target = tabs[next];
+    target.focus();
+    const id = target.getAttribute('data-qeeg-tab-id');
+    if (id) { window._qeegTab = id; if (typeof window._nav === 'function') window._nav('qeeg-analysis'); }
+  });
 }
 
 // ── Patient Selector ─────────────────────────────────────────────────────────
@@ -4272,6 +4305,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   pageHtml += _qeegClinicalSafetyFooter();
   pageHtml += '</div>';
   el.innerHTML = pageHtml;
+  _wireQEEGTabKeyboard();
 
   // Wire hero export + workbench buttons. Both fall back honestly when no
   // analysis is selected — we never silently swallow the click.
