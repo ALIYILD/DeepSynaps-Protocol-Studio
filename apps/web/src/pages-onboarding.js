@@ -1,35 +1,22 @@
 import { api } from './api.js';
-import { currentUser } from './auth.js';
 import { getEvidenceUiStats } from './evidence-ui-live.js';
-import { spinner } from './helpers.js';
 import {
   EVIDENCE_TOTAL_PAPERS,
   EVIDENCE_SUMMARY,
 } from './evidence-dataset.js';
-import {
-  ffInput,
-  ffTextarea,
-  ffSelect,
-  ffChipGroup,
-  ffStepper,
-  ffActions,
-  ffNotice,
-} from './friendly-forms.js';
 
+// HTML escape helper used by the wizard's input value bindings.
 function _obEsc(v) {
   if (v == null) return '';
   return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
 }
 
-// ── Module-level wizard state ─────────────────────────────────────────────────
-let onboardingStep = 1;
-let onboardingData = {};
+// Live evidence-stats cache populated on wizard entry; fallback values keep
+// the welcome cards rendering even before the API call resolves.
 let _onboardingEvidenceStats = {
   totalPapers: EVIDENCE_TOTAL_PAPERS,
   modalityDistribution: EVIDENCE_SUMMARY.modalityDistribution || {},
 };
-
-const ONB_STEP_LABELS = ['Practice', 'Patient', 'Protocol', 'Ready'];
 
 function _onboardingTotalPapers() {
   return Number(_onboardingEvidenceStats.totalPapers) || EVIDENCE_TOTAL_PAPERS;
@@ -40,436 +27,6 @@ function _onboardingModalityCount() {
     || Object.keys(EVIDENCE_SUMMARY.modalityDistribution || {}).length;
 }
 
-// ── Step indicator (friendly-forms stepper) ──────────────────────────────────
-function pipHtml(step) {
-  return ffStepper({ steps: ONB_STEP_LABELS, current: step });
-}
-
-// ── Step 1 — Welcome & Practice Setup ────────────────────────────────────────
-function step1Html() {
-  const saved = onboardingData;
-  return `
-    <div id="onb-step-1" style="${onboardingStep === 1 ? '' : 'display:none'}">
-      ${pipHtml(1)}
-      <div class="ff-page-head">
-        <div class="ff-page-icon" aria-hidden="true">🧠</div>
-        <h1 class="ff-page-title">Welcome to DeepSynaps Protocol Studio</h1>
-        <p class="ff-page-sub">Let's set up your clinic in a few quick steps so you can start treating patients right away.</p>
-      </div>
-
-      <div class="ff-card">
-        <div class="ff-card-title">About your practice</div>
-        <p class="ff-card-sub">These details personalise the app and show up on patient-facing screens.</p>
-        ${ffInput({
-          id: 'onb-practice-name',
-          label: 'Practice name',
-          icon: '🏥',
-          value: saved.practiceName || '',
-          placeholder: 'e.g. Synapse Wellness Clinic',
-          help: 'This appears on patient handouts and receipts.',
-          required: true,
-          autocomplete: 'organization',
-        })}
-        ${ffSelect({
-          id: 'onb-specialty',
-          label: 'Primary specialty',
-          options: ['Neurofeedback', 'TMS', 'tDCS', 'Multi-modal', 'Other'],
-          value: saved.specialty || '',
-          help: 'Pick the modality you use most — you can add more later.',
-          required: true,
-        })}
-        ${ffSelect({
-          id: 'onb-clinician-count',
-          label: 'Number of clinicians',
-          options: ['1', '2-5', '6-15', '15+'],
-          value: saved.clinicianCount || '',
-          help: 'Helps us size seat licenses and reporting.',
-        })}
-      </div>
-
-      ${ffActions({
-        primary: { label: 'Continue →', onclick: 'window._onbNext(1)' },
-      })}
-    </div>`;
-}
-
-// ── Step 2 — Add First Patient ───────────────────────────────────────────────
-function step2Html() {
-  const p = onboardingData.patient || {};
-  const CONDITIONS = [
-    'Depression', 'Anxiety', 'PTSD', 'ADHD', 'Chronic Pain',
-    'TBI', 'Autism', "Parkinson's", 'Stroke', 'Cognitive Enhancement',
-    'OCD', 'Insomnia', 'Tinnitus', 'Other',
-  ];
-  return `
-    <div id="onb-step-2" style="${onboardingStep === 2 ? '' : 'display:none'}">
-      ${pipHtml(2)}
-      <div class="ff-page-head">
-        <div class="ff-page-icon" aria-hidden="true">👤</div>
-        <h1 class="ff-page-title">Add your first patient</h1>
-        <p class="ff-page-sub">Only the basics for now — you can always expand their record later from the Patients section.</p>
-      </div>
-
-      <div class="ff-card">
-        <div class="ff-card-title">Patient profile</div>
-        <p class="ff-card-sub">Use the legal name on file for billing and documentation.</p>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-          ${ffInput({
-            id: 'onb-pt-first',
-            label: 'First name',
-            value: p.first_name || '',
-            placeholder: 'First name',
-            required: true,
-            autocomplete: 'given-name',
-          })}
-          ${ffInput({
-            id: 'onb-pt-last',
-            label: 'Last name',
-            value: p.last_name || '',
-            placeholder: 'Last name',
-            autocomplete: 'family-name',
-          })}
-        </div>
-        ${ffInput({
-          id: 'onb-pt-dob',
-          label: 'Date of birth',
-          type: 'date',
-          icon: '📅',
-          value: p.dob || '',
-          help: 'Used for age-based dosing and reporting.',
-          optional: true,
-          autocomplete: 'bday',
-        })}
-        ${ffSelect({
-          id: 'onb-pt-condition',
-          label: 'Primary condition',
-          options: CONDITIONS,
-          value: p.primary_condition || '',
-          placeholder: 'Select condition…',
-          help: 'We will use this to suggest evidence-backed protocols in the next step.',
-        })}
-      </div>
-
-      <div id="onb-step2-err" role="alert" aria-live="polite"
-        style="display:none;margin-top:14px;padding:12px 14px;border-radius:var(--radius-md);border:1px solid rgba(255,107,107,0.25);background:rgba(255,107,107,0.08);color:var(--red);font-size:13px"></div>
-      <div id="onb-step2-saving" role="status"
-        style="display:none;margin-top:14px;padding:12px 14px;border-radius:var(--radius-md);border:1px solid rgba(74,158,255,0.25);background:rgba(74,158,255,0.08);color:var(--blue);font-size:13px;text-align:center">
-        Saving patient…
-      </div>
-
-      ${ffActions({
-        tertiary: { label: '← Back', onclick: 'window._onbBack(2)' },
-        secondary: { label: 'Skip for now', onclick: 'window._onbSkipPatient()' },
-        primary: { id: 'onb-add-patient-btn', label: 'Save &amp; continue →', onclick: 'window._onbAddPatient()' },
-      })}
-    </div>`;
-}
-
-// ── Step 3 — Generate First Protocol ────────────────────────────────────────
-function step3Html() {
-  const p = onboardingData.patient;
-  const prefillCond = p?.primary_condition || '';
-  const patientName = p ? `${p.first_name || ''} ${p.last_name || ''}`.trim() : '';
-  const MODALITIES = ['tDCS', 'TMS', 'tACS', 'PEMF', 'Neurofeedback', 'PBM'];
-
-  const subtitle = patientName
-    ? `For ${patientName}. We'll suggest an evidence-backed protocol based on the condition and modality you select.`
-    : "We'll suggest an evidence-backed protocol based on the condition and modality you select.";
-
-  return `
-    <div id="onb-step-3" style="${onboardingStep === 3 ? '' : 'display:none'}">
-      ${pipHtml(3)}
-      <div class="ff-page-head">
-        <div class="ff-page-icon" aria-hidden="true">✦</div>
-        <h1 class="ff-page-title">Generate your first protocol</h1>
-        <p class="ff-page-sub">${subtitle}</p>
-      </div>
-
-      <div class="ff-card">
-        <div class="ff-card-title">Protocol basics</div>
-        <p class="ff-card-sub">We use these to seed recommendations from our ${_onboardingTotalPapers().toLocaleString()}-paper evidence base — you can refine every parameter afterwards.</p>
-        ${ffInput({
-          id: 'onb-proto-condition',
-          label: 'Condition',
-          icon: '🎯',
-          value: prefillCond,
-          placeholder: 'e.g. Depression',
-          required: true,
-          help: 'Condition being treated. You can use common names like "Depression" or "ADHD".',
-        })}
-        ${ffSelect({
-          id: 'onb-proto-modality',
-          label: 'Modality',
-          options: MODALITIES,
-          placeholder: 'Select modality…',
-          help: `Choose the neuromodulation method you plan to use for this patient. Recommendations draw from ${_onboardingTotalPapers().toLocaleString()} indexed papers across ${_onboardingModalityCount()} modalities.`,
-        })}
-        ${ffTextarea({
-          id: 'onb-proto-symptoms',
-          label: 'Brief symptoms / notes',
-          rows: 3,
-          placeholder: 'Describe key symptoms, severity, or relevant history…',
-          optional: true,
-          help: 'Free-text notes help the recommender prioritise the right targets.',
-        })}
-      </div>
-
-      <div id="onb-proto-spinner" role="status" aria-live="polite"
-        style="display:none;margin-top:14px;padding:12px 14px;border-radius:var(--radius-md);border:1px solid var(--border);background:var(--bg-surface);color:var(--text-secondary);font-size:13px;text-align:center">
-        <span style="display:inline-flex;align-items:center;gap:10px">
-          <span style="width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--teal);border-radius:50%;animation:spin .8s linear infinite"></span>
-          Generating protocol recommendation…
-        </span>
-      </div>
-      <div id="onb-proto-preview" style="display:none;margin-top:14px">
-        <div style="font-size:11px;font-weight:700;color:var(--teal);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">Protocol preview</div>
-        <div id="onb-proto-preview-text" style="background:var(--teal-ghost);border:1px solid var(--border-teal);border-radius:var(--radius-md);padding:14px 16px;font-size:13px;color:var(--text-primary);line-height:1.65;white-space:pre-wrap;max-height:180px;overflow-y:auto"></div>
-      </div>
-      <div id="onb-step3-err" role="alert" aria-live="polite"
-        style="display:none;margin-top:14px;padding:12px 14px;border-radius:var(--radius-md);border:1px solid rgba(255,107,107,0.25);background:rgba(255,107,107,0.08);color:var(--red);font-size:13px"></div>
-
-      ${ffActions({
-        tertiary: { label: '← Back', onclick: 'window._onbBack(3)' },
-        secondary: { label: 'Skip for now', onclick: 'window._onbSkipProtocol()' },
-        primary: { id: 'onb-gen-btn', label: 'Generate protocol →', onclick: 'window._onbGenerateProtocol()' },
-      })}
-    </div>`;
-}
-
-// ── Step 4 — You're Ready! ────────────────────────────────────────────────────
-function step4Html() {
-  return `
-    <div id="onb-step-4" style="${onboardingStep === 4 ? '' : 'display:none'}">
-      ${pipHtml(4)}
-      <div class="ff-page-head">
-        <div class="ff-page-icon" aria-hidden="true" style="background:var(--teal-ghost);border-color:var(--teal);color:var(--teal)">✓</div>
-        <h1 class="ff-page-title" style="color:var(--teal)">Your clinic is ready</h1>
-        <p class="ff-page-sub">Here's where most clinicians go first — everything is reachable from the sidebar too.</p>
-      </div>
-
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:8px">
-        <div class="onb-next-card" onclick="window._nav('patients')" role="button" tabindex="0">
-          <div class="onb-next-icon">👥</div>
-          <div class="onb-next-title">View patients →</div>
-          <div class="onb-next-desc">Manage patient records and treatment histories.</div>
-        </div>
-        <div class="onb-next-card" onclick="window._nav('protocols-registry')" role="button" tabindex="0">
-          <div class="onb-next-icon">◇</div>
-          <div class="onb-next-title">Browse protocols →</div>
-          <div class="onb-next-desc">Explore the evidence-backed protocol registry.</div>
-        </div>
-        <div class="onb-next-card" onclick="window._nav('ai-assistant')" role="button" tabindex="0">
-          <div class="onb-next-icon">✦</div>
-          <div class="onb-next-title">Open AI assistant →</div>
-          <div class="onb-next-desc">Get AI-powered clinical decision support.</div>
-        </div>
-      </div>
-
-      ${ffActions({
-        primary: { label: 'Go to dashboard →', onclick: 'window._onbFinish()' },
-      })}
-    </div>`;
-}
-
-// ── Render full wizard ────────────────────────────────────────────────────────
-function renderOnboarding(setTopbar) {
-  setTopbar('Welcome to DeepSynaps', '');
-  const el = document.getElementById('content');
-  el.innerHTML = `
-    <div class="ff-page">
-      <div class="ff-page-inner">
-        ${step1Html()}
-        ${step2Html()}
-        ${step3Html()}
-        ${step4Html()}
-      </div>
-    </div>`;
-}
-
-// ── Show a specific step ──────────────────────────────────────────────────────
-function _showStep(step) {
-  onboardingStep = step;
-  for (let i = 1; i <= 4; i++) {
-    const el = document.getElementById(`onb-step-${i}`);
-    if (el) el.style.display = i === step ? '' : 'none';
-  }
-  document.getElementById('content')?.scrollTo(0, 0);
-}
-
-// ── Global handlers ───────────────────────────────────────────────────────────
-
-// Step 1 → 2
-window._onbNext = function(fromStep) {
-  if (fromStep === 1) {
-    onboardingData.practiceName    = document.getElementById('onb-practice-name')?.value.trim() || '';
-    onboardingData.specialty       = document.getElementById('onb-specialty')?.value || '';
-    onboardingData.clinicianCount  = document.getElementById('onb-clinician-count')?.value || '';
-    _showStep(2);
-    return;
-  }
-  _showStep(fromStep + 1);
-};
-
-// Back navigation
-window._onbBack = function(fromStep) {
-  _showStep(fromStep - 1);
-};
-
-// Step 2 — skip patient
-window._onbSkipPatient = function() {
-  onboardingData.patient = null;
-  onboardingData.skippedPatient = true;
-  _showStep(3);
-};
-
-// Step 2 — add patient via API
-window._onbAddPatient = async function() {
-  const firstName  = document.getElementById('onb-pt-first')?.value.trim() || '';
-  const lastName   = document.getElementById('onb-pt-last')?.value.trim() || '';
-  const dob        = document.getElementById('onb-pt-dob')?.value || '';
-  const condition  = document.getElementById('onb-pt-condition')?.value || '';
-  const errEl      = document.getElementById('onb-step2-err');
-  const savingEl   = document.getElementById('onb-step2-saving');
-  const btn        = document.getElementById('onb-add-patient-btn');
-
-  if (!firstName && !lastName) {
-    if (errEl) { errEl.textContent = 'Please enter at least a first or last name.'; errEl.style.display = 'block'; }
-    return;
-  }
-  if (errEl) errEl.style.display = 'none';
-  if (savingEl) savingEl.style.display = 'block';
-  if (btn) btn.disabled = true;
-
-  try {
-    const result = await api.createPatient({
-      first_name: firstName,
-      last_name: lastName,
-      dob: dob || null,
-      primary_condition: condition || null,
-      status: 'active',
-    });
-    onboardingData.patient = {
-      id: result?.id,
-      first_name: firstName,
-      last_name: lastName,
-      dob,
-      primary_condition: condition,
-    };
-    onboardingData.skippedPatient = false;
-    _showStep(3);
-  } catch (err) {
-    if (errEl) {
-      errEl.textContent = 'Could not save patient — check backend connection. Continuing anyway.';
-      errEl.style.display = 'block';
-    }
-    // Save locally and move on
-    onboardingData.patient = { first_name: firstName, last_name: lastName, dob, primary_condition: condition };
-    setTimeout(() => _showStep(3), 1500);
-  } finally {
-    if (savingEl) savingEl.style.display = 'none';
-    if (btn) btn.disabled = false;
-  }
-};
-
-// Step 3 — skip protocol
-window._onbSkipProtocol = function() {
-  onboardingData.skippedProtocol = true;
-  _showStep(4);
-};
-
-// Step 3 — generate protocol
-window._onbGenerateProtocol = async function() {
-  const condition  = document.getElementById('onb-proto-condition')?.value.trim() || '';
-  const modality   = document.getElementById('onb-proto-modality')?.value || '';
-  const symptoms   = document.getElementById('onb-proto-symptoms')?.value.trim() || '';
-  const spinnerEl  = document.getElementById('onb-proto-spinner');
-  const previewEl  = document.getElementById('onb-proto-preview');
-  const previewTxt = document.getElementById('onb-proto-preview-text');
-  const genBtn     = document.getElementById('onb-gen-btn');
-  const errEl      = document.getElementById('onb-step3-err');
-
-  if (!condition) {
-    if (errEl) { errEl.textContent = 'Please enter a condition.'; errEl.style.display = 'block'; }
-    return;
-  }
-  if (errEl) errEl.style.display = 'none';
-
-  if (spinnerEl) spinnerEl.style.display = 'block';
-  if (previewEl) previewEl.style.display = 'none';
-  if (genBtn)    genBtn.disabled = true;
-
-  try {
-    const result = await api.generateProtocol({
-      condition_slug: condition.toLowerCase().replace(/\s+/g, '-'),
-      modality_slug: modality ? modality.toLowerCase() : undefined,
-      symptoms: symptoms || undefined,
-      patient_id: onboardingData.patient?.id || undefined,
-    });
-    const text = result?.protocol_text || result?.text || result?.recommendation || JSON.stringify(result, null, 2);
-    const preview = typeof text === 'string' ? text.slice(0, 400) + (text.length > 400 ? '…' : '') : 'Protocol generated.';
-    onboardingData.generatedProtocol = text;
-    if (previewTxt) previewTxt.textContent = preview;
-    if (previewEl) previewEl.style.display = 'block';
-    // Change button to Continue
-    if (genBtn) {
-      genBtn.textContent = 'Continue →';
-      genBtn.onclick = () => _showStep(4);
-      genBtn.disabled = false;
-    }
-  } catch (err) {
-    if (errEl) {
-      errEl.textContent = 'Protocol generation unavailable — ensure the backend is running. You can skip for now.';
-      errEl.style.display = 'block';
-    }
-    if (genBtn) genBtn.disabled = false;
-  } finally {
-    if (spinnerEl) spinnerEl.style.display = 'none';
-  }
-};
-
-// Step 4 — finish
-window._onbFinish = function() {
-  localStorage.setItem('ds_onboarding_done', '1');
-  // Reset module state for re-use in same session
-  onboardingStep = 1;
-  onboardingData = {};
-  window._nav('dashboard');
-};
-
-// Legacy chip selectors kept for compatibility (no longer used in new wizard but harmless)
-window._onbSelectMod = function(el, mod) {
-  el.classList.toggle('selected');
-  onboardingData.modalities = onboardingData.modalities || [];
-  if (el.classList.contains('selected')) {
-    if (!onboardingData.modalities.includes(mod)) onboardingData.modalities.push(mod);
-  } else {
-    onboardingData.modalities = onboardingData.modalities.filter(m => m !== mod);
-  }
-};
-
-window._onbSelectCond = function(el, cond) {
-  el.classList.toggle('selected');
-  onboardingData.conditions = onboardingData.conditions || [];
-  if (el.classList.contains('selected')) {
-    if (!onboardingData.conditions.includes(cond)) onboardingData.conditions.push(cond);
-  } else {
-    onboardingData.conditions = onboardingData.conditions.filter(c => c !== cond);
-  }
-};
-
-// ── Export ────────────────────────────────────────────────────────────────────
-export async function pgOnboarding(setTopbar, navigate) {
-  // Reset step to 1 on each fresh visit (unless resuming)
-  if (onboardingStep < 1 || onboardingStep > 4) onboardingStep = 1;
-  try {
-    _onboardingEvidenceStats = await getEvidenceUiStats({
-      fallbackSummary: EVIDENCE_SUMMARY,
-      fallbackConditionCount: 15,
-      fallbackMetaAnalyses: 0,
-    });
-  } catch {}
-  renderOnboarding(setTopbar);
-}
 
 // ════════════════════════════════════════════════════════════════════════════════
 // pgOnboardingWizard — 6-step first-run setup wizard (overlay or inline)
@@ -890,9 +447,16 @@ window._wizGo = function(step) {
   _renderWizStep(step);
 };
 
+// Skip the wizard. We mark onboarding *complete* (not just "skipped") so the
+// post-auth router gate in app.js#bootApp does not re-trigger the wizard on
+// the next reload. Power users who hit "Skip setup" should never be forced
+// back into onboarding without an explicit /onboarding-wizard navigation.
+// `ds_onboarding_skip` is kept as a secondary breadcrumb so dashboards can
+// distinguish "skipped" from "finished" if/when they want to.
 window._wizSkip = function(e) {
   e?.preventDefault();
-  localStorage.setItem('ds_onboarding_skip', '1');
+  try { localStorage.setItem('ds_onboarding_complete', 'true'); } catch {}
+  try { localStorage.setItem('ds_onboarding_skip', '1'); } catch {}
   document.getElementById('onboarding-overlay')?.remove();
   window._nav?.('dashboard');
 };
@@ -1037,6 +601,17 @@ export async function pgOnboardingWizard(setTopbar) {
   setTopbar('Setup Wizard', '');
   // Reset wizard state for a fresh run
   _wiz = { step: 1, clinicName: '', clinicType: '', modalities: [], clinicianCount: '', role: '', dataChoice: '', complete: false };
+
+  // Refresh the live evidence-stats cache so the welcome-card "X papers
+  // across N modalities" counters reflect the current dataset. Falls back
+  // silently to the bundled summary if the API is unreachable.
+  try {
+    _onboardingEvidenceStats = await getEvidenceUiStats({
+      fallbackSummary: EVIDENCE_SUMMARY,
+      fallbackConditionCount: 15,
+      fallbackMetaAnalyses: 0,
+    });
+  } catch {}
 
   // Restore any previously saved clinic config / role
   try {
