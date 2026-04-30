@@ -8017,11 +8017,11 @@ export async function pgReportsHubNew(setTopbar, navigate) {
   // Merge backend-persisted reports with the local cache. Backend rows are
   // authoritative (same id == same report); local-only rows (saved offline)
   // stay visible until their next sync. Newest first by date.
-  async function fetchSavedReports() {
+  async function fetchSavedReports(filters = {}) {
     let backend = [];
     if (api.listMyReports) {
       try {
-        const res = await api.listMyReports();
+        const res = await api.listMyReports(filters);
         backend = res?.items || res || [];
       } catch (err) {
         console.warn('[reports-hub] listMyReports failed; using local cache only:', err?.message || err);
@@ -8030,8 +8030,32 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     return mergeSavedReports(backend, loadReports());
   }
 
-  const savedReports = await fetchSavedReports();
-  const stC = { final:'var(--green)', draft:'var(--amber)', generated:'var(--teal)', error:'var(--red)', 'local-only':'var(--amber)' };
+  // Reports Hub launch-audit (2026-04-30): filters + summary counts. The
+  // recent-tab UI surfaces these so reviewers can confirm the numbers are
+  // real, not hardcoded. Filters are stored on `window` so they survive
+  // navigate-back (same pattern as `_repSearch`, `_invFilt`, etc.).
+  const reportsFilters = window._reportsFilters || {};
+  const savedReports = await fetchSavedReports(reportsFilters);
+
+  // Best-effort page-load audit. Non-blocking by design.
+  if (api.logReportsAudit) {
+    api.logReportsAudit({ event: 'page_loaded', note: 'tab=' + tab }).catch(() => {});
+  }
+
+  // Top counts: total / draft / signed / superseded. Pulled from the same
+  // server-side scope as the list, so they are honest about empty cases.
+  let reportsSummary = null;
+  if (api.getReportsSummary) {
+    try {
+      reportsSummary = await api.getReportsSummary({});
+    } catch (err) {
+      console.warn('[reports-hub] getReportsSummary failed:', err?.message || err);
+      reportsSummary = null;
+    }
+  }
+  const summaryCounts = reportsSummary || { total: savedReports.length, draft: 0, signed: 0, superseded: 0 };
+
+  const stC = { final:'var(--green)', draft:'var(--amber)', generated:'var(--teal)', error:'var(--red)', 'local-only':'var(--amber)', signed:'var(--green)', superseded:'var(--text-tertiary)' };
 
   function canRenderSavedReport(row) {
     return !!(row && row._source === 'backend' && row.status !== 'local-only' && typeof api.renderStoredReport === 'function');
@@ -8082,6 +8106,9 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     const rpts = loadReports();
     rpts.unshift(local);
     saveReports(rpts);
+    if (persisted) {
+      try { api.logReportsAudit?.({ event: 'generated', report_id: local.id, patient_id: patientId || null, note: 'type=' + (report.type || '?') }); } catch (_) {}
+    }
     window._dsToast?.({
       title: persisted ? 'Saved' : 'Saved locally only',
       body: persisted ? fallbackSuccessBody : 'The report is stored in this browser only because the server save failed.',
@@ -8612,13 +8639,44 @@ export async function pgReportsHubNew(setTopbar, navigate) {
   }
   else if (tab === 'recent') {
     const q = (window._repSearch||'').toLowerCase();
-    const rows = savedReports.filter(r=>!q||(r.name+r.patient).toLowerCase().includes(q));
-    main = `
+    const statusFilt = window._repStatusFilter || '';
+    const kindFilt = window._repKindFilter || '';
+    let rows = savedReports.filter(r=>!q||(r.name+r.patient).toLowerCase().includes(q));
+    if (statusFilt) rows = rows.filter(r => (r.status || '') === statusFilt);
+    if (kindFilt) rows = rows.filter(r => ((r.type || '') + '').toLowerCase().includes(kindFilt.toLowerCase()));
+
+    const STATUS_FILTS = [
+      { id: '',           label: 'All' },
+      { id: 'generated',  label: 'Draft' },
+      { id: 'signed',     label: 'Signed' },
+      { id: 'superseded', label: 'Superseded' },
+      { id: 'local-only', label: 'Local only' },
+    ];
+
+    const summaryStrip =
+      '<div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:12px">' +
+      '<div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">' + (summaryCounts.total ?? 0) + '</div><div class="ch-kpi-label">Total reports</div></div>' +
+      '<div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">' + (summaryCounts.draft ?? 0) + '</div><div class="ch-kpi-label">Drafts</div></div>' +
+      '<div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">' + (summaryCounts.signed ?? 0) + '</div><div class="ch-kpi-label">Signed</div></div>' +
+      '<div class="ch-kpi-card" style="--kpi-color:var(--text-tertiary)"><div class="ch-kpi-val">' + (summaryCounts.superseded ?? 0) + '</div><div class="ch-kpi-label">Superseded</div></div>' +
+      '</div>';
+
+    const disclaimerBanner =
+      '<div style="padding:10px 14px;border-radius:8px;border:1px solid rgba(94,234,212,0.18);background:rgba(94,234,212,0.05);color:var(--text-secondary);font-size:11.5px;line-height:1.5;margin-bottom:12px">' +
+      '<div style="font-weight:600;color:var(--text-primary);margin-bottom:2px">Clinical safety</div>' +
+      '<div>Reports are clinical records and require clinician sign-off. Signed reports are immutable; supersede creates a new revision with audit trail. AI summaries are decision-support only.</div>' +
+      '</div>';
+
+    main = summaryStrip + disclaimerBanner + `
       <div class="ch-card">
         <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px">
           <span class="ch-card-title">Recent Reports</span>
+          <div style="display:flex;gap:4px;flex-wrap:wrap">
+            ${STATUS_FILTS.map(f=>'<button class="ch-btn-sm'+(f.id===statusFilt?' ch-btn-teal':'')+'" onclick="window._repStatusFilter=\''+f.id+'\';window._reportsHubAudit(\'filter_changed\',\'status=\'+'+JSON.stringify(f.id)+');window._nav(\'reports-hub\')">'+f.label+'</button>').join('')}
+          </div>
+          <input type="text" placeholder="Filter by kind…" class="ph-search-input" style="max-width:160px" value="${(kindFilt||'').replace(/"/g,'&quot;')}" oninput="window._repKindFilter=this.value" onchange="window._reportsHubAudit('filter_changed','kind='+this.value);window._nav('reports-hub')">
           <div style="position:relative;flex:1;max-width:260px">
-            <input type="text" placeholder="Search reports…" class="ph-search-input" value="${window._repSearch||''}" oninput="window._repSearch=this.value;window._nav('reports-hub')">
+            <input type="text" placeholder="Search reports…" class="ph-search-input" value="${window._repSearch||''}" oninput="window._repSearch=this.value" onchange="window._reportsHubAudit('filter_changed','q='+this.value);window._nav('reports-hub')">
             <svg viewBox="0 0 24 24" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;stroke:var(--text-tertiary);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           </div>
           <button class="ch-btn-sm ch-btn-teal" onclick="window._reportsHubTab='generate';window._nav('reports-hub')">+ New Report</button>
@@ -8626,20 +8684,99 @@ export async function pgReportsHubNew(setTopbar, navigate) {
         ${rows.length ? rows.map(r=>
           (() => {
             const canRender = canRenderSavedReport(r);
-            const actionHtml = canRender
-              ? '<button class="ch-btn-sm" onclick="window._repOpenRenderedHtml(\''+r.id+'\')">Open HTML</button><button class="ch-btn-sm" onclick="window._repDownloadPdf(\''+r.id+'\')">Download PDF</button>'
+            const isSigned = r.status === 'signed' || r.status === 'final';
+            const isSuperseded = r.status === 'superseded';
+            const isBackend = r._source === 'backend' && r.status !== 'local-only';
+            const renderBtns = canRender
+              ? '<button class="ch-btn-sm" onclick="window._repOpenRenderedHtml(\''+r.id+'\')">HTML</button>'
+                + '<button class="ch-btn-sm" onclick="window._repDownloadPdf(\''+r.id+'\')">PDF</button>'
+                + '<button class="ch-btn-sm" onclick="window._repDownloadCsv(\''+r.id+'\')">CSV</button>'
               : '<span style="font-size:10.5px;color:var(--amber);padding:0 6px">'+reportPersistenceLabel(r)+'</span>';
+            const signBtn = isBackend && !isSigned && !isSuperseded
+              ? '<button class="ch-btn-sm ch-btn-teal" onclick="window._repSign(\''+r.id+'\')">Sign</button>' : '';
+            const supersedeBtn = isBackend && !isSuperseded
+              ? '<button class="ch-btn-sm" onclick="window._repSupersede(\''+r.id+'\')">Supersede</button>' : '';
             return (
           '<div class="book-row">'+
             '<div class="book-datetime"><div class="book-date">'+r.date+'</div><div class="book-time">'+r.type+'</div></div>'+
             '<div class="book-info"><div class="book-patient">'+r.name+'</div><div class="book-clinician">'+r.patient+' · '+reportPersistenceLabel(r)+'</div></div>'+
             '<div class="book-status-col"><span class="book-status-badge" style="color:'+(stC[r.status]||'var(--teal)')+';background:'+(stC[r.status]||'var(--teal)')+'22">'+r.status+'</span></div>'+
-            '<div class="book-actions"><button class="ch-btn-sm" onclick="window._repViewSaved(\''+r.id+'\')">View</button><button class="ch-btn-sm" onclick="window._repPrintSaved(\''+r.id+'\')">Print</button>'+actionHtml+'</div>'+
+            '<div class="book-actions">'+
+              '<button class="ch-btn-sm" onclick="window._repViewSaved(\''+r.id+'\')">View</button>'+
+              '<button class="ch-btn-sm" onclick="window._repPrintSaved(\''+r.id+'\')">Print</button>'+
+              renderBtns + signBtn + supersedeBtn +
+            '</div>'+
           '</div>'
             );
           })()
-        ).join('') : '<div class="ch-empty">No reports yet. <a onclick="window._reportsHubTab=\'generate\';window._nav(\'reports-hub\')" style="color:var(--teal);cursor:pointer">Generate one now →</a></div>'}
+        ).join('') : '<div class="ch-empty">No reports yet. Generate the first one. <a onclick="window._reportsHubTab=\'generate\';window._nav(\'reports-hub\')" style="color:var(--teal);cursor:pointer">Open Generate →</a></div>'}
       </div>`;
+
+    // Audit ingestion helper used by filter handlers above. Best-effort, fire-and-forget.
+    window._reportsHubAudit = (event, note) => {
+      try { api.logReportsAudit?.({ event, note: String(note || '').slice(0, 500) }); } catch (_) {}
+    };
+
+    window._repDownloadCsv = async (id) => {
+      if (!api.exportReportCsv) {
+        window._dsToast?.({ title: 'CSV unavailable', body: 'API not configured.', severity: 'warn' });
+        return;
+      }
+      try {
+        const file = await api.exportReportCsv(id);
+        if (!file?.blob) throw new Error('CSV export returned no file.');
+        const url = URL.createObjectURL(file.blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = file.filename || ('report-' + id + '.csv');
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        api.logReportsAudit?.({ event: 'exported', report_id: id, note: 'format=csv' });
+        window._dsToast?.({ title: 'CSV ready', body: (file.filename || 'report.csv') + ' downloaded.', severity: 'success' });
+      } catch (err) {
+        window._dsToast?.({ title: 'CSV export failed', body: err?.message || 'Network error', severity: 'critical' });
+      }
+    };
+
+    window._repSign = async (id) => {
+      if (!api.signReport) {
+        window._dsToast?.({ title: 'Sign unavailable', body: 'API not configured.', severity: 'warn' });
+        return;
+      }
+      const note = (window.prompt('Optional sign-off note (max 512 chars):', '') || '').slice(0, 512);
+      try {
+        const out = await api.signReport(id, note || null);
+        api.logReportsAudit?.({ event: 'signed', report_id: id, note: 'signed_by=' + (out?.signed_by || '?') });
+        window._dsToast?.({ title: 'Signed', body: 'Report signed and made immutable.', severity: 'success' });
+        window._nav('reports-hub');
+      } catch (err) {
+        const msg = err?.message || 'Network error';
+        window._dsToast?.({ title: 'Sign failed', body: msg, severity: 'critical' });
+      }
+    };
+
+    window._repSupersede = async (id) => {
+      if (!api.supersedeReport) {
+        window._dsToast?.({ title: 'Supersede unavailable', body: 'API not configured.', severity: 'warn' });
+        return;
+      }
+      const reason = (window.prompt('Reason for superseding (required, min 3 chars):', '') || '').trim();
+      if (reason.length < 3) {
+        window._dsToast?.({ title: 'Reason required', body: 'A supersede reason is required for the audit trail.', severity: 'warn' });
+        return;
+      }
+      try {
+        const out = await api.supersedeReport(id, { reason });
+        api.logReportsAudit?.({ event: 'superseded', report_id: id, note: 'new_revision=' + (out?.id || '?') });
+        window._dsToast?.({ title: 'Superseded', body: 'New revision created. Original is now read-only.', severity: 'success' });
+        window._nav('reports-hub');
+      } catch (err) {
+        const msg = err?.message || 'Network error';
+        window._dsToast?.({ title: 'Supersede failed', body: msg, severity: 'critical' });
+      }
+    };
 
     window._repOpenRenderedHtml = async (id) => {
       const r = findSavedReportRecord(id);
@@ -8657,6 +8794,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
         const url = URL.createObjectURL(file.blob);
         window.open(url, '_blank', 'noopener,noreferrer');
         setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        api.logReportsAudit?.({ event: 'viewed', report_id: id, note: 'format=html' });
       } catch (err) {
         window._dsToast?.({ title:'HTML render failed', body: err?.message || 'The report could not be rendered.', severity:'warn' });
       }
@@ -8683,6 +8821,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+        api.logReportsAudit?.({ event: 'exported', report_id: id, note: 'format=pdf' });
         window._dsToast?.({ title:'PDF ready', body:(file.filename || ('report-' + id + '.pdf')) + ' downloaded.', severity:'success' });
       } catch (err) {
         window._dsToast?.({ title:'PDF export failed', body: err?.message || 'The report PDF could not be generated.', severity:'warn' });
@@ -8693,6 +8832,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     window._repViewSaved = (id) => {
       const r = findSavedReportRecord(id);
       if (!r) { window._dsToast?.({ title:'Not found', body:'Report record is no longer available.', severity:'warn' }); return; }
+      api.logReportsAudit?.({ event: 'viewed', report_id: id, note: 'format=modal' });
       const ov = document.createElement('div');
       ov.className = 'rh-modal-overlay';
       ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:1000;display:flex;align-items:flex-start;justify-content:center;overflow-y:auto;padding:24px 16px';
@@ -8891,17 +9031,17 @@ export async function pgReportsHubNew(setTopbar, navigate) {
                   <div class="lib-card-top"><span style="font-size:18px">📊</span><span class="lib-card-name">CSV Data Export</span></div>
                   <div style="font-size:11.5px;color:var(--text-tertiary)">Raw rows for analysis in Excel, R, or SPSS. Downloads immediately.</div>
                 </div>
-                <div class="lib-card" style="opacity:0.55;cursor:not-allowed" title="Not yet available">
-                  <div class="lib-card-top"><span style="font-size:18px">📄</span><span class="lib-card-name">PDF Report</span><span style="margin-left:auto;font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(255,181,71,0.12);color:var(--amber,#ffb547);border:1px solid rgba(255,181,71,0.3)">Not available</span></div>
-                  <div style="font-size:11.5px;color:var(--text-tertiary)">Formatted clinical report. Use the in-browser Print dialog from the Generate tab for now.</div>
+                <div class="lib-card" style="cursor:pointer" onclick="window._reportsHubTab='recent';window._nav('reports-hub')">
+                  <div class="lib-card-top"><span style="font-size:18px">📄</span><span class="lib-card-name">Per-report PDF</span><span style="margin-left:auto;font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(94,234,212,0.12);color:var(--teal);border:1px solid rgba(94,234,212,0.3)">Available</span></div>
+                  <div style="font-size:11.5px;color:var(--text-tertiary)">Use the PDF button on each report in the Recent tab. Bulk PDF is not supported on this deployment.</div>
+                </div>
+                <div class="lib-card" style="opacity:0.55;cursor:not-allowed" title="DOCX renderer not configured">
+                  <div class="lib-card-top"><span style="font-size:18px">📝</span><span class="lib-card-name">DOCX Report</span><span style="margin-left:auto;font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(255,181,71,0.12);color:var(--amber,#ffb547);border:1px solid rgba(255,181,71,0.3)">Not configured</span></div>
+                  <div style="font-size:11.5px;color:var(--text-tertiary)">DOCX renderer is not installed on this deployment. The API returns HTTP 503 so the UI never produces an empty file. Use PDF instead.</div>
                 </div>
                 <div class="lib-card" style="opacity:0.55;cursor:not-allowed" title="Not yet available">
                   <div class="lib-card-top"><span style="font-size:18px">🏥</span><span class="lib-card-name">HL7 FHIR Export</span><span style="margin-left:auto;font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(255,181,71,0.12);color:var(--amber,#ffb547);border:1px solid rgba(255,181,71,0.3)">Not available</span></div>
-                  <div style="font-size:11.5px;color:var(--text-tertiary)">Structured clinical data for EHR systems.</div>
-                </div>
-                <div class="lib-card" style="opacity:0.55;cursor:not-allowed" title="Not yet available">
-                  <div class="lib-card-top"><span style="font-size:18px">⚙</span><span class="lib-card-name">JSON Data Dump</span><span style="margin-left:auto;font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(255,181,71,0.12);color:var(--amber,#ffb547);border:1px solid rgba(255,181,71,0.3)">Not available</span></div>
-                  <div style="font-size:11.5px;color:var(--text-tertiary)">Complete migration/backup export.</div>
+                  <div style="font-size:11.5px;color:var(--text-tertiary)">Structured clinical data for EHR systems. Roadmap item — no FHIR mapper today.</div>
                 </div>
               </div>
             </div>
