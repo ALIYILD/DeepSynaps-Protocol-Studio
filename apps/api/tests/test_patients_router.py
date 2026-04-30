@@ -3,8 +3,28 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+import pytest
+from sqlalchemy import text
+
 from app.database import SessionLocal
 from app.persistence.models import Clinic, User
+
+
+@pytest.fixture(autouse=True)
+def _clean_adverse_events_after_test() -> None:
+    """Ensure adverse-event rows never bleed between enrichment tests.
+
+    The fast-truncate path in ``reset_database(fast=True)`` has been observed
+    to occasionally leave adverse-event state behind when running under
+    pytest-xdist.  This fixture provides an explicit safety net.
+    """
+    yield
+    db = SessionLocal()
+    try:
+        db.execute(text("DELETE FROM adverse_events"))
+        db.commit()
+    finally:
+        db.close()
 
 
 def _ensure_demo_clinician_in_clinic() -> None:
