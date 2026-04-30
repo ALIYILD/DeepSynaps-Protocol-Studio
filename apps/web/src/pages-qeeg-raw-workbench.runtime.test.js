@@ -12,9 +12,16 @@ import assert from 'node:assert/strict';
 const API_CALLS = [];
 const API_RESPONSES = {
   getQEEGWorkbenchMetadata: { patient_name: 'Demo Patient', session_label: 'session DEMO' },
+  getQEEGWorkbenchReferenceLibrary: {
+    concepts: [{ label: 'Coherence', summary: 'Connectivity review after artifact control.', caveats: ['Clinician review required.'] }],
+  },
+  getQEEGManualAnalysisChecklist: {
+    items: [{ title: 'Recording setup', action: 'Confirm montage and condition.', safety_notes: ['Decision-support only.'] }],
+  },
   getQEEGCleaningLog: { items: [] },
-  listQEEGCleaningAnnotations: { items: [] },
+  listQEEGCleaningAnnotations: [],
   createQEEGCleaningAnnotation: { id: 'ann-1', kind: 'note' },
+  createQEEGManualFinding: { id: 'mf-1', finding_type: 'manual qEEG review finding', channels: ['Fp1-Av'], bands: ['alpha'], possible_confounds: ['blink'] },
   saveQEEGCleaningVersion: { id: 'v1', version_number: 1, review_status: 'draft' },
   listQEEGCleaningVersions: [{ id: 'v0', version_number: 0, review_status: 'draft' }],
   getQEEGRawVsCleanedSummary: { retained_data_pct: 88, rejected_segments_count: 0, bad_channels_excluded: [] },
@@ -172,6 +179,7 @@ function matchAttrs(attrs, sel) {
   // since flat regex can't see scope, accept any <button> that lives inside the
   // qwb-view-toggle wrapper string. Implemented via a contains check on the full html.
   if (sel === '[data-action]') return /\bdata-action="/.test(attrs);
+  if (sel === '[data-manual-action]') return /\bdata-manual-action="/.test(attrs);
   if (sel === '[data-ai-decision]') return /\bdata-ai-decision="/.test(attrs);
   if (sel === '[data-ica-toggle]') return /\bdata-ica-toggle="/.test(attrs);
   if (sel === '[data-export-include]') return /\bdata-export-include="/.test(attrs);
@@ -179,6 +187,7 @@ function matchAttrs(attrs, sel) {
   if (sel === '.qwb-tab') return /class="[^"]*\bqwb-tab\b/.test(attrs);
   if (sel === '.qwb-menu-btn') return /class="[^"]*\bqwb-menu-btn\b/.test(attrs);
   if (sel === '#qwb-right-body [data-action]') return /\bdata-action="/.test(attrs);
+  if (sel === '#qwb-right-body [data-manual-action]') return /\bdata-manual-action="/.test(attrs);
   if (sel === '#qwb-right-body [data-ai-decision]') return /\bdata-ai-decision="/.test(attrs);
   if (sel === '#qwb-right-body [data-ica-toggle]') return /\bdata-ica-toggle="/.test(attrs);
   if (sel === '#qwb-view-toggle button') return /\bdata-view="/.test(attrs);
@@ -254,6 +263,8 @@ function lastCallTo(method) { return callsTo(method).slice(-1)[0]; }
 // ── Boot: api.getQEEGWorkbenchMetadata + listQEEGCleaningVersions + ICA + log
 await test('boot loads workbench metadata, versions, ICA and log from API', () => {
   assert.ok(callsTo('getQEEGWorkbenchMetadata').length >= 1, 'metadata fetched');
+  assert.ok(callsTo('getQEEGWorkbenchReferenceLibrary').length >= 1, 'reference library fetched');
+  assert.ok(callsTo('getQEEGManualAnalysisChecklist').length >= 1, 'manual checklist fetched');
   assert.ok(callsTo('listQEEGCleaningVersions').length >= 1, 'versions fetched');
   assert.ok(callsTo('getQEEGICAComponents').length >= 1, 'ICA fetched');
   assert.ok(callsTo('getQEEGCleaningLog').length >= 1, 'cleaning log fetched');
@@ -442,13 +453,14 @@ await test('bootDemoState seeds 9 AI artefacts, flat C4, and 2 events (idempoten
   assert.equal(demoState.events.length, eventCount, 'events not duplicated');
 });
 
-// ── Click each of the 5 right-panel tabs and assert the body re-renders the
+// ── Click each of the 6 right-panel tabs and assert the body re-renders the
 //    correct content. Covers the new tabbed layout end-to-end.
-await test('clicking each of the 5 right-panel tabs renders the matching body', async () => {
+await test('clicking each of the 6 right-panel tabs renders the matching body', async () => {
   const tabs = querySelectorAllByAttribute(byId, '.qwb-tab');
   const tabById = (id) => tabs.find(t => t.dataset.tab === id);
   const expectations = [
     { id: 'cleaning', needles: ['Mark bad segment', 'Detect blinks'] },
+    { id: 'manual',   needles: ['Manual Analysis Mode', 'Findings Builder'] },
     { id: 'ai',       needles: ['AI Review Queue', 'qwb-threshold-slider'] },
     { id: 'help',     needles: ['Cleaning quality score', 'qwb-bp-checklist'] },
     { id: 'ica',      needles: ['qwb-ica-grid', 'IC '] },

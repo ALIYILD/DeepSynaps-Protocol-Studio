@@ -187,9 +187,9 @@ await test('channel rail renders the 19-channel 10-20 montage (no ECG)', () => {
 
 // ── Right panel: tabs + collapsible ─────────────────────────────────────────
 
-await test('right panel exposes all five tabs and collapse toggle', () => {
+await test('right panel exposes all six tabs and collapse toggle', () => {
   const html = root.innerHTML;
-  for (const tab of ['Cleaning','AI Review','Best-Practice','ICA','Audit']) {
+  for (const tab of ['Cleaning','Manual Analysis','AI Review','Best-Practice','ICA','Audit']) {
     assert.ok(html.includes(tab), 'tab: ' + tab);
   }
   assert.ok(html.includes('data-testid="qwb-right-toggle"'), 'collapsible toggle present');
@@ -197,7 +197,7 @@ await test('right panel exposes all five tabs and collapse toggle', () => {
 
 await test('right panel tabs each carry a testid + the new is-active class hook', () => {
   const html = root.innerHTML;
-  for (const tid of ['qwb-tab-cleaning','qwb-tab-ai','qwb-tab-bp','qwb-tab-ica','qwb-tab-audit']) {
+  for (const tid of ['qwb-tab-cleaning','qwb-tab-manual','qwb-tab-ai','qwb-tab-bp','qwb-tab-ica','qwb-tab-audit']) {
     assert.ok(html.includes('data-testid="' + tid + '"'), 'tab testid: ' + tid);
   }
   // The default active tab carries the new is-active class hook for styling.
@@ -267,6 +267,26 @@ await test('cleaning tools panel renders all four sections', () => {
   // Decision-support disclaimer no longer lives inside the cleaning panel —
   // it has moved to the status-bar tooltip (qwb-decision-info).
   assert.ok(!html.includes('Decision-support only'), 'safety footer moved out of cleaning panel');
+});
+
+await test('Manual Analysis tab source includes signal quality, findings builder, and reference-only labels', () => {
+  for (const item of [
+    'Manual Analysis Mode',
+    'Signal Quality Panel',
+    'Montage Panel',
+    'Filter Panel',
+    'Artifact Panel',
+    'Event Marker Panel',
+    'Findings Builder',
+    'Create event marker',
+    'Add to report',
+    'Bicoherence / bispectrum: Future module',
+    'LORETA / sLORETA: Not computed in this build',
+    'WinEEG-style workflow reference only',
+    'Clinician review required',
+  ]) {
+    assert.ok(WORKBENCH_SRC.includes(item), 'manual-analysis source item: ' + item);
+  }
 });
 
 // ── Source-level checks for tabs that only render after a click ─────────────

@@ -2,11 +2,27 @@ import { test, expect, Page } from '@playwright/test';
 
 function mockAuth(page: Page) {
   page.addInitScript(() => {
-    localStorage.setItem('ds_access_token', 'mock-dt360-token');
-    localStorage.setItem('ds_refresh_token', 'mock-refresh');
+    localStorage.setItem('ds_onboarding_complete', 'true');
     sessionStorage.setItem('ds_pat_selected_id', 'pat-360-e2e');
     sessionStorage.setItem('ds_dt_active_tab', '360');
   });
+  page.route('**/api/v1/auth/demo-login', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        access_token: 'clinician-demo-token',
+        refresh_token: 'mock-refresh',
+        user: {
+          id: 'dt360-user',
+          email: 'dt360@test.com',
+          display_name: 'Dr. 360',
+          role: 'clinician',
+          package_id: 'clinician_pro',
+        },
+      }),
+    }),
+  );
   page.route('**/api/v1/auth/me', (route) =>
     route.fulfill({
       status: 200,
@@ -86,9 +102,23 @@ test.describe('DeepTwin 360 dashboard', () => {
   test('opens 22-domain matrix with safety + prediction wording', async ({ page }) => {
     mockAuth(page);
     mock360Apis(page);
-    await page.goto('/?p=deeptwin');
-
-    // Wait for either the route or the tab strip to render.
+    await page.goto('/');
+    await page.waitForFunction(() => typeof (window as any).demoLogin === 'function');
+    await page.evaluate(async () => {
+      localStorage.setItem('ds_onboarding_complete', 'true');
+      sessionStorage.setItem('ds_pat_selected_id', 'pat-360-e2e');
+      sessionStorage.setItem('ds_dt_active_tab', '360');
+      await (window as any).demoLogin('clinician-demo-token');
+    });
+    await page.waitForFunction(() => {
+      const content = document.getElementById('content');
+      return !!content && (content.textContent || '').trim().length > 0;
+    });
+    await page.evaluate(async () => {
+      sessionStorage.setItem('ds_pat_selected_id', 'pat-360-e2e');
+      sessionStorage.setItem('ds_dt_active_tab', '360');
+      await (window as any)._nav('deeptwin');
+    });
     await page.waitForSelector('.dt360-grid, .dt-tabs', { timeout: 15000 });
 
     // 1. Open the 360 tab if we're not on it already.

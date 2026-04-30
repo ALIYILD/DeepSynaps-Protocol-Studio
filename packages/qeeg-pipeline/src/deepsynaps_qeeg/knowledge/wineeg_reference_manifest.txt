@@ -1,0 +1,2 @@
+Place WinEEG manuals in external_knowledge/wineeg/manuals/ if you want to regenerate provenance.
+Expected files: WinEEGQuickStart.pdf, WinEEGEnglish.PDF, History3x.docx

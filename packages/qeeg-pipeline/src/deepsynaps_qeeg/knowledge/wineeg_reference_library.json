@@ -129,7 +129,7 @@
       "description": "Expose bispectrum and bicoherence terminology as reference concepts and future module placeholders when those metrics are not computed.",
       "deep_synaps_surfaces": ["raw_workbench", "qeeg_analyzer"],
       "ui_suggestions": ["Reference-only analysis card"],
-      "safety_notes": ["Not computed in this build unless explicit results are present."]
+      "safety_notes": ["Future module.", "Not computed in this build unless explicit results are present."]
     },
     {
       "id": "erp_sync_reference",
@@ -147,7 +147,7 @@
       "description": "Describe source-analysis terminology and caveats as future guidance only unless a validated source engine is actually available.",
       "deep_synaps_surfaces": ["raw_workbench", "qeeg_analyzer"],
       "ui_suggestions": ["Source-analysis terminology panel"],
-      "safety_notes": ["Future module.", "Do not imply source localization is computed when it is not."]
+      "safety_notes": ["Future module.", "Not computed in this build.", "Do not imply source localization is computed when it is not."]
     },
     {
       "id": "reporting_review",

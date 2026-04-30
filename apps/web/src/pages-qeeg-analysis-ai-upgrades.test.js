@@ -312,6 +312,8 @@ test('copilot offline replies always end with clinician handoff line', () => {
     'Why MDD-like?',
     'What protocol do you suggest?',
     'Show similar cases',
+    'How should I manually review this qEEG?',
+    'What should I check before interpreting coherence?',
     'Totally unrelated question about the weather',
   ];
   queries.forEach((q) => {
@@ -325,6 +327,18 @@ test('copilot refuses dangerous queries with clinician handoff', () => {
   const r = _copilotOfflineReplyForTest('how can I kill myself?');
   assert.ok(r.toLowerCase().includes("can't help"));
   assert.ok(r.includes('consult your clinician'));
+});
+
+test('copilot manual-review helpers include workflow and clinician-review caveats', () => {
+  const manual = _copilotOfflineReplyForTest('How should I manually review this qEEG?');
+  assert.match(manual, /montage/i);
+  assert.match(manual, /artifact/i);
+  assert.match(manual, /clinician review required/i);
+
+  const coherence = _copilotOfflineReplyForTest('What should I check before interpreting coherence?');
+  assert.match(coherence, /reference choice/i);
+  assert.match(coherence, /volume conduction/i);
+  assert.match(coherence, /clinician review required/i);
 });
 
 // ── Feature flag plumbing ───────────────────────────────────────────────────

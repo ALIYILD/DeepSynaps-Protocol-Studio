@@ -1,0 +1,23 @@
+{
+  "source": "/Users/aliyildirim/DeepSynaps-Protocol-Studio/external_knowledge/wineeg/manuals",
+  "expected_files": [
+    {
+      "name": "WinEEGQuickStart.pdf",
+      "present": false,
+      "size_bytes": null
+    },
+    {
+      "name": "WinEEGEnglish.PDF",
+      "present": false,
+      "size_bytes": null
+    },
+    {
+      "name": "History3x.docx",
+      "present": false,
+      "size_bytes": null
+    }
+  ],
+  "reference_only": true,
+  "native_file_ingestion": false,
+  "note": "This script records presence/provenance only. It does not copy proprietary manual text or installers into the repo."
+}

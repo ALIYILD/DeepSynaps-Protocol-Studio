@@ -15,12 +15,12 @@ dependencies = [
     "sqlalchemy>=2.0.0,<3.0.0",
     "uvicorn[standard]>=0.35.0,<1.0.0",
     "aiofiles>=23.0.0,<25.0.0",
-    "deepsynaps-core-schema",
-    "deepsynaps-condition-registry",
-    "deepsynaps-modality-registry",
-    "deepsynaps-device-registry",
-    "deepsynaps-safety-engine",
-    "deepsynaps-generation-engine",
+    "deepsynaps-core-schema @ file:///Users/aliyildirim/DeepSynaps-Protocol-Studio/packages/core-schema",
+    "deepsynaps-condition-registry @ file:///Users/aliyildirim/DeepSynaps-Protocol-Studio/packages/condition-registry",
+    "deepsynaps-modality-registry @ file:///Users/aliyildirim/DeepSynaps-Protocol-Studio/packages/modality-registry",
+    "deepsynaps-device-registry @ file:///Users/aliyildirim/DeepSynaps-Protocol-Studio/packages/device-registry",
+    "deepsynaps-safety-engine @ file:///Users/aliyildirim/DeepSynaps-Protocol-Studio/packages/safety-engine",
+    "deepsynaps-generation-engine @ file:///Users/aliyildirim/DeepSynaps-Protocol-Studio/packages/generation-engine",
     "slowapi>=0.1.9",
     # APScheduler — BackgroundScheduler powers the Phase 9 agent abuse-signal
     # hourly cron (apps/api/app/services/agent_scheduler.py). Gated on
@@ -78,7 +78,7 @@ dependencies = [
 # mne-icalabel / mne-connectivity installed. The runtime import is already
 # guarded in `app/routers/qeeg_analysis_router.py::_try_import_full_pipeline`.
 qeeg = [
-    "deepsynaps-qeeg",
+    "deepsynaps-qeeg @ file:///Users/aliyildirim/DeepSynaps-Protocol-Studio/packages/qeeg-pipeline",
 ]
 
 [tool.setuptools]

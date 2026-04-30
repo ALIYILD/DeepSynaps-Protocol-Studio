@@ -3298,3 +3298,123 @@ class IRBProtocolRevision(Base):
     actor_role: Mapped[str] = mapped_column(String(32), nullable=False)
     note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
+class ClinicalTrial(Base):
+    """A clinical trial registered against a real :class:`IRBProtocol`.
+
+    The trial register is the second regulator-credible loop after IRB Manager
+    (#334). Trials FK to a real ``IRBProtocol`` so the IRB approval chain is
+    enforced at write time — trials cannot exist against fabricated protocols.
+    Trials are *closeable* (one-way; reopen is intentionally NOT supported);
+    enrolment rows are append-only with explicit withdrawal reasons. Multi-
+    site coordination lives in the ``sites_json`` blob.
+    """
+
+    __tablename__ = "clinical_trials"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clinic_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    irb_protocol_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("irb_protocols.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    nct_number: Mapped[Optional[str]] = mapped_column(String(40), nullable=True, index=True)
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    description: Mapped[str] = mapped_column(Text(), nullable=False, default="")
+    sponsor: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    pi_user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    phase: Mapped[Optional[str]] = mapped_column(String(40), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(
+        String(24),
+        nullable=False,
+        default="planning",
+        index=True,
+    )  # planning | recruiting | active | paused | completed | terminated | closed
+    sites_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # JSON list of {id,name,address?,pi_user_id?}
+    enrollment_target: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    enrollment_actual: Mapped[int] = mapped_column(Integer(), nullable=False, default=0)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    paused_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    pause_reason: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    closed_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    closure_note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    is_demo: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+
+
+class ClinicalTrialEnrollment(Base):
+    """Append-only per-patient enrollment row on a :class:`ClinicalTrial`.
+
+    Patient must be a real :class:`Patient` row owned by the same clinic as
+    the trial (or by the actor in the no-clinic / demo case). Withdrawals
+    require a non-empty reason so a regulator can audit attrition.
+    """
+
+    __tablename__ = "clinical_trial_enrollments"
+    __table_args__ = (
+        UniqueConstraint(
+            "trial_id",
+            "patient_id",
+            name="uq_clinical_trial_enrollment_trial_patient",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    trial_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("clinical_trials.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    patient_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("patients.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    arm: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(24),
+        nullable=False,
+        default="active",
+        index=True,
+    )  # active | withdrawn | completed | lost_to_followup
+    enrolled_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        default=lambda: datetime.now(timezone.utc),
+    )
+    withdrawn_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    withdrawal_reason: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    enrolled_by: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    consent_doc_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
+
+class ClinicalTrialRevision(Base):
+    """Append-only revision row for every :class:`ClinicalTrial` state change."""
+
+    __tablename__ = "clinical_trial_revisions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    trial_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("clinical_trials.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    revision_idx: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    action: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    snapshot_json: Mapped[str] = mapped_column(Text(), nullable=False)
+    actor_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_role: Mapped[str] = mapped_column(String(32), nullable=False)
+    note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))

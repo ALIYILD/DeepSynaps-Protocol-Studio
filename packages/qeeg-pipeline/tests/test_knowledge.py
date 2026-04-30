@@ -245,6 +245,13 @@ def test_manual_analysis_checklist_carries_safety_notes() -> None:
     assert any("clinician" in " ".join(item["safety_notes"]).lower() for item in checklist)
 
 
+def test_reference_only_features_do_not_claim_computed_values() -> None:
+    library = load_wineeg_reference_library()
+    workflows = {item["category"]: item for item in library["workflows"]}
+    assert "Not computed in this build" in " ".join(workflows["source_analysis_loreta"]["safety_notes"])
+    assert "Future module" in " ".join(workflows["bispectrum_bicoherence"]["safety_notes"])
+
+
 def test_reference_range_theta() -> None:
     ctx = age_aware_band_range("theta", age_months=240, state="awake_eo")
     assert ctx.band_in_context

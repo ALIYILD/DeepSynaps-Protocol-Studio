@@ -529,6 +529,7 @@ _VALID_ANNOTATION_KINDS = frozenset({
     "rejected_epoch",
     "interpolated_channel",
     "ica_decision",
+    "rejected_ica_component",
     "ai_suggestion",
     "event_marker",
     "manual_finding",

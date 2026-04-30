@@ -2062,6 +2062,79 @@ export const api = {
     }
   },
 
+  // ── Clinical Trials launch-audit (2026-04-30) ──────────────────────────
+  // Trial register FK'd to a real IRBProtocol. Closed trials are immutable
+  // and NOT reopenable. Patient enrolment requires a real Patient row +
+  // same-clinic ownership; withdrawals require a non-empty reason.
+  listClinicalTrials: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch('/api/v1/clinical-trials/trials' + (q ? '?' + q : ''));
+  },
+  getClinicalTrialsSummary: () => apiFetch('/api/v1/clinical-trials/trials/summary'),
+  getClinicalTrial: (trialId) =>
+    apiFetch(`/api/v1/clinical-trials/trials/${encodeURIComponent(trialId)}`),
+  createClinicalTrial: (body) =>
+    apiFetch('/api/v1/clinical-trials/trials', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  patchClinicalTrial: (trialId, body) =>
+    apiFetch(`/api/v1/clinical-trials/trials/${encodeURIComponent(trialId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body || {}),
+    }),
+  pauseClinicalTrial: (trialId, body) =>
+    apiFetch(`/api/v1/clinical-trials/trials/${encodeURIComponent(trialId)}/pause`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  resumeClinicalTrial: (trialId, body) =>
+    apiFetch(`/api/v1/clinical-trials/trials/${encodeURIComponent(trialId)}/resume`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  closeClinicalTrial: (trialId, body) =>
+    apiFetch(`/api/v1/clinical-trials/trials/${encodeURIComponent(trialId)}/close`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  enrollClinicalTrialPatient: (trialId, body) =>
+    apiFetch(`/api/v1/clinical-trials/trials/${encodeURIComponent(trialId)}/enrollments`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  withdrawClinicalTrialEnrollment: (trialId, enrollmentId, body) =>
+    apiFetch(
+      `/api/v1/clinical-trials/trials/${encodeURIComponent(trialId)}/enrollments/${encodeURIComponent(enrollmentId)}/withdraw`,
+      { method: 'POST', body: JSON.stringify(body || {}) },
+    ),
+  exportClinicalTrialsCsv: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetchBinary('/api/v1/clinical-trials/trials/export.csv' + (q ? '?' + q : ''));
+  },
+  exportClinicalTrialsNdjson: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetchBinary('/api/v1/clinical-trials/trials/export.ndjson' + (q ? '?' + q : ''));
+  },
+  // Best-effort page-level audit ingestion for the Clinical Trials hub.
+  logClinicalTrialsAudit: (event) => {
+    try {
+      const body = JSON.stringify(event || {});
+      return apiFetch('/api/v1/clinical-trials/trials/audit-events', {
+        method: 'POST',
+        body,
+      });
+    } catch (_) {
+      return Promise.resolve(null);
+    }
+  },
+
   // ── Patient outcomes (portal alias) ─────────────────────────────────────
   patientOutcomes: () => apiFetch('/api/v1/patient-portal/outcomes'),
 

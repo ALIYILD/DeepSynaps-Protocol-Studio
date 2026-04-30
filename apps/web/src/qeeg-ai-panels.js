@@ -738,9 +738,40 @@ var _COPILOT_DEMO_REPLIES = [
       + 'please consult your clinician for care decisions.',
   },
   {
+    match: /manual review|manually review|manual q[e]?eg|workflow/i,
+    reply: 'For manual qEEG review, confirm montage, filters, impedance or missing-impedance status, '
+      + 'artifact burden, event labels, spectra, band power, asymmetry, and coherence in that order. '
+      + 'Use the findings builder to document channels, bands, confounds, and clinician notes. '
+      + 'Clinician review required. Please consult your clinician for care decisions.',
+  },
+  {
+    match: /coherence/i,
+    reply: 'Check coherence only after channel quality and artifact review are acceptable. Coherence can be '
+      + 'distorted by reference choice, volume conduction, eye movement, muscle artifact, and drowsiness. '
+      + 'Clinician review required. Please consult your clinician for care decisions.',
+  },
+  {
+    match: /asymmetry/i,
+    reply: 'Asymmetry describes left-right differences in band activity, but it should be reviewed only after '
+      + 'checking montage, reference, eye artifact, and state effects. Do not treat asymmetry as diagnostic by itself. '
+      + 'Clinician review required. Please consult your clinician for care decisions.',
+  },
+  {
+    match: /artifact confound|artifact|blink|muscle|movement/i,
+    reply: 'Common qEEG artifact confounds include eye blinks, lateral eye movements, muscle tension, movement, '
+      + 'electrode pop, line noise, sleepiness, and medication effects. Artifact quality matters before interpreting spectra or coherence. '
+      + 'Clinician review required. Please consult your clinician for care decisions.',
+  },
+  {
+    match: /document|finding|report/i,
+    reply: 'Document manual qEEG findings with the channels reviewed, bands involved, possible confounds, '
+      + 'severity, confidence, and a clinician note. Keep the wording decision-support only and avoid diagnostic claims. '
+      + 'Clinician review required. Please consult your clinician for care decisions.',
+  },
+  {
     match: /.*/,
     reply: 'I can discuss the brain-age gap, similarity indices, the protocol suggestion, '
-      + 'safety cockpit, red flags, normative model card, protocol fit, explainability, or similar-case '
+      + 'safety cockpit, red flags, normative model card, protocol fit, explainability, manual review workflow, or similar-case '
       + 'neighbours shown on this page. This is research/wellness info — please consult your '
       + 'clinician for care decisions.',
   },
@@ -792,6 +823,9 @@ export function mountCopilotWidget(containerId, analysisId) {
     + '<button class="qeeg-ai-copilot__chip" data-q="Any red flags?">red flags</button>'
     + '<button class="qeeg-ai-copilot__chip" data-q="Explain the normative model card">normative card</button>'
     + '<button class="qeeg-ai-copilot__chip" data-q="What is the protocol fit?">protocol fit</button>'
+    + '<button class="qeeg-ai-copilot__chip" data-q="How should I manually review this qEEG?">manual review</button>'
+    + '<button class="qeeg-ai-copilot__chip" data-q="What should I check before interpreting coherence?">coherence check</button>'
+    + '<button class="qeeg-ai-copilot__chip" data-q="How should I document manual qEEG findings?">findings builder</button>'
     + '</div>'
     + '<form class="qeeg-ai-copilot__form" data-role="form" autocomplete="off">'
     + '<input class="qeeg-ai-copilot__input" data-role="input" type="text" '
@@ -1499,4 +1533,3 @@ export function mountPipelineSSE(containerId, url, opts) {
     close: function () { try { es.close(); } catch (_e) {} },
   };
 }
-

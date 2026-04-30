@@ -2562,7 +2562,7 @@ function renderManualAnalysisPanel(state) {
         WinEEG-style workflow reference only. DeepSynaps does not claim native WinEEG compatibility here. Clinician review required.
       </div>
     </div>
-    <div class="qwb-side-section">
+    <div class="qwb-side-section" data-testid="qwb-manual-signal-quality">
       <h4>1. Signal Quality Panel</h4>
       <dl class="qwb-rec-info-grid">
         ${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}
@@ -2584,7 +2584,7 @@ function renderManualAnalysisPanel(state) {
         <dt>Warning</dt><dd>Filtering changes interpretation</dd>
       </dl>
     </div>
-    <div class="qwb-side-section">
+    <div class="qwb-side-section" data-testid="qwb-manual-artifact-panel">
       <h4>4. Artifact Panel</h4>
       <div class="qwb-side-grid">
         <button class="qwb-side-btn" data-manual-action="mark-blink">Mark eye blink</button>
@@ -2605,18 +2605,18 @@ function renderManualAnalysisPanel(state) {
       </div>
       <div style="font-size:10px;color:#6b6660;margin-top:6px">ERP sync terms are reference only unless an ERP workflow is active.</div>
     </div>
-    <div class="qwb-side-section">
+    <div class="qwb-side-section" data-testid="qwb-manual-analysis-panel">
       <h4>6. Analysis Panel</h4>
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
         ${['Spectra', 'Absolute power', 'Relative power', 'Asymmetry', 'Coherence', 'Average coherence'].map(item => _manualReferenceOnlyPill(item)).join('')}
-        ${_manualReferenceOnlyPill('Bicoherence / bispectrum: Future module')}
-        ${_manualReferenceOnlyPill('LORETA / sLORETA: Not computed in this build')}
+        <span data-testid="qwb-manual-ref-bicoherence">${_manualReferenceOnlyPill('Bicoherence / bispectrum: Future module')}</span>
+        <span data-testid="qwb-manual-ref-loreta">${_manualReferenceOnlyPill('LORETA / sLORETA: Not computed in this build')}</span>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px">
         ${concepts.slice(0, 5).map(item => `<div class="qwb-card"><div style="font-weight:600;font-size:12px">${esc(item.label || item.id || 'Concept')}</div><div style="font-size:11px;line-height:1.45;margin-top:3px">${esc(item.summary || '')}</div><div style="font-size:10px;color:#6b6660;margin-top:4px">${esc((item.caveats || []).join(' · ') || 'Clinician review required.')}</div></div>`).join('')}
       </div>
     </div>
-    <div class="qwb-side-section">
+    <div class="qwb-side-section" data-testid="qwb-manual-findings-builder">
       <h4>7. Findings Builder</h4>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
         <label style="font-size:11px;color:#6b6660">Finding type
@@ -3796,6 +3796,58 @@ function attachCleaningPanelHandlers(state) {
   });
 }
 
+function attachManualAnalysisHandlers(state) {
+  document.querySelectorAll('#qwb-right-body [data-manual-action]').forEach(b => {
+    b.addEventListener('click', async () => {
+      const action = b.dataset.manualAction;
+      if (action === 'mark-blink') {
+        await postAnnotation(state, { kind: 'note', note: 'Manual artifact: eye blink', decision_status: 'accepted' });
+        state.saveStatus = 'Marked eye blink review note';
+      } else if (action === 'mark-muscle') {
+        await postAnnotation(state, { kind: 'note', note: 'Manual artifact: muscle', decision_status: 'accepted' });
+        state.saveStatus = 'Marked muscle artifact review note';
+      } else if (action === 'mark-movement') {
+        await postAnnotation(state, { kind: 'note', note: 'Manual artifact: movement', decision_status: 'accepted' });
+        state.saveStatus = 'Marked movement artifact review note';
+      } else if (action === 'mark-artifact') {
+        await postAnnotation(state, { kind: 'note', note: 'Manual artifact mark added by clinician', decision_status: 'accepted' });
+        state.saveStatus = 'Manual artifact note added';
+      } else if (action === 'reject-epoch') {
+        await rejectEpoch(state, state.windowStart || 0);
+        state.saveStatus = 'Epoch rejected from manual analysis panel';
+      } else if (action === 'open-ica') {
+        state.rightTab = 'ica';
+        renderRightPanel(state);
+        return;
+      } else if (action === 'add-event-marker' || action === 'label-segment') {
+        const label = document.getElementById('qwb-event-label-input')?.value?.trim() || (action === 'label-segment' ? 'Manual recording label' : 'Manual event');
+        state.events.push({ t: state.windowStart || 0, label, kind: 'manual' });
+        await postAnnotation(state, { kind: 'event_marker', start_sec: state.windowStart || 0, end_sec: (state.windowStart || 0) + (state.timebase || 10), note: label, decision_status: 'accepted' });
+        refreshEventMarkers(state);
+        state.saveStatus = 'Event marker added';
+      } else if (action === 'save-finding') {
+        const channels = (document.getElementById('qwb-manual-finding-channels')?.value || '')
+          .split(',').map(s => s.trim()).filter(Boolean);
+        const bands = (document.getElementById('qwb-manual-finding-bands')?.value || '')
+          .split(',').map(s => s.trim()).filter(Boolean);
+        const confounds = (document.getElementById('qwb-manual-finding-confounds')?.value || '')
+          .split(',').map(s => s.trim()).filter(Boolean);
+        await saveManualFinding(state, {
+          finding_type: document.getElementById('qwb-manual-finding-type')?.value || 'manual qEEG review finding',
+          channels,
+          bands,
+          severity: document.getElementById('qwb-manual-finding-severity')?.value || 'moderate',
+          confidence: document.getElementById('qwb-manual-finding-confidence')?.value || 'review_needed',
+          possible_confounds: confounds,
+          note: document.getElementById('qwb-manual-finding-note')?.value || '',
+        });
+        return;
+      }
+      renderStatusBar(state);
+    });
+  });
+}
+
 function attachAIPanelHandlers(state) {
   document.getElementById('qwb-ai-generate')?.addEventListener('click', () => generateAISuggestions(state));
   document.getElementById('qwb-ai-accept-all')?.addEventListener('click', () => acceptAllAI(state, state.aiThreshold ?? 0.7));
@@ -4240,6 +4292,48 @@ async function postAnnotation(state, body) {
   } catch (err) {
     state.saveStatus = 'error: ' + (err.message || err);
   }
+  renderStatusBar(state);
+}
+
+async function saveManualFinding(state, payload) {
+  const record = {
+    patient_id: state.metadata?.patient_id || null,
+    recording_id: state.analysisId,
+    session_id: state.metadata?.session_id || null,
+    channels: payload.channels || [],
+    bands: payload.bands || [],
+    finding_type: payload.finding_type || 'manual qEEG review finding',
+    severity: payload.severity || 'moderate',
+    confidence: payload.confidence || 'review_needed',
+    possible_confounds: payload.possible_confounds || [],
+    note: payload.note || '',
+    clinician_review_required: true,
+  };
+  if (state.isDemo) {
+    state.manualFindings.unshift(record);
+    state.auditLog.unshift({
+      action_type: 'annotation:manual_finding',
+      channel: record.channels[0] || null,
+      note: record.note || null,
+      source: 'clinician',
+      created_at: new Date().toISOString(),
+    });
+    state.saveStatus = 'demo: manual finding added';
+    renderRightPanel(state);
+    renderStatusBar(state);
+    return;
+  }
+  try {
+    state.saveStatus = 'saving manual finding…';
+    renderStatusBar(state);
+    const saved = await api.createQEEGManualFinding(state.analysisId, record);
+    state.manualFindings.unshift(saved);
+    await refreshAuditLog(state);
+    state.saveStatus = 'manual finding saved';
+  } catch (err) {
+    state.saveStatus = 'manual finding error: ' + (err.message || err);
+  }
+  renderRightPanel(state);
   renderStatusBar(state);
 }
 
@@ -4828,6 +4922,23 @@ async function loadAll(state) {
   } catch (_e) {}
   try {
     state.ica = await api.getQEEGICAComponents(state.analysisId);
+  } catch (_e) {}
+  try {
+    state.manualReference = await api.getQEEGWorkbenchReferenceLibrary(state.analysisId);
+  } catch (_e) {}
+  try {
+    const checklist = await api.getQEEGManualAnalysisChecklist(state.analysisId);
+    state.manualChecklist = checklist.items || [];
+  } catch (_e) {}
+  try {
+    const annotations = await api.listQEEGCleaningAnnotations(state.analysisId, { kind: 'manual_finding', limit: 50 });
+    state.manualFindings = (annotations || []).map(item => {
+      try {
+        return JSON.parse(item.note || '{}');
+      } catch (_err) {
+        return {};
+      }
+    }).filter(item => item && item.finding_type);
   } catch (_e) {}
   await refreshAuditLog(state);
 }
