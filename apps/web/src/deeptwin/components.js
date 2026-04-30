@@ -471,11 +471,26 @@ export function errorBlock(message) {
 }
 
 export function emptyPatientBlock() {
+  // Detect demo build at render time so the chooser surfaces a one-click
+  // path to a synthetic DeepTwin without leaving the page. Outside demo
+  // mode the demo button is hidden so a clinician can't accidentally
+  // explore fabricated content.
+  let isDemo = false;
+  try {
+    isDemo = !!(import.meta.env && (import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1'));
+  } catch (_e) { isDemo = false; }
+  const demoBtn = isDemo
+    ? `<button class="btn btn-primary btn-sm" onclick="window._selectedPatientId='sarah-johnson';window._profilePatientId='sarah-johnson';window._nav('deeptwin')">Open DeepTwin (demo data)</button>`
+    : '';
   return `
-    <section class="card dt-section dt-empty">
-      <h3>Select a patient to load their DeepTwin</h3>
-      <p class="dt-muted">DeepTwin is patient-scoped. Pick a patient from the roster, then return here.</p>
-      <button class="btn btn-primary btn-sm" onclick="window._nav('patients-hub')">Go to Patients</button>
+    <section class="card dt-section dt-empty" role="region" aria-label="DeepTwin patient picker">
+      <h3>Pick a patient to load their DeepTwin</h3>
+      <p class="dt-muted">DeepTwin is patient-scoped — it composes 11 sections (signals, timeline, correlations, predictions, simulation lab, report center, doctor handoff) for one patient at a time. Pick a patient below or open the demo to see the full surface.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+        ${demoBtn}
+        <button class="btn btn-outline btn-sm" onclick="window._nav('patients-hub')">Open patients roster</button>
+        <button class="btn btn-outline btn-sm" onclick="window._nav('clinical')">Back to clinical hub</button>
+      </div>
     </section>
   `;
 }
