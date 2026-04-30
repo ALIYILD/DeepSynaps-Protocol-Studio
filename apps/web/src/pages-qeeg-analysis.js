@@ -845,11 +845,12 @@ async function _openQEEGAnnotationDrawer(context) {
     + '<div class="analysis-anno-form">'
     + '<label for="qeeg-annotation-title" style="font-size:11px;color:var(--text-tertiary);display:flex;justify-content:space-between"><span>Title</span><span><span id="qeeg-annotation-title-count">0</span>/160</span></label>'
     + '<input id="qeeg-annotation-title" class="form-control" maxlength="160" placeholder="Short title (optional)" aria-describedby="qeeg-annotation-title-count"/>'
-    + '<label for="qeeg-annotation-body" style="font-size:11px;color:var(--text-tertiary);display:flex;justify-content:space-between"><span>Note</span><span><span id="qeeg-annotation-body-count">0</span>/5000</span></label>'
-    + '<textarea id="qeeg-annotation-body" class="form-control" rows="4" maxlength="5000" placeholder="Add a note for this study" aria-describedby="qeeg-annotation-body-count"></textarea>'
+    + '<label for="qeeg-annotation-body" style="font-size:11px;color:var(--text-tertiary);display:flex;justify-content:space-between"><span>Note <span aria-hidden="true" style="color:var(--red)">*</span></span><span><span id="qeeg-annotation-body-count">0</span>/5000</span></label>'
+    + '<textarea id="qeeg-annotation-body" class="form-control" rows="4" maxlength="5000" required aria-required="true" placeholder="Add a note for this study" aria-describedby="qeeg-annotation-body-count qeeg-annotation-body-error"></textarea>'
+    + '<div id="qeeg-annotation-body-error" role="alert" aria-live="polite" style="font-size:11px;color:var(--red);min-height:14px;margin-top:-4px"></div>'
     + '<label for="qeeg-annotation-anchor" style="font-size:11px;color:var(--text-tertiary);display:flex;justify-content:space-between"><span>Anchor</span><span><span id="qeeg-annotation-anchor-count">' + (context.anchor_label || '').length + '</span>/120</span></label>'
     + '<input id="qeeg-annotation-anchor" class="form-control" maxlength="120" placeholder="Anchor label (optional)" value="' + esc(context.anchor_label || '') + '" aria-describedby="qeeg-annotation-anchor-count"/>'
-    + '<div style="display:flex;justify-content:flex-end;gap:8px"><button class="btn btn-sm btn-primary" id="qeeg-annotation-save">Save note</button></div>'
+    + '<div style="display:flex;justify-content:flex-end;gap:8px"><button class="btn btn-sm btn-primary" id="qeeg-annotation-save" disabled aria-disabled="true">Save note</button></div>'
     + '</div></aside>';
   host.classList.add('analysis-anno-host--open');
   // Wire character counters
@@ -861,6 +862,21 @@ async function _openQEEGAnnotationDrawer(context) {
     input.addEventListener('input', sync);
     sync();
   });
+  // Body required → keep Save disabled until body has trimmed text; clear inline error as user types.
+  (function () {
+    var bodyInput = document.getElementById('qeeg-annotation-body');
+    var saveBtnEl = document.getElementById('qeeg-annotation-save');
+    var errorEl = document.getElementById('qeeg-annotation-body-error');
+    if (!bodyInput || !saveBtnEl) return;
+    var syncEnabled = function () {
+      var hasText = (bodyInput.value || '').trim().length > 0;
+      saveBtnEl.disabled = !hasText;
+      saveBtnEl.setAttribute('aria-disabled', hasText ? 'false' : 'true');
+      if (hasText && errorEl) errorEl.textContent = '';
+    };
+    bodyInput.addEventListener('input', syncEnabled);
+    syncEnabled();
+  })();
   // Focus management — store previous focus, focus first field, restore on close
   var _annoPrevFocus = document.activeElement;
   setTimeout(function () { var f = document.getElementById('qeeg-annotation-title'); if (f) f.focus(); }, 30);
@@ -935,6 +951,9 @@ async function _openQEEGAnnotationDrawer(context) {
       var anchorEl = document.getElementById('qeeg-annotation-anchor');
       var body = bodyEl && bodyEl.value ? bodyEl.value.trim() : '';
       if (!body) {
+        var errorEl = document.getElementById('qeeg-annotation-body-error');
+        if (errorEl) errorEl.textContent = 'Note text is required.';
+        if (bodyEl) bodyEl.focus();
         showToast('Add some note text first', 'warning');
         return;
       }
