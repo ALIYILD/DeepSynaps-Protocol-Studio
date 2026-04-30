@@ -417,6 +417,39 @@ class AdverseEvent(Base):
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
+    # ── Launch-audit 2026-04-30: regulatory classification + review trail ──
+    # Body system (MedDRA SOC subset): nervous, psychiatric, cardiac, gi, skin,
+    # general, other. AI may suggest from event_type but clinician confirms.
+    body_system: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
+    # Expectedness vs the protocol's known risk profile.
+    # Values: "expected", "unexpected", "unknown". Defaults to "unknown" until
+    # the clinician confirms or the protocol risk profile asserts.
+    expectedness: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
+    expectedness_source: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    # SAE auto-classification (severity == 'serious' or one of: death,
+    # hospitalization, life_threatening, persistent_disability,
+    # congenital_anomaly, important_medical_event).
+    is_serious: Mapped[bool] = mapped_column(Boolean(), default=False, index=True)
+    sae_criteria: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # Reportable to regulator (SAE AND unexpected AND related-or-possibly).
+    reportable: Mapped[bool] = mapped_column(Boolean(), default=False, index=True)
+    relatedness: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    # Clinician review + sign-off audit fields.
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    reviewed_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    signed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    signed_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # Regulator/IRB escalation audit fields.
+    escalated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    escalated_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    escalation_target: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
+    escalation_note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    # MedDRA codes (optional — preferred term + system organ class).
+    meddra_pt: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    meddra_soc: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    # Demo flag for seeded records.
+    is_demo: Mapped[bool] = mapped_column(Boolean(), default=False, index=True)
+
 
 class ConsentRecord(Base):
     __tablename__ = "consent_records"

@@ -1089,8 +1089,41 @@ export const api = {
     const q = new URLSearchParams(params).toString();
     return apiFetchWithRetry(`/api/v1/adverse-events${q ? '?' + q : ''}`);
   },
+  // Launch-audit 2026-04-30: detail view, summary roll-up, classification
+  // override, clinician review/sign-off, escalation, exports.
+  getAdverseEvent: (id) => apiFetchWithRetry(`/api/v1/adverse-events/${encodeURIComponent(id)}`),
+  getAdverseEventsSummary: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/adverse-events/summary${q ? '?' + q : ''}`);
+  },
+  patchAdverseEvent: (id, data = {}) =>
+    apiFetch(`/api/v1/adverse-events/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  reviewAdverseEvent: (id, data = {}) =>
+    apiFetch(`/api/v1/adverse-events/${encodeURIComponent(id)}/review`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  escalateAdverseEvent: (id, data = {}) =>
+    apiFetch(`/api/v1/adverse-events/${encodeURIComponent(id)}/escalate`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
   resolveAdverseEvent: (id, data = {}) =>
     apiFetch(`/api/v1/adverse-events/${id}/resolve`, { method: 'PATCH', body: JSON.stringify(data) }),
+  // Returns a `{ blob, contentType, filename }` triple via apiFetchBinary so
+  // the UI can save / preview the filtered CSV without parsing it twice.
+  exportAdverseEventsCsv: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchBinary(`/api/v1/adverse-events/export.csv${q ? '?' + q : ''}`);
+  },
+  // CIOMS endpoint returns honest JSON until a regulator template is wired
+  // up — see the router for the contract. Returned as a Blob so the UI can
+  // surface the {configured:false, ...} payload via the same download path.
+  exportAdverseEventCioms: (id) =>
+    apiFetchBinary(`/api/v1/adverse-events/${encodeURIComponent(id)}/export.cioms`),
 
   // ── Review queue ─────────────────────────────────────────────────────────
   listReviewQueue: (params = {}) => {

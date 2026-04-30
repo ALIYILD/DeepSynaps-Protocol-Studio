@@ -6455,73 +6455,179 @@ export async function pgMonitorHub(setTopbar, navigate) {
     };
   }
   else if (tab === 'adverse') {
-    setTopbar('Monitor', '<button class="btn btn-sm" onclick="window._nav(\'adverse-events-full\')">Full AE Log ↗</button>');
+    // ────────────────────────────────────────────────────────────────────
+    // Adverse Events — launch-audit hardened (2026-04-30)
+    //
+    // Real backend wiring for every visible control. Surfaces:
+    //   - KPI tiles (total / open / SAE / awaiting review / reportable)
+    //   - Filters: severity, status, body system, SAE, expectedness,
+    //     reportable, date range, free-text search
+    //   - Row → detail drawer with classification, review/sign-off,
+    //     expectedness override, regulator escalation, MedDRA fields
+    //   - "+ Report AE" modal collects severity / onset / classification
+    //   - CSV export (filter-aware) + CIOMS export (honest "not configured")
+    //
+    // No fake counts. No fake exports. No AI severity / expectedness.
+    // ────────────────────────────────────────────────────────────────────
+
+    setTopbar(
+      'Monitor',
+      '<button class="btn btn-sm" onclick="window._mhAeExportCsv()">Export CSV</button>'+
+      '<button class="btn btn-sm" style="margin-left:6px" onclick="window._nav(\'adverse-events-full\')">Full AE Log ↗</button>'
+    );
     el.innerHTML = '<div class="ch-shell"><div class="ch-tab-bar">'+tabBar()+'</div><div class="ch-body">'+spinner()+'</div></div>';
 
-    // Filter state (persists across tab re-renders)
-    const sevFilter = window._mhAeSevFilter || '';
+    // ── Filter state (persists across tab re-renders) ───────────────────
+    const aeF = (window._mhAeFilters = window._mhAeFilters || {});
+    const filterParams = {};
+    if (aeF.severity)    filterParams.severity = aeF.severity;
+    if (aeF.body_system) filterParams.body_system = aeF.body_system;
+    if (aeF.status)      filterParams.status = aeF.status;
+    if (aeF.expected)    filterParams.expected = aeF.expected;
+    if (aeF.sae === true)        filterParams.sae = 'true';
+    if (aeF.reportable === true) filterParams.reportable = 'true';
+    if (aeF.since) filterParams.since = aeF.since;
+    if (aeF.until) filterParams.until = aeF.until;
+    if (aeF.patient_id) filterParams.patient_id = aeF.patient_id;
 
-    const [aesRes, patsRes] = await Promise.all([
-      api.listAdverseEvents?.(sevFilter ? { severity: sevFilter } : {}).catch(() => ({ items: [] })) || Promise.resolve({ items: [] }),
+    // ── Best-effort audit logger (mirrors qEEG / Brain-Map-Planner) ─────
+    function _aeAudit(event, extra) {
+      try {
+        const apiObj = window._api || api;
+        if (!apiObj || typeof apiObj.logAudit !== 'function') return;
+        const payload = Object.assign({
+          surface: 'adverse_events',
+          event: String(event || 'unknown'),
+        }, extra || {});
+        const p = apiObj.logAudit(payload);
+        if (p && typeof p.catch === 'function') p.catch(function(){});
+      } catch (_) { /* audit must never break UI */ }
+    }
+    _aeAudit('page_loaded', { note: 'monitor_hub_tab' });
+
+    // ── Fetch real data: list (filtered) + summary + patients ──────────
+    const [aesRes, summaryRes, patsRes] = await Promise.all([
+      (api.listAdverseEvents?.(filterParams).catch(() => ({ items: [] }))) || Promise.resolve({ items: [] }),
+      (api.getAdverseEventsSummary?.().catch(() => null)) || Promise.resolve(null),
       api.listPatients().catch(() => ({ items: [] })),
     ]);
     const aes = aesRes?.items || [];
     const patients = patsRes?.items || [];
     const patById = Object.fromEntries(patients.map(p => [p.id, ((p.first_name||'')+(p.last_name?' '+p.last_name:'')).trim() || p.id]));
+    // Summary — when the endpoint is older or returns null, fall back to the
+    // current list (which is the truth for what the user sees right now).
+    const summary = summaryRes || (function deriveFromList() {
+      const open = aes.filter(a => !a.resolved_at && !a.escalated_at && !a.reviewed_at).length;
+      const sae = aes.filter(a => a.is_serious || a.severity === 'serious').length;
+      const reportable = aes.filter(a => a.reportable).length;
+      const awaiting = aes.filter(a => !a.reviewed_at && !a.resolved_at).length;
+      return { total: aes.length, open, sae, reportable, awaiting_review: awaiting };
+    })();
 
     const sevC = { mild:'var(--green)', moderate:'var(--amber)', severe:'var(--red)', serious:'var(--red)' };
-    const _aeIsOpen = a => !a.resolved_at;
-    const _aeStatus = a => a.resolved_at ? 'resolved' : 'open';
+    const _aeStatus = a => {
+      if (a.resolved_at) return 'resolved';
+      if (a.escalated_at) return 'escalated';
+      if (a.reviewed_at) return 'reviewed';
+      return 'open';
+    };
+    const _aeStatusColor = s => s==='resolved'?'var(--green)':s==='escalated'?'var(--red)':s==='reviewed'?'var(--blue)':'var(--amber)';
     const _aeDate = a => (a.reported_at || a.created_at || '').slice(0, 10) || '—';
 
-    const kpi = {
-      open:      aes.filter(_aeIsOpen).length,
-      modPlus:   aes.filter(a => ['moderate','severe','serious'].includes(a.severity)).length,
-      resolved:  aes.filter(a => a.resolved_at).length,
-      total:     aes.length,
-    };
+    // Distinct values to populate filter dropdowns from the FULL un-filtered
+    // dataset (listAdverseEvents already applied the user's filters, so we
+    // augment the static SOC subset instead of mining the filtered list).
+    const BODY_SYSTEMS = ['nervous','psychiatric','cardiac','gi','skin','general','other'];
+
+    const totalCount = aes.length;
+    const filterActive = Object.values(filterParams).some(v => v != null && v !== '');
 
     el.innerHTML = `
     <div class="ch-shell">
       <div class="ch-tab-bar">${tabBar()}</div>
       <div class="ch-body">
-        <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
-          <div class="ch-kpi-card" style="--kpi-color:var(--red)"><div class="ch-kpi-val">${kpi.open}</div><div class="ch-kpi-label">Open AEs</div></div>
-          <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${kpi.modPlus}</div><div class="ch-kpi-label">Moderate+</div></div>
-          <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${kpi.resolved}</div><div class="ch-kpi-label">Resolved</div></div>
-          <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${kpi.total}</div><div class="ch-kpi-label">Total</div></div>
+        <!-- Clinical safety disclaimers (always visible) -->
+        <div style="background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.35);padding:8px 12px;border-radius:6px;margin-bottom:12px;font-size:11.5px;color:var(--text-secondary);line-height:1.6">
+          <span style="color:var(--red);font-weight:700">⚠</span>
+          Adverse events require timely clinician review per local policy.
+          Serious adverse events may require regulatory reporting (IRB / FDA / MHRA).
+          Demo data is not for actual clinical reporting.
         </div>
+
+        <div class="ch-kpi-strip" style="grid-template-columns:repeat(5,minmax(0,1fr));margin-bottom:16px">
+          <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${summary.total||0}</div><div class="ch-kpi-label">Total</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${summary.open||0}</div><div class="ch-kpi-label">Open</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--red)"><div class="ch-kpi-val">${summary.sae||0}</div><div class="ch-kpi-label">SAE</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${summary.awaiting_review||0}</div><div class="ch-kpi-label">Awaiting Review</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--red)"><div class="ch-kpi-val">${summary.reportable||0}</div><div class="ch-kpi-label">Reportable</div></div>
+        </div>
+
         <div class="ch-card">
-          <div class="ch-card-hd">
+          <div class="ch-card-hd" style="flex-wrap:wrap;gap:6px">
             <span class="ch-card-title">Adverse Events</span>
             <span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-              <select id="mh-ae-sev-filter" class="ch-select" style="font-size:11.5px;height:26px" onchange="window._mhAeApplySevFilter(this.value)">
-                <option value=""${sevFilter===''?' selected':''}>All severities</option>
-                <option value="mild"${sevFilter==='mild'?' selected':''}>Mild</option>
-                <option value="moderate"${sevFilter==='moderate'?' selected':''}>Moderate</option>
-                <option value="severe"${sevFilter==='severe'?' selected':''}>Severe</option>
-                <option value="serious"${sevFilter==='serious'?' selected':''}>Serious</option>
+              <select id="mh-ae-sev-filter" class="ch-select" style="font-size:11.5px;height:26px" onchange="window._mhAeSetFilter('severity', this.value)">
+                <option value=""${!aeF.severity?' selected':''}>All severities</option>
+                <option value="mild"${aeF.severity==='mild'?' selected':''}>Mild</option>
+                <option value="moderate"${aeF.severity==='moderate'?' selected':''}>Moderate</option>
+                <option value="severe"${aeF.severity==='severe'?' selected':''}>Severe</option>
+                <option value="serious"${aeF.severity==='serious'?' selected':''}>Serious</option>
               </select>
+              <select id="mh-ae-status-filter" class="ch-select" style="font-size:11.5px;height:26px" onchange="window._mhAeSetFilter('status', this.value)">
+                <option value=""${!aeF.status?' selected':''}>All statuses</option>
+                <option value="open"${aeF.status==='open'?' selected':''}>Open</option>
+                <option value="reviewed"${aeF.status==='reviewed'?' selected':''}>Reviewed</option>
+                <option value="resolved"${aeF.status==='resolved'?' selected':''}>Resolved</option>
+                <option value="escalated"${aeF.status==='escalated'?' selected':''}>Escalated</option>
+              </select>
+              <select id="mh-ae-bs-filter" class="ch-select" style="font-size:11.5px;height:26px" onchange="window._mhAeSetFilter('body_system', this.value)">
+                <option value=""${!aeF.body_system?' selected':''}>All body systems</option>
+                ${BODY_SYSTEMS.map(b=>'<option value="'+b+'"'+(aeF.body_system===b?' selected':'')+'>'+b.toUpperCase()+'</option>').join('')}
+              </select>
+              <select id="mh-ae-exp-filter" class="ch-select" style="font-size:11.5px;height:26px" onchange="window._mhAeSetFilter('expected', this.value)">
+                <option value=""${!aeF.expected?' selected':''}>All expectedness</option>
+                <option value="expected"${aeF.expected==='expected'?' selected':''}>Expected</option>
+                <option value="unexpected"${aeF.expected==='unexpected'?' selected':''}>Unexpected</option>
+                <option value="unknown"${aeF.expected==='unknown'?' selected':''}>Unknown</option>
+              </select>
+              <label style="display:flex;gap:4px;align-items:center;font-size:11px;color:var(--text-secondary)">
+                <input type="checkbox" id="mh-ae-sae" ${aeF.sae===true?'checked':''} onchange="window._mhAeSetFilter('sae', this.checked?true:'')">
+                SAE only
+              </label>
+              <label style="display:flex;gap:4px;align-items:center;font-size:11px;color:var(--text-secondary)">
+                <input type="checkbox" id="mh-ae-rep" ${aeF.reportable===true?'checked':''} onchange="window._mhAeSetFilter('reportable', this.checked?true:'')">
+                Reportable only
+              </label>
+              <input type="date" id="mh-ae-since" class="ch-select" style="font-size:11px;height:26px" value="${aeF.since||''}" onchange="window._mhAeSetFilter('since', this.value)" title="From date">
+              <input type="date" id="mh-ae-until" class="ch-select" style="font-size:11px;height:26px" value="${aeF.until||''}" onchange="window._mhAeSetFilter('until', this.value)" title="Until date">
+              ${filterActive ? '<button class="ch-btn-sm" onclick="window._mhAeClearFilters()" title="Clear all filters">Clear</button>' : ''}
               <button class="ch-btn-sm ch-btn-teal" onclick="window._mhAeOpenReport()">+ Report AE</button>
             </span>
           </div>
+          <div style="padding:6px 14px;font-size:11px;color:var(--text-tertiary)">
+            ${totalCount} event${totalCount===1?'':'s'} shown${filterActive?' (filtered)':''}
+          </div>
           ${aes.length === 0
-            ? '<div class="ch-empty" style="padding:40px 16px;text-align:center;color:var(--text-tertiary);font-size:12.5px">'+(sevFilter?'No adverse events match the <b>'+sevFilter+'</b> filter.':'No adverse events reported. Use <b>+ Report AE</b> to log a new event.')+'</div>'
+            ? '<div class="ch-empty" style="padding:40px 16px;text-align:center;color:var(--text-tertiary);font-size:12.5px">'+(filterActive?'No adverse events match the active filters.':'No adverse events reported. Reporters will land here.')+'</div>'
             : aes.map(ae => {
                 const sev = ae.severity || 'mild';
                 const st  = _aeStatus(ae);
                 const nm  = patById[ae.patient_id] || ae.patient_id || '—';
-                const desc = ae.description ? ae.description.replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
-                const stColor = st === 'resolved' ? 'var(--green)' : 'var(--amber)';
-                return '<div class="book-row" id="ae-row-'+ae.id+'">'+
+                const desc = ae.description ? ae.description.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
+                const stColor = _aeStatusColor(st);
+                const reportableTag = ae.reportable ? '<span class="book-status-badge" style="color:var(--red);background:rgba(248,113,113,0.18);margin-left:4px" title="Regulator-reportable">REPORTABLE</span>' : '';
+                const saeTag = (ae.is_serious || sev === 'serious') ? '<span class="book-status-badge" style="color:var(--red);background:rgba(248,113,113,0.12);margin-left:4px" title="Serious adverse event">SAE</span>' : '';
+                const demoTag = ae.is_demo ? '<span class="book-status-badge" style="color:var(--amber);background:rgba(255,181,71,0.18);margin-left:4px">DEMO</span>' : '';
+                const bsTag = ae.body_system ? '<span style="font-size:10px;color:var(--text-tertiary);margin-left:6px">· '+ae.body_system+'</span>' : '';
+                return '<div class="book-row" id="ae-row-'+ae.id+'" style="cursor:pointer" onclick="window._mhAeOpenDetail(\''+ae.id+'\')">'+
                   '<div class="book-datetime"><div class="book-date">'+_aeDate(ae)+'</div></div>'+
-                  '<div class="book-info"><div class="book-patient">'+nm+'</div><div class="book-clinician">'+(ae.event_type||'—')+'</div>'+
+                  '<div class="book-info"><div class="book-patient">'+_mhEsc(nm)+demoTag+'</div><div class="book-clinician">'+_mhEsc(ae.event_type||'—')+bsTag+'</div>'+
                     (desc?'<div class="book-notes">'+desc+'</div>':'')+
                   '</div>'+
-                  '<div class="book-status-col"><span class="book-status-badge" style="color:'+(sevC[sev]||'var(--text-tertiary)')+';background:'+(sevC[sev]||'var(--text-tertiary)')+'22">'+sev+'</span></div>'+
+                  '<div class="book-status-col"><span class="book-status-badge" style="color:'+(sevC[sev]||'var(--text-tertiary)')+';background:'+(sevC[sev]||'var(--text-tertiary)')+'22">'+sev+'</span>'+saeTag+reportableTag+'</div>'+
                   '<div class="book-status-col"><span class="book-status-badge" style="color:'+stColor+';background:'+stColor+'22">'+st+'</span></div>'+
                   '<div class="book-actions">'+
-                    (st === 'open' ? '<button class="ch-btn-sm" onclick="window._mhAeResolve(\''+ae.id+'\')" title="Mark this adverse event as resolved">Resolve</button>' : '')+
+                    '<button class="ch-btn-sm" onclick="event.stopPropagation();window._mhAeOpenDetail(\''+ae.id+'\')">Open</button>'+
                   '</div>'+
                 '</div>';
               }).join('')}
@@ -6529,10 +6635,136 @@ export async function pgMonitorHub(setTopbar, navigate) {
       </div>
     </div>`;
 
-    window._mhAeApplySevFilter = function(value) {
-      window._mhAeSevFilter = value;
+    // ── Filter helpers ─────────────────────────────────────────────────
+    window._mhAeSetFilter = function(key, value) {
+      const F = window._mhAeFilters = window._mhAeFilters || {};
+      if (value === '' || value === false || value == null) {
+        delete F[key];
+      } else {
+        F[key] = value;
+      }
+      _aeAudit('filter_changed', { note: key+'='+String(value) });
       window._monitorHubTab = 'adverse';
       window._nav('monitor-hub');
+    };
+    window._mhAeClearFilters = function() {
+      window._mhAeFilters = {};
+      _aeAudit('filter_changed', { note: 'cleared' });
+      window._monitorHubTab = 'adverse';
+      window._nav('monitor-hub');
+    };
+
+    // ── CSV export — uses currently active filters ─────────────────────
+    window._mhAeExportCsv = async function() {
+      try {
+        const result = await api.exportAdverseEventsCsv?.(filterParams);
+        if (!result || !result.blob) {
+          window._dsToast?.({title:'Export failed', body:'CSV export endpoint unavailable.', severity:'error'});
+          return;
+        }
+        _aeAudit('export_csv', { note: JSON.stringify(filterParams).slice(0,200) });
+        const url = URL.createObjectURL(result.blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = result.filename || ('adverse-events-'+new Date().toISOString().slice(0,10)+'.csv');
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        window._dsToast?.({title:'CSV exported', severity:'success'});
+      } catch (e) {
+        window._dsToast?.({title:'Export failed', body:e?.message||'Try again.', severity:'error'});
+      }
+    };
+
+    // ── Detail drawer + actions ────────────────────────────────────────
+    window._mhAeOpenDetail = async function(id) {
+      if (!id) return;
+      _aeAudit('viewed', { note: 'id='+id });
+      // Reuse modal overlay element
+      document.getElementById('mh-ae-detail-modal')?.remove();
+      const overlay = document.createElement('div');
+      overlay.id = 'mh-ae-detail-modal';
+      overlay.className = 'ch-modal-overlay';
+      overlay.innerHTML = '<div class="ch-modal" style="width:min(720px,95vw)"><div class="ch-modal-hd"><span>Adverse Event</span><button class="ch-modal-close" onclick="document.getElementById(\'mh-ae-detail-modal\')?.remove()">✕</button></div><div class="ch-modal-body" id="mh-ae-detail-body">'+spinner()+'</div></div>';
+      document.body.appendChild(overlay);
+
+      let ae;
+      try {
+        ae = await api.getAdverseEvent(id);
+      } catch (e) {
+        const body = document.getElementById('mh-ae-detail-body');
+        if (body) body.innerHTML = '<div class="ch-empty" style="padding:30px;text-align:center;color:var(--red)">Failed to load: '+(e?.message||'unknown error')+'</div>';
+        return;
+      }
+
+      const patName = patById[ae.patient_id] || ae.patient_id || '—';
+      const sev = ae.severity || 'mild';
+      const st  = _aeStatus(ae);
+      const _safe = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+      const detailBody = document.getElementById('mh-ae-detail-body');
+      if (!detailBody) return;
+      detailBody.innerHTML =
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12.5px">'+
+          '<div><b>Patient:</b> '+_safe(patName)+(ae.patient_id?' <button class="ch-btn-sm" style="margin-left:4px" onclick="window._nav(\'patient-profile\',{id:\''+ae.patient_id+'\'});document.getElementById(\'mh-ae-detail-modal\')?.remove()">Open patient →</button>':'')+'</div>'+
+          '<div><b>Reported:</b> '+_safe((ae.reported_at||'').slice(0,16).replace('T',' '))+'</div>'+
+          '<div><b>Event type:</b> '+_safe(ae.event_type)+'</div>'+
+          '<div><b>Onset:</b> '+_safe(ae.onset_timing||'—')+'</div>'+
+          '<div><b>Severity:</b> '+_safe(sev)+(ae.is_serious?' <span style="color:var(--red);font-weight:700">SAE</span>':'')+'</div>'+
+          '<div><b>Status:</b> '+_safe(st)+'</div>'+
+          '<div><b>Body system:</b> '+_safe(ae.body_system||'—')+'</div>'+
+          '<div><b>Expectedness:</b> '+_safe(ae.expectedness||'—')+(ae.expectedness_source?' ('+_safe(ae.expectedness_source)+')':'')+'</div>'+
+          '<div><b>Relatedness:</b> '+_safe(ae.relatedness||'—')+'</div>'+
+          '<div><b>Reportable:</b> '+(ae.reportable?'<span style="color:var(--red);font-weight:700">YES</span>':'no')+'</div>'+
+          '<div><b>SAE criteria:</b> '+_safe(ae.sae_criteria||'—')+'</div>'+
+          '<div><b>Action taken:</b> '+_safe(ae.action_taken||'—')+'</div>'+
+          '<div><b>MedDRA PT:</b> '+_safe(ae.meddra_pt||'—')+'</div>'+
+          '<div><b>MedDRA SOC:</b> '+_safe(ae.meddra_soc||'—')+'</div>'+
+          (ae.session_id?'<div><b>Session:</b> <button class="ch-btn-sm" onclick="window._nav(\'session-execution\',{id:\''+ae.session_id+'\'});document.getElementById(\'mh-ae-detail-modal\')?.remove()">Open session →</button></div>':'')+
+          (ae.course_id?'<div><b>Course:</b> <button class="ch-btn-sm" onclick="window._selectedCourseId=\''+ae.course_id+'\';window._nav(\'course-detail\');document.getElementById(\'mh-ae-detail-modal\')?.remove()">Open course →</button></div>':'')+
+        '</div>'+
+        (ae.description?'<div style="margin-top:10px;padding:8px;background:var(--bg-secondary);border-radius:4px;font-size:12px;color:var(--text-secondary)"><b>Description:</b> '+_safe(ae.description)+'</div>':'')+
+        (ae.reviewed_at?'<div style="margin-top:8px;font-size:11px;color:var(--blue)">✓ Reviewed by '+_safe(ae.reviewed_by||'')+' at '+_safe((ae.reviewed_at||'').slice(0,16).replace('T',' '))+(ae.signed_at?' (signed)':'')+'</div>':'')+
+        (ae.escalated_at?'<div style="margin-top:8px;font-size:11px;color:var(--red)">⚑ Escalated to '+_safe(ae.escalation_target||'')+' at '+_safe((ae.escalated_at||'').slice(0,16).replace('T',' '))+(ae.escalation_note?' — '+_safe(ae.escalation_note):'')+'</div>':'')+
+        '<div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:6px">'+
+          (ae.reviewed_at?'':'<button class="ch-btn-sm ch-btn-teal" onclick="window._mhAeReview(\''+ae.id+'\', false)">Mark Reviewed</button>')+
+          '<button class="ch-btn-sm" onclick="window._mhAeReview(\''+ae.id+'\', true)" title="Review and sign-off in one step">Review &amp; Sign-off</button>'+
+          (ae.escalated_at?'':'<button class="ch-btn-sm" style="border-color:var(--red);color:var(--red)" onclick="window._mhAeEscalate(\''+ae.id+'\')">Escalate to IRB / Regulator</button>')+
+          '<button class="ch-btn-sm" onclick="window._mhAeOpenClassify(\''+ae.id+'\')">Edit Classification</button>'+
+          (ae.resolved_at?'':'<button class="ch-btn-sm" onclick="window._mhAeResolve(\''+ae.id+'\')">Resolve</button>')+
+          '<button class="ch-btn-sm" onclick="window._mhAeExportCioms(\''+ae.id+'\')">Export CIOMS</button>'+
+        '</div>'+
+        '<div style="margin-top:10px;font-size:10.5px;color:var(--text-tertiary);line-height:1.5">'+
+          'Severity and expectedness are clinician-confirmed inputs — never AI-derived. SAE and reportable flags are computed from your inputs per ICH E2A.'+
+        '</div>';
+    };
+
+    window._mhAeReview = async function(id, signOff) {
+      if (!id) return;
+      try {
+        await api.reviewAdverseEvent(id, { sign_off: !!signOff });
+        _aeAudit(signOff?'signed':'reviewed', { note: 'id='+id });
+        window._dsToast?.({title:signOff?'Reviewed & signed':'Reviewed', severity:'success'});
+        document.getElementById('mh-ae-detail-modal')?.remove();
+        window._nav('monitor-hub');
+      } catch (e) {
+        window._dsToast?.({title:'Review failed', body:e?.message||'Try again.', severity:'error'});
+      }
+    };
+
+    window._mhAeEscalate = async function(id) {
+      if (!id) return;
+      const target = (prompt('Escalation target (IRB / FDA / MHRA / EMA / internal_qa / other):', 'IRB') || '').trim();
+      if (!target) return;
+      const note = prompt('Note for escalation (optional):', '') || null;
+      try {
+        await api.escalateAdverseEvent(id, { target: target.toLowerCase(), note });
+        _aeAudit('escalated', { note: 'target='+target });
+        window._dsToast?.({title:'Escalated', severity:'success'});
+        document.getElementById('mh-ae-detail-modal')?.remove();
+        window._nav('monitor-hub');
+      } catch (e) {
+        window._dsToast?.({title:'Escalation failed', body:e?.message||'Try again.', severity:'error'});
+      }
     };
 
     window._mhAeResolve = async function(id) {
@@ -6540,47 +6772,180 @@ export async function pgMonitorHub(setTopbar, navigate) {
       if (!confirm('Mark this adverse event as resolved?')) return;
       try {
         await api.resolveAdverseEvent(id, { resolution: 'resolved' });
-        window._dsToast?.({title:'AE resolved',severity:'success'});
+        _aeAudit('resolved', { note: 'id='+id });
+        window._dsToast?.({title:'AE resolved', severity:'success'});
+        document.getElementById('mh-ae-detail-modal')?.remove();
         window._nav('monitor-hub');
       } catch (e) {
-        window._dsToast?.({title:'Resolve failed',body:e?.message||'Try again.',severity:'error'});
+        window._dsToast?.({title:'Resolve failed', body:e?.message||'Try again.', severity:'error'});
       }
     };
 
+    window._mhAeOpenClassify = async function(id) {
+      if (!id) return;
+      const ae = aes.find(a => a.id === id) || (await api.getAdverseEvent(id).catch(() => null));
+      if (!ae) return;
+      document.getElementById('mh-ae-classify-modal')?.remove();
+      const overlay = document.createElement('div');
+      overlay.id = 'mh-ae-classify-modal';
+      overlay.className = 'ch-modal-overlay';
+      const bsOpts = ['','nervous','psychiatric','cardiac','gi','skin','general','other'];
+      const expOpts = ['','expected','unexpected','unknown'];
+      const relOpts = ['','not_related','unlikely','possible','probable','definite','unknown'];
+      overlay.innerHTML =
+        '<div class="ch-modal" style="width:min(560px,95vw)"><div class="ch-modal-hd"><span>Edit Classification</span><button class="ch-modal-close" onclick="document.getElementById(\'mh-ae-classify-modal\')?.remove()">✕</button></div><div class="ch-modal-body">'+
+          '<div class="ch-form-group" style="margin-bottom:10px"><label class="ch-label">Body system <span style="color:var(--text-tertiary);font-size:10px">(MedDRA SOC subset — clinician confirms)</span></label>'+
+            '<select id="mh-cls-body" class="ch-select ch-select--full">'+bsOpts.map(b=>'<option value="'+b+'"'+((ae.body_system||'')===b?' selected':'')+'>'+(b||'—')+'</option>').join('')+'</select></div>'+
+          '<div class="ch-form-group" style="margin-bottom:10px"><label class="ch-label">Expectedness <span style="color:var(--text-tertiary);font-size:10px">(vs protocol risk profile)</span></label>'+
+            '<select id="mh-cls-exp" class="ch-select ch-select--full">'+expOpts.map(b=>'<option value="'+b+'"'+((ae.expectedness||'')===b?' selected':'')+'>'+(b||'—')+'</option>').join('')+'</select></div>'+
+          '<div class="ch-form-group" style="margin-bottom:10px"><label class="ch-label">Relatedness</label>'+
+            '<select id="mh-cls-rel" class="ch-select ch-select--full">'+relOpts.map(b=>'<option value="'+b+'"'+((ae.relatedness||'')===b?' selected':'')+'>'+(b||'—')+'</option>').join('')+'</select></div>'+
+          '<div class="ch-form-group" style="margin-bottom:10px"><label class="ch-label">SAE qualifiers (comma-separated)</label>'+
+            '<input id="mh-cls-sae" class="ch-select ch-select--full" placeholder="hospitalization, life_threatening" value="'+(ae.sae_criteria||'').replace(/"/g,'&quot;')+'"></div>'+
+          '<div class="ch-form-group" style="margin-bottom:10px"><label class="ch-label">MedDRA PT</label>'+
+            '<input id="mh-cls-pt" class="ch-select ch-select--full" placeholder="Preferred Term (optional)" value="'+(ae.meddra_pt||'').replace(/"/g,'&quot;')+'"></div>'+
+          '<div class="ch-form-group" style="margin-bottom:10px"><label class="ch-label">MedDRA SOC</label>'+
+            '<input id="mh-cls-soc" class="ch-select ch-select--full" placeholder="System Organ Class (optional)" value="'+(ae.meddra_soc||'').replace(/"/g,'&quot;')+'"></div>'+
+          '<div style="font-size:10.5px;color:var(--text-tertiary);margin-bottom:6px">Clinician input only. Saving recomputes SAE / reportable from these values.</div>'+
+          '<div style="display:flex;gap:8px;justify-content:flex-end">'+
+            '<button class="btn" onclick="document.getElementById(\'mh-ae-classify-modal\')?.remove()">Cancel</button>'+
+            '<button class="btn btn-primary" onclick="window._mhAeSubmitClassify(\''+id+'\')">Save</button>'+
+          '</div>'+
+        '</div></div>';
+      document.body.appendChild(overlay);
+    };
+
+    window._mhAeSubmitClassify = async function(id) {
+      const body_system  = document.getElementById('mh-cls-body')?.value || null;
+      const expectedness = document.getElementById('mh-cls-exp')?.value || null;
+      const relatedness  = document.getElementById('mh-cls-rel')?.value || null;
+      const sae_criteria = document.getElementById('mh-cls-sae')?.value || null;
+      const meddra_pt    = document.getElementById('mh-cls-pt')?.value || null;
+      const meddra_soc   = document.getElementById('mh-cls-soc')?.value || null;
+      const payload = {};
+      if (body_system != null)  payload.body_system  = body_system;
+      if (expectedness != null) payload.expectedness = expectedness;
+      if (relatedness != null)  payload.relatedness  = relatedness;
+      if (sae_criteria != null) payload.sae_criteria = sae_criteria;
+      if (meddra_pt != null)    payload.meddra_pt    = meddra_pt;
+      if (meddra_soc != null)   payload.meddra_soc   = meddra_soc;
+      try {
+        await api.patchAdverseEvent(id, payload);
+        _aeAudit('classification_changed', { note: Object.keys(payload).join(',') });
+        window._dsToast?.({title:'Classification saved', severity:'success'});
+        document.getElementById('mh-ae-classify-modal')?.remove();
+        document.getElementById('mh-ae-detail-modal')?.remove();
+        window._nav('monitor-hub');
+      } catch (e) {
+        window._dsToast?.({title:'Save failed', body:e?.message||'Try again.', severity:'error'});
+      }
+    };
+
+    window._mhAeExportCioms = async function(id) {
+      if (!id) return;
+      try {
+        const result = await api.exportAdverseEventCioms?.(id);
+        if (!result) {
+          window._dsToast?.({title:'CIOMS export unavailable', severity:'warn'});
+          return;
+        }
+        _aeAudit('export_cioms', { note: 'id='+id });
+        // The endpoint returns honest JSON ({configured:false,...}) when no
+        // regulator template is wired up. Surface it as a download AND a
+        // toast so the clinician understands they did NOT submit anything.
+        const text = await result.blob.text().catch(() => '');
+        let configured = null;
+        try { configured = JSON.parse(text)?.configured; } catch (_) {}
+        if (configured === false) {
+          window._dsToast?.({
+            title: 'CIOMS export not configured',
+            body: 'Downloaded the underlying AE record as JSON. A regulator-specific CIOMS template is required before submission.',
+            severity: 'warn',
+          });
+        }
+        const url = URL.createObjectURL(result.blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = result.filename || ('ae-'+id+'-cioms.json');
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+      } catch (e) {
+        window._dsToast?.({title:'CIOMS export failed', body:e?.message||'Try again.', severity:'error'});
+      }
+    };
+
+    // ── Reporter modal ─────────────────────────────────────────────────
     window._mhAeOpenReport = function() {
       document.getElementById('mh-ae-report-modal')?.remove();
       const patOpts = patients.map(p => {
         const nm = ((p.first_name||'')+(p.last_name?' '+p.last_name:'')).trim() || p.id;
-        return '<option value="'+p.id+'">'+nm+'</option>';
+        return '<option value="'+p.id+'">'+_mhEsc(nm)+'</option>';
       }).join('');
       const overlay = document.createElement('div');
       overlay.id = 'mh-ae-report-modal';
       overlay.className = 'ch-modal-overlay';
       overlay.innerHTML =
-        '<div class="ch-modal" style="width:min(560px,95vw)">'+
+        '<div class="ch-modal" style="width:min(640px,95vw)">'+
           '<div class="ch-modal-hd"><span>Report Adverse Event</span>'+
             '<button class="ch-modal-close" onclick="document.getElementById(\'mh-ae-report-modal\')?.remove()">✕</button>'+
           '</div>'+
           '<div class="ch-modal-body">'+
+            '<div style="font-size:11px;color:var(--text-tertiary);margin-bottom:10px;line-height:1.5">'+
+              'You are entering this report as the responsible clinician. Severity / expectedness / relatedness are clinician-confirmed only.'+
+            '</div>'+
             '<div class="ch-form-group" style="margin-bottom:10px"><label class="ch-label">Patient</label>'+
               '<select id="mh-ae-patient" class="ch-select ch-select--full">'+(patOpts||'<option value="">(no patients)</option>')+'</select></div>'+
             '<div class="ch-form-group" style="margin-bottom:10px"><label class="ch-label">Event type</label>'+
-              '<input id="mh-ae-type" class="ch-select ch-select--full" placeholder="e.g. headache, scalp_discomfort" maxlength="40"></div>'+
-            '<div class="ch-form-group" style="margin-bottom:10px"><label class="ch-label">Severity</label>'+
-              '<select id="mh-ae-sev" class="ch-select ch-select--full">'+
-                '<option value="mild">Mild</option>'+
-                '<option value="moderate">Moderate</option>'+
-                '<option value="severe">Severe</option>'+
-                '<option value="serious">Serious</option>'+
-              '</select></div>'+
-            '<div class="ch-form-group" style="margin-bottom:10px"><label class="ch-label">Onset timing</label>'+
-              '<select id="mh-ae-onset" class="ch-select ch-select--full">'+
-                '<option value="">—</option>'+
-                '<option value="during">During session</option>'+
-                '<option value="immediately_after">Immediately after</option>'+
-                '<option value="24h_post">Within 24h</option>'+
-                '<option value="delayed">Delayed (>24h)</option>'+
-              '</select></div>'+
+              '<input id="mh-ae-type" class="ch-select ch-select--full" placeholder="e.g. headache, scalp_discomfort" maxlength="40" oninput="window._mhAeSuggestBody()"></div>'+
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'+
+              '<div class="ch-form-group"><label class="ch-label">Severity</label>'+
+                '<select id="mh-ae-sev" class="ch-select ch-select--full">'+
+                  '<option value="mild">Mild</option>'+
+                  '<option value="moderate">Moderate</option>'+
+                  '<option value="severe">Severe</option>'+
+                  '<option value="serious">Serious (SAE)</option>'+
+                '</select></div>'+
+              '<div class="ch-form-group"><label class="ch-label">Onset timing</label>'+
+                '<select id="mh-ae-onset" class="ch-select ch-select--full">'+
+                  '<option value="">—</option>'+
+                  '<option value="during">During session</option>'+
+                  '<option value="immediately_after">Immediately after</option>'+
+                  '<option value="24h_post">Within 24h</option>'+
+                  '<option value="delayed">Delayed (&gt;24h)</option>'+
+                '</select></div>'+
+              '<div class="ch-form-group"><label class="ch-label">Body system <span style="color:var(--text-tertiary);font-size:10px" id="mh-ae-bs-hint"></span></label>'+
+                '<select id="mh-ae-body" class="ch-select ch-select--full">'+
+                  ['','nervous','psychiatric','cardiac','gi','skin','general','other'].map(b=>'<option value="'+b+'">'+(b||'—')+'</option>').join('')+
+                '</select></div>'+
+              '<div class="ch-form-group"><label class="ch-label">Expectedness</label>'+
+                '<select id="mh-ae-exp" class="ch-select ch-select--full">'+
+                  '<option value="">— (decide later)</option>'+
+                  '<option value="expected">Expected</option>'+
+                  '<option value="unexpected">Unexpected</option>'+
+                  '<option value="unknown">Unknown</option>'+
+                '</select></div>'+
+              '<div class="ch-form-group"><label class="ch-label">Relatedness to treatment</label>'+
+                '<select id="mh-ae-rel" class="ch-select ch-select--full">'+
+                  '<option value="">—</option>'+
+                  '<option value="not_related">Not related</option>'+
+                  '<option value="unlikely">Unlikely</option>'+
+                  '<option value="possible">Possible</option>'+
+                  '<option value="probable">Probable</option>'+
+                  '<option value="definite">Definite</option>'+
+                  '<option value="unknown">Unknown</option>'+
+                '</select></div>'+
+              '<div class="ch-form-group"><label class="ch-label">Action taken</label>'+
+                '<select id="mh-ae-action" class="ch-select ch-select--full">'+
+                  '<option value="">—</option>'+
+                  '<option value="none">None</option>'+
+                  '<option value="session_paused">Session paused</option>'+
+                  '<option value="session_stopped">Session stopped</option>'+
+                  '<option value="referred">Referred</option>'+
+                  '<option value="hospitalized">Hospitalized</option>'+
+                '</select></div>'+
+            '</div>'+
+            '<div class="ch-form-group" style="margin-top:6px;margin-bottom:10px"><label class="ch-label">SAE qualifiers (comma-separated, e.g. hospitalization, life_threatening)</label>'+
+              '<input id="mh-ae-saecrit" class="ch-select ch-select--full" placeholder="optional"></div>'+
             '<div class="ch-form-group" style="margin-bottom:10px"><label class="ch-label">Description</label>'+
               '<textarea id="mh-ae-desc" class="ch-textarea" rows="4" placeholder="What happened, what was done, patient state."></textarea></div>'+
             '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">'+
@@ -6593,24 +6958,62 @@ export async function pgMonitorHub(setTopbar, navigate) {
       setTimeout(() => document.getElementById('mh-ae-type')?.focus(), 50);
     };
 
+    // Suggest body system from event_type free text. Heuristic only —
+    // clinician must confirm from the dropdown. Never auto-applies.
+    window._mhAeSuggestBody = function() {
+      const txt = (document.getElementById('mh-ae-type')?.value || '').toLowerCase();
+      if (!txt) { const h = document.getElementById('mh-ae-bs-hint'); if (h) h.textContent = ''; return; }
+      const HINTS = {
+        nervous: ['headache','migraine','seizure','syncope','dizz','tingl','vertigo'],
+        psychiatric: ['anxiety','panic','depress','mood','agitation','hallucin','suicid','insomnia'],
+        cardiac: ['palpit','chest pain','tachycard','arrhyt'],
+        gi: ['nausea','vomit','diarrh','abdominal'],
+        skin: ['rash','scalp','burn','itch','redness'],
+        general: ['fatigue','fever','malaise','weakness'],
+      };
+      let suggestion = null;
+      for (const [sys, words] of Object.entries(HINTS)) {
+        if (words.some(w => txt.indexOf(w) >= 0)) { suggestion = sys; break; }
+      }
+      const h = document.getElementById('mh-ae-bs-hint');
+      if (h) h.textContent = suggestion ? '→ suggest "'+suggestion+'" (clinician must confirm)' : '';
+    };
+
     window._mhAeSubmit = async function() {
       const patient_id = document.getElementById('mh-ae-patient')?.value;
       const event_type = (document.getElementById('mh-ae-type')?.value || '').trim();
       const severity   = document.getElementById('mh-ae-sev')?.value || 'mild';
       const onset      = document.getElementById('mh-ae-onset')?.value || null;
+      const body_system  = document.getElementById('mh-ae-body')?.value || null;
+      const expectedness = document.getElementById('mh-ae-exp')?.value || null;
+      const relatedness  = document.getElementById('mh-ae-rel')?.value || null;
+      const action_taken = document.getElementById('mh-ae-action')?.value || null;
+      const sae_criteria = document.getElementById('mh-ae-saecrit')?.value || null;
       const description= document.getElementById('mh-ae-desc')?.value || null;
       if (!patient_id) { window._dsToast?.({title:'Patient required',severity:'warn'}); return; }
       if (!event_type) { window._dsToast?.({title:'Event type required',severity:'warn'}); return; }
+      const payload = { patient_id, event_type, severity, onset_timing: onset, description };
+      if (body_system)  payload.body_system  = body_system;
+      if (expectedness) payload.expectedness = expectedness;
+      if (relatedness)  payload.relatedness  = relatedness;
+      if (action_taken) payload.action_taken = action_taken;
+      if (sae_criteria) payload.sae_criteria = sae_criteria;
       try {
-        await api.reportAdverseEvent({ patient_id, event_type, severity, onset_timing: onset, description });
+        const created = await api.reportAdverseEvent(payload);
+        _aeAudit('created', { note: 'sev='+severity+' patient='+patient_id, patient_id });
         document.getElementById('mh-ae-report-modal')?.remove();
-        window._dsToast?.({title:'Adverse event reported',severity:'success'});
+        if (created?.is_serious || created?.reportable) {
+          window._dsToast?.({title:'AE reported — SAE flagged', body:'Review and consider escalation.', severity:'warn'});
+        } else {
+          window._dsToast?.({title:'Adverse event reported', severity:'success'});
+        }
         window._nav('monitor-hub');
       } catch (e) {
-        window._dsToast?.({title:'Report failed',body:e?.message||'Try again.',severity:'error'});
+        window._dsToast?.({title:'Report failed', body:e?.message||'Try again.', severity:'error'});
       }
     };
 
+    // Deep-link highlight (preserved from previous version)
     const _aeDeepId = window._monitorHubAEId;
     if (_aeDeepId) {
       requestAnimationFrame(() => {
