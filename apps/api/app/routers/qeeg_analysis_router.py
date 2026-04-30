@@ -3832,6 +3832,10 @@ class QEEGAuditEventIn(BaseModel):
     patient_id: Optional[str] = Field(None, max_length=64)
     note: Optional[str] = Field(None, max_length=1024)
     using_demo_data: Optional[bool] = False
+    # Optional namespace prefix so non-qEEG surfaces (e.g. the Brain Map
+    # Planner) can reuse this endpoint while still being attributable in the
+    # audit trail. Falls back to "qeeg" for backwards-compat.
+    surface: Optional[str] = Field("qeeg", max_length=32)
 
 
 class QEEGAuditEventOut(BaseModel):
@@ -3849,7 +3853,13 @@ def record_qeeg_audit_event(
     from app.repositories.audit import create_audit_event
 
     now = datetime.now(timezone.utc)
-    event_id = f"qeeg-{payload.event}-{actor.actor_id}-{int(now.timestamp())}-{uuid.uuid4().hex[:6]}"
+    # Surface prefix lets us share this endpoint across multiple clinical
+    # surfaces while still carrying provenance in the audit trail. Whitelist
+    # the prefix to avoid arbitrary user-supplied strings ending up in audit
+    # `action` rows. Default "qeeg" preserves prior behaviour.
+    raw_surface = (payload.surface or "qeeg").strip().lower()
+    surface = raw_surface if raw_surface in {"qeeg", "brain_map_planner"} else "qeeg"
+    event_id = f"{surface}-{payload.event}-{actor.actor_id}-{int(now.timestamp())}-{uuid.uuid4().hex[:6]}"
     target_id = payload.analysis_id or payload.patient_id or actor.clinic_id or actor.actor_id
     note_parts: list[str] = []
     if payload.using_demo_data:
@@ -3867,8 +3877,8 @@ def record_qeeg_audit_event(
             db,
             event_id=event_id,
             target_id=str(target_id),
-            target_type="qeeg_analyzer",
-            action=f"qeeg.{payload.event}",
+            target_type=surface,
+            action=f"{surface}.{payload.event}",
             role=actor.role,
             actor_id=actor.actor_id,
             note=note[:1024],

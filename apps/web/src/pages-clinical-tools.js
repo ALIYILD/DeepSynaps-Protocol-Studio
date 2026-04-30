@@ -6732,12 +6732,47 @@ export async function pgAssessmentsHub(setTopbar) {
 export async function pgBrainMapPlanner(setTopbar) {
   setTopbar('Brain Map Planner', `
     <button class="btn btn-sm" onclick="window._bmpImportFromProtocol()">Import from protocol &#x2193;</button>
-    <button class="btn btn-sm" style="border-color:var(--teal);color:var(--teal)" onclick="window._bmpSaveToProtocol()">Save to protocol &#x2192;</button>
+    <button class="btn btn-sm" style="border-color:var(--teal);color:var(--teal)" onclick="window._bmpSaveToProtocol()">Save plan</button>
+    <button class="btn btn-sm" onclick="window._bmpExportPlanJSON()">Export JSON</button>
+    <button class="btn btn-sm" onclick="window._bmpExportPlanPDF()">Export PDF</button>
+    <button class="btn btn-sm" style="border-color:var(--violet);color:var(--violet)" onclick="window._bmpSendToSession()">Send to session &#x2192;</button>
     <button class="btn btn-sm" onclick="window._nav('protocol-wizard')">Protocol Search</button>
     <button class="btn btn-sm" onclick="window._nav('prescriptions')">Prescriptions</button>
   `);
   const el = document.getElementById('content');
   if (!el) return;
+
+  // ── Audit logger (mirrors `_qeegAudit` in pages-qeeg-analysis.js) ───────
+  // Best-effort POST to /api/v1/qeeg-analysis/audit-events with surface =
+  // brain_map_planner. NEVER throws. NEVER blocks UI. Audit-trail outages
+  // must not break the clinician's workflow.
+  function _bmpAudit(event, extra) {
+    try {
+      const apiObj = window._api || window.api;
+      if (!apiObj || typeof apiObj.logAudit !== 'function') return;
+      const payload = Object.assign({
+        surface: 'brain_map_planner',
+        event: String(event || 'unknown'),
+        analysis_id: (window._qeegSelectedId && window._qeegSelectedId !== 'demo')
+          ? window._qeegSelectedId : null,
+        patient_id: (window._qeegPatientId && window._qeegPatientId !== 'demo')
+          ? window._qeegPatientId : null,
+        using_demo_data: !!(window._qeegSelectedId === 'demo'
+          || (!window._qeegPatientId && _bmpIsDemoMode())),
+      }, extra || {});
+      const p = apiObj.logAudit(payload);
+      if (p && typeof p.catch === 'function') p.catch(function() {});
+    } catch (_) { /* audit must never break UI */ }
+  }
+  function _bmpIsDemoMode() {
+    try {
+      if (typeof window === 'undefined') return false;
+      // Mirror pages-qeeg-analysis.js demo gate: dev build OR demo flag.
+      // import.meta.env access through Function avoids breaking node test env.
+      const env = (Function('try{return import.meta.env}catch(_){return null}'))() || {};
+      return Boolean(env.DEV) || env.VITE_ENABLE_DEMO === '1';
+    } catch (_) { return false; }
+  }
 
   const FALLBACK_CONDITIONS = [
     'Major Depressive Disorder','Treatment-Resistant Depression','Bipolar Depression',
@@ -7091,12 +7126,36 @@ export async function pgBrainMapPlanner(setTopbar) {
 
   let conds = [], protos = [];
   let _libProtos = [], _libConditions = [], _libDevices = [];
+  // Cross-page integration with the qEEG Analyzer: when a patient + analysis
+  // are selected upstream, fetch the persisted protocol-fit so the planner
+  // can show evidence-graded suggestions ("DLPFC-L · A-grade · MDD"). Never
+  // fabricate. If the call fails we honestly fall back to "no analyser data".
+  let _bmpAnalyzerFit = null;
+  let _bmpAnalyzerErr = null;
+  let _bmpRegistryTargets = [];
+  const _bmpQEEGAnalysisId = (typeof window !== 'undefined'
+      && window._qeegSelectedId && window._qeegSelectedId !== 'demo')
+      ? window._qeegSelectedId : null;
+  const _bmpQEEGPatientId = (typeof window !== 'undefined'
+      && window._qeegPatientId && window._qeegPatientId !== 'demo')
+      ? window._qeegPatientId : null;
   try {
     const apiObj = window._api || window.api;
-    const [cd, pd, lib] = await Promise.all([
+    const [cd, pd, lib, fit, registry] = await Promise.all([
       apiObj ? apiObj.conditions().catch(function() { return null; }) : Promise.resolve(null),
       apiObj ? apiObj.protocols().catch(function()  { return null; }) : Promise.resolve(null),
       import('./protocols-data.js').catch(function() { return null; }),
+      // Only fetch the protocol fit when we have a real qEEG analysis id.
+      // GETting on a missing fit returns 404 which we tolerate.
+      (apiObj && _bmpQEEGAnalysisId && typeof apiObj.getQEEGProtocolFit === 'function')
+        ? apiObj.getQEEGProtocolFit(_bmpQEEGAnalysisId).catch(function(e) { _bmpAnalyzerErr = e; return null; })
+        : Promise.resolve(null),
+      // Backend brain-target registry — used to verify deterministic anchor
+      // electrodes match the planner's `BMP_REGION_SITES`. Pure data fetch,
+      // never AI; if it fails the planner falls back to in-memory tables.
+      (apiObj && typeof apiObj.listBrainTargets === 'function')
+        ? apiObj.listBrainTargets().catch(function() { return null; })
+        : Promise.resolve(null),
     ]);
     conds  = (cd && cd.items)  ? cd.items  : [];
     protos = (pd && pd.items)  ? pd.items  : [];
@@ -7105,6 +7164,8 @@ export async function pgBrainMapPlanner(setTopbar) {
       _libConditions = lib.CONDITIONS       || [];
       _libDevices    = lib.DEVICES          || [];
     }
+    if (fit) _bmpAnalyzerFit = fit;
+    if (registry && Array.isArray(registry.items)) _bmpRegistryTargets = registry.items;
   } catch (_) {}
   if (!conds.length) conds = FALLBACK_CONDITIONS.map(function(n) { return { name: n }; });
 
@@ -7348,6 +7409,157 @@ export async function pgBrainMapPlanner(setTopbar) {
       if (rs.primary.indexOf(site) !== -1) return k;
     }
     return '';
+  }
+
+  // Deterministic target → anchor electrode resolver. Maps clinical region
+  // ids (e.g. ``DLPFC-L``) to the canonical 10-20 anchor (``F3``). Pure
+  // registry lookup — NO AI inference. Used by the Analyzer-integration
+  // panel and "Use this target" buttons. Mirrors backend brain_targets.py.
+  function _bmpResolveAnchor(regionId) {
+    if (!regionId) return null;
+    const local = BMP_REGION_SITES[regionId];
+    if (local && local.primary && local.primary.length) return local.primary[0];
+    // Fall back to backend registry if the local map missed.
+    const fromBackend = _bmpRegistryTargets.find(function(t) { return t && t.id === regionId; });
+    if (fromBackend && fromBackend.primary_anchor) return fromBackend.primary_anchor;
+    return null;
+  }
+
+  // Map an Analyzer protocol-fit candidate (free-text "left DLPFC", "O1/O2")
+  // to a canonical region id. Best-effort; falls back to '' if unmapped so we
+  // do not fabricate a target. The Analyzer-integration panel then shows
+  // honest "(target unmapped — use atlas)".
+  function _bmpAnalyzerTargetToRegion(target) {
+    const t = String(target || '').toLowerCase();
+    if (!t) return '';
+    if (/left\s*dlpfc|l-?dlpfc|\bf3\b/.test(t))  return 'DLPFC-L';
+    if (/right\s*dlpfc|r-?dlpfc|\bf4\b/.test(t)) return 'DLPFC-R';
+    if (/bilateral\s*dlpfc/.test(t))             return 'DLPFC-B';
+    if (/dmpfc|dorsomedial/.test(t))             return 'DMPFC';
+    if (/vmpfc|ventromedial/.test(t))            return 'VMPFC';
+    if (/mpfc|medial\s*pfc/.test(t))             return 'mPFC';
+    if (/\bofc\b|orbitofrontal/.test(t))         return 'OFC';
+    if (/\bacc\b|anterior\s*cingulate/.test(t))  return 'ACC';
+    if (/\bsma\b|supplementary motor|\bfcz\b/.test(t)) return 'SMA';
+    if (/left\s*m1|m1.l|c3/.test(t))             return 'M1-L';
+    if (/right\s*m1|m1.r|c4/.test(t))            return 'M1-R';
+    if (/inferior frontal gyrus|broca|ifg.l|\bf7\b/.test(t)) return 'IFG-L';
+    if (/right\s*ifg|ifg.r|\bf8\b/.test(t))      return 'IFG-R';
+    if (/temporal.*left|t7|t5/.test(t))          return 'TEMPORAL-L';
+    if (/temporal.*right|t8|t6/.test(t))         return 'TEMPORAL-R';
+    if (/o1|o2|oz|occipital|v1/.test(t))         return 'V1';
+    if (/cerebellum|cerebellar/.test(t))         return 'CEREBELLUM';
+    return '';
+  }
+
+  // Build the Analyzer-integration card. Shows up to 3 evidence-graded
+  // suggestions from `protocol-fit` plus a "Use this target" button per row.
+  // Honest empty state when no analysis is loaded.
+  function _buildAnalyzerPanel() {
+    const fit = _bmpAnalyzerFit;
+    const hasContext = !!(_bmpQEEGAnalysisId || _bmpQEEGPatientId);
+    let h = '<div class="bm-param-group" id="bmp-analyzer-panel" style="margin:0 16px 8px;border:1px solid var(--border);border-radius:8px;padding:12px 14px;background:rgba(74,158,255,0.04)">';
+    h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">';
+    h += '<span style="font-size:10.5px;font-weight:700;letter-spacing:0.06em;color:var(--blue);text-transform:uppercase">qEEG Analyzer suggestions</span>';
+    if (hasContext && _bmpQEEGAnalysisId) {
+      h += '<span style="font-size:10px;color:var(--text-tertiary);font-family:var(--font-mono)">' + _esc(_bmpQEEGAnalysisId.slice(0, 12)) + '…</span>';
+    }
+    h += '</div>';
+    if (!hasContext) {
+      h += '<div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5">'
+        + 'No qEEG analysis loaded. <a href="#" onclick="window._nav(\'qeeg-analysis\');return false" style="color:var(--blue)">Run a qEEG analysis</a> '
+        + 'first or place targets manually using the atlas at left.'
+        + '</div></div>';
+      return h;
+    }
+    if (!fit) {
+      const reason = _bmpAnalyzerErr ? 'Analyzer fit fetch failed (network or no fit computed yet).' : 'No persisted protocol-fit for this analysis yet.';
+      h += '<div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5">'
+        + _esc(reason) + ' Open the <a href="#" onclick="window._nav(\'qeeg-analysis\');return false" style="color:var(--blue)">Analyzer</a> and run protocol-fit, '
+        + 'or place targets manually below.'
+        + '</div></div>';
+      return h;
+    }
+    // Build up to 3 suggestion rows: candidate + alternatives.
+    const rows = [];
+    if (fit.candidate_protocol) rows.push({ proto: fit.candidate_protocol, isPrimary: true });
+    (fit.alternative_protocols || []).slice(0, 2).forEach(function(p) {
+      rows.push({ proto: p, isPrimary: false });
+    });
+    if (!rows.length) {
+      h += '<div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5">'
+        + 'Analyzer ran protocol-fit but produced no candidate. ' + _esc(fit.pattern_summary || '')
+        + '</div></div>';
+      return h;
+    }
+    h += '<div style="display:flex;flex-direction:column;gap:6px">';
+    rows.forEach(function(row, idx) {
+      const p = row.proto || {};
+      const target = String(p.target || '');
+      const regionId = _bmpAnalyzerTargetToRegion(target);
+      const anchor = regionId ? _bmpResolveAnchor(regionId) : '';
+      const grade = String(p.evidence_grade || fit.evidence_grade || '?').replace(/^EV-/, '') || '?';
+      const conds = Array.isArray(p.conditions) ? p.conditions.slice(0, 2).join(', ') : '';
+      const gColor = /^A/i.test(grade) ? '#00d4bc' : /^B/i.test(grade) ? '#4a9eff' : /^C/i.test(grade) ? '#ffb547' : 'var(--text-tertiary)';
+      const tag = row.isPrimary ? 'CANDIDATE' : 'ALT ' + idx;
+      h += '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px">';
+      h += '<span style="font-size:9px;font-weight:700;letter-spacing:0.06em;color:var(--text-tertiary);font-family:var(--font-mono);min-width:62px">' + _esc(tag) + '</span>';
+      h += '<span style="font-size:11.5px;font-weight:600;color:var(--text-primary)">' + _esc(target || regionId || 'Unmapped') + '</span>';
+      h += '<span style="font-size:10px;padding:2px 7px;border-radius:4px;border:1px solid ' + gColor + '44;color:' + gColor + ';font-weight:700">Ev. ' + _esc(grade) + '</span>';
+      if (anchor) h += '<span style="font-size:10.5px;padding:2px 6px;border-radius:4px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-secondary);font-family:var(--font-mono)">◉ ' + _esc(anchor) + '</span>';
+      if (p.modality) h += '<span style="font-size:10.5px;color:var(--text-secondary)">' + _esc(p.modality) + (p.frequency ? ' · ' + _esc(p.frequency) : '') + '</span>';
+      if (conds) h += '<span style="font-size:10px;color:var(--text-tertiary);margin-left:4px">' + _esc(conds) + '</span>';
+      h += '<div style="margin-left:auto;display:flex;gap:6px">';
+      if (regionId) {
+        h += '<button class="btn btn-sm" data-bmp-use-target="' + _esc(regionId) + '" style="font-size:10.5px;padding:3px 9px;border-color:var(--teal);color:var(--teal)">Use this target</button>';
+      } else {
+        h += '<span style="font-size:10px;color:var(--amber)" title="Analyzer candidate target text could not be deterministically mapped to a canonical region id">unmapped</span>';
+      }
+      h += '</div></div>';
+    });
+    h += '</div>';
+    if (fit.pattern_summary) {
+      h += '<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:8px;line-height:1.45">' + _esc(fit.pattern_summary) + '</div>';
+    }
+    if (fit.off_label_flag) {
+      h += '<div style="font-size:10.5px;color:var(--amber);margin-top:6px">⚠ Off-label flag: patient primary condition not in this pattern\'s direct evidence base.</div>';
+    }
+    h += '</div>';
+    return h;
+  }
+
+  // Demo-mode banner — shown when there is no real patient/analysis context
+  // attached. Honesty + clinician-review caveat. Always rendered when the
+  // banner is appropriate (no-context fallback OR explicit demo flag).
+  function _buildDemoBanner() {
+    const hasContext = !!(_bmpQEEGAnalysisId || _bmpQEEGPatientId || (bmpState.patientId && bmpState.patientId.trim()));
+    if (hasContext) return '';
+    return '<div data-testid="bmp-demo-banner" role="note" style="margin:0 16px 8px;padding:9px 12px;border-radius:8px;'
+      + 'background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.28);color:var(--amber,#ffb547);'
+      + 'font-size:11.5px;display:flex;gap:10px;align-items:flex-start;line-height:1.45">'
+      + '<span aria-hidden="true">⚠</span>'
+      + '<div>'
+      + '<strong>Sample patient — clinician review required.</strong> No real patient or qEEG analysis is loaded. '
+      + 'Demo targets are pre-populated for orientation only. <em>Save plan</em> and <em>Export</em> will produce demo-stamped artifacts; '
+      + '<em>Send to session</em> is disabled until a real patient is attached.'
+      + '</div></div>';
+  }
+
+  // Clinical safety footer — always visible. Mirrors the qEEG Analyzer
+  // safety footer pattern so disclaimers are consistent across surfaces.
+  function _buildSafetyFooter() {
+    return '<div data-testid="bmp-safety-footer" class="bmp-safety-footer" '
+      + 'style="margin:14px 16px 24px;padding:14px 16px;border-radius:12px;background:rgba(255,255,255,0.03);'
+      + 'border:1px solid rgba(255,255,255,0.06);font-size:12px;color:var(--text-secondary);line-height:1.6">'
+      + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;'
+      + 'color:var(--text-tertiary);margin-bottom:6px">Clinical safety disclaimers</div>'
+      + '<ul style="margin:0;padding-left:18px">'
+      + '<li>Brain map and target suggestions <strong>support clinical decision-making and require clinician review</strong>.</li>'
+      + '<li>Coordinate → electrode mapping uses <strong>10-20 EEG conventions</strong>; individual head models may vary. Confirm placement at the chair.</li>'
+      + '<li>Protocol parameters require <strong>device-specific safety review</strong> per local policy.</li>'
+      + '<li>Patient consent and contraindication screening are required <strong>before any stimulation</strong>.</li>'
+      + '<li>qEEG-derived suggestions are <strong>decision-support, not prescriptive</strong>; off-label use must be flagged and discussed.</li>'
+      + '</ul></div>';
   }
 
   function _siteRole(site) {
@@ -8430,12 +8642,14 @@ export async function pgBrainMapPlanner(setTopbar) {
   const hideAtlas = (bmpState.tab === 'montage');
 
   el.innerHTML =
-    _buildTabStrip()
+    _buildDemoBanner()
+    + _buildTabStrip()
     + '<div class="bm-shell bm-shell-v2' + (hideAtlas ? ' bm-no-left' : '') + '">'
     + (hideAtlas ? '' : ('<aside class="bm-left" id="bm-left">' + _buildAtlasRail() + '</aside>'))
     + '<div class="bm-center">'
     + _buildCanvasToolbar()
     + _buildAdvancedFilters()
+    + _buildAnalyzerPanel()
     + '<div class="bm-proto-strip">'
       + '<span class="bm-proto-strip-lbl">Protocol</span>'
       + '<select id="bmp-proto-sel" class="form-select" style="flex:1;font-size:12px" onchange="window._bmpLoadProto(this.value)">'
@@ -8456,6 +8670,7 @@ export async function pgBrainMapPlanner(setTopbar) {
     + '</div>'
     + '<aside class="bm-right" id="bm-right">' + _buildParamsPanel() + '</aside>'
     + '</div>'
+    + _buildSafetyFooter()
     + '<div id="bmp-tooltip" class="bmp-tooltip" style="display:none"></div>';
 
   // Attach SVG events after initial render
@@ -9118,11 +9333,18 @@ export async function pgBrainMapPlanner(setTopbar) {
     _persist();
   };
 
-  window._bmpPrescribe   = function() { window._nav('prescriptions'); };
-  window._bmpUseInWizard = function() { window._nav('protocol-wizard'); };
+  window._bmpPrescribe   = function() {
+    _bmpAudit('prescribe_click');
+    window._nav('prescriptions');
+  };
+  window._bmpUseInWizard = function() {
+    _bmpAudit('protocol_wizard_click');
+    window._nav('protocol-wizard');
+  };
 
   window._bmpViewDetail = function() {
     if (bmpState.protoId) window._protDetailId = bmpState.protoId;
+    _bmpAudit('protocol_detail_view', { note: bmpState.protoId || '' });
     window._nav('protocol-detail');
   };
 
@@ -9135,10 +9357,275 @@ export async function pgBrainMapPlanner(setTopbar) {
       }
       window._protDetailId = safe;
     }
+    _bmpAudit('prescribe_protocol', { note: safe });
     window._nav('prescriptions');
   };
 
+  // ── Analyzer-integration "Use this target" wiring ───────────────────────
+  // Delegated click handler for the suggestion rows. Resolves regionId →
+  // anchor electrode (deterministic) and updates planner state. Audited.
+  const analyzerPanel = document.getElementById('bmp-analyzer-panel');
+  if (analyzerPanel) {
+    analyzerPanel.addEventListener('click', function(e) {
+      const b = e.target.closest('[data-bmp-use-target]');
+      if (!b) return;
+      const regionId = b.dataset.bmpUseTarget;
+      if (!regionId || !BMP_REGION_SITES[regionId]) {
+        window._showNotifToast?.({
+          title: 'Target unmapped',
+          body: 'No deterministic anchor for ' + regionId + '. Place manually using the atlas.',
+          severity: 'warn',
+        });
+        return;
+      }
+      bmpState.region = regionId;
+      const anchor = _bmpResolveAnchor(regionId);
+      if (anchor) bmpState.selectedSite = anchor;
+      const rs = document.getElementById('bmp-region-sel');
+      if (rs) rs.value = regionId;
+      _updateMap(); _updateDetail(); _updateParams();
+      _persist();
+      _bmpAudit('analyzer_target_applied', { note: regionId + (anchor ? ' → ' + anchor : '') });
+      window._showNotifToast?.({
+        title: 'Target applied',
+        body: regionId + (anchor ? ' → ' + anchor + ' (deterministic 10-20 anchor)' : ''),
+        severity: 'info',
+      });
+    });
+  }
+
+  // ── Honest exports ─────────────────────────────────────────────────────
+  // JSON export: real download of the current planner state + resolved
+  // anchors. When no patient context attached, the file is demo-stamped.
+  function _bmpBuildPlanArtifact() {
+    const region = bmpState.region || '';
+    const anchor = region ? _bmpResolveAnchor(region) : (bmpState.selectedSite || null);
+    const refSite = (BMP_REGION_SITES[region] && BMP_REGION_SITES[region].ref && BMP_REGION_SITES[region].ref[0]) || null;
+    const proto = bmpState.protoId ? (_catalogById[bmpState.protoId] || null) : null;
+    const isDemoArtifact = !(_bmpQEEGAnalysisId || _bmpQEEGPatientId || (bmpState.patientId && bmpState.patientId.trim()));
+    return {
+      schema: 'deepsynaps.brain_map_plan/v1',
+      generated_at: new Date().toISOString(),
+      demo_stamp: isDemoArtifact ? 'SAMPLE_PATIENT__CLINICIAN_REVIEW_REQUIRED' : null,
+      patient_id: bmpState.patientId || _bmpQEEGPatientId || null,
+      qeeg_analysis_id: _bmpQEEGAnalysisId || null,
+      target: {
+        region_id: region,
+        anchor_electrode: anchor,
+        reference_electrode: refSite,
+        mni_coordinates: BMP_MNI[anchor] || null,
+        brodmann_area: BMP_BA[anchor] || null,
+      },
+      protocol: proto ? {
+        id: proto.id,
+        name: proto.name,
+        modality: proto.modality,
+        evidence_grade: proto.evidenceGrade,
+        source: proto.source,
+      } : null,
+      parameters: {
+        modality: bmpState.modality,
+        laterality: bmpState.lat,
+        frequency: bmpState.freq,
+        intensity: bmpState.intensity,
+        pulses_per_session: bmpState.pulses,
+        duration_min: bmpState.duration,
+        sessions_total: bmpState.sessions,
+        waveform: bmpState.waveform,
+      },
+      notes: bmpState.notes || '',
+      analyzer_fit: _bmpAnalyzerFit ? {
+        evidence_grade: _bmpAnalyzerFit.evidence_grade,
+        candidate_protocol: _bmpAnalyzerFit.candidate_protocol,
+        pattern_summary: _bmpAnalyzerFit.pattern_summary,
+        off_label_flag: _bmpAnalyzerFit.off_label_flag,
+      } : null,
+      disclaimers: [
+        'Brain map and target suggestions support clinical decision-making and require clinician review.',
+        'Coordinate→electrode mapping uses 10-20 EEG conventions; individual head models may vary.',
+        'Protocol parameters require device-specific safety review per local policy.',
+        'Patient consent and contraindication screening required before stimulation.',
+      ],
+    };
+  }
+
+  window._bmpExportPlanJSON = function() {
+    const plan = _bmpBuildPlanArtifact();
+    try {
+      const text = JSON.stringify(plan, null, 2);
+      const blob = new Blob([text], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const fname = 'brain-map-plan-' + (plan.demo_stamp ? 'demo-' : '')
+        + new Date().toISOString().slice(0, 10) + '.json';
+      const a = document.createElement('a');
+      a.href = url; a.download = fname;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function() { try { URL.revokeObjectURL(url); } catch (_) {} }, 500);
+      _bmpAudit('plan_export_json', { note: fname });
+      window._showNotifToast?.({
+        title: 'Plan exported',
+        body: 'Saved ' + fname + (plan.demo_stamp ? ' (DEMO-stamped)' : ''),
+        severity: 'success',
+      });
+    } catch (e) {
+      _bmpAudit('plan_export_json_failed', { note: String(e && e.message || e) });
+      window._showNotifToast?.({
+        title: 'Export failed',
+        body: 'JSON export error — try a different browser. Error: ' + (e?.message || ''),
+        severity: 'warn',
+      });
+    }
+  };
+
+  window._bmpExportPlanPDF = function() {
+    const plan = _bmpBuildPlanArtifact();
+    try {
+      // Real PDF via the browser's Print → "Save as PDF" route. We open a
+      // new window with a clean printable HTML rendering of the plan.
+      // This is honest: we are not pretending to generate a server-side PDF;
+      // the user gets a real, paginated document via the OS print pipeline.
+      const w = window.open('', '_blank', 'noopener,noreferrer,width=820,height=1024');
+      if (!w) {
+        window._showNotifToast?.({
+          title: 'Pop-up blocked',
+          body: 'Allow pop-ups to export PDF. JSON export is also available.',
+          severity: 'warn',
+        });
+        return;
+      }
+      const _e = function(s) { return _esc(String(s == null ? '' : s)); };
+      const t = plan.target || {};
+      const p = plan.parameters || {};
+      const af = plan.analyzer_fit || null;
+      const proto = plan.protocol || null;
+      const demoBanner = plan.demo_stamp
+        ? '<div style="background:#fff7ed;border:1px solid #fdba74;color:#9a3412;padding:10px 14px;border-radius:6px;margin-bottom:14px;font-size:12px"><strong>SAMPLE PATIENT — clinician review required.</strong> No real patient or qEEG analysis is attached to this plan.</div>'
+        : '';
+      const html =
+        '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Brain Map Plan</title>'
+        + '<style>'
+        + 'body{font-family:system-ui,-apple-system,sans-serif;color:#0f172a;padding:32px;max-width:820px;margin:0 auto;line-height:1.55}'
+        + 'h1{font-size:22px;margin:0 0 4px}h2{font-size:14px;margin:18px 0 6px;color:#0f766e}'
+        + 'table{width:100%;border-collapse:collapse;margin:6px 0 14px;font-size:12.5px}'
+        + 'td{padding:4px 8px;border-bottom:1px solid #e2e8f0;vertical-align:top}'
+        + 'td.k{color:#475569;font-weight:600;width:200px}'
+        + '.muted{color:#64748b;font-size:11px}'
+        + '.discl{margin-top:18px;padding:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;font-size:11.5px;color:#334155}'
+        + '.discl ul{margin:6px 0;padding-left:18px}'
+        + '@media print{body{padding:18mm}}'
+        + '</style></head><body>'
+        + demoBanner
+        + '<h1>Brain Map Plan</h1>'
+        + '<div class="muted">Generated ' + _e(plan.generated_at) + ' · DeepSynaps Studio Clinical OS</div>'
+        + '<h2>Patient context</h2><table>'
+        + '<tr><td class="k">Patient</td><td>' + _e(plan.patient_id || 'Demo patient') + '</td></tr>'
+        + '<tr><td class="k">qEEG analysis</td><td>' + _e(plan.qeeg_analysis_id || '— none —') + '</td></tr>'
+        + '</table>'
+        + '<h2>Target</h2><table>'
+        + '<tr><td class="k">Region</td><td>' + _e(t.region_id || '—') + '</td></tr>'
+        + '<tr><td class="k">Anchor electrode (10-20)</td><td>' + _e(t.anchor_electrode || '—') + '</td></tr>'
+        + '<tr><td class="k">Reference electrode</td><td>' + _e(t.reference_electrode || '—') + '</td></tr>'
+        + '<tr><td class="k">MNI coordinates</td><td>' + _e(t.mni_coordinates || '—') + '</td></tr>'
+        + '<tr><td class="k">Brodmann area</td><td>' + _e(t.brodmann_area || '—') + '</td></tr>'
+        + '</table>'
+        + (proto ? ('<h2>Protocol</h2><table>'
+            + '<tr><td class="k">Name</td><td>' + _e(proto.name) + ' (' + _e(proto.id) + ')</td></tr>'
+            + '<tr><td class="k">Modality</td><td>' + _e(proto.modality || '—') + '</td></tr>'
+            + '<tr><td class="k">Evidence grade</td><td>' + _e(proto.evidence_grade || '?') + '</td></tr>'
+            + '<tr><td class="k">Source</td><td>' + _e(proto.source || '—') + '</td></tr>'
+            + '</table>') : '')
+        + '<h2>Stimulation parameters</h2><table>'
+        + '<tr><td class="k">Modality</td><td>' + _e(p.modality || '—') + '</td></tr>'
+        + '<tr><td class="k">Laterality</td><td>' + _e(p.laterality || '—') + '</td></tr>'
+        + '<tr><td class="k">Frequency</td><td>' + _e(p.frequency || '—') + '</td></tr>'
+        + '<tr><td class="k">Intensity</td><td>' + _e(p.intensity || '—') + '</td></tr>'
+        + '<tr><td class="k">Pulses / session</td><td>' + _e(p.pulses_per_session || '—') + '</td></tr>'
+        + '<tr><td class="k">Duration (min)</td><td>' + _e(p.duration_min || '—') + '</td></tr>'
+        + '<tr><td class="k">Sessions total</td><td>' + _e(p.sessions_total || '—') + '</td></tr>'
+        + '<tr><td class="k">Waveform</td><td>' + _e(p.waveform || '—') + '</td></tr>'
+        + '</table>'
+        + (plan.notes ? '<h2>Notes</h2><div>' + _e(plan.notes) + '</div>' : '')
+        + (af ? ('<h2>qEEG Analyzer fit</h2>'
+            + '<div class="muted">Evidence grade ' + _e(af.evidence_grade || '?')
+            + (af.off_label_flag ? ' · OFF-LABEL flagged' : '')
+            + '</div>'
+            + '<div>' + _e(af.pattern_summary || '') + '</div>') : '')
+        + '<div class="discl"><strong>Clinical safety disclaimers</strong>'
+        + '<ul>' + plan.disclaimers.map(function(d) { return '<li>' + _e(d) + '</li>'; }).join('') + '</ul></div>'
+        + '<script>window.addEventListener("load",function(){setTimeout(function(){window.print();},250);});</script>'
+        + '</body></html>';
+      w.document.open(); w.document.write(html); w.document.close();
+      _bmpAudit('plan_export_pdf', { note: plan.target.region_id || '' });
+    } catch (e) {
+      _bmpAudit('plan_export_pdf_failed', { note: String(e && e.message || e) });
+      window._showNotifToast?.({
+        title: 'PDF export failed',
+        body: 'Could not open print window. JSON export is also available.',
+        severity: 'warn',
+      });
+    }
+  };
+
+  // Send to session — refuses honestly when there is no real patient. When
+  // there is, navigate to the session runner with the plan attached via the
+  // `_rxPrefilledProto` global so the runner can pre-fill its form.
+  window._bmpSendToSession = function() {
+    const patientId = bmpState.patientId || _bmpQEEGPatientId || null;
+    if (!patientId) {
+      _bmpAudit('send_to_session_refused', { note: 'no_patient' });
+      window._showNotifToast?.({
+        title: 'Real patient required',
+        body: 'Attach a patient (top-right of the planner) before sending a plan to the session runner. Save plan + Export are still available.',
+        severity: 'warn',
+      });
+      return;
+    }
+    const plan = _bmpBuildPlanArtifact();
+    try {
+      window._rxPrefilledProto = {
+        id: bmpState.protoId || ('bmp-' + Date.now()),
+        name: 'Planner · ' + (BMP_PROTO_LABELS[bmpState.protoId] || bmpState.region || bmpState.selectedSite || 'custom montage'),
+        target: plan.target,
+        parameters: plan.parameters,
+        source: 'brain-map-planner',
+      };
+    } catch (_) {}
+    _bmpAudit('send_to_session', { note: bmpState.protoId || bmpState.region });
+    window._nav('session-execution');
+  };
+
+  // ── Page-load + tab-change audit events ────────────────────────────────
+  _bmpAudit('page_loaded', { note: 'tab=' + bmpState.tab });
+  if (_bmpAnalyzerFit) _bmpAudit('analyzer_fit_loaded', { note: 'grade=' + (_bmpAnalyzerFit.evidence_grade || '?') });
+  if (bmpState.patientId) _bmpAudit('patient_loaded', { note: bmpState.patientId });
+
+  // Augment a few existing handlers with audit hooks (non-breaking).
+  const _origLoadProto = window._bmpLoadProto;
+  window._bmpLoadProto = function(pid) {
+    _bmpAudit('protocol_loaded', { note: String(pid || '') });
+    if (typeof _origLoadProto === 'function') _origLoadProto(pid);
+  };
+  const _origSetRegion = window._bmpSetRegion;
+  window._bmpSetRegion = function(r) {
+    _bmpAudit('target_selected', { note: String(r || '') });
+    if (typeof _origSetRegion === 'function') _origSetRegion(r);
+  };
+  const _origSetModality = window._bmpSetModality;
+  window._bmpSetModality = function(m) {
+    _bmpAudit('modality_changed', { note: String(m || '') });
+    if (typeof _origSetModality === 'function') _origSetModality(m);
+  };
+  const _origSaveToProtocol = window._bmpSaveToProtocol;
+  window._bmpSaveToProtocol = async function() {
+    _bmpAudit('plan_save_attempt', { note: bmpState.region || '' });
+    if (typeof _origSaveToProtocol === 'function') await _origSaveToProtocol();
+  };
+
+  // Expose helpers for tests + downstream surfaces.
   window._bmpState = bmpState;
+  window._bmpResolveAnchor = _bmpResolveAnchor;
+  window._bmpAnalyzerTargetToRegion = _bmpAnalyzerTargetToRegion;
+  window._bmpBuildPlanArtifact = _bmpBuildPlanArtifact;
 }
 
 // ── pgNotesDictation — Protocol & session notes with dictation ────────────────

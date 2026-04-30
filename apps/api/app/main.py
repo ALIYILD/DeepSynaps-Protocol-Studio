@@ -138,6 +138,10 @@ from app.sentry_setup import init_sentry
 from app.settings import get_settings
 from app.services.audit import get_audit_trail
 from app.services.brain_regions import list_brain_regions
+from app.services.brain_targets import (
+    get_brain_target,
+    list_brain_targets,
+)
 from app.services.agent_scheduler import shutdown_scheduler, start_scheduler
 from app.services.agent_skills_seed import seed_default_agent_skills
 from app.services.clinical_data import seed_clinical_dataset
@@ -556,6 +560,26 @@ def devices() -> DeviceListResponse:
 @app.get("/api/v1/brain-regions", response_model=BrainRegionListResponse)
 def brain_regions() -> BrainRegionListResponse:
     return list_brain_regions()
+
+
+# Brain Map Planner — clinical target registry (deterministic, no AI).
+# Frontend `pgBrainMapPlanner` uses these to resolve canonical targets
+# (DLPFC-L, mPFC, M1, etc.) to anchor 10-20 electrodes + MNI coordinates +
+# evidence grade. See `app/services/brain_targets.py` for the full schema and
+# adding-a-target rules.
+@app.get("/api/v1/brain-targets")
+def brain_targets() -> dict:
+    return list_brain_targets()
+
+
+@app.get("/api/v1/brain-targets/{target_id}")
+def brain_target_detail(target_id: str) -> dict:
+    entry = get_brain_target(target_id)
+    if not entry:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail=f"Unknown brain target: {target_id}")
+    return entry
 
 
 @app.get("/api/v1/qeeg/biomarkers", response_model=QEEGBiomarkerListResponse)

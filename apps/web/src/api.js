@@ -774,6 +774,11 @@ export const api = {
   listBrainRegions: () => apiFetchWithRetry('/api/v1/brain-regions'),
   listQEEGBiomarkers: () => apiFetch('/api/v1/qeeg/biomarkers'),
   listQEEGConditionMap: () => apiFetch('/api/v1/qeeg/condition-map'),
+  // Canonical clinical-target registry (DLPFC-L, mPFC, M1-L, …) used by
+  // the Brain Map Planner. Deterministic anchor 10-20 site + MNI + evidence
+  // grade per target.
+  listBrainTargets: () => apiFetchWithRetry('/api/v1/brain-targets'),
+  getBrainTarget: (id) => apiFetch(`/api/v1/brain-targets/${encodeURIComponent(id)}`),
 
   // ── Protocol & Handbooks ────────────────────────────────────────────────
   intakePreview: (data) =>
