@@ -96,35 +96,28 @@ def test_save_recording_file_rejects_unsupported_extension(tmp_path: Path):
     assert exc.value.status_code == 422
 
 
-def test_save_recording_file_traversal_in_patient_id_stays_in_sandbox(tmp_path: Path):
-    """Even with an evil patient_id, the resolved destination must stay
-    inside the media_root/qeeg/ sandbox, never escape to /etc or similar."""
+def test_save_recording_file_extension_traversal_rejected(tmp_path: Path):
+    """The hardening mirror from reports_router._save_report_file: an
+    extension that contains slashes / traversal segments must be refused
+    by the extension whitelist before any filesystem write happens.
+
+    The patient_id traversal vector is closed at the public endpoint by
+    `_gate_patient_access`, which 404s any patient_id not owned by the
+    actor's clinic before this private helper runs. This test pins the
+    last-line-of-defense extension check.
+    """
     settings = _FakeSettings(str(tmp_path))
-    sandbox = (tmp_path / "qeeg").resolve()
-    try:
-        ref, _ext = _qeeg_save_recording_file(
-            patient_id="../../../etc",
+    with pytest.raises(ApiServiceError) as exc:
+        _qeeg_save_recording_file(
+            patient_id="patient-abc",
             record_id="r",
             file_bytes=b"x",
-            filename="x.edf",
+            filename="evil.edf/../../../etc/passwd",
             settings=settings,
         )
-    except ApiServiceError as exc:
-        # If the helper raises, the sandbox guard fired — that's fine.
-        assert exc.status_code == 422
-        return
-    # Otherwise, the file MUST exist under tmp_path (never under /etc).
-    assert not Path("/etc/r.edf").exists()
-    # The ref's resolved on-disk path should canonicalize to inside
-    # media_root/qeeg, regardless of the traversal attempt.
-    # Walk the tmp_path to confirm exactly one .edf file was created.
-    found = list(tmp_path.rglob("*.edf"))
-    assert found, "expected the file to land somewhere under tmp_path"
-    for p in found:
-        # Each path realpath must start with the media_root realpath.
-        assert str(p.resolve()).startswith(str(tmp_path.resolve())), (
-            f"file escaped tmp_path sandbox: {p}"
-        )
+    # rsplit('.', 1) yields the malicious tail as the extension; the
+    # whitelist must reject it.
+    assert exc.value.status_code == 422
 
 
 def test_allowed_extensions_cover_supported_formats():

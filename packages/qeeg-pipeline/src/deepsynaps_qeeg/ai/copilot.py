@@ -653,6 +653,15 @@ def mock_llm_tool_dispatch(user_message: str, context: dict[str, Any]) -> dict[s
             "reply": f"tool result: section={res.get('section')}",
         }
 
+    if lower.startswith("medication:"):
+        med = text.split(":", 1)[1].strip()
+        res = tool_explain_medication(med)
+        return {
+            "tool": "tool_explain_medication",
+            "result": res,
+            "reply": f"tool result: {res.get('name', med)}",
+        }
+
     return {"tool": None, "result": None, "reply": f"tool result: {text[:200]}"}
 
 
