@@ -705,6 +705,19 @@ def summary_from_result(result: EvidenceResult, saved: bool = False) -> Evidence
 
 
 def save_citation(body: SaveCitationRequest, actor_id: str, db: Session) -> dict[str, Any]:
+    # Refuse to persist citations sourced from the demo seed (paper_id begins
+    # with "demo-" or pmid in the synthetic 90000xxx range). These are useful
+    # for offline previews but must not enter the audit trail as real,
+    # citable evidence — clinicians may rely on the saved list as ground
+    # truth for downstream reports.
+    pid = (body.paper_id or "").strip()
+    pmid = (body.pmid or "").strip()
+    is_demo_paper = pid.startswith("demo-") or (pmid and pmid.startswith("90000") and len(pmid) <= 6)
+    if is_demo_paper:
+        raise ValueError(
+            "Cannot save demo evidence as a real citation. "
+            "Demo papers (paper_id 'demo-*' or pmid 90000xxx) are seed data only."
+        )
     existing = db.scalar(select(EvidenceSavedCitation).where(
         EvidenceSavedCitation.patient_id == body.patient_id,
         EvidenceSavedCitation.finding_id == body.finding_id,
@@ -836,6 +849,16 @@ def _retrieve_candidates(query: EvidenceQuery, concepts: dict[str, Any], db: Opt
     candidates.extend(_retrieve_evidence_sqlite(query, concepts))
     if candidates:
         return candidates, "evidence-pipeline"
+    # Demo fallback — log loudly so ops/clinicians can see when production
+    # corpus is unreachable. This must not be silent: a clinician seeing
+    # "Demo Evidence Team" papers in a real session is a defensibility risk.
+    _logger.warning(
+        "evidence intelligence: falling back to demo seed (no DS/Literature/sqlite hits) "
+        "target=%s concepts=%s diagnoses=%s",
+        concepts.get("target"),
+        concepts.get("concepts"),
+        concepts.get("diagnoses"),
+    )
     return _demo_candidates(concepts), "deterministic-demo-fallback"
 
 
@@ -940,7 +963,7 @@ def _library_paper_to_candidate(row: LiteraturePaper) -> _CandidatePaper:
         journal=row.journal,
         authors=[a.strip() for a in (row.authors or "").split(",") if a.strip()],
         pub_types=[row.study_type] if row.study_type else [],
-        cited_by_count=None,
+        cited_by_count=0,
         url=row.url,
         source="literature_papers",
     )
