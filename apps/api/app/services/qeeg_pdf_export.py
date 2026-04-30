@@ -104,7 +104,7 @@ def render_qeeg_html(payload: dict[str, Any]) -> str:
         "ai_narrative": payload.get("ai_narrative") or {},
         "quality": payload.get("quality") or {},
         "provenance": payload.get("provenance") or {},
-        "disclaimer": payload.get("disclaimer") or "Research and wellness use only. Not a medical diagnosis or treatment recommendation.",
+        "disclaimer": payload.get("disclaimer") or "Research and wellness use only. This brain map summary is informational and is not a medical diagnosis or treatment recommendation. Discuss any findings with a qualified clinician.",
     }
     return template.render(**ctx)
 
