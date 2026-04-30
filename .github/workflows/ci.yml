@@ -204,6 +204,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install pytest numpy pydantic
           pip install \
+            -e packages/core-schema \
+            -e packages/safety-engine \
             -e packages/generation-engine \
             -e packages/render-engine \
             -e apps/worker
