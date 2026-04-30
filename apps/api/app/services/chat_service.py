@@ -264,7 +264,15 @@ def _llm_chat(
             _capture_openrouter_usage(resp, fallback_model=_llm_model())
             return _sanitize_llm_output(resp.choices[0].message.content or "")
         except Exception as exc:
-            _llm_log.warning("LLM call failed, trying fallback: %s", exc)
+            # Log enough provider context to debug a silent fallback. The
+            # warning level is deliberate so this lands in the audit feed
+            # whenever the primary OpenAI/OpenRouter path errors.
+            _llm_log.warning(
+                "LLM primary path failed (provider=openai/openrouter model=%s exc=%s: %s); falling back to anthropic",
+                _llm_model(),
+                exc.__class__.__name__,
+                exc,
+            )
     if settings.anthropic_api_key:
         client = Anthropic(api_key=settings.anthropic_api_key)
         resp = client.messages.create(
