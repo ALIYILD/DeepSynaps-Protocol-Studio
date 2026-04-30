@@ -15,24 +15,26 @@
     "functions": [
       "Plan and organize for action. Predict outcomes based on current events.",
       "Monitor and evaluate the outcomes.",
-      "Maintain or transition attention."
+      "Integration of multiple concurrent cognitive goals (branching) and prospective memory."
     ],
     "decline_symptoms": [
       "Difficulties in planning and making decisions.",
       "Tendency to repeat similar mistakes."
-    ]
+    ],
+    "narrative_source": "deepsynaps-2026-04-30-correction-of-isyncbrain-frontalpole"
   },
   "parsopercularis": {
     "code": "F2",
     "lobe": "frontal",
     "display_name": "Pars Opercularis",
     "functions": [
-      "Transmit motor signals to the motor area to vocalize composed sentences (Broca's area component)."
+      "Phonological encoding and syntactic assembly during language production (Broca's area, BA 44 component)."
     ],
     "decline_symptoms": [
-      "Functional decline in the left side (Broca's area) leads to difficulties in the expression of words.",
-      "Functional decline in the right side leads to difficulties in the expression of intentions."
-    ]
+      "Functional decline in the left side: difficulty with phonological encoding and syntactic assembly during speech production.",
+      "Functional decline in the right side: pragmatic-language difficulties and impaired prosodic processing."
+    ],
+    "narrative_source": "deepsynaps-2026-04-30-correction-of-isyncbrain-parsopercularis"
   },
   "parsorbitalis": {
     "code": "F3",
@@ -388,7 +390,7 @@
     "lobe": "parietal",
     "display_name": "Precuneus",
     "functions": [
-      "Related to self-image and self-esteem.",
+      "Self-referential processing and first-person mental imagery (default-mode-network node).",
       "The left hemisphere is responsible for episodic memory.",
       "The right hemisphere is responsible for spatiotemporal processing."
     ],
@@ -396,7 +398,8 @@
       "Difficulties in self-insight.",
       "The left side: Difficulty integrating memory and environmental information.",
       "The right side: Difficulties in spatiotemporal processing."
-    ]
+    ],
+    "narrative_source": "deepsynaps-2026-04-30-correction-of-isyncbrain-precuneus"
   },
   "posteriorcingulate": {
     "code": "P6",
@@ -421,8 +424,9 @@
       "Recognition of an object and imagining its shape."
     ],
     "decline_symptoms": [
-      "Poor visual perception."
-    ]
+      "Poor recognition of objects by shape; visual agnosia for object form."
+    ],
+    "narrative_source": "deepsynaps-2026-04-30-correction-of-isyncbrain-lateraloccipital"
   },
   "cuneus": {
     "code": "O2",
