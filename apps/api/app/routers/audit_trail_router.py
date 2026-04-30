@@ -74,6 +74,7 @@ KNOWN_SURFACES = {
     "session_runner",
     "adverse_events",
     "audit_trail",
+    "reports",
 }
 
 

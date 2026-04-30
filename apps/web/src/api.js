@@ -1804,6 +1804,59 @@ export const api = {
     return apiFetchBinary(`/api/v1/reports/${encodeURIComponent(reportId)}/render${q ? '?' + q : ''}`);
   },
 
+  // ── Reports Hub launch-audit (2026-04-30) ────────────────────────────────
+  // Single report detail with sign / supersede / revision metadata.
+  getReport: (reportId) =>
+    apiFetch(`/api/v1/reports/${encodeURIComponent(reportId)}`),
+  // Counts: total / draft / signed / superseded / by_kind / by_status.
+  getReportsSummary: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch('/api/v1/reports/summary' + (q ? '?' + q : ''));
+  },
+  // Sign-off; idempotent for same actor; 409 if already superseded.
+  signReport: (reportId, note) =>
+    apiFetch(`/api/v1/reports/${encodeURIComponent(reportId)}/sign`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note || null }),
+    }),
+  // Create a new revision; original is marked superseded with a back-pointer.
+  supersedeReport: (reportId, opts = {}) =>
+    apiFetch(`/api/v1/reports/${encodeURIComponent(reportId)}/supersede`, {
+      method: 'POST',
+      body: JSON.stringify({
+        reason: opts.reason || 'no reason given',
+        new_content: opts.new_content == null ? null : opts.new_content,
+        new_title: opts.new_title || null,
+      }),
+    }),
+  // CSV export for one report. Downloads as a Blob via apiFetchBinary.
+  exportReportCsv: (reportId) =>
+    apiFetchBinary(`/api/v1/reports/${encodeURIComponent(reportId)}/export.csv`),
+  // PDF export — convenience alias of /render?format=pdf with an audit hook.
+  exportReportPdf: (reportId, audience) => {
+    const q = new URLSearchParams(
+      Object.entries({ audience: audience || null }).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetchBinary(`/api/v1/reports/${encodeURIComponent(reportId)}/export.pdf${q ? '?' + q : ''}`);
+  },
+  // DOCX export — honest 503 stub when the renderer is not configured.
+  exportReportDocx: (reportId) =>
+    apiFetchBinary(`/api/v1/reports/${encodeURIComponent(reportId)}/export.docx`),
+  // Best-effort page-level audit ingestion for the Reports Hub.
+  logReportsAudit: (event) => {
+    try {
+      const body = JSON.stringify(event || {});
+      return apiFetch('/api/v1/reports/audit-events', {
+        method: 'POST',
+        body,
+      });
+    } catch (_) {
+      return Promise.resolve(null);
+    }
+  },
+
   // ── Patient outcomes (portal alias) ─────────────────────────────────────
   patientOutcomes: () => apiFetch('/api/v1/patient-portal/outcomes'),
 

@@ -387,30 +387,81 @@ def create_report(
 @router.get("", response_model=ReportListResponse)
 def list_reports(
     since: Optional[str] = None,
+    until: Optional[str] = None,
+    patient_id: Optional[str] = None,
+    kind: Optional[str] = None,
+    status: Optional[str] = None,
+    q: Optional[str] = None,
+    clinic_id: Optional[str] = None,  # accepted for forward-compat; no clinic on patient table today
+    limit: int = Query(default=200, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> ReportListResponse:
     """List generated reports owned by the current clinician.
 
-    Returns most recent first. ``since`` is an optional ISO-8601 date/datetime
-    cutoff (inclusive). Admins see all clinicians' reports; clinicians see
-    only their own.
+    Returns most recent first. Filters:
+
+    * ``since`` / ``until`` — ISO-8601 cutoffs (inclusive) on ``created_at``.
+    * ``patient_id`` — restrict to a single patient (clinic-isolation enforced
+      via ``_assert_report_patient_access``).
+    * ``kind`` — match the metadata ``report_type`` field (e.g. ``progress``,
+      ``clinician``, ``Health Insights Report``). Case-insensitive substring.
+    * ``status`` — exact status match (``generated``, ``signed``,
+      ``superseded``, etc).
+    * ``q`` — case-insensitive substring search across title and content.
+    * ``clinic_id`` — accepted for forward-compat; the current Patient model
+      does not carry a clinic_id, so this filter is a documented no-op
+      (limitation surfaced in /summary disclaimers).
+    * ``limit`` / ``offset`` — pagination.
+
+    Admins see all clinicians' reports; clinicians see only their own.
     """
     require_minimum_role(actor, "clinician")
+    if patient_id:
+        _assert_report_patient_access(db, actor, patient_id)
 
-    q = db.query(PatientMediaUpload).filter(PatientMediaUpload.media_type == "text")
+    base = db.query(PatientMediaUpload).filter(PatientMediaUpload.media_type == "text")
     if actor.role != "admin":
-        q = q.filter(PatientMediaUpload.uploaded_by == actor.actor_id)
+        base = base.filter(PatientMediaUpload.uploaded_by == actor.actor_id)
+    if patient_id:
+        base = base.filter(PatientMediaUpload.patient_id == patient_id)
+    if status:
+        base = base.filter(PatientMediaUpload.status == status)
     if since:
         try:
             cutoff = datetime.fromisoformat(since.replace("Z", "+00:00"))
-            q = q.filter(PatientMediaUpload.created_at >= cutoff)
+            base = base.filter(PatientMediaUpload.created_at >= cutoff)
         except ValueError:
-            # Invalid date string → ignore the filter rather than 400.
             pass
-    q = q.order_by(PatientMediaUpload.created_at.desc()).limit(200)
+    if until:
+        try:
+            cutoff_to = datetime.fromisoformat(until.replace("Z", "+00:00"))
+            base = base.filter(PatientMediaUpload.created_at <= cutoff_to)
+        except ValueError:
+            pass
+    if q:
+        like = f"%{q.lower()}%"
+        # Title is in patient_note (JSON), content is text_content. We also
+        # fall back to `id` so a UUID-search still works.
+        from sqlalchemy import or_, func
+        base = base.filter(
+            or_(
+                func.lower(func.coalesce(PatientMediaUpload.text_content, "")).like(like),
+                func.lower(func.coalesce(PatientMediaUpload.patient_note, "")).like(like),
+                func.lower(PatientMediaUpload.id).like(like),
+            )
+        )
 
-    items = [_deserialize_report(r) for r in q.all()]
+    base = base.order_by(PatientMediaUpload.created_at.desc())
+
+    # Materialize then post-filter for `kind` (it's encoded in the JSON
+    # patient_note metadata; a substring match is honest about the schema).
+    rows = base.offset(offset).limit(limit).all()
+    items = [_deserialize_report(r) for r in rows]
+    if kind:
+        kk = kind.lower()
+        items = [it for it in items if kk in (it.type or "").lower()]
     return ReportListResponse(items=items, total=len(items))
 
 
@@ -690,3 +741,515 @@ def render_report(
             "Content-Disposition": f'attachment; filename="report-{report_id}.pdf"'
         },
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Reports Hub launch-audit (2026-04-30)
+#
+# Below: GET /{id}, /{id}/sign, /{id}/supersede, /summary, /export.csv,
+# /export.docx, /audit-events. These extend the existing reports surface to
+# match the Reports Hub UI contract documented in the launch audit. The
+# storage model (PatientMediaUpload) carries no dedicated signed_by /
+# signed_at / supersedes columns, so the helpers below encode that state in
+# the JSON ``patient_note`` field — honest about the schema gap and audited.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+REPORTS_PAGE_DISCLAIMERS = [
+    "Reports are clinical records and require clinician sign-off.",
+    "Signed reports are immutable; supersede creates a new revision with audit trail.",
+    "AI summaries are decision-support only.",
+]
+
+
+def _audit(
+    db: Session,
+    actor: AuthenticatedActor,
+    *,
+    event: str,
+    target_id: str,
+    note: str,
+) -> None:
+    """Best-effort audit-trail write. Must never raise back at the caller.
+
+    Mirrors the pattern in ``adverse_events_router._audit`` so events show up
+    in ``/api/v1/audit-trail`` under target_type=``reports``.
+    """
+    try:
+        from app.repositories.audit import create_audit_event
+
+        now = datetime.now(timezone.utc)
+        event_id = (
+            f"reports-{event}-{actor.actor_id}-{int(now.timestamp())}-{uuid.uuid4().hex[:6]}"
+        )
+        create_audit_event(
+            db,
+            event_id=event_id,
+            target_id=str(target_id),
+            target_type="reports",
+            action=f"reports.{event}",
+            role=actor.role,
+            actor_id=actor.actor_id,
+            note=(note or event)[:1024],
+            created_at=now.isoformat(),
+        )
+    except Exception:  # pragma: no cover — audit must never block the API
+        _logger.debug("reports audit write skipped", exc_info=True)
+
+
+def _load_meta(record: PatientMediaUpload) -> dict:
+    import json as _json
+    if not record.patient_note:
+        return {}
+    try:
+        return _json.loads(record.patient_note) or {}
+    except (ValueError, KeyError):
+        return {}
+
+
+def _save_meta(record: PatientMediaUpload, meta: dict) -> None:
+    import json as _json
+    blob = _json.dumps(meta)
+    record.patient_note = blob[:512]
+
+
+def _load_record_for_actor(
+    db: Session,
+    actor: AuthenticatedActor,
+    report_id: str,
+) -> PatientMediaUpload:
+    record: Optional[PatientMediaUpload] = (
+        db.query(PatientMediaUpload).filter_by(id=report_id).first()
+    )
+    if record is None or record.media_type != "text":
+        raise ApiServiceError(
+            code="not_found", message="Report not found.", status_code=404
+        )
+    if actor.role != "admin" and record.uploaded_by != actor.actor_id:
+        raise ApiServiceError(
+            code="not_found", message="Report not found.", status_code=404
+        )
+    _assert_report_patient_access(db, actor, record.patient_id)
+    return record
+
+
+class ReportDetailOut(BaseModel):
+    id: str
+    patient_id: Optional[str] = None
+    type: str
+    title: str
+    content: Optional[str] = None
+    date: Optional[str] = None
+    source: Optional[str] = None
+    status: str
+    created_at: str
+    updated_at: Optional[str] = None
+    signed_by: Optional[str] = None
+    signed_at: Optional[str] = None
+    supersedes: Optional[str] = None
+    superseded_by: Optional[str] = None
+    revision: int = 1
+    is_demo: bool = False
+    disclaimers: list[str] = Field(default_factory=lambda: list(REPORTS_PAGE_DISCLAIMERS))
+
+
+def _detail_for_record(record: PatientMediaUpload) -> ReportDetailOut:
+    meta = _load_meta(record)
+    return ReportDetailOut(
+        id=record.id,
+        patient_id=record.patient_id,
+        type=meta.get("report_type", "clinician"),
+        title=meta.get("title", record.id),
+        content=record.text_content,
+        date=meta.get("report_date"),
+        source=meta.get("source"),
+        status=record.status or "generated",
+        created_at=(record.created_at or datetime.now(timezone.utc)).isoformat(),
+        updated_at=(record.updated_at.isoformat() if record.updated_at else None),
+        signed_by=meta.get("signed_by"),
+        signed_at=meta.get("signed_at"),
+        supersedes=meta.get("supersedes"),
+        superseded_by=meta.get("superseded_by"),
+        revision=int(meta.get("revision", 1) or 1),
+        is_demo=bool(meta.get("is_demo", False)),
+    )
+
+
+@router.get("/summary")
+def reports_summary(
+    patient_id: Optional[str] = None,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict:
+    """Counts: total / by_kind / by_status. Honest about empty cases.
+
+    Does NOT log a self-audit event (the Hub page-load audit handles that
+    at /audit-events). Returns disclaimers + clinic-scope limitations.
+    """
+    require_minimum_role(actor, "clinician")
+    if patient_id:
+        _assert_report_patient_access(db, actor, patient_id)
+
+    base = db.query(PatientMediaUpload).filter(PatientMediaUpload.media_type == "text")
+    if actor.role != "admin":
+        base = base.filter(PatientMediaUpload.uploaded_by == actor.actor_id)
+    if patient_id:
+        base = base.filter(PatientMediaUpload.patient_id == patient_id)
+
+    rows = base.all()
+    total = len(rows)
+    by_status: dict[str, int] = {}
+    by_kind: dict[str, int] = {}
+    for r in rows:
+        st = r.status or "generated"
+        by_status[st] = by_status.get(st, 0) + 1
+        meta = _load_meta(r)
+        kk = (meta.get("report_type") or "clinician").lower()
+        by_kind[kk] = by_kind.get(kk, 0) + 1
+
+    return {
+        "total": total,
+        "draft": by_status.get("generated", 0) + by_status.get("draft", 0),
+        "signed": by_status.get("signed", 0) + by_status.get("final", 0),
+        "superseded": by_status.get("superseded", 0),
+        "by_status": by_status,
+        "by_kind": by_kind,
+        "disclaimers": list(REPORTS_PAGE_DISCLAIMERS),
+        "scope_limitations": [
+            "clinic_id filter is accepted but not yet enforced server-side "
+            "(Patient model has no clinic_id today).",
+        ],
+    }
+
+
+@router.get("/{report_id}", response_model=ReportDetailOut)
+def get_report(
+    report_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> ReportDetailOut:
+    """Return a single report with sign / supersede / revision metadata."""
+    require_minimum_role(actor, "clinician")
+    record = _load_record_for_actor(db, actor, report_id)
+    _audit(db, actor, event="viewed", target_id=record.id, note="report viewed")
+    return _detail_for_record(record)
+
+
+class ReportSignRequest(BaseModel):
+    note: Optional[str] = Field(default=None, max_length=512)
+
+
+@router.post("/{report_id}/sign", response_model=ReportDetailOut)
+def sign_report(
+    report_id: str,
+    body: ReportSignRequest = ReportSignRequest(),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> ReportDetailOut:
+    """Mark a report as clinician-signed. Signed reports are immutable.
+
+    Idempotent for the same actor: signing an already-signed report is a
+    no-op (returns the existing record). Signing a superseded report is
+    blocked (HTTP 409).
+    """
+    require_minimum_role(actor, "clinician")
+    record = _load_record_for_actor(db, actor, report_id)
+    if record.status == "superseded":
+        raise ApiServiceError(
+            code="report_superseded",
+            message="Cannot sign a superseded report.",
+            status_code=409,
+        )
+    meta = _load_meta(record)
+    if record.status in {"signed", "final"} and meta.get("signed_by") == actor.actor_id:
+        return _detail_for_record(record)
+    now = datetime.now(timezone.utc).isoformat()
+    meta["signed_by"] = actor.actor_id
+    meta["signed_at"] = now
+    if body.note:
+        meta["sign_note"] = body.note[:512]
+    _save_meta(record, meta)
+    record.status = "signed"
+    db.commit()
+    db.refresh(record)
+    _audit(
+        db,
+        actor,
+        event="signed",
+        target_id=record.id,
+        note=(body.note or "report signed")[:512],
+    )
+    return _detail_for_record(record)
+
+
+class ReportSupersedeRequest(BaseModel):
+    reason: str = Field(..., min_length=3, max_length=512)
+    new_content: Optional[str] = None
+    new_title: Optional[str] = Field(default=None, max_length=240)
+
+
+@router.post("/{report_id}/supersede", response_model=ReportDetailOut)
+def supersede_report(
+    report_id: str,
+    body: ReportSupersedeRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> ReportDetailOut:
+    """Create a new revision that supersedes this report.
+
+    The original is marked ``superseded`` (with ``superseded_by`` pointer)
+    and a new record is created with ``supersedes`` pointing back. Both
+    actions are audited.
+    """
+    require_minimum_role(actor, "clinician")
+    original = _load_record_for_actor(db, actor, report_id)
+    if original.status == "superseded":
+        raise ApiServiceError(
+            code="already_superseded",
+            message="Report is already superseded.",
+            status_code=409,
+        )
+    orig_meta = _load_meta(original)
+    new_id = str(uuid.uuid4())
+    new_meta = {
+        "report_type": orig_meta.get("report_type", "clinician"),
+        "title": body.new_title or orig_meta.get("title", original.id),
+        "source": orig_meta.get("source"),
+        "report_date": datetime.now(timezone.utc).date().isoformat(),
+        "supersedes": original.id,
+        "revision": int(orig_meta.get("revision", 1) or 1) + 1,
+        "supersede_reason": body.reason[:512],
+        "is_demo": bool(orig_meta.get("is_demo", False)),
+    }
+    import json as _json
+    new_record = PatientMediaUpload(
+        id=new_id,
+        patient_id=original.patient_id,
+        uploaded_by=actor.actor_id,
+        media_type="text",
+        file_ref=None,
+        file_size_bytes=None,
+        text_content=body.new_content
+        if body.new_content is not None
+        else original.text_content,
+        patient_note=_json.dumps(new_meta)[:512],
+        status="generated",
+    )
+    db.add(new_record)
+
+    # Patch the original.
+    orig_meta["superseded_by"] = new_id
+    _save_meta(original, orig_meta)
+    original.status = "superseded"
+    db.commit()
+    db.refresh(new_record)
+
+    _audit(
+        db,
+        actor,
+        event="superseded",
+        target_id=original.id,
+        note=f"superseded by {new_id}: {body.reason[:200]}",
+    )
+    _audit(
+        db,
+        actor,
+        event="created_revision",
+        target_id=new_id,
+        note=f"revision {new_meta['revision']} of {original.id}",
+    )
+    return _detail_for_record(new_record)
+
+
+def _csv_quote(value: object) -> str:
+    s = "" if value is None else str(value)
+    if any(ch in s for ch in [",", "\"", "\n", "\r"]):
+        return '"' + s.replace('"', '""') + '"'
+    return s
+
+
+@router.get("/{report_id}/export.csv")
+def export_report_csv(
+    report_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> Response:
+    """One-row CSV export of the report's metadata + content snapshot.
+
+    The CSV is prefixed with a ``# DEMO`` header line when the report's
+    metadata flags ``is_demo`` so importers can drop demo rows trivially.
+    """
+    require_minimum_role(actor, "clinician")
+    record = _load_record_for_actor(db, actor, report_id)
+    detail = _detail_for_record(record)
+    header = [
+        "id", "patient_id", "type", "title", "status", "revision",
+        "supersedes", "superseded_by", "signed_by", "signed_at",
+        "created_at", "updated_at", "is_demo", "content",
+    ]
+    row = [
+        detail.id, detail.patient_id or "", detail.type, detail.title,
+        detail.status, detail.revision, detail.supersedes or "",
+        detail.superseded_by or "", detail.signed_by or "", detail.signed_at or "",
+        detail.created_at, detail.updated_at or "",
+        "1" if detail.is_demo else "0",
+        (detail.content or "").replace("\r\n", "\n"),
+    ]
+    parts: list[str] = []
+    if detail.is_demo:
+        parts.append("# DEMO — not regulator-submittable")
+    parts.append(",".join(header))
+    parts.append(",".join(_csv_quote(v) for v in row))
+    csv_text = "\n".join(parts) + "\n"
+    _audit(db, actor, event="exported_csv", target_id=record.id, note="report csv export")
+    return Response(
+        content=csv_text,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="report-{report_id}.csv"'
+        },
+    )
+
+
+@router.get("/{report_id}/export.pdf")
+def export_report_pdf(
+    report_id: str,
+    audience: Optional[str] = Query(None, pattern="^(clinician|patient|both)$"),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """PDF export — alias for ``/{id}/render?format=pdf`` with audit hook.
+
+    DEMO reports get a clear stamp embedded in the body via the structured
+    payload's ``cautions`` list (``_payload_for_record`` already adds a
+    legacy-import caution; we add a DEMO marker on top when applicable).
+    """
+    require_minimum_role(actor, "clinician")
+    record = _load_record_for_actor(db, actor, report_id)
+    payload = _payload_for_record(record, db)
+    meta = _load_meta(record)
+    if meta.get("is_demo") and payload.sections:
+        # Stamp DEMO into the first section's cautions list. The rendered
+        # template surfaces these prominently.
+        first = payload.sections[0]
+        cautions = list(first.cautions or [])
+        cautions.insert(0, "DEMO — not regulator-submittable.")
+        payload.sections[0] = first.model_copy(update={"cautions": cautions})
+    if audience:
+        payload = payload.model_copy(update={"audience": audience})
+    try:
+        pdf_bytes = render_report_pdf(payload)
+    except PdfRendererUnavailable as exc:
+        raise ApiServiceError(
+            code="pdf_renderer_unavailable",
+            message=str(exc),
+            status_code=503,
+        ) from exc
+    if not pdf_bytes:
+        raise ApiServiceError(
+            code="pdf_render_empty",
+            message="PDF renderer returned empty bytes — refusing to serve a blank PDF.",
+            status_code=500,
+        )
+    _audit(db, actor, event="exported_pdf", target_id=record.id, note="report pdf export")
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="report-{report_id}.pdf"'
+        },
+    )
+
+
+@router.get("/{report_id}/export.docx")
+def export_report_docx(
+    report_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> Response:
+    """DOCX export — honest 503 stub.
+
+    No DOCX renderer is wired today (we ship weasyprint for PDF, no
+    python-docx). Rather than ship a fake button, the endpoint exists so
+    the frontend can call it and surface a real "not configured" message.
+    """
+    require_minimum_role(actor, "clinician")
+    # Still authorise so an unauthorised caller gets 401/404 not 503.
+    record = _load_record_for_actor(db, actor, report_id)
+    _audit(
+        db, actor,
+        event="export_docx_attempted",
+        target_id=record.id,
+        note="DOCX renderer not configured",
+    )
+    raise ApiServiceError(
+        code="docx_renderer_unavailable",
+        message=(
+            "DOCX export is not configured on this deployment. "
+            "Use the PDF or CSV export instead."
+        ),
+        status_code=503,
+    )
+
+
+# ── Page-level audit ingestion ──────────────────────────────────────────────
+#
+# Mirrors the qEEG Analyzer pattern (POST /api/v1/qeeg-analysis/audit-events).
+# The qEEG endpoint already accepts ``surface=reports`` (whitelist extended in
+# this PR), but the Reports Hub also gets its own dedicated path so the
+# surface attribution is unambiguous on the page layer.
+
+class ReportsAuditEventIn(BaseModel):
+    event: str = Field(..., max_length=120)
+    report_id: Optional[str] = Field(None, max_length=64)
+    patient_id: Optional[str] = Field(None, max_length=64)
+    note: Optional[str] = Field(None, max_length=1024)
+    using_demo_data: Optional[bool] = False
+
+
+class ReportsAuditEventOut(BaseModel):
+    accepted: bool
+    event_id: str
+
+
+@router.post("/audit-events", response_model=ReportsAuditEventOut)
+def record_reports_audit_event(
+    payload: ReportsAuditEventIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> ReportsAuditEventOut:
+    """Best-effort page-level audit ingestion for the Reports Hub UI."""
+    require_minimum_role(actor, "clinician")
+    from app.repositories.audit import create_audit_event
+
+    now = datetime.now(timezone.utc)
+    event_id = (
+        f"reports-{payload.event}-{actor.actor_id}-{int(now.timestamp())}-{uuid.uuid4().hex[:6]}"
+    )
+    target_id = payload.report_id or payload.patient_id or actor.clinic_id or actor.actor_id
+    note_parts: list[str] = []
+    if payload.using_demo_data:
+        note_parts.append("DEMO")
+    if payload.patient_id:
+        note_parts.append(f"patient={payload.patient_id}")
+    if payload.report_id:
+        note_parts.append(f"report={payload.report_id}")
+    if payload.note:
+        note_parts.append(payload.note[:500])
+    note = "; ".join(note_parts) or payload.event
+    try:
+        create_audit_event(
+            db,
+            event_id=event_id,
+            target_id=str(target_id),
+            target_type="reports",
+            action=f"reports.{payload.event}",
+            role=actor.role,
+            actor_id=actor.actor_id,
+            note=note[:1024],
+            created_at=now.isoformat(),
+        )
+    except Exception:  # pragma: no cover
+        _logger.exception("reports audit-event persistence failed")
+        return ReportsAuditEventOut(accepted=False, event_id=event_id)
+    return ReportsAuditEventOut(accepted=True, event_id=event_id)
