@@ -30,6 +30,8 @@ from app.persistence.models import (
     PatientAdherenceEvent,
     PatientMedication,
     MarketplaceItem,
+    QEEGAIReport,
+    QEEGAnalysis,
     TreatmentCourse,
     User,
 )
@@ -205,8 +207,165 @@ def _seed_primary_portal_patient(session, clinician_id: str, patient_user_id: st
         ("Escitalopram", "escitalopram", "SSRI", "10 mg", "qAM", "oral", "MDD"),
     ])
 
+    # Phase 5d: bootstrap a QEEGAIReport with a Phase-0 contract payload so
+    # the preview deploy renders a real brain map for the demo patient.
+    _add_qeeg_brain_map_demo(session, patient_id, clinician_id, now)
+
     print(f"Created portal demo patient: {patient_id}")
     return patient_id
+
+
+def _demo_brain_map_payload(client_name: str, age_years: float, eeg_date: str) -> dict:
+    """Return a minimal QEEGBrainMapReport-shaped dict for the seed.
+
+    Mirrors the Phase 0 contract exactly so the Phase 1 frontend renderer
+    + Phase 2 PDF export can both consume it without modification.
+    """
+    # Frontal F1-F5 + temporal T1-T2 + parietal P5 + occipital O1-O2 with
+    # realistic sample percentiles (modeled on the iSyncBrain sample report
+    # for the same age band). All other regions left empty so the renderer
+    # exercises its fallback paths.
+    dk_atlas = []
+    seed_regions = [
+        # (code, roi, name, lobe, lt_pct, rt_pct, z)
+        ("F1",  "frontalpole",            "Frontal Pole",            "frontal",   12, 11, -1.6),
+        ("F2",  "parsopercularis",        "Pars Opercularis",        "frontal",   35, 35, -0.4),
+        ("F3",  "parsorbitalis",          "Pars Orbitalis",          "frontal",   31, 20, -0.5),
+        ("F4",  "parstriangularis",       "Pars Triangularis",       "frontal",   32, 22, -0.5),
+        ("F5",  "rostralmiddlefrontal",   "Rostral Middle Frontal",  "frontal",   28, 25, -0.7),
+        ("F7",  "superiorfrontal",        "Superior Frontal",        "frontal",   72, 69,  0.5),
+        ("T1",  "temporalpole",           "Temporal Pole",           "temporal",  53, 55,  0.0),
+        ("T2",  "superiortemporal",       "Superior Temporal",       "temporal",  36, 35, -0.4),
+        ("P5",  "precuneus",              "Precuneus",               "parietal",  87, 84,  1.0),
+        ("O1",  "lateraloccipital",       "Lateral Occipital",       "occipital", 63, 52,  0.2),
+        ("O2",  "cuneus",                 "Cuneus",                  "occipital", 68, 67,  0.4),
+    ]
+    for code, roi, name, lobe, lt, rt, z in seed_regions:
+        for hemi in ("lh", "rh"):
+            dk_atlas.append({
+                "code": code,
+                "roi": roi,
+                "name": name,
+                "lobe": lobe,
+                "hemisphere": hemi,
+                "lt_percentile": float(lt) if hemi == "lh" else None,
+                "rt_percentile": float(rt) if hemi == "rh" else None,
+                "z_score": float(z),
+                "functions": [],
+                "decline_symptoms": [],
+            })
+
+    return {
+        "header": {
+            "client_name": client_name,
+            "sex": "prefer_not_to_say",
+            "dob": "1985-06-15",
+            "age_years": float(age_years),
+            "eeg_acquisition_date": eeg_date,
+            "eyes_condition": "eyes_closed",
+        },
+        "indicators": {
+            "tbr": {"value": 3.4, "unit": "ratio", "percentile": 65.0, "band": "balanced"},
+            "occipital_paf": {"value": 9.6, "unit": "Hz", "percentile": 38.0, "band": "balanced"},
+            "alpha_reactivity": {"value": 1.7, "unit": "EO/EC", "percentile": 51.0, "band": "balanced"},
+            "brain_balance": {"value": 0.08, "unit": "laterality", "percentile": 45.0, "band": "balanced"},
+            "ai_brain_age": {"value": float(age_years) + 1.4, "unit": "years", "percentile": None, "band": None},
+        },
+        "brain_function_score": {
+            "score_0_100": 56.4,
+            "formula_version": "phase0_placeholder_v1",
+            "scatter_dots": [],
+        },
+        "lobe_summary": {
+            "frontal":   {"lt_percentile": 38.0, "rt_percentile": 36.0, "lt_band": "balanced", "rt_band": "balanced"},
+            "temporal":  {"lt_percentile": 47.0, "rt_percentile": 49.0, "lt_band": "balanced", "rt_band": "balanced"},
+            "parietal":  {"lt_percentile": 76.0, "rt_percentile": 74.0, "lt_band": "balanced", "rt_band": "balanced"},
+            "occipital": {"lt_percentile": 65.0, "rt_percentile": 60.0, "lt_band": "balanced", "rt_band": "balanced"},
+        },
+        "source_map": {
+            "topomap_url": None,
+            "dk_roi_zscores": [],
+        },
+        "dk_atlas": dk_atlas,
+        "ai_narrative": {
+            "executive_summary": (
+                "Demo seed payload: most lobe percentiles sit within the typical range; "
+                "frontal-pole region shows a mild leftward dip (illustrative only)."
+            ),
+            "findings": [
+                {
+                    "description": "frontal-pole percentile near the lower bound of typical",
+                    "severity": "info",
+                    "related_rois": ["lh.frontalpole", "rh.frontalpole"],
+                },
+            ],
+            "protocol_recommendations": [],
+            "citations": [],
+        },
+        "quality": {
+            "n_clean_epochs": 92,
+            "channels_used": ["Fp1", "Fp2", "F3", "F4", "C3", "C4", "P3", "P4", "O1", "O2"],
+            "qc_flags": [],
+            "confidence": {"global": 0.74},
+            "method_provenance": {"pipeline_version": "demo-seed-0.1"},
+            "limitations": ["Synthetic demo payload — not from a real recording."],
+        },
+        "provenance": {
+            "schema_version": "1.0.0",
+            "pipeline_version": "demo-seed-0.1",
+            "norm_db_version": "demo-norms-v1",
+            "file_hash": None,
+            "generated_at": eeg_date + "T09:00:00Z",
+        },
+        "disclaimer": (
+            "Research and wellness use only. This brain map summary is informational "
+            "and is not a medical diagnosis or treatment recommendation. Discuss any "
+            "findings with a qualified clinician."
+        ),
+    }
+
+
+def _add_qeeg_brain_map_demo(session, patient_id: str, clinician_id: str, now: datetime) -> None:
+    """Create one QEEGAnalysis + one APPROVED QEEGAIReport with a populated
+    report_payload so the preview deploy can render a real brain map."""
+    eeg_date = (now - timedelta(days=7)).strftime("%Y-%m-%d")
+    analysis_id = _make_id()
+    analysis = QEEGAnalysis(
+        id=analysis_id,
+        patient_id=patient_id,
+        clinician_id=clinician_id,
+        recording_date=eeg_date,
+        recording_duration_sec=600.0,
+        sample_rate_hz=250.0,
+        channel_count=19,
+        eyes_condition="closed",
+        pipeline_version="demo-seed-0.1",
+        status="completed",
+    )
+    session.add(analysis)
+
+    payload = _demo_brain_map_payload(
+        client_name="Demo Patient",
+        age_years=40.5,
+        eeg_date=eeg_date,
+    )
+    report = QEEGAIReport(
+        id=_make_id(),
+        analysis_id=analysis_id,
+        patient_id=patient_id,
+        clinician_id=clinician_id,
+        report_type="standard",
+        report_state="APPROVED",
+        report_version="1.0.0",
+        report_payload=json.dumps(payload),
+        report_payload_schema_version=payload["provenance"]["schema_version"],
+        clinician_reviewed=True,
+        reviewed_at=now,
+        signed_by=clinician_id,
+        signed_at=now,
+    )
+    session.add(report)
+    print(f"  + QEEG demo brain-map report seeded for {patient_id[:8]}")
 
 
 def _add_outcomes(session, patient_id, course_id, clinician_id, now,
