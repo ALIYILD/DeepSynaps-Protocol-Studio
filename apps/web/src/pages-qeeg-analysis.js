@@ -4395,15 +4395,22 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   // TAB 2: ANALYSIS
   // ══════════════════════════════════════════════════════════════════════════
   if (tab === 'analysis') {
-    // In demo mode, auto-select the sample analysis so the populated page
-    // loads immediately instead of an empty state — the reviewer on the
-    // Netlify preview has no real patients to pick from.
-    if (!window._qeegSelectedId && _isDemoMode()) {
-      window._qeegSelectedId = 'demo';
-    }
     const analysisId = window._qeegSelectedId;
     if (!analysisId) {
-      tabEl.innerHTML = emptyState('&#x1F4CA;', 'No Analysis Selected', 'Select an analysis from the Patient & Upload tab to view results.', 'Go to Patient & Upload', "window._qeegTab='patient';window._nav('qeeg-analysis')");
+      const demoBtn = _isDemoMode()
+        ? '<button class="btn btn-primary btn-sm" onclick="window._qeegSelectedId=\'demo\';window._qeegTab=\'analysis\';window._nav(\'qeeg-analysis\')">Open Analysis (demo data)</button>'
+        : '';
+      tabEl.innerHTML =
+        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);text-align:center">'
+        + '<div style="font-size:32px;margin-bottom:8px">📊</div>'
+        + '<div style="font-size:18px;font-weight:700;margin-bottom:6px">No analysis selected</div>'
+        + '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px">Open the analysis view with sample data, jump to an existing analysis, or upload a new EDF.</div>'
+        + '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">'
+        +   demoBtn
+        +   '<button class="btn btn-outline btn-sm" onclick="window._qeegTab=\'patient\';window._nav(\'qeeg-analysis\')">Use existing analysis</button>'
+        +   '<button class="btn btn-outline btn-sm" onclick="window._nav(\'qeeg-raw-workbench\')">Pick patient &amp; upload</button>'
+        + '</div>'
+        + '</div>';
       return;
     }
 
@@ -4921,13 +4928,22 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   // TAB 3: AI REPORT
   // ══════════════════════════════════════════════════════════════════════════
   if (tab === 'report') {
-    // Same demo auto-select as the Analysis tab — no real patients on the preview.
-    if (!window._qeegSelectedId && _isDemoMode()) {
-      window._qeegSelectedId = 'demo';
-    }
     const analysisId = window._qeegSelectedId;
     if (!analysisId) {
-      tabEl.innerHTML = emptyState('&#x1F4DD;', 'No Analysis Selected', 'Select an analysis first to generate an AI report.', 'Go to Patient & Upload', "window._qeegTab='patient';window._nav('qeeg-analysis')");
+      const demoBtn = _isDemoMode()
+        ? '<button class="btn btn-primary btn-sm" onclick="window._qeegSelectedId=\'demo\';window._qeegTab=\'report\';window._nav(\'qeeg-analysis\')">Open AI Report (demo data)</button>'
+        : '';
+      tabEl.innerHTML =
+        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);text-align:center">'
+        + '<div style="font-size:32px;margin-bottom:8px">📝</div>'
+        + '<div style="font-size:18px;font-weight:700;margin-bottom:6px">No analysis selected</div>'
+        + '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px">Open the AI report with sample data, jump to an existing analysis, or upload a new EDF.</div>'
+        + '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">'
+        +   demoBtn
+        +   '<button class="btn btn-outline btn-sm" onclick="window._qeegTab=\'patient\';window._nav(\'qeeg-analysis\')">Use existing analysis</button>'
+        +   '<button class="btn btn-outline btn-sm" onclick="window._nav(\'qeeg-raw-workbench\')">Pick patient &amp; upload</button>'
+        + '</div>'
+        + '</div>';
       return;
     }
 
