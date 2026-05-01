@@ -12,7 +12,10 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+import os
+
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -1151,4 +1154,134 @@ def post_apply_template(
         components_excluded=components_excluded,
         components_examined=len(components),
         decisions_logged=decisions_logged,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 6 — cleaned-signal export + Cleaning Report PDF
+#
+# Two clinician deliverables:
+#   - POST /export-cleaned   → application/octet-stream (EDF / EDF+ / BDF / FIF)
+#   - POST /cleaning-report  → application/pdf
+# Both gated on clinician role; both 503 when MNE / WeasyPrint missing.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+_EXPORT_MEDIA_TYPES = {
+    "edf": "application/octet-stream",
+    "edf_plus": "application/octet-stream",
+    "bdf": "application/octet-stream",
+    "fif": "application/octet-stream",
+}
+
+
+class ExportCleanedRequest(BaseModel):
+    format: str = Field(
+        default="edf",
+        description="One of: edf, edf_plus, bdf, fif",
+    )
+    interpolate_bad_channels: bool = Field(default=True)
+
+
+@router.post("/{analysis_id}/export-cleaned")
+def post_export_cleaned(
+    analysis_id: str,
+    body: ExportCleanedRequest,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+):
+    """Apply the saved cleaning config and stream the cleaned signal.
+
+    Produces an EDF / EDF+ / BDF / FIF binary attachment. Bad channels can be
+    interpolated (sensor positions required) or excluded outright via the
+    ``interpolate_bad_channels`` flag.
+    """
+    require_minimum_role(actor, "clinician")
+    _load_analysis(analysis_id, db)
+    _require_mne()
+
+    fmt = (body.format or "").strip().lower()
+    if fmt not in _EXPORT_MEDIA_TYPES:
+        raise ApiServiceError(
+            code="invalid_format",
+            message=(
+                "Unknown export format. Must be one of: "
+                + ", ".join(sorted(_EXPORT_MEDIA_TYPES.keys()))
+            ),
+            status_code=422,
+        )
+
+    from app.services import eeg_export_and_report as _exp
+
+    try:
+        out_path, out_filename = _exp.export_cleaned_to_path(
+            analysis_id,
+            db,
+            fmt=fmt,
+            interpolate_bad_channels=bool(body.interpolate_bad_channels),
+        )
+    except _exp.ExportFormatError as exc:
+        raise ApiServiceError(
+            code="invalid_format", message=str(exc), status_code=422
+        )
+    except RuntimeError as exc:
+        raise ApiServiceError(
+            code="export_failed",
+            message=str(exc),
+            status_code=500,
+        )
+
+    try:
+        with open(out_path, "rb") as fh:
+            payload = fh.read()
+    finally:
+        try:
+            os.unlink(out_path)
+        except OSError:  # pragma: no cover
+            pass
+
+    headers = {
+        "Content-Disposition": f'attachment; filename="{out_filename}"',
+    }
+    return Response(
+        content=payload,
+        media_type=_EXPORT_MEDIA_TYPES[fmt],
+        headers=headers,
+    )
+
+
+@router.post("/{analysis_id}/cleaning-report")
+def post_cleaning_report(
+    analysis_id: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+):
+    """Render and stream the signed Cleaning Report PDF.
+
+    Includes: pseudonymized header, cleaning summary, decisions grouped by
+    actor, before/after spectra (Cz/Pz/O1/O2), signed footer with the
+    clinician's id + display name + clinic + timestamp, and a decision-
+    support disclaimer.
+    """
+    require_minimum_role(actor, "clinician")
+    _load_analysis(analysis_id, db)
+
+    from app.services import eeg_export_and_report as _exp
+
+    html = _exp.build_cleaning_report_html(analysis_id, db, actor)
+
+    try:
+        pdf_bytes = _exp.render_cleaning_report_pdf(html)
+    except _exp.CleaningReportRendererUnavailable as exc:
+        raise ApiServiceError(
+            code="dependency_missing",
+            message=str(exc),
+            status_code=503,
+        )
+
+    filename = f"cleaning_report_{analysis_id}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

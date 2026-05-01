@@ -155,7 +155,8 @@ function preparePatchedModule() {
     .replace(/from\s+['"]\.\/eeg-filter-preview\.js['"];?/, `from '${fileUrl(join(realDir, 'eeg-filter-preview.js'))}';`)
     .replace(/from\s+['"]\.\/eeg-decomposition-studio\.js['"];?/, `from '${fileUrl(join(realDir, 'eeg-decomposition-studio.js'))}';`)
     .replace(/from\s+['"]\.\/eeg-auto-scan-modal\.js['"];?/, `from '${fileUrl(join(realDir, 'eeg-auto-scan-modal.js'))}';`)
-    .replace(/from\s+['"]\.\/eeg-spike-list\.js['"];?/, `from '${fileUrl(join(realDir, 'eeg-spike-list.js'))}';`);
+    .replace(/from\s+['"]\.\/eeg-spike-list\.js['"];?/, `from '${fileUrl(join(realDir, 'eeg-spike-list.js'))}';`)
+    .replace(/from\s+['"]\.\/eeg-export-modal\.js['"];?/, `from '${fileUrl(join(realDir, 'eeg-export-modal.js'))}';`);
   const MODPATH = join(TMP, 'pages-qeeg-raw.js');
   writeFileSync(MODPATH, PATCHED);
   return MODPATH;

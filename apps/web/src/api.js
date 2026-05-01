@@ -3029,6 +3029,24 @@ export const api = {
     }),
   getQEEGSpikeEvents: (analysisId) =>
     apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/spike-events`),
+  // ── qEEG Raw — Phase 6 export + cleaning report ──────────────────────────
+  // Both endpoints stream binary payloads. We use apiFetchBinary so the
+  // caller gets back the raw blob + filename hint from Content-Disposition.
+  postQEEGExportCleaned: (analysisId, body = {}) =>
+    apiFetchBinary(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/export-cleaned`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        format: body.format || 'edf',
+        interpolate_bad_channels: body.interpolate_bad_channels !== false,
+      }),
+    }),
+  postQEEGCleaningReport: (analysisId) =>
+    apiFetchBinary(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/cleaning-report`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    }),
   // Dashboard endpoints
   getDashboardOverview: () => apiFetchWithRetry('/api/v1/dashboard/overview'),
   dashboardSearch: (q) => apiFetch('/api/v1/dashboard/search?q=' + encodeURIComponent(q || '')),

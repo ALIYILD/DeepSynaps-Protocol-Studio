@@ -32,6 +32,7 @@ import { EEGFilterPreview } from './eeg-filter-preview.js';
 import { EEGDecompositionStudio, EEG_DS_CSS } from './eeg-decomposition-studio.js';
 import { EEGAutoScanModal, EEG_ASM_CSS } from './eeg-auto-scan-modal.js';
 import { EEGSpikeList, EEG_SL_CSS } from './eeg-spike-list.js';
+import { EEGExportModal, EEG_EXPORT_MODAL_CSS } from './eeg-export-modal.js';
 
 const _PHASE4_REASONS = [
   { key: 'blink',         label: 'Eye blink' },
@@ -1976,13 +1977,19 @@ function _wireV2Tools(analysisId, state, renderer, spectralPanel) {
   if (undoBtn) undoBtn.onclick = function () { state.undoManager.undo(); _updateUndoButtons(state); };
   if (redoBtn) redoBtn.onclick = function () { state.undoManager.redo(); _updateUndoButtons(state); };
 
-  // Export button
+  // Export button — Phase 6: opens the export+report modal. Falls back to the
+  // legacy PNG snapshot only when no analysis_id is in scope (pre-load state).
   var exportBtn = document.getElementById('eeg-export-btn');
   if (exportBtn) exportBtn.onclick = function () {
-    var canvas = document.getElementById('qeeg-raw-canvas');
-    if (!canvas) return;
-    EEGExporter.exportPNG(canvas, 'eeg-raw-view.png');
-    showToast('PNG exported', 'success');
+    if (!analysisId || analysisId === 'demo') {
+      var canvas = document.getElementById('qeeg-raw-canvas');
+      if (canvas) {
+        EEGExporter.exportPNG(canvas, 'eeg-raw-view.png');
+        showToast('PNG exported', 'success');
+      }
+      return;
+    }
+    _openExportModal(analysisId);
   };
 
   // Spectral toggle
@@ -2515,6 +2522,83 @@ function _injectPhase3CSS() {
     + EEG_MONTAGE_BUILDER_CSS;
   document.head.appendChild(style);
 }
+
+// ─── Phase 6 helpers: cleaned-signal export + Cleaning Report PDF ──────────
+
+function _installPhase6Css() {
+  if (typeof document === 'undefined' || !document.getElementById) return;
+  if (document.getElementById('eeg-phase6-css')) return;
+  var styleEl = document.createElement('style');
+  styleEl.id = 'eeg-phase6-css';
+  styleEl.textContent = EEG_EXPORT_MODAL_CSS;
+  if (document.head) document.head.appendChild(styleEl);
+}
+
+function _saveBlobAs(blob, filename) {
+  try {
+    if (typeof window === 'undefined' || !window.URL || !window.URL.createObjectURL) return;
+    var url = window.URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () {
+      try { document.body.removeChild(a); } catch (_) {}
+      try { window.URL.revokeObjectURL(url); } catch (_) {}
+    }, 0);
+  } catch (e) { /* best-effort */ }
+}
+
+function _exportFilenameForFormat(analysisId, fmt) {
+  var ext = '.edf';
+  if (fmt === 'bdf') ext = '.bdf';
+  else if (fmt === 'fif') ext = '_raw.fif';
+  return 'cleaned_' + String(analysisId) + ext;
+}
+
+function _openExportModal(analysisId) {
+  _installPhase6Css();
+  var container = document.getElementById('eeg-phase6-export-modal-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'eeg-phase6-export-modal-container';
+    document.body.appendChild(container);
+  }
+  var modal = new EEGExportModal(container, {
+    onCancel: function () { /* hide handled internally */ },
+    onDownloadCleaned: async function (choice) {
+      try {
+        showToast('Preparing cleaned signal export…', 'info');
+        var resp = await api.postQEEGExportCleaned(analysisId, {
+          format: choice.format,
+          interpolate_bad_channels: !!choice.interpolate_bad_channels,
+        });
+        var filename = (resp && resp.filename) || _exportFilenameForFormat(analysisId, choice.format);
+        _saveBlobAs(resp.blob, filename);
+        showToast('Cleaned signal exported', 'success');
+        modal.hide();
+      } catch (err) {
+        showToast('Export failed: ' + (err && err.message ? err.message : err), 'error');
+      }
+    },
+    onDownloadReport: async function () {
+      try {
+        showToast('Generating Cleaning Report PDF…', 'info');
+        var resp = await api.postQEEGCleaningReport(analysisId);
+        var filename = (resp && resp.filename) || ('cleaning_report_' + analysisId + '.pdf');
+        _saveBlobAs(resp.blob, filename);
+        showToast('Cleaning Report PDF generated', 'success');
+        modal.hide();
+      } catch (err) {
+        showToast('Cleaning report failed: ' + (err && err.message ? err.message : err), 'error');
+      }
+    },
+  });
+  modal.show();
+}
+
 
 function _openCustomMontageModal(analysisId, state, renderer, spectralPanel) {
   _injectPhase3CSS();
