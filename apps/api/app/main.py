@@ -114,6 +114,7 @@ from app.routers.escalation_policy_router import router as escalation_policy_rou
 from app.routers.patient_oncall_router import router as patient_oncall_router
 from app.routers.patient_digest_router import router as patient_digest_router
 from app.routers.caregiver_consent_router import router as caregiver_consent_router
+from app.routers.caregiver_email_digest_router import router as caregiver_email_digest_router
 # Settings API routers (foundation scaffolded by backend subagent #1; endpoints
 # fleshed out by backend subagents #3–#6). See apps/api/SETTINGS_API_DESIGN.md.
 from app.routers.profile_router import router as profile_router
@@ -169,6 +170,10 @@ from app.services.agent_scheduler import shutdown_scheduler, start_scheduler
 from app.workers.auto_page_worker import (
     shutdown_worker as shutdown_auto_page_worker,
     start_worker_if_enabled as start_auto_page_worker,
+)
+from app.workers.caregiver_email_digest_worker import (
+    shutdown_worker as shutdown_caregiver_email_digest_worker,
+    start_worker_if_enabled as start_caregiver_email_digest_worker,
 )
 from app.services.agent_skills_seed import seed_default_agent_skills
 from app.services.clinical_data import seed_clinical_dataset
@@ -264,11 +269,17 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
     # DEEPSYNAPS_AUTO_PAGE_ENABLED so tests / CI don't fire pages.
     # Per-clinic enable lives on escalation_chains.auto_page_enabled.
     start_auto_page_worker()
+    # Caregiver Email Digest Worker (2026-05-01) — gated on
+    # DEEPSYNAPS_CAREGIVER_DIGEST_ENABLED so tests / CI don't fire
+    # dispatches. Per-caregiver enable lives on
+    # caregiver_digest_preferences.enabled.
+    start_caregiver_email_digest_worker()
     try:
         yield
     finally:
         shutdown_scheduler()
         shutdown_auto_page_worker()
+        shutdown_caregiver_email_digest_worker()
 
 
 app = FastAPI(title=settings.api_title, version=settings.api_version, lifespan=lifespan)
@@ -434,6 +445,14 @@ app.include_router(patient_digest_router)
 # patient access blocked at the router (404). Caregivers see grants
 # pointed at them via ``/grants/by-caregiver``.
 app.include_router(caregiver_consent_router)
+# Caregiver Email Digest (2026-05-01) — closes the bidirectional
+# notification loop opened by Caregiver Notification Hub #379. Daily
+# roll-up of unread caregiver notifications via the on-call delivery
+# adapters in mock mode unless real env vars set. Caregivers opt in via
+# ``caregiver_digest_preferences``; the daily worker
+# (DEEPSYNAPS_CAREGIVER_DIGEST_ENABLED=1) honours a 24h per-caregiver
+# cooldown.
+app.include_router(caregiver_email_digest_router)
 # Settings API (scaffolded 024_settings_schema) — stubs; endpoints arrive in
 # follow-up subagents. Grouped together for discoverability.
 app.include_router(profile_router)

@@ -383,6 +383,22 @@ KNOWN_SURFACES = {
     # patient_id in the audit note so the patient's audit trail joins
     # caregiver-side activity to the grant they own.
     "caregiver_portal",
+    # Caregiver Email Digest launch-audit (2026-05-01). Closes the
+    # bidirectional notification loop opened by Caregiver Notification
+    # Hub #379. Daily roll-up dispatch of unread caregiver
+    # notifications via the on-call delivery adapters (#373) in mock
+    # mode unless real env vars are set. Page-level events recorded
+    # here: view, preview_loaded, send_now_clicked,
+    # preferences_form_opened, frequency_changed_ui,
+    # time_of_day_changed_ui, demo_banner_shown. Each cron tick emits
+    # ONE ``caregiver_email_digest_worker.tick`` row with note encoding
+    # caregivers_processed/digests_sent/skipped_*/errors/elapsed_ms so
+    # ops gets a per-tick transcript without scanning audit_event_records.
+    # Per-caregiver dispatches additionally emit a
+    # ``caregiver_portal.email_digest_sent`` row (single-sourced with
+    # the manual send-now handler so the regulator transcript stays
+    # consistent across worker + portal triggers).
+    "caregiver_email_digest_worker",
 }
 
 
