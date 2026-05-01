@@ -1905,236 +1905,6 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
-  // ── Patient On-Call Visibility launch-audit (2026-05-01) ────────────────
-  // Patient-facing complement to the admin-side Escalation Policy editor
-  // (#374). Read-only "Care team contact" card on the Patient Profile —
-  // shows abstract availability state (coverage_hours, in_hours_now,
-  // urgent_path) WITHOUT exposing any PHI of the on-call clinician
-  // (no name, phone, Slack handle, or PagerDuty user-id). Helpers
-  // return null on offline / 404 so the card can render an honest
-  // empty state instead of crashing the profile page.
-  patientOncallStatus: () =>
-    apiFetch('/api/v1/patient-oncall/status').catch(() => null),
-  postPatientOncallAuditEvent: (data) =>
-    apiFetch('/api/v1/patient-oncall/audit-events', {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    }).catch(() => null),
-
-  // ── Patient Digest launch-audit (2026-05-01) ────────────────────────────
-  // Patient-side mirror of the Clinician Digest (#366). Daily/weekly self-
-  // summary the patient sees on demand: sessions completed, adherence
-  // streak, wellness trends, pending messages, recent reports. Scoped to
-  // actor.patient_id; NO PHI of OTHER patients leaks. All helpers return
-  // null on offline / 404 so the page can render an honest empty state.
-  patientDigestSummary: (params = {}) => {
-    const q = new URLSearchParams(params).toString();
-    return apiFetch(`/api/v1/patient-digest/summary${q ? '?' + q : ''}`).catch(() => null);
-  },
-  patientDigestSections: (params = {}) => {
-    const q = new URLSearchParams(params).toString();
-    return apiFetch(`/api/v1/patient-digest/sections${q ? '?' + q : ''}`).catch(() => null);
-  },
-  patientDigestSendEmail: (data) =>
-    apiFetch('/api/v1/patient-digest/send-email', {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    }),
-  patientDigestShareCaregiver: (data) =>
-    apiFetch('/api/v1/patient-digest/share-caregiver', {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    }),
-  patientDigestExportCsvUrl: (params = {}) => {
-    const q = new URLSearchParams(params).toString();
-    return `/api/v1/patient-digest/export.csv${q ? '?' + q : ''}`;
-  },
-  patientDigestExportNdjsonUrl: (params = {}) => {
-    const q = new URLSearchParams(params).toString();
-    return `/api/v1/patient-digest/export.ndjson${q ? '?' + q : ''}`;
-  },
-  postPatientDigestAuditEvent: (data) =>
-    apiFetch('/api/v1/patient-digest/audit-events', {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    }).catch(() => null),
-
-  // SendGrid Adapter launch-audit (2026-05-01) — patient-side reflection
-  // of caregiver email digest dispatches. Reads aggregated counts of
-  // ``caregiver_portal.email_digest_sent`` audit rows whose
-  // delivery_status=sent falls inside [since, until). Returns null on
-  // offline / 404 so the digest page can render an empty section
-  // honestly.
-  patientDigestCaregiverDeliverySummary: (params = {}) => {
-    const q = new URLSearchParams(params).toString();
-    return apiFetch(
-      `/api/v1/patient-digest/caregiver-delivery-summary${q ? '?' + q : ''}`
-    ).catch(() => null);
-  },
-
-  // ── Patient Delivery-Failure Flag launch-audit (2026-05-01) ────────────
-  // Patient-side aggregator of failed caregiver digest dispatches + a
-  // "Report problem" POST that emits both a patient-scope
-  // patient_digest.caregiver_delivery_concern audit row and a clinician
-  // mirror that lands in the Inbox HIGH-priority feed via the existing
-  // _to_clinician_mirror predicate (no Inbox surgery required). The
-  // care-team-coverage mirror endpoint lives under its own surface but
-  // ships in this PR so the clinician page can render the concerns
-  // subsection without a roundtrip through the audit-trail listing.
-  patientDigestCaregiverDeliveryFailures: (params = {}) => {
-    const q = new URLSearchParams(params).toString();
-    return apiFetch(
-      `/api/v1/patient-digest/caregiver-delivery-failures${q ? '?' + q : ''}`
-    ).catch(() => null);
-  },
-  patientDigestCaregiverDeliveryConcern: (data) =>
-    apiFetch('/api/v1/patient-digest/caregiver-delivery-concerns', {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    }),
-
-  // ── Care Team Coverage delivery-concerns mirror feed (2026-05-01) ─────
-  // Clinician-visible feed of patient-flagged caregiver delivery
-  // problems. Sourced from the
-  // clinician_inbox.caregiver_delivery_concern_to_clinician_mirror audit
-  // rows the Patient Delivery-Failure Flag emits.
-  careTeamCoverageDeliveryConcerns: (params = {}) => {
-    const q = new URLSearchParams(params).toString();
-    return apiFetch(
-      `/api/v1/care-team-coverage/delivery-concerns${q ? '?' + q : ''}`
-    ).catch(() => null);
-  },
-
-  // ── Caregiver Consent Grants launch-audit (2026-05-01) ─────────────────
-  // Closes the caregiver-share loop opened by Patient Digest #376. Patient
-  // grants create durable rows in `caregiver_consent_grants` with a JSON
-  // `scope` (digest / messages / reports / wearables); revoke stamps
-  // `revoked_at` + `revocation_reason` and the grant becomes immutable.
-  // Patient Digest's share-caregiver endpoint consults `has_active_grant`
-  // and flips `delivery_status='sent'` honestly when `scope.digest=True`
-  // — otherwise stays `queued`. Cross-patient blocked at the router (404).
-  caregiverConsentListGrants: () =>
-    apiFetch('/api/v1/caregiver-consent/grants').catch(() => null),
-  caregiverConsentGetGrant: (grantId) =>
-    apiFetch(`/api/v1/caregiver-consent/grants/${encodeURIComponent(grantId)}`).catch(() => null),
-  caregiverConsentCreateGrant: (data) =>
-    apiFetch('/api/v1/caregiver-consent/grants', {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    }),
-  caregiverConsentRevokeGrant: (grantId, data) =>
-    apiFetch(`/api/v1/caregiver-consent/grants/${encodeURIComponent(grantId)}/revoke`, {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    }),
-  caregiverConsentListByCaregiver: () =>
-    apiFetch('/api/v1/caregiver-consent/grants/by-caregiver').catch(() => null),
-  postCaregiverConsentAuditEvent: (data) =>
-    apiFetch('/api/v1/caregiver-consent/audit-events', {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    }).catch(() => null),
-
-  // ── Caregiver Portal launch-audit (2026-05-01) ────────────────────────────
-  // Caregiver-side viewer for grants pointed at the actor. The portal
-  // page (`pgPatientCaregiver`) reads `caregiverConsentListByCaregiver`
-  // (above) for grant cards, then emits `caregiver_portal.view` on
-  // mount + per-CTA audit pings via `postCaregiverPortalAuditEvent`.
-  // Acknowledge-revocation stamps a `ack_revocation` revision row +
-  // emits `caregiver_portal.revocation_acknowledged` so the patient's
-  // audit trail joins caregiver-side acknowledgement to the grant.
-  // Access-log fires when a caregiver actually clicks through to view
-  // a digest / report / messages stream — it's gated on
-  // `scope[scope_key]=True` so an out-of-scope click is recorded as
-  // an attempt and denied with 403.
-  caregiverPortalAcknowledgeRevocation: (grantId) =>
-    apiFetch(`/api/v1/caregiver-consent/grants/${encodeURIComponent(grantId)}/acknowledge-revocation`, {
-      method: 'POST',
-      body: JSON.stringify({}),
-    }),
-  caregiverPortalAccessLog: (grantId, data) =>
-    apiFetch(`/api/v1/caregiver-consent/grants/${encodeURIComponent(grantId)}/access-log`, {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    }),
-  // Caregiver Delivery Acknowledgement launch-audit (2026-05-01).
-  // Closes the bidirectional confirmation loop opened by the SendGrid
-  // Adapter (#381) + Delivery Failure Flag (#382). The "I received it"
-  // CTA on the caregiver portal POSTs to /acknowledge-delivery which
-  // emits caregiver_portal.delivery_acknowledged keyed
-  // target_id={grant_id}. Idempotent within 24h. The patient-side
-  // caregiver-delivery-summary joins the most recent ack into the row
-  // as `last_acknowledged_at`.
-  caregiverPortalAcknowledgeDelivery: (grantId) =>
-    apiFetch(`/api/v1/caregiver-consent/grants/${encodeURIComponent(grantId)}/acknowledge-delivery`, {
-      method: 'POST',
-      body: JSON.stringify({}),
-    }),
-  caregiverPortalLastAcknowledgement: (grantId) =>
-    apiFetch(`/api/v1/caregiver-consent/grants/${encodeURIComponent(grantId)}/last-acknowledgement`).catch(() => null),
-  postCaregiverPortalAuditEvent: (data) =>
-    apiFetch('/api/v1/caregiver-consent/audit-events/portal', {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    }).catch(() => null),
-
-  // ── Caregiver Notification Hub launch-audit (2026-05-01) ──────────────────
-  // Server-side notification feed for the actor's caregiver grants —
-  // joins audit_event_records + caregiver_consent_revisions filtered to
-  // the actor's grants. No new tables; read-receipt state is a
-  // `caregiver_portal.notification_dismissed` audit row keyed
-  // `target_id=notif-{id}`. The Caregiver Portal page reads
-  // `caregiverNotificationsList` for the feed,
-  // `caregiverNotificationsSummary` for the unread badge,
-  // `caregiverNotificationsMarkRead` for per-row dismissal, and
-  // `caregiverNotificationsBulkMarkRead` for the "Mark all read" CTA.
-  caregiverNotificationsList: (params = {}) => {
-    const q = new URLSearchParams(params).toString();
-    return apiFetch(`/api/v1/caregiver-consent/notifications${q ? '?' + q : ''}`).catch(() => null);
-  },
-  caregiverNotificationsSummary: () =>
-    apiFetch('/api/v1/caregiver-consent/notifications/summary').catch(() => null),
-  caregiverNotificationsMarkRead: (notifId) =>
-    apiFetch(`/api/v1/caregiver-consent/notifications/${encodeURIComponent(notifId)}/mark-read`, {
-      method: 'POST',
-      body: JSON.stringify({}),
-    }),
-  caregiverNotificationsBulkMarkRead: (data) =>
-    apiFetch('/api/v1/caregiver-consent/notifications/bulk-mark-read', {
-      method: 'POST',
-      body: JSON.stringify(data || { notification_ids: [] }),
-    }),
-
-  // ── Caregiver Email Digest launch-audit (2026-05-01) ──────────────────────
-  // Closes the bidirectional notification loop opened by Caregiver
-  // Notification Hub #379. Daily roll-up of unread caregiver
-  // notifications via the on-call delivery adapters in mock mode unless
-  // real env vars set. The Caregiver Portal page (`pgPatientCaregiver`)
-  // reads `caregiverEmailDigestPreview` for the preview card,
-  // `caregiverEmailDigestPreferencesGet` / `Put` for the preferences
-  // form, and `caregiverEmailDigestSendNow` for the "Send now" CTA.
-  // Page-level audit pings route through `postCaregiverEmailDigestAuditEvent`
-  // under target_type='caregiver_email_digest_worker'.
-  caregiverEmailDigestPreview: () =>
-    apiFetch('/api/v1/caregiver-consent/email-digest/preview').catch(() => null),
-  caregiverEmailDigestSendNow: () =>
-    apiFetch('/api/v1/caregiver-consent/email-digest/send-now', {
-      method: 'POST',
-      body: JSON.stringify({}),
-    }),
-  caregiverEmailDigestPreferencesGet: () =>
-    apiFetch('/api/v1/caregiver-consent/email-digest/preferences').catch(() => null),
-  caregiverEmailDigestPreferencesPut: (data) =>
-    apiFetch('/api/v1/caregiver-consent/email-digest/preferences', {
-      method: 'PUT',
-      body: JSON.stringify(data || {}),
-    }),
-  postCaregiverEmailDigestAuditEvent: (data) =>
-    apiFetch('/api/v1/caregiver-consent/email-digest/audit-events', {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    }).catch(() => null),
-
   // ── Wearables Workbench (clinician triage queue) ──────────────────────────
   // Bidirectional counterpart to Patient Wearables (#352). Surfaces the
   // server-side triage queue over wearable_alert_flags so clinicians can
@@ -2171,98 +1941,6 @@ export const api = {
     `${API_BASE}/api/v1/wearables/workbench/flags/export.ndjson`,
   postWearablesWorkbenchAuditEvent: (data) =>
     apiFetch('/api/v1/wearables/workbench/audit-events', {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    }).catch(() => null),
-
-  // ── Clinician Adherence Hub launch-audit (2026-05-01) ───────────────────────
-  // Bidirectional counterpart to Adherence Events (#350). Surfaces a
-  // CROSS-PATIENT triage queue scoped to the clinic so a clinician can
-  // clear today's adherence backlog in bulk (acknowledge / escalate /
-  // resolve / bulk-acknowledge) instead of opening one Inbox detail at
-  // a time. Cross-clinic blocked at router; admins see all clinics. All
-  // helpers return null on offline / 404 so the page can render an
-  // honest empty state.
-  clinicianAdherenceList: (params = {}) => {
-    const q = new URLSearchParams(params).toString();
-    return apiFetch(`/api/v1/clinician-adherence/events${q ? '?' + q : ''}`).catch(() => null);
-  },
-  clinicianAdherenceSummary: () =>
-    apiFetch('/api/v1/clinician-adherence/events/summary').catch(() => null),
-  clinicianAdherenceGetEvent: (eventId) =>
-    apiFetch(`/api/v1/clinician-adherence/events/${encodeURIComponent(eventId)}`).catch(() => null),
-  clinicianAdherenceAcknowledge: (eventId, note) =>
-    apiFetch(`/api/v1/clinician-adherence/events/${encodeURIComponent(eventId)}/acknowledge`, {
-      method: 'POST',
-      body: JSON.stringify({ note: note || '' }),
-    }),
-  clinicianAdherenceEscalate: (eventId, note, bodySystem) =>
-    apiFetch(`/api/v1/clinician-adherence/events/${encodeURIComponent(eventId)}/escalate`, {
-      method: 'POST',
-      body: JSON.stringify({ note: note || '', body_system: bodySystem || null }),
-    }),
-  clinicianAdherenceResolve: (eventId, note) =>
-    apiFetch(`/api/v1/clinician-adherence/events/${encodeURIComponent(eventId)}/resolve`, {
-      method: 'POST',
-      body: JSON.stringify({ note: note || '' }),
-    }),
-  clinicianAdherenceBulkAcknowledge: (eventIds, note) =>
-    apiFetch('/api/v1/clinician-adherence/events/bulk-acknowledge', {
-      method: 'POST',
-      body: JSON.stringify({ event_ids: Array.isArray(eventIds) ? eventIds : [], note: note || '' }),
-    }),
-  clinicianAdherenceExportCsvUrl: () =>
-    `/api/v1/clinician-adherence/events/export.csv`,
-  clinicianAdherenceExportNdjsonUrl: () =>
-    `/api/v1/clinician-adherence/events/export.ndjson`,
-  postClinicianAdherenceAuditEvent: (data) =>
-    apiFetch('/api/v1/clinician-adherence/audit-events', {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    }).catch(() => null),
-
-  // ── Clinician Wellness Hub (launch-audit 2026-05-01) ──────────────────────
-  // Bidirectional counterpart to the patient-facing Wellness Hub (#345).
-  // CROSS-PATIENT triage queue scoped to the clinic so a clinician can
-  // clear today's wellness backlog in bulk (acknowledge / escalate /
-  // resolve / bulk-acknowledge) instead of opening one Inbox detail at
-  // a time. Cross-clinic blocked at router; admins see all clinics. All
-  // helpers return null on offline / 404 so the page can render an
-  // honest empty state.
-  clinicianWellnessList: (params = {}) => {
-    const q = new URLSearchParams(params).toString();
-    return apiFetch(`/api/v1/clinician-wellness/checkins${q ? '?' + q : ''}`).catch(() => null);
-  },
-  clinicianWellnessSummary: () =>
-    apiFetch('/api/v1/clinician-wellness/checkins/summary').catch(() => null),
-  clinicianWellnessGetCheckin: (checkinId) =>
-    apiFetch(`/api/v1/clinician-wellness/checkins/${encodeURIComponent(checkinId)}`).catch(() => null),
-  clinicianWellnessAcknowledge: (checkinId, note) =>
-    apiFetch(`/api/v1/clinician-wellness/checkins/${encodeURIComponent(checkinId)}/acknowledge`, {
-      method: 'POST',
-      body: JSON.stringify({ note: note || '' }),
-    }),
-  clinicianWellnessEscalate: (checkinId, note, bodySystem) =>
-    apiFetch(`/api/v1/clinician-wellness/checkins/${encodeURIComponent(checkinId)}/escalate`, {
-      method: 'POST',
-      body: JSON.stringify({ note: note || '', body_system: bodySystem || null }),
-    }),
-  clinicianWellnessResolve: (checkinId, note) =>
-    apiFetch(`/api/v1/clinician-wellness/checkins/${encodeURIComponent(checkinId)}/resolve`, {
-      method: 'POST',
-      body: JSON.stringify({ note: note || '' }),
-    }),
-  clinicianWellnessBulkAcknowledge: (checkinIds, note) =>
-    apiFetch('/api/v1/clinician-wellness/checkins/bulk-acknowledge', {
-      method: 'POST',
-      body: JSON.stringify({ checkin_ids: Array.isArray(checkinIds) ? checkinIds : [], note: note || '' }),
-    }),
-  clinicianWellnessExportCsvUrl: () =>
-    `/api/v1/clinician-wellness/checkins/export.csv`,
-  clinicianWellnessExportNdjsonUrl: () =>
-    `/api/v1/clinician-wellness/checkins/export.ndjson`,
-  postClinicianWellnessAuditEvent: (data) =>
-    apiFetch('/api/v1/clinician-wellness/audit-events', {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }).catch(() => null),
@@ -3332,6 +3010,72 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ cleaning_version_id: cleaningVersionId }),
     }),
+  // ── qEEG Raw — Phase 4 artifact tooling ───────────────────────────────────
+  // Threshold-based auto-scan, ICA-template apply, spike events. Decision-
+  // support only — every mutation writes a CleaningDecision audit row. The
+  // /spike-events endpoint returns 200 with `{events: []}` even when no
+  // detector is installed; the empty list is a valid clinical signal.
+  postQEEGAutoScan: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/auto-scan`, { method: 'POST' }),
+  decideQEEGAutoScan: (analysisId, runId, body) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/auto-scan/${encodeURIComponent(runId)}/decide`, {
+      method: 'POST',
+      body: JSON.stringify(body || { accepted_items: { bad_channels: [], bad_segments: [] }, rejected_items: { bad_channels: [], bad_segments: [] } }),
+    }),
+  applyQEEGTemplate: (analysisId, template) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/apply-template`, {
+      method: 'POST',
+      body: JSON.stringify({ template }),
+    }),
+  getQEEGSpikeEvents: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/spike-events`),
+  // ── qEEG Raw — Phase 6 export + cleaning report ──────────────────────────
+  // Both endpoints stream binary payloads. We use apiFetchBinary so the
+  // caller gets back the raw blob + filename hint from Content-Disposition.
+  postQEEGExportCleaned: (analysisId, body = {}) =>
+    apiFetchBinary(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/export-cleaned`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        format: body.format || 'edf',
+        interpolate_bad_channels: body.interpolate_bad_channels !== false,
+      }),
+    }),
+  postQEEGCleaningReport: (analysisId) =>
+    apiFetchBinary(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/cleaning-report`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    }),
+
+  // ── qEEG AI co-pilot overlay — Phase 5 ────────────────────────────────────
+  // Every endpoint returns `{result, reasoning, features}` so the UI can show
+  // "why this suggestion" beside every AI output. Each AI proposal call also
+  // writes a CleaningDecision audit row server-side at proposal time
+  // (actor='ai', action='propose_*'), giving a complete audit trail of what
+  // the AI said even before the clinician decides.
+  getQEEGAIQualityScore: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/quality_score`, { method: 'POST' }),
+  getQEEGAIAutoCleanPropose: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/auto_clean_propose`, { method: 'POST' }),
+  getQEEGAIExplainBadChannel: (analysisId, channel) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/explain_bad_channel/${encodeURIComponent(channel)}`, { method: 'POST' }),
+  getQEEGAIClassifyComponents: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/classify_components`, { method: 'POST' }),
+  getQEEGAIClassifySegment: (analysisId, startSec, endSec) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/classify_segment`, {
+      method: 'POST',
+      body: JSON.stringify({ start_sec: Number(startSec), end_sec: Number(endSec) }),
+    }),
+  getQEEGAIRecommendFilters: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/recommend_filters`, { method: 'POST' }),
+  getQEEGAIRecommendMontage: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/recommend_montage`, { method: 'POST' }),
+  getQEEGAISegmentEoEc: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/segment_eo_ec`, { method: 'POST' }),
+  getQEEGAINarrate: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/narrate`, { method: 'POST' }),
+
   // Dashboard endpoints
   getDashboardOverview: () => apiFetchWithRetry('/api/v1/dashboard/overview'),
   dashboardSearch: (q) => apiFetch('/api/v1/dashboard/search?q=' + encodeURIComponent(q || '')),
@@ -3366,198 +3110,6 @@ export const api = {
     `${API_BASE}/api/v1/clinician-inbox/export.csv`,
   postClinicianInboxAuditEvent: (data) =>
     apiFetch('/api/v1/clinician-inbox/audit-events', {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    }).catch(() => null),
-
-  // Clinician Notifications Pulse / Daily Digest launch-audit (2026-05-01).
-  // End-of-shift summary across the four clinician hubs (Inbox #354,
-  // Wearables Workbench #353, Adherence Hub #361, Wellness Hub #365) plus
-  // AE Hub #342 escalations. Read-only aggregator + email/colleague-share
-  // audit rows. Read helpers return null on offline / 404 so the page
-  // can render an honest empty state.
-  clinicianDigestSummary: (params = {}) => {
-    const q = new URLSearchParams(params).toString();
-    return apiFetch(`/api/v1/clinician-digest/summary${q ? '?' + q : ''}`).catch(() => null);
-  },
-  clinicianDigestSections: (params = {}) => {
-    const q = new URLSearchParams(params).toString();
-    return apiFetch(`/api/v1/clinician-digest/sections${q ? '?' + q : ''}`).catch(() => null);
-  },
-  clinicianDigestEvents: (params = {}) => {
-    const q = new URLSearchParams(params).toString();
-    return apiFetch(`/api/v1/clinician-digest/events${q ? '?' + q : ''}`).catch(() => null);
-  },
-  clinicianDigestSendEmail: (data) =>
-    apiFetch('/api/v1/clinician-digest/send-email', {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    }),
-  clinicianDigestShareColleague: (recipientUserId, reason, sinceUntil = {}) =>
-    apiFetch('/api/v1/clinician-digest/share-colleague', {
-      method: 'POST',
-      body: JSON.stringify({
-        recipient_user_id: recipientUserId,
-        reason: reason || '',
-        since: sinceUntil.since || null,
-        until: sinceUntil.until || null,
-      }),
-    }),
-  clinicianDigestExportCsvUrl: (params = {}) => {
-    const q = new URLSearchParams(params).toString();
-    return `/api/v1/clinician-digest/export.csv${q ? '?' + q : ''}`;
-  },
-  clinicianDigestExportNdjsonUrl: (params = {}) => {
-    const q = new URLSearchParams(params).toString();
-    return `/api/v1/clinician-digest/export.ndjson${q ? '?' + q : ''}`;
-  },
-  postClinicianDigestAuditEvent: (data) =>
-    apiFetch('/api/v1/clinician-digest/audit-events', {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    }).catch(() => null),
-
-  // Care Team Coverage / Staff Scheduling launch-audit (2026-05-01).
-  // Closes the after-hours triage loop opened by Clinician Inbox #354.
-  // Reads the on-call schedule + per-surface SLA + escalation chain that
-  // turn HIGH-priority predicate breaches into a real human page.
-  // All read helpers swallow offline errors and return null so the page
-  // can render an honest empty state.
-  careTeamCoverageRoster: (params = {}) => {
-    const q = new URLSearchParams(params).toString();
-    return apiFetch(`/api/v1/care-team-coverage/roster${q ? '?' + q : ''}`).catch(() => null);
-  },
-  careTeamCoverageOncallNow: (params = {}) => {
-    const q = new URLSearchParams(params).toString();
-    return apiFetch(`/api/v1/care-team-coverage/oncall-now${q ? '?' + q : ''}`).catch(() => null);
-  },
-  careTeamCoverageSlaConfig: (params = {}) => {
-    const q = new URLSearchParams(params).toString();
-    return apiFetch(`/api/v1/care-team-coverage/sla-config${q ? '?' + q : ''}`).catch(() => null);
-  },
-  careTeamCoverageEscalationChain: (params = {}) => {
-    const q = new URLSearchParams(params).toString();
-    return apiFetch(`/api/v1/care-team-coverage/escalation-chain${q ? '?' + q : ''}`).catch(() => null);
-  },
-  careTeamCoverageSlaBreaches: (params = {}) => {
-    const q = new URLSearchParams(params).toString();
-    return apiFetch(`/api/v1/care-team-coverage/sla-breaches${q ? '?' + q : ''}`).catch(() => null);
-  },
-  careTeamCoverageSummary: (params = {}) => {
-    const q = new URLSearchParams(params).toString();
-    return apiFetch(`/api/v1/care-team-coverage/summary${q ? '?' + q : ''}`).catch(() => null);
-  },
-  careTeamCoveragePages: (params = {}) => {
-    const q = new URLSearchParams(params).toString();
-    return apiFetch(`/api/v1/care-team-coverage/pages${q ? '?' + q : ''}`).catch(() => null);
-  },
-  careTeamCoverageUpsertRoster: (body) =>
-    apiFetch('/api/v1/care-team-coverage/roster', {
-      method: 'POST',
-      body: JSON.stringify(body || {}),
-    }),
-  careTeamCoverageUpsertSla: (body) =>
-    apiFetch('/api/v1/care-team-coverage/sla-config', {
-      method: 'POST',
-      body: JSON.stringify(body || {}),
-    }),
-  careTeamCoverageUpsertEscalationChain: (body) =>
-    apiFetch('/api/v1/care-team-coverage/escalation-chain', {
-      method: 'POST',
-      body: JSON.stringify(body || {}),
-    }),
-  careTeamCoveragePageOncall: (auditEventId, body) =>
-    apiFetch(`/api/v1/care-team-coverage/page-oncall/${encodeURIComponent(auditEventId)}`, {
-      method: 'POST',
-      body: JSON.stringify(body || {}),
-    }),
-  postCareTeamCoverageAuditEvent: (data) =>
-    apiFetch('/api/v1/care-team-coverage/audit-events', {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    }).catch(() => null),
-
-  // Auto-Page Worker launch-audit (2026-05-01). Closes the real-time half
-  // of the Care Team Coverage launch loop (#357). Status read every 30s
-  // by the Care Team Coverage page; Start/Stop is admin-only and flips
-  // escalation_chains.auto_page_enabled per clinic; Tick-once is admin-
-  // only debug that runs ONE scan synchronously.
-  autoPageWorkerStatus: () =>
-    apiFetch('/api/v1/auto-page-worker/status').catch(() => null),
-  autoPageWorkerStart: () =>
-    apiFetch('/api/v1/auto-page-worker/start', {
-      method: 'POST',
-      body: JSON.stringify({}),
-    }),
-  autoPageWorkerStop: () =>
-    apiFetch('/api/v1/auto-page-worker/stop', {
-      method: 'POST',
-      body: JSON.stringify({}),
-    }),
-  autoPageWorkerTickOnce: () =>
-    apiFetch('/api/v1/auto-page-worker/tick-once', {
-      method: 'POST',
-      body: JSON.stringify({}),
-    }),
-  postAutoPageWorkerAuditEvent: (data) =>
-    apiFetch('/api/v1/auto-page-worker/audit-events', {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    }).catch(() => null),
-  // On-Call Delivery launch-audit (2026-05-01). Closes the LAST gap in
-  // the on-call escalation chain: ``Care Team Coverage (#357) →
-  // Auto-Page Worker (#372) → THIS PR``. The adapter-health endpoint
-  // is read every 30s by the Care Team Coverage panel; the
-  // test-adapter endpoint is admin-only and sends a synthetic page
-  // through the configured Slack / Twilio / PagerDuty adapters so a
-  // reviewer can confirm the wire-up without waiting for an SLA breach.
-  autoPageWorkerAdapterHealth: () =>
-    apiFetch('/api/v1/auto-page-worker/adapters').catch(() => null),
-  autoPageWorkerTestAdapter: (data) =>
-    apiFetch('/api/v1/auto-page-worker/test-adapter', {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    }),
-
-  // Escalation Policy Editor launch-audit (2026-05-01).
-  // Closes the LAST operational gap of the on-call escalation chain
-  // (Care Team Coverage #357 → Auto-Page Worker #372 →
-  // On-Call Delivery #373 → THIS PR). The On-Call Delivery agent
-  // flagged the fixed PagerDuty→Slack→Twilio order in code + the
-  // free-text ShiftRoster.contact_handle as the last gap. These
-  // helpers drive the new admin Policy tab inside the Care Team
-  // Coverage page: per-clinic dispatch order, per-surface override
-  // matrix, per-user contact mapping, and a synthetic test page.
-  // All read helpers swallow offline errors and return null so the
-  // page renders an honest empty state.
-  escalationPolicyDispatchOrder: () =>
-    apiFetch('/api/v1/escalation-policy/dispatch-order').catch(() => null),
-  escalationPolicySurfaceOverrides: () =>
-    apiFetch('/api/v1/escalation-policy/surface-overrides').catch(() => null),
-  escalationPolicyUserMappings: () =>
-    apiFetch('/api/v1/escalation-policy/user-mappings').catch(() => null),
-  escalationPolicySetDispatchOrder: (body) =>
-    apiFetch('/api/v1/escalation-policy/dispatch-order', {
-      method: 'PUT',
-      body: JSON.stringify(body || {}),
-    }),
-  escalationPolicySetSurfaceOverrides: (body) =>
-    apiFetch('/api/v1/escalation-policy/surface-overrides', {
-      method: 'PUT',
-      body: JSON.stringify(body || {}),
-    }),
-  escalationPolicySetUserMappings: (body) =>
-    apiFetch('/api/v1/escalation-policy/user-mappings', {
-      method: 'PUT',
-      body: JSON.stringify(body || {}),
-    }),
-  escalationPolicyTest: (body) =>
-    apiFetch('/api/v1/escalation-policy/test', {
-      method: 'POST',
-      body: JSON.stringify(body || {}),
-    }),
-  postEscalationPolicyAuditEvent: (data) =>
-    apiFetch('/api/v1/escalation-policy/audit-events', {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }).catch(() => null),

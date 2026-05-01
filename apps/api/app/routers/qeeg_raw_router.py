@@ -9,9 +9,13 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any, Optional
 
+import os
+
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -26,12 +30,10 @@ from app.auth import (
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import (
+    AutoCleanRun,
+    CleaningDecision,
     QEEGAnalysis,
-    QeegCleaningAnnotation,
-    QeegCleaningAuditEvent,
-    QeegCleaningVersion,
 )
-from app.repositories.patients import resolve_patient_clinic_id
 
 _log = logging.getLogger(__name__)
 
@@ -110,10 +112,55 @@ class ICATimecourseResponse(BaseModel):
     is_excluded: bool = False
 
 
+# Phase 3: filter preview ----------------------------------------------------
+
+class FilterPreviewRequest(BaseModel):
+    t_start: float = Field(default=0.0, ge=0.0)
+    window_sec: float = Field(default=10.0, gt=0.0, le=30.0)
+    lff: Optional[float] = Field(default=1.0, ge=0.0, le=200.0)
+    hff: Optional[float] = Field(default=45.0, ge=0.0, le=500.0)
+    notch: Optional[float] = Field(default=50.0, ge=0.0, le=200.0)
+
+
+class FreqResponseModel(BaseModel):
+    hz: list[float] = Field(default_factory=list)
+    magnitude_db: list[float] = Field(default_factory=list)
+
+
+class FilterPreviewResponse(BaseModel):
+    analysis_id: str
+    t_start: float = 0.0
+    t_end: float = 0.0
+    sfreq: float = 0.0
+    channels: list[str] = Field(default_factory=list)
+    raw: list[list[float]] = Field(default_factory=list)
+    filtered: list[list[float]] = Field(default_factory=list)
+    freq_response: FreqResponseModel = Field(default_factory=FreqResponseModel)
+    params: dict[str, Optional[float]] = Field(default_factory=dict)
+
+
+_REASON_VOCAB = {
+    "blink", "lateral_eye", "sweat", "movement", "emg", "ecg",
+    "electrode_pop", "line_noise", "flatline", "other",
+}
+
+
 class BadSegment(BaseModel):
     start_sec: float
     end_sec: float
     description: str = "BAD_user"
+    # Phase 1 extensions (047): structured reason taxonomy + provenance.
+    reason: Optional[str] = None
+    source: Optional[str] = None  # 'user' | 'ai' | 'auto_scan'
+    confidence: Optional[float] = None
+
+
+class ICAExclusion(BaseModel):
+    """Structured ICA exclusion entry. Backwards-compatible: callers may still pass plain ints."""
+    idx: int
+    label: Optional[str] = None  # 'brain'|'blink'|'eye'|'muscle'|'heart'|'line'|'channel-noise'|'other'
+    source: Optional[str] = None  # 'user' | 'ai' | 'iclabel'
+    confidence: Optional[float] = None
 
 
 class CleaningConfigInput(BaseModel):
@@ -125,6 +172,13 @@ class CleaningConfigInput(BaseModel):
     bandpass_high: float = 45.0
     notch_hz: Optional[float] = 50.0
     resample_hz: float = 250.0
+    # Phase 1 extensions (047): provenance and structured ICA detail. All optional
+    # so existing callers continue to round-trip without change.
+    ica_method: Optional[str] = None  # 'infomax' | 'fastica' | 'picard'
+    ica_seed: Optional[int] = None
+    auto_clean_run_id: Optional[str] = None
+    excluded_ica_detail: list[ICAExclusion] = Field(default_factory=list)
+    decision_log_summary_json: Optional[str] = None
 
 
 class CleaningConfigResponse(BaseModel):
@@ -385,6 +439,45 @@ def get_ica_timecourse(
     return ICATimecourseResponse(**tc)
 
 
+# ── Endpoint 5b (Phase 3): Filter Preview ───────────────────────────────────
+
+
+@router.post(
+    "/{analysis_id}/filter-preview",
+    response_model=FilterPreviewResponse,
+)
+def post_filter_preview(
+    analysis_id: str,
+    body: Optional[FilterPreviewRequest] = None,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> FilterPreviewResponse:
+    """Return paired raw/filtered traces + frequency response for a 10s window.
+
+    Decision-support only — no persistence, no audit row. Used by the UI to
+    preview the effect of LFF/HFF/notch parameters before the clinician
+    commits them via Save / Reprocess.
+    """
+    require_minimum_role(actor, "clinician")
+    _load_analysis(analysis_id, db)
+    _require_mne()
+
+    payload = body or FilterPreviewRequest()
+
+    from app.services.eeg_signal_service import compute_filter_preview
+
+    result = compute_filter_preview(
+        analysis_id,
+        db,
+        t_start=payload.t_start,
+        window_sec=payload.window_sec,
+        lff=payload.lff,
+        hff=payload.hff,
+        notch=payload.notch,
+    )
+    return FilterPreviewResponse(**result)
+
+
 # ── Endpoint 6: Save Cleaning Config ────────────────────────────────────────
 
 
@@ -509,1029 +602,830 @@ def reprocess_with_overrides(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Raw EEG Cleaning Workbench — full-page clinical workstation
+# Phase 4 — Artifact tooling endpoints
 #
-# Decision-support only.  Every mutation:
-#   * enforces clinic-scope (cross-clinic 403 → 404 to avoid existence leak)
-#   * appends to qeeg_cleaning_audit_events (immutable)
-#   * writes to qeeg_cleaning_annotations / qeeg_cleaning_versions only —
-#     never to the raw EDF bytes or the parent QEEGAnalysis row's source
-#     columns.
-# AI suggestions are persisted with decision_status='suggested' and become
-# 'accepted' only when a clinician explicitly confirms.  Original raw EEG
-# is preserved.
+# All four mutate state (create AutoCleanRun rows + CleaningDecision audit
+# rows). Decision-support only: nothing here mutates the raw EDF bytes; the
+# clinician's accept/reject choices flow through CleaningConfigInput → the
+# existing reprocess pipeline.
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-_VALID_ANNOTATION_KINDS = frozenset({
-    "bad_segment",
-    "bad_channel",
-    "rejected_epoch",
-    "interpolated_channel",
-    "ica_decision",
-    "rejected_ica_component",
-    "ai_suggestion",
-    "event_marker",
-    "manual_finding",
-    "note",
-})
+def _audit(db, *, analysis_id, action_type, actor, new_value=None, source="ai"):
+    """Mirror-write audit shim.
 
-_VALID_DECISION_STATUSES = frozenset({
-    "suggested",
-    "accepted",
-    "rejected",
-    "needs_review",
-    "applied",
-})
+    The Phase 4 endpoints write to two places: CleaningDecision (this branch's
+    canonical audit table from migration 047) and a QeegCleaningAuditEvent
+    table from a sibling overnight workbench branch. That sibling table is not
+    on this branch, so the mirror is a no-op here. CleaningDecision is the
+    load-bearing audit row; QeegCleaningAuditEvent is the surface the older
+    cleaning-log page reads from. When the branches converge in main, replace
+    this shim with the real `_audit` helper from the workbench module.
+    """
+    # Intentional no-op — see docstring.
+    return None
 
-_VALID_AI_LABELS = frozenset({
-    "eye_blink",
-    "muscle",
-    "movement",
+
+_AUTO_SCAN_REASONS = {
+    "flatline",
+    "high_kurtosis",
     "line_noise",
-    "flat_channel",
-    "noisy_channel",
-    "electrode_pop",
-    "ecg_contamination",
-    "other",
-})
+    "amp_threshold",
+    "gradient",
+}
+
+_TEMPLATE_LABEL_MAP: dict[str, set[str]] = {
+    # ICLabel uses a 7-class taxonomy: 'brain', 'muscle', 'eye', 'heart',
+    # 'line_noise', 'channel_noise', 'other'. We accept a few alternate
+    # spellings here so the UI can stay friendly.
+    "eye_blink": {"eye", "blink", "eye_blink"},
+    "lateral_eye": {"eye", "lateral_eye"},
+    "emg": {"muscle", "emg"},
+    "ecg": {"heart", "ecg", "ekg"},
+    "electrode_pop": {"channel_noise", "electrode_pop", "channel-noise"},
+}
+
+_TEMPLATE_CONFIDENCE_THRESHOLD = 0.7
 
 
-class WorkbenchMetadataResponse(BaseModel):
+class AutoScanProposalChannel(BaseModel):
+    channel: str
+    reason: str
+    metric: dict[str, Any] = Field(default_factory=dict)
+    confidence: float = 0.0
+
+
+class AutoScanProposalSegment(BaseModel):
+    start_sec: float
+    end_sec: float
+    reason: str
+    metric: dict[str, Any] = Field(default_factory=dict)
+    confidence: float = 0.0
+
+
+class AutoScanProposalSummary(BaseModel):
+    n_bad_channels: int = 0
+    n_bad_segments: int = 0
+    total_excluded_sec: float = 0.0
+    autoreject_used: bool = False
+    scanner_version: str = "1.0"
+
+
+class AutoScanProposal(BaseModel):
+    bad_channels: list[AutoScanProposalChannel] = Field(default_factory=list)
+    bad_segments: list[AutoScanProposalSegment] = Field(default_factory=list)
+    summary: AutoScanProposalSummary = Field(default_factory=AutoScanProposalSummary)
+
+
+class AutoScanResponse(BaseModel):
     analysis_id: str
-    recording_date: Optional[str] = None
-    duration_sec: Optional[float] = None
-    sample_rate_hz: Optional[float] = None
-    channel_count: Optional[int] = None
-    channels: list[str] = Field(default_factory=list)
-    montage_or_reference: Optional[str] = None
-    eyes_condition: Optional[str] = None
-    equipment: Optional[str] = None
-    metadata_complete: bool = False
-    immutable_raw_notice: str = (
-        "Original raw EEG is preserved and cannot be overwritten. All "
-        "cleaning is stored as a separate version."
-    )
-
-
-class WorkbenchReferenceLibraryResponse(BaseModel):
-    source: str
-    version: str
-    status: str
-    native_file_ingestion: bool = False
-    clinical_disclaimer: str
-    workflows: list[dict[str, Any]] = Field(default_factory=list)
-    concepts: list[dict[str, Any]] = Field(default_factory=list)
-    ui_crosswalk: list[dict[str, Any]] = Field(default_factory=list)
-
-
-class ManualAnalysisChecklistItem(BaseModel):
-    category: str
-    title: str
-    action: str
-    safety_notes: list[str] = Field(default_factory=list)
-
-
-class ManualAnalysisChecklistResponse(BaseModel):
-    analysis_id: str
-    items: list[ManualAnalysisChecklistItem] = Field(default_factory=list)
+    run_id: str
+    proposal: AutoScanProposal
     notice: str = (
-        "Reference workflow only. Decision-support only; clinician review "
-        "required before interpretation or report export."
+        "Decision-support only. Threshold-based auto-scan; clinician review "
+        "required before any cleaning is applied."
     )
 
 
-class ManualFindingIn(BaseModel):
-    patient_id: Optional[str] = Field(default=None, max_length=64)
-    recording_id: Optional[str] = Field(default=None, max_length=64)
-    session_id: Optional[str] = Field(default=None, max_length=64)
-    channels: list[str] = Field(default_factory=list)
-    bands: list[str] = Field(default_factory=list)
-    finding_type: str = Field(min_length=1, max_length=80)
-    severity: str = Field(default="moderate", max_length=40)
-    confidence: str = Field(default="review_needed", max_length=40)
-    possible_confounds: list[str] = Field(default_factory=list)
-    note: Optional[str] = Field(default=None, max_length=2000)
-    clinician_review_required: bool = True
+class AutoScanDecideRequest(BaseModel):
+    accepted_items: dict[str, list[dict[str, Any]]] = Field(
+        default_factory=lambda: {"bad_channels": [], "bad_segments": []},
+    )
+    rejected_items: dict[str, list[dict[str, Any]]] = Field(
+        default_factory=lambda: {"bad_channels": [], "bad_segments": []},
+    )
 
 
-class ManualFindingOut(BaseModel):
-    id: str
+class AutoScanDecideResponse(BaseModel):
     analysis_id: str
-    patient_id: Optional[str] = None
-    recording_id: Optional[str] = None
-    session_id: Optional[str] = None
-    channels: list[str] = Field(default_factory=list)
-    bands: list[str] = Field(default_factory=list)
-    finding_type: str
-    severity: str
-    confidence: str
-    possible_confounds: list[str] = Field(default_factory=list)
-    note: Optional[str] = None
-    clinician_review_required: bool = True
-    created_at: str
+    run_id: str
+    committed_at: str
+    decisions_logged: int = 0
+    accepted_counts: dict[str, int] = Field(default_factory=dict)
+    rejected_counts: dict[str, int] = Field(default_factory=dict)
 
 
-class CleaningAnnotationIn(BaseModel):
-    kind: str = Field(min_length=1, max_length=40)
-    channel: Optional[str] = Field(default=None, max_length=40)
-    start_sec: Optional[float] = Field(default=None, ge=0)
-    end_sec: Optional[float] = Field(default=None, ge=0)
-    ica_component: Optional[int] = Field(default=None, ge=0, le=512)
-    ai_confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-    ai_label: Optional[str] = Field(default=None, max_length=40)
-    source: str = Field(default="clinician", max_length=30)
-    decision_status: str = Field(default="suggested", max_length=30)
-    note: Optional[str] = Field(default=None, max_length=2000)
-
-
-class CleaningAnnotationOut(BaseModel):
-    id: str
-    analysis_id: str
-    kind: str
+class SpikeEvent(BaseModel):
+    t_sec: float
     channel: Optional[str] = None
-    start_sec: Optional[float] = None
-    end_sec: Optional[float] = None
-    ica_component: Optional[int] = None
-    ai_confidence: Optional[float] = None
-    ai_label: Optional[str] = None
-    source: str
-    decision_status: str
-    note: Optional[str] = None
-    actor_id: Optional[str] = None
-    created_at: str
-
-    @classmethod
-    def from_record(cls, r: QeegCleaningAnnotation) -> "CleaningAnnotationOut":
-        return cls(
-            id=r.id,
-            analysis_id=r.analysis_id,
-            kind=r.kind,
-            channel=r.channel,
-            start_sec=r.start_sec,
-            end_sec=r.end_sec,
-            ica_component=r.ica_component,
-            ai_confidence=r.ai_confidence,
-            ai_label=r.ai_label,
-            source=r.source,
-            decision_status=r.decision_status,
-            note=r.note,
-            actor_id=r.actor_id,
-            created_at=(r.created_at or datetime.now(timezone.utc)).isoformat(),
-        )
+    peak_uv: Optional[float] = None
+    classification: Optional[str] = None
+    confidence: Optional[float] = None
 
 
-class CleaningVersionIn(BaseModel):
-    label: Optional[str] = Field(default=None, max_length=120)
-    notes: Optional[str] = Field(default=None, max_length=2000)
-    bad_channels: list[str] = Field(default_factory=list)
-    rejected_segments: list[BadSegment] = Field(default_factory=list)
-    rejected_epochs: list[int] = Field(default_factory=list)
-    rejected_ica_components: list[int] = Field(default_factory=list)
-    interpolated_channels: list[str] = Field(default_factory=list)
-    annotation_ids: list[str] = Field(default_factory=list)
-
-
-class CleaningVersionOut(BaseModel):
-    id: str
+class SpikeEventsResponse(BaseModel):
     analysis_id: str
-    version_number: int
-    label: Optional[str] = None
-    notes: Optional[str] = None
-    bad_channels: list[str] = Field(default_factory=list)
-    rejected_segments: list[dict] = Field(default_factory=list)
-    rejected_epochs: list[int] = Field(default_factory=list)
-    rejected_ica_components: list[int] = Field(default_factory=list)
-    interpolated_channels: list[str] = Field(default_factory=list)
-    cleaned_summary: dict = Field(default_factory=dict)
-    review_status: str = "draft"
-    derived_analysis_id: Optional[str] = None
-    created_by_actor_id: Optional[str] = None
-    created_at: str
-    updated_at: str
-
-    @classmethod
-    def from_record(cls, r: QeegCleaningVersion) -> "CleaningVersionOut":
-        def _ld(s: Optional[str], default):
-            try:
-                return json.loads(s) if s else default
-            except (TypeError, ValueError):
-                return default
-
-        return cls(
-            id=r.id,
-            analysis_id=r.analysis_id,
-            version_number=r.version_number,
-            label=r.label,
-            notes=r.notes,
-            bad_channels=_ld(r.bad_channels_json, []),
-            rejected_segments=_ld(r.rejected_segments_json, []),
-            rejected_epochs=_ld(r.rejected_epochs_json, []),
-            rejected_ica_components=_ld(r.rejected_ica_components_json, []),
-            interpolated_channels=_ld(r.interpolated_channels_json, []),
-            cleaned_summary=_ld(r.cleaned_summary_json, {}),
-            review_status=r.review_status,
-            derived_analysis_id=r.derived_analysis_id,
-            created_by_actor_id=r.created_by_actor_id,
-            created_at=(r.created_at or datetime.now(timezone.utc)).isoformat(),
-            updated_at=(r.updated_at or datetime.now(timezone.utc)).isoformat(),
-        )
-
-
-class CleaningAuditEntry(BaseModel):
-    id: str
-    action_type: str
-    channel: Optional[str] = None
-    start_sec: Optional[float] = None
-    end_sec: Optional[float] = None
-    ica_component: Optional[int] = None
-    note: Optional[str] = None
-    source: str
-    actor_id: Optional[str] = None
-    created_at: str
-
-
-class CleaningLogResponse(BaseModel):
-    analysis_id: str
-    items: list[CleaningAuditEntry] = Field(default_factory=list)
-    total: int = 0
-
-
-class RawVsCleanedSummary(BaseModel):
-    analysis_id: str
-    cleaning_version_id: Optional[str] = None
-    bad_channels_excluded: list[str] = Field(default_factory=list)
-    rejected_segments_count: int = 0
-    rejected_ica_components_count: int = 0
-    retained_data_pct: float = 100.0
-    total_recording_sec: float = 0.0
-    rejected_total_sec: float = 0.0
+    events: list[SpikeEvent] = Field(default_factory=list)
+    detector_available: bool = False
     notice: str = (
-        "Decision-support only. Comparison reflects clinician-saved cleaning "
-        "decisions; original raw EEG is unchanged."
+        "Decision-support only. Empty list is a valid clinical signal "
+        "(no spikes detected)."
     )
 
 
-class AIArtefactSuggestion(BaseModel):
-    id: str
-    kind: str = "ai_suggestion"
-    ai_label: str
-    ai_confidence: float
-    channel: Optional[str] = None
-    start_sec: Optional[float] = None
-    end_sec: Optional[float] = None
-    explanation: str
-    suggested_action: str
-    decision_status: str = "suggested"
-    safety_notice: str = (
-        "AI-assisted suggestion only. Clinician confirmation required."
-    )
+class ApplyTemplateRequest(BaseModel):
+    template: str = Field(min_length=1, max_length=40)
 
 
-class AIArtefactSuggestionsRequest(BaseModel):
-    medication_confounds: Optional[list[str]] = Field(
-        default=None,
-        description="Optional list of medication names to enrich artifact suggestions.",
-    )
-
-
-class AISuggestionListResponse(BaseModel):
+class ApplyTemplateResponse(BaseModel):
     analysis_id: str
-    items: list[AIArtefactSuggestion] = Field(default_factory=list)
-    total: int = 0
+    template: str
+    components_excluded: list[int] = Field(default_factory=list)
+    components_examined: int = 0
+    decisions_logged: int = 0
     notice: str = (
-        "AI-assisted artefact suggestions. Decision-support only — every "
-        "suggestion requires clinician confirmation before any cleaning is "
-        "applied."
+        "AI-applied template. Clinician review still required before "
+        "exporting or interpreting cleaned data."
     )
 
 
-class RerunRequest(BaseModel):
-    cleaning_version_id: str = Field(min_length=1, max_length=64)
-
-
-class RerunResponse(BaseModel):
-    analysis_id: str
-    cleaning_version_id: str
-    status: str
-    message: str
-
-
-def _audit(
-    db: Session,
+def _merge_into_cleaning_config(
+    analysis: QEEGAnalysis,
     *,
-    analysis_id: str,
-    action_type: str,
-    actor: AuthenticatedActor,
-    cleaning_version_id: Optional[str] = None,
-    channel: Optional[str] = None,
-    start_sec: Optional[float] = None,
-    end_sec: Optional[float] = None,
-    ica_component: Optional[int] = None,
-    previous_value: Optional[dict] = None,
-    new_value: Optional[dict] = None,
-    note: Optional[str] = None,
-    source: str = "clinician",
-) -> None:
-    row = QeegCleaningAuditEvent(
-        analysis_id=analysis_id,
-        cleaning_version_id=cleaning_version_id,
-        action_type=action_type,
-        channel=channel,
-        start_sec=start_sec,
-        end_sec=end_sec,
-        ica_component=ica_component,
-        previous_value_json=json.dumps(previous_value) if previous_value is not None else None,
-        new_value_json=json.dumps(new_value) if new_value is not None else None,
-        note=note,
-        source=source,
-        actor_id=getattr(actor, "actor_id", None),
-    )
-    db.add(row)
+    accepted_bad_channels: list[dict[str, Any]],
+    accepted_bad_segments: list[dict[str, Any]],
+    auto_clean_run_id: Optional[str] = None,
+    excluded_ica_components: Optional[list[int]] = None,
+) -> dict[str, Any]:
+    """Merge accepted scan items into the existing cleaning_config_json.
 
-
-@router.get("/{analysis_id}/metadata", response_model=WorkbenchMetadataResponse)
-def get_workbench_metadata(
-    analysis_id: str,
-    db: Session = Depends(get_db_session),
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-) -> WorkbenchMetadataResponse:
-    """Return anonymised metadata for the workbench loader panel.
-
-    No filename, patient name, or PHI is returned — clinicians see only
-    the recording-shape fields they need to decide whether the data
-    looks loadable. The original ``original_filename`` column is
-    explicitly omitted from the response.
+    Existing entries are preserved; new items are appended (de-duplicated by
+    channel name / start-end pair / IC index). Returns the merged config
+    dict for callers that want to inspect it.
     """
-    require_minimum_role(actor, "clinician")
-    analysis = _load_analysis(analysis_id, db, actor)
-
-    channels: list[str] = []
-    if analysis.channels_json:
-        try:
-            channels = list(json.loads(analysis.channels_json) or [])
-        except (TypeError, ValueError):
-            channels = []
-
-    metadata_complete = bool(
-        analysis.sample_rate_hz
-        and analysis.recording_duration_sec
-        and analysis.channel_count
-        and channels
-    )
-
-    return WorkbenchMetadataResponse(
-        analysis_id=analysis_id,
-        recording_date=analysis.recording_date,
-        duration_sec=float(analysis.recording_duration_sec) if analysis.recording_duration_sec else None,
-        sample_rate_hz=float(analysis.sample_rate_hz) if analysis.sample_rate_hz else None,
-        channel_count=int(analysis.channel_count) if analysis.channel_count else (len(channels) or None),
-        channels=channels,
-        montage_or_reference=None,  # populated by future extraction step
-        eyes_condition=analysis.eyes_condition,
-        equipment=analysis.equipment,
-        metadata_complete=metadata_complete,
-    )
-
-
-@router.get(
-    "/{analysis_id}/reference-library",
-    response_model=WorkbenchReferenceLibraryResponse,
-)
-def get_reference_library(
-    analysis_id: str,
-    db: Session = Depends(get_db_session),
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-) -> WorkbenchReferenceLibraryResponse:
-    require_minimum_role(actor, "clinician")
-    _load_analysis(analysis_id, db, actor)
-    from deepsynaps_qeeg.knowledge import load_wineeg_reference_library
-
-    library = load_wineeg_reference_library()
-    return WorkbenchReferenceLibraryResponse(**library)
-
-
-@router.get(
-    "/{analysis_id}/manual-analysis-checklist",
-    response_model=ManualAnalysisChecklistResponse,
-)
-def get_manual_analysis_checklist(
-    analysis_id: str,
-    db: Session = Depends(get_db_session),
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-) -> ManualAnalysisChecklistResponse:
-    require_minimum_role(actor, "clinician")
-    _load_analysis(analysis_id, db, actor)
-    from deepsynaps_qeeg.knowledge import manual_analysis_checklist
-
-    items = [ManualAnalysisChecklistItem(**item) for item in manual_analysis_checklist()]
-    return ManualAnalysisChecklistResponse(analysis_id=analysis_id, items=items)
-
-
-@router.get("/{analysis_id}/cleaning-log", response_model=CleaningLogResponse)
-def get_cleaning_log(
-    analysis_id: str,
-    limit: int = Query(200, ge=1, le=500),
-    db: Session = Depends(get_db_session),
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-) -> CleaningLogResponse:
-    require_minimum_role(actor, "clinician")
-    _load_analysis(analysis_id, db, actor)
-
-    rows = (
-        db.query(QeegCleaningAuditEvent)
-        .filter(QeegCleaningAuditEvent.analysis_id == analysis_id)
-        .order_by(QeegCleaningAuditEvent.created_at.desc())
-        .limit(limit)
-        .all()
-    )
-    items = [
-        CleaningAuditEntry(
-            id=r.id,
-            action_type=r.action_type,
-            channel=r.channel,
-            start_sec=r.start_sec,
-            end_sec=r.end_sec,
-            ica_component=r.ica_component,
-            note=r.note,
-            source=r.source,
-            actor_id=r.actor_id,
-            created_at=(r.created_at or datetime.now(timezone.utc)).isoformat(),
-        )
-        for r in rows
-    ]
-    return CleaningLogResponse(analysis_id=analysis_id, items=items, total=len(items))
-
-
-def _annotation_note_json(note: Optional[str]) -> dict[str, Any]:
-    if not note:
-        return {}
+    cfg: dict[str, Any]
     try:
-        payload = json.loads(note)
+        cfg = json.loads(analysis.cleaning_config_json) if analysis.cleaning_config_json else {}
+        if not isinstance(cfg, dict):
+            cfg = {}
     except (TypeError, ValueError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
+        cfg = {}
 
+    cfg.setdefault("bad_channels", [])
+    cfg.setdefault("bad_segments", [])
+    cfg.setdefault("excluded_ica_components", [])
+    cfg.setdefault("included_ica_components", [])
+    cfg.setdefault("bandpass_low", 1.0)
+    cfg.setdefault("bandpass_high", 45.0)
+    cfg.setdefault("notch_hz", 50.0)
+    cfg.setdefault("resample_hz", 250.0)
 
-@router.post(
-    "/{analysis_id}/annotations",
-    response_model=CleaningAnnotationOut,
-    status_code=201,
-)
-def create_annotation(
-    analysis_id: str,
-    body: CleaningAnnotationIn,
-    db: Session = Depends(get_db_session),
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-) -> CleaningAnnotationOut:
-    """Record a cleaning annotation on this analysis (manual or AI-accepted).
+    existing_channels = {c for c in cfg["bad_channels"] if isinstance(c, str)}
+    for item in accepted_bad_channels:
+        ch = item.get("channel")
+        if not ch or ch in existing_channels:
+            continue
+        cfg["bad_channels"].append(ch)
+        existing_channels.add(ch)
 
-    AI suggestions persist with ``source='ai'`` and ``decision_status='suggested'``;
-    they are only honored once a clinician changes ``decision_status`` to
-    ``'accepted'`` via this endpoint or a follow-up PATCH.
-    """
-    require_minimum_role(actor, "clinician")
-    _load_analysis(analysis_id, db, actor)
-
-    if body.kind not in _VALID_ANNOTATION_KINDS:
-        raise ApiServiceError(
-            code="invalid_kind",
-            message=f"Annotation kind must be one of {sorted(_VALID_ANNOTATION_KINDS)}.",
-            status_code=422,
-        )
-    if body.decision_status not in _VALID_DECISION_STATUSES:
-        raise ApiServiceError(
-            code="invalid_decision_status",
-            message=f"decision_status must be one of {sorted(_VALID_DECISION_STATUSES)}.",
-            status_code=422,
-        )
-    if body.ai_label is not None and body.ai_label not in _VALID_AI_LABELS:
-        raise ApiServiceError(
-            code="invalid_ai_label",
-            message=f"ai_label must be one of {sorted(_VALID_AI_LABELS)}.",
-            status_code=422,
-        )
-    if body.start_sec is not None and body.end_sec is not None and body.end_sec < body.start_sec:
-        raise ApiServiceError(
-            code="invalid_time_range",
-            message="end_sec must be >= start_sec.",
-            status_code=422,
-        )
-
-    row = QeegCleaningAnnotation(
-        analysis_id=analysis_id,
-        kind=body.kind,
-        channel=body.channel,
-        start_sec=body.start_sec,
-        end_sec=body.end_sec,
-        ica_component=body.ica_component,
-        ai_confidence=body.ai_confidence,
-        ai_label=body.ai_label,
-        source=body.source if body.source in {"clinician", "ai"} else "clinician",
-        decision_status=body.decision_status,
-        note=body.note,
-        actor_id=getattr(actor, "actor_id", None),
-    )
-    db.add(row)
-    db.flush()
-    _audit(
-        db,
-        analysis_id=analysis_id,
-        action_type=f"annotation:{body.kind}",
-        actor=actor,
-        channel=body.channel,
-        start_sec=body.start_sec,
-        end_sec=body.end_sec,
-        ica_component=body.ica_component,
-        new_value={
-            "annotation_id": row.id,
-            "decision_status": body.decision_status,
-            "ai_label": body.ai_label,
-        },
-        note=body.note,
-        source=row.source,
-    )
-    db.commit()
-    db.refresh(row)
-    return CleaningAnnotationOut.from_record(row)
-
-
-@router.post(
-    "/{analysis_id}/manual-findings",
-    response_model=ManualFindingOut,
-    status_code=201,
-)
-def create_manual_finding(
-    analysis_id: str,
-    body: ManualFindingIn,
-    db: Session = Depends(get_db_session),
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-) -> ManualFindingOut:
-    require_minimum_role(actor, "clinician")
-    analysis = _load_analysis(analysis_id, db, actor)
-
-    if not body.clinician_review_required:
-        raise ApiServiceError(
-            code="clinician_review_required",
-            message="Manual findings must remain clinician-review-required.",
-            status_code=422,
-        )
-
-    payload = {
-        "patient_id": body.patient_id or analysis.patient_id,
-        "recording_id": body.recording_id or analysis_id,
-        "session_id": body.session_id,
-        "channels": body.channels,
-        "bands": body.bands,
-        "finding_type": body.finding_type,
-        "severity": body.severity,
-        "confidence": body.confidence,
-        "possible_confounds": body.possible_confounds,
-        "note": body.note,
-        "clinician_review_required": True,
+    existing_seg_keys = {
+        (round(float(s.get("start_sec", 0.0)), 2), round(float(s.get("end_sec", 0.0)), 2))
+        for s in cfg["bad_segments"]
+        if isinstance(s, dict) and "start_sec" in s
     }
-    row = QeegCleaningAnnotation(
-        analysis_id=analysis_id,
-        kind="manual_finding",
-        channel=(body.channels[0] if body.channels else None),
-        source="clinician",
-        decision_status="accepted",
-        note=json.dumps(payload),
-        actor_id=getattr(actor, "actor_id", None),
-    )
-    db.add(row)
-    db.flush()
-    _audit(
-        db,
-        analysis_id=analysis_id,
-        action_type="annotation:manual_finding",
-        actor=actor,
-        channel=row.channel,
-        new_value=payload,
-        note=body.note,
-        source="clinician",
-    )
-    db.commit()
-    db.refresh(row)
-    return ManualFindingOut(
-        id=row.id,
-        analysis_id=analysis_id,
-        created_at=(row.created_at or datetime.now(timezone.utc)).isoformat(),
-        **payload,
-    )
-
-
-@router.get(
-    "/{analysis_id}/annotations",
-    response_model=list[CleaningAnnotationOut],
-)
-def list_annotations(
-    analysis_id: str,
-    kind: Optional[str] = Query(None, max_length=40),
-    decision_status: Optional[str] = Query(None, max_length=30),
-    limit: int = Query(500, ge=1, le=1000),
-    db: Session = Depends(get_db_session),
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-) -> list[CleaningAnnotationOut]:
-    require_minimum_role(actor, "clinician")
-    _load_analysis(analysis_id, db, actor)
-    q = db.query(QeegCleaningAnnotation).filter(
-        QeegCleaningAnnotation.analysis_id == analysis_id
-    )
-    if kind:
-        q = q.filter(QeegCleaningAnnotation.kind == kind)
-    if decision_status:
-        q = q.filter(QeegCleaningAnnotation.decision_status == decision_status)
-    rows = q.order_by(QeegCleaningAnnotation.created_at.desc()).limit(limit).all()
-    return [CleaningAnnotationOut.from_record(r) for r in rows]
-
-
-@router.post(
-    "/{analysis_id}/cleaning-version",
-    response_model=CleaningVersionOut,
-    status_code=201,
-)
-def save_cleaning_version(
-    analysis_id: str,
-    body: CleaningVersionIn,
-    db: Session = Depends(get_db_session),
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-) -> CleaningVersionOut:
-    """Persist a clinician-saved cleaning version.
-
-    Original raw EEG is unchanged. Returns the new version with
-    incremented ``version_number``. Caller can then ``rerun-analysis``
-    to derive a new analysis from this version.
-    """
-    require_minimum_role(actor, "clinician")
-    _load_analysis(analysis_id, db, actor)
-
-    last = (
-        db.query(QeegCleaningVersion)
-        .filter(QeegCleaningVersion.analysis_id == analysis_id)
-        .order_by(QeegCleaningVersion.version_number.desc())
-        .first()
-    )
-    next_n = (last.version_number + 1) if last else 1
-
-    rejected_segments = [
-        {"start_sec": s.start_sec, "end_sec": s.end_sec, "description": s.description}
-        for s in body.rejected_segments
-    ]
-    summary = {
-        "bad_channel_count": len(body.bad_channels),
-        "rejected_segments_count": len(rejected_segments),
-        "rejected_epochs_count": len(body.rejected_epochs),
-        "rejected_ica_components_count": len(body.rejected_ica_components),
-        "interpolated_channels_count": len(body.interpolated_channels),
-        "annotation_ids": list(body.annotation_ids),
-        "decision_support_only": True,
-        "raw_preserved": True,
-    }
-
-    row = QeegCleaningVersion(
-        analysis_id=analysis_id,
-        version_number=next_n,
-        label=body.label or f"Cleaning v{next_n}",
-        notes=body.notes,
-        bad_channels_json=json.dumps(body.bad_channels),
-        rejected_segments_json=json.dumps(rejected_segments),
-        rejected_epochs_json=json.dumps(body.rejected_epochs),
-        rejected_ica_components_json=json.dumps(body.rejected_ica_components),
-        interpolated_channels_json=json.dumps(body.interpolated_channels),
-        cleaned_summary_json=json.dumps(summary),
-        review_status="draft",
-        created_by_actor_id=getattr(actor, "actor_id", None),
-    )
-    db.add(row)
-    db.flush()
-    _audit(
-        db,
-        analysis_id=analysis_id,
-        action_type="cleaning_version:save",
-        actor=actor,
-        cleaning_version_id=row.id,
-        new_value={"version_number": next_n, "summary": summary},
-        note=body.notes,
-    )
-    db.commit()
-    db.refresh(row)
-    return CleaningVersionOut.from_record(row)
-
-
-@router.get(
-    "/{analysis_id}/cleaning-versions",
-    response_model=list[CleaningVersionOut],
-)
-def list_cleaning_versions(
-    analysis_id: str,
-    db: Session = Depends(get_db_session),
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-) -> list[CleaningVersionOut]:
-    require_minimum_role(actor, "clinician")
-    _load_analysis(analysis_id, db, actor)
-    rows = (
-        db.query(QeegCleaningVersion)
-        .filter(QeegCleaningVersion.analysis_id == analysis_id)
-        .order_by(QeegCleaningVersion.version_number.desc())
-        .all()
-    )
-    return [CleaningVersionOut.from_record(r) for r in rows]
-
-
-@router.get(
-    "/{analysis_id}/raw-vs-cleaned-summary",
-    response_model=RawVsCleanedSummary,
-)
-def get_raw_vs_cleaned_summary(
-    analysis_id: str,
-    cleaning_version_id: Optional[str] = Query(None, max_length=64),
-    db: Session = Depends(get_db_session),
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-) -> RawVsCleanedSummary:
-    require_minimum_role(actor, "clinician")
-    analysis = _load_analysis(analysis_id, db, actor)
-
-    q = db.query(QeegCleaningVersion).filter(QeegCleaningVersion.analysis_id == analysis_id)
-    if cleaning_version_id:
-        q = q.filter(QeegCleaningVersion.id == cleaning_version_id)
-    else:
-        q = q.order_by(QeegCleaningVersion.version_number.desc())
-    version = q.first()
-
-    if version is None:
-        return RawVsCleanedSummary(
-            analysis_id=analysis_id,
-            total_recording_sec=float(analysis.recording_duration_sec or 0.0),
-        )
-
-    try:
-        rejected_segments = json.loads(version.rejected_segments_json or "[]")
-    except (TypeError, ValueError):
-        rejected_segments = []
-    try:
-        bad_channels = json.loads(version.bad_channels_json or "[]")
-    except (TypeError, ValueError):
-        bad_channels = []
-    try:
-        rejected_ica = json.loads(version.rejected_ica_components_json or "[]")
-    except (TypeError, ValueError):
-        rejected_ica = []
-
-    rejected_total_sec = 0.0
-    for seg in rejected_segments:
+    for item in accepted_bad_segments:
         try:
-            rejected_total_sec += max(0.0, float(seg.get("end_sec", 0.0)) - float(seg.get("start_sec", 0.0)))
+            start = round(float(item.get("start_sec", 0.0)), 2)
+            end = round(float(item.get("end_sec", 0.0)), 2)
         except (TypeError, ValueError):
             continue
-    total = float(analysis.recording_duration_sec or 0.0)
-    retained = 100.0
-    if total > 0:
-        retained = max(0.0, min(100.0, 100.0 * (1.0 - rejected_total_sec / total)))
+        key = (start, end)
+        if key in existing_seg_keys:
+            continue
+        cfg["bad_segments"].append(
+            {
+                "start_sec": start,
+                "end_sec": end,
+                "description": "BAD_auto_scan",
+                "reason": item.get("reason"),
+                "source": "auto_scan",
+                "confidence": item.get("confidence"),
+            }
+        )
+        existing_seg_keys.add(key)
 
-    return RawVsCleanedSummary(
+    if excluded_ica_components:
+        existing_ica = set(int(x) for x in cfg["excluded_ica_components"] if isinstance(x, int))
+        for idx in excluded_ica_components:
+            try:
+                ii = int(idx)
+            except (TypeError, ValueError):
+                continue
+            if ii not in existing_ica:
+                cfg["excluded_ica_components"].append(ii)
+                existing_ica.add(ii)
+
+    if auto_clean_run_id:
+        cfg["auto_clean_run_id"] = auto_clean_run_id
+
+    cfg["saved_at"] = datetime.now(timezone.utc).isoformat()
+    cfg["version"] = cfg.get("version", 1)
+    analysis.cleaning_config_json = json.dumps(cfg)
+    return cfg
+
+
+@router.post("/{analysis_id}/auto-scan", response_model=AutoScanResponse)
+def post_auto_scan(
+    analysis_id: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> AutoScanResponse:
+    """Run threshold-based auto-scan and persist proposal as ``AutoCleanRun``.
+
+    Returns ``run_id`` + the structured proposal. The clinician then calls
+    :func:`post_auto_scan_decide` with their accept/reject selections to
+    commit. Until they do, nothing flows into ``cleaning_config_json``.
+    """
+    require_minimum_role(actor, "clinician")
+    _load_analysis(analysis_id, db)
+    _require_mne()
+
+    from app.services.auto_artifact_scan import scan_for_artifacts
+
+    result = scan_for_artifacts(analysis_id, db)
+
+    run = AutoCleanRun(
         analysis_id=analysis_id,
-        cleaning_version_id=version.id,
-        bad_channels_excluded=list(bad_channels),
-        rejected_segments_count=len(rejected_segments),
-        rejected_ica_components_count=len(rejected_ica),
-        retained_data_pct=round(retained, 1),
-        total_recording_sec=total,
-        rejected_total_sec=round(rejected_total_sec, 2),
+        proposal_json=json.dumps(result),
+        created_by=getattr(actor, "actor_id", None),
+    )
+    db.add(run)
+    db.flush()
+
+    # Audit row recording that the AI proposed a scan. No accept/reject yet.
+    db.add(
+        CleaningDecision(
+            analysis_id=analysis_id,
+            auto_clean_run_id=run.id,
+            actor="ai",
+            action="auto_scan_proposed",
+            target=f"summary:{result['summary'].get('n_bad_channels', 0)}c/"
+                   f"{result['summary'].get('n_bad_segments', 0)}s",
+            payload_json=json.dumps(result["summary"]),
+            accepted_by_user=None,
+            confidence=None,
+        )
+    )
+    _audit(
+        db,
+        analysis_id=analysis_id,
+        action_type="auto_scan:generated",
+        actor=actor,
+        new_value={
+            "run_id": run.id,
+            "summary": result["summary"],
+        },
+        source="ai",
+    )
+    db.commit()
+    db.refresh(run)
+
+    return AutoScanResponse(
+        analysis_id=analysis_id,
+        run_id=run.id,
+        proposal=AutoScanProposal(**result),
     )
 
 
 @router.post(
-    "/{analysis_id}/ai-artefact-suggestions",
-    response_model=AISuggestionListResponse,
+    "/{analysis_id}/auto-scan/{run_id}/decide",
+    response_model=AutoScanDecideResponse,
 )
-def generate_ai_artefact_suggestions(
+def post_auto_scan_decide(
     analysis_id: str,
-    body: Optional[AIArtefactSuggestionsRequest] = None,
+    run_id: str,
+    body: AutoScanDecideRequest,
     db: Session = Depends(get_db_session),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
-) -> AISuggestionListResponse:
-    """Generate AI-assisted artefact suggestions for the workbench.
+) -> AutoScanDecideResponse:
+    """Commit clinician accept/reject decisions on an auto-scan proposal.
 
-    Each suggestion is persisted as an annotation with
-    ``source='ai'`` and ``decision_status='suggested'`` so it appears in
-    the audit trail. Clinicians must explicitly accept (via PATCH on the
-    annotation, or a follow-up clinician annotation) before any cleaning
-    is applied. The endpoint never modifies raw EDF bytes or the parent
-    analysis row.
-
-    When ``medication_confounds`` is provided, suggestions are enriched
-    with knowledge-base expected artifacts per channel via
-    ``ArtifactAtlas``.
+    Writes one ``CleaningDecision`` audit row per accepted **and** rejected
+    item, updates the ``AutoCleanRun`` row's ``accepted_items_json`` /
+    ``rejected_items_json`` columns, and merges the *accepted* items into
+    the analysis' ``cleaning_config_json`` so the next reprocess picks them
+    up.
     """
     require_minimum_role(actor, "clinician")
-    analysis = _load_analysis(analysis_id, db, actor)
+    analysis = _load_analysis(analysis_id, db)
 
-    # Persist medication confounds on the analysis row for downstream
-    # copilot / report enrichment.
-    medications = []
-    if body and body.medication_confounds:
-        medications = list(body.medication_confounds)
-        analysis.medication_confounds = json.dumps(medications)
-        db.commit()
-
-    # Build enriched archetypes using ArtifactAtlas when available.
-    try:
-        from deepsynaps_qeeg.knowledge import ArtifactAtlas
-    except Exception:
-        ArtifactAtlas = None  # type: ignore[misc,assignment]
-
-    def _enrich_explanation(channel: Optional[str], base_explanation: str) -> str:
-        if not channel or ArtifactAtlas is None:
-            return base_explanation
-        try:
-            profiles = ArtifactAtlas.lookup(channel)
-            if profiles:
-                parts = [base_explanation]
-                parts.append(
-                    " Knowledge-base artifact profiles for this channel: "
-                    + ", ".join(p.artifact_type for p in profiles)
-                    + "."
-                )
-                return "".join(parts)
-        except Exception:
-            pass
-        return base_explanation
-
-    archetypes = [
-        {
-            "ai_label": "eye_blink",
-            "channel": "Fp1-Av",
-            "start_sec": 2.4,
-            "end_sec": 3.1,
-            "ai_confidence": 0.78,
-            "explanation": _enrich_explanation(
-                "Fp1-Av",
-                "Frontal-channel high-amplitude deflection lasting <1s "
-                "is consistent with an eye-blink artefact.",
-            ),
-            "suggested_action": "review_ica",
-        },
-        {
-            "ai_label": "muscle",
-            "channel": "T3-Av",
-            "start_sec": 7.2,
-            "end_sec": 8.4,
-            "ai_confidence": 0.65,
-            "explanation": _enrich_explanation(
-                "T3-Av",
-                "Sustained high-frequency (>20 Hz) burst over a temporal "
-                "channel suggests muscle contamination.",
-            ),
-            "suggested_action": "mark_bad_segment",
-        },
-        {
-            "ai_label": "line_noise",
-            "channel": None,
-            "start_sec": 0.0,
-            "end_sec": float("nan"),
-            "ai_confidence": 0.55,
-            "explanation": (
-                "Narrow spectral peak near power-line frequency. Confirm "
-                "notch filter is active before interpretation."
-            ),
-            "suggested_action": "ignore",
-        },
-    ]
-
-    out: list[AIArtefactSuggestion] = []
-    for arc in archetypes:
-        end_sec = arc["end_sec"]
-        if isinstance(end_sec, float) and end_sec != end_sec:  # NaN guard
-            end_sec = None
-        ann = QeegCleaningAnnotation(
-            analysis_id=analysis_id,
-            kind="ai_suggestion",
-            channel=arc["channel"],
-            start_sec=arc["start_sec"],
-            end_sec=end_sec,
-            ai_confidence=arc["ai_confidence"],
-            ai_label=arc["ai_label"],
-            source="ai",
-            decision_status="suggested",
-            note=arc["explanation"],
-            actor_id=getattr(actor, "actor_id", None),
-        )
-        db.add(ann)
-        db.flush()
-        _audit(
-            db,
-            analysis_id=analysis_id,
-            action_type="ai_suggestion:generated",
-            actor=actor,
-            channel=arc["channel"],
-            start_sec=arc["start_sec"],
-            end_sec=end_sec,
-            new_value={
-                "annotation_id": ann.id,
-                "ai_label": arc["ai_label"],
-                "ai_confidence": arc["ai_confidence"],
-                "suggested_action": arc["suggested_action"],
-            },
-            source="ai",
-        )
-        out.append(
-            AIArtefactSuggestion(
-                id=ann.id,
-                ai_label=arc["ai_label"],
-                ai_confidence=arc["ai_confidence"],
-                channel=arc["channel"],
-                start_sec=arc["start_sec"],
-                end_sec=end_sec,
-                explanation=arc["explanation"],
-                suggested_action=arc["suggested_action"],
-                decision_status="suggested",
-            )
-        )
-    db.commit()
-    return AISuggestionListResponse(analysis_id=analysis_id, items=out, total=len(out))
-
-
-@router.post("/{analysis_id}/rerun-analysis", response_model=RerunResponse)
-def rerun_analysis_with_cleaning(
-    analysis_id: str,
-    body: RerunRequest,
-    background_tasks: BackgroundTasks = BackgroundTasks(),
-    db: Session = Depends(get_db_session),
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-) -> RerunResponse:
-    """Trigger qEEG re-analysis using a saved cleaning version.
-
-    Updates the cleaning version's ``review_status`` to
-    ``'rerun_requested'`` and queues the existing reprocess pipeline.
-    The original raw analysis row is *not* mutated.
-    """
-    require_minimum_role(actor, "clinician")
-    analysis = _load_analysis(analysis_id, db, actor)
-
-    version = (
-        db.query(QeegCleaningVersion)
-        .filter(
-            QeegCleaningVersion.analysis_id == analysis_id,
-            QeegCleaningVersion.id == body.cleaning_version_id,
-        )
+    run = (
+        db.query(AutoCleanRun)
+        .filter(AutoCleanRun.id == run_id, AutoCleanRun.analysis_id == analysis_id)
         .first()
     )
-    if version is None:
+    if run is None:
         raise ApiServiceError(
             code="not_found",
-            message="Cleaning version not found.",
+            message="Auto-clean run not found.",
             status_code=404,
         )
 
-    # Reflect the cleaning version's bad-channel / segment / ICA decisions
-    # into the legacy ``cleaning_config_json`` blob so the existing
-    # reprocess pipeline can consume them without further refactor.
-    try:
-        bad_channels = json.loads(version.bad_channels_json or "[]")
-        rejected_segments = json.loads(version.rejected_segments_json or "[]")
-        rejected_ica = json.loads(version.rejected_ica_components_json or "[]")
-    except (TypeError, ValueError):
-        bad_channels, rejected_segments, rejected_ica = [], [], []
+    accepted = body.accepted_items or {"bad_channels": [], "bad_segments": []}
+    rejected = body.rejected_items or {"bad_channels": [], "bad_segments": []}
+    accepted_channels = list(accepted.get("bad_channels") or [])
+    accepted_segments = list(accepted.get("bad_segments") or [])
+    rejected_channels = list(rejected.get("bad_channels") or [])
+    rejected_segments = list(rejected.get("bad_segments") or [])
 
-    config_dict = {
-        "bad_channels": bad_channels,
-        "bad_segments": rejected_segments,
-        "excluded_ica_components": rejected_ica,
-        "included_ica_components": [],
-        "bandpass_low": 1.0,
-        "bandpass_high": 45.0,
-        "notch_hz": 50.0,
-        "resample_hz": 250.0,
-        "version": 1,
-        "saved_at": datetime.now(timezone.utc).isoformat(),
-        "saved_by": getattr(actor, "actor_id", None) or "unknown",
-        "cleaning_version_id": version.id,
-        "cleaning_version_number": version.version_number,
-    }
-    analysis.cleaning_config_json = json.dumps(config_dict)
-    analysis.analysis_status = "processing:mne_pipeline_custom"
-    analysis.analysis_error = None
+    decisions_logged = 0
+    for item in accepted_channels:
+        db.add(
+            CleaningDecision(
+                analysis_id=analysis_id,
+                auto_clean_run_id=run.id,
+                actor="user",
+                action="accept_ai_suggestion",
+                target=f"bad_channel:{item.get('channel', '?')}",
+                payload_json=json.dumps(item),
+                accepted_by_user=True,
+                confidence=item.get("confidence"),
+            )
+        )
+        decisions_logged += 1
+    for item in accepted_segments:
+        db.add(
+            CleaningDecision(
+                analysis_id=analysis_id,
+                auto_clean_run_id=run.id,
+                actor="user",
+                action="accept_ai_suggestion",
+                target=(
+                    f"bad_segment:{item.get('start_sec', 0)}-"
+                    f"{item.get('end_sec', 0)}"
+                ),
+                payload_json=json.dumps(item),
+                accepted_by_user=True,
+                confidence=item.get("confidence"),
+            )
+        )
+        decisions_logged += 1
+    for item in rejected_channels:
+        db.add(
+            CleaningDecision(
+                analysis_id=analysis_id,
+                auto_clean_run_id=run.id,
+                actor="user",
+                action="reject_ai_suggestion",
+                target=f"bad_channel:{item.get('channel', '?')}",
+                payload_json=json.dumps(item),
+                accepted_by_user=False,
+                confidence=item.get("confidence"),
+            )
+        )
+        decisions_logged += 1
+    for item in rejected_segments:
+        db.add(
+            CleaningDecision(
+                analysis_id=analysis_id,
+                auto_clean_run_id=run.id,
+                actor="user",
+                action="reject_ai_suggestion",
+                target=(
+                    f"bad_segment:{item.get('start_sec', 0)}-"
+                    f"{item.get('end_sec', 0)}"
+                ),
+                payload_json=json.dumps(item),
+                accepted_by_user=False,
+                confidence=item.get("confidence"),
+            )
+        )
+        decisions_logged += 1
 
-    version.review_status = "rerun_requested"
+    run.accepted_items_json = json.dumps(
+        {"bad_channels": accepted_channels, "bad_segments": accepted_segments}
+    )
+    run.rejected_items_json = json.dumps(
+        {"bad_channels": rejected_channels, "bad_segments": rejected_segments}
+    )
+
+    _merge_into_cleaning_config(
+        analysis,
+        accepted_bad_channels=accepted_channels,
+        accepted_bad_segments=accepted_segments,
+        auto_clean_run_id=run.id,
+    )
     _audit(
         db,
         analysis_id=analysis_id,
-        action_type="cleaning_version:rerun_requested",
+        action_type="auto_scan:decided",
         actor=actor,
-        cleaning_version_id=version.id,
-        new_value={"version_number": version.version_number},
+        new_value={
+            "run_id": run.id,
+            "accepted_counts": {
+                "bad_channels": len(accepted_channels),
+                "bad_segments": len(accepted_segments),
+            },
+            "rejected_counts": {
+                "bad_channels": len(rejected_channels),
+                "bad_segments": len(rejected_segments),
+            },
+        },
+        source="clinician",
     )
     db.commit()
 
-    background_tasks.add_task(_run_reprocess_background, analysis_id)
-
-    return RerunResponse(
+    return AutoScanDecideResponse(
         analysis_id=analysis_id,
-        cleaning_version_id=version.id,
-        status="processing",
-        message=(
-            f"Re-analysis queued for cleaning v{version.version_number}. "
-            "Original raw EEG preserved. Decision-support only."
-        ),
+        run_id=run.id,
+        committed_at=datetime.now(timezone.utc).isoformat(),
+        decisions_logged=decisions_logged,
+        accepted_counts={
+            "bad_channels": len(accepted_channels),
+            "bad_segments": len(accepted_segments),
+        },
+        rejected_counts={
+            "bad_channels": len(rejected_channels),
+            "bad_segments": len(rejected_segments),
+        },
+    )
+
+
+@router.get("/{analysis_id}/spike-events", response_model=SpikeEventsResponse)
+def get_spike_events(
+    analysis_id: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> SpikeEventsResponse:
+    """Return spike-event detections from the qEEG package, if available.
+
+    Empty list (with ``detector_available=False``) is the documented
+    clinical contract when the optional spike detector isn't present.
+    Returns 200 either way so the UI's spike side panel doesn't break.
+    """
+    require_minimum_role(actor, "clinician")
+    _load_analysis(analysis_id, db)
+
+    events: list[SpikeEvent] = []
+    detector_available = False
+
+    try:
+        # The optional pipeline package may expose a spike detector. If not,
+        # we silently return an empty list — the empty list is a valid
+        # clinical signal ("no spikes detected").
+        from deepsynaps_qeeg import spike_detection  # type: ignore[import-not-found]
+        detector_available = True
+        try:
+            raw_events = spike_detection.detect_for_analysis(analysis_id, db)  # type: ignore[attr-defined]
+            for ev in raw_events or []:
+                try:
+                    events.append(
+                        SpikeEvent(
+                            t_sec=float(ev.get("t_sec", 0.0)),
+                            channel=ev.get("channel"),
+                            peak_uv=ev.get("peak_uv"),
+                            classification=ev.get("classification"),
+                            confidence=ev.get("confidence"),
+                        )
+                    )
+                except (TypeError, ValueError):
+                    continue
+        except Exception as exc:  # detector present but raised
+            _log.warning("spike_detection.detect_for_analysis failed: %s", exc)
+    except ImportError:
+        detector_available = False
+
+    return SpikeEventsResponse(
+        analysis_id=analysis_id,
+        events=events,
+        detector_available=detector_available,
+    )
+
+
+@router.post(
+    "/{analysis_id}/apply-template",
+    response_model=ApplyTemplateResponse,
+)
+def post_apply_template(
+    analysis_id: str,
+    body: ApplyTemplateRequest,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> ApplyTemplateResponse:
+    """Apply an artifact-template ICA exclusion preset.
+
+    Looks at the existing ICA components for the analysis (via
+    :func:`extract_ica_data`) and excludes the ones whose ICLabel matches
+    the requested template above the confidence threshold. Writes one
+    ``CleaningDecision`` audit row per excluded component
+    (``actor='ai'``, ``action='apply_template'``) and merges the IDs into
+    ``cleaning_config_json.excluded_ica_components``.
+    """
+    require_minimum_role(actor, "clinician")
+    analysis = _load_analysis(analysis_id, db)
+    template = body.template.strip().lower()
+    if template not in _TEMPLATE_LABEL_MAP:
+        raise ApiServiceError(
+            code="invalid_template",
+            message=(
+                "Unknown template. Must be one of: "
+                + ", ".join(sorted(_TEMPLATE_LABEL_MAP.keys()))
+            ),
+            status_code=422,
+        )
+    target_labels = _TEMPLATE_LABEL_MAP[template]
+
+    _require_mne()
+    from app.services.eeg_signal_service import extract_ica_data
+
+    ica_data = extract_ica_data(analysis_id, db)
+    components = ica_data.get("components", []) or []
+
+    components_excluded: list[int] = []
+    decisions_logged = 0
+    for comp in components:
+        try:
+            idx = int(comp.get("index"))
+        except (TypeError, ValueError):
+            continue
+        label = (comp.get("label") or "").lower()
+        proba = comp.get("label_probabilities") or {}
+        # Best-matching probability across the template's accepted labels.
+        best_p = 0.0
+        for lbl, p in proba.items():
+            if lbl.lower() in target_labels:
+                try:
+                    best_p = max(best_p, float(p))
+                except (TypeError, ValueError):
+                    continue
+        # Direct label match (e.g. when ICLabel labels the component
+        # outright with one of the target labels) also counts.
+        if label in target_labels and best_p < 1.0:
+            best_p = max(best_p, 1.0)
+        if label not in target_labels and best_p < _TEMPLATE_CONFIDENCE_THRESHOLD:
+            continue
+        components_excluded.append(idx)
+        db.add(
+            CleaningDecision(
+                analysis_id=analysis_id,
+                actor="ai",
+                action="apply_template",
+                target=f"ica_component:{idx}",
+                payload_json=json.dumps(
+                    {
+                        "template": template,
+                        "label": label,
+                        "best_probability": round(best_p, 3),
+                        "label_probabilities": proba,
+                    }
+                ),
+                accepted_by_user=None,
+                confidence=round(best_p, 3) if best_p else None,
+            )
+        )
+        decisions_logged += 1
+
+    if components_excluded:
+        _merge_into_cleaning_config(
+            analysis,
+            accepted_bad_channels=[],
+            accepted_bad_segments=[],
+            excluded_ica_components=components_excluded,
+        )
+
+    _audit(
+        db,
+        analysis_id=analysis_id,
+        action_type="ica_template:applied",
+        actor=actor,
+        new_value={
+            "template": template,
+            "components_excluded": components_excluded,
+            "components_examined": len(components),
+        },
+        source="ai",
+    )
+    db.commit()
+
+    return ApplyTemplateResponse(
+        analysis_id=analysis_id,
+        template=template,
+        components_excluded=components_excluded,
+        components_examined=len(components),
+        decisions_logged=decisions_logged,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 6 — cleaned-signal export + Cleaning Report PDF
+#
+# Two clinician deliverables:
+#   - POST /export-cleaned   → application/octet-stream (EDF / EDF+ / BDF / FIF)
+#   - POST /cleaning-report  → application/pdf
+# Both gated on clinician role; both 503 when MNE / WeasyPrint missing.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+_EXPORT_MEDIA_TYPES = {
+    "edf": "application/octet-stream",
+    "edf_plus": "application/octet-stream",
+    "bdf": "application/octet-stream",
+    "fif": "application/octet-stream",
+}
+
+
+class ExportCleanedRequest(BaseModel):
+    format: str = Field(
+        default="edf",
+        description="One of: edf, edf_plus, bdf, fif",
+    )
+    interpolate_bad_channels: bool = Field(default=True)
+
+
+@router.post("/{analysis_id}/export-cleaned")
+def post_export_cleaned(
+    analysis_id: str,
+    body: ExportCleanedRequest,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+):
+    """Apply the saved cleaning config and stream the cleaned signal.
+
+    Produces an EDF / EDF+ / BDF / FIF binary attachment. Bad channels can be
+    interpolated (sensor positions required) or excluded outright via the
+    ``interpolate_bad_channels`` flag.
+    """
+    require_minimum_role(actor, "clinician")
+    _load_analysis(analysis_id, db)
+    _require_mne()
+
+    fmt = (body.format or "").strip().lower()
+    if fmt not in _EXPORT_MEDIA_TYPES:
+        raise ApiServiceError(
+            code="invalid_format",
+            message=(
+                "Unknown export format. Must be one of: "
+                + ", ".join(sorted(_EXPORT_MEDIA_TYPES.keys()))
+            ),
+            status_code=422,
+        )
+
+    from app.services import eeg_export_and_report as _exp
+
+    try:
+        out_path, out_filename = _exp.export_cleaned_to_path(
+            analysis_id,
+            db,
+            fmt=fmt,
+            interpolate_bad_channels=bool(body.interpolate_bad_channels),
+        )
+    except _exp.ExportFormatError as exc:
+        raise ApiServiceError(
+            code="invalid_format", message=str(exc), status_code=422
+        )
+    except RuntimeError as exc:
+        raise ApiServiceError(
+            code="export_failed",
+            message=str(exc),
+            status_code=500,
+        )
+
+    try:
+        with open(out_path, "rb") as fh:
+            payload = fh.read()
+    finally:
+        try:
+            os.unlink(out_path)
+        except OSError:  # pragma: no cover
+            pass
+
+    headers = {
+        "Content-Disposition": f'attachment; filename="{out_filename}"',
+    }
+    return Response(
+        content=payload,
+        media_type=_EXPORT_MEDIA_TYPES[fmt],
+        headers=headers,
+    )
+
+
+@router.post("/{analysis_id}/cleaning-report")
+def post_cleaning_report(
+    analysis_id: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+):
+    """Render and stream the signed Cleaning Report PDF.
+
+    Includes: pseudonymized header, cleaning summary, decisions grouped by
+    actor, before/after spectra (Cz/Pz/O1/O2), signed footer with the
+    clinician's id + display name + clinic + timestamp, and a decision-
+    support disclaimer.
+    """
+    require_minimum_role(actor, "clinician")
+    _load_analysis(analysis_id, db)
+
+    from app.services import eeg_export_and_report as _exp
+
+    html = _exp.build_cleaning_report_html(analysis_id, db, actor)
+
+    try:
+        pdf_bytes = _exp.render_cleaning_report_pdf(html)
+    except _exp.CleaningReportRendererUnavailable as exc:
+        raise ApiServiceError(
+            code="dependency_missing",
+            message=str(exc),
+            status_code=503,
+        )
+
+    filename = f"cleaning_report_{analysis_id}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ── Phase 7 — perf telemetry ────────────────────────────────────────────────
+#
+# The frontend renderer is already externally windowed (see
+# apps/web/src/eeg-signal-renderer.js header comment). Phase 7 adds a tiny,
+# memory-only ring buffer of perf samples per analysis so we can answer
+# "is rendering still smooth on long recordings" without persisting anything
+# to the database. The buffer is intentionally process-local — it resets on
+# restart and is not rate-limited because the only writers are the workstation
+# clients themselves.
+
+class WindowPerfSampleIn(BaseModel):
+    frame_render_ms: float = Field(..., ge=0)
+    window_load_ms: float = Field(..., ge=0)
+    sample_count: int = Field(..., ge=0)
+    channel_count: int = Field(..., ge=0)
+
+
+class WindowPerfStatsResponse(BaseModel):
+    analysis_id: str
+    sample_count: int = 0
+    p50_frame_ms: Optional[float] = None
+    p95_frame_ms: Optional[float] = None
+    p50_window_load_ms: Optional[float] = None
+    p95_window_load_ms: Optional[float] = None
+    last_n: list[dict[str, Any]] = Field(default_factory=list)
+
+
+# Per-process ring buffer keyed by analysis id. Capped at _PERF_BUF_SIZE
+# samples per analysis to bound memory regardless of client behaviour.
+_PERF_BUF_SIZE = 64
+_PERF_RING: dict[str, list[dict[str, Any]]] = {}
+
+
+def _percentile(values: list[float], pct: float) -> Optional[float]:
+    if not values:
+        return None
+    s = sorted(values)
+    if len(s) == 1:
+        return float(s[0])
+    k = max(0, min(len(s) - 1, int(round((pct / 100.0) * (len(s) - 1)))))
+    return float(s[k])
+
+
+@router.post(
+    "/{analysis_id}/window-perf-stats",
+    response_model=WindowPerfStatsResponse,
+)
+def push_window_perf_sample(
+    analysis_id: str,
+    sample: WindowPerfSampleIn,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> WindowPerfStatsResponse:
+    """Append one (frame_ms, load_ms) sample to the in-memory ring buffer."""
+    require_minimum_role(actor, "clinician")
+    _load_analysis(analysis_id, db)
+    buf = _PERF_RING.setdefault(analysis_id, [])
+    buf.append(sample.model_dump())
+    if len(buf) > _PERF_BUF_SIZE:
+        del buf[: len(buf) - _PERF_BUF_SIZE]
+    return _summarise_perf(analysis_id, buf)
+
+
+@router.get(
+    "/{analysis_id}/window-perf-stats",
+    response_model=WindowPerfStatsResponse,
+)
+def get_window_perf_stats(
+    analysis_id: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> WindowPerfStatsResponse:
+    """Return aggregated render perf stats from the in-memory ring buffer."""
+    require_minimum_role(actor, "clinician")
+    _load_analysis(analysis_id, db)
+    buf = _PERF_RING.get(analysis_id, [])
+    return _summarise_perf(analysis_id, buf)
+
+
+def _summarise_perf(analysis_id: str, buf: list[dict[str, Any]]) -> WindowPerfStatsResponse:
+    if not buf:
+        return WindowPerfStatsResponse(analysis_id=analysis_id, sample_count=0, last_n=[])
+    frame_vals = [float(s["frame_render_ms"]) for s in buf]
+    load_vals = [float(s["window_load_ms"]) for s in buf]
+    return WindowPerfStatsResponse(
+        analysis_id=analysis_id,
+        sample_count=len(buf),
+        p50_frame_ms=_percentile(frame_vals, 50),
+        p95_frame_ms=_percentile(frame_vals, 95),
+        p50_window_load_ms=_percentile(load_vals, 50),
+        p95_window_load_ms=_percentile(load_vals, 95),
+        last_n=buf[-10:],
     )

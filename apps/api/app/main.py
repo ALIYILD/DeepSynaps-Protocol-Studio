@@ -155,10 +155,7 @@ except ImportError as _qa_imp_err:
         "QA router unavailable (deepsynaps_qa not installed): %s", _qa_imp_err
     )
 from app.routers.qeeg_raw_router import router as qeeg_raw_router
-from app.routers.ai_health_router import router as ai_health_router
-from app.routers.audit_trail_router import router as audit_trail_router
-from app.routers.quality_assurance_router import router as quality_assurance_router
-from app.routers.clinical_trials_router import router as clinical_trials_router
+from app.routers.qeeg_ai_router import router as qeeg_ai_router
 from app.sentry_setup import init_sentry
 from app.settings import get_settings
 from app.services.brain_regions import list_brain_regions
@@ -485,10 +482,7 @@ app.include_router(device_sync_router)
 if _HAS_QA_ROUTER and qa_router is not None:
     app.include_router(qa_router)
 app.include_router(qeeg_raw_router)
-app.include_router(ai_health_router)
-app.include_router(audit_trail_router)
-app.include_router(quality_assurance_router)
-app.include_router(clinical_trials_router)
+app.include_router(qeeg_ai_router)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
