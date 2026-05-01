@@ -7371,7 +7371,7 @@ export async function pgCareTeamCoverage(setTopbar) {
   var activeTab = window._coverageTab || 'coverage';
 
   async function loadAll() {
-    var [summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth, policyOrder, policyOverrides, policyMappings] = await Promise.all([
+    var [summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth, policyOrder, policyOverrides, policyMappings, deliveryConcerns] = await Promise.all([
       api.careTeamCoverageSummary(),
       api.careTeamCoverageOncallNow(),
       api.careTeamCoverageSlaConfig(),
@@ -7384,8 +7384,9 @@ export async function pgCareTeamCoverage(setTopbar) {
       api.escalationPolicyDispatchOrder(),
       api.escalationPolicySurfaceOverrides(),
       api.escalationPolicyUserMappings(),
+      api.careTeamCoverageDeliveryConcerns({ limit: 100 }),
     ]);
-    return { summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth, policyOrder, policyOverrides, policyMappings };
+    return { summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth, policyOrder, policyOverrides, policyMappings, deliveryConcerns };
   }
 
   function isDemo(d) {
@@ -7645,6 +7646,42 @@ export async function pgCareTeamCoverage(setTopbar) {
       '<tbody>' + rows + '</tbody></table></div>';
   }
 
+  // Patient delivery concerns — mirror feed of patient-flagged caregiver
+  // delivery problems. Each row is one
+  // ``clinician_inbox.caregiver_delivery_concern_to_clinician_mirror``
+  // audit row scoped to the actor's clinic. The "Investigate" CTA
+  // deep-links to the patient profile so the clinician can pick up the
+  // failed dispatch context. Mount-time audit ping is fired alongside
+  // care_team_coverage.view at the page entry.
+  function renderConcernsTab(d) {
+    var items = (d.deliveryConcerns && Array.isArray(d.deliveryConcerns.items))
+      ? d.deliveryConcerns.items : [];
+    api.postCareTeamCoverageAuditEvent({ event: 'delivery_concerns_view', note: 'count=' + items.length });
+    if (items.length === 0) {
+      return emptyState('📨', 'No patient delivery concerns.', 'Patient-flagged caregiver delivery problems will appear here. They also surface in the SLA breaches feed once they age past the surface SLA.');
+    }
+    var rows = items.map(function(c) {
+      var pn = c.patient_first_name ? _esc(c.patient_first_name) : 'Patient';
+      var cn = c.caregiver_first_name ? _esc(c.caregiver_first_name) : 'caregiver';
+      var ts = c.flagged_at ? _esc(String(c.flagged_at).slice(0, 19).replace('T', ' ')) : '—';
+      var concern = c.concern_text ? _esc(String(c.concern_text).slice(0, 240)) : '';
+      var demoBadge = c.is_demo ? ' <span style="background:#fef3c7;color:#78350f;padding:1px 6px;border-radius:5px;font-size:10px;margin-left:6px">DEMO</span>' : '';
+      return '<tr data-testid="ctc-concern-row">' +
+        '<td>' + ts + '</td>' +
+        '<td>' + pn + demoBadge + '</td>' +
+        '<td>' + cn + '</td>' +
+        '<td style="max-width:380px;white-space:normal;line-height:1.4">' + concern + '</td>' +
+        '<td><button class="btn btn-sm" data-testid="ctc-concern-investigate" onclick="window._coverageInvestigateConcern(\'' + _esc(c.patient_id || '') + '\',\'' + _esc(c.audit_event_id || '') + '\')">Investigate</button></td>' +
+        '</tr>';
+    }).join('');
+    return '<div data-testid="ctc-delivery-concerns" style="overflow-x:auto"><table class="data-table" style="width:100%;min-width:780px">' +
+      '<thead><tr><th>Flagged at</th><th>Patient</th><th>Caregiver</th><th>Concern</th><th>Action</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table>' +
+      '<div style="margin-top:8px;font-size:11.5px;color:var(--text-muted);line-height:1.5">' +
+      'Patient-filed concerns about failed caregiver email digest dispatches. Each row is sourced from the audit transcript (clinician_inbox.caregiver_delivery_concern_to_clinician_mirror) and scoped to your clinic. Names are first-name-only.' +
+      '</div></div>';
+  }
+
   function renderPagesTab(d) {
     var pages = (d.pages && d.pages.items) || [];
     if (pages.length === 0) {
@@ -7854,6 +7891,8 @@ export async function pgCareTeamCoverage(setTopbar) {
     var autoStatusPanel = renderAutoPageWorkerPanel(d.workerStatus, d.summary);
     var adapterHealthPanel = renderAdapterHealthPanel(d.adapterHealth);
 
+    var concernsCount = (d.deliveryConcerns && Array.isArray(d.deliveryConcerns.items))
+      ? d.deliveryConcerns.items.length : 0;
     var tabs = [
       { id: 'coverage',   label: 'Coverage' },
       { id: 'breaches',   label: 'SLA breaches' },
@@ -7862,6 +7901,7 @@ export async function pgCareTeamCoverage(setTopbar) {
       { id: 'chain',      label: 'Escalation chain' },
       { id: 'policy',     label: 'Policy' },
       { id: 'pages',      label: 'Pages history' },
+      { id: 'concerns',   label: 'Patient delivery concerns' + (concernsCount > 0 ? ' (' + concernsCount + ')' : '') },
     ];
 
     var body = '';
@@ -7872,6 +7912,7 @@ export async function pgCareTeamCoverage(setTopbar) {
     else if (activeTab === 'chain')    body = renderChainTab(d);
     else if (activeTab === 'policy')   body = renderPolicyTab(d);
     else if (activeTab === 'pages')    body = renderPagesTab(d);
+    else if (activeTab === 'concerns') body = renderConcernsTab(d);
 
     el.innerHTML =
       demoBanner +
@@ -7895,6 +7936,22 @@ export async function pgCareTeamCoverage(setTopbar) {
     render();
   };
   window._coverageOpenLocal = function() { _pgStaffSchedulingLocal(setTopbar); };
+
+  window._coverageInvestigateConcern = function(patientId, auditEventId) {
+    api.postCareTeamCoverageAuditEvent({
+      event: 'delivery_concern_investigate',
+      target_id: patientId || auditEventId,
+      note: 'audit_event=' + String(auditEventId || '') + '; patient=' + String(patientId || ''),
+    });
+    // Deep-link into the clinician inbox; if the inbox cannot resolve
+    // the underlying audit row the patient profile is the next-best
+    // surface (loaded from the existing care-team flow).
+    if (patientId) {
+      try { window.location.hash = '#/clinical?page=patient&patient=' + encodeURIComponent(patientId); } catch (_e) { /* noop */ }
+    } else {
+      try { window.location.hash = '#/clinical?page=clinician-inbox'; } catch (_e) { /* noop */ }
+    }
+  };
 
   window._coveragePageOncall = async function(auditEventId) {
     var note = window.prompt('Note for the on-call page (required):');
