@@ -664,6 +664,14 @@ class CaregiverDeliverySummaryRow(BaseModel):
     caregiver_first_name: Optional[str] = None
     digests_delivered_count: int = 0
     last_delivered_at: Optional[str] = None
+    # Caregiver Delivery Acknowledgement launch-audit (2026-05-01).
+    # Joined from the most recent
+    # ``caregiver_portal.delivery_acknowledged`` audit row written by
+    # the caregiver against any grant pointed at this patient. ``None``
+    # when the caregiver has not pressed "I received it" yet —
+    # frontend renders an "Awaiting confirmation" tag in that case.
+    # No PHI of the caregiver leaks: this is a timestamp only.
+    last_acknowledged_at: Optional[str] = None
 
 
 class CaregiverDeliverySummaryOut(BaseModel):
@@ -1337,6 +1345,17 @@ def get_caregiver_delivery_summary(
     since_dt, until_dt = _resolve_window(since, until)
     is_demo = _patient_is_demo(db, patient)
 
+    # Caregiver Delivery Acknowledgement launch-audit (2026-05-01).
+    # Best-effort import — if the caregiver-consent module is missing
+    # in a partial install, we still serve the row without the ack
+    # stamp instead of 500ing.
+    try:
+        from app.routers.caregiver_consent_router import (  # noqa: PLC0415
+            latest_delivery_ack_for_caregiver,
+        )
+    except Exception:  # pragma: no cover — defensive
+        latest_delivery_ack_for_caregiver = None  # type: ignore[assignment]
+
     caregivers = _list_active_caregivers_for_patient(db, patient.id)
     rows: list[CaregiverDeliverySummaryRow] = []
     total = 0
@@ -1347,12 +1366,23 @@ def get_caregiver_delivery_summary(
             since_dt=since_dt,
             until_dt=until_dt,
         )
+        last_ack: Optional[str] = None
+        if latest_delivery_ack_for_caregiver is not None:
+            try:
+                last_ack = latest_delivery_ack_for_caregiver(
+                    db,
+                    patient_id=patient.id,
+                    caregiver_user_id=cg_id,
+                )
+            except Exception:  # pragma: no cover — never block the row
+                last_ack = None
         rows.append(
             CaregiverDeliverySummaryRow(
                 caregiver_user_id=cg_id,
                 caregiver_first_name=first_name,
                 digests_delivered_count=count,
                 last_delivered_at=last_iso,
+                last_acknowledged_at=last_ack,
             )
         )
         total += count

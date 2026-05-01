@@ -1641,3 +1641,348 @@ def bulk_mark_notifications_read(
         not_found=not_found,
         audit_event_ids=audit_event_ids,
     )
+
+
+# ── Caregiver Delivery Acknowledgement launch-audit (2026-05-01) ───────────
+#
+# Closes the bidirectional confirmation loop opened by the SendGrid Adapter
+# (#381) + Delivery Failure Flag (#382). Today the audit transcript shows
+# ``caregiver_portal.email_digest_sent`` rows with ``delivery_status=sent``
+# when the SendGrid adapter says the message landed. But the regulator
+# cannot prove the *caregiver actually received and read* the dispatch —
+# delivery_status=sent only proves ESP acceptance, not human acknowledgement.
+#
+# This section adds a caregiver-side "I received it" CTA that emits a
+# ``caregiver_portal.delivery_acknowledged`` audit row keyed
+# ``target_id={grant_id}``. Idempotent within a 24h cooldown so spam clicks
+# don't pollute the regulator transcript.
+#
+# Endpoints
+# ---------
+# POST /api/v1/caregiver-consent/grants/{id}/acknowledge-delivery
+#                                                   Caregiver acknowledges
+#                                                   they received the most
+#                                                   recent landed digest
+#                                                   dispatch. Idempotent
+#                                                   within 24h.
+# GET  /api/v1/caregiver-consent/grants/{id}/last-acknowledgement
+#                                                   Returns
+#                                                   ``last_acknowledged_at``
+#                                                   + the dispatch id that
+#                                                   was acked.
+#
+# Cross-caregiver: 404. Guests: 403.
+#
+# Patient-side join: the Patient Digest ``caregiver-delivery-summary``
+# endpoint joins the most recent ``delivery_acknowledged`` audit row per
+# caregiver into ``CaregiverDeliverySummaryRow.last_acknowledged_at`` so
+# the patient view shows "last confirmed" stamps.
+# ---------------------------------------------------------------------------
+
+
+# Per-caregiver cooldown: a second click within this window returns the
+# existing first-ack timestamp (no new audit row, no new dispatch
+# linkage). The original spec calls for 24h — pinned in tests.
+DELIVERY_ACK_COOLDOWN_SECONDS = 24 * 60 * 60
+
+
+class AcknowledgeDeliveryOut(BaseModel):
+    grant_id: str
+    last_acknowledged_at: str
+    acknowledged_dispatch_id: Optional[str] = None
+    audit_event_id: str
+    cooldown_active: bool = False
+    note: str = ""
+
+
+class LastAcknowledgementOut(BaseModel):
+    grant_id: str
+    last_acknowledged_at: Optional[str] = None
+    acknowledged_dispatch_id: Optional[str] = None
+    note: str = ""
+
+
+def _latest_landed_dispatch_for_caregiver(
+    db: Session, *, caregiver_user_id: str
+) -> Optional[AuditEventRecord]:
+    """Return the most recent ``email_digest_sent`` audit row that landed
+    (delivery_status=sent) for this caregiver, or None if none exists.
+
+    Scoped to ``target_id == caregiver_user_id`` because the SendGrid
+    adapter writes the dispatch row keyed on the caregiver, not the
+    grant.
+    """
+    rows = (
+        db.query(AuditEventRecord)
+        .filter(
+            AuditEventRecord.target_type == CAREGIVER_PORTAL_SURFACE,
+            AuditEventRecord.action
+            == f"{CAREGIVER_PORTAL_SURFACE}.email_digest_sent",
+            AuditEventRecord.target_id == caregiver_user_id,
+        )
+        .all()
+    )
+    landed: Optional[AuditEventRecord] = None
+    for r in rows:
+        note = (r.note or "").lower()
+        if "delivery_status=sent" not in note:
+            continue
+        if landed is None or (r.created_at or "") > (landed.created_at or ""):
+            landed = r
+    return landed
+
+
+def _latest_delivery_ack_for_grant(
+    db: Session, *, grant_id: str, caregiver_user_id: str
+) -> Optional[AuditEventRecord]:
+    """Return the most recent ``delivery_acknowledged`` audit row written
+    for ``grant_id`` by ``caregiver_user_id`` — or None if the caregiver
+    has not yet acked.
+
+    We query both ``actor_id`` (caregiver) AND ``target_id`` (grant) so a
+    cross-actor row can never satisfy the caregiver-side cooldown.
+    """
+    rows = (
+        db.query(AuditEventRecord)
+        .filter(
+            AuditEventRecord.target_type == CAREGIVER_PORTAL_SURFACE,
+            AuditEventRecord.action
+            == f"{CAREGIVER_PORTAL_SURFACE}.delivery_acknowledged",
+            AuditEventRecord.actor_id == caregiver_user_id,
+            AuditEventRecord.target_id == grant_id,
+        )
+        .all()
+    )
+    latest: Optional[AuditEventRecord] = None
+    for r in rows:
+        if latest is None or (r.created_at or "") > (latest.created_at or ""):
+            latest = r
+    return latest
+
+
+def _extract_dispatch_id_from_note(note: Optional[str]) -> Optional[str]:
+    """Best-effort extraction of ``dispatch=<id>`` from an audit note."""
+    if not note:
+        return None
+    src = note
+    idx = src.find("dispatch=")
+    if idx == -1:
+        return None
+    tail = src[idx + len("dispatch="):]
+    end = tail.find(";")
+    snippet = (tail if end == -1 else tail[:end]).strip()
+    return snippet or None
+
+
+@router.post(
+    "/grants/{grant_id}/acknowledge-delivery",
+    response_model=AcknowledgeDeliveryOut,
+)
+def acknowledge_delivery(
+    grant_id: str = Path(..., max_length=64),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> AcknowledgeDeliveryOut:
+    """Caregiver acknowledges they received the most recent landed digest.
+
+    Emits ``caregiver_portal.delivery_acknowledged`` keyed
+    ``target_id={grant_id}``. Idempotent within a 24h cooldown — a second
+    ack within ``DELIVERY_ACK_COOLDOWN_SECONDS`` returns the FIRST ack's
+    timestamp + the same dispatch id (no new audit row is written so spam
+    clicks do not pollute the regulator transcript).
+
+    The acknowledged dispatch is the most recent ``email_digest_sent``
+    audit row with ``delivery_status=sent`` targeting the caregiver.
+    If no landed dispatch exists, the ack is still accepted (the
+    caregiver may be confirming a prior off-system delivery), but the
+    response carries ``acknowledged_dispatch_id=None``.
+
+    Cross-caregiver: 404 (the grant must belong to the actor as
+    caregiver). Guests: 403. Lets regulators verify the message
+    round-tripped without the patient having to flag a concern.
+    """
+    g = _resolve_caregiver_grant_for_actor(db, actor, grant_id)
+
+    # Find the most recent landed dispatch (delivery_status=sent) for
+    # this caregiver. The dispatch reference is recorded on the audit
+    # row so the patient-side join can stamp "last confirmed at".
+    dispatch = _latest_landed_dispatch_for_caregiver(
+        db, caregiver_user_id=actor.actor_id,
+    )
+    dispatch_id = dispatch.event_id if dispatch is not None else None
+
+    # Cooldown check — second ack within DELIVERY_ACK_COOLDOWN_SECONDS
+    # returns the first-ack timestamp unchanged.
+    existing = _latest_delivery_ack_for_grant(
+        db, grant_id=grant_id, caregiver_user_id=actor.actor_id,
+    )
+    if existing is not None:
+        prior_ts = _parse_iso_safe(existing.created_at)
+        now_dt = datetime.now(timezone.utc)
+        if prior_ts is not None and (
+            (now_dt - prior_ts).total_seconds() < DELIVERY_ACK_COOLDOWN_SECONDS
+        ):
+            prior_dispatch_id = _extract_dispatch_id_from_note(existing.note)
+            return AcknowledgeDeliveryOut(
+                grant_id=g.id,
+                last_acknowledged_at=existing.created_at or "",
+                acknowledged_dispatch_id=prior_dispatch_id,
+                audit_event_id=existing.event_id,
+                cooldown_active=True,
+                note=(
+                    "Already acknowledged within the 24h cooldown — no "
+                    "new audit row was created. The original "
+                    "acknowledgement timestamp + dispatch reference are "
+                    "returned unchanged."
+                ),
+            )
+
+    # Fresh ack — write the audit row.
+    note_parts: list[str] = [
+        f"patient={g.patient_id}",
+        f"caregiver={actor.actor_id}",
+    ]
+    if dispatch_id:
+        note_parts.append(f"dispatch={dispatch_id}")
+    if dispatch is not None and dispatch.created_at:
+        note_parts.append(f"dispatch_at={dispatch.created_at}")
+    note = "; ".join(note_parts)
+
+    audit_event_id = _audit_portal(
+        db, actor,
+        event="delivery_acknowledged",
+        target_id=g.id,
+        note=note,
+    )
+
+    # The audit row has been written; refetch it so the response carries
+    # the canonical stored timestamp (matches what GET last-acknowledgement
+    # will return).
+    written = (
+        db.query(AuditEventRecord)
+        .filter_by(event_id=audit_event_id)
+        .first()
+    )
+    last_iso = (
+        written.created_at if written is not None else _now_iso()
+    )
+
+    return AcknowledgeDeliveryOut(
+        grant_id=g.id,
+        last_acknowledged_at=last_iso,
+        acknowledged_dispatch_id=dispatch_id,
+        audit_event_id=audit_event_id,
+        cooldown_active=False,
+        note=(
+            "Delivery acknowledgement recorded. The patient's audit "
+            "trail now shows that the caregiver received the digest."
+        ),
+    )
+
+
+@router.get(
+    "/grants/{grant_id}/last-acknowledgement",
+    response_model=LastAcknowledgementOut,
+)
+def get_last_acknowledgement(
+    grant_id: str = Path(..., max_length=64),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> LastAcknowledgementOut:
+    """Return the most recent ``delivery_acknowledged`` for this grant.
+
+    Cross-caregiver: 404 (the grant must belong to the actor as
+    caregiver). Guests: 403. Returns ``last_acknowledged_at=None`` when
+    the caregiver has not yet acked any dispatch on this grant — the
+    portal UI uses that to show the "I received it" CTA on landed
+    digests.
+    """
+    g = _resolve_caregiver_grant_for_actor(db, actor, grant_id)
+    existing = _latest_delivery_ack_for_grant(
+        db, grant_id=grant_id, caregiver_user_id=actor.actor_id,
+    )
+    if existing is None:
+        return LastAcknowledgementOut(
+            grant_id=g.id,
+            last_acknowledged_at=None,
+            acknowledged_dispatch_id=None,
+            note=(
+                "No acknowledgement on record. The caregiver has not "
+                "yet pressed the I-received-it CTA on a landed dispatch."
+            ),
+        )
+    return LastAcknowledgementOut(
+        grant_id=g.id,
+        last_acknowledged_at=existing.created_at,
+        acknowledged_dispatch_id=_extract_dispatch_id_from_note(
+            existing.note
+        ),
+        note="Last delivery acknowledgement on record.",
+    )
+
+
+def _parse_iso_safe(s: Optional[str]) -> Optional[datetime]:
+    """Best-effort ISO parser that always returns a tz-aware datetime.
+
+    SQLite strips tzinfo on roundtrip, so we coerce naive datetimes to
+    UTC before comparing against ``now(timezone.utc)``. Returns ``None``
+    on parse failure.
+    """
+    if not s:
+        return None
+    try:
+        # Python 3.11+ accepts trailing Z; older raises. Defensive.
+        text = s.replace("Z", "+00:00") if s.endswith("Z") else s
+        dt = datetime.fromisoformat(text)
+    except (TypeError, ValueError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def latest_delivery_ack_for_caregiver(
+    db: Session,
+    *,
+    patient_id: str,
+    caregiver_user_id: str,
+) -> Optional[str]:
+    """Public helper used by Patient Digest #382 ``caregiver-delivery-summary``
+    to stamp ``last_acknowledged_at`` per caregiver row.
+
+    Returns the ``created_at`` ISO string of the most recent
+    ``caregiver_portal.delivery_acknowledged`` audit row written by
+    ``caregiver_user_id`` against any grant pointed at ``patient_id`` —
+    or None when the caregiver has not yet acked. We scope by the
+    patient's grants so a cross-patient leak cannot happen even when
+    the same caregiver is on multiple patient grants.
+    """
+    grant_ids = [
+        g.id
+        for g in (
+            db.query(CaregiverConsentGrant)
+            .filter(
+                CaregiverConsentGrant.patient_id == patient_id,
+                CaregiverConsentGrant.caregiver_user_id == caregiver_user_id,
+            )
+            .all()
+        )
+    ]
+    if not grant_ids:
+        return None
+    rows = (
+        db.query(AuditEventRecord)
+        .filter(
+            AuditEventRecord.target_type == CAREGIVER_PORTAL_SURFACE,
+            AuditEventRecord.action
+            == f"{CAREGIVER_PORTAL_SURFACE}.delivery_acknowledged",
+            AuditEventRecord.actor_id == caregiver_user_id,
+            AuditEventRecord.target_id.in_(grant_ids),
+        )
+        .all()
+    )
+    latest: Optional[str] = None
+    for r in rows:
+        if latest is None or (r.created_at or "") > latest:
+            latest = r.created_at
+    return latest

@@ -23416,6 +23416,31 @@ export async function pgPatientCaregiver() {
     }
   }
 
+  // ── Caregiver Delivery Acknowledgement launch-audit (2026-05-01) ─────────
+  // Per-grant last-acknowledgement fetch. Best-effort — when the helper
+  // returns null we render the "Recent landed digests" subsection in
+  // the "no acknowledgement yet" state. The backend's
+  // `acknowledge-delivery` endpoint resolves the most recent landed
+  // dispatch on its own, so the page does not need to enumerate
+  // dispatches client-side.
+  const grantAckMap = {};
+  if (
+    backendReady
+    && typeof api.caregiverPortalLastAcknowledgement === 'function'
+    && grants.length > 0
+  ) {
+    try {
+      const acks = await Promise.all(grants.map((g) => Promise.race([
+        api.caregiverPortalLastAcknowledgement(g.id),
+        new Promise((_, rej) => setTimeout(() => rej('timeout'), 2000)),
+      ]).catch(() => null)));
+      grants.forEach((g, i) => {
+        const a = acks[i];
+        if (a && a.grant_id === g.id) grantAckMap[g.id] = a;
+      });
+    } catch (_e) {}
+  }
+
   // Demo state — when the actor is the patient-demo or clinician-demo
   // token. We infer it from the actor identity exposed via the auth
   // probe at first paint (best-effort; UI honest-fallback if not).
@@ -23463,6 +23488,27 @@ export async function pgPatientCaregiver() {
     const patientLabel = g.patient_first_name
       ? `${_ptCgEsc(g.patient_first_name)} (${_ptCgEsc(g.patient_clinic_id || 'unknown clinic')})`
       : `Patient (${_ptCgEsc(g.patient_clinic_id || 'unknown clinic')})`;
+    // Caregiver Delivery Acknowledgement launch-audit (2026-05-01).
+    // Recent-landed-digests subsection — one row per grant when scope
+    // includes digest. The backend's acknowledge-delivery endpoint
+    // resolves the most recent landed dispatch on its own, so this
+    // section only needs to surface the CTA + the "last confirmed at"
+    // stamp from the cached last-ack lookup.
+    const ackInfo = grantAckMap[g.id] || null;
+    const lastDeliveryAck = ackInfo && ackInfo.last_acknowledged_at;
+    const recentDigestsHtml = (isActive && scope.digest)
+      ? `<div data-testid="pt-cg-recent-digests" style="margin-top:10px;padding:10px 12px;border:1px solid rgba(45,212,191,0.2);border-radius:10px;background:rgba(45,212,191,0.04)">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:6px">
+            <div style="font-size:12px;font-weight:600;color:var(--text-primary)">Recent landed digests</div>
+            ${lastDeliveryAck
+              ? `<span style="font-size:10.5px;color:var(--text-tertiary)">Last confirmed: ${_ptCgFormatDate(lastDeliveryAck)}</span>`
+              : `<span style="font-size:10.5px;color:#fbbf24">Awaiting confirmation</span>`}
+          </div>
+          <div style="font-size:11px;color:var(--text-tertiary);line-height:1.5;margin-bottom:8px">
+            When SendGrid confirms a digest landed in your inbox, click "I received it" so the patient's audit trail can prove the message round-tripped.
+          </div>
+          <button class="btn btn-sm" data-cg-ack-delivery="${_ptCgEsc(g.id)}" style="background:rgba(45,212,191,0.14);border:1px solid rgba(45,212,191,0.3);color:#2dd4bf;font-size:11.5px;padding:5px 12px;border-radius:8px;cursor:pointer">I received it</button>
+        </div>` : '';
     return `
       <div class="pt-cg-grant-card" data-grant-id="${_ptCgEsc(g.id)}" style="border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:12px;background:${isActive ? 'rgba(45,212,191,0.03)' : 'rgba(251,113,133,0.04)'}">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:8px">
@@ -23495,6 +23541,7 @@ export async function pgPatientCaregiver() {
             <button class="btn btn-sm" data-cg-view="reports" data-cg-grant="${_ptCgEsc(g.id)}" style="background:rgba(45,212,191,0.14);border:1px solid rgba(45,212,191,0.3);color:#2dd4bf;font-size:11.5px;padding:5px 12px;border-radius:8px">View reports</button>
           ` : ''}
         </div>
+        ${recentDigestsHtml}
       </div>`;
   }
 
@@ -23770,6 +23817,59 @@ export async function pgPatientCaregiver() {
       }
     });
   }
+
+  // Caregiver Delivery Acknowledgement launch-audit (2026-05-01) —
+  // wire the per-grant "I received it" CTA. POSTs to
+  // /acknowledge-delivery (idempotent within 24h on the server) and
+  // refreshes the in-card "Last confirmed" stamp on success.
+  el.querySelectorAll('[data-cg-ack-delivery]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const gid = btn.getAttribute('data-cg-ack-delivery');
+      if (!gid) return;
+      btn.disabled = true;
+      btn.textContent = 'Confirming…';
+      try {
+        const res = await api.caregiverPortalAcknowledgeDelivery(gid);
+        if (res && res.last_acknowledged_at) {
+          grantAckMap[gid] = {
+            grant_id: gid,
+            last_acknowledged_at: res.last_acknowledged_at,
+            acknowledged_dispatch_id: res.acknowledged_dispatch_id || null,
+          };
+          window._showNotifToast && window._showNotifToast({
+            title: res.cooldown_active
+              ? 'Already confirmed'
+              : 'Delivery confirmed',
+            body: res.cooldown_active
+              ? 'You already confirmed receipt within the last 24 hours.'
+              : 'The patient will see this confirmation in their audit trail.',
+            severity: 'success',
+          });
+          try {
+            api.postCaregiverPortalAuditEvent({
+              event: 'delivery_acknowledged_ui',
+              target_id: gid,
+              note: `caregiver clicked I received it; cooldown=${res.cooldown_active ? 1 : 0}`,
+            });
+          } catch (_e) {}
+          // Re-render this card so the "Last confirmed" stamp updates.
+          const card = el.querySelector(`[data-grant-id="${gid}"]`);
+          const g = grants.find((x) => x.id === gid);
+          if (card && g) card.outerHTML = _renderGrantCard(g);
+        } else {
+          throw new Error('no_ack');
+        }
+      } catch (_e) {
+        btn.disabled = false;
+        btn.textContent = 'I received it';
+        window._showNotifToast && window._showNotifToast({
+          title: 'Could not confirm',
+          body: 'The acknowledgement could not be recorded. Try again later.',
+          severity: 'warning',
+        });
+      }
+    });
+  });
 
   el.querySelectorAll('[data-cg-view]').forEach((btn) => {
     btn.addEventListener('click', async () => {
@@ -24455,6 +24555,27 @@ function _pdRangeIso(days) {
   return { since: since.toISOString(), until: now.toISOString() };
 }
 
+// Caregiver Delivery Acknowledgement launch-audit (2026-05-01).
+// Compact relative-time formatter for the Patient Digest "Last
+// confirmed: <relative_time>" stamp under the Caregiver delivery
+// confirmations subsection. Falls back to the raw ISO string on
+// parse failure so the regulator transcript stays honest.
+function _pdRelativeTime(iso) {
+  if (!iso) return '—';
+  let dt;
+  try { dt = new Date(iso); } catch (_e) { return String(iso); }
+  if (isNaN(dt.getTime())) return String(iso);
+  const seconds = Math.max(0, Math.round((Date.now() - dt.getTime()) / 1000));
+  if (seconds < 60) return 'just now';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  return dt.toISOString().slice(0, 10);
+}
+
 function _pdDeltaIcon(d) {
   if (d == null) return '<span style="color:var(--text-muted,#94a3b8)">—</span>';
   if (d > 0) return `<span style="color:#34d399">▲ ${d.toFixed(1)}</span>`;
@@ -24630,12 +24751,27 @@ export async function pgPatientDigest(setTopbarFn) {
           : caregiverRows.map(r => {
               const name = r.caregiver_first_name ? _pdEsc(r.caregiver_first_name) : 'Caregiver';
               const last = r.last_delivered_at ? _pdEsc(String(r.last_delivered_at).slice(0, 10)) : '—';
-              return `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;border-top:1px solid var(--border)">
+              // Caregiver Delivery Acknowledgement launch-audit
+              // (2026-05-01). Patient-side "Last confirmed" stamp +
+              // "Awaiting confirmation" tag when the caregiver has
+              // landed deliveries but has not yet pressed "I received
+              // it". A row with zero deliveries shows neither.
+              const ackIso = r.last_acknowledged_at;
+              const delivered = (r.digests_delivered_count || 0);
+              let confirmHtml = '';
+              if (ackIso) {
+                const rel = _pdRelativeTime(ackIso);
+                confirmHtml = `<div data-testid="pd-cg-last-confirmed" style="font-size:11px;color:#2dd4bf;margin-top:2px">Last confirmed: ${_pdEsc(rel)}</div>`;
+              } else if (delivered > 0) {
+                confirmHtml = `<div data-testid="pd-cg-awaiting-confirm" style="font-size:11px;color:#fbbf24;margin-top:2px">Awaiting confirmation</div>`;
+              }
+              return `<div data-testid="pd-cg-delivery-row" style="display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;border-top:1px solid var(--border)">
                 <div>
                   <div style="font-size:12.5px;color:var(--text-primary)">${name}</div>
                   <div style="font-size:11px;color:var(--text-muted)">Last delivered: ${last}</div>
+                  ${confirmHtml}
                 </div>
-                <div style="font-size:16px;font-weight:700;color:var(--teal)">${r.digests_delivered_count || 0}</div>
+                <div style="font-size:16px;font-weight:700;color:var(--teal)">${delivered}</div>
               </div>`;
             }).join('')
         }
