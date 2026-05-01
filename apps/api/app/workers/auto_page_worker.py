@@ -523,11 +523,21 @@ class AutoPageWorker:
                 # so the cross-clinic gate is bypassed (worker is a
                 # platform service, not a clinician).
                 actor = _synth_admin_actor(cid)
-                # delivery_status='queued' until a real Slack/Twilio/PagerDuty
-                # adapter is wired (PR section F). NEVER 'sent' without a
-                # confirming 2xx from a real adapter.
-                delivery_status = self._deliver_page(
-                    breach=breach, clinic_id=cid
+                # Resolve the on-call recipient + their contact handle so
+                # the delivery adapter can route to the right user. The
+                # worker does best-effort resolution; ``_page_oncall_impl``
+                # re-resolves and is the source of truth for who is paged.
+                recipient_user, recipient_phone = self._resolve_recipient(
+                    db, cid, surface or None
+                )
+                # delivery_status is "sent" / "failed" / "queued" — NEVER
+                # "sent" without a confirming 2xx from a real adapter (or
+                # the explicit DEEPSYNAPS_DELIVERY_MOCK=1 flag).
+                delivery_status, external_id, delivery_note = self._deliver_page(
+                    breach=breach,
+                    clinic_id=cid,
+                    recipient_user=recipient_user,
+                    recipient_phone=recipient_phone,
                 )
                 try:
                     _page_oncall_impl(
@@ -542,6 +552,8 @@ class AutoPageWorker:
                         surface_override=surface or None,
                         trigger="auto",
                         delivery_status=delivery_status,
+                        external_id=external_id,
+                        delivery_note=delivery_note,
                         enforce_clinic_scope=False,
                     )
                     result.paged += 1
@@ -559,41 +571,115 @@ class AutoPageWorker:
                         },
                     )
 
-    def _deliver_page(self, *, breach: dict, clinic_id: str) -> str:
+    def _resolve_recipient(
+        self, db: Session, clinic_id: str, surface: Optional[str]
+    ) -> tuple[Optional[User], Optional[str]]:
+        """Best-effort lookup of the on-call recipient + their phone.
+
+        Returns ``(user, phone)``. ``user`` and ``phone`` are independently
+        nullable so a partial resolution still feeds the adapter chain
+        with whatever fields the operator has populated.
+        """
+        try:
+            from app.routers.care_team_coverage_router import (  # noqa: PLC0415
+                _resolve_oncall_for_surface,
+            )
+        except Exception:  # pragma: no cover - defensive
+            return (None, None)
+        try:
+            primary_shift, _all = _resolve_oncall_for_surface(db, clinic_id, surface)
+        except Exception:  # pragma: no cover - defensive
+            return (None, None)
+        user_obj: Optional[User] = None
+        phone: Optional[str] = None
+        if primary_shift is not None:
+            uid = getattr(primary_shift, "user_id", None)
+            if uid:
+                try:
+                    user_obj = db.query(User).filter_by(id=uid).first()
+                except Exception:
+                    user_obj = None
+            handle = getattr(primary_shift, "contact_handle", None)
+            channel = (getattr(primary_shift, "contact_channel", "") or "").lower()
+            # Only treat the handle as a phone when the shift channel
+            # explicitly says SMS — Slack handles are not phone numbers.
+            if handle and channel in ("sms", "phone", "tel"):
+                phone = str(handle)
+        return (user_obj, phone)
+
+    def _deliver_page(
+        self,
+        *,
+        breach: dict,
+        clinic_id: str,
+        recipient_user: Optional[User] = None,
+        recipient_phone: Optional[str] = None,
+    ) -> tuple[str, Optional[str], Optional[str]]:
         """External delivery hook.
 
-        Returns the ``delivery_status`` to stamp onto the ``oncall_pages``
-        row. Default: ``"queued"`` — the worker wrote the audit row + the
-        ``oncall_pages`` row but did NOT hand the message to any external
-        channel. PR section F documents the wire-up path:
+        Returns ``(delivery_status, external_id, delivery_note)`` to
+        stamp onto the ``oncall_pages`` row.
 
-        * If ``DEEPSYNAPS_SLACK_WEBHOOK_URL`` is set, POST to it; on 2xx
-          return ``"sent"``, on non-2xx return ``"failed"``.
-        * If ``DEEPSYNAPS_PAGERDUTY_INTEGRATION_KEY`` is set, POST a
-          PagerDuty Events v2 trigger; same status mapping.
-        * If ``DEEPSYNAPS_TWILIO_ACCOUNT_SID`` + ``DEEPSYNAPS_TWILIO_AUTH_TOKEN``
-          + ``DEEPSYNAPS_TWILIO_FROM`` are all set, send SMS to the
-          on-call user's contact_handle; same mapping.
+        Wire-up details live in :mod:`app.services.oncall_delivery`.
+        Adapters are env-gated:
 
-        TODO(SLA-DELIVERY-WIRE-UP): implement the three adapters above.
-        Until they land, the worker stays at ``queued`` for every page
-        and ops sees 0 successful deliveries in the status snapshot.
-        Subclasses or tests can override this method to inject a fake
-        adapter and assert the status mapping.
+        * ``SLACK_BOT_TOKEN``         enables :class:`SlackAdapter`
+        * ``TWILIO_ACCOUNT_SID`` + ``TWILIO_AUTH_TOKEN`` + ``TWILIO_FROM_NUMBER``
+                                      enables :class:`TwilioSMSAdapter`
+        * ``PAGERDUTY_API_KEY`` + ``PAGERDUTY_ROUTING_KEY``
+                                      enables :class:`PagerDutyAdapter`
+
+        Mock-mode (``DEEPSYNAPS_DELIVERY_MOCK=1``) ALWAYS returns
+        ``("sent", external_id, "MOCK: ...")`` so reviewers can see at a
+        glance that the row was a simulated send.
+
+        When NO adapter is enabled the service returns
+        ``("queued", None, "no_adapters_enabled: ...")`` — the worker
+        wrote the audit row + the ``oncall_pages`` row but did NOT hand
+        the message to any external channel.
+
+        The worker NEVER claims ``"sent"`` without a confirming 2xx
+        from a real adapter (or the explicit mock-mode flag).
         """
-        # Refuse to silently lie. If no adapter is wired, the page is
-        # "queued" — written to the audit + oncall_pages row but not
-        # actually delivered to a human.
-        if not (
-            os.environ.get("DEEPSYNAPS_SLACK_WEBHOOK_URL")
-            or os.environ.get("DEEPSYNAPS_PAGERDUTY_INTEGRATION_KEY")
-            or os.environ.get("DEEPSYNAPS_TWILIO_ACCOUNT_SID")
-        ):
-            return "queued"
-        # If an adapter env var IS set but the adapter is not wired in
-        # this PR yet, still return "queued" — we will only ever return
-        # "sent" once a real 2xx confirms delivery.
-        return "queued"
+        from app.services.oncall_delivery import (  # noqa: PLC0415
+            PageMessage,
+            build_default_service,
+        )
+
+        service = build_default_service(clinic_id=clinic_id)
+        body = (
+            f"[Auto-Page] {breach.get('surface') or '?'} breach: "
+            f"age={breach.get('age_minutes', 0)}min "
+            f">{breach.get('sla_minutes', 0)}min SLA. "
+            f"Audit event: {breach.get('audit_event_id', '?')}."
+        )
+        message = PageMessage(
+            clinic_id=clinic_id,
+            surface=str(breach.get("surface") or "*"),
+            audit_event_id=str(breach.get("audit_event_id") or ""),
+            body=body,
+            severity="high",
+            recipient_display_name=(
+                getattr(recipient_user, "display_name", None) if recipient_user else None
+            ),
+            recipient_email=(
+                getattr(recipient_user, "email", None) if recipient_user else None
+            ),
+            recipient_phone=recipient_phone,
+        )
+        try:
+            result = service.send(message)
+        except Exception as exc:  # pragma: no cover - defensive
+            _log.exception(
+                "oncall delivery service raised",
+                extra={
+                    "event": "oncall_delivery_service_error",
+                    "clinic_id": clinic_id,
+                    "error": str(exc),
+                },
+            )
+            return ("failed", None, f"delivery_service_raised: {exc.__class__.__name__}")
+        return (result.status, result.external_id, result.note)
 
     def _update_status(self, result: TickResult) -> None:
         with self._lock:

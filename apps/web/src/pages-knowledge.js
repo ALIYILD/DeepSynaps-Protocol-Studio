@@ -7371,7 +7371,7 @@ export async function pgCareTeamCoverage(setTopbar) {
   var activeTab = window._coverageTab || 'coverage';
 
   async function loadAll() {
-    var [summary, oncall, sla, chain, breaches, roster, pages, workerStatus] = await Promise.all([
+    var [summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth] = await Promise.all([
       api.careTeamCoverageSummary(),
       api.careTeamCoverageOncallNow(),
       api.careTeamCoverageSlaConfig(),
@@ -7380,8 +7380,9 @@ export async function pgCareTeamCoverage(setTopbar) {
       api.careTeamCoverageRoster({ week_start: weekStart }),
       api.careTeamCoveragePages({ limit: 50 }),
       api.autoPageWorkerStatus(),
+      api.autoPageWorkerAdapterHealth(),
     ]);
-    return { summary, oncall, sla, chain, breaches, roster, pages, workerStatus };
+    return { summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth };
   }
 
   function isDemo(d) {
@@ -7476,6 +7477,40 @@ export async function pgCareTeamCoverage(setTopbar) {
       '</div>' +
       ctas +
       processNote +
+      '</div>';
+  }
+
+  // On-Call Delivery adapter-health panel — renders a per-adapter health
+  // row for Slack / Twilio / PagerDuty so reviewers see at a glance which
+  // delivery channels are enabled. NEVER hides a missing-env-var adapter
+  // (the backend returns it as ``enabled=false``); the UI just colours
+  // it grey + adds a "disabled" chip so reviewers see why it's silent.
+  // Mock-mode (DEEPSYNAPS_DELIVERY_MOCK=1) flips a yellow banner so demo
+  // deploys cannot dishonestly claim to have actually wired Slack.
+  function renderAdapterHealthPanel(adapterHealth) {
+    var h = adapterHealth || null;
+    var role = (window.__deepsynapsActorRole || '').toLowerCase();
+    var isAdmin = (role === 'admin' || role === 'supervisor' || role === 'regulator');
+    if (!h) {
+      return '<div class="notice notice-info" style="margin-bottom:12px;font-size:12px"><strong>On-call delivery adapters:</strong> health endpoint unreachable.</div>';
+    }
+    var rows = (h.adapters || []).map(function(a) {
+      var dot = a.enabled
+        ? '<span style="color:#10b981;font-weight:700">●</span>'
+        : '<span style="color:#9ca3af">○</span>';
+      var label = a.enabled ? 'enabled' : 'disabled (env var missing)';
+      var labelStyle = a.enabled ? 'color:#10b981' : 'color:#9ca3af';
+      return '<span style="margin-right:14px">' + dot + ' <strong>' + _esc(a.name) + '</strong> <span style="' + labelStyle + ';font-size:11px">' + _esc(label) + '</span></span>';
+    }).join('');
+    var mockBanner = h.mock_mode
+      ? '<div style="margin-top:6px;padding:4px 10px;border-radius:6px;background:#fef3c7;color:#78350f;font-weight:600;font-size:11px;display:inline-block">🧪 Mock delivery mode (DEEPSYNAPS_DELIVERY_MOCK=1) — no real pages are sent.</div>'
+      : '';
+    var testBtn = isAdmin
+      ? ' <button class="btn btn-sm btn-ghost" onclick="window._oncallDeliveryTestAdapter()">Test adapter chain</button>'
+      : '';
+    return '<div class="notice" style="margin-bottom:12px;font-size:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:10px 14px">' +
+      '<div><strong>On-call delivery adapters:</strong> ' + rows + testBtn + '</div>' +
+      mockBanner +
       '</div>';
   }
 
@@ -7619,12 +7654,38 @@ export async function pgCareTeamCoverage(setTopbar) {
         '<td>' + _esc(p.paged_user_id || '—') + ' (' + _esc(p.paged_role || '—') + ')</td>' +
         '<td>' + _esc(p.paged_by) + '</td>' +
         '<td>' + _esc(p.trigger) + '</td>' +
-        '<td>' + _esc(p.delivery_status || '—') + '</td>' +
+        '<td>' + _renderDeliveryChip(p) + '</td>' +
+        '<td>' + _esc(p.external_id || '—') + '</td>' +
         '</tr>';
     }).join('');
-    return '<div style="overflow-x:auto"><table class="data-table" style="width:100%;min-width:760px">' +
-      '<thead><tr><th>When</th><th>Surface</th><th>Paged user</th><th>Paged by</th><th>Trigger</th><th>Delivery</th></tr></thead>' +
+    return '<div style="overflow-x:auto"><table class="data-table" style="width:100%;min-width:920px">' +
+      '<thead><tr><th>When</th><th>Surface</th><th>Paged user</th><th>Paged by</th><th>Trigger</th><th>Delivery</th><th>External id</th></tr></thead>' +
       '<tbody>' + rows + '</tbody></table></div>';
+  }
+
+  // Per-page delivery chip — visual treatment differs per status so
+  // reviewers can scan the queue and see which rows are honest deliveries
+  // vs. queued (no adapter wired) vs. failed vs. mock (demo mode).
+  // delivery_status='sent' + delivery_note starting with 'MOCK:' is the
+  // mock-mode case; we render that as a yellow chip (NOT green) so the
+  // mock send is visually distinct from a real send.
+  function _renderDeliveryChip(p) {
+    var status = String(p.delivery_status || '').toLowerCase();
+    var note = String(p.delivery_note || '');
+    var isMock = note.indexOf('MOCK:') === 0;
+    if (isMock) {
+      return '<span title="' + _esc(note) + '" style="background:#fef3c7;color:#78350f;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600">🧪 mock</span>';
+    }
+    if (status === 'sent') {
+      return '<span title="' + _esc(note || 'sent via adapter') + '" style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600">✓ sent</span>';
+    }
+    if (status === 'failed') {
+      return '<span title="' + _esc(note || 'all adapters failed') + '" style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600">✗ failed</span>';
+    }
+    if (status === 'queued') {
+      return '<span title="' + _esc(note || 'no adapter wired') + '" style="background:#e5e7eb;color:#374151;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600">⋯ queued</span>';
+    }
+    return '<span style="color:var(--text-muted)">' + _esc(p.delivery_status || '—') + '</span>';
   }
 
   async function render() {
@@ -7637,6 +7698,7 @@ export async function pgCareTeamCoverage(setTopbar) {
       ? '<div class="notice notice-info" style="margin-bottom:12px;font-size:12px"><strong>DEMO clinic data:</strong> exports are DEMO-prefixed and rows are not regulator-submittable.</div>'
       : '';
     var autoStatusPanel = renderAutoPageWorkerPanel(d.workerStatus, d.summary);
+    var adapterHealthPanel = renderAdapterHealthPanel(d.adapterHealth);
 
     var tabs = [
       { id: 'coverage',   label: 'Coverage' },
@@ -7658,6 +7720,7 @@ export async function pgCareTeamCoverage(setTopbar) {
     el.innerHTML =
       demoBanner +
       autoStatusPanel +
+      adapterHealthPanel +
       renderTopCounts(d.summary) +
       '<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">' +
         tabs.map(function(t) {
@@ -7789,6 +7852,33 @@ export async function pgCareTeamCoverage(setTopbar) {
       window.alert('Auto-page stop failed: ' + (e && e.message ? e.message : 'unknown'));
     }
     api.postAutoPageWorkerAuditEvent({ event: 'stop_clicked_ui' });
+    render();
+  };
+
+  window._oncallDeliveryTestAdapter = async function() {
+    if (!window.confirm('Send a synthetic on-call test page via the configured adapters? This will hit Slack/Twilio/PagerDuty if their env vars are set.')) return;
+    try {
+      var resp = await api.autoPageWorkerTestAdapter({});
+      if (resp && resp.accepted) {
+        var lines = (resp.attempts || []).map(function(a) {
+          var prefix = a.enabled ? '' : '(disabled) ';
+          var status = a.status || (a.enabled ? 'no-result' : 'skipped');
+          var ext = a.external_id ? ' id=' + a.external_id : '';
+          return '  ' + prefix + a.name + ' = ' + status + ext;
+        }).join('\n');
+        window.alert(
+          'Adapter test complete:\n' +
+          '  overall = ' + (resp.overall_status || '?') + '\n' +
+          '  delivery_note = ' + (resp.delivery_note || '-') + '\n' +
+          'Per-adapter:\n' + (lines || '  (no adapters)')
+        );
+      } else {
+        window.alert('Test-adapter request did not accept; check your role + clinic.');
+      }
+    } catch (e) {
+      window.alert('Test-adapter call failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    api.postAutoPageWorkerAuditEvent({ event: 'adapter_test_clicked_ui' });
     render();
   };
 

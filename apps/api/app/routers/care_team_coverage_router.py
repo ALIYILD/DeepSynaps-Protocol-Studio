@@ -591,6 +591,8 @@ class PageOnCallOut(BaseModel):
     paged_role: Optional[str] = None
     surface: Optional[str] = None
     delivery_status: str = "logged"
+    external_id: Optional[str] = None
+    delivery_note: Optional[str] = None
 
 
 class OncallPageRowOut(BaseModel):
@@ -604,6 +606,8 @@ class OncallPageRowOut(BaseModel):
     trigger: str
     note: Optional[str] = None
     delivery_status: Optional[str] = None
+    external_id: Optional[str] = None
+    delivery_note: Optional[str] = None
     created_at: str
 
 
@@ -1221,6 +1225,8 @@ def _page_to_out(row: OncallPage) -> OncallPageRowOut:
         trigger=row.trigger,
         note=row.note,
         delivery_status=row.delivery_status,
+        external_id=getattr(row, "external_id", None),
+        delivery_note=getattr(row, "delivery_note", None),
         created_at=row.created_at,
     )
 
@@ -1265,6 +1271,8 @@ def _record_oncall_page(
     note: str,
     trigger: str,
     delivery_status: str = "logged",
+    external_id: Optional[str] = None,
+    delivery_note: Optional[str] = None,
 ) -> tuple[OncallPage, str]:
     """Write the canonical audit row + the indexable mirror row.
 
@@ -1323,12 +1331,93 @@ def _record_oncall_page(
         trigger=trigger,
         note=note[:480],
         delivery_status=delivery_status,
+        external_id=external_id,
+        delivery_note=(delivery_note[:1024] if delivery_note else None),
         created_at=now.isoformat(),
     )
     db.add(page_row)
     db.commit()
     db.refresh(page_row)
     return page_row, audit_eid
+
+
+def _dispatch_manual_delivery(
+    db: Session,
+    actor: AuthenticatedActor,
+    *,
+    audit_event_id: str,
+    note: str,
+    surface_override: Optional[str],
+) -> tuple[str, Optional[str], Optional[str]]:
+    """Best-effort manual-handler hook into :class:`OncallDeliveryService`.
+
+    Mirrors :meth:`AutoPageWorker._deliver_page` for the manual click
+    path so a clinician hitting "Page on-call" actually wakes a human.
+    Failures here NEVER crash the handler — we fall back to
+    ``("logged", None, None)`` which preserves the legacy honest-default
+    that #357 shipped (audit row + oncall_pages row written, but no
+    confirmed external delivery).
+    """
+    try:
+        from app.services.oncall_delivery import (  # noqa: PLC0415
+            PageMessage,
+            build_default_service,
+        )
+    except Exception:  # pragma: no cover - defensive
+        return ("logged", None, None)
+    record = (
+        db.query(AuditEventRecord)
+        .filter(AuditEventRecord.event_id == audit_event_id)
+        .one_or_none()
+    )
+    if record is None:
+        # The handler will raise its own 404; here we just no-op.
+        return ("logged", None, None)
+    author = db.query(User).filter_by(id=record.actor_id).first()
+    cid = (author.clinic_id if author and author.clinic_id else actor.clinic_id) or ""
+    surface = surface_override
+    if not surface:
+        s, _evt = _split_action(record.action or "")
+        surface = s if s and s != "unknown" else (record.target_type or "")
+    primary_shift = None
+    try:
+        primary_shift, _all = _resolve_oncall_for_surface(db, cid, surface or None)
+    except Exception:
+        primary_shift = None
+    recipient_user: Optional[User] = None
+    recipient_phone: Optional[str] = None
+    if primary_shift is not None:
+        uid = getattr(primary_shift, "user_id", None)
+        if uid:
+            recipient_user = db.query(User).filter_by(id=uid).first()
+        handle = getattr(primary_shift, "contact_handle", None)
+        channel = (getattr(primary_shift, "contact_channel", "") or "").lower()
+        if handle and channel in ("sms", "phone", "tel"):
+            recipient_phone = str(handle)
+    body = (
+        f"[Manual page-on-call] {surface or '?'} breach. "
+        f"Audit event: {audit_event_id}. Clinician note: {note[:240]}"
+    )
+    message = PageMessage(
+        clinic_id=cid,
+        surface=surface or "*",
+        audit_event_id=audit_event_id,
+        body=body,
+        severity="high",
+        recipient_display_name=(
+            getattr(recipient_user, "display_name", None) if recipient_user else None
+        ),
+        recipient_email=(
+            getattr(recipient_user, "email", None) if recipient_user else None
+        ),
+        recipient_phone=recipient_phone,
+    )
+    try:
+        service = build_default_service(clinic_id=cid)
+        result = service.send(message)
+    except Exception:  # pragma: no cover - defensive
+        return ("logged", None, None)
+    return (result.status, result.external_id, result.note)
 
 
 def _page_oncall_impl(
@@ -1340,6 +1429,8 @@ def _page_oncall_impl(
     surface_override: Optional[str] = None,
     trigger: str = "manual",
     delivery_status: str = "logged",
+    external_id: Optional[str] = None,
+    delivery_note: Optional[str] = None,
     enforce_clinic_scope: bool = True,
 ) -> PageOnCallOut:
     """In-process page-on-call worker. Used by both the manual HTTP handler
@@ -1430,6 +1521,8 @@ def _page_oncall_impl(
         note=note,
         trigger=trigger,
         delivery_status=delivery_status,
+        external_id=external_id,
+        delivery_note=delivery_note,
     )
     name = None
     if primary_uid:
@@ -1457,6 +1550,8 @@ def _page_oncall_impl(
         paged_role=paged_role,
         surface=surface,
         delivery_status=delivery_status,
+        external_id=external_id,
+        delivery_note=delivery_note,
     )
 
 
@@ -1478,13 +1573,23 @@ def page_oncall(
     roundtrip.
     """
     _gate_read(actor)
+    # Manual page-on-call also funnels through the delivery adapter chain
+    # so a clinician's click triggers a real Slack/Twilio/PagerDuty call
+    # (or stamps "queued" honestly when no adapter is configured). The
+    # synthetic actor scope is unchanged — the handler still does the
+    # cross-clinic gate via ``enforce_clinic_scope=True``.
+    delivery_status, external_id, delivery_note = _dispatch_manual_delivery(
+        db, actor, audit_event_id=audit_event_id, note=body.note, surface_override=body.surface
+    )
     return _page_oncall_impl(
         db, actor,
         audit_event_id=audit_event_id,
         note=body.note,
         surface_override=body.surface,
         trigger="manual",
-        delivery_status="logged",
+        delivery_status=delivery_status,
+        external_id=external_id,
+        delivery_note=delivery_note,
         enforce_clinic_scope=True,
     )
 
