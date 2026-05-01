@@ -3047,6 +3047,66 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }).catch(() => null),
+
+  // Care Team Coverage / Staff Scheduling launch-audit (2026-05-01).
+  // Closes the after-hours triage loop opened by Clinician Inbox #354.
+  // Reads the on-call schedule + per-surface SLA + escalation chain that
+  // turn HIGH-priority predicate breaches into a real human page.
+  // All read helpers swallow offline errors and return null so the page
+  // can render an honest empty state.
+  careTeamCoverageRoster: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/care-team-coverage/roster${q ? '?' + q : ''}`).catch(() => null);
+  },
+  careTeamCoverageOncallNow: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/care-team-coverage/oncall-now${q ? '?' + q : ''}`).catch(() => null);
+  },
+  careTeamCoverageSlaConfig: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/care-team-coverage/sla-config${q ? '?' + q : ''}`).catch(() => null);
+  },
+  careTeamCoverageEscalationChain: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/care-team-coverage/escalation-chain${q ? '?' + q : ''}`).catch(() => null);
+  },
+  careTeamCoverageSlaBreaches: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/care-team-coverage/sla-breaches${q ? '?' + q : ''}`).catch(() => null);
+  },
+  careTeamCoverageSummary: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/care-team-coverage/summary${q ? '?' + q : ''}`).catch(() => null);
+  },
+  careTeamCoveragePages: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/care-team-coverage/pages${q ? '?' + q : ''}`).catch(() => null);
+  },
+  careTeamCoverageUpsertRoster: (body) =>
+    apiFetch('/api/v1/care-team-coverage/roster', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  careTeamCoverageUpsertSla: (body) =>
+    apiFetch('/api/v1/care-team-coverage/sla-config', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  careTeamCoverageUpsertEscalationChain: (body) =>
+    apiFetch('/api/v1/care-team-coverage/escalation-chain', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  careTeamCoveragePageOncall: (auditEventId, body) =>
+    apiFetch(`/api/v1/care-team-coverage/page-oncall/${encodeURIComponent(auditEventId)}`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  postCareTeamCoverageAuditEvent: (data) =>
+    apiFetch('/api/v1/care-team-coverage/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).

@@ -240,6 +240,17 @@ KNOWN_SURFACES = {
     # audit_events and stores acknowledgements as their own audit rows so
     # the regulator audit transcript stays single-sourced.
     "clinician_inbox",
+    # Care Team Coverage / Staff Scheduling launch-audit (2026-05-01).
+    # Owns the on-call schedule + per-surface SLA + escalation chain that
+    # turn Clinician Inbox HIGH-priority predicate breaches into a real
+    # human page. Events: view, roster_viewed, roster_edited,
+    # sla_config_viewed, sla_edited, chain_viewed, chain_edited,
+    # oncall_viewed, sla_breaches_viewed, manual_page_fired,
+    # auto_page_fired. The page-on-call action itself is recorded under
+    # the existing ``clinician_inbox`` surface as
+    # ``inbox.item_paged_to_oncall`` so the Inbox audit transcript stays
+    # the single source of truth for "an item was paged".
+    "care_team_coverage",
 }
 
 
