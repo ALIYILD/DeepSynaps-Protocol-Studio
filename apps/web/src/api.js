@@ -2419,6 +2419,73 @@ export const api = {
     return `/api/v1/symptom-journal/export.${kind}${qs ? '?' + qs : ''}`;
   },
 
+  // ── Patient Wellness Hub (launch-audit 2026-05-01) ───────────────────────
+  // Second patient-facing surface to receive the launch-audit treatment.
+  // Mirrors the symptom-journal helper shape. All read helpers swallow
+  // network failures so the UI keeps working offline (localStorage
+  // fallback). The actor's patient_id is auto-resolved server-side.
+  listWellnessCheckins: (params) => {
+    const q = new URLSearchParams();
+    if (params) {
+      for (const k of ['since', 'until', 'tag', 'axis', 'q']) {
+        if (params[k]) q.set(k, params[k]);
+      }
+      for (const k of ['axis_min', 'axis_max', 'limit', 'offset']) {
+        if (params[k] != null && params[k] !== '') q.set(k, String(params[k]));
+      }
+      if (params.include_deleted) q.set('include_deleted', 'true');
+      if (params.patient_id) q.set('patient_id', params.patient_id);
+    }
+    const qs = q.toString();
+    return apiFetch(`/api/v1/wellness/checkins${qs ? '?' + qs : ''}`).catch(() => null);
+  },
+  getWellnessSummary: (params) => {
+    const q = new URLSearchParams();
+    if (params && params.patient_id) q.set('patient_id', params.patient_id);
+    const qs = q.toString();
+    return apiFetch(`/api/v1/wellness/summary${qs ? '?' + qs : ''}`).catch(() => null);
+  },
+  getWellnessCheckin: (checkinId) =>
+    apiFetch(`/api/v1/wellness/checkins/${encodeURIComponent(checkinId)}`).catch(() => null),
+  createWellnessCheckin: (data) =>
+    apiFetch('/api/v1/wellness/checkins', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  editWellnessCheckin: (checkinId, data) =>
+    apiFetch(`/api/v1/wellness/checkins/${encodeURIComponent(checkinId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data || {}),
+    }),
+  deleteWellnessCheckin: (checkinId, reason) =>
+    apiFetch(`/api/v1/wellness/checkins/${encodeURIComponent(checkinId)}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ reason: reason || 'patient request' }),
+    }),
+  shareWellnessCheckin: (checkinId, note) =>
+    apiFetch(`/api/v1/wellness/checkins/${encodeURIComponent(checkinId)}/share`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note || null }),
+    }),
+  postWellnessAuditEvent: (data) =>
+    apiFetch('/api/v1/wellness/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  wellnessExportUrl: (kind, params) => {
+    const q = new URLSearchParams();
+    if (params) {
+      for (const k of ['since', 'until', 'tag', 'axis', 'q', 'patient_id']) {
+        if (params[k]) q.set(k, params[k]);
+      }
+      for (const k of ['axis_min', 'axis_max']) {
+        if (params[k] != null && params[k] !== '') q.set(k, String(params[k]));
+      }
+    }
+    const qs = q.toString();
+    return `/api/v1/wellness/export.${kind}${qs ? '?' + qs : ''}`;
+  },
+
   // ── Clinic ─────────────────────────────────────────────────────────────────
   getClinic: () => apiFetch('/api/v1/clinic').catch(() => null),  // 404 if no clinic
   createClinic: (data) => apiFetch('/api/v1/clinic', { method: 'POST', body: JSON.stringify(data) }),

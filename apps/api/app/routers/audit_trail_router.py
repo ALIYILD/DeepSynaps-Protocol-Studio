@@ -110,6 +110,13 @@ KNOWN_SURFACES = {
     # entry_shared_to_clinician (clinician-visible), export_csv, export_ndjson,
     # summary_viewed.
     "symptom_journal",
+    # Wellness Hub launch-audit (2026-05-01). Second patient-facing surface —
+    # patient logs multi-axis wellness check-ins (mood, energy, sleep,
+    # anxiety, focus, pain), optionally shares with care team. Events:
+    # view, checkin_logged, checkin_edited, checkin_deleted, checkin_shared,
+    # checkin_shared_to_clinician (clinician-visible), export_csv,
+    # export_ndjson, summary_viewed, cross_link_journal_clicked.
+    "wellness_hub",
 }
 
 
