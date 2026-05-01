@@ -24,6 +24,16 @@ from .validation import (
     validate_nifti_header,
     validate_upload_blob,
 )
+from .registration import (
+    ApplyTransformResult,
+    InvertTransformResult,
+    MniRegistrationBundle,
+    RegistrationQCReport,
+    apply_transform,
+    compute_registration_qc,
+    invert_transform,
+    register_to_mni,
+)
 
 __version__ = "0.1.0"
 __all__ = [
@@ -34,4 +44,13 @@ __all__ = [
     "safe_brain_age", "to_fusion_payload",
     # Validation entry points.
     "ValidationResult", "validate_upload_blob", "validate_nifti_header",
+    # MNI registration — see docs/REGISTRATION.md.
+    "register_to_mni",
+    "apply_transform",
+    "invert_transform",
+    "compute_registration_qc",
+    "MniRegistrationBundle",
+    "ApplyTransformResult",
+    "InvertTransformResult",
+    "RegistrationQCReport",
 ]
