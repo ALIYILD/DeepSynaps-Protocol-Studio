@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import csv
+import io
 import json
 import random
 import re
 import string
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, Query, Request, Response
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -19,7 +22,9 @@ from app.limiter import limiter
 from app.persistence.models import (
     AdverseEvent,
     AssessmentRecord,
+    AuditEventRecord,
     ClinicalSession,
+    ConsentRecord,
     DeviceSessionLog,
     OutcomeSeries,
     PatientInvite,
@@ -1788,4 +1793,892 @@ def mark_patient_message_read(
         created_at=msg.created_at.isoformat(),
         read_at=msg.read_at.isoformat() if msg.read_at else None,
         is_read=msg.read_at is not None,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Patient Profile launch-audit (PR feat/patient-profile-launch-audit-2026-04-30)
+#
+# Aggregates the data the clinician Patient Profile page needs in one round-
+# trip, exposes a real consent timeline (replacing the prior localStorage-only
+# placeholder), surfaces a typed audit timeline, and ships DEMO-prefixed CSV /
+# NDJSON exports. Mirrors the Course Detail (#335), IRB Manager (#334), and
+# Clinical Trials (#336) launch-audit patterns and follows the existing
+# surface whitelist in audit_trail_router.KNOWN_SURFACES + qeeg_analysis_router
+# audit-events.
+#
+# Closes the per-patient regulatory record loop after Audit Trail (#305) +
+# Reports Hub (#310) + Documents Hub + Quality Assurance (#321) + IRB Manager
+# (#334) + Clinical Trials (#336) + Course Detail (#335).
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+_PATIENT_PROFILE_DISCLAIMERS = (
+    "Patient Profile aggregates clinical data for review only.",
+    "All edits are immutably audited; consent history is append-only.",
+    "Demo patients are not regulator-submittable; exports are tagged accordingly.",
+)
+
+
+def _patient_is_demo(db: Session, patient) -> bool:
+    """Treat a patient as DEMO when notes carry [DEMO] OR clinician sits in a
+    demo clinic. Mirrors PatientOut.demo_seed plus the Course Detail clinic
+    pattern so exports flag synthetic data honestly.
+    """
+    if patient is None:
+        return False
+    notes = patient.notes or ""
+    if notes.startswith("[DEMO]"):
+        return True
+    try:
+        from app.persistence.models import User  # noqa: PLC0415
+        u = db.query(User).filter_by(id=patient.clinician_id).first()
+        if u is None or not u.clinic_id:
+            return False
+        return u.clinic_id in {"clinic-demo-default", "clinic-cd-demo"}
+    except Exception:
+        return False
+
+
+def _get_patient_for_actor(
+    db: Session, patient_id: str, actor: AuthenticatedActor
+):
+    """Fetch a patient with role-aware ownership. Admins see any patient;
+    clinicians see only their own. Cross-clinic returns 404 (never the row)
+    so we never leak existence."""
+    from app.persistence.models import Patient as _Patient  # noqa: PLC0415
+
+    patient = db.query(_Patient).filter_by(id=patient_id).first()
+    if patient is None:
+        raise ApiServiceError(
+            code="not_found", message="Patient not found.", status_code=404
+        )
+    if actor.role != "admin" and patient.clinician_id != actor.actor_id:
+        raise ApiServiceError(
+            code="not_found", message="Patient not found.", status_code=404
+        )
+    return patient
+
+
+def _self_audit_patient_profile(
+    db: Session,
+    actor: AuthenticatedActor,
+    *,
+    event: str,
+    patient_id: str,
+    note: str,
+) -> None:
+    """Best-effort audit hook for the patient_profile surface; never raises."""
+    try:
+        now = datetime.now(timezone.utc)
+        event_id = (
+            f"patient_profile-{event}-{actor.actor_id}-{int(now.timestamp())}"
+            f"-{uuid.uuid4().hex[:6]}"
+        )
+        create_audit_event(
+            db,
+            event_id=event_id,
+            target_id=str(patient_id) or actor.actor_id,
+            target_type="patient_profile",
+            action=f"patient_profile.{event}",
+            role=actor.role,
+            actor_id=actor.actor_id,
+            note=(note or event)[:1024],
+            created_at=now.isoformat(),
+        )
+    except Exception:  # pragma: no cover — audit must never block UI
+        _pat_log.debug("Patient profile self-audit skipped", exc_info=True)
+
+
+def _patient_profile_audit_rows(
+    db: Session, patient_id: str, limit: int = 200
+) -> list:
+    """Return audit_events rows tied to this patient (any patient-scoped surface).
+
+    Includes every row whose target_id matches the patient_id so the UI can
+    render a single unified timeline across patient_profile + medical_history
+    page-level events without fabricating placeholder rows.
+    """
+    return (
+        db.query(AuditEventRecord)
+        .filter(AuditEventRecord.target_id == patient_id)
+        .order_by(AuditEventRecord.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+
+def _patient_audit_event_to_dict(r: AuditEventRecord) -> dict:
+    return {
+        "event_id": r.event_id,
+        "target_id": r.target_id,
+        "target_type": r.target_type,
+        "action": r.action,
+        "role": r.role,
+        "actor_id": r.actor_id,
+        "note": r.note,
+        "created_at": r.created_at,
+    }
+
+
+# ── GET /{patient_id}/detail — aggregated payload ────────────────────────────
+
+
+class PatientDetailHeader(BaseModel):
+    """Honest header — only the fields actually present on the Patient row.
+
+    No fabricated MRN, no AI-generated risk summary, no fake provider list.
+    The frontend renders empty states for absent fields rather than inventing
+    placeholders.
+    """
+
+    id: str
+    first_name: str
+    last_name: str
+    dob: Optional[str] = None
+    age: Optional[int] = None
+    gender: Optional[str] = None
+    primary_condition: Optional[str] = None
+    primary_modality: Optional[str] = None
+    primary_clinician_id: str
+    primary_clinician_name: Optional[str] = None
+    referring_clinician: Optional[str] = None
+    status: str
+    mrn: str
+    is_demo: bool
+    created_at: str
+    updated_at: str
+
+
+class PatientDetailCounts(BaseModel):
+    active_courses: int = 0
+    active_irb_protocols: int = 0
+    active_trials: int = 0
+    consent_records: int = 0
+    adverse_events: int = 0
+    open_adverse_events: int = 0
+    outcome_assessments: int = 0
+    pending_assessments: int = 0
+
+
+class PatientDetailResponse(BaseModel):
+    header: PatientDetailHeader
+    counts: PatientDetailCounts
+    has_serious_ae: bool = False
+    has_consent_signed: bool = False
+    last_session_at: Optional[str] = None
+    disclaimers: list[str] = Field(
+        default_factory=lambda: list(_PATIENT_PROFILE_DISCLAIMERS)
+    )
+
+
+@router.get("/{patient_id}/detail", response_model=PatientDetailResponse)
+def get_patient_detail(
+    patient_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PatientDetailResponse:
+    """Aggregated detail for the clinician Patient Profile page header.
+
+    Single round-trip: header + counts + roll-up flags. Does not duplicate
+    nested payloads (consents, courses, AE) — those have dedicated endpoints
+    — but does provide enough scalar context for the page header, status
+    banners, and DEMO labelling without N+1.
+    """
+    require_minimum_role(actor, "clinician")
+    patient = _get_patient_for_actor(db, patient_id, actor)
+
+    # Active counts
+    active_course_statuses = ("active", "in_progress", "approved")
+    active_courses = (
+        db.query(TreatmentCourse)
+        .filter(
+            TreatmentCourse.patient_id == patient_id,
+            TreatmentCourse.status.in_(active_course_statuses),
+        )
+        .count()
+    )
+
+    active_trials = 0
+    try:
+        from app.persistence.models import (  # noqa: PLC0415
+            ClinicalTrial,
+            ClinicalTrialEnrollment,
+        )
+        active_trials = (
+            db.query(ClinicalTrialEnrollment)
+            .join(
+                ClinicalTrial,
+                ClinicalTrial.id == ClinicalTrialEnrollment.trial_id,
+            )
+            .filter(
+                ClinicalTrialEnrollment.patient_id == patient_id,
+                ClinicalTrialEnrollment.status == "active",
+                ClinicalTrial.status.in_(
+                    ("recruiting", "active", "planning")
+                ),
+            )
+            .count()
+        )
+    except Exception:
+        active_trials = 0
+
+    # Active IRB protocol "enrolments" — there's no per-patient IRB enrolment
+    # table today (only ClinicalTrialEnrollment which already FKs to an
+    # IRBProtocol via ClinicalTrial). So we surface the count of distinct IRB
+    # protocols this patient is actively enrolled into via clinical trials.
+    active_irb_protocols = 0
+    try:
+        from app.persistence.models import (  # noqa: PLC0415
+            ClinicalTrial,
+            ClinicalTrialEnrollment,
+        )
+        rows = (
+            db.query(ClinicalTrial.irb_protocol_id)
+            .join(
+                ClinicalTrialEnrollment,
+                ClinicalTrialEnrollment.trial_id == ClinicalTrial.id,
+            )
+            .filter(
+                ClinicalTrialEnrollment.patient_id == patient_id,
+                ClinicalTrialEnrollment.status == "active",
+            )
+            .distinct()
+            .all()
+        )
+        active_irb_protocols = sum(1 for r in rows if r[0])
+    except Exception:
+        active_irb_protocols = 0
+
+    consent_count = (
+        db.query(ConsentRecord)
+        .filter(ConsentRecord.patient_id == patient_id)
+        .count()
+    )
+
+    ae_total = (
+        db.query(AdverseEvent)
+        .filter(AdverseEvent.patient_id == patient_id)
+        .count()
+    )
+    ae_open = (
+        db.query(AdverseEvent)
+        .filter(
+            AdverseEvent.patient_id == patient_id,
+            AdverseEvent.resolved_at.is_(None),
+        )
+        .count()
+    )
+    has_serious_ae = (
+        db.query(AdverseEvent)
+        .filter(
+            AdverseEvent.patient_id == patient_id,
+            AdverseEvent.severity.in_(("serious", "severe", "critical")),
+        )
+        .first()
+        is not None
+    )
+
+    outcome_count = (
+        db.query(OutcomeSeries)
+        .filter(OutcomeSeries.patient_id == patient_id)
+        .count()
+    )
+    pending_assess = (
+        db.query(AssessmentRecord)
+        .filter(
+            AssessmentRecord.patient_id == patient_id,
+            AssessmentRecord.status.in_(("draft", "pending")),
+        )
+        .count()
+    )
+
+    last_session_at: Optional[str] = None
+    last_session = (
+        db.query(ClinicalSession)
+        .filter(ClinicalSession.patient_id == patient_id)
+        .order_by(ClinicalSession.scheduled_at.desc())
+        .first()
+    )
+    if last_session and last_session.scheduled_at:
+        last_session_at = last_session.scheduled_at
+
+    # Resolve clinician display name (best-effort).
+    clinician_name: Optional[str] = None
+    try:
+        from app.persistence.models import User as _User  # noqa: PLC0415
+        u = db.query(_User).filter_by(id=patient.clinician_id).first()
+        if u is not None:
+            clinician_name = u.display_name or u.email
+    except Exception:
+        clinician_name = None
+
+    is_demo = _patient_is_demo(db, patient)
+
+    header = PatientDetailHeader(
+        id=patient.id,
+        first_name=patient.first_name,
+        last_name=patient.last_name,
+        dob=patient.dob,
+        age=_age_from_dob(patient.dob),
+        gender=patient.gender,
+        primary_condition=patient.primary_condition,
+        primary_modality=patient.primary_modality,
+        primary_clinician_id=patient.clinician_id,
+        primary_clinician_name=clinician_name,
+        referring_clinician=patient.referring_clinician,
+        status=patient.status,
+        mrn=_derive_mrn(patient.id),
+        is_demo=is_demo,
+        created_at=patient.created_at.isoformat(),
+        updated_at=patient.updated_at.isoformat(),
+    )
+    counts = PatientDetailCounts(
+        active_courses=active_courses,
+        active_irb_protocols=active_irb_protocols,
+        active_trials=active_trials,
+        consent_records=consent_count,
+        adverse_events=ae_total,
+        open_adverse_events=ae_open,
+        outcome_assessments=outcome_count,
+        pending_assessments=pending_assess,
+    )
+
+    _self_audit_patient_profile(
+        db,
+        actor,
+        event="detail.read",
+        patient_id=patient_id,
+        note=(
+            f"courses={active_courses} trials={active_trials} "
+            f"irb={active_irb_protocols} consents={consent_count} "
+            f"demo={int(is_demo)}"
+        ),
+    )
+
+    return PatientDetailResponse(
+        header=header,
+        counts=counts,
+        has_serious_ae=has_serious_ae,
+        has_consent_signed=bool(patient.consent_signed),
+        last_session_at=last_session_at,
+    )
+
+
+# ── GET /{patient_id}/consent-history — append-only timeline ─────────────────
+
+
+class PatientConsentRow(BaseModel):
+    id: str
+    consent_type: str
+    modality_slug: Optional[str] = None
+    status: str
+    signed: bool
+    signed_at: Optional[str] = None
+    expires_at: Optional[str] = None
+    document_ref: Optional[str] = None
+    notes: Optional[str] = None
+    signed_by: str  # clinician_id who recorded it (real audit field)
+    created_at: str
+
+
+class PatientConsentHistoryResponse(BaseModel):
+    patient_id: str
+    items: list[PatientConsentRow] = Field(default_factory=list)
+    total: int = 0
+    disclaimers: list[str] = Field(
+        default_factory=lambda: list(_PATIENT_PROFILE_DISCLAIMERS)
+    )
+
+
+@router.get(
+    "/{patient_id}/consent-history",
+    response_model=PatientConsentHistoryResponse,
+)
+def get_patient_consent_history(
+    patient_id: str,
+    limit: int = Query(default=200, ge=1, le=1000),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PatientConsentHistoryResponse:
+    """Real append-only consent timeline for a patient.
+
+    Source: ``consent_records`` table (the canonical store). Replaces the
+    pre-launch-audit localStorage placeholder list. Sort: newest first by
+    ``created_at`` (rows are append-only — even withdrawals are recorded as
+    a status change on the existing row, never a delete)."""
+    require_minimum_role(actor, "clinician")
+    _get_patient_for_actor(db, patient_id, actor)
+
+    rows = (
+        db.query(ConsentRecord)
+        .filter(ConsentRecord.patient_id == patient_id)
+        .order_by(ConsentRecord.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    items = [
+        PatientConsentRow(
+            id=r.id,
+            consent_type=r.consent_type,
+            modality_slug=r.modality_slug,
+            status=r.status,
+            signed=bool(r.signed),
+            signed_at=r.signed_at.isoformat() if r.signed_at else None,
+            expires_at=r.expires_at.isoformat() if r.expires_at else None,
+            document_ref=r.document_ref,
+            notes=r.notes,
+            signed_by=r.clinician_id,
+            created_at=r.created_at.isoformat(),
+        )
+        for r in rows
+    ]
+    return PatientConsentHistoryResponse(
+        patient_id=patient_id, items=items, total=len(items)
+    )
+
+
+# ── GET /{patient_id}/audit-events — typed audit timeline ────────────────────
+
+
+class PatientProfileAuditEventOut(BaseModel):
+    event_id: str
+    target_id: str
+    target_type: str
+    action: str
+    role: str
+    actor_id: str
+    note: str
+    created_at: str
+
+
+class PatientProfileAuditEventsResponse(BaseModel):
+    patient_id: str
+    items: list[PatientProfileAuditEventOut] = Field(default_factory=list)
+    total: int = 0
+    disclaimers: list[str] = Field(
+        default_factory=lambda: list(_PATIENT_PROFILE_DISCLAIMERS)
+    )
+
+
+@router.get(
+    "/{patient_id}/audit-events",
+    response_model=PatientProfileAuditEventsResponse,
+)
+def list_patient_profile_audit_events(
+    patient_id: str,
+    limit: int = Query(default=200, ge=1, le=1000),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PatientProfileAuditEventsResponse:
+    """Audit timeline filtered by this patient_id.
+
+    Returns audit_events rows whose target_id matches the patient (any
+    patient-scoped surface: patient_profile, patient.medical_history, etc.).
+    """
+    require_minimum_role(actor, "clinician")
+    _get_patient_for_actor(db, patient_id, actor)
+    rows = _patient_profile_audit_rows(db, patient_id, limit=limit)
+    items = [
+        PatientProfileAuditEventOut(**_patient_audit_event_to_dict(r))
+        for r in rows
+    ]
+    return PatientProfileAuditEventsResponse(
+        patient_id=patient_id, items=items, total=len(items)
+    )
+
+
+# ── POST /{patient_id}/audit-events — page-level audit ingestion ────────────
+
+
+class PatientProfileAuditEventIn(BaseModel):
+    event: str = Field(..., min_length=1, max_length=64)
+    note: Optional[str] = Field(default=None, max_length=512)
+    using_demo_data: bool = False
+
+
+class PatientProfileAuditEventAck(BaseModel):
+    accepted: bool
+    event_id: str
+
+
+@router.post(
+    "/{patient_id}/audit-events",
+    response_model=PatientProfileAuditEventAck,
+)
+def record_patient_profile_audit_event(
+    patient_id: str,
+    payload: PatientProfileAuditEventIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PatientProfileAuditEventAck:
+    """Record a page-level audit event from the Patient Profile UI.
+
+    Surface: ``patient_profile``. Common events: ``view`` (mount),
+    ``drill_out`` (navigate to course-detail / irb-manager / clinical-trials /
+    documents-hub / adverse-events / assessments-hub / clinical-notes),
+    ``edit`` (demographics save), ``export_csv`` / ``export_ndjson``.
+    """
+    require_minimum_role(actor, "clinician")
+    _get_patient_for_actor(db, patient_id, actor)
+    now = datetime.now(timezone.utc)
+    event_id = (
+        f"patient_profile-{payload.event}-{actor.actor_id}-"
+        f"{int(now.timestamp())}-{uuid.uuid4().hex[:6]}"
+    )
+    note_parts: list[str] = []
+    if payload.using_demo_data:
+        note_parts.append("DEMO")
+    if payload.note:
+        note_parts.append(payload.note[:500])
+    note = "; ".join(note_parts) or payload.event
+    try:
+        create_audit_event(
+            db,
+            event_id=event_id,
+            target_id=patient_id,
+            target_type="patient_profile",
+            action=f"patient_profile.{payload.event}",
+            role=actor.role,
+            actor_id=actor.actor_id,
+            note=note[:1024],
+            created_at=now.isoformat(),
+        )
+    except Exception:  # pragma: no cover — audit must never block UI
+        _pat_log.exception(
+            "Patient profile audit-event persistence failed"
+        )
+        return PatientProfileAuditEventAck(
+            accepted=False, event_id=event_id
+        )
+    return PatientProfileAuditEventAck(accepted=True, event_id=event_id)
+
+
+# ── GET /{patient_id}/export.csv | export.ndjson ────────────────────────────
+
+
+_PATIENT_EXPORT_COLUMNS = (
+    "patient_id",
+    "first_name",
+    "last_name",
+    "dob",
+    "gender",
+    "mrn",
+    "primary_condition",
+    "primary_modality",
+    "primary_clinician_id",
+    "referring_clinician",
+    "status",
+    "consent_signed",
+    "consent_date",
+    "created_at",
+    "updated_at",
+    "is_demo",
+)
+
+
+def _patient_export_row(patient, *, is_demo: bool) -> dict:
+    return {
+        "patient_id": patient.id,
+        "first_name": patient.first_name or "",
+        "last_name": patient.last_name or "",
+        "dob": patient.dob or "",
+        "gender": patient.gender or "",
+        "mrn": _derive_mrn(patient.id),
+        "primary_condition": patient.primary_condition or "",
+        "primary_modality": patient.primary_modality or "",
+        "primary_clinician_id": patient.clinician_id or "",
+        "referring_clinician": patient.referring_clinician or "",
+        "status": patient.status or "",
+        "consent_signed": int(bool(patient.consent_signed)),
+        "consent_date": patient.consent_date or "",
+        "created_at": (
+            patient.created_at.isoformat() if patient.created_at else ""
+        ),
+        "updated_at": (
+            patient.updated_at.isoformat() if patient.updated_at else ""
+        ),
+        "is_demo": int(bool(is_demo)),
+    }
+
+
+@router.get("/{patient_id}/export.csv")
+def export_patient_csv(
+    patient_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> Response:
+    """Patient bundle CSV: header row + courses + adverse events + audit.
+
+    DEMO-prefixed when the patient is demo data; never regulator-submittable
+    in that case.
+    """
+    require_minimum_role(actor, "clinician")
+    patient = _get_patient_for_actor(db, patient_id, actor)
+    is_demo = _patient_is_demo(db, patient)
+
+    courses = (
+        db.query(TreatmentCourse)
+        .filter(TreatmentCourse.patient_id == patient_id)
+        .order_by(TreatmentCourse.created_at.asc())
+        .all()
+    )
+    aes = (
+        db.query(AdverseEvent)
+        .filter(AdverseEvent.patient_id == patient_id)
+        .order_by(AdverseEvent.reported_at.asc())
+        .all()
+    )
+    audit_rows = _patient_profile_audit_rows(db, patient_id, limit=500)
+
+    buf = io.StringIO()
+    if is_demo:
+        buf.write(
+            "# DEMO — this patient is demo data and is NOT regulator-submittable.\n"
+        )
+    writer = csv.writer(buf)
+
+    # Section 1: patient header
+    writer.writerow(["section", "patient"])
+    writer.writerow(list(_PATIENT_EXPORT_COLUMNS))
+    row = _patient_export_row(patient, is_demo=is_demo)
+    writer.writerow([row[c] for c in _PATIENT_EXPORT_COLUMNS])
+    writer.writerow([])
+
+    # Section 2: courses
+    writer.writerow(["section", "courses"])
+    writer.writerow(
+        [
+            "course_id",
+            "protocol_id",
+            "condition_slug",
+            "modality_slug",
+            "status",
+            "planned_sessions_total",
+            "sessions_delivered",
+            "started_at",
+            "completed_at",
+            "created_at",
+        ]
+    )
+    for c in courses:
+        writer.writerow(
+            [
+                c.id,
+                c.protocol_id or "",
+                c.condition_slug or "",
+                c.modality_slug or "",
+                c.status or "",
+                c.planned_sessions_total or 0,
+                c.sessions_delivered or 0,
+                c.started_at.isoformat() if c.started_at else "",
+                c.completed_at.isoformat() if c.completed_at else "",
+                c.created_at.isoformat() if c.created_at else "",
+            ]
+        )
+    writer.writerow([])
+
+    # Section 3: adverse events
+    writer.writerow(["section", "adverse_events"])
+    writer.writerow(
+        [
+            "ae_id",
+            "course_id",
+            "event_type",
+            "severity",
+            "is_serious",
+            "reportable",
+            "reported_at",
+            "resolved_at",
+        ]
+    )
+    for a in aes:
+        writer.writerow(
+            [
+                a.id,
+                a.course_id or "",
+                a.event_type or "",
+                a.severity or "",
+                int(bool(a.is_serious)),
+                int(bool(a.reportable)),
+                a.reported_at.isoformat() if a.reported_at else "",
+                a.resolved_at.isoformat() if a.resolved_at else "",
+            ]
+        )
+    writer.writerow([])
+
+    # Section 4: audit events
+    writer.writerow(["section", "audit_events"])
+    writer.writerow(
+        [
+            "event_id",
+            "target_type",
+            "action",
+            "role",
+            "actor_id",
+            "note",
+            "created_at",
+        ]
+    )
+    for r in audit_rows:
+        writer.writerow(
+            [
+                r.event_id,
+                r.target_type or "",
+                r.action or "",
+                r.role or "",
+                r.actor_id or "",
+                (r.note or "")[:500],
+                r.created_at or "",
+            ]
+        )
+
+    _self_audit_patient_profile(
+        db,
+        actor,
+        event="export_csv",
+        patient_id=patient_id,
+        note=(
+            f"courses={len(courses)} ae={len(aes)} audit={len(audit_rows)} "
+            f"demo={int(is_demo)}"
+        ),
+    )
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename=patient-{patient_id}.csv"
+            ),
+            "Cache-Control": "no-store",
+            "X-Patient-Demo": "1" if is_demo else "0",
+        },
+    )
+
+
+@router.get("/{patient_id}/export.ndjson")
+def export_patient_ndjson(
+    patient_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> Response:
+    """Patient bundle NDJSON. Leads with {_meta:DEMO} when demo data."""
+    require_minimum_role(actor, "clinician")
+    patient = _get_patient_for_actor(db, patient_id, actor)
+    is_demo = _patient_is_demo(db, patient)
+
+    courses = (
+        db.query(TreatmentCourse)
+        .filter(TreatmentCourse.patient_id == patient_id)
+        .order_by(TreatmentCourse.created_at.asc())
+        .all()
+    )
+    aes = (
+        db.query(AdverseEvent)
+        .filter(AdverseEvent.patient_id == patient_id)
+        .order_by(AdverseEvent.reported_at.asc())
+        .all()
+    )
+    audit_rows = _patient_profile_audit_rows(db, patient_id, limit=500)
+
+    lines: list[str] = []
+    if is_demo:
+        lines.append(
+            json.dumps(
+                {
+                    "_meta": "DEMO",
+                    "warning": (
+                        "This patient is demo data and is NOT "
+                        "regulator-submittable."
+                    ),
+                },
+                separators=(",", ":"),
+            )
+        )
+    lines.append(
+        json.dumps(
+            {
+                "_kind": "patient",
+                **_patient_export_row(patient, is_demo=is_demo),
+            },
+            separators=(",", ":"),
+        )
+    )
+    for c in courses:
+        lines.append(
+            json.dumps(
+                {
+                    "_kind": "course",
+                    "course_id": c.id,
+                    "protocol_id": c.protocol_id,
+                    "condition_slug": c.condition_slug,
+                    "modality_slug": c.modality_slug,
+                    "status": c.status,
+                    "planned_sessions_total": c.planned_sessions_total,
+                    "sessions_delivered": c.sessions_delivered,
+                    "started_at": (
+                        c.started_at.isoformat() if c.started_at else None
+                    ),
+                    "completed_at": (
+                        c.completed_at.isoformat() if c.completed_at else None
+                    ),
+                    "created_at": (
+                        c.created_at.isoformat() if c.created_at else None
+                    ),
+                },
+                separators=(",", ":"),
+            )
+        )
+    for a in aes:
+        lines.append(
+            json.dumps(
+                {
+                    "_kind": "adverse_event",
+                    "ae_id": a.id,
+                    "course_id": a.course_id,
+                    "event_type": a.event_type,
+                    "severity": a.severity,
+                    "is_serious": bool(a.is_serious),
+                    "reportable": bool(a.reportable),
+                    "reported_at": (
+                        a.reported_at.isoformat() if a.reported_at else None
+                    ),
+                    "resolved_at": (
+                        a.resolved_at.isoformat() if a.resolved_at else None
+                    ),
+                },
+                separators=(",", ":"),
+            )
+        )
+    for r in audit_rows:
+        lines.append(
+            json.dumps(
+                {
+                    "_kind": "audit",
+                    **_patient_audit_event_to_dict(r),
+                },
+                separators=(",", ":"),
+            )
+        )
+    body = "\n".join(lines) + ("\n" if lines else "")
+    _self_audit_patient_profile(
+        db,
+        actor,
+        event="export_ndjson",
+        patient_id=patient_id,
+        note=(
+            f"courses={len(courses)} ae={len(aes)} audit={len(audit_rows)} "
+            f"demo={int(is_demo)}"
+        ),
+    )
+    return Response(
+        content=body,
+        media_type="application/x-ndjson",
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename=patient-{patient_id}.ndjson"
+            ),
+            "Cache-Control": "no-store",
+            "X-Patient-Demo": "1" if is_demo else "0",
+        },
     )

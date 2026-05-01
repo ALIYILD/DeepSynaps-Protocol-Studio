@@ -11352,8 +11352,20 @@ function _ppRenderHeader(profile, editMode) {
 }
 
 function _ppRenderTabs(activeTab) {
-  const tabs = ['demographics', 'insurance', 'medications', 'allergies', 'history', 'notes', 'assessments'];
-  const labels = { demographics: 'Demographics', insurance: 'Insurance', medications: 'Medications', allergies: 'Allergies', history: 'Treatment History', notes: 'Notes', assessments: 'Assessments' };
+  // Real DB-backed Clinical Record tab leads — that is the regulator-
+  // credible surface. Local-only tabs (demographics/insurance/medications/
+  // allergies/history/notes) follow with an honesty banner per-tab.
+  const tabs = ['clinical_record', 'demographics', 'insurance', 'medications', 'allergies', 'history', 'notes', 'assessments'];
+  const labels = {
+    clinical_record: 'Clinical Record',
+    demographics: 'Demographics',
+    insurance: 'Insurance',
+    medications: 'Medications',
+    allergies: 'Allergies',
+    history: 'Treatment History',
+    notes: 'Notes',
+    assessments: 'Assessments',
+  };
   return `<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px;overflow-x:auto" role="tablist">
     ${tabs.map(t => `<button role="tab" aria-selected="${t === activeTab}" class="btn" style="border-radius:0;border:none;border-bottom:${t === activeTab ? '2px solid var(--teal)' : '2px solid transparent'};margin-bottom:-2px;padding:10px 18px;font-size:.875rem;font-weight:${t === activeTab ? '600' : '400'};color:${t === activeTab ? 'var(--teal)' : 'var(--text-secondary)'};white-space:nowrap;background:none" onclick="window._profileTab('${t}')">${labels[t]}</button>`).join('')}
   </div>`;
@@ -11418,10 +11430,22 @@ function _ppRenderInsurance(profile, editMode) {
     </div>`;
 }
 
+// Honest banner shared by local-only tabs (launch-audit 2026-04-30).
+// Pre-launch-audit, these tabs persisted to localStorage only — no server
+// sync. Until a real PatientMedication / Allergy / Notes API lands these
+// fields are not regulator-credible and we say so plainly so reviewers do
+// not mistake them for clinical truth.
+function _ppLocalOnlyBanner(label) {
+  return `<div style="background:#eff6ff;color:#1e3a8a;padding:8px 12px;border-radius:8px;margin-bottom:12px;font-size:.78rem;border:1px solid #bfdbfe" data-testid="pp-local-only-banner">
+    <strong>Local-only ${_ppEscape(label)}.</strong> These fields persist in this browser only and do not sync to the server yet. Use the Clinical Record tab for the regulator-credible record.
+  </div>`;
+}
+
 function _ppRenderMedications(profile, editMode) {
   const meds = profile.medications || [];
   return `
     <div>
+      ${_ppLocalOnlyBanner('medications')}
       ${editMode ? `<div style="margin-bottom:14px"><button class="btn btn-sm btn-primary" onclick="window._profileAddMedication()">+ Add Medication</button></div>` : ''}
       <div id="pp-med-add-form" style="display:none;background:var(--hover-bg);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:14px">
         <div class="g2" style="gap:10px">
@@ -11458,6 +11482,7 @@ function _ppRenderAllergies(profile, editMode) {
   const allergies = profile.allergies || [];
   return `
     <div>
+      ${_ppLocalOnlyBanner('allergies')}
       ${editMode ? `<div style="margin-bottom:14px"><button class="btn btn-sm btn-primary" onclick="window._profileAddAllergy()">+ Add Allergy</button></div>` : ''}
       <div id="pp-allergy-add-form" style="display:none;background:var(--hover-bg);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:14px">
         <div class="g2" style="gap:10px">
@@ -11494,6 +11519,7 @@ function _ppRenderHistory(profile, editMode) {
   const history = (profile.treatmentHistory || []).slice().sort((a, b) => new Date(b.date) - new Date(a.date));
   return `
     <div>
+      ${_ppLocalOnlyBanner('treatment history')}
       ${editMode ? `<div style="margin-bottom:14px"><button class="btn btn-sm btn-primary" onclick="window._profileAddHistory()">+ Add Entry</button></div>` : ''}
       <div id="pp-history-add-form" style="display:none;background:var(--hover-bg);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:20px">
         <div class="g2" style="gap:10px">
@@ -11544,6 +11570,7 @@ function _ppRenderNotes(profile, editMode) {
   const notes = profile.notes || '';
   return `
     <div style="max-width:700px">
+      ${_ppLocalOnlyBanner('clinical notes')}
       <label class="form-label">Clinical Notes</label>
       <textarea id="pp-notes-area" class="form-control" rows="12" ${!editMode ? 'readonly' : ''} oninput="document.getElementById('pp-notes-count').textContent=this.value.length+' characters'">${notes}</textarea>
       <div style="font-size:.75rem;color:var(--text-tertiary);margin-top:4px" id="pp-notes-count">${notes.length} characters</div>
@@ -11642,20 +11669,261 @@ function _ppRenderAssessments(profile) {
 
 function _ppRenderTab(profile, tab, editMode) {
   switch (tab) {
-    case 'demographics': return _ppRenderDemographics(profile, editMode);
-    case 'insurance':    return _ppRenderInsurance(profile, editMode);
-    case 'medications':  return _ppRenderMedications(profile, editMode);
-    case 'allergies':    return _ppRenderAllergies(profile, editMode);
-    case 'history':      return _ppRenderHistory(profile, editMode);
-    case 'notes':        return _ppRenderNotes(profile, editMode);
-    case 'assessments':  return _ppRenderAssessments(profile);
-    default:             return _ppRenderDemographics(profile, editMode);
+    case 'clinical_record': return _ppRenderClinicalRecordShell(profile);
+    case 'demographics':    return _ppRenderDemographics(profile, editMode);
+    case 'insurance':       return _ppRenderInsurance(profile, editMode);
+    case 'medications':     return _ppRenderMedications(profile, editMode);
+    case 'allergies':       return _ppRenderAllergies(profile, editMode);
+    case 'history':         return _ppRenderHistory(profile, editMode);
+    case 'notes':           return _ppRenderNotes(profile, editMode);
+    case 'assessments':     return _ppRenderAssessments(profile);
+    default:                return _ppRenderClinicalRecordShell(profile);
   }
 }
 
 let _ppCurrentId   = null;
-let _ppCurrentTab  = 'demographics';
+let _ppCurrentTab  = 'clinical_record';
 let _ppEditMode    = false;
+
+// ── Clinical Record (real, DB-backed) — launch-audit 2026-04-30 ────────────
+//
+// Replaces the prior localStorage-only stack with a server-truth view.
+// Fetches the aggregated /detail payload, real consent timeline, and audit
+// log; renders honest empty states; exposes drill-out buttons to course-
+// detail, irb-manager, clinical-trials, documents-hub, adverse-events,
+// assessments-hub, clinical-notes; and ships DEMO-prefixed CSV/NDJSON
+// exports per the patient_profile launch-audit contract.
+
+function _ppEscape(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function _ppFmtDate(iso) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return _ppEscape(String(iso));
+    return d.toLocaleString();
+  } catch { return _ppEscape(String(iso)); }
+}
+
+function _ppRenderClinicalRecordShell(profile) {
+  // Server-rendered shell. Real data is filled in by
+  // _ppRenderClinicalRecordAsync after mount.
+  const sd = profile && profile._serverDetail;
+  const counts = (sd && sd.counts) || {};
+  const isDemo = !!(sd && sd.header && sd.header.is_demo);
+  const demoBanner = isDemo
+    ? `<div style="background:#fef3c7;color:#78350f;padding:10px 14px;border-radius:8px;margin-bottom:16px;font-size:.85rem;border:1px solid #fde68a">
+         <strong>DEMO patient.</strong> Records and exports are tagged accordingly and are NOT regulator-submittable.
+       </div>`
+    : '';
+  const noServer = !sd ? `
+    <div style="background:#fef2f2;color:#7f1d1d;padding:10px 14px;border-radius:8px;margin-bottom:16px;font-size:.85rem;border:1px solid #fecaca">
+      <strong>Server data unavailable.</strong> The aggregated /detail endpoint is not reachable. Counts and timelines below are blank rather than fabricated.
+    </div>` : '';
+  const c = (n) => Number.isFinite(n) ? n : 0;
+  const counterCard = (label, value, navAction, helpText) => `
+    <button class="btn" onclick="${navAction || ''}" ${navAction ? '' : 'disabled'} style="text-align:left;padding:14px;border-radius:10px;border:1px solid var(--border);background:var(--card-bg);min-width:160px;flex:1;cursor:${navAction ? 'pointer' : 'default'}">
+      <div style="font-size:.7rem;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.04em">${_ppEscape(label)}</div>
+      <div style="font-size:1.45rem;font-weight:700;color:var(--text-primary);margin:4px 0">${c(value)}</div>
+      ${helpText ? `<div style="font-size:.75rem;color:var(--text-secondary)">${_ppEscape(helpText)}</div>` : ''}
+    </button>`;
+  const pid = (profile && profile.id) || '';
+  return `
+    <div data-testid="patient-profile-clinical-record">
+      ${demoBanner}
+      ${noServer}
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px">
+        <button class="btn btn-sm btn-primary" onclick="window._ppExportCsv()" data-testid="pp-export-csv">&#11015; Export CSV</button>
+        <button class="btn btn-sm" onclick="window._ppExportNdjson()" data-testid="pp-export-ndjson">&#11015; Export NDJSON</button>
+        <button class="btn btn-sm" onclick="window._ppDrillOut('audit-trail', '${_ppEscape(pid)}')" data-testid="pp-drill-audit">Audit Trail &#8594;</button>
+        <button class="btn btn-sm" onclick="window._ppDrillOut('reports-hub', '${_ppEscape(pid)}')" data-testid="pp-drill-reports">Reports &#8594;</button>
+        <button class="btn btn-sm" onclick="window._ppDrillOut('documents-hub', '${_ppEscape(pid)}')" data-testid="pp-drill-documents">Documents &#8594;</button>
+      </div>
+
+      <h3 style="font-size:.9rem;font-weight:600;color:var(--text-secondary);margin:0 0 10px;text-transform:uppercase;letter-spacing:.04em">Care register (real)</h3>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px" data-testid="pp-counters">
+        ${counterCard('Active courses',     counts.active_courses,        `window._ppDrillOut('courses', '${_ppEscape(pid)}')`,        'Drill into Courses Hub filtered by patient')}
+        ${counterCard('Active IRB protocols', counts.active_irb_protocols, `window._ppDrillOut('irb-manager', '${_ppEscape(pid)}')`,    'Open IRB Manager')}
+        ${counterCard('Active trials',      counts.active_trials,         `window._ppDrillOut('clinical-trials', '${_ppEscape(pid)}')`, 'Open Clinical Trials register')}
+        ${counterCard('Consent records',    counts.consent_records,       null,                                                        'See timeline below')}
+        ${counterCard('Adverse events',     counts.adverse_events,        `window._ppDrillOut('adverse-events', '${_ppEscape(pid)}')`, c(counts.open_adverse_events) > 0 ? `${c(counts.open_adverse_events)} open` : 'All resolved')}
+        ${counterCard('Outcome assessments', counts.outcome_assessments,  `window._ppDrillOut('assessments-hub', '${_ppEscape(pid)}')`, c(counts.pending_assessments) > 0 ? `${c(counts.pending_assessments)} pending` : 'No pending')}
+      </div>
+
+      <h3 style="font-size:.9rem;font-weight:600;color:var(--text-secondary);margin:0 0 10px;text-transform:uppercase;letter-spacing:.04em">Active courses</h3>
+      <div id="pp-courses-list" data-testid="pp-courses-list" style="margin-bottom:20px">
+        <div style="color:var(--text-tertiary);font-size:.85rem">Loading…</div>
+      </div>
+
+      <h3 style="font-size:.9rem;font-weight:600;color:var(--text-secondary);margin:0 0 10px;text-transform:uppercase;letter-spacing:.04em">Consent history</h3>
+      <div id="pp-consent-list" data-testid="pp-consent-list" style="margin-bottom:20px">
+        <div style="color:var(--text-tertiary);font-size:.85rem">Loading…</div>
+      </div>
+
+      <h3 style="font-size:.9rem;font-weight:600;color:var(--text-secondary);margin:0 0 10px;text-transform:uppercase;letter-spacing:.04em">Audit timeline</h3>
+      <div id="pp-audit-list" data-testid="pp-audit-list" style="margin-bottom:20px">
+        <div style="color:var(--text-tertiary);font-size:.85rem">Loading…</div>
+      </div>
+
+      ${(sd && sd.disclaimers) ? `
+        <div style="margin-top:20px;padding:10px 14px;border-radius:8px;background:var(--hover-bg);font-size:.78rem;color:var(--text-tertiary)">
+          ${sd.disclaimers.map(d => `<div>&bull; ${_ppEscape(d)}</div>`).join('')}
+        </div>` : ''}
+    </div>`;
+}
+
+async function _ppRenderClinicalRecordAsync(profile, serverDetail, serverError) {
+  if (!profile || !profile.id) return;
+  const pid = profile.id;
+
+  // ── Active courses ──────────────────────────────────────────────────────
+  try {
+    let coursesPayload = null;
+    if (api && typeof api.getPatientCourses === 'function') {
+      coursesPayload = await api.getPatientCourses(pid);
+    } else if (api && typeof api.getPatientCourse === 'function') {
+      coursesPayload = await api.getPatientCourse(pid);
+    }
+    const items = (coursesPayload && Array.isArray(coursesPayload.items))
+      ? coursesPayload.items.filter(c => ['active', 'in_progress', 'approved', 'paused'].includes(c.status))
+      : [];
+    const el = document.getElementById('pp-courses-list');
+    if (el) {
+      if (items.length === 0) {
+        el.innerHTML = `<div style="color:var(--text-tertiary);font-size:.85rem;padding:10px 0">
+          No active courses for this patient yet — start one from the Courses Hub.
+        </div>`;
+      } else {
+        el.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px">
+          ${items.map(c => `
+            <button class="btn" onclick="window._ppDrillOut('course-detail', '${_ppEscape(pid)}', '${_ppEscape(c.id)}')" style="text-align:left;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--card-bg)">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+                <div>
+                  <div style="font-weight:600">${_ppEscape(c.protocol_id || 'Course')}</div>
+                  <div style="font-size:.78rem;color:var(--text-secondary)">${_ppEscape(c.condition_slug || '')} &nbsp;·&nbsp; ${_ppEscape(c.modality_slug || '')} &nbsp;·&nbsp; ${_ppEscape(c.status)}</div>
+                </div>
+                <div style="font-size:.78rem;color:var(--text-tertiary)">${c.sessions_delivered || 0}/${c.planned_sessions_total || 0} sessions &nbsp;&#8594;</div>
+              </div>
+            </button>`).join('')}
+        </div>`;
+      }
+    }
+  } catch (e) {
+    const el = document.getElementById('pp-courses-list');
+    if (el) {
+      el.innerHTML = `<div style="color:#7f1d1d;background:#fef2f2;padding:10px 14px;border-radius:8px;font-size:.82rem;border:1px solid #fecaca">
+        Could not load courses: ${_ppEscape((e && e.message) || 'unknown error')}
+      </div>`;
+    }
+  }
+
+  // ── Consent history ─────────────────────────────────────────────────────
+  try {
+    let consentPayload = null;
+    if (api && typeof api.getPatientConsentHistory === 'function') {
+      consentPayload = await api.getPatientConsentHistory(pid);
+    }
+    const items = (consentPayload && Array.isArray(consentPayload.items)) ? consentPayload.items : [];
+    const el = document.getElementById('pp-consent-list');
+    if (el) {
+      if (!consentPayload) {
+        el.innerHTML = `<div style="color:var(--text-tertiary);font-size:.85rem;padding:10px 0">Consent endpoint unavailable; no rows shown.</div>`;
+      } else if (items.length === 0) {
+        el.innerHTML = `<div style="color:var(--text-tertiary);font-size:.85rem;padding:10px 0">
+          No consent records yet — they'll appear here once your patient signs the first ICF.
+        </div>
+        <button class="btn btn-sm" onclick="window._ppDrillOut('documents-hub', '${_ppEscape(pid)}')" style="margin-top:6px">Open Documents Hub &#8594;</button>`;
+      } else {
+        el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:.85rem">
+          <thead><tr style="border-bottom:1px solid var(--border);text-align:left;color:var(--text-secondary)">
+            <th style="padding:8px 6px">Type</th>
+            <th style="padding:8px 6px">Status</th>
+            <th style="padding:8px 6px">Signed at</th>
+            <th style="padding:8px 6px">By clinician</th>
+            <th style="padding:8px 6px">Document</th>
+          </tr></thead>
+          <tbody>
+            ${items.map(c => `
+              <tr style="border-bottom:1px solid var(--border)">
+                <td style="padding:8px 6px">${_ppEscape(c.consent_type)}${c.modality_slug ? ' · ' + _ppEscape(c.modality_slug) : ''}</td>
+                <td style="padding:8px 6px">${_ppEscape(c.status)}${c.signed ? ' · signed' : ''}</td>
+                <td style="padding:8px 6px;color:var(--text-secondary)">${_ppFmtDate(c.signed_at || c.created_at)}</td>
+                <td style="padding:8px 6px;color:var(--text-secondary)">${_ppEscape(c.signed_by)}</td>
+                <td style="padding:8px 6px"><span style="color:var(--text-tertiary);font-size:.78rem">${_ppEscape(c.document_ref || '—')}</span></td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
+      }
+    }
+  } catch (e) {
+    const el = document.getElementById('pp-consent-list');
+    if (el) {
+      el.innerHTML = `<div style="color:#7f1d1d;background:#fef2f2;padding:10px 14px;border-radius:8px;font-size:.82rem;border:1px solid #fecaca">
+        Could not load consent history: ${_ppEscape((e && e.message) || 'unknown error')}
+      </div>`;
+    }
+  }
+
+  // ── Audit timeline ──────────────────────────────────────────────────────
+  try {
+    let auditPayload = null;
+    if (api && typeof api.listPatientProfileAuditEvents === 'function') {
+      auditPayload = await api.listPatientProfileAuditEvents(pid, { limit: 50 });
+    }
+    const items = (auditPayload && Array.isArray(auditPayload.items)) ? auditPayload.items : [];
+    const el = document.getElementById('pp-audit-list');
+    if (el) {
+      if (!auditPayload) {
+        el.innerHTML = `<div style="color:var(--text-tertiary);font-size:.85rem;padding:10px 0">Audit endpoint unavailable; no rows shown.</div>`;
+      } else if (items.length === 0) {
+        el.innerHTML = `<div style="color:var(--text-tertiary);font-size:.85rem;padding:10px 0">
+          No audit events for this patient yet — actions on this page will start populating it.
+        </div>`;
+      } else {
+        el.innerHTML = `<div style="max-height:280px;overflow:auto;border:1px solid var(--border);border-radius:8px">
+          <table style="width:100%;border-collapse:collapse;font-size:.82rem">
+            <thead><tr style="position:sticky;top:0;background:var(--card-bg);border-bottom:1px solid var(--border);text-align:left;color:var(--text-secondary)">
+              <th style="padding:6px 8px">When</th>
+              <th style="padding:6px 8px">Surface</th>
+              <th style="padding:6px 8px">Action</th>
+              <th style="padding:6px 8px">Actor</th>
+              <th style="padding:6px 8px">Note</th>
+            </tr></thead>
+            <tbody>
+              ${items.map(r => `
+                <tr style="border-bottom:1px solid var(--border)">
+                  <td style="padding:6px 8px;white-space:nowrap;color:var(--text-secondary)">${_ppFmtDate(r.created_at)}</td>
+                  <td style="padding:6px 8px"><code style="font-size:.78rem">${_ppEscape(r.target_type)}</code></td>
+                  <td style="padding:6px 8px"><code style="font-size:.78rem">${_ppEscape(r.action)}</code></td>
+                  <td style="padding:6px 8px;font-size:.78rem">${_ppEscape(r.actor_id)} <span style="color:var(--text-tertiary)">(${_ppEscape(r.role)})</span></td>
+                  <td style="padding:6px 8px;color:var(--text-secondary);font-size:.78rem">${_ppEscape(r.note)}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`;
+      }
+    }
+  } catch (e) {
+    const el = document.getElementById('pp-audit-list');
+    if (el) {
+      el.innerHTML = `<div style="color:#7f1d1d;background:#fef2f2;padding:10px 14px;border-radius:8px;font-size:.82rem;border:1px solid #fecaca">
+        Could not load audit timeline: ${_ppEscape((e && e.message) || 'unknown error')}
+      </div>`;
+    }
+  }
+
+  // Suppress unused var warnings while keeping signature stable.
+  void serverDetail; void serverError;
+}
 
 function _ppRerender() {
   const profile = getPatientProfile(_ppCurrentId);
@@ -11677,26 +11945,109 @@ function _ppBuildPage(profile, tab, editMode) {
 }
 
 export async function pgPatientProfile(setTopbar) {
+  // ── Patient Profile launch-audit (PR feat/patient-profile-launch-audit-2026-04-30) ──
+  // Course Detail (#335), IRB Manager (#334), Clinical Trials (#336) all
+  // drill into this page on every patient header click. The pre-launch-audit
+  // implementation rendered everything from localStorage (fake medications,
+  // fake allergies, illustrative consent timeline, AI-fabricated risk score
+  // without provenance, mock provider list, no audit pings, no exports).
+  //
+  // This rewrite:
+  //   • Loads aggregated header + counts from /api/v1/patients/{id}/detail
+  //   • Loads real append-only consent history from /consent-history
+  //   • Loads real per-patient audit timeline from /audit-events
+  //   • Drills out to course-detail, irb-manager, clinical-trials,
+  //     documents-hub, adverse-events, assessments-hub, clinical-notes
+  //   • Emits patient_profile.view audit ping on mount
+  //   • Honest empty states ("No consent records yet…")
+  //   • DEMO-prefixed CSV/NDJSON exports per /export.csv|ndjson
+  //   • Cross-clinic gate is server-side (404 for clinician on foreign
+  //     patient; 200 for admin)
+  //
+  // The legacy local-only tabs (Demographics / Insurance / Medications /
+  // Allergies / Treatment History / Notes / Assessments) are preserved for
+  // backwards-compat with existing demo seeds, but each carries an honest
+  // "Local view — these fields do not sync to the server yet" banner so
+  // clinicians do not mistake them for regulator-credible records.
+
   _ppSeedProfiles();
 
   const requestedId = window._profilePatientId || window._selectedPatientId || null;
   const profiles    = getPatientProfiles();
-  const profile     = (requestedId ? getPatientProfile(requestedId) : null) || profiles[0];
+  let   profile     = (requestedId ? getPatientProfile(requestedId) : null) || profiles[0];
+
+  // Server-truth detail. If the requested id matches a real patient on the
+  // server we use the server payload as the source of truth for the header
+  // and counts; otherwise we fall back to the local seeded profile (demo /
+  // walkthrough mode) so reviewers still see something instead of a 404.
+  let serverDetail = null;
+  let serverDetailError = null;
+  const apiPatientId = requestedId || (profile && profile.id) || null;
+  if (apiPatientId && api && typeof api.getPatientDetail === 'function') {
+    try {
+      serverDetail = await api.getPatientDetail(apiPatientId);
+    } catch (err) {
+      serverDetailError = (err && err.message) || String(err || '');
+    }
+  }
+
+  if (serverDetail && serverDetail.header) {
+    // Synthesize a profile shell so the legacy renderer keeps working while
+    // the new Clinical Record card drives the real-data view above it.
+    const h = serverDetail.header;
+    const fullName = `${h.first_name || ''} ${h.last_name || ''}`.trim() || h.id;
+    profile = {
+      ...(profile || {}),
+      id:     h.id,
+      name:   fullName,
+      dob:    h.dob || (profile && profile.dob) || '',
+      gender: h.gender || (profile && profile.gender) || '',
+      mrn:    h.mrn,
+      _serverHeader: h,
+      _serverCounts: serverDetail.counts || {},
+      _serverIsDemo: !!h.is_demo,
+      _serverDetail: serverDetail,
+    };
+    if (!getPatientProfile(profile.id)) {
+      // First time we see this server patient — persist a thin shell so the
+      // local-only tabs (which still write to localStorage) don't crash.
+      savePatientProfile(profile);
+    }
+  }
 
   if (!profile) {
     const _el = document.getElementById('content');
-    if (_el) _el.innerHTML = `<div style="padding:48px;text-align:center;color:var(--text-tertiary)">No patient profile found.</div>`;
+    if (_el) {
+      _el.innerHTML = `<div style="padding:48px;text-align:center;color:var(--text-tertiary)">
+        No patient profile found.
+        ${serverDetailError ? `<div style="margin-top:8px;font-size:.85rem">Server error: ${_ppEscape(serverDetailError)}</div>` : ''}
+      </div>`;
+    }
     return;
   }
 
   _ppCurrentId  = profile.id;
-  _ppCurrentTab = 'demographics';
+  _ppCurrentTab = 'clinical_record';
   _ppEditMode   = false;
 
   setTopbar('Patient Profile', `<button class="btn btn-sm" onclick="window._nav('patients')">&#8592; All Patients</button>`);
 
   const el = document.getElementById('content');
   el.innerHTML = _ppBuildPage(profile, _ppCurrentTab, _ppEditMode);
+
+  // Audit ping — patient_profile.view (best-effort, never blocks the UI).
+  try {
+    if (api && typeof api.recordPatientProfileAuditEvent === 'function' && serverDetail) {
+      await api.recordPatientProfileAuditEvent(profile.id, {
+        event: 'view',
+        note:  'patient_profile mount',
+        using_demo_data: !!(serverDetail.header && serverDetail.header.is_demo),
+      });
+    }
+  } catch (_e) { /* never block UI on audit failure */ }
+
+  // Lazy-load the Clinical Record tab once the page is mounted.
+  _ppRenderClinicalRecordAsync(profile, serverDetail, serverDetailError);
 
   // ── Global handlers ──────────────────────────────────────────────────────
 
@@ -11707,7 +12058,8 @@ export async function pgPatientProfile(setTopbar) {
     document.getElementById('pp-tab-content').innerHTML = _ppRenderTab(p, name, _ppEditMode);
     // Re-sync tab button active states
     document.querySelectorAll('[role="tab"]').forEach(btn => {
-      const active = btn.textContent.toLowerCase().includes(name) ||
+      const active =
+        (name === 'clinical_record' && btn.textContent === 'Clinical Record') ||
         (name === 'history' && btn.textContent.includes('History')) ||
         (name === 'demographics' && btn.textContent === 'Demographics') ||
         (name === 'insurance' && btn.textContent === 'Insurance') ||
@@ -11719,6 +12071,11 @@ export async function pgPatientProfile(setTopbar) {
       btn.style.fontWeight        = active ? '600' : '400';
       btn.style.color             = active ? 'var(--teal)' : 'var(--text-secondary)';
     });
+    // When the user re-opens the Clinical Record tab from another tab, lazy-
+    // refresh the courses / consent / audit panels.
+    if (name === 'clinical_record') {
+      _ppRenderClinicalRecordAsync(p, p && p._serverDetail, null);
+    }
   };
 
   window._profileToggleEdit = function() {
@@ -11941,6 +12298,109 @@ export async function pgPatientProfile(setTopbar) {
     });
     document.getElementById('pp-notes-area')?.focus();
     window._announce?.('Notes tab open — begin typing');
+  };
+
+  // ── Drill-out + audit ping (launch-audit 2026-04-30) ──────────────────────
+  // Real cross-surface navigation. Every drill-out emits a patient_profile
+  // .drill_out audit event so the regulatory record reflects the route.
+  window._ppDrillOut = async function(targetPage, patientId, extraId) {
+    const pid = patientId || _ppCurrentId;
+    try {
+      if (api && typeof api.recordPatientProfileAuditEvent === 'function') {
+        await api.recordPatientProfileAuditEvent(pid, {
+          event: 'drill_out',
+          note:  `target=${targetPage}${extraId ? ' extra=' + extraId : ''}`,
+        });
+      }
+    } catch (_e) { /* never block UI on audit failure */ }
+
+    // Surface-specific navigation. Each downstream page reads window state
+    // for filter context the same way the rest of the app does.
+    switch (targetPage) {
+      case 'course-detail':
+        if (extraId) window._cdCourseId = extraId;
+        window._nav('course-detail');
+        break;
+      case 'courses':
+        window._patientHubTab = 'courses';
+        window._coursesPatientFilter = pid;
+        window._nav('patients-hub');
+        break;
+      case 'irb-manager':
+        window._irbManagerPatientFilter = pid;
+        window._nav('irb-manager');
+        break;
+      case 'clinical-trials':
+        window._clinicalTrialsPatientFilter = pid;
+        window._nav('clinical-trials');
+        break;
+      case 'documents-hub':
+        window._documentsHubPatientFilter = pid;
+        window._nav('documents-hub');
+        break;
+      case 'adverse-events':
+        window._adverseEventsPatientFilter = pid;
+        window._nav('adverse-events');
+        break;
+      case 'assessments-hub':
+        window._assessmentsHubPatientFilter = pid;
+        window._nav('assessments-hub');
+        break;
+      case 'clinical-notes':
+        window._clinicalNotesPatientFilter = pid;
+        window._nav('clinical-notes');
+        break;
+      case 'reports-hub':
+        window._reportsHubPatientFilter = pid;
+        window._nav('reports-hub');
+        break;
+      case 'audit-trail':
+        window._auditTrailPatientFilter = pid;
+        window._nav('audit-trail');
+        break;
+      default:
+        window._nav(targetPage);
+    }
+  };
+
+  window._ppExportCsv = async function() {
+    const pid = _ppCurrentId;
+    if (!pid || !api || typeof api.exportPatientCsv !== 'function') {
+      window._showNotifToast?.({ title: 'Export unavailable', body: 'CSV export endpoint not reachable.', severity: 'warn' });
+      return;
+    }
+    try {
+      const result = await api.exportPatientCsv(pid);
+      if (result && result.blob) {
+        downloadBlob(result.blob, result.filename || `patient-${pid}.csv`);
+      }
+      try {
+        await api.recordPatientProfileAuditEvent(pid, { event: 'export_csv', note: 'patient profile CSV export' });
+      } catch (_e) { /* swallow */ }
+      window._announce?.('CSV export complete');
+    } catch (e) {
+      window._showNotifToast?.({ title: 'Export failed', body: (e && e.message) || 'CSV export error.', severity: 'warn' });
+    }
+  };
+
+  window._ppExportNdjson = async function() {
+    const pid = _ppCurrentId;
+    if (!pid || !api || typeof api.exportPatientNdjson !== 'function') {
+      window._showNotifToast?.({ title: 'Export unavailable', body: 'NDJSON export endpoint not reachable.', severity: 'warn' });
+      return;
+    }
+    try {
+      const result = await api.exportPatientNdjson(pid);
+      if (result && result.blob) {
+        downloadBlob(result.blob, result.filename || `patient-${pid}.ndjson`);
+      }
+      try {
+        await api.recordPatientProfileAuditEvent(pid, { event: 'export_ndjson', note: 'patient profile NDJSON export' });
+      } catch (_e) { /* swallow */ }
+      window._announce?.('NDJSON export complete');
+    } catch (e) {
+      window._showNotifToast?.({ title: 'Export failed', body: (e && e.message) || 'NDJSON export error.', severity: 'warn' });
+    }
   };
 }
 

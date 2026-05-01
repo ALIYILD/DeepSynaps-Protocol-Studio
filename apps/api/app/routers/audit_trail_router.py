@@ -89,6 +89,7 @@ KNOWN_SURFACES = {
     # ``source_target_type`` rather than rewriting it. The course_detail
     # surface itself is recorded by ``app/routers/treatment_courses_router``.
     "course_detail",
+    "patient_profile",
 }
 
 
