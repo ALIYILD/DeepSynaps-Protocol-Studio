@@ -12047,7 +12047,400 @@ function _taskRenderCard(task, today, opts) {
   '<div id="pt-task-launcher-' + task.id + '" style="display:none;padding:0 0 10px"></div>';
 }
 
+// ── Wellness Hub helpers (launch-audit 2026-05-01) ──────────────────────────
+// Server is the source of truth (see apps/api/app/routers/wellness_hub_router.py).
+// localStorage is ONLY a best-effort offline fallback — every successful
+// server write supersedes the local copy. Pre-audit, this page lived on
+// scattered ds_wellness_* keys with no audit, no consent gate, no
+// demo-honesty banner — all of which are now enforced server-side.
+const _WELLNESS_FALLBACK_KEY = 'ds_wellness_local_fallback';
+
+function _wellnessGetLocal() {
+  try { return JSON.parse(localStorage.getItem(_WELLNESS_FALLBACK_KEY) || '[]'); }
+  catch (_) { return []; }
+}
+
+function _wellnessSaveLocal(entry) {
+  const arr = _wellnessGetLocal();
+  const idx = arr.findIndex(e => e.id === entry.id);
+  if (idx >= 0) arr[idx] = entry; else arr.unshift(entry);
+  try { localStorage.setItem(_WELLNESS_FALLBACK_KEY, JSON.stringify(arr.slice(0, 50))); }
+  catch (_) {}
+}
+
+// Compose normalised tags from the six axes — only documented chips, no
+// fabrication. Mirrors the symptom-journal tag composer for consistency.
+function _composeWellnessTags({ mood, energy, sleep, anxiety, focus, pain }) {
+  const tags = [];
+  if (typeof mood === 'number' && mood <= 3) tags.push('low_mood');
+  if (typeof energy === 'number' && energy <= 3) tags.push('fatigue');
+  if (typeof anxiety === 'number' && anxiety >= 7) tags.push('anxiety');
+  if (typeof sleep === 'number' && sleep > 0 && sleep <= 3) tags.push('poor_sleep');
+  if (typeof focus === 'number' && focus <= 3) tags.push('low_focus');
+  if (typeof pain === 'number' && pain >= 6) tags.push('pain');
+  return tags;
+}
+
+async function _wellnessLogAuditEvent(event, extra) {
+  try {
+    if (api && typeof api.postWellnessAuditEvent === 'function') {
+      await api.postWellnessAuditEvent({
+        event,
+        checkin_id: extra && extra.checkin_id ? extra.checkin_id : null,
+        note: extra && extra.note ? String(extra.note).slice(0, 480) : null,
+        using_demo_data: !!(extra && extra.using_demo_data),
+      });
+    }
+  } catch (_) { /* audit failures must never block UI */ }
+}
+
+// Compute today's snapshot delta vs yesterday from the live server item list.
+// Returns { axis: deltaNumber|null }. Honest: null when either side missing.
+function _wellnessSnapshotDelta(items) {
+  const out = { mood: null, energy: null, sleep: null, anxiety: null, focus: null, pain: null };
+  if (!Array.isArray(items) || items.length === 0) return out;
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const yest = new Date(now.getTime() - 86400000).toISOString().slice(0, 10);
+  const todayRow = items.find(r => (r.created_at || '').slice(0, 10) === today);
+  const yestRow = items.find(r => (r.created_at || '').slice(0, 10) === yest);
+  if (!todayRow || !yestRow) return out;
+  for (const a of ['mood', 'energy', 'sleep', 'anxiety', 'focus', 'pain']) {
+    if (todayRow[a] != null && yestRow[a] != null) out[a] = (todayRow[a] - yestRow[a]);
+  }
+  return out;
+}
+
+// Render a tiny SVG sparkline of mood across the 7-day series.
+function _wellnessMoodSpark(series) {
+  if (!Array.isArray(series) || series.length < 2) {
+    return '<div style="color:var(--text-tertiary);font-size:11.5px;text-align:center;padding:14px">Log at least 2 days to see your trend.</div>';
+  }
+  const W = 280, H = 50, pad = 6;
+  const iw = W - pad * 2, ih = H - pad * 2;
+  const pts = series.map((p, i) => {
+    const x = pad + (i / (series.length - 1)) * iw;
+    const y = pad + ih - ((p.avg_mood || 0) / 10) * ih;
+    return `${x},${y}`;
+  }).join(' ');
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+    <polyline points="${pts}" fill="none" stroke="var(--teal,#0d9488)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+  </svg>`;
+}
+
 export async function pgPatientWellness() {
+  setTopbar('Wellness Hub');
+  const el = document.getElementById('patient-content');
+  if (!el) return;
+
+  // ── Server fetches (source of truth) ───────────────────────────────────
+  let serverList = null;
+  let serverSummary = null;
+  let serverErr = false;
+  try {
+    if (api && typeof api.listWellnessCheckins === 'function') {
+      serverList = await api.listWellnessCheckins({ limit: 30 });
+    }
+  } catch (_) { serverErr = true; }
+  try {
+    if (api && typeof api.getWellnessSummary === 'function') {
+      serverSummary = await api.getWellnessSummary();
+    }
+  } catch (_) { /* summary is optional */ }
+
+  const usingServer = !!serverList && !serverErr;
+  const isDemo = !!(serverList && serverList.is_demo);
+  const consentActive = serverList ? !!serverList.consent_active : true;
+  const items = (serverList && Array.isArray(serverList.items)) ? serverList.items : [];
+  const visibleItems = items.filter(r => !r.deleted_at);
+
+  // ── Mount-time audit ping ────────────────────────────────────────────────
+  _wellnessLogAuditEvent('view', {
+    using_demo_data: isDemo,
+    note: usingServer
+      ? `items=${visibleItems.length}; consent_active=${consentActive ? 1 : 0}`
+      : 'fallback=localStorage',
+  });
+
+  // ── Snapshot + summary derived data ──────────────────────────────────────
+  const today = visibleItems.find(r => (r.created_at || '').slice(0, 10) === new Date().toISOString().slice(0, 10));
+  const delta = _wellnessSnapshotDelta(visibleItems);
+  const sum = serverSummary || {};
+  const checkins7d = sum.checkins_7d || 0;
+  const missed7d = sum.missed_days_7d != null ? sum.missed_days_7d : Math.max(0, 7 - new Set(visibleItems.slice(0, 14).map(r => (r.created_at || '').slice(0, 10))).size);
+  const topTags = Array.isArray(sum.top_tags_30d) ? sum.top_tags_30d : [];
+  const moodSeries = Array.isArray(sum.mood_series_7d) ? sum.mood_series_7d : [];
+
+  // ── Banners ───────────────────────────────────────────────────────────────
+  const demoBanner = isDemo
+    ? `<div class="pt-demo-banner" role="status" style="margin-bottom:12px;padding:10px 14px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;font-size:12.5px;color:#9a3412">
+         <strong>DEMO data</strong> — exports prefix <code>DEMO-</code> and check-ins are not regulator-submittable.
+       </div>` : '';
+  const consentBanner = (serverList && consentActive === false)
+    ? `<div class="pt-consent-banner" role="status" aria-live="polite"
+         style="margin-bottom:12px;padding:10px 14px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:12.5px;color:#991b1b">
+         <strong>Read-only:</strong> consent has been withdrawn. Existing check-ins remain visible, but new check-ins cannot be added until consent is reinstated.
+       </div>` : '';
+  const offlineBanner = (!usingServer)
+    ? `<div role="status" aria-live="polite"
+         style="margin-bottom:12px;padding:10px 14px;background:#fef9c3;border:1px solid #fde68a;border-radius:8px;font-size:12.5px;color:#854d0e">
+         <strong>Offline mode:</strong> couldn't reach the server, showing local check-ins from this device only. Your check-ins will sync when reconnected.
+       </div>` : '';
+
+  // ── Today's snapshot card ────────────────────────────────────────────────
+  const _axisRow = (label, axisKey) => {
+    const v = today ? today[axisKey] : null;
+    const d = delta[axisKey];
+    const dStr = (d == null) ? ''
+      : (d === 0 ? '<span style="color:var(--text-tertiary);font-size:11px">±0 vs yesterday</span>'
+        : `<span style="color:${d > 0 ? '#15803d' : '#b91c1c'};font-size:11px">${d > 0 ? '▲' : '▼'} ${Math.abs(d)} vs yesterday</span>`);
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--text-secondary)">${label}</div>
+        ${dStr}
+      </div>
+      <div style="font-size:18px;font-weight:700;color:var(--text-primary)">${v != null ? v + '/10' : '—'}</div>
+    </div>`;
+  };
+  const snapshotHtml = today
+    ? `<div class="ff-card">
+        <div class="ff-card-title">Today's snapshot</div>
+        ${_axisRow('Mood', 'mood')}
+        ${_axisRow('Energy', 'energy')}
+        ${_axisRow('Sleep', 'sleep')}
+        ${_axisRow('Anxiety', 'anxiety')}
+        ${_axisRow('Focus', 'focus')}
+        ${_axisRow('Pain', 'pain')}
+      </div>`
+    : `<div class="ff-card">
+        <div class="ff-card-title">Today's snapshot</div>
+        <div style="color:var(--text-tertiary);font-size:13px;padding:12px 0">
+          No check-in yet today. Complete the form below to log how you're feeling.
+        </div>
+      </div>`;
+
+  // ── KPI strip ─────────────────────────────────────────────────────────────
+  const kpiStrip = `<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <div class="pt-tasks-kpi-card" style="flex:1;min-width:120px"><div class="pt-tasks-kpi-label">Check-ins / 7d</div><div class="pt-tasks-kpi-value">${checkins7d}</div></div>
+    <div class="pt-tasks-kpi-card" style="flex:1;min-width:120px"><div class="pt-tasks-kpi-label">Missed days / 7d</div><div class="pt-tasks-kpi-value">${missed7d}</div></div>
+    <div class="pt-tasks-kpi-card" style="flex:1;min-width:120px"><div class="pt-tasks-kpi-label">Top tag (30d)</div><div class="pt-tasks-kpi-value" style="font-size:14px">${topTags[0] ? _hdEsc(topTags[0].tag) : '—'}</div></div>
+  </div>`;
+
+  // ── Form for today's check-in ────────────────────────────────────────────
+  const formDisabled = !consentActive ? 'disabled' : '';
+  const _slider = (id, label, val, color) => `<div style="margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;margin-bottom:5px">
+      <label style="font-size:12px;font-weight:600;color:var(--text-secondary)">${label}</label>
+      <span id="${id}-val" style="font-size:12px;font-weight:700;color:${color}">${val}</span>
+    </div>
+    <input type="range" id="${id}" min="0" max="10" value="${val}" ${formDisabled}
+      style="width:100%;accent-color:${color}"
+      oninput="document.getElementById('${id}-val').textContent=this.value">
+  </div>`;
+  const tMood = today?.mood ?? 5;
+  const tEnergy = today?.energy ?? 5;
+  const tSleep = today?.sleep ?? 5;
+  const tAnxiety = today?.anxiety ?? 3;
+  const tFocus = today?.focus ?? 5;
+  const tPain = today?.pain ?? 0;
+  const formCard = `<div class="ff-card">
+    <div class="ff-card-title">${today ? "Update today's check-in" : "Log today's check-in"}</div>
+    <p class="ff-card-sub">Six axes 0–10. Skip any axis you don't want to rate today.</p>
+    ${_slider('w-mood', 'Mood (10 = great)', tMood, '#2dd4bf')}
+    ${_slider('w-energy', 'Energy (10 = energetic)', tEnergy, '#a78bfa')}
+    ${_slider('w-sleep', 'Sleep (10 = restful)', tSleep, '#60a5fa')}
+    ${_slider('w-anxiety', 'Anxiety (10 = very anxious)', tAnxiety, '#f97316')}
+    ${_slider('w-focus', 'Focus (10 = sharp)', tFocus, '#22c55e')}
+    ${_slider('w-pain', 'Pain (10 = severe)', tPain, '#ef4444')}
+    <div style="margin-bottom:14px">
+      <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:5px">Notes (optional)</label>
+      <textarea id="w-note" class="form-control" placeholder="Anything notable today?"
+        style="min-height:60px;resize:vertical;font-size:12px" ${formDisabled}>${today?.note ? _hdEsc(today.note) : ''}</textarea>
+    </div>
+    <button class="btn btn-primary" id="w-save-btn" ${formDisabled}
+      style="width:100%;min-height:48px;font-size:14px;font-weight:600">
+      ✓ Save check-in
+    </button>
+    <div id="w-save-msg" role="status" aria-live="polite"
+      style="display:none;margin-top:10px;font-size:13px;color:var(--green);text-align:center;font-weight:500">
+      Check-in saved.
+    </div>
+    <div id="w-save-err" role="alert" aria-live="polite"
+      style="display:none;margin-top:10px;font-size:13px;color:var(--red,#dc2626);text-align:center;font-weight:500"></div>
+  </div>`;
+
+  // ── Trends timeline ──────────────────────────────────────────────────────
+  const timelineHtml = visibleItems.slice(0, 14).map(r => {
+    const safeId = _hdEsc(r.id);
+    const dateLabel = r.created_at
+      ? new Date(r.created_at).toLocaleDateString(undefined, { weekday:'short', month:'short', day:'numeric' })
+      : '';
+    const axisBadges = ['mood','energy','sleep','anxiety','focus','pain']
+      .filter(a => r[a] != null)
+      .map(a => `<span class="pt-metric-badge">${a}: ${r[a]}/10</span>`).join('');
+    const tagBadges = (r.tags || []).map(t => `<span class="pt-metric-badge">${_hdEsc(t)}</span>`).join('');
+    const sharedBadge = r.shared_at
+      ? '<span class="pt-metric-badge" style="background:var(--teal,#0d9488);color:white">Shared</span>' : '';
+    const noteSnip = r.note
+      ? `<div style="font-size:11.5px;color:var(--text-secondary);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_hdEsc(r.note)}</div>` : '';
+    const actions = consentActive ? `<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+      ${r.shared_at ? '' : `<button class="btn btn-ghost btn-sm" data-w-share-id="${safeId}">Share with care team</button>`}
+      <button class="btn btn-ghost btn-sm" data-w-delete-id="${safeId}">Delete</button>
+    </div>` : '';
+    return `<div class="pt-journal-entry" data-checkin-id="${safeId}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:12px;font-weight:600;color:var(--text-secondary)">${dateLabel}</span>
+        ${sharedBadge}
+      </div>
+      <div style="flex-wrap:wrap;display:flex;gap:4px">${axisBadges}${tagBadges}</div>
+      ${noteSnip}
+      ${actions}
+    </div>`;
+  }).join('') || '<div style="color:var(--text-tertiary);font-size:13px;text-align:center;padding:24px">No wellness check-ins yet — your first will sync to your care team if you have enabled sharing.</div>';
+
+  // ── Cross-link to symptom journal ────────────────────────────────────────
+  const journalLink = `<div style="display:flex;justify-content:flex-end;margin-top:10px">
+    <button class="btn btn-ghost btn-sm" id="w-link-journal-btn">Log a symptom →</button>
+  </div>`;
+
+  // ── Export buttons (server-only path) ────────────────────────────────────
+  const exportRow = usingServer ? `<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap">
+    <button class="btn btn-ghost btn-sm" id="w-export-csv-btn">Export CSV</button>
+    <button class="btn btn-ghost btn-sm" id="w-export-ndjson-btn">Export NDJSON</button>
+  </div>` : '';
+
+  // ── Render page ──────────────────────────────────────────────────────────
+  const todayLong = new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  el.innerHTML = `<div class="ff-page"><div class="ff-page-inner">
+    <header class="ff-page-head">
+      <div class="ff-page-icon" aria-hidden="true">💙</div>
+      <h1 class="ff-page-title">Wellness Hub</h1>
+      <p class="ff-page-sub">${todayLong}</p>
+    </header>
+    ${demoBanner}
+    ${consentBanner}
+    ${offlineBanner}
+    ${kpiStrip}
+    ${snapshotHtml}
+    ${formCard}
+    <div class="ff-card" style="margin-top:18px">
+      <div class="ff-card-title">7-day mood trend</div>
+      <div style="display:flex;justify-content:center">${_wellnessMoodSpark(moodSeries)}</div>
+    </div>
+    <div style="margin-top:18px">
+      <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:8px;text-transform:uppercase;letter-spacing:.6px">Recent check-ins</div>
+      ${timelineHtml}
+    </div>
+    ${exportRow}
+    ${journalLink}
+  </div></div>`;
+
+  // ── Wire save button ─────────────────────────────────────────────────────
+  document.getElementById('w-save-btn')?.addEventListener('click', async () => {
+    if (!consentActive) return;
+    const errEl = document.getElementById('w-save-err');
+    const msgEl = document.getElementById('w-save-msg');
+    if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+
+    const payload = {
+      mood: parseInt(document.getElementById('w-mood')?.value || '', 10),
+      energy: parseInt(document.getElementById('w-energy')?.value || '', 10),
+      sleep: parseInt(document.getElementById('w-sleep')?.value || '', 10),
+      anxiety: parseInt(document.getElementById('w-anxiety')?.value || '', 10),
+      focus: parseInt(document.getElementById('w-focus')?.value || '', 10),
+      pain: parseInt(document.getElementById('w-pain')?.value || '', 10),
+      note: document.getElementById('w-note')?.value?.trim() || null,
+    };
+    payload.tags = _composeWellnessTags(payload);
+
+    let serverEntry = null;
+    if (usingServer && api && typeof api.createWellnessCheckin === 'function') {
+      try {
+        serverEntry = await api.createWellnessCheckin(payload);
+      } catch (err) {
+        if (errEl) {
+          errEl.textContent = 'Could not save to server (check connection). Saved locally — will sync when reconnected.';
+          errEl.style.display = 'block';
+        }
+      }
+    }
+    _wellnessSaveLocal({
+      id: serverEntry?.id || `w_${Date.now()}`,
+      created_at: serverEntry?.created_at || new Date().toISOString(),
+      ...payload,
+      synced: !!serverEntry,
+    });
+    _wellnessLogAuditEvent('checkin_logged', {
+      checkin_id: serverEntry?.id,
+      using_demo_data: isDemo,
+      note: serverEntry ? 'server' : 'local_only',
+    });
+    if (msgEl && (serverEntry || !usingServer)) {
+      msgEl.style.display = 'block';
+      setTimeout(() => { msgEl.style.display = 'none'; }, 1800);
+    }
+    setTimeout(() => pgPatientWellness(), 250);
+  });
+
+  // ── Wire share buttons ───────────────────────────────────────────────────
+  el.querySelectorAll('button[data-w-share-id]').forEach(btn => {
+    btn.addEventListener('click', async (ev) => {
+      const id = ev.currentTarget?.getAttribute('data-w-share-id');
+      if (!id || !api || typeof api.shareWellnessCheckin !== 'function') return;
+      ev.currentTarget.disabled = true;
+      try { await api.shareWellnessCheckin(id, 'shared from wellness hub'); }
+      catch (_) { /* re-render reflects server state */ }
+      _wellnessLogAuditEvent('share_clicked', { checkin_id: id, using_demo_data: isDemo });
+      setTimeout(() => pgPatientWellness(), 200);
+    });
+  });
+
+  // ── Wire delete buttons ──────────────────────────────────────────────────
+  el.querySelectorAll('button[data-w-delete-id]').forEach(btn => {
+    btn.addEventListener('click', async (ev) => {
+      const id = ev.currentTarget?.getAttribute('data-w-delete-id');
+      if (!id || !api || typeof api.deleteWellnessCheckin !== 'function') return;
+      const reason = window.prompt('Reason for deleting this check-in? (required, kept in audit log)');
+      if (!reason || reason.trim().length < 2) return;
+      ev.currentTarget.disabled = true;
+      try { await api.deleteWellnessCheckin(id, reason.trim()); }
+      catch (_) {}
+      _wellnessLogAuditEvent('delete_clicked', { checkin_id: id, using_demo_data: isDemo });
+      setTimeout(() => pgPatientWellness(), 200);
+    });
+  });
+
+  // ── Wire export buttons ──────────────────────────────────────────────────
+  document.getElementById('w-export-csv-btn')?.addEventListener('click', () => {
+    if (api && typeof api.wellnessExportUrl === 'function') {
+      const url = api.wellnessExportUrl('csv');
+      window.open(url, '_blank', 'noopener');
+      _wellnessLogAuditEvent('export_clicked', { note: 'csv', using_demo_data: isDemo });
+    }
+  });
+  document.getElementById('w-export-ndjson-btn')?.addEventListener('click', () => {
+    if (api && typeof api.wellnessExportUrl === 'function') {
+      const url = api.wellnessExportUrl('ndjson');
+      window.open(url, '_blank', 'noopener');
+      _wellnessLogAuditEvent('export_clicked', { note: 'ndjson', using_demo_data: isDemo });
+    }
+  });
+
+  // ── Wire cross-link to symptom journal ───────────────────────────────────
+  document.getElementById('w-link-journal-btn')?.addEventListener('click', () => {
+    _wellnessLogAuditEvent('cross_link_journal_clicked', { using_demo_data: isDemo });
+    if (typeof window._navPatient === 'function') {
+      window._navPatient('pt-journal');
+    }
+  });
+}
+
+// ── Legacy "Tasks-as-Wellness" placeholder kept solely for back-compat ──────
+// The pre-launch-audit Wellness route rendered the Tasks page. The new
+// pgPatientWellness above is the canonical Wellness Hub. We keep this
+// stub so any legacy bookmarks / emails that linked here still resolve
+// to the Tasks page when explicitly requested.
+async function _legacyPatientWellnessAsTasks() {
   setTopbar('My Tasks');
   const uid = currentUser?.patient_id || currentUser?.id;
   const el = document.getElementById('patient-content');
