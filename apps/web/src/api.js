@@ -2322,6 +2322,36 @@ export const api = {
   revokeAuthSession: (sid) => apiFetch(`/api/v1/auth/sessions/${encodeURIComponent(sid)}`, { method: 'DELETE' }),
   revokeOtherAuthSessions: () => apiFetch('/api/v1/auth/sessions/others', { method: 'DELETE' }),
 
+  // ── Onboarding wizard (launch-audit 2026-05-01) ──────────────────────────
+  // Server-side state + audit ingestion. Each helper swallows network
+  // failures so the wizard remains usable offline (localStorage fallback).
+  getOnboardingState: () => apiFetch('/api/v1/onboarding/state').catch(() => null),
+  postOnboardingState: (data) =>
+    apiFetch('/api/v1/onboarding/state', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  postOnboardingStepComplete: (data) =>
+    apiFetch('/api/v1/onboarding/step-complete', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  postOnboardingSkip: (data) =>
+    apiFetch('/api/v1/onboarding/skip', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  postOnboardingAuditEvent: (data) =>
+    apiFetch('/api/v1/onboarding/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  postOnboardingSeedDemo: (data) =>
+    apiFetch('/api/v1/onboarding/seed-demo', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
   // ── Clinic ─────────────────────────────────────────────────────────────────
   getClinic: () => apiFetch('/api/v1/clinic').catch(() => null),  // 404 if no clinic
   createClinic: (data) => apiFetch('/api/v1/clinic', { method: 'POST', body: JSON.stringify(data) }),
