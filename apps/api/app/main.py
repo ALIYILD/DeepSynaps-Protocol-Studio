@@ -108,6 +108,7 @@ from app.routers.home_devices_patient_router import router as home_devices_patie
 from app.routers.adherence_events_router import router as adherence_events_router
 from app.routers.clinician_adherence_router import router as clinician_adherence_router
 from app.routers.clinician_wellness_router import router as clinician_wellness_router
+from app.routers.clinician_digest_router import router as clinician_digest_router
 # Settings API routers (foundation scaffolded by backend subagent #1; endpoints
 # fleshed out by backend subagents #3–#6). See apps/api/SETTINGS_API_DESIGN.md.
 from app.routers.profile_router import router as profile_router
@@ -366,6 +367,15 @@ app.include_router(clinician_adherence_router)
 # triages (THIS) → SLA breach via Care Team Coverage (#357) → on-call
 # paging.
 app.include_router(clinician_wellness_router)
+# Clinician Notifications Pulse / Daily Digest launch-audit (2026-05-01).
+# End-of-shift summary across the four clinician hubs (Inbox #354,
+# Wearables Workbench #353, Adherence Hub #361, Wellness Hub #365) plus
+# AE Hub #342 escalations. Top-of-loop telemetry the Care Team Coverage
+# SLA chain (#357) lacks: tells the on-call clinician at the end of
+# their shift "here's what happened, here's what's still open, here's
+# what got escalated". Read-only aggregator + email/colleague-share
+# audit rows; SMTP wire-up tracked in PR section F.
+app.include_router(clinician_digest_router)
 # Settings API (scaffolded 024_settings_schema) — stubs; endpoints arrive in
 # follow-up subagents. Grouped together for discoverability.
 app.include_router(profile_router)

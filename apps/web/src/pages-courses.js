@@ -13426,3 +13426,488 @@ function _cwhBindRowHandlers(navigate) {
     };
   });
 }
+
+
+// ── pgClinicianDailyDigest — Notifications Pulse / End-of-shift summary ─────
+// Launch-audit 2026-05-01. Top-of-loop telemetry the Care Team Coverage SLA
+// chain (#357) currently lacks. End-of-shift summary across the four
+// clinician hubs (Inbox #354, Wearables Workbench #353, Adherence Hub #361,
+// Wellness Hub #365) plus AE Hub #342 escalations. Read-only aggregator
+// + email/colleague-share audit rows; SMTP wire-up tracked in PR section F.
+const _cdgEsc = (s) => String(s ?? '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+function _cdgNoteRequiredValid(note) {
+  if (note == null) return false;
+  return String(note).trim().length > 0;
+}
+
+function _cdgBuildAuditPayload(event, extra = {}) {
+  const out = { event };
+  if (extra.target_id) out.target_id = String(extra.target_id);
+  if (extra.note) out.note = String(extra.note).slice(0, 480);
+  if (extra.using_demo_data) out.using_demo_data = true;
+  return out;
+}
+
+function _cdgBuildFilterParams(state) {
+  const params = {};
+  if (state?.since) params.since = state.since;
+  if (state?.until) params.until = state.until;
+  if (state?.surface) params.surface = state.surface;
+  if (state?.severity) params.severity = state.severity;
+  if (state?.patientId) params.patient_id = state.patientId;
+  return params;
+}
+
+function _cdgShouldShowDemoBanner(serverResp) {
+  return !!(serverResp && serverResp.is_demo_view);
+}
+
+function _cdgEmptySummary() {
+  return {
+    handled: 0, escalated: 0, paged: 0, open: 0, sla_breached: 0,
+    by_surface: {}, since: '', until: '', is_demo_view: false,
+  };
+}
+
+function _cdgPresetWindow(preset) {
+  // Returns { since, until } ISO strings for one of: today / yesterday / 7d / 12h.
+  const now = new Date();
+  if (preset === 'yesterday') {
+    const until = new Date(now);
+    until.setUTCHours(0, 0, 0, 0);
+    const since = new Date(until);
+    since.setUTCDate(since.getUTCDate() - 1);
+    return { since: since.toISOString(), until: until.toISOString() };
+  }
+  if (preset === '7d') {
+    const since = new Date(now);
+    since.setUTCDate(since.getUTCDate() - 7);
+    return { since: since.toISOString(), until: now.toISOString() };
+  }
+  if (preset === 'today') {
+    const since = new Date(now);
+    since.setUTCHours(0, 0, 0, 0);
+    return { since: since.toISOString(), until: now.toISOString() };
+  }
+  // Default: last 12h (the API default — pass null to honour it).
+  return { since: null, until: null };
+}
+
+const _CDG_SURFACE_LABEL = {
+  clinician_inbox: 'Clinician Inbox',
+  wearables_workbench: 'Wearables Workbench',
+  clinician_adherence_hub: 'Adherence Hub',
+  clinician_wellness_hub: 'Wellness Hub',
+  adverse_events_hub: 'Adverse Events Hub',
+};
+
+const _CDG_SURFACE_ROUTE = {
+  clinician_inbox: 'clinician-inbox',
+  wearables_workbench: 'monitor',
+  clinician_adherence_hub: 'clinician-adherence',
+  clinician_wellness_hub: 'clinician-wellness',
+  adverse_events_hub: 'adverse-events-hub',
+};
+
+const _CDG_PRESETS = [
+  ['12h', 'Last 12h (default)'],
+  ['today', 'Today (00:00 → now)'],
+  ['yesterday', 'Yesterday (00:00 → 24:00)'],
+  ['7d', 'Last 7 days'],
+];
+
+const _cdgState = {
+  preset: '12h',
+  since: null,
+  until: null,
+  surface: '',
+  severity: '',
+  patientId: '',
+  summary: _cdgEmptySummary(),
+  sections: [],
+  events: [],
+  loaded: false,
+  isDemoView: false,
+};
+
+export async function pgClinicianDailyDigest(setTopbar, navigate) {
+  const el = document.getElementById('app');
+  if (!el) return;
+
+  if (typeof setTopbar === 'function') {
+    setTopbar(
+      'Clinician Daily Digest',
+      'End-of-shift summary across Inbox, Wearables Workbench, Adherence, Wellness, and AE drafts.',
+    );
+  }
+
+  // Mount-time audit ping. Best-effort.
+  try {
+    api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('view', {
+      note: 'daily digest page mounted',
+    }));
+  } catch (_) { /* ignore */ }
+
+  el.innerHTML = `
+    <div id="cdg-root" style="max-width:1180px;margin:0 auto;padding:18px 24px">
+      <div id="cdg-controls"></div>
+      <div id="cdg-banner"></div>
+      <div id="cdg-summary"></div>
+      <div id="cdg-sections"></div>
+      <div id="cdg-events"></div>
+    </div>`;
+
+  await _cdgLoadData();
+  _cdgBindControls(navigate);
+  _cdgBindSectionDrillOuts(navigate);
+}
+
+async function _cdgLoadData() {
+  const root = document.getElementById('cdg-root');
+  if (!root) return; // navigated away
+  const params = _cdgBuildFilterParams(_cdgState);
+  const [summary, sections, events] = await Promise.all([
+    api.clinicianDigestSummary(params),
+    api.clinicianDigestSections({ since: params.since || '', until: params.until || '' }),
+    api.clinicianDigestEvents(params),
+  ]);
+
+  _cdgState.summary = summary || _cdgEmptySummary();
+  _cdgState.sections = (sections && Array.isArray(sections.sections)) ? sections.sections : [];
+  _cdgState.events = (events && Array.isArray(events.items)) ? events.items : [];
+  _cdgState.isDemoView = !!(_cdgState.summary.is_demo_view
+    || (sections && sections.is_demo_view)
+    || (events && events.is_demo_view));
+  _cdgState.loaded = true;
+
+  const controlsEl = document.getElementById('cdg-controls');
+  if (controlsEl) controlsEl.innerHTML = _cdgRenderControls(_cdgState);
+  const bannerEl = document.getElementById('cdg-banner');
+  if (bannerEl) bannerEl.innerHTML = _cdgShouldShowDemoBanner({ is_demo_view: _cdgState.isDemoView }) ? _cdgRenderDemoBanner() : '';
+  const summaryEl = document.getElementById('cdg-summary');
+  if (summaryEl) summaryEl.innerHTML = _cdgRenderSummaryStrip(_cdgState.summary);
+  const sectionsEl = document.getElementById('cdg-sections');
+  if (sectionsEl) sectionsEl.innerHTML = _cdgRenderSections(_cdgState.sections);
+  const eventsEl = document.getElementById('cdg-events');
+  if (eventsEl) eventsEl.innerHTML = _cdgRenderEvents(_cdgState.events);
+}
+
+function _cdgRenderControls(state) {
+  const presetOpts = _CDG_PRESETS.map(([v, l]) =>
+    `<option value="${_cdgEsc(v)}"${v === state.preset ? ' selected' : ''}>${_cdgEsc(l)}</option>`).join('');
+  const surfaceOpts = ['', ...Object.keys(_CDG_SURFACE_LABEL)].map(v => {
+    const l = v === '' ? 'All surfaces' : (_CDG_SURFACE_LABEL[v] || v);
+    return `<option value="${_cdgEsc(v)}"${v === state.surface ? ' selected' : ''}>${_cdgEsc(l)}</option>`;
+  }).join('');
+  const csvHref = api.clinicianDigestExportCsvUrl(_cdgBuildFilterParams(state));
+  const ndjsonHref = api.clinicianDigestExportNdjsonUrl(_cdgBuildFilterParams(state));
+  return `
+    <div class="card" style="padding:12px 14px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+      <select id="cdg-preset" class="form-control" style="max-width:220px">${presetOpts}</select>
+      <input id="cdg-since" class="form-control" style="max-width:200px" placeholder="since (ISO, optional)" value="${_cdgEsc(state.since || '')}">
+      <input id="cdg-until" class="form-control" style="max-width:200px" placeholder="until (ISO, optional)" value="${_cdgEsc(state.until || '')}">
+      <select id="cdg-surface" class="form-control" style="max-width:200px">${surfaceOpts}</select>
+      <input id="cdg-patient" class="form-control" style="max-width:180px" placeholder="patient_id filter" value="${_cdgEsc(state.patientId || '')}">
+      <button id="cdg-email-btn" class="btn btn-primary">Email me the digest</button>
+      <button id="cdg-share-btn" class="btn btn-secondary">Share with colleague…</button>
+      <a id="cdg-csv-btn" class="btn btn-link" href="${_cdgEsc(csvHref)}" target="_blank">Export CSV</a>
+      <a id="cdg-ndjson-btn" class="btn btn-link" href="${_cdgEsc(ndjsonHref)}" target="_blank">Export NDJSON</a>
+    </div>`;
+}
+
+function _cdgRenderDemoBanner() {
+  return `
+    <div class="notice notice-warning" style="margin-bottom:14px;font-size:12.5px;line-height:1.55">
+      <strong>Demo data.</strong> Some events shown are from demo patients. Exports will be DEMO-prefixed; not regulator-submittable.
+    </div>`;
+}
+
+function _cdgRenderSummaryStrip(s) {
+  const card = (label, value, sub) => `
+    <div class="card" style="padding:14px;text-align:center">
+      <div style="font-size:22px;font-weight:700;color:var(--text-primary)">${_cdgEsc(String(value ?? 0))}</div>
+      <div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin-top:4px">${_cdgEsc(label)}</div>
+      ${sub ? `<div style="font-size:10px;color:var(--text-tertiary);margin-top:2px">${_cdgEsc(sub)}</div>` : ''}
+    </div>`;
+  const since = s.since ? new Date(s.since).toLocaleString() : '—';
+  const until = s.until ? new Date(s.until).toLocaleString() : '—';
+  return `
+    <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:8px">Window: ${_cdgEsc(since)} → ${_cdgEsc(until)} (UTC)</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px">
+      ${card('Handled', s.handled ?? 0, 'this shift')}
+      ${card('Escalated', s.escalated ?? 0, 'AE drafts created')}
+      ${card('Paged', s.paged ?? 0, 'on-call notifications')}
+      ${card('Open', s.open ?? 0, 'still on the queue')}
+      ${card('SLA breached', s.sla_breached ?? 0, 'past per-surface SLA')}
+    </div>`;
+}
+
+function _cdgRenderSections(sections) {
+  if (!Array.isArray(sections) || sections.length === 0) {
+    return _cdgRenderEmptyState();
+  }
+  // If every section is empty (no events), surface the honest empty state.
+  const totalActivity = sections.reduce((acc, sx) =>
+    acc + (sx.handled || 0) + (sx.escalated || 0) + (sx.paged || 0) + (sx.open || 0), 0);
+  if (totalActivity === 0) {
+    return _cdgRenderEmptyState();
+  }
+  return `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-bottom:18px">
+      ${sections.map(_cdgRenderSectionCard).join('')}
+    </div>`;
+}
+
+function _cdgRenderEmptyState() {
+  return `
+    <div class="card" style="padding:36px 24px;text-align:center;color:var(--text-secondary);margin-bottom:18px">
+      <div style="font-size:2.4rem;margin-bottom:14px">∅</div>
+      <div style="font-size:1.05rem;font-weight:600;margin-bottom:6px">No events to summarise for this shift.</div>
+      <div style="font-size:0.85rem;color:var(--text-tertiary);max-width:480px;margin:0 auto">
+        Counts are real audit-table aggregates across Inbox, Wearables Workbench, Adherence, Wellness and AE drafts. Nothing to display means: nothing was acknowledged, escalated, paged, or aged past its SLA in the current window. This is not AI-fabricated.
+      </div>
+    </div>`;
+}
+
+function _cdgRenderSectionCard(sx) {
+  const label = _CDG_SURFACE_LABEL[sx.surface] || sx.surface;
+  const top = (sx.top_patients || []).slice(0, 3);
+  const topHtml = top.length
+    ? `<div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">Top activity:
+        ${top.map(p => `<button class="cdg-drill-patient-btn" data-patient="${_cdgEsc(p.patient_id)}" data-surface="${_cdgEsc(sx.surface)}" style="background:none;border:none;color:var(--accent,#3b82f6);text-decoration:underline;cursor:pointer;padding:0;font-size:11px">${_cdgEsc(p.patient_name)}</button> · ${_cdgEsc(String(p.event_count))}`).join('<br>')}
+      </div>`
+    : `<div style="margin-top:8px;font-size:11px;color:var(--text-tertiary)">No per-patient activity in this window.</div>`;
+  return `
+    <div class="card" style="padding:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${_cdgEsc(label)}</div>
+        <button class="cdg-drill-section-btn btn btn-link" data-surface="${_cdgEsc(sx.surface)}" style="padding:0;font-size:11px">Open hub →</button>
+      </div>
+      <div style="margin-top:10px;display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:11px">
+        <div><div style="font-weight:700;color:var(--text-primary);font-size:14px">${_cdgEsc(String(sx.handled ?? 0))}</div><div style="color:var(--text-tertiary)">handled</div></div>
+        <div><div style="font-weight:700;color:#ff6b6b;font-size:14px">${_cdgEsc(String(sx.escalated ?? 0))}</div><div style="color:var(--text-tertiary)">escalated</div></div>
+        <div><div style="font-weight:700;color:#f59e0b;font-size:14px">${_cdgEsc(String(sx.paged ?? 0))}</div><div style="color:var(--text-tertiary)">paged</div></div>
+        <div><div style="font-weight:700;color:#3b82f6;font-size:14px">${_cdgEsc(String(sx.open ?? 0))}</div><div style="color:var(--text-tertiary)">open</div></div>
+      </div>
+      ${topHtml}
+    </div>`;
+}
+
+function _cdgRenderEvents(events) {
+  if (!Array.isArray(events) || events.length === 0) return '';
+  const rows = events.slice(0, 50).map(_cdgRenderEventRow).join('');
+  return `
+    <div class="card" style="padding:0;margin-bottom:14px;overflow:hidden">
+      <div style="padding:10px 14px;border-bottom:1px solid var(--border-color);font-size:12px;font-weight:600;color:var(--text-secondary)">Recent events (${_cdgEsc(String(events.length))} total)</div>
+      ${rows}
+    </div>`;
+}
+
+function _cdgRenderEventRow(it) {
+  const flag = it.is_paged ? `<span style="color:#f59e0b;font-size:10px;background:var(--bg-tertiary);padding:1px 5px;border-radius:3px;margin-right:6px">PAGED</span>`
+    : it.is_escalated ? `<span style="color:#ff6b6b;font-size:10px;background:var(--bg-tertiary);padding:1px 5px;border-radius:3px;margin-right:6px">ESCALATED</span>`
+    : it.is_handled ? `<span style="color:#14b8a6;font-size:10px;background:var(--bg-tertiary);padding:1px 5px;border-radius:3px;margin-right:6px">HANDLED</span>`
+    : '';
+  const demo = it.is_demo ? `<span style="color:var(--text-tertiary);font-size:10px;background:var(--bg-tertiary);padding:1px 5px;border-radius:3px;margin-right:6px">DEMO</span>` : '';
+  const surface = _CDG_SURFACE_LABEL[it.surface] || it.surface || '—';
+  const ts = it.created_at ? new Date(it.created_at).toLocaleString() : '—';
+  const drillHtml = it.drill_out_url
+    ? `<button class="cdg-drill-event-btn btn btn-link" data-url="${_cdgEsc(it.drill_out_url)}" data-patient="${_cdgEsc(it.patient_id || '')}" data-surface="${_cdgEsc(it.surface || '')}" style="font-size:11px;padding:0">Drill out →</button>`
+    : '';
+  return `
+    <div style="padding:8px 14px;border-bottom:1px solid var(--border-color);display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;font-size:12px">
+      <div style="flex:1;min-width:240px">
+        <div>${flag}${demo}<strong>${_cdgEsc(surface)}</strong> · <span style="color:var(--text-secondary)">${_cdgEsc(it.event_type || it.action || '')}</span></div>
+        ${it.patient_name ? `<div style="font-size:11px;color:var(--text-secondary)">Patient: ${_cdgEsc(it.patient_name)} <span style="color:var(--text-tertiary)">(${_cdgEsc(it.patient_id || '')})</span></div>` : ''}
+        <div style="font-size:11px;color:var(--text-tertiary)">${_cdgEsc(ts)}</div>
+        ${it.note ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:2px">${_cdgEsc((it.note || '').slice(0, 200))}${(it.note || '').length > 200 ? '…' : ''}</div>` : ''}
+      </div>
+      <div>${drillHtml}</div>
+    </div>`;
+}
+
+function _cdgBindControls(navigate) {
+  const presetSel = document.getElementById('cdg-preset');
+  if (presetSel && !presetSel._bound) {
+    presetSel._bound = true;
+    presetSel.onchange = async () => {
+      _cdgState.preset = presetSel.value || '12h';
+      const w = _cdgPresetWindow(_cdgState.preset);
+      _cdgState.since = w.since;
+      _cdgState.until = w.until;
+      try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('date_range_changed', { note: 'preset=' + _cdgState.preset })); } catch (_) {}
+      await _cdgLoadData();
+      _cdgBindControls(navigate);
+      _cdgBindSectionDrillOuts(navigate);
+    };
+  }
+  const sinceInp = document.getElementById('cdg-since');
+  if (sinceInp && !sinceInp._bound) {
+    sinceInp._bound = true;
+    sinceInp.onchange = async () => {
+      _cdgState.since = sinceInp.value || null;
+      try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('filter_changed', { note: 'since=' + (_cdgState.since || '') })); } catch (_) {}
+      await _cdgLoadData();
+      _cdgBindControls(navigate);
+      _cdgBindSectionDrillOuts(navigate);
+    };
+  }
+  const untilInp = document.getElementById('cdg-until');
+  if (untilInp && !untilInp._bound) {
+    untilInp._bound = true;
+    untilInp.onchange = async () => {
+      _cdgState.until = untilInp.value || null;
+      try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('filter_changed', { note: 'until=' + (_cdgState.until || '') })); } catch (_) {}
+      await _cdgLoadData();
+      _cdgBindControls(navigate);
+      _cdgBindSectionDrillOuts(navigate);
+    };
+  }
+  const surfSel = document.getElementById('cdg-surface');
+  if (surfSel && !surfSel._bound) {
+    surfSel._bound = true;
+    surfSel.onchange = async () => {
+      _cdgState.surface = surfSel.value || '';
+      try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('filter_changed', { note: 'surface=' + (_cdgState.surface || 'all') })); } catch (_) {}
+      await _cdgLoadData();
+      _cdgBindControls(navigate);
+      _cdgBindSectionDrillOuts(navigate);
+    };
+  }
+  const pidInp = document.getElementById('cdg-patient');
+  if (pidInp && !pidInp._bound) {
+    pidInp._bound = true;
+    pidInp.onchange = async () => {
+      _cdgState.patientId = pidInp.value || '';
+      try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('filter_changed', { note: 'patient_id=' + (_cdgState.patientId || 'all') })); } catch (_) {}
+      await _cdgLoadData();
+      _cdgBindControls(navigate);
+      _cdgBindSectionDrillOuts(navigate);
+    };
+  }
+  const emailBtn = document.getElementById('cdg-email-btn');
+  if (emailBtn && !emailBtn._bound) {
+    emailBtn._bound = true;
+    emailBtn.onclick = async () => {
+      const ok = (typeof window !== 'undefined' && window.confirm)
+        ? window.confirm('Email this digest to your account email? (Delivery may be queued — see banner for status.)')
+        : true;
+      if (!ok) return;
+      const reason = (typeof window !== 'undefined' && window.prompt)
+        ? (window.prompt('Optional note for the audit log:', '') || '')
+        : '';
+      try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('email_initiated', { note: 'reason=' + reason.slice(0, 100) })); } catch (_) {}
+      try {
+        const r = await api.clinicianDigestSendEmail({
+          reason,
+          since: _cdgState.since,
+          until: _cdgState.until,
+        });
+        if (r && r.delivery_status === 'sent') {
+          if (window.showToast) window.showToast(`Digest emailed to ${r.recipient_email}.`, 'success');
+        } else if (r && r.delivery_status === 'queued') {
+          if (window.showToast) window.showToast(
+            `Email queued — actual delivery requires SMTP wire-up. Audit recorded for ${r.recipient_email}.`,
+            'info',
+          );
+        } else if (r && r.delivery_status === 'failed') {
+          if (window.showToast) window.showToast('Email send failed. Check audit trail for details.', 'error');
+        } else {
+          if (window.showToast) window.showToast('Email request returned no status — check the audit trail.', 'warn');
+        }
+      } catch (e) {
+        if (window.showToast) window.showToast('Email send failed.', 'error');
+      }
+    };
+  }
+  const shareBtn = document.getElementById('cdg-share-btn');
+  if (shareBtn && !shareBtn._bound) {
+    shareBtn._bound = true;
+    shareBtn.onclick = async () => {
+      const recipient = (typeof window !== 'undefined' && window.prompt)
+        ? (window.prompt('Colleague user_id (must be in your clinic):', '') || '')
+        : '';
+      if (!_cdgNoteRequiredValid(recipient)) {
+        if (window.showToast) window.showToast('Recipient user id required.', 'warn');
+        return;
+      }
+      const reason = (typeof window !== 'undefined' && window.prompt)
+        ? (window.prompt('Optional note for the audit log:', '') || '')
+        : '';
+      try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('colleague_share_initiated', { note: 'recipient=' + recipient.slice(0, 60) })); } catch (_) {}
+      try {
+        const r = await api.clinicianDigestShareColleague(recipient, reason, {
+          since: _cdgState.since, until: _cdgState.until,
+        });
+        if (r && r.recipient_email) {
+          if (window.showToast) window.showToast(
+            `Digest queued for ${r.recipient_email} (${r.delivery_status}). Audit recorded.`,
+            'info',
+          );
+        }
+      } catch (e) {
+        // 404 is the cross-clinic / unknown-recipient response.
+        if (window.showToast) window.showToast('Could not share — recipient not found in your clinic.', 'error');
+      }
+    };
+  }
+  const csvBtn = document.getElementById('cdg-csv-btn');
+  if (csvBtn && !csvBtn._bound) {
+    csvBtn._bound = true;
+    csvBtn.addEventListener('click', () => {
+      try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('export', { note: 'format=csv' })); } catch (_) {}
+    });
+  }
+  const ndBtn = document.getElementById('cdg-ndjson-btn');
+  if (ndBtn && !ndBtn._bound) {
+    ndBtn._bound = true;
+    ndBtn.addEventListener('click', () => {
+      try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('export', { note: 'format=ndjson' })); } catch (_) {}
+    });
+  }
+}
+
+function _cdgBindSectionDrillOuts(navigate) {
+  document.querySelectorAll('.cdg-drill-section-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = () => {
+      const surface = btn.getAttribute('data-surface');
+      const route = _CDG_SURFACE_ROUTE[surface];
+      try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('drill_out', { note: 'surface=' + surface })); } catch (_) {}
+      if (route && typeof navigate === 'function') navigate(route);
+      else if (route && typeof window !== 'undefined' && window._nav) window._nav(route);
+    };
+  });
+  document.querySelectorAll('.cdg-drill-patient-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = () => {
+      const pid = btn.getAttribute('data-patient');
+      const surface = btn.getAttribute('data-surface');
+      const route = _CDG_SURFACE_ROUTE[surface] || 'patient-profile';
+      try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('drill_out', { note: 'patient=' + pid + '; surface=' + surface })); } catch (_) {}
+      if (pid) window._patientId = pid;
+      if (typeof navigate === 'function') navigate(route);
+      else if (typeof window !== 'undefined' && window._nav) window._nav(route);
+    };
+  });
+  document.querySelectorAll('.cdg-drill-event-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = () => {
+      const url = btn.getAttribute('data-url') || '';
+      const surface = btn.getAttribute('data-surface') || '';
+      const pid = btn.getAttribute('data-patient') || '';
+      try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('drill_out', { note: 'event_drill; url=' + url })); } catch (_) {}
+      // url is of the form "?page=foo&patient_id=bar" — derive the route.
+      const m = url.match(/\?page=([a-z0-9_-]+)/i);
+      const route = (m && m[1]) || _CDG_SURFACE_ROUTE[surface] || 'clinician-inbox';
+      if (pid) window._patientId = pid;
+      if (typeof navigate === 'function') navigate(route);
+      else if (typeof window !== 'undefined' && window._nav) window._nav(route);
+    };
+  });
+}

@@ -3140,6 +3140,53 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
+  // Clinician Notifications Pulse / Daily Digest launch-audit (2026-05-01).
+  // End-of-shift summary across the four clinician hubs (Inbox #354,
+  // Wearables Workbench #353, Adherence Hub #361, Wellness Hub #365) plus
+  // AE Hub #342 escalations. Read-only aggregator + email/colleague-share
+  // audit rows. Read helpers return null on offline / 404 so the page
+  // can render an honest empty state.
+  clinicianDigestSummary: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/clinician-digest/summary${q ? '?' + q : ''}`).catch(() => null);
+  },
+  clinicianDigestSections: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/clinician-digest/sections${q ? '?' + q : ''}`).catch(() => null);
+  },
+  clinicianDigestEvents: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/clinician-digest/events${q ? '?' + q : ''}`).catch(() => null);
+  },
+  clinicianDigestSendEmail: (data) =>
+    apiFetch('/api/v1/clinician-digest/send-email', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  clinicianDigestShareColleague: (recipientUserId, reason, sinceUntil = {}) =>
+    apiFetch('/api/v1/clinician-digest/share-colleague', {
+      method: 'POST',
+      body: JSON.stringify({
+        recipient_user_id: recipientUserId,
+        reason: reason || '',
+        since: sinceUntil.since || null,
+        until: sinceUntil.until || null,
+      }),
+    }),
+  clinicianDigestExportCsvUrl: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return `/api/v1/clinician-digest/export.csv${q ? '?' + q : ''}`;
+  },
+  clinicianDigestExportNdjsonUrl: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return `/api/v1/clinician-digest/export.ndjson${q ? '?' + q : ''}`;
+  },
+  postClinicianDigestAuditEvent: (data) =>
+    apiFetch('/api/v1/clinician-digest/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
   // Care Team Coverage / Staff Scheduling launch-audit (2026-05-01).
   // Closes the after-hours triage loop opened by Clinician Inbox #354.
   // Reads the on-call schedule + per-surface SLA + escalation chain that
