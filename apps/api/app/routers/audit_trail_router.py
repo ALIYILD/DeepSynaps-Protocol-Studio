@@ -286,6 +286,19 @@ KNOWN_SURFACES = {
     # return 409 so the regulator sees a clean ack → escalate (optional)
     # → resolve transcript per row.
     "clinician_wellness_hub",
+    # Clinician Notifications Pulse / Daily Digest launch-audit (2026-05-01).
+    # End-of-shift summary across the four clinician hubs (Inbox #354,
+    # Wearables Workbench #353, Adherence Hub #361, Wellness Hub #365)
+    # plus AE Hub #342 escalations. Page-level surface that records
+    # what the on-call clinician did with the digest: view,
+    # summary_viewed, sections_viewed, events_listed, filter_changed,
+    # date_range_changed, drill_out, email_initiated, email_sent,
+    # colleague_share_initiated, colleague_shared, export,
+    # demo_banner_shown. Email + colleague-share record a regulator-
+    # credible audit row even though SMTP / Slack / pager wire-up is
+    # documented as out-of-scope (delivery_status='queued') — the audit
+    # row is enough to prove intent, recipient, and headline counts.
+    "clinician_digest",
 }
 
 

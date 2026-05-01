@@ -493,6 +493,11 @@ const NAV = [
   // correlate strongly with adherence drop-offs and side-effect risk
   // before adherence breaks down.
   { id: 'clinician-wellness',  label: 'Wellness Hub',     icon: '💚' },
+  // Clinician Notifications Pulse / Daily Digest launch-audit (2026-05-01).
+  // End-of-shift summary across the four clinician hubs (Inbox, Wearables
+  // Workbench, Adherence, Wellness) plus AE Hub escalations. Top-of-loop
+  // telemetry the Care Team Coverage SLA chain (#357) currently lacks.
+  { id: 'clinician-digest',    label: 'Daily Digest',     icon: '📰' },
   { id: 'schedule-v2',        label: 'Schedule',          icon: '🗓️' },
   { id: 'assessments-v2',     label: 'Assessments',       icon: '◉' },
   { id: 'patients-v2',        label: 'Patients',          icon: '👥' },
@@ -1444,6 +1449,19 @@ async function renderPage() {
     case 'clinician-wellness': {
       const m = await loadCourses();
       await m.pgClinicianWellnessHub(setTopbar, navigate);
+      break;
+    }
+    // Clinician Notifications Pulse / Daily Digest (launch-audit 2026-05-01).
+    // Top-of-loop telemetry the Care Team Coverage SLA chain (#357)
+    // currently lacks. End-of-shift summary across the four clinician
+    // hubs (Inbox #354, Wearables Workbench #353, Adherence Hub #361,
+    // Wellness Hub #365) plus AE Hub #342 escalations. Tells the on-call
+    // clinician at the end of their shift: "here's what happened, here's
+    // what's still open, here's what got escalated."
+    case 'daily-digest':
+    case 'clinician-digest': {
+      const m = await loadCourses();
+      await m.pgClinicianDailyDigest(setTopbar, navigate);
       break;
     }
     case 'clinic-analytics': { const m = await loadKnowledge(); await m.pgClinicAnalytics(setTopbar); break; }
