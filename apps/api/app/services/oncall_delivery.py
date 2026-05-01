@@ -484,12 +484,52 @@ DEFAULT_ADAPTER_ORDER: tuple[type, ...] = (
 )
 
 
+_ADAPTER_FACTORIES: dict[str, type] = {
+    "pagerduty": PagerDutyAdapter,
+    "slack": SlackAdapter,
+    "twilio": TwilioSMSAdapter,
+}
+
+
+def _build_adapters_for_order(order: list[str]) -> list[Adapter]:
+    """Construct adapters in the requested ``order``.
+
+    Unknown adapter names are dropped silently here — the
+    :mod:`escalation_policy_router` PUT validates against
+    :data:`KNOWN_ADAPTER_NAMES` so a malformed order can never reach this
+    constructor in the production path. Tests pass adapters directly.
+    """
+    out: list[Adapter] = []
+    for name in order:
+        cls = _ADAPTER_FACTORIES.get((name or "").strip().lower())
+        if cls is None:
+            continue
+        out.append(cls())
+    return out
+
+
+KNOWN_ADAPTER_NAMES: tuple[str, ...] = tuple(_ADAPTER_FACTORIES.keys())
+
+
 class OncallDeliveryService:
     """Per-clinic on-call delivery dispatcher.
 
     Use :meth:`send` with the resolved ``OncallPage`` row + recipient.
     The service constructs adapters from env vars on-init unless an
     explicit ``adapters`` list is passed (test path).
+
+    Dispatch order resolution (when ``adapters`` is None):
+
+    1. If a ``surface`` is supplied AND the clinic's
+       :class:`~app.persistence.models.EscalationPolicy` has a per-surface
+       override for that surface, use the override list.
+    2. Else, if the clinic has a policy with a ``dispatch_order``, use it.
+    3. Else, fall back to :data:`DEFAULT_ADAPTER_ORDER`
+       (PagerDuty → Slack → Twilio).
+
+    Step 1+2 are best-effort — any DB / JSON-parse failure quietly falls
+    back to step 3 so a misconfigured policy can NEVER take down the
+    on-call dispatch chain.
     """
 
     def __init__(
@@ -497,11 +537,95 @@ class OncallDeliveryService:
         clinic_id: Optional[str] = None,
         *,
         adapters: Optional[list[Adapter]] = None,
+        surface: Optional[str] = None,
+        db: Optional[Any] = None,
     ) -> None:
         self.clinic_id = clinic_id
+        self.surface = surface
         if adapters is None:
-            adapters = [cls() for cls in DEFAULT_ADAPTER_ORDER]
+            order = self._resolve_dispatch_order(clinic_id, surface, db)
+            adapters = _build_adapters_for_order(order)
+            # If the resolver returned an empty / all-unknown list, fall
+            # back to the static default so we never end up with zero
+            # adapters from a misconfigured policy.
+            if not adapters:
+                adapters = [cls() for cls in DEFAULT_ADAPTER_ORDER]
         self.adapters: list[Adapter] = adapters
+
+    @staticmethod
+    def _resolve_dispatch_order(
+        clinic_id: Optional[str],
+        surface: Optional[str],
+        db: Optional[Any],
+    ) -> list[str]:
+        """Resolve the dispatch order for ``(clinic_id, surface)``.
+
+        Returns a list of adapter names (lowercase). Falls back to the
+        DEFAULT_ADAPTER_ORDER class names lower-cased when no policy is
+        available. Defensive: any DB / JSON failure returns the default.
+        """
+        default_order = [
+            getattr(cls, "name", cls.__name__.lower())
+            for cls in DEFAULT_ADAPTER_ORDER
+        ]
+        if not clinic_id:
+            return default_order
+        try:
+            import json as _json  # noqa: PLC0415
+            from app.persistence.models import EscalationPolicy  # noqa: PLC0415
+
+            local_db = db
+            opened = False
+            if local_db is None:
+                from app.database import SessionLocal  # noqa: PLC0415
+                local_db = SessionLocal()
+                opened = True
+            try:
+                row = (
+                    local_db.query(EscalationPolicy)
+                    .filter(EscalationPolicy.clinic_id == clinic_id)
+                    .one_or_none()
+                )
+                if row is None:
+                    return default_order
+                # Per-surface override wins.
+                if surface and row.surface_overrides:
+                    try:
+                        overrides = _json.loads(row.surface_overrides) or {}
+                    except Exception:
+                        overrides = {}
+                    s_override = overrides.get(surface) if isinstance(overrides, dict) else None
+                    if isinstance(s_override, list) and s_override:
+                        cleaned = [
+                            str(n).strip().lower()
+                            for n in s_override
+                            if isinstance(n, str) and str(n).strip()
+                        ]
+                        if cleaned:
+                            return cleaned
+                # Clinic-wide dispatch order.
+                if row.dispatch_order:
+                    try:
+                        order = _json.loads(row.dispatch_order) or []
+                    except Exception:
+                        order = []
+                    if isinstance(order, list) and order:
+                        cleaned = [
+                            str(n).strip().lower()
+                            for n in order
+                            if isinstance(n, str) and str(n).strip()
+                        ]
+                        if cleaned:
+                            return cleaned
+                return default_order
+            finally:
+                if opened:
+                    try:
+                        local_db.close()
+                    except Exception:
+                        pass
+        except Exception:  # pragma: no cover - defensive
+            return default_order
 
     # --- Discovery ------------------------------------------------------
 
@@ -621,13 +745,24 @@ class OncallDeliveryService:
 # ---------------------------------------------------------------------------
 
 
-def build_default_service(clinic_id: Optional[str] = None) -> OncallDeliveryService:
+def build_default_service(
+    clinic_id: Optional[str] = None,
+    *,
+    surface: Optional[str] = None,
+    db: Optional[Any] = None,
+) -> OncallDeliveryService:
     """Convenience constructor for the default adapter chain.
 
     Used by both the auto-page worker and the manual page-on-call
     handler so the adapter wire-up lives in exactly one place.
+
+    When ``surface`` is given, the service consults the clinic's
+    :class:`EscalationPolicy.surface_overrides` first before falling
+    back to the clinic-wide dispatch order. When ``db`` is given, the
+    service reuses the caller's session instead of opening a new one
+    (helpful inside FastAPI request handlers).
     """
-    return OncallDeliveryService(clinic_id=clinic_id)
+    return OncallDeliveryService(clinic_id=clinic_id, surface=surface, db=db)
 
 
 def is_mock_mode_enabled() -> bool:
@@ -642,6 +777,7 @@ __all__ = [
     "Adapter",
     "DEFAULT_ADAPTER_ORDER",
     "DeliveryResult",
+    "KNOWN_ADAPTER_NAMES",
     "OncallDeliveryService",
     "PageMessage",
     "PagerDutyAdapter",

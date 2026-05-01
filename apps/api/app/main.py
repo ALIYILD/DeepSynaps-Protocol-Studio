@@ -110,6 +110,7 @@ from app.routers.clinician_adherence_router import router as clinician_adherence
 from app.routers.clinician_wellness_router import router as clinician_wellness_router
 from app.routers.clinician_digest_router import router as clinician_digest_router
 from app.routers.auto_page_worker_router import router as auto_page_worker_router
+from app.routers.escalation_policy_router import router as escalation_policy_router
 # Settings API routers (foundation scaffolded by backend subagent #1; endpoints
 # fleshed out by backend subagents #3–#6). See apps/api/SETTINGS_API_DESIGN.md.
 from app.routers.profile_router import router as profile_router
@@ -393,6 +394,14 @@ app.include_router(clinician_digest_router)
 # enable via escalation_chains.auto_page_enabled; process-wide enable
 # via DEEPSYNAPS_AUTO_PAGE_ENABLED=1 env var.
 app.include_router(auto_page_worker_router)
+# Escalation Policy Editor (2026-05-01) — admin-only configurable
+# dispatch order + per-surface override matrix + per-user contact mapping.
+# Replaces the hard-coded DEFAULT_ADAPTER_ORDER and contact_handle path
+# flagged by the On-Call Delivery agent (#373) as the last operational
+# gap. OncallDeliveryService consults EscalationPolicy at construction
+# time and falls back to the static default when no policy exists, so
+# every existing deploy keeps working unchanged.
+app.include_router(escalation_policy_router)
 # Settings API (scaffolded 024_settings_schema) — stubs; endpoints arrive in
 # follow-up subagents. Grouped together for discoverability.
 app.include_router(profile_router)
