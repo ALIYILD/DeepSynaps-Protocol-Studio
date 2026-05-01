@@ -21024,6 +21024,16 @@ export async function pgPatientHomeDevices() {
     </div>
   `;
 
+  // Mount-time audit ping (Patient Home Devices launch-audit 2026-05-01).
+  // Fire-and-forget — the page must render even if the audit endpoint is
+  // unreachable. Mirrors the pattern established by Symptom Journal #344
+  // / Wellness #345 / Patient Reports #346 / Patient Messages #347.
+  try {
+    if (api.postHomeDevicesAuditEvent) {
+      api.postHomeDevicesAuditEvent({ event: 'view', note: 'page mount' });
+    }
+  } catch (_) { /* audit must never block UI */ }
+
   const [
     wearablesRaw,
     wearableSummaryRaw,
@@ -21032,6 +21042,8 @@ export async function pgPatientHomeDevices() {
     sessionsRaw,
     eventsRaw,
     registryRaw,
+    homeDevicesListRaw,
+    homeDevicesSummaryRaw,
   ] = await Promise.all([
     raceNull(api.patientPortalWearables()),
     raceNull(api.patientPortalWearableSummary(14)),
@@ -21040,7 +21052,21 @@ export async function pgPatientHomeDevices() {
     raceNull(api.portalListHomeSessions()),
     raceNull(api.portalListAdherenceEvents()),
     raceNull(api.devices_registry()),
+    raceNull(api.homeDevicesList ? api.homeDevicesList() : null),
+    raceNull(api.homeDevicesSummary ? api.homeDevicesSummary() : null),
   ]);
+
+  // Patient Home Devices launch-audit (2026-05-01). Server-side device
+  // registry is the new source of truth — surface the rows alongside the
+  // existing clinician assignment view. ``is_demo`` and
+  // ``consent_active`` come from the server so demo banners and the
+  // read-only consent state are honest.
+  const homeDevicesItems = Array.isArray(homeDevicesListRaw?.items) ? homeDevicesListRaw.items : [];
+  const homeDevicesIsDemo = !!homeDevicesListRaw?.is_demo;
+  const homeDevicesConsentActive = homeDevicesListRaw?.consent_active !== false;
+  const homeDevicesSummary = homeDevicesSummaryRaw && typeof homeDevicesSummaryRaw === 'object'
+    ? homeDevicesSummaryRaw
+    : null;
 
   const connections = Array.isArray(wearablesRaw?.connections) ? wearablesRaw.connections : [];
   const alerts = Array.isArray(wearablesRaw?.recent_alerts) ? wearablesRaw.recent_alerts : [];
@@ -21247,8 +21273,20 @@ export async function pgPatientHomeDevices() {
     `;
   };
 
+  // Banners surface server-truth flags from the Patient Home Devices
+  // launch-audit (2026-05-01). DEMO banner renders only when the
+  // /devices list explicitly reports is_demo=true. Consent banner
+  // renders only when consent_active=false; the page becomes
+  // read-only-aware (action buttons emit a toast pointing at consent
+  // re-affirmation).
+  const phdBanners = []
+    + (homeDevicesIsDemo ? '<div class="phd-banner is-demo" data-test="phd-demo-banner">DEMO data — device records on this page are not regulator-submittable.</div>' : '')
+    + (!homeDevicesConsentActive ? '<div class="phd-banner is-consent" data-test="phd-consent-banner">Consent withdrawn — your devices remain readable, but registering, logging, calibrating and decommissioning are paused until consent is reinstated.</div>' : '')
+    + (homeDevicesSummary && homeDevicesSummary.faulty > 0 ? '<div class="phd-banner is-warn" data-test="phd-faulty-banner">' + homeDevicesSummary.faulty + ' device' + (homeDevicesSummary.faulty === 1 ? '' : 's') + ' marked faulty — your care team has been notified at high priority.</div>' : '');
+
   el.innerHTML = `
     <div class="phd-page">
+      ${phdBanners}
       <div class="phd-hero-grid">
         <section class="phd-panel phd-panel--hero">
           <div class="phd-eyebrow">Home neuromodulation hub</div>
@@ -21359,6 +21397,57 @@ export async function pgPatientHomeDevices() {
                 </article>
               `).join('')}
             </div>
+          </section>
+
+          <section class="phd-block" id="phd-registered-devices" data-test="phd-registered-devices">
+            <div class="phd-block-head">
+              <div>
+                <h2>My registered devices</h2>
+                <p>Server-side registry. Audited on every action; decommissioning is one-way; mark-faulty raises a high-priority alert to your care team.</p>
+              </div>
+              <span class="phd-block-meta">${homeDevicesItems.length} on file</span>
+            </div>
+            <div class="phd-registered-list">
+              ${homeDevicesItems.length === 0 ? `
+                <div class="phd-empty-state" data-test="phd-empty-registry">
+                  <div class="phd-empty-icon">⌁</div>
+                  <strong>No home devices registered yet</strong>
+                  <p>Register a device to log sessions and calibration runs against it. Your care team will see the same record.</p>
+                  ${homeDevicesConsentActive ? '<button class="phd-card-btn is-primary" onclick="window._phdRegisterDevice()">Register a device</button>' : ''}
+                </div>
+              ` : homeDevicesItems.map((dev) => {
+                const statusTone = dev.status === 'active' ? 'good' : dev.status === 'faulty' ? 'warn' : 'idle';
+                const statusLabel = dev.status === 'active' ? 'Active' : dev.status === 'faulty' ? 'Faulty' : 'Decommissioned';
+                const cal = dev.last_calibrated_at ? ('Calibrated ' + fmtRelative(dev.last_calibrated_at)) : 'No calibration on file';
+                const isImmutable = dev.status === 'decommissioned';
+                const isFaulty = dev.status === 'faulty';
+                return `
+                  <article class="phd-registered-card is-${statusTone}" data-device-id="${esc(dev.id)}">
+                    <div class="phd-device-topline">
+                      <span class="phd-device-pill">${esc(dev.device_category || 'device')}</span>
+                      <span class="phd-device-status">${renderStatusDot(statusTone)}${esc(statusLabel)}</span>
+                    </div>
+                    <h3>${esc(dev.device_name)}</h3>
+                    <p>${esc(dev.device_model || 'No model on file')}</p>
+                    <div class="phd-device-stats">
+                      <div><span>Serial: ${esc(dev.device_serial || '—')}</span></div>
+                      <div><span>${esc(cal)}</span></div>
+                      <div><span>Settings rev. ${dev.settings_revision || 0}</span></div>
+                    </div>
+                    ${isFaulty && dev.faulty_reason ? `<div class="phd-fault-reason"><strong>Fault:</strong> ${esc(dev.faulty_reason)}</div>` : ''}
+                    ${isImmutable && dev.decommission_reason ? `<div class="phd-fault-reason"><strong>Decommissioned:</strong> ${esc(dev.decommission_reason)}</div>` : ''}
+                    <div class="phd-device-actions">
+                      <button class="phd-card-btn" onclick="window._phdLogDeviceSession('${esc(dev.id)}')" ${isImmutable || isFaulty || !homeDevicesConsentActive ? 'disabled' : ''}>Log session</button>
+                      <button class="phd-card-btn" onclick="window._phdCalibrateDevice('${esc(dev.id)}')" ${isImmutable || !homeDevicesConsentActive ? 'disabled' : ''}>Calibrate</button>
+                      <button class="phd-card-btn" onclick="window._phdMarkFaulty('${esc(dev.id)}')" ${isImmutable || !homeDevicesConsentActive ? 'disabled' : ''}>Mark faulty</button>
+                      <button class="phd-card-btn" onclick="window._phdDecommission('${esc(dev.id)}')" ${isImmutable || !homeDevicesConsentActive ? 'disabled' : ''}>Decommission</button>
+                      <button class="phd-card-btn" onclick="window._phdExportSessions('${esc(dev.id)}')">Export CSV</button>
+                    </div>
+                  </article>
+                `;
+              }).join('')}
+            </div>
+            ${homeDevicesItems.length > 0 && homeDevicesConsentActive ? '<div class="phd-registered-foot"><button class="phd-card-btn is-primary" onclick="window._phdRegisterDevice()">Register another device</button></div>' : ''}
           </section>
 
           <section class="phd-block" id="phd-compatible-devices">
@@ -21504,6 +21593,129 @@ export async function pgPatientHomeDevices() {
       emitToast(err?.message || 'Could not update this connection.', '#f87171');
     }
   };
+  // ── Patient Home Devices launch-audit (2026-05-01) ─────────────────────────
+  // Server-side registry actions. Each handler audits on success / failure
+  // through the home_devices surface so a regulator can see exactly what
+  // the patient did from this page. The audit ping is fire-and-forget —
+  // we never let a network hiccup block the UI action.
+  const _phdAudit = (event, deviceId, note) => {
+    try {
+      if (api.postHomeDevicesAuditEvent) {
+        api.postHomeDevicesAuditEvent({ event, device_id: deviceId || null, note: note || null });
+      }
+    } catch (_) { /* audit must never block UI */ }
+  };
+
+  window._phdRegisterDevice = async () => {
+    if (!homeDevicesConsentActive) {
+      emitToast('Consent withdrawn — registering a device is paused.', '#f5b74c');
+      return;
+    }
+    const name = (window.prompt('Device name (e.g. "Synaps One"):') || '').trim();
+    if (!name) return;
+    const category = (window.prompt('Device category (tdcs, tacs, tens, pbm, vagus, wearable, other):') || '').trim().toLowerCase() || 'other';
+    const serial = (window.prompt('Serial number (optional):') || '').trim();
+    try {
+      const created = await api.homeDevicesRegister({
+        device_name: name,
+        device_category: category,
+        device_serial: serial || null,
+        settings: {},
+      });
+      _phdAudit('device_registered', created && created.id, 'category=' + category);
+      emitToast('Device registered.', 'var(--teal)');
+      await pgPatientHomeDevices();
+    } catch (err) {
+      emitToast(err && err.message ? err.message : 'Could not register the device.', '#f87171');
+    }
+  };
+
+  window._phdLogDeviceSession = async (deviceId) => {
+    if (!homeDevicesConsentActive) {
+      emitToast('Consent withdrawn — session logging is paused.', '#f5b74c');
+      return;
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const dur = window.prompt('Session duration (minutes), 1-480:', '20');
+    if (!dur) return;
+    const tol = window.prompt('Tolerance rating (1-5):', '4');
+    try {
+      await api.homeDevicesLogSession(deviceId, {
+        session_date: today,
+        duration_minutes: Math.max(1, Math.min(480, Number(dur) || 20)),
+        completed: true,
+        tolerance_rating: tol ? Math.max(1, Math.min(5, Number(tol) || 4)) : null,
+      });
+      _phdAudit('session_logged', deviceId, 'duration=' + dur);
+      emitToast('Session logged.', 'var(--teal)');
+      await pgPatientHomeDevices();
+    } catch (err) {
+      emitToast(err && err.message ? err.message : 'Could not log this session.', '#f87171');
+    }
+  };
+
+  window._phdCalibrateDevice = async (deviceId) => {
+    if (!homeDevicesConsentActive) {
+      emitToast('Consent withdrawn — calibration is paused.', '#f5b74c');
+      return;
+    }
+    const result = (window.prompt('Calibration result (passed / failed / skipped):', 'passed') || 'passed').trim().toLowerCase();
+    if (!['passed', 'failed', 'skipped'].includes(result)) {
+      emitToast('Invalid calibration result.', '#f87171');
+      return;
+    }
+    const notes = window.prompt('Calibration notes (optional):', '') || '';
+    try {
+      await api.homeDevicesCalibrate(deviceId, { result, notes: notes || null });
+      _phdAudit('calibration_run', deviceId, 'result=' + result);
+      emitToast('Calibration logged.', 'var(--teal)');
+      await pgPatientHomeDevices();
+    } catch (err) {
+      emitToast(err && err.message ? err.message : 'Could not log calibration.', '#f87171');
+    }
+  };
+
+  window._phdMarkFaulty = async (deviceId) => {
+    if (!homeDevicesConsentActive) {
+      emitToast('Consent withdrawn — flagging a device is paused.', '#f5b74c');
+      return;
+    }
+    const reason = (window.prompt('What is wrong with the device? Your care team will be notified at high priority.') || '').trim();
+    if (!reason) return;
+    try {
+      await api.homeDevicesMarkFaulty(deviceId, reason);
+      _phdAudit('device_marked_faulty', deviceId, 'priority=high');
+      emitToast('Device marked faulty. Your care team has been notified.', '#f5b74c');
+      await pgPatientHomeDevices();
+    } catch (err) {
+      emitToast(err && err.message ? err.message : 'Could not flag this device.', '#f87171');
+    }
+  };
+
+  window._phdDecommission = async (deviceId) => {
+    if (!homeDevicesConsentActive) {
+      emitToast('Consent withdrawn — decommissioning is paused.', '#f5b74c');
+      return;
+    }
+    if (!window.confirm('Decommission this device? This is one-way — historical sessions remain readable but you cannot edit, calibrate, or log new sessions on it.')) return;
+    const reason = (window.prompt('Reason for decommissioning:') || '').trim();
+    if (!reason) return;
+    try {
+      await api.homeDevicesDecommission(deviceId, reason);
+      _phdAudit('device_decommissioned', deviceId);
+      emitToast('Device decommissioned.', '#94a3b8');
+      await pgPatientHomeDevices();
+    } catch (err) {
+      emitToast(err && err.message ? err.message : 'Could not decommission this device.', '#f87171');
+    }
+  };
+
+  window._phdExportSessions = (deviceId) => {
+    _phdAudit('export', deviceId, 'format=csv');
+    const path = '/api/v1/home-devices/devices/' + encodeURIComponent(deviceId) + '/sessions/export.csv';
+    try { window.open(path, '_blank'); } catch (_) { window.location.href = path; }
+  };
+
   window._phdCompatibleAction = async (deviceId) => {
     const item = compatibleCatalog.find((row) => row.id === deviceId);
     if (!item) return;

@@ -3640,3 +3640,142 @@ class WellnessCheckin(Base):
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+
+
+# ── Patient Home Devices (launch-audit 2026-05-01, migration 070) ────────────
+
+
+class PatientHomeDeviceRegistration(Base):
+    """Patient-side home device registry (launch-audit 2026-05-01).
+
+    Distinct from :class:`HomeDeviceAssignment` (clinician-side
+    prescription) — this row is the patient's view of which physical
+    devices they actually own / use at home, with serial number,
+    calibration status, and lifecycle (``active`` / ``decommissioned``
+    / ``faulty``). Pre-audit the page held all of this in browser
+    localStorage; this table is the new source of truth.
+
+    Lifecycle
+    ---------
+    * ``status='active'`` is the default; sessions can be logged.
+    * ``status='decommissioned'`` is terminal — the row becomes
+      immutable except for the audit-only ``decommission_reason``
+      stamped at the moment of transition.
+    * ``status='faulty'`` blocks new sessions until the clinician
+      clears the fault. ``faulty_reason`` is required and emits a
+      HIGH-priority clinician-visible audit row when set.
+    * ``is_demo`` is sticky once stamped, exports honour it, and any
+      DEMO row is excluded from regulator-submittable bundles.
+
+    Higher regulatory weight than the prior four launch audits — device
+    session logs feed Course Detail telemetry, AE Hub adverse-event
+    detection, and signed completion reports. A device-record IDOR leak
+    is a HIPAA-grade incident, so every read endpoint applies the
+    ``patient_id == actor.patient.id`` gate at the router layer.
+    """
+
+    __tablename__ = "patient_home_device_registrations"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    patient_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("patients.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    assignment_id: Mapped[Optional[str]] = mapped_column(
+        String(36), nullable=True
+    )
+    clinic_id: Mapped[Optional[str]] = mapped_column(
+        String(36), nullable=True, index=True
+    )
+    registered_by_actor_id: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )
+    device_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    device_model: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    device_category: Mapped[str] = mapped_column(String(80), nullable=False)
+    device_serial: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    settings_json: Mapped[str] = mapped_column(
+        Text(), nullable=False, default="{}"
+    )
+    settings_revision: Mapped[int] = mapped_column(
+        Integer(), nullable=False, default=0
+    )
+    status: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="active", index=True
+    )
+    decommissioned_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(), nullable=True
+    )
+    decommission_reason: Mapped[Optional[str]] = mapped_column(
+        String(500), nullable=True
+    )
+    marked_faulty_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(), nullable=True
+    )
+    faulty_reason: Mapped[Optional[str]] = mapped_column(
+        String(500), nullable=True
+    )
+    last_calibrated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(), nullable=True
+    )
+    is_demo: Mapped[bool] = mapped_column(
+        Boolean(), nullable=False, default=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+
+class PatientHomeDeviceCalibration(Base):
+    """Calibration log for a :class:`PatientHomeDeviceRegistration`.
+
+    Each row records one calibration run (``passed`` / ``failed`` /
+    ``skipped``), who performed it, and any notes. The most recent
+    row's timestamp is surfaced as ``last_calibrated_at`` on the
+    parent registration.
+    """
+
+    __tablename__ = "patient_home_device_calibrations"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    registration_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("patient_home_device_registrations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    patient_id: Mapped[str] = mapped_column(
+        String(36), nullable=False, index=True
+    )
+    performed_by_actor_id: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )
+    # passed | failed | skipped
+    result: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="passed"
+    )
+    notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    is_demo: Mapped[bool] = mapped_column(
+        Boolean(), nullable=False, default=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+    )

@@ -139,6 +139,18 @@ KNOWN_SURFACES = {
     # ``thread_id=report-{report_id}`` so the inbox can deep-link the
     # patient straight to the report-question thread.
     "patient_messages",
+    # Patient Home Devices launch-audit (2026-05-01). Fifth patient-facing
+    # surface. Higher regulatory weight: device session logs feed Course
+    # Detail telemetry, AE Hub adverse-event detection, and signed
+    # completion reports. Events: view, device_registered, device_decommissioned,
+    # device_marked_faulty, session_logged, calibration_run, settings_changed,
+    # export, plus the page-level events posted via
+    # /api/v1/home-devices/audit-events (filter_changed, demo_banner_shown,
+    # consent_banner_shown, deep_link_followed). The mark-faulty event also
+    # emits a clinician-visible mirror audit row at HIGH priority because a
+    # faulty home neuromodulation device is a clinical-safety signal that
+    # must surface in the care-team feed without exposing PHI.
+    "home_devices",
 }
 
 
