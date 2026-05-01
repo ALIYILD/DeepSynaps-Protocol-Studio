@@ -78,13 +78,6 @@ def _gate_patient_access(
     if exists:
         require_patient_owner(actor, clinic_id)
 
-try:
-    from deepsynaps_mri.niivue_payload import StimTarget as ViewerStimTarget
-    from deepsynaps_mri.niivue_payload import build_payload as build_viewer_payload
-except ImportError:  # pragma: no cover - optional package path during thin installs
-    ViewerStimTarget = None  # type: ignore[assignment]
-    build_viewer_payload = None  # type: ignore[assignment]
-
 # Upload validation + fusion payload + safer-language helpers — added
 # 2026-04-26 night. Imported lazily through a try/except so the API still
 # loads even on slim deployments where the mri pipeline package isn't

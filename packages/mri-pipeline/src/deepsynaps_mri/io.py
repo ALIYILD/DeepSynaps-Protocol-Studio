@@ -26,10 +26,11 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+
+from .adapters.dcm2niix import invoke_dcm2niix
 
 log = logging.getLogger(__name__)
 
@@ -144,6 +145,8 @@ def convert_dicom_to_nifti(
     dicom_dir: Path,
     out_dir: Path,
     anonymize: bool = True,
+    *,
+    stderr_log_path: Path | None = None,
 ) -> list[ConvertedScan]:
     """
     Convert a DICOM directory into one or more NIfTI files.
@@ -156,6 +159,11 @@ def convert_dicom_to_nifti(
         -z y   : gzip output
         -f %d_%s : filename template (SeriesDescription_SeriesNumber)
 
+    stderr_log_path
+        If set, ``dcm2niix`` stderr is appended here on failure (audit trail).
+        Successful runs do not write this file unless stderr is non-empty
+        (warnings are logged at INFO).
+
     Returns a list of `ConvertedScan`, one per output series.
 
     TODO:
@@ -166,20 +174,14 @@ def convert_dicom_to_nifti(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     if _dcm2niix_available():
-        cmd = [
-            "dcm2niix",
-            "-b", "y",
-            "-ba", "y" if anonymize else "n",
-            "-z", "y",
-            "-f", "%d_%s",
-            "-o", str(out_dir),
-            str(dicom_dir),
-        ]
-        log.info("Running: %s", " ".join(cmd))
         try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True)
-        except subprocess.CalledProcessError as exc:
-            log.error("dcm2niix failed: %s", exc.stderr)
+            invoke_dcm2niix(
+                dicom_dir,
+                out_dir,
+                anonymize=anonymize,
+                stderr_log_path=stderr_log_path,
+            )
+        except Exception:
             raise
     else:
         log.warning("dcm2niix not installed; falling back to dicom2nifti (slower, less BIDS-rich)")

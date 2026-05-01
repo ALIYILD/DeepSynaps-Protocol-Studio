@@ -59,7 +59,44 @@ function _isDemoSession() {
     return !!(t && t.endsWith('-demo-token'));
   } catch { return false; }
 }
+function _mriDemoLongitudinalCompare(baselineId, followupId) {
+  return {
+    demo: true,
+    baseline_analysis_id: baselineId,
+    followup_analysis_id: followupId,
+    days_between: 30,
+    summary:
+      'Demo longitudinal preview — use a real clinician session against the API for visit-to-visit change maps from stored analyses.',
+    structural_changes: [
+      {
+        region: 'Left-Hippocampus',
+        baseline_value: 4200.0,
+        followup_value: 4150.0,
+        delta_absolute: -50.0,
+        delta_pct: -1.19,
+        flagged: false,
+        metric: 'subcortical_volume_mm3',
+      },
+    ],
+    functional_changes: [],
+    diffusion_changes: [],
+    comparison_meta: {
+      key_findings: [
+        { domain: 'structural', region: 'Left-Hippocampus', delta_pct: -1.19 },
+      ],
+    },
+    pipeline_version: '0.1.0',
+  };
+}
+
 function _demoSyntheticResponse(path, method) {
+  const compare = path.match(/^\/api\/v1\/mri\/compare\/([^/]+)\/([^/?]+)/);
+  if (compare && (!method || method === 'GET')) {
+    return _mriDemoLongitudinalCompare(
+      decodeURIComponent(compare[1]),
+      decodeURIComponent(compare[2]),
+    );
+  }
   // Mutations: pretend success (return a minimal accepted-shape object).
   if (method && method !== 'GET') return { ok: true, demo: true, id: 'demo-' + Date.now() };
   // Reads: list-shaped endpoints get { items: [] }; singular getters get null.
@@ -255,6 +292,20 @@ async function apiFetchBlob(path, data) {
 }
 
 async function apiFetchBinary(path, opts = {}) {
+  // Demo preview: MRI PDF/HTML/overlay routes cannot satisfy auth from <iframe src>.
+  // Return a tiny HTML stub so download/open flows do not throw noisy 401s.
+  if (_isDemoSession() && !_DEMO_PASSTHROUGH.test(path)) {
+    const binaryMri = /^\/api\/v1\/mri\/(report\/[^/]+\/(pdf|html)|overlay\/[^/]+\/[^/?]+)/.test(path);
+    if (binaryMri) {
+      const stub =
+        '<!DOCTYPE html><html><head><meta charset="utf-8"><title>MRI demo</title></head>'
+        + '<body style="font-family:system-ui;padding:16px;background:#0f172a;color:#e2e8f0">'
+        + '<p>MRI demo preview — PDF/HTML/overlay downloads require a live API session.</p>'
+        + '</body></html>';
+      const blob = new Blob([stub], { type: 'text/html;charset=utf-8' });
+      return { blob, contentType: 'text/html;charset=utf-8', filename: 'mri_demo_preview.html' };
+    }
+  }
   const token = getToken();
   const headers = { ...(opts.headers || {}) };
   if (token) headers['Authorization'] = `Bearer ${token}`;
