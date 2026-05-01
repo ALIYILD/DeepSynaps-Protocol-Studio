@@ -109,6 +109,60 @@ CAREGIVER_DIGEST_DISCLAIMERS = [
 VALID_FREQUENCIES = {"daily", "weekly"}
 
 
+# Per-Caregiver Channel Preference launch-audit (2026-05-01). The set of
+# values a caregiver is allowed to put on ``preferred_channel`` — drawn
+# from the canonical ADAPTER_CHANNEL taxonomy in oncall_delivery (#384)
+# so a future SES adapter (or any new channel) automatically becomes
+# legal here without code churn. ``None`` (NULL) is always legal — it
+# means "no caregiver-level override; use the clinic chain as-is".
+def _valid_preferred_channels() -> set[str]:
+    """Return the whitelist of values acceptable on ``preferred_channel``.
+
+    Reads :data:`oncall_delivery.ADAPTER_CHANNEL` lazily so future adapter
+    additions take effect without router code changes. The mock channel
+    is filtered out — caregivers must not be able to opt themselves into
+    the test-only mock dispatch path.
+    """
+    from app.services.oncall_delivery import ADAPTER_CHANNEL  # noqa: PLC0415
+
+    return {v for v in ADAPTER_CHANNEL.values() if v and v != "mock"}
+
+
+def _resolve_caregiver_dispatch_chain(
+    *,
+    preferred_channel: Optional[str],
+    clinic_chain: list[str],
+) -> list[str]:
+    """Resolve the final dispatch chain for a caregiver dispatch.
+
+    Builds ``[caregiver.preferred_channel, *clinic_chain]`` with dedup:
+    when the caregiver's preferred adapter is already first in the
+    clinic chain we return ``clinic_chain`` unchanged; otherwise we
+    insert the preferred adapter at the head and drop any later
+    duplicate occurrences of it. NULL ``preferred_channel`` is a no-op —
+    we return ``clinic_chain`` verbatim so deploys without per-caregiver
+    overrides keep behaving exactly as before.
+
+    The output is always a NEW list so callers can mutate it without
+    surprising the caregiver row.
+    """
+    cleaned_chain: list[str] = [
+        str(name).strip().lower()
+        for name in (clinic_chain or [])
+        if isinstance(name, str) and str(name).strip()
+    ]
+    if not preferred_channel:
+        return list(cleaned_chain)
+    p = str(preferred_channel).strip().lower()
+    if not p:
+        return list(cleaned_chain)
+    out: list[str] = [p]
+    for name in cleaned_chain:
+        if name != p and name not in out:
+            out.append(name)
+    return out
+
+
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 
@@ -229,6 +283,7 @@ def _get_or_create_preference(
         frequency="daily",
         time_of_day="08:00",
         last_sent_at=None,
+        preferred_channel=None,
         created_at=now,
         updated_at=now,
     )
@@ -344,6 +399,12 @@ class DigestPreferenceOut(BaseModel):
     frequency: str
     time_of_day: str
     last_sent_at: Optional[str] = None
+    # Per-Caregiver Channel Preference launch-audit (2026-05-01). NULL
+    # means "no caregiver-level override; use the clinic chain as-is";
+    # a non-null value comes from
+    # :data:`oncall_delivery.ADAPTER_CHANNEL.values()` (e.g. ``email``,
+    # ``sms``, ``slack``, ``pagerduty``).
+    preferred_channel: Optional[str] = None
     created_at: str
     updated_at: str
     disclaimers: list[str] = Field(
@@ -351,10 +412,27 @@ class DigestPreferenceOut(BaseModel):
     )
 
 
+# Sentinel that distinguishes "field absent from PUT body" from
+# "explicit JSON null" so the caller can clear ``preferred_channel`` by
+# posting ``{"preferred_channel": null}`` while leaving the field alone
+# by omitting it entirely. Pydantic's default Optional handling collapses
+# both cases into ``None``, which would prevent us from clearing the
+# override after it is set.
+_UNSET = object()
+
+
 class DigestPreferenceIn(BaseModel):
     enabled: Optional[bool] = None
     frequency: Optional[str] = Field(default=None, max_length=16)
     time_of_day: Optional[str] = Field(default=None, max_length=8)
+    # Per-Caregiver Channel Preference launch-audit (2026-05-01).
+    # ``None`` is meaningful here (clear the override) so we use a custom
+    # sentinel default to distinguish absent from explicit-null. The
+    # validator coerces the raw value into one of:
+    #   * "" / None  → ``None`` (clear the override)
+    #   * a known channel from :data:`ADAPTER_CHANNEL.values()` → that value
+    #   * anything else → 422
+    preferred_channel: Optional[str] = Field(default=_UNSET, max_length=16)  # type: ignore[arg-type]
 
     @field_validator("frequency")
     @classmethod
@@ -388,6 +466,26 @@ class DigestPreferenceIn(BaseModel):
             raise ValueError("time_of_day must be HH:MM (24h)")
         return f"{h:02d}:{m:02d}"
 
+    @field_validator("preferred_channel")
+    @classmethod
+    def _validate_preferred_channel(cls, v):  # type: ignore[no-untyped-def]
+        # Sentinel passes through unchanged → "field omitted from body".
+        if v is _UNSET:
+            return v
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            raise ValueError("preferred_channel must be a string or null")
+        v = v.strip().lower()
+        if not v:
+            return None
+        valid = _valid_preferred_channels()
+        if v not in valid:
+            raise ValueError(
+                f"preferred_channel must be one of {sorted(valid)} or null"
+            )
+        return v
+
 
 class DigestAuditEventIn(BaseModel):
     event: str = Field(..., min_length=1, max_length=64)
@@ -408,6 +506,7 @@ def _serialise_preference(row: CaregiverDigestPreference) -> DigestPreferenceOut
         frequency=row.frequency,
         time_of_day=row.time_of_day,
         last_sent_at=row.last_sent_at,
+        preferred_channel=getattr(row, "preferred_channel", None),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -591,6 +690,15 @@ def send_now(
         recipient_phone=None,
     )
 
+    # Per-Caregiver Channel Preference launch-audit (2026-05-01). Resolve
+    # the caregiver's preferred adapter (channel chip → adapter name —
+    # the channel chip taxonomy in ADAPTER_CHANNEL is bidirectional for
+    # the four canonical adapters: email↔sendgrid, sms↔twilio,
+    # slack↔slack, pagerduty↔pagerduty). When set, prepend it to the
+    # clinic chain with dedup.
+    pref_row = _get_or_create_preference(db, actor.actor_id)
+    preferred_channel_value = getattr(pref_row, "preferred_channel", None)
+
     try:
         # Prefer the caregiver-digest chain (SendGrid + loud-signal
         # secondaries by default — the EscalationPolicy can override the
@@ -600,6 +708,30 @@ def send_now(
         # caller still sees an honest ``queued`` instead of a silent
         # drop.
         service = build_caregiver_digest_service(clinic_id=None, db=db)
+        # Apply the per-caregiver override on top of the resolved chain
+        # (the policy's clinic chain plus any surface override). The
+        # helper builds ``[caregiver_preferred, *clinic_chain]`` with
+        # dedup. We rebuild the adapter list from the new order so the
+        # dispatch loop tries the preferred channel first.
+        if preferred_channel_value:
+            from app.services.oncall_delivery import (  # noqa: PLC0415
+                _build_adapters_for_order,
+                _channel_to_adapter_name,
+            )
+            current_order = [
+                getattr(a, "name", a.__class__.__name__.lower())
+                for a in service.adapters
+            ]
+            preferred_adapter_name = _channel_to_adapter_name(
+                preferred_channel_value
+            )
+            new_order = _resolve_caregiver_dispatch_chain(
+                preferred_channel=preferred_adapter_name,
+                clinic_chain=current_order,
+            )
+            rebuilt = _build_adapters_for_order(new_order)
+            if rebuilt:
+                service.adapters = rebuilt
         if (
             not service.get_enabled_adapters()
             and not is_mock_mode_enabled()
@@ -668,6 +800,15 @@ def send_now(
             grant_id=grant.id,
             delivery_note=delivery_note,
             trigger="send_now",
+            extra={
+                # Per-Caregiver Channel Preference launch-audit
+                # (2026-05-01). Always emit the key, even when the
+                # caregiver has no override, so the regulator transcript
+                # can replay the resolved chain unambiguously.
+                "caregiver_preferred_channel": (
+                    preferred_channel_value or "null"
+                ),
+            },
         ),
     )
 
@@ -721,6 +862,19 @@ def put_preferences(
     if body.time_of_day is not None and row.time_of_day != body.time_of_day:
         changes.append(f"time_of_day:{row.time_of_day}->{body.time_of_day}")
         row.time_of_day = body.time_of_day
+    # Per-Caregiver Channel Preference launch-audit (2026-05-01). The
+    # sentinel default lets a caller clear the override by posting an
+    # explicit ``null`` while still leaving the field alone if it is
+    # absent from the body. The validator already gated unknown values
+    # against ``ADAPTER_CHANNEL.values()`` so the row write is safe.
+    if body.preferred_channel is not _UNSET:
+        new_pc = body.preferred_channel  # validated to None | known channel
+        old_pc = getattr(row, "preferred_channel", None)
+        if (old_pc or None) != (new_pc or None):
+            changes.append(
+                f"preferred_channel:{old_pc or 'null'}->{new_pc or 'null'}"
+            )
+            row.preferred_channel = new_pc
 
     row.updated_at = _now_iso()
     try:

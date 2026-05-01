@@ -700,6 +700,37 @@ def adapter_channel(adapter_name: Optional[str]) -> str:
     return ADAPTER_CHANNEL.get(key, key)
 
 
+def _channel_to_adapter_name(channel: Optional[str]) -> Optional[str]:
+    """Reverse-lookup an adapter name from a channel chip.
+
+    Per-Caregiver Channel Preference launch-audit (2026-05-01). The
+    caregiver-side preference stores the user-facing channel chip
+    (``email`` / ``sms`` / ``slack`` / ``pagerduty``) — the worker /
+    send-now handler needs the underlying adapter name to look up an
+    :data:`_ADAPTER_FACTORIES` entry and rebuild the dispatch chain.
+
+    Returns ``None`` when ``channel`` is empty / unknown so callers can
+    silently skip the override and fall back to the clinic chain.
+    Identity match is preserved (``slack``→``slack``,
+    ``pagerduty``→``pagerduty``) so a caller that already has an adapter
+    name does the right thing too.
+    """
+    if not channel:
+        return None
+    key = channel.strip().lower()
+    if not key:
+        return None
+    # Reverse lookup from ADAPTER_CHANNEL — first hit wins. ADAPTER_CHANNEL
+    # is small (4 entries today) so a linear scan is fine.
+    for adapter_name, chip in ADAPTER_CHANNEL.items():
+        if chip == key and adapter_name in _ADAPTER_FACTORIES:
+            return adapter_name
+    # Identity match — caller passed an adapter name.
+    if key in _ADAPTER_FACTORIES:
+        return key
+    return None
+
+
 def build_delivery_audit_note(
     *,
     unread_count: int,
@@ -1126,4 +1157,6 @@ __all__ = [
     "build_delivery_audit_note",
     "build_email_digest_service",
     "is_mock_mode_enabled",
+    "_build_adapters_for_order",
+    "_channel_to_adapter_name",
 ]
