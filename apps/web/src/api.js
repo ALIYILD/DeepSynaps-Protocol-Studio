@@ -1836,7 +1836,42 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
-  // ── Home Program Tasks (patient portal) ───────────────────────────────────
+  // ── Home Program Tasks (Homework) — patient launch-audit surface (2026-05-01)
+  // Seventh patient-facing launch-audit surface. Closes the home-therapy
+  // regulator loop end-to-end: clinician assigns home-program tasks →
+  // patient SEES tasks here → patient LOGS completion via Adherence
+  // Events (#350) → side-effect with severity >= 7 escalates to the AE
+  // Hub (#342) → safety review in QA Hub (#321). All helpers return
+  // null on offline / 404 so the page can render an honest empty state.
+  homeProgramTasksToday: () =>
+    apiFetch('/api/v1/home-program-tasks/patient/today').catch(() => null),
+  homeProgramTasksUpcoming: (days = 7) =>
+    apiFetch(`/api/v1/home-program-tasks/patient/upcoming?days=${encodeURIComponent(days)}`).catch(() => null),
+  homeProgramTasksCompleted: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/home-program-tasks/patient/completed${q ? '?' + q : ''}`).catch(() => null);
+  },
+  homeProgramTasksSummary: () =>
+    apiFetch('/api/v1/home-program-tasks/patient/summary').catch(() => null),
+  homeProgramTasksGet: (taskId) =>
+    apiFetch(`/api/v1/home-program-tasks/patient/${encodeURIComponent(taskId)}`).catch(() => null),
+  homeProgramTaskStart: (taskId, data) =>
+    apiFetch(`/api/v1/home-program-tasks/patient/${encodeURIComponent(taskId)}/start`, {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  homeProgramTaskHelpRequest: (taskId, data) =>
+    apiFetch(`/api/v1/home-program-tasks/patient/${encodeURIComponent(taskId)}/help-request`, {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  postHomeProgramTaskAuditEvent: (data) =>
+    apiFetch('/api/v1/home-program-tasks/patient/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
+  // ── Home Program Tasks (patient portal — legacy completion submit) ────────
   portalListHomeProgramTasks: () => apiFetch('/api/v1/patient-portal/home-program-tasks'),
   portalCompleteHomeProgramTask: (serverTaskId, data) =>
     apiFetch(`/api/v1/patient-portal/home-program-tasks/${encodeURIComponent(serverTaskId)}/complete`, { method: 'POST', body: JSON.stringify(data || {}) }),
