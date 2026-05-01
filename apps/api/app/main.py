@@ -109,6 +109,7 @@ from app.routers.adherence_events_router import router as adherence_events_route
 from app.routers.clinician_adherence_router import router as clinician_adherence_router
 from app.routers.clinician_wellness_router import router as clinician_wellness_router
 from app.routers.clinician_digest_router import router as clinician_digest_router
+from app.routers.auto_page_worker_router import router as auto_page_worker_router
 # Settings API routers (foundation scaffolded by backend subagent #1; endpoints
 # fleshed out by backend subagents #3–#6). See apps/api/SETTINGS_API_DESIGN.md.
 from app.routers.profile_router import router as profile_router
@@ -161,6 +162,10 @@ from app.services.brain_targets import (
     list_brain_targets,
 )
 from app.services.agent_scheduler import shutdown_scheduler, start_scheduler
+from app.workers.auto_page_worker import (
+    shutdown_worker as shutdown_auto_page_worker,
+    start_worker_if_enabled as start_auto_page_worker,
+)
 from app.services.agent_skills_seed import seed_default_agent_skills
 from app.services.clinical_data import seed_clinical_dataset
 from app.services.devices import list_devices
@@ -251,10 +256,15 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
     # Phase 9 — boot the agent-ops cron (gated on
     # DEEPSYNAPS_AGENT_CRON_ENABLED so tests / CI don't fire jobs).
     start_scheduler()
+    # Auto-Page Worker (2026-05-01) — gated on
+    # DEEPSYNAPS_AUTO_PAGE_ENABLED so tests / CI don't fire pages.
+    # Per-clinic enable lives on escalation_chains.auto_page_enabled.
+    start_auto_page_worker()
     try:
         yield
     finally:
         shutdown_scheduler()
+        shutdown_auto_page_worker()
 
 
 app = FastAPI(title=settings.api_title, version=settings.api_version, lifespan=lifespan)
@@ -376,6 +386,13 @@ app.include_router(clinician_wellness_router)
 # what got escalated". Read-only aggregator + email/colleague-share
 # audit rows; SMTP wire-up tracked in PR section F.
 app.include_router(clinician_digest_router)
+# Auto-Page Worker launch-audit (2026-05-01). Closes the real-time half
+# of the Care Team Coverage launch loop (#357). Background worker scans
+# SLA breaches every 60s and fires the same page-oncall handler the
+# manual button uses (in-process, not HTTP roundtrip). Per-clinic
+# enable via escalation_chains.auto_page_enabled; process-wide enable
+# via DEEPSYNAPS_AUTO_PAGE_ENABLED=1 env var.
+app.include_router(auto_page_worker_router)
 # Settings API (scaffolded 024_settings_schema) — stubs; endpoints arrive in
 # follow-up subagents. Grouped together for discoverability.
 app.include_router(profile_router)

@@ -7371,7 +7371,7 @@ export async function pgCareTeamCoverage(setTopbar) {
   var activeTab = window._coverageTab || 'coverage';
 
   async function loadAll() {
-    var [summary, oncall, sla, chain, breaches, roster, pages] = await Promise.all([
+    var [summary, oncall, sla, chain, breaches, roster, pages, workerStatus] = await Promise.all([
       api.careTeamCoverageSummary(),
       api.careTeamCoverageOncallNow(),
       api.careTeamCoverageSlaConfig(),
@@ -7379,8 +7379,9 @@ export async function pgCareTeamCoverage(setTopbar) {
       api.careTeamCoverageSlaBreaches({ limit: 100 }),
       api.careTeamCoverageRoster({ week_start: weekStart }),
       api.careTeamCoveragePages({ limit: 50 }),
+      api.autoPageWorkerStatus(),
     ]);
-    return { summary, oncall, sla, chain, breaches, roster, pages };
+    return { summary, oncall, sla, chain, breaches, roster, pages, workerStatus };
   }
 
   function isDemo(d) {
@@ -7390,6 +7391,93 @@ export async function pgCareTeamCoverage(setTopbar) {
   }
 
   function _esc(v) { return _kEsc(v == null ? '' : String(v)); }
+
+  // Auto-Page Worker live status panel — replaces the static
+  // "Auto-page worker: OFF" badge that #357 shipped. Polls
+  // /api/v1/auto-page-worker/status every 30s (via the same
+  // window._coveragePoll tick that refreshes the breach feed) and
+  // surfaces:
+  //   - running indicator (process-wide, governed by the env var)
+  //   - per-clinic enabled flag (governed by escalation_chains.auto_page_enabled)
+  //   - last-tick timestamp (HH:MM:SS UTC)
+  //   - breaches_pending_now (live breach count for this clinic)
+  //   - paged_last_hour (delivered or queued auto-pages this hour)
+  //   - errors_last_hour (worker errors)
+  //   - admin-only Start / Stop / Run-one-tick CTAs
+  // No silent fakes — when the backend is unreachable we render an
+  // honest "Auto-page worker status: unreachable" line instead of
+  // pretending the worker is healthy.
+  function renderAutoPageWorkerPanel(workerStatus, summary) {
+    var s = workerStatus || null;
+    var enabledSurfaces = (summary && Number(summary.auto_page_enabled_surfaces)) || 0;
+    var role = (window.__deepsynapsActorRole || '').toLowerCase();
+    var isAdmin = (role === 'admin' || role === 'supervisor' || role === 'regulator');
+
+    if (!s) {
+      // Worker status endpoint unreachable — render an honest banner
+      // and STILL drop down to the legacy auto-page-enabled-surfaces
+      // count (which the summary endpoint already returns) so the
+      // page is not dishonestly silent.
+      var fallback = enabledSurfaces === 0
+        ? '<strong>Auto-page worker: OFF</strong> — admin must enable per surface in the Escalation Chain editor. Until then, all pages are manual.'
+        : '<strong>Auto-page worker: ENABLED</strong> on ' + _esc(String(enabledSurfaces)) + ' surface(s) — live worker status endpoint unreachable.';
+      return '<div class="notice notice-info" style="margin-bottom:12px;font-size:12px">' + fallback + '</div>';
+    }
+
+    var runningDot = s.running
+      ? '<span style="color:#10b981;font-weight:700">●</span>'
+      : '<span style="color:#9ca3af">○</span>';
+    var enabledDot = s.enabled_in_clinic
+      ? '<span style="color:#10b981;font-weight:700">●</span>'
+      : '<span style="color:#9ca3af">○</span>';
+    var lastTick = s.last_tick_at
+      ? new Date(s.last_tick_at).toISOString().slice(11, 19) + ' UTC'
+      : '—';
+    var lastError = s.last_error
+      ? ' <span style="color:#ef4444" title="' + _esc(s.last_error) + '">⚠ last error</span>'
+      : '';
+    var pending = Number(s.breaches_pending_now) || 0;
+    var paged = Number(s.paged_last_hour) || 0;
+    var errs = Number(s.errors_last_hour) || 0;
+
+    function chip(label, value) {
+      return '<span style="background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:3px 8px;margin-right:6px;font-size:11px"><strong>' + _esc(label) + '</strong>: ' + _esc(String(value)) + '</span>';
+    }
+
+    var ctas = '';
+    if (isAdmin) {
+      var startStop = s.enabled_in_clinic
+        ? '<button class="btn btn-sm btn-ghost" onclick="window._autoPageWorkerStop()">Stop auto-page (this clinic)</button>'
+        : '<button class="btn btn-sm" onclick="window._autoPageWorkerStart()">Start auto-page (this clinic)</button>';
+      ctas = '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">' +
+        startStop +
+        '<button class="btn btn-sm btn-ghost" onclick="window._autoPageWorkerTickOnce()">Run one tick now (admin debug)</button>' +
+        '</div>';
+    }
+
+    var processNote = s.process_enabled_via_env
+      ? ''
+      : '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Worker thread is dormant in this deploy (DEEPSYNAPS_AUTO_PAGE_ENABLED=0). Enabling per-clinic flips the flag in the DB but no scan will fire until the env var is set.</div>';
+
+    return '<div class="notice" style="margin-bottom:12px;font-size:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:10px 14px">' +
+      '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">' +
+      '<span><strong>Auto-page worker</strong></span>' +
+      '<span>' + runningDot + ' running (process)</span>' +
+      '<span>' + enabledDot + ' enabled (this clinic)</span>' +
+      '<span style="color:var(--text-muted)">last tick ' + _esc(lastTick) + '</span>' +
+      lastError +
+      '</div>' +
+      '<div style="margin-top:6px">' +
+      chip('Breaches pending now', pending) +
+      chip('Paged (last hour)', paged) +
+      chip('Errors (last hour)', errs) +
+      chip('Tick interval', String(s.interval_sec || 60) + 's') +
+      chip('Cooldown', String(s.cooldown_min || 15) + 'min') +
+      '</div>' +
+      ctas +
+      processNote +
+      '</div>';
+  }
 
   function renderTopCounts(summary) {
     var s = summary || {};
@@ -7548,9 +7636,7 @@ export async function pgCareTeamCoverage(setTopbar) {
     var demoBanner = isDemo(d)
       ? '<div class="notice notice-info" style="margin-bottom:12px;font-size:12px"><strong>DEMO clinic data:</strong> exports are DEMO-prefixed and rows are not regulator-submittable.</div>'
       : '';
-    var autoOff = (d.summary.auto_page_enabled_surfaces || 0) === 0
-      ? '<div class="notice notice-info" style="margin-bottom:12px;font-size:12px"><strong>Auto-page worker: OFF</strong> — admin must enable per surface in the Escalation Chain editor. Until then, all pages are manual.</div>'
-      : '';
+    var autoStatusPanel = renderAutoPageWorkerPanel(d.workerStatus, d.summary);
 
     var tabs = [
       { id: 'coverage',   label: 'Coverage' },
@@ -7571,7 +7657,7 @@ export async function pgCareTeamCoverage(setTopbar) {
 
     el.innerHTML =
       demoBanner +
-      autoOff +
+      autoStatusPanel +
       renderTopCounts(d.summary) +
       '<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">' +
         tabs.map(function(t) {
@@ -7666,11 +7752,82 @@ export async function pgCareTeamCoverage(setTopbar) {
     render();
   };
 
-  // 30-second polling tick — refreshes the breach feed + summary so an
-  // on-call clinician sees aging items appear in real time.
+  // ── Auto-Page Worker admin CTAs ────────────────────────────────────────
+  // Start/Stop flip escalation_chains.auto_page_enabled for the actor's
+  // clinic. Tick-once runs ONE scan synchronously and reports counts.
+  // All three are admin-only at the API; the UI hides the buttons for
+  // non-admins via window.__deepsynapsActorRole. The buttons are still
+  // wired in the source so a backend-side role gate is the single source
+  // of truth.
+
+  window._autoPageWorkerStart = async function() {
+    if (!window.confirm('Enable auto-page worker for this clinic? Every escalation chain row will be flipped to auto_page_enabled=true.')) return;
+    try {
+      var resp = await api.autoPageWorkerStart();
+      if (resp && resp.accepted) {
+        window.alert('Auto-page worker enabled for ' + (resp.surfaces_changed || 0) + ' surface(s).');
+      } else {
+        window.alert('Start request did not accept; check your role + clinic.');
+      }
+    } catch (e) {
+      window.alert('Auto-page start failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    api.postAutoPageWorkerAuditEvent({ event: 'start_clicked_ui' });
+    render();
+  };
+
+  window._autoPageWorkerStop = async function() {
+    if (!window.confirm('Disable auto-page worker for this clinic? Every escalation chain row will be flipped to auto_page_enabled=false.')) return;
+    try {
+      var resp = await api.autoPageWorkerStop();
+      if (resp && resp.accepted) {
+        window.alert('Auto-page worker disabled (' + (resp.surfaces_changed || 0) + ' surfaces flipped).');
+      } else {
+        window.alert('Stop request did not accept; check your role + clinic.');
+      }
+    } catch (e) {
+      window.alert('Auto-page stop failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    api.postAutoPageWorkerAuditEvent({ event: 'stop_clicked_ui' });
+    render();
+  };
+
+  window._autoPageWorkerTickOnce = async function() {
+    if (!window.confirm('Run one auto-page tick synchronously? This will scan SLA breaches and may fire on-call pages.')) return;
+    try {
+      var resp = await api.autoPageWorkerTickOnce();
+      if (resp && resp.accepted) {
+        window.alert(
+          'Tick complete:\n' +
+          '  breaches_found = ' + (resp.breaches_found || 0) + '\n' +
+          '  paged          = ' + (resp.paged || 0) + '\n' +
+          '  skipped (cooldown) = ' + (resp.skipped_cooldown || 0) + '\n' +
+          '  errors         = ' + (resp.errors || 0) +
+          (resp.last_error ? '\n  last_error    = ' + resp.last_error : '')
+        );
+      } else {
+        window.alert('Tick request did not accept; check your role + clinic.');
+      }
+    } catch (e) {
+      window.alert('Auto-page tick failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    api.postAutoPageWorkerAuditEvent({ event: 'tick_once_clicked_ui' });
+    render();
+  };
+
+  // Mount-time audit ping for the Auto-Page Worker surface so the
+  // regulator audit trail records every clinician who opened the
+  // Coverage page (with its embedded worker panel) — distinct from
+  // the care_team_coverage.view ping at the top of pgCareTeamCoverage.
+  api.postAutoPageWorkerAuditEvent({ event: 'view', note: 'auto-page-worker panel mounted' });
+
+  // 30-second polling tick — refreshes the breach feed + summary + worker
+  // status so an on-call clinician sees aging items appear in real time
+  // and worker health (last-tick / errors / pending count) updates live.
   if (window._coveragePoll) { clearInterval(window._coveragePoll); }
   window._coveragePoll = setInterval(function() {
     api.postCareTeamCoverageAuditEvent({ event: 'polling_tick' });
+    api.postAutoPageWorkerAuditEvent({ event: 'polling_tick' });
     render();
   }, 30000);
 
