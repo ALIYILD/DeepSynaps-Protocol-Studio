@@ -111,6 +111,7 @@ from app.routers.clinician_wellness_router import router as clinician_wellness_r
 from app.routers.clinician_digest_router import router as clinician_digest_router
 from app.routers.auto_page_worker_router import router as auto_page_worker_router
 from app.routers.escalation_policy_router import router as escalation_policy_router
+from app.routers.patient_oncall_router import router as patient_oncall_router
 # Settings API routers (foundation scaffolded by backend subagent #1; endpoints
 # fleshed out by backend subagents #3–#6). See apps/api/SETTINGS_API_DESIGN.md.
 from app.routers.profile_router import router as profile_router
@@ -402,6 +403,16 @@ app.include_router(auto_page_worker_router)
 # time and falls back to the static default when no policy exists, so
 # every existing deploy keeps working unchanged.
 app.include_router(escalation_policy_router)
+# Patient On-Call Visibility launch-audit (2026-05-01). Patient-facing
+# complement to the admin-side Escalation Policy editor (#374): patients
+# get a read-only "Care team contact" card on their Patient Profile
+# (pages-patient.js::pgPatientProfile) showing abstract availability
+# state (coverage hours, in-hours-now, urgent path) WITHOUT exposing
+# any PHI of the on-call clinician — no name, phone, Slack handle, or
+# PagerDuty user-id surfaces here. Closes the patient-side gap flagged
+# by the Escalation Policy agent now that admin-side dispatch order is
+# editable.
+app.include_router(patient_oncall_router)
 # Settings API (scaffolded 024_settings_schema) — stubs; endpoints arrive in
 # follow-up subagents. Grouped together for discoverability.
 app.include_router(profile_router)

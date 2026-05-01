@@ -1905,6 +1905,22 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
+  // ── Patient On-Call Visibility launch-audit (2026-05-01) ────────────────
+  // Patient-facing complement to the admin-side Escalation Policy editor
+  // (#374). Read-only "Care team contact" card on the Patient Profile —
+  // shows abstract availability state (coverage_hours, in_hours_now,
+  // urgent_path) WITHOUT exposing any PHI of the on-call clinician
+  // (no name, phone, Slack handle, or PagerDuty user-id). Helpers
+  // return null on offline / 404 so the card can render an honest
+  // empty state instead of crashing the profile page.
+  patientOncallStatus: () =>
+    apiFetch('/api/v1/patient-oncall/status').catch(() => null),
+  postPatientOncallAuditEvent: (data) =>
+    apiFetch('/api/v1/patient-oncall/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
   // ── Wearables Workbench (clinician triage queue) ──────────────────────────
   // Bidirectional counterpart to Patient Wearables (#352). Surfaces the
   // server-side triage queue over wearable_alert_flags so clinicians can

@@ -338,6 +338,17 @@ KNOWN_SURFACES = {
     # version so reviewers can correlate a delivery attempt with the
     # exact policy that was active at the time.
     "escalation_policy",
+    # Patient On-Call Visibility launch-audit (2026-05-01). Patient-facing
+    # surface — read-only "Care team contact" card on the Patient Profile
+    # that shows abstract on-call state (coverage_hours, in_hours_now,
+    # urgent_path) WITHOUT exposing any PHI of the on-call clinician
+    # (no name, phone, Slack handle, or PagerDuty user-id). Events: view,
+    # oncall_status_seen, urgent_message_started, learn_more_clicked,
+    # demo_banner_shown. Closes the patient-side complement to the
+    # admin-side Escalation Policy editor (#374) — admins control the
+    # dispatch order, patients see WHEN they will reach a clinician and
+    # HOW to escalate without ever seeing the clinician's identity.
+    "patient_oncall_visibility",
 }
 
 

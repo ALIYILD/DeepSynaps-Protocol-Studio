@@ -10185,12 +10185,239 @@ export async function pgPatientProfile(user) {
               </button>
             </div>
           </div>
+
+          <!-- Care Team Contact (Patient On-Call Visibility, 2026-05-01).
+               Read-only abstract availability state — NEVER shows the
+               on-call clinician's name / phone / Slack / PagerDuty
+               handle. See apps/api/app/routers/patient_oncall_router.py
+               module docstring for the PHI redaction contract. -->
+          <div class="card" id="pt-oncall-card" data-pt-oncall-card>
+            <div class="card-header" style="display:flex;align-items:center;gap:10px">
+              <span class="pt-page-tile pt-nav-tile--teal" aria-hidden="true">📞</span>
+              <h3 style="flex:1;margin:0">Care team contact</h3>
+              <span id="pt-oncall-status-chip" class="ct-tag teal" style="display:none">In hours</span>
+            </div>
+            <div class="card-body" id="pt-oncall-card-body">
+              <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.65">
+                Loading your care team's coverage hours&hellip;
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     `;
   }
 
   renderProfile(user);
+
+  // ── Care Team Contact wiring (Patient On-Call Visibility) ───────────────
+  // Read status from /api/v1/patient-oncall/status. The endpoint returns a
+  // PHI-free payload (coverage_hours / in_hours_now / urgent_path /
+  // emergency_line_number / has_coverage_configured / is_demo). We render
+  // an honest empty state when has_coverage_configured=false and a DEMO
+  // chip when is_demo=true. Mount-time view ping fires regardless so the
+  // audit row exists even when status fetch fails.
+  function _ptOncallEsc(v) {
+    if (v == null) return '';
+    return String(v)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
+  }
+
+  function _ptOncallRenderState(state) {
+    const body = document.getElementById('pt-oncall-card-body');
+    const chip = document.getElementById('pt-oncall-status-chip');
+    if (!body) return;
+
+    // Defensive — strip any PHI fields a future server bug might leak.
+    // The card only ever renders the documented schema keys.
+    const coverageHours      = state && typeof state.coverage_hours === 'string' ? state.coverage_hours : null;
+    const inHoursNow         = !!(state && state.in_hours_now);
+    const oncallNow          = !!(state && state.oncall_now);
+    const urgentPath         = state && state.urgent_path === 'patient-portal-message'
+                                 ? 'patient-portal-message' : 'emergency_line';
+    const emergencyLine      = state && typeof state.emergency_line_number === 'string' && state.emergency_line_number.trim()
+                                 ? state.emergency_line_number.trim() : null;
+    const hasCoverage        = !!(state && state.has_coverage_configured);
+    const isDemo             = !!(state && state.is_demo);
+    const disclaimers        = (state && Array.isArray(state.disclaimers)) ? state.disclaimers : [];
+
+    // Status chip — honest about the ceiling. NEVER show a green
+    // "available" pill when no coverage is configured.
+    if (chip) {
+      if (!hasCoverage) {
+        chip.textContent = 'No coverage configured';
+        chip.className = 'ct-tag orange';
+        chip.style.display = '';
+      } else if (oncallNow || inHoursNow) {
+        chip.textContent = 'In hours';
+        chip.className = 'ct-tag teal';
+        chip.style.display = '';
+      } else {
+        chip.textContent = 'After hours';
+        chip.className = 'ct-tag purple';
+        chip.style.display = '';
+      }
+    }
+
+    // Card body — three render branches: no-coverage, in-hours, after-hours.
+    let inner = '';
+    if (isDemo) {
+      inner += `<div class="hw-demo-banner" role="status" style="margin-bottom:10px"><strong>Demo data</strong>&mdash; this card shows example coverage. Your real care team's hours appear once your clinic configures their on-call schedule.</div>`;
+    }
+
+    if (!hasCoverage) {
+      // Honest empty state — required by the no-AI-fabrication rule.
+      inner += `
+        <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.65">
+          Your clinic has not configured on-call coverage in DeepSynaps yet.
+          For a clinical emergency, please call <strong>911</strong> (or your
+          local emergency number).
+        </div>
+        ${emergencyLine ? `
+          <div class="notice notice-info" style="font-size:11.5px;margin-top:10px">
+            Clinic phone: <strong>${_ptOncallEsc(emergencyLine)}</strong>
+          </div>
+        ` : ''}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+          <button class="btn btn-ghost btn-sm" onclick="window._ptOncallLearnMore && window._ptOncallLearnMore()">
+            How on-call works
+          </button>
+        </div>
+      `;
+    } else {
+      const hours = coverageHours || 'Coverage hours not yet published';
+      const statusLine = (oncallNow || inHoursNow)
+        ? `Your care team is available now <strong>(in hours)</strong>.`
+        : `Your care team is currently <strong>after-hours</strong>. Urgent messages are routed to the on-call escalation chain.`;
+      inner += `
+        <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.65">
+          <div><strong>Coverage hours:</strong> ${_ptOncallEsc(hours)}</div>
+          <div style="margin-top:6px">${statusLine}</div>
+        </div>
+        ${emergencyLine ? `
+          <div style="font-size:12px;color:var(--text-tertiary);margin-top:8px">
+            Clinic phone (non-emergency): <strong>${_ptOncallEsc(emergencyLine)}</strong>
+          </div>
+        ` : ''}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+          <button class="btn btn-primary btn-sm" id="pt-oncall-urgent-btn"
+            data-pt-oncall-urgent
+            onclick="window._ptOncallUrgentMessage && window._ptOncallUrgentMessage()">
+            Send urgent message
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="window._ptOncallLearnMore && window._ptOncallLearnMore()">
+            How on-call works
+          </button>
+        </div>
+      `;
+    }
+
+    if (disclaimers.length) {
+      inner += `
+        <div class="notice notice-info" style="font-size:11px;margin-top:12px">
+          <ul style="margin:0;padding-left:18px;line-height:1.55">
+            ${disclaimers.slice(0, 3).map(d => `<li>${_ptOncallEsc(d)}</li>`).join('')}
+          </ul>
+        </div>
+      `;
+    }
+
+    if (!hasCoverage) {
+      // Emergency-only state — encourage 911 escalation honestly.
+      inner += `
+        <div class="notice notice-error" style="font-size:11px;margin-top:8px">
+          For a life-threatening emergency, call <strong>911</strong>. The
+          patient portal is not a substitute for emergency medical care.
+        </div>
+      `;
+    }
+
+    body.innerHTML = inner;
+  }
+
+  function _ptOncallUrgentDeepLink() {
+    // Compose a documented deep-link URL — the Patient Messages launch
+    // audit (#347) accepts `?category=urgent` to pre-select the urgent
+    // category in the composer. Routing through window._navPatient
+    // keeps the SPA history clean.
+    return 'patient-messages?category=urgent';
+  }
+
+  window._ptOncallUrgentMessage = function() {
+    if (window.api && typeof window.api.postPatientOncallAuditEvent === 'function') {
+      try { window.api.postPatientOncallAuditEvent({ event: 'urgent_message_started' }); } catch (_e) {}
+    }
+    if (typeof window._navPatient === 'function') {
+      window._navPatient(_ptOncallUrgentDeepLink());
+    } else {
+      window.location.hash = '#' + _ptOncallUrgentDeepLink();
+    }
+  };
+
+  window._ptOncallLearnMore = function() {
+    if (window.api && typeof window.api.postPatientOncallAuditEvent === 'function') {
+      try { window.api.postPatientOncallAuditEvent({ event: 'learn_more_clicked' }); } catch (_e) {}
+    }
+    const modal = document.createElement('div');
+    modal.className = 'modal-fix';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px;';
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    modal.innerHTML = `
+      <div style="background:var(--bg-primary);border-radius:12px;max-width:480px;width:100%;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.35)">
+        <div style="font-weight:600;font-size:15px;margin-bottom:12px">How on-call works</div>
+        <div style="font-size:13px;color:var(--text-secondary);line-height:1.65;margin-bottom:14px">
+          Messages you send through the patient portal during your clinic's
+          coverage hours are answered by your regular care team. Messages
+          you mark <strong>urgent</strong> after hours are escalated to the
+          clinician on call through your clinic's escalation chain
+          (Slack / pager / SMS, depending on what your clinic has configured).
+        </div>
+        <div style="font-size:13px;color:var(--text-secondary);line-height:1.65;margin-bottom:14px">
+          We do not show you which individual clinician is on call — that
+          information is part of your clinic's internal scheduling.
+        </div>
+        <div style="font-size:13px;color:var(--text-secondary);line-height:1.65;margin-bottom:14px">
+          For a life-threatening emergency, call <strong>911</strong>
+          immediately. Do not wait for a portal reply.
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn btn-primary btn-sm" onclick="this.closest('.modal-fix').remove()">Close</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+  };
+
+  // Mount-time view ping — fires even if the status fetch fails, so the
+  // audit transcript records that the patient opened the profile page.
+  if (window.api && typeof window.api.postPatientOncallAuditEvent === 'function') {
+    try { window.api.postPatientOncallAuditEvent({ event: 'view', note: 'profile_mount' }); } catch (_e) {}
+  }
+
+  // Status fetch — best-effort. apiFetch returns null on offline/404 so
+  // we render the honest "no coverage configured" state on failure
+  // rather than the loading spinner forever.
+  (async () => {
+    let state = null;
+    try {
+      if (window.api && typeof window.api.patientOncallStatus === 'function') {
+        state = await window.api.patientOncallStatus();
+      }
+    } catch (_e) { state = null; }
+    if (!state) {
+      state = {
+        coverage_hours: null,
+        in_hours_now: false,
+        oncall_now: false,
+        urgent_path: 'emergency_line',
+        emergency_line_number: null,
+        has_coverage_configured: false,
+        is_demo: false,
+        disclaimers: [],
+      };
+    }
+    _ptOncallRenderState(state);
+  })();
 
   window._ptRefreshProfile = async function() {
     const btn    = document.getElementById('pt-profile-refresh-btn');
