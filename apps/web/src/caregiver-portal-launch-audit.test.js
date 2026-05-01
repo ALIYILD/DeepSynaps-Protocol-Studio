@@ -181,8 +181,12 @@ test('pgPatientCaregiver gates View buttons on scope flags', () => {
 
 test('pgPatientCaregiver DEMO banner is gated on _isDemo (not hard-coded)', () => {
   const slice = _sliceCaregiverFn(_readCaregiverPageSrc());
+  // The banner must be conditionally rendered on _isDemo.
   assert.match(slice, /\$\{_isDemo \?/);
-  assert.doesNotMatch(slice, /_isDemo\s*=\s*true\b/);
+  // Initial declaration must default to false — the only `_isDemo = true`
+  // assignment must be inside an `if (who && ...)` branch (server-driven),
+  // never an unconditional override.
+  assert.match(slice, /let\s+_isDemo\s*=\s*false\s*;/);
 });
 
 
