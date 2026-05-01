@@ -3954,3 +3954,81 @@ class OncallPage(Base):
     external_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     delivery_note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     created_at: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+
+
+class EscalationPolicy(Base):
+    """Per-clinic Escalation Policy (2026-05-01 Escalation Policy Editor).
+
+    Replaces the hard-coded ``DEFAULT_ADAPTER_ORDER`` in
+    :mod:`app.services.oncall_delivery` with a configurable per-clinic
+    dispatch order + per-surface override matrix:
+
+    * ``dispatch_order`` — JSON array of adapter names in priority order
+      (e.g. ``["pagerduty", "slack", "twilio"]``). The on-call delivery
+      service consults this when no per-surface override is set.
+    * ``surface_overrides`` — JSON object keyed by surface name; each
+      value is an array of adapter names that should fire for that
+      surface (e.g. ``{"adverse_events_hub": ["pagerduty"], "wearables":
+      ["slack"]}``). An empty/missing entry means "fall back to the
+      clinic-wide ``dispatch_order``".
+    * ``version`` — monotonically incremented on every PUT so audit rows
+      can pin "policy_tested under version 7" and reviewers can correlate
+      a delivery row with the policy that was active at the time.
+
+    One row per clinic. Soft FK to ``users`` via ``updated_by``. JSON is
+    stored as TEXT to stay cross-dialect (SQLite test harness +
+    Postgres production).
+    """
+
+    __tablename__ = "escalation_policies"
+    __table_args__ = (
+        UniqueConstraint(
+            "clinic_id",
+            name="uq_escalation_policies_clinic",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    clinic_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    dispatch_order: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # JSON array
+    surface_overrides: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # JSON object
+    version: Mapped[int] = mapped_column(Integer(), nullable=False, default=1)
+    note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    updated_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class UserContactMapping(Base):
+    """Per-user contact mapping for the on-call delivery adapters.
+
+    Replaces the ad-hoc ``ShiftRoster.contact_handle`` lookup with a
+    durable per-user ``slack_user_id`` / ``pagerduty_user_id`` /
+    ``twilio_phone`` row that survives across roster edits. The on-call
+    delivery service prefers values here over ``contact_handle`` when
+    they are present.
+
+    One row per user. Soft FK to ``users.id`` so a deleted user's
+    mapping row stays for audit history. ``clinic_id`` is denormalised
+    so the policy editor can scope cross-clinic 404s without joining on
+    every read.
+    """
+
+    __tablename__ = "user_contact_mappings"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            name="uq_user_contact_mappings_user",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    clinic_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    slack_user_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    pagerduty_user_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    twilio_phone: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    updated_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(64), nullable=False)

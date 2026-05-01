@@ -327,6 +327,17 @@ KNOWN_SURFACES = {
     # ONLY for the per-adapter delivery telemetry. Events: dispatch,
     # adapter_test, adapter_failed, mock_send.
     "oncall_delivery",
+    # Escalation Policy Editor launch-audit (2026-05-01). Closes the LAST
+    # operational gap of the on-call escalation chain (#357 → #372 →
+    # #373 → THIS PR). Records every admin edit to the per-clinic
+    # dispatch order, per-surface override matrix, and per-user contact
+    # mapping (Slack / PagerDuty / Twilio). Events: view,
+    # dispatch_order_viewed, dispatch_order_changed,
+    # surface_overrides_viewed, override_changed, user_mappings_viewed,
+    # user_mapping_changed, policy_tested. Each row carries the policy
+    # version so reviewers can correlate a delivery attempt with the
+    # exact policy that was active at the time.
+    "escalation_policy",
 }
 
 

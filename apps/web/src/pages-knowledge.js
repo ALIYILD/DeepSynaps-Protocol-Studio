@@ -7371,7 +7371,7 @@ export async function pgCareTeamCoverage(setTopbar) {
   var activeTab = window._coverageTab || 'coverage';
 
   async function loadAll() {
-    var [summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth] = await Promise.all([
+    var [summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth, policyOrder, policyOverrides, policyMappings] = await Promise.all([
       api.careTeamCoverageSummary(),
       api.careTeamCoverageOncallNow(),
       api.careTeamCoverageSlaConfig(),
@@ -7381,8 +7381,11 @@ export async function pgCareTeamCoverage(setTopbar) {
       api.careTeamCoveragePages({ limit: 50 }),
       api.autoPageWorkerStatus(),
       api.autoPageWorkerAdapterHealth(),
+      api.escalationPolicyDispatchOrder(),
+      api.escalationPolicySurfaceOverrides(),
+      api.escalationPolicyUserMappings(),
     ]);
-    return { summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth };
+    return { summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth, policyOrder, policyOverrides, policyMappings };
   }
 
   function isDemo(d) {
@@ -7688,6 +7691,157 @@ export async function pgCareTeamCoverage(setTopbar) {
     return '<span style="color:var(--text-muted)">' + _esc(p.delivery_status || '—') + '</span>';
   }
 
+  // Escalation Policy tab — three subsections backed by the new
+  // /api/v1/escalation-policy/* endpoints. No localStorage path remains:
+  // dispatch order, surface override matrix, and per-user contact
+  // mapping are all server-side. Admin-only writes; clinicians see the
+  // panels read-only via the role gate at the API + the hidden CTAs.
+  // Mount-time audit ping is fired at the bottom of pgCareTeamCoverage
+  // alongside the care_team_coverage.view ping.
+  function renderPolicyTab(d) {
+    var role = (window.__deepsynapsActorRole || '').toLowerCase();
+    var isAdmin = (role === 'admin' || role === 'supervisor' || role === 'regulator');
+    var orderData = d.policyOrder || { dispatch_order: ['pagerduty', 'slack', 'twilio'], is_default: true, version: 1, known_adapters: ['pagerduty', 'slack', 'twilio'] };
+    var overridesData = d.policyOverrides || { surface_overrides: {}, known_surfaces: [], known_adapters: ['pagerduty', 'slack', 'twilio'], version: 1 };
+    var mappingsData = d.policyMappings || { items: [], total: 0 };
+
+    var order = Array.isArray(orderData.dispatch_order) ? orderData.dispatch_order.slice() : [];
+    var knownAdapters = Array.isArray(orderData.known_adapters) ? orderData.known_adapters : ['pagerduty', 'slack', 'twilio'];
+    var version = Number(orderData.version || overridesData.version || 1);
+
+    var html = '';
+
+    // Header: version + admin-only Save / Reset / Test buttons.
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">';
+    html += '<div><strong>Escalation Policy</strong> <span style="color:var(--text-muted);font-size:12px">version ' + _esc(String(version)) + (orderData.is_default ? ' (default)' : '') + '</span></div>';
+    if (isAdmin) {
+      html += '<div style="display:flex;gap:8px">';
+      html += '<button class="btn btn-sm" onclick="window._policyTestPolicy()">Test policy</button>';
+      html += '<button class="btn btn-sm btn-ghost" onclick="window._policyResetDispatchOrder()">Reset dispatch order</button>';
+      html += '</div>';
+    } else {
+      html += '<div style="font-size:12px;color:var(--text-muted)">Read-only — admin role required to edit.</div>';
+    }
+    html += '</div>';
+
+    // Disclaimers banner.
+    var discl = (orderData.disclaimers || overridesData.disclaimers || mappingsData.disclaimers || []);
+    if (discl && discl.length) {
+      html += '<div class="notice notice-info" style="margin-bottom:12px;font-size:12px">';
+      html += '<ul style="margin:0;padding-left:18px">';
+      for (var di = 0; di < discl.length; di++) {
+        html += '<li>' + _esc(String(discl[di])) + '</li>';
+      }
+      html += '</ul></div>';
+    }
+
+    // Section 1: Dispatch order with up/down reorder buttons.
+    html += '<h3 style="margin-top:18px">Dispatch order (clinic-wide)</h3>';
+    html += '<p style="color:var(--text-muted);font-size:12px;margin:0 0 8px">Tried in this order for any surface that has no per-surface override. First adapter that returns 2xx wins.</p>';
+    html += '<table class="data-table" style="margin-bottom:12px"><thead><tr><th>#</th><th>Adapter</th><th style="width:160px">Reorder</th></tr></thead><tbody>';
+    for (var i = 0; i < order.length; i++) {
+      var name = String(order[i] || '');
+      html += '<tr>';
+      html += '<td>' + (i + 1) + '</td>';
+      html += '<td><strong>' + _esc(name) + '</strong></td>';
+      html += '<td>';
+      if (isAdmin) {
+        html += '<button class="btn btn-sm btn-ghost" ' + (i === 0 ? 'disabled' : '') + ' onclick="window._policyMoveAdapter(' + i + ',-1)">↑</button> ';
+        html += '<button class="btn btn-sm btn-ghost" ' + (i === order.length - 1 ? 'disabled' : '') + ' onclick="window._policyMoveAdapter(' + i + ',1)">↓</button> ';
+        html += '<button class="btn btn-sm btn-ghost" onclick="window._policyRemoveAdapter(' + i + ')" title="Remove">✕</button>';
+      } else {
+        html += '<span style="color:var(--text-muted);font-size:12px">—</span>';
+      }
+      html += '</td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+    if (isAdmin) {
+      // Add-adapter dropdown — only adapters not already in the order.
+      var available = knownAdapters.filter(function(n) { return order.indexOf(n) < 0; });
+      if (available.length) {
+        var opts = available.map(function(n) { return '<option value="' + _esc(n) + '">' + _esc(n) + '</option>'; }).join('');
+        html += '<div style="margin-bottom:14px">';
+        html += '<select id="_policy-add-adapter" style="margin-right:8px">' + opts + '</select>';
+        html += '<button class="btn btn-sm" onclick="window._policyAddAdapter()">+ Add adapter</button>';
+        html += '<button class="btn btn-sm btn-primary" style="margin-left:8px" onclick="window._policySaveDispatchOrder()">Save dispatch order</button>';
+        html += '</div>';
+      } else {
+        html += '<div style="margin-bottom:14px"><button class="btn btn-sm btn-primary" onclick="window._policySaveDispatchOrder()">Save dispatch order</button></div>';
+      }
+    }
+
+    // Section 2: Per-surface override matrix.
+    html += '<h3 style="margin-top:24px">Per-surface override matrix</h3>';
+    html += '<p style="color:var(--text-muted);font-size:12px;margin:0 0 8px">Pin a non-default adapter chain for a specific surface. Empty means "fall back to the dispatch order above". Comma-separated list (e.g. <code>pagerduty,slack</code>).</p>';
+    var overrides = overridesData.surface_overrides || {};
+    var knownSurfaces = Array.isArray(overridesData.known_surfaces) ? overridesData.known_surfaces : [];
+    html += '<table class="data-table" style="margin-bottom:12px"><thead><tr><th>Surface</th><th>Override chain (adapters in order)</th>' + (isAdmin ? '<th style="width:120px">Edit</th>' : '') + '</tr></thead><tbody>';
+    var rendered = {};
+    // Show every surface that has an override first.
+    var keys = Object.keys(overrides).sort();
+    for (var k = 0; k < keys.length; k++) {
+      var s = keys[k];
+      var v = overrides[s] || [];
+      rendered[s] = true;
+      html += '<tr>';
+      html += '<td><code>' + _esc(s) + '</code></td>';
+      html += '<td>' + (v.length ? _esc(v.join(', ')) : '<em style="color:var(--text-muted)">(empty — falls back)</em>') + '</td>';
+      if (isAdmin) {
+        html += '<td><button class="btn btn-sm btn-ghost" onclick="window._policyEditOverride(\'' + _esc(s) + '\')">Edit</button>';
+        html += ' <button class="btn btn-sm btn-ghost" onclick="window._policyClearOverride(\'' + _esc(s) + '\')" title="Clear override">✕</button></td>';
+      }
+      html += '</tr>';
+    }
+    if (Object.keys(rendered).length === 0) {
+      html += '<tr><td colspan="' + (isAdmin ? '3' : '2') + '" style="color:var(--text-muted);text-align:center;padding:14px">No per-surface overrides — every surface uses the clinic dispatch order above.</td></tr>';
+    }
+    html += '</tbody></table>';
+    if (isAdmin && knownSurfaces.length) {
+      var surfaceOpts = knownSurfaces
+        .filter(function(s) { return !rendered[s]; })
+        .map(function(s) { return '<option value="' + _esc(s) + '">' + _esc(s) + '</option>'; })
+        .join('');
+      if (surfaceOpts) {
+        html += '<div style="margin-bottom:14px">';
+        html += '<select id="_policy-add-surface-override">' + surfaceOpts + '</select>';
+        html += ' <button class="btn btn-sm" onclick="window._policyAddOverride()">+ Add surface override</button>';
+        html += '</div>';
+      }
+    }
+
+    // Section 3: Per-user contact mappings.
+    html += '<h3 style="margin-top:24px">User → contact mapping</h3>';
+    html += '<p style="color:var(--text-muted);font-size:12px;margin:0 0 8px">Each user\'s Slack id, PagerDuty id, and Twilio phone are read by the on-call delivery service when the user is on call. Free-text <code>ShiftRoster.contact_handle</code> remains as the legacy fallback.</p>';
+    var items = Array.isArray(mappingsData.items) ? mappingsData.items : [];
+    if (items.length === 0) {
+      html += '<p style="color:var(--text-muted)">No clinic users found.</p>';
+    } else {
+      html += '<table class="data-table" style="margin-bottom:12px"><thead><tr><th>User</th><th>Role</th><th>Slack user id</th><th>PagerDuty user id</th><th>Twilio phone</th>' + (isAdmin ? '<th>Edit</th>' : '') + '</tr></thead><tbody>';
+      for (var ii = 0; ii < items.length; ii++) {
+        var it = items[ii];
+        var nameTxt = it.user_name || it.user_email || it.user_id || '';
+        var demoChip = it.is_demo_clinic ? ' <span title="Demo clinic — fill mapping to test." style="background:#fef3c7;color:#78350f;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600">DEMO</span>' : '';
+        html += '<tr>';
+        html += '<td><strong>' + _esc(nameTxt) + '</strong>' + demoChip + '<br><span style="font-size:11px;color:var(--text-muted)">' + _esc(it.user_id || '') + '</span></td>';
+        html += '<td>' + _esc(it.user_role || '—') + '</td>';
+        html += '<td><code>' + _esc(it.slack_user_id || '—') + '</code></td>';
+        html += '<td><code>' + _esc(it.pagerduty_user_id || '—') + '</code></td>';
+        html += '<td><code>' + _esc(it.twilio_phone || '—') + '</code></td>';
+        if (isAdmin) {
+          html += '<td><button class="btn btn-sm btn-ghost" onclick="window._policyEditUserMapping(\'' + _esc(it.user_id || '') + '\')">Edit</button></td>';
+        }
+        html += '</tr>';
+      }
+      html += '</tbody></table>';
+      if (it && it.is_demo_clinic) {
+        html += '<div class="notice notice-info" style="margin-bottom:12px;font-size:12px"><strong>Demo clinic — fill mapping to test.</strong> Test page will MOCK-mode unless real Slack/PagerDuty/Twilio env vars are set on the API host.</div>';
+      }
+    }
+
+    return html;
+  }
+
   async function render() {
     var d = await loadAll();
     if (!d || d.summary == null) {
@@ -7706,6 +7860,7 @@ export async function pgCareTeamCoverage(setTopbar) {
       { id: 'roster',     label: 'Roster' },
       { id: 'sla',        label: 'SLA per surface' },
       { id: 'chain',      label: 'Escalation chain' },
+      { id: 'policy',     label: 'Policy' },
       { id: 'pages',      label: 'Pages history' },
     ];
 
@@ -7715,6 +7870,7 @@ export async function pgCareTeamCoverage(setTopbar) {
     else if (activeTab === 'roster')   body = renderRosterTab(d);
     else if (activeTab === 'sla')      body = renderSlaTab(d);
     else if (activeTab === 'chain')    body = renderChainTab(d);
+    else if (activeTab === 'policy')   body = renderPolicyTab(d);
     else if (activeTab === 'pages')    body = renderPagesTab(d);
 
     el.innerHTML =
@@ -7904,6 +8060,226 @@ export async function pgCareTeamCoverage(setTopbar) {
     api.postAutoPageWorkerAuditEvent({ event: 'tick_once_clicked_ui' });
     render();
   };
+
+  // ── Escalation Policy editor handlers ──────────────────────────────────
+  // Local-only ephemeral state for the dispatch-order reorder UI; saved
+  // to the server with an explicit "Save" click so admins can stage a
+  // few moves before commit.
+  window._policyState = window._policyState || { workingOrder: null };
+
+  function _currentOrder() {
+    var d = window._coverageState || {};
+    if (window._policyState.workingOrder) return window._policyState.workingOrder;
+    var po = d.policyOrder;
+    return Array.isArray(po && po.dispatch_order) ? po.dispatch_order.slice() : ['pagerduty', 'slack', 'twilio'];
+  }
+
+  window._policyMoveAdapter = function(idx, delta) {
+    var order = _currentOrder().slice();
+    var ni = idx + delta;
+    if (ni < 0 || ni >= order.length) return;
+    var tmp = order[idx]; order[idx] = order[ni]; order[ni] = tmp;
+    window._policyState.workingOrder = order;
+    api.postEscalationPolicyAuditEvent({ event: 'reorder_clicked_ui', note: 'pending_save' });
+    render();
+  };
+
+  window._policyAddAdapter = function() {
+    var sel = document.getElementById('_policy-add-adapter');
+    if (!sel) return;
+    var name = sel.value;
+    if (!name) return;
+    var order = _currentOrder().slice();
+    if (order.indexOf(name) >= 0) return;
+    order.push(name);
+    window._policyState.workingOrder = order;
+    render();
+  };
+
+  window._policyRemoveAdapter = function(idx) {
+    var order = _currentOrder().slice();
+    if (idx < 0 || idx >= order.length) return;
+    order.splice(idx, 1);
+    if (order.length === 0) {
+      window.alert('Dispatch order cannot be empty — leave at least one adapter.');
+      return;
+    }
+    window._policyState.workingOrder = order;
+    render();
+  };
+
+  window._policySaveDispatchOrder = async function() {
+    var order = _currentOrder();
+    if (!order || !order.length) {
+      window.alert('Dispatch order is empty.');
+      return;
+    }
+    if (!window.confirm('Save dispatch order: ' + order.join(' → ') + '?')) return;
+    try {
+      var resp = await api.escalationPolicySetDispatchOrder({ dispatch_order: order });
+      if (resp && Array.isArray(resp.dispatch_order)) {
+        window._policyState.workingOrder = null;
+        window.alert('Dispatch order saved (version ' + (resp.version || '?') + ').');
+      } else {
+        window.alert('Save did not return a parseable response; check network.');
+      }
+    } catch (e) {
+      window.alert('Save failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    api.postEscalationPolicyAuditEvent({ event: 'dispatch_order_saved_ui', note: order.join(',') });
+    render();
+  };
+
+  window._policyResetDispatchOrder = async function() {
+    if (!window.confirm('Reset dispatch order to default (pagerduty → slack → twilio)?')) return;
+    try {
+      await api.escalationPolicySetDispatchOrder({
+        dispatch_order: ['pagerduty', 'slack', 'twilio'],
+        note: 'reset to default',
+      });
+      window._policyState.workingOrder = null;
+      window.alert('Dispatch order reset to default.');
+    } catch (e) {
+      window.alert('Reset failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    api.postEscalationPolicyAuditEvent({ event: 'dispatch_order_reset_ui' });
+    render();
+  };
+
+  window._policyAddOverride = async function() {
+    var sel = document.getElementById('_policy-add-surface-override');
+    var surface = sel ? sel.value : null;
+    if (!surface) return;
+    window._policyEditOverride(surface);
+  };
+
+  window._policyEditOverride = async function(surface) {
+    var d = window._coverageState || {};
+    var cur = ((d.policyOverrides && d.policyOverrides.surface_overrides) || {})[surface] || [];
+    var v = window.prompt(
+      'Comma-separated adapter chain for ' + surface + ' (e.g. pagerduty,slack). Leave blank to clear / fall back to dispatch order.',
+      cur.join(',')
+    );
+    if (v === null) return;
+    var chain = String(v || '')
+      .split(',')
+      .map(function(s) { return s.trim().toLowerCase(); })
+      .filter(function(s) { return !!s; });
+    var allOverrides = Object.assign({}, (d.policyOverrides && d.policyOverrides.surface_overrides) || {});
+    if (chain.length === 0) {
+      delete allOverrides[surface];
+    } else {
+      allOverrides[surface] = chain;
+    }
+    try {
+      var resp = await api.escalationPolicySetSurfaceOverrides({ surface_overrides: allOverrides });
+      if (resp && resp.surface_overrides) {
+        window.alert('Surface override saved (version ' + (resp.version || '?') + ').');
+      } else {
+        window.alert('Save did not return a parseable response.');
+      }
+    } catch (e) {
+      window.alert('Override save failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    api.postEscalationPolicyAuditEvent({ event: 'override_saved_ui', note: surface + '=' + chain.join(',') });
+    render();
+  };
+
+  window._policyClearOverride = async function(surface) {
+    if (!window.confirm('Clear override for ' + surface + '? It will fall back to the clinic dispatch order.')) return;
+    var d = window._coverageState || {};
+    var allOverrides = Object.assign({}, (d.policyOverrides && d.policyOverrides.surface_overrides) || {});
+    delete allOverrides[surface];
+    try {
+      await api.escalationPolicySetSurfaceOverrides({ surface_overrides: allOverrides });
+    } catch (e) {
+      window.alert('Override clear failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    api.postEscalationPolicyAuditEvent({ event: 'override_cleared_ui', note: surface });
+    render();
+  };
+
+  window._policyEditUserMapping = async function(userId) {
+    if (!userId) return;
+    var d = window._coverageState || {};
+    var items = (d.policyMappings && d.policyMappings.items) || [];
+    var existing = null;
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].user_id === userId) { existing = items[i]; break; }
+    }
+    var slack = window.prompt('Slack user id for ' + userId + ' (e.g. U012ABCDEF):', (existing && existing.slack_user_id) || '');
+    if (slack === null) return;
+    var pd = window.prompt('PagerDuty user id for ' + userId + ':', (existing && existing.pagerduty_user_id) || '');
+    if (pd === null) return;
+    var phone = window.prompt('Twilio phone for ' + userId + ' (E.164, e.g. +15551234567):', (existing && existing.twilio_phone) || '');
+    if (phone === null) return;
+    var note = window.prompt('Note (REQUIRED — describe why the mapping changed):', '');
+    if (note === null) return;
+    var trimmed = String(note || '').trim();
+    if (!trimmed) {
+      window.alert('Note is required for user_mapping_changed audit row.');
+      return;
+    }
+    try {
+      var resp = await api.escalationPolicySetUserMappings({
+        items: [{
+          user_id: userId,
+          slack_user_id: String(slack || '').trim() || null,
+          pagerduty_user_id: String(pd || '').trim() || null,
+          twilio_phone: String(phone || '').trim() || null,
+        }],
+        change_note: trimmed,
+      });
+      if (resp && resp.items) {
+        window.alert('User mapping saved.');
+      } else {
+        window.alert('Save did not return a parseable response.');
+      }
+    } catch (e) {
+      window.alert('Mapping save failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    api.postEscalationPolicyAuditEvent({ event: 'user_mapping_saved_ui', note: userId });
+    render();
+  };
+
+  window._policyTestPolicy = async function() {
+    var surface = window.prompt('Surface to test (blank = clinic-wide dispatch order):', '');
+    if (surface === null) return;
+    surface = String(surface || '').trim();
+    if (!window.confirm('Send a synthetic test page using the active policy' + (surface ? ' for surface=' + surface : '') + '? This will hit Slack/Twilio/PagerDuty if their env vars are set.')) return;
+    try {
+      var resp = await api.escalationPolicyTest(surface ? { surface: surface } : {});
+      if (resp && resp.accepted) {
+        var lines = (resp.attempts || []).map(function(a) {
+          var prefix = a.enabled ? '' : '(disabled) ';
+          var status = a.status || (a.enabled ? 'no-result' : 'skipped');
+          var ext = a.external_id ? ' id=' + a.external_id : '';
+          return '  ' + prefix + a.name + ' = ' + status + ext;
+        }).join('\n');
+        window.alert(
+          'Policy test complete:\n' +
+          '  surface = ' + (resp.surface || '*') + '\n' +
+          '  resolved order = ' + ((resp.resolved_dispatch_order || []).join(' → ')) + '\n' +
+          '  overall = ' + (resp.overall_status || '?') + '\n' +
+          '  policy version = ' + (resp.policy_version || 1) + '\n' +
+          '  delivery_note = ' + (resp.delivery_note || '-') + '\n' +
+          'Per-adapter:\n' + (lines || '  (no adapters)')
+        );
+      } else {
+        window.alert('Test request did not accept; check your role + clinic.');
+      }
+    } catch (e) {
+      window.alert('Test policy call failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    api.postEscalationPolicyAuditEvent({ event: 'test_clicked_ui', note: surface || '*' });
+    render();
+  };
+
+  // Mount-time audit ping for the Escalation Policy surface so the
+  // regulator audit trail records every clinician/admin who opened the
+  // Coverage page (with its embedded Policy tab) — distinct from the
+  // care_team_coverage.view + auto_page_worker.view pings.
+  api.postEscalationPolicyAuditEvent({ event: 'view', note: 'escalation-policy editor mounted' });
 
   // Mount-time audit ping for the Auto-Page Worker surface so the
   // regulator audit trail records every clinician who opened the

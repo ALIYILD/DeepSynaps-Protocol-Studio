@@ -3288,6 +3288,49 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }),
+
+  // Escalation Policy Editor launch-audit (2026-05-01).
+  // Closes the LAST operational gap of the on-call escalation chain
+  // (Care Team Coverage #357 → Auto-Page Worker #372 →
+  // On-Call Delivery #373 → THIS PR). The On-Call Delivery agent
+  // flagged the fixed PagerDuty→Slack→Twilio order in code + the
+  // free-text ShiftRoster.contact_handle as the last gap. These
+  // helpers drive the new admin Policy tab inside the Care Team
+  // Coverage page: per-clinic dispatch order, per-surface override
+  // matrix, per-user contact mapping, and a synthetic test page.
+  // All read helpers swallow offline errors and return null so the
+  // page renders an honest empty state.
+  escalationPolicyDispatchOrder: () =>
+    apiFetch('/api/v1/escalation-policy/dispatch-order').catch(() => null),
+  escalationPolicySurfaceOverrides: () =>
+    apiFetch('/api/v1/escalation-policy/surface-overrides').catch(() => null),
+  escalationPolicyUserMappings: () =>
+    apiFetch('/api/v1/escalation-policy/user-mappings').catch(() => null),
+  escalationPolicySetDispatchOrder: (body) =>
+    apiFetch('/api/v1/escalation-policy/dispatch-order', {
+      method: 'PUT',
+      body: JSON.stringify(body || {}),
+    }),
+  escalationPolicySetSurfaceOverrides: (body) =>
+    apiFetch('/api/v1/escalation-policy/surface-overrides', {
+      method: 'PUT',
+      body: JSON.stringify(body || {}),
+    }),
+  escalationPolicySetUserMappings: (body) =>
+    apiFetch('/api/v1/escalation-policy/user-mappings', {
+      method: 'PUT',
+      body: JSON.stringify(body || {}),
+    }),
+  escalationPolicyTest: (body) =>
+    apiFetch('/api/v1/escalation-policy/test', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  postEscalationPolicyAuditEvent: (data) =>
+    apiFetch('/api/v1/escalation-policy/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).
