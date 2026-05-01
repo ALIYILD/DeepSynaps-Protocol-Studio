@@ -97,6 +97,33 @@ class ICATimecourseResponse(BaseModel):
     is_excluded: bool = False
 
 
+# Phase 3: filter preview ----------------------------------------------------
+
+class FilterPreviewRequest(BaseModel):
+    t_start: float = Field(default=0.0, ge=0.0)
+    window_sec: float = Field(default=10.0, gt=0.0, le=30.0)
+    lff: Optional[float] = Field(default=1.0, ge=0.0, le=200.0)
+    hff: Optional[float] = Field(default=45.0, ge=0.0, le=500.0)
+    notch: Optional[float] = Field(default=50.0, ge=0.0, le=200.0)
+
+
+class FreqResponseModel(BaseModel):
+    hz: list[float] = Field(default_factory=list)
+    magnitude_db: list[float] = Field(default_factory=list)
+
+
+class FilterPreviewResponse(BaseModel):
+    analysis_id: str
+    t_start: float = 0.0
+    t_end: float = 0.0
+    sfreq: float = 0.0
+    channels: list[str] = Field(default_factory=list)
+    raw: list[list[float]] = Field(default_factory=list)
+    filtered: list[list[float]] = Field(default_factory=list)
+    freq_response: FreqResponseModel = Field(default_factory=FreqResponseModel)
+    params: dict[str, Optional[float]] = Field(default_factory=dict)
+
+
 _REASON_VOCAB = {
     "blink", "lateral_eye", "sweat", "movement", "emg", "ecg",
     "electrode_pop", "line_noise", "flatline", "other",
@@ -353,6 +380,45 @@ def get_ica_timecourse(
         t_start=t_start, t_end=t_end, window_sec=window_sec, max_points=max_points,
     )
     return ICATimecourseResponse(**tc)
+
+
+# ── Endpoint 5b (Phase 3): Filter Preview ───────────────────────────────────
+
+
+@router.post(
+    "/{analysis_id}/filter-preview",
+    response_model=FilterPreviewResponse,
+)
+def post_filter_preview(
+    analysis_id: str,
+    body: Optional[FilterPreviewRequest] = None,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> FilterPreviewResponse:
+    """Return paired raw/filtered traces + frequency response for a 10s window.
+
+    Decision-support only — no persistence, no audit row. Used by the UI to
+    preview the effect of LFF/HFF/notch parameters before the clinician
+    commits them via Save / Reprocess.
+    """
+    require_minimum_role(actor, "clinician")
+    _load_analysis(analysis_id, db)
+    _require_mne()
+
+    payload = body or FilterPreviewRequest()
+
+    from app.services.eeg_signal_service import compute_filter_preview
+
+    result = compute_filter_preview(
+        analysis_id,
+        db,
+        t_start=payload.t_start,
+        window_sec=payload.window_sec,
+        lff=payload.lff,
+        hff=payload.hff,
+        notch=payload.notch,
+    )
+    return FilterPreviewResponse(**result)
 
 
 # ── Endpoint 6: Save Cleaning Config ────────────────────────────────────────

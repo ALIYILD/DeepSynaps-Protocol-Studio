@@ -150,7 +150,9 @@ function preparePatchedModule() {
     .replace(/from\s+['"]\.\/brain-map-svg\.js['"];?/, `from '${fileUrl(join(realDir, 'brain-map-svg.js'))}';`)
     .replace(/from\s+['"]\.\/eeg-spectral-panel\.js['"];?/, `from '${fileUrl(join(realDir, 'eeg-spectral-panel.js'))}';`)
     .replace(/from\s+['"]\.\/eeg-tools\.js['"];?/, `from '${fileUrl(join(realDir, 'eeg-tools.js'))}';`)
-    .replace(/from\s+['"]\.\/eeg-montage-editor\.js['"];?/, `from '${fileUrl(join(realDir, 'eeg-montage-editor.js'))}';`);
+    .replace(/from\s+['"]\.\/eeg-montage-editor\.js['"];?/, `from '${fileUrl(join(realDir, 'eeg-montage-editor.js'))}';`)
+    .replace(/from\s+['"]\.\/eeg-montage-builder\.js['"];?/, `from '${fileUrl(join(realDir, 'eeg-montage-builder.js'))}';`)
+    .replace(/from\s+['"]\.\/eeg-filter-preview\.js['"];?/, `from '${fileUrl(join(realDir, 'eeg-filter-preview.js'))}';`);
   const MODPATH = join(TMP, 'pages-qeeg-raw.js');
   writeFileSync(MODPATH, PATCHED);
   return MODPATH;
@@ -284,8 +286,12 @@ test('source channel ordering dropdown carries the five required options', () =>
 
 test('source filters group exposes the band preset dropdown', () => {
   assert.match(SRC, /id="eeg-band-preset-sel"/);
+  // Phase 3: built-in bands live in the _BUILTIN_BANDS table referenced by
+  // _renderBandPresetOptions; the literal option markup is now dynamic.
   ['broadband', 'delta', 'theta', 'alpha', 'beta', 'gamma'].forEach((opt) => {
-    assert.ok(SRC.includes(`value="${opt}"`), `band preset dropdown contains ${opt}`);
+    const inValue = SRC.includes(`value="${opt}"`);
+    const inBuiltin = SRC.includes(`id: '${opt}'`);
+    assert.ok(inValue || inBuiltin, `band preset registry contains ${opt}`);
   });
 });
 
