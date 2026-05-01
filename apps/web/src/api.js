@@ -1871,6 +1871,40 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
+  // ── Patient Wearables launch-audit (2026-05-01) ──────────────────────────
+  // EIGHTH and final patient-facing launch-audit surface. Adds the audit
+  // chain, consent-revoked write gate, IDOR regression and DEMO honesty
+  // layer on top of the existing /patient-portal/wearable-* connect / sync
+  // helpers. All helpers return null on offline / 404 so the page can
+  // render an honest empty state.
+  patientWearablesDevices: () =>
+    apiFetch('/api/v1/patient-wearables/devices').catch(() => null),
+  patientWearablesSummary: () =>
+    apiFetch('/api/v1/patient-wearables/devices/summary').catch(() => null),
+  patientWearablesGet: (deviceId) =>
+    apiFetch(`/api/v1/patient-wearables/devices/${encodeURIComponent(deviceId)}`).catch(() => null),
+  patientWearablesObservations: (deviceId, params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(
+      `/api/v1/patient-wearables/devices/${encodeURIComponent(deviceId)}/observations${q ? '?' + q : ''}`,
+    ).catch(() => null);
+  },
+  patientWearablesSync: (deviceId, data) =>
+    apiFetch(`/api/v1/patient-wearables/devices/${encodeURIComponent(deviceId)}/sync`, {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  patientWearablesDisconnect: (deviceId, note) =>
+    apiFetch(`/api/v1/patient-wearables/devices/${encodeURIComponent(deviceId)}/disconnect`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note || '' }),
+    }),
+  postPatientWearablesAuditEvent: (data) =>
+    apiFetch('/api/v1/patient-wearables/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
   // ── Home Program Tasks (patient portal — legacy completion submit) ────────
   portalListHomeProgramTasks: () => apiFetch('/api/v1/patient-portal/home-program-tasks'),
   portalCompleteHomeProgramTask: (serverTaskId, data) =>
