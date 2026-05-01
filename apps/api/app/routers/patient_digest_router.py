@@ -685,6 +685,73 @@ class CaregiverDeliverySummaryOut(BaseModel):
     is_demo: bool = False
 
 
+class CaregiverDeliveryFailureRow(BaseModel):
+    """Per-failed-dispatch row in :class:`CaregiverDeliveryFailuresOut`.
+
+    Surfaces ONLY the minimum fields the patient needs to flag a
+    delivery problem. NO PHI of the caregiver beyond first name; the
+    audit row's note is parsed at write time and the patient view never
+    sees the caregiver's email or full name. The IDOR / no-PHI test
+    asserts this.
+    """
+
+    dispatch_id: str
+    caregiver_user_id: str
+    caregiver_first_name: Optional[str] = None
+    dispatch_attempt_at: Optional[str] = None
+    delivery_status: str = "failed"
+    error_summary: Optional[str] = None
+
+
+class CaregiverDeliveryFailuresOut(BaseModel):
+    """Patient-side aggregator of failed caregiver digest dispatches.
+
+    Reads from ``audit_events`` filtered to
+    ``target_type='caregiver_portal'`` +
+    ``action='caregiver_portal.email_digest_sent'`` whose note encodes
+    ``delivery_status=failed``, scoped to the caregivers the patient
+    has minted active consent grants for. Cross-patient blocked at the
+    router (404) — the resolver uses ``actor.actor_id`` only so there
+    is no ``patient_id`` to forge.
+    """
+
+    rows: list[CaregiverDeliveryFailureRow] = Field(default_factory=list)
+    total_failed_count: int = 0
+    since: str = ""
+    until: str = ""
+    patient_id: str = ""
+    is_demo: bool = False
+
+
+class CaregiverDeliveryConcernIn(BaseModel):
+    """Patient-driven delivery-failure concern.
+
+    The patient flags one specific failed dispatch they care about. The
+    note is required (≥1 char trimmed) so the regulator transcript and
+    the clinician-mirror inbox row carry a real human signal — not a
+    silent / accidental click.
+    """
+
+    dispatch_id: str = Field(..., min_length=1, max_length=128)
+    concern_text: str = Field(..., min_length=1, max_length=1000)
+
+    @field_validator("concern_text")
+    @classmethod
+    def _validate_text(cls, v: str) -> str:
+        s = (v or "").strip()
+        if not s:
+            raise ValueError("concern_text must be at least one non-whitespace character")
+        return s
+
+
+class CaregiverDeliveryConcernOut(BaseModel):
+    accepted: bool = True
+    audit_event_id: str
+    clinician_mirror_event_id: str
+    dispatch_id: str
+    note: str = ""
+
+
 # ── Endpoints ───────────────────────────────────────────────────────────────
 
 
@@ -1309,4 +1376,274 @@ def get_caregiver_delivery_summary(
         until=until_dt.isoformat(),
         patient_id=patient.id,
         is_demo=is_demo,
+    )
+
+
+# ── Caregiver delivery FAILURES (Patient Delivery-Failure Flag) ──────────────
+
+
+def _extract_error_summary(note: str) -> Optional[str]:
+    """Best-effort error summary extracted from an audit-row note.
+
+    The Caregiver Email Digest worker writes notes shaped like
+    ``"unread=3; recipient=...; delivery_status=failed; error=..."``
+    or ``"...; delivery_note=..."``. We surface the first
+    ``error=...`` / ``delivery_note=...`` pair we find, capped at 240
+    chars. PHI of the caregiver (e.g. full email) is intentionally NOT
+    surfaced — the patient sees a short error label only.
+    """
+    if not note:
+        return None
+    src = note.lower()
+    for key in ("error=", "delivery_note=", "reason="):
+        idx = src.find(key)
+        if idx == -1:
+            continue
+        # Take everything after the key up to the next "; " separator.
+        tail = note[idx + len(key):]
+        end = tail.find(";")
+        snippet = (tail if end == -1 else tail[:end]).strip()
+        if snippet:
+            return snippet[:240]
+    return None
+
+
+def _list_failed_caregiver_dispatches(
+    db: Session,
+    *,
+    patient_id: str,
+    since_dt: datetime,
+    until_dt: datetime,
+) -> list[CaregiverDeliveryFailureRow]:
+    """Return the patient's active caregivers' failed digest dispatches.
+
+    A row qualifies when:
+      * ``target_type='caregiver_portal'``
+      * ``action='caregiver_portal.email_digest_sent'``
+      * ``target_id`` matches one of the patient's active caregiver
+        consent grants (``revoked_at IS NULL``)
+      * ``note`` encodes ``delivery_status=failed``
+      * ``created_at`` ∈ [since_dt, until_dt)
+    """
+    caregivers = _list_active_caregivers_for_patient(db, patient_id)
+    if not caregivers:
+        return []
+    name_by_id = {cg_id: first_name for cg_id, first_name in caregivers}
+    cg_ids = list(name_by_id.keys())
+    rows = (
+        db.query(AuditEventRecord)
+        .filter(
+            AuditEventRecord.target_type == "caregiver_portal",
+            AuditEventRecord.action == "caregiver_portal.email_digest_sent",
+            AuditEventRecord.target_id.in_(cg_ids),
+        )
+        .all()
+    )
+    out: list[CaregiverDeliveryFailureRow] = []
+    for r in rows:
+        ts = _parse_iso(r.created_at)
+        if ts is None:
+            continue
+        ts = _aware(ts)
+        if ts is None or not (since_dt <= ts < until_dt):
+            continue
+        note = (r.note or "").lower()
+        if "delivery_status=failed" not in note:
+            continue
+        out.append(
+            CaregiverDeliveryFailureRow(
+                dispatch_id=r.event_id,
+                caregiver_user_id=r.target_id,
+                caregiver_first_name=name_by_id.get(r.target_id),
+                dispatch_attempt_at=r.created_at,
+                delivery_status="failed",
+                error_summary=_extract_error_summary(r.note or ""),
+            )
+        )
+    # Most-recent first.
+    out.sort(key=lambda x: x.dispatch_attempt_at or "", reverse=True)
+    return out
+
+
+@router.get(
+    "/caregiver-delivery-failures",
+    response_model=CaregiverDeliveryFailuresOut,
+)
+def get_caregiver_delivery_failures(
+    since: Optional[str] = Query(default=None, max_length=32),
+    until: Optional[str] = Query(default=None, max_length=32),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> CaregiverDeliveryFailuresOut:
+    """List failed caregiver digest dispatches for the actor's grants.
+
+    Patient-only. Cross-role hits return 404 (patient-scope URL is
+    invisible to clinicians and admins). Cross-patient blocked because
+    the patient row is resolved from ``actor.actor_id`` — there is no
+    ``patient_id`` to forge.
+
+    NO PHI of the caregiver leaks beyond the first name. The audit
+    row's note is parsed for an error label only — the caregiver's
+    email and full name never appear in the response.
+    """
+    patient = _resolve_patient_for_actor(db, actor)
+    since_dt, until_dt = _resolve_window(since, until)
+    is_demo = _patient_is_demo(db, patient)
+
+    rows = _list_failed_caregiver_dispatches(
+        db,
+        patient_id=patient.id,
+        since_dt=since_dt,
+        until_dt=until_dt,
+    )
+
+    _audit(
+        db,
+        actor,
+        event="caregiver_delivery_failures_viewed",
+        target_id=patient.id,
+        note=(
+            f"failures={len(rows)}; "
+            f"since={since_dt.isoformat()}; until={until_dt.isoformat()}"
+        ),
+        using_demo_data=is_demo,
+    )
+
+    return CaregiverDeliveryFailuresOut(
+        rows=rows,
+        total_failed_count=len(rows),
+        since=since_dt.isoformat(),
+        until=until_dt.isoformat(),
+        patient_id=patient.id,
+        is_demo=is_demo,
+    )
+
+
+def _emit_clinician_delivery_concern_mirror(
+    db: Session,
+    actor: AuthenticatedActor,
+    *,
+    patient: Patient,
+    dispatch_id: str,
+    caregiver_user_id: Optional[str],
+    concern_text: str,
+    is_demo: bool,
+) -> str:
+    """Write the clinician-visible mirror audit row.
+
+    Action ``clinician_inbox.caregiver_delivery_concern_to_clinician_mirror``
+    qualifies as HIGH-priority under the Inbox predicate
+    (``_to_clinician_mirror`` suffix) so it surfaces in the clinician
+    inbox + care-team-coverage breach feed without any predicate
+    surgery. The mirror is best-effort: never raises so the patient
+    POST always succeeds end-to-end.
+    """
+    from app.repositories.audit import create_audit_event  # noqa: PLC0415
+
+    now = datetime.now(timezone.utc)
+    event_id = (
+        f"clinician_inbox-caregiver_delivery_concern_to_clinician_mirror-"
+        f"{actor.actor_id}-{int(now.timestamp())}-{uuid.uuid4().hex[:6]}"
+    )
+    note_parts: list[str] = []
+    if is_demo:
+        note_parts.append("DEMO")
+    note_parts.append("priority=high")
+    note_parts.append(f"patient={patient.id}")
+    note_parts.append(f"dispatch={dispatch_id}")
+    if caregiver_user_id:
+        note_parts.append(f"caregiver_user={caregiver_user_id}")
+    note_parts.append(f"concern={concern_text[:480]}")
+    final_note = "; ".join(note_parts)
+    try:
+        create_audit_event(
+            db,
+            event_id=event_id,
+            target_id=patient.id,
+            target_type="clinician_inbox",
+            action="clinician_inbox.caregiver_delivery_concern_to_clinician_mirror",
+            role=actor.role,
+            actor_id=actor.actor_id,
+            note=final_note[:1024],
+            created_at=now.isoformat(),
+        )
+    except Exception:  # pragma: no cover — audit must never block UI
+        _log.exception("delivery-concern clinician-mirror audit skipped")
+    return event_id
+
+
+@router.post(
+    "/caregiver-delivery-concerns",
+    response_model=CaregiverDeliveryConcernOut,
+)
+def post_caregiver_delivery_concern(
+    body: CaregiverDeliveryConcernIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> CaregiverDeliveryConcernOut:
+    """Patient flags a delivery problem for a specific dispatch.
+
+    Emits TWO audit rows:
+      1. ``patient_digest.caregiver_delivery_concern`` — patient-scope,
+         carries the full concern text + dispatch reference.
+      2. ``clinician_inbox.caregiver_delivery_concern_to_clinician_mirror``
+         — clinician-visible mirror, qualifies as HIGH-priority via the
+         existing ``_to_clinician_mirror`` predicate so it surfaces in
+         the Clinician Inbox and Care Team Coverage breach feeds.
+
+    Patient-only. Cross-role hits return 404 (patient-scope URL is
+    invisible). The dispatch reference is recorded verbatim so the
+    regulator transcript joins the concern to its underlying failed
+    dispatch row.
+    """
+    patient = _resolve_patient_for_actor(db, actor)
+    is_demo = _patient_is_demo(db, patient)
+
+    # Best-effort lookup of the underlying dispatch row (the patient
+    # could be flagging a since-deleted row; we stay honest and audit
+    # what we got). We use it to enrich the audit note + mirror row
+    # with the caregiver_user_id when available.
+    caregiver_user_id: Optional[str] = None
+    dispatch_row = (
+        db.query(AuditEventRecord)
+        .filter(AuditEventRecord.event_id == body.dispatch_id)
+        .first()
+    )
+    if dispatch_row is not None and dispatch_row.target_type == "caregiver_portal":
+        caregiver_user_id = dispatch_row.target_id
+
+    note = (
+        f"dispatch={body.dispatch_id}; "
+        + (f"caregiver_user={caregiver_user_id}; " if caregiver_user_id else "")
+        + f"concern={body.concern_text[:480]}"
+    )
+    audit_event_id = _audit(
+        db,
+        actor,
+        event="caregiver_delivery_concern",
+        target_id=body.dispatch_id,
+        note=note,
+        using_demo_data=is_demo,
+    )
+
+    mirror_event_id = _emit_clinician_delivery_concern_mirror(
+        db,
+        actor,
+        patient=patient,
+        dispatch_id=body.dispatch_id,
+        caregiver_user_id=caregiver_user_id,
+        concern_text=body.concern_text,
+        is_demo=is_demo,
+    )
+
+    return CaregiverDeliveryConcernOut(
+        accepted=True,
+        audit_event_id=audit_event_id,
+        clinician_mirror_event_id=mirror_event_id,
+        dispatch_id=body.dispatch_id,
+        note=(
+            "Concern recorded. The clinician inbox and care team "
+            "coverage breach feed will surface this dispatch under "
+            "HIGH priority for follow-up."
+        ),
     )
