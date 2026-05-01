@@ -911,7 +911,8 @@ const PAGE_TITLES = {
   'device-management': 'Device & Equipment Management',
   'clinical-trials': 'Clinical Trial Management',
   'trial-enrollment': 'Trial Enrollment',
-  'staff-scheduling': 'Staff Scheduling & Shifts',
+  'staff-scheduling': 'Care Team Coverage',
+  'care-team-coverage': 'Care Team Coverage',
   reports: 'Reports', admin: 'Admin Panel', 'clinic-settings': 'Clinic Settings & Branding', settings: 'Settings', 'clinician-account': 'My Account', academy: 'Academy', marketplace: 'Marketplace',
   permissions: 'Permissions & Security Admin',
   calendar: 'Schedule & Calendar',
@@ -1395,6 +1396,7 @@ async function renderPage() {
     case 'clinical-trials': { const m = await loadKnowledge(); await m.pgClinicalTrials(setTopbar); break; }
     case 'trial-enrollment': { const { pgTrialEnrollment } = await loadKnowledge(); await pgTrialEnrollment(setTopbar); break; }
     case 'staff-scheduling': { const m = await loadKnowledge(); await m.pgStaffScheduling(setTopbar); break; }
+    case 'care-team-coverage': { const m = await loadKnowledge(); await m.pgCareTeamCoverage(setTopbar); break; }
     case 'clinic-analytics': { const m = await loadKnowledge(); await m.pgClinicAnalytics(setTopbar); break; }
     case 'protocol-marketplace': { const { pgProtocolMarketplace } = await loadKnowledge(); await pgProtocolMarketplace(setTopbar); break; }
     case 'data-export': { const { pgDataExport } = await loadKnowledge(); await pgDataExport(setTopbar); break; }

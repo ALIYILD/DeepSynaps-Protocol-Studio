@@ -3803,3 +3803,124 @@ class PatientHomeDeviceCalibration(Base):
         nullable=False,
         index=True,
     )
+
+
+# ── Care Team Coverage / Staff Scheduling (migration 072) ──────────────────
+# These four tables back the Care Team Coverage launch audit (2026-05-01,
+# PR feat/care-team-coverage-launch-audit-2026-05-01). They route
+# inbox.item_paged_to_oncall events from the Clinician Inbox HIGH-priority
+# aggregation predicate (see clinician_inbox_router) to a real human via a
+# clinic-scoped roster + SLA config + escalation chain. See
+# routers/care_team_coverage_router for the public API surface.
+
+
+class ShiftRoster(Base):
+    """One staff shift on the weekly roster.
+
+    Each row keys (clinic, user, week_start, day_of_week, surface). One
+    user can hold multiple shifts in a week; the roster API groups them
+    by user for the UI grid. ``is_on_call`` flips the row into the
+    on-call rotation; ``surface`` (optional) lets a clinic specialise
+    the on-call rotation per workflow surface (e.g. patient_messages
+    vs adverse_events_hub).
+    """
+
+    __tablename__ = "shift_rosters"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    clinic_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    week_start: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    day_of_week: Mapped[int] = mapped_column(Integer(), nullable=False)  # 0..6
+    start_time: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
+    end_time: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
+    role: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    is_on_call: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    surface: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    contact_channel: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    contact_handle: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class SLAConfig(Base):
+    """Per-clinic per-surface SLA-minute setting.
+
+    ``surface = '*'`` is the clinic-wide default; specific surfaces
+    override it. ``severity`` is canonically ``HIGH`` (the predicate
+    inbox uses) but the column is reserved for future ``SAE`` etc.
+    """
+
+    __tablename__ = "sla_configs"
+    __table_args__ = (
+        UniqueConstraint(
+            "clinic_id", "surface", "severity",
+            name="uq_sla_configs_clinic_surface_sev",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    clinic_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    surface: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False, default="HIGH")
+    sla_minutes: Mapped[int] = mapped_column(Integer(), nullable=False)
+    note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    updated_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class EscalationChain(Base):
+    """Per-clinic per-surface ``primary → backup → director`` ladder.
+
+    ``surface = '*'`` is the clinic-wide default; per-surface rows
+    override it. Soft FK to ``users.id`` so partial chains are allowed
+    during onboarding (a clinic may not have a director yet).
+    ``auto_page_enabled`` is OFF by default — admin must enable per
+    surface to turn on the background auto-page worker.
+    """
+
+    __tablename__ = "escalation_chains"
+    __table_args__ = (
+        UniqueConstraint(
+            "clinic_id", "surface",
+            name="uq_escalation_chains_clinic_surface",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    clinic_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    surface: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    primary_user_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    backup_user_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    director_user_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    auto_page_enabled: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    updated_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class OncallPage(Base):
+    """Soft mirror of every page-on-call event.
+
+    Canonical record is the audit row ``inbox.item_paged_to_oncall``;
+    this table just gives the UI an indexable history of who was paged
+    for which audit_event without scanning the audit_events full-text
+    column on every UI repaint.
+    """
+
+    __tablename__ = "oncall_pages"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    clinic_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    audit_event_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    surface: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    paged_user_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    paged_role: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    paged_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    trigger: Mapped[str] = mapped_column(String(16), nullable=False)  # manual|auto
+    note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    delivery_status: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False, index=True)

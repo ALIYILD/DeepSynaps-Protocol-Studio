@@ -7331,9 +7331,355 @@ function _ssCloseModal() {
   if (m) m.remove();
 }
 
-// ── Main Exported Page ────────────────────────────────────────────────────────
+// ── Care Team Coverage / Staff Scheduling launch-audit (2026-05-01) ───────────
+//
+// pgStaffScheduling is the public entry point. It now delegates to
+// pgCareTeamCoverage (backend-first: roster + per-surface SLA + on-call
+// escalation + SLA-breach feed + manual page-on-call). The original
+// localStorage-only schedule/PTO/swap UI lives below as
+// _pgStaffSchedulingLocal and is reachable via the "Local schedule" tab
+// inside the new surface so existing reviewer flows don't break. This is
+// the same delegation pattern Clinician Inbox #354 used.
+//
+// Audit trail: emits care_team_coverage.view at mount, then per-edit
+// audits (roster_edited / sla_edited / chain_edited / manual_page_fired)
+// directly via the dedicated POST endpoints. No silent UI math.
 export async function pgStaffScheduling(setTopbar) {
-  setTopbar('Staff Scheduling & Shifts', '<button class="btn btn-ghost btn-sm" onclick="window._staffAutoSchedule()">⚡ Auto-Schedule</button>');
+  return pgCareTeamCoverage(setTopbar);
+}
+
+export async function pgCareTeamCoverage(setTopbar) {
+  setTopbar('Care Team Coverage', '');
+  var el = document.getElementById('content');
+  el.innerHTML = '<div style="padding:16px;color:var(--text-muted)">Loading care team coverage…</div>';
+
+  // Mount-time audit ping. Also doubles as a probe — if the server is
+  // unreachable the helper returns null and we fall through to the
+  // local-only scheduler so the page remains usable offline.
+  var probe = await api.postCareTeamCoverageAuditEvent({
+    event: 'view',
+    note: 'care-team-coverage mount',
+  });
+  if (probe == null) {
+    // Backend unreachable — fall back to the existing local-only schedule
+    // page with an honest banner. The wider audit trail picks the same
+    // ping up the next time the API comes back online.
+    return _pgStaffSchedulingLocal(setTopbar);
+  }
+
+  var weekStart = _mondayOf(_todayIso());
+  var activeTab = window._coverageTab || 'coverage';
+
+  async function loadAll() {
+    var [summary, oncall, sla, chain, breaches, roster, pages] = await Promise.all([
+      api.careTeamCoverageSummary(),
+      api.careTeamCoverageOncallNow(),
+      api.careTeamCoverageSlaConfig(),
+      api.careTeamCoverageEscalationChain(),
+      api.careTeamCoverageSlaBreaches({ limit: 100 }),
+      api.careTeamCoverageRoster({ week_start: weekStart }),
+      api.careTeamCoveragePages({ limit: 50 }),
+    ]);
+    return { summary, oncall, sla, chain, breaches, roster, pages };
+  }
+
+  function isDemo(d) {
+    if (!d) return false;
+    if (d.roster && d.roster.is_demo_view) return true;
+    return false;
+  }
+
+  function _esc(v) { return _kEsc(v == null ? '' : String(v)); }
+
+  function renderTopCounts(summary) {
+    var s = summary || {};
+    function card(label, value, hint) {
+      return '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:14px;flex:1;min-width:160px">' +
+        '<div style="font-size:.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em">' + _esc(label) + '</div>' +
+        '<div style="font-size:1.6rem;font-weight:700;margin-top:4px">' + _esc(String(value == null ? 0 : value)) + '</div>' +
+        (hint ? '<div style="font-size:.7rem;color:var(--text-muted);margin-top:2px">' + _esc(hint) + '</div>' : '') +
+        '</div>';
+    }
+    return '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">' +
+      card('Active shifts (today)', s.active_shifts || 0, 'roster rows for the current weekday') +
+      card('On-call now', s.oncall_now || 0, 'is_on_call=true rows for today') +
+      card('SLA breached today', s.sla_breaches_today || 0, 'HIGH-priority items past per-surface SLA') +
+      card('Paged today', s.paged_today || 0, 'inbox.item_paged_to_oncall events today') +
+      card('Auto-page enabled', (s.auto_page_enabled_surfaces || 0), 'surfaces with auto-page worker ON') +
+      '</div>';
+  }
+
+  function renderOncallTab(d) {
+    var oncall = (d.oncall && d.oncall.items) || [];
+    if (oncall.length === 0) {
+      return emptyState('🛟', 'No on-call schedule configured yet.', 'Click the Roster tab and add an on-call shift, or open the Escalation Chain editor to set primary/backup/director per surface.');
+    }
+    var rows = oncall.map(function(it) {
+      var contact = it.primary_contact_handle ? (_esc(it.primary_contact_channel || 'unknown') + ': ' + _esc(it.primary_contact_handle)) : '<span style="color:var(--text-muted)">no contact handle on shift</span>';
+      var auto = it.auto_page_enabled ? '<span class="skill-tag" style="background:#10b981;color:#fff">Auto-page ON</span>' : '<span class="skill-tag">Auto-page OFF</span>';
+      return '<tr>' +
+        '<td>' + _esc(it.surface) + '</td>' +
+        '<td>' + _esc(it.primary_user_name || it.primary_user_id || '—') + '</td>' +
+        '<td>' + _esc(it.backup_user_name || it.backup_user_id || '—') + '</td>' +
+        '<td>' + _esc(it.director_user_name || it.director_user_id || '—') + '</td>' +
+        '<td>' + _esc(String(it.sla_minutes || 0)) + ' min</td>' +
+        '<td>' + contact + '</td>' +
+        '<td>' + auto + '</td>' +
+        '</tr>';
+    }).join('');
+    return '<div style="overflow-x:auto"><table class="data-table" style="width:100%;min-width:760px">' +
+      '<thead><tr><th>Surface</th><th>Primary</th><th>Backup</th><th>Director</th><th>SLA (HIGH)</th><th>Contact</th><th>Auto-page</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table></div>';
+  }
+
+  function renderBreachesTab(d) {
+    var breaches = (d.breaches && d.breaches.items) || [];
+    if (breaches.length === 0) {
+      return emptyState('✅', 'No SLA breaches right now.', 'A breach appears when a HIGH-priority Inbox item ages past its per-surface SLA without an acknowledgement. The feed polls every 30 seconds.');
+    }
+    var rows = breaches.map(function(it) {
+      var demo = it.is_demo ? ' <span class="skill-tag" style="background:#f59e0b;color:#fff">DEMO</span>' : '';
+      return '<tr>' +
+        '<td>' + _esc(it.surface) + demo + '</td>' +
+        '<td>' + _esc(it.action) + '</td>' +
+        '<td>' + _esc(it.patient_id || '—') + '</td>' +
+        '<td>' + _esc(String(it.age_minutes)) + ' min</td>' +
+        '<td>' + _esc(String(it.sla_minutes)) + ' min</td>' +
+        '<td><span class="coverage-warning" style="font-weight:600">+' + _esc(String(it.minutes_over_sla)) + ' min</span></td>' +
+        '<td><button class="btn btn-sm" onclick="window._coveragePageOncall(\'' + _esc(it.audit_event_id) + '\')">Page on-call</button></td>' +
+        '</tr>';
+    }).join('');
+    return '<div style="overflow-x:auto"><table class="data-table" style="width:100%;min-width:780px">' +
+      '<thead><tr><th>Surface</th><th>Action</th><th>Patient</th><th>Age</th><th>SLA</th><th>Over SLA</th><th>&nbsp;</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table></div>';
+  }
+
+  function renderSlaTab(d) {
+    var items = (d.sla && d.sla.items) || [];
+    if (items.length === 0) {
+      return emptyState('⏱️', 'No SLA configured yet.', 'Click "Edit" to set the HIGH-priority breach window per surface. Defaults are conservative until you override them.');
+    }
+    var rows = items.map(function(it) {
+      var defLabel = it.is_default ? '<span class="skill-tag">default</span>' : '<span class="skill-tag" style="background:#10b981;color:#fff">override</span>';
+      return '<tr>' +
+        '<td>' + _esc(it.surface) + '</td>' +
+        '<td>' + _esc(it.severity) + '</td>' +
+        '<td>' + _esc(String(it.sla_minutes)) + ' min</td>' +
+        '<td>' + defLabel + '</td>' +
+        '<td><button class="btn btn-sm btn-ghost" onclick="window._coverageEditSla(\'' + _esc(it.surface) + '\',\'' + _esc(it.severity) + '\',' + _esc(String(it.sla_minutes)) + ')">Edit</button></td>' +
+        '</tr>';
+    }).join('');
+    return '<div style="overflow-x:auto"><table class="data-table" style="width:100%;min-width:560px">' +
+      '<thead><tr><th>Surface</th><th>Severity</th><th>SLA (minutes)</th><th>Source</th><th>&nbsp;</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table></div>';
+  }
+
+  function renderChainTab(d) {
+    var chain = (d.chain && d.chain.items) || [];
+    var rows = chain.length === 0
+      ? '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:14px">No escalation chain configured. Use the editor to set primary/backup/director per surface.</td></tr>'
+      : chain.map(function(it) {
+          return '<tr>' +
+            '<td>' + _esc(it.surface) + '</td>' +
+            '<td>' + _esc(it.primary_user_name || it.primary_user_id || '—') + '</td>' +
+            '<td>' + _esc(it.backup_user_name || it.backup_user_id || '—') + '</td>' +
+            '<td>' + _esc(it.director_user_name || it.director_user_id || '—') + '</td>' +
+            '<td>' + (it.auto_page_enabled ? 'ON' : 'OFF') + '</td>' +
+            '<td><button class="btn btn-sm btn-ghost" onclick="window._coverageEditChain(\'' + _esc(it.surface) + '\')">Edit</button></td>' +
+            '</tr>';
+        }).join('');
+    return '<div style="margin-bottom:10px"><button class="btn btn-sm" onclick="window._coverageNewChain()">+ Add chain for surface</button></div>' +
+      '<div style="overflow-x:auto"><table class="data-table" style="width:100%;min-width:680px">' +
+      '<thead><tr><th>Surface</th><th>Primary</th><th>Backup</th><th>Director</th><th>Auto-page</th><th>&nbsp;</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table></div>';
+  }
+
+  function renderRosterTab(d) {
+    var items = (d.roster && d.roster.items) || [];
+    if (items.length === 0) {
+      return emptyState('📋', 'No on-call schedule configured yet.', "Click 'Add shift' to set this week's coverage. Each row maps a clinic user to a weekday + on-call flag.");
+    }
+    var rows = items.map(function(it) {
+      var oncallTag = it.is_on_call ? '<span class="skill-tag" style="background:#ef4444;color:#fff">ON-CALL</span>' : '';
+      var dayName = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][it.day_of_week] || String(it.day_of_week);
+      return '<tr>' +
+        '<td>' + _esc(it.user_name || it.user_id) + '</td>' +
+        '<td>' + _esc(dayName) + '</td>' +
+        '<td>' + _esc(it.start_time || '—') + ' – ' + _esc(it.end_time || '—') + '</td>' +
+        '<td>' + _esc(it.role || '—') + '</td>' +
+        '<td>' + _esc(it.surface || '*') + '</td>' +
+        '<td>' + oncallTag + '</td>' +
+        '<td>' + _esc(it.contact_channel || '—') + ': ' + _esc(it.contact_handle || '—') + '</td>' +
+        '</tr>';
+    }).join('');
+    return '<div style="margin-bottom:10px;display:flex;gap:8px"><button class="btn btn-sm" onclick="window._coverageAddShift()">+ Add shift</button>' +
+      '<button class="btn btn-sm btn-ghost" onclick="window._coverageOpenLocal()">Open local-only schedule (legacy)</button></div>' +
+      '<div style="overflow-x:auto"><table class="data-table" style="width:100%;min-width:760px">' +
+      '<thead><tr><th>Clinician</th><th>Day</th><th>Hours</th><th>Role</th><th>Surface</th><th>On-call</th><th>Contact</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table></div>';
+  }
+
+  function renderPagesTab(d) {
+    var pages = (d.pages && d.pages.items) || [];
+    if (pages.length === 0) {
+      return emptyState('📟', 'No on-call pages yet.', 'Manual or auto pages will be recorded here once the SLA-breach feed surfaces a row past its window.');
+    }
+    var rows = pages.map(function(p) {
+      return '<tr>' +
+        '<td>' + _esc(p.created_at) + '</td>' +
+        '<td>' + _esc(p.surface || '—') + '</td>' +
+        '<td>' + _esc(p.paged_user_id || '—') + ' (' + _esc(p.paged_role || '—') + ')</td>' +
+        '<td>' + _esc(p.paged_by) + '</td>' +
+        '<td>' + _esc(p.trigger) + '</td>' +
+        '<td>' + _esc(p.delivery_status || '—') + '</td>' +
+        '</tr>';
+    }).join('');
+    return '<div style="overflow-x:auto"><table class="data-table" style="width:100%;min-width:760px">' +
+      '<thead><tr><th>When</th><th>Surface</th><th>Paged user</th><th>Paged by</th><th>Trigger</th><th>Delivery</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table></div>';
+  }
+
+  async function render() {
+    var d = await loadAll();
+    if (!d || d.summary == null) {
+      el.innerHTML = '<div style="padding:16px;color:#ef4444">Care Team Coverage backend unreachable. Falling back to the legacy local-only schedule.</div>';
+      return _pgStaffSchedulingLocal(setTopbar);
+    }
+    var demoBanner = isDemo(d)
+      ? '<div class="notice notice-info" style="margin-bottom:12px;font-size:12px"><strong>DEMO clinic data:</strong> exports are DEMO-prefixed and rows are not regulator-submittable.</div>'
+      : '';
+    var autoOff = (d.summary.auto_page_enabled_surfaces || 0) === 0
+      ? '<div class="notice notice-info" style="margin-bottom:12px;font-size:12px"><strong>Auto-page worker: OFF</strong> — admin must enable per surface in the Escalation Chain editor. Until then, all pages are manual.</div>'
+      : '';
+
+    var tabs = [
+      { id: 'coverage',   label: 'Coverage' },
+      { id: 'breaches',   label: 'SLA breaches' },
+      { id: 'roster',     label: 'Roster' },
+      { id: 'sla',        label: 'SLA per surface' },
+      { id: 'chain',      label: 'Escalation chain' },
+      { id: 'pages',      label: 'Pages history' },
+    ];
+
+    var body = '';
+    if (activeTab === 'coverage')      body = renderOncallTab(d);
+    else if (activeTab === 'breaches') body = renderBreachesTab(d);
+    else if (activeTab === 'roster')   body = renderRosterTab(d);
+    else if (activeTab === 'sla')      body = renderSlaTab(d);
+    else if (activeTab === 'chain')    body = renderChainTab(d);
+    else if (activeTab === 'pages')    body = renderPagesTab(d);
+
+    el.innerHTML =
+      demoBanner +
+      autoOff +
+      renderTopCounts(d.summary) +
+      '<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">' +
+        tabs.map(function(t) {
+          return '<button class="btn btn-sm ' + (activeTab === t.id ? '' : 'btn-ghost') + '" onclick="window._coverageTabSet(\'' + t.id + '\')">' + _esc(t.label) + '</button>';
+        }).join('') +
+      '</div>' +
+      '<div id="_coverage-tab-body">' + body + '</div>';
+    window._coverageState = d;
+  }
+
+  // ── Window handlers ────────────────────────────────────────────────────
+  window._coverageTabSet = function(id) {
+    window._coverageTab = id;
+    activeTab = id;
+    api.postCareTeamCoverageAuditEvent({ event: 'filter_changed', note: 'tab=' + String(id) });
+    render();
+  };
+  window._coverageOpenLocal = function() { _pgStaffSchedulingLocal(setTopbar); };
+
+  window._coveragePageOncall = async function(auditEventId) {
+    var note = window.prompt('Note for the on-call page (required):');
+    if (!note || !String(note).trim()) return;
+    try {
+      var resp = await api.careTeamCoveragePageOncall(auditEventId, { note: String(note).trim() });
+      if (resp && resp.accepted) {
+        var who = resp.paged_user_name || resp.paged_user_id || 'no on-call configured';
+        window.alert('Paged: ' + who + ' (delivery_status=' + (resp.delivery_status || 'logged') + '). Audit row recorded.');
+      } else {
+        window.alert('Page-on-call request did not accept; check your role + clinic.');
+      }
+    } catch (e) {
+      window.alert('Page-on-call failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    render();
+  };
+
+  window._coverageEditSla = async function(surface, severity, currentMinutes) {
+    var v = window.prompt('SLA minutes for ' + surface + ' / ' + severity + ' (1..10080):', String(currentMinutes || 60));
+    if (!v) return;
+    var n = Number(v); if (!Number.isFinite(n) || n < 1) return window.alert('Invalid minutes');
+    try {
+      await api.careTeamCoverageUpsertSla({ surface: surface, severity: severity, sla_minutes: n });
+    } catch (e) {
+      window.alert('SLA edit failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    render();
+  };
+
+  window._coverageNewChain = async function() {
+    var surface = window.prompt('Surface to add an escalation chain for (e.g. wearables_workbench, * for clinic-wide):');
+    if (!surface) return;
+    window._coverageEditChain(String(surface).trim());
+  };
+
+  window._coverageEditChain = async function(surface) {
+    var primary = window.prompt('Primary user_id (clinician id) for ' + surface + ' (or blank to clear):', '') || '';
+    var backup = window.prompt('Backup user_id (or blank):', '') || '';
+    var director = window.prompt('Director user_id (or blank):', '') || '';
+    var auto = window.confirm('Enable auto-page worker for this surface? (OK=enable, Cancel=disable)');
+    try {
+      await api.careTeamCoverageUpsertEscalationChain({
+        surface: surface,
+        primary_user_id: primary || null,
+        backup_user_id: backup || null,
+        director_user_id: director || null,
+        auto_page_enabled: !!auto,
+      });
+    } catch (e) {
+      window.alert('Chain edit failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    render();
+  };
+
+  window._coverageAddShift = async function() {
+    var user = window.prompt('user_id (must be a member of your clinic):'); if (!user) return;
+    var dow = window.prompt('Day of week (0=Mon..6=Sun):'); if (dow === null) return;
+    var start = window.prompt('Start time HH:MM (or blank):', '09:00') || '';
+    var end = window.prompt('End time HH:MM (or blank):', '17:00') || '';
+    var oncall = window.confirm('Mark this shift as ON-CALL? (OK=on-call, Cancel=regular shift)');
+    try {
+      await api.careTeamCoverageUpsertRoster({
+        user_id: String(user).trim(),
+        week_start: weekStart,
+        day_of_week: Number(dow) | 0,
+        start_time: start || null,
+        end_time: end || null,
+        is_on_call: !!oncall,
+      });
+    } catch (e) {
+      window.alert('Roster upsert failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    render();
+  };
+
+  // 30-second polling tick — refreshes the breach feed + summary so an
+  // on-call clinician sees aging items appear in real time.
+  if (window._coveragePoll) { clearInterval(window._coveragePoll); }
+  window._coveragePoll = setInterval(function() {
+    api.postCareTeamCoverageAuditEvent({ event: 'polling_tick' });
+    render();
+  }, 30000);
+
+  await render();
+}
+
+// ── Local-only schedule (offline fallback / legacy view) ──────────────────
+async function _pgStaffSchedulingLocal(setTopbar) {
+  setTopbar('Staff Scheduling & Shifts (local-only)', '<button class="btn btn-ghost btn-sm" onclick="window._staffAutoSchedule()">⚡ Auto-Schedule</button>');
   var el = document.getElementById('content');
 
   if (!window._staffWeekStart) window._staffWeekStart = _mondayOf(_todayIso());

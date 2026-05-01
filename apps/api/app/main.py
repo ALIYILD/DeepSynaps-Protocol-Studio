@@ -69,6 +69,7 @@ from app.routers.wearable_router import router as wearable_router
 from app.routers.patient_wearables_router import router as patient_wearables_router
 from app.routers.wearables_workbench_router import router as wearables_workbench_router
 from app.routers.clinician_inbox_router import router as clinician_inbox_router
+from app.routers.care_team_coverage_router import router as care_team_coverage_router
 from app.routers.media_router import router as media_router
 from app.routers.home_devices_router import router as home_devices_router
 from app.routers.home_device_portal_router import router as home_device_portal_router
@@ -343,6 +344,7 @@ app.include_router(wearables_workbench_router)
 # workflow-friendly triage inbox. Reads the audit_events table only — no
 # new schema; acknowledgements are stored as their own audit rows.
 app.include_router(clinician_inbox_router)
+app.include_router(care_team_coverage_router)
 # Settings API (scaffolded 024_settings_schema) — stubs; endpoints arrive in
 # follow-up subagents. Grouped together for discoverability.
 app.include_router(profile_router)
