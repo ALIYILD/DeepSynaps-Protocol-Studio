@@ -481,6 +481,11 @@ const NAV = [
   // rows from every patient-facing launch audit so urgent signals don't
   // get lost in the regulator-shaped Audit Trail page.
   { id: 'clinician-inbox',    label: 'Inbox',             icon: '📬' },
+  // Clinician Adherence Hub — bidirectional counterpart to Adherence
+  // Events #350. Cross-patient triage of adherence reports, side-effects,
+  // and escalations scoped to the clinic. Closes the home-therapy
+  // adherence regulator chain end-to-end.
+  { id: 'clinician-adherence', label: 'Adherence Hub',    icon: '✅' },
   { id: 'schedule-v2',        label: 'Schedule',          icon: '🗓️' },
   { id: 'assessments-v2',     label: 'Assessments',       icon: '◉' },
   { id: 'patients-v2',        label: 'Patients',          icon: '👥' },
@@ -520,6 +525,8 @@ const NAV_ICONS = {
   'home':              `<svg viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`,
   // Clinician Inbox icon — envelope outline, mirrors the lucide "inbox" glyph.
   'clinician-inbox':   `<svg viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>`,
+  // Clinician Adherence Hub icon — checklist + bullets, cross-patient triage glyph.
+  'clinician-adherence': `<svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>`,
   'patients':          `<svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
   'courses':           `<svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>`,
   'clinical-hub':      `<svg viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect width="8" height="4" x="8" y="2" rx="1"/><path d="M8 12h.01"/><path d="M12 12h4"/><path d="M8 16h.01"/><path d="M12 16h4"/></svg>`,
@@ -913,6 +920,8 @@ const PAGE_TITLES = {
   'trial-enrollment': 'Trial Enrollment',
   'staff-scheduling': 'Care Team Coverage',
   'care-team-coverage': 'Care Team Coverage',
+  'clinician-adherence': 'Adherence Hub',
+  'adherence-hub': 'Adherence Hub',
   reports: 'Reports', admin: 'Admin Panel', 'clinic-settings': 'Clinic Settings & Branding', settings: 'Settings', 'clinician-account': 'My Account', academy: 'Academy', marketplace: 'Marketplace',
   permissions: 'Permissions & Security Admin',
   calendar: 'Schedule & Calendar',
@@ -1397,6 +1406,20 @@ async function renderPage() {
     case 'trial-enrollment': { const { pgTrialEnrollment } = await loadKnowledge(); await pgTrialEnrollment(setTopbar); break; }
     case 'staff-scheduling': { const m = await loadKnowledge(); await m.pgStaffScheduling(setTopbar); break; }
     case 'care-team-coverage': { const m = await loadKnowledge(); await m.pgCareTeamCoverage(setTopbar); break; }
+    // Clinician Adherence Hub launch-audit (2026-05-01). Bidirectional
+    // counterpart to the patient-side Adherence Events page (#350).
+    // Cross-patient triage of adherence reports, side-effects, and
+    // escalations scoped to the clinic — acknowledge / escalate / resolve
+    // / bulk-acknowledge in bulk instead of opening one Inbox item at a
+    // time. Closes the regulator chain on home-therapy adherence: patient
+    // logs (#350) → clinician triages (THIS PAGE) → SLA breach via Care
+    // Team Coverage (#357) → on-call paging.
+    case 'adherence-hub':
+    case 'clinician-adherence': {
+      const m = await loadCourses();
+      await m.pgClinicianAdherenceHub(setTopbar, navigate);
+      break;
+    }
     case 'clinic-analytics': { const m = await loadKnowledge(); await m.pgClinicAnalytics(setTopbar); break; }
     case 'protocol-marketplace': { const { pgProtocolMarketplace } = await loadKnowledge(); await pgProtocolMarketplace(setTopbar); break; }
     case 'data-export': { const { pgDataExport } = await loadKnowledge(); await pgDataExport(setTopbar); break; }

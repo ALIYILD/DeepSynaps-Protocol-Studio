@@ -12270,3 +12270,553 @@ export async function pgQuickOutcomeCapture(setTopbar) {
 export function openQuickOutcomeCapture(courseId, sessionId, patientName) {
   window._openQuickOutcomeCapture(courseId, sessionId, patientName);
 }
+
+
+// ── pgClinicianAdherenceHub — Cross-patient adherence triage (launch-audit 2026-05-01)
+//
+// Bidirectional counterpart to the patient-facing pgPatientAdherenceEvents
+// (#350). Wires to the new ``/api/v1/clinician-adherence/*`` endpoints in
+// ``apps/api/app/routers/clinician_adherence_router.py``:
+//
+//   GET    /api/v1/clinician-adherence/events            — list (audited)
+//   GET    /api/v1/clinician-adherence/events/summary    — top counts
+//   GET    /api/v1/clinician-adherence/events/{id}       — detail
+//   POST   /api/v1/clinician-adherence/events/{id}/acknowledge
+//   POST   /api/v1/clinician-adherence/events/{id}/escalate
+//   POST   /api/v1/clinician-adherence/events/{id}/resolve
+//   POST   /api/v1/clinician-adherence/events/bulk-acknowledge
+//   GET    /api/v1/clinician-adherence/events/export.csv     — DEMO-prefixed when demo
+//   GET    /api/v1/clinician-adherence/events/export.ndjson  — DEMO-prefixed when demo
+//   POST   /api/v1/clinician-adherence/audit-events      — page audit ingestion
+//
+// Pinned page contract (mirrored in clinician-adherence-hub-launch-audit.test.js):
+//
+//   - Mount-time `clinician_adherence_hub.view` audit ping
+//   - Reads /events + /summary at mount
+//   - Items grouped by patient (per-group summary)
+//   - DEMO banner only when server returns is_demo_view=true
+//   - Honest empty state ("No adherence events pending review.")
+//   - Acknowledge / escalate / resolve buttons with note-required prompt
+//   - Bulk acknowledge: select rows + ack-all
+//   - Drill-out per-event to Patient Profile, Course Detail, AE Hub
+//   - Each ack / escalate / resolve / bulk-ack / export emits its own audit event
+//   - No silent fakes; counts come from real audit-row aggregation
+
+const _cahEsc = (s) => String(s ?? '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+function _cahNoteRequiredValid(note) {
+  if (note == null) return false;
+  return String(note).trim().length > 0;
+}
+
+function _cahBuildAuditPayload(event, extra = {}) {
+  const out = { event };
+  if (extra.event_record_id) out.event_record_id = String(extra.event_record_id);
+  if (extra.note) out.note = String(extra.note).slice(0, 480);
+  if (extra.using_demo_data) out.using_demo_data = true;
+  return out;
+}
+
+function _cahBuildFilterParams(filters) {
+  const params = {};
+  if (filters?.severity) params.severity = filters.severity;
+  if (filters?.status) params.status = filters.status;
+  if (filters?.surface_chip) params.surface_chip = filters.surface_chip;
+  if (filters?.patient_id) params.patient_id = filters.patient_id;
+  if (filters?.q) params.q = filters.q;
+  return params;
+}
+
+function _cahShouldShowDemoBanner(serverListResp) {
+  return !!(serverListResp && serverListResp.is_demo_view);
+}
+
+function _cahShouldShowEmptyState(serverListResp) {
+  if (!serverListResp || !Array.isArray(serverListResp.items)) return true;
+  return serverListResp.items.length === 0;
+}
+
+function _cahCsvExportPath() { return '/api/v1/clinician-adherence/events/export.csv'; }
+function _cahNdjsonExportPath() { return '/api/v1/clinician-adherence/events/export.ndjson'; }
+
+// Hub-level state — kept tiny so the hub can mount/unmount cleanly.
+let _cahState = {
+  items: [],
+  total: 0,
+  isDemoView: false,
+  summary: null,
+  filterSeverity: '',
+  filterStatus: '',
+  filterSurfaceChip: '',
+  filterQ: '',
+  selectedIds: new Set(),
+  loaded: false,
+  error: null,
+};
+
+const _CAH_SURFACE_CHIPS = [
+  ['', 'All types'],
+  ['adherence_report', 'Adherence Report'],
+  ['side_effect', 'Side Effect'],
+  ['tolerance_change', 'Tolerance Change'],
+  ['break_request', 'Break Request'],
+  ['concern', 'Concern'],
+  ['positive_feedback', 'Positive Feedback'],
+];
+
+const _CAH_SEVERITIES = [
+  ['', 'All severities'],
+  ['low', 'Low'],
+  ['moderate', 'Moderate'],
+  ['high', 'High'],
+  ['urgent', 'Urgent'],
+];
+
+const _CAH_STATUSES = [
+  ['', 'All statuses'],
+  ['open', 'Open'],
+  ['acknowledged', 'Acknowledged'],
+  ['escalated', 'Escalated'],
+  ['resolved', 'Resolved'],
+];
+
+function _cahGroupByPatient(items) {
+  const map = new Map();
+  for (const it of items) {
+    const key = it.patient_id || '_unknown';
+    if (!map.has(key)) {
+      map.set(key, {
+        patient_id: key,
+        patient_name: it.patient_name || key,
+        items: [],
+        total: 0,
+        side_effects: 0,
+        escalated: 0,
+        sae: 0,
+      });
+    }
+    const g = map.get(key);
+    g.items.push(it);
+    g.total += 1;
+    if (it.event_type === 'side_effect') g.side_effects += 1;
+    if (it.status === 'escalated') g.escalated += 1;
+    if (it.event_type === 'side_effect' && it.severity === 'urgent') g.sae += 1;
+  }
+  return Array.from(map.values()).sort((a, b) => b.total - a.total);
+}
+
+export async function pgClinicianAdherenceHub(setTopbar, navigate) {
+  const el = document.getElementById('app');
+  if (!el) return;
+
+  if (typeof setTopbar === 'function') {
+    setTopbar(
+      'Clinician Adherence Hub',
+      'Cross-patient triage of adherence reports, side-effects, and escalations.',
+    );
+  }
+
+  // Mount-time audit ping. Best-effort.
+  try {
+    api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('view', {
+      note: 'adherence hub page mounted',
+    }));
+  } catch (_) { /* ignore */ }
+
+  // Render skeleton — never invent rows.
+  el.innerHTML = `
+    <div id="cah-root" style="max-width:1180px;margin:0 auto;padding:18px 24px">
+      <div id="cah-summary"></div>
+      <div id="cah-filters"></div>
+      <div id="cah-banner"></div>
+      <div id="cah-content">
+        <div style="text-align:center;padding:40px;color:var(--text-tertiary);font-size:12px">Loading adherence hub…</div>
+      </div>
+    </div>`;
+
+  await _cahLoadData();
+  _cahBindFilterHandlers(navigate);
+  _cahBindRowHandlers(navigate);
+}
+
+async function _cahLoadData() {
+  const root = document.getElementById('cah-root');
+  if (!root) return; // navigated away
+  const params = _cahBuildFilterParams({
+    severity: _cahState.filterSeverity,
+    status: _cahState.filterStatus,
+    surface_chip: _cahState.filterSurfaceChip,
+    q: _cahState.filterQ,
+  });
+  const [list, summary] = await Promise.all([
+    api.clinicianAdherenceList(params),
+    api.clinicianAdherenceSummary(),
+  ]);
+
+  // Honest empty payload when offline — never fabricate rows.
+  _cahState.items = (list && Array.isArray(list.items)) ? list.items : [];
+  _cahState.total = (list && Number(list.total)) || 0;
+  _cahState.isDemoView = !!(list && list.is_demo_view);
+  _cahState.summary = summary || {
+    total_today: 0,
+    total_7d: 0,
+    side_effects_7d: 0,
+    escalated_7d: 0,
+    sae_flagged: 0,
+    response_rate_pct: 0,
+    missed_streak_top_patients: [],
+  };
+  _cahState.loaded = true;
+
+  const summaryEl = document.getElementById('cah-summary');
+  if (summaryEl) summaryEl.innerHTML = _cahRenderSummaryStrip(_cahState.summary);
+  const filtersEl = document.getElementById('cah-filters');
+  if (filtersEl) filtersEl.innerHTML = _cahRenderFilterStrip(_cahState);
+  const bannerEl = document.getElementById('cah-banner');
+  if (bannerEl) bannerEl.innerHTML = _cahShouldShowDemoBanner(list) ? _cahRenderDemoBanner() : '';
+  const contentEl = document.getElementById('cah-content');
+  if (contentEl) {
+    if (_cahShouldShowEmptyState(list)) {
+      contentEl.innerHTML = _cahRenderEmptyState();
+    } else {
+      const grouped = _cahGroupByPatient(_cahState.items);
+      contentEl.innerHTML = grouped.map(_cahRenderPatientGroup).join('');
+    }
+  }
+}
+
+function _cahRenderSummaryStrip(s) {
+  const card = (label, value, sub) => `
+    <div class="card" style="padding:14px;text-align:center">
+      <div style="font-size:22px;font-weight:700;color:var(--text-primary)">${_cahEsc(String(value ?? '—'))}</div>
+      <div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin-top:4px">${_cahEsc(label)}</div>
+      ${sub ? `<div style="font-size:10px;color:var(--text-tertiary);margin-top:2px">${_cahEsc(sub)}</div>` : ''}
+    </div>`;
+  return `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px">
+      ${card('Today', s.total_today ?? 0, 'events')}
+      ${card('Past 7d', s.total_7d ?? 0, 'events')}
+      ${card('Side-effects 7d', s.side_effects_7d ?? 0, 'logged')}
+      ${card('Escalated 7d', s.escalated_7d ?? 0, 'open')}
+      ${card('SAE-flagged', s.sae_flagged ?? 0, 'urgent')}
+      ${card('Response rate', `${(s.response_rate_pct ?? 0).toFixed ? s.response_rate_pct.toFixed(1) : s.response_rate_pct}%`, 'actioned')}
+    </div>
+    ${s.missed_streak_top_patients && s.missed_streak_top_patients.length
+      ? `<div class="card" style="padding:12px 14px;margin-bottom:14px">
+          <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px">Missed-streak top patients</div>
+          ${s.missed_streak_top_patients.map(p => `
+            <div style="font-size:12px;color:var(--text-primary);margin-bottom:3px">
+              <button class="cah-drill-patient-btn" data-patient="${_cahEsc(p.patient_id)}" style="background:none;border:none;color:var(--accent,#3b82f6);text-decoration:underline;cursor:pointer;padding:0">${_cahEsc(p.patient_name)}</button>
+              · ${_cahEsc(String(p.streak_days))} day(s) without complete adherence
+            </div>`).join('')}
+        </div>`
+      : ''}
+  `;
+}
+
+function _cahRenderFilterStrip(state) {
+  const opts = (arr, sel) => arr.map(([v, l]) =>
+    `<option value="${_cahEsc(v)}"${v === sel ? ' selected' : ''}>${_cahEsc(l)}</option>`).join('');
+  return `
+    <div class="card" style="padding:12px 14px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+      <select id="cah-filter-severity" class="form-control" style="max-width:160px">
+        ${opts(_CAH_SEVERITIES, state.filterSeverity)}
+      </select>
+      <select id="cah-filter-status" class="form-control" style="max-width:160px">
+        ${opts(_CAH_STATUSES, state.filterStatus)}
+      </select>
+      <select id="cah-filter-surface-chip" class="form-control" style="max-width:180px">
+        ${opts(_CAH_SURFACE_CHIPS, state.filterSurfaceChip)}
+      </select>
+      <input id="cah-filter-q" class="form-control" style="max-width:220px" placeholder="Search body…" value="${_cahEsc(state.filterQ || '')}">
+      <button id="cah-bulk-ack-btn" class="btn btn-secondary" style="margin-left:auto">Bulk acknowledge (${state.selectedIds.size})</button>
+      <a id="cah-export-csv-btn" class="btn btn-link" href="${_cahCsvExportPath()}" target="_blank">Export CSV</a>
+      <a id="cah-export-ndjson-btn" class="btn btn-link" href="${_cahNdjsonExportPath()}" target="_blank">Export NDJSON</a>
+    </div>`;
+}
+
+function _cahRenderDemoBanner() {
+  return `
+    <div class="notice notice-warning" style="margin-bottom:14px;font-size:12.5px;line-height:1.55">
+      <strong>Demo data.</strong> Some events shown are from demo patients. Exports will be DEMO-prefixed; not regulator-submittable.
+    </div>`;
+}
+
+function _cahRenderEmptyState() {
+  return `
+    <div class="card" style="padding:36px 24px;text-align:center;color:var(--text-secondary)">
+      <div style="font-size:2.4rem;margin-bottom:14px">✓</div>
+      <div style="font-size:1.05rem;font-weight:600;margin-bottom:6px">No adherence events pending review.</div>
+      <div style="font-size:0.85rem;color:var(--text-tertiary);max-width:480px;margin:0 auto">
+        Adherence reports, side-effects, and escalations from your clinic's patients will appear here. Counts are real audit-table aggregates, not AI-fabricated cohort scoring.
+      </div>
+    </div>`;
+}
+
+function _cahRenderPatientGroup(g) {
+  return `
+    <div class="card" style="padding:0;margin-bottom:14px;overflow:hidden">
+      <div style="padding:12px 14px;border-bottom:1px solid var(--border-color);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <div>
+          <button class="cah-drill-patient-btn" data-patient="${_cahEsc(g.patient_id)}" style="background:none;border:none;color:var(--accent,#3b82f6);font-weight:600;text-decoration:underline;cursor:pointer;padding:0;font-size:14px">${_cahEsc(g.patient_name)}</button>
+          <span style="margin-left:8px;font-size:11px;color:var(--text-tertiary)">${_cahEsc(g.patient_id)}</span>
+        </div>
+        <div style="font-size:11px;color:var(--text-secondary)">
+          ${_cahEsc(String(g.total))} events · ${_cahEsc(String(g.side_effects))} side-effect${g.side_effects === 1 ? '' : 's'} · ${_cahEsc(String(g.escalated))} escalated · ${_cahEsc(String(g.sae))} SAE
+        </div>
+      </div>
+      <div>
+        ${g.items.map(_cahRenderEventRow).join('')}
+      </div>
+    </div>`;
+}
+
+function _cahRenderEventRow(it) {
+  const sevColor = (
+    it.severity === 'urgent' ? '#ff6b6b' :
+    it.severity === 'high'   ? '#f59e0b' :
+    it.severity === 'moderate' ? '#3b82f6' :
+    it.severity === 'low'    ? '#14b8a6' :
+    'var(--text-tertiary)'
+  );
+  const statusColor = (
+    it.status === 'open'         ? '#f59e0b' :
+    it.status === 'acknowledged' ? '#3b82f6' :
+    it.status === 'escalated'    ? '#ff6b6b' :
+    it.status === 'resolved'     ? '#14b8a6' :
+    'var(--text-tertiary)'
+  );
+  const isImmutable = it.status === 'resolved';
+  return `
+    <div style="padding:10px 14px;border-bottom:1px solid var(--border-color);display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start">
+      <input type="checkbox" class="cah-row-checkbox" data-event-id="${_cahEsc(it.id)}" ${isImmutable ? 'disabled' : ''} style="margin-top:5px">
+      <div style="flex:1;min-width:240px">
+        <div style="font-size:13px;font-weight:600;color:var(--text-primary)">
+          <span style="color:${sevColor}">${_cahEsc(it.event_type)}</span>
+          ${it.severity ? `<span style="margin-left:6px;font-size:11px;color:${sevColor}">[${_cahEsc(it.severity)}]</span>` : ''}
+          <span style="margin-left:6px;font-size:11px;color:${statusColor}">[${_cahEsc(it.status)}]</span>
+          ${it.is_demo ? `<span style="margin-left:6px;font-size:10px;color:var(--text-tertiary);background:var(--bg-tertiary);padding:1px 5px;border-radius:3px">DEMO</span>` : ''}
+        </div>
+        <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">${_cahEsc(it.report_date || '')} · ${_cahEsc((it.body || '').slice(0, 160))}${(it.body || '').length > 160 ? '…' : ''}</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${isImmutable ? '' : `<button class="cah-ack-btn btn btn-secondary" data-event-id="${_cahEsc(it.id)}">Acknowledge</button>`}
+        ${isImmutable ? '' : `<button class="cah-escalate-btn btn btn-warning" data-event-id="${_cahEsc(it.id)}">Escalate</button>`}
+        ${isImmutable ? '' : `<button class="cah-resolve-btn btn btn-secondary" data-event-id="${_cahEsc(it.id)}">Resolve</button>`}
+        <button class="cah-drill-patient-btn btn btn-link" data-patient="${_cahEsc(it.patient_id)}">Patient</button>
+        ${it.course_id ? `<button class="cah-drill-course-btn btn btn-link" data-course="${_cahEsc(it.course_id)}">Course</button>` : ''}
+        <button class="cah-drill-ae-btn btn btn-link" data-patient="${_cahEsc(it.patient_id)}">AE Hub</button>
+      </div>
+    </div>`;
+}
+
+function _cahBindFilterHandlers(navigate) {
+  const sevSel = document.getElementById('cah-filter-severity');
+  if (sevSel && !sevSel._bound) {
+    sevSel._bound = true;
+    sevSel.onchange = () => {
+      _cahState.filterSeverity = sevSel.value || '';
+      try { api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('filter_changed', { note: 'severity=' + (_cahState.filterSeverity || 'all') })); } catch (_) {}
+      _cahLoadData().then(() => { _cahBindFilterHandlers(navigate); _cahBindRowHandlers(navigate); });
+    };
+  }
+  const statSel = document.getElementById('cah-filter-status');
+  if (statSel && !statSel._bound) {
+    statSel._bound = true;
+    statSel.onchange = () => {
+      _cahState.filterStatus = statSel.value || '';
+      try { api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('filter_changed', { note: 'status=' + (_cahState.filterStatus || 'all') })); } catch (_) {}
+      _cahLoadData().then(() => { _cahBindFilterHandlers(navigate); _cahBindRowHandlers(navigate); });
+    };
+  }
+  const surfSel = document.getElementById('cah-filter-surface-chip');
+  if (surfSel && !surfSel._bound) {
+    surfSel._bound = true;
+    surfSel.onchange = () => {
+      _cahState.filterSurfaceChip = surfSel.value || '';
+      try { api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('filter_changed', { note: 'surface_chip=' + (_cahState.filterSurfaceChip || 'all') })); } catch (_) {}
+      _cahLoadData().then(() => { _cahBindFilterHandlers(navigate); _cahBindRowHandlers(navigate); });
+    };
+  }
+  const qInput = document.getElementById('cah-filter-q');
+  if (qInput && !qInput._bound) {
+    qInput._bound = true;
+    let _qDebounce = null;
+    qInput.oninput = () => {
+      _cahState.filterQ = qInput.value || '';
+      if (_qDebounce) clearTimeout(_qDebounce);
+      _qDebounce = setTimeout(() => {
+        try { api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('filter_changed', { note: 'q=' + (_cahState.filterQ || '').slice(0, 60) })); } catch (_) {}
+        _cahLoadData().then(() => { _cahBindFilterHandlers(navigate); _cahBindRowHandlers(navigate); });
+      }, 300);
+    };
+  }
+  const bulkBtn = document.getElementById('cah-bulk-ack-btn');
+  if (bulkBtn && !bulkBtn._bound) {
+    bulkBtn._bound = true;
+    bulkBtn.onclick = async () => {
+      if (_cahState.selectedIds.size === 0) {
+        if (window.showToast) window.showToast('Select at least one event to acknowledge.', 'warn');
+        return;
+      }
+      const note = (typeof window !== 'undefined' ? window.prompt('Acknowledge note (required):', '') : '');
+      if (!_cahNoteRequiredValid(note)) {
+        if (window.showToast) window.showToast('Acknowledgement note is required.', 'warn');
+        return;
+      }
+      const ids = Array.from(_cahState.selectedIds);
+      try {
+        const r = await api.clinicianAdherenceBulkAcknowledge(ids, note);
+        try { api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('bulk_acknowledged', { note: `processed=${ids.length}` })); } catch (_) {}
+        const failed = (r && Array.isArray(r.failures)) ? r.failures.length : 0;
+        if (window.showToast) {
+          if (failed > 0) window.showToast(`Bulk ack: ${r?.succeeded ?? 0} ok, ${failed} failed.`, 'warn');
+          else window.showToast(`Acknowledged ${r?.succeeded ?? ids.length} events.`, 'success');
+        }
+        _cahState.selectedIds.clear();
+        await _cahLoadData();
+        _cahBindFilterHandlers(navigate);
+        _cahBindRowHandlers(navigate);
+      } catch (_) {
+        if (window.showToast) window.showToast('Bulk acknowledge failed.', 'error');
+      }
+    };
+  }
+  const csvBtn = document.getElementById('cah-export-csv-btn');
+  if (csvBtn && !csvBtn._bound) {
+    csvBtn._bound = true;
+    csvBtn.addEventListener('click', () => {
+      try { api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('export', { note: 'format=csv' })); } catch (_) {}
+    });
+  }
+  const ndBtn = document.getElementById('cah-export-ndjson-btn');
+  if (ndBtn && !ndBtn._bound) {
+    ndBtn._bound = true;
+    ndBtn.addEventListener('click', () => {
+      try { api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('export', { note: 'format=ndjson' })); } catch (_) {}
+    });
+  }
+}
+
+function _cahBindRowHandlers(navigate) {
+  const cbs = document.querySelectorAll('.cah-row-checkbox');
+  cbs.forEach(cb => {
+    if (cb._bound) return;
+    cb._bound = true;
+    cb.onchange = () => {
+      const id = cb.getAttribute('data-event-id');
+      if (cb.checked) _cahState.selectedIds.add(id);
+      else _cahState.selectedIds.delete(id);
+      const bulk = document.getElementById('cah-bulk-ack-btn');
+      if (bulk) bulk.textContent = `Bulk acknowledge (${_cahState.selectedIds.size})`;
+    };
+  });
+
+  document.querySelectorAll('.cah-ack-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = async () => {
+      const id = btn.getAttribute('data-event-id');
+      const note = (typeof window !== 'undefined' ? window.prompt('Acknowledge note (required):', '') : '');
+      if (!_cahNoteRequiredValid(note)) {
+        if (window.showToast) window.showToast('Acknowledgement note is required.', 'warn');
+        return;
+      }
+      try {
+        await api.clinicianAdherenceAcknowledge(id, note);
+        try { api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('event_acknowledged_via_modal', { event_record_id: id })); } catch (_) {}
+        if (window.showToast) window.showToast('Event acknowledged.', 'success');
+        await _cahLoadData();
+        _cahBindFilterHandlers(navigate);
+        _cahBindRowHandlers(navigate);
+      } catch (_) {
+        if (window.showToast) window.showToast('Acknowledge failed.', 'error');
+      }
+    };
+  });
+
+  document.querySelectorAll('.cah-escalate-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = async () => {
+      const id = btn.getAttribute('data-event-id');
+      const note = (typeof window !== 'undefined' ? window.prompt('Escalation note (required) — creates AE Hub draft:', '') : '');
+      if (!_cahNoteRequiredValid(note)) {
+        if (window.showToast) window.showToast('Escalation note is required.', 'warn');
+        return;
+      }
+      try {
+        const r = await api.clinicianAdherenceEscalate(id, note);
+        try { api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('event_escalated_via_modal', { event_record_id: id })); } catch (_) {}
+        if (window.showToast) {
+          window.showToast(r?.adverse_event_id ? `Escalated · AE draft ${r.adverse_event_id}` : 'Event escalated.', 'success');
+        }
+        await _cahLoadData();
+        _cahBindFilterHandlers(navigate);
+        _cahBindRowHandlers(navigate);
+      } catch (_) {
+        if (window.showToast) window.showToast('Escalation failed.', 'error');
+      }
+    };
+  });
+
+  document.querySelectorAll('.cah-resolve-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = async () => {
+      const id = btn.getAttribute('data-event-id');
+      const note = (typeof window !== 'undefined' ? window.prompt('Resolution note (required) — event is immutable thereafter:', '') : '');
+      if (!_cahNoteRequiredValid(note)) {
+        if (window.showToast) window.showToast('Resolution note is required.', 'warn');
+        return;
+      }
+      try {
+        await api.clinicianAdherenceResolve(id, note);
+        try { api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('event_resolved_via_modal', { event_record_id: id })); } catch (_) {}
+        if (window.showToast) window.showToast('Event resolved.', 'success');
+        await _cahLoadData();
+        _cahBindFilterHandlers(navigate);
+        _cahBindRowHandlers(navigate);
+      } catch (_) {
+        if (window.showToast) window.showToast('Resolve failed.', 'error');
+      }
+    };
+  });
+
+  document.querySelectorAll('.cah-drill-patient-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = () => {
+      const pid = btn.getAttribute('data-patient');
+      try { api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('deep_link_followed', { note: 'patient=' + pid })); } catch (_) {}
+      if (pid) window._patientId = pid;
+      if (typeof navigate === 'function') navigate('patient-profile');
+      else if (typeof window !== 'undefined' && window._nav) window._nav('patient-profile');
+    };
+  });
+
+  document.querySelectorAll('.cah-drill-course-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = () => {
+      const cid = btn.getAttribute('data-course');
+      try { api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('deep_link_followed', { note: 'course=' + cid })); } catch (_) {}
+      if (cid) window._courseId = cid;
+      if (typeof navigate === 'function') navigate('course-detail');
+      else if (typeof window !== 'undefined' && window._nav) window._nav('course-detail');
+    };
+  });
+
+  document.querySelectorAll('.cah-drill-ae-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = () => {
+      const pid = btn.getAttribute('data-patient');
+      try { api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('deep_link_followed', { note: 'ae_hub=' + pid })); } catch (_) {}
+      if (pid) window._patientId = pid;
+      if (typeof navigate === 'function') navigate('adverse-events');
+      else if (typeof window !== 'undefined' && window._nav) window._nav('adverse-events');
+    };
+  });
+}

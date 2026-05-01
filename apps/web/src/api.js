@@ -1945,6 +1945,52 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
+  // ── Clinician Adherence Hub launch-audit (2026-05-01) ───────────────────────
+  // Bidirectional counterpart to Adherence Events (#350). Surfaces a
+  // CROSS-PATIENT triage queue scoped to the clinic so a clinician can
+  // clear today's adherence backlog in bulk (acknowledge / escalate /
+  // resolve / bulk-acknowledge) instead of opening one Inbox detail at
+  // a time. Cross-clinic blocked at router; admins see all clinics. All
+  // helpers return null on offline / 404 so the page can render an
+  // honest empty state.
+  clinicianAdherenceList: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/clinician-adherence/events${q ? '?' + q : ''}`).catch(() => null);
+  },
+  clinicianAdherenceSummary: () =>
+    apiFetch('/api/v1/clinician-adherence/events/summary').catch(() => null),
+  clinicianAdherenceGetEvent: (eventId) =>
+    apiFetch(`/api/v1/clinician-adherence/events/${encodeURIComponent(eventId)}`).catch(() => null),
+  clinicianAdherenceAcknowledge: (eventId, note) =>
+    apiFetch(`/api/v1/clinician-adherence/events/${encodeURIComponent(eventId)}/acknowledge`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note || '' }),
+    }),
+  clinicianAdherenceEscalate: (eventId, note, bodySystem) =>
+    apiFetch(`/api/v1/clinician-adherence/events/${encodeURIComponent(eventId)}/escalate`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note || '', body_system: bodySystem || null }),
+    }),
+  clinicianAdherenceResolve: (eventId, note) =>
+    apiFetch(`/api/v1/clinician-adherence/events/${encodeURIComponent(eventId)}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note || '' }),
+    }),
+  clinicianAdherenceBulkAcknowledge: (eventIds, note) =>
+    apiFetch('/api/v1/clinician-adherence/events/bulk-acknowledge', {
+      method: 'POST',
+      body: JSON.stringify({ event_ids: Array.isArray(eventIds) ? eventIds : [], note: note || '' }),
+    }),
+  clinicianAdherenceExportCsvUrl: () =>
+    `/api/v1/clinician-adherence/events/export.csv`,
+  clinicianAdherenceExportNdjsonUrl: () =>
+    `/api/v1/clinician-adherence/events/export.ndjson`,
+  postClinicianAdherenceAuditEvent: (data) =>
+    apiFetch('/api/v1/clinician-adherence/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
   // ── Home Program Tasks (patient portal — legacy completion submit) ────────
   portalListHomeProgramTasks: () => apiFetch('/api/v1/patient-portal/home-program-tasks'),
   portalCompleteHomeProgramTask: (serverTaskId, data) =>
