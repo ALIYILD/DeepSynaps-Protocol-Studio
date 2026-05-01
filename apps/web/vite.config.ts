@@ -60,6 +60,9 @@ export default defineConfig(({ mode }) => ({
   },
   server: {
     port: 5173,
+    // Open the app in your default browser when you run `npm run dev` locally.
+    // Set CI=1 (or run `vite --no-open`) to skip — useful for headless environments.
+    open: !process.env.CI,
     proxy: {
       "/api": {
         target: "http://127.0.0.1:8000",
