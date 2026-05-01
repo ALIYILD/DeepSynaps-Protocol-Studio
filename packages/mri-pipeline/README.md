@@ -28,9 +28,9 @@ provenance JSON) for restartable worker jobs; it is optional for product flows.
 **Subprocess adapters** are being centralized under `src/deepsynaps_mri/adapters/`
 (`dcm2niix`, shared subprocess helpers); more CLIs will migrate there incrementally.
 
-Dedicated modules named `preprocessing.py`, `segmentation.py`, … from the long-term
-roadmap may appear later — until then, boundaries are `pipeline.py` + adapters +
-domain helpers such as `structural_stats.py`.
+Modular roadmap files now include `ingestion.py`, `preprocessing.py`,
+`segmentation.py`, `morphometry_reporting.py`, `cortical_surfaces.py`, and
+`cortical_thickness.py` alongside the monolithic `pipeline.py` path.
 
 **Stage manifests:** `run_pipeline` writes JSON under `artefacts/manifests/`
 (`ingest_manifest.json`, `register_manifest.json`) plus `structural/structural_metrics_manifest.json`
