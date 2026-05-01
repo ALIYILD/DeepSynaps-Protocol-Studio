@@ -25,6 +25,16 @@ from .validation import (
     validate_upload_blob,
 )
 
+# Structural preprocessing (FSL BET + ANTs N4 + nibabel helpers). See docs/PREPROCESSING.md.
+from .preprocessing import (
+    bias_correct_n4,
+    brain_extract,
+    generate_preprocessing_qc,
+    normalize_intensity,
+    normalize_orientation,
+    run_structural_preprocessing,
+)
+
 __version__ = "0.1.0"
 __all__ = [
     "StimTarget", "MRIReport", "StructuralMetrics", "FunctionalMetrics",
@@ -34,4 +44,11 @@ __all__ = [
     "safe_brain_age", "to_fusion_payload",
     # Validation entry points.
     "ValidationResult", "validate_upload_blob", "validate_nifti_header",
+    # Preprocessing (optional neuro deps).
+    "brain_extract",
+    "bias_correct_n4",
+    "normalize_orientation",
+    "normalize_intensity",
+    "generate_preprocessing_qc",
+    "run_structural_preprocessing",
 ]
