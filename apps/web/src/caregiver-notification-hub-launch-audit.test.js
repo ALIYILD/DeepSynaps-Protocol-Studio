@@ -69,7 +69,9 @@ test('notification helpers route under /api/v1/caregiver-consent/notifications',
   const after = apiSrc.split('Caregiver Notification Hub launch-audit')[1] || '';
   // Slice ends at the next major header divider in api.js (the file
   // uses the long em-dash separator block ``// ──`` between sections).
-  const sectionEnd = after.search(/\n\s*\/\/\s*──\s*Wearables/);
+  // Stops at the next caregiver-section block (Email Digest landed in
+  // 2026-05-01) OR the Wearables section.
+  const sectionEnd = after.search(/\n\s*\/\/\s*──\s*Caregiver Email Digest|\n\s*\/\/\s*──\s*Wearables/);
   const block = sectionEnd > 0 ? after.slice(0, sectionEnd) : after;
   const urls = block.match(/['"`]\/api\/v1\/[^'"`]+/g) || [];
   assert.ok(urls.length >= 3, `expected at least 3 URLs in the block, got ${urls.length}`);
