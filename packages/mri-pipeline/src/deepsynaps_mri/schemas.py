@@ -205,6 +205,98 @@ class StructuralMetrics(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Morphometry / reporting (structural biomarkers aggregation)
+# ---------------------------------------------------------------------------
+class RegionalVolumeRow(BaseModel):
+    """One subcortical (or ROI) volume from aseg.stats / volumes.csv."""
+
+    region_id: str
+    """Stable id, e.g. ``aseg.Left-Hippocampus`` or ``synthseg.Hippocampus``."""
+    structure_name: str
+    volume_mm3: float
+    seg_id: int | None = None
+    n_voxels: int | None = None
+    source: Literal["freesurfer_aseg", "synthseg_csv", "manual"] = "freesurfer_aseg"
+
+    def to_dict(self) -> dict:
+        return self.model_dump()
+
+
+class RegionalVolumesResult(BaseModel):
+    ok: bool
+    source: Literal["freesurfer_aseg", "synthseg_csv", "none"]
+    rows: list[RegionalVolumeRow] = Field(default_factory=list)
+    icv_mm3: float | None = None
+    stats_path: str | None = None
+    manifest_path: str | None = None
+    code: str = ""
+    message: str = ""
+
+    def to_dict(self) -> dict:
+        return self.model_dump()
+
+
+class AsymmetryIndexRow(BaseModel):
+    """Regional asymmetry: ``100 * (L - R) / mean(L,R)`` when mean > 0."""
+
+    region_base: str
+    left_structure: str
+    right_structure: str
+    volume_left_mm3: float
+    volume_right_mm3: float
+    asymmetry_index_pct: float
+    flagged: bool = False
+    """True if ``abs(asymmetry_index_pct)`` exceeds threshold."""
+
+    def to_dict(self) -> dict:
+        return self.model_dump()
+
+
+class AsymmetryResult(BaseModel):
+    ok: bool
+    indices: list[AsymmetryIndexRow] = Field(default_factory=list)
+    threshold_abs_pct: float = 10.0
+    manifest_path: str | None = None
+    code: str = ""
+    message: str = ""
+
+    def to_dict(self) -> dict:
+        return self.model_dump()
+
+
+class MorphometryProvenance(BaseModel):
+    """Audit trail for morphometry tables (paths only — no PHI)."""
+
+    pipeline_step: str = "morphometry_reporting"
+    regional_volumes_source: str | None = None
+    regional_volumes_path: str | None = None
+    asymmetry_manifest_path: str | None = None
+    thickness_summary_path: str | None = None
+    segmentation_engine: str | None = None
+    norm_db_version: str | None = None
+
+    def to_dict(self) -> dict:
+        return self.model_dump()
+
+
+class MorphometrySummary(BaseModel):
+    """Aggregated morphometry for API/report consumers (JSON-serialisable)."""
+
+    ok: bool
+    atlas: str = "Desikan-Killiany"
+    n_regions_volume: int = 0
+    n_asymmetry_pairs: int = 0
+    qc_flags: list[str] = Field(default_factory=list)
+    provenance: MorphometryProvenance = Field(default_factory=MorphometryProvenance)
+    summary_path: str | None = None
+    code: str = ""
+    message: str = ""
+
+    def to_dict(self) -> dict:
+        return self.model_dump()
+
+
+# ---------------------------------------------------------------------------
 # Functional
 # ---------------------------------------------------------------------------
 class NetworkMetric(BaseModel):
@@ -358,6 +450,19 @@ class MRIReport(BaseModel):
             "example_see": "docs/MRI_ANALYZER.md §7"
         }
     )
+
+
+class MRIAnalysisReportPayload(BaseModel):
+    """Report-ready bundle: top-level MRI report + morphometry audit block."""
+
+    mri_report: MRIReport
+    morphometry: MorphometrySummary
+    regional_volumes: RegionalVolumesResult | None = None
+    asymmetry: AsymmetryResult | None = None
+    payload_json_path: str | None = None
+
+    def to_dict(self) -> dict:
+        return self.model_dump(mode="json")
 
 
 # ---------------------------------------------------------------------------

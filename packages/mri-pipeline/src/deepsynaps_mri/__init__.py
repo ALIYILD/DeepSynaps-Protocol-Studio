@@ -11,11 +11,15 @@ from .safety import (
     to_fusion_payload,
 )
 from .schemas import (
+    AsymmetryResult,
     DiffusionMetrics,
     FunctionalMetrics,
     Modality,
+    MRIAnalysisReportPayload,
     MRIReport,
+    MorphometrySummary,
     QCMetrics,
+    RegionalVolumesResult,
     StimTarget,
     StructuralMetrics,
 )
@@ -31,6 +35,12 @@ from .cortical_thickness import (
     compute_cortical_thickness,
     compute_thickness_qc,
     summarize_regional_thickness,
+)
+from .morphometry_reporting import (
+    compute_asymmetry_indices,
+    compute_regional_volumes,
+    generate_mri_analysis_report_payload,
+    summarize_morphometry,
 )
 
 __version__ = "0.1.0"
@@ -49,4 +59,13 @@ __all__ = [
     "CorticalThicknessComputeResult",
     "RegionalThicknessSummary",
     "ThicknessQCReport",
+    # Morphometry / report payload — see docs/MORPHOMETRY_REPORTING.md.
+    "compute_regional_volumes",
+    "compute_asymmetry_indices",
+    "summarize_morphometry",
+    "generate_mri_analysis_report_payload",
+    "RegionalVolumesResult",
+    "AsymmetryResult",
+    "MorphometrySummary",
+    "MRIAnalysisReportPayload",
 ]

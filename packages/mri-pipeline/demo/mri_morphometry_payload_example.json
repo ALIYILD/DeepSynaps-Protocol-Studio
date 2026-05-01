@@ -1,0 +1,75 @@
+{
+  "mri_report": {
+    "analysis_id": "00000000-0000-4000-8000-000000000001",
+    "patient": {
+      "patient_id": "DS-MORPH-EXAMPLE",
+      "age": 58,
+      "sex": "M",
+      "handedness": "R",
+      "chief_complaint": null
+    },
+    "modalities_present": ["T1"],
+    "qc": {
+      "t1_snr": 17.2,
+      "passed": true,
+      "notes": ["morphometry_reporting_example"],
+      "segmentation_failed_regions": []
+    },
+    "structural": {
+      "atlas": "Desikan-Killiany",
+      "cortical_thickness_mm": {
+        "lh_bankssts": {"value": 2.28, "unit": "mm", "flagged": false},
+        "rh_bankssts": {"value": 2.31, "unit": "mm", "flagged": false}
+      },
+      "subcortical_volume_mm3": {
+        "hippocampus_l": {"value": 4150.0, "unit": "mm^3", "flagged": false},
+        "hippocampus_r": {"value": 4080.0, "unit": "mm^3", "flagged": false},
+        "asym_hippocampus_pct": {"value": 1.7, "unit": "%_AI", "flagged": false}
+      },
+      "wmh_volume_ml": null,
+      "ventricular_volume_ml": null,
+      "icv_ml": 1600.0,
+      "segmentation_engine": "fastsurfer",
+      "brain_age": null
+    },
+    "functional": null,
+    "diffusion": null,
+    "stim_targets": [],
+    "medrag_query": {
+      "findings": [
+        {"type": "region_metric", "value": "volume_hippocampus_l", "zscore": null, "polarity": 0}
+      ],
+      "conditions": []
+    },
+    "overlays": {},
+    "report_pdf_s3": null,
+    "report_html_s3": null,
+    "pipeline_version": "0.1.0",
+    "norm_db_version": "ISTAGING-v1",
+    "qc_warnings": [],
+    "clinical_summary": {},
+    "saved_evidence_citations": []
+  },
+  "morphometry": {
+    "ok": true,
+    "atlas": "Desikan-Killiany",
+    "n_regions_volume": 4,
+    "n_asymmetry_pairs": 2,
+    "qc_flags": [],
+    "provenance": {
+      "pipeline_step": "morphometry_reporting",
+      "regional_volumes_source": "freesurfer_aseg",
+      "regional_volumes_path": "/path/to/stats/aseg.stats",
+      "asymmetry_manifest_path": "/path/to/morphometry/asymmetry_indices.json",
+      "thickness_summary_path": "/path/to/cortical_thickness/regional_thickness_summary.json",
+      "segmentation_engine": "fastsurfer",
+      "norm_db_version": null
+    },
+    "summary_path": "/path/to/morphometry/morphometry_summary.json",
+    "code": "",
+    "message": "ok"
+  },
+  "regional_volumes": null,
+  "asymmetry": null,
+  "payload_json_path": "/path/to/morphometry/mri_analysis_report_payload.json"
+}
