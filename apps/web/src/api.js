@@ -1972,6 +1972,39 @@ export const api = {
     ).catch(() => null);
   },
 
+  // ── Patient Delivery-Failure Flag launch-audit (2026-05-01) ────────────
+  // Patient-side aggregator of failed caregiver digest dispatches + a
+  // "Report problem" POST that emits both a patient-scope
+  // patient_digest.caregiver_delivery_concern audit row and a clinician
+  // mirror that lands in the Inbox HIGH-priority feed via the existing
+  // _to_clinician_mirror predicate (no Inbox surgery required). The
+  // care-team-coverage mirror endpoint lives under its own surface but
+  // ships in this PR so the clinician page can render the concerns
+  // subsection without a roundtrip through the audit-trail listing.
+  patientDigestCaregiverDeliveryFailures: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(
+      `/api/v1/patient-digest/caregiver-delivery-failures${q ? '?' + q : ''}`
+    ).catch(() => null);
+  },
+  patientDigestCaregiverDeliveryConcern: (data) =>
+    apiFetch('/api/v1/patient-digest/caregiver-delivery-concerns', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+
+  // ── Care Team Coverage delivery-concerns mirror feed (2026-05-01) ─────
+  // Clinician-visible feed of patient-flagged caregiver delivery
+  // problems. Sourced from the
+  // clinician_inbox.caregiver_delivery_concern_to_clinician_mirror audit
+  // rows the Patient Delivery-Failure Flag emits.
+  careTeamCoverageDeliveryConcerns: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(
+      `/api/v1/care-team-coverage/delivery-concerns${q ? '?' + q : ''}`
+    ).catch(() => null);
+  },
+
   // ── Caregiver Consent Grants launch-audit (2026-05-01) ─────────────────
   // Closes the caregiver-share loop opened by Patient Digest #376. Patient
   // grants create durable rows in `caregiver_consent_grants` with a JSON

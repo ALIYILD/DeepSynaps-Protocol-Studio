@@ -24534,10 +24534,11 @@ export async function pgPatientDigest(setTopbarFn) {
 
   const days = window._pdCurrentRange || 7;
   const range = _pdRangeIso(days);
-  const [summary, sections, caregiverDelivery] = await Promise.all([
+  const [summary, sections, caregiverDelivery, caregiverFailures] = await Promise.all([
     api.patientDigestSummary(range),
     api.patientDigestSections(range),
     api.patientDigestCaregiverDeliverySummary(range),
+    api.patientDigestCaregiverDeliveryFailures(range),
   ]);
 
   if (!summary) {
@@ -24644,6 +24645,43 @@ export async function pgPatientDigest(setTopbarFn) {
     No activity to summarise yet for this period. Log a session, complete a check-in, or message your care team &mdash; and your digest will populate here.
   </div>`;
 
+  // Caregiver delivery problems — patient-side aggregator of the
+  // failed dispatches the SendGrid adapter logged in the audit
+  // transcript. Each row gets a "Report problem" CTA that opens a
+  // modal for a required concern note. The modal POSTs to
+  // /caregiver-delivery-concerns which emits both the patient-scope
+  // audit row + the clinician-mirror HIGH-priority row.
+  const failureRows = (caregiverFailures && Array.isArray(caregiverFailures.rows))
+    ? caregiverFailures.rows : [];
+  window._pdLastFailures = failureRows.slice();
+  const caregiverFailuresHtml = (failureRows.length === 0)
+    ? ''
+    : `<div data-testid="pd-delivery-failures" style="margin-top:18px;padding:14px 16px;border:1px solid rgba(239,68,68,0.35);border-radius:12px;background:rgba(239,68,68,0.06)">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px">
+          <div style="font-size:13px;font-weight:600;color:#f87171">Caregiver delivery problems</div>
+          <div style="font-size:11px;color:var(--text-muted)">${failureRows.length} failed dispatch${failureRows.length === 1 ? '' : 'es'}</div>
+        </div>
+        <div style="font-size:11.5px;color:var(--text-muted);line-height:1.5;margin-bottom:8px">
+          The audit transcript shows these dispatches did not reach the caregiver. Use &ldquo;Report problem&rdquo; to flag a concern &mdash; the clinician inbox will surface it under HIGH priority for follow-up.
+        </div>
+        ${failureRows.map(r => {
+          const name = r.caregiver_first_name ? _pdEsc(r.caregiver_first_name) : 'Caregiver';
+          const ts = r.dispatch_attempt_at ? _pdEsc(String(r.dispatch_attempt_at).slice(0, 19).replace('T', ' ')) : '—';
+          const errLabel = r.error_summary ? _pdEsc(String(r.error_summary).slice(0, 120)) : 'unknown error';
+          const dispatch = _pdEsc(r.dispatch_id || '');
+          return `<div data-testid="pd-failure-row" style="padding:10px 0;border-top:1px solid rgba(239,68,68,0.2)">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
+              <div style="flex:1;min-width:0">
+                <div style="font-size:12.5px;color:var(--text-primary)"><strong>${name}</strong></div>
+                <div style="font-size:11px;color:var(--text-muted)">Attempted: ${ts}</div>
+                <div style="font-size:11px;color:#f87171;margin-top:2px">${errLabel}</div>
+              </div>
+              <button data-testid="pd-report-problem" onclick="window._pdOpenConcernModal('${dispatch}')" style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.45);color:#f87171;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer">Report problem</button>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`;
+
   el.innerHTML = `<div style="max-width:760px;margin:0 auto;padding:20px 16px">
     ${banner}
     ${rangePicker}
@@ -24654,6 +24692,64 @@ export async function pgPatientDigest(setTopbarFn) {
       ${wellnessSection}
     `}
     ${ctas}
+    ${caregiverFailuresHtml}
     ${caregiverDeliveryHtml}
+    <div id="pd-concern-modal-mount"></div>
   </div>`;
 }
+
+// Concern modal — required note textarea, ESC closes, Enter does NOT
+// submit (long-form text). The submit handler POSTs the concern and
+// re-renders the page so the failure row shows an "(reported)" badge
+// next to the existing CTA via a window-level set we keep in memory.
+window._pdReportedDispatchIds = window._pdReportedDispatchIds || new Set();
+
+window._pdOpenConcernModal = function(dispatchId) {
+  api.postPatientDigestAuditEvent({ event: 'delivery_concern_initiated', note: 'dispatch=' + String(dispatchId) });
+  const mount = document.getElementById('pd-concern-modal-mount');
+  if (!mount) return;
+  const dispEsc = _pdEsc(String(dispatchId || ''));
+  mount.innerHTML = `<div data-testid="pd-concern-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:1000">
+    <div style="max-width:480px;width:90%;background:var(--surface,#0f172a);border:1px solid var(--border);border-radius:14px;padding:18px">
+      <div style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:6px">Report a delivery problem</div>
+      <div style="font-size:11.5px;color:var(--text-muted);line-height:1.5;margin-bottom:10px">
+        Tell us what went wrong. Your clinician's inbox will pick this concern up under HIGH priority. The dispatch reference is recorded automatically.
+      </div>
+      <textarea data-testid="pd-concern-textarea" id="pd-concern-text" rows="4" style="width:100%;background:transparent;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:12.5px;color:var(--text-primary);resize:vertical" placeholder="Describe the problem (required)…"></textarea>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px">
+        <button data-testid="pd-concern-cancel" onclick="window._pdCloseConcernModal()" style="padding:7px 12px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--text-primary);font-size:12.5px;cursor:pointer">Cancel</button>
+        <button data-testid="pd-concern-submit" onclick="window._pdSubmitConcern('${dispEsc}')" style="padding:7px 12px;border-radius:7px;border:1px solid rgba(45,212,191,0.45);background:rgba(45,212,191,0.1);color:var(--teal);font-size:12.5px;cursor:pointer">Submit concern</button>
+      </div>
+    </div>
+  </div>`;
+};
+
+window._pdCloseConcernModal = function() {
+  const mount = document.getElementById('pd-concern-modal-mount');
+  if (mount) mount.innerHTML = '';
+};
+
+window._pdSubmitConcern = async function(dispatchId) {
+  const ta = document.getElementById('pd-concern-text');
+  const text = ((ta && ta.value) || '').trim();
+  if (!text) {
+    window.alert('Please describe the problem before submitting.');
+    return;
+  }
+  try {
+    const res = await api.patientDigestCaregiverDeliveryConcern({
+      dispatch_id: String(dispatchId || ''),
+      concern_text: text,
+    });
+    if (res && res.accepted) {
+      window._pdReportedDispatchIds.add(String(dispatchId || ''));
+      window.alert('Concern recorded. Your clinician will pick this up under HIGH priority.');
+    } else {
+      window.alert('Could not record concern. Please try again.');
+    }
+  } catch (e) {
+    window.alert('Could not record concern: ' + (e && e.message ? e.message : 'unknown error'));
+  }
+  window._pdCloseConcernModal();
+  await pgPatientDigest(setTopbar);
+};
