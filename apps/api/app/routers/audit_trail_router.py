@@ -315,6 +315,18 @@ KNOWN_SURFACES = {
     # scanning oncall_pages. delivery_status='queued' until a real
     # Slack/Twilio/PagerDuty adapter is wired (PR section F).
     "auto_page_worker",
+    # On-Call Delivery launch-audit (2026-05-01). Closes the LAST gap in
+    # the on-call escalation chain (Care Team Coverage #357 → Auto-Page
+    # Worker #372 → THIS surface). Records each adapter dispatch attempt
+    # under target_type='oncall_delivery' so regulators see a per-attempt
+    # transcript: which adapter (slack|twilio|pagerduty), what status
+    # (sent|failed|queued|mock), the provider-side message id (Slack ts,
+    # Twilio SID, PagerDuty dedup_key), and any failure reason. The page
+    # row itself is still recorded under ``clinician_inbox`` as
+    # ``inbox.item_paged_to_oncall`` (single-sourced); this surface is
+    # ONLY for the per-adapter delivery telemetry. Events: dispatch,
+    # adapter_test, adapter_failed, mock_send.
+    "oncall_delivery",
 }
 
 

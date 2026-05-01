@@ -208,6 +208,56 @@ class WorkerAuditOut(BaseModel):
     event_id: str
 
 
+class TestAdapterIn(BaseModel):
+    """Optional body for the admin test-adapter endpoint.
+
+    All fields are optional — defaults exercise the full chain with a
+    synthetic page body. Admins may override the body to send a custom
+    test message; ``adapter`` lets them target a single adapter when
+    multiple are configured.
+    """
+
+    body: Optional[str] = Field(
+        default=None,
+        max_length=512,
+        description="Override the synthetic page body.",
+    )
+    adapter: Optional[str] = Field(
+        default=None,
+        max_length=32,
+        description="Restrict the test to a single adapter (slack|twilio|pagerduty).",
+    )
+
+
+class AdapterAttempt(BaseModel):
+    name: str
+    enabled: bool
+    status: Optional[str] = None  # "sent" | "failed" | None when not attempted
+    external_id: Optional[str] = None
+    note: Optional[str] = None
+    latency_ms: int = 0
+
+
+class TestAdapterOut(BaseModel):
+    accepted: bool = True
+    clinic_id: Optional[str] = None
+    overall_status: str  # "sent" | "failed" | "queued"
+    delivery_note: Optional[str] = None
+    attempts: list[AdapterAttempt] = Field(default_factory=list)
+    audit_event_id: str
+
+
+class AdapterHealthRow(BaseModel):
+    name: str
+    enabled: bool
+
+
+class AdapterHealthOut(BaseModel):
+    clinic_id: Optional[str] = None
+    mock_mode: bool = False
+    adapters: list[AdapterHealthRow] = Field(default_factory=list)
+
+
 # ── Endpoints ───────────────────────────────────────────────────────────────
 
 
@@ -451,6 +501,129 @@ def worker_tick_once(
         elapsed_ms=result.elapsed_ms,
         last_error=result.last_error,
         paged_audit_event_ids=list(result.paged_audit_event_ids),
+        audit_event_id=eid,
+    )
+
+
+@router.get("/adapters", response_model=AdapterHealthOut)
+def adapter_health(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> AdapterHealthOut:
+    """Per-adapter health snapshot for the Care Team Coverage panel.
+
+    Surfaces every registered adapter (Slack / Twilio / PagerDuty) with
+    its ``enabled`` flag — never silently hides a missing-env-var
+    adapter. ``mock_mode`` flips True when ``DEEPSYNAPS_DELIVERY_MOCK=1``
+    so the UI can render the yellow ``MOCK`` chip on every page row.
+    Tokens are NEVER exposed — only the boolean enabled flag.
+    """
+    _gate_read(actor)
+    cid = _scope_clinic(actor, None)
+    from app.services.oncall_delivery import (  # noqa: PLC0415
+        OncallDeliveryService,
+        is_mock_mode_enabled,
+    )
+
+    service = OncallDeliveryService(clinic_id=cid)
+    rows = [
+        AdapterHealthRow(name=row["name"], enabled=bool(row["enabled"]))
+        for row in service.describe_adapters()
+    ]
+    return AdapterHealthOut(
+        clinic_id=cid,
+        mock_mode=is_mock_mode_enabled(),
+        adapters=rows,
+    )
+
+
+@router.post("/test-adapter", response_model=TestAdapterOut)
+def test_adapter(
+    body: Optional[TestAdapterIn] = None,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> TestAdapterOut:
+    """Admin-only: send a synthetic test message via configured adapters.
+
+    Returns per-adapter result so reviewers can see at a glance which
+    adapter answered. Emits an ``auto_page_worker.adapter_test`` audit
+    row keyed on the actor's clinic so regulators see every test send.
+
+    Tokens are loaded from env vars at adapter construction time and
+    NEVER returned to the caller — only the enabled flag, status,
+    latency, and provider-side message id (Slack ``ts`` / Twilio SID /
+    PagerDuty ``dedup_key``) are surfaced.
+    """
+    _gate_write(actor)
+    cid = _scope_clinic(actor, None)
+    if not cid:
+        raise ApiServiceError(
+            code="no_clinic",
+            message="Admin must belong to a clinic to test the on-call adapter.",
+            status_code=400,
+        )
+    from app.services.oncall_delivery import (  # noqa: PLC0415
+        OncallDeliveryService,
+        PageMessage,
+    )
+
+    payload = body or TestAdapterIn()
+    service = OncallDeliveryService(clinic_id=cid)
+    if payload.adapter:
+        only = (payload.adapter or "").strip().lower()
+        service.adapters = [a for a in service.adapters if getattr(a, "name", "") == only]
+    test_body = (
+        payload.body
+        if payload.body
+        else (
+            "[DeepSynaps adapter test] If you receive this, the on-call "
+            f"delivery chain is wired correctly for clinic={cid}."
+        )
+    )
+    message = PageMessage(
+        clinic_id=cid,
+        surface="auto_page_worker",
+        audit_event_id=f"adapter-test-{actor.actor_id}-{int(datetime.now(timezone.utc).timestamp())}",
+        body=test_body,
+        severity="low",
+        recipient_display_name=actor.display_name,
+    )
+    result = service.send(message)
+    # Build per-adapter attempt rows; include disabled adapters so the
+    # UI can show "skipped: env var missing" honestly.
+    attempted_names = {a.adapter for a in (result.attempts or []) if a.adapter}
+    attempts_out: list[AdapterAttempt] = []
+    for adapter in service.adapters:
+        match = next(
+            (a for a in (result.attempts or []) if a.adapter == getattr(adapter, "name", "")),
+            None,
+        )
+        attempts_out.append(AdapterAttempt(
+            name=getattr(adapter, "name", "unknown"),
+            enabled=bool(getattr(adapter, "enabled", False)),
+            status=(match.status if match else None),
+            external_id=(match.external_id if match else None),
+            note=(match.note if match else None),
+            latency_ms=(match.latency_ms if match else 0),
+        ))
+    is_demo = cid in _DEMO_CLINIC_IDS
+    eid = _audit(
+        db, actor,
+        event="adapter_test",
+        target_id=cid,
+        note=(
+            f"overall={result.status}; "
+            f"adapters={','.join(sorted(attempted_names)) or '-'}; "
+            f"note={(result.note or '')[:200]}"
+        ),
+        using_demo_data=is_demo,
+    )
+    return TestAdapterOut(
+        accepted=True,
+        clinic_id=cid,
+        overall_status=result.status,
+        delivery_note=result.note,
+        attempts=attempts_out,
         audit_event_id=eid,
     )
 

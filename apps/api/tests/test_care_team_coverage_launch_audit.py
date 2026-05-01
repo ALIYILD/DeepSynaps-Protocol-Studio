@@ -525,7 +525,14 @@ class TestManualPageOnCall:
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["accepted"] is True
-        assert body["delivery_status"] == "logged"
+        # Post-#oncall-delivery (2026-05-01): the manual click now funnels
+        # through OncallDeliveryService. With no SLACK_BOT_TOKEN /
+        # TWILIO_* / PAGERDUTY_* env vars configured in CI, every adapter
+        # is disabled and the service honestly returns "queued" (NOT
+        # the legacy #357 "logged" default). This is the truthful
+        # contract: "audit row written, oncall_pages row written, but no
+        # external channel actually delivered".
+        assert body["delivery_status"] == "queued"
         assert body["paged_user_id"] == "actor-clinician-demo"
         assert body["paged_role"] == "primary"
         assert body["audit_event_id"].startswith("inbox-item_paged_to_oncall-")

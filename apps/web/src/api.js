@@ -3274,6 +3274,20 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }).catch(() => null),
+  // On-Call Delivery launch-audit (2026-05-01). Closes the LAST gap in
+  // the on-call escalation chain: ``Care Team Coverage (#357) →
+  // Auto-Page Worker (#372) → THIS PR``. The adapter-health endpoint
+  // is read every 30s by the Care Team Coverage panel; the
+  // test-adapter endpoint is admin-only and sends a synthetic page
+  // through the configured Slack / Twilio / PagerDuty adapters so a
+  // reviewer can confirm the wire-up without waiting for an SLA breach.
+  autoPageWorkerAdapterHealth: () =>
+    apiFetch('/api/v1/auto-page-worker/adapters').catch(() => null),
+  autoPageWorkerTestAdapter: (data) =>
+    apiFetch('/api/v1/auto-page-worker/test-adapter', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).

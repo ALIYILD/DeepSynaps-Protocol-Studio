@@ -3944,4 +3944,13 @@ class OncallPage(Base):
     trigger: Mapped[str] = mapped_column(String(16), nullable=False)  # manual|auto
     note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     delivery_status: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    # On-call delivery adapter wire-up (2026-05-01).
+    # ``external_id``: provider-side message id (Slack ts, Twilio SID,
+    # PagerDuty dedup_key) — None until a real adapter returned 2xx.
+    # ``delivery_note``: free-form per-row delivery transcript. For mock
+    # mode the note ALWAYS starts with ``MOCK:`` so the UI + reviewer can
+    # see at a glance the row was not a real delivery. For "all adapters
+    # failed" rows the note encodes ``slack=403, twilio=timeout`` etc.
+    external_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    delivery_note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     created_at: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
