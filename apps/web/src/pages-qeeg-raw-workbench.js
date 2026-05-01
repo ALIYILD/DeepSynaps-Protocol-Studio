@@ -60,6 +60,29 @@ const CHANNEL_ANATOMY = {
   'O2-Av':  { region: 'Right primary visual cortex', brodmann: 'BA 17, BA 18', networks: 'Visual', artifacts: 'ECG, sweat, electrode pop', clinical: 'PDR origin. End-of-chain caution: occipital alpha asymmetry can indicate posterior circulation pathology.' },
 };
 
+// ── Channel Wave Types (from learningeeg.com normal-awake & terminology) ──
+const CHANNEL_WAVES = {
+  'Fp1-Av': { primary: 'Beta (>13 Hz)', notes: 'Low-amplitude fast frontal activity is normal, but prominent beta here is often myogenic artifact from frontalis muscle. Eye blinks produce large slow frontal positive waves.', evidence: 'learningeeg.com — frontal beta commonly reflects myogenic artifact; normal awake EEG shows faster, lower-amplitude frontal activity.' },
+  'Fp2-Av': { primary: 'Beta (>13 Hz)', notes: 'Same as Fp1. Frontal regions show faster, lower-amplitude activity in normal awake EEG. Eye blink artifacts are common.', evidence: 'learningeeg.com — frontal beta commonly reflects myogenic artifact; normal awake EEG shows faster, lower-amplitude frontal activity.' },
+  'F7-Av':  { primary: 'Theta (4–8 Hz), Beta', notes: 'Theta may appear as rhythmic temporal theta of drowsiness (RMTD) when sleepy. Lateral eye movements cause opposing slow waveforms at F7/F8.', evidence: 'learningeeg.com — theta more prominent in childhood; RMTD in drowsiness; lateral eye movements cause slow deflections.' },
+  'F8-Av':  { primary: 'Theta (4–8 Hz), Beta', notes: 'Same as F7. RMTD can appear in drowsiness. Lateral eye movements produce polarity differences here.', evidence: 'learningeeg.com — theta more prominent in childhood; RMTD in drowsiness; lateral eye movements cause slow deflections.' },
+  'F3-Av':  { primary: 'Beta (>13 Hz)', notes: 'Frontal beta is normal but low amplitude. Theta excess at F3 has been studied in depression (frontal alpha asymmetry/FAA) and ADHD.', evidence: 'learningeeg.com — beta most commonly seen in frontal regions; frontal faster activity is part of normal AP gradient.' },
+  'F4-Av':  { primary: 'Beta (>13 Hz)', notes: 'Frontal beta is normal but low amplitude. Compared with F3 for frontal alpha asymmetry (FAA) in mood disorder research.', evidence: 'learningeeg.com — beta most commonly seen in frontal regions; frontal faster activity is part of normal AP gradient.' },
+  'Fz-Av':  { primary: 'Mu (8–13 Hz), Beta', notes: 'Mu rhythm may be recorded at midline central/frontocentral sites. Vertex waves (V-waves) appear in sleep. SMA/pre-SMA region.', evidence: 'learningeeg.com — mu rhythm 8-13 Hz over sensorimotor cortex; vertex waves normal in sleep.' },
+  'T3-Av':  { primary: 'Theta (4–8 Hz)', notes: 'Temporal theta in drowsiness (RMTD) is normal. Persistent temporal slowing or asymmetry is pathological. TIRDA here suggests left temporal epileptogenic focus.', evidence: 'learningeeg.com — theta more prominent in childhood; RMTD in drowsiness; temporal slowing can indicate pathology.' },
+  'T4-Av':  { primary: 'Theta (4–8 Hz)', notes: 'Same as T3. Temporal theta in drowsiness is normal. Persistent slowing is abnormal. Often obscured by myogenic artifact.', evidence: 'learningeeg.com — theta more prominent in childhood; RMTD in drowsiness; temporal chains often obscured by myogenic artifact.' },
+  'C3-Av':  { primary: 'Mu (8–13 Hz), Beta', notes: 'Mu rhythm over left sensorimotor cortex — attenuates with contralateral movement. Part of normal AP gradient. Common rTMS target.', evidence: 'learningeeg.com — mu rhythm 8-13 Hz over sensorimotor cortex; normal awake EEG shows moderate frequency/amplitude centrally.' },
+  'C4-Av':  { primary: 'Mu (8–13 Hz), Beta', notes: 'Mu rhythm over right sensorimotor cortex — attenuates with contralateral movement. Compare with C3 for symmetry.', evidence: 'learningeeg.com — mu rhythm 8-13 Hz over sensorimotor cortex; normal awake EEG shows moderate frequency/amplitude centrally.' },
+  'Cz-Av':  { primary: 'Mu (8–13 Hz), Vertex waves', notes: 'Mu rhythm may appear at vertex. Vertex waves in Stage II sleep are normal here. Lower extremity motor/sensory representation.', evidence: 'learningeeg.com — mu rhythm 8-13 Hz over sensorimotor cortex; vertex waves normal in sleep at Cz.' },
+  'T5-Av':  { primary: 'Alpha spillover, Theta', notes: 'Left temporoparietal junction. Alpha from posterior regions may be detected. Posterior temporal slowing is abnormal.', evidence: 'learningeeg.com — normal awake EEG posterior dominant rhythm; persistent temporal slowing is pathological.' },
+  'T6-Av':  { primary: 'Alpha spillover, Theta', notes: 'Right temporoparietal junction. Alpha from posterior regions may be detected. Visuospatial attention networks.', evidence: 'learningeeg.com — normal awake EEG posterior dominant rhythm; persistent temporal slowing is pathological.' },
+  'P3-Av':  { primary: 'Alpha (8–13 Hz)', notes: 'Left superior parietal — part of posterior dominant rhythm (PDR). Slower, higher-amplitude than frontal as part of normal AP gradient.', evidence: 'learningeeg.com — alpha hallmark of normal awake adult; PDR over posterior head regions; normal AP gradient slower in back.' },
+  'P4-Av':  { primary: 'Alpha (8–13 Hz)', notes: 'Right superior parietal — part of posterior dominant rhythm (PDR). Normal AP gradient: slower in back, faster in front.', evidence: 'learningeeg.com — alpha hallmark of normal awake adult; PDR over posterior head regions; normal AP gradient slower in back.' },
+  'Pz-Av':  { primary: 'Alpha (8–13 Hz) — PDR maximum', notes: 'Precuneus/PCC. Posterior dominant rhythm is typically maximal at Pz. Strongest alpha in eyes-closed condition. DMN hub.', evidence: 'learningeeg.com — alpha hallmark of normal awake adult; PDR over posterior head regions; strongest at parietal-occipital.' },
+  'O1-Av':  { primary: 'Alpha (8–13 Hz) — PDR origin', notes: 'Left primary visual cortex. PDR originates here (8.5–12 Hz, symmetric). Attenuates with eye opening (Berger effect). No delta in healthy awake adult.', evidence: 'learningeeg.com — alpha 8-13 Hz, hallmark of normal awake adult; PDR at occipital; attenuates on eye opening.' },
+  'O2-Av':  { primary: 'Alpha (8–13 Hz) — PDR origin', notes: 'Right primary visual cortex. PDR originates here (8.5–12 Hz, symmetric). Occipital alpha asymmetry can indicate posterior circulation pathology.', evidence: 'learningeeg.com — alpha 8-13 Hz, hallmark of normal awake adult; PDR at occipital; attenuates on eye opening.' },
+};
+
 const TITLE_MENUS = ['File','Edit','View','Format','Recording','Analysis','Setup','Window','Language','Help'];
 
 const ARTEFACT_EXAMPLES = [
@@ -244,6 +267,38 @@ export function bootDemoState(state) {
       { t:  60, kind: 'eyes-closed', label: 'Eyes Closed' },
       { t: 240, kind: 'photic',      label: 'Photic 6 Hz' },
     );
+  }
+
+  // 4) WinEEG-style manual analysis checklist (matches backend wineeg_reference.py)
+  if (!Array.isArray(state.manualChecklist) || state.manualChecklist.length === 0) {
+    state.manualChecklist = [
+      { category: 'recording_setup', title: 'Recording setup', action: 'Confirm recording metadata, condition, and preservation of original raw EEG.', safety_notes: ['Decision-support only.', 'Clinician review required before reporting.'] },
+      { category: 'impedance', title: 'Impedance check', action: 'Check impedance status or explicitly document that impedance data is unavailable.', safety_notes: ['High or unknown impedance can mimic artifact or asymmetry.'] },
+      { category: 'montage', title: 'Montage review', action: 'Confirm current montage and reference before asymmetry or coherence review.', safety_notes: ['Unknown montage should downgrade confidence.'] },
+      { category: 'filters', title: 'Filter review', action: 'Review high-pass, low-pass, notch, and resampling settings.', safety_notes: ['Filtering changes interpretation.'] },
+      { category: 'artifact_marking', title: 'Manual artifact marking', action: 'Mark blink, muscle, movement, line-noise, and flat/electrode-pop artifacts.', safety_notes: ['Artifact quality matters.', 'Clinician review required.'] },
+      { category: 'ica_pca', title: 'ICA/PCA artifact review', action: 'Review ICA/PCA cleanup support and document any accepted removals.', safety_notes: ['Do not over-clean.', 'Component removal requires clinician review.'] },
+      { category: 'events_and_labels', title: 'Events and labels', action: 'Add event markers or segment labels relevant to interpretation.', safety_notes: ['Event labels should describe observed context, not diagnosis.'] },
+      { category: 'spectra', title: 'Spectral review', action: 'Inspect spectra and topographic context after quality control.', safety_notes: ['State and drowsiness can change spectra.'] },
+      { category: 'band_power', title: 'Band power review', action: 'Review absolute and relative band power with state and medication caveats.', safety_notes: ['Band power is not diagnostic by itself.', 'Medication confounds should be considered.'] },
+      { category: 'asymmetry', title: 'Asymmetry review', action: 'Check asymmetry only after montage and artifact review.', safety_notes: ['Eye and muscle artifact can distort asymmetry.'] },
+      { category: 'coherence', title: 'Coherence review', action: 'Check coherence only after adequate artifact and channel quality review.', safety_notes: ['Coherence is sensitive to artifact, reference, and volume conduction.'] },
+      { category: 'reporting', title: 'Manual findings and reporting', action: 'Write manual findings with channels, bands, confounds, and clinician note.', safety_notes: ['Decision-support only.', 'Clinician review required.'] },
+    ];
+  }
+
+  // 5) WinEEG-style reference concepts for the analysis panel
+  if (!state.manualReference || !Array.isArray(state.manualReference.concepts)) {
+    state.manualReference = {
+      source: 'WinEEG manuals reference summary (demo)',
+      concepts: [
+        { id: 'spectra', label: 'Spectra', summary: 'Spectral review helps organize slowing, alpha rhythm quality, excess beta, and focal deviations after artifact control.', caveats: ['Recording state affects spectra.', 'Reference and filters can change appearance.'] },
+        { id: 'band_power', label: 'Band power', summary: 'Absolute and relative band power support descriptive review of delta, theta, alpha, beta, and related patterns.', caveats: ['Not diagnostic by itself.', 'Medication confounds should be considered.'] },
+        { id: 'asymmetry', label: 'Asymmetry', summary: 'Asymmetry compares lateralized activity and is useful only after confirming reference, montage, and artifact adequacy.', caveats: ['Eye and muscle artifact can distort asymmetry.'] },
+        { id: 'coherence', label: 'Coherence', summary: 'Coherence describes frequency-domain coupling between channels and is sensitive to contamination and reference effects.', caveats: ['Artifact, reference, and volume conduction can inflate values.'] },
+        { id: 'average_coherence', label: 'Average coherence', summary: 'Average coherence collapses multiple coherence relationships into a compact summary for manual review.', caveats: ['Summary views can hide local failures.'] },
+      ],
+    };
   }
 }
 
@@ -486,6 +541,7 @@ function workbenchShell(state) {
     ${exportModal(state)}
     ${aiExplainPopover(state)}
     ${channelAnatomyPopover(state)}
+    ${channelWaveTooltip(state)}
   </div>`;
 }
 
@@ -609,12 +665,26 @@ function channelAnatomyPopover(state) {
   </div>`;
 }
 
+function channelWaveTooltip(state) {
+  return `
+  <div id="qwb-channel-wave-tooltip" class="qwb-channel-wave-tooltip" data-testid="qwb-channel-wave-tooltip" style="display:none">
+    <div class="qwb-cwt-head">
+      <b id="qwb-cwt-title">Channel</b>
+      <span class="qwb-cwt-primary" id="qwb-cwt-primary"></span>
+    </div>
+    <div class="qwb-cwt-body" id="qwb-cwt-body"></div>
+    <div class="qwb-cwt-evidence" id="qwb-cwt-evidence"></div>
+  </div>`;
+}
+
 function clinicalCss() {
   return `
     .qwb-clinical {
-      position:fixed; inset:0; z-index:9000;
+      position:fixed; top:0; right:0; bottom:0;
+      left: var(--sidebar-w, 240px);
+      z-index:800;
       display:grid;
-      grid-template-rows: 44px 40px 28px 1fr 128px 24px;
+      grid-template-rows: 40px auto 28px 1fr 128px 24px;
       background:#FAF7F2; color:#1a1a1a;
       font-family: 'Inter Tight', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
       font-size: 12px; line-height:1.3;
@@ -680,16 +750,17 @@ function clinicalCss() {
     /* ── Toolbar (WinEEG parity) ─────────────────────────────── */
     .qwb-toolbar {
       display:flex; align-items:center; gap:0;
-      padding:0 8px;
+      padding:2px 8px;
       background:#F3EEE5; border-bottom:1px solid #d8d1c3;
       font-size:11px;
-      overflow-x:auto; overflow-y:hidden;
+      flex-wrap:wrap;
+      overflow:hidden;
     }
     .qwb-tb-group {
       display:flex; align-items:center; gap:6px;
-      padding:0 10px; height:100%;
+      padding:2px 8px; min-height:28px;
       border-right:1px dashed #d8d1c3;
-      flex-shrink:0;
+      flex-shrink:1; flex-wrap:wrap;
     }
     .qwb-tb-group:last-child { border-right:0; }
     .qwb-tb-label {
@@ -712,10 +783,10 @@ function clinicalCss() {
     .qwb-tb-field:focus-within { border-color:#1d6f7a; box-shadow:0 0 0 2px #d6ebee; }
     .qwb-tb-btn {
       background:#FAF7F2; border:1px solid #d8d1c3; border-radius:3px;
-      padding:0 8px; height:22px;
+      padding:0 6px; height:22px;
       font-size:11px; color:#3a3633;
-      display:inline-flex; align-items:center; gap:5px;
-      cursor:pointer; flex-shrink:0;
+      display:inline-flex; align-items:center; gap:4px;
+      cursor:pointer; white-space:nowrap;
     }
     .qwb-tb-btn:hover { background:#fff; border-color:#bdb5a2; }
     .qwb-tb-btn.primary { background:#1a1a1a; color:#FAF7F2; border-color:#1a1a1a; font-weight:500; }
@@ -729,7 +800,7 @@ function clinicalCss() {
     }
     .qwb-view-toggle {
       display:inline-flex; border:1px solid #d8d1c3; border-radius:4px;
-      overflow:hidden; height:22px; flex-shrink:0;
+      overflow:hidden; height:22px;
     }
     .qwb-view-toggle button {
       padding:0 10px; height:22px; font-size:11px;
@@ -840,7 +911,7 @@ function clinicalCss() {
     /* ── Main grid (channel gutter | tool strip | trace+spectro | side) ── */
     .qwb-main {
       display:grid;
-      grid-template-columns: 56px 44px 1fr 360px;
+      grid-template-columns: 56px 44px 1fr 300px;
       min-height:0;
       background:#FAF7F2;
     }
@@ -870,10 +941,43 @@ function clinicalCss() {
       font-family:var(--qwb-mono); font-size:10.5px; color:#3a3633;
       cursor:pointer;
     }
-    .qwb-ch-row.active { background:#d8e1f3; }
     .qwb-ch-row.bad { background:#f3d4d0; color:#b03434; }
+    .qwb-ch-row.active { background:#d8e1f3; }
+    .qwb-ch-row.active.bad { background:#d8e1f3; color:#b03434; }
     .qwb-ch-row .qwb-ch-name { font-weight:600; font-size:11px; }
     .qwb-ch-row .qwb-ch-scale { color:#6b6660; font-size:9.5px; }
+
+    /* ── Channel wave tooltip ────────────────────────────────── */
+    .qwb-channel-wave-tooltip {
+      position:fixed; z-index:850;
+      max-width:280px; min-width:180px;
+      background:#FAF7F2; border:1px solid #d8d1c3; border-radius:5px;
+      padding:8px 10px;
+      font-size:11px; line-height:1.4; color:#3a3633;
+      box-shadow:0 3px 10px rgba(0,0,0,0.08);
+      pointer-events:none;
+      transition: opacity 0.12s ease;
+    }
+    .qwb-channel-wave-tooltip .qwb-cwt-head {
+      display:flex; align-items:center; gap:8px; margin-bottom:5px;
+      padding-bottom:4px; border-bottom:1px dashed #d8d1c3;
+    }
+    .qwb-channel-wave-tooltip .qwb-cwt-head b {
+      font-family:var(--qwb-mono); font-size:11px; color:#1a1a1a;
+    }
+    .qwb-channel-wave-tooltip .qwb-cwt-primary {
+      margin-left:auto; padding:1px 6px; border-radius:3px;
+      background:#d6ebee; color:#1d6f7a; font-size:10px; font-weight:600;
+      white-space:nowrap;
+    }
+    .qwb-channel-wave-tooltip .qwb-cwt-body {
+      color:#3a3633; font-size:10.5px; line-height:1.45;
+    }
+    .qwb-channel-wave-tooltip .qwb-cwt-evidence {
+      margin-top:6px; padding-top:5px;
+      border-top:1px dotted #d8d1c3;
+      font-size:10px; color:#8a837a; font-style:italic;
+    }
 
     /* ── Trace column ─────────────────────────────────────────── */
     .qwb-trace-col {
@@ -1032,6 +1136,11 @@ function clinicalCss() {
       transition: width 0.18s ease;
     }
     .qwb-right.collapsed { width:36px; min-width:36px; }
+    .qwb-clinical.right-collapsed .qwb-main,
+    .qwb-clinical.right-collapsed .qwb-minimap-row {
+      grid-template-columns: 56px 44px 1fr 36px;
+    }
+    .qwb-clinical.right-collapsed .qwb-topo-strip { display:none; }
     .qwb-right-toggle {
       width:36px; height:32px; padding:0; cursor:pointer;
       background:#FAF7F2; color:#3a3633;
@@ -1056,10 +1165,10 @@ function clinicalCss() {
       background:#1d6f7a; color:#fff; border-radius:8px;
       font-family:var(--qwb-mono); font-size:9px;
     }
-    .qwb-right-body { flex:1; overflow-y:auto; padding:0; }
-    .qwb-side-section { padding:12px 14px 14px; border-bottom:1px solid #d8d1c3; }
+    .qwb-right-body { flex:1; overflow-y:auto; padding:4px 6px; }
+    .qwb-side-section { padding:14px 16px 16px; border-bottom:1px solid #d8d1c3; }
     .qwb-side-section h4 {
-      margin:0 0 8px; font-size:10.5px; font-weight:600;
+      margin:0 0 10px; font-size:10.5px; font-weight:600;
       text-transform:uppercase; letter-spacing:0.06em; color:#6b6660;
       display:flex; align-items:center; gap:6px;
     }
@@ -1069,19 +1178,21 @@ function clinicalCss() {
       background:#1a1a1a; color:#FAF7F2;
       font-family:var(--qwb-mono); font-size:10px; font-weight:600;
     }
-    .qwb-side-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+    .qwb-side-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:0 2px; }
     .qwb-side-btn {
-      background:#FAF7F2; border:1px solid #d8d1c3; border-radius:4px;
-      padding:7px 8px; font-size:11.5px; color:#3a3633;
+      background:#FAF7F2; border:1px solid #d8d1c3; border-radius:5px;
+      padding:7px 10px; font-size:11.5px; color:#3a3633;
       display:flex; align-items:center; justify-content:center; gap:6px;
-      text-align:center; line-height:1.1; cursor:pointer;
+      text-align:center; line-height:1.1; cursor:pointer; margin:0 2px;
     }
     .qwb-side-btn:hover { background:#fff; border-color:#bdb5a2; }
-    .qwb-side-btn.full { grid-column:span 2; }
+    .qwb-side-btn.full { grid-column:span 2; margin:0; }
     .qwb-side-btn.ai { background:#1d6f7a; color:#fff; border-color:#1d6f7a; font-weight:500; }
     .qwb-side-btn.ai:hover { background:#155a64; }
     .qwb-side-btn.ink { background:#1a1a1a; color:#FAF7F2; border-color:#1a1a1a; font-weight:500; }
+    .qwb-side-btn.ink:hover { background:#000; color:#FAF7F2; border-color:#000; }
     .qwb-side-btn.warn { background:#b8741a; color:#fff; border-color:#b8741a; }
+    .qwb-side-btn.warn:hover { background:#9a5e15; color:#fff; border-color:#9a5e15; }
 
     /* ── ICA component grid (4 × 3) ──────────────────────────── */
     .qwb-ica-grid {
@@ -1132,7 +1243,7 @@ function clinicalCss() {
     /* ── Mini-map row ────────────────────────────────────────── */
     .qwb-minimap-row {
       display:grid;
-      grid-template-columns: 56px 44px 1fr 360px;
+      grid-template-columns: 56px 44px 1fr 300px;
       grid-template-rows: auto auto;
       border-top:1px solid #d8d1c3;
       background:#F3EEE5;
@@ -1210,14 +1321,15 @@ function clinicalCss() {
 
     /* ── Status bar ──────────────────────────────────────────── */
     .qwb-bottombar {
-      display:flex; align-items:center; gap:16px;
-      padding:0 14px;
+      display:flex; align-items:center; gap:10px;
+      padding:3px 14px;
       background:#F3EEE5; border-top:1px solid #d8d1c3;
-      font-family:var(--qwb-mono); font-size:10.5px; color:#6b6660;
+      font-family:var(--qwb-mono); font-size:10px; color:#6b6660;
+      flex-wrap:wrap; row-gap:3px;
     }
-    .qwb-stat { display:flex; gap:4px; }
+    .qwb-stat { display:flex; gap:3px; white-space:nowrap; }
     .qwb-stat b { color:#3a3633; font-weight:600; }
-    .qwb-bottombar-right { margin-left:auto; display:flex; gap:14px; align-items:center; }
+    .qwb-bottombar-right { margin-left:auto; display:flex; gap:10px; align-items:center; white-space:nowrap; }
     .qwb-st-save.qwb-dirty { color:#b8741a; font-weight:600; }
     .qwb-ai-watch {
       display:inline-flex; align-items:center; gap:5px;
@@ -1375,12 +1487,12 @@ function clinicalCss() {
       margin-bottom:8px; background:#FAF7F2;
     }
     .qwb-menu-dropdown {
-      position:fixed; z-index:100; background:#FAF7F2; border:1px solid #d8d1c3;
+      position:fixed; z-index:900; background:#FAF7F2; border:1px solid #d8d1c3;
       border-radius:4px; box-shadow:0 4px 12px rgba(0,0,0,0.12); min-width:180px;
       padding:4px 0; font-size:12px;
     }
-    .qwb-modal {
-      position:fixed; inset:0; z-index:90; display:flex; align-items:center; justify-content:center;
+    .qwb-compare-modal {
+      position:fixed; inset:0; z-index:900; display:flex; align-items:center; justify-content:center;
       background:rgba(0,0,0,0.35); backdrop-filter:blur(1px);
     }
     .qwb-modal-panel {
@@ -1415,7 +1527,7 @@ function clinicalCss() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function titleBar(state) {
-  const patientName = state.metadata?.patient_name || (state.isDemo ? 'Azzi Glasser' : 'patient');
+  const patientName = state.metadata?.patient_name || (state.isDemo ? 'demo patient' : 'patient');
   const sessionMeta = state.metadata?.session_label || (state.isDemo ? 'DNEW0000 · Eyes Closed' : '');
   const menus = TITLE_MENUS.map(m => `<button class="qwb-menu-btn" data-menu="${esc(m)}">${esc(m)}</button>`).join('');
   return `
@@ -1466,13 +1578,10 @@ function toolBar(state) {
   return `
   <div class="qwb-toolbar">
     <div class="qwb-tb-group">
-      <button class="qwb-tb-btn" id="qwb-back" data-testid="qwb-back-analyzer">← Back to qEEG Analyzer</button>
-      <button class="qwb-tb-btn" id="qwb-back-patient" data-testid="qwb-back-patient">Back to Patient</button>
+      <button class="qwb-tb-btn" id="qwb-back" data-testid="qwb-back-analyzer">← Back</button>
     </div>
     <div class="qwb-tb-group">
       <span class="qwb-tb-label">Speed</span>${num('qwb-speed', state.speed, 'mm/s')}
-    </div>
-    <div class="qwb-tb-group">
       <span class="qwb-tb-label">Gain</span>${num('qwb-gain', state.gain, 'µV/cm')}
     </div>
     <div class="qwb-tb-group">
@@ -1488,27 +1597,25 @@ function toolBar(state) {
       <span class="qwb-tb-label">Montage</span>${sel('qwb-montage', MONTAGES, state.montage)}
       <span class="qwb-tb-label">Window</span>${sel('qwb-timebase', TIMEBASES.map(t=>`${t}s`), `${state.timebase}s`)}
     </div>
-    <div class="qwb-tb-group" style="margin-left:auto">
-      <button class="qwb-tb-btn" id="qwb-event-prev" data-testid="qwb-event-prev" title="Jump to previous event">◀ Event</button>
-      <button class="qwb-tb-btn" id="qwb-prev-window" data-testid="qwb-prev-window" title="Previous window" style="min-width:60px;height:28px">◀ Prev</button>
+    <div class="qwb-tb-group">
+      <button class="qwb-tb-btn" id="qwb-event-prev" data-testid="qwb-event-prev" title="Jump to previous event">◀ Ev</button>
+      <button class="qwb-tb-btn" id="qwb-prev-window" data-testid="qwb-prev-window" title="Previous window">◀</button>
       <button class="qwb-tb-btn" id="qwb-play" data-testid="qwb-play" title="Play / pause">▶</button>
-      <button class="qwb-tb-btn" id="qwb-next-window" data-testid="qwb-next-window" title="Next window" style="min-width:60px;height:28px">Next ▶</button>
-      <button class="qwb-tb-btn" id="qwb-event-next" data-testid="qwb-event-next" title="Jump to next event">Event ▶</button>
+      <button class="qwb-tb-btn" id="qwb-next-window" data-testid="qwb-next-window" title="Next window">▶</button>
+      <button class="qwb-tb-btn" id="qwb-event-next" data-testid="qwb-event-next" title="Jump to next event">Ev ▶</button>
     </div>
     <div class="qwb-tb-group">
-      <button class="qwb-tb-btn" id="qwb-quick-snapshot" data-testid="qwb-quick-snapshot" title="Save current window as PNG">⤓ Snapshot</button>
-      <button class="qwb-tb-btn" id="qwb-quick-export" data-testid="qwb-quick-export" title="Export cleaning bundle">⇪ Export</button>
-      <button class="qwb-tb-btn" id="qwb-quick-save" data-testid="qwb-quick-save" title="Save cleaning version">💾 Save</button>
-      <button class="qwb-tb-btn" id="qwb-quick-rerun" data-testid="qwb-quick-rerun" title="Re-run qEEG analysis">↻ Reprocess</button>
-      <button class="qwb-tb-btn" id="qwb-quick-spectral" data-testid="qwb-quick-spectral" title="Spectral view">∿ Spectral</button>
+      <button class="qwb-tb-btn" id="qwb-quick-snapshot" data-testid="qwb-quick-snapshot" title="Snapshot PNG">⤓</button>
+      <button class="qwb-tb-btn" id="qwb-quick-spectral" data-testid="qwb-quick-spectral" title="Spectral view">∿</button>
+      <button class="qwb-tb-btn" id="qwb-compare" title="Raw vs Cleaned">⇄</button>
+    </div>
+    <div class="qwb-tb-group">
+      ${viewToggle}${displayToggle}
     </div>
     <div class="qwb-tb-group" style="border-right:0">
-      ${viewToggle}${displayToggle}
-      <button class="qwb-tb-btn" id="qwb-compare">Raw vs Cleaned</button>
-      <button class="qwb-tb-btn" id="qwb-return-report" data-testid="qwb-return-report">Return to Report</button>
       <button class="qwb-tb-btn" id="qwb-export" data-testid="qwb-export">Export…</button>
-      <button class="qwb-tb-btn primary" id="qwb-save" data-testid="qwb-save">Save Cleaning Version</button>
-      <button class="qwb-tb-btn ai" id="qwb-rerun" data-testid="qwb-rerun">✦ Re-run qEEG</button>
+      <button class="qwb-tb-btn primary" id="qwb-save" data-testid="qwb-save">Save</button>
+      <button class="qwb-tb-btn ai" id="qwb-rerun" data-testid="qwb-rerun">✦ Re-run</button>
       <button class="qwb-tb-btn help-circle" id="qwb-shortcuts" data-testid="qwb-help" title="Keyboard shortcuts (?)">?</button>
     </div>
   </div>`;
@@ -1869,7 +1976,7 @@ function _renderSignOffSection(state) {
 
 function signOffModal(state) {
   const r = _computeReportReadiness(state);
-  const patient = state.metadata?.patient_name || (state.isDemo ? 'Azzi Glasser' : '—');
+  const patient = state.metadata?.patient_name || (state.isDemo ? 'demo patient' : '—');
   return `
   <div id="qwb-signoff-modal" class="qwb-modal-backdrop" data-testid="qwb-signoff-modal">
     <div class="qwb-modal" style="width:520px;max-width:90vw">
@@ -2305,8 +2412,8 @@ function renderRightPanel(state) {
     case 'ai':       body.innerHTML = renderAIPanel(state);       attachAIPanelHandlers(state);       break;
     // Best-Practice now hosts the cleaning quality score + checklist alongside
     // the per-topic guidance and reference artefact examples.
-    case 'help':     body.innerHTML = renderHelpPanel(state);     break;
-    case 'examples': body.innerHTML = renderHelpPanel(state);     break; // legacy alias
+    case 'help':     body.innerHTML = renderHelpPanel(state);     attachBestPracticeHandlers(state);     break;
+    case 'examples': body.innerHTML = renderHelpPanel(state);     attachBestPracticeHandlers(state);     break; // legacy alias
     case 'ica':      body.innerHTML = renderICAPanel(state);      attachICAPanelHandlers(state);      break;
     case 'log':      body.innerHTML = renderAuditPanel(state);    attachAuditPanelHandlers(state);    break;
     default:         body.innerHTML = renderCleaningPanel(state); attachCleaningPanelHandlers(state); break;
@@ -2780,6 +2887,25 @@ function renderHelpPanel(state) {
       </ul>
     </div>
     <div class="qwb-side-section">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-weight:600;font-size:13px">WinEEG Workflow Checklist</div>
+        <span style="font-size:10px;color:#6b6660">${(state.manualChecklist || []).filter(function() { return true; }).length} steps</span>
+      </div>
+      <div style="font-size:10px;color:#6b6660;margin-bottom:8px">Follow this workflow order for reliable manual qEEG review. Check off each step as you complete it.</div>
+      <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:4px">
+        ${(state.manualChecklist || []).map(function(item, idx) {
+          var checked = state._checklistDone && state._checklistDone[item.category];
+          return '<li style="display:flex;gap:8px;align-items:flex-start;padding:6px 8px;border-radius:6px;background:' + (checked ? '#d6e8d6' : '#fff') + ';border:1px solid ' + (checked ? '#2f6b3a' : '#d8d1c3') + ';cursor:pointer" data-checklist-cat="' + esc(item.category) + '">'
+            + '<span style="flex-shrink:0;width:18px;height:18px;border-radius:4px;border:1px solid ' + (checked ? '#2f6b3a' : '#bdb5a2') + ';background:' + (checked ? '#2f6b3a' : 'transparent') + ';display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;margin-top:1px">' + (checked ? '✓' : (idx + 1)) + '</span>'
+            + '<div style="flex:1;min-width:0">'
+            + '<div style="font-weight:600;font-size:11px;color:' + (checked ? '#2f6b3a' : '#1a1a1a') + '">' + esc(item.title || item.category) + '</div>'
+            + '<div style="font-size:10px;color:#3a3633;line-height:1.4;margin-top:2px">' + esc(item.action || '') + '</div>'
+            + (item.safety_notes && item.safety_notes.length ? '<div style="font-size:9px;color:#b8741a;margin-top:3px">⚠ ' + esc(item.safety_notes.join(' · ')) + '</div>' : '')
+            + '</div></li>';
+        }).join('')}
+      </ul>
+    </div>
+    <div class="qwb-side-section">
       <div style="font-weight:600;font-size:13px;margin-bottom:8px">Best-Practice Helper</div>
       <div style="font-size:11px;color:#6b6660;margin-bottom:10px">Local guidance — links are decision-support only.</div>
       ${BEST_PRACTICE.map(b => `
@@ -2876,7 +3002,10 @@ function renderAuditPanel(state) {
   const chat = state.chatLog || [];
   return `
     <div class="qwb-side-section">
-      <h4>AI Assistant</h4>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h4 style="margin:0">AI Assistant</h4>
+        <span style="font-size:10px;display:flex;align-items:center;gap:4px;color:${state._copilotReady ? '#2f6b3a' : '#6b6660'}"><span style="width:6px;height:6px;border-radius:50%;background:${state._copilotReady ? '#2f6b3a' : '#a39d94'}"></span>${state._copilotReady ? 'Connected' : 'Local mode'}</span>
+      </div>
       <div class="qwb-chat" data-testid="qwb-chat">
         ${chat.map(m => m.who === 'ai'
           ? `<div class="qwb-chat-msg-ai"><div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.06em;color:#1d6f7a;font-weight:600;margin-bottom:4px">✦ DeepSynaps AI</div>${esc(m.text)}</div>`
@@ -2901,13 +3030,46 @@ function renderAuditPanel(state) {
 }
 
 function attachAuditPanelHandlers(state) {
+  // Try to connect to the real Copilot WebSocket; fall back to local chat
+  if (!state._copilotInit && state.analysisId) {
+    state._copilotInit = true;
+    try {
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const base = (typeof API_BASE !== 'undefined' && API_BASE) || location.host;
+      const token = (typeof api !== 'undefined' && api._token) || '';
+      const wsUrl = `${protocol}//${base}/api/v1/qeeg-copilot/${encodeURIComponent(state.analysisId)}${token ? '?token=' + encodeURIComponent(token) : ''}`;
+      const ws = new WebSocket(wsUrl);
+      ws.onopen = () => { state._copilotReady = true; };
+      ws.onmessage = (ev) => {
+        try {
+          const msg = JSON.parse(ev.data);
+          if (msg.type === 'reply' && msg.content) {
+            state.chatLog.push({ who: 'ai', text: msg.content });
+            renderRightPanel(state);
+          } else if (msg.type === 'welcome') {
+            state.chatLog.push({ who: 'ai', text: msg.disclaimer || 'Copilot connected. Decision-support only — please consult your clinician.' });
+            renderRightPanel(state);
+          }
+        } catch (_e) {}
+      };
+      ws.onerror = () => { state._copilotReady = false; };
+      ws.onclose = () => { state._copilotReady = false; };
+      state._copilotWs = ws;
+    } catch (_e) { state._copilotReady = false; }
+  }
+
   const send = () => {
     const inp = document.getElementById('qwb-chat-input');
     const text = inp ? (inp.value || '').trim() : '';
     if (!text) return;
     state.chatLog.push({ who: 'user', text });
-    state.chatLog.push({ who: 'ai', text: localChatReply(text, state) });
     state.chatInput = '';
+    // Send to WebSocket copilot if available, otherwise use local fallback
+    if (state._copilotWs && state._copilotWs.readyState === WebSocket.OPEN) {
+      state._copilotWs.send(JSON.stringify({ type: 'message', content: text }));
+    } else {
+      state.chatLog.push({ who: 'ai', text: localChatReply(text, state) });
+    }
     renderRightPanel(state);
   };
   document.getElementById('qwb-chat-send')?.addEventListener('click', send);
@@ -3068,6 +3230,7 @@ function showMenuDropdown(state, menuName) {
     var rect = btn.getBoundingClientRect();
     dropdown.style.left = rect.left + 'px';
     dropdown.style.top = (rect.bottom + 2) + 'px';
+    dropdown.style.zIndex = '900';
     document.body.appendChild(dropdown);
     // Wire handlers
     dropdown.querySelectorAll('.qwb-menu-item:not(.qwb-menu-item--disabled)').forEach(function(b) {
@@ -3151,6 +3314,8 @@ function toggleRightPanel(state) {
   if (body) body.style.display = state.rightCollapsed ? 'none' : '';
   const tog = document.getElementById('qwb-right-toggle');
   if (tog) tog.textContent = state.rightCollapsed ? '◀' : '▶';
+  const clinical = document.querySelector('.qwb-clinical');
+  if (clinical) clinical.classList.toggle('right-collapsed', state.rightCollapsed);
 }
 
 function togglePlay(state) {
@@ -3255,12 +3420,8 @@ function attachToolBar(state, navigate) {
     rerunAnalysis(state);
   });
   document.getElementById('qwb-quick-spectral')?.addEventListener('click', () => {
-    appendAudit(state, 'quick_spectral_stub');
-    state.rightTab = 'ai';
-    syncTabActive(state);
-    renderRightPanel(state);
-    state.saveStatus = 'Spectral view coming in v0.3';
-    renderStatusBar(state);
+    appendAudit(state, 'spectral_view');
+    openSpectralView(state);
   });
 
   // ── Event-nav buttons (jump to prev/next event in state.events + EVENT_TIMELINE) ──
@@ -3425,6 +3586,8 @@ function openChannelAnatomy(state, ch, x, y) {
     <div class="qwb-anatomy-clinical">${esc(anatomy.clinical)}</div>
   `;
   const card = root.querySelector('.qwb-ai-explain-card');
+  // Measure after making visible so offsetWidth/Height are accurate.
+  root.style.display = 'block';
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   const cw = card ? card.offsetWidth : 320;
@@ -3433,12 +3596,41 @@ function openChannelAnatomy(state, ch, x, y) {
   const top = Math.max(8, Math.min(y + 12, vh - chh - 8));
   root.style.left = left + 'px';
   root.style.top = top + 'px';
-  root.style.display = 'block';
 }
 
 function closeChannelAnatomy() {
   const root = document.getElementById('qwb-channel-anatomy');
   if (root) root.style.display = 'none';
+}
+
+function showChannelWaveTooltip(ch, x, y) {
+  const info = CHANNEL_WAVES[ch];
+  if (!info) return;
+  const root = document.getElementById('qwb-channel-wave-tooltip');
+  const title = document.getElementById('qwb-cwt-title');
+  const primary = document.getElementById('qwb-cwt-primary');
+  const body = document.getElementById('qwb-cwt-body');
+  const evidence = document.getElementById('qwb-cwt-evidence');
+  if (!root || !title || !body) return;
+  title.textContent = ch;
+  if (primary) primary.textContent = info.primary;
+  body.textContent = info.notes;
+  if (evidence) evidence.textContent = 'Evidence: ' + info.evidence;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  root.style.display = 'block';
+  const rw = root.offsetWidth || 220;
+  const rh = root.offsetHeight || 140;
+  const left = Math.max(8, Math.min(x + 12, vw - rw - 8));
+  const top = Math.max(8, Math.min(y + 12, vh - rh - 8));
+  root.style.left = left + 'px';
+  root.style.top = top + 'px';
+  root.style.opacity = '1';
+}
+
+function hideChannelWaveTooltip() {
+  const root = document.getElementById('qwb-channel-wave-tooltip');
+  if (root) { root.style.opacity = '0'; root.style.display = 'none'; }
 }
 
 function aiExplainFeatures(sugg) {
@@ -3473,7 +3665,9 @@ function attachExportModal(state) {
 }
 
 function attachChannelRail(state) {
-  document.getElementById('qwb-rail')?.addEventListener('click', e => {
+  const rail = document.getElementById('qwb-rail');
+  if (!rail) return;
+  rail.addEventListener('click', e => {
     // If clicking directly on the channel name, open anatomy popover
     if (e.target.classList && e.target.classList.contains('qwb-ch-name')) {
       e.stopPropagation();
@@ -3488,6 +3682,17 @@ function attachChannelRail(state) {
     state.selectedChannel = row.dataset.channel;
     rerenderRail(state);
     redrawCanvas(state); renderStatusBar(state);
+  });
+  // Hover wave-type tooltip
+  rail.querySelectorAll('.qwb-ch-name').forEach(el => {
+    el.addEventListener('mouseenter', () => {
+      const ch = el.dataset.channel;
+      const rect = el.getBoundingClientRect();
+      showChannelWaveTooltip(ch, rect.right, rect.top);
+    });
+    el.addEventListener('mouseleave', () => {
+      hideChannelWaveTooltip();
+    });
   });
 }
 
@@ -3786,13 +3991,23 @@ function attachCleaningPanelHandlers(state) {
   }
   attachMiniHeadmap(state);
   document.getElementById('qwb-open-signoff')?.addEventListener('click', () => toggleSignOff(state, true));
-  document.getElementById('qwb-revoke-signoff')?.addEventListener('click', () => {
-    if (!confirm('Revoke sign‑off? This will allow further editing.')) return;
+  document.getElementById('qwb-revoke-signoff')?.addEventListener('click', async () => {
+    if (!(await _confirmDialog('Revoke sign-off? This will allow further editing.', 'Revoke'))) return;
     state.signOff = null;
     state.auditLog.push({ t: new Date().toISOString(), action: 'revoke_signoff', user: currentUserLabel() });
     renderRightPanel(state);
     renderStatusBar(state);
     state.saveStatus = 'sign‑off revoked';
+  });
+  // WinEEG workflow checklist toggle
+  document.querySelectorAll('#qwb-right-body [data-checklist-cat]').forEach(li => {
+    li.addEventListener('click', () => {
+      if (!state._checklistDone) state._checklistDone = {};
+      const cat = li.dataset.checklistCat;
+      state._checklistDone[cat] = !state._checklistDone[cat];
+      appendAudit(state, 'checklist_' + cat + (state._checklistDone[cat] ? '_done' : '_undone'));
+      renderRightPanel(state);
+    });
   });
 }
 
@@ -3881,6 +4096,19 @@ function attachICAPanelHandlers(state) {
   });
 }
 
+function attachBestPracticeHandlers(state) {
+  // WinEEG workflow checklist toggle — must be re-attached on every render
+  document.querySelectorAll('#qwb-right-body [data-checklist-cat]').forEach(li => {
+    li.addEventListener('click', () => {
+      if (!state._checklistDone) state._checklistDone = {};
+      const cat = li.dataset.checklistCat;
+      state._checklistDone[cat] = !state._checklistDone[cat];
+      appendAudit(state, 'checklist_' + cat + (state._checklistDone[cat] ? '_done' : '_undone'));
+      renderRightPanel(state);
+    });
+  });
+}
+
 async function toggleICAComponent(state, idx) {
   if (Number.isNaN(idx)) return;
   if (state.rejectedICA.has(idx)) state.rejectedICA.delete(idx);
@@ -3897,6 +4125,12 @@ async function toggleICAComponent(state, idx) {
 function attachKeyboard(state, navigate) {
   document.addEventListener('keydown', e => {
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) return;
+    // Skip global shortcuts when any modal is open.
+    const anyModalOpen = document.querySelector && !!document.querySelector('.qwb-modal-backdrop[style*="flex"], #qwb-annotate-modal, #qwb-confirm-modal, #qwb-spectral-modal');
+    if (anyModalOpen) return;
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'S') {
+      e.preventDefault(); if (!state.signOff) toggleSignOff(state, true); return;
+    }
     if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) {
       e.preventDefault(); saveCleaningVersion(state); return;
     }
@@ -3929,7 +4163,6 @@ function attachKeyboard(state, navigate) {
       redrawCanvas(state);
     }
     else if (e.key === '?') toggleShortcuts(state, true);
-    else if (e.key === 'S' && e.shiftKey && (e.metaKey || e.ctrlKey)) { e.preventDefault(); if (!state.signOff) toggleSignOff(state, true); }
   });
 }
 
@@ -3972,6 +4205,7 @@ function _qwbOpenModal(modal, opts) {
     escapeHandler = (e) => {
       if (e.key === 'Escape') {
         e.preventDefault();
+        e.stopPropagation();
         try { opts.onEscape(); } catch (_e) {}
       }
     };
@@ -4130,8 +4364,8 @@ async function handleCleaningAction(state, action) {
     }
     case 'interpolate': pushHistory(state); await interpolateChannel(state, state.selectedChannel); break;
     case 'annotate': {
-      const note = (typeof window.prompt === 'function') ? window.prompt('Annotation note (clinician):', '') : '';
-      if (note != null && note.trim()) { pushHistory(state); await addNote(state, note.trim()); }
+      const note = await _promptAnnotation(state);
+      if (note) { pushHistory(state); await addNote(state, note); }
       break;
     }
     case 'undo': popHistory(state); break;
@@ -4145,18 +4379,20 @@ async function handleCleaningAction(state, action) {
     case 'save-version': await saveCleaningVersion(state); break;
     case 'rerun': await rerunAnalysis(state); break;
     case 'raw-vs-cleaned': await loadRawVsCleaned(state); break;
-    case 'return-report': returnToReport(state); break;
+    case 'return-report': returnToReport(state, navigate); break;
     case 'apply-ica': await applyICARemovals(state); break;
     case 'bulk-frontal':   pushHistory(state); bulkMarkChannels(state, ['Fp1-Av','Fp2-Av','F7-Av','F3-Av','Fz-Av','F4-Av','F8-Av']); break;
     case 'bulk-central':   pushHistory(state); bulkMarkChannels(state, ['T3-Av','C3-Av','Cz-Av','C4-Av','T4-Av']); break;
     case 'bulk-parietal':  pushHistory(state); bulkMarkChannels(state, ['T5-Av','P3-Av','Pz-Av','P4-Av','T6-Av']); break;
     case 'bulk-occipital': pushHistory(state); bulkMarkChannels(state, ['O1-Av','O2-Av']); break;
     case 'bulk-clear-all': {
-      pushHistory(state);
-      if (state.badChannels.size > 0 && confirm(`Clear all ${state.badChannels.size} bad channels?`)) {
-        state.badChannels.clear();
-        rerenderRail(state); redrawCanvas(state); markDirty(state);
-        state.auditLog.push({ t: new Date().toISOString(), action: 'bulk_clear_all_bad_channels', source: 'clinician' });
+      if (state.badChannels.size > 0) {
+        if (await _confirmDialog('Clear all ' + state.badChannels.size + ' bad channels?', 'Clear All')) {
+          pushHistory(state);
+          state.badChannels.clear();
+          rerenderRail(state); redrawCanvas(state); markDirty(state);
+          state.auditLog.push({ t: new Date().toISOString(), action: 'bulk_clear_all_bad_channels', source: 'clinician' });
+        }
       }
       break;
     }
@@ -4263,6 +4499,63 @@ async function interpolateChannel(state, channel) {
   if (!channel) return;
   markDirty(state);
   await postAnnotation(state, { kind: 'interpolated_channel', channel, decision_status: 'accepted' });
+}
+
+// Custom annotation prompt — avoids window.prompt() which is blocked in
+// embedded/iframe contexts.  Returns the trimmed note or null if cancelled.
+function _promptAnnotation(state) {
+  return new Promise(function(resolve) {
+    var existing = document.getElementById('qwb-annotate-modal');
+    if (existing) existing.remove();
+    var overlay = document.createElement('div');
+    overlay.id = 'qwb-annotate-modal';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9200;background:rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center';
+    overlay.innerHTML = '<div style="background:#FAF7F2;border:1px solid #d8d1c3;border-radius:8px;padding:20px;width:380px;max-width:90vw;box-shadow:0 12px 40px rgba(0,0,0,0.2)">'
+      + '<div style="font-weight:600;font-size:14px;margin-bottom:10px">Add Annotation</div>'
+      + '<textarea id="qwb-annotate-input" rows="3" style="width:100%;padding:8px;border:1px solid #d8d1c3;border-radius:4px;font-size:12px;resize:vertical;font-family:inherit" placeholder="Clinician annotation note…"></textarea>'
+      + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">'
+      + '<button id="qwb-annotate-cancel" style="padding:6px 14px;border:1px solid #d8d1c3;border-radius:4px;background:#FAF7F2;cursor:pointer;font-size:12px">Cancel</button>'
+      + '<button id="qwb-annotate-ok" style="padding:6px 14px;border:0;border-radius:4px;background:#1a1a1a;color:#FAF7F2;cursor:pointer;font-size:12px;font-weight:500">Add Note</button>'
+      + '</div></div>';
+    document.body.appendChild(overlay);
+    var input = document.getElementById('qwb-annotate-input');
+    if (input) input.focus();
+    var close = function(val) { var m = document.getElementById('qwb-annotate-modal'); if (m) m.remove(); resolve(val); };
+    document.getElementById('qwb-annotate-cancel')?.addEventListener('click', function() { close(null); });
+    document.getElementById('qwb-annotate-ok')?.addEventListener('click', function() {
+      var v = (document.getElementById('qwb-annotate-input')?.value || '').trim();
+      close(v || null);
+    });
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) close(null); });
+    if (input) input.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { var v = (input.value || '').trim(); close(v || null); }
+      if (e.key === 'Escape') { e.stopPropagation(); close(null); }
+    });
+  });
+}
+
+// Custom confirm dialog — avoids window.confirm() which is blocked in
+// embedded/iframe contexts.  Returns true (confirmed) or false (cancelled).
+function _confirmDialog(message, confirmLabel) {
+  return new Promise(function(resolve) {
+    var existing = document.getElementById('qwb-confirm-modal');
+    if (existing) existing.remove();
+    var overlay = document.createElement('div');
+    overlay.id = 'qwb-confirm-modal';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9200;background:rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center';
+    overlay.innerHTML = '<div style="background:#FAF7F2;border:1px solid #d8d1c3;border-radius:8px;padding:20px;width:380px;max-width:90vw;box-shadow:0 12px 40px rgba(0,0,0,0.2)">'
+      + '<div style="font-size:13px;line-height:1.5;color:#1a1a1a;margin-bottom:16px">' + esc(message) + '</div>'
+      + '<div style="display:flex;gap:8px;justify-content:flex-end">'
+      + '<button id="qwb-confirm-cancel" style="padding:6px 14px;border:1px solid #d8d1c3;border-radius:4px;background:#FAF7F2;cursor:pointer;font-size:12px">Cancel</button>'
+      + '<button id="qwb-confirm-ok" style="padding:6px 14px;border:0;border-radius:4px;background:#b03434;color:#fff;cursor:pointer;font-size:12px;font-weight:500">' + esc(confirmLabel || 'Confirm') + '</button>'
+      + '</div></div>';
+    document.body.appendChild(overlay);
+    var close = function(val) { var m = document.getElementById('qwb-confirm-modal'); if (m) m.remove(); resolve(val); };
+    document.getElementById('qwb-confirm-cancel')?.addEventListener('click', function() { close(false); });
+    document.getElementById('qwb-confirm-ok')?.addEventListener('click', function() { close(true); });
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) close(false); });
+    document.getElementById('qwb-confirm-ok')?.addEventListener('keydown', function(e) { if (e.key === 'Escape') { e.stopPropagation(); close(false); } });
+  });
 }
 
 async function addNote(state, note) {
@@ -4693,7 +4986,8 @@ async function handleSignOff(state) {
 
 function _computeBeforeAfterMetrics(state) {
   var totalSec = 600; // 10 min demo recording
-  var rejectedSec = state.rejectedSegments.reduce(function(sum, seg) { return sum + (seg.end_sec - seg.start_sec); }, 0);
+  var segs = state.rejectedSegments || [];
+  var rejectedSec = segs.reduce(function(sum, seg) { return sum + (seg.end_sec - seg.start_sec); }, 0);
   var retainedPct = Math.max(0, Math.round(100 - (rejectedSec / totalSec * 100)));
   var beforeArtifacts = (state.aiSuggestions || []).length;
   var afterArtifacts = (state.aiSuggestions || []).filter(function(s) { return s.decision_status !== 'accepted'; }).length;
@@ -4703,7 +4997,7 @@ function _computeBeforeAfterMetrics(state) {
     rejectedSec: rejectedSec,
     badChannels: state.badChannels.size,
     interpolatedChannels: 0, // not yet tracked separately
-    rejectedSegments: state.rejectedSegments.length,
+    rejectedSegments: segs.length,
     rejectedICA: state.rejectedICA.size,
     beforeArtifacts: beforeArtifacts,
     afterArtifacts: afterArtifacts,
@@ -4713,7 +5007,7 @@ function _computeBeforeAfterMetrics(state) {
 
 function showRawVsCleanedModal(state) {
   var m = _computeBeforeAfterMetrics(state);
-  var html = '<div id="qwb-compare-modal" class="qwb-modal" style="display:flex">'
+  var html = '<div id="qwb-compare-modal" class="qwb-compare-modal" style="display:flex">'
     + '<div class="qwb-modal-panel">'
     + '<div class="qwb-modal-header">Raw vs Cleaned Summary <button class="qwb-modal-close" id="qwb-compare-close">×</button></div>'
     + '<div class="qwb-modal-body">'
@@ -4809,7 +5103,7 @@ async function exportBundle(state) {
 
 function exportPDF(state) {
   const r = _computeReportReadiness(state);
-  const patient = state.metadata?.patient_name || (state.isDemo ? 'Azzi Glasser' : '—');
+  const patient = state.metadata?.patient_name || (state.isDemo ? 'demo patient' : '—');
   const dob = state.metadata?.patient_dob || '—';
   const session = state.metadata?.session_label || (state.isDemo ? 'DNEW0000 · Eyes Closed' : '—');
   const date = state.metadata?.recording_date || new Date().toLocaleDateString();
@@ -4907,6 +5201,138 @@ ${so ? `<div class="signoff-box">
     state.saveStatus = 'PDF: popup blocked';
   }
   renderStatusBar(state);
+}
+
+// ── Spectral View (FFT-based power spectral density) ──────────────────────
+function _computeFFT(signal, sfreq) {
+  // Simple radix-2 FFT via Cooley-Tukey. Zero-pads to next power of 2.
+  var N = signal.length;
+  var M = 1; while (M < N) M *= 2; // next power of 2
+  var re = new Float64Array(M);
+  var im = new Float64Array(M);
+  for (var i = 0; i < N; i++) re[i] = signal[i];
+  // Bit-reversal permutation
+  var j = 0;
+  for (var i = 0; i < M - 1; i++) {
+    if (i < j) { var tmp = re[i]; re[i] = re[j]; re[j] = tmp; tmp = im[i]; im[i] = im[j]; im[j] = tmp; }
+    var k = M >> 1;
+    while (k <= j) { j -= k; k >>= 1; }
+    j += k;
+  }
+  // Butterfly
+  for (var size = 2; size <= M; size *= 2) {
+    var half = size >> 1;
+    var step = -2 * Math.PI / size;
+    for (var i = 0; i < M; i += size) {
+      for (var k = 0; k < half; k++) {
+        var angle = step * k;
+        var wr = Math.cos(angle), wi = Math.sin(angle);
+        var idx1 = i + k, idx2 = i + k + half;
+        var tr = wr * re[idx2] - wi * im[idx2];
+        var ti = wr * im[idx2] + wi * re[idx2];
+        re[idx2] = re[idx1] - tr; im[idx2] = im[idx1] - ti;
+        re[idx1] += tr; im[idx1] += ti;
+      }
+    }
+  }
+  // Power spectral density (one-sided)
+  var nBins = M / 2;
+  var psd = new Float64Array(nBins);
+  var scale = 1 / (sfreq * M);
+  for (var i = 0; i < nBins; i++) {
+    psd[i] = (re[i] * re[i] + im[i] * im[i]) * scale;
+  }
+  return { psd: psd, freqs: Array.from({ length: nBins }, function(_, i) { return i * sfreq / M; }) };
+}
+
+function _bandPowerFromPSD(psd, freqs, lo, hi) {
+  var sum = 0;
+  for (var i = 0; i < freqs.length; i++) {
+    if (freqs[i] >= lo && freqs[i] < hi) sum += psd[i];
+  }
+  return sum;
+}
+
+var SPECTRAL_BANDS = [
+  { label: 'Delta', lo: 0.5, hi: 4, color: '#1a4f7a' },
+  { label: 'Theta', lo: 4, hi: 8, color: '#1d6f7a' },
+  { label: 'Alpha', lo: 8, hi: 13, color: '#2f6b3a' },
+  { label: 'Beta',  lo: 13, hi: 30, color: '#b8741a' },
+  { label: 'Gamma', lo: 30, hi: 50, color: '#7a4ea3' },
+];
+
+function openSpectralView(state) {
+  try {
+  // Compute FFT from current window signals
+  var signals = _getWindowSignals(state);
+  if (!signals || !signals.signals) {
+    state.saveStatus = 'No signal data for spectral view';
+    renderStatusBar(state);
+    return;
+  }
+  var sfreq = signals.sampleRate || 256;
+  var chNames = DEFAULT_CHANNELS;
+  // Compute PSD per channel
+  var psds = [];
+  for (var ci = 0; ci < signals.signals.length && ci < chNames.length; ci++) {
+    psds.push(_computeFFT(signals.signals[ci], sfreq));
+  }
+  // Band powers per channel
+  var bandData = SPECTRAL_BANDS.map(function(band) {
+    var powers = psds.map(function(p) { return _bandPowerFromPSD(p.psd, p.freqs, band.lo, band.hi); });
+    return { label: band.label, lo: band.lo, hi: band.hi, color: band.color, powers: powers };
+  });
+  // Dominant frequency from channel Cz (index 10)
+  var czPsd = psds.length > 10 ? psds[10] : psds[0];
+  var maxIdx = 0, maxVal = 0;
+  for (var i = 1; i < czPsd.psd.length; i++) {
+    if (czPsd.freqs[i] > 0.5 && czPsd.psd[i] > maxVal) { maxVal = czPsd.psd[i]; maxIdx = i; }
+  }
+  var peakHz = czPsd.freqs[maxIdx] ? czPsd.freqs[maxIdx].toFixed(1) : '?';
+  // Build modal HTML
+  var modal = document.createElement('div');
+  modal.id = 'qwb-spectral-modal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9100;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center';
+  var chRows = chNames.slice(0, psds.length).map(function(ch, ci) {
+    var bars = bandData.map(function(bd) {
+      var pw = bd.powers[ci];
+      var pct = pw > 0 ? Math.min(100, Math.round(Math.log10(pw + 1) * 30)) : 0;
+      return '<div style="display:flex;align-items:center;gap:4px;font-size:10px"><span style="width:40px;color:' + bd.color + '">' + bd.label + '</span><div style="flex:1;height:8px;background:#ECE5D8;border-radius:4px;overflow:hidden"><div style="width:' + pct + '%;height:100%;background:' + bd.color + ';border-radius:4px"></div></div></div>';
+    }).join('');
+    return '<div style="display:grid;grid-template-columns:48px 1fr;gap:6px;align-items:center;padding:4px 0;border-bottom:1px dashed #d8d1c3"><span style="font-family:var(--qwb-mono);font-size:11px;font-weight:600;color:#1a1a1a">' + esc(ch.replace('-Av', '')) + '</span><div style="display:flex;flex-direction:column;gap:2px">' + bars + '</div></div>';
+  }).join('');
+  modal.innerHTML = '<div style="background:#FAF7F2;border-radius:12px;border:1px solid #d8d1c3;padding:24px;max-width:720px;width:90vw;max-height:85vh;overflow-y:auto;box-shadow:0 16px 48px rgba(0,0,0,0.3)">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+    + '<div><h3 style="margin:0;font-size:16px;color:#1a1a1a">Spectral Analysis</h3>'
+    + '<div style="font-size:11px;color:#6b6660;margin-top:4px">Peak frequency: <b style="color:#1d6f7a">' + peakHz + ' Hz</b> (Cz) · Window ' + (state.windowStart || 0).toFixed(1) + '–' + ((state.windowStart || 0) + (state.timebase || 10)).toFixed(1) + 's</div></div>'
+    + '<button id="qwb-spectral-close" style="background:#1a1a1a;color:#FAF7F2;border:0;border-radius:6px;padding:6px 16px;font-size:12px;cursor:pointer">Close</button></div>'
+    + '<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">'
+    + bandData.map(function(bd) {
+        var avg = (bd.powers && bd.powers.length) ? bd.powers.reduce(function(a, b) { return a + b; }, 0) / bd.powers.length : 0;
+        return '<div style="background:#fff;border:1px solid #d8d1c3;border-radius:8px;padding:10px 14px;min-width:100px"><div style="font-size:10px;color:#6b6660;text-transform:uppercase;letter-spacing:0.04em">' + bd.label + '</div><div style="font-size:16px;font-weight:700;color:' + bd.color + '">' + bd.lo + '–' + bd.hi + ' Hz</div><div style="font-size:10px;color:#6b6660">Avg power: ' + avg.toFixed(1) + '</div></div>';
+      }).join('')
+    + '</div>'
+    + '<div style="font-size:12px;font-weight:600;color:#1a1a1a;margin-bottom:8px">Per-Channel Band Power</div>'
+    + '<div style="max-height:400px;overflow-y:auto">' + chRows + '</div>'
+    + '<div style="margin-top:12px;font-size:10px;color:#6b6660">Decision-support only. Spectral estimates use windowed FFT (Welch-style). Clinician review required before interpretation.</div>'
+    + '</div>';
+  document.body.appendChild(modal);
+  document.getElementById('qwb-spectral-close')?.addEventListener('click', function() {
+    var m = document.getElementById('qwb-spectral-modal');
+    if (m) m.remove();
+  });
+  modal.addEventListener('click', function(e) {
+    if (e.target === modal) modal.remove();
+  });
+  modal.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') { e.stopPropagation(); modal.remove(); }
+  });
+  state.saveStatus = 'Spectral view opened — peak ' + peakHz + ' Hz at Cz';
+  renderStatusBar(state);
+  } catch (err) {
+    state.saveStatus = 'Spectral view error: ' + (err.message || err);
+    renderStatusBar(state);
+  }
 }
 
 async function loadAll(state) {

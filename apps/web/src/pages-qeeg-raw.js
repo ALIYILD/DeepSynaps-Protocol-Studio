@@ -57,7 +57,11 @@ function esc(v) {
 
 // ── Demo mode ───────────────────────────────────────────────────────────────
 function _isDemoMode() {
-  return Boolean(import.meta?.env?.DEV) || import.meta?.env?.VITE_ENABLE_DEMO === '1';
+  try {
+    return !!(import.meta.env && (import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1'));
+  } catch (_e) {
+    return false;
+  }
 }
 
 var _DEMO_CHANNELS = ['Fp1','Fp2','F7','F3','Fz','F4','F8','T3','C3','Cz','C4','T4','T5','P3','Pz','P4','T6','O1','O2'];
@@ -276,7 +280,7 @@ function _pageInfo(state) {
 
 export async function renderRawDataTab(tabEl, analysisId, patientId) {
   var state = _initState();
-  var isDemo = _isDemoMode() && analysisId === 'demo';
+  var isDemo = analysisId === 'demo';
 
   tabEl.innerHTML = spinner('Initializing EEG viewer...');
 
@@ -1541,7 +1545,7 @@ function _hideShortcutsHelp() {
 // ── Data loading ────────────────────────────────────────────────────────────
 
 async function _loadSignalWindow(analysisId, state, renderer, spectralPanel) {
-  var isDemo = _isDemoMode() && analysisId === 'demo';
+  var isDemo = analysisId === 'demo';
   try {
     if (isDemo) {
       var demoData = _getDemoSignalWindow(state.tStart, state.windowSec);
