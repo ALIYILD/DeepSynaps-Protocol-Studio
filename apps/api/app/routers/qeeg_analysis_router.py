@@ -3889,7 +3889,7 @@ def record_qeeg_audit_event(
     # the prefix to avoid arbitrary user-supplied strings ending up in audit
     # `action` rows. Default "qeeg" preserves prior behaviour.
     raw_surface = (payload.surface or "qeeg").strip().lower()
-    surface = raw_surface if raw_surface in {"qeeg", "brain_map_planner", "session_runner", "adverse_events", "adverse_events_hub", "audit_trail", "reports", "documents", "documents_hub", "quality_assurance", "irb_manager", "clinical_trials", "course_detail", "patient_profile", "onboarding_wizard", "symptom_journal", "wellness_hub", "patient_reports", "patient_messages", "home_devices", "population_analytics", "adherence_events", "home_program_tasks", "wearables", "wearables_workbench", "clinician_inbox", "care_team_coverage", "clinician_adherence_hub"} else "qeeg"
+    surface = raw_surface if raw_surface in {"qeeg", "brain_map_planner", "session_runner", "adverse_events", "adverse_events_hub", "audit_trail", "reports", "documents", "documents_hub", "quality_assurance", "irb_manager", "clinical_trials", "course_detail", "patient_profile", "onboarding_wizard", "symptom_journal", "wellness_hub", "patient_reports", "patient_messages", "home_devices", "population_analytics", "adherence_events", "home_program_tasks", "wearables", "wearables_workbench", "clinician_inbox", "care_team_coverage", "clinician_adherence_hub", "clinician_wellness_hub"} else "qeeg"
     event_id = f"{surface}-{payload.event}-{actor.actor_id}-{int(now.timestamp())}-{uuid.uuid4().hex[:6]}"
     target_id = payload.analysis_id or payload.patient_id or actor.clinic_id or actor.actor_id
     note_parts: list[str] = []

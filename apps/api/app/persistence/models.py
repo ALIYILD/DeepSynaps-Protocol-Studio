@@ -3665,6 +3665,27 @@ class WellnessCheckin(Base):
         nullable=False,
     )
 
+    # ── Clinician Wellness Hub triage state (launch-audit 2026-05-01, mig 073) ─
+    # Bidirectional counterpart columns. The patient-side write contract
+    # at POST /api/v1/wellness/checkins does NOT touch these — they are
+    # written exclusively by the clinician_wellness_router (acknowledge /
+    # escalate / resolve flow). Default ``open`` means the row has not
+    # been clinician-reviewed yet.
+    clinician_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="open", index=True,
+        server_default="open",
+    )
+    clinician_actor_id: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True
+    )
+    clinician_acted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(), nullable=True
+    )
+    clinician_note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    adverse_event_id: Mapped[Optional[str]] = mapped_column(
+        String(36), nullable=True
+    )
+
 
 # ── Patient Home Devices (launch-audit 2026-05-01, migration 070) ────────────
 

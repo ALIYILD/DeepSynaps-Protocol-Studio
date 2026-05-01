@@ -12820,3 +12820,609 @@ function _cahBindRowHandlers(navigate) {
     };
   });
 }
+
+
+// ── pgClinicianWellnessHub — Cross-patient wellness triage (launch-audit 2026-05-01)
+//
+// Bidirectional counterpart to the patient-facing pgPatientWellness
+// (#345). Wires to the new ``/api/v1/clinician-wellness/*`` endpoints
+// in ``apps/api/app/routers/clinician_wellness_router.py``:
+//
+//   GET    /api/v1/clinician-wellness/checkins             — list (audited)
+//   GET    /api/v1/clinician-wellness/checkins/summary     — top counts
+//   GET    /api/v1/clinician-wellness/checkins/{id}        — detail
+//   POST   /api/v1/clinician-wellness/checkins/{id}/acknowledge
+//   POST   /api/v1/clinician-wellness/checkins/{id}/escalate
+//   POST   /api/v1/clinician-wellness/checkins/{id}/resolve
+//   POST   /api/v1/clinician-wellness/checkins/bulk-acknowledge
+//   GET    /api/v1/clinician-wellness/checkins/export.csv    — DEMO-prefixed when demo
+//   GET    /api/v1/clinician-wellness/checkins/export.ndjson — DEMO-prefixed when demo
+//   POST   /api/v1/clinician-wellness/audit-events         — page audit ingestion
+//
+// Pinned page contract (mirrored in clinician-wellness-hub-launch-audit.test.js):
+//
+//   - Mount-time `clinician_wellness_hub.view` audit ping
+//   - Reads /checkins + /summary at mount
+//   - Items grouped by patient with a per-group six-axis sparkline summary
+//   - DEMO banner only when server returns is_demo_view=true
+//   - Honest empty state ("No wellness check-ins pending review.")
+//   - Acknowledge / escalate / resolve buttons with note-required prompt
+//   - Bulk acknowledge: select rows + ack-all
+//   - Drill-out per-checkin to Patient Profile, Course Detail, AE Hub,
+//     and the Clinician Adherence Hub (correlate with adherence)
+//   - Each ack / escalate / resolve / bulk-ack / export emits its own audit event
+//   - No silent fakes; counts come from real audit-row aggregation
+
+const _cwhEsc = (s) => String(s ?? '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+function _cwhNoteRequiredValid(note) {
+  if (note == null) return false;
+  return String(note).trim().length > 0;
+}
+
+function _cwhBuildAuditPayload(event, extra = {}) {
+  const out = { event };
+  if (extra.checkin_id) out.checkin_id = String(extra.checkin_id);
+  if (extra.note) out.note = String(extra.note).slice(0, 480);
+  if (extra.using_demo_data) out.using_demo_data = true;
+  return out;
+}
+
+function _cwhBuildFilterParams(filters) {
+  const params = {};
+  if (filters?.severity_band) params.severity_band = filters.severity_band;
+  if (filters?.axis) params.axis = filters.axis;
+  if (filters?.surface_chip) params.surface_chip = filters.surface_chip;
+  if (filters?.clinician_status) params.clinician_status = filters.clinician_status;
+  if (filters?.patient_id) params.patient_id = filters.patient_id;
+  if (filters?.q) params.q = filters.q;
+  return params;
+}
+
+function _cwhShouldShowDemoBanner(serverListResp) {
+  return !!(serverListResp && serverListResp.is_demo_view);
+}
+
+function _cwhShouldShowEmptyState(serverListResp) {
+  if (!serverListResp || !Array.isArray(serverListResp.items)) return true;
+  return serverListResp.items.length === 0;
+}
+
+function _cwhCsvExportPath() { return '/api/v1/clinician-wellness/checkins/export.csv'; }
+function _cwhNdjsonExportPath() { return '/api/v1/clinician-wellness/checkins/export.ndjson'; }
+
+// Hub-level state — kept tiny so the hub can mount/unmount cleanly.
+let _cwhState = {
+  items: [],
+  total: 0,
+  isDemoView: false,
+  summary: null,
+  filterSeverityBand: '',
+  filterAxis: '',
+  filterClinicianStatus: '',
+  filterQ: '',
+  selectedIds: new Set(),
+  loaded: false,
+  error: null,
+};
+
+const _CWH_AXES = [
+  ['', 'All axes'],
+  ['mood', 'Mood'],
+  ['energy', 'Energy'],
+  ['sleep', 'Sleep'],
+  ['anxiety', 'Anxiety'],
+  ['focus', 'Focus'],
+  ['pain', 'Pain'],
+];
+
+const _CWH_SEVERITY_BANDS = [
+  ['', 'All severities'],
+  ['low', 'Low'],
+  ['moderate', 'Moderate'],
+  ['high', 'High'],
+  ['urgent', 'Urgent'],
+];
+
+const _CWH_STATUSES = [
+  ['', 'All statuses'],
+  ['open', 'Open'],
+  ['acknowledged', 'Acknowledged'],
+  ['escalated', 'Escalated'],
+  ['resolved', 'Resolved'],
+];
+
+// Six-axis labels — must match server _AXES order.
+const _CWH_AXIS_KEYS = ['mood', 'energy', 'sleep', 'anxiety', 'focus', 'pain'];
+
+function _cwhAxisAvg(items, axis) {
+  const vals = items.map(it => it[axis]).filter(v => v !== null && v !== undefined);
+  if (vals.length === 0) return null;
+  return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10;
+}
+
+function _cwhGroupByPatient(items) {
+  const map = new Map();
+  for (const it of items) {
+    const key = it.patient_id || '_unknown';
+    if (!map.has(key)) {
+      map.set(key, {
+        patient_id: key,
+        patient_name: it.patient_name || key,
+        items: [],
+        total: 0,
+        candidates: 0,
+        escalated: 0,
+        urgent: 0,
+      });
+    }
+    const g = map.get(key);
+    g.items.push(it);
+    g.total += 1;
+    if (it.escalation_candidate) g.candidates += 1;
+    if (it.clinician_status === 'escalated') g.escalated += 1;
+    if (it.severity_band === 'urgent') g.urgent += 1;
+  }
+  // Compute six-axis averages per group (sparkline summary input).
+  for (const g of map.values()) {
+    g.axes_avg = {};
+    for (const axis of _CWH_AXIS_KEYS) {
+      g.axes_avg[axis] = _cwhAxisAvg(g.items, axis);
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => b.total - a.total);
+}
+
+export async function pgClinicianWellnessHub(setTopbar, navigate) {
+  const el = document.getElementById('app');
+  if (!el) return;
+
+  if (typeof setTopbar === 'function') {
+    setTopbar(
+      'Clinician Wellness Hub',
+      'Cross-patient triage of wellness check-ins, low-mood flags, and adherence-risk signals.',
+    );
+  }
+
+  // Mount-time audit ping. Best-effort.
+  try {
+    api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('view', {
+      note: 'wellness hub page mounted',
+    }));
+  } catch (_) { /* ignore */ }
+
+  // Render skeleton — never invent rows.
+  el.innerHTML = `
+    <div id="cwh-root" style="max-width:1180px;margin:0 auto;padding:18px 24px">
+      <div id="cwh-summary"></div>
+      <div id="cwh-filters"></div>
+      <div id="cwh-banner"></div>
+      <div id="cwh-content">
+        <div style="text-align:center;padding:40px;color:var(--text-tertiary);font-size:12px">Loading wellness hub…</div>
+      </div>
+    </div>`;
+
+  await _cwhLoadData();
+  _cwhBindFilterHandlers(navigate);
+  _cwhBindRowHandlers(navigate);
+}
+
+async function _cwhLoadData() {
+  const root = document.getElementById('cwh-root');
+  if (!root) return; // navigated away
+  const params = _cwhBuildFilterParams({
+    severity_band: _cwhState.filterSeverityBand,
+    axis: _cwhState.filterAxis,
+    clinician_status: _cwhState.filterClinicianStatus,
+    q: _cwhState.filterQ,
+  });
+  const [list, summary] = await Promise.all([
+    api.clinicianWellnessList(params),
+    api.clinicianWellnessSummary(),
+  ]);
+
+  // Honest empty payload when offline — never fabricate rows.
+  _cwhState.items = (list && Array.isArray(list.items)) ? list.items : [];
+  _cwhState.total = (list && Number(list.total)) || 0;
+  _cwhState.isDemoView = !!(list && list.is_demo_view);
+  _cwhState.summary = summary || {
+    total_today: 0,
+    total_7d: 0,
+    axes_trending_down_7d: 0,
+    low_mood_top_patients: [],
+    missed_streak_top_patients: [],
+    response_rate_pct: 0,
+    escalation_candidates: 0,
+  };
+  _cwhState.loaded = true;
+
+  const summaryEl = document.getElementById('cwh-summary');
+  if (summaryEl) summaryEl.innerHTML = _cwhRenderSummaryStrip(_cwhState.summary);
+  const filtersEl = document.getElementById('cwh-filters');
+  if (filtersEl) filtersEl.innerHTML = _cwhRenderFilterStrip(_cwhState);
+  const bannerEl = document.getElementById('cwh-banner');
+  if (bannerEl) bannerEl.innerHTML = _cwhShouldShowDemoBanner(list) ? _cwhRenderDemoBanner() : '';
+  const contentEl = document.getElementById('cwh-content');
+  if (contentEl) {
+    if (_cwhShouldShowEmptyState(list)) {
+      contentEl.innerHTML = _cwhRenderEmptyState();
+    } else {
+      const grouped = _cwhGroupByPatient(_cwhState.items);
+      contentEl.innerHTML = grouped.map(_cwhRenderPatientGroup).join('');
+    }
+  }
+}
+
+function _cwhRenderSummaryStrip(s) {
+  const card = (label, value, sub) => `
+    <div class="card" style="padding:14px;text-align:center">
+      <div style="font-size:22px;font-weight:700;color:var(--text-primary)">${_cwhEsc(String(value ?? '—'))}</div>
+      <div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin-top:4px">${_cwhEsc(label)}</div>
+      ${sub ? `<div style="font-size:10px;color:var(--text-tertiary);margin-top:2px">${_cwhEsc(sub)}</div>` : ''}
+    </div>`;
+  const responseStr = (s.response_rate_pct ?? 0).toFixed
+    ? s.response_rate_pct.toFixed(1)
+    : s.response_rate_pct;
+  const lowMoodHtml = (s.low_mood_top_patients && s.low_mood_top_patients.length)
+    ? `<div class="card" style="padding:12px 14px;margin-bottom:14px">
+        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px">Low-mood top patients (7d avg ≤ 5)</div>
+        ${s.low_mood_top_patients.map(p => `
+          <div style="font-size:12px;color:var(--text-primary);margin-bottom:3px">
+            <button class="cwh-drill-patient-btn" data-patient="${_cwhEsc(p.patient_id)}" style="background:none;border:none;color:var(--accent,#3b82f6);text-decoration:underline;cursor:pointer;padding:0">${_cwhEsc(p.patient_name)}</button>
+            · avg mood ${_cwhEsc(String(p.avg_mood_7d))} (${_cwhEsc(String(p.checkins_7d))} check-in${p.checkins_7d === 1 ? '' : 's'})
+          </div>`).join('')}
+      </div>`
+    : '';
+  const streakHtml = (s.missed_streak_top_patients && s.missed_streak_top_patients.length)
+    ? `<div class="card" style="padding:12px 14px;margin-bottom:14px">
+        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px">Missed-checkin streak top patients</div>
+        ${s.missed_streak_top_patients.map(p => `
+          <div style="font-size:12px;color:var(--text-primary);margin-bottom:3px">
+            <button class="cwh-drill-patient-btn" data-patient="${_cwhEsc(p.patient_id)}" style="background:none;border:none;color:var(--accent,#3b82f6);text-decoration:underline;cursor:pointer;padding:0">${_cwhEsc(p.patient_name)}</button>
+            · ${_cwhEsc(String(p.streak_days))} day(s) without a check-in
+          </div>`).join('')}
+      </div>`
+    : '';
+  return `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px">
+      ${card('Today', s.total_today ?? 0, 'check-ins')}
+      ${card('Past 7d', s.total_7d ?? 0, 'check-ins')}
+      ${card('Axes ↓ 7d', s.axes_trending_down_7d ?? 0, 'trending down')}
+      ${card('Escalation candidates', s.escalation_candidates ?? 0, 'open + severe')}
+      ${card('Response rate', `${responseStr}%`, 'actioned')}
+    </div>
+    ${lowMoodHtml}
+    ${streakHtml}
+  `;
+}
+
+function _cwhRenderFilterStrip(state) {
+  const opts = (arr, sel) => arr.map(([v, l]) =>
+    `<option value="${_cwhEsc(v)}"${v === sel ? ' selected' : ''}>${_cwhEsc(l)}</option>`).join('');
+  return `
+    <div class="card" style="padding:12px 14px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+      <select id="cwh-filter-severity-band" class="form-control" style="max-width:160px">
+        ${opts(_CWH_SEVERITY_BANDS, state.filterSeverityBand)}
+      </select>
+      <select id="cwh-filter-axis" class="form-control" style="max-width:140px">
+        ${opts(_CWH_AXES, state.filterAxis)}
+      </select>
+      <select id="cwh-filter-status" class="form-control" style="max-width:160px">
+        ${opts(_CWH_STATUSES, state.filterClinicianStatus)}
+      </select>
+      <input id="cwh-filter-q" class="form-control" style="max-width:220px" placeholder="Search note…" value="${_cwhEsc(state.filterQ || '')}">
+      <button id="cwh-bulk-ack-btn" class="btn btn-secondary" style="margin-left:auto">Bulk acknowledge (${state.selectedIds.size})</button>
+      <a id="cwh-export-csv-btn" class="btn btn-link" href="${_cwhCsvExportPath()}" target="_blank">Export CSV</a>
+      <a id="cwh-export-ndjson-btn" class="btn btn-link" href="${_cwhNdjsonExportPath()}" target="_blank">Export NDJSON</a>
+    </div>`;
+}
+
+function _cwhRenderDemoBanner() {
+  return `
+    <div class="notice notice-warning" style="margin-bottom:14px;font-size:12.5px;line-height:1.55">
+      <strong>Demo data.</strong> Some check-ins shown are from demo patients. Exports will be DEMO-prefixed; not regulator-submittable.
+    </div>`;
+}
+
+function _cwhRenderEmptyState() {
+  return `
+    <div class="card" style="padding:36px 24px;text-align:center;color:var(--text-secondary)">
+      <div style="font-size:2.4rem;margin-bottom:14px">✓</div>
+      <div style="font-size:1.05rem;font-weight:600;margin-bottom:6px">No wellness check-ins pending review.</div>
+      <div style="font-size:0.85rem;color:var(--text-tertiary);max-width:480px;margin:0 auto">
+        Wellness check-ins from your clinic's patients (mood, energy, sleep, anxiety, focus, pain) will appear here. Counts are real audit-table aggregates, not AI-fabricated cohort scoring.
+      </div>
+    </div>`;
+}
+
+function _cwhRenderPatientGroup(g) {
+  // Six-axis sparkline summary — render a tiny inline bar per axis with
+  // its 7-day average. NULL averages render as "—" so we don't lie
+  // about missing data.
+  const axisChip = (axis) => {
+    const v = g.axes_avg[axis];
+    const isHighIsBad = (axis === 'anxiety' || axis === 'pain');
+    let color = 'var(--text-tertiary)';
+    if (v != null) {
+      if (isHighIsBad) {
+        color = v >= 7 ? '#ff6b6b' : v >= 5 ? '#f59e0b' : '#14b8a6';
+      } else {
+        color = v <= 3 ? '#ff6b6b' : v <= 5 ? '#f59e0b' : '#14b8a6';
+      }
+    }
+    return `<span style="display:inline-block;font-size:11px;padding:2px 6px;border-radius:3px;background:var(--bg-tertiary);color:${color};margin-right:4px">${_cwhEsc(axis)} ${v == null ? '—' : v}</span>`;
+  };
+  return `
+    <div class="card" style="padding:0;margin-bottom:14px;overflow:hidden">
+      <div style="padding:12px 14px;border-bottom:1px solid var(--border-color);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <div>
+          <button class="cwh-drill-patient-btn" data-patient="${_cwhEsc(g.patient_id)}" style="background:none;border:none;color:var(--accent,#3b82f6);font-weight:600;text-decoration:underline;cursor:pointer;padding:0;font-size:14px">${_cwhEsc(g.patient_name)}</button>
+          <span style="margin-left:8px;font-size:11px;color:var(--text-tertiary)">${_cwhEsc(g.patient_id)}</span>
+        </div>
+        <div style="font-size:11px;color:var(--text-secondary)">
+          ${_cwhEsc(String(g.total))} check-in${g.total === 1 ? '' : 's'} · ${_cwhEsc(String(g.candidates))} escalation candidate${g.candidates === 1 ? '' : 's'} · ${_cwhEsc(String(g.escalated))} escalated · ${_cwhEsc(String(g.urgent))} urgent
+        </div>
+      </div>
+      <div style="padding:8px 14px;border-bottom:1px solid var(--border-color);font-size:11px">
+        <span style="color:var(--text-tertiary);margin-right:6px">Group avg:</span>
+        ${_CWH_AXIS_KEYS.map(axisChip).join('')}
+      </div>
+      <div>
+        ${g.items.map(_cwhRenderCheckinRow).join('')}
+      </div>
+    </div>`;
+}
+
+function _cwhRenderCheckinRow(it) {
+  const sevColor = (
+    it.severity_band === 'urgent' ? '#ff6b6b' :
+    it.severity_band === 'high'   ? '#f59e0b' :
+    it.severity_band === 'moderate' ? '#3b82f6' :
+    '#14b8a6'
+  );
+  const statusColor = (
+    it.clinician_status === 'open'         ? '#f59e0b' :
+    it.clinician_status === 'acknowledged' ? '#3b82f6' :
+    it.clinician_status === 'escalated'    ? '#ff6b6b' :
+    it.clinician_status === 'resolved'     ? '#14b8a6' :
+    'var(--text-tertiary)'
+  );
+  const isImmutable = it.clinician_status === 'resolved';
+  const axesSummary = _CWH_AXIS_KEYS
+    .map(a => it[a] != null ? `${a}=${it[a]}` : null)
+    .filter(Boolean)
+    .join(' · ') || 'no axes';
+  return `
+    <div style="padding:10px 14px;border-bottom:1px solid var(--border-color);display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start">
+      <input type="checkbox" class="cwh-row-checkbox" data-checkin-id="${_cwhEsc(it.id)}" ${isImmutable ? 'disabled' : ''} style="margin-top:5px">
+      <div style="flex:1;min-width:240px">
+        <div style="font-size:13px;font-weight:600;color:var(--text-primary)">
+          <span style="color:${sevColor}">[${_cwhEsc(it.severity_band || 'low')}]</span>
+          <span style="margin-left:6px;font-size:11px;color:${statusColor}">[${_cwhEsc(it.clinician_status)}]</span>
+          ${it.escalation_candidate ? `<span style="margin-left:6px;font-size:10px;color:#ff6b6b;background:var(--bg-tertiary);padding:1px 5px;border-radius:3px">CANDIDATE</span>` : ''}
+          ${it.is_demo ? `<span style="margin-left:6px;font-size:10px;color:var(--text-tertiary);background:var(--bg-tertiary);padding:1px 5px;border-radius:3px">DEMO</span>` : ''}
+        </div>
+        <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">${_cwhEsc(axesSummary)}</div>
+        ${it.note ? `<div style="font-size:12px;color:var(--text-secondary);margin-top:2px">${_cwhEsc((it.note || '').slice(0, 200))}${(it.note || '').length > 200 ? '…' : ''}</div>` : ''}
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${isImmutable ? '' : `<button class="cwh-ack-btn btn btn-secondary" data-checkin-id="${_cwhEsc(it.id)}">Acknowledge</button>`}
+        ${isImmutable ? '' : `<button class="cwh-escalate-btn btn btn-warning" data-checkin-id="${_cwhEsc(it.id)}">Escalate</button>`}
+        ${isImmutable ? '' : `<button class="cwh-resolve-btn btn btn-secondary" data-checkin-id="${_cwhEsc(it.id)}">Resolve</button>`}
+        <button class="cwh-drill-patient-btn btn btn-link" data-patient="${_cwhEsc(it.patient_id)}">Patient</button>
+        <button class="cwh-drill-ae-btn btn btn-link" data-patient="${_cwhEsc(it.patient_id)}">AE Hub</button>
+        <button class="cwh-drill-adherence-btn btn btn-link" data-patient="${_cwhEsc(it.patient_id)}">Adherence</button>
+      </div>
+    </div>`;
+}
+
+function _cwhBindFilterHandlers(navigate) {
+  const sevSel = document.getElementById('cwh-filter-severity-band');
+  if (sevSel && !sevSel._bound) {
+    sevSel._bound = true;
+    sevSel.onchange = () => {
+      _cwhState.filterSeverityBand = sevSel.value || '';
+      try { api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('filter_changed', { note: 'severity_band=' + (_cwhState.filterSeverityBand || 'all') })); } catch (_) {}
+      _cwhLoadData().then(() => { _cwhBindFilterHandlers(navigate); _cwhBindRowHandlers(navigate); });
+    };
+  }
+  const axisSel = document.getElementById('cwh-filter-axis');
+  if (axisSel && !axisSel._bound) {
+    axisSel._bound = true;
+    axisSel.onchange = () => {
+      _cwhState.filterAxis = axisSel.value || '';
+      try { api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('filter_changed', { note: 'axis=' + (_cwhState.filterAxis || 'all') })); } catch (_) {}
+      _cwhLoadData().then(() => { _cwhBindFilterHandlers(navigate); _cwhBindRowHandlers(navigate); });
+    };
+  }
+  const statSel = document.getElementById('cwh-filter-status');
+  if (statSel && !statSel._bound) {
+    statSel._bound = true;
+    statSel.onchange = () => {
+      _cwhState.filterClinicianStatus = statSel.value || '';
+      try { api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('filter_changed', { note: 'clinician_status=' + (_cwhState.filterClinicianStatus || 'all') })); } catch (_) {}
+      _cwhLoadData().then(() => { _cwhBindFilterHandlers(navigate); _cwhBindRowHandlers(navigate); });
+    };
+  }
+  const qInput = document.getElementById('cwh-filter-q');
+  if (qInput && !qInput._bound) {
+    qInput._bound = true;
+    let _qDebounce = null;
+    qInput.oninput = () => {
+      _cwhState.filterQ = qInput.value || '';
+      if (_qDebounce) clearTimeout(_qDebounce);
+      _qDebounce = setTimeout(() => {
+        try { api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('filter_changed', { note: 'q=' + (_cwhState.filterQ || '').slice(0, 60) })); } catch (_) {}
+        _cwhLoadData().then(() => { _cwhBindFilterHandlers(navigate); _cwhBindRowHandlers(navigate); });
+      }, 300);
+    };
+  }
+  const bulkBtn = document.getElementById('cwh-bulk-ack-btn');
+  if (bulkBtn && !bulkBtn._bound) {
+    bulkBtn._bound = true;
+    bulkBtn.onclick = async () => {
+      if (_cwhState.selectedIds.size === 0) {
+        if (window.showToast) window.showToast('Select at least one check-in to acknowledge.', 'warn');
+        return;
+      }
+      const note = (typeof window !== 'undefined' ? window.prompt('Acknowledge note (required):', '') : '');
+      if (!_cwhNoteRequiredValid(note)) {
+        if (window.showToast) window.showToast('Acknowledgement note is required.', 'warn');
+        return;
+      }
+      const ids = Array.from(_cwhState.selectedIds);
+      try {
+        const r = await api.clinicianWellnessBulkAcknowledge(ids, note);
+        try { api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('bulk_acknowledged', { note: `processed=${ids.length}` })); } catch (_) {}
+        const failed = (r && Array.isArray(r.failures)) ? r.failures.length : 0;
+        if (window.showToast) {
+          if (failed > 0) window.showToast(`Bulk ack: ${r?.succeeded ?? 0} ok, ${failed} failed.`, 'warn');
+          else window.showToast(`Acknowledged ${r?.succeeded ?? ids.length} check-ins.`, 'success');
+        }
+        _cwhState.selectedIds.clear();
+        await _cwhLoadData();
+        _cwhBindFilterHandlers(navigate);
+        _cwhBindRowHandlers(navigate);
+      } catch (_) {
+        if (window.showToast) window.showToast('Bulk acknowledge failed.', 'error');
+      }
+    };
+  }
+  const csvBtn = document.getElementById('cwh-export-csv-btn');
+  if (csvBtn && !csvBtn._bound) {
+    csvBtn._bound = true;
+    csvBtn.addEventListener('click', () => {
+      try { api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('export', { note: 'format=csv' })); } catch (_) {}
+    });
+  }
+  const ndBtn = document.getElementById('cwh-export-ndjson-btn');
+  if (ndBtn && !ndBtn._bound) {
+    ndBtn._bound = true;
+    ndBtn.addEventListener('click', () => {
+      try { api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('export', { note: 'format=ndjson' })); } catch (_) {}
+    });
+  }
+}
+
+function _cwhBindRowHandlers(navigate) {
+  const cbs = document.querySelectorAll('.cwh-row-checkbox');
+  cbs.forEach(cb => {
+    if (cb._bound) return;
+    cb._bound = true;
+    cb.onchange = () => {
+      const id = cb.getAttribute('data-checkin-id');
+      if (cb.checked) _cwhState.selectedIds.add(id);
+      else _cwhState.selectedIds.delete(id);
+      const bulk = document.getElementById('cwh-bulk-ack-btn');
+      if (bulk) bulk.textContent = `Bulk acknowledge (${_cwhState.selectedIds.size})`;
+    };
+  });
+
+  document.querySelectorAll('.cwh-ack-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = async () => {
+      const id = btn.getAttribute('data-checkin-id');
+      const note = (typeof window !== 'undefined' ? window.prompt('Acknowledge note (required):', '') : '');
+      if (!_cwhNoteRequiredValid(note)) {
+        if (window.showToast) window.showToast('Acknowledgement note is required.', 'warn');
+        return;
+      }
+      try {
+        await api.clinicianWellnessAcknowledge(id, note);
+        try { api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('checkin_acknowledged_via_modal', { checkin_id: id })); } catch (_) {}
+        if (window.showToast) window.showToast('Check-in acknowledged.', 'success');
+        await _cwhLoadData();
+        _cwhBindFilterHandlers(navigate);
+        _cwhBindRowHandlers(navigate);
+      } catch (_) {
+        if (window.showToast) window.showToast('Acknowledge failed.', 'error');
+      }
+    };
+  });
+
+  document.querySelectorAll('.cwh-escalate-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = async () => {
+      const id = btn.getAttribute('data-checkin-id');
+      const note = (typeof window !== 'undefined' ? window.prompt('Escalation note (required) — creates AE Hub draft:', '') : '');
+      if (!_cwhNoteRequiredValid(note)) {
+        if (window.showToast) window.showToast('Escalation note is required.', 'warn');
+        return;
+      }
+      try {
+        const r = await api.clinicianWellnessEscalate(id, note);
+        try { api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('checkin_escalated_via_modal', { checkin_id: id })); } catch (_) {}
+        if (window.showToast) {
+          window.showToast(r?.adverse_event_id ? `Escalated · AE draft ${r.adverse_event_id}` : 'Check-in escalated.', 'success');
+        }
+        await _cwhLoadData();
+        _cwhBindFilterHandlers(navigate);
+        _cwhBindRowHandlers(navigate);
+      } catch (_) {
+        if (window.showToast) window.showToast('Escalation failed.', 'error');
+      }
+    };
+  });
+
+  document.querySelectorAll('.cwh-resolve-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = async () => {
+      const id = btn.getAttribute('data-checkin-id');
+      const note = (typeof window !== 'undefined' ? window.prompt('Resolution note (required) — check-in is immutable thereafter:', '') : '');
+      if (!_cwhNoteRequiredValid(note)) {
+        if (window.showToast) window.showToast('Resolution note is required.', 'warn');
+        return;
+      }
+      try {
+        await api.clinicianWellnessResolve(id, note);
+        try { api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('checkin_resolved_via_modal', { checkin_id: id })); } catch (_) {}
+        if (window.showToast) window.showToast('Check-in resolved.', 'success');
+        await _cwhLoadData();
+        _cwhBindFilterHandlers(navigate);
+        _cwhBindRowHandlers(navigate);
+      } catch (_) {
+        if (window.showToast) window.showToast('Resolve failed.', 'error');
+      }
+    };
+  });
+
+  document.querySelectorAll('.cwh-drill-patient-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = () => {
+      const pid = btn.getAttribute('data-patient');
+      try { api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('deep_link_followed', { note: 'patient=' + pid })); } catch (_) {}
+      if (pid) window._patientId = pid;
+      if (typeof navigate === 'function') navigate('patient-profile');
+      else if (typeof window !== 'undefined' && window._nav) window._nav('patient-profile');
+    };
+  });
+
+  document.querySelectorAll('.cwh-drill-ae-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = () => {
+      const pid = btn.getAttribute('data-patient');
+      try { api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('deep_link_followed', { note: 'ae_hub=' + pid })); } catch (_) {}
+      if (pid) window._patientId = pid;
+      if (typeof navigate === 'function') navigate('adverse-events');
+      else if (typeof window !== 'undefined' && window._nav) window._nav('adverse-events');
+    };
+  });
+
+  document.querySelectorAll('.cwh-drill-adherence-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = () => {
+      const pid = btn.getAttribute('data-patient');
+      try { api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('deep_link_followed', { note: 'adherence_hub=' + pid })); } catch (_) {}
+      if (pid) window._patientId = pid;
+      if (typeof navigate === 'function') navigate('clinician-adherence');
+      else if (typeof window !== 'undefined' && window._nav) window._nav('clinician-adherence');
+    };
+  });
+}

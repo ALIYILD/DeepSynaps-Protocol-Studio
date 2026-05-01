@@ -1991,6 +1991,52 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
+  // ── Clinician Wellness Hub (launch-audit 2026-05-01) ──────────────────────
+  // Bidirectional counterpart to the patient-facing Wellness Hub (#345).
+  // CROSS-PATIENT triage queue scoped to the clinic so a clinician can
+  // clear today's wellness backlog in bulk (acknowledge / escalate /
+  // resolve / bulk-acknowledge) instead of opening one Inbox detail at
+  // a time. Cross-clinic blocked at router; admins see all clinics. All
+  // helpers return null on offline / 404 so the page can render an
+  // honest empty state.
+  clinicianWellnessList: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/clinician-wellness/checkins${q ? '?' + q : ''}`).catch(() => null);
+  },
+  clinicianWellnessSummary: () =>
+    apiFetch('/api/v1/clinician-wellness/checkins/summary').catch(() => null),
+  clinicianWellnessGetCheckin: (checkinId) =>
+    apiFetch(`/api/v1/clinician-wellness/checkins/${encodeURIComponent(checkinId)}`).catch(() => null),
+  clinicianWellnessAcknowledge: (checkinId, note) =>
+    apiFetch(`/api/v1/clinician-wellness/checkins/${encodeURIComponent(checkinId)}/acknowledge`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note || '' }),
+    }),
+  clinicianWellnessEscalate: (checkinId, note, bodySystem) =>
+    apiFetch(`/api/v1/clinician-wellness/checkins/${encodeURIComponent(checkinId)}/escalate`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note || '', body_system: bodySystem || null }),
+    }),
+  clinicianWellnessResolve: (checkinId, note) =>
+    apiFetch(`/api/v1/clinician-wellness/checkins/${encodeURIComponent(checkinId)}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note || '' }),
+    }),
+  clinicianWellnessBulkAcknowledge: (checkinIds, note) =>
+    apiFetch('/api/v1/clinician-wellness/checkins/bulk-acknowledge', {
+      method: 'POST',
+      body: JSON.stringify({ checkin_ids: Array.isArray(checkinIds) ? checkinIds : [], note: note || '' }),
+    }),
+  clinicianWellnessExportCsvUrl: () =>
+    `/api/v1/clinician-wellness/checkins/export.csv`,
+  clinicianWellnessExportNdjsonUrl: () =>
+    `/api/v1/clinician-wellness/checkins/export.ndjson`,
+  postClinicianWellnessAuditEvent: (data) =>
+    apiFetch('/api/v1/clinician-wellness/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
   // ── Home Program Tasks (patient portal — legacy completion submit) ────────
   portalListHomeProgramTasks: () => apiFetch('/api/v1/patient-portal/home-program-tasks'),
   portalCompleteHomeProgramTask: (serverTaskId, data) =>
