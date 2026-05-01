@@ -104,5 +104,54 @@ def test_run_pipeline_structural_stub_writes_manifest(
         )
 
     assert report.structural is not None
+    ingest_man = out / "artefacts" / "manifests" / "ingest_manifest.json"
+    assert ingest_man.is_file()
     manifest = out / "artefacts" / "structural" / "structural_metrics_manifest.json"
     assert manifest.is_file()
+
+
+def test_run_pipeline_register_writes_manifest(
+    patient: PatientMeta,
+    tmp_path: Path,
+) -> None:
+    session = tmp_path / "session"
+    session.mkdir()
+    out = tmp_path / "out"
+    t1_nii = tmp_path / "t1.nii.gz"
+    t1_nii.write_bytes(b"x")
+
+    fake_ingest = [
+        ConvertedScan(
+            nifti_path=t1_nii,
+            sidecar_path=None,
+            modality_guess="T1w",
+            n_volumes=1,
+        ),
+    ]
+
+    warped = MagicMock()
+
+    class FakeXfm:
+        fwd_transforms = [str(tmp_path / "fwd.mat")]
+        inv_transforms = [str(tmp_path / "inv.mat")]
+        warped_moving = warped
+
+    with (
+        patch("deepsynaps_mri.pipeline.io_mod.ingest", return_value=fake_ingest),
+        patch(
+            "deepsynaps_mri.pipeline.reg_mod.register_t1_to_mni",
+            return_value=FakeXfm(),
+        ),
+        patch("deepsynaps_mri.pipeline.qc_mod.run_mriqc"),
+        patch("deepsynaps_mri.pipeline.qc_mod.screen_incidental_findings"),
+    ):
+        run_pipeline(
+            session,
+            patient,
+            out,
+            only=("ingest", "register"),
+        )
+
+    reg_man = out / "artefacts" / "manifests" / "register_manifest.json"
+    assert reg_man.is_file()
+    warped.to_filename.assert_called_once()

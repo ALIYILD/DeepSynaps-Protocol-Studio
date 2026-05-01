@@ -29,17 +29,17 @@ def test_deface_t1_mri_deface_expands_freesurfer_home(tmp_path: Path) -> None:
                 "/fake/bin/mri_deface" if name == "mri_deface" else None
             ),
         ),
-        patch("deepsynaps_mri.structural._run_logged_subprocess") as run_mock,
+        patch("deepsynaps_mri.structural.deface_adapters.run_mri_deface") as run_mock,
     ):
         s.deface_t1(t1, out)
 
     run_mock.assert_called_once()
-    cmd = run_mock.call_args[0][0]
+    cmd = run_mock.call_args[0]
     assert cmd[0] == "/fake/bin/mri_deface"
-    assert str(t1) == cmd[1]
-    assert cmd[2].endswith("talairach_mixed_with_skull.gca")
-    assert cmd[3].endswith("face.gca")
-    assert str(out) == cmd[4]
+    assert str(t1) == str(cmd[1])
+    assert str(cmd[2]).endswith("talairach_mixed_with_skull.gca")
+    assert str(cmd[3]).endswith("face.gca")
+    assert str(out) == str(cmd[4])
 
 
 def test_deface_t1_skips_mri_deface_when_templates_missing(tmp_path: Path) -> None:

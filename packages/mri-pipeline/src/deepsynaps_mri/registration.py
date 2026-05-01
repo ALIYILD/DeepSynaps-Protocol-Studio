@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Literal
 
 from .constants import MNI_TEMPLATE
+from .pipeline_manifests import write_stage_manifest
 
 log = logging.getLogger(__name__)
 
@@ -112,3 +113,27 @@ def warp_points_to_patient(
 def mni_template_name() -> str:
     """Canonical template used by this project."""
     return MNI_TEMPLATE
+
+
+def write_registration_manifest(
+    artefacts_root: str | Path,
+    *,
+    moving_t1_path: str | Path,
+    warped_mni_path: str | Path,
+    xfm: Transform,
+    transform_type: str = "SyN",
+) -> Path:
+    """Persist paths and transform list references under ``manifests/register_manifest.json``."""
+    return write_stage_manifest(
+        artefacts_root,
+        "register",
+        {
+            "tool": "antspyx",
+            "transform_type": transform_type,
+            "template": MNI_TEMPLATE,
+            "moving_image": str(Path(moving_t1_path).resolve()),
+            "warped_mni_image": str(Path(warped_mni_path).resolve()),
+            "fwd_transforms": [str(Path(p).resolve()) for p in xfm.fwd_transforms],
+            "inv_transforms": [str(Path(p).resolve()) for p in xfm.inv_transforms],
+        },
+    )

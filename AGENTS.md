@@ -16,7 +16,7 @@ Guidance for Cursor and automated agents working on **DeepSynaps**, especially t
 1. **Algorithms live in Python** — `packages/mri-pipeline/src/deepsynaps_mri/` (`pipeline.py`, `io.py`, `registration.py`, `structural.py`, `targeting.py`, etc.). The API **facades** this via `apps/api/app/services/mri_pipeline.py` (`HAS_MRI_PIPELINE` guard).
 2. **UI is separate** — `apps/web/src/pages-mri-analysis.js` (and related) consume JSON; no segmentation or registration logic in the browser beyond viewers.
 3. **Contracts are explicit** — `packages/mri-pipeline/portal_integration/api_contract.md` and Pydantic models in `schemas.py`. Targeting stays **pure** (no side effects in `targeting.py`).
-4. **Wrap first, reimplement second** — integrate FreeSurfer SynthSeg, FastSurfer, FSL, ANTs via **thin adapters** under `deepsynaps_mri/adapters/` (`dcm2niix`, subprocess helpers; more CLIs migrating incrementally from `io.py` / `structural.py` / `qc.py`) and subprocess/container calls; do not rewrite recon-all or ANTs in one pass.
+4. **Wrap first, reimplement second** — integrate FreeSurfer SynthSeg, FastSurfer, FSL, ANTs via **thin adapters** under `deepsynaps_mri/adapters/` (`dcm2niix`, `fastsurfer`, `synthseg`, `deface`, subprocess helpers; MRIQC uses shared capture helpers) and subprocess/container calls; do not rewrite recon-all or ANTs in one pass.
 
 ---
 

@@ -32,6 +32,10 @@ Dedicated modules named `preprocessing.py`, `segmentation.py`, … from the long
 roadmap may appear later — until then, boundaries are `pipeline.py` + adapters +
 domain helpers such as `structural_stats.py`.
 
+**Stage manifests:** `run_pipeline` writes JSON under `artefacts/manifests/`
+(`ingest_manifest.json`, `register_manifest.json`) plus `structural/structural_metrics_manifest.json`
+when stages run.
+
 See also `docs/PROMPT_AUDIT_MRI.md` and `docs/INTEGRATION_REVIEW_MRI.md`.
 
 ## Quickstart

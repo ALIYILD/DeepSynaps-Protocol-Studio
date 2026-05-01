@@ -29,6 +29,9 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from .adapters import deface as deface_adapters
+from .adapters import fastsurfer as fs_adapters
+from .adapters import synthseg as synthseg_adapters
 from .adapters.subprocess_tools import run_logged_subprocess as _adapter_run_cli
 from .schemas import NormedValue, SegmentationEngine, StructuralMetrics
 
@@ -157,16 +160,13 @@ def run_fastsurfer(t1_path: Path, out_dir: Path, subject_id: str) -> Segmentatio
         - mount /tmp/.X11-unix for the optional QC screenshots
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    cmd = [
-        "run_fastsurfer.sh",
-        "--t1", str(t1_path),
-        "--sid", subject_id,
-        "--sd", str(out_dir),
-        "--parallel",
-        "--threads", "4",
-    ]
-    log.info("Running FastSurfer: %s", " ".join(cmd))
-    _run_logged_subprocess(cmd)
+    fs_adapters.run_fastsurfer_segmentation(
+        t1_path,
+        out_dir,
+        subject_id,
+        threads=4,
+        parallel=True,
+    )
 
     sdir = out_dir / subject_id
     return SegmentationResult(
@@ -204,19 +204,12 @@ def run_synthseg(
     vol_csv = out_dir / "volumes.csv"
     qc_csv = out_dir / "qc.csv"
 
-    cmd = [
-        "mri_synthseg",
-        "--i", str(t1_path),
-        "--o", str(seg_out),
-        "--vol", str(vol_csv),
-        "--qc", str(qc_csv),
-    ]
-    if parc:
-        cmd += ["--parc"]
-    if robust:
-        cmd += ["--robust"]
-    log.info("Running SynthSeg: %s", " ".join(cmd))
-    _run_logged_subprocess(cmd)
+    synthseg_adapters.run_synthseg_segmentation(
+        t1_path,
+        out_dir,
+        parc=parc,
+        robust=robust,
+    )
 
     wmh = None
     if with_wmh:
@@ -381,9 +374,9 @@ def deface_t1(t1_path: Path, out_path: Path) -> Path:
 
     Prefers `pydeface` if installed; falls back to FreeSurfer's `mri_deface`.
     """
-    if shutil.which("pydeface"):
-        cmd = ["pydeface", str(t1_path), "--out", str(out_path), "--force"]
-        _run_logged_subprocess(cmd)
+    pydeface_exe = shutil.which("pydeface")
+    if pydeface_exe:
+        deface_adapters.run_pydeface(t1_path, out_path)
         return out_path
     fs_home = os.environ.get("FREESURFER_HOME", "").strip()
     mri_deface_exe = shutil.which("mri_deface")
@@ -391,8 +384,9 @@ def deface_t1(t1_path: Path, out_path: Path) -> Path:
         tal = Path(fs_home) / "average" / "talairach_mixed_with_skull.gca"
         face = Path(fs_home) / "average" / "face.gca"
         if tal.is_file() and face.is_file():
-            cmd = [mri_deface_exe, str(t1_path), str(tal), str(face), str(out_path)]
-            _run_logged_subprocess(cmd)
+            deface_adapters.run_mri_deface(
+                mri_deface_exe, t1_path, tal, face, out_path,
+            )
             return out_path
         log.warning(
             "mri_deface on PATH but FREESURFER_HOME templates missing (%s, %s); skipping deface",
