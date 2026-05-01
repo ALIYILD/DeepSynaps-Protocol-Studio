@@ -546,7 +546,9 @@ def send_now(
     # caregiver dispatch is a per-user concern, not per-clinic.
     from app.services.oncall_delivery import (  # noqa: PLC0415
         PageMessage,
+        build_caregiver_digest_service,
         build_default_service,
+        build_delivery_audit_note,
         build_email_digest_service,
         is_mock_mode_enabled,
     )
@@ -569,17 +571,24 @@ def send_now(
     )
 
     try:
-        # Prefer the email-channel chain (SendGrid first when env vars
-        # are set). Fall back to the loud-signal default chain if the
-        # email chain has zero enabled adapters AND mock-mode is off, so
-        # the caller still sees an honest ``queued`` instead of a silent
+        # Prefer the caregiver-digest chain (SendGrid + loud-signal
+        # secondaries by default — the EscalationPolicy can override the
+        # order per-clinic via surface='caregiver_digest'). Fall back to
+        # the legacy email-only chain when the caregiver-digest builder
+        # returns zero enabled adapters AND mock-mode is off, so the
+        # caller still sees an honest ``queued`` instead of a silent
         # drop.
-        service = build_email_digest_service()
+        service = build_caregiver_digest_service(clinic_id=None, db=db)
         if (
             not service.get_enabled_adapters()
             and not is_mock_mode_enabled()
         ):
-            service = build_default_service(clinic_id=None)
+            service = build_email_digest_service()
+            if (
+                not service.get_enabled_adapters()
+                and not is_mock_mode_enabled()
+            ):
+                service = build_default_service(clinic_id=None)
         result = service.send(message)
     except Exception as exc:  # pragma: no cover — defensive
         ev_id = _audit_portal(
@@ -587,10 +596,16 @@ def send_now(
             actor,
             event="email_digest_sent",
             target_id=actor.actor_id,
-            note=(
-                f"unread={unread_count}; recipient={recipient_email or '-'}; "
-                f"delivery_status=failed; "
-                f"error={exc.__class__.__name__}"
+            note=build_delivery_audit_note(
+                unread_count=unread_count,
+                recipient=recipient_email,
+                delivery_status="failed",
+                adapter_name=None,
+                external_id=None,
+                grant_id=grant.id,
+                delivery_note=f"delivery_service_raised: {exc.__class__.__name__}",
+                trigger="send_now",
+                extra={"error": exc.__class__.__name__},
             ),
         )
         return DigestSendNowOut(
@@ -623,13 +638,15 @@ def send_now(
         actor,
         event="email_digest_sent",
         target_id=actor.actor_id,
-        note=(
-            f"unread={unread_count}; recipient={recipient_email or '-'}; "
-            f"delivery_status={delivery_status}; "
-            f"adapter={adapter_name or '-'}; "
-            f"external_id={external_id or '-'}; "
-            f"grant_id={grant.id}; "
-            f"delivery_note={delivery_note}"
+        note=build_delivery_audit_note(
+            unread_count=unread_count,
+            recipient=recipient_email,
+            delivery_status=delivery_status,
+            adapter_name=adapter_name,
+            external_id=external_id,
+            grant_id=grant.id,
+            delivery_note=delivery_note,
+            trigger="send_now",
         ),
     )
 
