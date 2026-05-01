@@ -76,9 +76,18 @@ KNOWN_SURFACES = {
     "audit_trail",
     "reports",
     "documents",
+    # ``documents_hub`` is the page-level surface for the Documents Hub
+    # drill-in audit (2026-04-30 launch audit). Distinct from ``documents``
+    # which scopes per-record events (sign / supersede / export.zip).
+    "documents_hub",
     "quality_assurance",
     "irb_manager",
     "clinical_trials",
+    # Course Detail emits drill-out URLs that target documents-hub; when the
+    # documents-hub filter banner emits an audit event back-pointing to the
+    # course, the drill-in tracker must accept ``course_detail`` as the
+    # ``source_target_type`` rather than rewriting it. The course_detail
+    # surface itself is recorded by ``app/routers/treatment_courses_router``.
     "course_detail",
 }
 

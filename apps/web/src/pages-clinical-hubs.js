@@ -7512,6 +7512,100 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
     letters:   { label: 'Patient Letters', color: 'var(--amber)'  },
     uploads:   { label: 'Uploads',         color: 'var(--green)'  },
   };
+  // Drill-in coverage from upstream surfaces (Documents Hub launch-audit
+  // 2026-04-30 re-audit). Read source_target_type / source_target_id from
+  // the URL once on mount and keep them on `window` so re-renders of the
+  // page (window._nav('documents-hub') after a sign / supersede) preserve
+  // the filter context. Whitelist matches the backend KNOWN_DRILL_IN_-
+  // SURFACES — anything else is dropped silently here and the API will
+  // 422 if a hand-crafted URL bypasses the UI.
+  const KNOWN_DRILL_IN_SURFACES = new Set([
+    'clinical_trials', 'irb_manager', 'quality_assurance',
+    'course_detail', 'adverse_events', 'reports_hub',
+  ]);
+  const DRILL_IN_LABELS = {
+    clinical_trials:   'Clinical Trial',
+    irb_manager:       'IRB Protocol',
+    quality_assurance: 'QA Finding',
+    course_detail:     'Treatment Course',
+    adverse_events:    'Adverse Event',
+    reports_hub:       'Report',
+  };
+  const DRILL_BACK_PAGES = {
+    clinical_trials:   'clinical-trials',
+    irb_manager:       'irb-manager',
+    quality_assurance: 'quality-assurance',
+    course_detail:     'courses',
+    adverse_events:    'adverse-events',
+    reports_hub:       'reports-hub',
+  };
+  let drillInType = null;
+  let drillInId = null;
+  try {
+    const sp = new URLSearchParams(window.location.search || '');
+    const rawType = (sp.get('source_target_type') || '').trim();
+    const rawId   = (sp.get('source_target_id')   || '').trim();
+    if (rawType && rawId && KNOWN_DRILL_IN_SURFACES.has(rawType)) {
+      drillInType = rawType;
+      drillInId = rawId;
+    }
+  } catch (_) {
+    // window.location may be unavailable in test harnesses; the filter
+    // simply does not engage in that case.
+  }
+  // Persist on window so an in-page re-render (filter pill click,
+  // upload, sign, supersede) keeps the drill-in context until the user
+  // explicitly clears it via the "clear filter" button.
+  if (drillInType && drillInId) {
+    window._docsDrillInType = drillInType;
+    window._docsDrillInId = drillInId;
+  } else if (window._docsDrillInType && window._docsDrillInId) {
+    drillInType = window._docsDrillInType;
+    drillInId = window._docsDrillInId;
+  }
+  // Public clear so the banner button can drop the filter without a
+  // full reload.
+  window._docsClearDrillIn = () => {
+    window._docsDrillInType = null;
+    window._docsDrillInId = null;
+    api.logDocumentsAudit?.({
+      event: 'drill_in_cleared',
+      note: 'tab=' + (window._docsHubTab || 'all'),
+    }).catch(() => {});
+    // Strip the params from the URL so a refresh doesn't re-engage the
+    // filter. We use replaceState rather than navigate() so the SPA
+    // route doesn't double-render.
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('source_target_type');
+      url.searchParams.delete('source_target_id');
+      window.history.replaceState({}, '', url.toString());
+    } catch (_) {}
+    window._nav('documents-hub');
+  };
+  // Drill BACK to the upstream surface that pointed here.
+  window._docsDrillBack = () => {
+    const t = window._docsDrillInType;
+    const i = window._docsDrillInId;
+    if (!t || !i) return;
+    const page = DRILL_BACK_PAGES[t];
+    if (!page) return;
+    api.logDocumentsAudit?.({
+      event: 'drill_back',
+      note: 'to=' + t + ':' + i,
+      source_target_type: t,
+      source_target_id: i,
+    }).catch(() => {});
+    // The upstream surfaces accept either ``id=`` or their own id-shaped
+    // param; we use ``id=`` because every upstream listed in
+    // DRILL_BACK_PAGES already supports it.
+    try {
+      const url = '?page=' + encodeURIComponent(page) + '&id=' + encodeURIComponent(i);
+      window.location.href = url;
+    } catch (_) {
+      window._nav(page);
+    }
+  };
   const el = document.getElementById('content');
   function tabBar() {
     return Object.entries(TAB_META).map(([id,m]) =>
@@ -7550,14 +7644,22 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
     // Backend filters mirror the API: kind, status, since, until, q, patient_id.
     // The "All" list deliberately omits status so superseded rows are visible
     // (they are filtered out only on tab switches that don't want them).
-    const r = await api.listDocuments({
+    // The drill-in pair (source_target_type / source_target_id) is honoured
+    // when both are set — single-half values are dropped here so the API
+    // never sees a malformed pair (it would 422 otherwise).
+    const listParams = {
       kind: docsFilters.kind || undefined,
       patient_id: docsFilters.patient_id || undefined,
       since: docsFilters.since || undefined,
       until: docsFilters.until || undefined,
       q: docsFilters.q || undefined,
       limit: 200,
-    });
+    };
+    if (drillInType && drillInId) {
+      listParams.source_target_type = drillInType;
+      listParams.source_target_id   = drillInId;
+    }
+    const r = await api.listDocuments(listParams);
     backendDocs = (r?.items || []).map(d => ({
       id: d.id, name: d.title, type: d.doc_type, patient: d.patient_id || '—',
       date: (d.updated_at||'').slice(0,10), status: d.status,
@@ -7566,6 +7668,8 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       signed_by: d.signed_by, signed_at: d.signed_at,
       supersedes: d.supersedes, superseded_by: d.superseded_by,
       revision: d.revision || 1, is_demo: !!d.is_demo,
+      source_target_type: d.source_target_type || null,
+      source_target_id:   d.source_target_id   || null,
     }));
     saveDocs(backendDocs);
   } catch (err) {
@@ -7578,9 +7682,14 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
   // about empty cases. Falls back to client-side counts on API error.
   let docsSummary = null;
   try {
-    docsSummary = await api.getDocumentsSummary({
+    const summaryParams = {
       patient_id: docsFilters.patient_id || undefined,
-    });
+    };
+    if (drillInType && drillInId) {
+      summaryParams.source_target_type = drillInType;
+      summaryParams.source_target_id   = drillInId;
+    }
+    docsSummary = await api.getDocumentsSummary(summaryParams);
   } catch (err) {
     console.warn('[documents-hub] getDocumentsSummary failed:', err?.message || err);
   }
@@ -7592,9 +7701,17 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
     superseded: data.docs.filter(d => d.status === 'superseded').length,
   };
 
-  // Best-effort page-load audit. Non-blocking by design.
+  // Best-effort page-load audit. Non-blocking by design. When the user
+  // arrived through a drill-in URL, the upstream surface + id are
+  // preserved in the audit row so regulators can see the drill path.
   if (api.logDocumentsAudit) {
-    api.logDocumentsAudit({ event: 'page_loaded', note: 'tab=' + tab }).catch(() => {});
+    const auditPayload = { event: 'page_loaded', note: 'tab=' + tab };
+    if (drillInType && drillInId) {
+      auditPayload.source_target_type = drillInType;
+      auditPayload.source_target_id   = drillInId;
+      auditPayload.note = auditPayload.note + ' drill_in_from=' + drillInType + ':' + drillInId;
+    }
+    api.logDocumentsAudit(auditPayload).catch(() => {});
   }
 
   // Custom (clinician-authored) templates from the backend, shaped to match
@@ -7847,10 +7964,30 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
 
   function docRows(list) {
     if (!list.length) {
-      // Honest empty-state: distinguish "no rows yet" from "API unreachable".
+      // Honest empty-state: distinguish "no rows yet" from "API unreachable"
+      // from "no rows linked to this drill-in upstream".
       if (backendError) {
         return '<div class="ch-empty">Documents service unreachable. Showing local cache (' + data.docs.length + ' rows). ' +
           '<button class="ch-btn-sm" style="margin-left:8px" onclick="window._nav(\'documents-hub\')">Retry</button></div>';
+      }
+      if (drillInType && drillInId) {
+        const surfaceLabel = DRILL_IN_LABELS[drillInType] || drillInType;
+        let surfaceHint = '';
+        if (drillInType === 'clinical_trials') {
+          surfaceHint = ' Sponsor reports + ICFs land here once attached.';
+        } else if (drillInType === 'irb_manager') {
+          surfaceHint = ' Consent versions + protocol artefacts land here once attached.';
+        } else if (drillInType === 'quality_assurance') {
+          surfaceHint = ' QA finding artefacts land here once attached.';
+        } else if (drillInType === 'course_detail') {
+          surfaceHint = ' In-course session documents land here once attached.';
+        } else if (drillInType === 'adverse_events') {
+          surfaceHint = ' SAE narratives land here once attached.';
+        } else if (drillInType === 'reports_hub') {
+          surfaceHint = ' Supporting documents land here once attached.';
+        }
+        return '<div class="ch-empty">No documents linked to this ' + surfaceLabel.toLowerCase() + ' yet.' + surfaceHint +
+          ' <button class="ch-btn-sm" style="margin-left:8px" onclick="window._docsClearDrillIn()">Clear filter</button></div>';
       }
       return '<div class="ch-empty">No documents yet. Upload the first one.</div>';
     }
@@ -7940,24 +8077,38 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
 
   // Filtered ZIP export — streams a Blob from /export.zip. The server
   // prefixes the manifest with a "# DEMO" line if any matched rows are
-  // demo, so importers can drop demo content trivially.
+  // demo, so importers can drop demo content trivially. When a drill-in
+  // filter is active, the same source_target_type / source_target_id
+  // pair is forwarded so the export is scoped to only the linked
+  // upstream record (regulator-credible export).
   window._docsExport = async () => {
     const f = window._docsFiltersObj || {};
     try {
-      const blob = await api.exportDocumentsZip({
+      const exportParams = {
         kind: f.kind || undefined,
         patient_id: f.patient_id || undefined,
         since: f.since || undefined,
         until: f.until || undefined,
         q: f.q || undefined,
-      });
+      };
+      if (window._docsDrillInType && window._docsDrillInId) {
+        exportParams.source_target_type = window._docsDrillInType;
+        exportParams.source_target_id   = window._docsDrillInId;
+      }
+      const blob = await api.exportDocumentsZip(exportParams);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url; a.download = 'documents-export.zip';
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       window._dsToast?.({title:'Export ready',body:'documents-export.zip downloaded.',severity:'success'});
-      api.logDocumentsAudit?.({event:'exported', note: 'ui export.zip'}).catch(()=>{});
+      const _exportAudit = { event: 'exported', note: 'ui export.zip' };
+      if (window._docsDrillInType && window._docsDrillInId) {
+        _exportAudit.source_target_type = window._docsDrillInType;
+        _exportAudit.source_target_id   = window._docsDrillInId;
+        _exportAudit.note = _exportAudit.note + ' drill_in_from=' + window._docsDrillInType + ':' + window._docsDrillInId;
+      }
+      api.logDocumentsAudit?.(_exportAudit).catch(()=>{});
     } catch (err) {
       const msg = err?.message || 'Export failed.';
       window._dsToast?.({title:'Export failed',body:String(msg),severity:'error'});
@@ -8155,9 +8306,42 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
     '</div>'
   );
 
+  // Drill-in banner — only rendered when source_target_type/id are active.
+  // Visually distinct (amber tint) so reviewers know the list is filtered
+  // by an upstream surface and not just by the in-page filter pills.
+  // Buttons: ↩ Open <Surface> (drill back to the upstream record),
+  //          × Clear filter   (drop drill-in, show full clinic).
+  const _escDrill = (s) => String(s == null ? '' : s).replace(/[<>"'&]/g, c => (
+    {'<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;','&':'&amp;'}[c]
+  ));
+  const _drillInBannerHtml = (drillInType && drillInId)
+    ? (
+        '<div class="ch-drill-in-banner" role="status" '+
+        'aria-label="Documents filtered by upstream surface" '+
+        'style="padding:10px 14px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.32);border-radius:8px;display:flex;flex-wrap:wrap;align-items:center;gap:10px;color:var(--text-secondary);font-size:12.5px">'+
+          '<span style="font-weight:600;color:var(--amber)">Filtered</span>'+
+          '<span>Showing documents linked to '+
+            (DRILL_IN_LABELS[drillInType] || _escDrill(drillInType))+
+            ' <code style="background:rgba(245,158,11,0.12);padding:1px 6px;border-radius:4px;font-size:11.5px">'+
+            _escDrill(drillInId)+
+            '</code></span>'+
+          '<span style="flex:1"></span>'+
+          (DRILL_BACK_PAGES[drillInType]
+            ? '<button class="ch-btn-sm" onclick="window._docsDrillBack()" '+
+              'title="Open the upstream '+_escDrill(DRILL_IN_LABELS[drillInType] || drillInType)+'">↩ Open '+
+              _escDrill(DRILL_IN_LABELS[drillInType] || drillInType)+
+              '</button>'
+            : '')+
+          '<button class="ch-btn-sm" onclick="window._docsClearDrillIn()" '+
+          'title="Drop drill-in filter and show all documents in your clinic">× Clear filter</button>'+
+        '</div>'
+      )
+    : '';
+
   el.innerHTML = `
   <div class="dv2-hub-shell" style="padding:20px;display:flex;flex-direction:column;gap:16px">
   ${_disclaimerHtml}
+  ${_drillInBannerHtml}
   <div class="ch-shell">
     <div class="ch-tab-bar">${tabBar()}</div>
     <div class="ch-body">${main}</div>
