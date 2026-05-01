@@ -3047,6 +3047,35 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
     }),
+
+  // ── qEEG AI co-pilot overlay — Phase 5 ────────────────────────────────────
+  // Every endpoint returns `{result, reasoning, features}` so the UI can show
+  // "why this suggestion" beside every AI output. Each AI proposal call also
+  // writes a CleaningDecision audit row server-side at proposal time
+  // (actor='ai', action='propose_*'), giving a complete audit trail of what
+  // the AI said even before the clinician decides.
+  getQEEGAIQualityScore: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/quality_score`, { method: 'POST' }),
+  getQEEGAIAutoCleanPropose: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/auto_clean_propose`, { method: 'POST' }),
+  getQEEGAIExplainBadChannel: (analysisId, channel) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/explain_bad_channel/${encodeURIComponent(channel)}`, { method: 'POST' }),
+  getQEEGAIClassifyComponents: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/classify_components`, { method: 'POST' }),
+  getQEEGAIClassifySegment: (analysisId, startSec, endSec) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/classify_segment`, {
+      method: 'POST',
+      body: JSON.stringify({ start_sec: Number(startSec), end_sec: Number(endSec) }),
+    }),
+  getQEEGAIRecommendFilters: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/recommend_filters`, { method: 'POST' }),
+  getQEEGAIRecommendMontage: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/recommend_montage`, { method: 'POST' }),
+  getQEEGAISegmentEoEc: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/segment_eo_ec`, { method: 'POST' }),
+  getQEEGAINarrate: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/narrate`, { method: 'POST' }),
+
   // Dashboard endpoints
   getDashboardOverview: () => apiFetchWithRetry('/api/v1/dashboard/overview'),
   dashboardSearch: (q) => apiFetch('/api/v1/dashboard/search?q=' + encodeURIComponent(q || '')),
