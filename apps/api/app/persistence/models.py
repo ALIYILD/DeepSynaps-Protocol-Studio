@@ -1917,6 +1917,37 @@ class AnalysisAnnotation(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
+class AutoCleanRun(Base):
+    """One AI auto-clean proposal cycle for a qEEG analysis (migration 047)."""
+    __tablename__ = "auto_clean_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    analysis_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    proposal_json: Mapped[str] = mapped_column(Text(), nullable=False)
+    accepted_items_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    rejected_items_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    created_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
+
+class CleaningDecision(Base):
+    """Audit row for every AI suggestion + clinician accept/edit/reject (migration 047)."""
+    __tablename__ = "cleaning_decisions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    analysis_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    auto_clean_run_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("auto_clean_runs.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
+    actor: Mapped[str] = mapped_column(String(8), nullable=False)  # 'ai' | 'user'
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    target: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    payload_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    accepted_by_user: Mapped[Optional[bool]] = mapped_column(Boolean(), nullable=True)
+    confidence: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
 # ── MRI Analyzer Models (migration 039) ──────────────────────────────────────
 #
 # Mirrors ``packages/mri-pipeline/medrag_extensions/04_migration_mri.sql``.

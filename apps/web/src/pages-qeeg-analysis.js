@@ -2613,7 +2613,7 @@ var DEMO_QEEG_ANALYSIS = {
   sample_rate_hz: 256,
   recording_duration_sec: 600,
   recording_date: '2026-04-07T10:51:29',
-  amplifier_type: 'MITSAR',
+  amplifier_type: 'Generic-19ch',
   electrode_placement: '10-20 System',
   eeg_state: 'Eyes Open',
   channel_names: ['Fp1','Fpz','Fp2','F7','F3','Fz','F4','F8','T3','C3','Cz','C4','T4','T5','P3','Pz','P4','T6','O1','Oz','O2'],

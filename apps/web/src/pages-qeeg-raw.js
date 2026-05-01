@@ -1,8 +1,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // pages-qeeg-raw.js — Clinical-Grade Raw EEG Data Viewer
 //
-// Professional EEG viewer inspired by Persyst, NeuroWorks, EDFbrowser, and
-// MNE-Python. Features:
+// Professional EEG viewer built on open standards (10-20 system, IFCN
+// guidelines, MNE-Python conventions). Features:
 //   - Montage selection (Referential, Bipolar Longitudinal/Transverse, Average)
 //   - Sensitivity dropdown with standard clinical values
 //   - Timebase / page size control

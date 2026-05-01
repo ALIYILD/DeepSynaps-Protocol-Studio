@@ -97,10 +97,28 @@ class ICATimecourseResponse(BaseModel):
     is_excluded: bool = False
 
 
+_REASON_VOCAB = {
+    "blink", "lateral_eye", "sweat", "movement", "emg", "ecg",
+    "electrode_pop", "line_noise", "flatline", "other",
+}
+
+
 class BadSegment(BaseModel):
     start_sec: float
     end_sec: float
     description: str = "BAD_user"
+    # Phase 1 extensions (047): structured reason taxonomy + provenance.
+    reason: Optional[str] = None
+    source: Optional[str] = None  # 'user' | 'ai' | 'auto_scan'
+    confidence: Optional[float] = None
+
+
+class ICAExclusion(BaseModel):
+    """Structured ICA exclusion entry. Backwards-compatible: callers may still pass plain ints."""
+    idx: int
+    label: Optional[str] = None  # 'brain'|'blink'|'eye'|'muscle'|'heart'|'line'|'channel-noise'|'other'
+    source: Optional[str] = None  # 'user' | 'ai' | 'iclabel'
+    confidence: Optional[float] = None
 
 
 class CleaningConfigInput(BaseModel):
@@ -112,6 +130,13 @@ class CleaningConfigInput(BaseModel):
     bandpass_high: float = 45.0
     notch_hz: Optional[float] = 50.0
     resample_hz: float = 250.0
+    # Phase 1 extensions (047): provenance and structured ICA detail. All optional
+    # so existing callers continue to round-trip without change.
+    ica_method: Optional[str] = None  # 'infomax' | 'fastica' | 'picard'
+    ica_seed: Optional[int] = None
+    auto_clean_run_id: Optional[str] = None
+    excluded_ica_detail: list[ICAExclusion] = Field(default_factory=list)
+    decision_log_summary_json: Optional[str] = None
 
 
 class CleaningConfigResponse(BaseModel):

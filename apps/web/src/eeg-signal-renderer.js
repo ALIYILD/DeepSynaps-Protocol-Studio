@@ -1,8 +1,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // eeg-signal-renderer.js — Canvas2D multi-channel EEG signal viewer
 //
-// Clinical-grade EEG waveform renderer inspired by Persyst, NeuroWorks,
-// EDFbrowser, and MNE-Python. Supports:
+// Clinical-grade EEG waveform renderer built on open standards
+// (10-20 system, IFCN guidelines, MNE-Python conventions). Supports:
 //   - 19–256 channel simultaneous display with per-channel lanes
 //   - Region-based channel coloring (frontal/central/temporal/parietal/occipital)
 //   - Time ruler with second/subsecond markers
