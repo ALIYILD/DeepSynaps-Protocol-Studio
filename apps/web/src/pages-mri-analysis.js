@@ -176,6 +176,64 @@ function _isDemoMode() {
   } catch (_) { return false; }
 }
 
+function _mriSectionNavItems(showBrainAge) {
+  var items = [
+    { id: 'ds-mri-section-summary', label: 'Summary' },
+    { id: 'ds-mri-section-safety', label: 'Safety' },
+    { id: 'ds-mri-section-targets', label: 'Targets' },
+    { id: 'ds-mri-section-spatial', label: 'Views' },
+    { id: 'ds-mri-section-medrag', label: 'Literature' },
+    { id: 'ds-mri-section-evidence-qa', label: 'QA & PHI' },
+    { id: 'ds-mri-section-review', label: 'Review' },
+  ];
+  if (showBrainAge) {
+    items.splice(3, 0, { id: 'ds-mri-section-brainage', label: 'Brain age' });
+  }
+  return items;
+}
+
+function renderMRIReportSectionsNav(report, opts) {
+  opts = opts || {};
+  if (!report) return '';
+  var items = _mriSectionNavItems(!!opts.showBrainAge);
+  var buttons = items.map(function (it) {
+    return '<button type="button" class="ds-mri-nav__btn" data-mri-scroll-to="' + esc(it.id) + '">' + esc(it.label) + '</button>';
+  }).join('');
+  var options = '<option value="">— Jump to section —</option>'
+    + items.map(function (it) {
+      return '<option value="' + esc(it.id) + '">' + esc(it.label) + '</option>';
+    }).join('');
+  return '<nav class="ds-mri-sections-nav" aria-label="Report sections">'
+    + '<span class="ds-mri-sections-nav__label">Jump to</span>'
+    + '<div class="ds-mri-sections-nav__btns">' + buttons + '</div>'
+    + '<div class="ds-mri-sections-nav__mobile">'
+    + '<label class="visually-hidden" for="ds-mri-jump-select">Jump to section</label>'
+    + '<select id="ds-mri-jump-select" class="form-control ds-mri-sections-nav__select">' + options + '</select>'
+    + '</div>'
+    + '</nav>';
+}
+
+// Collapsible report section — native <details> for accessibility and no JS toggle state.
+function renderMRIReportSection(opts) {
+  opts = opts || {};
+  var id = opts.id || '';
+  var title = opts.title || 'Section';
+  var subtitle = opts.subtitle ? '<span class="ds-mri-report-details__sub">' + esc(opts.subtitle) + '</span>' : '';
+  var inner = opts.innerHtml || '';
+  var defaultOpen = opts.defaultOpen !== false;
+  var detailsCls = 'ds-mri-report-details' + (opts.sectionClass ? ' ' + opts.sectionClass : '');
+  var detailsAttrs = 'class="' + esc(detailsCls) + '"' + (id ? ' id="' + esc(id) + '"' : '')
+    + (defaultOpen ? ' open' : '');
+  return '<details ' + detailsAttrs + '>'
+    + '<summary class="ds-mri-report-details__summary">'
+    + '<span class="ds-mri-report-details__chev" aria-hidden="true"></span>'
+    + '<span class="ds-mri-report-details__title">' + esc(title) + '</span>'
+    + subtitle
+    + '</summary>'
+    + '<div class="ds-mri-report-details__body">' + inner + '</div>'
+    + '</details>';
+}
+
 // ── XSS helper ──────────────────────────────────────────────────────────────
 function esc(v) {
   if (v == null) return '';
@@ -349,7 +407,7 @@ async function _loadMRISavedEvidenceCitations(patientId) {
 function renderMRIEvidenceCitations(citations) {
   citations = Array.isArray(citations) ? citations : [];
   return '<div class="ds-mri-panel ds-mri-panel--evidence" style="margin-bottom:12px">'
-    + '<div style="font-weight:700;margin-bottom:6px">Evidence citations saved for report</div>'
+    + '<div class="ds-mri-panel__hd">Evidence citations saved for report</div>'
     + (citations.length
       ? citations.slice(0, 6).map(function (item) {
         var meta = [item.finding_label, item.pmid ? ('PMID ' + item.pmid) : '', item.doi || ''].filter(Boolean).join(' · ');
@@ -358,7 +416,7 @@ function renderMRIEvidenceCitations(citations) {
           + '<div style="font-size:11px;color:var(--text-tertiary);margin-top:3px">' + esc(meta || item.claim || 'Saved evidence citation') + '</div>'
           + '</div>';
       }).join('')
-      : '<div style="font-size:12px;color:var(--text-tertiary)">No evidence citations have been added from the evidence drawer for this patient yet.</div>')
+      : '<div class="ds-mri-panel-empty">No citations saved yet. Open the evidence drawer from target chips and pin papers to this report.</div>')
     + '</div>';
 }
 
@@ -1146,6 +1204,22 @@ export var DEMO_MRI_REPORT = {
   pipeline_version: "0.1.0",
   norm_db_version: "ISTAGING-v1",
 };
+
+function _mriDemoBanner() {
+  return '<div data-demo="true" data-testid="mri-demo-banner" role="note" class="ds-mri-demo-banner">'
+    + '<span class="ds-mri-demo-banner__icon" aria-hidden="true">&#x1F4CB;</span>'
+    + '<span class="ds-mri-demo-banner__text"><strong>Sample MRI analysis — clinician review required.</strong> '
+    + 'Targets, QC, and literature below reflect <code>DEMO</code> data from <code>sample_mri_report.json</code> — not for clinical use. '
+    + 'Upload a real DICOM zip or NIfTI and run analysis for live pipeline output.</span></div>';
+}
+
+function _shouldShowMRIDemoBanner() {
+  if (!_isDemoMode()) return false;
+  if (_uploadId === 'demo') return true;
+  if (_mriAnalysisId === DEMO_MRI_REPORT.analysis_id) return true;
+  if (_report && _report.analysis_id === DEMO_MRI_REPORT.analysis_id) return true;
+  return false;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants — condition enum (from api_contract.md §2) and pipeline stages.
@@ -2095,6 +2169,12 @@ export function renderMRISafetyCockpit(cockpit) {
   cockpit = cockpit || {};
   var checks = Array.isArray(cockpit.checks) ? cockpit.checks : [];
   var redFlags = Array.isArray(cockpit.red_flags) ? cockpit.red_flags : [];
+  if (!checks.length && !redFlags.length && !cockpit.overall_status) {
+    return '<div class="ds-mri-panel ds-mri-panel--safety ds-mri-panel--stub">'
+      + '<div class="ds-mri-panel__hd">Safety Cockpit</div>'
+      + '<div class="ds-mri-panel-empty">No safety envelope loaded for this analysis yet. '
+      + 'When the API returns cockpit checks, status appears here.</div></div>';
+  }
   var overall = cockpit.overall_status || 'UNKNOWN';
   var statusColor = overall === 'VALID_FOR_REVIEW' ? '#22c55e' : overall === 'LIMITED_QUALITY' ? '#f59e0b' : '#ef4444';
   var checkRows = checks.map(function (c) {
@@ -2110,7 +2190,7 @@ export function renderMRISafetyCockpit(cockpit) {
       + '⚠ Potential PHI detected. Do not share externally until de-identification is confirmed.</div>'
     : '';
   return '<div class="ds-mri-panel ds-mri-panel--safety" style="margin-bottom:12px">'
-    + '<div style="font-weight:700;margin-bottom:6px">Safety Cockpit</div>'
+    + '<div class="ds-mri-panel__hd">Safety Cockpit</div>'
     + '<div style="display:inline-block;padding:4px 10px;border-radius:12px;background:' + statusColor + '20;color:' + statusColor + ';font-size:12px;font-weight:600;margin-bottom:8px">'
     + esc(overall) + '</div>'
     + '<table style="width:100%;border-collapse:collapse;font-size:12px">'
@@ -2160,7 +2240,7 @@ export function renderMRIAtlasModelCard(meta) {
     ? '<div style="margin-top:6px;font-size:11px;color:var(--text-tertiary)">' + esc(meta.known_limitations) + '</div>'
     : '';
   return '<div class="ds-mri-panel ds-mri-panel--atlas" style="margin-bottom:12px">'
-    + '<div style="font-weight:700;margin-bottom:6px">Atlas &amp; Model Card</div>'
+    + '<div class="ds-mri-panel__hd">Atlas &amp; Model Card</div>'
     + '<table style="width:100%;border-collapse:collapse">' + body + '</table>'
     + limitation
     + '</div>';
@@ -2242,6 +2322,12 @@ export function renderMRIPatientReport(report) {
 
 export function renderMRIRegistrationQA(qa) {
   qa = qa || {};
+  if (Object.keys(qa).length === 0) {
+    return '<div class="ds-mri-panel ds-mri-panel--regqa ds-mri-panel--stub">'
+      + '<div class="ds-mri-panel__hd">Registration QA</div>'
+      + '<div class="ds-mri-panel-empty">Registration QA metadata was not returned. '
+      + 'Confidence and drift checks appear when the pipeline publishes them.</div></div>';
+  }
   var statusColor = qa.target_finalisation_allowed ? '#22c55e' : '#ef4444';
   var statusText = qa.target_finalisation_allowed ? 'Target finalisation allowed' : 'Target finalisation blocked';
   var blockReasons = Array.isArray(qa.target_finalisation_blocked_reasons) && qa.target_finalisation_blocked_reasons.length
@@ -2267,7 +2353,7 @@ export function renderMRIRegistrationQA(qa) {
       + '<td style="padding:3px 8px;font-size:12px;text-align:right">' + esc(r.value) + '</td></tr>';
   }).join('');
   return '<div class="ds-mri-panel ds-mri-panel--regqa" style="margin-bottom:12px">'
-    + '<div style="font-weight:700;margin-bottom:6px">Registration QA</div>'
+    + '<div class="ds-mri-panel__hd">Registration QA</div>'
     + '<div style="display:inline-block;padding:4px 10px;border-radius:12px;background:' + statusColor + '20;color:' + statusColor + ';font-size:12px;font-weight:600;margin-bottom:8px">'
     + esc(statusText) + '</div>'
     + blockReasons
@@ -2278,6 +2364,12 @@ export function renderMRIRegistrationQA(qa) {
 
 export function renderMRIPhiAudit(audit) {
   audit = audit || {};
+  if (Object.keys(audit).length === 0) {
+    return '<div class="ds-mri-panel ds-mri-panel--phiaudit ds-mri-panel--stub">'
+      + '<div class="ds-mri-panel__hd">PHI / De-identification Audit</div>'
+      + '<div class="ds-mri-panel-empty">PHI audit payload not attached to this analysis. '
+      + 'Filename heuristics and tag scans appear when the clinical workbench supplies them.</div></div>';
+  }
   var riskColor = audit.risk_level === 'high' ? '#ef4444' : audit.risk_level === 'unknown' ? '#f59e0b' : '#22c55e';
   var dicom = audit.dicom_tag_scan || {};
   var removed = Array.isArray(dicom.removed_categories) ? dicom.removed_categories : [];
@@ -2298,7 +2390,7 @@ export function renderMRIPhiAudit(audit) {
   var exportName = audit.export_filename || {};
   var exportHtml = '<div style="margin-top:6px;font-size:12px;color:var(--text-tertiary)">Export pseudo-id: <code>' + esc(exportName.pseudo_id || 'unknown') + '</code></div>';
   return '<div class="ds-mri-panel ds-mri-panel--phiaudit" style="margin-bottom:12px">'
-    + '<div style="font-weight:700;margin-bottom:6px">PHI / De-identification Audit</div>'
+    + '<div class="ds-mri-panel__hd">PHI / De-identification Audit</div>'
     + '<div style="display:inline-block;padding:4px 10px;border-radius:12px;background:' + riskColor + '20;color:' + riskColor + ';font-size:12px;font-weight:600;margin-bottom:8px">'
     + 'Risk: ' + esc(audit.risk_level || 'unknown') + '</div>'
     + filenameHtml
@@ -2353,6 +2445,7 @@ export function renderFullView(state) {
   state = state || {};
   var report = state.report || null;
   var status = state.status || null;
+  var showDemoBanner = !!state.showDemoBanner || _shouldShowMRIDemoBanner();
 
   var left = renderUploader()
     + renderPatientMetaForm()
@@ -2364,29 +2457,77 @@ export function renderFullView(state) {
     right = renderAnalysisStateCard(state)
       + renderFusionSummaryCard(state.fusion || null, state.patientId || null);
   } else {
+    var brainAgeHtml = renderBrainAgeCard(report);
+    var showBrainAgeNav = !!brainAgeHtml;
     // Amber "radiology review advised" banner sits above everything else
     // in the right column — safety-first surfacing per AI_UPGRADES §P0 #5.
     right = renderQCWarningsBanner(report)
-      + renderPatientQCHeader(report)
-      + renderMRISafetyCockpit(state.safetyCockpit || null)
-      + renderMRIRedFlags(state.redFlags || null)
-      + renderFusionSummaryCard(state.fusion || null, report && report.patient && report.patient.patient_id)
-      + renderMRIQCChips(report)
-      + renderBrainAgeCard(report)
-      + renderMRIAtlasModelCard(state.atlasCard || null)
-      + renderTargetsPanel(report)
-      + renderMRIProtocolGovernance(state.targetPlans || null)
-      + renderBrainAtlasViewer(report)
-      + renderGlassBrain(report)
-      + renderMedRAGPanel(state.medrag || _synthesiseMedRAGFromReport(report))
-      + renderMRIEvidenceCitations(state.evidenceCitations || [])
-      + renderMRIRegistrationQA(state.registrationQA || null)
-      + renderMRIPhiAudit(state.phiAudit || null)
-      + renderMRIClinicianReview(report)
-      + renderMRIPatientReport(report);
+      + renderMRIReportSectionsNav(report, { showBrainAge: showBrainAgeNav })
+      + renderMRIReportSection({
+        id: 'ds-mri-section-summary',
+        title: 'Summary',
+        subtitle: 'Patient + fusion + QC',
+        innerHtml: renderPatientQCHeader(report)
+          + renderFusionSummaryCard(state.fusion || null, report && report.patient && report.patient.patient_id)
+          + renderMRIQCChips(report),
+      })
+      + renderMRIReportSection({
+        id: 'ds-mri-section-safety',
+        title: 'Safety',
+        subtitle: 'Cockpit & flags',
+        innerHtml: renderMRISafetyCockpit(state.safetyCockpit || null)
+          + renderMRIRedFlags(state.redFlags || null),
+      })
+      + (brainAgeHtml
+        ? renderMRIReportSection({
+          id: 'ds-mri-section-brainage',
+          title: 'Brain age',
+          subtitle: 'Structural biomarker',
+          innerHtml: brainAgeHtml,
+          defaultOpen: false,
+        })
+        : '')
+      + renderMRIReportSection({
+        id: 'ds-mri-section-targets',
+        title: 'Targets',
+        subtitle: 'Atlas, stimulation, governance',
+        innerHtml: renderMRIAtlasModelCard(state.atlasCard || null)
+          + renderTargetsPanel(report)
+          + renderMRIProtocolGovernance(state.targetPlans || null),
+      })
+      + renderMRIReportSection({
+        id: 'ds-mri-section-spatial',
+        title: 'Spatial views',
+        subtitle: 'Atlas + slice viewer',
+        innerHtml: renderBrainAtlasViewer(report)
+          + renderGlassBrain(report),
+      })
+      + renderMRIReportSection({
+        id: 'ds-mri-section-medrag',
+        title: 'Literature',
+        subtitle: 'MedRAG',
+        innerHtml: renderMedRAGPanel(state.medrag || _synthesiseMedRAGFromReport(report)),
+      })
+      + renderMRIReportSection({
+        id: 'ds-mri-section-evidence-qa',
+        title: 'Evidence & QA',
+        subtitle: 'Citations, registration, PHI',
+        defaultOpen: false,
+        innerHtml: renderMRIEvidenceCitations(state.evidenceCitations || [])
+          + renderMRIRegistrationQA(state.registrationQA || null)
+          + renderMRIPhiAudit(state.phiAudit || null),
+      })
+      + renderMRIReportSection({
+        id: 'ds-mri-section-review',
+        title: 'Review & patient copy',
+        subtitle: 'Workflow state',
+        innerHtml: renderMRIClinicianReview(report)
+          + renderMRIPatientReport(report),
+      });
   }
 
   return '<div class="ch-shell ds-mri-shell">'
+    + (showDemoBanner ? _mriDemoBanner() : '')
     + renderHero(state.patientAnalyses)
     + '<div class="ds-mri-layout">'
     + '<div class="ds-mri-col ds-mri-col--left">' + left + '</div>'
@@ -2825,9 +2966,37 @@ function _registerPageCleanup() {
   };
 }
 
+function _scrollToMRIReportSection(id) {
+  if (!id) return;
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function _wireMRIReportSectionNav() {
+  var shell = document.querySelector('.ds-mri-shell');
+  if (!shell) return;
+  shell.querySelectorAll('[data-mri-scroll-to]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var id = btn.getAttribute('data-mri-scroll-to');
+      _scrollToMRIReportSection(id);
+    });
+  });
+  var jumpSel = document.getElementById('ds-mri-jump-select');
+  if (jumpSel) {
+    jumpSel.addEventListener('change', function () {
+      var id = jumpSel.value;
+      if (!id) return;
+      _scrollToMRIReportSection(id);
+      jumpSel.selectedIndex = 0;
+    });
+  }
+}
+
 function _wireRightColumn(navigate) {
   _bindMRIAnnotationButtons();
   _wireMRIFocusViewer();
+  _wireMRIReportSectionNav();
 
   // ── Failure card CTAs ───────────────────────────────────────────────────
   var reuploadBtn = document.getElementById('ds-mri-reupload-btn');
