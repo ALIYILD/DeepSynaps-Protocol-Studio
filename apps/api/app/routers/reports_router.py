@@ -1370,3 +1370,950 @@ def render_qeeg_brain_map_html(
 
     html_doc = render_qeeg_html(payload)
     return HTMLResponse(content=html_doc, status_code=200)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Patient Reports view-side launch-audit (2026-05-01).
+#
+# Third patient-facing surface in the chain (Symptom Journal #344, Wellness
+# Hub #345, now Patient Reports). When a patient opens / downloads / asks /
+# acknowledges a report from the patient portal, those actions are audited
+# under a distinct ``patient_reports`` surface (the existing clinician-side
+# ``reports`` surface remains untouched). Cross-patient access returns 404
+# without leaking existence; consent-revoked patients keep read access but
+# cannot acknowledge / share-back / start a question thread.
+#
+# Endpoints
+# ---------
+# GET    /api/v1/reports/patient/me                List of reports for the actor's
+#                                                   patient row (filters: type,
+#                                                   status, since, until, q,
+#                                                   limit, offset). Stamps a
+#                                                   ``patient_reports.list_viewed``
+#                                                   audit row.
+# GET    /api/v1/reports/patient/me/summary        Counts (total / unread /
+#                                                   acknowledged / signed_by_clinician).
+# GET    /api/v1/reports/{report_id}/patient-view  Detail; auto-emits
+#                                                   ``patient_reports.report_viewed``
+#                                                   (deduped 60s/actor/report).
+# POST   /api/v1/reports/{report_id}/acknowledge   Patient confirms read. Records
+#                                                   acknowledgement; clinician-visible
+#                                                   audit row.
+# POST   /api/v1/reports/{report_id}/request-share-back
+#                                                   Patient requests the clinician
+#                                                   share a copy with a third party
+#                                                   (GP / family / etc). Note required.
+# POST   /api/v1/reports/{report_id}/start-question
+#                                                   Creates a Message thread linked
+#                                                   to the report. Returns
+#                                                   ``thread_id`` so the messages
+#                                                   page can deep-link.
+# POST   /api/v1/reports/patient/audit-events      Page-level audit ingestion
+#                                                   (target_type=patient_reports).
+#
+# Storage
+# -------
+# The legacy ``PatientMediaUpload`` row carries the report. Acknowledgement
+# state, share-back requests, and per-actor view-stamps are encoded in the
+# JSON ``patient_note`` metadata under namespaced keys so the existing
+# clinician-side schema is preserved:
+#
+# * ``patient_acknowledged_at``   ISO-8601 timestamp
+# * ``patient_acknowledged_by``   actor_id
+# * ``patient_acknowledge_note``  optional patient note
+# * ``patient_share_back_requests``  list of {requested_at, audience, note}
+# * ``patient_views``             list of {viewed_at, actor_id} (capped to 25)
+#
+# This is the same "honest about the schema gap" pattern documented in the
+# clinician-side launch audit (see lines 750-760 of this file).
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+# Disclaimers surfaced on every patient-side list / detail read.
+PATIENT_REPORTS_DISCLAIMERS = [
+    "Reports here are part of your clinical record. Opening, downloading and "
+    "acknowledging a report are audited so your clinician can see what you "
+    "have read.",
+    "An AI summary or plain-language note is decision-support only. The "
+    "ground-truth document is the one signed by your clinician.",
+    "If you withdraw consent, your existing reports remain readable but you "
+    "cannot acknowledge new reports, request share-backs or start a question "
+    "thread linked to a report.",
+]
+
+
+_PATIENT_VIEW_AUDIT_DEDUP_SECONDS = 60
+
+
+def _patient_reports_audit(
+    db: Session,
+    actor: AuthenticatedActor,
+    *,
+    event: str,
+    target_id: str,
+    note: str = "",
+    using_demo_data: bool = False,
+) -> str:
+    """Best-effort audit hook for the ``patient_reports`` surface.
+
+    Distinct from :func:`_audit` (which targets the clinician-side
+    ``reports`` surface). Never raises — audit must never block UI.
+    """
+    from app.repositories.audit import create_audit_event  # noqa: PLC0415
+
+    now = datetime.now(timezone.utc)
+    event_id = (
+        f"patient_reports-{event}-{actor.actor_id}-{int(now.timestamp())}"
+        f"-{uuid.uuid4().hex[:6]}"
+    )
+    note_parts: list[str] = []
+    if using_demo_data:
+        note_parts.append("DEMO")
+    if note:
+        note_parts.append(note[:500])
+    final_note = "; ".join(note_parts) or event
+    try:
+        create_audit_event(
+            db,
+            event_id=event_id,
+            target_id=str(target_id) or actor.actor_id,
+            target_type="patient_reports",
+            action=f"patient_reports.{event}",
+            role=actor.role,
+            actor_id=actor.actor_id,
+            note=final_note[:1024],
+            created_at=now.isoformat(),
+        )
+    except Exception:  # pragma: no cover — audit must never block UI
+        _logger.exception("patient_reports self-audit skipped")
+    return event_id
+
+
+def _resolve_patient_for_actor_pr(
+    db: Session,
+    actor: AuthenticatedActor,
+) -> Patient:
+    """Resolve the Patient row for a patient/admin actor on the patient-side
+    Reports surface. Mirrors the helper in symptom_journal_router and
+    wellness_hub_router so the three patient-facing surfaces share the same
+    role / scope contract.
+
+    Patient role: resolved by user.email match (or demo bypass).
+    Admin role: rejected here — admins should use the clinician endpoints.
+    Clinician / other roles: rejected (404 to avoid leaking existence).
+    """
+    from app.persistence.models import User as _User  # noqa: PLC0415
+
+    if actor.role != "patient":
+        # Cross-role 404 (not 403): the patient-scope endpoints must not
+        # exist as far as a clinician is concerned, so cross-clinic
+        # enumeration is impossible.
+        raise ApiServiceError(
+            code="not_found",
+            message="Patient record not found.",
+            status_code=404,
+        )
+
+    _DEMO_PATIENT_ACTOR_ID = "actor-patient-demo"
+    _DEMO_PATIENT_EMAILS = {"patient@deepsynaps.com", "patient@demo.com"}
+    if actor.actor_id == _DEMO_PATIENT_ACTOR_ID:
+        patient = (
+            db.query(Patient)
+            .filter(Patient.email.in_(list(_DEMO_PATIENT_EMAILS)))
+            .first()
+        )
+    else:
+        user = db.query(_User).filter_by(id=actor.actor_id).first()
+        if user is None or not user.email:
+            raise ApiServiceError(
+                code="not_found",
+                message="Patient record not found.",
+                status_code=404,
+            )
+        patient = db.query(Patient).filter(Patient.email == user.email).first()
+    if patient is None:
+        raise ApiServiceError(
+            code="not_found",
+            message="Patient record not found.",
+            status_code=404,
+        )
+    return patient
+
+
+def _patient_is_demo_pr(db: Session, patient: Patient | None) -> bool:
+    """Mirrors :func:`patients_router._patient_is_demo` for the patient
+    Reports surface so we don't pull in a circular import."""
+    from app.persistence.models import User as _User  # noqa: PLC0415
+
+    if patient is None:
+        return False
+    notes = patient.notes or ""
+    if notes.startswith("[DEMO]"):
+        return True
+    try:
+        u = db.query(_User).filter_by(id=patient.clinician_id).first()
+        if u is None or not u.clinic_id:
+            return False
+        return u.clinic_id in {"clinic-demo-default", "clinic-cd-demo"}
+    except Exception:
+        return False
+
+
+def _consent_active_pr(db: Session, patient: Patient) -> bool:
+    """Same consent gate as symptom_journal_router / wellness_hub_router."""
+    from app.persistence.models import ConsentRecord  # noqa: PLC0415
+
+    has_withdrawn = (
+        db.query(ConsentRecord)
+        .filter(
+            ConsentRecord.patient_id == patient.id,
+            ConsentRecord.status == "withdrawn",
+        )
+        .first()
+        is not None
+    )
+    if has_withdrawn:
+        return False
+    if patient.consent_signed:
+        return True
+    has_active = (
+        db.query(ConsentRecord)
+        .filter(
+            ConsentRecord.patient_id == patient.id,
+            ConsentRecord.status == "active",
+        )
+        .first()
+        is not None
+    )
+    return has_active
+
+
+def _assert_patient_consent_active(db: Session, patient: Patient) -> None:
+    if not _consent_active_pr(db, patient):
+        raise ApiServiceError(
+            code="consent_inactive",
+            message=(
+                "Acknowledging, requesting share-back, or starting a question "
+                "thread requires active consent. Existing reports remain "
+                "readable until consent is reinstated."
+            ),
+            status_code=403,
+        )
+
+
+def _load_patient_report(
+    db: Session,
+    patient: Patient,
+    report_id: str,
+) -> PatientMediaUpload:
+    """Load a report and assert it belongs to this patient.
+
+    Cross-patient access returns 404 (never 403 / 401) so the endpoint
+    cannot be used to enumerate report IDs across patients.
+    """
+    record = db.query(PatientMediaUpload).filter_by(id=report_id).first()
+    if record is None or record.media_type != "text":
+        raise ApiServiceError(
+            code="not_found", message="Report not found.", status_code=404
+        )
+    if record.patient_id != patient.id:
+        raise ApiServiceError(
+            code="not_found", message="Report not found.", status_code=404
+        )
+    if record.deleted_at is not None:
+        # Soft-deleted rows are not visible to the patient.
+        raise ApiServiceError(
+            code="not_found", message="Report not found.", status_code=404
+        )
+    return record
+
+
+# ── Pydantic schemas for the patient-scope surface ──────────────────────────
+
+
+class PatientReportOut(BaseModel):
+    """Patient-scope DTO. A subset of the clinician-side ReportDetailOut so
+    we don't leak clinician-only metadata (sign_note etc) accidentally."""
+    id: str
+    type: str
+    title: str
+    content: Optional[str] = None
+    file_url: Optional[str] = None
+    date: Optional[str] = None
+    source: Optional[str] = None
+    status: str
+    created_at: str
+    signed_by_clinician: bool = False
+    signed_at: Optional[str] = None
+    revision: int = 1
+    is_demo: bool = False
+    acknowledged: bool = False
+    acknowledged_at: Optional[str] = None
+    share_back_pending: bool = False
+
+
+class PatientReportListResponse(BaseModel):
+    items: list[PatientReportOut] = Field(default_factory=list)
+    total: int
+    limit: int
+    offset: int
+    consent_active: bool
+    is_demo: bool
+    disclaimers: list[str] = Field(
+        default_factory=lambda: list(PATIENT_REPORTS_DISCLAIMERS)
+    )
+
+
+class PatientReportSummaryResponse(BaseModel):
+    total: int = 0
+    unread: int = 0
+    acknowledged: int = 0
+    signed_by_clinician: int = 0
+    new_this_week: int = 0
+    by_type: dict[str, int] = Field(default_factory=dict)
+    consent_active: bool = True
+    is_demo: bool = False
+    disclaimers: list[str] = Field(
+        default_factory=lambda: list(PATIENT_REPORTS_DISCLAIMERS)
+    )
+
+
+class PatientReportAcknowledgeIn(BaseModel):
+    note: Optional[str] = Field(default=None, max_length=512)
+
+
+class PatientReportAcknowledgeOut(BaseModel):
+    accepted: bool
+    report_id: str
+    acknowledged_at: str
+
+
+class PatientReportShareBackIn(BaseModel):
+    audience: str = Field(..., min_length=2, max_length=64)
+    note: str = Field(..., min_length=2, max_length=512)
+
+
+class PatientReportShareBackOut(BaseModel):
+    accepted: bool
+    report_id: str
+    requested_at: str
+    audience: str
+
+
+class PatientReportQuestionIn(BaseModel):
+    question: str = Field(..., min_length=2, max_length=2000)
+
+
+class PatientReportQuestionOut(BaseModel):
+    accepted: bool
+    report_id: str
+    thread_id: str
+    message_id: str
+
+
+class PatientReportsAuditEventIn(BaseModel):
+    event: str = Field(..., min_length=1, max_length=64)
+    report_id: Optional[str] = Field(default=None, max_length=64)
+    note: Optional[str] = Field(default=None, max_length=512)
+    using_demo_data: Optional[bool] = False
+
+
+class PatientReportsAuditEventOut(BaseModel):
+    accepted: bool
+    event_id: str
+
+
+# ── Helpers for the patient-side metadata in patient_note ────────────────────
+
+
+def _patient_meta_for(record: PatientMediaUpload) -> dict:
+    """Return the metadata dict used to encode patient-side state.
+
+    The clinician-side helpers ``_load_meta`` / ``_save_meta`` already
+    use the same JSON blob; we read it through them so any future
+    schema migration is a single update.
+    """
+    return _load_meta(record)
+
+
+def _patient_record_to_out(record: PatientMediaUpload) -> PatientReportOut:
+    meta = _patient_meta_for(record)
+    sb_requests = meta.get("patient_share_back_requests") or []
+    return PatientReportOut(
+        id=record.id,
+        type=meta.get("report_type", "clinician"),
+        title=meta.get("title", record.id),
+        content=record.text_content,
+        file_url=record.file_ref,
+        date=meta.get("report_date"),
+        source=meta.get("source"),
+        status=record.status or "generated",
+        created_at=(
+            record.created_at or datetime.now(timezone.utc)
+        ).isoformat(),
+        signed_by_clinician=record.status in {"signed", "final"}
+        or bool(meta.get("signed_at")),
+        signed_at=meta.get("signed_at"),
+        revision=int(meta.get("revision", 1) or 1),
+        is_demo=bool(meta.get("is_demo", False)),
+        acknowledged=bool(meta.get("patient_acknowledged_at")),
+        acknowledged_at=meta.get("patient_acknowledged_at"),
+        share_back_pending=any(
+            (r or {}).get("status", "pending") == "pending" for r in sb_requests
+        ),
+    )
+
+
+def _record_patient_view(
+    record: PatientMediaUpload,
+    actor: AuthenticatedActor,
+) -> bool:
+    """Append a {viewed_at, actor_id} entry to the patient_views list.
+
+    Returns True when an entry was appended (i.e. the dedup window has
+    elapsed since the actor's last recorded view), False otherwise.
+    The list is capped at 25 entries to keep the JSON blob within the
+    ``patient_note`` 512-char column. The cap means a long history will
+    appear thinned in the audit row, which is honest — the umbrella
+    ``audit_events`` table is the canonical history.
+    """
+    meta = _patient_meta_for(record)
+    views = list(meta.get("patient_views") or [])
+    now = datetime.now(timezone.utc)
+    if views:
+        last_for_actor = None
+        for v in reversed(views):
+            if v.get("actor_id") == actor.actor_id:
+                last_for_actor = v
+                break
+        if last_for_actor:
+            try:
+                last_ts = datetime.fromisoformat(
+                    str(last_for_actor.get("viewed_at", "")).replace("Z", "+00:00")
+                )
+                if last_ts.tzinfo is None:
+                    last_ts = last_ts.replace(tzinfo=timezone.utc)
+                if (now - last_ts).total_seconds() < _PATIENT_VIEW_AUDIT_DEDUP_SECONDS:
+                    return False
+            except (ValueError, TypeError):
+                pass
+    views.append({"viewed_at": now.isoformat(), "actor_id": actor.actor_id})
+    if len(views) > 25:
+        views = views[-25:]
+    meta["patient_views"] = views
+    _save_meta(record, meta)
+    return True
+
+
+def _filename_safe_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+# ── Endpoints ────────────────────────────────────────────────────────────────
+
+
+@router.get("/patient/me", response_model=PatientReportListResponse)
+def list_patient_reports_for_me(
+    type: Optional[str] = Query(default=None, max_length=64),
+    status: Optional[str] = Query(default=None, max_length=40),
+    since: Optional[str] = Query(default=None),
+    until: Optional[str] = Query(default=None),
+    q: Optional[str] = Query(default=None, max_length=200),
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PatientReportListResponse:
+    """List reports for the authenticated patient's own record.
+
+    A clinician calling this endpoint receives 404 — they should call
+    :func:`list_reports` (the existing ``GET /api/v1/reports``) instead.
+    Cross-patient enumeration is blocked by ``_resolve_patient_for_actor_pr``.
+    """
+    patient = _resolve_patient_for_actor_pr(db, actor)
+    is_demo = _patient_is_demo_pr(db, patient)
+
+    base = (
+        db.query(PatientMediaUpload)
+        .filter(PatientMediaUpload.patient_id == patient.id)
+        .filter(PatientMediaUpload.media_type == "text")
+        .filter(PatientMediaUpload.deleted_at.is_(None))
+    )
+    if status:
+        base = base.filter(PatientMediaUpload.status == status)
+    if since:
+        try:
+            cutoff = datetime.fromisoformat(since.replace("Z", "+00:00"))
+            base = base.filter(PatientMediaUpload.created_at >= cutoff)
+        except ValueError:
+            pass
+    if until:
+        try:
+            cutoff_to = datetime.fromisoformat(until.replace("Z", "+00:00"))
+            base = base.filter(PatientMediaUpload.created_at <= cutoff_to)
+        except ValueError:
+            pass
+    if q:
+        like = f"%{q.lower()}%"
+        from sqlalchemy import or_, func  # noqa: PLC0415
+
+        base = base.filter(
+            or_(
+                func.lower(func.coalesce(PatientMediaUpload.text_content, "")).like(
+                    like
+                ),
+                func.lower(func.coalesce(PatientMediaUpload.patient_note, "")).like(
+                    like
+                ),
+            )
+        )
+
+    rows = (
+        base.order_by(PatientMediaUpload.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    items = [_patient_record_to_out(r) for r in rows]
+    if type:
+        type_lc = type.lower()
+        items = [it for it in items if type_lc in (it.type or "").lower()]
+    total = len(items)
+
+    _patient_reports_audit(
+        db,
+        actor,
+        event="list_viewed",
+        target_id=patient.id,
+        note=(
+            f"items={len(items)} type={type or '-'} status={status or '-'} "
+            f"since={since or '-'} until={until or '-'}"
+        ),
+        using_demo_data=is_demo,
+    )
+
+    return PatientReportListResponse(
+        items=items,
+        total=total,
+        limit=limit,
+        offset=offset,
+        consent_active=_consent_active_pr(db, patient),
+        is_demo=is_demo,
+    )
+
+
+@router.get("/patient/me/summary", response_model=PatientReportSummaryResponse)
+def patient_reports_summary(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PatientReportSummaryResponse:
+    """Counts for the patient's reports: total / unread / acknowledged /
+    signed-by-clinician / new this week. Honest about the schema gap.
+
+    "Unread" is defined as "no patient acknowledgement and no recorded
+    view by this actor in the patient_views list". Once the patient has
+    either acknowledged or viewed the report, it counts as read.
+    """
+    patient = _resolve_patient_for_actor_pr(db, actor)
+    is_demo = _patient_is_demo_pr(db, patient)
+
+    rows = (
+        db.query(PatientMediaUpload)
+        .filter(PatientMediaUpload.patient_id == patient.id)
+        .filter(PatientMediaUpload.media_type == "text")
+        .filter(PatientMediaUpload.deleted_at.is_(None))
+        .all()
+    )
+    total = len(rows)
+    unread = 0
+    acknowledged = 0
+    signed_by_clinician = 0
+    new_this_week = 0
+    by_type: dict[str, int] = {}
+    now = datetime.now(timezone.utc)
+    week_ago = now.timestamp() - 7 * 24 * 3600
+    for r in rows:
+        meta = _patient_meta_for(r)
+        kk = (meta.get("report_type") or "clinician").lower()
+        by_type[kk] = by_type.get(kk, 0) + 1
+        if meta.get("patient_acknowledged_at"):
+            acknowledged += 1
+        else:
+            views = meta.get("patient_views") or []
+            actor_seen = any(v.get("actor_id") == actor.actor_id for v in views)
+            if not actor_seen:
+                unread += 1
+        if r.status in {"signed", "final"} or meta.get("signed_at"):
+            signed_by_clinician += 1
+        ts = r.created_at
+        if ts is not None:
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            if ts.timestamp() >= week_ago:
+                new_this_week += 1
+
+    _patient_reports_audit(
+        db,
+        actor,
+        event="summary_viewed",
+        target_id=patient.id,
+        note=(
+            f"total={total} unread={unread} acknowledged={acknowledged} "
+            f"signed={signed_by_clinician}"
+        ),
+        using_demo_data=is_demo,
+    )
+
+    return PatientReportSummaryResponse(
+        total=total,
+        unread=unread,
+        acknowledged=acknowledged,
+        signed_by_clinician=signed_by_clinician,
+        new_this_week=new_this_week,
+        by_type=by_type,
+        consent_active=_consent_active_pr(db, patient),
+        is_demo=is_demo,
+    )
+
+
+@router.get("/{report_id}/patient-view", response_model=PatientReportOut)
+def get_patient_report_view(
+    report_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PatientReportOut:
+    """Detail view for the patient's own report.
+
+    Auto-emits ``patient_reports.report_viewed`` and stamps the actor's
+    view in the per-record ``patient_views`` list. Consecutive views by
+    the same actor inside the dedup window (60s) do NOT re-stamp the
+    list; they DO still emit a fresh audit row so a regulator can see
+    each open. Cross-patient access returns 404.
+    """
+    patient = _resolve_patient_for_actor_pr(db, actor)
+    record = _load_patient_report(db, patient, report_id)
+    is_demo = _patient_is_demo_pr(db, patient)
+
+    appended = _record_patient_view(record, actor)
+    if appended:
+        try:
+            db.commit()
+            db.refresh(record)
+        except Exception:
+            db.rollback()
+
+    _patient_reports_audit(
+        db,
+        actor,
+        event="report_viewed",
+        target_id=record.id,
+        note=f"patient={patient.id}; new_view_stamp={int(appended)}",
+        using_demo_data=is_demo,
+    )
+    return _patient_record_to_out(record)
+
+
+@router.post(
+    "/{report_id}/acknowledge",
+    response_model=PatientReportAcknowledgeOut,
+)
+def acknowledge_patient_report(
+    report_id: str,
+    body: PatientReportAcknowledgeIn = PatientReportAcknowledgeIn(),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PatientReportAcknowledgeOut:
+    """Patient confirms they have read the report.
+
+    Idempotent: a second ack from the same actor returns the existing
+    timestamp without overwriting the first (the audit row records both
+    attempts so the clinician can see repeat opens). Consent-revoked
+    patients receive 403.
+    """
+    patient = _resolve_patient_for_actor_pr(db, actor)
+    record = _load_patient_report(db, patient, report_id)
+    _assert_patient_consent_active(db, patient)
+    is_demo = _patient_is_demo_pr(db, patient)
+
+    meta = _patient_meta_for(record)
+    if meta.get("patient_acknowledged_at"):
+        # Idempotent — keep the original ack. Still emit an audit row for
+        # the second attempt so the audit trail records the patient's
+        # intent.
+        _patient_reports_audit(
+            db,
+            actor,
+            event="report_acknowledged_again",
+            target_id=record.id,
+            note=f"patient={patient.id}; first_ack={meta['patient_acknowledged_at']}",
+            using_demo_data=is_demo,
+        )
+        return PatientReportAcknowledgeOut(
+            accepted=True,
+            report_id=record.id,
+            acknowledged_at=meta["patient_acknowledged_at"],
+        )
+
+    now_iso = _filename_safe_iso()
+    meta["patient_acknowledged_at"] = now_iso
+    meta["patient_acknowledged_by"] = actor.actor_id
+    if body.note:
+        meta["patient_acknowledge_note"] = body.note[:512]
+    _save_meta(record, meta)
+    db.commit()
+    db.refresh(record)
+
+    _patient_reports_audit(
+        db,
+        actor,
+        event="report_acknowledged",
+        target_id=record.id,
+        note=(
+            f"patient={patient.id}; ack_at={now_iso}; "
+            f"note={(body.note or '')[:200]}"
+        ),
+        using_demo_data=is_demo,
+    )
+
+    # Emit a clinician-visible mirror row keyed on the report's uploader so
+    # the standard audit-trail UI surfaces it in the clinician's feed
+    # (mirrors the wellness ``checkin_shared_to_clinician`` pattern).
+    try:
+        from app.repositories.audit import create_audit_event  # noqa: PLC0415
+
+        clinician_target = record.uploaded_by or patient.clinician_id or actor.actor_id
+        clinician_event_id = (
+            f"patient_reports-acknowledged_to_clinician-{actor.actor_id}"
+            f"-{int(datetime.now(timezone.utc).timestamp())}-{uuid.uuid4().hex[:6]}"
+        )
+        clinician_note = (
+            ("DEMO; " if is_demo else "")
+            + f"patient={patient.id}; report={record.id}; ack_at={now_iso}"
+        )
+        create_audit_event(
+            db,
+            event_id=clinician_event_id,
+            target_id=clinician_target,
+            target_type="patient_reports",
+            action="patient_reports.report_acknowledged_to_clinician",
+            role=actor.role,
+            actor_id=actor.actor_id,
+            note=clinician_note[:1024],
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+    except Exception:  # pragma: no cover
+        _logger.exception("patient_reports clinician-ack mirror skipped")
+
+    return PatientReportAcknowledgeOut(
+        accepted=True, report_id=record.id, acknowledged_at=now_iso
+    )
+
+
+@router.post(
+    "/{report_id}/request-share-back",
+    response_model=PatientReportShareBackOut,
+)
+def request_patient_report_share_back(
+    report_id: str,
+    body: PatientReportShareBackIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PatientReportShareBackOut:
+    """Patient asks the clinician to share a copy of this report with a
+    third party (e.g. their GP, family member, insurer). The request is
+    queued for clinician approval — this endpoint does NOT actually send
+    the report. The clinician approves separately through their own
+    workflow.
+
+    Note is required (regulatory: every patient-data sharing request
+    needs an audit-trail rationale).
+    """
+    patient = _resolve_patient_for_actor_pr(db, actor)
+    record = _load_patient_report(db, patient, report_id)
+    _assert_patient_consent_active(db, patient)
+    is_demo = _patient_is_demo_pr(db, patient)
+
+    audience = body.audience.strip()
+    if not audience:
+        raise ApiServiceError(
+            code="audience_required",
+            message="audience is required for a share-back request.",
+            status_code=422,
+        )
+
+    now_iso = _filename_safe_iso()
+    meta = _patient_meta_for(record)
+    requests = list(meta.get("patient_share_back_requests") or [])
+    new_request = {
+        "requested_at": now_iso,
+        "requested_by": actor.actor_id,
+        "audience": audience[:64],
+        "note": body.note.strip()[:512],
+        "status": "pending",
+    }
+    requests.append(new_request)
+    # Cap to last 5 requests so the metadata blob stays compact; older
+    # requests stay in the umbrella audit_events history.
+    if len(requests) > 5:
+        requests = requests[-5:]
+    meta["patient_share_back_requests"] = requests
+    _save_meta(record, meta)
+    db.commit()
+    db.refresh(record)
+
+    _patient_reports_audit(
+        db,
+        actor,
+        event="report_share_back_requested",
+        target_id=record.id,
+        note=(
+            f"patient={patient.id}; audience={audience[:60]}; "
+            f"reason={body.note.strip()[:200]}"
+        ),
+        using_demo_data=is_demo,
+    )
+
+    return PatientReportShareBackOut(
+        accepted=True,
+        report_id=record.id,
+        requested_at=now_iso,
+        audience=audience[:64],
+    )
+
+
+@router.post(
+    "/{report_id}/start-question",
+    response_model=PatientReportQuestionOut,
+)
+def start_patient_report_question(
+    report_id: str,
+    body: PatientReportQuestionIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PatientReportQuestionOut:
+    """Open a Message thread linked to this report.
+
+    The thread is created with ``thread_id = report_id`` so subsequent
+    messages on the same report cluster correctly in the patient's
+    Messages page. The patient's question becomes the first message in
+    the thread; the recipient is the report's uploading clinician (or
+    the patient's clinician_id as a fallback).
+
+    Returns ``thread_id`` so the frontend can deep-link to the patient
+    Messages page filtered to that thread.
+    """
+    from app.persistence.models import Message  # noqa: PLC0415
+
+    patient = _resolve_patient_for_actor_pr(db, actor)
+    record = _load_patient_report(db, patient, report_id)
+    _assert_patient_consent_active(db, patient)
+    is_demo = _patient_is_demo_pr(db, patient)
+
+    recipient = record.uploaded_by or patient.clinician_id or "actor-clinician-demo"
+    thread_id = f"report-{record.id}"
+    message_id = str(uuid.uuid4())
+    title = "Question about a report"
+    meta = _patient_meta_for(record)
+    if meta.get("title"):
+        title = f"Question about: {str(meta['title'])[:120]}"
+    msg = Message(
+        id=message_id,
+        sender_id=actor.actor_id,
+        recipient_id=recipient,
+        patient_id=patient.id,
+        body=body.question.strip(),
+        subject=title[:255],
+        category="report-question",
+        thread_id=thread_id,
+        priority="normal",
+    )
+    db.add(msg)
+    db.commit()
+
+    _patient_reports_audit(
+        db,
+        actor,
+        event="report_question_started",
+        target_id=record.id,
+        note=(
+            f"patient={patient.id}; thread={thread_id}; "
+            f"recipient={recipient}; question_chars={len(body.question.strip())}"
+        ),
+        using_demo_data=is_demo,
+    )
+
+    return PatientReportQuestionOut(
+        accepted=True,
+        report_id=record.id,
+        thread_id=thread_id,
+        message_id=message_id,
+    )
+
+
+@router.post(
+    "/patient/audit-events",
+    response_model=PatientReportsAuditEventOut,
+)
+def post_patient_reports_audit_event(
+    body: PatientReportsAuditEventIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PatientReportsAuditEventOut:
+    """Record a page-level audit event from the patient Reports UI.
+
+    Surface: ``patient_reports``. Common events: ``view`` (mount),
+    ``filter_changed``, ``report_opened``, ``report_downloaded``,
+    ``share_back_clicked``, ``question_clicked``, ``demo_banner_shown``,
+    ``consent_banner_shown``.
+
+    Patient role only. Clinicians cannot emit ``patient_reports`` audit
+    rows directly — keeps the surface attributable to patient-side
+    actions. Cross-patient ingestion is blocked because ``report_id``
+    (when supplied) is verified to belong to the actor's patient.
+    """
+    if actor.role != "patient":
+        raise ApiServiceError(
+            code="patient_role_required",
+            message=(
+                "Patient Reports audit ingestion is restricted to the "
+                "patient role. Clinicians use /api/v1/reports/audit-events."
+            ),
+            status_code=403,
+        )
+    patient = _resolve_patient_for_actor_pr(db, actor)
+    is_demo = _patient_is_demo_pr(db, patient)
+
+    target_id: str = patient.id
+    if body.report_id:
+        # Verify the report belongs to this patient before we let the
+        # event record name it as the target.
+        record = (
+            db.query(PatientMediaUpload).filter_by(id=body.report_id).first()
+        )
+        if (
+            record is None
+            or record.media_type != "text"
+            or record.patient_id != patient.id
+            or record.deleted_at is not None
+        ):
+            raise ApiServiceError(
+                code="not_found", message="Report not found.", status_code=404
+            )
+        target_id = record.id
+
+    note_parts: list[str] = []
+    if body.report_id:
+        note_parts.append(f"report={body.report_id}")
+    if body.note:
+        note_parts.append(body.note[:480])
+    note = "; ".join(note_parts) or body.event
+
+    event_id = _patient_reports_audit(
+        db,
+        actor,
+        event=body.event,
+        target_id=target_id,
+        note=note,
+        using_demo_data=bool(body.using_demo_data) or is_demo,
+    )
+    return PatientReportsAuditEventOut(accepted=True, event_id=event_id)

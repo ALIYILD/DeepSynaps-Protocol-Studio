@@ -117,6 +117,16 @@ KNOWN_SURFACES = {
     # checkin_shared_to_clinician (clinician-visible), export_csv,
     # export_ndjson, summary_viewed, cross_link_journal_clicked.
     "wellness_hub",
+    # Patient Reports view-side launch-audit (2026-05-01). Third patient-facing
+    # surface. Distinct from the clinician-side ``reports`` surface (which
+    # tracks generation / sign / supersede / export). The patient_reports
+    # surface tracks what the patient does AFTER a report is delivered:
+    # list_viewed, summary_viewed, report_viewed, report_acknowledged
+    # (and the clinician-visible mirror report_acknowledged_to_clinician),
+    # report_share_back_requested, report_question_started, plus the
+    # page-level events posted via /api/v1/reports/patient/audit-events
+    # (filter_changed, report_opened, report_downloaded, etc).
+    "patient_reports",
 }
 
 
