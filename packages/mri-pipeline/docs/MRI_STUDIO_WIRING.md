@@ -30,3 +30,11 @@ web app, `apps/api`, Alembic schema, and `deepsynaps_mri` package.
 ## Known follow-ups
 
 - Optional **`qc_warnings_json`** column if API starts persisting qc_warnings server-side (currently computed in `_report_from_row` via getattr fallback).
+
+## Live demo (Netlify preview + Fly API)
+
+1. **Preview URL:** https://deepsynaps-studio-preview.netlify.app — `netlify.toml` sets `VITE_ENABLE_DEMO=1` and proxies `/api/*` to Fly (`deepsynaps-studio.fly.dev`).
+2. **Sign in** with **Clinician demo** (token ending in `-demo-token`) so MRI JSON routes hit the real API (the client shim skips only passthrough auth endpoints).
+3. **MRI Analyzer → Run analysis:** With **`MRI_DEMO_MODE=1`** on Fly (see `apps/api/fly.toml`), `POST /api/v1/mri/analyze` persists the canned **`demo/sample_mri_report.json`** and marks the row **SUCCESS**. The browser polls/SSE then loads **`GET /api/v1/mri/report/{analysis_id}`**.
+4. **Offline preview:** Without demo login, the page still shows **`DEMO_MRI_REPORT`** from the bundle.
+5. **Production:** Set **`MRI_DEMO_MODE=0`** when deploying full segmentation tooling so analyze runs real jobs instead of the sample report.
