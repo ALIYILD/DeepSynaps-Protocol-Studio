@@ -24,6 +24,14 @@ from .validation import (
     validate_nifti_header,
     validate_upload_blob,
 )
+from .cortical_thickness import (
+    CorticalThicknessComputeResult,
+    RegionalThicknessSummary,
+    ThicknessQCReport,
+    compute_cortical_thickness,
+    compute_thickness_qc,
+    summarize_regional_thickness,
+)
 
 __version__ = "0.1.0"
 __all__ = [
@@ -34,4 +42,11 @@ __all__ = [
     "safe_brain_age", "to_fusion_payload",
     # Validation entry points.
     "ValidationResult", "validate_upload_blob", "validate_nifti_header",
+    # Cortical thickness — see docs/CORTICAL_THICKNESS.md.
+    "compute_cortical_thickness",
+    "summarize_regional_thickness",
+    "compute_thickness_qc",
+    "CorticalThicknessComputeResult",
+    "RegionalThicknessSummary",
+    "ThicknessQCReport",
 ]
