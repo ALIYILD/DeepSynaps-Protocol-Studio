@@ -19,10 +19,16 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import QEEGAnalysis
+from app.repositories.patients import resolve_patient_clinic_id
 from app.services import raw_ai
 
 _log = logging.getLogger(__name__)
@@ -50,12 +56,35 @@ class ClassifySegmentRequest(BaseModel):
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 
-def _ensure_analysis(analysis_id: str, db: Session) -> QEEGAnalysis:
+def _ensure_analysis(
+    analysis_id: str, db: Session, actor: AuthenticatedActor | None = None
+) -> QEEGAnalysis:
+    """Load a qEEG analysis, enforcing the cross-clinic ownership gate.
+
+    The optional ``actor`` parameter activates the same security gate
+    used by qeeg_raw_router._load_analysis: patient's owning clinic is
+    resolved and ``require_patient_owner`` blocks cross-clinic reads.
+    Cross-clinic 403/forbidden is converted to 404 to avoid leaking row
+    existence to probing actors.
+    """
     row = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
     if row is None:
         raise ApiServiceError(
             code="not_found", message="Analysis not found.", status_code=404
         )
+    if actor is not None and row.patient_id:
+        exists, clinic_id = resolve_patient_clinic_id(db, row.patient_id)
+        if exists:
+            try:
+                require_patient_owner(actor, clinic_id)
+            except ApiServiceError as exc:
+                if exc.code in {"cross_clinic_access_denied", "forbidden"}:
+                    raise ApiServiceError(
+                        code="not_found",
+                        message="Analysis not found.",
+                        status_code=404,
+                    ) from exc
+                raise
     return row
 
 
@@ -82,7 +111,7 @@ def post_quality_score(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> AIEnvelope:
     require_minimum_role(actor, "clinician")
-    _ensure_analysis(analysis_id, db)
+    _ensure_analysis(analysis_id, db, actor)
     return _envelope(analysis_id, raw_ai.quality_score(analysis_id, db))
 
 
@@ -100,7 +129,7 @@ def post_auto_clean_propose(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> AIEnvelope:
     require_minimum_role(actor, "clinician")
-    _ensure_analysis(analysis_id, db)
+    _ensure_analysis(analysis_id, db, actor)
     return _envelope(analysis_id, raw_ai.auto_clean_propose(analysis_id, db))
 
 
@@ -119,7 +148,7 @@ def post_explain_bad_channel(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> AIEnvelope:
     require_minimum_role(actor, "clinician")
-    _ensure_analysis(analysis_id, db)
+    _ensure_analysis(analysis_id, db, actor)
     return _envelope(
         analysis_id, raw_ai.explain_bad_channel(analysis_id, db, channel)
     )
@@ -139,7 +168,7 @@ def post_classify_components(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> AIEnvelope:
     require_minimum_role(actor, "clinician")
-    _ensure_analysis(analysis_id, db)
+    _ensure_analysis(analysis_id, db, actor)
     return _envelope(analysis_id, raw_ai.classify_components(analysis_id, db))
 
 
@@ -158,7 +187,7 @@ def post_classify_segment(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> AIEnvelope:
     require_minimum_role(actor, "clinician")
-    _ensure_analysis(analysis_id, db)
+    _ensure_analysis(analysis_id, db, actor)
     if body.end_sec <= body.start_sec:
         raise ApiServiceError(
             code="invalid_segment",
@@ -187,7 +216,7 @@ def post_recommend_filters(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> AIEnvelope:
     require_minimum_role(actor, "clinician")
-    _ensure_analysis(analysis_id, db)
+    _ensure_analysis(analysis_id, db, actor)
     return _envelope(analysis_id, raw_ai.recommend_filters(analysis_id, db))
 
 
@@ -205,7 +234,7 @@ def post_recommend_montage(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> AIEnvelope:
     require_minimum_role(actor, "clinician")
-    _ensure_analysis(analysis_id, db)
+    _ensure_analysis(analysis_id, db, actor)
     return _envelope(analysis_id, raw_ai.recommend_montage(analysis_id, db))
 
 
@@ -223,7 +252,7 @@ def post_segment_eo_ec(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> AIEnvelope:
     require_minimum_role(actor, "clinician")
-    _ensure_analysis(analysis_id, db)
+    _ensure_analysis(analysis_id, db, actor)
     return _envelope(analysis_id, raw_ai.segment_eo_ec(analysis_id, db))
 
 
@@ -241,7 +270,7 @@ def post_narrate(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> AIEnvelope:
     require_minimum_role(actor, "clinician")
-    _ensure_analysis(analysis_id, db)
+    _ensure_analysis(analysis_id, db, actor)
     return _envelope(analysis_id, raw_ai.narrate(analysis_id, db))
 
 

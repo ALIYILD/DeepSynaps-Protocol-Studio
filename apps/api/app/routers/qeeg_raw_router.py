@@ -34,6 +34,7 @@ from app.persistence.models import (
     CleaningDecision,
     QEEGAnalysis,
 )
+from app.repositories.patients import resolve_patient_clinic_id
 
 _log = logging.getLogger(__name__)
 
@@ -459,7 +460,7 @@ def post_filter_preview(
     commits them via Save / Reprocess.
     """
     require_minimum_role(actor, "clinician")
-    _load_analysis(analysis_id, db)
+    _load_analysis(analysis_id, db, actor)
     _require_mne()
 
     payload = body or FilterPreviewRequest()
@@ -837,7 +838,7 @@ def post_auto_scan(
     commit. Until they do, nothing flows into ``cleaning_config_json``.
     """
     require_minimum_role(actor, "clinician")
-    _load_analysis(analysis_id, db)
+    _load_analysis(analysis_id, db, actor)
     _require_mne()
 
     from app.services.auto_artifact_scan import scan_for_artifacts
@@ -907,7 +908,7 @@ def post_auto_scan_decide(
     up.
     """
     require_minimum_role(actor, "clinician")
-    analysis = _load_analysis(analysis_id, db)
+    analysis = _load_analysis(analysis_id, db, actor)
 
     run = (
         db.query(AutoCleanRun)
@@ -1054,7 +1055,7 @@ def get_spike_events(
     Returns 200 either way so the UI's spike side panel doesn't break.
     """
     require_minimum_role(actor, "clinician")
-    _load_analysis(analysis_id, db)
+    _load_analysis(analysis_id, db, actor)
 
     events: list[SpikeEvent] = []
     detector_available = False
@@ -1112,7 +1113,7 @@ def post_apply_template(
     ``cleaning_config_json.excluded_ica_components``.
     """
     require_minimum_role(actor, "clinician")
-    analysis = _load_analysis(analysis_id, db)
+    analysis = _load_analysis(analysis_id, db, actor)
     template = body.template.strip().lower()
     if template not in _TEMPLATE_LABEL_MAP:
         raise ApiServiceError(
@@ -1246,7 +1247,7 @@ def post_export_cleaned(
     ``interpolate_bad_channels`` flag.
     """
     require_minimum_role(actor, "clinician")
-    _load_analysis(analysis_id, db)
+    _load_analysis(analysis_id, db, actor)
     _require_mne()
 
     fmt = (body.format or "").strip().lower()
@@ -1313,7 +1314,7 @@ def post_cleaning_report(
     support disclaimer.
     """
     require_minimum_role(actor, "clinician")
-    _load_analysis(analysis_id, db)
+    _load_analysis(analysis_id, db, actor)
 
     from app.services import eeg_export_and_report as _exp
 
@@ -1391,7 +1392,7 @@ def push_window_perf_sample(
 ) -> WindowPerfStatsResponse:
     """Append one (frame_ms, load_ms) sample to the in-memory ring buffer."""
     require_minimum_role(actor, "clinician")
-    _load_analysis(analysis_id, db)
+    _load_analysis(analysis_id, db, actor)
     buf = _PERF_RING.setdefault(analysis_id, [])
     buf.append(sample.model_dump())
     if len(buf) > _PERF_BUF_SIZE:
@@ -1410,7 +1411,7 @@ def get_window_perf_stats(
 ) -> WindowPerfStatsResponse:
     """Return aggregated render perf stats from the in-memory ring buffer."""
     require_minimum_role(actor, "clinician")
-    _load_analysis(analysis_id, db)
+    _load_analysis(analysis_id, db, actor)
     buf = _PERF_RING.get(analysis_id, [])
     return _summarise_perf(analysis_id, buf)
 
