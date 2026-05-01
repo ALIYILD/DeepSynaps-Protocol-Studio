@@ -3113,6 +3113,189 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }).catch(() => null),
+
+  // ── Care Team Coverage launch-audit (2026-04-30) ──────────────────────────
+  // pgCareTeamCoverage in pages-knowledge.js calls these helpers; they
+  // were defined in #357 but a concurrent session reverted them. The
+  // care-team-coverage-launch-audit.test.js asserts each helper name is
+  // present in api.js, so restoring them here.
+  careTeamCoverageSummary: () =>
+    apiFetch('/api/v1/care-team-coverage/summary').catch(() => null),
+  careTeamCoverageOncallNow: () =>
+    apiFetch('/api/v1/care-team-coverage/oncall-now').catch(() => null),
+  careTeamCoverageSlaConfig: () =>
+    apiFetch('/api/v1/care-team-coverage/sla-config').catch(() => null),
+  careTeamCoverageEscalationChain: () =>
+    apiFetch('/api/v1/care-team-coverage/escalation-chain').catch(() => null),
+  careTeamCoverageSlaBreaches: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/care-team-coverage/sla-breaches${q ? '?' + q : ''}`).catch(() => null);
+  },
+  careTeamCoverageRoster: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/care-team-coverage/roster${q ? '?' + q : ''}`).catch(() => null);
+  },
+  careTeamCoveragePages: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/care-team-coverage/pages${q ? '?' + q : ''}`).catch(() => null);
+  },
+  careTeamCoverageDeliveryConcerns: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/care-team-coverage/delivery-concerns${q ? '?' + q : ''}`).catch(() => null);
+  },
+  careTeamCoverageUpsertRoster: (body) =>
+    apiFetch('/api/v1/care-team-coverage/roster', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  careTeamCoverageUpsertSla: (body) =>
+    apiFetch('/api/v1/care-team-coverage/sla-config', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  careTeamCoverageUpsertEscalationChain: (body) =>
+    apiFetch('/api/v1/care-team-coverage/escalation-chain', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  careTeamCoveragePageOncall: (auditEventId, body) =>
+    apiFetch(
+      `/api/v1/care-team-coverage/page-oncall/${encodeURIComponent(auditEventId)}`,
+      {
+        method: 'POST',
+        body: JSON.stringify(body || {}),
+      },
+    ),
+  postCareTeamCoverageAuditEvent: (data) =>
+    apiFetch('/api/v1/care-team-coverage/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
+  // ── Auto-Page Worker (#367) ───────────────────────────────────────────────
+  autoPageWorkerStatus: () =>
+    apiFetch('/api/v1/auto-page-worker/status').catch(() => null),
+  autoPageWorkerAdapterHealth: () =>
+    apiFetch('/api/v1/auto-page-worker/adapters').catch(() => null),
+  autoPageWorkerStart: () =>
+    apiFetch('/api/v1/auto-page-worker/start', { method: 'POST' }),
+  autoPageWorkerStop: () =>
+    apiFetch('/api/v1/auto-page-worker/stop', { method: 'POST' }),
+  autoPageWorkerTickOnce: () =>
+    apiFetch('/api/v1/auto-page-worker/tick-once', { method: 'POST' }),
+  autoPageWorkerTestAdapter: (body) =>
+    apiFetch('/api/v1/auto-page-worker/test-adapter', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+
+  // ── Escalation Policy (#374) ──────────────────────────────────────────────
+  escalationPolicyDispatchOrder: () =>
+    apiFetch('/api/v1/escalation-policy/dispatch-order').catch(() => null),
+  escalationPolicySurfaceOverrides: () =>
+    apiFetch('/api/v1/escalation-policy/surface-overrides').catch(() => null),
+  escalationPolicyUserMappings: () =>
+    apiFetch('/api/v1/escalation-policy/user-mappings').catch(() => null),
+
+  // ── Patient Digest helpers (digest-page audit ingestion + caregiver
+  // delivery summaries that pgPatientDigest renders) ─────────────────────
+  postPatientDigestAuditEvent: (data) =>
+    apiFetch('/api/v1/patient-digest/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  patientDigestCaregiverDeliverySummary: (range) =>
+    apiFetch(
+      '/api/v1/patient-digest/caregiver-delivery-summary' +
+        (range ? '?range=' + encodeURIComponent(range) : ''),
+    ).catch(() => null),
+  patientDigestCaregiverDeliveryFailures: (range) =>
+    apiFetch(
+      '/api/v1/patient-digest/caregiver-delivery-failures' +
+        (range ? '?range=' + encodeURIComponent(range) : ''),
+    ).catch(() => null),
+  patientDigestCaregiverDeliveryConcern: (body) =>
+    apiFetch('/api/v1/patient-digest/caregiver-delivery-concerns', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+
+  // ── Caregiver Portal / Notifications / Consent helpers used by
+  // pgPatientCaregiver ───────────────────────────────────────────────────
+  caregiverConsentListByCaregiver: () =>
+    apiFetch('/api/v1/caregiver-consent/list-by-caregiver').catch(() => null),
+  caregiverPortalAcknowledgeRevocation: (grantId) =>
+    apiFetch(
+      `/api/v1/caregiver-consent/${encodeURIComponent(grantId)}/acknowledge-revocation`,
+      { method: 'POST' },
+    ),
+  caregiverNotificationsMarkRead: (notifId) =>
+    apiFetch(
+      `/api/v1/caregiver-consent/notifications/${encodeURIComponent(notifId)}/mark-read`,
+      { method: 'POST' },
+    ),
+  caregiverNotificationsBulkMarkRead: () =>
+    apiFetch('/api/v1/caregiver-consent/notifications/mark-all-read', {
+      method: 'POST',
+    }),
+  postCaregiverPortalAuditEvent: (data) =>
+    apiFetch('/api/v1/caregiver-consent/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
+  // ── Caregiver Email Digest launch-audit (2026-05-01) ──────────────────────
+  // pgPatientCaregiver's "Daily digest delivery" sub-section calls these
+  // helpers; they were defined in #380 but a concurrent session reverted
+  // them during the PR #386 merge. Restoring here so the existing
+  // caregiver-email-digest tests pass and the new clinic-admin override
+  // tab below can reuse them.
+  caregiverEmailDigestPreview: () =>
+    apiFetch('/api/v1/caregiver-consent/email-digest/preview').catch(() => null),
+  caregiverEmailDigestSendNow: () =>
+    apiFetch('/api/v1/caregiver-consent/email-digest/send-now', {
+      method: 'POST',
+    }),
+  caregiverEmailDigestPreferencesGet: () =>
+    apiFetch('/api/v1/caregiver-consent/email-digest/preferences').catch(() => null),
+  caregiverEmailDigestPreferencesPut: (body) =>
+    apiFetch('/api/v1/caregiver-consent/email-digest/preferences', {
+      method: 'PUT',
+      body: JSON.stringify(body || {}),
+    }),
+  postCaregiverEmailDigestAuditEvent: (data) =>
+    apiFetch('/api/v1/caregiver-consent/email-digest/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
+  // ── Clinic Caregiver Channel Override launch-audit (2026-05-01) ───────────
+  // Clinic-admin surface for caregiver channel preferences. Admin sees
+  // every override in their clinic, can pin a misconfigured caregiver
+  // back to the clinic chain, and the patient/caregiver UI gets a "Will
+  // dispatch via {channel}" preview before send. All routes scoped to
+  // actor.clinic_id; cross-clinic 404. See section A of PR
+  // feat/clinic-caregiver-channel-override-2026-05-01.
+  caregiverEmailDigestClinicPreferences: () =>
+    apiFetch('/api/v1/caregiver-consent/email-digest/clinic-preferences').catch(() => null),
+  caregiverEmailDigestAdminOverride: (caregiverUserId, note) =>
+    apiFetch(
+      '/api/v1/caregiver-consent/email-digest/clinic-preferences/' +
+        encodeURIComponent(caregiverUserId) +
+        '/admin-override',
+      {
+        method: 'POST',
+        body: JSON.stringify({ note: note || '' }),
+      },
+    ),
+  caregiverEmailDigestPreviewDispatch: (caregiverUserId) => {
+    const q = caregiverUserId
+      ? '?caregiver_user_id=' + encodeURIComponent(caregiverUserId)
+      : '';
+    return apiFetch(
+      '/api/v1/caregiver-consent/email-digest/preview-dispatch' + q,
+    ).catch(() => null);
+  },
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).

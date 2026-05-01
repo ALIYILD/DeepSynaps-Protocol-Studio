@@ -115,6 +115,7 @@ from app.routers.patient_oncall_router import router as patient_oncall_router
 from app.routers.patient_digest_router import router as patient_digest_router
 from app.routers.caregiver_consent_router import router as caregiver_consent_router
 from app.routers.caregiver_email_digest_router import router as caregiver_email_digest_router
+from app.routers.audit_trail_router import router as audit_trail_router
 # Settings API routers (foundation scaffolded by backend subagent #1; endpoints
 # fleshed out by backend subagents #3–#6). See apps/api/SETTINGS_API_DESIGN.md.
 from app.routers.profile_router import router as profile_router
@@ -450,6 +451,13 @@ app.include_router(caregiver_consent_router)
 # (DEEPSYNAPS_CAREGIVER_DIGEST_ENABLED=1) honours a 24h per-caregiver
 # cooldown.
 app.include_router(caregiver_email_digest_router)
+# Audit Trail launch-audit (2026-04-30) — was previously included via
+# legacy main.py routes. The router carries its own filters, summary,
+# CSV / NDJSON exports, single-event detail, and audits its own reads.
+# A concurrent session reverted this include during PR #386's merge
+# storm; restoring it here so audit-trail surface tests pass and the
+# regulator transcript surface is reachable.
+app.include_router(audit_trail_router)
 # Settings API (scaffolded 024_settings_schema) — stubs; endpoints arrive in
 # follow-up subagents. Grouped together for discoverability.
 app.include_router(profile_router)

@@ -896,6 +896,481 @@ def put_preferences(
     return _serialise_preference(row)
 
 
+# ── Clinic Caregiver Channel Override launch-audit (2026-05-01) ─────────────
+#
+# Closes section I rec from the Per-Caregiver Channel Preference launch
+# audit (#386): clinic admin needs a surface to (a) see every caregiver
+# override in their clinic, (b) override misconfigured ones (e.g.
+# caregiver picked SMS but clinic has no Twilio creds), and (c) the
+# patient/caregiver UI gets an honest "Will dispatch via {channel}"
+# preview before send.
+
+
+def _gate_admin_write(actor: AuthenticatedActor) -> None:
+    """Admin-only guard for the clinic-preference write endpoints."""
+    from app.auth import require_minimum_role  # noqa: PLC0415
+
+    require_minimum_role(actor, "admin")
+
+
+def _gate_clinician_read(actor: AuthenticatedActor) -> None:
+    """Clinician-minimum guard for clinic-preference read endpoints."""
+    from app.auth import require_minimum_role  # noqa: PLC0415
+
+    require_minimum_role(actor, "clinician")
+
+
+def _is_admin_scope(actor: AuthenticatedActor) -> bool:
+    return actor.role in ("admin", "supervisor", "regulator")
+
+
+def _resolve_clinic_chain_for_caregiver(
+    db: Session,
+    *,
+    clinic_id: Optional[str],
+) -> list[str]:
+    """Resolve the clinic-side dispatch chain for caregiver digest.
+
+    Mirrors :func:`build_caregiver_digest_service`'s order resolution
+    without instantiating adapters — we just need the ordered chain for
+    preview purposes. Falls back to the canonical caregiver-digest chain
+    when no per-clinic policy is configured.
+    """
+    from app.services.oncall_delivery import (  # noqa: PLC0415
+        DEFAULT_ADAPTER_ORDER,
+        OncallDeliveryService,
+    )
+
+    surface = "caregiver_digest"
+    order = OncallDeliveryService._resolve_dispatch_order(clinic_id, surface, db)
+    default_chain = [
+        getattr(cls, "name", cls.__name__.lower())
+        for cls in DEFAULT_ADAPTER_ORDER
+    ]
+    if order == default_chain:
+        # No clinic policy AND no surface override — use the
+        # caregiver-digest default (same as ``build_caregiver_digest_service``).
+        order = ["sendgrid", "slack", "twilio", "pagerduty"]
+    return order
+
+
+def _adapter_enabled_map(db: Session, *, clinic_id: Optional[str]) -> dict[str, bool]:
+    """Return a name→enabled map for every registered adapter.
+
+    Reads from :meth:`OncallDeliveryService.describe_adapters` so the
+    truth-source for "is this adapter actually configured" stays single.
+    Mock mode (``DEEPSYNAPS_DELIVERY_MOCK=1``) flips every adapter to
+    ``enabled=True`` from the caller's perspective so the preview is
+    honest in demo / CI deploys.
+    """
+    from app.services.oncall_delivery import (  # noqa: PLC0415
+        OncallDeliveryService,
+        is_mock_mode_enabled,
+    )
+
+    service = OncallDeliveryService(clinic_id=clinic_id)
+    rows = service.describe_adapters()
+    out = {row["name"]: bool(row["enabled"]) for row in rows}
+    if is_mock_mode_enabled():
+        # Mock mode short-circuits dispatch in the service so every
+        # registered adapter is effectively reachable. Reflect that here
+        # so the preview banner renders the caregiver's preferred channel
+        # instead of pretending it is misconfigured.
+        for k in list(out.keys()):
+            out[k] = True
+    return out
+
+
+def _resolve_dispatch_preview(
+    db: Session,
+    *,
+    caregiver_user_id: str,
+    clinic_id: Optional[str],
+) -> dict:
+    """Compute the dispatch-preview payload for a single caregiver.
+
+    Returns a dict with::
+
+        resolved_chain          [adapter_name, ...]            # caregiver_pref + clinic_chain dedup
+        will_dispatch_via       email|sms|slack|pagerduty|-    # first ENABLED chip in resolved_chain
+        will_dispatch_adapter   sendgrid|twilio|...|None       # adapter-name parallel
+        honored_caregiver_preference   bool                    # caregiver pref's adapter is enabled
+        clinic_chain            [adapter_name, ...]
+        caregiver_preferred_channel    chip|None
+        caregiver_preferred_adapter    adapter_name|None
+        adapter_available       {adapter_name: bool}
+        is_mock_mode            bool
+
+    The output is intentionally adapter-name-keyed (sendgrid / twilio /
+    slack / pagerduty); the channel chip (email / sms / ...) is exposed
+    via ``will_dispatch_via`` so the UI doesn't have to maintain its own
+    adapter→chip mapping. ``honored_caregiver_preference`` is False when
+    the caregiver picked a channel whose adapter is NOT enabled — exactly
+    the misconfigured-SMS-without-Twilio scenario.
+    """
+    from app.services.oncall_delivery import (  # noqa: PLC0415
+        adapter_channel,
+        is_mock_mode_enabled,
+        _channel_to_adapter_name,
+    )
+
+    pref_row = (
+        db.query(CaregiverDigestPreference)
+        .filter(CaregiverDigestPreference.caregiver_user_id == caregiver_user_id)
+        .first()
+    )
+    preferred_chip = (
+        getattr(pref_row, "preferred_channel", None) if pref_row is not None else None
+    )
+    preferred_adapter = _channel_to_adapter_name(preferred_chip)
+
+    clinic_chain = _resolve_clinic_chain_for_caregiver(db, clinic_id=clinic_id)
+    resolved_chain = _resolve_caregiver_dispatch_chain(
+        preferred_channel=preferred_adapter,
+        clinic_chain=clinic_chain,
+    )
+
+    adapter_avail = _adapter_enabled_map(db, clinic_id=clinic_id)
+    will_adapter: Optional[str] = None
+    for name in resolved_chain:
+        if adapter_avail.get(name, False):
+            will_adapter = name
+            break
+    will_chip = adapter_channel(will_adapter) if will_adapter else "-"
+    honored = (
+        bool(preferred_adapter)
+        and adapter_avail.get(preferred_adapter or "", False)
+        and resolved_chain[:1] == [preferred_adapter]
+        and will_adapter == preferred_adapter
+    )
+    if not preferred_adapter:
+        # No caregiver-side override → "honored" is vacuously True (the
+        # clinic chain runs as the admin configured it). The UI uses this
+        # to pick the green vs. amber banner colour, so we report True
+        # only when a preference exists AND it survived to dispatch.
+        honored = False
+    return {
+        "resolved_chain": list(resolved_chain),
+        "will_dispatch_via": will_chip,
+        "will_dispatch_adapter": will_adapter,
+        "honored_caregiver_preference": honored,
+        "clinic_chain": list(clinic_chain),
+        "caregiver_preferred_channel": preferred_chip,
+        "caregiver_preferred_adapter": preferred_adapter,
+        "adapter_available": adapter_avail,
+        "is_mock_mode": is_mock_mode_enabled(),
+    }
+
+
+def _list_clinic_caregivers(
+    db: Session, *, clinic_id: str
+) -> list[CaregiverDigestPreference]:
+    """List every CaregiverDigestPreference whose caregiver belongs to ``clinic_id``.
+
+    Joins CaregiverDigestPreference → User on caregiver_user_id == user.id
+    and filters by user.clinic_id. Cross-clinic rows are excluded — the
+    caller relies on this for IDOR safety.
+    """
+    rows = (
+        db.query(CaregiverDigestPreference, User)
+        .join(User, User.id == CaregiverDigestPreference.caregiver_user_id)
+        .filter(User.clinic_id == clinic_id)
+        .order_by(CaregiverDigestPreference.updated_at.desc())
+        .all()
+    )
+    out: list[CaregiverDigestPreference] = []
+    for pref, _user in rows:
+        out.append(pref)
+    return out
+
+
+# ── Schemas: clinic-side ────────────────────────────────────────────────────
+
+
+class ClinicCaregiverPreferenceRow(BaseModel):
+    caregiver_user_id: str
+    caregiver_email: Optional[str] = None
+    caregiver_display_name: Optional[str] = None
+    enabled: bool
+    frequency: str
+    time_of_day: str
+    last_sent_at: Optional[str] = None
+    preferred_channel: Optional[str] = None
+    resolved_chain: list[str] = Field(default_factory=list)
+    will_dispatch_via: str = "-"
+    will_dispatch_adapter: Optional[str] = None
+    honored_caregiver_preference: bool = False
+    clinic_chain: list[str] = Field(default_factory=list)
+    adapter_available: dict[str, bool] = Field(default_factory=dict)
+    is_misconfigured: bool = False  # caregiver picked a channel whose adapter is disabled
+    updated_at: str
+
+
+class ClinicCaregiverPreferencesOut(BaseModel):
+    clinic_id: Optional[str] = None
+    items: list[ClinicCaregiverPreferenceRow] = Field(default_factory=list)
+    is_mock_mode: bool = False
+    disclaimers: list[str] = Field(
+        default_factory=lambda: list(CAREGIVER_DIGEST_DISCLAIMERS)
+    )
+
+
+class ClinicAdminOverrideIn(BaseModel):
+    note: str = Field(..., min_length=1, max_length=512)
+
+
+class ClinicAdminOverrideOut(BaseModel):
+    accepted: bool = True
+    caregiver_user_id: str
+    previous_preferred_channel: Optional[str] = None
+    new_preferred_channel: Optional[str] = None
+    audit_event_id: str
+
+
+class PreviewDispatchOut(BaseModel):
+    caregiver_user_id: str
+    resolved_chain: list[str] = Field(default_factory=list)
+    will_dispatch_via: str = "-"
+    will_dispatch_adapter: Optional[str] = None
+    honored_caregiver_preference: bool = False
+    clinic_chain: list[str] = Field(default_factory=list)
+    caregiver_preferred_channel: Optional[str] = None
+    caregiver_preferred_adapter: Optional[str] = None
+    adapter_available: dict[str, bool] = Field(default_factory=dict)
+    is_mock_mode: bool = False
+    audit_event_id: Optional[str] = None
+
+
+# ── Endpoints: clinic-side ──────────────────────────────────────────────────
+
+
+@router.get(
+    "/clinic-preferences",
+    response_model=ClinicCaregiverPreferencesOut,
+)
+def list_clinic_preferences(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> ClinicCaregiverPreferencesOut:
+    """Admin / clinician read: list every caregiver preference in this clinic.
+
+    Returns one row per caregiver (User.clinic_id == actor.clinic_id) with
+    the resolved dispatch chain + honesty flag (``is_misconfigured`` is
+    True when the caregiver picked a channel whose adapter is disabled).
+
+    Cross-clinic safety: rows are filtered by joining on User.clinic_id;
+    no cross-clinic CaregiverDigestPreference can be returned.
+    """
+    _gate_clinician_read(actor)
+    cid = actor.clinic_id
+    if not cid:
+        # Actor has no clinic_id (e.g. unattached admin). Return empty.
+        return ClinicCaregiverPreferencesOut(clinic_id=None, items=[])
+
+    rows = _list_clinic_caregivers(db, clinic_id=cid)
+    user_lookup: dict[str, User] = {
+        u.id: u
+        for u in db.query(User)
+        .filter(User.id.in_([r.caregiver_user_id for r in rows] or [""]))
+        .all()
+    }
+
+    from app.services.oncall_delivery import is_mock_mode_enabled  # noqa: PLC0415
+
+    items: list[ClinicCaregiverPreferenceRow] = []
+    for r in rows:
+        preview = _resolve_dispatch_preview(
+            db, caregiver_user_id=r.caregiver_user_id, clinic_id=cid
+        )
+        u = user_lookup.get(r.caregiver_user_id)
+        is_misc = bool(
+            preview["caregiver_preferred_adapter"]
+            and not preview["adapter_available"].get(
+                preview["caregiver_preferred_adapter"] or "", False
+            )
+        )
+        items.append(
+            ClinicCaregiverPreferenceRow(
+                caregiver_user_id=r.caregiver_user_id,
+                caregiver_email=getattr(u, "email", None),
+                caregiver_display_name=getattr(u, "display_name", None),
+                enabled=bool(r.enabled),
+                frequency=r.frequency,
+                time_of_day=r.time_of_day,
+                last_sent_at=r.last_sent_at,
+                preferred_channel=getattr(r, "preferred_channel", None),
+                resolved_chain=preview["resolved_chain"],
+                will_dispatch_via=preview["will_dispatch_via"],
+                will_dispatch_adapter=preview["will_dispatch_adapter"],
+                honored_caregiver_preference=preview["honored_caregiver_preference"],
+                clinic_chain=preview["clinic_chain"],
+                adapter_available=preview["adapter_available"],
+                is_misconfigured=is_misc,
+                updated_at=r.updated_at,
+            )
+        )
+
+    _audit_portal(
+        db,
+        actor,
+        event="clinic_preferences_view",
+        target_id=cid,
+        note=f"clinic={cid}; rows={len(items)}",
+    )
+
+    return ClinicCaregiverPreferencesOut(
+        clinic_id=cid,
+        items=items,
+        is_mock_mode=is_mock_mode_enabled(),
+    )
+
+
+@router.post(
+    "/clinic-preferences/{caregiver_user_id}/admin-override",
+    response_model=ClinicAdminOverrideOut,
+)
+def admin_override_caregiver_channel(
+    caregiver_user_id: str,
+    body: ClinicAdminOverrideIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> ClinicAdminOverrideOut:
+    """Admin-only: pin a caregiver back to the clinic chain.
+
+    Sets ``preferred_channel=null`` so subsequent dispatches use the
+    clinic chain as configured. Emits ``caregiver_portal.admin_override_channel``
+    with the admin's note. Cross-clinic 404 — admin can only override
+    caregivers in their own clinic.
+    """
+    _gate_admin_write(actor)
+    cid = actor.clinic_id
+    if not cid:
+        raise ApiServiceError(
+            code="forbidden",
+            message="Admin actor has no clinic_id; cannot override caregiver preferences.",
+            status_code=403,
+        )
+
+    # IDOR gate: caregiver must belong to admin's clinic.
+    target_user = db.query(User).filter_by(id=caregiver_user_id).first()
+    if target_user is None or target_user.clinic_id != cid:
+        raise ApiServiceError(
+            code="not_found",
+            message="Caregiver not found in this clinic.",
+            status_code=404,
+        )
+
+    pref = _get_or_create_preference(db, caregiver_user_id)
+    previous = getattr(pref, "preferred_channel", None)
+
+    pref.preferred_channel = None
+    pref.updated_at = _now_iso()
+    try:
+        db.commit()
+        db.refresh(pref)
+    except Exception:  # pragma: no cover — defensive
+        db.rollback()
+        raise
+
+    note = (
+        f"caregiver={caregiver_user_id}; "
+        f"old={previous or 'null'}->new=null; "
+        f"reason={body.note[:240]}"
+    )
+    ev_id = _audit_portal(
+        db,
+        actor,
+        event="admin_override_channel",
+        target_id=caregiver_user_id,
+        note=note,
+    )
+
+    return ClinicAdminOverrideOut(
+        caregiver_user_id=caregiver_user_id,
+        previous_preferred_channel=previous,
+        new_preferred_channel=None,
+        audit_event_id=ev_id,
+    )
+
+
+@router.get("/preview-dispatch", response_model=PreviewDispatchOut)
+def preview_dispatch(
+    caregiver_user_id: Optional[str] = None,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PreviewDispatchOut:
+    """Return the resolved dispatch chain + first-enabled adapter.
+
+    * Caregiver-side actor (no ``caregiver_user_id`` query) → preview their
+      OWN dispatch chain. Always allowed (any non-guest role) — the
+      caregiver views their own preference.
+    * Admin / clinician with ``caregiver_user_id`` query → preview that
+      caregiver's chain, scoped to ``actor.clinic_id``. Cross-clinic 404.
+
+    Emits ``caregiver_portal.preview_dispatch_viewed`` so the regulator
+    transcript joins every UI render of the banner to the resolved chain
+    that was shown.
+    """
+    _gate_caregiver_actor(actor)
+
+    if caregiver_user_id and caregiver_user_id != actor.actor_id:
+        # Caller is asking about ANOTHER user. Must be clinician+ AND
+        # share clinic_id with the target.
+        if not _is_admin_scope(actor) and actor.role != "clinician":
+            raise ApiServiceError(
+                code="forbidden",
+                message="Only clinicians and admins can preview another caregiver.",
+                status_code=403,
+            )
+        cid = actor.clinic_id
+        target = db.query(User).filter_by(id=caregiver_user_id).first()
+        if target is None or not cid or target.clinic_id != cid:
+            raise ApiServiceError(
+                code="not_found",
+                message="Caregiver not found in this clinic.",
+                status_code=404,
+            )
+        target_user_id = caregiver_user_id
+        clinic_id_for_preview: Optional[str] = cid
+    else:
+        # Actor-side preview.
+        target_user_id = actor.actor_id
+        clinic_id_for_preview = actor.clinic_id
+
+    preview = _resolve_dispatch_preview(
+        db,
+        caregiver_user_id=target_user_id,
+        clinic_id=clinic_id_for_preview,
+    )
+
+    ev_id = _audit_portal(
+        db,
+        actor,
+        event="preview_dispatch_viewed",
+        target_id=target_user_id,
+        note=(
+            f"caregiver={target_user_id}; "
+            f"resolved={','.join(preview['resolved_chain'])[:200]}; "
+            f"will_dispatch_via={preview['will_dispatch_via']}; "
+            f"honored={'1' if preview['honored_caregiver_preference'] else '0'}"
+        ),
+    )
+
+    return PreviewDispatchOut(
+        caregiver_user_id=target_user_id,
+        resolved_chain=preview["resolved_chain"],
+        will_dispatch_via=preview["will_dispatch_via"],
+        will_dispatch_adapter=preview["will_dispatch_adapter"],
+        honored_caregiver_preference=preview["honored_caregiver_preference"],
+        clinic_chain=preview["clinic_chain"],
+        caregiver_preferred_channel=preview["caregiver_preferred_channel"],
+        caregiver_preferred_adapter=preview["caregiver_preferred_adapter"],
+        adapter_available=preview["adapter_available"],
+        is_mock_mode=preview["is_mock_mode"],
+        audit_event_id=ev_id,
+    )
+
+
 @router.post("/audit-events", response_model=DigestAuditEventOut)
 def post_audit_event(
     body: DigestAuditEventIn,
@@ -939,4 +1414,8 @@ __all__ = [
     "_get_or_create_preference",
     "_has_digest_consent_grant",
     "_build_preview_for_actor",
+    "_resolve_caregiver_dispatch_chain",
+    "_resolve_clinic_chain_for_caregiver",
+    "_resolve_dispatch_preview",
+    "_adapter_enabled_map",
 ]
