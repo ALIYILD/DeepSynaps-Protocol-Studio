@@ -371,6 +371,18 @@ KNOWN_SURFACES = {
     # the regulator transcript joins the digest send to its consent
     # provenance.
     "caregiver_consent",
+    # Caregiver Portal launch-audit (2026-05-01). Caregiver-side viewer
+    # surface for ``pgPatientCaregiver`` — distinct from the patient-side
+    # ``caregiver_consent`` so the regulator transcript can cleanly
+    # separate "patient granted X" rows from "caregiver actually viewed X"
+    # rows. Events: view, demo_banner_shown, revocation_acknowledged,
+    # revocation_acknowledged_duplicate, grant_accessed,
+    # grant_accessed_after_revocation, grant_accessed_out_of_scope,
+    # digest_view_clicked_ui, messages_view_clicked_ui. The
+    # acknowledge-revocation + access-log endpoints emit grant_id +
+    # patient_id in the audit note so the patient's audit trail joins
+    # caregiver-side activity to the grant they own.
+    "caregiver_portal",
 }
 
 
