@@ -7051,6 +7051,24 @@ export async function pgPatientBrainMap() {
   }
 }
 
+// \u2500\u2500 Patient Messages launch-audit helper (2026-05-01) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// Mirrors the patient-reports / wellness-hub / symptom-journal helper.
+// Best-effort: never throws back at the caller \u2014 audit failures must
+// not block the UI.
+async function _patientMessagesLogAuditEvent(event, extra) {
+  try {
+    if (api && typeof api.postPatientMessagesAuditEvent === 'function') {
+      await api.postPatientMessagesAuditEvent({
+        event,
+        thread_id: (extra && extra.thread_id) ? String(extra.thread_id) : null,
+        message_id: (extra && extra.message_id) ? String(extra.message_id) : null,
+        note: (extra && extra.note) ? String(extra.note).slice(0, 480) : null,
+        using_demo_data: !!(extra && extra.using_demo_data),
+      });
+    }
+  } catch (_) { /* audit failures must never block UI */ }
+}
+
 // \u2500\u2500 Messages \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 export async function pgPatientMessages() {
   setTopbar(t('patient.messages.title'));
@@ -7089,19 +7107,67 @@ export async function pgPatientMessages() {
     _timeout(3000),
   ]);
   let messagesRaw, coursesRaw, meRaw;
+  // Patient Messages launch-audit (2026-05-01). Prefer the new
+  // /api/v1/messages/threads endpoint which carries is_demo /
+  // consent_active honestly. Soft-fail back to the legacy portal
+  // messages endpoint if the new surface times out.
+  let threadsServerRaw = null;
+  let threadsServerErr = false;
+  let threadsSummaryRaw = null;
   try {
-    [messagesRaw, coursesRaw, meRaw] = await Promise.all([
+    [messagesRaw, coursesRaw, meRaw, threadsServerRaw, threadsSummaryRaw] = await Promise.all([
       _raceNull(api.patientPortalMessages()),
       _raceNull(api.patientPortalCourses()),
       _raceNull(api.patientPortalMe()),
+      typeof api.listPatientMessageThreads === 'function'
+        ? _raceNull(api.listPatientMessageThreads({ limit: 100 }))
+        : Promise.resolve(null),
+      typeof api.getPatientMessageThreadsSummary === 'function'
+        ? _raceNull(api.getPatientMessageThreadsSummary())
+        : Promise.resolve(null),
     ]);
   } catch (_e) {
     messagesRaw = null; coursesRaw = null; meRaw = null;
+    threadsServerRaw = null; threadsServerErr = true;
+    threadsSummaryRaw = null;
   }
 
   const courses      = Array.isArray(coursesRaw) ? coursesRaw : [];
   const activeCourse = courses.find(c => c.status === 'active') || courses[0] || null;
   const me           = meRaw && typeof meRaw === 'object' ? meRaw : null;
+
+  // Launch-audit derived flags. The server is the canonical source for
+  // is_demo / consent_active — we never fabricate either here.
+  const _patientMessagesServerLive = !!threadsServerRaw && !threadsServerErr;
+  const _patientMessagesIsDemo = !!(threadsServerRaw && threadsServerRaw.is_demo);
+  const _patientMessagesConsentActive = threadsServerRaw
+    ? !!threadsServerRaw.consent_active
+    : true;
+
+  // Mount-time view audit ping. Best-effort, never blocks render.
+  _patientMessagesLogAuditEvent('view', {
+    using_demo_data: _patientMessagesIsDemo,
+    note: _patientMessagesServerLive
+      ? `threads=${(threadsServerRaw && threadsServerRaw.total) || 0}; consent_active=${_patientMessagesConsentActive ? 1 : 0}`
+      : 'fallback=offline',
+  });
+
+  // Parse ?thread_id=… from the page URL so a deep-link from Patient
+  // Reports start-question can open the report-question thread directly.
+  let _ptmsgDeepLinkThreadId = null;
+  try {
+    const _qs = new URLSearchParams(window.location.search || '');
+    const _tid = _qs.get('thread_id');
+    if (_tid && typeof _tid === 'string') {
+      _ptmsgDeepLinkThreadId = _tid.trim();
+      if (_ptmsgDeepLinkThreadId) {
+        _patientMessagesLogAuditEvent('deep_link_followed', {
+          thread_id: _ptmsgDeepLinkThreadId,
+          using_demo_data: _patientMessagesIsDemo,
+        });
+      }
+    }
+  } catch (_e) { /* URL API unavailable — skip */ }
 
   // Demo seed: if demo-mode AND the real endpoint returned empty *or* the
   // Fly backend timed out (messagesRaw === null), overlay the 3-exchange
@@ -7373,9 +7439,44 @@ export async function pgPatientMessages() {
     const threadCountLine = threads.length > 0
       ? `<span class="ptmsg-list-count">${threads.length === 1 ? t('patient.msg.thread_count_one') : t('patient.msg.thread_count', { n: threads.length })}</span>`
       : '';
+
+    // Launch-audit banners (2026-05-01). Demo banner only when the
+    // server explicitly flags the patient as demo. Consent-revoked
+    // banner only when the server returned consent_active=false.
+    // Offline banner when the new server endpoint is down (we still
+    // render the legacy fallback list below it).
+    const _patientMessagesDemoBanner = _patientMessagesIsDemo
+      ? `<div class="ds-alert ds-alert--info" style="margin-bottom:12px">DEMO mode — messages are sample data. Threads, audit rows and read receipts are not regulator-submittable.</div>`
+      : '';
+    const _patientMessagesConsentBanner = (_patientMessagesServerLive && _patientMessagesConsentActive === false)
+      ? `<div class="ds-alert ds-alert--warning" style="margin-bottom:12px">Consent withdrawn — you can read existing threads but new messages, replies and urgent flags are paused until consent is reinstated.</div>`
+      : '';
+    const _patientMessagesOfflineBanner = (!_patientMessagesServerLive)
+      ? `<div class="ds-alert ds-alert--warning" style="margin-bottom:12px">Live messages service is offline — showing the most recent cached threads. New replies you send may not record an audit row until the service is back.</div>`
+      : '';
+    // Honest empty state — only when server is live AND zero threads.
+    const _patientMessagesEmptyBanner = (_patientMessagesServerLive && threads.length === 0)
+      ? `<div class="ds-alert" style="margin-bottom:12px">No messages yet — start a conversation with your care team below, or open a question on a recent report.</div>`
+      : '';
+
+    // Cross-link to the related report when the active thread was
+    // started from a Patient Reports start-question CTA.
+    let _patientMessagesReportLink = '';
+    if (activeThreadIdx >= 0 && threads[activeThreadIdx]) {
+      const _activeKey = String(threads[activeThreadIdx].key || '');
+      if (_activeKey.startsWith('report-')) {
+        const _rid = _activeKey.slice('report-'.length);
+        _patientMessagesReportLink = `<div class="ptmsg-report-link" style="padding:8px 12px;font-size:13px;color:var(--text-secondary);border-bottom:1px solid var(--border-subtle)">This thread is about <a href="?page=patient-reports&report_id=${encodeURIComponent(_rid)}" onclick="window._ptmsgFollowReportLink && window._ptmsgFollowReportLink('${esc(_rid)}'); return true;">a report you received</a>. Open the report to read the full document.</div>`;
+      }
+    }
+
     el.innerHTML = `
       <div class="ptmsg-wrap" id="ptmsg-wrap">
         ${headerHTML()}
+        ${_patientMessagesDemoBanner}
+        ${_patientMessagesConsentBanner}
+        ${_patientMessagesOfflineBanner}
+        ${_patientMessagesEmptyBanner}
         <div class="ptmsg-body-grid">
           <aside class="ptmsg-pane ptmsg-pane-list" aria-label="Conversations">
             <div class="ptmsg-pane-hd">
@@ -7386,6 +7487,7 @@ export async function pgPatientMessages() {
           </aside>
           <section class="ptmsg-pane ptmsg-pane-conv" aria-label="Conversation"
                    aria-live="polite">
+            ${_patientMessagesReportLink}
             <div class="ptmsg-conv-body" id="ptmsg-conv-body">${conversationHTML()}</div>
             <div id="ptmsg-call-request-slot"></div>
             ${composerHTML()}
@@ -7406,15 +7508,38 @@ export async function pgPatientMessages() {
     }
 
     // Fire-and-forget read-receipt PATCH for any unread clinician messages
-    // visible in the current conversation. Runs after each render.
+    // visible in the current conversation. Runs after each render. Each
+    // mark-read also emits a patient_messages.message_read audit row.
     if (activeThreadIdx >= 0 && threads[activeThreadIdx]) {
-      for (const m of threads[activeThreadIdx].messages) {
+      const _activeThread = threads[activeThreadIdx];
+      const _activeKey = String(_activeThread.key || '');
+      for (const m of _activeThread.messages) {
         const senderIsClinician = (m.sender_type || '').toLowerCase() !== 'patient'
           && m.sender_id !== uid;
         if (senderIsClinician && m.is_read === false && m.id && !_readFired.has(m.id) && !m._demo) {
           _readFired.add(m.id);
           try {
-            if (typeof api.patientPortalMarkMessageRead === 'function') {
+            // Prefer the new patient_messages mark-read endpoint (which
+            // records the audit row). Fall back to the legacy portal
+            // mark-read for older deployments.
+            if (typeof api.markPatientMessageRead === 'function' && _activeKey && _activeKey !== 'all') {
+              api.markPatientMessageRead(_activeKey, m.id)
+                .then(() => {
+                  m.is_read = true;
+                  _patientMessagesLogAuditEvent('clinician_reply_visible', {
+                    thread_id: _activeKey,
+                    message_id: m.id,
+                    using_demo_data: _patientMessagesIsDemo,
+                  });
+                })
+                .catch(() => {
+                  if (typeof api.patientPortalMarkMessageRead === 'function') {
+                    api.patientPortalMarkMessageRead(m.id)
+                      .then(() => { m.is_read = true; })
+                      .catch(() => {/* endpoint may be absent */});
+                  }
+                });
+            } else if (typeof api.patientPortalMarkMessageRead === 'function') {
               api.patientPortalMarkMessageRead(m.id)
                 .then(() => { m.is_read = true; })
                 .catch(() => {/* endpoint may be absent on older API */});
@@ -7441,8 +7566,35 @@ export async function pgPatientMessages() {
   window._ptmsgSelectThread = function(idx) {
     if (!threads[idx]) return;
     activeThreadIdx = idx;
+    const th = threads[idx];
+    _patientMessagesLogAuditEvent('thread_opened', {
+      thread_id: th.key,
+      using_demo_data: _patientMessagesIsDemo,
+      note: `messages=${th.messages.length}; unread=${th.unreadCount}`,
+    });
     renderPage();
   };
+
+  // Cross-link follower — emits an audit row when the patient clicks
+  // through to the report this thread is about.
+  window._ptmsgFollowReportLink = function(reportId) {
+    _patientMessagesLogAuditEvent('cross_link_report_clicked', {
+      thread_id: `report-${reportId}`,
+      using_demo_data: _patientMessagesIsDemo,
+      note: `report=${reportId}`,
+    });
+  };
+
+  // If a deep-link ?thread_id=… was supplied, try to pre-select that
+  // thread before the first render. Falls back silently if the thread
+  // is not in the cached list (e.g. server timed out and we are on the
+  // legacy fallback).
+  if (_ptmsgDeepLinkThreadId) {
+    const _idx = threads.findIndex(th => String(th.key) === String(_ptmsgDeepLinkThreadId));
+    if (_idx >= 0) {
+      activeThreadIdx = _idx;
+    }
+  }
 
   window._ptmsgStartCall = async function(mode) {
     const tier = pickCallTier(
@@ -7560,6 +7712,20 @@ export async function pgPatientMessages() {
       bodyEl.focus();
       return;
     }
+    // Consent gate — never POST a send when the server has told us
+    // consent is withdrawn. The server enforces the same gate but we
+    // give the patient an immediate, honest message.
+    if (_patientMessagesServerLive && _patientMessagesConsentActive === false) {
+      if (errBox) { errBox.hidden = false; errBox.textContent = 'Sending is paused while consent is withdrawn.'; }
+      return;
+    }
+    // Best-effort page-audit ping for the click intent (the server-side
+    // /threads endpoint also emits its own message_sent audit row).
+    _patientMessagesLogAuditEvent('message_sent_clicked', {
+      thread_id: (threads[activeThreadIdx] && threads[activeThreadIdx].key) || null,
+      using_demo_data: _patientMessagesIsDemo,
+      note: `category=${category}; chars=${body.length}`,
+    });
     if (btn) btn.disabled = true;
     try {
       const active = threads[activeThreadIdx] || null;
