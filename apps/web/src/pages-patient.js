@@ -35,6 +35,7 @@ function _patientNav() {
     { id: 'patient-sessions',    label: 'Sessions',             icon: '📅', tone: 'blue',   group: 'main' },
     { id: 'patient-homework',    label: 'Homework',             icon: '📝', tone: 'violet', group: 'main' },
     { id: 'pt-outcomes',         label: 'Progress',             icon: '📈', tone: 'green',  group: 'main' },
+    { id: 'pt-digest',           label: 'My Digest',            icon: '📰', tone: 'teal',   group: 'main' },
     { id: 'patient-assessments', label: 'Assessments',          icon: '📋', tone: 'rose',   group: 'main' },
     { id: 'patient-reports',     label: 'My Reports',           icon: '📄', tone: 'blue',   group: 'main' },
     { id: 'patient-brainmap',    label: 'My Brain Map',         icon: '🧠', tone: 'violet', group: 'main' },
@@ -23679,4 +23680,194 @@ export async function pgGuardianPortal(setTopbarFn) {
   const _tb = typeof setTopbarFn === 'function' ? setTopbarFn : setTopbar;
   _tb('Guardian Portal', '<div style="display:flex;align-items:center;gap:10px"><span style="font-size:0.8rem;color:var(--text-muted,#94a3b8)">Family &amp; Caregiver Access</span><button style="display:inline-flex;align-items:center;gap:6px;background:rgba(251,113,133,0.1);color:var(--rose,#ff6b9d);border:1px solid rgba(251,113,133,0.25);border-radius:8px;padding:6px 14px;font-size:0.8rem;font-weight:600;cursor:pointer" onclick="window._gpToggleCrisis();setTimeout(function(){var el=document.getElementById(\'gp-crisis-detail\');if(el)el.scrollIntoView({behavior:\'smooth\'})},50)">&#9888; Crisis Plan</button></div>');
   _gpRender();
+}
+
+// ── Patient Digest launch-audit (2026-05-01) ─────────────────────────────
+//
+// Patient-side mirror of the Clinician Digest (#366). Daily/weekly
+// self-summary the patient sees on demand. Honest empty state when
+// there's nothing to summarise yet. NO PHI of OTHER patients renders
+// here — the response is per-actor; the helper functions below only
+// read fields keyed off the actor's own patient_id.
+
+function _pdEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function _pdRangeIso(days) {
+  const now = new Date();
+  const since = new Date(now.getTime() - days * 86400000);
+  return { since: since.toISOString(), until: now.toISOString() };
+}
+
+function _pdDeltaIcon(d) {
+  if (d == null) return '<span style="color:var(--text-muted,#94a3b8)">—</span>';
+  if (d > 0) return `<span style="color:#34d399">▲ ${d.toFixed(1)}</span>`;
+  if (d < 0) return `<span style="color:#fb7185">▼ ${Math.abs(d).toFixed(1)}</span>`;
+  return '<span style="color:var(--text-muted,#94a3b8)">→ 0</span>';
+}
+
+function _pdAxisCard(axis, t) {
+  const cur = t && t.current != null ? t.current.toFixed(1) : '—';
+  const delta = t ? t.delta : null;
+  const label = axis.charAt(0).toUpperCase() + axis.slice(1);
+  return `<div style="border:1px solid var(--border);border-radius:10px;padding:10px;background:rgba(255,255,255,0.03)">
+    <div style="font-size:11px;color:var(--text-muted,#94a3b8);margin-bottom:4px">${_pdEsc(label)}</div>
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:6px">
+      <div style="font-size:18px;font-weight:700;color:var(--text-primary,#f1f5f9)">${_pdEsc(cur)}</div>
+      <div style="font-size:12px">${_pdDeltaIcon(delta)}</div>
+    </div>
+  </div>`;
+}
+
+window._pdRangeChange = async function(days) {
+  await api.postPatientDigestAuditEvent({ event: 'date_range_changed', note: `days=${days}` });
+  window._pdCurrentRange = days;
+  await pgPatientDigest(setTopbar);
+};
+
+window._pdDrillOut = function(section, page) {
+  api.postPatientDigestAuditEvent({ event: 'section_drill_out', note: `section=${section}` });
+  if (page) window._navPatient(page);
+};
+
+window._pdSendEmail = async function() {
+  await api.postPatientDigestAuditEvent({ event: 'email_initiated' });
+  const recipient = window.prompt('Email this digest to (leave blank to use your account email):', '') || '';
+  try {
+    const days = window._pdCurrentRange || 7;
+    const r = _pdRangeIso(days);
+    const res = await api.patientDigestSendEmail({
+      recipient_email: recipient || null,
+      since: r.since, until: r.until, reason: 'patient self-send',
+    });
+    window.alert(`Digest queued for ${res.recipient_email}. Delivery status: ${res.delivery_status} (SMTP wire-up pending; audit row recorded).`);
+  } catch (e) {
+    window.alert('Could not queue digest email: ' + (e && e.message ? e.message : 'unknown error'));
+  }
+};
+
+window._pdShareCaregiver = async function() {
+  await api.postPatientDigestAuditEvent({ event: 'caregiver_share_initiated' });
+  const cgId = window.prompt('Caregiver user id to share with (must be opted-in via Caregiver Access):', '') || '';
+  if (!cgId) return;
+  try {
+    const days = window._pdCurrentRange || 7;
+    const r = _pdRangeIso(days);
+    const res = await api.patientDigestShareCaregiver({
+      caregiver_user_id: cgId,
+      since: r.since, until: r.until, reason: 'patient share',
+    });
+    const msg = res.consent_required
+      ? 'Share queued. Caregiver opt-in via the Patient Care Team consent flow is required before delivery wires up. Audit row recorded.'
+      : `Share queued. Delivery status: ${res.delivery_status}.`;
+    window.alert(msg);
+  } catch (e) {
+    window.alert('Could not share with caregiver: ' + (e && e.message ? e.message : 'unknown error'));
+  }
+};
+
+export async function pgPatientDigest(setTopbarFn) {
+  const _tb = typeof setTopbarFn === 'function' ? setTopbarFn : setTopbar;
+  _tb('My Digest', '<div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-muted,#94a3b8)">Self-summary &middot; No comparison to other patients</div>');
+  const el = document.getElementById('patient-content');
+  if (!el) return;
+  el.innerHTML = `<div style="padding:48px;text-align:center;color:var(--teal)">&#9670; Loading your digest&hellip;</div>`;
+
+  // Mount-time audit ping. Best-effort; never blocks render.
+  api.postPatientDigestAuditEvent({ event: 'view', note: 'pgPatientDigest mount' });
+
+  const days = window._pdCurrentRange || 7;
+  const range = _pdRangeIso(days);
+  const [summary, sections] = await Promise.all([
+    api.patientDigestSummary(range),
+    api.patientDigestSections(range),
+  ]);
+
+  if (!summary) {
+    el.innerHTML = `<div style="padding:48px;max-width:640px;margin:0 auto;text-align:center">
+      <div style="font-size:32px;margin-bottom:8px">&#9676;</div>
+      <h2 style="margin:0 0 8px;font-size:18px;color:var(--text-primary)">Digest unavailable</h2>
+      <p style="color:var(--text-muted);font-size:13px;line-height:1.55">We could not load your digest right now. Please check back later. The page does not show data we cannot verify.</p>
+    </div>`;
+    return;
+  }
+
+  if (summary.is_demo) {
+    api.postPatientDigestAuditEvent({ event: 'demo_banner_shown', using_demo_data: true });
+  }
+
+  const noActivity = (summary.sessions_completed === 0)
+    && (summary.adherence_streak_days === 0)
+    && (summary.symptom_entries === 0)
+    && (summary.pending_messages === 0)
+    && (summary.new_reports === 0)
+    && Object.values(summary.wellness_axes_trends || {}).every(v => v.current == null);
+
+  const trends = summary.wellness_axes_trends || {};
+  const axesHtml = ['mood', 'energy', 'sleep', 'anxiety', 'focus', 'pain']
+    .map(a => _pdAxisCard(a, trends[a])).join('');
+
+  const banner = summary.is_demo
+    ? `<div style="background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.35);border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:12.5px;color:#fbbf24">
+        DEMO mode &mdash; this account is in demo. Exports are DEMO-prefixed and not regulator-submittable.
+      </div>` : '';
+
+  const rangePicker = `<div style="display:flex;gap:8px;margin-bottom:16px">
+    <button onclick="window._pdRangeChange(7)" style="flex:1;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:${days === 7 ? 'rgba(45,212,191,0.15)' : 'transparent'};color:var(--text-primary);font-size:12.5px;cursor:pointer">Last 7 days</button>
+    <button onclick="window._pdRangeChange(30)" style="flex:1;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:${days === 30 ? 'rgba(45,212,191,0.15)' : 'transparent'};color:var(--text-primary);font-size:12.5px;cursor:pointer">Last 30 days</button>
+  </div>`;
+
+  const summaryCard = `<div style="background:rgba(45,212,191,0.06);border:1px solid rgba(45,212,191,0.25);border-radius:14px;padding:18px;margin-bottom:18px">
+    <div style="font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--teal);margin-bottom:10px">This Week</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:14px">
+      <div><div style="font-size:24px;font-weight:700;color:var(--text-primary)">${summary.sessions_completed}</div><div style="font-size:11px;color:var(--text-muted)">Sessions completed</div></div>
+      <div><div style="font-size:24px;font-weight:700;color:var(--text-primary)">${summary.adherence_streak_days}</div><div style="font-size:11px;color:var(--text-muted)">Adherence streak (days)</div></div>
+      <div><div style="font-size:24px;font-weight:700;color:var(--text-primary)">${summary.pending_messages}</div><div style="font-size:11px;color:var(--text-muted)">Pending messages</div></div>
+      <div><div style="font-size:24px;font-weight:700;color:var(--text-primary)">${summary.new_reports}</div><div style="font-size:11px;color:var(--text-muted)">New reports</div></div>
+    </div>
+  </div>`;
+
+  const sectionCards = (sections && sections.sections ? sections.sections : []).map(sec => {
+    const page = (sec.drill_out_url || '').replace(/^\?page=/, '');
+    return `<div style="border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:10px;background:rgba(255,255,255,0.02)">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px">
+        <div style="font-size:14px;font-weight:600;color:var(--text-primary);text-transform:capitalize">${_pdEsc(sec.section)}</div>
+        <div style="font-size:18px;font-weight:700;color:var(--teal)">${sec.count}</div>
+      </div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">${_pdEsc(JSON.stringify(sec.detail))}</div>
+      ${page ? `<button onclick="window._pdDrillOut('${_pdEsc(sec.section)}','${_pdEsc(page)}')" style="background:transparent;border:1px solid var(--border);color:var(--teal);border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer">Open ${_pdEsc(sec.section)} &rarr;</button>` : ''}
+    </div>`;
+  }).join('');
+
+  const wellnessSection = `<div style="margin-top:20px">
+    <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:10px">Wellness trend (vs. previous ${days} days)</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px">${axesHtml}</div>
+  </div>`;
+
+  const ctas = `<div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap">
+    <button onclick="window._pdSendEmail()" style="padding:9px 14px;border-radius:8px;border:1px solid rgba(45,212,191,0.45);background:rgba(45,212,191,0.1);color:var(--teal);font-size:12.5px;cursor:pointer">&#9993; Email me this digest</button>
+    <button onclick="window._pdShareCaregiver()" style="padding:9px 14px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-primary);font-size:12.5px;cursor:pointer">&#8599; Share with caregiver</button>
+  </div>
+  <div style="margin-top:8px;font-size:11px;color:var(--text-muted);line-height:1.5">
+    Email and caregiver-share record an audit entry. Actual delivery requires the email service to be wired up; until then delivery_status='queued' means the audit entry is recorded and the recipient is captured.
+  </div>`;
+
+  const emptyState = `<div style="border:1px dashed var(--border);border-radius:12px;padding:24px;text-align:center;color:var(--text-muted);font-size:13px;line-height:1.55">
+    No activity to summarise yet for this period. Log a session, complete a check-in, or message your care team &mdash; and your digest will populate here.
+  </div>`;
+
+  el.innerHTML = `<div style="max-width:760px;margin:0 auto;padding:20px 16px">
+    ${banner}
+    ${rangePicker}
+    ${summaryCard}
+    ${noActivity ? emptyState : `
+      <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Sections</div>
+      ${sectionCards}
+      ${wellnessSection}
+    `}
+    ${ctas}
+  </div>`;
 }

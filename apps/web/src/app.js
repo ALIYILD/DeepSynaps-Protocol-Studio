@@ -1157,6 +1157,8 @@ async function renderPatientPage() {
     case 'pt-tickets':           await m.pgPatientTickets();                    break;
     case 'pt-billing':           await m.pgPatientBilling();                    break;
     case 'pt-academy':           await m.pgPatientEducation();                  break;
+    case 'pt-digest':            await m.pgPatientDigest(m.setTopbar);          break;
+    case 'patient-digest':       await m.pgPatientDigest(m.setTopbar);          break;
     default:                     await m.pgPatientDashboard(currentUser);
   }
 }

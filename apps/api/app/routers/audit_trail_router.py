@@ -349,6 +349,15 @@ KNOWN_SURFACES = {
     # dispatch order, patients see WHEN they will reach a clinician and
     # HOW to escalate without ever seeing the clinician's identity.
     "patient_oncall_visibility",
+    # Patient Digest launch-audit (2026-05-01). Patient-side mirror of the
+    # Clinician Digest (#366). Daily/weekly self-summary the patient sees
+    # on demand: sessions completed, adherence streak, wellness trends,
+    # pending messages, recent reports. Scoped to actor.patient_id; NO PHI
+    # of OTHER patients leaks. Events: view, summary_viewed,
+    # sections_viewed, date_range_changed, section_drill_out,
+    # email_initiated, email_sent, caregiver_share_initiated,
+    # caregiver_shared, export, demo_banner_shown.
+    "patient_digest",
 }
 
 
