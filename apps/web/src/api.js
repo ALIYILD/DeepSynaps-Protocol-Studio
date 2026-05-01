@@ -2057,7 +2057,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }),
-  // ── Caregiver Delivery Acknowledgement launch-audit (2026-05-01) ─────────
+  // Caregiver Delivery Acknowledgement launch-audit (2026-05-01).
   // Closes the bidirectional confirmation loop opened by the SendGrid
   // Adapter (#381) + Delivery Failure Flag (#382). The "I received it"
   // CTA on the caregiver portal POSTs to /acknowledge-delivery which
