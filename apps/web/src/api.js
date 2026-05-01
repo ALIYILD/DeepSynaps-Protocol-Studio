@@ -2057,6 +2057,21 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }),
+  // Caregiver Delivery Acknowledgement launch-audit (2026-05-01).
+  // Closes the bidirectional confirmation loop opened by the SendGrid
+  // Adapter (#381) + Delivery Failure Flag (#382). The "I received it"
+  // CTA on the caregiver portal POSTs to /acknowledge-delivery which
+  // emits caregiver_portal.delivery_acknowledged keyed
+  // target_id={grant_id}. Idempotent within 24h. The patient-side
+  // caregiver-delivery-summary joins the most recent ack into the row
+  // as `last_acknowledged_at`.
+  caregiverPortalAcknowledgeDelivery: (grantId) =>
+    apiFetch(`/api/v1/caregiver-consent/grants/${encodeURIComponent(grantId)}/acknowledge-delivery`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  caregiverPortalLastAcknowledgement: (grantId) =>
+    apiFetch(`/api/v1/caregiver-consent/grants/${encodeURIComponent(grantId)}/last-acknowledgement`).catch(() => null),
   postCaregiverPortalAuditEvent: (data) =>
     apiFetch('/api/v1/caregiver-consent/audit-events/portal', {
       method: 'POST',
