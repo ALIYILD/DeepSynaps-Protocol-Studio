@@ -29,6 +29,22 @@ import { EEGEventEditor, EEGMeasurementTool, EEGExporter, EEGUndoManager } from 
 import { EEGMontageEditor, EEGChannelManager, EEGRecordingInfo } from './eeg-montage-editor.js';
 import { EEGCustomMontageBuilder, EEG_MONTAGE_BUILDER_CSS } from './eeg-montage-builder.js';
 import { EEGFilterPreview } from './eeg-filter-preview.js';
+import { EEGDecompositionStudio, EEG_DS_CSS } from './eeg-decomposition-studio.js';
+import { EEGAutoScanModal, EEG_ASM_CSS } from './eeg-auto-scan-modal.js';
+import { EEGSpikeList, EEG_SL_CSS } from './eeg-spike-list.js';
+
+const _PHASE4_REASONS = [
+  { key: 'blink',         label: 'Eye blink' },
+  { key: 'lateral_eye',   label: 'Lateral eye' },
+  { key: 'sweat',         label: 'Sweat' },
+  { key: 'movement',      label: 'Movement' },
+  { key: 'emg',           label: 'Muscle (EMG)' },
+  { key: 'ecg',           label: 'Heart (ECG)' },
+  { key: 'electrode_pop', label: 'Electrode pop' },
+  { key: 'line_noise',    label: 'Line noise' },
+  { key: 'flatline',      label: 'Flatline' },
+  { key: 'other',         label: 'Other' },
+];
 
 function esc(v) {
   if (v == null) return '';
@@ -364,10 +380,17 @@ export async function renderRawDataTab(tabEl, analysisId, patientId) {
   };
 
   renderer.onSegmentSelect = function (startSec, endSec) {
+    // Phase 4 \u2014 wrap the manual mark with a reason picker (10 reasons drawn
+    // from the Phase 1 reason vocabulary). Picker resolves to null when the
+    // clinician hits "Skip (mark unspecified)" \u2014 the segment is still saved
+    // but with reason=null so legacy behavior is preserved.
     var seg = {
       start_sec: Math.round(startSec * 100) / 100,
       end_sec: Math.round(endSec * 100) / 100,
       description: 'BAD_user',
+      reason: null,
+      source: 'user',
+      confidence: null,
     };
     state.badSegments.push(seg);
     state.hasUnsavedChanges = true;
@@ -394,6 +417,18 @@ export async function renderRawDataTab(tabEl, analysisId, patientId) {
     _updateSaveIndicator(state);
     _updateUndoButtons(state);
     showToast('Segment marked: ' + startSec.toFixed(1) + 's \u2013 ' + endSec.toFixed(1) + 's', 'info');
+    // Asynchronously prompt for the reason; mutating ``seg`` in-place updates
+    // the same object already in state.badSegments and the undo manager.
+    try {
+      _promptBadSegmentReason().then(function (r) {
+        if (r) {
+          seg.reason = r;
+          state.hasUnsavedChanges = true;
+          _updateSegmentsList(state);
+          _updateSaveIndicator(state);
+        }
+      });
+    } catch (_e) { /* picker is best-effort */ }
   };
 
   renderer.onTimeNavigate = function (newTStart) {
@@ -2000,25 +2035,27 @@ function _wireV2Tools(analysisId, state, renderer, spectralPanel) {
     showToast('Band preset noted (' + bandPresetSel.value + ') — wiring lands in Phase 3', 'info');
   };
 
-  // Artifacts group — placeholders for Phase 4 (alert) plus Decomposition
-  // which toggles the existing ICA section.
-  function _phase4Placeholder(label) {
-    return function () {
-      try { window.alert(label + ' — Coming in Phase 4'); }
-      catch (_) { showToast(label + ' — Coming in Phase 4', 'info'); }
-    };
-  }
+  // Artifacts group — Phase 4 wiring: real auto-scan, templates dropdown,
+  // decomposition studio, spike list. All four go through the new endpoints
+  // and write CleaningDecision audit rows server-side.
+  _installPhase4Css();
+
   var autoScanBtn = document.getElementById('eeg-artifacts-autoscan-btn');
-  if (autoScanBtn) autoScanBtn.onclick = _phase4Placeholder('Auto Scan');
+  if (autoScanBtn) autoScanBtn.onclick = function () {
+    _runAutoScan(analysisId, state, renderer, spectralPanel);
+  };
   var templatesBtn = document.getElementById('eeg-artifacts-templates-btn');
-  if (templatesBtn) templatesBtn.onclick = _phase4Placeholder('Templates');
+  if (templatesBtn) templatesBtn.onclick = function (ev) {
+    if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation();
+    _toggleTemplatesMenu(templatesBtn, analysisId, state, renderer, spectralPanel);
+  };
   var spikesBtn = document.getElementById('eeg-artifacts-spikes-btn');
-  if (spikesBtn) spikesBtn.onclick = _phase4Placeholder('Spike List');
-  // Decomposition simply forwards to the existing ICA toggle in the sidebar.
+  if (spikesBtn) spikesBtn.onclick = function () {
+    _openSpikeList(analysisId, state, renderer);
+  };
   var decompBtn = document.getElementById('eeg-artifacts-decomp-btn');
   if (decompBtn) decompBtn.onclick = function () {
-    var icaToggle = document.getElementById('eeg-ica-toggle');
-    if (icaToggle && typeof icaToggle.click === 'function') icaToggle.click();
+    _openDecompositionStudio(analysisId, state, renderer);
   };
 
   // Find / Jump — prompts for time in seconds, navigates the window there.
@@ -2723,6 +2760,293 @@ function _demoFilterPreview(fp) {
     raw.push(rawRow); filtered.push(filtRow);
   }
   return { raw: raw, filtered: filtered, freq_response: { hz: hz, magnitude_db: db } };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 4 — Artifact tooling helpers (auto-scan, templates, decomposition,
+// spike list, manual reason picker)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function _installPhase4Css() {
+  if (typeof document === 'undefined' || !document.getElementById) return;
+  if (document.getElementById('eeg-phase4-css')) return;
+  var styleEl = document.createElement('style');
+  styleEl.id = 'eeg-phase4-css';
+  styleEl.textContent = ''
+    + EEG_DS_CSS + '\n' + EEG_ASM_CSS + '\n' + EEG_SL_CSS + '\n'
+    + '.eeg-tpl-menu{position:absolute;background:#0f172a;border:1px solid #334155;border-radius:6px;min-width:180px;padding:4px 0;z-index:1100;box-shadow:0 4px 16px rgba(2,6,23,0.5);}\n'
+    + '.eeg-tpl-menu__item{display:block;width:100%;text-align:left;background:transparent;color:#e2e8f0;border:none;padding:6px 12px;cursor:pointer;font-size:13px;}\n'
+    + '.eeg-tpl-menu__item:hover{background:#1e293b;}\n'
+    + '.eeg-rsn-overlay{position:fixed;inset:0;z-index:1100;background:rgba(2,6,23,0.4);display:flex;align-items:center;justify-content:center;}\n'
+    + '.eeg-rsn{background:#0d1b2a;border:1px solid #334155;border-radius:8px;padding:14px 16px;color:#e2e8f0;font-family:Inter,system-ui,sans-serif;width:min(360px,90vw);}\n'
+    + '.eeg-rsn__t{font-weight:600;margin-bottom:8px;}\n'
+    + '.eeg-rsn__opts{display:grid;grid-template-columns:1fr 1fr;gap:6px;}\n'
+    + '.eeg-rsn__opt{background:#1e293b;border:1px solid #334155;color:#e2e8f0;padding:6px 10px;border-radius:5px;cursor:pointer;font-size:12px;text-align:left;}\n'
+    + '.eeg-rsn__opt:hover{background:#334155;}\n'
+    + '.eeg-rsn__cancel{margin-top:10px;background:transparent;color:#94a3b8;border:none;cursor:pointer;font-size:12px;}\n';
+  document.head && document.head.appendChild(styleEl);
+}
+
+/** Ensure a single overlay container exists for modals. */
+function _getPhase4Overlay() {
+  if (typeof document === 'undefined') return null;
+  var el = document.getElementById('eeg-phase4-overlay');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'eeg-phase4-overlay';
+    el.style.position = 'fixed';
+    el.style.inset = '0';
+    el.style.zIndex = '1000';
+    el.style.pointerEvents = 'none';
+    el.innerHTML = '';
+    if (document.body && document.body.appendChild) document.body.appendChild(el);
+  }
+  return el;
+}
+
+function _ensureOverlayChild(id) {
+  var ov = _getPhase4Overlay();
+  if (!ov) return null;
+  var child = document.getElementById(id);
+  if (!child) {
+    child = document.createElement('div');
+    child.id = id;
+    child.style.pointerEvents = 'auto';
+    ov.appendChild(child);
+  }
+  return child;
+}
+
+async function _runAutoScan(analysisId, state, renderer, spectralPanel) {
+  if (!analysisId) return;
+  showToast('Running auto-scan…', 'info');
+  var resp;
+  try {
+    resp = await api.postQEEGAutoScan(analysisId);
+  } catch (err) {
+    showToast('Auto-scan failed: ' + (err && err.message ? err.message : 'unknown error'), 'error');
+    return;
+  }
+  if (!resp || !resp.run_id) {
+    showToast('Auto-scan returned no proposal', 'warn');
+    return;
+  }
+  if (state && state.ai) state.ai.lastAutoCleanRunId = resp.run_id;
+  var host = _ensureOverlayChild('eeg-asm-host');
+  if (!host) return;
+  var modal = new EEGAutoScanModal(host, {
+    onCommit: async function (decision) {
+      try {
+        await api.decideQEEGAutoScan(analysisId, resp.run_id, {
+          accepted_items: decision.accepted_items,
+          rejected_items: decision.rejected_items,
+        });
+        showToast('Auto-scan decisions committed.', 'success');
+        // Pull fresh cleaning config so badChannels/badSegments reflect server state.
+        try {
+          var cfg = await api.getQEEGCleaningConfig(analysisId);
+          if (cfg && cfg.config) {
+            if (state && state.processing) {
+              state.processing.badChannels = cfg.config.bad_channels || state.processing.badChannels;
+              state.processing.badSegments = cfg.config.bad_segments || state.processing.badSegments;
+            }
+            if (renderer && renderer.setBadSegments) renderer.setBadSegments(state.processing.badSegments);
+            if (renderer && renderer.setChannelStates) renderer.setChannelStates(state.processing.badChannels);
+          }
+        } catch (_e) { /* non-fatal */ }
+      } catch (err) {
+        showToast('Decide failed: ' + (err && err.message ? err.message : 'unknown error'), 'error');
+      }
+    },
+    onCancel: function () { showToast('Auto-scan dismissed.', 'info'); },
+  });
+  modal.show(resp.proposal || {}, resp.run_id);
+}
+
+function _toggleTemplatesMenu(anchorBtn, analysisId, state, renderer, spectralPanel) {
+  if (!analysisId || typeof document === 'undefined') return;
+  var existing = document.getElementById('eeg-tpl-menu');
+  if (existing && existing.parentNode) {
+    existing.parentNode.removeChild(existing);
+    return;
+  }
+  var menu = document.createElement('div');
+  menu.id = 'eeg-tpl-menu';
+  menu.className = 'eeg-tpl-menu';
+  var rect = anchorBtn && anchorBtn.getBoundingClientRect ? anchorBtn.getBoundingClientRect() : { left: 100, bottom: 100 };
+  menu.style.left = (rect.left || 0) + 'px';
+  menu.style.top = ((rect.bottom || 0) + 4) + 'px';
+  var TEMPLATES = [
+    { key: 'eye_blink',     label: 'Eye blink' },
+    { key: 'lateral_eye',   label: 'Lateral eye' },
+    { key: 'emg',           label: 'Muscle (EMG)' },
+    { key: 'ecg',           label: 'Heart (ECG)' },
+    { key: 'electrode_pop', label: 'Electrode pop' },
+  ];
+  TEMPLATES.forEach(function (t) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'eeg-tpl-menu__item';
+    btn.textContent = t.label;
+    btn.onclick = async function () {
+      if (menu.parentNode) menu.parentNode.removeChild(menu);
+      try {
+        var resp = await api.applyQEEGTemplate(analysisId, t.key);
+        var n = (resp && resp.components_excluded) ? resp.components_excluded.length : 0;
+        showToast('Template "' + t.label + '" excluded ' + n + ' components.', n > 0 ? 'success' : 'info');
+        // Refresh ICA panel state if loaded.
+        if (state && state.processing && resp && Array.isArray(resp.components_excluded)) {
+          var cur = state.processing.excludedICA || [];
+          resp.components_excluded.forEach(function (i) {
+            if (cur.indexOf(i) < 0) cur.push(i);
+          });
+          state.processing.excludedICA = cur;
+        }
+      } catch (err) {
+        showToast('Template apply failed: ' + (err && err.message ? err.message : 'unknown error'), 'error');
+      }
+    };
+    menu.appendChild(btn);
+  });
+  if (document.body && document.body.appendChild) document.body.appendChild(menu);
+  // Click-outside to dismiss.
+  setTimeout(function () {
+    function _close(ev) {
+      if (menu.contains && menu.contains(ev.target)) return;
+      if (menu.parentNode) menu.parentNode.removeChild(menu);
+      document.removeEventListener('click', _close, true);
+    }
+    document.addEventListener('click', _close, true);
+  }, 0);
+}
+
+async function _openSpikeList(analysisId, state, renderer) {
+  if (!analysisId) return;
+  var host = _ensureOverlayChild('eeg-sl-host');
+  if (!host) return;
+  host.style.position = 'fixed';
+  host.style.right = '18px';
+  host.style.top = '90px';
+  var list = new EEGSpikeList(host, {
+    onJump: function (tSec, channel) {
+      if (state) state.tStart = Math.max(0, tSec - (state.windowSec || 10) / 2);
+      // Reuse the existing time-navigation hook used by Find/Jump.
+      if (renderer && typeof renderer.onTimeNavigate === 'function') {
+        try { renderer.onTimeNavigate(state.tStart); } catch (_e) { /* ignore */ }
+      }
+      showToast('Jumped to ' + tSec.toFixed(1) + 's' + (channel ? ' on ' + channel : ''), 'info');
+    },
+  });
+  list.setEvents([], { detectorAvailable: false });
+  try {
+    var resp = await api.getQEEGSpikeEvents(analysisId);
+    if (resp && Array.isArray(resp.events)) {
+      list.setEvents(resp.events, { detectorAvailable: !!resp.detector_available });
+    } else {
+      list.setEvents([], { detectorAvailable: false });
+    }
+  } catch (err) {
+    list.setEvents([], { detectorAvailable: false });
+    showToast('Spike events fetch failed: ' + (err && err.message ? err.message : 'unknown'), 'warn');
+  }
+}
+
+async function _openDecompositionStudio(analysisId, state, renderer) {
+  if (!analysisId) return;
+  var host = _ensureOverlayChild('eeg-ds-host');
+  if (!host) return;
+  host.style.position = 'fixed';
+  host.style.left = '50%';
+  host.style.top = '50%';
+  host.style.transform = 'translate(-50%, -50%)';
+  host.style.zIndex = '1050';
+  host.style.maxWidth = '92vw';
+  host.style.width = '900px';
+  var studio = new EEGDecompositionStudio(host, {
+    onExclude: function (idx) {
+      if (state && state.processing) {
+        var cur = state.processing.excludedICA || [];
+        if (cur.indexOf(idx) < 0) cur.push(idx);
+        state.processing.excludedICA = cur;
+        state.processing.hasUnsavedChanges = true;
+      }
+    },
+    onInclude: function (idx) {
+      if (state && state.processing) {
+        var cur = state.processing.excludedICA || [];
+        var i = cur.indexOf(idx);
+        if (i >= 0) cur.splice(i, 1);
+        state.processing.excludedICA = cur;
+        state.processing.hasUnsavedChanges = true;
+      }
+    },
+    onApplyTemplate: async function (template) {
+      try {
+        var resp = await api.applyQEEGTemplate(analysisId, template);
+        var n = (resp && resp.components_excluded) ? resp.components_excluded.length : 0;
+        showToast('Template "' + template + '" excluded ' + n + ' components.', n > 0 ? 'success' : 'info');
+        // Refresh studio with updated ICA payload.
+        try {
+          var ica = await api.getQEEGICAComponents(analysisId);
+          studio.setComponents(ica || {});
+        } catch (_e) { /* ignore */ }
+      } catch (err) {
+        showToast('Template apply failed: ' + (err && err.message ? err.message : 'unknown'), 'error');
+      }
+    },
+    onClose: function () { host.innerHTML = ''; },
+  });
+  // Show a loading state while ICA loads.
+  host.innerHTML = '<div style="background:#0d1b2a;color:#94a3b8;padding:18px;border-radius:8px;">Loading ICA components…</div>';
+  try {
+    var ica = await api.getQEEGICAComponents(analysisId);
+    studio.setComponents(ica || { components: [] });
+  } catch (err) {
+    host.innerHTML = '<div style="background:#0d1b2a;color:#fca5a5;padding:18px;border-radius:8px;">Failed to load ICA components: '
+      + (err && err.message ? err.message : 'unknown error') + '</div>';
+  }
+}
+
+/**
+ * Show an inline reason picker after a manual drag-to-mark. Returns a Promise
+ * that resolves with the selected reason key (one of the 10 Phase 1 reasons)
+ * or `null` if cancelled.
+ */
+function _promptBadSegmentReason() {
+  return new Promise(function (resolve) {
+    if (typeof document === 'undefined' || !document.createElement) {
+      resolve(null);
+      return;
+    }
+    _installPhase4Css();
+    var overlay = document.createElement('div');
+    overlay.className = 'eeg-rsn-overlay';
+    var inner = document.createElement('div');
+    inner.className = 'eeg-rsn';
+    inner.innerHTML = '<div class="eeg-rsn__t">Why is this segment bad?</div>'
+      + '<div class="eeg-rsn__opts">'
+      + _PHASE4_REASONS.map(function (r) {
+        return '<button class="eeg-rsn__opt" type="button" data-r="' + r.key + '">' + r.label + '</button>';
+      }).join('')
+      + '</div>'
+      + '<button class="eeg-rsn__cancel" type="button" id="eeg-rsn-cancel">Skip (mark unspecified)</button>';
+    overlay.appendChild(inner);
+    function _close(reason) {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      resolve(reason);
+    }
+    if (document.body) document.body.appendChild(overlay);
+    var opts = overlay.querySelectorAll && overlay.querySelectorAll('.eeg-rsn__opt');
+    if (opts && opts.length) {
+      for (var i = 0; i < opts.length; i++) {
+        (function (el) {
+          el.onclick = function () { _close(el.dataset && el.dataset.r); };
+        })(opts[i]);
+      }
+    }
+    var cancelBtn = overlay.querySelector && overlay.querySelector('#eeg-rsn-cancel');
+    if (cancelBtn) cancelBtn.onclick = function () { _close(null); };
+  });
 }
 
 // Hydrate state.display.savedMontages + customBands once at module init time.

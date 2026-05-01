@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Optional
+from datetime import datetime, timezone
+from typing import Any, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from pydantic import BaseModel, Field
@@ -18,7 +19,11 @@ from sqlalchemy.orm import Session
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.persistence.models import QEEGAnalysis
+from app.persistence.models import (
+    AutoCleanRun,
+    CleaningDecision,
+    QEEGAnalysis,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -541,4 +546,609 @@ def reprocess_with_overrides(
         analysis_id=analysis_id,
         status="processing",
         message="Re-processing started with your cleaning preferences. Poll the analysis status endpoint for progress.",
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 4 — Artifact tooling endpoints
+#
+# All four mutate state (create AutoCleanRun rows + CleaningDecision audit
+# rows). Decision-support only: nothing here mutates the raw EDF bytes; the
+# clinician's accept/reject choices flow through CleaningConfigInput → the
+# existing reprocess pipeline.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _audit(db, *, analysis_id, action_type, actor, new_value=None, source="ai"):
+    """Mirror-write audit shim.
+
+    The Phase 4 endpoints write to two places: CleaningDecision (this branch's
+    canonical audit table from migration 047) and a QeegCleaningAuditEvent
+    table from a sibling overnight workbench branch. That sibling table is not
+    on this branch, so the mirror is a no-op here. CleaningDecision is the
+    load-bearing audit row; QeegCleaningAuditEvent is the surface the older
+    cleaning-log page reads from. When the branches converge in main, replace
+    this shim with the real `_audit` helper from the workbench module.
+    """
+    # Intentional no-op — see docstring.
+    return None
+
+
+_AUTO_SCAN_REASONS = {
+    "flatline",
+    "high_kurtosis",
+    "line_noise",
+    "amp_threshold",
+    "gradient",
+}
+
+_TEMPLATE_LABEL_MAP: dict[str, set[str]] = {
+    # ICLabel uses a 7-class taxonomy: 'brain', 'muscle', 'eye', 'heart',
+    # 'line_noise', 'channel_noise', 'other'. We accept a few alternate
+    # spellings here so the UI can stay friendly.
+    "eye_blink": {"eye", "blink", "eye_blink"},
+    "lateral_eye": {"eye", "lateral_eye"},
+    "emg": {"muscle", "emg"},
+    "ecg": {"heart", "ecg", "ekg"},
+    "electrode_pop": {"channel_noise", "electrode_pop", "channel-noise"},
+}
+
+_TEMPLATE_CONFIDENCE_THRESHOLD = 0.7
+
+
+class AutoScanProposalChannel(BaseModel):
+    channel: str
+    reason: str
+    metric: dict[str, Any] = Field(default_factory=dict)
+    confidence: float = 0.0
+
+
+class AutoScanProposalSegment(BaseModel):
+    start_sec: float
+    end_sec: float
+    reason: str
+    metric: dict[str, Any] = Field(default_factory=dict)
+    confidence: float = 0.0
+
+
+class AutoScanProposalSummary(BaseModel):
+    n_bad_channels: int = 0
+    n_bad_segments: int = 0
+    total_excluded_sec: float = 0.0
+    autoreject_used: bool = False
+    scanner_version: str = "1.0"
+
+
+class AutoScanProposal(BaseModel):
+    bad_channels: list[AutoScanProposalChannel] = Field(default_factory=list)
+    bad_segments: list[AutoScanProposalSegment] = Field(default_factory=list)
+    summary: AutoScanProposalSummary = Field(default_factory=AutoScanProposalSummary)
+
+
+class AutoScanResponse(BaseModel):
+    analysis_id: str
+    run_id: str
+    proposal: AutoScanProposal
+    notice: str = (
+        "Decision-support only. Threshold-based auto-scan; clinician review "
+        "required before any cleaning is applied."
+    )
+
+
+class AutoScanDecideRequest(BaseModel):
+    accepted_items: dict[str, list[dict[str, Any]]] = Field(
+        default_factory=lambda: {"bad_channels": [], "bad_segments": []},
+    )
+    rejected_items: dict[str, list[dict[str, Any]]] = Field(
+        default_factory=lambda: {"bad_channels": [], "bad_segments": []},
+    )
+
+
+class AutoScanDecideResponse(BaseModel):
+    analysis_id: str
+    run_id: str
+    committed_at: str
+    decisions_logged: int = 0
+    accepted_counts: dict[str, int] = Field(default_factory=dict)
+    rejected_counts: dict[str, int] = Field(default_factory=dict)
+
+
+class SpikeEvent(BaseModel):
+    t_sec: float
+    channel: Optional[str] = None
+    peak_uv: Optional[float] = None
+    classification: Optional[str] = None
+    confidence: Optional[float] = None
+
+
+class SpikeEventsResponse(BaseModel):
+    analysis_id: str
+    events: list[SpikeEvent] = Field(default_factory=list)
+    detector_available: bool = False
+    notice: str = (
+        "Decision-support only. Empty list is a valid clinical signal "
+        "(no spikes detected)."
+    )
+
+
+class ApplyTemplateRequest(BaseModel):
+    template: str = Field(min_length=1, max_length=40)
+
+
+class ApplyTemplateResponse(BaseModel):
+    analysis_id: str
+    template: str
+    components_excluded: list[int] = Field(default_factory=list)
+    components_examined: int = 0
+    decisions_logged: int = 0
+    notice: str = (
+        "AI-applied template. Clinician review still required before "
+        "exporting or interpreting cleaned data."
+    )
+
+
+def _merge_into_cleaning_config(
+    analysis: QEEGAnalysis,
+    *,
+    accepted_bad_channels: list[dict[str, Any]],
+    accepted_bad_segments: list[dict[str, Any]],
+    auto_clean_run_id: Optional[str] = None,
+    excluded_ica_components: Optional[list[int]] = None,
+) -> dict[str, Any]:
+    """Merge accepted scan items into the existing cleaning_config_json.
+
+    Existing entries are preserved; new items are appended (de-duplicated by
+    channel name / start-end pair / IC index). Returns the merged config
+    dict for callers that want to inspect it.
+    """
+    cfg: dict[str, Any]
+    try:
+        cfg = json.loads(analysis.cleaning_config_json) if analysis.cleaning_config_json else {}
+        if not isinstance(cfg, dict):
+            cfg = {}
+    except (TypeError, ValueError):
+        cfg = {}
+
+    cfg.setdefault("bad_channels", [])
+    cfg.setdefault("bad_segments", [])
+    cfg.setdefault("excluded_ica_components", [])
+    cfg.setdefault("included_ica_components", [])
+    cfg.setdefault("bandpass_low", 1.0)
+    cfg.setdefault("bandpass_high", 45.0)
+    cfg.setdefault("notch_hz", 50.0)
+    cfg.setdefault("resample_hz", 250.0)
+
+    existing_channels = {c for c in cfg["bad_channels"] if isinstance(c, str)}
+    for item in accepted_bad_channels:
+        ch = item.get("channel")
+        if not ch or ch in existing_channels:
+            continue
+        cfg["bad_channels"].append(ch)
+        existing_channels.add(ch)
+
+    existing_seg_keys = {
+        (round(float(s.get("start_sec", 0.0)), 2), round(float(s.get("end_sec", 0.0)), 2))
+        for s in cfg["bad_segments"]
+        if isinstance(s, dict) and "start_sec" in s
+    }
+    for item in accepted_bad_segments:
+        try:
+            start = round(float(item.get("start_sec", 0.0)), 2)
+            end = round(float(item.get("end_sec", 0.0)), 2)
+        except (TypeError, ValueError):
+            continue
+        key = (start, end)
+        if key in existing_seg_keys:
+            continue
+        cfg["bad_segments"].append(
+            {
+                "start_sec": start,
+                "end_sec": end,
+                "description": "BAD_auto_scan",
+                "reason": item.get("reason"),
+                "source": "auto_scan",
+                "confidence": item.get("confidence"),
+            }
+        )
+        existing_seg_keys.add(key)
+
+    if excluded_ica_components:
+        existing_ica = set(int(x) for x in cfg["excluded_ica_components"] if isinstance(x, int))
+        for idx in excluded_ica_components:
+            try:
+                ii = int(idx)
+            except (TypeError, ValueError):
+                continue
+            if ii not in existing_ica:
+                cfg["excluded_ica_components"].append(ii)
+                existing_ica.add(ii)
+
+    if auto_clean_run_id:
+        cfg["auto_clean_run_id"] = auto_clean_run_id
+
+    cfg["saved_at"] = datetime.now(timezone.utc).isoformat()
+    cfg["version"] = cfg.get("version", 1)
+    analysis.cleaning_config_json = json.dumps(cfg)
+    return cfg
+
+
+@router.post("/{analysis_id}/auto-scan", response_model=AutoScanResponse)
+def post_auto_scan(
+    analysis_id: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> AutoScanResponse:
+    """Run threshold-based auto-scan and persist proposal as ``AutoCleanRun``.
+
+    Returns ``run_id`` + the structured proposal. The clinician then calls
+    :func:`post_auto_scan_decide` with their accept/reject selections to
+    commit. Until they do, nothing flows into ``cleaning_config_json``.
+    """
+    require_minimum_role(actor, "clinician")
+    _load_analysis(analysis_id, db)
+    _require_mne()
+
+    from app.services.auto_artifact_scan import scan_for_artifacts
+
+    result = scan_for_artifacts(analysis_id, db)
+
+    run = AutoCleanRun(
+        analysis_id=analysis_id,
+        proposal_json=json.dumps(result),
+        created_by=getattr(actor, "actor_id", None),
+    )
+    db.add(run)
+    db.flush()
+
+    # Audit row recording that the AI proposed a scan. No accept/reject yet.
+    db.add(
+        CleaningDecision(
+            analysis_id=analysis_id,
+            auto_clean_run_id=run.id,
+            actor="ai",
+            action="auto_scan_proposed",
+            target=f"summary:{result['summary'].get('n_bad_channels', 0)}c/"
+                   f"{result['summary'].get('n_bad_segments', 0)}s",
+            payload_json=json.dumps(result["summary"]),
+            accepted_by_user=None,
+            confidence=None,
+        )
+    )
+    _audit(
+        db,
+        analysis_id=analysis_id,
+        action_type="auto_scan:generated",
+        actor=actor,
+        new_value={
+            "run_id": run.id,
+            "summary": result["summary"],
+        },
+        source="ai",
+    )
+    db.commit()
+    db.refresh(run)
+
+    return AutoScanResponse(
+        analysis_id=analysis_id,
+        run_id=run.id,
+        proposal=AutoScanProposal(**result),
+    )
+
+
+@router.post(
+    "/{analysis_id}/auto-scan/{run_id}/decide",
+    response_model=AutoScanDecideResponse,
+)
+def post_auto_scan_decide(
+    analysis_id: str,
+    run_id: str,
+    body: AutoScanDecideRequest,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> AutoScanDecideResponse:
+    """Commit clinician accept/reject decisions on an auto-scan proposal.
+
+    Writes one ``CleaningDecision`` audit row per accepted **and** rejected
+    item, updates the ``AutoCleanRun`` row's ``accepted_items_json`` /
+    ``rejected_items_json`` columns, and merges the *accepted* items into
+    the analysis' ``cleaning_config_json`` so the next reprocess picks them
+    up.
+    """
+    require_minimum_role(actor, "clinician")
+    analysis = _load_analysis(analysis_id, db)
+
+    run = (
+        db.query(AutoCleanRun)
+        .filter(AutoCleanRun.id == run_id, AutoCleanRun.analysis_id == analysis_id)
+        .first()
+    )
+    if run is None:
+        raise ApiServiceError(
+            code="not_found",
+            message="Auto-clean run not found.",
+            status_code=404,
+        )
+
+    accepted = body.accepted_items or {"bad_channels": [], "bad_segments": []}
+    rejected = body.rejected_items or {"bad_channels": [], "bad_segments": []}
+    accepted_channels = list(accepted.get("bad_channels") or [])
+    accepted_segments = list(accepted.get("bad_segments") or [])
+    rejected_channels = list(rejected.get("bad_channels") or [])
+    rejected_segments = list(rejected.get("bad_segments") or [])
+
+    decisions_logged = 0
+    for item in accepted_channels:
+        db.add(
+            CleaningDecision(
+                analysis_id=analysis_id,
+                auto_clean_run_id=run.id,
+                actor="user",
+                action="accept_ai_suggestion",
+                target=f"bad_channel:{item.get('channel', '?')}",
+                payload_json=json.dumps(item),
+                accepted_by_user=True,
+                confidence=item.get("confidence"),
+            )
+        )
+        decisions_logged += 1
+    for item in accepted_segments:
+        db.add(
+            CleaningDecision(
+                analysis_id=analysis_id,
+                auto_clean_run_id=run.id,
+                actor="user",
+                action="accept_ai_suggestion",
+                target=(
+                    f"bad_segment:{item.get('start_sec', 0)}-"
+                    f"{item.get('end_sec', 0)}"
+                ),
+                payload_json=json.dumps(item),
+                accepted_by_user=True,
+                confidence=item.get("confidence"),
+            )
+        )
+        decisions_logged += 1
+    for item in rejected_channels:
+        db.add(
+            CleaningDecision(
+                analysis_id=analysis_id,
+                auto_clean_run_id=run.id,
+                actor="user",
+                action="reject_ai_suggestion",
+                target=f"bad_channel:{item.get('channel', '?')}",
+                payload_json=json.dumps(item),
+                accepted_by_user=False,
+                confidence=item.get("confidence"),
+            )
+        )
+        decisions_logged += 1
+    for item in rejected_segments:
+        db.add(
+            CleaningDecision(
+                analysis_id=analysis_id,
+                auto_clean_run_id=run.id,
+                actor="user",
+                action="reject_ai_suggestion",
+                target=(
+                    f"bad_segment:{item.get('start_sec', 0)}-"
+                    f"{item.get('end_sec', 0)}"
+                ),
+                payload_json=json.dumps(item),
+                accepted_by_user=False,
+                confidence=item.get("confidence"),
+            )
+        )
+        decisions_logged += 1
+
+    run.accepted_items_json = json.dumps(
+        {"bad_channels": accepted_channels, "bad_segments": accepted_segments}
+    )
+    run.rejected_items_json = json.dumps(
+        {"bad_channels": rejected_channels, "bad_segments": rejected_segments}
+    )
+
+    _merge_into_cleaning_config(
+        analysis,
+        accepted_bad_channels=accepted_channels,
+        accepted_bad_segments=accepted_segments,
+        auto_clean_run_id=run.id,
+    )
+    _audit(
+        db,
+        analysis_id=analysis_id,
+        action_type="auto_scan:decided",
+        actor=actor,
+        new_value={
+            "run_id": run.id,
+            "accepted_counts": {
+                "bad_channels": len(accepted_channels),
+                "bad_segments": len(accepted_segments),
+            },
+            "rejected_counts": {
+                "bad_channels": len(rejected_channels),
+                "bad_segments": len(rejected_segments),
+            },
+        },
+        source="clinician",
+    )
+    db.commit()
+
+    return AutoScanDecideResponse(
+        analysis_id=analysis_id,
+        run_id=run.id,
+        committed_at=datetime.now(timezone.utc).isoformat(),
+        decisions_logged=decisions_logged,
+        accepted_counts={
+            "bad_channels": len(accepted_channels),
+            "bad_segments": len(accepted_segments),
+        },
+        rejected_counts={
+            "bad_channels": len(rejected_channels),
+            "bad_segments": len(rejected_segments),
+        },
+    )
+
+
+@router.get("/{analysis_id}/spike-events", response_model=SpikeEventsResponse)
+def get_spike_events(
+    analysis_id: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> SpikeEventsResponse:
+    """Return spike-event detections from the qEEG package, if available.
+
+    Empty list (with ``detector_available=False``) is the documented
+    clinical contract when the optional spike detector isn't present.
+    Returns 200 either way so the UI's spike side panel doesn't break.
+    """
+    require_minimum_role(actor, "clinician")
+    _load_analysis(analysis_id, db)
+
+    events: list[SpikeEvent] = []
+    detector_available = False
+
+    try:
+        # The optional pipeline package may expose a spike detector. If not,
+        # we silently return an empty list — the empty list is a valid
+        # clinical signal ("no spikes detected").
+        from deepsynaps_qeeg import spike_detection  # type: ignore[import-not-found]
+        detector_available = True
+        try:
+            raw_events = spike_detection.detect_for_analysis(analysis_id, db)  # type: ignore[attr-defined]
+            for ev in raw_events or []:
+                try:
+                    events.append(
+                        SpikeEvent(
+                            t_sec=float(ev.get("t_sec", 0.0)),
+                            channel=ev.get("channel"),
+                            peak_uv=ev.get("peak_uv"),
+                            classification=ev.get("classification"),
+                            confidence=ev.get("confidence"),
+                        )
+                    )
+                except (TypeError, ValueError):
+                    continue
+        except Exception as exc:  # detector present but raised
+            _log.warning("spike_detection.detect_for_analysis failed: %s", exc)
+    except ImportError:
+        detector_available = False
+
+    return SpikeEventsResponse(
+        analysis_id=analysis_id,
+        events=events,
+        detector_available=detector_available,
+    )
+
+
+@router.post(
+    "/{analysis_id}/apply-template",
+    response_model=ApplyTemplateResponse,
+)
+def post_apply_template(
+    analysis_id: str,
+    body: ApplyTemplateRequest,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> ApplyTemplateResponse:
+    """Apply an artifact-template ICA exclusion preset.
+
+    Looks at the existing ICA components for the analysis (via
+    :func:`extract_ica_data`) and excludes the ones whose ICLabel matches
+    the requested template above the confidence threshold. Writes one
+    ``CleaningDecision`` audit row per excluded component
+    (``actor='ai'``, ``action='apply_template'``) and merges the IDs into
+    ``cleaning_config_json.excluded_ica_components``.
+    """
+    require_minimum_role(actor, "clinician")
+    analysis = _load_analysis(analysis_id, db)
+    template = body.template.strip().lower()
+    if template not in _TEMPLATE_LABEL_MAP:
+        raise ApiServiceError(
+            code="invalid_template",
+            message=(
+                "Unknown template. Must be one of: "
+                + ", ".join(sorted(_TEMPLATE_LABEL_MAP.keys()))
+            ),
+            status_code=422,
+        )
+    target_labels = _TEMPLATE_LABEL_MAP[template]
+
+    _require_mne()
+    from app.services.eeg_signal_service import extract_ica_data
+
+    ica_data = extract_ica_data(analysis_id, db)
+    components = ica_data.get("components", []) or []
+
+    components_excluded: list[int] = []
+    decisions_logged = 0
+    for comp in components:
+        try:
+            idx = int(comp.get("index"))
+        except (TypeError, ValueError):
+            continue
+        label = (comp.get("label") or "").lower()
+        proba = comp.get("label_probabilities") or {}
+        # Best-matching probability across the template's accepted labels.
+        best_p = 0.0
+        for lbl, p in proba.items():
+            if lbl.lower() in target_labels:
+                try:
+                    best_p = max(best_p, float(p))
+                except (TypeError, ValueError):
+                    continue
+        # Direct label match (e.g. when ICLabel labels the component
+        # outright with one of the target labels) also counts.
+        if label in target_labels and best_p < 1.0:
+            best_p = max(best_p, 1.0)
+        if label not in target_labels and best_p < _TEMPLATE_CONFIDENCE_THRESHOLD:
+            continue
+        components_excluded.append(idx)
+        db.add(
+            CleaningDecision(
+                analysis_id=analysis_id,
+                actor="ai",
+                action="apply_template",
+                target=f"ica_component:{idx}",
+                payload_json=json.dumps(
+                    {
+                        "template": template,
+                        "label": label,
+                        "best_probability": round(best_p, 3),
+                        "label_probabilities": proba,
+                    }
+                ),
+                accepted_by_user=None,
+                confidence=round(best_p, 3) if best_p else None,
+            )
+        )
+        decisions_logged += 1
+
+    if components_excluded:
+        _merge_into_cleaning_config(
+            analysis,
+            accepted_bad_channels=[],
+            accepted_bad_segments=[],
+            excluded_ica_components=components_excluded,
+        )
+
+    _audit(
+        db,
+        analysis_id=analysis_id,
+        action_type="ica_template:applied",
+        actor=actor,
+        new_value={
+            "template": template,
+            "components_excluded": components_excluded,
+            "components_examined": len(components),
+        },
+        source="ai",
+    )
+    db.commit()
+
+    return ApplyTemplateResponse(
+        analysis_id=analysis_id,
+        template=template,
+        components_excluded=components_excluded,
+        components_examined=len(components),
+        decisions_logged=decisions_logged,
     )

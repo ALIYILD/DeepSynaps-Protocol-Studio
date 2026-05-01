@@ -152,7 +152,10 @@ function preparePatchedModule() {
     .replace(/from\s+['"]\.\/eeg-tools\.js['"];?/, `from '${fileUrl(join(realDir, 'eeg-tools.js'))}';`)
     .replace(/from\s+['"]\.\/eeg-montage-editor\.js['"];?/, `from '${fileUrl(join(realDir, 'eeg-montage-editor.js'))}';`)
     .replace(/from\s+['"]\.\/eeg-montage-builder\.js['"];?/, `from '${fileUrl(join(realDir, 'eeg-montage-builder.js'))}';`)
-    .replace(/from\s+['"]\.\/eeg-filter-preview\.js['"];?/, `from '${fileUrl(join(realDir, 'eeg-filter-preview.js'))}';`);
+    .replace(/from\s+['"]\.\/eeg-filter-preview\.js['"];?/, `from '${fileUrl(join(realDir, 'eeg-filter-preview.js'))}';`)
+    .replace(/from\s+['"]\.\/eeg-decomposition-studio\.js['"];?/, `from '${fileUrl(join(realDir, 'eeg-decomposition-studio.js'))}';`)
+    .replace(/from\s+['"]\.\/eeg-auto-scan-modal\.js['"];?/, `from '${fileUrl(join(realDir, 'eeg-auto-scan-modal.js'))}';`)
+    .replace(/from\s+['"]\.\/eeg-spike-list\.js['"];?/, `from '${fileUrl(join(realDir, 'eeg-spike-list.js'))}';`);
   const MODPATH = join(TMP, 'pages-qeeg-raw.js');
   writeFileSync(MODPATH, PATCHED);
   return MODPATH;
