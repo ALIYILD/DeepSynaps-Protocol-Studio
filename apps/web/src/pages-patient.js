@@ -23375,7 +23375,12 @@ export async function pgPatientCaregiver() {
   // a preference row; sending requires an active grant with
   // scope.digest=true.
   let digestPreview = { unread_count: 0, items: [], consent_active: false };
-  let digestPrefs = { enabled: false, frequency: 'daily', time_of_day: '08:00', last_sent_at: null };
+  // ``preferred_channel`` (Per-Caregiver Channel Preference launch-audit
+  // 2026-05-01) is null by default — null means "use the clinic chain
+  // as-is". The dropdown surface below renders "Use clinic default"
+  // when the field is null, and one of the canonical chip values
+  // (email/sms/slack) when the caregiver opted in.
+  let digestPrefs = { enabled: false, frequency: 'daily', time_of_day: '08:00', last_sent_at: null, preferred_channel: null };
   if (typeof api.caregiverEmailDigestPreview === 'function') {
     try {
       const [pv, pr] = await Promise.all([
@@ -23616,6 +23621,16 @@ export async function pgPatientCaregiver() {
           </select>
           <label for="pt-cg-digest-time-of-day" style="font-weight:600">Time of day</label>
           <input id="pt-cg-digest-time-of-day" type="time" value="${_ptCgEsc(digestPrefs.time_of_day || '08:00')}" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-primary);font-size:12px;max-width:160px" />
+          <label for="pt-cg-digest-channel" style="font-weight:600">Channel preference</label>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <select id="pt-cg-digest-channel" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-primary);font-size:12px;max-width:200px" aria-label="caregiver preferred dispatch channel">
+              <option value="" ${!digestPrefs.preferred_channel ? 'selected' : ''}>Use clinic default</option>
+              <option value="email" ${digestPrefs.preferred_channel === 'email' ? 'selected' : ''}>Email</option>
+              <option value="sms" ${digestPrefs.preferred_channel === 'sms' ? 'selected' : ''}>SMS</option>
+              <option value="slack" ${digestPrefs.preferred_channel === 'slack' ? 'selected' : ''}>Slack</option>
+            </select>
+            <span id="pt-cg-digest-channel-chip" style="display:inline-block;padding:2px 9px;border-radius:999px;background:rgba(45,212,191,0.12);color:#2dd4bf;font-size:11px;font-weight:600">${digestPrefs.preferred_channel ? _ptCgEsc(digestPrefs.preferred_channel) : 'clinic default'}</span>
+          </div>
         </div>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:10px">
           <button id="pt-cg-digest-save-prefs" class="btn btn-sm" style="background:rgba(45,212,191,0.14);border:1px solid rgba(45,212,191,0.3);color:#2dd4bf;font-size:11.5px;padding:5px 12px;border-radius:8px;cursor:pointer">Save preferences</button>
@@ -23989,10 +24004,17 @@ export async function pgPatientCaregiver() {
       const enabledEl = el.querySelector('#pt-cg-digest-enabled');
       const freqEl = el.querySelector('#pt-cg-digest-frequency');
       const timeEl = el.querySelector('#pt-cg-digest-time-of-day');
+      // Per-Caregiver Channel Preference launch-audit (2026-05-01).
+      // The dropdown's empty value maps to ``null`` server-side so the
+      // caregiver can revert to the clinic default after opting in.
+      const channelEl = el.querySelector('#pt-cg-digest-channel');
+      const channelRaw = (channelEl && channelEl.value) || '';
+      const preferred_channel = channelRaw ? channelRaw : null;
       const payload = {
         enabled: !!(enabledEl && enabledEl.checked),
         frequency: (freqEl && freqEl.value) || 'daily',
         time_of_day: (timeEl && timeEl.value) || '08:00',
+        preferred_channel,
       };
       saveBtn.disabled = true;
       saveBtn.textContent = 'Saving…';
@@ -24001,14 +24023,17 @@ export async function pgPatientCaregiver() {
         if (res && typeof res.enabled === 'boolean') {
           window._showNotifToast && window._showNotifToast({
             title: 'Preferences saved',
-            body: `Daily digest is ${res.enabled ? 'enabled' : 'disabled'} (${res.frequency} at ${res.time_of_day}).`,
+            body: `Daily digest is ${res.enabled ? 'enabled' : 'disabled'} (${res.frequency} at ${res.time_of_day}); channel=${res.preferred_channel || 'clinic default'}.`,
             severity: 'success',
           });
+          // Refresh the chip to reflect the saved preference.
+          const chip = el.querySelector('#pt-cg-digest-channel-chip');
+          if (chip) chip.textContent = res.preferred_channel || 'clinic default';
         }
         try {
           api.postCaregiverEmailDigestAuditEvent({
             event: 'preferences_saved_ui',
-            note: `enabled=${payload.enabled}; frequency=${payload.frequency}; time_of_day=${payload.time_of_day}`,
+            note: `enabled=${payload.enabled}; frequency=${payload.frequency}; time_of_day=${payload.time_of_day}; preferred_channel=${preferred_channel || 'null'}`,
           });
         } catch (_e) {}
       } catch (_e) {

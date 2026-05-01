@@ -4158,5 +4158,15 @@ class CaregiverDigestPreference(Base):
     frequency: Mapped[str] = mapped_column(String(16), nullable=False, default="daily")
     time_of_day: Mapped[str] = mapped_column(String(8), nullable=False, default="08:00")
     last_sent_at: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # Per-Caregiver Channel Preference launch-audit (2026-05-01). Optional
+    # caregiver-level override of the clinic's per-surface dispatch chain
+    # (see EscalationPolicy from #374). When set the worker resolves the
+    # dispatch chain as ``[caregiver.preferred_channel, *clinic_chain]``
+    # with dedup so the caregiver's preferred adapter is tried first while
+    # the clinic's escalation order remains intact as the fallback. Values
+    # come from :data:`app.services.oncall_delivery.ADAPTER_CHANNEL` —
+    # currently ``email`` / ``sms`` / ``slack`` / ``pagerduty``. NULL means
+    # "no caregiver-level override; use the clinic chain as-is".
+    preferred_channel: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     created_at: Mapped[str] = mapped_column(String(64), nullable=False)
     updated_at: Mapped[str] = mapped_column(String(64), nullable=False)

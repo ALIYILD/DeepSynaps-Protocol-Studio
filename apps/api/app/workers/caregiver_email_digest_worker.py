@@ -437,6 +437,35 @@ class CaregiverEmailDigestWorker:
                 service = build_caregiver_digest_service(
                     clinic_id=None, db=db,
                 )
+                # Per-Caregiver Channel Preference launch-audit
+                # (2026-05-01). When the caregiver picked an explicit
+                # channel, prepend it to the resolved chain (with dedup)
+                # so their preferred adapter is tried first.
+                preferred_channel_value = getattr(
+                    pref, "preferred_channel", None
+                )
+                if preferred_channel_value:
+                    from app.routers.caregiver_email_digest_router import (  # noqa: PLC0415
+                        _resolve_caregiver_dispatch_chain,
+                    )
+                    from app.services.oncall_delivery import (  # noqa: PLC0415
+                        _build_adapters_for_order,
+                        _channel_to_adapter_name,
+                    )
+                    current_order = [
+                        getattr(a, "name", a.__class__.__name__.lower())
+                        for a in service.adapters
+                    ]
+                    preferred_adapter_name = _channel_to_adapter_name(
+                        preferred_channel_value
+                    )
+                    new_order = _resolve_caregiver_dispatch_chain(
+                        preferred_channel=preferred_adapter_name,
+                        clinic_chain=current_order,
+                    )
+                    rebuilt = _build_adapters_for_order(new_order)
+                    if rebuilt:
+                        service.adapters = rebuilt
                 if (
                     not service.get_enabled_adapters()
                     and not is_mock_mode_enabled()
@@ -474,6 +503,7 @@ class CaregiverEmailDigestWorker:
                     grant_id=grant.id,
                     delivery_note=delivery_note,
                     recipient_email=recipient_email,
+                    preferred_channel=preferred_channel_value,
                 )
             except Exception as exc:  # pragma: no cover — defensive
                 result.errors += 1
@@ -504,6 +534,7 @@ class CaregiverEmailDigestWorker:
         grant_id: str,
         delivery_note: str,
         recipient_email: Optional[str],
+        preferred_channel: Optional[str] = None,
     ) -> str:
         """Emit a ``caregiver_portal.email_digest_sent`` row attributed
         to the worker. Single-sourced with the manual send-now handler
@@ -531,6 +562,15 @@ class CaregiverEmailDigestWorker:
             grant_id=grant_id,
             delivery_note=delivery_note,
             trigger="worker",
+            extra={
+                # Per-Caregiver Channel Preference launch-audit
+                # (2026-05-01). Always emit the key (NULL → "null")
+                # so the regulator transcript can replay the resolved
+                # chain unambiguously.
+                "caregiver_preferred_channel": (
+                    preferred_channel or "null"
+                ),
+            },
         )
         try:
             create_audit_event(
