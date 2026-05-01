@@ -1291,6 +1291,42 @@ export const api = {
     const q = new URLSearchParams(params).toString();
     return apiFetchBinary(`/api/v1/adverse-events/export.csv${q ? '?' + q : ''}`);
   },
+  // Launch-audit 2026-05-01: NDJSON export (regulator-friendly,
+  // one-record-per-line). DEMO-marked when any row is demo.
+  exportAdverseEventsNdjson: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchBinary(`/api/v1/adverse-events/export.ndjson${q ? '?' + q : ''}`);
+  },
+  // Aggregated AE Hub detail (drill-in aware). Surfaces source_target_type/id
+  // so the filter banner can render server-side validation feedback.
+  getAdverseEventsHubDetail: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/adverse-events/detail${q ? '?' + q : ''}`);
+  },
+  // Page-level audit ingestion (target_type=adverse_events_hub).
+  logAdverseEventsAudit: (event) => {
+    try {
+      const body = JSON.stringify(event || {});
+      return apiFetch('/api/v1/adverse-events/audit-events', {
+        method: 'POST',
+        body,
+      });
+    } catch (_) {
+      return Promise.resolve(null);
+    }
+  },
+  // Sign-off close (note required) and reopen (reason required). Closed AEs
+  // are immutable except via reopen.
+  closeAdverseEvent: (id, data = {}) =>
+    apiFetch(`/api/v1/adverse-events/${encodeURIComponent(id)}/close`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  reopenAdverseEvent: (id, data = {}) =>
+    apiFetch(`/api/v1/adverse-events/${encodeURIComponent(id)}/reopen`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
   // CIOMS endpoint returns honest JSON until a regulator template is wired
   // up — see the router for the contract. Returned as a Blob so the UI can
   // surface the {configured:false, ...} payload via the same download path.

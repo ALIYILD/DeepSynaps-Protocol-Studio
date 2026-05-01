@@ -4,14 +4,19 @@ Endpoints
 ---------
 POST   /api/v1/adverse-events                 Report a new adverse event
 GET    /api/v1/adverse-events                 List adverse events (filters)
-GET    /api/v1/adverse-events/summary         Roll-up counts (clinic / patient)
-GET    /api/v1/adverse-events/export.csv      CSV export, filter-aware
+GET    /api/v1/adverse-events/summary         Roll-up counts (clinic / patient / course / trial)
+GET    /api/v1/adverse-events/detail          Aggregated AE Hub detail (drill-in aware)
+GET    /api/v1/adverse-events/export.csv      CSV export, filter-aware (DEMO prefix)
+GET    /api/v1/adverse-events/export.ndjson   NDJSON export, filter-aware (DEMO meta)
+POST   /api/v1/adverse-events/audit-events    Page-level audit ingestion (adverse_events_hub)
 GET    /api/v1/adverse-events/{id}            Get event detail
 GET    /api/v1/adverse-events/{id}/export.cioms
                                               CIOMS form stub (honest no-op)
 PATCH  /api/v1/adverse-events/{id}            Update classification fields
 PATCH  /api/v1/adverse-events/{id}/resolve    Mark resolved (legacy)
 POST   /api/v1/adverse-events/{id}/review     Clinician review + sign-off
+POST   /api/v1/adverse-events/{id}/close      Sign-off close (note required)
+POST   /api/v1/adverse-events/{id}/reopen     Reopen a closed AE (reason required)
 POST   /api/v1/adverse-events/{id}/escalate   Mark for IRB / regulator
 
 Severity & SAE classification
@@ -39,13 +44,14 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import logging as _logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, Query, Request, Response
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -57,7 +63,13 @@ from app.auth import (
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.limiter import limiter
-from app.persistence.models import AdverseEvent, ClinicalSession, TreatmentCourse
+from app.persistence.models import (
+    AdverseEvent,
+    ClinicalSession,
+    ClinicalTrial,
+    ClinicalTrialEnrollment,
+    TreatmentCourse,
+)
 from app.repositories.patients import resolve_patient_clinic_id
 
 
@@ -104,6 +116,43 @@ def _audit(db: Session, actor: AuthenticatedActor, *, event: str, target_id: str
         )
     except Exception:  # pragma: no cover — audit must never block the API
         _ae_log.debug("Adverse-event audit write skipped", exc_info=True)
+
+
+def _hub_audit(
+    db: Session,
+    actor: AuthenticatedActor,
+    *,
+    event: str,
+    target_id: str,
+    note: str,
+) -> None:
+    """Page-level (adverse_events_hub) audit write.
+
+    Distinct from the per-record ``adverse_events`` surface so the AE Hub's
+    page-load / filter-change / export / drill-in events are attributable
+    separately from per-AE create / patch / review / escalate / close
+    events. Both surfaces appear in /api/v1/audit-trail.
+    """
+    try:
+        from app.repositories.audit import create_audit_event
+
+        now = datetime.now(timezone.utc)
+        event_id = (
+            f"adverse_events_hub-{event}-{actor.actor_id}-{int(now.timestamp())}-{uuid.uuid4().hex[:6]}"
+        )
+        create_audit_event(
+            db,
+            event_id=event_id,
+            target_id=str(target_id),
+            target_type="adverse_events_hub",
+            action=f"adverse_events_hub.{event}",
+            role=actor.role,
+            actor_id=actor.actor_id,
+            note=(note or event)[:1024],
+            created_at=now.isoformat(),
+        )
+    except Exception:  # pragma: no cover
+        _ae_log.debug("AE-hub audit write skipped", exc_info=True)
 
 
 router = APIRouter(prefix="/api/v1/adverse-events", tags=["Adverse Events"])
@@ -253,6 +302,14 @@ class AdverseEventResolve(BaseModel):
     resolution: Optional[str] = "resolved"
 
 
+class AdverseEventClose(BaseModel):
+    note: str = Field(..., min_length=1, max_length=2000)
+
+
+class AdverseEventReopen(BaseModel):
+    reason: str = Field(..., min_length=1, max_length=2000)
+
+
 class AdverseEventOut(BaseModel):
     id: str
     patient_id: str
@@ -353,12 +410,48 @@ class AdverseEventSummary(BaseModel):
     open: int
     reviewed: int
     resolved: int
+    closed: int
     escalated: int
     sae: int
     reportable: int
+    unexpected: int
     awaiting_review: int
+    capa_required: int
+    demo: int
     by_severity: dict[str, int]
     by_body_system: dict[str, int]
+    # Drill-in echo so the hub banner can render the active context.
+    filtered_by_patient_id: Optional[str] = None
+    filtered_by_course_id: Optional[str] = None
+    filtered_by_trial_id: Optional[str] = None
+    disclaimers: list[str] = []
+
+
+# ── Drill-in ────────────────────────────────────────────────────────────────
+
+# Surfaces that drill into the AE Hub via
+# ``?source_target_type=…&source_target_id=…``. Validated at the /detail
+# endpoint and the /audit-events endpoint so unknown values are 422'd
+# rather than silently accepted into audit rows.
+KNOWN_DRILL_IN_SURFACES: set[str] = {
+    "patient_profile",
+    "course_detail",
+    "clinical_trials",
+    "irb_manager",
+    "quality_assurance",
+    "documents_hub",
+    "reports_hub",
+}
+
+
+# Honest disclaimers always rendered on the AE Hub so reviewers know the
+# regulatory ceiling of this view.
+ADVERSE_EVENTS_HUB_DISCLAIMERS = [
+    "Adverse events require timely clinician review per local policy.",
+    "Serious adverse events may require regulatory reporting (IRB / FDA / MHRA).",
+    "Demo data is not for actual clinical reporting.",
+    "Closed AEs are immutable; reopen requires a documented reason and creates an audit row.",
+]
 
 
 # ── Filter/query helpers ────────────────────────────────────────────────────
@@ -495,34 +588,67 @@ def report_adverse_event(
 def adverse_events_summary(
     patient_id: Optional[str] = Query(default=None),
     course_id: Optional[str] = Query(default=None),
+    trial_id: Optional[str] = Query(default=None),
+    since: Optional[str] = Query(default=None),
+    until: Optional[str] = Query(default=None),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> AdverseEventSummary:
     """Counts roll-up for the AE Hub KPI tiles.
 
     Always returns real counts derived from the underlying rows — the UI must
-    never fall back to fabricated numbers.
+    never fall back to fabricated numbers. Honors the same filter shape as
+    the list / export endpoints (``patient_id`` / ``course_id`` / ``trial_id``
+    + ``since`` / ``until``) so the KPI strip and the table are scoped to the
+    same scope reviewer-side.
     """
     require_minimum_role(actor, "clinician")
-    q = _scope_query(actor, db)
     if patient_id:
-        q = q.filter(AdverseEvent.patient_id == patient_id)
-    if course_id:
-        q = q.filter(AdverseEvent.course_id == course_id)
+        _gate_patient_access(actor, patient_id, db)
+    q = _apply_filters(
+        _scope_query(actor, db),
+        patient_id=patient_id,
+        course_id=course_id,
+        trial_id=trial_id,
+        severity=None,
+        body_system=None,
+        sae=None,
+        reportable=None,
+        expected=None,
+        status_filter=None,
+        since=since,
+        until=until,
+        db=db,
+    )
 
     rows = q.all()
     total = len(rows)
     open_n = sum(1 for r in rows if r.resolved_at is None and getattr(r, "escalated_at", None) is None)
     reviewed_n = sum(1 for r in rows if getattr(r, "reviewed_at", None) is not None)
     resolved_n = sum(1 for r in rows if r.resolved_at is not None)
+    # "closed" mirrors "resolved" for the existing schema; the Hub surfaces
+    # both terms for clinician parity with regulator language.
+    closed_n = resolved_n
     escalated_n = sum(1 for r in rows if getattr(r, "escalated_at", None) is not None)
     sae_n = sum(1 for r in rows if getattr(r, "is_serious", False))
     reportable_n = sum(1 for r in rows if getattr(r, "reportable", False))
+    unexpected_n = sum(
+        1 for r in rows if (getattr(r, "expectedness", None) or "").lower() == "unexpected"
+    )
     awaiting_review_n = sum(
         1
         for r in rows
         if getattr(r, "reviewed_at", None) is None and r.resolved_at is None
     )
+    # CAPA required = SAE + reportable (regulator-trackable corrective-action
+    # candidates). We do NOT fabricate a CAPA pipeline status — the count is
+    # the union of regulator-eligible events the QA team must review.
+    capa_required_n = sum(
+        1
+        for r in rows
+        if (getattr(r, "is_serious", False) or getattr(r, "reportable", False))
+    )
+    demo_n = sum(1 for r in rows if getattr(r, "is_demo", False))
 
     by_severity: dict[str, int] = {}
     by_body_system: dict[str, int] = {}
@@ -537,12 +663,20 @@ def adverse_events_summary(
         open=open_n,
         reviewed=reviewed_n,
         resolved=resolved_n,
+        closed=closed_n,
         escalated=escalated_n,
         sae=sae_n,
         reportable=reportable_n,
+        unexpected=unexpected_n,
         awaiting_review=awaiting_review_n,
+        capa_required=capa_required_n,
+        demo=demo_n,
         by_severity=by_severity,
         by_body_system=by_body_system,
+        filtered_by_patient_id=patient_id,
+        filtered_by_course_id=course_id,
+        filtered_by_trial_id=trial_id,
+        disclaimers=list(ADVERSE_EVENTS_HUB_DISCLAIMERS),
     )
 
 
@@ -562,6 +696,7 @@ CSV_COLUMNS = [
 def export_adverse_events_csv(
     patient_id: Optional[str] = Query(default=None),
     course_id: Optional[str] = Query(default=None),
+    trial_id: Optional[str] = Query(default=None),
     severity: Optional[str] = Query(default=None),
     body_system: Optional[str] = Query(default=None),
     sae: Optional[bool] = Query(default=None),
@@ -570,16 +705,26 @@ def export_adverse_events_csv(
     status: Optional[str] = Query(default=None),    # open | reviewed | resolved | escalated
     since: Optional[str] = Query(default=None),
     until: Optional[str] = Query(default=None),
+    q: Optional[str] = Query(default=None, max_length=200),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> Response:
     """Filter-aware CSV export. Every visible filter on the AE Hub must be
-    honoured here — the export is the audit / regulator artifact."""
+    honoured here — the export is the audit / regulator artifact.
+
+    DEMO honesty: when any matched row is ``is_demo=True`` the file is
+    prefixed with ``# DEMO …`` so a downstream importer can drop or quarantine
+    the bundle before submitting to a regulator. The same prefix appears in
+    the IRB Manager / Clinical Trials / Documents Hub exports.
+    """
     require_minimum_role(actor, "clinician")
-    q = _apply_filters(
+    if patient_id:
+        _gate_patient_access(actor, patient_id, db)
+    qry = _apply_filters(
         _scope_query(actor, db),
         patient_id=patient_id,
         course_id=course_id,
+        trial_id=trial_id,
         severity=severity,
         body_system=body_system,
         sae=sae,
@@ -588,10 +733,18 @@ def export_adverse_events_csv(
         status_filter=status,
         since=since,
         until=until,
+        q_text=q,
+        db=db,
     )
-    rows = q.order_by(AdverseEvent.reported_at.desc()).limit(10_000).all()
+    rows = qry.order_by(AdverseEvent.reported_at.desc()).limit(10_000).all()
 
+    has_demo = any(getattr(r, "is_demo", False) for r in rows)
     buf = io.StringIO()
+    if has_demo:
+        buf.write(
+            "# DEMO — at least one row in this export is demo data and is "
+            "NOT regulator-submittable.\n"
+        )
     writer = csv.writer(buf)
     writer.writerow(CSV_COLUMNS)
     for r in rows:
@@ -634,17 +787,130 @@ def export_adverse_events_csv(
         db,
         actor,
         event="export_csv",
-        target_id=patient_id or course_id or actor.actor_id,
-        note=f"rows={len(rows)} filters={severity or '-'},{body_system or '-'},{status or '-'}",
+        target_id=patient_id or course_id or trial_id or actor.actor_id,
+        note=f"rows={len(rows)} demo_rows={sum(1 for r in rows if getattr(r,'is_demo',False))}",
+    )
+    # Mirror the export through the page-level surface so reviewers searching
+    # `/api/v1/audit-trail?surface=adverse_events_hub` see it too.
+    _hub_audit(
+        db,
+        actor,
+        event="export_csv",
+        target_id=patient_id or course_id or trial_id or actor.actor_id,
+        note=(
+            f"rows={len(rows)} demo_rows={sum(1 for r in rows if getattr(r,'is_demo',False))}"
+            f" patient={patient_id or '-'} course={course_id or '-'} trial={trial_id or '-'}"
+        ),
     )
 
     csv_text = buf.getvalue()
+    demo_rows = sum(1 for r in rows if getattr(r, "is_demo", False))
     return Response(
         content=csv_text,
         media_type="text/csv",
         headers={
             "Content-Disposition": "attachment; filename=adverse_events.csv",
             "Cache-Control": "no-store",
+            "X-Adverse-Event-Demo-Rows": str(demo_rows),
+        },
+    )
+
+
+# ── GET /export.ndjson ──────────────────────────────────────────────────────
+
+
+@router.get("/export.ndjson")
+def export_adverse_events_ndjson(
+    patient_id: Optional[str] = Query(default=None),
+    course_id: Optional[str] = Query(default=None),
+    trial_id: Optional[str] = Query(default=None),
+    severity: Optional[str] = Query(default=None),
+    body_system: Optional[str] = Query(default=None),
+    sae: Optional[bool] = Query(default=None),
+    reportable: Optional[bool] = Query(default=None),
+    expected: Optional[str] = Query(default=None),
+    status: Optional[str] = Query(default=None),
+    since: Optional[str] = Query(default=None),
+    until: Optional[str] = Query(default=None),
+    q: Optional[str] = Query(default=None, max_length=200),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> Response:
+    """NDJSON export — one record per line, regulator-friendly.
+
+    Mirrors the IRB Manager / Clinical Trials NDJSON contract. When any
+    matched row is demo, the first line is a ``{"_meta":"DEMO"}`` JSON
+    object so downstream importers can detect the marker without parsing
+    the full file.
+    """
+    require_minimum_role(actor, "clinician")
+    if patient_id:
+        _gate_patient_access(actor, patient_id, db)
+    qry = _apply_filters(
+        _scope_query(actor, db),
+        patient_id=patient_id,
+        course_id=course_id,
+        trial_id=trial_id,
+        severity=severity,
+        body_system=body_system,
+        sae=sae,
+        reportable=reportable,
+        expected=expected,
+        status_filter=status,
+        since=since,
+        until=until,
+        q_text=q,
+        db=db,
+    )
+    rows = qry.order_by(AdverseEvent.reported_at.desc()).limit(10_000).all()
+    has_demo = any(getattr(r, "is_demo", False) for r in rows)
+    lines: list[str] = []
+    if has_demo:
+        lines.append(
+            json.dumps(
+                {
+                    "_meta": "DEMO",
+                    "warning": (
+                        "At least one row in this export is demo data and is "
+                        "NOT regulator-submittable."
+                    ),
+                },
+                separators=(",", ":"),
+            )
+        )
+    demo_rows = 0
+    for r in rows:
+        out = AdverseEventOut.from_record(r)
+        if out.is_demo:
+            demo_rows += 1
+        lines.append(json.dumps(out.model_dump(), separators=(",", ":")))
+    body = "\n".join(lines) + ("\n" if lines else "")
+
+    _audit(
+        db,
+        actor,
+        event="export_ndjson",
+        target_id=patient_id or course_id or trial_id or actor.actor_id,
+        note=f"rows={len(rows)} demo_rows={demo_rows}",
+    )
+    _hub_audit(
+        db,
+        actor,
+        event="export_ndjson",
+        target_id=patient_id or course_id or trial_id or actor.actor_id,
+        note=(
+            f"rows={len(rows)} demo_rows={demo_rows}"
+            f" patient={patient_id or '-'} course={course_id or '-'} trial={trial_id or '-'}"
+        ),
+    )
+
+    return Response(
+        content=body,
+        media_type="application/x-ndjson",
+        headers={
+            "Content-Disposition": "attachment; filename=adverse_events.ndjson",
+            "Cache-Control": "no-store",
+            "X-Adverse-Event-Demo-Rows": str(demo_rows),
         },
     )
 
@@ -668,11 +934,37 @@ def _apply_filters(
     status_filter: str | None,
     since: str | None,
     until: str | None,
+    trial_id: str | None = None,
+    q_text: str | None = None,
+    db: Session | None = None,
 ):
     if patient_id:
         q = q.filter(AdverseEvent.patient_id == patient_id)
     if course_id:
         q = q.filter(AdverseEvent.course_id == course_id)
+    if trial_id and db is not None:
+        # Trials don't carry a direct AE FK — we filter through the
+        # ClinicalTrialEnrollment join (patient ∈ enrolled patients of trial).
+        # 422 on unknown trial id so the UI never shows a silent "all rows".
+        trial = db.query(ClinicalTrial).filter_by(id=trial_id).first()
+        if trial is None:
+            raise ApiServiceError(
+                code="invalid_trial",
+                message="Trial not found.",
+                status_code=422,
+            )
+        enrolled_pids = [
+            row.patient_id
+            for row in db.query(ClinicalTrialEnrollment)
+            .filter_by(trial_id=trial_id)
+            .all()
+        ]
+        if not enrolled_pids:
+            # No enrollments → no AEs match. Force an empty result rather
+            # than silently returning every AE in the clinic.
+            q = q.filter(AdverseEvent.patient_id == "__no_enrollments__")
+        else:
+            q = q.filter(AdverseEvent.patient_id.in_(enrolled_pids))
     if severity:
         q = q.filter(AdverseEvent.severity == severity.lower())
     if body_system:
@@ -694,10 +986,23 @@ def _apply_filters(
     elif status_filter == "reviewed":
         q = q.filter(AdverseEvent.reviewed_at.is_not(None))
         q = q.filter(AdverseEvent.resolved_at.is_(None))
-    elif status_filter == "resolved":
+    elif status_filter == "resolved" or status_filter == "closed":
         q = q.filter(AdverseEvent.resolved_at.is_not(None))
     elif status_filter == "escalated":
         q = q.filter(AdverseEvent.escalated_at.is_not(None))
+
+    if q_text:
+        from sqlalchemy import or_
+
+        like = f"%{q_text.strip().lower()}%"
+        q = q.filter(
+            or_(
+                AdverseEvent.event_type.ilike(like),
+                AdverseEvent.description.ilike(like),
+                AdverseEvent.body_system.ilike(like),
+                AdverseEvent.meddra_pt.ilike(like),
+            )
+        )
 
     since_dt = _parse_iso(since)
     until_dt = _parse_iso(until)
@@ -717,6 +1022,7 @@ def _apply_filters(
 def list_adverse_events(
     patient_id: Optional[str] = Query(default=None),
     course_id: Optional[str] = Query(default=None),
+    trial_id: Optional[str] = Query(default=None),
     severity: Optional[str] = Query(default=None),
     body_system: Optional[str] = Query(default=None),
     sae: Optional[bool] = Query(default=None),
@@ -725,15 +1031,19 @@ def list_adverse_events(
     status: Optional[str] = Query(default=None),
     since: Optional[str] = Query(default=None),
     until: Optional[str] = Query(default=None),
+    q: Optional[str] = Query(default=None, max_length=200),
     limit: int = Query(default=50, ge=1, le=200),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> AdverseEventListResponse:
     require_minimum_role(actor, "clinician")
-    q = _apply_filters(
+    if patient_id:
+        _gate_patient_access(actor, patient_id, db)
+    qry = _apply_filters(
         _scope_query(actor, db),
         patient_id=patient_id,
         course_id=course_id,
+        trial_id=trial_id,
         severity=severity,
         body_system=body_system,
         sae=sae,
@@ -742,10 +1052,288 @@ def list_adverse_events(
         status_filter=status,
         since=since,
         until=until,
+        q_text=q,
+        db=db,
     )
-    records = q.order_by(AdverseEvent.reported_at.desc()).limit(limit).all()
+    records = qry.order_by(AdverseEvent.reported_at.desc()).limit(limit).all()
     items = [AdverseEventOut.from_record(r) for r in records]
     return AdverseEventListResponse(items=items, total=len(items))
+
+
+# ── GET /detail (aggregated drill-in detail) ────────────────────────────────
+
+
+class AdverseEventsHubDetailResponse(BaseModel):
+    """Aggregated detail payload for the AE Hub.
+
+    Returned scoped to the upstream surface that drilled in (patient profile,
+    course detail, clinical trial, IRB protocol, QA finding, documents hub,
+    reports hub) so the page can render a focused list + KPI strip without
+    a second roundtrip per filter. The shape mirrors the Documents Hub
+    /summary contract (counts + filter echo + disclaimers + scope_-
+    limitations) so reviewers see the same regulatory ceiling everywhere.
+    """
+
+    items: list[AdverseEventOut]
+    total: int
+    summary: AdverseEventSummary
+    drill_in: dict
+    disclaimers: list[str]
+    scope_limitations: list[str]
+
+
+@router.get("/detail", response_model=AdverseEventsHubDetailResponse)
+def adverse_events_hub_detail(
+    source_target_type: Optional[str] = Query(default=None, max_length=32),
+    source_target_id: Optional[str] = Query(default=None, max_length=64),
+    patient_id: Optional[str] = Query(default=None),
+    course_id: Optional[str] = Query(default=None),
+    trial_id: Optional[str] = Query(default=None),
+    severity: Optional[str] = Query(default=None),
+    body_system: Optional[str] = Query(default=None),
+    sae: Optional[bool] = Query(default=None),
+    reportable: Optional[bool] = Query(default=None),
+    expected: Optional[str] = Query(default=None),
+    status: Optional[str] = Query(default=None),
+    since: Optional[str] = Query(default=None),
+    until: Optional[str] = Query(default=None),
+    q: Optional[str] = Query(default=None, max_length=200),
+    limit: int = Query(default=100, ge=1, le=500),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> AdverseEventsHubDetailResponse:
+    """Aggregated AE Hub detail for the given drill-in scope.
+
+    Drill-in pair validation: when ``source_target_type`` is supplied it must
+    be one of :data:`KNOWN_DRILL_IN_SURFACES` and ``source_target_id`` must
+    be supplied — half-pairs and unknown surfaces 422 rather than silently
+    falling back to "all rows in the clinic".
+
+    The drill-in pair is also used to derive the matching scalar filter:
+
+      * ``patient_profile`` → ``patient_id``
+      * ``course_detail``   → ``course_id``
+      * ``clinical_trials`` → ``trial_id``
+
+    Other surfaces (irb_manager / quality_assurance / documents_hub /
+    reports_hub) carry the drill-in tag for the audit row but do not auto-
+    filter — the upstream caller must add the matching scalar filter
+    explicitly. We never invent a filter we cannot back with real columns.
+    """
+    require_minimum_role(actor, "clinician")
+
+    # Validate drill-in pair (422 on unknown / half-supplied).
+    if source_target_type or source_target_id:
+        if not (source_target_type and source_target_id):
+            raise ApiServiceError(
+                code="invalid_drill_in",
+                message=(
+                    "source_target_type and source_target_id must be supplied "
+                    "together."
+                ),
+                status_code=422,
+            )
+        if source_target_type not in KNOWN_DRILL_IN_SURFACES:
+            raise ApiServiceError(
+                code="invalid_drill_in",
+                message=(
+                    f"source_target_type must be one of "
+                    f"{sorted(KNOWN_DRILL_IN_SURFACES)}"
+                ),
+                status_code=422,
+            )
+        # Derive the matching scalar filter when the upstream surface maps
+        # cleanly. Explicit scalar filters in the query string take priority.
+        if source_target_type == "patient_profile" and not patient_id:
+            patient_id = source_target_id
+        elif source_target_type == "course_detail" and not course_id:
+            course_id = source_target_id
+        elif source_target_type == "clinical_trials" and not trial_id:
+            trial_id = source_target_id
+
+    if patient_id:
+        _gate_patient_access(actor, patient_id, db)
+
+    qry = _apply_filters(
+        _scope_query(actor, db),
+        patient_id=patient_id,
+        course_id=course_id,
+        trial_id=trial_id,
+        severity=severity,
+        body_system=body_system,
+        sae=sae,
+        reportable=reportable,
+        expected=expected,
+        status_filter=status,
+        since=since,
+        until=until,
+        q_text=q,
+        db=db,
+    )
+    records = qry.order_by(AdverseEvent.reported_at.desc()).limit(limit).all()
+    items = [AdverseEventOut.from_record(r) for r in records]
+
+    # Compute summary scoped to the same drill-in / filter set.
+    summary = adverse_events_summary(
+        patient_id=patient_id,
+        course_id=course_id,
+        trial_id=trial_id,
+        since=since,
+        until=until,
+        actor=actor,
+        db=db,
+    )
+
+    drill_in = {
+        "source_target_type": source_target_type,
+        "source_target_id": source_target_id,
+        "active": bool(source_target_type and source_target_id),
+        "known_surfaces": sorted(KNOWN_DRILL_IN_SURFACES),
+    }
+
+    # Mount-time / detail-read audit emit on the page-level surface.
+    note_parts: list[str] = []
+    if drill_in["active"]:
+        note_parts.append(
+            f"drill_in_from={source_target_type}:{source_target_id}"
+        )
+    if patient_id:
+        note_parts.append(f"patient={patient_id}")
+    if course_id:
+        note_parts.append(f"course={course_id}")
+    if trial_id:
+        note_parts.append(f"trial={trial_id}")
+    note_parts.append(f"rows={len(items)}")
+    _hub_audit(
+        db,
+        actor,
+        event="detail.read",
+        target_id=source_target_id or patient_id or course_id or trial_id or actor.actor_id,
+        note="; ".join(note_parts),
+    )
+
+    return AdverseEventsHubDetailResponse(
+        items=items,
+        total=len(items),
+        summary=summary,
+        drill_in=drill_in,
+        disclaimers=list(ADVERSE_EVENTS_HUB_DISCLAIMERS),
+        scope_limitations=[
+            (
+                "Trial-id filter resolves AEs through ClinicalTrialEnrollment "
+                "(patient ∈ enrolled patients of the trial); AEs created "
+                "outside an enrolment are not visible under that filter."
+            ),
+            (
+                "Drill-in surfaces irb_manager / quality_assurance / "
+                "documents_hub / reports_hub do not auto-derive a scalar "
+                "AE filter — upstream callers must pass patient_id / "
+                "course_id / trial_id explicitly when they want a filtered "
+                "list. The drill-in tag is preserved in the audit row "
+                "regardless."
+            ),
+            (
+                "AE close uses resolved_at as the source-of-truth timestamp; "
+                "reopen clears resolved_at and writes a paired audit row."
+            ),
+        ],
+    )
+
+
+# ── POST /audit-events (page-level audit ingestion) ────────────────────────
+
+
+class AEHubAuditEventIn(BaseModel):
+    event: str = Field(..., min_length=1, max_length=120)
+    patient_id: Optional[str] = Field(default=None, max_length=64)
+    course_id: Optional[str] = Field(default=None, max_length=64)
+    trial_id: Optional[str] = Field(default=None, max_length=64)
+    adverse_event_id: Optional[str] = Field(default=None, max_length=64)
+    note: Optional[str] = Field(default=None, max_length=512)
+    using_demo_data: Optional[bool] = False
+    # Drill-in upstream context (validated against KNOWN_DRILL_IN_SURFACES).
+    source_target_type: Optional[str] = Field(default=None, max_length=32)
+    source_target_id: Optional[str] = Field(default=None, max_length=64)
+
+
+class AEHubAuditEventOut(BaseModel):
+    accepted: bool
+    event_id: str
+
+
+@router.post("/audit-events", response_model=AEHubAuditEventOut)
+def record_ae_hub_audit_event(
+    payload: AEHubAuditEventIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> AEHubAuditEventOut:
+    """Best-effort page-level audit ingestion for the Adverse Events Hub.
+
+    Writes ``target_type='adverse_events_hub'``. Distinct from the per-record
+    ``adverse_events`` surface used by create / patch / review / escalate /
+    close so reviewers can filter the audit-trail to page-level events
+    (filter changes, drill-in views, exports) without the per-record noise.
+    """
+    require_minimum_role(actor, "clinician")
+    from app.repositories.audit import create_audit_event
+
+    now = datetime.now(timezone.utc)
+    event_id = (
+        f"adverse_events_hub-{payload.event}-{actor.actor_id}-"
+        f"{int(now.timestamp())}-{uuid.uuid4().hex[:6]}"
+    )
+    target_id = (
+        payload.adverse_event_id
+        or payload.patient_id
+        or payload.course_id
+        or payload.trial_id
+        or payload.source_target_id
+        or actor.clinic_id
+        or actor.actor_id
+    )
+
+    note_parts: list[str] = []
+    if payload.using_demo_data:
+        note_parts.append("DEMO")
+    if payload.patient_id:
+        note_parts.append(f"patient={payload.patient_id}")
+    if payload.course_id:
+        note_parts.append(f"course={payload.course_id}")
+    if payload.trial_id:
+        note_parts.append(f"trial={payload.trial_id}")
+    if payload.adverse_event_id:
+        note_parts.append(f"ae={payload.adverse_event_id}")
+    # Drill-in upstream context — mirrors the Documents Hub pattern. Unknown
+    # / half-supplied pairs are dropped silently rather than 422'd; the
+    # audit endpoint must never block UI navigation.
+    if (
+        payload.source_target_type
+        and payload.source_target_id
+        and payload.source_target_type in KNOWN_DRILL_IN_SURFACES
+    ):
+        note_parts.append(
+            f"drill_in_from={payload.source_target_type}:{payload.source_target_id}"
+        )
+    if payload.note:
+        note_parts.append(payload.note[:300])
+    note = "; ".join(note_parts) or payload.event
+
+    try:
+        create_audit_event(
+            db,
+            event_id=event_id,
+            target_id=str(target_id),
+            target_type="adverse_events_hub",
+            action=f"adverse_events_hub.{payload.event}",
+            role=actor.role,
+            actor_id=actor.actor_id,
+            note=note[:1024],
+            created_at=now.isoformat(),
+        )
+    except Exception:  # pragma: no cover
+        _ae_log.exception("AE hub audit-event persistence failed")
+        return AEHubAuditEventOut(accepted=False, event_id=event_id)
+    return AEHubAuditEventOut(accepted=True, event_id=event_id)
 
 
 # ── GET /{id} ───────────────────────────────────────────────────────────────
@@ -838,6 +1426,19 @@ def patch_adverse_event(
     """
     require_minimum_role(actor, "clinician")
     event = _load_event_or_404(event_id, actor, db)
+
+    # Closed AEs are immutable except via /reopen — preserves the regulator
+    # audit trail. Mirrors the IRB Manager / Clinical Trials immutability
+    # contract.
+    if getattr(event, "resolved_at", None) is not None:
+        raise ApiServiceError(
+            code="adverse_event_immutable",
+            message=(
+                "This adverse event is closed. Reopen it via "
+                "/api/v1/adverse-events/{id}/reopen before patching."
+            ),
+            status_code=409,
+        )
 
     changed: list[str] = []
 
@@ -1018,5 +1619,117 @@ def escalate_adverse_event(
         event="escalated",
         target_id=event.id,
         note=f"target={target} note={(body.note or '')[:200]}",
+    )
+    return AdverseEventOut.from_record(event)
+
+
+# ── POST /{id}/close ────────────────────────────────────────────────────────
+
+
+@router.post("/{event_id}/close", response_model=AdverseEventOut)
+def close_adverse_event(
+    event_id: str,
+    body: AdverseEventClose,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> AdverseEventOut:
+    """Sign-off close — terminal state for the AE workflow.
+
+    Note required (regulator audit). Pre-fix the existing /resolve PATCH
+    accepted close-with-no-note silently; the explicit ``/close`` endpoint
+    enforces the documented closure note up front. ``/resolve`` is kept for
+    backwards compatibility.
+    """
+    require_minimum_role(actor, "clinician")
+    event = _load_event_or_404(event_id, actor, db)
+    note = (body.note or "").strip()
+    if not note:
+        raise ApiServiceError(
+            code="closure_note_required",
+            message="A non-empty closure note is required.",
+            status_code=422,
+        )
+    if getattr(event, "resolved_at", None) is not None:
+        raise ApiServiceError(
+            code="adverse_event_already_closed",
+            message="This adverse event is already closed.",
+            status_code=409,
+        )
+    now = datetime.now(timezone.utc)
+    event.resolved_at = now
+    event.resolution = note[:255] if not event.resolution else event.resolution
+    # Capture the sign-off identity if not already set so a regulator can
+    # answer "who closed this AE?" without joining audit rows back.
+    if getattr(event, "signed_at", None) is None:
+        event.signed_at = now
+        event.signed_by = actor.actor_id
+    db.commit()
+    db.refresh(event)
+    _audit(
+        db,
+        actor,
+        event="closed",
+        target_id=event.id,
+        note=f"closure_note={note[:300]}",
+    )
+    _hub_audit(
+        db,
+        actor,
+        event="closed",
+        target_id=event.id,
+        note=f"ae_closed={event.id} note={note[:200]}",
+    )
+    return AdverseEventOut.from_record(event)
+
+
+# ── POST /{id}/reopen ───────────────────────────────────────────────────────
+
+
+@router.post("/{event_id}/reopen", response_model=AdverseEventOut)
+def reopen_adverse_event(
+    event_id: str,
+    body: AdverseEventReopen,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> AdverseEventOut:
+    """Reopen a closed AE.
+
+    Reason required (regulator audit). Clears ``resolved_at`` and writes a
+    paired audit row so the regulator timeline shows close → reopen with
+    rationale. Cannot reopen an AE that was never closed.
+    """
+    require_minimum_role(actor, "clinician")
+    event = _load_event_or_404(event_id, actor, db)
+    reason = (body.reason or "").strip()
+    if not reason:
+        raise ApiServiceError(
+            code="reopen_reason_required",
+            message="A non-empty reopen reason is required.",
+            status_code=422,
+        )
+    if getattr(event, "resolved_at", None) is None:
+        raise ApiServiceError(
+            code="adverse_event_not_closed",
+            message="This adverse event is not closed; nothing to reopen.",
+            status_code=409,
+        )
+    event.resolved_at = None
+    # Resolution string preserved as historical context — a regulator
+    # reading the audit row needs the original closure rationale.
+    db.commit()
+    db.refresh(event)
+    _audit(
+        db,
+        actor,
+        event="reopened",
+        target_id=event.id,
+        note=f"reason={reason[:300]}",
+    )
+    _hub_audit(
+        db,
+        actor,
+        event="reopened",
+        target_id=event.id,
+        note=f"ae_reopened={event.id} reason={reason[:200]}",
     )
     return AdverseEventOut.from_record(event)

@@ -73,6 +73,13 @@ KNOWN_SURFACES = {
     "brain_map_planner",
     "session_runner",
     "adverse_events",
+    # ``adverse_events_hub`` is the page-level surface for the Adverse
+    # Events Hub launch audit (2026-05-01). Distinct from ``adverse_events``
+    # which scopes per-record events (create / patch / review / escalate /
+    # close / reopen). The Hub surface carries page-load audits, filter
+    # changes, drill-in views from patient_profile / course_detail /
+    # clinical_trials, and exports.
+    "adverse_events_hub",
     "audit_trail",
     "reports",
     "documents",
