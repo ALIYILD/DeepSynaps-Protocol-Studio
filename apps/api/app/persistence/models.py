@@ -3475,3 +3475,76 @@ class ClinicalTrialRevision(Base):
     actor_role: Mapped[str] = mapped_column(String(32), nullable=False)
     note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
+# ── Patient Symptom Journal (launch-audit 2026-05-01, migration 068) ──────────
+
+
+class SymptomJournalEntry(Base):
+    """Patient-authored symptom log entries (launch-audit 2026-05-01).
+
+    First patient-facing surface to receive the launch-audit treatment. The
+    pre-audit state of the page was localStorage-only — no audit breadcrumb,
+    no demo-flag honesty, no consent-revocation trail. This table is the
+    source of truth; the pgSymptomJournal frontend may still use
+    localStorage as a best-effort offline cache, but every successful
+    server write supersedes it.
+
+    Lifecycle
+    ---------
+    * Created by ``POST /api/v1/symptom-journal/entries`` — patient role
+      only (with admin override). ``patient_id`` is auto-stamped from the
+      authenticated actor; cross-patient writes return 404.
+    * ``is_demo`` is set on create from ``_patient_is_demo`` (the helper
+      shared with the patient-profile launch audit). Sticky once stamped
+      so exports honour it on every subsequent read.
+    * ``shared_at`` is set when the patient explicitly elects to share an
+      entry with their care team; the clinician-visible audit row is
+      emitted at that point. Entries are never auto-shared.
+    * ``deleted_at`` is set by ``DELETE /entries/{id}`` (soft delete).
+      The row is preserved so the audit trail remains complete; reads
+      filter ``deleted_at IS NULL`` by default but the audit-visible
+      detail endpoint still resolves it.
+    """
+
+    __tablename__ = "symptom_journal_entries"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    patient_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("patients.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    author_actor_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, index=True
+    )
+    severity: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    tags: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    is_demo: Mapped[bool] = mapped_column(
+        Boolean(), nullable=False, default=False, index=True
+    )
+    shared_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    shared_with: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    revision_count: Mapped[int] = mapped_column(
+        Integer(), nullable=False, default=0
+    )
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(), nullable=True, index=True
+    )
+    delete_reason: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )

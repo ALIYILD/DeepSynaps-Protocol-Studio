@@ -2352,6 +2352,73 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
+  // ── Patient Symptom Journal (launch-audit 2026-05-01) ────────────────────
+  // First patient-facing surface to receive the launch-audit treatment.
+  // All helpers swallow network failures so the UI keeps working offline
+  // (localStorage fallback). The actor's patient_id is auto-resolved
+  // server-side; the patient never needs to pass it explicitly.
+  listSymptomJournalEntries: (params) => {
+    const q = new URLSearchParams();
+    if (params) {
+      for (const k of ['since', 'until', 'tag', 'q']) {
+        if (params[k]) q.set(k, params[k]);
+      }
+      for (const k of ['severity_min', 'severity_max', 'limit', 'offset']) {
+        if (params[k] != null && params[k] !== '') q.set(k, String(params[k]));
+      }
+      if (params.include_deleted) q.set('include_deleted', 'true');
+      if (params.patient_id) q.set('patient_id', params.patient_id);
+    }
+    const qs = q.toString();
+    return apiFetch(`/api/v1/symptom-journal/entries${qs ? '?' + qs : ''}`).catch(() => null);
+  },
+  getSymptomJournalSummary: (params) => {
+    const q = new URLSearchParams();
+    if (params && params.patient_id) q.set('patient_id', params.patient_id);
+    const qs = q.toString();
+    return apiFetch(`/api/v1/symptom-journal/summary${qs ? '?' + qs : ''}`).catch(() => null);
+  },
+  getSymptomJournalEntry: (entryId) =>
+    apiFetch(`/api/v1/symptom-journal/entries/${encodeURIComponent(entryId)}`).catch(() => null),
+  createSymptomJournalEntry: (data) =>
+    apiFetch('/api/v1/symptom-journal/entries', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  editSymptomJournalEntry: (entryId, data) =>
+    apiFetch(`/api/v1/symptom-journal/entries/${encodeURIComponent(entryId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data || {}),
+    }),
+  deleteSymptomJournalEntry: (entryId, reason) =>
+    apiFetch(`/api/v1/symptom-journal/entries/${encodeURIComponent(entryId)}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ reason: reason || 'patient request' }),
+    }),
+  shareSymptomJournalEntry: (entryId, note) =>
+    apiFetch(`/api/v1/symptom-journal/entries/${encodeURIComponent(entryId)}/share`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note || null }),
+    }),
+  postSymptomJournalAuditEvent: (data) =>
+    apiFetch('/api/v1/symptom-journal/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  symptomJournalExportUrl: (kind, params) => {
+    const q = new URLSearchParams();
+    if (params) {
+      for (const k of ['since', 'until', 'tag', 'q', 'patient_id']) {
+        if (params[k]) q.set(k, params[k]);
+      }
+      for (const k of ['severity_min', 'severity_max']) {
+        if (params[k] != null && params[k] !== '') q.set(k, String(params[k]));
+      }
+    }
+    const qs = q.toString();
+    return `/api/v1/symptom-journal/export.${kind}${qs ? '?' + qs : ''}`;
+  },
+
   // ── Clinic ─────────────────────────────────────────────────────────────────
   getClinic: () => apiFetch('/api/v1/clinic').catch(() => null),  // 404 if no clinic
   createClinic: (data) => apiFetch('/api/v1/clinic', { method: 'POST', body: JSON.stringify(data) }),

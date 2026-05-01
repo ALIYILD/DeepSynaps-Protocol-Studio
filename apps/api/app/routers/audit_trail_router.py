@@ -104,6 +104,12 @@ KNOWN_SURFACES = {
     # ``onboarding_events`` (which feed conversion analytics, not the
     # regulatory audit trail).
     "onboarding_wizard",
+    # Symptom Journal launch-audit (2026-05-01). Patient-facing surface —
+    # patient logs symptoms, optionally shares with care team. Events:
+    # view, entry_logged, entry_edited, entry_deleted, entry_shared,
+    # entry_shared_to_clinician (clinician-visible), export_csv, export_ndjson,
+    # summary_viewed.
+    "symptom_journal",
 }
 
 
