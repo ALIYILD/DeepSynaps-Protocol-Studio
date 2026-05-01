@@ -22,6 +22,7 @@ probabilistic WMH mask; else we fall back to FSL BIANCA or simply report NA.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -30,6 +31,24 @@ from pathlib import Path
 from .schemas import SegmentationEngine, StructuralMetrics
 
 log = logging.getLogger(__name__)
+
+
+def _run_logged_subprocess(cmd: list[str], *, cwd: Path | None = None) -> None:
+    """Run external CLI; on failure log combined output and raise."""
+    proc = subprocess.run(
+        cmd, check=False, capture_output=True, text=True, cwd=cwd,
+    )
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip()
+        log.error(
+            "%s failed returncode=%s: %s",
+            cmd[0],
+            proc.returncode,
+            detail[:4000] if detail else "(no stdout/stderr)",
+        )
+        raise subprocess.CalledProcessError(
+            proc.returncode, cmd, output=proc.stdout, stderr=proc.stderr,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -158,7 +177,7 @@ def run_fastsurfer(t1_path: Path, out_dir: Path, subject_id: str) -> Segmentatio
         "--threads", "4",
     ]
     log.info("Running FastSurfer: %s", " ".join(cmd))
-    subprocess.run(cmd, check=True)
+    _run_logged_subprocess(cmd)
 
     sdir = out_dir / subject_id
     return SegmentationResult(
@@ -208,7 +227,7 @@ def run_synthseg(
     if robust:
         cmd += ["--robust"]
     log.info("Running SynthSeg: %s", " ".join(cmd))
-    subprocess.run(cmd, check=True)
+    _run_logged_subprocess(cmd)
 
     wmh = None
     if with_wmh:
@@ -276,14 +295,21 @@ def deface_t1(t1_path: Path, out_path: Path) -> Path:
     """
     if shutil.which("pydeface"):
         cmd = ["pydeface", str(t1_path), "--out", str(out_path), "--force"]
-        subprocess.run(cmd, check=True)
+        _run_logged_subprocess(cmd)
         return out_path
-    if shutil.which("mri_deface"):
-        cmd = ["mri_deface", str(t1_path),
-               "$FREESURFER_HOME/average/talairach_mixed_with_skull.gca",
-               "$FREESURFER_HOME/average/face.gca", str(out_path)]
-        subprocess.run(cmd, check=True, shell=False)
-        return out_path
+    fs_home = os.environ.get("FREESURFER_HOME", "").strip()
+    if shutil.which("mri_deface") and fs_home:
+        tal = Path(fs_home) / "average" / "talairach_mixed_with_skull.gca"
+        face = Path(fs_home) / "average" / "face.gca"
+        if tal.is_file() and face.is_file():
+            cmd = ["mri_deface", str(t1_path), str(tal), str(face), str(out_path)]
+            _run_logged_subprocess(cmd)
+            return out_path
+        log.warning(
+            "mri_deface on PATH but FREESURFER_HOME templates missing (%s, %s); skipping deface",
+            tal,
+            face,
+        )
     log.warning("No defacing tool found (pydeface or mri_deface). Skipping.")
     shutil.copy(t1_path, out_path)
     return out_path

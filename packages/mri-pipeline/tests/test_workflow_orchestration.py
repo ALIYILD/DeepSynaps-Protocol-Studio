@@ -172,6 +172,8 @@ def test_collect_provenance(tmp_path: Path) -> None:
     prov = collect_provenance(run)
     assert prov["run_id"] == run.run_id
     assert len(prov["artifacts"]) == 1
+    assert "node_states" in prov
+    assert prov["node_states"]["only"]["status"] == "success"
 
 
 def test_unknown_handler_fails(tmp_path: Path) -> None:
@@ -183,3 +185,15 @@ def test_unknown_handler_fails(tmp_path: Path) -> None:
 
 def test_load_missing_returns_none(tmp_path: Path) -> None:
     assert load_pipeline_run(tmp_path) is None
+
+
+def test_resume_mismatched_nodes_raises(tmp_path: Path) -> None:
+    def h(run, node):
+        return StepResult(ok=True)
+
+    nodes_v1 = [PipelineNode(id="a", name="a", handler_key="h")]
+    execute_pipeline(nodes_v1, {"h": h}, tmp_path)
+
+    nodes_v2 = [PipelineNode(id="b", name="b", handler_key="h")]
+    with pytest.raises(ValueError, match="Cannot resume"):
+        execute_pipeline(nodes_v2, {"h": h}, tmp_path, resume=True)

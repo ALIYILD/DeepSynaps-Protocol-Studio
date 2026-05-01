@@ -28,6 +28,14 @@ Nipype-style ideas retained: **explicit DAG order**, **artifact records**, **run
 - **Node:** `pending` → `running` → `success` | `failed` | `skipped` (skipped when upstream failed and `continue_on_failure` is false on the failed node’s dependents).
 - **Run:** `completed` (no failed nodes), `failed` (hard stop: a node failed without `continue_on_failure`), `partial` (some nodes failed but execution continued).
 
+## Resume and graph identity
+
+If `resume=True` and `workflow/pipeline_state.json` exists, the **serialized** `PipelineNode` list must match the nodes you pass in. A mismatch raises `ValueError` instead of silently starting a new run with stale state (avoids corrupt or crossed patient runs).
+
+## Provenance JSON
+
+`collect_provenance` / `workflow/provenance.json` include `node_states` (per-node status, attempts, errors, timestamps) in addition to declarative `nodes` and flat `artifacts`.
+
 ## Retries
 
 `max_retries=N` ⇒ **N** additional attempts after the first failure (total **1+N** tries). Only transient steps should use retries.

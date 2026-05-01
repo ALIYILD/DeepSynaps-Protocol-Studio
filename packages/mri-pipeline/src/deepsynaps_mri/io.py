@@ -144,6 +144,8 @@ def convert_dicom_to_nifti(
     dicom_dir: Path,
     out_dir: Path,
     anonymize: bool = True,
+    *,
+    stderr_log_path: Path | None = None,
 ) -> list[ConvertedScan]:
     """
     Convert a DICOM directory into one or more NIfTI files.
@@ -155,6 +157,11 @@ def convert_dicom_to_nifti(
         -ba y  : anonymize BIDS sidecar
         -z y   : gzip output
         -f %d_%s : filename template (SeriesDescription_SeriesNumber)
+
+    stderr_log_path
+        If set, ``dcm2niix`` stderr is appended here on failure (audit trail).
+        Successful runs do not write this file unless stderr is non-empty
+        (warnings are logged at INFO).
 
     Returns a list of `ConvertedScan`, one per output series.
 
@@ -177,9 +184,19 @@ def convert_dicom_to_nifti(
         ]
         log.info("Running: %s", " ".join(cmd))
         try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True)
+            proc = subprocess.run(cmd, check=True, capture_output=True, text=True)
+            if proc.stderr and proc.stderr.strip():
+                log.info("dcm2niix stderr: %s", proc.stderr.strip()[:2000])
         except subprocess.CalledProcessError as exc:
-            log.error("dcm2niix failed: %s", exc.stderr)
+            err = (exc.stderr or "").strip()
+            log.error("dcm2niix failed: %s", err[:2000] if err else exc)
+            if stderr_log_path is not None:
+                stderr_log_path = Path(stderr_log_path)
+                stderr_log_path.parent.mkdir(parents=True, exist_ok=True)
+                stderr_log_path.write_text(
+                    f"command: {' '.join(cmd)}\nreturncode: {exc.returncode}\n\n{exc.stderr or ''}",
+                    encoding="utf-8",
+                )
             raise
     else:
         log.warning("dcm2niix not installed; falling back to dicom2nifti (slower, less BIDS-rich)")

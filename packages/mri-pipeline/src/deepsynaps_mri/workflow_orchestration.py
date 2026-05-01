@@ -166,6 +166,16 @@ def collect_provenance(run: PipelineRun) -> dict[str, Any]:
         for a in st.artifacts:
             artifacts.append({**a.to_dict(), "node_status": st.status})
     nodes_meta = [n.to_dict() for n in run.nodes]
+    node_states_summary = {
+        nid: {
+            "status": st.status,
+            "attempts": st.attempts,
+            "last_error": st.last_error,
+            "started_at": st.started_at,
+            "finished_at": st.finished_at,
+        }
+        for nid, st in run.node_states.items()
+    }
     return {
         "run_id": run.run_id,
         "status": run.status,
@@ -175,6 +185,7 @@ def collect_provenance(run: PipelineRun) -> dict[str, Any]:
         "finished_at": run.finished_at,
         "execution_order": run.execution_order,
         "nodes": nodes_meta,
+        "node_states": node_states_summary,
         "artifacts": artifacts,
         "context_keys": sorted(run.context.keys()),
     }
@@ -210,9 +221,13 @@ def execute_pipeline(
     root.mkdir(parents=True, exist_ok=True)
 
     existing = load_pipeline_run(root) if resume else None
-    if existing and resume and [n.model_dump() for n in existing.nodes] == [
-        n.model_dump() for n in nodes
-    ]:
+    if resume and existing is not None:
+        if [n.model_dump() for n in existing.nodes] != [n.model_dump() for n in nodes]:
+            raise ValueError(
+                "Cannot resume: pipeline nodes do not match persisted workflow state "
+                f"under {root / 'workflow'}. Remove that directory or pass the same "
+                "node definitions as the original run."
+            )
         run = existing
         if run.status == "completed":
             log.info("Pipeline already completed run_id=%s", run.run_id)
