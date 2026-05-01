@@ -13,6 +13,13 @@ from .ingestion import (
     normalize_video_stream,
     sample_video_frames,
 )
+from .pose_engine import (
+    PoseEngineError,
+    estimate_2d_pose,
+    estimate_3d_pose,
+    extract_joint_trajectories,
+    smooth_pose_trajectories,
+)
 from .schemas import (
     CameraInfo,
     FrameSample,
@@ -30,11 +37,16 @@ __all__ = [
     "NormalizationConfig",
     "NormalizedVideo",
     "ProvenanceRecord",
+    "PoseEngineError",
     "VideoAsset",
     "VideoIOBackend",
     "VideoMetadata",
+    "estimate_2d_pose",
+    "estimate_3d_pose",
     "extract_video_metadata",
+    "extract_joint_trajectories",
     "import_patient_video",
     "normalize_video_stream",
     "sample_video_frames",
+    "smooth_pose_trajectories",
 ]
