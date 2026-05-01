@@ -60,14 +60,20 @@ test('api.js exposes caregiverEmailDigestPreviewDispatch helper', () => {
 
 test('clinic-override helpers route under /api/v1/caregiver-consent/email-digest/', () => {
   const apiSrc = fs.readFileSync(API_PATH, 'utf8');
-  // Slice the section between the launch-audit header and the closing
-  // brace of the api object. All clinic-override URL literals must
-  // start with the canonical prefix.
+  // Slice the section between the launch-audit header and the NEXT
+  // launch-audit header (or the closing brace of the api object when
+  // this is the last section). All clinic-override URL literals must
+  // start with the canonical prefix. Sibling launch-audit additions
+  // (e.g. Channel Misconfiguration Detector #389) sit BELOW this
+  // section, so we cannot rely on the closing-brace anchor any more.
   const idx = apiSrc.indexOf('Clinic Caregiver Channel Override launch-audit');
   assert.ok(idx > 0, 'launch-audit header missing in api.js');
   const after = apiSrc.slice(idx);
-  // Stop the slice at the closing brace of the api object literal.
-  const sectionEnd = after.indexOf('};');
+  // Stop at the next ── launch-audit header — this is the canonical
+  // section separator inside api.js. Fall back to the closing-brace
+  // anchor when no further section exists.
+  const nextHeaderIdx = after.indexOf('// ── ', 1);
+  const sectionEnd = nextHeaderIdx > 0 ? nextHeaderIdx : after.indexOf('};');
   const block = sectionEnd > 0 ? after.slice(0, sectionEnd) : after;
   const urls = block.match(/['"]\/api\/v1\/[^'"]+/g) || [];
   assert.ok(urls.length >= 3, `expected >=3 URLs in the block, got ${urls.length}`);

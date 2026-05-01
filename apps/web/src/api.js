@@ -3296,6 +3296,28 @@ export const api = {
       '/api/v1/caregiver-consent/email-digest/preview-dispatch' + q,
     ).catch(() => null);
   },
+
+  // ── Channel Misconfiguration Detector launch-audit (2026-05-01) ───────────
+  // Closes section I rec from #387. Nightly worker scans every
+  // CaregiverDigestPreference row, evaluates adapter_available per row,
+  // and emits HIGH-priority caregiver_portal.channel_misconfigured_detected
+  // audit rows. The Care Team Coverage "Caregiver channels" tab consumes
+  // /status for the worker panel + /tick-once for the admin "Run detector
+  // now" CTA. Audit pings flow through the page-level surface
+  // ``channel_misconfiguration_detector``.
+  channelMisconfigDetectorStatus: () =>
+    apiFetch('/api/v1/channel-misconfiguration-detector/status').catch(
+      () => null,
+    ),
+  channelMisconfigDetectorTickOnce: () =>
+    apiFetch('/api/v1/channel-misconfiguration-detector/tick-once', {
+      method: 'POST',
+    }),
+  postChannelMisconfigDetectorAuditEvent: (data) =>
+    apiFetch('/api/v1/channel-misconfiguration-detector/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).

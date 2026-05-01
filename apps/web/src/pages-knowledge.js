@@ -7371,7 +7371,7 @@ export async function pgCareTeamCoverage(setTopbar) {
   var activeTab = window._coverageTab || 'coverage';
 
   async function loadAll() {
-    var [summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth, policyOrder, policyOverrides, policyMappings, deliveryConcerns, caregiverChannels] = await Promise.all([
+    var [summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth, policyOrder, policyOverrides, policyMappings, deliveryConcerns, caregiverChannels, channelMisconfigDetectorStatus] = await Promise.all([
       api.careTeamCoverageSummary(),
       api.careTeamCoverageOncallNow(),
       api.careTeamCoverageSlaConfig(),
@@ -7392,8 +7392,15 @@ export async function pgCareTeamCoverage(setTopbar) {
       typeof api.caregiverEmailDigestClinicPreferences === 'function'
         ? api.caregiverEmailDigestClinicPreferences()
         : null,
+      // Channel Misconfiguration Detector launch-audit (2026-05-01).
+      // Status snapshot of the nightly worker; null when the helper is
+      // not yet shipped or the API is unreachable so the panel can fall
+      // back to an honest "worker status: unreachable" banner.
+      typeof api.channelMisconfigDetectorStatus === 'function'
+        ? api.channelMisconfigDetectorStatus()
+        : null,
     ]);
-    return { summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth, policyOrder, policyOverrides, policyMappings, deliveryConcerns, caregiverChannels };
+    return { summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth, policyOrder, policyOverrides, policyMappings, deliveryConcerns, caregiverChannels, channelMisconfigDetectorStatus };
   }
 
   function isDemo(d) {
@@ -7695,21 +7702,108 @@ export async function pgCareTeamCoverage(setTopbar) {
   // that pins a misconfigured caregiver back to the clinic chain. The
   // tab fires ``care_team_coverage.caregiver_channels_view`` on first
   // render so the regulator transcript records the admin's read access.
+  // Channel Misconfiguration Detector launch-audit (2026-05-01).
+  // Renders the worker status panel + "Misconfigured: {n}" red summary
+  // badge + admin-only "Run detector now" CTA at the top of the
+  // Caregiver channels tab. Mounts a ``care_team_coverage.channel_misconfig_view``
+  // audit ping the first time the badge renders so the regulator
+  // transcript records the admin's read access. The "Run detector now"
+  // CTA additionally fires a separate audit ping via the
+  // /channel-misconfiguration-detector/audit-events endpoint so the
+  // worker-side surface also sees the click.
+  function renderChannelMisconfigDetectorPanel(d, misconfigCount) {
+    var status = d.channelMisconfigDetectorStatus || null;
+    var role = (window.__deepsynapsActorRole || '').toLowerCase();
+    var isAdmin = (role === 'admin' || role === 'supervisor' || role === 'regulator');
+    var redBadge = '<span data-testid="ctc-channel-misconfig-badge" style="background:rgba(251,113,133,0.18);color:#fb7185;padding:3px 10px;border-radius:6px;font-size:12px;font-weight:700;margin-left:8px">Misconfigured: ' + _esc(String(misconfigCount)) + '</span>';
+    var greenBadge = '<span style="background:rgba(45,212,191,0.18);color:#2dd4bf;padding:3px 10px;border-radius:6px;font-size:12px;font-weight:700;margin-left:8px">Misconfigured: 0</span>';
+    var badge = misconfigCount > 0 ? redBadge : greenBadge;
+
+    if (status == null) {
+      return '<div data-testid="ctc-channel-misconfig-panel" class="notice notice-info" style="margin-bottom:12px;font-size:12px">' +
+        '<strong>Channel misconfiguration detector status unreachable.</strong> The override surface still works; the nightly detector is not visible from this page until the API responds.' + badge +
+        '</div>';
+    }
+
+    var runningDot = status.running
+      ? '<span style="color:#10b981;font-weight:700">●</span>'
+      : '<span style="color:#9ca3af">○</span>';
+    var lastTick = status.last_tick_at
+      ? new Date(status.last_tick_at).toISOString().slice(11, 19) + ' UTC'
+      : '—';
+    var flagged24h = Number(status.misconfigs_flagged_last_24h) || 0;
+    var caregivers = Number(status.caregivers_in_clinic) || 0;
+    var processNote = status.process_enabled_via_env
+      ? ''
+      : '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Worker thread is dormant in this deploy (DEEPSYNAPS_CHANNEL_DETECTOR_ENABLED=0). Misconfig detection only runs when the env var is set; until then the badge reflects only manual /tick-once invocations.</div>';
+    var lastError = status.last_error
+      ? ' <span style="color:#ef4444" title="' + _esc(status.last_error) + '">⚠ last error</span>'
+      : '';
+
+    var ctas = '';
+    if (isAdmin) {
+      ctas = '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">' +
+        '<button class="btn btn-sm" data-testid="ctc-channel-misconfig-run-now" onclick="window._channelMisconfigDetectorRunNow()">Run detector now (admin debug)</button>' +
+        '</div>';
+    }
+
+    function chip(label, value) {
+      return '<span style="background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:3px 8px;margin-right:6px;font-size:11px"><strong>' + _esc(label) + '</strong>: ' + _esc(String(value)) + '</span>';
+    }
+
+    return '<div data-testid="ctc-channel-misconfig-panel" class="notice" style="margin-bottom:12px;font-size:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:10px 14px">' +
+      '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">' +
+      '<span><strong>Channel misconfiguration detector</strong>' + badge + '</span>' +
+      '<span>' + runningDot + ' running (process)</span>' +
+      '<span style="color:var(--text-muted)">last tick ' + _esc(lastTick) + '</span>' +
+      lastError +
+      '</div>' +
+      '<div style="margin-top:6px">' +
+      chip('caregivers', caregivers) +
+      chip('flagged 24h', flagged24h) +
+      chip('cooldown', String(Number(status.cooldown_hours) || 24) + 'h') +
+      chip('staleness', String(Number(status.staleness_hours) || 24) + 'h') +
+      '</div>' +
+      processNote +
+      ctas +
+      '</div>';
+  }
+
   function renderCaregiverChannelsTab(d) {
     var data = d.caregiverChannels || null;
     var items = (data && Array.isArray(data.items)) ? data.items : [];
     var isMockMode = !!(data && data.is_mock_mode);
+    var misconfigCount = items.filter(function(it) {
+      return it && it.is_misconfigured === true;
+    }).length;
     api.postCareTeamCoverageAuditEvent({
       event: 'caregiver_channels_view',
       note: 'rows=' + items.length + (isMockMode ? '; mock_mode=1' : ''),
     });
+    // Channel Misconfiguration Detector launch-audit (2026-05-01).
+    // Mount-time audit ping on the page-level surface so the regulator
+    // transcript joins the admin's read of this tab to the
+    // ``channel_misconfiguration_detector`` surface alongside the
+    // ``care_team_coverage.caregiver_channels_view`` ping above.
+    api.postCareTeamCoverageAuditEvent({
+      event: 'channel_misconfig_view',
+      note: 'misconfigured=' + misconfigCount + (isMockMode ? '; mock_mode=1' : ''),
+    });
+    if (typeof api.postChannelMisconfigDetectorAuditEvent === 'function') {
+      api.postChannelMisconfigDetectorAuditEvent({
+        event: 'view',
+        note: 'misconfigured=' + misconfigCount,
+      });
+    }
+    var detectorPanel = renderChannelMisconfigDetectorPanel(d, misconfigCount);
     if (data == null) {
-      return '<div data-testid="ctc-caregiver-channels" class="notice notice-info" style="padding:14px;font-size:12px">' +
+      return detectorPanel +
+        '<div data-testid="ctc-caregiver-channels" class="notice notice-info" style="padding:14px;font-size:12px">' +
         '<strong>Caregiver channels backend unreachable.</strong> Until the API is up the admin override surface is unavailable; caregiver-side preferences continue to dispatch via the existing clinic chain.' +
         '</div>';
     }
     if (items.length === 0) {
-      return emptyState(
+      return detectorPanel + emptyState(
         '✉',
         'No caregiver preferences in this clinic.',
         'Caregivers must enable the daily digest from their portal before they appear here. Once they pick a preferred channel (email / sms / slack / pagerduty) you can review or override the routing from this tab.',
@@ -7751,7 +7845,8 @@ export async function pgCareTeamCoverage(setTopbar) {
         '<td>' + overrideBtn + '</td>' +
         '</tr>';
     }).join('');
-    return '<div data-testid="ctc-caregiver-channels" style="overflow-x:auto">' +
+    return detectorPanel +
+      '<div data-testid="ctc-caregiver-channels" style="overflow-x:auto">' +
       '<div style="margin-bottom:10px;font-size:12px;color:var(--text-secondary);line-height:1.5">' +
         '<strong>Caregiver channel overrides for this clinic.</strong> ' + mockChip +
         ' Each row shows the caregiver\'s preferred channel and the resolved dispatch chain. ' +
@@ -8104,6 +8199,46 @@ export async function pgCareTeamCoverage(setTopbar) {
       }
     } catch (e) {
       window.alert('Override failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    render();
+  };
+
+  // Channel Misconfiguration Detector launch-audit (2026-05-01).
+  // Admin-only debug — runs ONE detector tick synchronously bounded to
+  // the actor's clinic and returns the counts the worker would have
+  // audited. Useful for verifying caregiver preferences + adapter
+  // wiring without waiting for the next 24h cron tick. Mirrors the
+  // /auto-page-worker/tick-once UX from #372.
+  window._channelMisconfigDetectorRunNow = async function() {
+    if (typeof api.channelMisconfigDetectorTickOnce !== 'function') {
+      window.alert('Channel misconfig detector not available in this deploy.');
+      return;
+    }
+    api.postCareTeamCoverageAuditEvent({
+      event: 'channel_misconfig_run_now_clicked',
+      note: 'admin clicked Run detector now',
+    });
+    if (typeof api.postChannelMisconfigDetectorAuditEvent === 'function') {
+      api.postChannelMisconfigDetectorAuditEvent({
+        event: 'run_now_clicked',
+        note: 'admin clicked Run detector now',
+      });
+    }
+    try {
+      var resp = await api.channelMisconfigDetectorTickOnce();
+      if (resp && resp.accepted) {
+        window.alert(
+          'Detector tick complete.\n' +
+          'Caregivers scanned: ' + (resp.caregivers_scanned || 0) + '\n' +
+          'Misconfigs flagged: ' + (resp.misconfigs_flagged || 0) + '\n' +
+          'Skipped (cooldown): ' + (resp.skipped_cooldown || 0) + '\n' +
+          'Errors: ' + (resp.errors || 0)
+        );
+      } else {
+        window.alert('Detector tick did not accept; check your role + that you belong to a clinic.');
+      }
+    } catch (e) {
+      window.alert('Detector tick failed: ' + (e && e.message ? e.message : 'unknown'));
     }
     render();
   };

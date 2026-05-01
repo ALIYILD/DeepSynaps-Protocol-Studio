@@ -115,6 +115,9 @@ from app.routers.patient_oncall_router import router as patient_oncall_router
 from app.routers.patient_digest_router import router as patient_digest_router
 from app.routers.caregiver_consent_router import router as caregiver_consent_router
 from app.routers.caregiver_email_digest_router import router as caregiver_email_digest_router
+from app.routers.channel_misconfiguration_detector_router import (
+    router as channel_misconfiguration_detector_router,
+)
 from app.routers.audit_trail_router import router as audit_trail_router
 # Settings API routers (foundation scaffolded by backend subagent #1; endpoints
 # fleshed out by backend subagents #3–#6). See apps/api/SETTINGS_API_DESIGN.md.
@@ -172,6 +175,10 @@ from app.workers.auto_page_worker import (
 from app.workers.caregiver_email_digest_worker import (
     shutdown_worker as shutdown_caregiver_email_digest_worker,
     start_worker_if_enabled as start_caregiver_email_digest_worker,
+)
+from app.workers.channel_misconfiguration_detector_worker import (
+    shutdown_worker as shutdown_channel_misconfig_detector_worker,
+    start_worker_if_enabled as start_channel_misconfig_detector_worker,
 )
 from app.services.agent_skills_seed import seed_default_agent_skills
 from app.services.clinical_data import seed_clinical_dataset
@@ -272,12 +279,19 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
     # dispatches. Per-caregiver enable lives on
     # caregiver_digest_preferences.enabled.
     start_caregiver_email_digest_worker()
+    # Channel Misconfiguration Detector Worker (2026-05-01) — gated on
+    # DEEPSYNAPS_CHANNEL_DETECTOR_ENABLED so tests / CI don't fire flags.
+    # Nightly scan that turns the override admin tab's misconfig flag
+    # (#387) into an active HIGH-priority inbox row so admins don't have
+    # to discover the misconfig manually.
+    start_channel_misconfig_detector_worker()
     try:
         yield
     finally:
         shutdown_scheduler()
         shutdown_auto_page_worker()
         shutdown_caregiver_email_digest_worker()
+        shutdown_channel_misconfig_detector_worker()
 
 
 app = FastAPI(title=settings.api_title, version=settings.api_version, lifespan=lifespan)
@@ -406,6 +420,13 @@ app.include_router(clinician_digest_router)
 # enable via escalation_chains.auto_page_enabled; process-wide enable
 # via DEEPSYNAPS_AUTO_PAGE_ENABLED=1 env var.
 app.include_router(auto_page_worker_router)
+# Channel Misconfiguration Detector launch-audit (2026-05-01). Closes
+# section I rec from the Clinic Caregiver Channel Override (#387).
+# Nightly scan that walks every CaregiverDigestPreference row, evaluates
+# adapter_available per row, and emits HIGH-priority audit rows so the
+# Clinician Inbox aggregator surfaces channel misconfigs without the
+# admin having to manually open the "Caregiver channels" tab.
+app.include_router(channel_misconfiguration_detector_router)
 # Escalation Policy Editor (2026-05-01) — admin-only configurable
 # dispatch order + per-surface override matrix + per-user contact mapping.
 # Replaces the hard-coded DEFAULT_ADAPTER_ORDER and contact_handle path

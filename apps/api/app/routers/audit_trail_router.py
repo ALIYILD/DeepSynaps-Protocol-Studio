@@ -399,6 +399,22 @@ KNOWN_SURFACES = {
     # the manual send-now handler so the regulator transcript stays
     # consistent across worker + portal triggers).
     "caregiver_email_digest_worker",
+    # Channel Misconfiguration Detector launch-audit (2026-05-01). Closes
+    # section I rec from the Clinic Caregiver Channel Override #387.
+    # Nightly worker walks every ``CaregiverDigestPreference`` row,
+    # evaluates ``adapter_available`` per row, and emits a HIGH-priority
+    # ``caregiver_portal.channel_misconfigured_detected`` audit row when
+    # the caregiver's preferred channel adapter is unavailable AND no
+    # successful delivery has been observed in the last 24h. The
+    # priority=high marker auto-routes the row into the Clinician Inbox
+    # aggregator (#354) so admins don't have to discover the misconfig
+    # manually by opening the "Caregiver channels" tab. Per-tick row
+    # encodes caregivers_scanned/misconfigs_flagged/skipped_*/errors/
+    # elapsed_ms; cooldown per (caregiver, clinic) prevents duplicate
+    # flags within 24h. Page-level events recorded here: view,
+    # polling_tick, status_viewed, run_now_clicked, tick_once_clicked,
+    # filter_changed, demo_banner_shown.
+    "channel_misconfiguration_detector",
 }
 
 
