@@ -1921,6 +1921,44 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
+  // ── Patient Digest launch-audit (2026-05-01) ────────────────────────────
+  // Patient-side mirror of the Clinician Digest (#366). Daily/weekly self-
+  // summary the patient sees on demand: sessions completed, adherence
+  // streak, wellness trends, pending messages, recent reports. Scoped to
+  // actor.patient_id; NO PHI of OTHER patients leaks. All helpers return
+  // null on offline / 404 so the page can render an honest empty state.
+  patientDigestSummary: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/patient-digest/summary${q ? '?' + q : ''}`).catch(() => null);
+  },
+  patientDigestSections: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/patient-digest/sections${q ? '?' + q : ''}`).catch(() => null);
+  },
+  patientDigestSendEmail: (data) =>
+    apiFetch('/api/v1/patient-digest/send-email', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  patientDigestShareCaregiver: (data) =>
+    apiFetch('/api/v1/patient-digest/share-caregiver', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  patientDigestExportCsvUrl: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return `/api/v1/patient-digest/export.csv${q ? '?' + q : ''}`;
+  },
+  patientDigestExportNdjsonUrl: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return `/api/v1/patient-digest/export.ndjson${q ? '?' + q : ''}`;
+  },
+  postPatientDigestAuditEvent: (data) =>
+    apiFetch('/api/v1/patient-digest/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
   // ── Wearables Workbench (clinician triage queue) ──────────────────────────
   // Bidirectional counterpart to Patient Wearables (#352). Surfaces the
   // server-side triage queue over wearable_alert_flags so clinicians can
