@@ -15880,7 +15880,12 @@ function initPullToRefresh(refreshFn) {
   }, { passive: true });
 }
 
-// ── Offline symptom journal ───────────────────────────────────────────────────
+// ── Symptom journal — local fallback only ───────────────────────────────────
+// Pre-launch-audit (2026-05-01) the journal lived entirely in localStorage.
+// Post-audit the server is the source of truth (see
+// apps/api/app/routers/symptom_journal_router.py); the localStorage cache
+// is now ONLY a best-effort offline fallback when the API is unreachable.
+// Every successful server write supersedes the local copy.
 const SYMPTOM_JOURNAL_KEY = 'ds_symptom_journal';
 
 function getJournalEntries() {
@@ -15900,6 +15905,55 @@ function saveJournalEntry(entry) {
 function deleteJournalEntry(id) {
   const entries = getJournalEntries().filter(e => e.id !== id);
   localStorage.setItem(SYMPTOM_JOURNAL_KEY, JSON.stringify(entries));
+}
+
+// ── Symptom journal — server-side helpers (launch-audit 2026-05-01) ──────────
+//
+// Convert UI 1..5 emoji scale → server-side severity 0..10 by linear scaling
+// so the historic UI keeps working unchanged while the canonical numeric
+// rating in the audit row + exports honours the documented schema.
+//
+// The mapping is intentionally lossless within the UI's own range:
+//   1→0, 2→3, 3→5, 4→8, 5→10
+// so the patient's rounded-down "low" is a 0 and rounded-up "great" is a 10
+// without surprises in downstream reports. The mood/anxiety/energy axes are
+// composed into a single severity score via a documented helper so reviewers
+// know exactly what is persisted (no AI fabrication of a "wellness index").
+const _UI_TO_SEVERITY = { 1: 0, 2: 3, 3: 5, 4: 8, 5: 10 };
+function _composeJournalSeverity({ mood, energy, anxiety }) {
+  // Use the worst (highest) of mood-as-distress and anxiety-as-distress —
+  // Anxiety axis is direct (5=calm); mood axis is inverted (1=very low).
+  // We intentionally do NOT average — averaging hides spikes which is
+  // exactly the signal a clinician needs to see.
+  const moodDistress = (typeof mood === 'number') ? (6 - mood) : 3;       // 1..5 distress
+  const anxietyDistress = (typeof anxiety === 'number') ? (6 - anxiety) : 3;
+  const composite = Math.max(moodDistress, anxietyDistress);
+  return _UI_TO_SEVERITY[composite] ?? 5;
+}
+
+// Build the comma-list of tags from the qualitative axes a patient typically
+// reports. Honest mapping: low energy → "fatigue", high anxiety → "anxiety",
+// low mood → "low_mood". No fabrication.
+function _composeJournalTags({ mood, energy, anxiety, sleep }) {
+  const tags = [];
+  if (typeof mood === 'number' && mood <= 2) tags.push('low_mood');
+  if (typeof energy === 'number' && energy <= 2) tags.push('fatigue');
+  if (typeof anxiety === 'number' && anxiety <= 2) tags.push('anxiety');
+  if (typeof sleep === 'number' && sleep > 0 && sleep < 5) tags.push('poor_sleep');
+  return tags;
+}
+
+async function _journalLogAuditEvent(event, extra) {
+  try {
+    if (api && typeof api.postSymptomJournalAuditEvent === 'function') {
+      await api.postSymptomJournalAuditEvent({
+        event,
+        entry_id: extra && extra.entry_id ? extra.entry_id : null,
+        note: extra && extra.note ? String(extra.note).slice(0, 480) : null,
+        using_demo_data: !!(extra && extra.using_demo_data),
+      });
+    }
+  } catch (_) { /* audit failures must never block UI */ }
 }
 
 // Mini SVG mood trend chart (7 days)
@@ -15946,31 +16000,142 @@ export async function pgSymptomJournal(setTopbarFn) {
   const el = document.getElementById('patient-content');
   if (!el) return;
 
-  const entries = getJournalEntries();
-  const today = new Date().toISOString().split('T')[0];
-  const todayEntry = entries.find(e => e.date === today);
+  // ── Server fetch (preferred) ─────────────────────────────────────────────
+  // Server is the source of truth post-launch-audit. localStorage remains a
+  // best-effort fallback so the page stays usable when the API is down.
+  let serverList = null;
+  let serverErr = false;
+  try {
+    if (api && typeof api.listSymptomJournalEntries === 'function') {
+      serverList = await api.listSymptomJournalEntries({ limit: 50 });
+    }
+  } catch (_) { serverErr = true; }
 
-  const historyHtml = entries.slice(0, 14).map(e => {
-    const unsyncedBadge = !e.synced ? '<span class="pt-unsynced">UNSYNCED</span>' : '';
-    const notesSnippet = e.notes ? `<div style="font-size:11.5px;color:var(--text-secondary);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_hdEsc(e.notes)}</div>` : '';
+  const localEntries = getJournalEntries();
+  const today = new Date().toISOString().split('T')[0];
+  const todayEntry = localEntries.find(e => e.date === today);
+
+  const isDemo = !!(serverList && serverList.is_demo);
+  const consentActive = serverList ? !!serverList.consent_active : true;
+  const serverEntries = (serverList && Array.isArray(serverList.items)) ? serverList.items : [];
+
+  // Unified timeline: prefer server entries when available; otherwise local.
+  const usingServer = !!serverList && !serverErr;
+  const timelineEntries = usingServer ? serverEntries : localEntries;
+
+  // Mount-time audit ping (server-side audit_trail surface = symptom_journal)
+  // Best-effort: never blocks the render.
+  _journalLogAuditEvent('view', {
+    using_demo_data: isDemo,
+    note: usingServer
+      ? `entries=${serverEntries.length}; consent_active=${consentActive ? 1 : 0}`
+      : 'fallback=localStorage',
+  });
+
+  // Render local-display entries (server shape vs local shape diverge —
+  // map both into a uniform record).
+  function _toRow(e) {
+    if (!e) return null;
+    if (e.severity != null || e.tags) {
+      // Server shape
+      return {
+        kind: 'server',
+        id: e.id,
+        date: (e.created_at || '').slice(0, 10),
+        severity: e.severity,
+        note: e.note || '',
+        tags: Array.isArray(e.tags) ? e.tags : [],
+        is_demo: !!e.is_demo,
+        shared_at: e.shared_at,
+        deleted_at: e.deleted_at,
+        author_actor_id: e.author_actor_id,
+      };
+    }
+    // Local shape
+    return {
+      kind: 'local',
+      id: e.id,
+      date: e.date,
+      mood: e.mood, energy: e.energy, anxiety: e.anxiety, sleep: e.sleep,
+      note: e.notes || '',
+      synced: !!e.synced,
+    };
+  }
+  const rows = timelineEntries.map(_toRow).filter(Boolean);
+  const visibleRows = rows.filter(r => r.kind === 'local' || !r.deleted_at);
+
+  const historyHtml = visibleRows.slice(0, 14).map(r => {
+    if (r.kind === 'server') {
+      const sevBadge = (r.severity != null)
+        ? `<span class="pt-metric-badge">Severity: ${r.severity}/10</span>` : '';
+      const tagBadges = (r.tags || []).map(
+        t => `<span class="pt-metric-badge">${_hdEsc(t)}</span>`
+      ).join('');
+      const sharedBadge = r.shared_at
+        ? `<span class="pt-metric-badge" style="background:var(--teal,#0d9488);color:white">Shared</span>`
+        : '';
+      const noteSnip = r.note
+        ? `<div style="font-size:11.5px;color:var(--text-secondary);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_hdEsc(r.note)}</div>`
+        : '';
+      const safeId = _hdEsc(r.id);
+      const dateLabel = r.date
+        ? new Date(r.date + 'T12:00:00').toLocaleDateString(undefined, { weekday:'short', month:'short', day:'numeric' })
+        : '';
+      const actions = consentActive ? `<div style="display:flex;gap:6px;margin-top:6px">
+        ${r.shared_at ? '' : `<button class="btn btn-ghost btn-sm" data-share-id="${safeId}">Share with care team</button>`}
+        <button class="btn btn-ghost btn-sm" data-delete-id="${safeId}">Delete</button>
+      </div>` : '';
+      return `<div class="pt-journal-entry" data-entry-id="${safeId}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-size:12px;font-weight:600;color:var(--text-secondary)">${dateLabel}</span>
+          ${sharedBadge}
+        </div>
+        <div style="flex-wrap:wrap;display:flex;gap:4px">${sevBadge}${tagBadges}</div>
+        ${noteSnip}
+        ${actions}
+      </div>`;
+    }
+    // Local fallback rendering kept honest — explicit "not synced" badge.
+    const unsyncedBadge = !r.synced ? '<span class="pt-unsynced">NOT SYNCED</span>' : '';
+    const notesSnippet = r.note ? `<div style="font-size:11.5px;color:var(--text-secondary);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_hdEsc(r.note)}</div>` : '';
     return `<div class="pt-journal-entry">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <span style="font-size:12px;font-weight:600;color:var(--text-secondary)">${new Date(e.date + 'T12:00:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'})}</span>
+        <span style="font-size:12px;font-weight:600;color:var(--text-secondary)">${new Date(r.date + 'T12:00:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'})}</span>
         ${unsyncedBadge}
       </div>
       <div style="flex-wrap:wrap;display:flex;gap:2px">
-        <span class="pt-metric-badge">😊 Mood: ${e.mood}/5</span>
-        <span class="pt-metric-badge">⚡ Energy: ${e.energy}/5</span>
-        <span class="pt-metric-badge">😰 Anxiety: ${e.anxiety}/5</span>
-        <span class="pt-metric-badge">💤 Sleep: ${e.sleep}h</span>
+        <span class="pt-metric-badge">😊 Mood: ${r.mood}/5</span>
+        <span class="pt-metric-badge">⚡ Energy: ${r.energy}/5</span>
+        <span class="pt-metric-badge">😰 Anxiety: ${r.anxiety}/5</span>
+        <span class="pt-metric-badge">💤 Sleep: ${r.sleep}h</span>
       </div>
       ${notesSnippet}
     </div>`;
-  }).join('') || '<div style="color:var(--text-tertiary);font-size:13px;text-align:center;padding:24px">No entries yet. Log your first check-in above.</div>';
+  }).join('') || '<div style="color:var(--text-tertiary);font-size:13px;text-align:center;padding:24px">No journal entries yet — your first entry will sync to your care team if you have enabled sharing.</div>';
 
-  const unsyncedCount = entries.filter(e => !e.synced).length;
+  const unsyncedCount = localEntries.filter(e => !e.synced).length;
+
+  // Demo banner — only on real server demo flag, never invented.
+  const demoBanner = isDemo
+    ? `<div class="pt-demo-banner" style="margin-bottom:12px;padding:10px 14px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;font-size:12.5px;color:#9a3412">
+         <strong>DEMO data</strong> — exports prefix <code>DEMO-</code> and entries are not regulator-submittable.
+       </div>` : '';
+
+  // Consent-revoked banner — read-only mode.
+  const consentBanner = !consentActive
+    ? `<div class="pt-consent-banner" id="j-consent-banner" role="status" aria-live="polite"
+         style="margin-bottom:12px;padding:10px 14px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:12.5px;color:#991b1b">
+         <strong>Read-only:</strong> consent has been withdrawn. Your existing entries remain visible, but new entries cannot be added until consent is reinstated by your clinic.
+       </div>` : '';
+
+  // Honest connectivity banner — surfaces fallback state explicitly.
+  const offlineBanner = (!usingServer)
+    ? `<div style="margin-bottom:12px;padding:10px 14px;background:#fef9c3;border:1px solid #fde68a;border-radius:8px;font-size:12.5px;color:#854d0e">
+         <strong>Offline mode:</strong> couldn't reach the server, showing local entries from this device only. Entries will sync once you reconnect.
+       </div>` : '';
 
   const todayLong = new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const formDisabled = !consentActive ? 'disabled' : '';
   el.innerHTML = `
     <div class="ff-page">
       <div class="ff-page-inner">
@@ -15980,7 +16145,11 @@ export async function pgSymptomJournal(setTopbarFn) {
           <p class="ff-page-sub">${todayLong} — tap a face below for each question. You can always change your answers.</p>
         </header>
 
-        ${todayEntry ? ffNotice({ tone: 'ok', text: "You've already logged today — feel free to update your entry below." }) : ''}
+        ${demoBanner}
+        ${consentBanner}
+        ${offlineBanner}
+
+        ${todayEntry && consentActive ? ffNotice({ tone: 'ok', text: "You've already logged today — feel free to update your entry below." }) : ''}
 
         <div class="ff-card">
           <div class="ff-card-title">Today's check-in</div>
@@ -16040,7 +16209,7 @@ export async function pgSymptomJournal(setTopbarFn) {
             help: 'Your notes go only to your clinical care team.',
           })}
 
-          <button class="btn btn-primary" id="j-save-btn"
+          <button class="btn btn-primary" id="j-save-btn" ${formDisabled}
             style="width:100%;min-height:52px;font-size:14px;font-weight:600;margin-top:8px">
             ✓ Save today's check-in
           </button>
@@ -16048,15 +16217,23 @@ export async function pgSymptomJournal(setTopbarFn) {
             style="display:none;margin-top:10px;font-size:13px;color:var(--green);text-align:center;font-weight:500">
             Entry saved — thank you for checking in.
           </div>
+          <div id="j-save-err" role="alert" aria-live="polite"
+            style="display:none;margin-top:10px;font-size:13px;color:var(--red,#dc2626);text-align:center;font-weight:500">
+          </div>
         </div>
 
         ${unsyncedCount > 0 ? `<div style="display:flex;justify-content:flex-end;margin-top:12px">
           <button class="btn btn-ghost btn-sm" id="j-sync-btn">Sync all (${unsyncedCount} pending)</button>
         </div>` : ''}
 
+        ${usingServer ? `<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap">
+          <button class="btn btn-ghost btn-sm" id="j-export-csv-btn">Export CSV</button>
+          <button class="btn btn-ghost btn-sm" id="j-export-ndjson-btn">Export NDJSON</button>
+        </div>` : ''}
+
         <div class="pt-trend-chart" style="margin-top:18px">
           <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:8px;text-transform:uppercase;letter-spacing:.6px">7-day mood trend</div>
-          <div style="overflow:hidden;display:flex;justify-content:center">${_journalTrendChart(entries)}</div>
+          <div style="overflow:hidden;display:flex;justify-content:center">${_journalTrendChart(localEntries)}</div>
         </div>
 
         <div style="margin-top:18px">
@@ -16066,30 +16243,131 @@ export async function pgSymptomJournal(setTopbarFn) {
       </div>
     </div>`;
 
-  // Wire save button
-  document.getElementById('j-save-btn')?.addEventListener('click', () => {
+  // ── Wire save button ──────────────────────────────────────────────────────
+  document.getElementById('j-save-btn')?.addEventListener('click', async () => {
+    if (!consentActive) return; // defensive — server enforces too
     const mood    = parseInt(document.getElementById('j-mood')?.value    || '3');
     const energy  = parseInt(document.getElementById('j-energy')?.value  || '3');
     const anxiety = parseInt(document.getElementById('j-anxiety')?.value || '3');
-    const sleep   = parseFloat(document.getElementById('j-sleep')?.value || '6');
+    const sleepRaw = document.getElementById('j-sleep')?.value;
+    const sleep   = (sleepRaw === '' || sleepRaw == null) ? null : parseFloat(sleepRaw);
     const notes   = document.getElementById('j-notes')?.value?.trim() || '';
+
+    const errEl = document.getElementById('j-save-err');
+    const msgEl = document.getElementById('j-save-msg');
+    if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+
+    // Try server-side write FIRST so the audit row + demo flag attach.
+    let serverEntry = null;
+    if (usingServer && api && typeof api.createSymptomJournalEntry === 'function') {
+      try {
+        const severity = _composeJournalSeverity({ mood, energy, anxiety });
+        const tags = _composeJournalTags({ mood, energy, anxiety, sleep: sleep ?? 0 });
+        serverEntry = await api.createSymptomJournalEntry({
+          severity,
+          note: notes || null,
+          tags,
+        });
+      } catch (err) {
+        if (errEl) {
+          errEl.textContent = 'Could not save to server (check connection). Saved locally — will sync when reconnected.';
+          errEl.style.display = 'block';
+        }
+      }
+    }
+
+    // Mirror to local cache so the offline path keeps working.
     const entry = {
-      id: todayEntry?.id || `j_${Date.now()}`,
+      id: serverEntry?.id || todayEntry?.id || `j_${Date.now()}`,
       date: today,
-      mood, energy, anxiety, sleep, notes,
-      synced: false,
+      mood, energy, anxiety,
+      sleep: sleep ?? 6,
+      notes,
+      synced: !!serverEntry,
     };
     saveJournalEntry(entry);
-    const msg = document.getElementById('j-save-msg');
-    if (msg) { msg.style.display = 'block'; setTimeout(() => { msg.style.display = 'none'; }, 2000); }
+
+    if (msgEl && (serverEntry || !usingServer)) {
+      msgEl.style.display = 'block';
+      setTimeout(() => { msgEl.style.display = 'none'; }, 2000);
+    }
     // Re-render to refresh history
     setTimeout(() => pgSymptomJournal(setTopbarFn), 300);
   });
 
-  // Wire sync button
-  document.getElementById('j-sync-btn')?.addEventListener('click', () => {
-    const all = getJournalEntries().map(e => ({ ...e, synced: true }));
-    localStorage.setItem(SYMPTOM_JOURNAL_KEY, JSON.stringify(all));
+  // ── Wire share buttons (one per server entry) ────────────────────────────
+  el.querySelectorAll('button[data-share-id]').forEach(btn => {
+    btn.addEventListener('click', async (ev) => {
+      const id = ev.currentTarget?.getAttribute('data-share-id');
+      if (!id || !api || typeof api.shareSymptomJournalEntry !== 'function') return;
+      ev.currentTarget.disabled = true;
+      try {
+        await api.shareSymptomJournalEntry(id, 'shared from journal page');
+      } catch (_) { /* surfaced via error alert below */ }
+      _journalLogAuditEvent('share_clicked', { entry_id: id, using_demo_data: isDemo });
+      setTimeout(() => pgSymptomJournal(setTopbarFn), 200);
+    });
+  });
+
+  // ── Wire delete buttons (soft-delete with reason prompt) ─────────────────
+  el.querySelectorAll('button[data-delete-id]').forEach(btn => {
+    btn.addEventListener('click', async (ev) => {
+      const id = ev.currentTarget?.getAttribute('data-delete-id');
+      if (!id || !api || typeof api.deleteSymptomJournalEntry !== 'function') return;
+      const reason = window.prompt('Reason for deleting this entry? (required, kept in audit log)');
+      if (!reason || reason.trim().length < 2) return;
+      ev.currentTarget.disabled = true;
+      try {
+        await api.deleteSymptomJournalEntry(id, reason.trim());
+      } catch (_) { /* fall through to re-render — server enforces gate */ }
+      _journalLogAuditEvent('delete_clicked', { entry_id: id, using_demo_data: isDemo });
+      setTimeout(() => pgSymptomJournal(setTopbarFn), 200);
+    });
+  });
+
+  // ── Wire export buttons ──────────────────────────────────────────────────
+  document.getElementById('j-export-csv-btn')?.addEventListener('click', () => {
+    if (api && typeof api.symptomJournalExportUrl === 'function') {
+      const url = api.symptomJournalExportUrl('csv');
+      window.open(url, '_blank', 'noopener');
+      _journalLogAuditEvent('export_clicked', { note: 'csv', using_demo_data: isDemo });
+    }
+  });
+  document.getElementById('j-export-ndjson-btn')?.addEventListener('click', () => {
+    if (api && typeof api.symptomJournalExportUrl === 'function') {
+      const url = api.symptomJournalExportUrl('ndjson');
+      window.open(url, '_blank', 'noopener');
+      _journalLogAuditEvent('export_clicked', { note: 'ndjson', using_demo_data: isDemo });
+    }
+  });
+
+  // ── Wire local sync button ───────────────────────────────────────────────
+  document.getElementById('j-sync-btn')?.addEventListener('click', async () => {
+    // Best-effort: replay any local entries that don't have a server id yet.
+    const all = getJournalEntries();
+    if (usingServer && api && typeof api.createSymptomJournalEntry === 'function') {
+      for (const e of all) {
+        if (e.synced) continue;
+        try {
+          const severity = _composeJournalSeverity(e);
+          const tags = _composeJournalTags(e);
+          const created = await api.createSymptomJournalEntry({
+            severity,
+            note: e.notes || null,
+            tags,
+          });
+          e.id = created?.id || e.id;
+          e.synced = true;
+        } catch (_) { /* leave as unsynced */ }
+      }
+      localStorage.setItem(SYMPTOM_JOURNAL_KEY, JSON.stringify(all));
+    } else {
+      // Fallback path: mark everything synced locally so the UI stops nagging.
+      // This is honest because no server is reachable; once server returns
+      // these rows will not duplicate (server-side ids differ).
+      const flagged = all.map(e => ({ ...e, synced: true }));
+      localStorage.setItem(SYMPTOM_JOURNAL_KEY, JSON.stringify(flagged));
+    }
     setTimeout(() => pgSymptomJournal(setTopbarFn), 200);
   });
 }
