@@ -23496,16 +23496,25 @@ export async function pgPatientCaregiver() {
     // stamp from the cached last-ack lookup.
     const ackInfo = grantAckMap[g.id] || null;
     const lastDeliveryAck = ackInfo && ackInfo.last_acknowledged_at;
+    // Multi-Adapter Delivery Parity launch-audit (2026-05-01).
+    // Channel chip from the most recent landed dispatch (email / sms /
+    // slack / pagerduty). Renders next to the "Recent landed digests"
+    // header so the caregiver can see WHICH channel the dispatch
+    // arrived on. ``null`` when no landed dispatch exists yet.
+    const landedChannel = ackInfo && ackInfo.latest_landed_channel;
+    const channelChipHtml = landedChannel
+      ? `<span data-testid="pt-cg-channel-chip" style="display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;background:rgba(45,212,191,0.14);color:#2dd4bf;font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px">via ${_ptCgEsc(landedChannel)}</span>`
+      : '';
     const recentDigestsHtml = (isActive && scope.digest)
       ? `<div data-testid="pt-cg-recent-digests" style="margin-top:10px;padding:10px 12px;border:1px solid rgba(45,212,191,0.2);border-radius:10px;background:rgba(45,212,191,0.04)">
           <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:6px">
-            <div style="font-size:12px;font-weight:600;color:var(--text-primary)">Recent landed digests</div>
+            <div style="font-size:12px;font-weight:600;color:var(--text-primary)">Recent landed digests${channelChipHtml}</div>
             ${lastDeliveryAck
               ? `<span style="font-size:10.5px;color:var(--text-tertiary)">Last confirmed: ${_ptCgFormatDate(lastDeliveryAck)}</span>`
               : `<span style="font-size:10.5px;color:#fbbf24">Awaiting confirmation</span>`}
           </div>
           <div style="font-size:11px;color:var(--text-tertiary);line-height:1.5;margin-bottom:8px">
-            When SendGrid confirms a digest landed in your inbox, click "I received it" so the patient's audit trail can prove the message round-tripped.
+            When the digest lands in your inbox, your phone, or your Slack DM, click "I received it" so the patient's audit trail can prove the message round-tripped on whichever channel they configured.
           </div>
           <button class="btn btn-sm" data-cg-ack-delivery="${_ptCgEsc(g.id)}" style="background:rgba(45,212,191,0.14);border:1px solid rgba(45,212,191,0.3);color:#2dd4bf;font-size:11.5px;padding:5px 12px;border-radius:8px;cursor:pointer">I received it</button>
         </div>` : '';
@@ -23831,10 +23840,16 @@ export async function pgPatientCaregiver() {
       try {
         const res = await api.caregiverPortalAcknowledgeDelivery(gid);
         if (res && res.last_acknowledged_at) {
+          // Multi-Adapter Delivery Parity launch-audit (2026-05-01):
+          // preserve the channel chip we already cached on the
+          // LastAcknowledgement lookup so the re-render keeps the
+          // "via {channel}" tag visible after the click.
+          const priorChannel = (grantAckMap[gid] && grantAckMap[gid].latest_landed_channel) || null;
           grantAckMap[gid] = {
             grant_id: gid,
             last_acknowledged_at: res.last_acknowledged_at,
             acknowledged_dispatch_id: res.acknowledged_dispatch_id || null,
+            latest_landed_channel: priorChannel,
           };
           window._showNotifToast && window._showNotifToast({
             title: res.cooldown_active
@@ -24758,6 +24773,16 @@ export async function pgPatientDigest(setTopbarFn) {
               // it". A row with zero deliveries shows neither.
               const ackIso = r.last_acknowledged_at;
               const delivered = (r.digests_delivered_count || 0);
+              // Multi-Adapter Delivery Parity launch-audit (2026-05-01).
+              // Per-row channel chip ("via email" / "via sms" / "via
+              // slack" / "via pagerduty") for the most recent landed
+              // dispatch. Channel-agnostic; the "Last confirmed" stamp
+              // above is also channel-agnostic. ``null`` for legacy
+              // rows that pre-date the channel-chip launch.
+              const channel = r.last_delivered_channel;
+              const channelHtml = channel
+                ? `<span data-testid="pd-cg-channel-chip" style="display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;background:rgba(45,212,191,0.14);color:#2dd4bf;font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px">via ${_pdEsc(channel)}</span>`
+                : '';
               let confirmHtml = '';
               if (ackIso) {
                 const rel = _pdRelativeTime(ackIso);
@@ -24767,7 +24792,7 @@ export async function pgPatientDigest(setTopbarFn) {
               }
               return `<div data-testid="pd-cg-delivery-row" style="display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;border-top:1px solid var(--border)">
                 <div>
-                  <div style="font-size:12.5px;color:var(--text-primary)">${name}</div>
+                  <div style="font-size:12.5px;color:var(--text-primary)">${name}${channelHtml}</div>
                   <div style="font-size:11px;color:var(--text-muted)">Last delivered: ${last}</div>
                   ${confirmHtml}
                 </div>

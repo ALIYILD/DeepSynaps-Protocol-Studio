@@ -1699,6 +1699,13 @@ class LastAcknowledgementOut(BaseModel):
     grant_id: str
     last_acknowledged_at: Optional[str] = None
     acknowledged_dispatch_id: Optional[str] = None
+    # Multi-Adapter Delivery Parity launch-audit (2026-05-01).
+    # Channel chip ("email" / "sms" / "slack" / "pagerduty" / "mock")
+    # for the most recent landed dispatch the caregiver could ack against.
+    # ``None`` when no landed dispatch exists or the audit row pre-dates
+    # the channel-chip launch (legacy adapter= fallback returns the
+    # adapter taxonomy chip when present).
+    latest_landed_channel: Optional[str] = None
     note: str = ""
 
 
@@ -1898,6 +1905,13 @@ def get_last_acknowledgement(
     digests.
     """
     g = _resolve_caregiver_grant_for_actor(db, actor, grant_id)
+    # Multi-Adapter Delivery Parity launch-audit (2026-05-01): also
+    # surface the channel of the most recent landed dispatch so the
+    # Caregiver Portal can render an "via {channel}" chip on the
+    # I-received-it row.
+    landed_channel = _channel_from_latest_landed(
+        db, caregiver_user_id=actor.actor_id,
+    )
     existing = _latest_delivery_ack_for_grant(
         db, grant_id=grant_id, caregiver_user_id=actor.actor_id,
     )
@@ -1906,6 +1920,7 @@ def get_last_acknowledgement(
             grant_id=g.id,
             last_acknowledged_at=None,
             acknowledged_dispatch_id=None,
+            latest_landed_channel=landed_channel,
             note=(
                 "No acknowledgement on record. The caregiver has not "
                 "yet pressed the I-received-it CTA on a landed dispatch."
@@ -1917,8 +1932,50 @@ def get_last_acknowledgement(
         acknowledged_dispatch_id=_extract_dispatch_id_from_note(
             existing.note
         ),
+        latest_landed_channel=landed_channel,
         note="Last delivery acknowledgement on record.",
     )
+
+
+def _channel_from_latest_landed(
+    db: Session, *, caregiver_user_id: str,
+) -> Optional[str]:
+    """Return the channel chip of the most recent landed dispatch.
+
+    Multi-Adapter Delivery Parity launch-audit (2026-05-01). Reads
+    ``channel=<chip>`` from the audit-row note when present, falling
+    back to the adapter→channel taxonomy for legacy rows that only
+    carry ``adapter=<name>``. Returns ``None`` when no landed dispatch
+    exists for this caregiver.
+    """
+    landed = _latest_landed_dispatch_for_caregiver(
+        db, caregiver_user_id=caregiver_user_id,
+    )
+    if landed is None:
+        return None
+    note = landed.note or ""
+    idx = note.find("channel=")
+    if idx != -1:
+        tail = note[idx + len("channel="):]
+        end = tail.find(";")
+        snippet = (tail if end == -1 else tail[:end]).strip()
+        if snippet and snippet != "-":
+            return snippet[:32]
+    idx2 = note.find("adapter=")
+    if idx2 == -1:
+        return None
+    tail2 = note[idx2 + len("adapter="):]
+    end2 = tail2.find(";")
+    adapter = (tail2 if end2 == -1 else tail2[:end2]).strip()
+    if not adapter or adapter == "-":
+        return None
+    try:
+        from app.services.oncall_delivery import (  # noqa: PLC0415
+            adapter_channel,
+        )
+        return adapter_channel(adapter)[:32]
+    except Exception:  # pragma: no cover — defensive
+        return adapter[:32]
 
 
 def _parse_iso_safe(s: Optional[str]) -> Optional[datetime]:

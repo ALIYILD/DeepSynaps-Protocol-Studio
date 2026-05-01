@@ -492,15 +492,27 @@ def send_now(
     # an accepted=True response so the UI can render an honest "consent
     # missing" notice keyed off ``consent_required`` instead of a 4xx.
     if grant is None:
-        note = "consent_required=true; reason=no_active_grant_with_digest_scope"
+        from app.services.oncall_delivery import (  # noqa: PLC0415
+            build_delivery_audit_note as _build_note_consent,
+        )
         ev_id = _audit_portal(
             db,
             actor,
             event="email_digest_sent",
             target_id=actor.actor_id,
-            note=(
-                f"unread={unread_count}; recipient={recipient_email or '-'}; "
-                f"delivery_status=queued; {note}"
+            note=_build_note_consent(
+                unread_count=unread_count,
+                recipient=recipient_email,
+                delivery_status="queued",
+                adapter_name=None,
+                external_id=None,
+                grant_id=None,
+                delivery_note="no_active_grant_with_digest_scope",
+                trigger="send_now",
+                extra={
+                    "consent_required": "true",
+                    "reason": "no_active_grant_with_digest_scope",
+                },
             ),
         )
         return DigestSendNowOut(
@@ -519,15 +531,24 @@ def send_now(
     # row records the no-op so reviewers can correlate "user clicked send
     # but nothing was actually dispatched".
     if unread_count == 0:
+        from app.services.oncall_delivery import (  # noqa: PLC0415
+            build_delivery_audit_note as _build_note_no_unread,
+        )
         ev_id = _audit_portal(
             db,
             actor,
             event="email_digest_sent",
             target_id=actor.actor_id,
-            note=(
-                f"unread=0; recipient={recipient_email or '-'}; "
-                f"delivery_status=queued; reason=no_unread_notifications; "
-                f"grant_id={grant.id}"
+            note=_build_note_no_unread(
+                unread_count=0,
+                recipient=recipient_email,
+                delivery_status="queued",
+                adapter_name=None,
+                external_id=None,
+                grant_id=grant.id,
+                delivery_note="no_unread_notifications",
+                trigger="send_now",
+                extra={"reason": "no_unread_notifications"},
             ),
         )
         return DigestSendNowOut(
