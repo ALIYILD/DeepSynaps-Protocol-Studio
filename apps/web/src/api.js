@@ -3246,6 +3246,34 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }).catch(() => null),
+
+  // Auto-Page Worker launch-audit (2026-05-01). Closes the real-time half
+  // of the Care Team Coverage launch loop (#357). Status read every 30s
+  // by the Care Team Coverage page; Start/Stop is admin-only and flips
+  // escalation_chains.auto_page_enabled per clinic; Tick-once is admin-
+  // only debug that runs ONE scan synchronously.
+  autoPageWorkerStatus: () =>
+    apiFetch('/api/v1/auto-page-worker/status').catch(() => null),
+  autoPageWorkerStart: () =>
+    apiFetch('/api/v1/auto-page-worker/start', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  autoPageWorkerStop: () =>
+    apiFetch('/api/v1/auto-page-worker/stop', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  autoPageWorkerTickOnce: () =>
+    apiFetch('/api/v1/auto-page-worker/tick-once', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  postAutoPageWorkerAuditEvent: (data) =>
+    apiFetch('/api/v1/auto-page-worker/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).

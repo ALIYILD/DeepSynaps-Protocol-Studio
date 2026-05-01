@@ -1331,20 +1331,41 @@ def _record_oncall_page(
     return page_row, audit_eid
 
 
-@router.post("/page-oncall/{audit_event_id}", response_model=PageOnCallOut)
-def page_oncall(
-    body: PageOnCallIn,
-    audit_event_id: str = Path(..., min_length=1, max_length=128),
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-    db: Session = Depends(get_db_session),
+def _page_oncall_impl(
+    db: Session,
+    actor: AuthenticatedActor,
+    *,
+    audit_event_id: str,
+    note: str,
+    surface_override: Optional[str] = None,
+    trigger: str = "manual",
+    delivery_status: str = "logged",
+    enforce_clinic_scope: bool = True,
 ) -> PageOnCallOut:
-    """Manually page on-call for a HIGH-priority audit row.
+    """In-process page-on-call worker. Used by both the manual HTTP handler
+    and the auto-page background worker.
 
-    * Note required.
-    * 404 if the audit row is not visible at the actor's clinic scope.
-    * Emits ``inbox.item_paged_to_oncall`` audit row + ``oncall_pages`` row.
+    Splitting the body out from the FastAPI handler so the auto-page worker
+    (``app.workers.auto_page_worker``) can call it without an HTTP roundtrip
+    and without paying the request-lifecycle cost (rate-limiter, JSON
+    encode/decode). The handler itself is now a thin wrapper that calls
+    this function with ``trigger='manual'``.
+
+    Parameters
+    ----------
+    enforce_clinic_scope
+        When ``True`` (default for manual HTTP path), non-admin actors must
+        share a clinic with the audit-row author or a 404 is raised. The
+        auto-page worker passes ``False`` because it always calls with a
+        synthetic admin-scope actor that owns the clinic of the breach.
+    trigger
+        ``"manual"`` for HTTP click; ``"auto"`` for the background worker.
+    delivery_status
+        ``"logged"`` until a real Slack/Twilio/PagerDuty adapter is wired
+        (PR section F). ``"queued"`` is a synonym used by the worker when
+        an external delivery adapter is configured but has not yet
+        confirmed delivery.
     """
-    _gate_read(actor)
     record = (
         db.query(AuditEventRecord)
         .filter(AuditEventRecord.event_id == audit_event_id)
@@ -1358,7 +1379,7 @@ def page_oncall(
         )
     # Cross-clinic visibility check: the audit row must be authored by a
     # user in the actor's clinic (admins see all clinics).
-    if not _is_admin_scope(actor):
+    if enforce_clinic_scope and not _is_admin_scope(actor):
         author = db.query(User).filter_by(id=record.actor_id).first()
         if author is None or author.clinic_id != actor.clinic_id:
             raise ApiServiceError(
@@ -1376,7 +1397,7 @@ def page_oncall(
             message="Cannot resolve clinic from audit event author.",
             status_code=400,
         )
-    surface = body.surface
+    surface = surface_override
     if not surface:
         s, _evt = _split_action(record.action or "")
         surface = s if s and s != "unknown" else (record.target_type or None)
@@ -1406,9 +1427,9 @@ def page_oncall(
         surface=surface,
         paged_user_id=primary_uid,
         paged_role=paged_role,
-        note=body.note,
-        trigger="manual",
-        delivery_status="logged",
+        note=note,
+        trigger=trigger,
+        delivery_status=delivery_status,
     )
     name = None
     if primary_uid:
@@ -1416,13 +1437,14 @@ def page_oncall(
         name = (u.display_name or u.email) if u else None
 
     # Page-level audit so the Care Team Coverage surface tracks the click.
+    audit_event = "manual_page_fired" if trigger == "manual" else "auto_page_fired"
     _audit(
         db, actor,
-        event="manual_page_fired",
+        event=audit_event,
         target_id=audit_event_id,
         note=(
             f"page_id={page_row.id}; surface={surface or '-'}; "
-            f"paged={primary_uid or '-'}"
+            f"paged={primary_uid or '-'}; trigger={trigger}"
         ),
         using_demo_data=cid in _DEMO_CLINIC_IDS,
     )
@@ -1434,7 +1456,36 @@ def page_oncall(
         paged_user_name=name,
         paged_role=paged_role,
         surface=surface,
+        delivery_status=delivery_status,
+    )
+
+
+@router.post("/page-oncall/{audit_event_id}", response_model=PageOnCallOut)
+def page_oncall(
+    body: PageOnCallIn,
+    audit_event_id: str = Path(..., min_length=1, max_length=128),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PageOnCallOut:
+    """Manually page on-call for a HIGH-priority audit row.
+
+    * Note required.
+    * 404 if the audit row is not visible at the actor's clinic scope.
+    * Emits ``inbox.item_paged_to_oncall`` audit row + ``oncall_pages`` row.
+
+    Body is delegated to :func:`_page_oncall_impl` so the auto-page
+    background worker can reuse the same code path without an HTTP
+    roundtrip.
+    """
+    _gate_read(actor)
+    return _page_oncall_impl(
+        db, actor,
+        audit_event_id=audit_event_id,
+        note=body.note,
+        surface_override=body.surface,
+        trigger="manual",
         delivery_status="logged",
+        enforce_clinic_scope=True,
     )
 
 

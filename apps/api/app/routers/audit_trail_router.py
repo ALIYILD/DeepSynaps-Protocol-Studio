@@ -299,6 +299,22 @@ KNOWN_SURFACES = {
     # documented as out-of-scope (delivery_status='queued') — the audit
     # row is enough to prove intent, recipient, and headline counts.
     "clinician_digest",
+    # Auto-Page Worker launch-audit (2026-05-01). Closes the real-time
+    # half of the Care Team Coverage launch loop (#357). Background
+    # worker scans SLA breaches every 60s and fires the same
+    # page-oncall handler the manual button uses (in-process, not HTTP
+    # roundtrip). Page-level events recorded here: view, polling_tick,
+    # status_viewed, start_clicked, stop_clicked, tick_once_clicked,
+    # filter_changed, demo_banner_shown. The auto-fired page itself is
+    # recorded as ``inbox.item_paged_to_oncall`` under the existing
+    # ``clinician_inbox`` whitelist entry (single-sourced with the
+    # manual page-on-call so the regulator transcript stays consistent).
+    # Each cron tick also emits ONE ``auto_page_worker.tick`` row with
+    # note encoding clinics_scanned/breaches_found/paged/skipped_cooldown/
+    # errors/elapsed_ms so ops gets a per-tick transcript without
+    # scanning oncall_pages. delivery_status='queued' until a real
+    # Slack/Twilio/PagerDuty adapter is wired (PR section F).
+    "auto_page_worker",
 }
 
 
