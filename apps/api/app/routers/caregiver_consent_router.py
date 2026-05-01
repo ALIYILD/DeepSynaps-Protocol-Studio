@@ -64,10 +64,10 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Path
+from fastapi import APIRouter, Depends, Path, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -75,6 +75,7 @@ from app.auth import AuthenticatedActor, get_authenticated_actor
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import (
+    AuditEventRecord,
     CaregiverConsentGrant,
     CaregiverConsentRevision,
     Patient,
@@ -1103,3 +1104,540 @@ def post_caregiver_portal_audit_event(
         using_demo_data=bool(body.using_demo_data),
     )
     return CaregiverPortalAuditEventOut(accepted=True, event_id=event_id)
+
+
+# ── Caregiver Notification Hub launch-audit (2026-05-01) ────────────────────
+#
+# Server-side notification feed for the actor's caregiver grants. Joins
+# ``audit_event_records`` (where ``target_id`` is one of the actor's grant
+# ids) with ``caregiver_consent_revisions`` (revoke + ack rows) into a
+# typed event stream filtered by status/since/until/surface. Read-receipt
+# state is stored as ``caregiver_portal.notification_dismissed`` audit
+# rows keyed ``target_id=notif-{notif_id}`` — no new tables.
+#
+# Endpoints
+# ---------
+# GET  /api/v1/caregiver-consent/notifications              List of typed
+#                                                           events for the
+#                                                           actor's grants.
+# GET  /api/v1/caregiver-consent/notifications/summary      Counts:
+#                                                           unread / 7d /
+#                                                           read.
+# POST /api/v1/caregiver-consent/notifications/{id}/mark-read
+#                                                           Idempotent
+#                                                           dismissal —
+#                                                           emits
+#                                                           ``caregiver_portal.notification_dismissed``.
+# POST /api/v1/caregiver-consent/notifications/bulk-mark-read
+#                                                           Note + list of
+#                                                           ids.
+#
+# Cross-caregiver: a notification id whose underlying grant points at a
+# DIFFERENT caregiver returns 404 (never confirms existence). Guests are
+# denied with 403 (consistent with the rest of the portal).
+# ---------------------------------------------------------------------------
+
+
+CAREGIVER_NOTIFICATION_DISCLAIMERS = [
+    "Notifications are derived from durable audit + revision rows — no "
+    "new state is created when notifications are listed.",
+    "Marking a notification as read emits a "
+    "``caregiver_portal.notification_dismissed`` audit row keyed "
+    "``target_id=notif-{id}``. The original event is NEVER deleted.",
+    "Cross-caregiver visibility: a notification whose underlying grant "
+    "points at a different caregiver returns 404 — invisible. Guests "
+    "cannot list notifications.",
+]
+
+
+# Notification surfaces map a notification ``type`` to the page it
+# drills out to. Kept narrow — only the 4 source surfaces this hub
+# joins. ``revocation``/``ack`` come from ``caregiver_consent_revisions``;
+# the access-log + view families come from ``audit_event_records`` with
+# ``target_type='caregiver_portal'``.
+_NOTIF_TYPE_TO_SURFACE = {
+    "revocation": "caregiver_consent",
+    "ack": "caregiver_consent",
+    "access_log": "caregiver_portal",
+    "audit": "caregiver_portal",
+}
+
+
+class NotificationOut(BaseModel):
+    id: str
+    type: str  # revocation | ack | access_log | audit
+    summary: str
+    created_at: str
+    surface: str
+    grant_id: Optional[str] = None
+    scope_chip: Optional[str] = None
+    is_read: bool = False
+
+
+class NotificationListOut(BaseModel):
+    items: list[NotificationOut] = Field(default_factory=list)
+    caregiver_user_id: str = ""
+    disclaimers: list[str] = Field(
+        default_factory=lambda: list(CAREGIVER_NOTIFICATION_DISCLAIMERS)
+    )
+
+
+class NotificationSummaryOut(BaseModel):
+    unread: int = 0
+    last_7d: int = 0
+    read: int = 0
+    total: int = 0
+    caregiver_user_id: str = ""
+    disclaimers: list[str] = Field(
+        default_factory=lambda: list(CAREGIVER_NOTIFICATION_DISCLAIMERS)
+    )
+
+
+class NotificationMarkReadOut(BaseModel):
+    accepted: bool
+    notification_id: str
+    audit_event_id: str
+    already_read: bool
+    note: str
+
+
+class BulkMarkReadIn(BaseModel):
+    notification_ids: list[str] = Field(default_factory=list)
+    note: Optional[str] = Field(default=None, max_length=480)
+
+
+class BulkMarkReadOut(BaseModel):
+    accepted: bool
+    processed: int
+    already_read: int
+    not_found: int
+    audit_event_ids: list[str] = Field(default_factory=list)
+
+
+def _gate_caregiver_actor(actor: AuthenticatedActor) -> None:
+    """Notifications-hub is reachable by any non-guest role.
+
+    Guests get 403 (consistent with by-caregiver listing); a clinician /
+    patient / admin who is not a caregiver target legitimately sees
+    ``items=[]``.
+    """
+    if actor.role == "guest":
+        raise ApiServiceError(
+            code="forbidden",
+            message="Guests cannot list caregiver notifications.",
+            status_code=403,
+        )
+
+
+def _caregiver_grant_ids_for_actor(
+    db: Session, actor: AuthenticatedActor
+) -> list[str]:
+    rows = (
+        db.query(CaregiverConsentGrant)
+        .filter(
+            CaregiverConsentGrant.caregiver_user_id == actor.actor_id
+        )
+        .all()
+    )
+    return [g.id for g in rows]
+
+
+def _scope_chip_for_grant(g: Optional[CaregiverConsentGrant]) -> Optional[str]:
+    if g is None:
+        return None
+    scope = _scope_from_text(g.scope)
+    actives = [k for k in CANONICAL_SCOPE_KEYS if scope.get(k)]
+    return ",".join(actives) or None
+
+
+def _build_notification_index(
+    db: Session, actor: AuthenticatedActor
+) -> tuple[
+    list[NotificationOut],
+    set[str],  # already-read notification ids
+    list[CaregiverConsentGrant],
+]:
+    """Build the notification feed for the actor's caregiver grants.
+
+    Returns ``(items, read_ids, grants)``. Items are merged + sorted by
+    ``created_at`` desc. Read state is computed once by querying
+    ``caregiver_portal.notification_dismissed`` audit rows for this
+    actor.
+    """
+    grants = (
+        db.query(CaregiverConsentGrant)
+        .filter(
+            CaregiverConsentGrant.caregiver_user_id == actor.actor_id
+        )
+        .all()
+    )
+    grant_ids = [g.id for g in grants]
+    grants_by_id = {g.id: g for g in grants}
+
+    # Pre-fetch read receipts for THIS actor only.
+    read_ids: set[str] = set()
+    try:
+        receipts = (
+            db.query(AuditEventRecord)
+            .filter(
+                AuditEventRecord.action
+                == "caregiver_portal.notification_dismissed",
+                AuditEventRecord.actor_id == actor.actor_id,
+            )
+            .all()
+        )
+        for r in receipts:
+            t = (r.target_id or "").strip()
+            if t.startswith("notif-"):
+                read_ids.add(t[len("notif-"):])
+    except Exception:  # pragma: no cover — read-receipt query never blocks
+        _log.exception("notification read-receipt query skipped")
+
+    items: list[NotificationOut] = []
+    if not grant_ids:
+        return items, read_ids, grants
+
+    # ── 1. Revisions (revocation + ack) ────────────────────────────────────
+    revs = (
+        db.query(CaregiverConsentRevision)
+        .filter(CaregiverConsentRevision.grant_id.in_(grant_ids))
+        .all()
+    )
+    for rev in revs:
+        g = grants_by_id.get(rev.grant_id)
+        if rev.action == "revoke":
+            notif_id = f"rev-{rev.id}"
+            items.append(
+                NotificationOut(
+                    id=notif_id,
+                    type="revocation",
+                    summary=(
+                        f"Patient revoked grant — reason: "
+                        f"{(rev.reason or '-')[:120]}"
+                    ),
+                    created_at=rev.created_at,
+                    surface=_NOTIF_TYPE_TO_SURFACE["revocation"],
+                    grant_id=rev.grant_id,
+                    scope_chip=_scope_chip_for_grant(g),
+                    is_read=notif_id in read_ids,
+                )
+            )
+        elif rev.action == "ack_revocation":
+            notif_id = f"ack-{rev.id}"
+            items.append(
+                NotificationOut(
+                    id=notif_id,
+                    type="ack",
+                    summary=(
+                        "You acknowledged the patient's revocation."
+                    ),
+                    created_at=rev.created_at,
+                    surface=_NOTIF_TYPE_TO_SURFACE["ack"],
+                    grant_id=rev.grant_id,
+                    scope_chip=_scope_chip_for_grant(g),
+                    is_read=notif_id in read_ids,
+                )
+            )
+        # ``create`` / ``scope_edit`` revisions are intentionally NOT
+        # surfaced as caregiver-side notifications — they are
+        # patient-initiated grant lifecycle events.
+
+    # ── 2. Audit rows (access-log family) ──────────────────────────────────
+    audits = (
+        db.query(AuditEventRecord)
+        .filter(
+            AuditEventRecord.target_type == CAREGIVER_PORTAL_SURFACE,
+            AuditEventRecord.target_id.in_(grant_ids),
+        )
+        .all()
+    )
+    # Only bring in the *meaningful* event families; ``view`` /
+    # ``demo_banner_shown`` are page-load chatter and would drown the
+    # list. ``notification_dismissed`` IS the read-receipt and must
+    # not appear as its own notification.
+    INTERESTING_AUDIT_ACTIONS = {
+        "caregiver_portal.grant_accessed",
+        "caregiver_portal.grant_accessed_after_revocation",
+        "caregiver_portal.grant_accessed_out_of_scope",
+        "caregiver_portal.revocation_acknowledged",
+        "caregiver_portal.revocation_acknowledged_duplicate",
+    }
+    for a in audits:
+        if (a.action or "") not in INTERESTING_AUDIT_ACTIONS:
+            continue
+        notif_id = f"aud-{a.event_id}"
+        action = a.action or ""
+        is_access = "grant_accessed" in action
+        type_ = "access_log" if is_access else "audit"
+        if action == "caregiver_portal.grant_accessed":
+            summary = "You accessed a shared artefact."
+        elif action == "caregiver_portal.grant_accessed_after_revocation":
+            summary = "Access attempt after revocation was DENIED."
+        elif action == "caregiver_portal.grant_accessed_out_of_scope":
+            summary = "Out-of-scope access attempt was DENIED."
+        elif action == "caregiver_portal.revocation_acknowledged":
+            summary = "Revocation acknowledged."
+        elif action == "caregiver_portal.revocation_acknowledged_duplicate":
+            summary = "Revocation already acknowledged earlier."
+        else:
+            summary = action
+        g = grants_by_id.get(a.target_id or "")
+        items.append(
+            NotificationOut(
+                id=notif_id,
+                type=type_,
+                summary=summary,
+                created_at=a.created_at or "",
+                surface=CAREGIVER_PORTAL_SURFACE,
+                grant_id=a.target_id or None,
+                scope_chip=_scope_chip_for_grant(g),
+                is_read=notif_id in read_ids,
+            )
+        )
+
+    items.sort(key=lambda n: n.created_at or "", reverse=True)
+    return items, read_ids, grants
+
+
+@router.get("/notifications", response_model=NotificationListOut)
+def list_notifications(
+    status: Optional[str] = Query(default=None, max_length=16),
+    since: Optional[str] = Query(default=None, max_length=64),
+    until: Optional[str] = Query(default=None, max_length=64),
+    surface: Optional[str] = Query(default=None, max_length=64),
+    limit: int = Query(default=100, ge=1, le=500),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> NotificationListOut:
+    """List typed notifications for the actor's caregiver grants.
+
+    Filters
+    -------
+    * ``status`` ∈ {``unread``, ``read``} — anything else returns all.
+    * ``since`` / ``until`` — ISO-8601 lex compare on ``created_at``.
+    * ``surface`` — match on the notification's drill-out surface.
+    * ``limit`` — caps the response (default 100, max 500).
+
+    Cross-caregiver isolation: the feed is built ONLY from grants where
+    ``caregiver_user_id == actor.actor_id``, so a clinician / patient /
+    admin who has zero grants pointed at them gets ``items=[]``.
+    """
+    _gate_caregiver_actor(actor)
+    items, _read_ids, _grants = _build_notification_index(db, actor)
+
+    if status == "unread":
+        items = [n for n in items if not n.is_read]
+    elif status == "read":
+        items = [n for n in items if n.is_read]
+    if since:
+        items = [n for n in items if (n.created_at or "") >= since]
+    if until:
+        upper = until + "T23:59:59" if "T" not in until else until
+        items = [n for n in items if (n.created_at or "") <= upper]
+    if surface:
+        s = surface.strip().lower()
+        items = [n for n in items if (n.surface or "").lower() == s]
+
+    items = items[:limit]
+
+    _audit_portal(
+        db, actor,
+        event="notifications_listed",
+        target_id=actor.actor_id,
+        note=(
+            f"count={len(items)}; "
+            f"status={status or '-'}; "
+            f"since={since or '-'}; "
+            f"surface={surface or '-'}"
+        ),
+    )
+
+    return NotificationListOut(
+        items=items, caregiver_user_id=actor.actor_id,
+    )
+
+
+@router.get(
+    "/notifications/summary", response_model=NotificationSummaryOut
+)
+def notifications_summary(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> NotificationSummaryOut:
+    """Count notifications: unread / 7d / read."""
+    _gate_caregiver_actor(actor)
+    items, _read_ids, _grants = _build_notification_index(db, actor)
+
+    seven_days_ago = (
+        datetime.now(timezone.utc) - timedelta(days=7)
+    ).isoformat()
+    unread = sum(1 for n in items if not n.is_read)
+    read = sum(1 for n in items if n.is_read)
+    last_7d = sum(
+        1 for n in items if (n.created_at or "") >= seven_days_ago
+    )
+    return NotificationSummaryOut(
+        unread=unread,
+        read=read,
+        last_7d=last_7d,
+        total=len(items),
+        caregiver_user_id=actor.actor_id,
+    )
+
+
+def _resolve_notification_for_actor(
+    db: Session,
+    actor: AuthenticatedActor,
+    notif_id: str,
+) -> NotificationOut:
+    """Resolve ``notif_id`` against the actor's notification feed.
+
+    Returns the typed notification or raises 404. Cross-caregiver hits
+    are 404 — the underlying grant must belong to the actor.
+    """
+    items, _read_ids, _grants = _build_notification_index(db, actor)
+    for n in items:
+        if n.id == notif_id:
+            return n
+    raise ApiServiceError(
+        code="not_found",
+        message="Notification not found.",
+        status_code=404,
+    )
+
+
+@router.post(
+    "/notifications/{notif_id}/mark-read",
+    response_model=NotificationMarkReadOut,
+)
+def mark_notification_read(
+    notif_id: str = Path(..., max_length=128),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> NotificationMarkReadOut:
+    """Idempotent mark-read.
+
+    Emits ``caregiver_portal.notification_dismissed`` keyed
+    ``target_id=notif-{notif_id}``. Re-marking returns
+    ``already_read=True`` (no new audit row is created — strictly
+    idempotent so spam clicks do not pollute the regulator transcript).
+
+    Cross-caregiver: 404. Guests: 403.
+    """
+    _gate_caregiver_actor(actor)
+    notif = _resolve_notification_for_actor(db, actor, notif_id)
+
+    # Check whether THIS actor already dismissed this notification.
+    existing = (
+        db.query(AuditEventRecord)
+        .filter(
+            AuditEventRecord.action
+            == f"{CAREGIVER_PORTAL_SURFACE}.notification_dismissed",
+            AuditEventRecord.actor_id == actor.actor_id,
+            AuditEventRecord.target_id == f"notif-{notif_id}",
+        )
+        .first()
+    )
+    if existing is not None:
+        return NotificationMarkReadOut(
+            accepted=True,
+            notification_id=notif_id,
+            audit_event_id=existing.event_id,
+            already_read=True,
+            note=(
+                "Already read — no new audit row was created. The "
+                "original dismissal stands."
+            ),
+        )
+
+    audit_event_id = _audit_portal(
+        db, actor,
+        event="notification_dismissed",
+        target_id=f"notif-{notif_id}",
+        note=(
+            f"type={notif.type}; "
+            f"grant_id={notif.grant_id or '-'}; "
+            f"summary={(notif.summary or '')[:120]}"
+        ),
+    )
+    return NotificationMarkReadOut(
+        accepted=True,
+        notification_id=notif_id,
+        audit_event_id=audit_event_id,
+        already_read=False,
+        note=(
+            "Notification marked read. Audit row "
+            "caregiver_portal.notification_dismissed emitted."
+        ),
+    )
+
+
+@router.post(
+    "/notifications/bulk-mark-read",
+    response_model=BulkMarkReadOut,
+)
+def bulk_mark_notifications_read(
+    body: BulkMarkReadIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> BulkMarkReadOut:
+    """Mark a list of notifications read in one call.
+
+    Each id is resolved against the actor's feed; unknown ids increment
+    ``not_found`` but do NOT raise (so a stale UI payload does not
+    blanket-fail). The optional ``note`` is recorded on each emitted
+    audit row so an operator can correlate the bulk action.
+    """
+    _gate_caregiver_actor(actor)
+    items, _read_ids, _grants = _build_notification_index(db, actor)
+    by_id = {n.id: n for n in items}
+
+    audit_event_ids: list[str] = []
+    processed = 0
+    already_read = 0
+    not_found = 0
+    bulk_note = (body.note or "").strip()
+
+    for raw_id in (body.notification_ids or []):
+        notif_id = (raw_id or "").strip()
+        if not notif_id:
+            continue
+        n = by_id.get(notif_id)
+        if n is None:
+            not_found += 1
+            continue
+        existing = (
+            db.query(AuditEventRecord)
+            .filter(
+                AuditEventRecord.action
+                == f"{CAREGIVER_PORTAL_SURFACE}.notification_dismissed",
+                AuditEventRecord.actor_id == actor.actor_id,
+                AuditEventRecord.target_id == f"notif-{notif_id}",
+            )
+            .first()
+        )
+        if existing is not None:
+            already_read += 1
+            audit_event_ids.append(existing.event_id)
+            continue
+        ev_id = _audit_portal(
+            db, actor,
+            event="notification_dismissed",
+            target_id=f"notif-{notif_id}",
+            note=(
+                f"type={n.type}; "
+                f"grant_id={n.grant_id or '-'}; "
+                f"bulk=1; "
+                f"reason={bulk_note[:120] or '-'}"
+            ),
+        )
+        audit_event_ids.append(ev_id)
+        processed += 1
+
+    return BulkMarkReadOut(
+        accepted=True,
+        processed=processed,
+        already_read=already_read,
+        not_found=not_found,
+        audit_event_ids=audit_event_ids,
+    )
