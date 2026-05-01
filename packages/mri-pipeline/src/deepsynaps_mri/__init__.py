@@ -25,6 +25,18 @@ from .validation import (
     validate_upload_blob,
 )
 
+# Ingestion layer (optional — requires neuro extras for full DICOM paths).
+from .ingestion import (
+    ConversionResult,
+    ImportDicomResult,
+    MRIValidationEnvelope,
+    SeriesMetadata,
+    convert_to_nifti,
+    detect_series_metadata,
+    import_dicom_series,
+    validate_mri_input,
+)
+
 __version__ = "0.1.0"
 __all__ = [
     "StimTarget", "MRIReport", "StructuralMetrics", "FunctionalMetrics",
@@ -34,4 +46,13 @@ __all__ = [
     "safe_brain_age", "to_fusion_payload",
     # Validation entry points.
     "ValidationResult", "validate_upload_blob", "validate_nifti_header",
+    # Ingestion layer (see docs/INGESTION.md).
+    "SeriesMetadata",
+    "ConversionResult",
+    "ImportDicomResult",
+    "MRIValidationEnvelope",
+    "import_dicom_series",
+    "detect_series_metadata",
+    "convert_to_nifti",
+    "validate_mri_input",
 ]
