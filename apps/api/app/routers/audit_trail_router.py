@@ -127,6 +127,18 @@ KNOWN_SURFACES = {
     # page-level events posted via /api/v1/reports/patient/audit-events
     # (filter_changed, report_opened, report_downloaded, etc).
     "patient_reports",
+    # Patient Messages launch-audit (2026-05-01). Fourth patient-facing
+    # surface. Tracks the patient inbox lifecycle: view, thread_opened,
+    # message_read, message_sent, urgent_marked, urgent_unmarked,
+    # urgent_flag_to_clinician (clinician-visible mirror),
+    # attachment_clicked, clinician_reply_visible, thread_resolved,
+    # plus the page-level events posted via
+    # /api/v1/messages/audit-events (filter_changed, deep_link_followed,
+    # demo_banner_shown, consent_banner_shown). The Patient Reports
+    # ``start-question`` handler creates threads keyed
+    # ``thread_id=report-{report_id}`` so the inbox can deep-link the
+    # patient straight to the report-question thread.
+    "patient_messages",
 }
 
 

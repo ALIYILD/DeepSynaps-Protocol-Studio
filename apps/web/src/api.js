@@ -2531,6 +2531,58 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
+  // ── Patient Messages launch-audit (2026-05-01) ─────────────────────────────
+  // Fourth patient-facing surface to land server-side persistence + audit.
+  // The thread shape is shared with Patient Reports (#346)
+  // ``start-question`` (which stamps thread_id=report-{report_id} on a row
+  // in the same Message table). The ``patient_messages`` surface groups by
+  // ``thread_id`` server-side and emits audit rows on every action.
+  listPatientMessageThreads: (params = {}) => {
+    const q = new URLSearchParams();
+    for (const k of ['category', 'status', 'since', 'until', 'q']) {
+      if (params && params[k]) q.set(k, params[k]);
+    }
+    for (const k of ['limit', 'offset']) {
+      if (params && params[k] != null && params[k] !== '') q.set(k, String(params[k]));
+    }
+    const qs = q.toString();
+    return apiFetch(`/api/v1/messages/threads${qs ? '?' + qs : ''}`);
+  },
+  getPatientMessageThreadsSummary: () =>
+    apiFetch('/api/v1/messages/threads/summary'),
+  getPatientMessageThread: (threadId) =>
+    apiFetch(`/api/v1/messages/threads/${encodeURIComponent(threadId)}`),
+  composePatientMessageThread: (data) =>
+    apiFetch('/api/v1/messages/threads', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  replyPatientMessageThread: (threadId, data) =>
+    apiFetch(
+      `/api/v1/messages/threads/${encodeURIComponent(threadId)}/messages`,
+      { method: 'POST', body: JSON.stringify(data || {}) },
+    ),
+  markPatientMessageThreadUrgent: (threadId, note) =>
+    apiFetch(
+      `/api/v1/messages/threads/${encodeURIComponent(threadId)}/mark-urgent`,
+      { method: 'POST', body: JSON.stringify({ note: note || null }) },
+    ),
+  markPatientMessageThreadResolved: (threadId, note) =>
+    apiFetch(
+      `/api/v1/messages/threads/${encodeURIComponent(threadId)}/mark-resolved`,
+      { method: 'POST', body: JSON.stringify({ note: note || null }) },
+    ),
+  markPatientMessageRead: (threadId, messageId) =>
+    apiFetch(
+      `/api/v1/messages/threads/${encodeURIComponent(threadId)}/messages/${encodeURIComponent(messageId)}/mark-read`,
+      { method: 'POST' },
+    ),
+  postPatientMessagesAuditEvent: (data) =>
+    apiFetch('/api/v1/messages/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
   // ── Clinic ─────────────────────────────────────────────────────────────────
   getClinic: () => apiFetch('/api/v1/clinic').catch(() => null),  // 404 if no clinic
   createClinic: (data) => apiFetch('/api/v1/clinic', { method: 'POST', body: JSON.stringify(data) }),
