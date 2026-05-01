@@ -350,6 +350,7 @@ class CaregiverEmailDigestWorker:
         )
         from app.services.oncall_delivery import (  # noqa: PLC0415
             PageMessage,
+            build_caregiver_digest_service,
             build_default_service,
             build_email_digest_service,
             is_mock_mode_enabled,
@@ -428,14 +429,19 @@ class CaregiverEmailDigestWorker:
                 recipient_phone=None,
             )
             try:
-                # Prefer the email-channel chain (SendGrid first when
-                # SENDGRID_API_KEY + SENDGRID_FROM_ADDRESS are set). If
-                # the email chain has zero enabled adapters AND mock-mode
-                # is off, fall back to the loud-signal default chain so
-                # the audit transcript still records ``queued`` honestly
-                # rather than silently dropping the dispatch on the
-                # floor.
-                service = build_email_digest_service()
+                # Prefer the caregiver-digest chain — SendGrid first by
+                # default, with PagerDuty / Slack / Twilio as fallbacks.
+                # The EscalationPolicy for surface='caregiver_digest'
+                # overrides the order per-clinic when set. Multi-Adapter
+                # Delivery Parity launch-audit (2026-05-01).
+                service = build_caregiver_digest_service(
+                    clinic_id=None, db=db,
+                )
+                if (
+                    not service.get_enabled_adapters()
+                    and not is_mock_mode_enabled()
+                ):
+                    service = build_email_digest_service()
                 if (
                     not service.get_enabled_adapters()
                     and not is_mock_mode_enabled()
@@ -500,23 +506,31 @@ class CaregiverEmailDigestWorker:
         recipient_email: Optional[str],
     ) -> str:
         """Emit a ``caregiver_portal.email_digest_sent`` row attributed
-        to the worker. Single-sourced with the manual send-now handler.
+        to the worker. Single-sourced with the manual send-now handler
+        via :func:`oncall_delivery.build_delivery_audit_note` so the
+        regulator transcript carries identical ``adapter=`` /
+        ``channel=`` keys regardless of which adapter (SendGrid /
+        Twilio / Slack / PagerDuty) won the dispatch.
         """
         from app.repositories.audit import create_audit_event  # noqa: PLC0415
+        from app.services.oncall_delivery import (  # noqa: PLC0415
+            build_delivery_audit_note,
+        )
 
         now = datetime.now(timezone.utc)
         eid = (
             f"caregiver_portal-email_digest_sent-{actor.actor_id}-"
             f"{int(now.timestamp())}-{uuid.uuid4().hex[:6]}"
         )
-        note = (
-            f"unread={unread_count}; recipient={recipient_email or '-'}; "
-            f"delivery_status={delivery_status}; "
-            f"adapter={adapter_name or '-'}; "
-            f"external_id={external_id or '-'}; "
-            f"grant_id={grant_id}; "
-            f"delivery_note={delivery_note[:160]}; "
-            f"trigger=worker"
+        note = build_delivery_audit_note(
+            unread_count=unread_count,
+            recipient=recipient_email,
+            delivery_status=delivery_status,
+            adapter_name=adapter_name,
+            external_id=external_id,
+            grant_id=grant_id,
+            delivery_note=delivery_note,
+            trigger="worker",
         )
         try:
             create_audit_event(

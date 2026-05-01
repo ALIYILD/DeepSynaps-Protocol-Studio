@@ -672,6 +672,14 @@ class CaregiverDeliverySummaryRow(BaseModel):
     # frontend renders an "Awaiting confirmation" tag in that case.
     # No PHI of the caregiver leaks: this is a timestamp only.
     last_acknowledged_at: Optional[str] = None
+    # Multi-Adapter Delivery Parity launch-audit (2026-05-01).
+    # Channel chip for the most recent ``delivery_status=sent`` row
+    # ("email" / "sms" / "slack" / "pagerduty" / "mock"). ``None`` when
+    # the audit row pre-dates the channel-chip launch (legacy rows).
+    # No PHI: this is the chip taxonomy only — the underlying recipient
+    # / adapter / external_id stays in the audit-row note for
+    # regulator-side replay.
+    last_delivered_channel: Optional[str] = None
 
 
 class CaregiverDeliverySummaryOut(BaseModel):
@@ -1272,19 +1280,63 @@ def _list_active_caregivers_for_patient(
     return out
 
 
+def _extract_channel_from_note(note: Optional[str]) -> Optional[str]:
+    """Best-effort extraction of ``channel=<chip>`` from an audit note.
+
+    Multi-Adapter Delivery Parity launch-audit (2026-05-01). The
+    delivery-side audit emitter writes ``channel=email|sms|slack|pagerduty``
+    via :func:`oncall_delivery.build_delivery_audit_note`. Legacy rows
+    (pre-launch) carry ``adapter=`` only; we fall back to the
+    adapter→channel taxonomy in that case. Returns ``None`` only when
+    neither key is present.
+    """
+    if not note:
+        return None
+    src = note
+    idx = src.find("channel=")
+    if idx != -1:
+        tail = src[idx + len("channel="):]
+        end = tail.find(";")
+        snippet = (tail if end == -1 else tail[:end]).strip()
+        if snippet and snippet != "-":
+            return snippet[:32]
+    # Fall back to ``adapter=`` (legacy row before the channel chip
+    # launch). Map via the adapter→channel taxonomy when the adapter
+    # name is recognised.
+    idx2 = src.find("adapter=")
+    if idx2 == -1:
+        return None
+    tail2 = src[idx2 + len("adapter="):]
+    end2 = tail2.find(";")
+    adapter = (tail2 if end2 == -1 else tail2[:end2]).strip()
+    if not adapter or adapter == "-":
+        return None
+    try:
+        from app.services.oncall_delivery import (  # noqa: PLC0415
+            adapter_channel,
+        )
+        return adapter_channel(adapter)[:32]
+    except Exception:  # pragma: no cover — defensive
+        return adapter[:32]
+
+
 def _count_caregiver_digest_deliveries(
     db: Session,
     *,
     caregiver_user_id: str,
     since_dt: datetime,
     until_dt: datetime,
-) -> tuple[int, Optional[str]]:
+) -> tuple[int, Optional[str], Optional[str]]:
     """Count ``caregiver_portal.email_digest_sent`` rows for a caregiver.
 
-    Returns ``(count, last_delivered_at_iso)``. Only audit rows whose
-    note encodes ``delivery_status=sent`` are counted — failed/queued
-    dispatches are intentionally excluded so the patient view reflects
-    confirmed deliveries, not intent.
+    Returns ``(count, last_delivered_at_iso, last_delivered_channel)``.
+    Only audit rows whose note encodes ``delivery_status=sent`` are
+    counted — failed/queued dispatches are intentionally excluded so the
+    patient view reflects confirmed deliveries, not intent.
+
+    Multi-Adapter Delivery Parity launch-audit (2026-05-01): the channel
+    chip on the most-recent landed row is returned alongside so the UI
+    can render "via email" / "via sms" / "via slack" per row.
     """
     rows = (
         db.query(AuditEventRecord)
@@ -1298,6 +1350,7 @@ def _count_caregiver_digest_deliveries(
     count = 0
     last_iso: Optional[str] = None
     last_dt: Optional[datetime] = None
+    last_channel: Optional[str] = None
     for r in rows:
         ts = _parse_iso(r.created_at)
         if ts is None:
@@ -1313,7 +1366,8 @@ def _count_caregiver_digest_deliveries(
         if last_dt is None or ts > last_dt:
             last_dt = ts
             last_iso = r.created_at
-    return count, last_iso
+            last_channel = _extract_channel_from_note(r.note or "")
+    return count, last_iso, last_channel
 
 
 @router.get(
@@ -1360,7 +1414,7 @@ def get_caregiver_delivery_summary(
     rows: list[CaregiverDeliverySummaryRow] = []
     total = 0
     for cg_id, first_name in caregivers:
-        count, last_iso = _count_caregiver_digest_deliveries(
+        count, last_iso, last_channel = _count_caregiver_digest_deliveries(
             db,
             caregiver_user_id=cg_id,
             since_dt=since_dt,
@@ -1383,6 +1437,7 @@ def get_caregiver_delivery_summary(
                 digests_delivered_count=count,
                 last_delivered_at=last_iso,
                 last_acknowledged_at=last_ack,
+                last_delivered_channel=last_channel,
             )
         )
         total += count

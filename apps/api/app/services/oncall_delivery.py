@@ -669,6 +669,91 @@ _ADAPTER_FACTORIES: dict[str, type] = {
 }
 
 
+# Adapter-name → user-facing channel chip. The channel chip is what the
+# UI renders next to a delivery row ("via email" / "via sms") and what
+# the audit-row note carries as ``channel=<chip>`` so downstream
+# consumers (patient digest, audit trail) don't have to maintain their
+# own adapter→channel mapping.
+ADAPTER_CHANNEL: dict[str, str] = {
+    "sendgrid": "email",
+    "twilio": "sms",
+    "slack": "slack",
+    "pagerduty": "pagerduty",
+    # Mock-mode dispatch surfaces as ``channel=mock`` so the regulator
+    # transcript is unambiguous about which deploys were demo / CI vs.
+    # production.
+    "mock": "mock",
+}
+
+
+def adapter_channel(adapter_name: Optional[str]) -> str:
+    """Return the user-facing channel chip for ``adapter_name``.
+
+    Falls back to the adapter name itself when unknown so a future
+    adapter (e.g. SES) still surfaces a non-empty chip without code
+    churn — just register it in :data:`ADAPTER_CHANNEL` to make the chip
+    pretty.
+    """
+    if not adapter_name:
+        return "-"
+    key = adapter_name.strip().lower()
+    return ADAPTER_CHANNEL.get(key, key)
+
+
+def build_delivery_audit_note(
+    *,
+    unread_count: int,
+    recipient: Optional[str],
+    delivery_status: str,
+    adapter_name: Optional[str],
+    external_id: Optional[str],
+    grant_id: Optional[str],
+    delivery_note: Optional[str],
+    trigger: str = "send_now",
+    extra: Optional[dict[str, str]] = None,
+) -> str:
+    """Build the unified audit-row note for caregiver digest delivery.
+
+    Multi-Adapter Delivery Parity launch-audit (2026-05-01). All four
+    adapters (SendGrid, Twilio, Slack, PagerDuty) call this helper from
+    the dispatch loop so the note format is identical across channels.
+    Downstream readers (``latest_delivery_ack_for_caregiver``,
+    ``_count_caregiver_digest_deliveries``, audit-trail filter) parse
+    ``adapter=`` / ``channel=`` / ``delivery_status=`` keys.
+
+    Note format::
+
+        unread=N; recipient=<email|->; delivery_status=<sent|failed|queued>;
+        adapter=<sendgrid|twilio|slack|pagerduty|->;
+        channel=<email|sms|slack|pagerduty|->;
+        external_id=<...>; grant_id=<...>;
+        delivery_note=<...>; trigger=<send_now|worker>
+
+    The ``channel`` key is the load-bearing addition: per-adapter parity
+    means the patient digest UI can render a "via {channel}" tag without
+    needing to know the adapter taxonomy. ``trigger`` distinguishes
+    manual ``POST /send-now`` from worker-tick dispatches so the
+    regulator transcript can disambiguate the two paths.
+    """
+    note_bits: list[str] = [
+        f"unread={unread_count}",
+        f"recipient={recipient or '-'}",
+        f"delivery_status={delivery_status}",
+        f"adapter={adapter_name or '-'}",
+        f"channel={adapter_channel(adapter_name)}",
+        f"external_id={external_id or '-'}",
+        f"grant_id={grant_id or '-'}",
+        f"delivery_note={(delivery_note or '')[:160]}",
+        f"trigger={trigger}",
+    ]
+    if extra:
+        for k, v in extra.items():
+            if not k:
+                continue
+            note_bits.append(f"{k}={v}")
+    return "; ".join(note_bits)[:1024]
+
+
 def _build_adapters_for_order(order: list[str]) -> list[Adapter]:
     """Construct adapters in the requested ``order``.
 
@@ -951,6 +1036,58 @@ def is_mock_mode_enabled() -> bool:
     return _mock_mode_enabled()
 
 
+def build_caregiver_digest_service(
+    *,
+    clinic_id: Optional[str] = None,
+    db: Optional[Any] = None,
+) -> OncallDeliveryService:
+    """Construct a delivery service for the caregiver digest channel.
+
+    Multi-Adapter Delivery Parity launch-audit (2026-05-01). Uses the
+    full adapter chain (PagerDuty / Slack / Twilio + SendGrid as the
+    email channel) so the Caregiver Email Digest worker can dispatch via
+    ANY enabled adapter — not just SendGrid. The dispatch order is
+    resolved via :class:`EscalationPolicy.surface_overrides` for
+    ``surface='caregiver_digest'`` when set, falling back to the email
+    chain (SendGrid first) so deploys with only ``SENDGRID_API_KEY``
+    keep working as before.
+
+    Each adapter in the chain that returns ``status='sent'`` is recorded
+    via :func:`build_delivery_audit_note` so the regulator transcript
+    carries identical ``adapter=`` / ``channel=`` keys regardless of
+    which channel won the dispatch.
+    """
+    surface = "caregiver_digest"
+    # Build the surface-aware service. When the clinic has no policy /
+    # no override for this surface, ``_resolve_dispatch_order`` falls
+    # back to the DEFAULT_ADAPTER_ORDER (PagerDuty → Slack → Twilio).
+    # We override that fallback here with a chain that prefers SendGrid
+    # for the email channel + keeps the loud-signal adapters as
+    # secondary so a deploy with only SendGrid wired stays on the email
+    # path while a clinic that opts SMS in via the policy can do so.
+    order = OncallDeliveryService._resolve_dispatch_order(clinic_id, surface, db)
+    default_chain = [
+        getattr(cls, "name", cls.__name__.lower())
+        for cls in DEFAULT_ADAPTER_ORDER
+    ]
+    if order == default_chain:
+        # No per-surface override and no clinic-wide order — use the
+        # caregiver-digest default: SendGrid first, then the loud-signal
+        # adapters. This preserves the legacy "email digest goes via
+        # SendGrid" behaviour while keeping SMS / Slack / PagerDuty as
+        # opt-in fallbacks.
+        order = ["sendgrid", "slack", "twilio", "pagerduty"]
+    adapters = _build_adapters_for_order(order)
+    if not adapters:
+        adapters = [cls() for cls in EMAIL_ADAPTER_ORDER]
+    return OncallDeliveryService(
+        clinic_id=clinic_id,
+        adapters=adapters,
+        surface=surface,
+        db=db,
+    )
+
+
 def build_email_digest_service() -> OncallDeliveryService:
     """Construct a delivery service tuned for the email channel.
 
@@ -971,6 +1108,7 @@ def build_email_digest_service() -> OncallDeliveryService:
 
 
 __all__ = [
+    "ADAPTER_CHANNEL",
     "Adapter",
     "DEFAULT_ADAPTER_ORDER",
     "DeliveryResult",
@@ -982,7 +1120,10 @@ __all__ = [
     "SendGridEmailAdapter",
     "SlackAdapter",
     "TwilioSMSAdapter",
+    "adapter_channel",
+    "build_caregiver_digest_service",
     "build_default_service",
+    "build_delivery_audit_note",
     "build_email_digest_service",
     "is_mock_mode_enabled",
 ]

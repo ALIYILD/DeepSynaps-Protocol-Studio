@@ -130,8 +130,10 @@ function _sliceCaregiverFn(src) {
   // (2026-05-01) which extends the function with the unread-badge +
   // mark-read flow. Bumped again to 32000 in the Email Digest launch-
   // audit (2026-05-01) which adds the daily-digest delivery subsection +
-  // CTA wiring.
-  return src.slice(start, start + 32000);
+  // CTA wiring. Bumped to 36000 in the Multi-Adapter Delivery Parity
+  // launch-audit (2026-05-01) which adds the channel chip + cross-
+  // channel helper copy on the Recent landed digests subsection.
+  return src.slice(start, start + 36000);
 }
 
 
