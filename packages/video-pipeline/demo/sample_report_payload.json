@@ -1,0 +1,154 @@
+{
+  "clinical_task_report": {
+    "payload_type": "clinical_task_report",
+    "video_id": "demo-video-structured",
+    "generated_at": "2026-05-01T00:00:00+00:00",
+    "summary": {
+      "task_count": 2,
+      "highest_severity_grade": 2,
+      "review_required": true,
+      "limitations": [
+        "2D video proxy metrics require clinician review"
+      ]
+    },
+    "tasks": [
+      {
+        "task_name": "gait",
+        "display_label": "Gait analysis",
+        "metrics": {
+          "cadence_steps_per_min": 82.0,
+          "walking_speed_px_per_sec": 14.0,
+          "stride_length_px": 38.0,
+          "confidence": 0.8
+        },
+        "units": {
+          "cadence": "steps/min",
+          "speed_pixels": "pixels/second",
+          "stride_length_pixels": "pixels"
+        },
+        "severity_grade": null,
+        "confidence": 0.8,
+        "limitations": [
+          "distance and speed are image-plane pixel proxies"
+        ],
+        "video_segments": [
+          {
+            "segment_id": "gait-summary",
+            "start_seconds": 0.0,
+            "end_seconds": 12.0,
+            "label": "Gait analysis review",
+            "source": "gait"
+          }
+        ]
+      },
+      {
+        "task_name": "bradykinesia",
+        "display_label": "Bradykinesia task",
+        "metrics": {
+          "task_type": "finger_tapping",
+          "repetition_count": 10,
+          "mean_amplitude_px": 7.2,
+          "amplitude_decrement_ratio": 0.28,
+          "confidence": 0.74
+        },
+        "units": {
+          "amplitude": "input coordinate units",
+          "duration": "seconds"
+        },
+        "severity_grade": 1,
+        "confidence": 0.74,
+        "limitations": [
+          "not an official rating-scale score"
+        ],
+        "video_segments": [
+          {
+            "segment_id": "bradykinesia-summary",
+            "start_seconds": 0.0,
+            "end_seconds": 0.0,
+            "label": "Bradykinesia analysis review",
+            "source": "bradykinesia"
+          }
+        ]
+      }
+    ],
+    "video_segments": [
+      {
+        "segment_id": "gait-summary",
+        "start_seconds": 0.0,
+        "end_seconds": 12.0,
+        "label": "Gait analysis review",
+        "source": "gait"
+      },
+      {
+        "segment_id": "bradykinesia-summary",
+        "start_seconds": 0.0,
+        "end_seconds": 0.0,
+        "label": "Bradykinesia analysis review",
+        "source": "bradykinesia"
+      }
+    ],
+    "limitations": [
+      "2D video proxy metrics require clinician review"
+    ],
+    "schema_version": "video_report_payload.v1"
+  },
+  "monitoring_report": {
+    "payload_type": "monitoring_report",
+    "video_id": "room-video-demo-001",
+    "generated_at": "2026-05-01T00:00:00+00:00",
+    "summary": {
+      "event_count": 2,
+      "critical_event_count": 1,
+      "warning_event_count": 1,
+      "review_required": true
+    },
+    "events": [
+      {
+        "event_type": "bed_edge",
+        "actor_id": "patient-1",
+        "start_seconds": 42.0,
+        "end_seconds": 42.0,
+        "duration_seconds": 0.0,
+        "confidence": 0.86,
+        "severity": "warning",
+        "label": "patient reached bed edge",
+        "context": {
+          "to_zone": "bed"
+        }
+      },
+      {
+        "event_type": "fall_candidate",
+        "actor_id": "patient-1",
+        "start_seconds": 105.0,
+        "end_seconds": 106.0,
+        "duration_seconds": 1.0,
+        "confidence": 0.9,
+        "severity": "critical",
+        "label": "fall-like movement candidate",
+        "context": {
+          "posture": "falling"
+        }
+      }
+    ],
+    "video_segments": [
+      {
+        "segment_id": "bed_edge-patient-1-42.000",
+        "start_seconds": 40.0,
+        "end_seconds": 44.0,
+        "label": "patient reached bed edge",
+        "source": "monitoring"
+      },
+      {
+        "segment_id": "fall_candidate-patient-1-105.000",
+        "start_seconds": 103.0,
+        "end_seconds": 108.0,
+        "label": "fall-like movement candidate",
+        "source": "monitoring"
+      }
+    ],
+    "limitations": [
+      "Monitoring events are candidates for human review and do not trigger alarms directly"
+    ],
+    "schema_version": "video_report_payload.v1"
+  }
+}
