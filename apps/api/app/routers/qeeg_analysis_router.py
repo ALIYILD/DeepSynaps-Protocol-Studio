@@ -3866,7 +3866,11 @@ class QEEGAuditEventIn(BaseModel):
     # Optional namespace prefix so non-qEEG surfaces (e.g. the Brain Map
     # Planner) can reuse this endpoint while still being attributable in the
     # audit trail. Falls back to "qeeg" for backwards-compat.
-    surface: Optional[str] = Field("qeeg", max_length=32)
+    # max_length bumped from 32 → 64 (2026-05-01) to accommodate the
+    # ``channel_misconfiguration_detector`` surface (33 chars). The
+    # whitelist below is the real safety boundary; the cap is just a
+    # defensive ceiling against runaway strings.
+    surface: Optional[str] = Field("qeeg", max_length=64)
 
 
 class QEEGAuditEventOut(BaseModel):
