@@ -1959,6 +1959,36 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
+  // ── Caregiver Consent Grants launch-audit (2026-05-01) ─────────────────
+  // Closes the caregiver-share loop opened by Patient Digest #376. Patient
+  // grants create durable rows in `caregiver_consent_grants` with a JSON
+  // `scope` (digest / messages / reports / wearables); revoke stamps
+  // `revoked_at` + `revocation_reason` and the grant becomes immutable.
+  // Patient Digest's share-caregiver endpoint consults `has_active_grant`
+  // and flips `delivery_status='sent'` honestly when `scope.digest=True`
+  // — otherwise stays `queued`. Cross-patient blocked at the router (404).
+  caregiverConsentListGrants: () =>
+    apiFetch('/api/v1/caregiver-consent/grants').catch(() => null),
+  caregiverConsentGetGrant: (grantId) =>
+    apiFetch(`/api/v1/caregiver-consent/grants/${encodeURIComponent(grantId)}`).catch(() => null),
+  caregiverConsentCreateGrant: (data) =>
+    apiFetch('/api/v1/caregiver-consent/grants', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  caregiverConsentRevokeGrant: (grantId, data) =>
+    apiFetch(`/api/v1/caregiver-consent/grants/${encodeURIComponent(grantId)}/revoke`, {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  caregiverConsentListByCaregiver: () =>
+    apiFetch('/api/v1/caregiver-consent/grants/by-caregiver').catch(() => null),
+  postCaregiverConsentAuditEvent: (data) =>
+    apiFetch('/api/v1/caregiver-consent/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
   // ── Wearables Workbench (clinician triage queue) ──────────────────────────
   // Bidirectional counterpart to Patient Wearables (#352). Surfaces the
   // server-side triage queue over wearable_alert_flags so clinicians can
