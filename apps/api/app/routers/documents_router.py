@@ -43,6 +43,22 @@ DOCUMENTS_PAGE_DISCLAIMERS = [
     "Patient-identifiable documents must comply with local privacy law.",
 ]
 
+# Drill-in coverage matrix — Documents Hub re-audit (2026-04-30, PR #321/#334/
+# #336 follow-up). Each upstream surface that emits drill-out URLs targeting
+# ``?page=documents-hub&source_target_type=…&source_target_id=…`` is listed
+# here. The list endpoint validates ``source_target_type`` against this set
+# (422 on unknown values) so the filter never silently degrades to "all docs"
+# when an upstream sends a typo. The page-level audit emits the surface as
+# part of the note so regulators can trace the drill-in path end-to-end.
+KNOWN_DRILL_IN_SURFACES: set[str] = {
+    "clinical_trials",      # CT register drills to sponsor reports / ICFs
+    "irb_manager",          # IRB protocol detail drills to consent docs
+    "quality_assurance",    # QA finding drills to source document(s)
+    "course_detail",        # course timeline drills to in-course documents
+    "adverse_events",       # AE record drills to attached SAE narratives
+    "reports_hub",          # report drills to attached supporting documents
+}
+
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 _DOC_FORM_TYPE = "document"
@@ -158,6 +174,8 @@ def _record_to_out(r: FormDefinition) -> "DocumentOut":
         superseded_by=meta.get("superseded_by"),
         revision=int(meta.get("revision", 1) or 1),
         is_demo=bool(meta.get("is_demo", False)),
+        source_target_type=meta.get("source_target_type"),
+        source_target_id=meta.get("source_target_id"),
         created_at=r.created_at.isoformat(),
         updated_at=r.updated_at.isoformat(),
     )
@@ -203,6 +221,45 @@ def _validate_document_status(status: str) -> None:
         raise ApiServiceError(
             code="invalid_status",
             message=f"status must be one of {sorted(_DOC_ALLOWED_STATUSES)}.",
+            status_code=422,
+        )
+
+
+def _validate_drill_in_pair(
+    source_target_type: Optional[str],
+    source_target_id: Optional[str],
+) -> None:
+    """Reject unknown drill-in surfaces with 422.
+
+    Pre-validation policy (Documents Hub drill-in coverage, 2026-04-30):
+
+    * If neither parameter is supplied, the filter is a no-op — the caller
+      gets the unfiltered list (current behaviour preserved).
+    * If only one of the two is supplied, the pair is malformed — return
+      422 rather than silently dropping the half-supplied filter.
+    * ``source_target_type`` must be one of the known upstream surfaces
+      that actually emit drill-out URLs (clinical_trials / irb_manager /
+      quality_assurance / course_detail / adverse_events / reports_hub).
+      Anything else is 422 — never a silent fallback to "all docs".
+    """
+    if source_target_type is None and source_target_id is None:
+        return
+    if source_target_type is None or source_target_id is None:
+        raise ApiServiceError(
+            code="invalid_drill_in",
+            message=(
+                "source_target_type and source_target_id must be supplied "
+                "as a pair."
+            ),
+            status_code=422,
+        )
+    if source_target_type not in KNOWN_DRILL_IN_SURFACES:
+        raise ApiServiceError(
+            code="invalid_drill_in",
+            message=(
+                f"source_target_type must be one of "
+                f"{sorted(KNOWN_DRILL_IN_SURFACES)}."
+            ),
             status_code=422,
         )
 
@@ -297,6 +354,13 @@ class DocumentCreate(BaseModel):
     template_id: Optional[str] = Field(default=None, max_length=64)
     status: str = Field(default="pending", max_length=32)     # pending|signed|uploaded|completed
     notes: Optional[str] = Field(default=None, max_length=10_000)
+    # Cross-surface attachment chain. When clinical_trials attaches a sponsor
+    # report, IRB attaches a consent doc, QA attaches a finding artefact, etc.
+    # the create caller passes these so the Documents Hub drill-in filter
+    # surfaces the link. Validated against KNOWN_DRILL_IN_SURFACES at create
+    # time (422 on unknown values).
+    source_target_type: Optional[str] = Field(default=None, max_length=32)
+    source_target_id: Optional[str] = Field(default=None, max_length=64)
 
 
 class DocumentUpdate(BaseModel):
@@ -322,6 +386,15 @@ class DocumentOut(BaseModel):
     superseded_by: Optional[str] = None
     revision: int = 1
     is_demo: bool = False
+    # Cross-surface drill-in provenance (Documents Hub launch-audit
+    # 2026-04-30). When a document was attached from an upstream surface
+    # (clinical_trials sponsor report, irb_manager consent doc, qa finding,
+    # course timeline, adverse_events SAE narrative, reports supporting
+    # doc), these two fields preserve the drill path so the Documents Hub
+    # filter can render the "Showing documents linked to <surface> <id>"
+    # banner without inventing rows. Both null on standalone documents.
+    source_target_type: Optional[str] = None
+    source_target_id: Optional[str] = None
     created_at: str
     updated_at: str
 
@@ -342,6 +415,8 @@ def list_documents(
     until: Optional[str] = None,
     q: Optional[str] = None,
     clinic_id: Optional[str] = None,  # accepted for forward-compat
+    source_target_type: Optional[str] = Query(default=None, max_length=32),
+    source_target_id: Optional[str] = Query(default=None, max_length=64),
     limit: int = Query(default=200, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
@@ -361,10 +436,16 @@ def list_documents(
     * ``clinic_id`` — accepted for forward-compat; the per-clinic scope is
       already enforced by ``_scope_documents_query_to_clinic`` against the
       actor's clinic, so this parameter is a documented no-op.
+    * ``source_target_type`` + ``source_target_id`` — drill-in filter from
+      upstream surfaces (clinical_trials, irb_manager, quality_assurance,
+      course_detail, adverse_events, reports_hub). Both must be supplied
+      together — supplying only one returns 422 rather than silently
+      degrading to "all docs". Unknown surfaces also return 422.
     * ``limit`` / ``offset`` — pagination.
     """
     require_minimum_role(actor, "clinician")
     _assert_document_patient_access(patient_id, actor, session)
+    _validate_drill_in_pair(source_target_type, source_target_id)
     base_q = session.query(FormDefinition).filter(
         FormDefinition.form_type == _DOC_FORM_TYPE,
     )
@@ -408,6 +489,16 @@ def list_documents(
         kk = kind.lower()
         items = [i for i in items if kk in (i.doc_type or "").lower()]
 
+    # Drill-in filter applied post-fetch because both fields live in the
+    # questions_json blob. The pair-validation above guarantees both fields
+    # are present (or both absent) so the comparison is straightforward.
+    if source_target_type and source_target_id:
+        items = [
+            i for i in items
+            if i.source_target_type == source_target_type
+            and i.source_target_id == source_target_id
+        ]
+
     return DocumentListResponse(items=items, total=len(items))
 
 
@@ -421,6 +512,7 @@ def create_document(
     require_minimum_role(actor, "clinician")
     _validate_document_status(body.status)
     _assert_document_patient_access(body.patient_id, actor, session)
+    _validate_drill_in_pair(body.source_target_type, body.source_target_id)
 
     meta = {
         "doc_type": body.doc_type,
@@ -432,6 +524,9 @@ def create_document(
         "created_by_actor_id": actor.actor_id,
         "created_by_actor_at": datetime.now(timezone.utc).isoformat(),
     }
+    if body.source_target_type and body.source_target_id:
+        meta["source_target_type"] = body.source_target_type
+        meta["source_target_id"] = body.source_target_id
     _stamp_document_provenance(meta, actor, event="created")
 
     record = FormDefinition(
@@ -618,6 +713,8 @@ def delete_document_template(
 @router.get("/summary")
 def documents_summary(
     patient_id: Optional[str] = None,
+    source_target_type: Optional[str] = Query(default=None, max_length=32),
+    source_target_id: Optional[str] = Query(default=None, max_length=64),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> dict:
@@ -626,10 +723,17 @@ def documents_summary(
     Does NOT log a self-audit event (the Hub page-load audit handles that
     at /audit-events). Returns disclaimers so the UI banner can render
     them server-side rather than hardcoding strings in the frontend.
+
+    Drill-in filter (Documents Hub launch-audit 2026-04-30): accepts
+    ``source_target_type`` + ``source_target_id`` so the KPI strip and
+    "showing N filtered" banner reflect the same scope as the list. Pair
+    validation matches the list endpoint — half-supplied = 422, unknown
+    surface = 422, never a silent fallback.
     """
     require_minimum_role(actor, "clinician")
     if patient_id:
         _assert_document_patient_access(patient_id, actor, session)
+    _validate_drill_in_pair(source_target_type, source_target_id)
 
     base_q = session.query(FormDefinition).filter(
         FormDefinition.form_type == _DOC_FORM_TYPE,
@@ -639,6 +743,12 @@ def documents_summary(
 
     if patient_id:
         rows = [r for r in rows if (_meta_from_record(r) or {}).get("patient_id") == patient_id]
+    if source_target_type and source_target_id:
+        rows = [
+            r for r in rows
+            if (_meta_from_record(r) or {}).get("source_target_type") == source_target_type
+            and (_meta_from_record(r) or {}).get("source_target_id") == source_target_id
+        ]
 
     by_status: dict[str, int] = {}
     by_kind: dict[str, int] = {}
@@ -661,12 +771,22 @@ def documents_summary(
         "demo": demo_count,
         "by_status": by_status,
         "by_kind": by_kind,
+        "filtered_by_source_target": bool(
+            source_target_type and source_target_id
+        ),
+        "source_target_type": source_target_type,
+        "source_target_id": source_target_id,
+        "known_drill_in_surfaces": sorted(KNOWN_DRILL_IN_SURFACES),
         "disclaimers": list(DOCUMENTS_PAGE_DISCLAIMERS),
         "scope_limitations": [
             "clinic_id filter is accepted but a no-op — clinic scope is "
             "enforced via the actor's clinic_id on the User model.",
             "Upload storage backend: local disk under media_storage_root. "
             "S3/blob storage is not configured in this deployment.",
+            "Drill-in filter relies on source_target_* metadata stamped at "
+            "document creation. Older documents predating the drill-in "
+            "audit have null source_target fields and are excluded from "
+            "filtered counts (honest empty state, never silent fallback).",
         ],
     }
 
@@ -686,6 +806,8 @@ def export_documents_zip(
     since: Optional[str] = None,
     until: Optional[str] = None,
     q: Optional[str] = None,
+    source_target_type: Optional[str] = Query(default=None, max_length=32),
+    source_target_id: Optional[str] = Query(default=None, max_length=64),
     limit: int = Query(default=200, ge=1, le=500),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
@@ -694,8 +816,11 @@ def export_documents_zip(
 
     The manifest is prefixed with a ``# DEMO`` header line if any of the
     matched documents are flagged ``is_demo`` so importers can drop demo
-    rows trivially. Filters mirror the GET / list endpoint.
+    rows trivially. Filters mirror the GET / list endpoint, including the
+    cross-surface ``source_target_type`` / ``source_target_id`` drill-in
+    pair.
     """
+    _validate_drill_in_pair(source_target_type, source_target_id)
     require_minimum_role(actor, "clinician")
     if patient_id:
         _assert_document_patient_access(patient_id, actor, session)
@@ -736,6 +861,12 @@ def export_documents_zip(
     if kind:
         kk = kind.lower()
         items = [i for i in items if kk in (i.doc_type or "").lower()]
+    if source_target_type and source_target_id:
+        items = [
+            i for i in items
+            if i.source_target_type == source_target_type
+            and i.source_target_id == source_target_id
+        ]
 
     has_demo = any(i.is_demo for i in items)
     header = [
@@ -804,6 +935,13 @@ class DocumentsAuditEventIn(BaseModel):
     patient_id: Optional[str] = Field(None, max_length=64)
     note: Optional[str] = Field(None, max_length=1024)
     using_demo_data: Optional[bool] = False
+    # Drill-in provenance (Documents Hub launch-audit 2026-04-30): page-level
+    # audit ingestion preserves the upstream surface that drilled into the
+    # Hub. Validated against KNOWN_DRILL_IN_SURFACES at write time so unknown
+    # surfaces fall back to a plain documents_hub event without poisoning
+    # the audit row.
+    source_target_type: Optional[str] = Field(None, max_length=32)
+    source_target_id: Optional[str] = Field(None, max_length=64)
 
 
 class DocumentsAuditEventOut(BaseModel):
@@ -817,11 +955,23 @@ def record_documents_audit_event(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> DocumentsAuditEventOut:
-    """Best-effort page-level audit ingestion for the Documents Hub UI."""
+    """Best-effort page-level audit ingestion for the Documents Hub UI.
+
+    Writes ``target_type='documents_hub'`` (the page-level surface — the
+    sibling per-record surface ``target_type='documents'`` is reserved for
+    sign / supersede / export.zip / upload events). When the event carries
+    a known drill-in upstream (clinical_trials / irb_manager / quality_-
+    assurance / course_detail / adverse_events / reports_hub), the upstream
+    surface and id are preserved in the audit note so the regulator-credible
+    trail can be reconstructed end-to-end.
+    """
     require_minimum_role(actor, "clinician")
     from app.repositories.audit import create_audit_event
 
     now = datetime.now(timezone.utc)
+    # Event id keeps the historical ``documents-`` prefix for backwards
+    # compatibility with consumers (and existing audit rows). The page-level
+    # surface attribution lives in ``target_type='documents_hub'`` instead.
     event_id = (
         f"documents-{payload.event}-{actor.actor_id}-{int(now.timestamp())}-{uuid.uuid4().hex[:6]}"
     )
@@ -835,6 +985,18 @@ def record_documents_audit_event(
         note_parts.append(f"patient={payload.patient_id}")
     if payload.document_id:
         note_parts.append(f"document={payload.document_id}")
+    # Drill-in upstream context. Unknown / partial pairs are dropped silently
+    # — we keep the audit row honest by only writing the surface tag when
+    # the pair validates. We do NOT raise here: the audit endpoint must
+    # never block UI navigation.
+    if (
+        payload.source_target_type
+        and payload.source_target_id
+        and payload.source_target_type in KNOWN_DRILL_IN_SURFACES
+    ):
+        note_parts.append(
+            f"drill_in_from={payload.source_target_type}:{payload.source_target_id}"
+        )
     if payload.note:
         note_parts.append(payload.note[:500])
     note = "; ".join(note_parts) or payload.event
@@ -843,8 +1005,8 @@ def record_documents_audit_event(
             session,
             event_id=event_id,
             target_id=str(target_id),
-            target_type="documents",
-            action=f"documents.{payload.event}",
+            target_type="documents_hub",
+            action=f"documents_hub.{payload.event}",
             role=actor.role,
             actor_id=actor.actor_id,
             note=note[:1024],
