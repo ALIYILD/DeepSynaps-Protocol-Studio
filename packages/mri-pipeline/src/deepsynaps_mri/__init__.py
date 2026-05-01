@@ -28,6 +28,7 @@ from .workflow_orchestration import (
     ArtifactRecord,
     PipelineNode,
     PipelineRun,
+    StepResult,
     collect_provenance,
     execute_pipeline,
     load_pipeline_run,
@@ -51,4 +52,5 @@ __all__ = [
     "PipelineNode",
     "PipelineRun",
     "ArtifactRecord",
+    "StepResult",
 ]
