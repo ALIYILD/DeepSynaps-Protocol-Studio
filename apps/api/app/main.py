@@ -67,6 +67,7 @@ from app.routers.patient_portal_router import router as patient_portal_router
 from app.routers.notifications_router import router as notifications_router
 from app.routers.wearable_router import router as wearable_router
 from app.routers.patient_wearables_router import router as patient_wearables_router
+from app.routers.wearables_workbench_router import router as wearables_workbench_router
 from app.routers.media_router import router as media_router
 from app.routers.home_devices_router import router as home_devices_router
 from app.routers.home_device_portal_router import router as home_device_portal_router
@@ -329,6 +330,11 @@ app.include_router(adherence_events_router)
 # existing ``wearable_router`` clinician queue and patient_portal_router
 # wearable connect / sync helpers.
 app.include_router(patient_wearables_router)
+# Wearables Workbench launch-audit (2026-05-01). Bidirectional counterpart
+# to #352 — exposes the clinician triage queue over wearable_alert_flags
+# (acknowledge / escalate / resolve) with full audit, AE-draft creation
+# on escalate, IDOR cross-clinic gate, and DEMO-prefixed exports.
+app.include_router(wearables_workbench_router)
 # Settings API (scaffolded 024_settings_schema) — stubs; endpoints arrive in
 # follow-up subagents. Grouped together for discoverability.
 app.include_router(profile_router)

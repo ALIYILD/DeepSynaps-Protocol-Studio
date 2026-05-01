@@ -693,6 +693,30 @@ class WearableAlertFlag(Base):
     dismissed: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False, index=True)
     auto_generated: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=True)
 
+    # ── Wearables Workbench launch-audit (2026-05-01) — triage lifecycle ──
+    # Distinct from the legacy ``dismissed`` boolean (which is the
+    # binary suppression flipped by ``/api/v1/wearables/alerts/{id}/dismiss``).
+    # These columns persist the four-state workflow (``open`` →
+    # ``acknowledged`` → ``escalated`` → ``resolved``) used by the
+    # Wearables Workbench triage queue. Every transition writes the
+    # actor + UTC timestamp + clinician note so a regulator can replay
+    # the full transcript per flag without inferring intent from a
+    # binary.
+    workbench_status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
+    acknowledged_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    acknowledged_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    acknowledge_note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    escalated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    escalated_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    escalation_note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    # Soft-FK to ``adverse_events.id`` — keeping it as a plain String allows
+    # the triage row to outlive a future AE deletion without orphaning the
+    # audit transcript.
+    escalation_ae_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    resolved_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    resolve_note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+
 
 class AiSummaryAudit(Base):
     __tablename__ = "ai_summary_audit"

@@ -1905,6 +1905,46 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
+  // ── Wearables Workbench (clinician triage queue) ──────────────────────────
+  // Bidirectional counterpart to Patient Wearables (#352). Surfaces the
+  // server-side triage queue over wearable_alert_flags so clinicians can
+  // acknowledge / escalate / resolve flags with full audit + AE-draft
+  // creation on escalate. Cross-clinic blocked at the router; admins see
+  // all clinics. All helpers return null on offline / 404 so the page
+  // can render an honest empty state.
+  wearablesWorkbenchListFlags: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/wearables/workbench/flags${q ? '?' + q : ''}`).catch(() => null);
+  },
+  wearablesWorkbenchSummary: () =>
+    apiFetch('/api/v1/wearables/workbench/flags/summary').catch(() => null),
+  wearablesWorkbenchGetFlag: (flagId) =>
+    apiFetch(`/api/v1/wearables/workbench/flags/${encodeURIComponent(flagId)}`).catch(() => null),
+  wearablesWorkbenchAcknowledge: (flagId, note) =>
+    apiFetch(`/api/v1/wearables/workbench/flags/${encodeURIComponent(flagId)}/acknowledge`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note || '' }),
+    }),
+  wearablesWorkbenchEscalate: (flagId, note, bodySystem) =>
+    apiFetch(`/api/v1/wearables/workbench/flags/${encodeURIComponent(flagId)}/escalate`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note || '', body_system: bodySystem || null }),
+    }),
+  wearablesWorkbenchResolve: (flagId, note) =>
+    apiFetch(`/api/v1/wearables/workbench/flags/${encodeURIComponent(flagId)}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note || '' }),
+    }),
+  wearablesWorkbenchExportCsvUrl: () =>
+    `${API_BASE}/api/v1/wearables/workbench/flags/export.csv`,
+  wearablesWorkbenchExportNdjsonUrl: () =>
+    `${API_BASE}/api/v1/wearables/workbench/flags/export.ndjson`,
+  postWearablesWorkbenchAuditEvent: (data) =>
+    apiFetch('/api/v1/wearables/workbench/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
   // ── Home Program Tasks (patient portal — legacy completion submit) ────────
   portalListHomeProgramTasks: () => apiFetch('/api/v1/patient-portal/home-program-tasks'),
   portalCompleteHomeProgramTask: (serverTaskId, data) =>

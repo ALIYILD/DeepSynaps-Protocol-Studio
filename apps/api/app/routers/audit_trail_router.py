@@ -203,6 +203,22 @@ KNOWN_SURFACES = {
     # regulatory chain stays intact end-to-end (mirrors the Adherence
     # Events #350 escalation pattern).
     "wearables",
+    # Clinician Wearables Triage Workbench launch-audit (2026-05-01).
+    # Bidirectional counterpart to the patient-facing ``wearables`` surface
+    # added in #352. The patient surface records what the PATIENT does on the
+    # Wearables page (sync, disconnect, anomaly escalations); the
+    # ``wearables_workbench`` surface records what the CLINICIAN does on the
+    # triage queue: view, filter_changed, flag_viewed, flag_acknowledged,
+    # flag_escalated (HIGH-priority — creates AdverseEvent draft visible
+    # across the clinic), flag_resolved, export, deep_link_followed,
+    # demo_banner_shown. The escalate flow mirrors the regulatory chain
+    # already used by Adherence Events #350 → AE Hub #342, so a wearable
+    # alert flagged by the deterministic ``wearable_flags`` rule engine OR
+    # by the patient-side anomaly path can graduate into an AdverseEvent
+    # without dropping audit continuity. Resolved flags are immutable —
+    # any subsequent state change attempts return 409 so the regulator
+    # sees a clean ack → escalate (optional) → resolve transcript per row.
+    "wearables_workbench",
     # Population Analytics launch-audit (2026-05-01). Clinician-facing
     # cohort hub. Closes the regulator chain on the population /
     # aggregate-stats side after Patient Profile (#338) closed it on the

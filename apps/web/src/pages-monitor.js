@@ -258,7 +258,7 @@ function state() {
   if (!window[STATE_KEY]) {
     var storedTab = localStorage.getItem(TAB_KEY);
     if (storedTab === 'integrations') storedTab = 'control-center';
-    var validTabs = new Set(['control-center', 'live', 'dq']);
+    var validTabs = new Set(['control-center', 'live', 'dq', 'wearables-workbench']);
     window[STATE_KEY] = {
       tab: validTabs.has(storedTab) ? storedTab : 'control-center',
       expandedCategory: null,
@@ -267,6 +267,12 @@ function state() {
       dq: null,
       socket: null,
       retryIndex: 0,
+      // Wearables Workbench triage queue. ``flags`` is the server-side
+      // list, ``summary`` is the deterministic count strip, ``filters``
+      // are the user-controlled query state. Loaded on tab activation.
+      workbenchFlags: null,
+      workbenchSummary: null,
+      workbenchFilters: { status: 'open', severity: '' },
     };
   }
   return window[STATE_KEY];
@@ -343,6 +349,106 @@ function renderDq(dq) {
       ${canWriteIntegrations() ? `<div class="monitor-inline-actions"><button class="btn btn-sm" onclick="window._monitorResolveIssue('${esc(item.id)}')">Resolve</button></div>` : ''}
     </div>`).join('') : `<div class="monitor-empty-inline monitor-empty-inline--ok">No data-quality issues.</div>`}
   </section>`;
+}
+
+/* ── Wearables Workbench (clinician triage queue) ──────────────────────────── */
+
+function renderWorkbenchKpis(summary) {
+  var s = summary || {};
+  var open = Number(s.open || 0);
+  var ack = Number(s.acknowledged || 0);
+  var esc = Number(s.escalated || 0);
+  var res = Number(s.resolved || 0);
+  var inc7 = Number(s.incidence_7d || 0);
+  var cards = [
+    ['Open', open, open > 0 ? 'red' : 'green'],
+    ['Acknowledged', ack, 'orange'],
+    ['Escalated', esc, esc > 0 ? 'red' : 'green'],
+    ['Resolved', res, 'green'],
+    ['7-day incidence', inc7, inc7 > 0 ? 'orange' : 'green'],
+  ];
+  return '<section class="monitor-kpi-strip">' + cards.map(function (c) {
+    return '<article class="monitor-kpi-card monitor-kpi-card--' + c[2] + '">'
+      + '<div class="monitor-kpi-label">' + esc(c[0]) + '</div>'
+      + '<div class="monitor-kpi-value">' + esc(c[1]) + '</div></article>';
+  }).join('') + '</section>';
+}
+
+function renderWorkbenchFilters(filters) {
+  var f = filters || {};
+  var statusOptions = ['open', 'acknowledged', 'escalated', 'resolved'];
+  var sevOptions = ['', 'info', 'warning', 'urgent'];
+  return '<div class="monitor-inline-actions" style="margin-bottom:12px">'
+    + '<label>Status: <select onchange="window._workbenchFilterStatus(this.value)">'
+    + '<option value=""' + (!f.status ? ' selected' : '') + '>All</option>'
+    + statusOptions.map(function (s) {
+        return '<option value="' + s + '"' + (f.status === s ? ' selected' : '') + '>' + s + '</option>';
+      }).join('')
+    + '</select></label>'
+    + '<label style="margin-left:12px">Severity: <select onchange="window._workbenchFilterSeverity(this.value)">'
+    + sevOptions.map(function (s) {
+        return '<option value="' + s + '"' + (f.severity === s ? ' selected' : '') + '>' + (s || 'all') + '</option>';
+      }).join('')
+    + '</select></label>'
+    + '<button class="btn btn-sm" style="margin-left:auto" onclick="window._workbenchExportCsv()">Export CSV</button>'
+    + '<button class="btn btn-sm" onclick="window._workbenchExportNdjson()">Export NDJSON</button>'
+    + '</div>';
+}
+
+function renderWorkbenchTable(flags, isDemoView) {
+  var rows = Array.isArray(flags) ? flags : [];
+  var demoBanner = isDemoView
+    ? '<div class="monitor-empty-inline" style="background:#fff7e6;border:1px solid #ffd591;color:#874d00;margin-bottom:12px">DEMO data — exports will be DEMO-prefixed and are not regulator-submittable.</div>'
+    : '';
+
+  if (!rows.length) {
+    return demoBanner + '<div class="monitor-empty-inline monitor-empty-inline--ok">No alert flags pending review.</div>';
+  }
+
+  var head = '<thead><tr>'
+    + '<th>Patient</th><th>Type</th><th>Severity</th><th>Status</th>'
+    + '<th>Triggered</th><th>Actions</th>'
+    + '</tr></thead>';
+  var body = rows.map(function (f) {
+    var status = f.status || 'open';
+    var sev = f.severity || 'info';
+    var ackBtn = (status === 'open')
+      ? '<button class="btn btn-sm" onclick="window._workbenchAcknowledge(\'' + esc(f.id) + '\')">Acknowledge</button>'
+      : '';
+    var escBtn = (status === 'open' || status === 'acknowledged')
+      ? '<button class="btn btn-sm" onclick="window._workbenchEscalate(\'' + esc(f.id) + '\')">Escalate</button>'
+      : '';
+    var resBtn = (status !== 'resolved')
+      ? '<button class="btn btn-sm" onclick="window._workbenchResolve(\'' + esc(f.id) + '\')">Resolve</button>'
+      : '';
+    var profileBtn = '<button class="btn btn-sm" onclick="window._workbenchOpenPatient(\'' + esc(f.patient_id) + '\')">Patient</button>';
+    var aeBtn = (f.escalation_ae_id)
+      ? '<button class="btn btn-sm" onclick="window._workbenchOpenAe(\'' + esc(f.escalation_ae_id) + '\')">AE Hub</button>'
+      : '';
+    return '<tr>'
+      + '<td><strong>' + esc(f.patient_name || f.patient_id) + '</strong>'
+      + '<div class="monitor-muted">' + esc(f.patient_id) + (f.is_demo ? ' · DEMO' : '') + '</div></td>'
+      + '<td>' + esc(f.flag_type) + '</td>'
+      + '<td><span class="monitor-badge monitor-badge--' + tone(sev === 'urgent' ? 'red' : (sev === 'warning' ? 'orange' : 'green')) + '">' + esc(sev) + '</span></td>'
+      + '<td><span class="monitor-badge monitor-badge--' + tone(status === 'resolved' ? 'green' : (status === 'escalated' ? 'red' : 'orange')) + '">' + esc(status) + '</span></td>'
+      + '<td>' + esc(fmtAgo(f.triggered_at)) + '</td>'
+      + '<td>' + ackBtn + escBtn + resBtn + profileBtn + aeBtn + '</td>'
+      + '</tr>';
+  }).join('');
+
+  return demoBanner + '<div class="monitor-table-wrap"><table class="monitor-table">'
+    + head + '<tbody>' + body + '</tbody></table></div>';
+}
+
+function renderWorkbench(summary, flags, isDemoView, filters) {
+  var hasData = Array.isArray(flags);
+  return renderWorkbenchKpis(summary || {})
+    + '<section class="monitor-panel">'
+    + '<div class="monitor-panel-head"><h3>Wearable alert triage</h3>'
+    + '<span>' + (hasData ? flags.length : 0) + ' shown</span></div>'
+    + renderWorkbenchFilters(filters || {})
+    + (hasData ? renderWorkbenchTable(flags, isDemoView) : '<div class="monitor-empty-inline">Loading triage queue...</div>')
+    + '</section>';
 }
 
 /* ── Control Center: compute category stats ────────────────────────────────── */
@@ -480,6 +586,13 @@ function render() {
     tabBody = renderKpis(live) + `<div class="monitor-main-grid"><div class="monitor-main-col">${renderLive(live)}</div></div>`;
   } else if (s.tab === 'dq') {
     tabBody = `<div class="monitor-main-grid"><div class="monitor-main-col">${renderDq(dq)}</div></div>`;
+  } else if (s.tab === 'wearables-workbench') {
+    var summary = s.workbenchSummary || null;
+    var flagsList = Array.isArray(s.workbenchFlags?.items) ? s.workbenchFlags.items : null;
+    var isDemoView = !!(s.workbenchFlags?.is_demo_view || summary?.is_demo_view);
+    tabBody = `<div class="monitor-main-grid"><div class="monitor-main-col">${
+      renderWorkbench(summary, flagsList, isDemoView, s.workbenchFilters)
+    }</div></div>`;
   } else {
     tabBody = renderDevicesKpis(integrations) +
       `<div class="monitor-main-grid"><div class="monitor-main-col">${
@@ -494,6 +607,7 @@ function render() {
         <button class="monitor-tab ${s.tab === 'control-center' ? 'is-active' : ''}" onclick="window._monitorSetTab('control-center')">Control Center</button>
         <button class="monitor-tab ${s.tab === 'live' ? 'is-active' : ''}" onclick="window._monitorSetTab('live')">Live Monitoring</button>
         <button class="monitor-tab ${s.tab === 'dq' ? 'is-active' : ''}" onclick="window._monitorSetTab('dq')">Data Quality</button>
+        <button class="monitor-tab ${s.tab === 'wearables-workbench' ? 'is-active' : ''}" onclick="window._monitorSetTab('wearables-workbench')">Wearable Triage</button>
       </div>
     </div>
     ${tabBody}
@@ -529,6 +643,28 @@ async function loadDq() {
     if (data && Array.isArray(data.issues)) { s.dq = data; }
   } catch {}
   if (!s.dq && _isDemoMode()) s.dq = demoDq();
+  render();
+}
+
+async function loadWorkbench() {
+  const s = state();
+  // Build filter params, dropping blanks so the server-side default
+  // (no filter) kicks in instead of filtering by literal empty strings.
+  var params = {};
+  if (s.workbenchFilters?.status) params.status = s.workbenchFilters.status;
+  if (s.workbenchFilters?.severity) params.severity = s.workbenchFilters.severity;
+  try {
+    const flags = await api.wearablesWorkbenchListFlags(params);
+    if (flags) s.workbenchFlags = flags;
+  } catch {}
+  try {
+    const summary = await api.wearablesWorkbenchSummary();
+    if (summary) s.workbenchSummary = summary;
+  } catch {}
+  // Honest empty state when offline / API unreachable — no synthetic
+  // alerts. The render path will display "No alert flags pending review."
+  if (!s.workbenchFlags) s.workbenchFlags = { items: [], total: 0, is_demo_view: false };
+  if (!s.workbenchSummary) s.workbenchSummary = { open: 0, acknowledged: 0, escalated: 0, resolved: 0, incidence_7d: 0, is_demo_view: false };
   render();
 }
 
@@ -578,12 +714,28 @@ export async function pgMonitor(setTopbar) {
   await Promise.all([loadLive(), loadIntegrations(), loadDq()]);
   connectLiveStream();
 
+  // Mount-time audit ping so the regulator trail shows the clinician
+  // opened the Devices/Monitor surface. Best-effort only — the helper
+  // catches and returns null on offline / 401 so the UI never breaks
+  // because of an audit failure.
+  try { await api.postWearablesWorkbenchAuditEvent({ event: 'view', note: 'monitor page mounted' }); } catch {}
+
+  // If the user lands on the workbench tab from a deep link, kick off
+  // the triage queue load now. Subsequent tab switches load lazily.
+  if (s.tab === 'wearables-workbench') {
+    await loadWorkbench();
+  }
+
   window._monitorSetTab = function (tab) {
-    var validTabs = new Set(['control-center', 'live', 'dq']);
+    var validTabs = new Set(['control-center', 'live', 'dq', 'wearables-workbench']);
     s.tab = validTabs.has(tab) ? tab : 'control-center';
     s.expandedCategory = null;
     localStorage.setItem(TAB_KEY, s.tab);
     render();
+    if (s.tab === 'wearables-workbench') {
+      loadWorkbench();
+      try { api.postWearablesWorkbenchAuditEvent({ event: 'tab_opened', note: 'wearables triage tab' }); } catch {}
+    }
   };
 
   window._devicesExpandCategory = function (kind) {
@@ -606,4 +758,71 @@ export async function pgMonitor(setTopbar) {
   window._monitorSyncIntegration = function (integrationId) { (async function () { try { await api.monitorSyncIntegration(integrationId); } catch {} await loadIntegrations(); })(); };
   window._monitorDisconnectIntegration = function (integrationId) { (async function () { try { await api.monitorDisconnectIntegration(integrationId); } catch {} await loadIntegrations(); })(); };
   window._monitorResolveIssue = function (issueId) { (async function () { try { await api.monitorResolveDataQualityIssue(issueId, {}); } catch {} await loadDq(); })(); };
+
+  /* ── Wearables Workbench handlers ─────────────────────────────────────── */
+  window._workbenchFilterStatus = function (value) {
+    s.workbenchFilters = Object.assign({}, s.workbenchFilters, { status: value || '' });
+    try { api.postWearablesWorkbenchAuditEvent({ event: 'filter_changed', note: 'status=' + (value || 'all') }); } catch {}
+    loadWorkbench();
+  };
+  window._workbenchFilterSeverity = function (value) {
+    s.workbenchFilters = Object.assign({}, s.workbenchFilters, { severity: value || '' });
+    try { api.postWearablesWorkbenchAuditEvent({ event: 'filter_changed', note: 'severity=' + (value || 'all') }); } catch {}
+    loadWorkbench();
+  };
+  window._workbenchAcknowledge = function (flagId) {
+    var note = (window.prompt && window.prompt('Acknowledge note (required):')) || '';
+    note = String(note || '').trim();
+    if (!note) return;
+    (async function () {
+      try { await api.wearablesWorkbenchAcknowledge(flagId, note); } catch {}
+      await loadWorkbench();
+    })();
+  };
+  window._workbenchEscalate = function (flagId) {
+    var note = (window.prompt && window.prompt('Escalation note — describes the clinical concern (required):')) || '';
+    note = String(note || '').trim();
+    if (!note) return;
+    (async function () {
+      try {
+        var resp = await api.wearablesWorkbenchEscalate(flagId, note, null);
+        if (resp && resp.adverse_event_id && window.confirm) {
+          if (window.confirm('Adverse Event draft created (' + resp.adverse_event_id + '). Open AE Hub now?')) {
+            window._nav?.('adverse-events-hub');
+          }
+        }
+      } catch {}
+      await loadWorkbench();
+    })();
+  };
+  window._workbenchResolve = function (flagId) {
+    var note = (window.prompt && window.prompt('Resolution note (required) — flag becomes immutable:')) || '';
+    note = String(note || '').trim();
+    if (!note) return;
+    (async function () {
+      try { await api.wearablesWorkbenchResolve(flagId, note); } catch {}
+      await loadWorkbench();
+    })();
+  };
+  window._workbenchOpenPatient = function (patientId) {
+    if (!patientId) return;
+    window._selectedPatientId = patientId;
+    window._profilePatientId = patientId;
+    try { api.postWearablesWorkbenchAuditEvent({ event: 'deep_link_followed', note: 'target=patient_profile patient=' + patientId }); } catch {}
+    window._nav?.('patient-profile');
+  };
+  window._workbenchOpenAe = function (aeId) {
+    if (!aeId) return;
+    window._selectedAdverseEventId = aeId;
+    try { api.postWearablesWorkbenchAuditEvent({ event: 'deep_link_followed', note: 'target=adverse_events_hub ae=' + aeId }); } catch {}
+    window._nav?.('adverse-events-hub');
+  };
+  window._workbenchExportCsv = function () {
+    try { api.postWearablesWorkbenchAuditEvent({ event: 'export_initiated', note: 'format=csv' }); } catch {}
+    window.open(api.wearablesWorkbenchExportCsvUrl(), '_blank');
+  };
+  window._workbenchExportNdjson = function () {
+    try { api.postWearablesWorkbenchAuditEvent({ event: 'export_initiated', note: 'format=ndjson' }); } catch {}
+    window.open(api.wearablesWorkbenchExportNdjsonUrl(), '_blank');
+  };
 }
