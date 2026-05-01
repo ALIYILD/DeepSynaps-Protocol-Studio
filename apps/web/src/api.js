@@ -1718,6 +1718,49 @@ export const api = {
     apiFetch('/api/v1/patient-portal/home-device-request', { method: 'POST', body: JSON.stringify(data) }),
   portalHomeAdherenceSummary: () => apiFetch('/api/v1/patient-portal/home-adherence-summary'),
 
+  // ── Patient Home Devices launch-audit (2026-05-01) ───────────────────────
+  // Patient-side device registry, separate from the clinician-side
+  // /home-devices/assignments. Each helper returns null on offline / 404
+  // so the page can fall back to a localStorage cache without crashing.
+  homeDevicesList: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/home-devices/devices${q ? '?' + q : ''}`).catch(() => null);
+  },
+  homeDevicesSummary: () => apiFetch('/api/v1/home-devices/devices/summary').catch(() => null),
+  homeDevicesGet: (id) => apiFetch(`/api/v1/home-devices/devices/${encodeURIComponent(id)}`).catch(() => null),
+  homeDevicesRegister: (data) =>
+    apiFetch('/api/v1/home-devices/devices', { method: 'POST', body: JSON.stringify(data || {}) }),
+  homeDevicesUpdate: (id, data) =>
+    apiFetch(`/api/v1/home-devices/devices/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data || {}),
+    }),
+  homeDevicesDecommission: (id, reason) =>
+    apiFetch(`/api/v1/home-devices/devices/${encodeURIComponent(id)}/decommission`, {
+      method: 'POST',
+      body: JSON.stringify({ reason: reason || '' }),
+    }),
+  homeDevicesMarkFaulty: (id, reason) =>
+    apiFetch(`/api/v1/home-devices/devices/${encodeURIComponent(id)}/mark-faulty`, {
+      method: 'POST',
+      body: JSON.stringify({ reason: reason || '' }),
+    }),
+  homeDevicesCalibrate: (id, data) =>
+    apiFetch(`/api/v1/home-devices/devices/${encodeURIComponent(id)}/calibrate`, {
+      method: 'POST',
+      body: JSON.stringify(data || { result: 'passed' }),
+    }),
+  homeDevicesLogSession: (id, data) =>
+    apiFetch(`/api/v1/home-devices/devices/${encodeURIComponent(id)}/sessions`, {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  postHomeDevicesAuditEvent: (data) =>
+    apiFetch('/api/v1/home-devices/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
   // ── Home Program Tasks (patient portal) ───────────────────────────────────
   portalListHomeProgramTasks: () => apiFetch('/api/v1/patient-portal/home-program-tasks'),
   portalCompleteHomeProgramTask: (serverTaskId, data) =>
