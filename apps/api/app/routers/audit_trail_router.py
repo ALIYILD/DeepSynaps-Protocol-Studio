@@ -183,6 +183,26 @@ KNOWN_SURFACES = {
     # "Log now" CTA deep-links the patient into the Adherence Events
     # surface so completion stays in a single source of truth.
     "home_program_tasks",
+    # Patient Wearables launch-audit (2026-05-01). EIGHTH and final
+    # patient-facing surface. Closes the patient-side data-coverage
+    # story by adding the audit chain, consent-revoked write gate,
+    # IDOR regression and DEMO honesty layer that every other patient
+    # surface enforces. Wearable observations already feed Course Detail
+    # telemetry, AE Hub detection, and Outcome Series — this surface
+    # records what the PATIENT does on the wearables page (view,
+    # devices_viewed, summary_viewed, device_viewed, observations_viewed,
+    # wearable_connected, wearable_disconnected,
+    # wearable_disconnected_to_clinician (clinician-visible mirror),
+    # sync_triggered, observation_anomaly_to_clinician (HIGH-priority
+    # clinician-visible mirror when HR > 180 / HR < 30 / SpO2 < 88
+    # samples are ingested via patient-initiated sync), export, plus the
+    # page-level events posted via /api/v1/patient-wearables/audit-events
+    # (filter_changed, deep_link_followed, demo_banner_shown,
+    # consent_banner_shown). Anomaly escalation creates an AdverseEvent
+    # draft (status='reported') that surfaces in the AE Hub so the
+    # regulatory chain stays intact end-to-end (mirrors the Adherence
+    # Events #350 escalation pattern).
+    "wearables",
     # Population Analytics launch-audit (2026-05-01). Clinician-facing
     # cohort hub. Closes the regulator chain on the population /
     # aggregate-stats side after Patient Profile (#338) closed it on the

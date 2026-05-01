@@ -66,6 +66,7 @@ from app.routers.consent_router import router as consent_router
 from app.routers.patient_portal_router import router as patient_portal_router
 from app.routers.notifications_router import router as notifications_router
 from app.routers.wearable_router import router as wearable_router
+from app.routers.patient_wearables_router import router as patient_wearables_router
 from app.routers.media_router import router as media_router
 from app.routers.home_devices_router import router as home_devices_router
 from app.routers.home_device_portal_router import router as home_device_portal_router
@@ -322,6 +323,12 @@ app.include_router(home_devices_patient_router)
 # chain (register → log session → adherence event → side-effect →
 # escalate to AE Hub draft).
 app.include_router(adherence_events_router)
+# Patient Wearables launch-audit (2026-05-01). EIGHTH and final patient-
+# facing launch-audit surface — adds the audit chain, consent-revoked
+# write gate, IDOR regression and DEMO honesty layer on top of the
+# existing ``wearable_router`` clinician queue and patient_portal_router
+# wearable connect / sync helpers.
+app.include_router(patient_wearables_router)
 # Settings API (scaffolded 024_settings_schema) — stubs; endpoints arrive in
 # follow-up subagents. Grouped together for discoverability.
 app.include_router(profile_router)

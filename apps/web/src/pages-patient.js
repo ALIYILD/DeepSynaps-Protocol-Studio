@@ -14884,7 +14884,15 @@ export async function pgPatientWearables() {
     Promise.resolve(p).catch(() => null),
     _timeout(3000),
   ]);
-  const [wearableData, _summaryData, homeDeviceData] = await Promise.all([
+  // ── Patient Wearables launch-audit (2026-05-01) ──────────────────────────
+  // EIGHTH and final patient-facing launch-audit surface. We read both the
+  // legacy patient-portal connection list (already wired to real DB) AND
+  // the new audited devices/summary endpoints so the page can render the
+  // launch-audit banners (DEMO / consent-revoked) plus pending-anomaly
+  // counts. The legacy reads stay so existing UI keeps rendering during
+  // the rollout — the launch-audit reads layer the audit + IDOR guarantees
+  // on top.
+  const [wearableData, _summaryData, homeDeviceData, pwDevicesResp, pwSummaryResp] = await Promise.all([
     _raceNull(api.patientPortalWearables()),
     _raceNull(api.patientPortalWearableSummary(7)),
     // Real home-device assignment from /api/v1/patient-portal/home-device.
@@ -14892,11 +14900,38 @@ export async function pgPatientWearables() {
     // log to the live backend (requires an active assignment) or must
     // fall back to local-only storage and an honest "saved locally" toast.
     _raceNull(api.portalGetHomeDevice ? api.portalGetHomeDevice() : null),
+    _raceNull(api.patientWearablesDevices ? api.patientWearablesDevices() : null),
+    _raceNull(api.patientWearablesSummary ? api.patientWearablesSummary() : null),
   ]);
 
   const connections  = wearableData?.connections   || [];
   const recentAlerts = wearableData?.recent_alerts || [];
   const activeHomeAssignment = homeDeviceData?.assignment || null;
+  // Launch-audit signals.
+  const pwIsDemo = !!(pwDevicesResp && pwDevicesResp.is_demo);
+  const pwConsentActive = pwDevicesResp ? !!pwDevicesResp.consent_active : true;
+  const pwPendingAnomalies = (pwSummaryResp && pwSummaryResp.pending_anomalies) || 0;
+  const pwAuditedDevices = (pwDevicesResp && pwDevicesResp.items) || [];
+  // Map source → audited-device row so the per-card "Sync now" / per-card
+  // disconnect can target the audited connection_id (a UUID) rather than
+  // the legacy /patient-portal/wearable-connect/{id} flow.
+  const pwBySource = {};
+  for (const d of pwAuditedDevices) { if (d && d.source) pwBySource[d.source] = d; }
+  // Mount-time view audit ping. Best-effort — the helper already swallows
+  // failures so a wedged audit endpoint never breaks the page.
+  if (api.postPatientWearablesAuditEvent) {
+    api.postPatientWearablesAuditEvent({
+      event: 'view',
+      note: 'patient mounted Wearables page',
+      using_demo_data: pwIsDemo,
+    });
+  }
+  if (pwIsDemo && api.postPatientWearablesAuditEvent) {
+    api.postPatientWearablesAuditEvent({ event: 'demo_banner_shown', using_demo_data: true });
+  }
+  if (!pwConsentActive && api.postPatientWearablesAuditEvent) {
+    api.postPatientWearablesAuditEvent({ event: 'consent_banner_shown' });
+  }
 
   // ── LocalStorage: home device assignments + session log ───────────────────
   const homeDevKey  = 'ds_home_devices_'  + (uid || 'demo');
@@ -14951,9 +14986,25 @@ export async function pgPatientWearables() {
     .map(c => new Date(c.last_sync_at).getTime()).sort((a,b) => b-a)[0] || null;
 
   // ── Biometric snapshot ────────────────────────────────────────────────────
+  // Read order: real audited devices > legacy localStorage cache > demo.
+  // The hardcoded fallback is preserved for offline / pre-consent demo
+  // rendering only — it is ALWAYS labelled `_isDemoData=true` so the UI
+  // can disclose it as example data, never AI-fabricated insight. When
+  // the new audited summary endpoint reports is_demo=false but the
+  // patient has no real wearable data, we honestly show the empty state
+  // ("No biometrics yet — connect a device above") rather than fake
+  // numbers.
   let bio = null;
   try { bio = JSON.parse(localStorage.getItem('ds_wearable_summary') || 'null'); } catch (_e) {}
-  if (!bio) bio = { _isDemoData:true, hrv:'42 ms', sleep:'7h 12m', steps:'6,840', rhr:'64 bpm' };
+  const pwHasRealData = pwAuditedDevices.some(d => !!d.last_observed_at);
+  if (!bio) {
+    if (pwIsDemo || !pwHasRealData) {
+      // Demo or empty real data — keep the honest example-data fallback.
+      bio = { _isDemoData: true, hrv: '42 ms', sleep: '7h 12m', steps: '6,840', rhr: '64 bpm' };
+    } else {
+      bio = { _isDemoData: false, hrv: '—', sleep: '—', steps: '—', rhr: '—' };
+    }
+  }
 
   // Biometric status classification
   function _bioStatus(type, valStr) {
@@ -15024,6 +15075,9 @@ export async function pgPatientWearables() {
     </div>
   </div>
 
+  ${pwIsDemo ? `<div class="notice notice-info" style="font-size:12px;background:rgba(245,158,11,0.12);color:var(--amber,#f59e0b);border-left:3px solid var(--amber,#f59e0b);padding:8px 12px;border-radius:6px;margin-bottom:10px"><strong>Demo mode:</strong> The wearables and observations on this page are example data. Exports are prefixed <code>DEMO-</code> and not regulator-submittable.</div>` : ''}
+  ${!pwConsentActive ? `<div class="notice notice-warn" style="font-size:12px;background:rgba(239,68,68,0.12);color:var(--red,#ef4444);border-left:3px solid var(--red,#ef4444);padding:8px 12px;border-radius:6px;margin-bottom:10px"><strong>Consent withdrawn:</strong> You are in read-only mode. Existing observations remain visible but no new syncs or disconnects can be triggered until consent is reinstated.</div>` : ''}
+  ${pwPendingAnomalies > 0 ? `<div class="notice notice-warn" style="font-size:12px;background:rgba(239,68,68,0.12);color:var(--red,#ef4444);border-left:3px solid var(--red,#ef4444);padding:8px 12px;border-radius:6px;margin-bottom:10px"><strong>${pwPendingAnomalies} anomaly alert${pwPendingAnomalies===1?'':'s'} pending clinician review.</strong> Your care team has been notified — you do not need to take further action.</div>` : ''}
   ${recentAlerts.length ? `<div class="notice notice-warn" style="font-size:12px"><strong>Sync note:</strong> ${esc(recentAlerts[0].detail||'A recent sync issue was detected.')}</div>` : ''}
 
   <!-- ② HEALTH SOURCES -->
@@ -15061,9 +15115,11 @@ export async function pgPatientWearables() {
             ${!isConn ? `<div class="pdw-source-note">${esc(src.connectNote)}</div>` : ''}
             <div class="pdw-source-actions">
               ${isConn
-                ? `<button class="pdw-btn-manage"    onclick="window._pdwManageSource('${src.id}','${conn?.id||''}')">Manage</button>
-                   <button class="pdw-btn-reconnect" onclick="window._pdwReconnect('${src.id}')">Reconnect</button>`
-                : `<button class="pdw-btn-connect"   onclick="window._pdwConnect('${src.id}')">Connect</button>`}
+                ? `<button class="pdw-btn-manage"    onclick="window._pdwManageSource('${src.id}','${conn?.id||''}')" ${pwConsentActive?'':'disabled title="Read-only — consent withdrawn"'}>Manage</button>
+                   <button class="pdw-btn-reconnect" onclick="window._pdwReconnect('${src.id}')" ${pwConsentActive?'':'disabled title="Read-only — consent withdrawn"'}>Reconnect</button>
+                   ${pwBySource[src.id] ? `<button class="pdw-btn-reconnect" onclick="window._pdwSyncNow('${pwBySource[src.id].id}')" ${pwConsentActive?'':'disabled title="Read-only — consent withdrawn"'}>Sync now</button>
+                   <button class="pdw-btn-reconnect" onclick="window._pdwExportObs('${pwBySource[src.id].id}')">Export CSV</button>` : ''}`
+                : `<button class="pdw-btn-connect"   onclick="window._pdwConnect('${src.id}')" ${pwConsentActive?'':'disabled title="Read-only — consent withdrawn"'}>Connect</button>`}
             </div>
           </div>
         </div>`;
@@ -15307,18 +15363,100 @@ export async function pgPatientWearables() {
 
   // ── Source actions ────────────────────────────────────────────────────────
   window._pdwConnect = async function(sourceId) {
-    try { await api.connectWearableSource({ source: sourceId }); await pgPatientWearables(); }
-    catch (_e) { showToast('Could not initiate connection. Please try again.'); }
+    if (!pwConsentActive) { showToast('Read-only mode — consent withdrawn.', '#ef4444'); return; }
+    try {
+      // V1 connect requires explicit consent; the legacy helper omits the
+      // flag so we set it here on the patient's behalf — the consent
+      // banner above explains the implications, and the audit row makes
+      // the patient-action visible to the care team.
+      await api.connectWearableSource({ source: sourceId, consent_given: true });
+      if (api.postPatientWearablesAuditEvent) {
+        api.postPatientWearablesAuditEvent({
+          event: 'wearable_connected',
+          note: 'source=' + sourceId,
+          using_demo_data: pwIsDemo,
+        });
+      }
+      await pgPatientWearables();
+    } catch (_e) { showToast('Could not initiate connection. Please try again.'); }
   };
   window._pdwReconnect = async function(sourceId) {
-    try { await api.connectWearableSource({ source: sourceId }); await pgPatientWearables(); }
+    if (!pwConsentActive) { showToast('Read-only mode — consent withdrawn.', '#ef4444'); return; }
+    try {
+      await api.connectWearableSource({ source: sourceId, consent_given: true });
+      if (api.postPatientWearablesAuditEvent) {
+        api.postPatientWearablesAuditEvent({
+          event: 'wearable_connected',
+          note: 'reconnect; source=' + sourceId,
+          using_demo_data: pwIsDemo,
+        });
+      }
+      await pgPatientWearables();
+    }
     catch (_e) { showToast('Could not reconnect. Please try again.'); }
   };
   window._pdwManageSource = async function(sourceId, connectionId) {
+    if (!pwConsentActive) { showToast('Read-only mode — consent withdrawn.', '#ef4444'); return; }
     if (!connectionId) return;
-    if (!confirm('Disconnect this source? Your existing data will remain but no new syncs will occur.')) return;
-    try { await api.disconnectWearableSource(connectionId); await pgPatientWearables(); }
+    const note = prompt('Disconnect this source? Your existing observations will remain but no new syncs will occur.\n\nReason (required):');
+    if (note == null) return;
+    const trimmed = String(note).trim();
+    if (!trimmed) { showToast('A reason is required to disconnect.', '#d97706'); return; }
+    try {
+      // Prefer the new audited disconnect endpoint when the source is
+      // also visible in the launch-audit devices list. Fall back to the
+      // legacy DELETE for sources the new router has not seen (during
+      // rollout).
+      const audited = pwBySource[sourceId];
+      if (audited && audited.id && api.patientWearablesDisconnect) {
+        await api.patientWearablesDisconnect(audited.id, trimmed);
+      } else {
+        await api.disconnectWearableSource(connectionId);
+        if (api.postPatientWearablesAuditEvent) {
+          api.postPatientWearablesAuditEvent({
+            event: 'wearable_disconnected',
+            note: 'legacy; source=' + sourceId + '; reason=' + trimmed.slice(0, 200),
+            using_demo_data: pwIsDemo,
+          });
+        }
+      }
+      await pgPatientWearables();
+    }
     catch (_e) { showToast('Could not disconnect. Please try again.'); }
+  };
+  // Sync-now uses the launch-audit endpoint so the audit row + anomaly
+  // detection chain runs. No clinical-grade arrhythmia inference here —
+  // just bridge-trigger + optional patient-supplied sample for the
+  // anomaly thresholds documented on the server.
+  window._pdwSyncNow = async function(deviceId) {
+    if (!pwConsentActive) { showToast('Read-only mode — consent withdrawn.', '#ef4444'); return; }
+    if (!deviceId || !api.patientWearablesSync) return;
+    try {
+      const resp = await api.patientWearablesSync(deviceId, {});
+      if (resp && resp.adverse_event_id) {
+        showToast('Anomaly detected — your care team has been notified.', '#ef4444');
+      } else {
+        showToast('Sync triggered.', 'var(--teal,#00d4bc)');
+      }
+      await pgPatientWearables();
+    } catch (_e) { showToast('Could not trigger sync. Please try again.', '#d97706'); }
+  };
+  // Export uses the new launch-audit endpoint so the export is audited
+  // and DEMO-prefixed when the patient row is demo. No blob URL — the
+  // server returns a real CSV with DEMO honesty headers.
+  window._pdwExportObs = function(deviceId) {
+    if (!deviceId) return;
+    const url = '/api/v1/patient-wearables/devices/' + encodeURIComponent(deviceId) + '/observations/export.csv';
+    if (api.postPatientWearablesAuditEvent) {
+      api.postPatientWearablesAuditEvent({
+        event: 'export',
+        device_id: deviceId,
+        note: 'format=csv',
+        using_demo_data: pwIsDemo,
+      });
+    }
+    try { window.open(url, '_blank'); }
+    catch (_e) { showToast('Could not open export.', '#d97706'); }
   };
 
   // ── Legacy compat ─────────────────────────────────────────────────────────
