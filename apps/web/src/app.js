@@ -145,6 +145,7 @@ let _modVirtualCare   = null;
 let _modConditions    = null;
 let _modClinicalTools = null;
 let _modClinicalHubs  = null;
+let _modInbox         = null;
 let _modDeeptwin      = null;
 let _modBrainTwin     = null;
 
@@ -153,6 +154,10 @@ async function loadPatient()    { return (_modPatient   ??= await import('./page
 async function loadClinical()   { return (_modClinical  ??= await import('./pages-clinical.js')); }
 async function loadClinicalTools() { return (_modClinicalTools ??= await import('./pages-clinical-tools.js')); }
 async function loadClinicalHubs()  { return (_modClinicalHubs  ??= await import('./pages-clinical-hubs.js')); }
+// Clinician Inbox / Notifications Hub launch-audit (2026-05-01). Top-of-day
+// workflow surface for clinicians; aggregates HIGH-priority mirror audit
+// rows from every patient-facing launch audit.
+async function loadInbox()         { return (_modInbox         ??= await import('./pages-inbox.js')); }
 async function loadDeeptwin()   { return (_modDeeptwin  ??= await import('./pages-deeptwin.js')); }
 async function loadBrainTwin()  { return (_modBrainTwin ??= await import('./pages-brain-twin.js')); }
 async function loadKnowledge()  { return (_modKnowledge ??= await import('./pages-knowledge.js')); }
@@ -471,6 +476,11 @@ const NAV = [
   // ── CLINICAL ─────────────────────────────────────────────────────────────────
   { section: 'Clinical', sectionId: 'clinical', collapsed: false },
   { id: 'home',               label: 'Dashboard',         icon: '🏠' },
+  // Clinician Inbox / Notifications Hub launch-audit (2026-05-01).
+  // Top-of-day triage surface that aggregates HIGH-priority mirror audit
+  // rows from every patient-facing launch audit so urgent signals don't
+  // get lost in the regulator-shaped Audit Trail page.
+  { id: 'clinician-inbox',    label: 'Inbox',             icon: '📬' },
   { id: 'schedule-v2',        label: 'Schedule',          icon: '🗓️' },
   { id: 'assessments-v2',     label: 'Assessments',       icon: '◉' },
   { id: 'patients-v2',        label: 'Patients',          icon: '👥' },
@@ -508,6 +518,8 @@ const NAV = [
 // ── Lucide-style SVG icons for nav items ──────────────────────────────────────
 const NAV_ICONS = {
   'home':              `<svg viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`,
+  // Clinician Inbox icon — envelope outline, mirrors the lucide "inbox" glyph.
+  'clinician-inbox':   `<svg viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>`,
   'patients':          `<svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
   'courses':           `<svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>`,
   'clinical-hub':      `<svg viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect width="8" height="4" x="8" y="2" rx="1"/><path d="M8 12h.01"/><path d="M12 12h4"/><path d="M8 16h.01"/><path d="M12 16h4"/></svg>`,
@@ -1227,6 +1239,17 @@ async function renderPage() {
     case 'dashboard': {
       const m = await loadClinical();
       await m.pgDash(setTopbar, navigate);
+      break;
+    }
+    // Clinician Inbox / Notifications Hub launch-audit (2026-05-01).
+    // Top-of-day workflow surface that aggregates HIGH-priority clinician-
+    // visible mirror audit rows from Patient Messages #347, Adherence
+    // Events #350, Home Program Tasks #351, Patient Wearables #352, and
+    // Wearables Workbench #353.
+    case 'inbox':
+    case 'clinician-inbox': {
+      const { pgClinicianInbox } = await loadInbox();
+      await pgClinicianInbox(setTopbar, navigate);
       break;
     }
     case 'patients':     { window._patientHubTab = 'patients';     window._nav('patients-hub'); break; }

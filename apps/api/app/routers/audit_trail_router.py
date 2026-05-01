@@ -229,6 +229,17 @@ KNOWN_SURFACES = {
     # treatment_courses / outcome_series / adverse_events — no AI
     # fabrication; PHI is not exposed in cohort previews.
     "population_analytics",
+    # Clinician Inbox / Notifications Hub launch-audit (2026-05-01). Top-of-day
+    # workflow surface that aggregates the HIGH-priority clinician-visible
+    # mirror audit rows emitted by every patient-facing launch audit
+    # (Patient Messages #347, Adherence Events #350, Home Program Tasks #351,
+    # Patient Wearables #352, Wearables Workbench #353). Events: view,
+    # items_listed, summary_viewed, item_opened, item_acknowledged,
+    # item_drilled_out, bulk_acknowledged, export, filter_changed,
+    # polling_tick. The Inbox does not write new clinical data; it reads
+    # audit_events and stores acknowledgements as their own audit rows so
+    # the regulator audit transcript stays single-sourced.
+    "clinician_inbox",
 }
 
 

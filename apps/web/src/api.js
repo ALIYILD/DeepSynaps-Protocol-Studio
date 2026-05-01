@@ -3013,6 +3013,40 @@ export const api = {
   // Dashboard endpoints
   getDashboardOverview: () => apiFetchWithRetry('/api/v1/dashboard/overview'),
   dashboardSearch: (q) => apiFetch('/api/v1/dashboard/search?q=' + encodeURIComponent(q || '')),
+
+  // ── Clinician Inbox / Notifications Hub (top-of-day workflow surface) ─────
+  // Aggregates the HIGH-priority clinician-visible mirror audit rows emitted
+  // by every patient-facing launch audit (Patient Messages #347, Adherence
+  // Events #350, Home Program Tasks #351, Patient Wearables #352, Wearables
+  // Workbench #353). Reads the audit_events table only — no new schema.
+  // Acknowledgements are stored as their own audit rows so the regulator
+  // audit transcript stays single-sourced. All helpers return null on
+  // offline / 404 so the page can render an honest empty state.
+  clinicianInboxListItems: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/clinician-inbox/items${q ? '?' + q : ''}`).catch(() => null);
+  },
+  clinicianInboxSummary: () =>
+    apiFetch('/api/v1/clinician-inbox/summary').catch(() => null),
+  clinicianInboxGetItem: (eventId) =>
+    apiFetch(`/api/v1/clinician-inbox/items/${encodeURIComponent(eventId)}`).catch(() => null),
+  clinicianInboxAcknowledge: (eventId, note) =>
+    apiFetch(`/api/v1/clinician-inbox/items/${encodeURIComponent(eventId)}/acknowledge`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note || '' }),
+    }),
+  clinicianInboxBulkAcknowledge: (eventIds, note) =>
+    apiFetch('/api/v1/clinician-inbox/items/bulk-acknowledge', {
+      method: 'POST',
+      body: JSON.stringify({ event_ids: eventIds || [], note: note || '' }),
+    }),
+  clinicianInboxExportCsvUrl: () =>
+    `${API_BASE}/api/v1/clinician-inbox/export.csv`,
+  postClinicianInboxAuditEvent: (data) =>
+    apiFetch('/api/v1/clinician-inbox/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).
