@@ -348,82 +348,82 @@ Future hardening before high-stakes deployment:
 
 ```text
 packages/video-pipeline/
-├── README.md
-├── pyproject.toml
-├── CLAUDE.md
-├── docs/
-│   └── VIDEO_ANALYZER.md
-├── src/
-│   └── deepsynaps_video/
-│       ├── __init__.py
-│       ├── schemas.py
-│       ├── constants.py
-│       ├── ingestion.py
-│       ├── normalization.py
-│       ├── privacy.py
-│       ├── segmentation.py
-│       ├── motion.py
-│       ├── qc.py
-│       ├── provenance.py
-│       ├── orchestration.py
-│       ├── reporting.py
-│       ├── longitudinal.py
-│       ├── api.py
-│       ├── worker.py
-│       ├── cli.py
-│       ├── pose_engine/
-│       │   ├── __init__.py
-│       │   ├── base.py
-│       │   ├── schemas.py
-│       │   ├── tracking.py
-│       │   ├── overlays.py
-│       │   └── backends/
-│       │       ├── __init__.py
-│       │       ├── mediapipe_backend.py
-│       │       ├── rtmpose_backend.py
-│       │       ├── vitpose_backend.py
-│       │       ├── yolo_backend.py
-│       │       └── noop_backend.py
-│       ├── analyzers/
-│       │   ├── __init__.py
-│       │   ├── clinical/
-│       │   │   ├── __init__.py
-│       │   │   ├── gait.py
-│       │   │   ├── bradykinesia.py
-│       │   │   ├── tremor.py
-│       │   │   ├── posture.py
-│       │   │   ├── facial.py
-│       │   │   └── rehab.py
-│       │   └── monitoring/
-│       │       ├── __init__.py
-│       │       ├── bed_exit.py
-│       │       ├── falls.py
-│       │       ├── inactivity.py
-│       │       ├── room_zones.py
-│       │       └── interactions.py
-│       ├── evaluation/
-│       │   ├── __init__.py
-│       │   ├── datasets.py
-│       │   ├── labels.py
-│       │   ├── metrics.py
-│       │   └── error_analysis.py
-│       └── protocols/
-│           ├── __init__.py
-│           ├── mds_updrs_part_iii.py
-│           ├── gait.py
-│           ├── rehab.py
-│           └── room_monitoring.py
-├── portal_integration/
-│   ├── DASHBOARD_PAGE_SPEC.md
-│   └── api_contract.md
-├── demo/
-│   ├── sample_clinical_task_report.json
-│   └── demo_clinical_task.py
-└── tests/
-    ├── test_motion.py
-    ├── test_bradykinesia.py
-    ├── test_gait.py
-    └── fixtures/
+|-- README.md
+|-- pyproject.toml
+|-- CLAUDE.md
+|-- docs/
+|   `-- VIDEO_ANALYZER.md
+|-- src/
+|   `-- deepsynaps_video/
+|       |-- __init__.py
+|       |-- schemas.py
+|       |-- constants.py
+|       |-- ingestion.py
+|       |-- normalization.py
+|       |-- privacy.py
+|       |-- segmentation.py
+|       |-- motion.py
+|       |-- qc.py
+|       |-- provenance.py
+|       |-- orchestration.py
+|       |-- reporting.py
+|       |-- longitudinal.py
+|       |-- api.py
+|       |-- worker.py
+|       |-- cli.py
+|       |-- pose_engine/
+|       |   |-- __init__.py
+|       |   |-- base.py
+|       |   |-- schemas.py
+|       |   |-- tracking.py
+|       |   |-- overlays.py
+|       |   `-- backends/
+|       |       |-- __init__.py
+|       |       |-- mediapipe_backend.py
+|       |       |-- rtmpose_backend.py
+|       |       |-- vitpose_backend.py
+|       |       |-- yolo_backend.py
+|       |       `-- noop_backend.py
+|       |-- analyzers/
+|       |   |-- __init__.py
+|       |   |-- clinical/
+|       |   |   |-- __init__.py
+|       |   |   |-- gait.py
+|       |   |   |-- bradykinesia.py
+|       |   |   |-- tremor.py
+|       |   |   |-- posture.py
+|       |   |   |-- facial.py
+|       |   |   `-- rehab.py
+|       |   `-- monitoring/
+|       |       |-- __init__.py
+|       |       |-- bed_exit.py
+|       |       |-- falls.py
+|       |       |-- inactivity.py
+|       |       |-- room_zones.py
+|       |       `-- interactions.py
+|       |-- evaluation/
+|       |   |-- __init__.py
+|       |   |-- datasets.py
+|       |   |-- labels.py
+|       |   |-- metrics.py
+|       |   `-- error_analysis.py
+|       `-- protocols/
+|           |-- __init__.py
+|           |-- mds_updrs_part_iii.py
+|           |-- gait.py
+|           |-- rehab.py
+|           `-- room_monitoring.py
+|-- portal_integration/
+|   |-- DASHBOARD_PAGE_SPEC.md
+|   `-- api_contract.md
+|-- demo/
+|   |-- sample_clinical_task_report.json
+|   `-- demo_clinical_task.py
+`-- tests/
+    |-- test_motion.py
+    |-- test_bradykinesia.py
+    |-- test_gait.py
+    `-- fixtures/
 ```
 
 ---
