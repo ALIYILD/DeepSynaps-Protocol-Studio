@@ -7371,7 +7371,7 @@ export async function pgCareTeamCoverage(setTopbar) {
   var activeTab = window._coverageTab || 'coverage';
 
   async function loadAll() {
-    var [summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth, policyOrder, policyOverrides, policyMappings, deliveryConcerns] = await Promise.all([
+    var [summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth, policyOrder, policyOverrides, policyMappings, deliveryConcerns, caregiverChannels] = await Promise.all([
       api.careTeamCoverageSummary(),
       api.careTeamCoverageOncallNow(),
       api.careTeamCoverageSlaConfig(),
@@ -7385,8 +7385,15 @@ export async function pgCareTeamCoverage(setTopbar) {
       api.escalationPolicySurfaceOverrides(),
       api.escalationPolicyUserMappings(),
       api.careTeamCoverageDeliveryConcerns({ limit: 100 }),
+      // Clinic Caregiver Channel Override launch-audit (2026-05-01).
+      // Returns null when the actor has no clinic_id (e.g. unattached
+      // admin) so the tab body can render an honest empty state without
+      // crashing the page.
+      typeof api.caregiverEmailDigestClinicPreferences === 'function'
+        ? api.caregiverEmailDigestClinicPreferences()
+        : null,
     ]);
-    return { summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth, policyOrder, policyOverrides, policyMappings, deliveryConcerns };
+    return { summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth, policyOrder, policyOverrides, policyMappings, deliveryConcerns, caregiverChannels };
   }
 
   function isDemo(d) {
@@ -7682,6 +7689,81 @@ export async function pgCareTeamCoverage(setTopbar) {
       '</div></div>';
   }
 
+  // Clinic Caregiver Channel Override launch-audit (2026-05-01).
+  // Admin-only tab that surfaces every CaregiverDigestPreference row in
+  // this clinic, with the resolved dispatch chain + an "Override" CTA
+  // that pins a misconfigured caregiver back to the clinic chain. The
+  // tab fires ``care_team_coverage.caregiver_channels_view`` on first
+  // render so the regulator transcript records the admin's read access.
+  function renderCaregiverChannelsTab(d) {
+    var data = d.caregiverChannels || null;
+    var items = (data && Array.isArray(data.items)) ? data.items : [];
+    var isMockMode = !!(data && data.is_mock_mode);
+    api.postCareTeamCoverageAuditEvent({
+      event: 'caregiver_channels_view',
+      note: 'rows=' + items.length + (isMockMode ? '; mock_mode=1' : ''),
+    });
+    if (data == null) {
+      return '<div data-testid="ctc-caregiver-channels" class="notice notice-info" style="padding:14px;font-size:12px">' +
+        '<strong>Caregiver channels backend unreachable.</strong> Until the API is up the admin override surface is unavailable; caregiver-side preferences continue to dispatch via the existing clinic chain.' +
+        '</div>';
+    }
+    if (items.length === 0) {
+      return emptyState(
+        '✉',
+        'No caregiver preferences in this clinic.',
+        'Caregivers must enable the daily digest from their portal before they appear here. Once they pick a preferred channel (email / sms / slack / pagerduty) you can review or override the routing from this tab.',
+      );
+    }
+    var mockChip = isMockMode
+      ? '<span style="background:#fef3c7;color:#78350f;padding:2px 6px;border-radius:5px;font-size:10px;font-weight:600;margin-left:6px">MOCK</span>'
+      : '';
+    var rows = items.map(function(it) {
+      var name = _esc(it.caregiver_display_name || it.caregiver_email || it.caregiver_user_id || '—');
+      var email = _esc(it.caregiver_email || '');
+      var preferred = it.preferred_channel
+        ? '<span style="text-transform:capitalize">' + _esc(it.preferred_channel) + '</span>'
+        : '<span style="color:var(--text-muted)">— (clinic default)</span>';
+      var willChip = _esc(it.will_dispatch_via || '-');
+      var resolved = (Array.isArray(it.resolved_chain) && it.resolved_chain.length > 0)
+        ? it.resolved_chain.map(function(n) { return _esc(n); }).join(' → ')
+        : '—';
+      var clinicChain = (Array.isArray(it.clinic_chain) && it.clinic_chain.length > 0)
+        ? it.clinic_chain.map(function(n) { return _esc(n); }).join(' → ')
+        : '—';
+      var miscChip = it.is_misconfigured
+        ? '<span data-testid="ctc-cg-channel-misconfigured" style="background:rgba(251,113,133,0.16);color:#fb7185;padding:1px 6px;border-radius:5px;font-size:10px;font-weight:700;margin-left:6px">MISCONFIGURED</span>'
+        : '';
+      var honoredChip = it.honored_caregiver_preference
+        ? '<span style="background:rgba(45,212,191,0.16);color:#2dd4bf;padding:1px 6px;border-radius:5px;font-size:10px;font-weight:600">honored</span>'
+        : (it.preferred_channel
+            ? '<span style="background:rgba(251,191,36,0.16);color:#d97706;padding:1px 6px;border-radius:5px;font-size:10px;font-weight:600">falls back</span>'
+            : '<span style="color:var(--text-muted);font-size:10px">no override</span>');
+      var overrideBtn = it.preferred_channel
+        ? '<button class="btn btn-sm" data-testid="ctc-cg-channel-override" onclick="window._coverageCaregiverChannelOverride(\'' + _esc(it.caregiver_user_id || '') + '\')">Override → clinic chain</button>'
+        : '<span style="color:var(--text-muted);font-size:11px">No override to clear</span>';
+      return '<tr data-testid="ctc-caregiver-channel-row" data-caregiver-user-id="' + _esc(it.caregiver_user_id || '') + '">' +
+        '<td><strong>' + name + '</strong>' + miscChip + '<br><span style="font-size:11px;color:var(--text-muted)">' + email + '</span></td>' +
+        '<td>' + preferred + '</td>' +
+        '<td><span style="font-weight:700;text-transform:capitalize">' + willChip + '</span><br>' + honoredChip + '</td>' +
+        '<td><code style="font-size:11px">' + resolved + '</code></td>' +
+        '<td><code style="font-size:11px;color:var(--text-muted)">' + clinicChain + '</code></td>' +
+        '<td>' + overrideBtn + '</td>' +
+        '</tr>';
+    }).join('');
+    return '<div data-testid="ctc-caregiver-channels" style="overflow-x:auto">' +
+      '<div style="margin-bottom:10px;font-size:12px;color:var(--text-secondary);line-height:1.5">' +
+        '<strong>Caregiver channel overrides for this clinic.</strong> ' + mockChip +
+        ' Each row shows the caregiver\'s preferred channel and the resolved dispatch chain. ' +
+        'Rows tagged <strong style="color:#fb7185">MISCONFIGURED</strong> picked a channel whose adapter is not configured in this deploy — the clinic chain is used as the fallback. ' +
+        'Click "Override → clinic chain" to pin a caregiver back to the clinic default.' +
+      '</div>' +
+      '<table class="data-table" style="width:100%;min-width:980px">' +
+      '<thead><tr><th>Caregiver</th><th>Preferred</th><th>Will dispatch via</th><th>Resolved chain</th><th>Clinic chain</th><th>Action</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table>' +
+      '</div>';
+  }
+
   function renderPagesTab(d) {
     var pages = (d.pages && d.pages.items) || [];
     if (pages.length === 0) {
@@ -7893,6 +7975,18 @@ export async function pgCareTeamCoverage(setTopbar) {
 
     var concernsCount = (d.deliveryConcerns && Array.isArray(d.deliveryConcerns.items))
       ? d.deliveryConcerns.items.length : 0;
+    var roleNow = (window.__deepsynapsActorRole || '').toLowerCase();
+    var isAdminRole = (roleNow === 'admin' || roleNow === 'supervisor' || roleNow === 'regulator');
+    // Clinic Caregiver Channel Override launch-audit (2026-05-01). The
+    // misconfigured-channel count is the chip the admin should react to:
+    // these are caregivers whose ``preferred_channel`` adapter is not
+    // enabled in this deploy (e.g. SMS picked but no Twilio creds).
+    var caregiverChannels = d.caregiverChannels || null;
+    var caregiverChannelsItems = (caregiverChannels && Array.isArray(caregiverChannels.items))
+      ? caregiverChannels.items : [];
+    var caregiverChannelsMisconfigured = caregiverChannelsItems.filter(function(it) {
+      return it && it.is_misconfigured === true;
+    }).length;
     var tabs = [
       { id: 'coverage',   label: 'Coverage' },
       { id: 'breaches',   label: 'SLA breaches' },
@@ -7903,6 +7997,13 @@ export async function pgCareTeamCoverage(setTopbar) {
       { id: 'pages',      label: 'Pages history' },
       { id: 'concerns',   label: 'Patient delivery concerns' + (concernsCount > 0 ? ' (' + concernsCount + ')' : '') },
     ];
+    if (isAdminRole) {
+      tabs.push({
+        id: 'caregiver-channels',
+        label: 'Caregiver channels' + (caregiverChannelsMisconfigured > 0
+          ? ' (' + caregiverChannelsMisconfigured + ')' : ''),
+      });
+    }
 
     var body = '';
     if (activeTab === 'coverage')      body = renderOncallTab(d);
@@ -7913,6 +8014,7 @@ export async function pgCareTeamCoverage(setTopbar) {
     else if (activeTab === 'policy')   body = renderPolicyTab(d);
     else if (activeTab === 'pages')    body = renderPagesTab(d);
     else if (activeTab === 'concerns') body = renderConcernsTab(d);
+    else if (activeTab === 'caregiver-channels') body = renderCaregiverChannelsTab(d);
 
     el.innerHTML =
       demoBanner +
@@ -7966,6 +8068,42 @@ export async function pgCareTeamCoverage(setTopbar) {
       }
     } catch (e) {
       window.alert('Page-on-call failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    render();
+  };
+
+  // Clinic Caregiver Channel Override launch-audit (2026-05-01).
+  // Admin clears a caregiver's preferred_channel back to null so the
+  // clinic chain runs unmodified. Note is required — the audit row
+  // (caregiver_portal.admin_override_channel) records the reason.
+  window._coverageCaregiverChannelOverride = async function(caregiverUserId) {
+    if (!caregiverUserId) return;
+    var note = window.prompt(
+      'Override caregiver channel preference back to clinic chain.\n\n' +
+      'Note (required) — explain why (e.g. "Twilio creds not provisioned for this clinic"):'
+    );
+    if (!note || !String(note).trim()) return;
+    try {
+      api.postCareTeamCoverageAuditEvent({
+        event: 'caregiver_channel_override_clicked',
+        target_id: caregiverUserId,
+        note: 'reason=' + String(note).trim().slice(0, 200),
+      });
+      var resp = (typeof api.caregiverEmailDigestAdminOverride === 'function')
+        ? await api.caregiverEmailDigestAdminOverride(caregiverUserId, String(note).trim())
+        : null;
+      if (resp && resp.accepted) {
+        window.alert(
+          'Caregiver pinned back to clinic chain.\n' +
+          'Previous: ' + (resp.previous_preferred_channel || 'null') + '\n' +
+          'New: clinic default.\n' +
+          'Audit row recorded (caregiver_portal.admin_override_channel).'
+        );
+      } else {
+        window.alert('Override request did not accept; check your role + that the caregiver belongs to your clinic.');
+      }
+    } catch (e) {
+      window.alert('Override failed: ' + (e && e.message ? e.message : 'unknown'));
     }
     render();
   };

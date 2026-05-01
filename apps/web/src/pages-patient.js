@@ -23381,9 +23381,22 @@ export async function pgPatientCaregiver() {
   // when the field is null, and one of the canonical chip values
   // (email/sms/slack) when the caregiver opted in.
   let digestPrefs = { enabled: false, frequency: 'daily', time_of_day: '08:00', last_sent_at: null, preferred_channel: null };
+  // Clinic Caregiver Channel Override launch-audit (2026-05-01). The
+  // dispatch preview reflects the FIRST adapter in the resolved chain
+  // that is actually enabled (real env vars set OR mock-mode flipped on).
+  // Default-empty so the banner renders nothing when the backend is
+  // offline / unreachable, instead of pretending to dispatch.
+  let dispatchPreview = {
+    resolved_chain: [],
+    will_dispatch_via: '-',
+    will_dispatch_adapter: null,
+    honored_caregiver_preference: false,
+    clinic_chain: [],
+    caregiver_preferred_channel: null,
+  };
   if (typeof api.caregiverEmailDigestPreview === 'function') {
     try {
-      const [pv, pr] = await Promise.all([
+      const [pv, pr, dp] = await Promise.all([
         Promise.race([
           api.caregiverEmailDigestPreview(),
           new Promise((_, rej) => setTimeout(() => rej('timeout'), 4000)),
@@ -23392,9 +23405,18 @@ export async function pgPatientCaregiver() {
           api.caregiverEmailDigestPreferencesGet(),
           new Promise((_, rej) => setTimeout(() => rej('timeout'), 4000)),
         ]).catch(() => null),
+        // Best-effort dispatch preview — null on offline / 404 (helper
+        // is missing in older deploys).
+        (typeof api.caregiverEmailDigestPreviewDispatch === 'function')
+          ? Promise.race([
+              api.caregiverEmailDigestPreviewDispatch(),
+              new Promise((_, rej) => setTimeout(() => rej('timeout'), 4000)),
+            ]).catch(() => null)
+          : Promise.resolve(null),
       ]);
       if (pv && typeof pv.unread_count === 'number') digestPreview = pv;
       if (pr && typeof pr.enabled === 'boolean') digestPrefs = pr;
+      if (dp && typeof dp.will_dispatch_via === 'string') dispatchPreview = dp;
     } catch (_e) {}
   }
 
@@ -23609,6 +23631,46 @@ export async function pgPatientCaregiver() {
             ? 'No unread notifications would be included in today\'s digest.'
             : `Today\'s digest would include <strong>${digestPreview.unread_count}</strong> unread notification${digestPreview.unread_count === 1 ? '' : 's'}.`}
         </div>
+        ${(() => {
+          // Clinic Caregiver Channel Override launch-audit (2026-05-01).
+          // "Will dispatch via {channel}" preview banner. Honored=green
+          // when the caregiver's preferred channel is enabled; amber
+          // "falls back" when the preferred channel's adapter is not
+          // configured in this deploy. No banner when the dispatch
+          // preview endpoint is unreachable (will_dispatch_via stays
+          // '-') so the page doesn't fake a status.
+          if (!dispatchPreview.will_dispatch_via || dispatchPreview.will_dispatch_via === '-') return '';
+          const willChip = _ptCgEsc(dispatchPreview.will_dispatch_via);
+          const isHonored = !!dispatchPreview.honored_caregiver_preference;
+          const hasOverride = !!dispatchPreview.caregiver_preferred_channel;
+          const banner = isHonored
+            ? `Will dispatch via <strong style="text-transform:capitalize">${willChip}</strong> — your preferred channel is configured.`
+            : (hasOverride
+                ? `Will dispatch via <strong style="text-transform:capitalize">${willChip}</strong>. Your preferred <strong>${_ptCgEsc(dispatchPreview.caregiver_preferred_channel)}</strong> is not configured for this clinic; the clinic chain is used as the fallback.`
+                : `Will dispatch via <strong style="text-transform:capitalize">${willChip}</strong> (clinic default chain).`);
+          const bg = isHonored
+            ? 'rgba(45,212,191,0.10)'
+            : (hasOverride ? 'rgba(251,191,36,0.12)' : 'rgba(120,120,120,0.10)');
+          const border = isHonored
+            ? 'rgba(45,212,191,0.32)'
+            : (hasOverride ? 'rgba(251,191,36,0.32)' : 'rgba(120,120,120,0.24)');
+          const fg = isHonored
+            ? '#2dd4bf'
+            : (hasOverride ? '#d97706' : 'var(--text-secondary)');
+          const resolvedText = (Array.isArray(dispatchPreview.resolved_chain) && dispatchPreview.resolved_chain.length > 0)
+            ? dispatchPreview.resolved_chain.map((n) => _ptCgEsc(n)).join(' → ')
+            : '—';
+          const clinicText = (Array.isArray(dispatchPreview.clinic_chain) && dispatchPreview.clinic_chain.length > 0)
+            ? dispatchPreview.clinic_chain.map((n) => _ptCgEsc(n)).join(' → ')
+            : '—';
+          return `
+        <div id="pt-cg-digest-dispatch-banner" data-testid="pt-cg-digest-dispatch-banner" style="border:1px solid ${border};background:${bg};color:${fg};border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;line-height:1.5">
+          <div data-testid="pt-cg-digest-will-dispatch-via">${banner}</div>
+          <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:4px">
+            Resolved chain: <code>${resolvedText}</code> &middot; clinic chain: <code>${clinicText}</code>
+          </div>
+        </div>`;
+        })()}
         <div style="display:grid;grid-template-columns:auto 1fr;gap:8px 12px;align-items:center;font-size:12px;color:var(--text-secondary)">
           <label for="pt-cg-digest-enabled" style="font-weight:600">Enabled</label>
           <div>
@@ -24815,9 +24877,19 @@ export async function pgPatientDigest(setTopbarFn) {
               } else if (delivered > 0) {
                 confirmHtml = `<div data-testid="pd-cg-awaiting-confirm" style="font-size:11px;color:#fbbf24;margin-top:2px">Awaiting confirmation</div>`;
               }
-              return `<div data-testid="pd-cg-delivery-row" style="display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;border-top:1px solid var(--border)">
+              // Clinic Caregiver Channel Override launch-audit (2026-05-01).
+              // Per-row "Will dispatch via {channel}" tag — loaded
+              // asynchronously after render so the patient sees an
+              // honest preview of the resolved chain that the next
+              // dispatch will use. The placeholder span is empty until
+              // the preview lands; on offline / 404 it stays empty.
+              const cgIdAttr = _pdEsc(r.caregiver_user_id || '');
+              const willDispatchPlaceholder = r.caregiver_user_id
+                ? `<span data-testid="pd-cg-will-dispatch-via" data-caregiver-user-id="${cgIdAttr}" style="display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;background:rgba(120,120,120,0.10);color:var(--text-muted);font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px"></span>`
+                : '';
+              return `<div data-testid="pd-cg-delivery-row" data-caregiver-user-id="${cgIdAttr}" style="display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;border-top:1px solid var(--border)">
                 <div>
-                  <div style="font-size:12.5px;color:var(--text-primary)">${name}${channelHtml}</div>
+                  <div style="font-size:12.5px;color:var(--text-primary)">${name}${channelHtml}${willDispatchPlaceholder}</div>
                   <div style="font-size:11px;color:var(--text-muted)">Last delivered: ${last}</div>
                   ${confirmHtml}
                 </div>
@@ -24882,6 +24954,38 @@ export async function pgPatientDigest(setTopbarFn) {
     ${caregiverDeliveryHtml}
     <div id="pd-concern-modal-mount"></div>
   </div>`;
+
+  // Clinic Caregiver Channel Override launch-audit (2026-05-01).
+  // Hydrate the per-row "Will dispatch via {channel}" tags after render
+  // so each caregiver delivery confirmation row carries an honest
+  // preview of the next dispatch's resolved chain. Best-effort: silent
+  // when the helper is missing, the backend is unreachable, or the
+  // caregiver_user_id doesn't match a row.
+  if (typeof api.caregiverEmailDigestPreviewDispatch === 'function') {
+    const placeholders = el ? el.querySelectorAll('[data-testid="pd-cg-will-dispatch-via"][data-caregiver-user-id]') : [];
+    for (const ph of placeholders) {
+      const cid = ph.getAttribute('data-caregiver-user-id');
+      if (!cid) continue;
+      try {
+        const dp = await Promise.race([
+          api.caregiverEmailDigestPreviewDispatch(cid),
+          new Promise((_, rej) => setTimeout(() => rej('timeout'), 4000)),
+        ]).catch(() => null);
+        if (dp && dp.will_dispatch_via && dp.will_dispatch_via !== '-') {
+          ph.textContent = 'via ' + dp.will_dispatch_via;
+          if (dp.honored_caregiver_preference) {
+            ph.style.background = 'rgba(45,212,191,0.14)';
+            ph.style.color = '#2dd4bf';
+          } else if (dp.caregiver_preferred_channel) {
+            // Falls-back state — caregiver picked a channel that's not configured.
+            ph.style.background = 'rgba(251,191,36,0.16)';
+            ph.style.color = '#d97706';
+            ph.title = 'Caregiver picked ' + dp.caregiver_preferred_channel + ', falls back to ' + dp.will_dispatch_via;
+          }
+        }
+      } catch (_e) { /* silent */ }
+    }
+  }
 }
 
 // Concern modal — required note textarea, ESC closes, Enter does NOT
