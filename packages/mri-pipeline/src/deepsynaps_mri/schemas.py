@@ -327,6 +327,45 @@ class MedRAGQuery(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Morphometry / aggregated analysis payload (additive)
+# ---------------------------------------------------------------------------
+class RegionalVolumeRow(BaseModel):
+    region: str
+    volume_mm3: float
+    source: str | None = None
+
+
+class RegionalVolumesResult(BaseModel):
+    ok: bool
+    rows: list[RegionalVolumeRow] = Field(default_factory=list)
+    manifest_path: str | None = None
+    message: str = ""
+
+
+class AsymmetryIndexRow(BaseModel):
+    structure_pair: str
+    asymmetry_index: float
+
+
+class AsymmetryResult(BaseModel):
+    ok: bool
+    rows: list[AsymmetryIndexRow] = Field(default_factory=list)
+    message: str = ""
+
+
+class MorphometryProvenance(BaseModel):
+    sources: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class MorphometrySummary(BaseModel):
+    regional_volumes: RegionalVolumesResult | None = None
+    asymmetry: AsymmetryResult | None = None
+    qc_flags: list[str] = Field(default_factory=list)
+    provenance: MorphometryProvenance = Field(default_factory=MorphometryProvenance)
+
+
+# ---------------------------------------------------------------------------
 # Top-level report
 # ---------------------------------------------------------------------------
 class MRIReport(BaseModel):
@@ -362,6 +401,14 @@ class MRIReport(BaseModel):
             "example_see": "docs/MRI_ANALYZER.md §7"
         }
     )
+
+
+class MRIAnalysisReportPayload(BaseModel):
+    """Extended bundle for API/clients — wraps :class:`MRIReport` + morphometry."""
+
+    report: MRIReport
+    morphometry: MorphometrySummary | None = None
+    artefacts_root: str | None = None
 
 
 # ---------------------------------------------------------------------------
