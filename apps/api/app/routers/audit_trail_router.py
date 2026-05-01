@@ -251,6 +251,23 @@ KNOWN_SURFACES = {
     # ``inbox.item_paged_to_oncall`` so the Inbox audit transcript stays
     # the single source of truth for "an item was paged".
     "care_team_coverage",
+    # Clinician Adherence Hub launch-audit (2026-05-01). Bidirectional
+    # counterpart to the patient-facing ``adherence_events`` surface added
+    # in #350. The patient surface records what the PATIENT does on the
+    # adherence page (log, side-effect, escalate-to-clinician); the
+    # ``clinician_adherence_hub`` surface records what the CLINICIAN does
+    # on the cross-patient triage queue: view, events_listed, summary_viewed,
+    # event_viewed, event_acknowledged, event_escalated (HIGH-priority —
+    # creates AdverseEvent draft visible across the clinic), event_resolved,
+    # bulk_acknowledged, export, deep_link_followed, demo_banner_shown.
+    # The escalate flow mirrors the regulatory chain already used by
+    # Wearables Workbench #353 → AE Hub #342, so an adherence event that a
+    # clinician deems clinically meaningful can graduate into an
+    # AdverseEvent without dropping audit continuity. Resolved events are
+    # immutable — any subsequent state change attempts return 409 so the
+    # regulator sees a clean ack → escalate (optional) → resolve transcript
+    # per row.
+    "clinician_adherence_hub",
 }
 
 
