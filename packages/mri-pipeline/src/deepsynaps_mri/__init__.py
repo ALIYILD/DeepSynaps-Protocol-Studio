@@ -24,6 +24,14 @@ from .validation import (
     validate_nifti_header,
     validate_upload_blob,
 )
+from .cortical_surfaces import (
+    CorticalSurfaceBundle,
+    ExportSurfaceMeshesResult,
+    SurfaceQCReport,
+    compute_surface_qc,
+    export_surface_meshes,
+    reconstruct_cortical_surfaces,
+)
 
 __version__ = "0.1.0"
 __all__ = [
@@ -34,4 +42,11 @@ __all__ = [
     "safe_brain_age", "to_fusion_payload",
     # Validation entry points.
     "ValidationResult", "validate_upload_blob", "validate_nifti_header",
+    # Cortical surfaces — see docs/CORTICAL_SURFACES.md.
+    "reconstruct_cortical_surfaces",
+    "export_surface_meshes",
+    "compute_surface_qc",
+    "CorticalSurfaceBundle",
+    "ExportSurfaceMeshesResult",
+    "SurfaceQCReport",
 ]
