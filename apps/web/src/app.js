@@ -1473,7 +1473,31 @@ async function renderPage() {
     case 'billing': { const { pgBilling } = await import('./pages-billing.js'); await pgBilling(setTopbar); break; }
     case 'webhooks': { const { pgWebhooks } = await import('./pages-webhooks.js'); await pgWebhooks(setTopbar); break; }
     case 'marketplace-landing': { const { pgMarketplaceLanding } = await import('./pages-marketplace.js'); await pgMarketplaceLanding(setTopbar, navigate); break; }
-    case 'adverse-events':     { window._monitorHubTab = 'adverse'; window._nav('monitor-hub'); break; }
+    case 'adverse-events': {
+      // AE Hub launch-audit (2026-05-01): drill-in URLs from upstream
+      // surfaces (?page=adverse-events&patient_id=… / course_id=… /
+      // trial_id=… / source_target_type=…&source_target_id=…) must land
+      // on the full AE Hub so the filter banner + drill-back buttons
+      // render. Without query params, fall back to the monitor-hub
+      // "Adverse Events" tab for backwards-compat.
+      let _hasAeDrillParams = false;
+      try {
+        const sp = new URLSearchParams(window.location.search || '');
+        _hasAeDrillParams = !!(
+          sp.get('patient_id') || sp.get('course_id') || sp.get('trial_id') ||
+          sp.get('protocol_id') || sp.get('id') ||
+          (sp.get('source_target_type') && sp.get('source_target_id'))
+        );
+      } catch (_) {}
+      if (_hasAeDrillParams) {
+        const m = await loadCourses();
+        await m.pgAdverseEvents(setTopbar, navigate);
+      } else {
+        window._monitorHubTab = 'adverse';
+        window._nav('monitor-hub');
+      }
+      break;
+    }
     case 'adverse-events-full':{ const m = await loadCourses(); await m.pgAdverseEvents(setTopbar, navigate); break; }
     case 'audittrail': {
       const m = await loadKnowledge();

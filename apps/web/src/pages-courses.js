@@ -6167,10 +6167,121 @@ export async function pgOutcomes(setTopbar, navigate) {
 // rows beyond the first page. Detail review / sign-off / escalation /
 // classification edits live in the monitor-hub modal (one shared codepath).
 //
+// AE Hub re-audit (2026-05-01): drill-in coverage from upstream surfaces
+// (?page=adverse-events&patient_id=… / course_id=… / trial_id=… /
+// source_target_type=…&source_target_id=…). The hub renders a filter
+// banner + drill-back button + clear-filter button when a drill-in is
+// active, and emits adverse_events_hub.view audit pings with the upstream
+// surface preserved so regulators can trace the path end-to-end.
+//
+// Drill-in surface labels and back-pages — kept in sync with the backend
+// KNOWN_DRILL_IN_SURFACES whitelist.
+const AE_HUB_DRILL_IN_LABELS = {
+  patient_profile:   'Patient',
+  course_detail:     'Treatment Course',
+  clinical_trials:   'Clinical Trial',
+  irb_manager:       'IRB Protocol',
+  quality_assurance: 'QA Finding',
+  documents_hub:     'Document',
+  reports_hub:       'Report',
+};
+const AE_HUB_DRILL_BACK_PAGES = {
+  patient_profile:   'patient-profile',
+  course_detail:     'courses',
+  clinical_trials:   'clinical-trials',
+  irb_manager:       'irb-manager',
+  quality_assurance: 'quality-assurance',
+  documents_hub:     'documents-hub',
+  reports_hub:       'reports-hub',
+};
+const AE_HUB_KNOWN_DRILL_IN_SURFACES = new Set(
+  Object.keys(AE_HUB_DRILL_IN_LABELS),
+);
+
 export async function pgAdverseEvents(setTopbar, navigate) {
+  // ── Read drill-in params from URL on mount ────────────────────────────
+  // Multiple shapes are accepted because upstream surfaces use different
+  // canonical params:
+  //   - patient_profile: ?patient_id=…
+  //   - course_detail:   ?course_id=…
+  //   - clinical_trials: ?trial_id=…
+  //   - generic:         ?source_target_type=…&source_target_id=…
+  // The first matched shape wins. ``window._aeDrillIn`` persists the
+  // resolved pair across re-renders so a filter pill click does not lose
+  // the drill-in context.
+  let drillInType = null;
+  let drillInId = null;
+  try {
+    const sp = new URLSearchParams(window.location.search || '');
+    const rawType = (sp.get('source_target_type') || '').trim();
+    const rawId   = (sp.get('source_target_id')   || '').trim();
+    if (rawType && rawId && AE_HUB_KNOWN_DRILL_IN_SURFACES.has(rawType)) {
+      drillInType = rawType;
+      drillInId   = rawId;
+    } else if (sp.get('patient_id')) {
+      drillInType = 'patient_profile';
+      drillInId   = sp.get('patient_id');
+    } else if (sp.get('course_id')) {
+      drillInType = 'course_detail';
+      drillInId   = sp.get('course_id');
+    } else if (sp.get('trial_id')) {
+      drillInType = 'clinical_trials';
+      drillInId   = sp.get('trial_id');
+    } else if (sp.get('protocol_id')) {
+      drillInType = 'irb_manager';
+      drillInId   = sp.get('protocol_id');
+    }
+  } catch (_) {
+    // window.location not available in tests; the filter just doesn't
+    // engage in that case.
+  }
+  if (drillInType && drillInId) {
+    window._aeDrillIn = { type: drillInType, id: drillInId };
+  } else if (window._aeDrillIn && window._aeDrillIn.type && window._aeDrillIn.id) {
+    drillInType = window._aeDrillIn.type;
+    drillInId   = window._aeDrillIn.id;
+  }
+  window._aeClearDrillIn = function() {
+    window._aeDrillIn = null;
+    try {
+      const url = new URL(window.location.href);
+      ['source_target_type', 'source_target_id', 'patient_id', 'course_id', 'trial_id', 'protocol_id']
+        .forEach(k => url.searchParams.delete(k));
+      window.history.replaceState({}, '', url.toString());
+    } catch (_) {}
+    try {
+      api.logAdverseEventsAudit?.({
+        event: 'drill_in_cleared',
+        note: 'cleared_from_hub',
+      }).catch(() => {});
+    } catch (_) {}
+    window._nav('adverse-events-full');
+  };
+  window._aeDrillBack = function() {
+    const di = window._aeDrillIn;
+    if (!di || !di.type || !di.id) return;
+    const page = AE_HUB_DRILL_BACK_PAGES[di.type];
+    if (!page) return;
+    try {
+      api.logAdverseEventsAudit?.({
+        event: 'drill_back',
+        source_target_type: di.type,
+        source_target_id: di.id,
+        note: 'to=' + di.type + ':' + di.id,
+      }).catch(() => {});
+    } catch (_) {}
+    try {
+      const url = '?page=' + encodeURIComponent(page) + '&id=' + encodeURIComponent(di.id);
+      window.location.href = url;
+    } catch (_) {
+      window._nav(page);
+    }
+  };
+
   setTopbar(
     'Adverse Events',
     `<button class="btn btn-sm" onclick="window._aeExportCsv()">Export CSV</button>
+     <button class="btn btn-sm" style="margin-left:6px" onclick="window._aeExportNdjson()">Export NDJSON</button>
      <button class="btn btn-sm" style="margin-left:6px" onclick="window._nav('courses')">← Courses</button>`
   );
   const el = document.getElementById('content');
@@ -6185,21 +6296,44 @@ export async function pgAdverseEvents(setTopbar, navigate) {
   if (aeF.expected)    params.expected = aeF.expected;
   if (aeF.sae === true)        params.sae = 'true';
   if (aeF.reportable === true) params.reportable = 'true';
+  // Drill-in scalar — derived from the surface so the backend gets the
+  // exact filter shape it expects (patient_id / course_id / trial_id).
+  if (drillInType && drillInId) {
+    if (drillInType === 'patient_profile')   params.patient_id = drillInId;
+    else if (drillInType === 'course_detail') params.course_id  = drillInId;
+    else if (drillInType === 'clinical_trials') params.trial_id = drillInId;
+    // For irb_manager / quality_assurance / documents_hub / reports_hub we
+    // currently lack a direct AE column; the audit row preserves the path
+    // and the list shows the full clinic scope (honest empty-state if no
+    // AEs are linked). Future work: wire the upstream→AE join when the
+    // schema gains the FK.
+  }
 
   let aes = [], summary = null, courses = [], patients = [];
   try {
     [aes, summary, courses, patients] = await Promise.all([
       api.listAdverseEvents(params).then(r => r?.items || []).catch(() => []),
-      api.getAdverseEventsSummary?.().catch(() => null) || Promise.resolve(null),
+      api.getAdverseEventsSummary?.(params).catch(() => null) || Promise.resolve(null),
       api.listCourses().then(r => r?.items || []).catch(() => []),
       api.listPatients().then(r => r?.items || []).catch(() => []),
     ]);
   } catch {}
 
-  // Best-effort audit (page open).
+  // Best-effort page-load audit on the page-level surface
+  // (target_type=adverse_events_hub). Distinct from the per-record
+  // adverse_events surface used by create/patch/review/escalate/close.
   try {
-    if (api && typeof api.logAudit === 'function') {
-      const p = api.logAudit({ surface: 'adverse_events', event: 'page_loaded', note: 'standalone_full_log' });
+    if (api && typeof api.logAdverseEventsAudit === 'function') {
+      const auditPayload = {
+        event: 'view',
+        note: 'standalone_full_log',
+      };
+      if (drillInType && drillInId) {
+        auditPayload.source_target_type = drillInType;
+        auditPayload.source_target_id   = drillInId;
+        auditPayload.note = auditPayload.note + ' drill_in_from=' + drillInType + ':' + drillInId;
+      }
+      const p = api.logAdverseEventsAudit(auditPayload);
       if (p && p.catch) p.catch(() => {});
     }
   } catch (_) {}
@@ -6230,6 +6364,35 @@ export async function pgAdverseEvents(setTopbar, navigate) {
   const SEV_COLOR = { mild: 'var(--text-secondary)', moderate: 'var(--amber)', severe: 'var(--red)', serious: 'var(--red)' };
   const filterActive = Object.values(params).some(v => v != null && v !== '');
 
+  // Drill-in banner — only rendered when an upstream surface drilled in.
+  // Visually distinct (amber tint) so reviewers know the list is filtered
+  // by an upstream record and not just by an in-page filter pill.
+  const _aeEsc = (s) => String(s == null ? '' : s).replace(/[<>"'&]/g, c => (
+    {'<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;','&':'&amp;'}[c]
+  ));
+  const _aeDrillInBannerHtml = (drillInType && drillInId)
+    ? (
+        '<div role="status" aria-label="Adverse events filtered by upstream surface" '+
+        'style="padding:10px 14px;margin-bottom:14px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.32);border-radius:8px;display:flex;flex-wrap:wrap;align-items:center;gap:10px;color:var(--text-secondary);font-size:12.5px">'+
+          '<span style="font-weight:600;color:var(--amber)">Filtered</span>'+
+          '<span>Showing AEs linked to '+
+            (AE_HUB_DRILL_IN_LABELS[drillInType] || _aeEsc(drillInType))+
+            ' <code style="background:rgba(245,158,11,0.12);padding:1px 6px;border-radius:4px;font-size:11.5px">'+
+            _aeEsc(drillInId)+
+            '</code></span>'+
+          '<span style="flex:1"></span>'+
+          (AE_HUB_DRILL_BACK_PAGES[drillInType]
+            ? '<button class="btn btn-sm" onclick="window._aeDrillBack()" '+
+              'title="Open the upstream '+_aeEsc(AE_HUB_DRILL_IN_LABELS[drillInType] || drillInType)+'">↩ Open '+
+              _aeEsc(AE_HUB_DRILL_IN_LABELS[drillInType] || drillInType)+
+              '</button>'
+            : '')+
+          '<button class="btn btn-sm" onclick="window._aeClearDrillIn()" '+
+          'title="Drop drill-in filter and show all AEs in your clinic">× Clear filter</button>'+
+        '</div>'
+      )
+    : '';
+
   el.innerHTML = `
     <div style="background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.35);padding:8px 12px;border-radius:6px;margin-bottom:14px;font-size:11.5px;color:var(--text-secondary);line-height:1.6">
       <span style="color:var(--red);font-weight:700">⚠</span>
@@ -6237,6 +6400,8 @@ export async function pgAdverseEvents(setTopbar, navigate) {
       Serious adverse events may require regulatory reporting (IRB / FDA / MHRA).
       Demo data is not for actual clinical reporting.
     </div>
+
+    ${_aeDrillInBannerHtml}
 
     <div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:18px">
       <div class="metric-card"><div class="metric-label">Total</div><div class="metric-value" style="color:var(--blue)">${sm.total||0}</div><div class="metric-delta">all events</div></div>
@@ -6291,7 +6456,15 @@ export async function pgAdverseEvents(setTopbar, navigate) {
         <span id="ae-count" style="font-size:11px;color:var(--text-tertiary);white-space:nowrap">${aes.length} shown${filterActive?' (filtered)':''}</span>
       </div>
       <div style="overflow-x:auto">
-        ${aes.length === 0 ? emptyState('🛡️', filterActive?'No adverse events match the active filters':'No adverse events reported', 'Reporters land here when sessions surface adverse events.') : `
+        ${aes.length === 0 ? emptyState(
+          '🛡️',
+          (drillInType && drillInId)
+            ? ('No adverse events linked to this ' + (AE_HUB_DRILL_IN_LABELS[drillInType] || drillInType) + ' yet')
+            : (filterActive ? 'No adverse events match the active filters' : 'No adverse events reported'),
+          (drillInType && drillInId)
+            ? "They'll appear here once your team logs the first one for this record."
+            : 'Reporters land here when sessions surface adverse events.'
+        ) : `
         <table class="ds-table" id="ae-table">
           <thead><tr><th>Date</th><th>Patient</th><th>Course</th><th>Event Type</th><th>Severity</th><th>Body system</th><th>Status</th><th>Flags</th><th></th></tr></thead>
           <tbody id="ae-tbody">
@@ -6334,8 +6507,16 @@ export async function pgAdverseEvents(setTopbar, navigate) {
       F[key] = value;
     }
     try {
-      if (api && typeof api.logAudit === 'function') {
-        api.logAudit({ surface: 'adverse_events', event: 'filter_changed', note: key+'='+String(value) }).catch(() => {});
+      if (api && typeof api.logAdverseEventsAudit === 'function') {
+        const payload = {
+          event: 'filter_changed',
+          note: key+'='+String(value),
+        };
+        if (drillInType && drillInId) {
+          payload.source_target_type = drillInType;
+          payload.source_target_id = drillInId;
+        }
+        api.logAdverseEventsAudit(payload).catch(() => {});
       }
     } catch (_) {}
     window._nav('adverse-events-full');
@@ -6343,6 +6524,16 @@ export async function pgAdverseEvents(setTopbar, navigate) {
 
   window._aeClearFilters = function() {
     window._aeFilters = {};
+    try {
+      if (api && typeof api.logAdverseEventsAudit === 'function') {
+        const payload = { event: 'filter_changed', note: 'cleared' };
+        if (drillInType && drillInId) {
+          payload.source_target_type = drillInType;
+          payload.source_target_id = drillInId;
+        }
+        api.logAdverseEventsAudit(payload).catch(() => {});
+      }
+    } catch (_) {}
     window._nav('adverse-events-full');
   };
 
@@ -6379,7 +6570,19 @@ export async function pgAdverseEvents(setTopbar, navigate) {
         window._dsToast?.({title:'Export failed', body:'CSV export endpoint unavailable.', severity:'error'});
         return;
       }
-      try { api.logAudit?.({ surface:'adverse_events', event:'export_csv', note: JSON.stringify(params).slice(0,200) }).catch(() => {}); } catch (_) {}
+      try {
+        // Page-level audit on adverse_events_hub surface so the regulator
+        // trail attributes the export to the Hub view, not a per-record action.
+        const auditPayload = {
+          event: 'export_csv',
+          note: JSON.stringify(params).slice(0,200),
+        };
+        if (drillInType && drillInId) {
+          auditPayload.source_target_type = drillInType;
+          auditPayload.source_target_id = drillInId;
+        }
+        api.logAdverseEventsAudit?.(auditPayload).catch(() => {});
+      } catch (_) {}
       const url = URL.createObjectURL(result.blob);
       const a = document.createElement('a');
       a.href = url;
@@ -6387,6 +6590,36 @@ export async function pgAdverseEvents(setTopbar, navigate) {
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 4000);
       window._dsToast?.({title:'CSV exported', severity:'success'});
+    } catch (e) {
+      window._dsToast?.({title:'Export failed', body:e?.message||'Try again.', severity:'error'});
+    }
+  };
+
+  window._aeExportNdjson = async function() {
+    try {
+      const result = await api.exportAdverseEventsNdjson?.(params);
+      if (!result || !result.blob) {
+        window._dsToast?.({title:'Export failed', body:'NDJSON export endpoint unavailable.', severity:'error'});
+        return;
+      }
+      try {
+        const auditPayload = {
+          event: 'export_ndjson',
+          note: JSON.stringify(params).slice(0,200),
+        };
+        if (drillInType && drillInId) {
+          auditPayload.source_target_type = drillInType;
+          auditPayload.source_target_id = drillInId;
+        }
+        api.logAdverseEventsAudit?.(auditPayload).catch(() => {});
+      } catch (_) {}
+      const url = URL.createObjectURL(result.blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = result.filename || ('adverse-events-'+new Date().toISOString().slice(0,10)+'.ndjson');
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      window._dsToast?.({title:'NDJSON exported', severity:'success'});
     } catch (e) {
       window._dsToast?.({title:'Export failed', body:e?.message||'Try again.', severity:'error'});
     }
