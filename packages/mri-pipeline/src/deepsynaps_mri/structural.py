@@ -21,6 +21,7 @@ probabilistic WMH mask; else we fall back to FSL BIANCA or simply report NA.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
@@ -28,27 +29,15 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from .schemas import SegmentationEngine, StructuralMetrics
+from .adapters.subprocess_tools import run_logged_subprocess as _adapter_run_cli
+from .schemas import NormedValue, SegmentationEngine, StructuralMetrics
 
 log = logging.getLogger(__name__)
 
 
 def _run_logged_subprocess(cmd: list[str], *, cwd: Path | None = None) -> None:
-    """Run external CLI; on failure log combined output and raise."""
-    proc = subprocess.run(
-        cmd, check=False, capture_output=True, text=True, cwd=cwd,
-    )
-    if proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout or "").strip()
-        log.error(
-            "%s failed returncode=%s: %s",
-            cmd[0],
-            proc.returncode,
-            detail[:4000] if detail else "(no stdout/stderr)",
-        )
-        raise subprocess.CalledProcessError(
-            proc.returncode, cmd, output=proc.stdout, stderr=proc.stderr,
-        )
+    """Run external CLI via adapter; on failure log combined output and raise."""
+    _adapter_run_cli(cmd, cwd=cwd)
 
 
 # ---------------------------------------------------------------------------
@@ -261,26 +250,125 @@ def extract_structural_metrics(
     age: float | None,
     sex: str | None,
     norm_db_path: Path | None = None,
+    *,
+    artefacts_root: Path | None = None,
 ) -> StructuralMetrics:
     """
     Convert raw segmentation outputs into a `StructuralMetrics` object.
 
-    Steps:
-        1. Read per-region volumes (mm³) from stats/aseg.stats or volumes.csv
-        2. Read per-region cortical thickness (FastSurfer: aparc.stats) — or skip for SynthSeg
-        3. Compute ICV
-        4. Look up normative values by (region, age, sex, ICV, field strength)
-        5. Compute z-scores + flag |z| > 2
+    Parses FastSurfer-style ``aseg.stats`` / ``aparc.stats`` or SynthSeg ``volumes.csv``.
+    Normative z-scores remain ``None`` until a licensed normative LUT is configured
+    (see ``norm_db_path`` / istaging — not bundled).
+
+    Writes ``structural_metrics_manifest.json`` under ``artefacts_root/structural/`` when
+    ``artefacts_root`` is provided (provenance for audit).
     """
+    from . import structural_stats as ss
+
     metrics = StructuralMetrics(segmentation_engine=seg_result.engine)
+    notes: list[str] = []
+    provenance: dict[str, object] = {
+        "engine": seg_result.engine.value,
+        "stats_dir": str(seg_result.stats_dir),
+        "aseg_path": str(seg_result.aseg_path),
+    }
 
-    # TODO — parse seg_result.stats_dir depending on engine:
-    #   FastSurfer: parse aseg.stats + lh.aparc.stats + rh.aparc.stats
-    #   SynthSeg:   parse volumes.csv (one row, columns per label)
+    manifest_path: Path | None = None
+    if artefacts_root is not None:
+        root = Path(artefacts_root)
+        struct_dir = root / "structural"
+        struct_dir.mkdir(parents=True, exist_ok=True)
+        manifest_path = struct_dir / "structural_metrics_manifest.json"
 
-    # TODO — load normative DB (CSV in data/norms/istaging.csv)
-    # For now, return a placeholder with empty metrics and a note.
-    metrics.icv_ml = None
+    if seg_result.engine == SegmentationEngine.FASTSURFER:
+        aseg_p = seg_result.stats_dir / "aseg.stats"
+        lh_p = seg_result.stats_dir / "lh.aparc.stats"
+        rh_p = seg_result.stats_dir / "rh.aparc.stats"
+        provenance["aseg_stats"] = str(aseg_p)
+        provenance["lh_aparc_stats"] = str(lh_p)
+        provenance["rh_aparc_stats"] = str(rh_p)
+
+        if aseg_p.is_file():
+            vols, icv = ss.parse_aseg_stats(aseg_p)
+            metrics.icv_ml = icv
+            for name, mm3 in vols.items():
+                metrics.subcortical_volume_mm3[name] = NormedValue(
+                    value=mm3,
+                    unit="mm^3",
+                    z=None,
+                    flagged=False,
+                    model_id="parsed_aseg.stats",
+                )
+        else:
+            notes.append(f"missing_aseg_stats:{aseg_p}")
+
+        if lh_p.is_file():
+            for name, t in ss.parse_aparc_stats_thickness(lh_p).items():
+                metrics.cortical_thickness_mm[f"lh_{name}"] = NormedValue(
+                    value=t,
+                    unit="mm",
+                    z=None,
+                    flagged=False,
+                    model_id="parsed_lh.aparc.stats",
+                )
+        else:
+            notes.append(f"missing_lh_aparc:{lh_p}")
+
+        if rh_p.is_file():
+            for name, t in ss.parse_aparc_stats_thickness(rh_p).items():
+                metrics.cortical_thickness_mm[f"rh_{name}"] = NormedValue(
+                    value=t,
+                    unit="mm",
+                    z=None,
+                    flagged=False,
+                    model_id="parsed_rh.aparc.stats",
+                )
+        else:
+            notes.append(f"missing_rh_aparc:{rh_p}")
+
+    elif seg_result.engine in (
+        SegmentationEngine.SYNTHSEG,
+        SegmentationEngine.SYNTHSEG_PLUS,
+    ):
+        vol_csv = seg_result.stats_dir / "volumes.csv"
+        provenance["volumes_csv"] = str(vol_csv)
+        if vol_csv.is_file():
+            raw_vol = ss.parse_synthseg_volumes_csv(vol_csv)
+            metrics.icv_ml = ss.estimate_icv_from_synthseg_volumes(raw_vol)
+            for name, mm3 in raw_vol.items():
+                metrics.subcortical_volume_mm3[name] = NormedValue(
+                    value=mm3,
+                    unit="mm^3",
+                    z=None,
+                    flagged=False,
+                    model_id="parsed_volumes.csv",
+                )
+        else:
+            notes.append(f"missing_volumes_csv:{vol_csv}")
+
+    if norm_db_path is not None:
+        notes.append("norm_db_path_set_but_not_implemented")
+
+    if manifest_path is not None:
+        payload = {
+            "engine": seg_result.engine.value,
+            "icv_ml": metrics.icv_ml,
+            "n_subcortical": len(metrics.subcortical_volume_mm3),
+            "n_cortical_thickness": len(metrics.cortical_thickness_mm),
+            "notes": notes,
+            "provenance": provenance,
+        }
+        manifest_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        metrics.structural_metrics_manifest_path = str(manifest_path.resolve())
+        log.info(
+            "structural_metrics_manifest_written path=%s n_vol=%s n_thick=%s",
+            manifest_path,
+            len(metrics.subcortical_volume_mm3),
+            len(metrics.cortical_thickness_mm),
+        )
+
+    metrics.structural_parse_notes = notes
+    metrics.structural_parse_provenance = provenance
     return metrics
 
 
@@ -298,11 +386,12 @@ def deface_t1(t1_path: Path, out_path: Path) -> Path:
         _run_logged_subprocess(cmd)
         return out_path
     fs_home = os.environ.get("FREESURFER_HOME", "").strip()
-    if shutil.which("mri_deface") and fs_home:
+    mri_deface_exe = shutil.which("mri_deface")
+    if mri_deface_exe and fs_home:
         tal = Path(fs_home) / "average" / "talairach_mixed_with_skull.gca"
         face = Path(fs_home) / "average" / "face.gca"
         if tal.is_file() and face.is_file():
-            cmd = ["mri_deface", str(t1_path), str(tal), str(face), str(out_path)]
+            cmd = [mri_deface_exe, str(t1_path), str(tal), str(face), str(out_path)]
             _run_logged_subprocess(cmd)
             return out_path
         log.warning(

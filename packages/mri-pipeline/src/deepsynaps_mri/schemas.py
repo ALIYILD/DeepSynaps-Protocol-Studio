@@ -8,7 +8,7 @@ docs/MRI_ANALYZER.md §7.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -202,6 +202,10 @@ class StructuralMetrics(BaseModel):
     icv_ml: float | None = None
     segmentation_engine: SegmentationEngine | None = None
     brain_age: BrainAgePrediction | None = None
+    # Optional audit fields — populated when metrics are parsed from disk (additive).
+    structural_metrics_manifest_path: str | None = None
+    structural_parse_notes: list[str] = Field(default_factory=list)
+    structural_parse_provenance: dict[str, Any] = Field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------

@@ -178,6 +178,7 @@ def run_pipeline(
                 seg_result,
                 age=float(patient.age) if patient.age else None,
                 sex=patient.sex.value if patient.sex else None,
+                artefacts_root=out_dir / "artefacts",
             )
         except Exception as e:                              # noqa: BLE001
             log.warning("structural stage failed: %s", e)
@@ -276,18 +277,6 @@ def run_pipeline(
 
     from .clinical_summary import build_clinical_summary
 
-    clinical_summary = build_clinical_summary(
-        patient=patient,
-        modalities_present=modalities_present,
-        qc=ctx.qc,
-        structural=struct_metrics,
-        functional=func_metrics,
-        diffusion=diff_metrics,
-        stim_targets=stim_targets,
-        medrag_query=medrag_q,
-        qc_warnings=qc_warnings,
-    )
-
     report = MRIReport(
         analysis_id=uuid4(),
         patient=patient,
@@ -300,8 +289,10 @@ def run_pipeline(
         medrag_query=medrag_q,
         overlays=overlays,
         qc_warnings=qc_warnings,
-        clinical_summary=clinical_summary,
+        clinical_summary={},
     )
+    clinical_summary = build_clinical_summary(report)
+    report = report.model_copy(update={"clinical_summary": clinical_summary})
     ctx.report = report
 
     # 9. REPORT (HTML + PDF) — deferred import to avoid weasyprint cost at CLI boot

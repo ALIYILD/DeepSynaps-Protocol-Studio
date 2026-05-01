@@ -17,6 +17,23 @@ This module is the **MRI Analyzer** page in the DeepSynaps Studio clinical dashb
 ## Status
 Scaffold + specification. See `docs/MRI_ANALYZER.md` for the full 80-page spec.
 
+## Architecture note (monolith vs modular)
+
+The **shipping clinical path** is `pipeline.run_pipeline()` — a stage union over
+`io`, `registration`, `structural`, `qc`, `fmri`, `dmri`, `targeting`, etc.
+
+A **lean DAG orchestrator** lives in `workflow_orchestration.py` (persisted state,
+provenance JSON) for restartable worker jobs; it is optional for product flows.
+
+**Subprocess adapters** are being centralized under `src/deepsynaps_mri/adapters/`
+(`dcm2niix`, shared subprocess helpers); more CLIs will migrate there incrementally.
+
+Dedicated modules named `preprocessing.py`, `segmentation.py`, … from the long-term
+roadmap may appear later — until then, boundaries are `pipeline.py` + adapters +
+domain helpers such as `structural_stats.py`.
+
+See also `docs/PROMPT_AUDIT_MRI.md` and `docs/INTEGRATION_REVIEW_MRI.md`.
+
 ## Quickstart
 ```bash
 pip install -e .

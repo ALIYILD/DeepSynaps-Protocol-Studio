@@ -20,7 +20,10 @@ def test_convert_dicom_to_nifti_writes_stderr_log_on_failure(tmp_path: Path) -> 
 
     with (
         patch.object(io, "_dcm2niix_available", return_value=True),
-        patch("deepsynaps_mri.io.subprocess.run", side_effect=err),
+        patch(
+            "deepsynaps_mri.adapters.dcm2niix.subprocess.run",
+            side_effect=err,
+        ),
     ):
         with pytest.raises(subprocess.CalledProcessError):
             io.convert_dicom_to_nifti(dicom_dir, out_dir, stderr_log_path=log_path)
@@ -44,7 +47,10 @@ def test_convert_dicom_to_nifti_success_logs_nonempty_stderr(tmp_path: Path, cap
 
     with (
         patch.object(io, "_dcm2niix_available", return_value=True),
-        patch("deepsynaps_mri.io.subprocess.run", return_value=proc),
+        patch(
+            "deepsynaps_mri.adapters.dcm2niix.subprocess.run",
+            return_value=proc,
+        ),
         patch.object(io, "_collect_outputs", return_value=[]),
         caplog.at_level(logging.INFO),
     ):

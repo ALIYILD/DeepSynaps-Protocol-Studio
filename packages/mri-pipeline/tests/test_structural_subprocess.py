@@ -23,14 +23,19 @@ def test_deface_t1_mri_deface_expands_freesurfer_home(tmp_path: Path) -> None:
 
     with (
         patch.dict(os.environ, {"FREESURFER_HOME": str(fs)}),
-        patch("deepsynaps_mri.structural.shutil.which", side_effect=lambda x: x == "mri_deface"),
+        patch(
+            "deepsynaps_mri.structural.shutil.which",
+            side_effect=lambda name: (
+                "/fake/bin/mri_deface" if name == "mri_deface" else None
+            ),
+        ),
         patch("deepsynaps_mri.structural._run_logged_subprocess") as run_mock,
     ):
         s.deface_t1(t1, out)
 
     run_mock.assert_called_once()
     cmd = run_mock.call_args[0][0]
-    assert cmd[0] == "mri_deface"
+    assert cmd[0] == "/fake/bin/mri_deface"
     assert str(t1) == cmd[1]
     assert cmd[2].endswith("talairach_mixed_with_skull.gca")
     assert cmd[3].endswith("face.gca")
@@ -58,7 +63,10 @@ def test_run_logged_subprocess_raises_with_output() -> None:
         ["fake"], 1, stdout="out", stderr="err detail",
     )
     with (
-        patch("deepsynaps_mri.structural.subprocess.run", return_value=fake),
+        patch(
+            "deepsynaps_mri.adapters.subprocess_tools.subprocess.run",
+            return_value=fake,
+        ),
         pytest.raises(subprocess.CalledProcessError) as ei,
     ):
         s._run_logged_subprocess(["fake"])
