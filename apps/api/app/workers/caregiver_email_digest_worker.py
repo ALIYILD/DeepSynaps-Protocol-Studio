@@ -351,6 +351,8 @@ class CaregiverEmailDigestWorker:
         from app.services.oncall_delivery import (  # noqa: PLC0415
             PageMessage,
             build_default_service,
+            build_email_digest_service,
+            is_mock_mode_enabled,
         )
 
         for pref in rows:
@@ -426,7 +428,19 @@ class CaregiverEmailDigestWorker:
                 recipient_phone=None,
             )
             try:
-                service = build_default_service(clinic_id=None)
+                # Prefer the email-channel chain (SendGrid first when
+                # SENDGRID_API_KEY + SENDGRID_FROM_ADDRESS are set). If
+                # the email chain has zero enabled adapters AND mock-mode
+                # is off, fall back to the loud-signal default chain so
+                # the audit transcript still records ``queued`` honestly
+                # rather than silently dropping the dispatch on the
+                # floor.
+                service = build_email_digest_service()
+                if (
+                    not service.get_enabled_adapters()
+                    and not is_mock_mode_enabled()
+                ):
+                    service = build_default_service(clinic_id=None)
                 dispatch = service.send(message)
             except Exception as exc:  # pragma: no cover — defensive
                 result.errors += 1

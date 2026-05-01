@@ -1959,6 +1959,19 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
+  // SendGrid Adapter launch-audit (2026-05-01) — patient-side reflection
+  // of caregiver email digest dispatches. Reads aggregated counts of
+  // ``caregiver_portal.email_digest_sent`` audit rows whose
+  // delivery_status=sent falls inside [since, until). Returns null on
+  // offline / 404 so the digest page can render an empty section
+  // honestly.
+  patientDigestCaregiverDeliverySummary: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(
+      `/api/v1/patient-digest/caregiver-delivery-summary${q ? '?' + q : ''}`
+    ).catch(() => null);
+  },
+
   // ── Caregiver Consent Grants launch-audit (2026-05-01) ─────────────────
   // Closes the caregiver-share loop opened by Patient Digest #376. Patient
   // grants create durable rows in `caregiver_consent_grants` with a JSON
