@@ -860,13 +860,19 @@ def share_with_caregiver(
 ) -> DigestShareCaregiverOut:
     """Share the digest with a caregiver.
 
-    Caregiver opt-in is enforced upstream by the Patient Care Team
-    consent flow (`pt-caregiver`). At this layer we record the audit
-    row + flag ``consent_required=True`` so the frontend knows it must
-    show the consent banner before unblocking the share. This keeps
-    the audit trail honest even when the consent flow has not yet
-    been implemented end-to-end.
+    Consults the ``caregiver_consent_grants`` table (created by the
+    Caregiver Consent Grants launch-audit, 2026-05-01) for an active
+    grant pointed at ``body.caregiver_user_id`` with
+    ``scope.digest=True``. If found, ``delivery_status='sent'`` and the
+    audit row records the full consent provenance (grant_id, granted_at,
+    caregiver_user_id, scope). If absent, ``delivery_status='queued'``
+    and the response carries an honest message — intent + recipient
+    are still audited.
     """
+    from app.routers.caregiver_consent_router import (  # noqa: PLC0415
+        has_active_grant,
+    )
+
     patient = _resolve_patient_for_actor(db, actor)
     since_dt, until_dt = _resolve_window(body.since, body.until)
 
@@ -882,7 +888,39 @@ def share_with_caregiver(
         )
 
     summary = _build_summary(db, actor, patient, since_dt, until_dt)
-    delivery_status = "queued"
+
+    grant = has_active_grant(
+        db,
+        patient_id=patient.id,
+        caregiver_user_id=body.caregiver_user_id,
+        scope_key="digest",
+    )
+    if grant is not None:
+        delivery_status = "sent"
+        consent_required = False
+        note_extra = (
+            f"grant_id={grant.id}; "
+            f"granted_at={grant.granted_at}; "
+            f"granted_by={grant.granted_by_user_id}; "
+            f"scope_digest=true"
+        )
+        response_note = (
+            "Caregiver consent active for digest sharing — delivery "
+            "recorded as sent. The audit row carries the grant_id, "
+            "granted_at, and scope so the regulator transcript joins "
+            "the send to its consent provenance."
+        )
+    else:
+        delivery_status = "queued"
+        consent_required = True
+        note_extra = "consent_required=true; reason=no_active_grant_with_digest_scope"
+        response_note = (
+            "Caregiver consent not active for digest sharing. The "
+            "audit row records intent + recipient; delivery stays "
+            "queued until the patient grants ``scope.digest=True`` on "
+            "the Caregiver Consent page."
+        )
+
     note = (
         f"caregiver_user={body.caregiver_user_id}; "
         f"caregiver_email={caregiver.email or '-'}; "
@@ -893,7 +931,7 @@ def share_with_caregiver(
         f"reports={summary.new_reports}; "
         f"since={summary.since}; until={summary.until}; "
         f"delivery_status={delivery_status}; "
-        f"consent_required=true"
+        f"{note_extra}"
     )
     audit_event_id = _audit(
         db, actor,
@@ -907,13 +945,9 @@ def share_with_caregiver(
         delivery_status=delivery_status,
         caregiver_user_id=body.caregiver_user_id,
         caregiver_email=caregiver.email,
-        consent_required=True,
+        consent_required=consent_required,
         audit_event_id=audit_event_id,
-        note=(
-            "Caregiver share queued. Caregiver opt-in via the Patient "
-            "Care Team consent flow is required before delivery wires "
-            "up; the audit row records the intent + recipient."
-        ),
+        note=response_note,
     )
 
 

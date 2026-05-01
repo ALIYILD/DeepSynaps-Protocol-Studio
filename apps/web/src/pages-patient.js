@@ -9300,6 +9300,36 @@ async function _pgPatientCareTeamImpl() {
         </div>
       </div>
 
+      <!-- CAREGIVER CONSENT (Caregiver Consent Grants launch-audit, 2026-05-01) -->
+      <div class="ct-caregiver-consent" id="ct-caregiver-consent">
+        <div class="ct-section-head" style="margin-bottom:12px">
+          <div>
+            <h3>Caregiver consent</h3>
+            <p>Authorise specific caregivers to receive your weekly digest, messages, reports, or wearable summaries. Each grant is durable and audited; revocation never deletes the audit trail.</p>
+          </div>
+        </div>
+        ${_isDemo ? '<div class="hw-demo-banner" role="status" style="margin-bottom:12px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><strong>Demo data</strong>&mdash; the grants below are not regulator-submittable.</div>' : ''}
+        <div class="ct-cc-grants" id="ct-cc-grants"><div class="pth2-empty" style="padding:16px"><div class="pth2-empty-title">Loading caregiver grants…</div></div></div>
+        <div class="ct-cc-form">
+          <div class="ct-cc-form-head"><strong>Grant a new caregiver</strong></div>
+          <div class="ct-cc-form-row">
+            <label>Caregiver user ID
+              <input type="text" id="ct-cc-cg-id" placeholder="user_…" maxlength="64" />
+            </label>
+          </div>
+          <div class="ct-cc-form-row">
+            <label class="ct-cc-scope-row"><input type="checkbox" id="ct-cc-sc-digest" checked /><span>Weekly digest</span></label>
+            <label class="ct-cc-scope-row"><input type="checkbox" id="ct-cc-sc-messages" /><span>Messages</span></label>
+            <label class="ct-cc-scope-row"><input type="checkbox" id="ct-cc-sc-reports" /><span>Reports</span></label>
+            <label class="ct-cc-scope-row"><input type="checkbox" id="ct-cc-sc-wearables" /><span>Wearables</span></label>
+          </div>
+          <div class="ct-cc-form-row">
+            <button class="btn btn-primary btn-sm" id="ct-cc-grant-btn"><svg width="13" height="13"><use href="#i-check"/></svg>Grant access</button>
+            <span class="ct-cc-hint">Until you grant ``digest`` scope, share-with-caregiver from your digest stays queued (intent audited; not delivered).</span>
+          </div>
+        </div>
+      </div>
+
       <!-- ESCALATION -->
       <div class="ct-escalation">
         <div class="ct-esc-head">
@@ -9438,6 +9468,113 @@ async function _pgPatientCareTeamImpl() {
     const bd = document.getElementById('ct-modal-bd');
     if (bd) bd.classList.remove('open');
   };
+
+  // ── Caregiver Consent Grants (launch-audit 2026-05-01) ──────────────────
+  // Mount-time audit ping under the documented `caregiver_consent` surface.
+  try {
+    api.postCaregiverConsentAuditEvent && api.postCaregiverConsentAuditEvent({
+      event: 'caregiver_consent.view',
+      note: 'pt-careteam mount',
+      using_demo_data: !!_isDemo,
+    });
+  } catch (_) { /* audit must never block UI */ }
+
+  function _ccScopeChips(scope) {
+    const order = ['digest', 'messages', 'reports', 'wearables'];
+    return order
+      .filter((k) => scope && scope[k])
+      .map((k) => `<span class="ct-tag teal">${esc(k)}</span>`)
+      .join('') || '<span class="ct-cc-empty-chip">No scope active</span>';
+  }
+
+  function _ccGrantRow(g) {
+    const active = !!g.is_active;
+    const cgEmail = g.caregiver_email || g.caregiver_user_id;
+    const grantedAt = g.granted_at ? new Date(g.granted_at).toLocaleDateString() : '—';
+    const revokedBlock = active
+      ? `<button class="btn btn-ghost btn-sm" data-cc-revoke="${esc(g.id)}"><svg width="13" height="13"><use href="#i-x"/></svg>Revoke</button>`
+      : `<span class="ct-cc-revoked">Revoked ${esc(g.revoked_at ? new Date(g.revoked_at).toLocaleDateString() : '')}${g.revocation_reason ? ' · ' + esc(g.revocation_reason) : ''}</span>`;
+    return `
+      <div class="ct-cc-grant${active ? ' active' : ' revoked'}" data-grant="${esc(g.id)}">
+        <div class="ct-cc-grant-head">
+          <strong>${esc(cgEmail)}</strong>
+          <span class="ct-cc-grant-meta">Granted ${esc(grantedAt)}</span>
+        </div>
+        <div class="ct-cc-grant-scope">${_ccScopeChips(g.scope || {})}</div>
+        <div class="ct-cc-grant-actions">${revokedBlock}</div>
+      </div>`;
+  }
+
+  async function _ccLoadGrants() {
+    const container = document.getElementById('ct-cc-grants');
+    if (!container) return;
+    try {
+      const data = await (api.caregiverConsentListGrants ? api.caregiverConsentListGrants() : null);
+      const items = data && Array.isArray(data.items) ? data.items : [];
+      if (!items.length) {
+        container.innerHTML = '<div class="pth2-empty" style="padding:16px"><div class="pth2-empty-title">No caregiver grants yet</div><div class="pth2-empty-sub">Use the form below to authorise a caregiver. Until you do, share-with-caregiver from your digest records intent + audit but does not deliver (delivery_status stays queued).</div></div>';
+        return;
+      }
+      container.innerHTML = items.map(_ccGrantRow).join('');
+      container.querySelectorAll('[data-cc-revoke]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const gid = btn.getAttribute('data-cc-revoke');
+          if (!gid) return;
+          const reason = window.prompt('Why are you revoking this grant?');
+          if (!reason || !reason.trim()) return;
+          try {
+            await api.caregiverConsentRevokeGrant(gid, { reason: reason.trim() });
+            api.postCaregiverConsentAuditEvent && api.postCaregiverConsentAuditEvent({
+              event: 'caregiver_consent.grant_revoked_ui',
+              target_id: gid,
+              note: 'pt-careteam revoke',
+              using_demo_data: !!_isDemo,
+            });
+            _toast('Grant revoked');
+            await _ccLoadGrants();
+          } catch (err) {
+            console.error('[caregiver-consent] revoke failed:', err);
+            _toast('Revoke failed');
+          }
+        });
+      });
+    } catch (err) {
+      console.error('[caregiver-consent] list failed:', err);
+      container.innerHTML = '<div class="pth2-empty" style="padding:16px"><div class="pth2-empty-title">Could not load caregiver grants</div></div>';
+    }
+  }
+
+  const _ccGrantBtn = document.getElementById('ct-cc-grant-btn');
+  if (_ccGrantBtn) {
+    _ccGrantBtn.addEventListener('click', async () => {
+      const cgIdInput = document.getElementById('ct-cc-cg-id');
+      const cgId = cgIdInput ? cgIdInput.value.trim() : '';
+      if (!cgId) { _toast('Enter a caregiver user ID'); return; }
+      const scope = {
+        digest: !!(document.getElementById('ct-cc-sc-digest') || {}).checked,
+        messages: !!(document.getElementById('ct-cc-sc-messages') || {}).checked,
+        reports: !!(document.getElementById('ct-cc-sc-reports') || {}).checked,
+        wearables: !!(document.getElementById('ct-cc-sc-wearables') || {}).checked,
+      };
+      try {
+        await api.caregiverConsentCreateGrant({ caregiver_user_id: cgId, scope });
+        api.postCaregiverConsentAuditEvent && api.postCaregiverConsentAuditEvent({
+          event: 'caregiver_consent.grant_created_ui',
+          target_id: cgId,
+          note: 'pt-careteam grant',
+          using_demo_data: !!_isDemo,
+        });
+        _toast('Grant created');
+        if (cgIdInput) cgIdInput.value = '';
+        await _ccLoadGrants();
+      } catch (err) {
+        console.error('[caregiver-consent] create failed:', err);
+        _toast('Grant failed');
+      }
+    });
+  }
+
+  _ccLoadGrants();
 }
 
 

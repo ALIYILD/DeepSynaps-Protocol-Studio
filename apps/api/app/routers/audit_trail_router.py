@@ -358,6 +358,19 @@ KNOWN_SURFACES = {
     # email_initiated, email_sent, caregiver_share_initiated,
     # caregiver_shared, export, demo_banner_shown.
     "patient_digest",
+    # Caregiver Consent Grants launch-audit (2026-05-01). Closes the
+    # caregiver-share loop opened by Patient Digest #376. Records every
+    # grant lifecycle event (grant_created, grant_updated, grant_revoked,
+    # grants_listed, grant_viewed, by_caregiver_listed) plus page-level
+    # breadcrumbs (view, grant_form_opened, revoke_form_opened,
+    # demo_banner_shown). The mutation events also feed the Patient
+    # Digest share-caregiver flow — when ``has_active_grant`` returns a
+    # row with ``scope.digest=True`` the digest endpoint flips
+    # ``delivery_status='sent'`` and emits a clinician-visible audit row
+    # carrying the grant_id, granted_at, caregiver_user_id, and scope so
+    # the regulator transcript joins the digest send to its consent
+    # provenance.
+    "caregiver_consent",
 }
 
 

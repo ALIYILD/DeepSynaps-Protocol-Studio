@@ -4032,3 +4032,67 @@ class UserContactMapping(Base):
     updated_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     created_at: Mapped[str] = mapped_column(String(64), nullable=False)
     updated_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class CaregiverConsentGrant(Base):
+    """Patient → caregiver consent grant.
+
+    Closes the caregiver-share loop opened by Patient Digest #376. A
+    grant is the durable, append-aware record that a patient has
+    explicitly authorised a specific caregiver user to receive specific
+    classes of clinical artefacts (digest summaries, messages, reports,
+    wearables). Until a grant exists with the relevant scope flag set
+    True, downstream "share-with-caregiver" endpoints stay
+    ``delivery_status='queued'`` (intent recorded, delivery NOT made).
+
+    One row per (patient, caregiver, granted_at). Revocation never
+    deletes — it stamps ``revoked_at`` + ``revoked_by_user_id`` +
+    ``revocation_reason`` so the regulator transcript stays intact.
+    Subsequent grants of the same caregiver create a new row (revisions
+    are recorded in :class:`CaregiverConsentRevision`).
+
+    ``scope`` is a JSON-encoded TEXT object. Canonical keys:
+    ``digest`` / ``messages`` / ``reports`` / ``wearables``. Unknown
+    keys are tolerated (forward-compatible) but ignored by the gate.
+
+    Soft FKs to ``patients.id`` and ``users.id`` so deleting either does
+    NOT cascade-clear the grant (audit history stays intact).
+    """
+
+    __tablename__ = "caregiver_consent_grants"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    caregiver_user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    granted_at: Mapped[str] = mapped_column(String(64), nullable=False)
+    granted_by_user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    revoked_at: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    revoked_by_user_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    revocation_reason: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    scope: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # JSON object
+    note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class CaregiverConsentRevision(Base):
+    """Append-only revisions for :class:`CaregiverConsentGrant`.
+
+    One row per state-change on a grant (create, scope_edit, revoke).
+    The grant row carries the current snapshot; this table carries the
+    full history so a regulator can reconstruct the timeline of who
+    granted / revised / revoked what scope at which moment.
+    """
+
+    __tablename__ = "caregiver_consent_revisions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    grant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    caregiver_user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)  # create | scope_edit | revoke
+    scope_before: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    scope_after: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    actor_user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    reason: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
