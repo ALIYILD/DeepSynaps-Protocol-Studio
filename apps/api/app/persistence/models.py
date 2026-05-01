@@ -3056,6 +3056,63 @@ class OnboardingEvent(Base):
     )
 
 
+# ── Onboarding wizard launch-audit (migration 067) ───────────────────────────
+
+
+class OnboardingState(Base):
+    """Server-side onboarding wizard state, one row per actor.
+
+    Lifecycle
+    ---------
+    * Created on first ``GET /api/v1/onboarding/state`` for an authenticated
+      actor (defaults: current_step='welcome', is_demo=False).
+    * Updated by ``POST /api/v1/onboarding/state`` and the step-complete /
+      skip / seed-demo endpoints.
+    * ``is_demo`` is sticky: once a user picks "use sample data" or "skip
+      setup with sample data", the flag remains True so downstream surfaces
+      can render DEMO banners on records seeded during the wizard.
+    * ``completed_at`` / ``abandoned_at`` are mutually exclusive (the API
+      enforces this; the DB does not, so we can backfill if a definition
+      changes later).
+
+    Why server-side?
+    ----------------
+    Pre-launch audit (2026-05-01) found resume-from-step relied on
+    ``localStorage`` only, which loses progress when the user finishes
+    onboarding on a different device or after a browser-data wipe. This
+    table is the source of truth; localStorage remains a best-effort
+    fallback when the API is unreachable.
+    """
+
+    __tablename__ = "onboarding_state"
+
+    actor_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    clinic_id: Mapped[Optional[str]] = mapped_column(
+        String(64),
+        ForeignKey("clinics.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    current_step: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="welcome"
+    )
+    is_demo: Mapped[bool] = mapped_column(Boolean(), default=False, nullable=False)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    abandoned_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    abandon_reason: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+
 # ── Phase 13 — DeepTwin persistence and clinician review (migration 062) ──────
 #
 # DeepTwin previously computed every output on-the-fly with no historical

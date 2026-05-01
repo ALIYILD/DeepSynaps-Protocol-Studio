@@ -235,3 +235,43 @@ test('Skip wizard link sets the skipped marker and redirects', () => {
   assert.equal(globalThis.localStorage.getItem(api.STORAGE_KEYS.skipped), '1');
   assert.deepEqual(_navCalls, ['agents']);
 });
+
+
+// ── Launch-audit (2026-05-01) cross-wizard regression checks ───────────────
+// The full pgOnboardingWizard module is not directly importable under node:test
+// (transitive dep on Vite's import.meta.env via api.js), so audit-event /
+// resume-from-step / skip-with-reason / first-patient-demo logic is exercised
+// in src/onboarding-wizard-launch-audit.test.js as logic-only mirrors. The
+// regressions below pin behaviour that could be silently broken if the agent-
+// onboarding wizard's `reportOnboardingEvent` path is removed or the funnel
+// telemetry contract drifts.
+
+test('Funnel telemetry path remains intact for the package-selection wizard', async () => {
+  // The agent-onboarding wizard posts `started` / `package_selected` /
+  // `completed` to the funnel endpoint; without this the launch-audit
+  // dashboard loses the conversion baseline. We verify by stubbing fetch
+  // and asserting that selecting a package eventually lands a POST.
+  resetAll();
+  const calls = [];
+  globalThis.fetch = async (url, opts = {}) => {
+    calls.push({ url: String(url), method: (opts.method || 'GET').toUpperCase() });
+    if ((opts.method || 'GET') === 'POST' && /\/onboarding\/events/.test(String(url))) {
+      return { ok: true, status: 201, json: async () => ({ id: 1, recorded_at: 'now' }) };
+    }
+    if (/\/api\/v1\/agents\/?$/.test(String(url))) {
+      return { ok: true, status: 200, json: async () => ({ agents: [] }) };
+    }
+    throw new Error('unexpected fetch: ' + url);
+  };
+  // Trigger a package selection — this must eventually emit a funnel POST.
+  // (The wizard fires it best-effort; we only assert the URL was queried,
+  // not that it succeeded — telemetry must never block UX.)
+  globalThis.window._agentOnbSelectPackage('solo');
+  // Allow the microtask queue to drain.
+  await new Promise((r) => setTimeout(r, 0));
+  const onbPosts = calls.filter((c) => /\/onboarding\/events/.test(c.url) && c.method === 'POST');
+  assert.ok(
+    onbPosts.length >= 1,
+    'expected at least one POST to /api/v1/onboarding/events for the funnel'
+  );
+});

@@ -97,6 +97,13 @@ KNOWN_SURFACES = {
     # surface itself is recorded by ``app/routers/treatment_courses_router``.
     "course_detail",
     "patient_profile",
+    # Onboarding Wizard launch-audit (2026-05-01). Page-level surface for
+    # the first-run setup wizard: view, step_started, step_completed,
+    # step_skipped, wizard_completed, wizard_abandoned, seed_demo, edit
+    # demographics. Distinct from the funnel telemetry rows in
+    # ``onboarding_events`` (which feed conversion analytics, not the
+    # regulatory audit trail).
+    "onboarding_wizard",
 }
 
 

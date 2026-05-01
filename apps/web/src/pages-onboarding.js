@@ -135,6 +135,24 @@ function step2Html() {
           placeholder: 'Select condition…',
           help: 'We will use this to suggest evidence-backed protocols in the next step.',
         })}
+        <!--
+          Launch-audit (2026-05-01): explicit demo-flag toggle. Default ON
+          for the wizard path so reviewers can never be misled by a "real-
+          looking" empty patient that was actually a demo seed. Unchecking
+          it warns the user — see _onbAddPatient.
+        -->
+        <div style="margin-top:12px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--bg-surface)">
+          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:13px;color:var(--text-primary)">
+            <input type="checkbox" id="onb-pt-is-demo" checked
+              style="margin-top:2px;accent-color:var(--teal,#00d4bc)" />
+            <span>
+              <strong>Mark this patient as DEMO</strong>
+              <div id="onb-pt-is-demo-help" style="font-size:12px;color:var(--text-secondary);margin-top:3px;line-height:1.5">
+                Demo patients carry a DEMO banner in every downstream surface (Patients, Courses, Documents, Adverse Events) and are not regulator-submittable. Uncheck only if this is a real patient and you have signed consent on file.
+              </div>
+            </span>
+          </label>
+        </div>
       </div>
 
       <div id="onb-step2-err" role="alert" aria-live="polite"
@@ -315,6 +333,11 @@ window._onbAddPatient = async function() {
   const lastName   = document.getElementById('onb-pt-last')?.value.trim() || '';
   const dob        = document.getElementById('onb-pt-dob')?.value || '';
   const condition  = document.getElementById('onb-pt-condition')?.value || '';
+  const isDemoEl   = document.getElementById('onb-pt-is-demo');
+  // Default to true if the checkbox isn't on the page (defensive — older
+  // renders / unit tests may not include it). Wizard path always defaults
+  // to demo unless the clinician explicitly opts out.
+  const isDemo     = isDemoEl ? !!isDemoEl.checked : true;
   const errEl      = document.getElementById('onb-step2-err');
   const savingEl   = document.getElementById('onb-step2-saving');
   const btn        = document.getElementById('onb-add-patient-btn');
@@ -326,6 +349,28 @@ window._onbAddPatient = async function() {
   if (errEl) errEl.style.display = 'none';
   if (savingEl) savingEl.style.display = 'block';
   if (btn) btn.disabled = true;
+
+  // Update server-side onboarding state with the demo decision so any
+  // downstream surface that reads /onboarding/state sees the same flag.
+  try {
+    if (isDemo && api && typeof api.postOnboardingSeedDemo === 'function') {
+      api.postOnboardingSeedDemo({ requested_kinds: ['patient'], note: 'first_patient form' });
+    } else if (!isDemo && api && typeof api.postOnboardingState === 'function') {
+      api.postOnboardingState({ current_step: 'first_patient' });
+    }
+  } catch {}
+  // Audit row carries the demo flag so reviewers can see the wizard's
+  // first-patient creation independently of the patient row itself.
+  try {
+    if (api && typeof api.postOnboardingAuditEvent === 'function') {
+      api.postOnboardingAuditEvent({
+        event: 'first_patient_created',
+        step: 'first_patient',
+        note: `name=${(firstName + ' ' + lastName).trim()}; condition=${condition || ''}`,
+        using_demo_data: !!isDemo,
+      });
+    }
+  } catch {}
 
   try {
     const result = await api.createPatient({
@@ -341,6 +386,7 @@ window._onbAddPatient = async function() {
       last_name: lastName,
       dob,
       primary_condition: condition,
+      is_demo: isDemo,
     };
     onboardingData.skippedPatient = false;
     _showStep(3);
@@ -350,7 +396,7 @@ window._onbAddPatient = async function() {
       errEl.style.display = 'block';
     }
     // Save locally and move on
-    onboardingData.patient = { first_name: firstName, last_name: lastName, dob, primary_condition: condition };
+    onboardingData.patient = { first_name: firstName, last_name: lastName, dob, primary_condition: condition, is_demo: isDemo };
     setTimeout(() => _showStep(3), 1500);
   } finally {
     if (savingEl) savingEl.style.display = 'none';
@@ -471,8 +517,55 @@ let _wiz = {
   clinicianCount: '',
   role: '',           // clinician | researcher | admin | guardian
   dataChoice: '',     // import | sample | skip
+  isDemo: false,      // sticky once true; mirrors server-side OnboardingState.is_demo
   complete: false,
 };
+
+// Map UI step number → canonical wizard-step name accepted by the backend
+// (apps/api/app/routers/onboarding_router.py::_WIZARD_STEPS). Keeping the
+// legacy step-number internally so existing handlers don't have to change,
+// while emitting honest server-side step names for audit + state.
+const _WIZ_STEP_NAMES = {
+  1: 'welcome',
+  2: 'clinic_info',
+  3: 'role',
+  4: 'data_choice',
+  5: 'feature_tour',
+  6: 'completion',
+};
+function _wizStepName(n) { return _WIZ_STEP_NAMES[n] || 'welcome'; }
+
+// Best-effort audit event emitter for the onboarding_wizard surface.
+// Never blocks or throws; the wizard must keep working even if the API
+// is unreachable. Mirrors `reportOnboardingEvent` in
+// agent-onboarding-wizard.js but emits to the launch-audit ingestion
+// endpoint (target_type=onboarding_wizard) rather than the funnel
+// telemetry endpoint.
+function _wizAuditEvent(event, extra = {}) {
+  try {
+    if (api && typeof api.postOnboardingAuditEvent === 'function') {
+      return api.postOnboardingAuditEvent({
+        event,
+        step: extra.step || _wizStepName(_wiz.step),
+        note: extra.note || null,
+        using_demo_data: !!(extra.using_demo_data ?? _wiz.isDemo),
+      });
+    }
+  } catch {}
+  return Promise.resolve(null);
+}
+
+function _wizPostState(stepName, opts = {}) {
+  try {
+    if (api && typeof api.postOnboardingState === 'function') {
+      return api.postOnboardingState({
+        current_step: stepName,
+        is_demo: opts.is_demo,
+      });
+    }
+  } catch {}
+  return Promise.resolve(null);
+}
 
 // ── Feature maps by role ──────────────────────────────────────────────────────
 const ROLE_FEATURES = {
@@ -874,6 +967,17 @@ function _launchConfetti() {
 
 // ── Global wizard handlers ─────────────────────────────────────────────────────
 window._wizGo = function(step) {
+  // Emit step_completed for the *previous* step before rendering the next.
+  // Skips the synthetic "back" navigation (next < current) so we don't pollute
+  // the audit trail with reverse transitions.
+  const prev = _wiz.step;
+  if (typeof step === 'number' && step > prev) {
+    _wizAuditEvent('step_completed', {
+      step: _wizStepName(prev),
+      note: `advance ${prev}→${step}`,
+    });
+    _wizPostState(_wizStepName(step), {});
+  }
   _renderWizStep(step);
 };
 
@@ -883,10 +987,37 @@ window._wizGo = function(step) {
 // back into onboarding without an explicit /onboarding-wizard navigation.
 // `ds_onboarding_skip` is kept as a secondary breadcrumb so dashboards can
 // distinguish "skipped" from "finished" if/when they want to.
-window._wizSkip = function(e) {
+//
+// Launch-audit (2026-05-01): the skip path now also (a) calls
+// /api/v1/onboarding/skip with `seeded_demo=true` so any downstream record
+// that came in alongside this wizard run is marked is_demo=True (b) emits
+// `step_skipped` + `wizard_abandoned` audit events so reviewers can see
+// who skipped and from which step. Demo flag is sticky: once skip is taken
+// the user is treated as a demo seed until they explicitly opt back in.
+window._wizSkip = function(e, opts = {}) {
   e?.preventDefault();
+  const reason = (opts && typeof opts.reason === 'string') ? opts.reason : 'user_skipped';
+  const stepName = _wizStepName(_wiz.step);
+  // Honesty: every skipped wizard becomes a demo seed by default. The
+  // user can revoke this by going through the full setup later, but until
+  // then any record they create will carry the DEMO banner downstream.
+  _wiz.isDemo = true;
   try { localStorage.setItem('ds_onboarding_complete', 'true'); } catch {}
   try { localStorage.setItem('ds_onboarding_skip', '1'); } catch {}
+  try { localStorage.setItem('ds_onboarding_is_demo', '1'); } catch {}
+  try {
+    if (api && typeof api.postOnboardingSkip === 'function') {
+      api.postOnboardingSkip({
+        step: stepName,
+        reason: reason.slice(0, 240),
+        seeded_demo: true,
+      });
+    }
+  } catch {}
+  // Belt-and-braces: also emit explicit audit rows so the trail is honest
+  // even if /skip is unreachable.
+  _wizAuditEvent('step_skipped', { step: stepName, note: `reason=${reason.slice(0,200)}`, using_demo_data: true });
+  _wizAuditEvent('wizard_abandoned', { step: stepName, note: `reason=${reason.slice(0,200)}`, using_demo_data: true });
   document.getElementById('onboarding-overlay')?.remove();
   window._nav?.('dashboard');
 };
@@ -976,10 +1107,28 @@ window._wizChooseImport = function() {
 
 window._wizChooseSample = function() {
   _wiz.dataChoice = 'sample';
+  _wiz.isDemo = true;
+  try { localStorage.setItem('ds_onboarding_is_demo', '1'); } catch {}
   const count = _seedDemoData();
+  // Server-side demo seed. Stamps OnboardingState.is_demo=True so any
+  // downstream surface (Patients / Courses / AE / Documents) renders the
+  // DEMO banner on records seeded during this wizard run.
+  try {
+    if (api && typeof api.postOnboardingSeedDemo === 'function') {
+      api.postOnboardingSeedDemo({
+        requested_kinds: ['patients', 'protocols', 'sessions', 'appointments'],
+        note: `seed count=${count}`,
+      });
+    }
+  } catch {}
+  _wizAuditEvent('demo_seed_requested', {
+    step: 'data_choice',
+    note: `seed count=${count}`,
+    using_demo_data: true,
+  });
   const msg = document.getElementById('wiz-data-msg');
   if (msg) {
-    msg.textContent = `Demo data loaded — ${count} patients, 4 protocols, 8 sessions, and 5 appointments are ready.`;
+    msg.textContent = `DEMO data loaded — ${count} sample patients, 4 protocols, 8 sessions, and 5 appointments. These records carry the DEMO banner downstream.`;
     msg.style.display = 'block';
   }
   const importCard = document.getElementById('wiz-card-import');
@@ -991,6 +1140,10 @@ window._wizChooseSample = function() {
 window._wizSkipData = function(e) {
   e?.preventDefault();
   _wiz.dataChoice = 'skip';
+  _wizAuditEvent('step_skipped', {
+    step: 'data_choice',
+    note: 'data_choice=skip_for_now',
+  });
   _renderWizStep(5);
 };
 
@@ -1005,6 +1158,25 @@ window._wizExplore = function(page, e) {
 window._wizFinish = function(page) {
   localStorage.setItem('ds_onboarding_complete', 'true');
   localStorage.removeItem('ds_onboarding_skip');
+  // Server-side step-complete: marks completion timestamp in OnboardingState
+  // so the wizard does not re-trigger on the next mount (parallel session
+  // chaos guard). Audit row `wizard_completed` is emitted by the API on
+  // step==completion; we also send an explicit page-level event so the
+  // surface attribution is unambiguous in the audit trail.
+  try {
+    if (api && typeof api.postOnboardingStepComplete === 'function') {
+      api.postOnboardingStepComplete({
+        step: 'completion',
+        note: `final destination=${page || 'dashboard'}`,
+        is_demo: _wiz.isDemo || undefined,
+      });
+    }
+  } catch {}
+  _wizAuditEvent('wizard_completed', {
+    step: 'completion',
+    note: `destination=${page || 'dashboard'}`,
+    using_demo_data: !!_wiz.isDemo,
+  });
   // Remove overlay
   document.getElementById('onboarding-overlay')?.remove();
   // Navigate
@@ -1030,7 +1202,7 @@ function _buildWizOverlay() {
 export async function pgOnboardingWizard(setTopbar) {
   setTopbar('Setup Wizard', '');
   // Reset wizard state for a fresh run
-  _wiz = { step: 1, clinicName: '', clinicType: '', modalities: [], clinicianCount: '', role: '', dataChoice: '', complete: false };
+  _wiz = { step: 1, clinicName: '', clinicType: '', modalities: [], clinicianCount: '', role: '', dataChoice: '', isDemo: false, complete: false };
 
   // Refresh the live evidence-stats cache so the welcome-card "X papers
   // across N modalities" counters reflect the current dataset. Falls back
@@ -1043,7 +1215,29 @@ export async function pgOnboardingWizard(setTopbar) {
     });
   } catch {}
 
-  // Restore any previously saved clinic config / role
+  // Resume-from-step: prefer server-side state (cross-device source of
+  // truth) and fall back to localStorage when the API is unreachable.
+  // Server-side wins on conflict because the server-side `is_demo` is
+  // sticky (once true, always true) and the API has the canonical
+  // completed_at / abandoned_at timestamps.
+  let serverStartStep = 1;
+  try {
+    if (api && typeof api.getOnboardingState === 'function') {
+      const remote = await api.getOnboardingState();
+      if (remote && typeof remote === 'object') {
+        if (remote.is_demo) _wiz.isDemo = true;
+        // Map server step name → UI step number; default to step 1 if the
+        // server tells us we're in a step the UI doesn't render (e.g. the
+        // user finished on a different device → re-show welcome).
+        const stepMap = { welcome: 1, clinic_info: 2, role: 3, data_choice: 4, feature_tour: 5, completion: 6 };
+        if (remote.current_step && stepMap[remote.current_step]) {
+          serverStartStep = stepMap[remote.current_step];
+        }
+      }
+    }
+  } catch {}
+  // Restore any previously saved clinic config / role from localStorage
+  // — secondary source, used as a UX nicety for offline users.
   try {
     const cc = JSON.parse(localStorage.getItem('ds_clinic_config') || '{}');
     if (cc.name)           _wiz.clinicName     = cc.name;
@@ -1055,6 +1249,17 @@ export async function pgOnboardingWizard(setTopbar) {
     const savedRole = localStorage.getItem('ds_user_role_onboarding');
     if (savedRole) _wiz.role = savedRole;
   } catch {}
+  try {
+    if (localStorage.getItem('ds_onboarding_is_demo') === '1') _wiz.isDemo = true;
+  } catch {}
+
+  // Mount-time audit ping. Mirrors the patient_profile / course_detail
+  // launch-audit pattern: a `view` event is the first row reviewers see
+  // for any wizard session.
+  _wizAuditEvent('view', {
+    step: _wizStepName(serverStartStep),
+    note: `mount step=${serverStartStep}`,
+  });
 
   const el = document.getElementById('content');
   if (el) {
@@ -1069,7 +1274,7 @@ export async function pgOnboardingWizard(setTopbar) {
     overlay.style.cssText = 'display:flex;align-items:flex-start;justify-content:center;';
     overlay.innerHTML = `<div class="onboarding-overlay-inner" style="width:100%;"></div>`;
     document.getElementById('wiz-inline-container').appendChild(overlay);
-    _renderWizStep(1);
+    _renderWizStep(serverStartStep);
   }
 }
 
