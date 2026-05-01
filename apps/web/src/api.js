@@ -2486,6 +2486,51 @@ export const api = {
     return `/api/v1/wellness/export.${kind}${qs ? '?' + qs : ''}`;
   },
 
+  // ── Patient Reports view-side (launch-audit 2026-05-01) ─────────────────────
+  // Third patient-facing surface to receive the launch-audit treatment.
+  // Mirrors the symptom-journal / wellness-hub helper shape. All read
+  // helpers swallow network failures so the UI keeps working when the API
+  // is unreachable. The actor's patient_id is auto-resolved server-side;
+  // never pass a client-supplied patient_id here — the server will return
+  // 404 if the path tries to spoof another patient.
+  listPatientReports: (params) => {
+    const q = new URLSearchParams();
+    if (params) {
+      for (const k of ['type', 'status', 'since', 'until', 'q']) {
+        if (params[k]) q.set(k, params[k]);
+      }
+      for (const k of ['limit', 'offset']) {
+        if (params[k] != null && params[k] !== '') q.set(k, String(params[k]));
+      }
+    }
+    const qs = q.toString();
+    return apiFetch(`/api/v1/reports/patient/me${qs ? '?' + qs : ''}`).catch(() => null);
+  },
+  getPatientReportsSummary: () =>
+    apiFetch('/api/v1/reports/patient/me/summary').catch(() => null),
+  getPatientReportView: (reportId) =>
+    apiFetch(`/api/v1/reports/${encodeURIComponent(reportId)}/patient-view`).catch(() => null),
+  acknowledgePatientReport: (reportId, note) =>
+    apiFetch(`/api/v1/reports/${encodeURIComponent(reportId)}/acknowledge`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note || null }),
+    }),
+  requestPatientReportShareBack: (reportId, audience, note) =>
+    apiFetch(`/api/v1/reports/${encodeURIComponent(reportId)}/request-share-back`, {
+      method: 'POST',
+      body: JSON.stringify({ audience: audience || '', note: note || '' }),
+    }),
+  startPatientReportQuestion: (reportId, question) =>
+    apiFetch(`/api/v1/reports/${encodeURIComponent(reportId)}/start-question`, {
+      method: 'POST',
+      body: JSON.stringify({ question: question || '' }),
+    }),
+  postPatientReportsAuditEvent: (data) =>
+    apiFetch('/api/v1/reports/patient/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
   // ── Clinic ─────────────────────────────────────────────────────────────────
   getClinic: () => apiFetch('/api/v1/clinic').catch(() => null),  // 404 if no clinic
   createClinic: (data) => apiFetch('/api/v1/clinic', { method: 'POST', body: JSON.stringify(data) }),

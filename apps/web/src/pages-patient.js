@@ -5811,6 +5811,22 @@ async function _pgPatientAssessmentsImpl() {
   window._asViewHistory = function(_id) { _toast('Assessment history details are unavailable from this beta portal.'); };
 }
 
+// \u2500\u2500 Patient Reports view-side launch-audit helper (2026-05-01) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// Mirrors the wellness-hub / symptom-journal helper. Best-effort: never
+// throws back at the caller \u2014 audit failures must not block the UI.
+async function _patientReportsLogAuditEvent(event, extra) {
+  try {
+    if (api && typeof api.postPatientReportsAuditEvent === 'function') {
+      await api.postPatientReportsAuditEvent({
+        event,
+        report_id: (extra && extra.report_id) ? extra.report_id : null,
+        note: (extra && extra.note) ? String(extra.note).slice(0, 480) : null,
+        using_demo_data: !!(extra && extra.using_demo_data),
+      });
+    }
+  } catch (_) { /* audit failures must never block UI */ }
+}
+
 // \u2500\u2500 Reports \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 export async function pgPatientReports() {
   setTopbar('My Reports');
@@ -5826,8 +5842,16 @@ export async function pgPatientReports() {
     _timeout(3000),
   ]);
   let outcomesRaw, assessmentsRaw, coursesRaw, sessionsRaw, wearableSummaryRaw, reportsRaw, evidenceOverviewRaw;
+  // Patient-scope view-side launch-audit fetch (2026-05-01). The
+  // /api/v1/reports/patient/me endpoint returns the patient's own reports
+  // with `is_demo` and `consent_active` flags so we can render the demo /
+  // read-only banners honestly. Soft-fail: a hung API still renders the
+  // page with the legacy clinician-uploaded list.
+  let patientReportsRaw = null;
+  let patientReportsSummary = null;
+  let patientReportsServerErr = false;
   try {
-    [outcomesRaw, assessmentsRaw, coursesRaw, sessionsRaw, wearableSummaryRaw, reportsRaw, evidenceOverviewRaw] = await Promise.all([
+    [outcomesRaw, assessmentsRaw, coursesRaw, sessionsRaw, wearableSummaryRaw, reportsRaw, evidenceOverviewRaw, patientReportsRaw, patientReportsSummary] = await Promise.all([
       _raceNull(api.patientPortalOutcomes()),
       _raceNull(api.patientPortalAssessments()),
       _raceNull(api.patientPortalCourses()),
@@ -5835,13 +5859,42 @@ export async function pgPatientReports() {
       _raceNull(api.patientPortalWearableSummary(30)),
       _raceNull(api.patientPortalReports()),
       _raceNull(_loadPatientEvidenceContext(currentUser?.patient_id || currentUser?.id || null)),
+      typeof api.listPatientReports === 'function' ? _raceNull(api.listPatientReports({ limit: 100 })) : Promise.resolve(null),
+      typeof api.getPatientReportsSummary === 'function' ? _raceNull(api.getPatientReportsSummary()) : Promise.resolve(null),
     ]);
   } catch (_e) {
     outcomesRaw = assessmentsRaw = coursesRaw = sessionsRaw = wearableSummaryRaw = reportsRaw = evidenceOverviewRaw = null;
+    patientReportsRaw = null;
+    patientReportsSummary = null;
+    patientReportsServerErr = true;
   }
   // Soft-error: fall through to an empty docs list (which renders an
   // empty-state card) instead of the hard "Could not load" state when
   // the backend is merely hanging.
+
+  // ── Patient-scope launch-audit derived state ─────────────────────────────
+  const _patientReportsItems = (patientReportsRaw && Array.isArray(patientReportsRaw.items)) ? patientReportsRaw.items : [];
+  const _patientReportsServerLive = !!patientReportsRaw && !patientReportsServerErr;
+  const _patientReportsIsDemo = !!(patientReportsRaw && patientReportsRaw.is_demo);
+  const _patientReportsConsentActive = patientReportsRaw ? !!patientReportsRaw.consent_active : true;
+  // Index by id for quick lookup when rendering CTA states (acknowledged /
+  // share-back pending). Falls back to {} when the server is unreachable so
+  // the legacy doc list still renders without flags.
+  const _patientReportsById = {};
+  for (const it of _patientReportsItems) {
+    if (it && it.id) _patientReportsById[String(it.id)] = it;
+  }
+
+  // ── Mount-time audit ping ────────────────────────────────────────────────
+  // Records that the patient opened the My Reports page. Honest connectivity
+  // hint in the note so a regulator can tell page-loads where the API was
+  // unreachable from real opens. Never throws.
+  _patientReportsLogAuditEvent('view', {
+    using_demo_data: _patientReportsIsDemo,
+    note: _patientReportsServerLive
+      ? `items=${_patientReportsItems.length}; consent_active=${_patientReportsConsentActive ? 1 : 0}`
+      : 'fallback=offline',
+  });
 
   // ── Safe HTML escaper ────────────────────────────────────────────────────
   function esc(v) {
@@ -6309,9 +6362,14 @@ export async function pgPatientReports() {
       : '';
 
     // Actions
+    // Stamp audit hooks on every actionable CTA so the regulator can see
+    // every patient open / download / ack / share-back / question. The
+    // pings are best-effort and never block the click — see
+    // _patientReportsLogAuditEvent().
     const viewCta = doc.url
       ? `<a class="pt-doc-cta" href="${esc(doc.url)}" target="_blank" rel="noopener noreferrer"
               aria-label="${t('patient.reports.doc.view')} ${esc(doc.title)}"
+              onclick="window._ptReportOpened('${esc(doc.id)}','open_link')"
               tabindex="0">${t('patient.reports.doc.view')}</a>`
       : `<button class="pt-doc-cta pt-doc-cta-stub"
                onclick="window._ptViewDoc('${esc(doc.id)}')"
@@ -6320,12 +6378,51 @@ export async function pgPatientReports() {
     const dlCta = doc.url
       ? `<a class="pt-doc-cta pt-doc-cta-dl" href="${esc(doc.url)}" download
               target="_blank" rel="noopener noreferrer"
-              aria-label="Download ${esc(doc.title)}">Download</a>`
+              aria-label="Download ${esc(doc.title)}"
+              onclick="window._ptReportDownloaded('${esc(doc.id)}')">Download</a>`
       : '';
 
     const askCta = `<button class="pt-doc-cta pt-doc-cta-ask"
              onclick="window._ptAskAbout('${esc(doc.id)}','${esc(doc.title)}')"
              aria-label="Ask about ${esc(doc.title)}">Ask about this</button>`;
+
+    // ── Patient-scope CTAs (Acknowledge / Share-back / Question thread) ──
+    // Only render for true clinician-shared "report" docs that are visible
+    // on the server-side patient_reports list. We gate on consent_active
+    // (server-supplied) and offline state — patients cannot ack / share-back
+    // / start a question thread when consent is withdrawn or the API is
+    // unreachable. We honestly disable the buttons rather than hide them
+    // so the patient sees the same UI shape; the disabled state explains
+    // why the action is paused.
+    const _prMeta = (doc && doc._source === 'report' && doc.id) ? _patientReportsById[String(doc.id)] : null;
+    const _prDisabled = !_patientReportsServerLive || _patientReportsConsentActive === false;
+    const _prDisabledHint = !_patientReportsServerLive
+      ? 'Reconnect to the server to use this action.'
+      : (_patientReportsConsentActive === false ? 'Paused while consent is withdrawn.' : '');
+    let ackCta = '';
+    let shareBackCta = '';
+    let questionCta = '';
+    if (_prMeta) {
+      const acked = !!_prMeta.acknowledged;
+      ackCta = acked
+        ? `<button class="pt-doc-cta pt-doc-cta-ack" disabled aria-disabled="true"
+                  data-acknowledged="1"
+                  aria-label="Already acknowledged">&#10003; Acknowledged</button>`
+        : `<button class="pt-doc-cta pt-doc-cta-ack"${_prDisabled ? ' disabled aria-disabled="true" title="' + esc(_prDisabledHint) + '"' : ''}
+                  onclick="window._ptAcknowledgeReport('${esc(doc.id)}','${esc(doc.title)}')"
+                  aria-label="Acknowledge ${esc(doc.title)}">Acknowledge</button>`;
+      const sbPending = !!_prMeta.share_back_pending;
+      shareBackCta = sbPending
+        ? `<button class="pt-doc-cta pt-doc-cta-share" disabled aria-disabled="true"
+                  data-share-back-pending="1"
+                  aria-label="Share-back already requested">Share-back requested</button>`
+        : `<button class="pt-doc-cta pt-doc-cta-share"${_prDisabled ? ' disabled aria-disabled="true" title="' + esc(_prDisabledHint) + '"' : ''}
+                  onclick="window._ptShareBackReport('${esc(doc.id)}','${esc(doc.title)}')"
+                  aria-label="Request a copy be shared with my GP or family for ${esc(doc.title)}">Send to GP / family</button>`;
+      questionCta = `<button class="pt-doc-cta pt-doc-cta-q"${_prDisabled ? ' disabled aria-disabled="true" title="' + esc(_prDisabledHint) + '"' : ''}
+                onclick="window._ptStartQuestionForReport('${esc(doc.id)}','${esc(doc.title)}')"
+                aria-label="Start a question about ${esc(doc.title)}">Question about this</button>`;
+    }
 
     // Origin + biometric-summary chip
     const originChip = doc.origin === 'ai'
@@ -6355,6 +6452,9 @@ export async function pgPatientReports() {
             ${viewCta}
             ${dlCta}
             ${askCta}
+            ${ackCta}
+            ${shareBackCta}
+            ${questionCta}
             ${scoreHTML}
           </div>
         </div>
@@ -6612,8 +6712,39 @@ export async function pgPatientReports() {
       </div>`;
   }
 
+  // ── Patient-scope launch-audit banners ──────────────────────────────────
+  //
+  // Three bannerts — demo, consent-revoked, and offline — surface the
+  // server-side state honestly. We render whichever apply; they stack at
+  // the very top so the patient sees the operating mode before the first
+  // report card.
+  const _patientReportsDemoBanner = _patientReportsIsDemo
+    ? `<div class="pt-demo-banner" role="status"
+         style="margin-bottom:12px;padding:10px 14px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;font-size:12.5px;color:#9a3412">
+         <strong>DEMO data</strong> — these reports are sample content for the demo workspace and are not regulator-submittable.
+       </div>` : '';
+  const _patientReportsConsentBanner = (_patientReportsServerLive && _patientReportsConsentActive === false)
+    ? `<div class="pt-consent-banner" role="status" aria-live="polite"
+         style="margin-bottom:12px;padding:10px 14px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:12.5px;color:#991b1b">
+         <strong>Read-only:</strong> consent has been withdrawn. You can still read past reports, but acknowledgements, share-back requests, and starting a question thread are paused until consent is reinstated.
+       </div>` : '';
+  const _patientReportsOfflineBanner = (!_patientReportsServerLive)
+    ? `<div role="status" aria-live="polite"
+         style="margin-bottom:12px;padding:10px 14px;background:#fef9c3;border:1px solid #fde68a;border-radius:8px;font-size:12.5px;color:#854d0e">
+         <strong>Offline mode:</strong> couldn't reach the server. Showing reports cached locally; acknowledgements and share-back requests are disabled until reconnected.
+       </div>` : '';
+  const _patientReportsEmptyBanner = (_patientReportsServerLive && docs.length === 0)
+    ? `<div role="status"
+         style="margin:8px 0 16px;padding:14px 16px;background:rgba(74,158,255,0.06);border:1px solid rgba(74,158,255,0.18);border-radius:10px;font-size:13px;color:var(--text-secondary,#475569)">
+         <strong>No reports yet</strong> — your clinical team will share reports here as they're generated.
+       </div>` : '';
+
   el.innerHTML = `
     <div class="pt-docs-wrap">
+      ${_patientReportsDemoBanner}
+      ${_patientReportsConsentBanner}
+      ${_patientReportsOfflineBanner}
+      ${_patientReportsEmptyBanner}
       <div id="pt-docs-ask-anchor"></div>
       ${overviewStripHTML()}
       ${evidenceLinkedHTML()}
@@ -6685,6 +6816,12 @@ export async function pgPatientReports() {
   window._ptAskAbout = function(docId, title) {
     const prompt = 'Explain "' + title + '" in simple language. What does this report mean for me?';
     window._ptPendingAsk = prompt;
+    // Audit hook — best-effort, never blocks the toast.
+    _patientReportsLogAuditEvent('ask_clicked', {
+      report_id: String(docId || ''),
+      using_demo_data: _patientReportsIsDemo,
+      note: 'prefill prompt',
+    });
     const anchor = el.querySelector('#pt-docs-ask-anchor');
     if (!anchor) return;
     anchor.innerHTML = `
@@ -6703,6 +6840,164 @@ export async function pgPatientReports() {
     const btn  = el.querySelector('#pt-cat-show-btn-' + catId);
     if (more) more.removeAttribute('hidden');
     if (btn)  btn.remove();
+  };
+
+  // ── Patient-scope launch-audit handlers (2026-05-01) ────────────────────
+  //
+  // Wired against /api/v1/reports/* patient-scope endpoints. Every CTA emits
+  // an audit row through the umbrella audit_events table so a regulator can
+  // see exactly what the patient did with each report.
+
+  // Tiny self-contained toast — pages-patient has several local _toast
+  // helpers but none exported at module level, so we render our own pill
+  // here so the handlers stay self-sufficient.
+  function _prToast(msg) {
+    try {
+      const tEl = document.createElement('div');
+      tEl.setAttribute('role', 'status');
+      tEl.setAttribute('aria-live', 'polite');
+      tEl.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#0f172a;color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,0.18);max-width:90vw';
+      tEl.textContent = String(msg || '');
+      document.body.appendChild(tEl);
+      setTimeout(() => { try { tEl.remove(); } catch (_) {} }, 3200);
+    } catch (_) { /* noop */ }
+  }
+
+  // Stamp report_opened audit when the patient clicks the View link.
+  window._ptReportOpened = function(reportId, kind) {
+    _patientReportsLogAuditEvent('report_opened', {
+      report_id: String(reportId || ''),
+      using_demo_data: _patientReportsIsDemo,
+      note: kind || 'view',
+    });
+  };
+
+  // Stamp report_downloaded audit when the patient clicks the Download link.
+  window._ptReportDownloaded = function(reportId) {
+    _patientReportsLogAuditEvent('report_downloaded', {
+      report_id: String(reportId || ''),
+      using_demo_data: _patientReportsIsDemo,
+      note: 'download click',
+    });
+  };
+
+  // Acknowledge a report — calls /acknowledge. Updates the in-place button
+  // state on success so the patient sees an immediate response. Failures
+  // surface a toast; the audit row is recorded server-side regardless.
+  window._ptAcknowledgeReport = async function(reportId, title) {
+    if (!reportId) return;
+    if (!_patientReportsServerLive) {
+      _prToast('Reconnect to acknowledge this report.');
+      return;
+    }
+    if (_patientReportsConsentActive === false) {
+      _prToast('Acknowledgements are paused while consent is withdrawn.');
+      return;
+    }
+    // Best-effort page-audit ping for the click itself (the server-side
+    // /acknowledge endpoint also emits its own audit row, but the click
+    // intent is captured here in case of network failure).
+    _patientReportsLogAuditEvent('acknowledge_clicked', {
+      report_id: String(reportId),
+      using_demo_data: _patientReportsIsDemo,
+    });
+    try {
+      const res = await api.acknowledgePatientReport(reportId, null);
+      if (res && res.accepted) {
+        const btn = el.querySelector(`.pt-doc-card[data-id="${CSS.escape(String(reportId))}"] .pt-doc-cta-ack`);
+        if (btn) {
+          btn.textContent = '✓ Acknowledged';
+          btn.setAttribute('disabled', '');
+          btn.setAttribute('aria-disabled', 'true');
+          btn.dataset.acknowledged = '1';
+        }
+        _prToast('Acknowledged "' + (title || 'report') + '"');
+      } else {
+        _prToast('Could not acknowledge — please try again.');
+      }
+    } catch (_e) {
+      _prToast('Could not acknowledge — please try again.');
+    }
+  };
+
+  // Request a share-back — opens an inline prompt for audience + reason,
+  // then calls /request-share-back. Server validates note presence (>= 2
+  // chars) so the prompt re-runs if the patient leaves it blank.
+  window._ptShareBackReport = async function(reportId, title) {
+    if (!reportId) return;
+    if (!_patientReportsServerLive) {
+      _prToast('Reconnect to request a share-back.');
+      return;
+    }
+    if (_patientReportsConsentActive === false) {
+      _prToast('Share-back requests are paused while consent is withdrawn.');
+      return;
+    }
+    const audience = (window.prompt && window.prompt('Who should receive a copy? (e.g. "GP", "family member", "insurer")', 'GP')) || '';
+    if (!audience.trim()) return;
+    const note = (window.prompt && window.prompt('Add a short note for your clinician — why are you requesting this share-back?', '')) || '';
+    if (note.trim().length < 2) {
+      _prToast('A short reason is required so your clinician can review.');
+      return;
+    }
+    _patientReportsLogAuditEvent('share_back_clicked', {
+      report_id: String(reportId),
+      using_demo_data: _patientReportsIsDemo,
+      note: 'audience=' + audience.slice(0, 60),
+    });
+    try {
+      const res = await api.requestPatientReportShareBack(reportId, audience.trim(), note.trim());
+      if (res && res.accepted) {
+        const btn = el.querySelector(`.pt-doc-card[data-id="${CSS.escape(String(reportId))}"] .pt-doc-cta-share`);
+        if (btn) {
+          btn.textContent = 'Share-back requested';
+          btn.setAttribute('disabled', '');
+          btn.setAttribute('aria-disabled', 'true');
+          btn.dataset.shareBackPending = '1';
+        }
+        _prToast('Share-back request sent to your clinician for review.');
+      } else {
+        _prToast('Could not send share-back — please try again.');
+      }
+    } catch (_e) {
+      _prToast('Could not send share-back — please try again.');
+    }
+  };
+
+  // Start a question thread linked to this report — opens a prompt, then
+  // calls /start-question. On success, navigate the patient to the Messages
+  // page so they see the new thread.
+  window._ptStartQuestionForReport = async function(reportId, title) {
+    if (!reportId) return;
+    if (!_patientReportsServerLive) {
+      _prToast('Reconnect to start a question thread.');
+      return;
+    }
+    if (_patientReportsConsentActive === false) {
+      _prToast('Question threads are paused while consent is withdrawn.');
+      return;
+    }
+    const prefill = title ? ('I have a question about "' + title + '": ') : '';
+    const question = (window.prompt && window.prompt('What is your question? Your clinician will reply through Messages.', prefill)) || '';
+    if (question.trim().length < 2) return;
+    _patientReportsLogAuditEvent('question_clicked', {
+      report_id: String(reportId),
+      using_demo_data: _patientReportsIsDemo,
+    });
+    try {
+      const res = await api.startPatientReportQuestion(reportId, question.trim());
+      if (res && res.accepted) {
+        _prToast('Question sent — your clinician will reply in Messages.');
+        // Deep-link the patient straight into Messages.
+        if (typeof window._navPatient === 'function') {
+          window._navPatient('patient-messages');
+        }
+      } else {
+        _prToast('Could not start the question — please try again.');
+      }
+    } catch (_e) {
+      _prToast('Could not start the question — please try again.');
+    }
   };
 }
 
