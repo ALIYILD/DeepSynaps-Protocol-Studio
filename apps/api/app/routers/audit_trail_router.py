@@ -268,6 +268,24 @@ KNOWN_SURFACES = {
     # regulator sees a clean ack → escalate (optional) → resolve transcript
     # per row.
     "clinician_adherence_hub",
+    # Clinician Wellness Hub launch-audit (2026-05-01). Bidirectional
+    # counterpart to the patient-facing ``wellness_hub`` surface added in
+    # #345. The patient surface records what the PATIENT does on the
+    # wellness page (log check-in, share, soft-delete); the
+    # ``clinician_wellness_hub`` surface records what the CLINICIAN does
+    # on the cross-patient triage queue: view, checkins_listed,
+    # summary_viewed, checkin_viewed, checkin_acknowledged,
+    # checkin_escalated (HIGH-priority — creates AdverseEvent draft visible
+    # across the clinic), checkin_resolved, bulk_acknowledged, export,
+    # deep_link_followed, demo_banner_shown. The escalate flow mirrors the
+    # regulatory chain already used by Clinician Adherence Hub #361 → AE
+    # Hub #342, so a wellness check-in flagged by the deterministic
+    # severity-band rule (anxiety/pain >= 7 OR mood <= 3) can graduate
+    # into an AdverseEvent without dropping audit continuity. Resolved
+    # check-ins are immutable — any subsequent state change attempts
+    # return 409 so the regulator sees a clean ack → escalate (optional)
+    # → resolve transcript per row.
+    "clinician_wellness_hub",
 }
 
 

@@ -107,6 +107,7 @@ from app.routers.patient_messages_router import router as patient_messages_route
 from app.routers.home_devices_patient_router import router as home_devices_patient_router
 from app.routers.adherence_events_router import router as adherence_events_router
 from app.routers.clinician_adherence_router import router as clinician_adherence_router
+from app.routers.clinician_wellness_router import router as clinician_wellness_router
 # Settings API routers (foundation scaffolded by backend subagent #1; endpoints
 # fleshed out by backend subagents #3–#6). See apps/api/SETTINGS_API_DESIGN.md.
 from app.routers.profile_router import router as profile_router
@@ -355,6 +356,16 @@ app.include_router(care_team_coverage_router)
 # home-therapy adherence: patient logs (#350) → clinician triages
 # (THIS) → SLA breach via Care Team Coverage (#357) → on-call paging.
 app.include_router(clinician_adherence_router)
+# Clinician Wellness Hub launch-audit (2026-05-01). Bidirectional
+# counterpart to Wellness Hub #345 — exposes a CROSS-PATIENT triage
+# queue over wellness_checkins scoped to the clinic so a clinician can
+# clear today's wellness backlog in bulk (acknowledge / escalate /
+# resolve / bulk-acknowledge) instead of opening one Inbox detail at a
+# time. Cross-clinic gated; admins see all. Closes the regulator chain
+# on early disengagement detection: patient logs (#345) → clinician
+# triages (THIS) → SLA breach via Care Team Coverage (#357) → on-call
+# paging.
+app.include_router(clinician_wellness_router)
 # Settings API (scaffolded 024_settings_schema) — stubs; endpoints arrive in
 # follow-up subagents. Grouped together for discoverability.
 app.include_router(profile_router)

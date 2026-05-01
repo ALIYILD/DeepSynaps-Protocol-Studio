@@ -486,6 +486,13 @@ const NAV = [
   // and escalations scoped to the clinic. Closes the home-therapy
   // adherence regulator chain end-to-end.
   { id: 'clinician-adherence', label: 'Adherence Hub',    icon: '✅' },
+  // Clinician Wellness Hub — bidirectional counterpart to Wellness Hub
+  // #345. Cross-patient triage of wellness check-ins (mood / energy /
+  // sleep / anxiety / focus / pain) scoped to the clinic. Closes the
+  // early disengagement detection regulator chain — wellness signals
+  // correlate strongly with adherence drop-offs and side-effect risk
+  // before adherence breaks down.
+  { id: 'clinician-wellness',  label: 'Wellness Hub',     icon: '💚' },
   { id: 'schedule-v2',        label: 'Schedule',          icon: '🗓️' },
   { id: 'assessments-v2',     label: 'Assessments',       icon: '◉' },
   { id: 'patients-v2',        label: 'Patients',          icon: '👥' },
@@ -527,6 +534,8 @@ const NAV_ICONS = {
   'clinician-inbox':   `<svg viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>`,
   // Clinician Adherence Hub icon — checklist + bullets, cross-patient triage glyph.
   'clinician-adherence': `<svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>`,
+  // Clinician Wellness Hub icon — heart + heartbeat (lucide "heart-pulse"), wellness triage glyph.
+  'clinician-wellness': `<svg viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.51 4.04 3 5.5l7 7Z"/><path d="M3.22 12H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27"/></svg>`,
   'patients':          `<svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
   'courses':           `<svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>`,
   'clinical-hub':      `<svg viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect width="8" height="4" x="8" y="2" rx="1"/><path d="M8 12h.01"/><path d="M12 12h4"/><path d="M8 16h.01"/><path d="M12 16h4"/></svg>`,
@@ -922,6 +931,8 @@ const PAGE_TITLES = {
   'care-team-coverage': 'Care Team Coverage',
   'clinician-adherence': 'Adherence Hub',
   'adherence-hub': 'Adherence Hub',
+  'clinician-wellness': 'Wellness Hub',
+  'wellness-hub': 'Wellness Hub',
   reports: 'Reports', admin: 'Admin Panel', 'clinic-settings': 'Clinic Settings & Branding', settings: 'Settings', 'clinician-account': 'My Account', academy: 'Academy', marketplace: 'Marketplace',
   permissions: 'Permissions & Security Admin',
   calendar: 'Schedule & Calendar',
@@ -1418,6 +1429,21 @@ async function renderPage() {
     case 'clinician-adherence': {
       const m = await loadCourses();
       await m.pgClinicianAdherenceHub(setTopbar, navigate);
+      break;
+    }
+    // Clinician Wellness Hub (launch-audit 2026-05-01). Bidirectional
+    // counterpart to the patient-side Wellness Hub (#345). Cross-patient
+    // triage of wellness check-ins (mood / energy / sleep / anxiety /
+    // focus / pain) scoped to the clinic — acknowledge / escalate /
+    // resolve / bulk-acknowledge in bulk instead of opening one Inbox
+    // item at a time. Closes the regulator chain on early disengagement
+    // detection: patient logs wellness (#345) → clinician triages
+    // (THIS PAGE) → SLA breach via Care Team Coverage (#357) → on-call
+    // paging.
+    case 'wellness-hub':
+    case 'clinician-wellness': {
+      const m = await loadCourses();
+      await m.pgClinicianWellnessHub(setTopbar, navigate);
       break;
     }
     case 'clinic-analytics': { const m = await loadKnowledge(); await m.pgClinicAnalytics(setTopbar); break; }
