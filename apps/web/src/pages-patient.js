@@ -23333,6 +23333,14 @@ export async function pgPatientCaregiver() {
         event: 'notifications_view',
         note: 'caregiver_portal.notifications_view panel mount',
       });
+      // Caregiver Email Digest launch-audit (2026-05-01) — distinct
+      // mount event so the regulator transcript records when the
+      // caregiver actually rendered the daily-digest delivery
+      // subsection (vs. just hit the page).
+      api.postCaregiverPortalAuditEvent({
+        event: 'email_digest_view',
+        note: 'caregiver_portal.email_digest_view subsection mount',
+      });
     }
   } catch (_e) {}
 
@@ -23356,6 +23364,32 @@ export async function pgPatientCaregiver() {
       ]);
       if (list && Array.isArray(list.items)) notifications = list.items;
       if (summary && typeof summary.unread === 'number') notificationSummary = summary;
+    } catch (_e) {}
+  }
+
+  // ── Daily Digest delivery fetch (best-effort) ────────────────────────────
+  // Caregiver Email Digest launch-audit (2026-05-01). Closes the
+  // bidirectional notification loop with the Notification Hub above —
+  // unread notifications can be rolled up into a daily email/Slack/SMS
+  // dispatch via the on-call delivery adapters. Caregiver opts in via
+  // a preference row; sending requires an active grant with
+  // scope.digest=true.
+  let digestPreview = { unread_count: 0, items: [], consent_active: false };
+  let digestPrefs = { enabled: false, frequency: 'daily', time_of_day: '08:00', last_sent_at: null };
+  if (typeof api.caregiverEmailDigestPreview === 'function') {
+    try {
+      const [pv, pr] = await Promise.all([
+        Promise.race([
+          api.caregiverEmailDigestPreview(),
+          new Promise((_, rej) => setTimeout(() => rej('timeout'), 4000)),
+        ]).catch(() => null),
+        Promise.race([
+          api.caregiverEmailDigestPreferencesGet(),
+          new Promise((_, rej) => setTimeout(() => rej('timeout'), 4000)),
+        ]).catch(() => null),
+      ]);
+      if (pv && typeof pv.unread_count === 'number') digestPreview = pv;
+      if (pr && typeof pr.enabled === 'boolean') digestPrefs = pr;
     } catch (_e) {}
   }
 
@@ -23499,6 +23533,37 @@ export async function pgPatientCaregiver() {
               ${n.is_read ? '' : `<button class="btn btn-sm" data-cg-notif-mark="${_ptCgEsc(n.id)}" style="background:rgba(45,212,191,0.14);border:1px solid rgba(45,212,191,0.3);color:#2dd4bf;font-size:10.5px;padding:3px 9px;border-radius:6px">Mark read</button>`}
             </div>
           `).join('')}
+        </div>
+      </div>
+      <div id="pt-cg-email-digest-panel" style="border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:18px;background:rgba(45,212,191,0.03)">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-size:14px;font-weight:700;color:var(--text-primary)">Daily digest delivery</span>
+            <span id="pt-cg-digest-consent-chip" style="display:inline-block;padding:2px 9px;border-radius:999px;background:${digestPreview.consent_active ? 'rgba(45,212,191,0.16)' : 'rgba(251,113,133,0.16)'};color:${digestPreview.consent_active ? '#2dd4bf' : '#fb7185'};font-size:11px;font-weight:700">${digestPreview.consent_active ? 'Consent active' : 'Consent missing'}</span>
+          </div>
+          <button id="pt-cg-digest-send-now" class="btn btn-sm" style="background:rgba(45,212,191,0.14);border:1px solid rgba(45,212,191,0.3);color:#2dd4bf;font-size:11.5px;padding:5px 12px;border-radius:8px;cursor:pointer">Send now</button>
+        </div>
+        <div id="pt-cg-digest-preview" style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5">
+          ${digestPreview.unread_count === 0
+            ? 'No unread notifications would be included in today\'s digest.'
+            : `Today\'s digest would include <strong>${digestPreview.unread_count}</strong> unread notification${digestPreview.unread_count === 1 ? '' : 's'}.`}
+        </div>
+        <div style="display:grid;grid-template-columns:auto 1fr;gap:8px 12px;align-items:center;font-size:12px;color:var(--text-secondary)">
+          <label for="pt-cg-digest-enabled" style="font-weight:600">Enabled</label>
+          <div>
+            <input id="pt-cg-digest-enabled" type="checkbox" ${digestPrefs.enabled ? 'checked' : ''} aria-label="enable daily digest" />
+          </div>
+          <label for="pt-cg-digest-frequency" style="font-weight:600">Frequency</label>
+          <select id="pt-cg-digest-frequency" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-primary);font-size:12px;max-width:160px">
+            <option value="daily" ${digestPrefs.frequency === 'daily' ? 'selected' : ''}>Daily</option>
+            <option value="weekly" ${digestPrefs.frequency === 'weekly' ? 'selected' : ''}>Weekly</option>
+          </select>
+          <label for="pt-cg-digest-time-of-day" style="font-weight:600">Time of day</label>
+          <input id="pt-cg-digest-time-of-day" type="time" value="${_ptCgEsc(digestPrefs.time_of_day || '08:00')}" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-primary);font-size:12px;max-width:160px" />
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:10px">
+          <button id="pt-cg-digest-save-prefs" class="btn btn-sm" style="background:rgba(45,212,191,0.14);border:1px solid rgba(45,212,191,0.3);color:#2dd4bf;font-size:11.5px;padding:5px 12px;border-radius:8px;cursor:pointer">Save preferences</button>
+          <span id="pt-cg-digest-last-sent" style="font-size:10.5px;color:var(--text-tertiary)">Last sent: ${digestPrefs.last_sent_at ? _ptCgFormatDate(digestPrefs.last_sent_at) : 'never'}</span>
         </div>
       </div>
       <div id="pt-cg-grant-list">
@@ -23749,6 +23814,100 @@ export async function pgPatientCaregiver() {
       }
     });
   });
+
+  // ── Daily digest delivery CTA wiring ────────────────────────────────────
+  // Send-now → POST /email-digest/send-now. Save preferences →
+  // PUT /email-digest/preferences. Both emit audit rows server-side and
+  // the page additionally posts a `caregiver_email_digest_worker.*`
+  // breadcrumb so the regulator transcript records the click.
+  const sendNowBtn = el.querySelector('#pt-cg-digest-send-now');
+  if (sendNowBtn && typeof api.caregiverEmailDigestSendNow === 'function') {
+    sendNowBtn.addEventListener('click', async () => {
+      sendNowBtn.disabled = true;
+      sendNowBtn.textContent = 'Sending…';
+      try {
+        const res = await api.caregiverEmailDigestSendNow();
+        if (res && res.delivery_status === 'sent') {
+          window._showNotifToast && window._showNotifToast({
+            title: 'Digest sent',
+            body: `Dispatched via ${res.adapter || 'adapter'} (${res.unread_count || 0} unread).`,
+            severity: 'success',
+          });
+        } else if (res && res.delivery_status === 'queued') {
+          const reason = res.consent_required
+            ? 'Consent missing — patient has not granted scope.digest yet.'
+            : (res.note || 'Queued — no adapter wired or no unread notifications.');
+          window._showNotifToast && window._showNotifToast({
+            title: 'Digest queued',
+            body: reason,
+            severity: 'info',
+          });
+        } else {
+          window._showNotifToast && window._showNotifToast({
+            title: 'Digest failed',
+            body: (res && res.note) || 'Delivery service did not confirm.',
+            severity: 'warning',
+          });
+        }
+        try {
+          api.postCaregiverEmailDigestAuditEvent({
+            event: 'send_now_clicked',
+            note: `delivery_status=${(res && res.delivery_status) || 'unknown'}`,
+          });
+        } catch (_e) {}
+      } catch (_e) {
+        window._showNotifToast && window._showNotifToast({
+          title: 'Digest failed',
+          body: 'The dispatch could not be triggered right now.',
+          severity: 'warning',
+        });
+      } finally {
+        sendNowBtn.disabled = false;
+        sendNowBtn.textContent = 'Send now';
+      }
+    });
+  }
+
+  const saveBtn = el.querySelector('#pt-cg-digest-save-prefs');
+  if (saveBtn && typeof api.caregiverEmailDigestPreferencesPut === 'function') {
+    saveBtn.addEventListener('click', async () => {
+      const enabledEl = el.querySelector('#pt-cg-digest-enabled');
+      const freqEl = el.querySelector('#pt-cg-digest-frequency');
+      const timeEl = el.querySelector('#pt-cg-digest-time-of-day');
+      const payload = {
+        enabled: !!(enabledEl && enabledEl.checked),
+        frequency: (freqEl && freqEl.value) || 'daily',
+        time_of_day: (timeEl && timeEl.value) || '08:00',
+      };
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+      try {
+        const res = await api.caregiverEmailDigestPreferencesPut(payload);
+        if (res && typeof res.enabled === 'boolean') {
+          window._showNotifToast && window._showNotifToast({
+            title: 'Preferences saved',
+            body: `Daily digest is ${res.enabled ? 'enabled' : 'disabled'} (${res.frequency} at ${res.time_of_day}).`,
+            severity: 'success',
+          });
+        }
+        try {
+          api.postCaregiverEmailDigestAuditEvent({
+            event: 'preferences_saved_ui',
+            note: `enabled=${payload.enabled}; frequency=${payload.frequency}; time_of_day=${payload.time_of_day}`,
+          });
+        } catch (_e) {}
+      } catch (_e) {
+        window._showNotifToast && window._showNotifToast({
+          title: 'Save failed',
+          body: 'Preferences could not be saved right now.',
+          severity: 'warning',
+        });
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save preferences';
+      }
+    });
+  }
 }
 
 // ── Help & Support ───────────────────────────────────────────────────────────

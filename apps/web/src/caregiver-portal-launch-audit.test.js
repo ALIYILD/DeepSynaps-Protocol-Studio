@@ -128,8 +128,10 @@ function _sliceCaregiverFn(src) {
   // Slice up to next top-level export — long enough for this rewrite.
   // Bumped from 14000 → 24000 in the Notification Hub launch-audit
   // (2026-05-01) which extends the function with the unread-badge +
-  // mark-read flow.
-  return src.slice(start, start + 24000);
+  // mark-read flow. Bumped again to 32000 in the Email Digest launch-
+  // audit (2026-05-01) which adds the daily-digest delivery subsection +
+  // CTA wiring.
+  return src.slice(start, start + 32000);
 }
 
 

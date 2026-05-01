@@ -4096,3 +4096,36 @@ class CaregiverConsentRevision(Base):
     actor_user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     reason: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class CaregiverDigestPreference(Base):
+    """Caregiver email-digest preference row (2026-05-01).
+
+    Closes the bidirectional notification loop opened by the Caregiver
+    Notification Hub (#379). The Hub gives caregivers an in-app feed +
+    unread badge; this row carries the durable preference the daily-
+    digest worker reads to decide whether to dispatch an email/Slack/SMS
+    roll-up of unread notifications via the on-call delivery adapters.
+
+    One row per caregiver user (``caregiver_user_id`` is unique). A
+    missing row is treated as ``enabled=False`` so the worker defaults to
+    silence until the caregiver opts in. ``last_sent_at`` is stamped by
+    the worker after a successful dispatch and used to enforce the per-
+    caregiver 24h cooldown.
+
+    Soft FK to ``users.id`` so deleting a user does not cascade-clear the
+    preference row.
+    """
+
+    __tablename__ = "caregiver_digest_preferences"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    caregiver_user_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, index=True, unique=True
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    frequency: Mapped[str] = mapped_column(String(16), nullable=False, default="daily")
+    time_of_day: Mapped[str] = mapped_column(String(8), nullable=False, default="08:00")
+    last_sent_at: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(64), nullable=False)

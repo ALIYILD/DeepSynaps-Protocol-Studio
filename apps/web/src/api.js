@@ -2044,6 +2044,36 @@ export const api = {
       body: JSON.stringify(data || { notification_ids: [] }),
     }),
 
+  // ── Caregiver Email Digest launch-audit (2026-05-01) ──────────────────────
+  // Closes the bidirectional notification loop opened by Caregiver
+  // Notification Hub #379. Daily roll-up of unread caregiver
+  // notifications via the on-call delivery adapters in mock mode unless
+  // real env vars set. The Caregiver Portal page (`pgPatientCaregiver`)
+  // reads `caregiverEmailDigestPreview` for the preview card,
+  // `caregiverEmailDigestPreferencesGet` / `Put` for the preferences
+  // form, and `caregiverEmailDigestSendNow` for the "Send now" CTA.
+  // Page-level audit pings route through `postCaregiverEmailDigestAuditEvent`
+  // under target_type='caregiver_email_digest_worker'.
+  caregiverEmailDigestPreview: () =>
+    apiFetch('/api/v1/caregiver-consent/email-digest/preview').catch(() => null),
+  caregiverEmailDigestSendNow: () =>
+    apiFetch('/api/v1/caregiver-consent/email-digest/send-now', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  caregiverEmailDigestPreferencesGet: () =>
+    apiFetch('/api/v1/caregiver-consent/email-digest/preferences').catch(() => null),
+  caregiverEmailDigestPreferencesPut: (data) =>
+    apiFetch('/api/v1/caregiver-consent/email-digest/preferences', {
+      method: 'PUT',
+      body: JSON.stringify(data || {}),
+    }),
+  postCaregiverEmailDigestAuditEvent: (data) =>
+    apiFetch('/api/v1/caregiver-consent/email-digest/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
   // ── Wearables Workbench (clinician triage queue) ──────────────────────────
   // Bidirectional counterpart to Patient Wearables (#352). Surfaces the
   // server-side triage queue over wearable_alert_flags so clinicians can
