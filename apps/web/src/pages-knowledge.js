@@ -7371,7 +7371,7 @@ export async function pgCareTeamCoverage(setTopbar) {
   var activeTab = window._coverageTab || 'coverage';
 
   async function loadAll() {
-    var [summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth, policyOrder, policyOverrides, policyMappings, deliveryConcerns, caregiverChannels, channelMisconfigDetectorStatus] = await Promise.all([
+    var [summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth, policyOrder, policyOverrides, policyMappings, deliveryConcerns, caregiverChannels, channelMisconfigDetectorStatus, deliveryConcernAggregatorStatus, deliveryConcernAggregatorEvents] = await Promise.all([
       api.careTeamCoverageSummary(),
       api.careTeamCoverageOncallNow(),
       api.careTeamCoverageSlaConfig(),
@@ -7399,8 +7399,22 @@ export async function pgCareTeamCoverage(setTopbar) {
       typeof api.channelMisconfigDetectorStatus === 'function'
         ? api.channelMisconfigDetectorStatus()
         : null,
+      // Caregiver Delivery Concern Aggregator launch-audit (2026-05-01).
+      // Rolling-window flag worker that surfaces caregivers with N+
+      // delivery concerns. Status snapshot + flagged caregivers list
+      // both null when API unreachable so the sub-section can fall back
+      // to an honest "aggregator status: unreachable" banner.
+      typeof api.caregiverDeliveryConcernAggregatorStatus === 'function'
+        ? api.caregiverDeliveryConcernAggregatorStatus()
+        : null,
+      typeof api.caregiverDeliveryConcernAggregatorAuditEvents === 'function'
+        ? api.caregiverDeliveryConcernAggregatorAuditEvents({
+            surface: 'caregiver_portal',
+            limit: 50,
+          })
+        : null,
     ]);
-    return { summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth, policyOrder, policyOverrides, policyMappings, deliveryConcerns, caregiverChannels, channelMisconfigDetectorStatus };
+    return { summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth, policyOrder, policyOverrides, policyMappings, deliveryConcerns, caregiverChannels, channelMisconfigDetectorStatus, deliveryConcernAggregatorStatus, deliveryConcernAggregatorEvents };
   }
 
   function isDemo(d) {
@@ -7769,6 +7783,147 @@ export async function pgCareTeamCoverage(setTopbar) {
       '</div>';
   }
 
+  // Caregiver Delivery Concern Aggregator launch-audit (2026-05-01).
+  // Renders the rolling-window aggregator status panel + flagged
+  // caregiver list. Closes section I rec from #389: when a caregiver
+  // accumulates N delivery concerns within the configured window, this
+  // panel surfaces the flag with concern count + window + a "Review
+  // preference" link to the override admin tab.
+  function renderDeliveryConcernAggregatorPanel(d) {
+    var status = d.deliveryConcernAggregatorStatus || null;
+    var events = d.deliveryConcernAggregatorEvents || null;
+    var role = (window.__deepsynapsActorRole || '').toLowerCase();
+    var isAdmin = (role === 'admin' || role === 'supervisor' || role === 'regulator' || role === 'reviewer');
+
+    // Pull flag rows out of the audit-events list. The portal-surface
+    // query returns both threshold-reached + resolved; we group by
+    // caregiver_user_id and treat a caregiver as "unresolved" when
+    // their most recent row is threshold-reached.
+    var flagItems = (events && Array.isArray(events.items)) ? events.items : [];
+    var perCaregiver = {};
+    flagItems.forEach(function(it) {
+      var cgId = String(it.target_id || '').trim();
+      if (!cgId) return;
+      var existing = perCaregiver[cgId];
+      // Items are returned newest-first from the API.
+      if (!existing) perCaregiver[cgId] = it;
+    });
+    var unresolved = [];
+    Object.keys(perCaregiver).forEach(function(cgId) {
+      var it = perCaregiver[cgId];
+      if (String(it.action || '').indexOf('delivery_concern_threshold_reached') >= 0) {
+        unresolved.push(it);
+      }
+    });
+    var unresolvedCount = unresolved.length;
+
+    var redBadge = '<span data-testid="ctc-cgca-badge" style="background:rgba(251,113,133,0.18);color:#fb7185;padding:3px 10px;border-radius:6px;font-size:12px;font-weight:700;margin-left:8px">Flagged: ' + _esc(String(unresolvedCount)) + '</span>';
+    var greenBadge = '<span data-testid="ctc-cgca-badge" style="background:rgba(45,212,191,0.18);color:#2dd4bf;padding:3px 10px;border-radius:6px;font-size:12px;font-weight:700;margin-left:8px">Flagged: 0</span>';
+    var badge = unresolvedCount > 0 ? redBadge : greenBadge;
+
+    if (status == null) {
+      return '<div data-testid="ctc-cgca-panel" class="notice notice-info" style="margin-top:12px;font-size:12px">' +
+        '<strong>Caregiver delivery-concern aggregator status unreachable.</strong> Per-caregiver flags will reappear here when the API responds.' + badge +
+        '</div>';
+    }
+
+    var runningDot = status.running
+      ? '<span style="color:#10b981;font-weight:700">●</span>'
+      : '<span style="color:#9ca3af">○</span>';
+    var lastTick = status.last_tick_at
+      ? _relativeTime(status.last_tick_at)
+      : '—';
+    var threshold = Number(status.threshold) || 3;
+    var windowH = Number(status.window_hours) || 168;
+    var cooldownH = Number(status.cooldown_hours) || 72;
+    var flagged24h = Number(status.caregivers_flagged_last_24h) || 0;
+    var caregivers = Number(status.caregivers_in_clinic) || 0;
+    var processNote = status.process_enabled_via_env
+      ? ''
+      : '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Worker thread is dormant in this deploy (DEEPSYNAPS_CG_CONCERN_AGGREGATOR_ENABLED=0). Aggregation only runs when the env var is set; until then the badge reflects only manual /tick invocations.</div>';
+    var lastError = status.last_error
+      ? ' <span style="color:#ef4444" title="' + _esc(status.last_error) + '">⚠ last error</span>'
+      : '';
+
+    function chip(label, value) {
+      return '<span style="background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:3px 8px;margin-right:6px;font-size:11px"><strong>' + _esc(label) + '</strong>: ' + _esc(String(value)) + '</span>';
+    }
+
+    var ctas = '';
+    if (isAdmin) {
+      ctas = '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">' +
+        '<button class="btn btn-sm" data-testid="ctc-cgca-run-now" onclick="window._deliveryConcernAggregatorRunNow()">Run aggregator now (admin debug)</button>' +
+        '</div>';
+    }
+
+    var listHtml = '';
+    if (unresolvedCount === 0) {
+      listHtml = '<div data-testid="ctc-cgca-empty" style="font-size:12px;color:var(--text-muted);margin-top:8px;padding:8px;border:1px dashed var(--border);border-radius:6px">' +
+        'No caregivers currently flagged. Caregivers appear here when a patient files at least ' + _esc(String(threshold)) +
+        ' delivery concerns within ' + _esc(String(Math.round(windowH / 24))) + ' day(s).' +
+        '</div>';
+    } else {
+      var rows = unresolved.slice(0, 25).map(function(it) {
+        var note = String(it.note || '');
+        var concernMatch = note.match(/concern_count=(\d+)/);
+        var concernCount = concernMatch ? concernMatch[1] : '?';
+        var winMatch = note.match(/window_hours=(\d+)/);
+        var thisWindow = winMatch ? Math.round(Number(winMatch[1]) / 24) + 'd' : '—';
+        var cgId = it.target_id || '—';
+        var when = _relativeTime(it.created_at);
+        return '<tr data-testid="ctc-cgca-flag-row" data-caregiver-user-id="' + _esc(cgId) + '">' +
+          '<td><strong>' + _esc(cgId) + '</strong></td>' +
+          '<td>' + _esc(concernCount) + '</td>' +
+          '<td>' + _esc(thisWindow) + '</td>' +
+          '<td>' + _esc(when) + '</td>' +
+          '<td><a href="#/clinical/care-team-coverage?tab=caregiver-channels&caregiver=' + _esc(cgId) + '" data-testid="ctc-cgca-review-link" onclick="window._deliveryConcernAggregatorReviewClicked(\'' + _esc(cgId) + '\')">Review preference</a></td>' +
+          '</tr>';
+      }).join('');
+      listHtml = '<div data-testid="ctc-cgca-list" style="overflow-x:auto;margin-top:8px">' +
+        '<table class="data-table" style="width:100%;min-width:680px;font-size:12px">' +
+        '<thead><tr><th>Caregiver</th><th>Concerns</th><th>Window</th><th>Flagged</th><th>Action</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody></table>' +
+        '</div>';
+    }
+
+    return '<div data-testid="ctc-cgca-panel" class="notice" style="margin-top:12px;font-size:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:10px 14px">' +
+      '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">' +
+      '<span><strong>Delivery concerns</strong>' + badge + '</span>' +
+      '<span>' + runningDot + ' running (process)</span>' +
+      '<span style="color:var(--text-muted)">last tick ' + _esc(lastTick) + '</span>' +
+      lastError +
+      '</div>' +
+      '<div style="margin-top:6px">' +
+      chip('threshold', threshold) +
+      chip('window', String(Math.round(windowH / 24)) + 'd') +
+      chip('cooldown', String(cooldownH) + 'h') +
+      chip('caregivers', caregivers) +
+      chip('flagged 24h', flagged24h) +
+      '</div>' +
+      processNote +
+      ctas +
+      listHtml +
+      '</div>';
+  }
+
+  // Format an ISO timestamp into a "X minutes/hours/days ago" string.
+  // Falls back to the raw ISO when the input is unparseable.
+  function _relativeTime(iso) {
+    if (!iso) return '—';
+    var t = Date.parse(iso);
+    if (!Number.isFinite(t)) return String(iso);
+    var deltaMs = Date.now() - t;
+    if (deltaMs < 0) deltaMs = 0;
+    var s = Math.floor(deltaMs / 1000);
+    if (s < 60) return s + ' seconds ago';
+    var m = Math.floor(s / 60);
+    if (m < 60) return m + ' minute' + (m === 1 ? '' : 's') + ' ago';
+    var h = Math.floor(m / 60);
+    if (h < 24) return h + ' hour' + (h === 1 ? '' : 's') + ' ago';
+    var d = Math.floor(h / 24);
+    return d + ' day' + (d === 1 ? '' : 's') + ' ago';
+  }
+
   function renderCaregiverChannelsTab(d) {
     var data = d.caregiverChannels || null;
     var items = (data && Array.isArray(data.items)) ? data.items : [];
@@ -7795,15 +7950,25 @@ export async function pgCareTeamCoverage(setTopbar) {
         note: 'misconfigured=' + misconfigCount,
       });
     }
+    // Caregiver Delivery Concern Aggregator launch-audit (2026-05-01).
+    // Mount-time audit ping on the page-level surface so the regulator
+    // transcript records the admin's read of the rolling-window flag list.
+    if (typeof api.postCaregiverDeliveryConcernAggregatorAuditEvent === 'function') {
+      api.postCaregiverDeliveryConcernAggregatorAuditEvent({
+        event: 'view',
+        note: 'caregiver_channels tab mount',
+      });
+    }
     var detectorPanel = renderChannelMisconfigDetectorPanel(d, misconfigCount);
+    var concernAggregatorPanel = renderDeliveryConcernAggregatorPanel(d);
     if (data == null) {
-      return detectorPanel +
+      return detectorPanel + concernAggregatorPanel +
         '<div data-testid="ctc-caregiver-channels" class="notice notice-info" style="padding:14px;font-size:12px">' +
         '<strong>Caregiver channels backend unreachable.</strong> Until the API is up the admin override surface is unavailable; caregiver-side preferences continue to dispatch via the existing clinic chain.' +
         '</div>';
     }
     if (items.length === 0) {
-      return detectorPanel + emptyState(
+      return detectorPanel + concernAggregatorPanel + emptyState(
         '✉',
         'No caregiver preferences in this clinic.',
         'Caregivers must enable the daily digest from their portal before they appear here. Once they pick a preferred channel (email / sms / slack / pagerduty) you can review or override the routing from this tab.',
@@ -7845,7 +8010,7 @@ export async function pgCareTeamCoverage(setTopbar) {
         '<td>' + overrideBtn + '</td>' +
         '</tr>';
     }).join('');
-    return detectorPanel +
+    return detectorPanel + concernAggregatorPanel +
       '<div data-testid="ctc-caregiver-channels" style="overflow-x:auto">' +
       '<div style="margin-bottom:10px;font-size:12px;color:var(--text-secondary);line-height:1.5">' +
         '<strong>Caregiver channel overrides for this clinic.</strong> ' + mockChip +
@@ -8082,6 +8247,26 @@ export async function pgCareTeamCoverage(setTopbar) {
     var caregiverChannelsMisconfigured = caregiverChannelsItems.filter(function(it) {
       return it && it.is_misconfigured === true;
     }).length;
+    // Caregiver Delivery Concern Aggregator launch-audit (2026-05-01).
+    // Add unresolved-flag count to the Caregiver-channels tab header so
+    // the admin sees a red badge when caregivers cross the rolling-window
+    // threshold without having to open the tab first.
+    var deliveryConcernAggregatorEvents = d.deliveryConcernAggregatorEvents || null;
+    var deliveryConcernAggregatorFlagItems = (deliveryConcernAggregatorEvents && Array.isArray(deliveryConcernAggregatorEvents.items))
+      ? deliveryConcernAggregatorEvents.items : [];
+    var deliveryConcernAggregatorPerCaregiver = {};
+    deliveryConcernAggregatorFlagItems.forEach(function(it) {
+      var cgId = String(it.target_id || '').trim();
+      if (!cgId) return;
+      if (!deliveryConcernAggregatorPerCaregiver[cgId]) {
+        deliveryConcernAggregatorPerCaregiver[cgId] = it;
+      }
+    });
+    var deliveryConcernAggregatorUnresolvedCount = Object.keys(deliveryConcernAggregatorPerCaregiver).filter(function(cgId) {
+      var it = deliveryConcernAggregatorPerCaregiver[cgId];
+      return String(it.action || '').indexOf('delivery_concern_threshold_reached') >= 0;
+    }).length;
+    var caregiverChannelsHeaderCount = caregiverChannelsMisconfigured + deliveryConcernAggregatorUnresolvedCount;
     var tabs = [
       { id: 'coverage',   label: 'Coverage' },
       { id: 'breaches',   label: 'SLA breaches' },
@@ -8095,8 +8280,8 @@ export async function pgCareTeamCoverage(setTopbar) {
     if (isAdminRole) {
       tabs.push({
         id: 'caregiver-channels',
-        label: 'Caregiver channels' + (caregiverChannelsMisconfigured > 0
-          ? ' (' + caregiverChannelsMisconfigured + ')' : ''),
+        label: 'Caregiver channels' + (caregiverChannelsHeaderCount > 0
+          ? ' (' + caregiverChannelsHeaderCount + ')' : ''),
       });
     }
 
@@ -8241,6 +8426,63 @@ export async function pgCareTeamCoverage(setTopbar) {
       window.alert('Detector tick failed: ' + (e && e.message ? e.message : 'unknown'));
     }
     render();
+  };
+
+  // Caregiver Delivery Concern Aggregator launch-audit (2026-05-01).
+  // Admin-only debug — runs ONE aggregator tick synchronously bounded
+  // to the actor's clinic and returns the per-caregiver flag counts.
+  // Mirrors the /channel-misconfiguration-detector/tick-once UX from
+  // #389. The handler ALSO emits audit pings on both surfaces so the
+  // regulator transcript records the click on the page surface AND
+  // the worker surface.
+  window._deliveryConcernAggregatorRunNow = async function() {
+    if (typeof api.caregiverDeliveryConcernAggregatorTick !== 'function') {
+      window.alert('Caregiver delivery-concern aggregator not available in this deploy.');
+      return;
+    }
+    api.postCareTeamCoverageAuditEvent({
+      event: 'delivery_concern_aggregator_run_now_clicked',
+      note: 'admin clicked Run aggregator now',
+    });
+    if (typeof api.postCaregiverDeliveryConcernAggregatorAuditEvent === 'function') {
+      api.postCaregiverDeliveryConcernAggregatorAuditEvent({
+        event: 'run_now_clicked',
+        note: 'admin clicked Run aggregator now',
+      });
+    }
+    try {
+      var resp = await api.caregiverDeliveryConcernAggregatorTick();
+      if (resp && resp.accepted) {
+        window.alert(
+          'Aggregator tick complete.\n' +
+          'Concerns scanned: ' + (resp.concerns_scanned || 0) + '\n' +
+          'Caregivers evaluated: ' + (resp.caregivers_evaluated || 0) + '\n' +
+          'Caregivers flagged: ' + (resp.caregivers_flagged || 0) + '\n' +
+          'Skipped (cooldown): ' + (resp.skipped_cooldown || 0) + '\n' +
+          'Skipped (below threshold): ' + (resp.skipped_below_threshold || 0) + '\n' +
+          'Errors: ' + (resp.errors || 0)
+        );
+      } else {
+        window.alert('Aggregator tick did not accept; check your role + that you belong to a clinic.');
+      }
+    } catch (e) {
+      window.alert('Aggregator tick failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    render();
+  };
+
+  // Click handler for "Review preference" link in the flagged-caregiver
+  // list. Just emits an audit ping so the regulator transcript records
+  // which flagged caregiver the admin chose to review. Navigation to
+  // the override admin tab is handled by the link's href.
+  window._deliveryConcernAggregatorReviewClicked = function(caregiverId) {
+    if (typeof api.postCaregiverDeliveryConcernAggregatorAuditEvent === 'function') {
+      api.postCaregiverDeliveryConcernAggregatorAuditEvent({
+        event: 'review_preference_clicked',
+        target_id: caregiverId,
+        note: 'admin clicked Review preference for caregiver=' + caregiverId,
+      });
+    }
   };
 
   window._coverageEditSla = async function(surface, severity, currentMinutes) {

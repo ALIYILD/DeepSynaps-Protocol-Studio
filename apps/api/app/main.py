@@ -118,6 +118,9 @@ from app.routers.caregiver_email_digest_router import router as caregiver_email_
 from app.routers.channel_misconfiguration_detector_router import (
     router as channel_misconfiguration_detector_router,
 )
+from app.routers.caregiver_delivery_concern_aggregator_router import (
+    router as caregiver_delivery_concern_aggregator_router,
+)
 from app.routers.audit_trail_router import router as audit_trail_router
 # Settings API routers (foundation scaffolded by backend subagent #1; endpoints
 # fleshed out by backend subagents #3–#6). See apps/api/SETTINGS_API_DESIGN.md.
@@ -179,6 +182,10 @@ from app.workers.caregiver_email_digest_worker import (
 from app.workers.channel_misconfiguration_detector_worker import (
     shutdown_worker as shutdown_channel_misconfig_detector_worker,
     start_worker_if_enabled as start_channel_misconfig_detector_worker,
+)
+from app.workers.caregiver_delivery_concern_aggregator_worker import (
+    shutdown_worker as shutdown_caregiver_delivery_concern_aggregator_worker,
+    start_worker_if_enabled as start_caregiver_delivery_concern_aggregator_worker,
 )
 from app.services.agent_skills_seed import seed_default_agent_skills
 from app.services.clinical_data import seed_clinical_dataset
@@ -285,6 +292,13 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
     # (#387) into an active HIGH-priority inbox row so admins don't have
     # to discover the misconfig manually.
     start_channel_misconfig_detector_worker()
+    # Caregiver Delivery Concern Aggregator (2026-05-01) — gated on
+    # DEEPSYNAPS_CG_CONCERN_AGGREGATOR_ENABLED so tests / CI don't fire
+    # flags. Rolling-window scan that flags caregivers with N+ delivery
+    # concerns within the configured window (default 3 in 7d) and emits
+    # a HIGH-priority inbox row so admins see the recurring delivery
+    # problem without per-caregiver drill-down.
+    start_caregiver_delivery_concern_aggregator_worker()
     try:
         yield
     finally:
@@ -292,6 +306,7 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
         shutdown_auto_page_worker()
         shutdown_caregiver_email_digest_worker()
         shutdown_channel_misconfig_detector_worker()
+        shutdown_caregiver_delivery_concern_aggregator_worker()
 
 
 app = FastAPI(title=settings.api_title, version=settings.api_version, lifespan=lifespan)
@@ -427,6 +442,13 @@ app.include_router(auto_page_worker_router)
 # Clinician Inbox aggregator surfaces channel misconfigs without the
 # admin having to manually open the "Caregiver channels" tab.
 app.include_router(channel_misconfiguration_detector_router)
+# Caregiver Delivery Concern Aggregator launch-audit (2026-05-01). Closes
+# section I rec from the Channel Misconfiguration Detector (#389).
+# Rolling-window scan that flags caregivers with N+ delivery concerns
+# within the configured window (default 3 within 7d) and emits a HIGH-
+# priority audit row so admins see recurring delivery problems via the
+# Clinician Inbox aggregator (#354) without per-caregiver drill-down.
+app.include_router(caregiver_delivery_concern_aggregator_router)
 # Escalation Policy Editor (2026-05-01) — admin-only configurable
 # dispatch order + per-surface override matrix + per-user contact mapping.
 # Replaces the hard-coded DEFAULT_ADAPTER_ORDER and contact_handle path
