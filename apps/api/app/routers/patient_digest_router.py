@@ -119,6 +119,7 @@ from app.auth import AuthenticatedActor, get_authenticated_actor
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import (
+    AuditEventRecord,
     ClinicalSession,
     Message,
     Patient,
@@ -641,6 +642,49 @@ class DigestAuditEventOut(BaseModel):
     event_id: str
 
 
+class CaregiverDeliverySummaryRow(BaseModel):
+    """Per-caregiver row in :class:`CaregiverDeliverySummaryOut`.
+
+    Carries ONLY the minimum fields the patient needs to confirm "my
+    caregiver received N digests this week":
+
+    * ``caregiver_user_id`` — opaque id (already known to the patient
+      via the consent grant they minted).
+    * ``caregiver_first_name`` — first name only, never the full name
+      and NEVER the caregiver's email. The IDOR / no-PHI test asserts
+      this.
+    * ``digests_delivered_count`` — count of
+      ``caregiver_portal.email_digest_sent`` audit rows whose
+      ``delivery_status='sent'`` falls inside the [since, until) window.
+    * ``last_delivered_at`` — ISO timestamp of the most recent ``sent``
+      row; ``None`` when no dispatches have occurred in the window.
+    """
+
+    caregiver_user_id: str
+    caregiver_first_name: Optional[str] = None
+    digests_delivered_count: int = 0
+    last_delivered_at: Optional[str] = None
+
+
+class CaregiverDeliverySummaryOut(BaseModel):
+    """Patient-side reflection of caregiver email digest dispatches.
+
+    Reads from ``audit_events`` filtered to
+    ``target_type='caregiver_portal'`` +
+    ``action='caregiver_portal.email_digest_sent'`` +
+    ``actor_id=<the patient's caregiver consent grants>``. Cross-patient
+    blocked at the router (404) — the resolver uses ``actor.actor_id``
+    only so there is no ``patient_id`` to forge.
+    """
+
+    rows: list[CaregiverDeliverySummaryRow] = Field(default_factory=list)
+    total_delivered_count: int = 0
+    since: str = ""
+    until: str = ""
+    patient_id: str = ""
+    is_demo: bool = False
+
+
 # ── Endpoints ───────────────────────────────────────────────────────────────
 
 
@@ -1104,3 +1148,165 @@ def post_audit_event(
         using_demo_data=is_demo,
     )
     return DigestAuditEventOut(accepted=True, event_id=event_id)
+
+
+# ── Caregiver delivery summary (SendGrid Adapter launch-audit) ───────────────
+
+
+def _list_active_caregivers_for_patient(
+    db: Session, patient_id: str
+) -> list[tuple[str, Optional[str]]]:
+    """Return the patient's currently-active caregiver consent grants.
+
+    Each row is a ``(caregiver_user_id, caregiver_first_name)`` tuple.
+    Active grants are those where ``revoked_at IS NULL``. We deliberately
+    surface only the first name on the patient view — the regulator
+    transcript already records the full grant payload elsewhere.
+    """
+    try:
+        from app.persistence.models import CaregiverConsentGrant  # noqa: PLC0415
+    except Exception:  # pragma: no cover - defensive
+        return []
+    grants = (
+        db.query(CaregiverConsentGrant)
+        .filter(
+            CaregiverConsentGrant.patient_id == patient_id,
+            CaregiverConsentGrant.revoked_at.is_(None),
+        )
+        .all()
+    )
+    out: list[tuple[str, Optional[str]]] = []
+    seen: set[str] = set()
+    for g in grants:
+        cg_id = g.caregiver_user_id
+        if not cg_id or cg_id in seen:
+            continue
+        seen.add(cg_id)
+        first_name: Optional[str] = None
+        try:
+            user = db.query(User).filter_by(id=cg_id).first()
+        except Exception:
+            user = None
+        if user is not None and user.display_name:
+            # Display names land as "First Last"; surface the first
+            # token only so we don't leak the caregiver's full name.
+            first_token = user.display_name.strip().split(" ", 1)[0]
+            if first_token:
+                first_name = first_token[:64]
+        out.append((cg_id, first_name))
+    return out
+
+
+def _count_caregiver_digest_deliveries(
+    db: Session,
+    *,
+    caregiver_user_id: str,
+    since_dt: datetime,
+    until_dt: datetime,
+) -> tuple[int, Optional[str]]:
+    """Count ``caregiver_portal.email_digest_sent`` rows for a caregiver.
+
+    Returns ``(count, last_delivered_at_iso)``. Only audit rows whose
+    note encodes ``delivery_status=sent`` are counted — failed/queued
+    dispatches are intentionally excluded so the patient view reflects
+    confirmed deliveries, not intent.
+    """
+    rows = (
+        db.query(AuditEventRecord)
+        .filter(
+            AuditEventRecord.target_type == "caregiver_portal",
+            AuditEventRecord.action == "caregiver_portal.email_digest_sent",
+            AuditEventRecord.target_id == caregiver_user_id,
+        )
+        .all()
+    )
+    count = 0
+    last_iso: Optional[str] = None
+    last_dt: Optional[datetime] = None
+    for r in rows:
+        ts = _parse_iso(r.created_at)
+        if ts is None:
+            continue
+        ts = _aware(ts)
+        if ts is None or not (since_dt <= ts < until_dt):
+            continue
+        # Honest-only count: skip rows whose note flags failed/queued.
+        note = (r.note or "").lower()
+        if "delivery_status=sent" not in note:
+            continue
+        count += 1
+        if last_dt is None or ts > last_dt:
+            last_dt = ts
+            last_iso = r.created_at
+    return count, last_iso
+
+
+@router.get(
+    "/caregiver-delivery-summary",
+    response_model=CaregiverDeliverySummaryOut,
+)
+def get_caregiver_delivery_summary(
+    since: Optional[str] = Query(default=None, max_length=32),
+    until: Optional[str] = Query(default=None, max_length=32),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> CaregiverDeliverySummaryOut:
+    """Reflect caregiver email digest dispatches back to the patient.
+
+    Reads from ``audit_events`` filtered to
+    ``target_type='caregiver_portal'`` and
+    ``action='caregiver_portal.email_digest_sent'``, scoped to the
+    caregivers the patient has minted active consent grants for. Cross-
+    patient blocked at the router (404) because the resolver uses
+    ``actor.actor_id`` only — no path / query param carries a forgeable
+    ``patient_id``.
+
+    NO PHI of the caregiver leaks: the response surfaces only the
+    caregiver's first name (anonymised) and the count of confirmed
+    deliveries. Email addresses, full names, and audit row notes are
+    NEVER returned.
+    """
+    patient = _resolve_patient_for_actor(db, actor)
+    since_dt, until_dt = _resolve_window(since, until)
+    is_demo = _patient_is_demo(db, patient)
+
+    caregivers = _list_active_caregivers_for_patient(db, patient.id)
+    rows: list[CaregiverDeliverySummaryRow] = []
+    total = 0
+    for cg_id, first_name in caregivers:
+        count, last_iso = _count_caregiver_digest_deliveries(
+            db,
+            caregiver_user_id=cg_id,
+            since_dt=since_dt,
+            until_dt=until_dt,
+        )
+        rows.append(
+            CaregiverDeliverySummaryRow(
+                caregiver_user_id=cg_id,
+                caregiver_first_name=first_name,
+                digests_delivered_count=count,
+                last_delivered_at=last_iso,
+            )
+        )
+        total += count
+
+    _audit(
+        db,
+        actor,
+        event="caregiver_delivery_summary_viewed",
+        target_id=patient.id,
+        note=(
+            f"caregivers={len(rows)}; total_delivered={total}; "
+            f"since={since_dt.isoformat()}; until={until_dt.isoformat()}"
+        ),
+        using_demo_data=is_demo,
+    )
+
+    return CaregiverDeliverySummaryOut(
+        rows=rows,
+        total_delivered_count=total,
+        since=since_dt.isoformat(),
+        until=until_dt.isoformat(),
+        patient_id=patient.id,
+        is_demo=is_demo,
+    )

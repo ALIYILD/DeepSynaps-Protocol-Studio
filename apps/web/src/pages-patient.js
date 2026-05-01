@@ -24534,9 +24534,10 @@ export async function pgPatientDigest(setTopbarFn) {
 
   const days = window._pdCurrentRange || 7;
   const range = _pdRangeIso(days);
-  const [summary, sections] = await Promise.all([
+  const [summary, sections, caregiverDelivery] = await Promise.all([
     api.patientDigestSummary(range),
     api.patientDigestSections(range),
+    api.patientDigestCaregiverDeliverySummary(range),
   ]);
 
   if (!summary) {
@@ -24608,6 +24609,37 @@ export async function pgPatientDigest(setTopbarFn) {
     Email and caregiver-share record an audit entry. Actual delivery requires the email service to be wired up; until then delivery_status='queued' means the audit entry is recorded and the recipient is captured.
   </div>`;
 
+  // Caregiver delivery confirmations — patient-side reflection of the
+  // caregiver_portal.email_digest_sent audit rows. Renders one row per
+  // active grant with the count of confirmed deliveries this period.
+  // Anonymised: first name only, never email or full name.
+  const caregiverRows = (caregiverDelivery && Array.isArray(caregiverDelivery.rows))
+    ? caregiverDelivery.rows : [];
+  const caregiverDeliveryHtml = caregiverDelivery
+    ? `<div style="margin-top:24px;padding:14px 16px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,0.02)">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px">
+          <div style="font-size:13px;font-weight:600;color:var(--text-primary)">Caregiver delivery confirmations</div>
+          <div style="font-size:11px;color:var(--text-muted)">${caregiverDelivery.total_delivered_count || 0} this period</div>
+        </div>
+        <div style="font-size:11.5px;color:var(--text-muted);line-height:1.5;margin-bottom:8px">
+          Each row reflects a confirmed digest dispatch to a caregiver you have granted active consent. Counts come from the audit transcript (delivery_status=sent only); failed and queued attempts are intentionally excluded.
+        </div>
+        ${caregiverRows.length === 0
+          ? `<div style="font-size:12px;color:var(--text-muted);font-style:italic">No caregivers with active consent grants. Use Share with caregiver above to mint a consent grant first.</div>`
+          : caregiverRows.map(r => {
+              const name = r.caregiver_first_name ? _pdEsc(r.caregiver_first_name) : 'Caregiver';
+              const last = r.last_delivered_at ? _pdEsc(String(r.last_delivered_at).slice(0, 10)) : '—';
+              return `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;border-top:1px solid var(--border)">
+                <div>
+                  <div style="font-size:12.5px;color:var(--text-primary)">${name}</div>
+                  <div style="font-size:11px;color:var(--text-muted)">Last delivered: ${last}</div>
+                </div>
+                <div style="font-size:16px;font-weight:700;color:var(--teal)">${r.digests_delivered_count || 0}</div>
+              </div>`;
+            }).join('')
+        }
+      </div>` : '';
+
   const emptyState = `<div style="border:1px dashed var(--border);border-radius:12px;padding:24px;text-align:center;color:var(--text-muted);font-size:13px;line-height:1.55">
     No activity to summarise yet for this period. Log a session, complete a check-in, or message your care team &mdash; and your digest will populate here.
   </div>`;
@@ -24622,5 +24654,6 @@ export async function pgPatientDigest(setTopbarFn) {
       ${wellnessSection}
     `}
     ${ctas}
+    ${caregiverDeliveryHtml}
   </div>`;
 }

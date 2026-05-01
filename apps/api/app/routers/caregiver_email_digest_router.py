@@ -547,6 +547,8 @@ def send_now(
     from app.services.oncall_delivery import (  # noqa: PLC0415
         PageMessage,
         build_default_service,
+        build_email_digest_service,
+        is_mock_mode_enabled,
     )
 
     body = (
@@ -567,7 +569,17 @@ def send_now(
     )
 
     try:
-        service = build_default_service(clinic_id=None)
+        # Prefer the email-channel chain (SendGrid first when env vars
+        # are set). Fall back to the loud-signal default chain if the
+        # email chain has zero enabled adapters AND mock-mode is off, so
+        # the caller still sees an honest ``queued`` instead of a silent
+        # drop.
+        service = build_email_digest_service()
+        if (
+            not service.get_enabled_adapters()
+            and not is_mock_mode_enabled()
+        ):
+            service = build_default_service(clinic_id=None)
         result = service.send(message)
     except Exception as exc:  # pragma: no cover — defensive
         ev_id = _audit_portal(
