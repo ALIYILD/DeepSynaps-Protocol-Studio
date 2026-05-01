@@ -113,6 +113,7 @@ from app.routers.auto_page_worker_router import router as auto_page_worker_route
 from app.routers.escalation_policy_router import router as escalation_policy_router
 from app.routers.patient_oncall_router import router as patient_oncall_router
 from app.routers.patient_digest_router import router as patient_digest_router
+from app.routers.caregiver_consent_router import router as caregiver_consent_router
 # Settings API routers (foundation scaffolded by backend subagent #1; endpoints
 # fleshed out by backend subagents #3–#6). See apps/api/SETTINGS_API_DESIGN.md.
 from app.routers.profile_router import router as profile_router
@@ -422,6 +423,17 @@ app.include_router(patient_oncall_router)
 # test asserts that a clinician hitting the patient endpoints with a
 # forged patient_id query param still gets a 404.
 app.include_router(patient_digest_router)
+# Caregiver Consent Grants launch-audit (2026-05-01). Closes the
+# caregiver-share loop opened by Patient Digest #376. Patient grants
+# create durable rows in ``caregiver_consent_grants`` with a JSON
+# ``scope`` (digest / messages / reports / wearables); revoke stamps
+# ``revoked_at`` + ``revocation_reason`` and the grant becomes
+# immutable. Patient Digest's share-caregiver endpoint consults
+# ``has_active_grant`` and flips ``delivery_status='sent'`` honestly
+# when ``scope.digest=True`` — otherwise stays ``queued``. Cross-
+# patient access blocked at the router (404). Caregivers see grants
+# pointed at them via ``/grants/by-caregiver``.
+app.include_router(caregiver_consent_router)
 # Settings API (scaffolded 024_settings_schema) — stubs; endpoints arrive in
 # follow-up subagents. Grouped together for discoverability.
 app.include_router(profile_router)
