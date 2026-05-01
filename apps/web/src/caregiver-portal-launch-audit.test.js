@@ -126,7 +126,10 @@ function _sliceCaregiverFn(src) {
   const start = src.indexOf('export async function pgPatientCaregiver');
   assert.ok(start > 0, 'pgPatientCaregiver must be exported');
   // Slice up to next top-level export — long enough for this rewrite.
-  return src.slice(start, start + 14000);
+  // Bumped from 14000 → 24000 in the Notification Hub launch-audit
+  // (2026-05-01) which extends the function with the unread-badge +
+  // mark-read flow.
+  return src.slice(start, start + 24000);
 }
 
 

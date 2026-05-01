@@ -23325,8 +23325,39 @@ export async function pgPatientCaregiver() {
         event: 'view',
         note: 'caregiver_portal.view page mount',
       });
+      // Notification Hub launch-audit (2026-05-01) — distinct mount
+      // event so the regulator transcript shows when the caregiver
+      // ACTUALLY rendered the notifications panel (vs. just hit the
+      // page).
+      api.postCaregiverPortalAuditEvent({
+        event: 'notifications_view',
+        note: 'caregiver_portal.notifications_view panel mount',
+      });
     }
   } catch (_e) {}
+
+  // ── Notification Hub fetch (best-effort) ─────────────────────────────────
+  // Server-side feed joining audit_event_records + caregiver_consent_revisions
+  // filtered to the actor's grants. Read-receipt state is a
+  // `caregiver_portal.notification_dismissed` audit row.
+  let notifications = [];
+  let notificationSummary = { unread: 0, last_7d: 0, read: 0, total: 0 };
+  if (typeof api.caregiverNotificationsList === 'function') {
+    try {
+      const [list, summary] = await Promise.all([
+        Promise.race([
+          api.caregiverNotificationsList({ limit: 50 }),
+          new Promise((_, rej) => setTimeout(() => rej('timeout'), 4000)),
+        ]).catch(() => null),
+        Promise.race([
+          api.caregiverNotificationsSummary(),
+          new Promise((_, rej) => setTimeout(() => rej('timeout'), 4000)),
+        ]).catch(() => null),
+      ]);
+      if (list && Array.isArray(list.items)) notifications = list.items;
+      if (summary && typeof summary.unread === 'number') notificationSummary = summary;
+    } catch (_e) {}
+  }
 
   // Fetch grants pointed at the actor as caregiver.
   let grants = [];
@@ -23447,6 +23478,29 @@ export async function pgPatientCaregiver() {
         <div style="background:rgba(251,113,133,0.08);border:1px solid rgba(251,113,133,0.2);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--text-secondary);line-height:1.45">
           The caregiver portal API is not reachable right now. Grants cannot be loaded — please retry later.
         </div>` : ''}
+      <div id="pt-cg-notifications-panel" style="border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:18px;background:rgba(0,212,188,0.03)">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-size:14px;font-weight:700;color:var(--text-primary)">Notifications</span>
+            <span id="pt-cg-notif-badge" style="display:inline-block;padding:2px 9px;border-radius:999px;background:${notificationSummary.unread > 0 ? 'rgba(251,113,133,0.16)' : 'rgba(120,120,120,0.16)'};color:${notificationSummary.unread > 0 ? '#fb7185' : 'var(--text-tertiary)'};font-size:11px;font-weight:700">${notificationSummary.unread || 0} unread</span>
+          </div>
+          <button id="pt-cg-notif-mark-all" class="btn btn-sm" ${notificationSummary.unread > 0 ? '' : 'disabled'} style="background:rgba(45,212,191,0.14);border:1px solid rgba(45,212,191,0.3);color:#2dd4bf;font-size:11.5px;padding:5px 12px;border-radius:8px;cursor:${notificationSummary.unread > 0 ? 'pointer' : 'not-allowed'};opacity:${notificationSummary.unread > 0 ? 1 : 0.5}">Mark all read</button>
+        </div>
+        <div id="pt-cg-notif-list">
+          ${notifications.length === 0 ? `
+            <div style="padding:14px 0;text-align:center;font-size:12.5px;color:var(--text-tertiary)">No notifications.</div>
+          ` : notifications.map((n) => `
+            <div class="pt-cg-notif-row" data-notif-id="${_ptCgEsc(n.id)}" data-notif-grant="${_ptCgEsc(n.grant_id || '')}" data-notif-surface="${_ptCgEsc(n.surface || 'caregiver_portal')}" style="display:flex;align-items:flex-start;gap:10px;padding:8px 4px;border-bottom:1px solid var(--border-subtle, rgba(255,255,255,0.06))">
+              <span style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-top:7px;background:${n.is_read ? 'transparent' : '#fb7185'};border:1px solid ${n.is_read ? 'var(--border)' : '#fb7185'}"></span>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:12.5px;color:var(--text-primary);font-weight:${n.is_read ? '500' : '600'}">${_ptCgEsc(n.summary || n.type || 'notification')}</div>
+                <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">${_ptCgFormatDate(n.created_at)} &middot; ${_ptCgEsc(n.type || '-')}${n.scope_chip ? ` &middot; <span style="text-transform:capitalize">${_ptCgEsc(n.scope_chip)}</span>` : ''}</div>
+              </div>
+              ${n.is_read ? '' : `<button class="btn btn-sm" data-cg-notif-mark="${_ptCgEsc(n.id)}" style="background:rgba(45,212,191,0.14);border:1px solid rgba(45,212,191,0.3);color:#2dd4bf;font-size:10.5px;padding:3px 9px;border-radius:6px">Mark read</button>`}
+            </div>
+          `).join('')}
+        </div>
+      </div>
       <div id="pt-cg-grant-list">
         ${grants.length === 0 ? _renderEmpty() : grants.map(_renderGrantCard).join('')}
       </div>
@@ -23501,6 +23555,156 @@ export async function pgPatientCaregiver() {
       }
     });
   });
+
+  // ── Notifications: per-row mark-read + drill-out ─────────────────────────
+  function _drillOutForNotif(row) {
+    if (!row) return;
+    const surface = row.getAttribute('data-notif-surface') || 'caregiver_portal';
+    const grantId = row.getAttribute('data-notif-grant') || '';
+    if (surface === 'caregiver_consent' && grantId) {
+      const card = el.querySelector(`[data-grant-id="${grantId}"]`);
+      if (card && typeof card.scrollIntoView === 'function') {
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        card.style.outline = '2px solid #2dd4bf';
+        setTimeout(() => { card.style.outline = ''; }, 1400);
+      }
+    }
+    // ``audit`` / ``access_log`` notifications: link to the audit-trail
+    // surface — we leave the user on this page, the audit-trail page is
+    // not always accessible to caregivers.
+  }
+
+  async function _markNotifRead(notifId) {
+    if (!notifId) return false;
+    try {
+      const res = await api.caregiverNotificationsMarkRead(notifId);
+      if (res && res.accepted) {
+        const target = notifications.find((n) => n.id === notifId);
+        if (target) target.is_read = true;
+        if (!res.already_read && notificationSummary.unread > 0) {
+          notificationSummary.unread = Math.max(0, notificationSummary.unread - 1);
+        }
+        return true;
+      }
+    } catch (_e) {}
+    return false;
+  }
+
+  function _refreshNotifBadge() {
+    const badge = el.querySelector('#pt-cg-notif-badge');
+    if (badge) {
+      badge.textContent = `${notificationSummary.unread || 0} unread`;
+      badge.style.background = notificationSummary.unread > 0 ? 'rgba(251,113,133,0.16)' : 'rgba(120,120,120,0.16)';
+      badge.style.color = notificationSummary.unread > 0 ? '#fb7185' : 'var(--text-tertiary)';
+    }
+    const allBtn = el.querySelector('#pt-cg-notif-mark-all');
+    if (allBtn) {
+      if (notificationSummary.unread > 0) {
+        allBtn.removeAttribute('disabled');
+        allBtn.style.opacity = 1;
+        allBtn.style.cursor = 'pointer';
+      } else {
+        allBtn.setAttribute('disabled', 'disabled');
+        allBtn.style.opacity = 0.5;
+        allBtn.style.cursor = 'not-allowed';
+      }
+    }
+  }
+
+  el.querySelectorAll('[data-cg-notif-mark]').forEach((btn) => {
+    btn.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      const id = btn.getAttribute('data-cg-notif-mark');
+      btn.disabled = true;
+      btn.textContent = '…';
+      const ok = await _markNotifRead(id);
+      if (ok) {
+        const row = btn.closest('.pt-cg-notif-row');
+        if (row) {
+          const dot = row.querySelector('span');
+          if (dot) {
+            dot.style.background = 'transparent';
+            dot.style.borderColor = 'var(--border)';
+          }
+          btn.remove();
+        }
+        _refreshNotifBadge();
+      } else {
+        btn.disabled = false;
+        btn.textContent = 'Mark read';
+      }
+    });
+  });
+
+  el.querySelectorAll('.pt-cg-notif-row').forEach((row) => {
+    row.addEventListener('click', async () => {
+      const id = row.getAttribute('data-notif-id');
+      if (!id) return;
+      // Mark read on click + drill-out to the source surface.
+      const target = notifications.find((n) => n.id === id);
+      if (target && !target.is_read) {
+        await _markNotifRead(id);
+        const dot = row.querySelector('span');
+        if (dot) {
+          dot.style.background = 'transparent';
+          dot.style.borderColor = 'var(--border)';
+        }
+        const btn = row.querySelector('[data-cg-notif-mark]');
+        if (btn) btn.remove();
+        _refreshNotifBadge();
+      }
+      _drillOutForNotif(row);
+    });
+  });
+
+  const markAllBtn = el.querySelector('#pt-cg-notif-mark-all');
+  if (markAllBtn) {
+    markAllBtn.addEventListener('click', async () => {
+      const unreadIds = notifications.filter((n) => !n.is_read).map((n) => n.id);
+      if (unreadIds.length === 0) return;
+      markAllBtn.disabled = true;
+      markAllBtn.textContent = 'Marking…';
+      try {
+        const res = await api.caregiverNotificationsBulkMarkRead({
+          notification_ids: unreadIds,
+          note: 'Caregiver Portal Mark all read CTA',
+        });
+        if (res && res.accepted) {
+          for (const id of unreadIds) {
+            const t = notifications.find((n) => n.id === id);
+            if (t) t.is_read = true;
+          }
+          notificationSummary.unread = 0;
+          el.querySelectorAll('.pt-cg-notif-row').forEach((row) => {
+            const dot = row.querySelector('span');
+            if (dot) {
+              dot.style.background = 'transparent';
+              dot.style.borderColor = 'var(--border)';
+            }
+            const btn = row.querySelector('[data-cg-notif-mark]');
+            if (btn) btn.remove();
+          });
+          _refreshNotifBadge();
+          window._showNotifToast && window._showNotifToast({
+            title: 'Notifications cleared',
+            body: `${res.processed || 0} marked read.`,
+            severity: 'success',
+          });
+        } else {
+          throw new Error('bulk_mark_failed');
+        }
+      } catch (_e) {
+        window._showNotifToast && window._showNotifToast({
+          title: 'Could not mark all read',
+          body: 'The bulk operation failed; try again later.',
+          severity: 'warning',
+        });
+      } finally {
+        markAllBtn.disabled = notificationSummary.unread === 0;
+        markAllBtn.textContent = 'Mark all read';
+      }
+    });
+  }
 
   el.querySelectorAll('[data-cg-view]').forEach((btn) => {
     btn.addEventListener('click', async () => {

@@ -2017,6 +2017,33 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
+  // ── Caregiver Notification Hub launch-audit (2026-05-01) ──────────────────
+  // Server-side notification feed for the actor's caregiver grants —
+  // joins audit_event_records + caregiver_consent_revisions filtered to
+  // the actor's grants. No new tables; read-receipt state is a
+  // `caregiver_portal.notification_dismissed` audit row keyed
+  // `target_id=notif-{id}`. The Caregiver Portal page reads
+  // `caregiverNotificationsList` for the feed,
+  // `caregiverNotificationsSummary` for the unread badge,
+  // `caregiverNotificationsMarkRead` for per-row dismissal, and
+  // `caregiverNotificationsBulkMarkRead` for the "Mark all read" CTA.
+  caregiverNotificationsList: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/caregiver-consent/notifications${q ? '?' + q : ''}`).catch(() => null);
+  },
+  caregiverNotificationsSummary: () =>
+    apiFetch('/api/v1/caregiver-consent/notifications/summary').catch(() => null),
+  caregiverNotificationsMarkRead: (notifId) =>
+    apiFetch(`/api/v1/caregiver-consent/notifications/${encodeURIComponent(notifId)}/mark-read`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  caregiverNotificationsBulkMarkRead: (data) =>
+    apiFetch('/api/v1/caregiver-consent/notifications/bulk-mark-read', {
+      method: 'POST',
+      body: JSON.stringify(data || { notification_ids: [] }),
+    }),
+
   // ── Wearables Workbench (clinician triage queue) ──────────────────────────
   // Bidirectional counterpart to Patient Wearables (#352). Surfaces the
   // server-side triage queue over wearable_alert_flags so clinicians can
