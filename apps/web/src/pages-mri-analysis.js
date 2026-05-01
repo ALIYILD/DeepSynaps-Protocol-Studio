@@ -512,6 +512,14 @@ export async function mountNiiVue(el, opts) {
   }
   var volumes = _viewerVolumeCandidates(opts && opts.report, payload);
   if (!volumes.length) {
+    // iframe overlay URLs cannot carry Bearer auth — skip in demo preview.
+    if (_isDemoMode()) {
+      return _renderViewerFallback(
+        el,
+        opts,
+        'Demo preview: interactive overlay requires a logged-in API session with staged volumes.',
+      );
+    }
     return _renderOverlayIframe(el, opts) || _renderViewerFallback(el, opts, 'No staged NIfTI volumes were found for this analysis.');
   }
   try {
@@ -548,6 +556,13 @@ export async function mountNiiVue(el, opts) {
     }
     return true;
   } catch (_err) {
+    if (_isDemoMode()) {
+      return _renderViewerFallback(
+        el,
+        opts,
+        'Demo preview: NiiVue could not load. Use a local API session for full viewer + overlay.',
+      );
+    }
     return _renderOverlayIframe(el, opts) || _renderViewerFallback(el, opts, 'The viewer library was unavailable, so the target overlay was loaded instead.');
   }
 }
