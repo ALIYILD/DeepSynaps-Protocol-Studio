@@ -3,11 +3,11 @@
 Example: MRI-oriented workflow with the lean orchestrator.
 
 Step 1: ``validate_nifti_header`` on a T1 path (always available).
-Step 2: If ``morphometry_reporting`` is installed, run ``compute_regional_volumes``
-        on ``aseg.stats``; otherwise writes a stub artefact.
+Step 2: If ``deepsynaps_mri.morphometry_reporting`` exists, run ``compute_regional_volumes``
+        on ``aseg.stats``; otherwise writes a stub artefact (module not in all checkouts).
 
 Usage:
-  python demo/workflow_mri_example.py /path/to/t1.nii.gz [/path/to/aseg.stats] /path/to/out_dir
+  python demo/workflow_mri_example.py /path/to/t1.nii.gz /path/to/out_dir [/path/to/aseg.stats]
 """
 from __future__ import annotations
 
