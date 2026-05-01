@@ -531,6 +531,7 @@ class TestCaregiverShare:
                 id=cg_id,
                 email=f"{cg_id}@example.com",
                 display_name="Care Giver",
+                hashed_password="x",
                 role="patient",
                 clinic_id=None,
             )
