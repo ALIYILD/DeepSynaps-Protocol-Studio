@@ -24,6 +24,14 @@ from .validation import (
     validate_nifti_header,
     validate_upload_blob,
 )
+from .segmentation import (
+    SegmentationQCReport,
+    SubcorticalSegmentationResult,
+    TissueSegmentationResult,
+    compute_segmentation_qc,
+    segment_subcortical_structures,
+    segment_tissues_gm_wm_csf,
+)
 
 __version__ = "0.1.0"
 __all__ = [
@@ -34,4 +42,11 @@ __all__ = [
     "safe_brain_age", "to_fusion_payload",
     # Validation entry points.
     "ValidationResult", "validate_upload_blob", "validate_nifti_header",
+    # Structural segmentation — see docs/SEGMENTATION.md.
+    "segment_tissues_gm_wm_csf",
+    "segment_subcortical_structures",
+    "compute_segmentation_qc",
+    "TissueSegmentationResult",
+    "SubcorticalSegmentationResult",
+    "SegmentationQCReport",
 ]
