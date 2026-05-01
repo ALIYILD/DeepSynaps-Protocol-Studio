@@ -24,6 +24,15 @@ from .validation import (
     validate_nifti_header,
     validate_upload_blob,
 )
+from .workflow_orchestration import (
+    ArtifactRecord,
+    PipelineNode,
+    PipelineRun,
+    collect_provenance,
+    execute_pipeline,
+    load_pipeline_run,
+    resume_pipeline,
+)
 
 __version__ = "0.1.0"
 __all__ = [
@@ -34,4 +43,12 @@ __all__ = [
     "safe_brain_age", "to_fusion_payload",
     # Validation entry points.
     "ValidationResult", "validate_upload_blob", "validate_nifti_header",
+    # Workflow orchestration — see docs/WORKFLOW_ORCHESTRATION.md.
+    "execute_pipeline",
+    "resume_pipeline",
+    "collect_provenance",
+    "load_pipeline_run",
+    "PipelineNode",
+    "PipelineRun",
+    "ArtifactRecord",
 ]
