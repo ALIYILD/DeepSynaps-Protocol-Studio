@@ -163,6 +163,26 @@ KNOWN_SURFACES = {
     # AdverseEvent draft (status='reported') that surfaces in the AE Hub
     # so the regulatory chain stays intact end-to-end.
     "adherence_events",
+    # Patient Home Program Tasks (Homework) launch-audit (2026-05-01).
+    # Seventh patient-facing surface. Closes the home-therapy regulator
+    # loop end-to-end: clinician assigns home-program tasks → patient
+    # SEES tasks here → patient LOGS completion via Adherence Events
+    # (#350) → side-effect with severity >= 7 escalates to AE Hub
+    # (#342) → safety review in QA Hub (#321). Events: view, today_viewed,
+    # upcoming_viewed, completed_viewed, summary_viewed, task_viewed,
+    # task_started, task_started_to_clinician (clinician-visible mirror),
+    # task_completed_via_adherence, task_skipped_via_adherence,
+    # task_help_requested, task_help_urgent_to_clinician (HIGH-priority
+    # clinician-visible mirror), export, plus the page-level events
+    # posted via /api/v1/home-program-tasks/patient/audit-events
+    # (filter_changed, deep_link_followed, demo_banner_shown,
+    # consent_banner_shown). Help-request creates a Message thread keyed
+    # ``thread_id="task-{task_id}"`` so the inbox deep-links straight to
+    # the help-request thread (mirror of the report-question pattern from
+    # #346/#347). Task completion is NOT logged on this surface — the
+    # "Log now" CTA deep-links the patient into the Adherence Events
+    # surface so completion stays in a single source of truth.
+    "home_program_tasks",
     # Population Analytics launch-audit (2026-05-01). Clinician-facing
     # cohort hub. Closes the regulator chain on the population /
     # aggregate-stats side after Patient Profile (#338) closed it on the

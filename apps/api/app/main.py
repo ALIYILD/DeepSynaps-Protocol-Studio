@@ -76,6 +76,9 @@ from app.routers.forms_router import router as forms_router
 from app.routers.medications_router import router as medications_router
 from app.routers.consent_management_router import router as consent_management_router
 from app.routers.home_program_tasks_router import router as home_program_tasks_router
+from app.routers.patient_home_program_tasks_router import (
+    router as patient_home_program_tasks_router,
+)
 from app.routers.home_task_templates_router import router as home_task_templates_router
 from app.routers.agent_skills_router import router as agent_skills_router
 from app.routers.annotations_router import router as annotations_router
@@ -280,6 +283,13 @@ app.include_router(virtual_care_router)
 app.include_router(forms_router)
 app.include_router(medications_router)
 app.include_router(consent_management_router)
+# Patient Home Program Tasks (Homework) launch-audit (2026-05-01).
+# Mounted BEFORE the clinician-side ``home_program_tasks_router`` so the
+# patient-scope ``/patient/...`` sub-paths under
+# ``/api/v1/home-program-tasks`` are resolved first. The clinician-side
+# router still owns the bare ``/api/v1/home-program-tasks`` path
+# (list / create / single-id CRUD) for clinicians.
+app.include_router(patient_home_program_tasks_router)
 app.include_router(home_program_tasks_router)
 app.include_router(home_task_templates_router)
 app.include_router(agent_skills_router)

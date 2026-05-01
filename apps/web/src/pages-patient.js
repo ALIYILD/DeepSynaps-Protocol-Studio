@@ -3953,14 +3953,26 @@ async function _pgPatientHomeworkImpl() {
   const loc = getLocale() === 'tr' ? 'tr-TR' : 'en-US';
   const todayIso = new Date().toISOString().slice(0, 10);
 
+  // Mount-time launch-audit ping — patient Homework surface.
+  // Fire-and-forget: never blocks the page render even when audit ingestion
+  // is unreachable. Surface name ``home_program_tasks`` is whitelisted by
+  // ``audit_trail_router.KNOWN_SURFACES`` (PR 2026-05-01).
+  try {
+    if (api.postHomeProgramTaskAuditEvent) {
+      api.postHomeProgramTaskAuditEvent({ event: 'view', note: 'mount' });
+    }
+  } catch (_e) { /* audit must never block UI */ }
+
   // ── Fetch real data ───────────────────────────────────────────────────────
   const _t = (ms) => new Promise(r => setTimeout(() => r(null), ms));
   const _race = (p) => Promise.race([Promise.resolve(p).catch(() => null), _t(3000)]);
-  let [homeTasksRaw, homeTasksPortalRaw, coursesRaw, sessionsRaw] = await Promise.all([
+  let [homeTasksRaw, homeTasksPortalRaw, coursesRaw, sessionsRaw, hwTodayRaw, hwSummaryRaw] = await Promise.all([
     _race(uid ? api.listHomeProgramTasks({ patient_id: uid }) : null),
     _race(api.portalListHomeProgramTasks ? api.portalListHomeProgramTasks() : null),
     _race(api.patientPortalCourses()),
     _race(api.patientPortalSessions()),
+    _race(api.homeProgramTasksToday ? api.homeProgramTasksToday() : null),
+    _race(api.homeProgramTasksSummary ? api.homeProgramTasksSummary() : null),
   ]);
   const _homeworkLoadFailed =
     homeTasksRaw === null &&
@@ -4491,6 +4503,80 @@ async function _pgPatientHomeworkImpl() {
     window._hwToastTimer = setTimeout(() => t.classList.remove('show'), 2200);
   }
 
+  // ── Launch-audit handlers (PR feat/patient-homework-launch-audit-2026-05-01)
+  // Patient page emits its own audit rows for the home_program_tasks
+  // surface. Helpers always best-effort: never block the UI on an
+  // audit-ingestion failure.
+  function _hwAuditPing(event, extra) {
+    try {
+      if (api.postHomeProgramTaskAuditEvent) {
+        api.postHomeProgramTaskAuditEvent({
+          event: String(event || 'view'),
+          task_id: extra && extra.task_id ? String(extra.task_id) : undefined,
+          note: extra && extra.note ? String(extra.note).slice(0, 480) : undefined,
+        });
+      }
+    } catch (_e) { /* audit must never block UI */ }
+  }
+  // Deep-link to Adherence Events (#350) so completion is logged via the
+  // single-source-of-truth endpoint. Mirrors the report-question →
+  // patient-messages deep-link pattern used by #346/#347.
+  window._hwLogNow = function(taskId) {
+    _hwAuditPing('deep_link_followed', {
+      task_id: taskId,
+      note: 'log_now -> pt-adherence-events',
+    });
+    if (window._navPatient) {
+      window._navPatient('pt-adherence-events?task_id=' + encodeURIComponent(String(taskId)));
+    }
+  };
+  // "Need help?" — opens a Patient Messages thread keyed thread_id=task-<id>.
+  // Calls the launch-audit ``/help-request`` endpoint, which creates the
+  // Message row, audit row, and (when urgent) the HIGH-priority
+  // clinician-visible mirror.
+  window._hwHelp = async function(taskId) {
+    var task = _taskById.get(String(taskId));
+    if (!task) return;
+    var reason = window.prompt(
+      'What do you need help with on "' +
+        (task.title || 'this task') +
+        '"?\n\n(Your clinician will see your message in their inbox.)'
+    );
+    if (reason == null) return;
+    reason = String(reason || '').trim();
+    if (!reason) {
+      _hwToast('Please add a short note so your clinician knows what to look at.');
+      return;
+    }
+    if (!api.homeProgramTaskHelpRequest) {
+      _hwToast('Help request not available offline.');
+      return;
+    }
+    try {
+      var resp = await api.homeProgramTaskHelpRequest(String(taskId), {
+        reason: reason,
+        is_urgent: false,
+      });
+      if (resp && resp.thread_id) {
+        _hwAuditPing('task_help_requested', {
+          task_id: taskId,
+          note: 'thread=' + resp.thread_id,
+        });
+        _hwToast('Sent to your care team');
+        if (window._navPatient) {
+          setTimeout(function() {
+            window._navPatient('patient-messages?thread_id=' + encodeURIComponent(resp.thread_id));
+          }, 600);
+        }
+      } else {
+        _hwToast('Could not send your help request.');
+      }
+    } catch (e) {
+      console.warn('[homework] help-request failed:', e);
+      _hwToast('Could not send your help request.');
+    }
+  };
+
   window._hwToggle = async function(taskId) {
     const task = _taskById.get(String(taskId));
     if (!task) return;
@@ -4534,6 +4620,8 @@ async function _pgPatientHomeworkImpl() {
   window._hwOpen = function(taskId) {
     const task = _taskById.get(String(taskId));
     if (!task) return;
+    // Audit ping: patient opened the task drawer.
+    _hwAuditPing('task_viewed', { task_id: taskId });
     const existing = document.getElementById('hw-task-modal');
     if (existing) existing.remove();
     const modal = document.createElement('div');
@@ -4548,6 +4636,19 @@ async function _pgPatientHomeworkImpl() {
           <div style="font-size:13px;color:var(--text-primary)">${esc(task.clinician_note.body || '')}</div>
         </div>`
       : '';
+    // "Why am I doing this?" \u2014 clinician-authored rationale only, NEVER
+    // AI-generated. Surfaces only when the clinician explicitly authored a
+    // ``rationale`` / ``why`` string on the task. Author tag lets reviewers
+    // see at-a-glance that it isn't AI-fabricated.
+    const rationaleText = task.rationale || task.why || '';
+    const rationaleAuthor = task.rationale_author || task.clinician_assigned_by || '';
+    const rationaleHtml = rationaleText
+      ? `<details style="margin-top:12px;padding:12px;background:var(--bg-elevated);border-radius:8px;border-left:3px solid #6366f1">
+          <summary style="font-size:12px;color:var(--text-secondary);cursor:pointer">Why am I doing this?${rationaleAuthor ? ' \u00b7 ' + esc(rationaleAuthor) : ''}</summary>
+          <div style="font-size:13px;color:var(--text-primary);margin-top:8px;line-height:1.5">${esc(rationaleText)}</div>
+          <div style="font-size:10px;color:var(--text-tertiary);margin-top:6px">Written by your care team \u2014 not AI generated.</div>
+        </details>`
+      : '';
     modal.innerHTML = `
       <div style="background:var(--bg-primary);border-radius:12px;max-width:520px;width:100%;max-height:80vh;overflow:auto;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.35)">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
@@ -4557,9 +4658,12 @@ async function _pgPatientHomeworkImpl() {
         </div>
         <div style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;line-height:1.5">${esc(task.description || task.instructions || 'No description.')}</div>
         ${task.duration_min ? `<div style="font-size:12px;color:var(--text-tertiary);margin-bottom:8px">\u23F1 ~${task.duration_min} min \u00b7 ${esc(task.repeat || 'One-time')}</div>` : ''}
+        ${rationaleHtml}
         ${noteHtml}
-        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:16px">
           <button class="btn btn-ghost btn-sm" onclick="document.getElementById('hw-task-modal').remove()">Close</button>
+          <button class="btn btn-ghost btn-sm" onclick="window._hwHelp && window._hwHelp('${esc(task.id)}')">Need help?</button>
+          <button class="btn btn-ghost btn-sm" onclick="window._hwLogNow && window._hwLogNow('${esc(task.id)}')">Log now (Adherence)</button>
           <button class="btn btn-primary btn-sm" onclick="window._hwToggle && window._hwToggle('${esc(task.id)}');document.getElementById('hw-task-modal').remove()">${task.completed || task.done ? 'Reopen' : 'Mark done'}</button>
         </div>
       </div>`;
