@@ -1989,6 +1989,34 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
+  // ── Caregiver Portal launch-audit (2026-05-01) ────────────────────────────
+  // Caregiver-side viewer for grants pointed at the actor. The portal
+  // page (`pgPatientCaregiver`) reads `caregiverConsentListByCaregiver`
+  // (above) for grant cards, then emits `caregiver_portal.view` on
+  // mount + per-CTA audit pings via `postCaregiverPortalAuditEvent`.
+  // Acknowledge-revocation stamps a `ack_revocation` revision row +
+  // emits `caregiver_portal.revocation_acknowledged` so the patient's
+  // audit trail joins caregiver-side acknowledgement to the grant.
+  // Access-log fires when a caregiver actually clicks through to view
+  // a digest / report / messages stream — it's gated on
+  // `scope[scope_key]=True` so an out-of-scope click is recorded as
+  // an attempt and denied with 403.
+  caregiverPortalAcknowledgeRevocation: (grantId) =>
+    apiFetch(`/api/v1/caregiver-consent/grants/${encodeURIComponent(grantId)}/acknowledge-revocation`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  caregiverPortalAccessLog: (grantId, data) =>
+    apiFetch(`/api/v1/caregiver-consent/grants/${encodeURIComponent(grantId)}/access-log`, {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  postCaregiverPortalAuditEvent: (data) =>
+    apiFetch('/api/v1/caregiver-consent/audit-events/portal', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
   // ── Wearables Workbench (clinician triage queue) ──────────────────────────
   // Bidirectional counterpart to Patient Wearables (#352). Surfaces the
   // server-side triage queue over wearable_alert_flags so clinicians can

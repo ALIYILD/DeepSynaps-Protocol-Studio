@@ -87,6 +87,14 @@ _log = logging.getLogger(__name__)
 
 
 AUDIT_SURFACE = "caregiver_consent"
+# Caregiver Portal launch-audit (2026-05-01). Distinct page-level
+# surface for events emitted by ``pgPatientCaregiver`` — the caregiver-
+# facing viewer that surfaces grants pointed at the actor + the
+# acknowledge-revocation / access-log CTAs. Mutation events on the
+# grants themselves stay under ``caregiver_consent``; page breadcrumbs
+# (``view``, ``demo_banner_shown``, ``revocation_acknowledged_ui``,
+# ``digest_view_clicked_ui``) carry ``caregiver_portal``.
+CAREGIVER_PORTAL_SURFACE = "caregiver_portal"
 
 
 CAREGIVER_CONSENT_DISCLAIMERS = [
@@ -244,6 +252,52 @@ def _audit(
     return event_id
 
 
+def _audit_portal(
+    db: Session,
+    actor: AuthenticatedActor,
+    *,
+    event: str,
+    target_id: str,
+    note: str = "",
+    using_demo_data: bool = False,
+) -> str:
+    """Best-effort audit hook for the ``caregiver_portal`` surface.
+
+    Distinct from :func:`_audit` so that the regulator transcript can
+    cleanly distinguish patient-side consent activity (``caregiver_consent``)
+    from caregiver-side viewer activity (``caregiver_portal``). Never
+    raises — audit must never block the UI.
+    """
+    from app.repositories.audit import create_audit_event  # noqa: PLC0415
+
+    now = datetime.now(timezone.utc)
+    event_id = (
+        f"{CAREGIVER_PORTAL_SURFACE}-{event}-{actor.actor_id}-"
+        f"{int(now.timestamp())}-{uuid.uuid4().hex[:6]}"
+    )
+    note_parts: list[str] = []
+    if using_demo_data:
+        note_parts.append("DEMO")
+    if note:
+        note_parts.append(note[:500])
+    final_note = "; ".join(note_parts) or event
+    try:
+        create_audit_event(
+            db,
+            event_id=event_id,
+            target_id=str(target_id) or actor.actor_id,
+            target_type=CAREGIVER_PORTAL_SURFACE,
+            action=f"{CAREGIVER_PORTAL_SURFACE}.{event}",
+            role=actor.role,
+            actor_id=actor.actor_id,
+            note=final_note[:1024],
+            created_at=now.isoformat(),
+        )
+    except Exception:  # pragma: no cover — audit must never block UI
+        _log.exception("caregiver_portal self-audit skipped")
+    return event_id
+
+
 def has_active_grant(
     db: Session,
     *,
@@ -295,6 +349,16 @@ class GrantOut(BaseModel):
     is_active: bool = True
     created_at: str
     updated_at: str
+    # Caregiver-side anonymized patient context. ``patient_first_name``
+    # is the bare-minimum the caregiver needs to recognise WHICH patient
+    # granted them access; ``patient_clinic_id`` lets the caregiver
+    # contact the right clinic for revocation. Last name and full email
+    # are deliberately omitted so a caregiver token leak never burns the
+    # patient's full identity. Always None on the patient-side
+    # ``/grants`` endpoints — only populated on ``/grants/by-caregiver``.
+    patient_first_name: Optional[str] = None
+    patient_clinic_id: Optional[str] = None
+    revocation_acknowledged_at: Optional[str] = None
 
 
 class GrantListOut(BaseModel):
@@ -339,8 +403,52 @@ class ConsentAuditEventOut(BaseModel):
 # ── Serialisers ─────────────────────────────────────────────────────────────
 
 
-def _serialise_grant(db: Session, g: CaregiverConsentGrant) -> GrantOut:
+def _latest_ack_revision_at(
+    db: Session, grant_id: str
+) -> Optional[str]:
+    """Return ``created_at`` of the most recent ``ack_revocation`` revision row
+    for ``grant_id``, or None if the caregiver has not yet acknowledged.
+
+    Used to populate ``GrantOut.revocation_acknowledged_at`` on the
+    caregiver-side view so the portal UI can hide the "Acknowledge
+    revocation" CTA after the caregiver has already pressed it.
+    """
+    row = (
+        db.query(CaregiverConsentRevision)
+        .filter(
+            CaregiverConsentRevision.grant_id == grant_id,
+            CaregiverConsentRevision.action == "ack_revocation",
+        )
+        .order_by(CaregiverConsentRevision.created_at.desc())
+        .first()
+    )
+    return row.created_at if row else None
+
+
+def _serialise_grant(
+    db: Session,
+    g: CaregiverConsentGrant,
+    *,
+    include_caregiver_view: bool = False,
+) -> GrantOut:
     cg = db.query(User).filter_by(id=g.caregiver_user_id).first()
+    patient_first_name: Optional[str] = None
+    patient_clinic_id: Optional[str] = None
+    revocation_acknowledged_at: Optional[str] = None
+    if include_caregiver_view:
+        # Only expose first name + clinic_id of the patient — never last
+        # name, never full email — so a caregiver-token leak does not
+        # burn the patient's full identity. The clinic_id is needed so
+        # the caregiver knows where to call to revoke / question the
+        # grant; a caregiver who already holds a grant has a legitimate
+        # need-to-know for that one identifier.
+        p = db.query(Patient).filter_by(id=g.patient_id).first()
+        patient_first_name = getattr(p, "first_name", None) if p else None
+        if p is not None and p.clinician_id:
+            cu = db.query(User).filter_by(id=p.clinician_id).first()
+            patient_clinic_id = getattr(cu, "clinic_id", None) if cu else None
+        if g.revoked_at is not None:
+            revocation_acknowledged_at = _latest_ack_revision_at(db, g.id)
     return GrantOut(
         id=g.id,
         patient_id=g.patient_id,
@@ -357,6 +465,9 @@ def _serialise_grant(db: Session, g: CaregiverConsentGrant) -> GrantOut:
         is_active=g.revoked_at is None,
         created_at=g.created_at,
         updated_at=g.updated_at,
+        patient_first_name=patient_first_name,
+        patient_clinic_id=patient_clinic_id,
+        revocation_acknowledged_at=revocation_acknowledged_at,
     )
 
 
@@ -422,7 +533,9 @@ def list_grants_by_caregiver(
         .order_by(CaregiverConsentGrant.granted_at.desc())
         .all()
     )
-    items = [_serialise_grant(db, g) for g in rows]
+    items = [
+        _serialise_grant(db, g, include_caregiver_view=True) for g in rows
+    ]
     _audit(
         db, actor,
         event="by_caregiver_listed",
@@ -681,3 +794,312 @@ def post_audit_event(
         using_demo_data=using_demo,
     )
     return ConsentAuditEventOut(accepted=True, event_id=event_id)
+
+
+# ── Caregiver Portal launch-audit (2026-05-01) ──────────────────────────────
+
+
+class CaregiverPortalAuditEventIn(BaseModel):
+    event: str = Field(..., min_length=1, max_length=64)
+    target_id: Optional[str] = Field(default=None, max_length=128)
+    note: Optional[str] = Field(default=None, max_length=512)
+    using_demo_data: Optional[bool] = False
+
+
+class CaregiverPortalAuditEventOut(BaseModel):
+    accepted: bool
+    event_id: str
+
+
+class AcknowledgeRevocationOut(BaseModel):
+    grant_id: str
+    revocation_acknowledged_at: str
+    audit_event_id: str
+    note: str
+
+
+class AccessLogIn(BaseModel):
+    scope_key: str = Field(..., min_length=1, max_length=32)
+    surface: Optional[str] = Field(default=None, max_length=64)
+    note: Optional[str] = Field(default=None, max_length=480)
+
+
+class AccessLogOut(BaseModel):
+    accepted: bool
+    grant_id: str
+    scope_key: str
+    audit_event_id: str
+    note: str
+
+
+def _resolve_caregiver_grant_for_actor(
+    db: Session,
+    actor: AuthenticatedActor,
+    grant_id: str,
+) -> CaregiverConsentGrant:
+    """Resolve a grant ``grant_id`` that belongs to the actor as caregiver.
+
+    Cross-caregiver hits return 404 (never 403) so a caregiver cannot
+    even confirm the existence of grants targeted at OTHER caregivers.
+    Guests are denied with 403 (consistent with by-caregiver listing).
+    """
+    if actor.role == "guest":
+        raise ApiServiceError(
+            code="forbidden",
+            message="Guests cannot access caregiver portal grants.",
+            status_code=403,
+        )
+    g = db.query(CaregiverConsentGrant).filter_by(id=grant_id).first()
+    if g is None or g.caregiver_user_id != actor.actor_id:
+        raise ApiServiceError(
+            code="not_found",
+            message="Grant not found.",
+            status_code=404,
+        )
+    return g
+
+
+@router.post(
+    "/grants/{grant_id}/acknowledge-revocation",
+    response_model=AcknowledgeRevocationOut,
+)
+def acknowledge_revocation(
+    grant_id: str = Path(..., max_length=64),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> AcknowledgeRevocationOut:
+    """Caregiver acknowledges they have seen a revocation notice.
+
+    Idempotent — re-acknowledging an already-acknowledged grant returns
+    the existing ``revocation_acknowledged_at`` (no new revision row,
+    no new audit row). The original revocation event remains the
+    patient's; this endpoint only stamps caregiver-side acknowledgement
+    so the patient's audit trail can show "caregiver saw the revoke".
+
+    Cross-caregiver: returns 404. The grant must already be revoked —
+    400 otherwise (you cannot ack a non-existent revocation).
+    """
+    g = _resolve_caregiver_grant_for_actor(db, actor, grant_id)
+    if g.revoked_at is None:
+        raise ApiServiceError(
+            code="bad_request",
+            message="Grant is not revoked; nothing to acknowledge.",
+            status_code=400,
+        )
+
+    existing = _latest_ack_revision_at(db, g.id)
+    if existing is not None:
+        # Idempotent — no new revision row, but emit a low-priority
+        # audit row recording the duplicate ack click so spam is visible.
+        audit_id = _audit_portal(
+            db, actor,
+            event="revocation_acknowledged_duplicate",
+            target_id=g.id,
+            note=(
+                f"patient={g.patient_id}; "
+                f"caregiver={actor.actor_id}; "
+                f"first_ack_at={existing}"
+            ),
+        )
+        return AcknowledgeRevocationOut(
+            grant_id=g.id,
+            revocation_acknowledged_at=existing,
+            audit_event_id=audit_id,
+            note=(
+                "Already acknowledged — no new audit revision was "
+                "created. The original acknowledgement timestamp is "
+                "returned unchanged."
+            ),
+        )
+
+    now = _now_iso()
+    revision = CaregiverConsentRevision(
+        id=f"ccr-{uuid.uuid4().hex[:14]}",
+        grant_id=g.id,
+        patient_id=g.patient_id,
+        caregiver_user_id=g.caregiver_user_id,
+        action="ack_revocation",
+        scope_before=g.scope,
+        scope_after=g.scope,
+        actor_user_id=actor.actor_id,
+        reason=g.revocation_reason,
+        created_at=now,
+    )
+    db.add(revision)
+    db.commit()
+
+    audit_event_id = _audit_portal(
+        db, actor,
+        event="revocation_acknowledged",
+        target_id=g.id,
+        note=(
+            f"patient={g.patient_id}; "
+            f"caregiver={actor.actor_id}; "
+            f"revoked_at={g.revoked_at}; "
+            f"reason={(g.revocation_reason or '')[:120]}"
+        ),
+    )
+    return AcknowledgeRevocationOut(
+        grant_id=g.id,
+        revocation_acknowledged_at=now,
+        audit_event_id=audit_event_id,
+        note=(
+            "Revocation acknowledgement recorded. The patient's audit "
+            "trail now shows that the caregiver has seen the revoke."
+        ),
+    )
+
+
+@router.post(
+    "/grants/{grant_id}/access-log",
+    response_model=AccessLogOut,
+)
+def access_log(
+    body: AccessLogIn,
+    grant_id: str = Path(..., max_length=64),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> AccessLogOut:
+    """Caregiver pings when they actually view a digest / report shared
+    via this grant.
+
+    Emits an audit row visible to the patient
+    (``caregiver_portal.grant_accessed``) so the patient sees not just
+    that the caregiver was authorised but that the caregiver actually
+    used the access. Gated on:
+
+    * grant must belong to the actor (cross-caregiver → 404);
+    * grant must be active (revoked → 403, the caregiver should not be
+      reading shared content after revocation — and we record the
+      attempt);
+    * ``scope_key`` must be one of :data:`CANONICAL_SCOPE_KEYS`;
+    * ``scope[scope_key]`` must be ``True`` on the grant — otherwise
+      403 (the caregiver is not authorised for that artefact class).
+    """
+    g = _resolve_caregiver_grant_for_actor(db, actor, grant_id)
+    if g.revoked_at is not None:
+        # Record the attempt so the patient sees a post-revocation
+        # access attempt. Then deny.
+        _audit_portal(
+            db, actor,
+            event="grant_accessed_after_revocation",
+            target_id=g.id,
+            note=(
+                f"patient={g.patient_id}; "
+                f"scope_key={body.scope_key}; "
+                f"surface={body.surface or '-'}; "
+                f"revoked_at={g.revoked_at}"
+            ),
+        )
+        raise ApiServiceError(
+            code="forbidden",
+            message=(
+                "This grant has been revoked; access is no longer "
+                "permitted. The attempt has been recorded for the "
+                "patient's audit trail."
+            ),
+            status_code=403,
+        )
+
+    scope_key = body.scope_key.strip().lower()
+    if scope_key not in CANONICAL_SCOPE_KEYS:
+        raise ApiServiceError(
+            code="bad_request",
+            message=(
+                "Unknown scope_key. Expected one of: "
+                + ", ".join(CANONICAL_SCOPE_KEYS)
+            ),
+            status_code=400,
+        )
+
+    scope = _scope_from_text(g.scope)
+    if not scope.get(scope_key):
+        # Record the attempt — patient sees that the caregiver tried to
+        # access an out-of-scope artefact. Then deny.
+        _audit_portal(
+            db, actor,
+            event="grant_accessed_out_of_scope",
+            target_id=g.id,
+            note=(
+                f"patient={g.patient_id}; "
+                f"scope_key={scope_key}; "
+                f"surface={body.surface or '-'}; "
+                f"granted_scope={_scope_to_text(scope)}"
+            ),
+        )
+        raise ApiServiceError(
+            code="forbidden",
+            message=(
+                f"Grant does not include scope_key={scope_key!r}. The "
+                "patient must extend the grant before this artefact "
+                "class can be accessed."
+            ),
+            status_code=403,
+        )
+
+    audit_event_id = _audit_portal(
+        db, actor,
+        event="grant_accessed",
+        target_id=g.id,
+        note=(
+            f"patient={g.patient_id}; "
+            f"caregiver={actor.actor_id}; "
+            f"scope_key={scope_key}; "
+            f"surface={body.surface or '-'}; "
+            f"note={(body.note or '')[:160]}"
+        ),
+    )
+    return AccessLogOut(
+        accepted=True,
+        grant_id=g.id,
+        scope_key=scope_key,
+        audit_event_id=audit_event_id,
+        note=(
+            "Access recorded. The patient's audit trail now shows that "
+            "the caregiver actually viewed the shared artefact."
+        ),
+    )
+
+
+@router.post(
+    "/audit-events/portal",
+    response_model=CaregiverPortalAuditEventOut,
+)
+def post_caregiver_portal_audit_event(
+    body: CaregiverPortalAuditEventIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> CaregiverPortalAuditEventOut:
+    """Page-level audit ingestion for the ``caregiver_portal`` surface.
+
+    Common events: ``view`` (page mount), ``filter_changed``,
+    ``demo_banner_shown``, ``revocation_acknowledged_ui``,
+    ``digest_view_clicked_ui``, ``messages_view_clicked_ui``.
+
+    Caregivers (any non-guest role can be a caregiver) can post events
+    here; we don't gate by role beyond ``not guest`` because the
+    Caregiver Portal page is reachable by anyone the patient picked.
+    Guests are denied with 403.
+    """
+    if actor.role == "guest":
+        raise ApiServiceError(
+            code="forbidden",
+            message="Guests cannot post caregiver_portal audit events.",
+            status_code=403,
+        )
+    target_id = body.target_id or actor.actor_id
+    note_parts: list[str] = []
+    if body.target_id:
+        note_parts.append(f"target={body.target_id}")
+    if body.note:
+        note_parts.append(body.note[:480])
+    note = "; ".join(note_parts) or body.event
+
+    event_id = _audit_portal(
+        db, actor,
+        event=body.event,
+        target_id=target_id,
+        note=note,
+        using_demo_data=bool(body.using_demo_data),
+    )
+    return CaregiverPortalAuditEventOut(accepted=True, event_id=event_id)

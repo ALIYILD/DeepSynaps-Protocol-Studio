@@ -23268,30 +23268,283 @@ export async function pgPatientAdherenceHistory() {
 
 // ── Caregiver Access ─────────────────────────────────────────────────────────
 
+// ── Caregiver Portal launch-audit (2026-05-01) ───────────────────────────────
+// pgPatientCaregiver is the CAREGIVER-side viewer (not patient-side). It is
+// reachable by anyone who has a grant pointed at their `actor.actor_id` —
+// caregivers, family members, clinicians acting in a caregiver capacity.
+//
+// The page surfaces grants from `/api/v1/caregiver-consent/grants/by-
+// caregiver` with anonymized patient context (first name + clinic only —
+// never last name, never full email). For each grant card we render scope
+// chips, granted/revoked dates, and CTAs for:
+//
+//   * Acknowledge revocation → POST /grants/{id}/acknowledge-revocation
+//     (idempotent; emits `caregiver_portal.revocation_acknowledged`).
+//   * View digest / messages → POST /grants/{id}/access-log with the
+//     scope_key being clicked. Backend gates on `scope[scope_key]=True`
+//     and records an audit row visible to the patient.
+//
+// Mount-time `caregiver_portal.view` audit ping fires on every page load.
+// DEMO banner is gated on the actor's demo state (currently inferred from
+// the demo token) so reviewers see honest "this is demo data" framing.
+const CAREGIVER_PORTAL_SCOPE_KEYS = ['digest', 'messages', 'reports', 'wearables'];
+
+function _ptCgScopeChipLabels(scope) {
+  return CAREGIVER_PORTAL_SCOPE_KEYS.filter((k) => scope && scope[k]);
+}
+
+function _ptCgEsc(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function _ptCgFormatDate(s) {
+  if (!s) return '—';
+  try {
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return _ptCgEsc(s);
+    return d.toLocaleString();
+  } catch (_e) {
+    return _ptCgEsc(s);
+  }
+}
+
 export async function pgPatientCaregiver() {
   const el = document.getElementById('patient-content');
   if (!el) return;
+  el.innerHTML = spinner();
+
+  // Mount-time audit ping. Best-effort — never blocks render.
+  try {
+    if (typeof api.postCaregiverPortalAuditEvent === 'function') {
+      api.postCaregiverPortalAuditEvent({
+        event: 'view',
+        note: 'caregiver_portal.view page mount',
+      });
+    }
+  } catch (_e) {}
+
+  // Fetch grants pointed at the actor as caregiver.
+  let grants = [];
+  let caregiverUserId = '';
+  let backendReady = typeof api.caregiverConsentListByCaregiver === 'function';
+  let _isDemo = false;
+  if (backendReady) {
+    try {
+      const res = await Promise.race([
+        api.caregiverConsentListByCaregiver(),
+        new Promise((_, rej) => setTimeout(() => rej('timeout'), 4000)),
+      ]);
+      if (res && Array.isArray(res.items)) {
+        grants = res.items;
+        caregiverUserId = res.caregiver_user_id || '';
+      } else if (res === null) {
+        // apiFetch returned null → backend offline. Fall through to empty.
+        backendReady = false;
+      }
+    } catch (_e) {
+      backendReady = false;
+    }
+  }
+
+  // Demo state — when the actor is the patient-demo or clinician-demo
+  // token. We infer it from the actor identity exposed via the auth
+  // probe at first paint (best-effort; UI honest-fallback if not).
+  try {
+    if (typeof api.whoami === 'function') {
+      const who = await Promise.race([
+        api.whoami(),
+        new Promise((_, rej) => setTimeout(() => rej('timeout'), 1500)),
+      ]).catch(() => null);
+      if (who && (who.actor_id === 'actor-clinician-demo' || who.actor_id === 'actor-patient-demo' || who.is_demo)) {
+        _isDemo = true;
+        try {
+          api.postCaregiverPortalAuditEvent({
+            event: 'demo_banner_shown',
+            note: `actor=${who.actor_id || 'unknown'}`,
+            using_demo_data: true,
+          });
+        } catch (_e) {}
+      }
+    }
+  } catch (_e) {}
+
+  function _renderEmpty() {
+    return `
+      <div class="pt-portal-empty" style="padding:24px 28px;text-align:center;background:rgba(0,212,188,0.04);border:1px solid rgba(0,212,188,0.15);border-radius:12px;margin-bottom:20px">
+        <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:6px">No patients have granted you access yet.</div>
+        <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.55">When a patient grants you caregiver access, the grant will appear here with the digest / messages / reports they have authorised you to view.</div>
+      </div>`;
+  }
+
+  function _renderScopeChips(scope) {
+    const active = _ptCgScopeChipLabels(scope || {});
+    if (active.length === 0) {
+      return `<span style="font-size:11px;color:var(--text-tertiary);font-style:italic">no scopes active</span>`;
+    }
+    return active.map((k) => `
+      <span style="display:inline-block;padding:2px 8px;border-radius:999px;background:rgba(45,212,191,0.12);color:#2dd4bf;font-size:10.5px;font-weight:600;margin-right:4px;text-transform:capitalize">${_ptCgEsc(k)}</span>
+    `).join('');
+  }
+
+  function _renderGrantCard(g) {
+    const isActive = !g.revoked_at;
+    const scope = g.scope || {};
+    const ackedAt = g.revocation_acknowledged_at;
+    const patientLabel = g.patient_first_name
+      ? `${_ptCgEsc(g.patient_first_name)} (${_ptCgEsc(g.patient_clinic_id || 'unknown clinic')})`
+      : `Patient (${_ptCgEsc(g.patient_clinic_id || 'unknown clinic')})`;
+    return `
+      <div class="pt-cg-grant-card" data-grant-id="${_ptCgEsc(g.id)}" style="border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:12px;background:${isActive ? 'rgba(45,212,191,0.03)' : 'rgba(251,113,133,0.04)'}">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:8px">
+          <div style="font-size:14px;font-weight:600;color:var(--text-primary)">${patientLabel}</div>
+          <span style="font-size:10.5px;font-weight:600;padding:3px 10px;border-radius:999px;background:${isActive ? 'rgba(45,212,191,0.14)' : 'rgba(251,113,133,0.14)'};color:${isActive ? '#2dd4bf' : '#fb7185'}">${isActive ? 'Active' : 'Revoked'}</span>
+        </div>
+        <div style="font-size:11.5px;color:var(--text-tertiary);margin-bottom:10px">
+          Granted: ${_ptCgFormatDate(g.granted_at)}
+          ${g.revoked_at ? ` &middot; Revoked: ${_ptCgFormatDate(g.revoked_at)}` : ''}
+        </div>
+        <div style="margin-bottom:10px">${_renderScopeChips(scope)}</div>
+        ${g.revocation_reason ? `
+          <div style="font-size:12px;color:var(--text-secondary);background:rgba(251,113,133,0.08);border:1px solid rgba(251,113,133,0.18);border-radius:8px;padding:8px 10px;margin-bottom:10px">
+            <strong style="color:#fb7185">Revocation reason:</strong> ${_ptCgEsc(g.revocation_reason)}
+          </div>` : ''}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          ${!isActive && !ackedAt ? `
+            <button class="btn btn-sm" data-cg-ack="${_ptCgEsc(g.id)}" style="background:rgba(251,113,133,0.18);border:1px solid rgba(251,113,133,0.3);color:#fb7185;font-size:11.5px;padding:5px 12px;border-radius:8px">Acknowledge revocation</button>
+          ` : ''}
+          ${!isActive && ackedAt ? `
+            <span style="font-size:11px;color:var(--text-tertiary)">Acknowledged ${_ptCgFormatDate(ackedAt)}</span>
+          ` : ''}
+          ${isActive && scope.digest ? `
+            <button class="btn btn-sm" data-cg-view="digest" data-cg-grant="${_ptCgEsc(g.id)}" style="background:rgba(45,212,191,0.14);border:1px solid rgba(45,212,191,0.3);color:#2dd4bf;font-size:11.5px;padding:5px 12px;border-radius:8px">View digest</button>
+          ` : ''}
+          ${isActive && scope.messages ? `
+            <button class="btn btn-sm" data-cg-view="messages" data-cg-grant="${_ptCgEsc(g.id)}" style="background:rgba(45,212,191,0.14);border:1px solid rgba(45,212,191,0.3);color:#2dd4bf;font-size:11.5px;padding:5px 12px;border-radius:8px">View shared messages</button>
+          ` : ''}
+          ${isActive && scope.reports ? `
+            <button class="btn btn-sm" data-cg-view="reports" data-cg-grant="${_ptCgEsc(g.id)}" style="background:rgba(45,212,191,0.14);border:1px solid rgba(45,212,191,0.3);color:#2dd4bf;font-size:11.5px;padding:5px 12px;border-radius:8px">View reports</button>
+          ` : ''}
+        </div>
+      </div>`;
+  }
+
   el.innerHTML = `
-    <div style="max-width:640px;margin:0 auto;padding:24px 16px">
-      <h2 style="font-size:18px;font-weight:700;color:var(--text-primary);margin:0 0 6px">Caregiver &amp; Supporter Access</h2>
-      <p style="font-size:13px;color:var(--text-secondary);margin:0 0 20px;line-height:1.55">
-        A trusted caregiver or family member can be granted view-only access to your sessions, tasks, and progress updates.
-        This feature is managed by your clinic and requires your written consent.
+    <div style="max-width:760px;margin:0 auto;padding:24px 16px">
+      <h2 style="font-size:18px;font-weight:700;color:var(--text-primary);margin:0 0 6px">Caregiver Portal</h2>
+      <p style="font-size:13px;color:var(--text-secondary);margin:0 0 16px;line-height:1.55">
+        Patients you support can grant you read-only access to their digest, messages, and reports. Each grant has an explicit scope and a revocation transcript — you'll see exactly what you've been authorised to view, and the patient sees an audit row every time you access something.
       </p>
-      <div class="pt-portal-empty" style="padding:20px 24px;text-align:left;background:rgba(0,212,188,0.04);border:1px solid rgba(0,212,188,0.15);border-radius:12px;margin-bottom:20px">
-        <div style="font-size:13.5px;font-weight:600;color:var(--text-primary);margin-bottom:6px">How it works</div>
-        <ul style="margin:0;padding-left:18px;font-size:12.5px;color:var(--text-secondary);line-height:1.7">
-          <li>Speak with your care coordinator to add a caregiver</li>
-          <li>Your caregiver will receive a secure invite link</li>
-          <li>They can view your progress and session notes (read-only)</li>
-          <li>You can revoke access at any time by contacting your clinic</li>
-        </ul>
+      ${_isDemo ? `
+        <div style="background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.24);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--text-secondary);line-height:1.45">
+          <strong style="color:#fbb547">DEMO data.</strong> This view is showing demo grants. Audit rows are tagged DEMO and are NOT regulator-submittable.
+        </div>` : ''}
+      ${!backendReady ? `
+        <div style="background:rgba(251,113,133,0.08);border:1px solid rgba(251,113,133,0.2);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--text-secondary);line-height:1.45">
+          The caregiver portal API is not reachable right now. Grants cannot be loaded — please retry later.
+        </div>` : ''}
+      <div id="pt-cg-grant-list">
+        ${grants.length === 0 ? _renderEmpty() : grants.map(_renderGrantCard).join('')}
       </div>
-      <div style="background:rgba(251,113,133,0.08);border:1px solid rgba(251,113,133,0.2);border-radius:10px;padding:14px 16px;margin-bottom:20px;font-size:12px;color:var(--text-secondary);line-height:1.5">
-        <strong style="color:var(--text-primary)">Your privacy matters.</strong> Caregiver access is entirely optional and requires your consent. You control who can see your information.
+      <div style="margin-top:24px;padding:14px 16px;border:1px solid var(--border);border-radius:10px;font-size:11.5px;color:var(--text-tertiary);line-height:1.55">
+        <strong style="color:var(--text-secondary)">How this page works.</strong>
+        Each card represents a durable grant the patient has issued — it cannot be transferred or extended by you. Acknowledging a revocation never deletes the grant; the regulator transcript stays intact. Access logs are best-effort: clicking "View digest" emits a <code>caregiver_portal.grant_accessed</code> audit row even if the underlying surface is offline.
       </div>
-      <button class="btn btn-primary btn-sm" onclick="window._navPatient('patient-messages')">Contact Your Care Team</button>
     </div>`;
+
+  // ── CTA wiring ───────────────────────────────────────────────────────────
+  function _findGrant(id) {
+    return grants.find((g) => g.id === id);
+  }
+
+  el.querySelectorAll('[data-cg-ack]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const gid = btn.getAttribute('data-cg-ack');
+      if (!gid) return;
+      btn.disabled = true;
+      btn.textContent = 'Acknowledging…';
+      try {
+        const res = await api.caregiverPortalAcknowledgeRevocation(gid);
+        if (res && res.revocation_acknowledged_at) {
+          const g = _findGrant(gid);
+          if (g) g.revocation_acknowledged_at = res.revocation_acknowledged_at;
+          window._showNotifToast && window._showNotifToast({
+            title: 'Revocation acknowledged',
+            body: 'The patient sees that you have seen the revoke.',
+            severity: 'success',
+          });
+          try {
+            api.postCaregiverPortalAuditEvent({
+              event: 'revocation_acknowledged_ui',
+              target_id: gid,
+              note: 'caregiver clicked Acknowledge revocation',
+            });
+          } catch (_e) {}
+          // Re-render this card.
+          const card = el.querySelector(`[data-grant-id="${gid}"]`);
+          if (card && g) card.outerHTML = _renderGrantCard(g);
+        } else {
+          throw new Error('no_ack');
+        }
+      } catch (_e) {
+        btn.disabled = false;
+        btn.textContent = 'Acknowledge revocation';
+        window._showNotifToast && window._showNotifToast({
+          title: 'Could not acknowledge',
+          body: 'The acknowledgement could not be recorded. Try again later.',
+          severity: 'warning',
+        });
+      }
+    });
+  });
+
+  el.querySelectorAll('[data-cg-view]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const scopeKey = btn.getAttribute('data-cg-view');
+      const gid = btn.getAttribute('data-cg-grant');
+      if (!scopeKey || !gid) return;
+      try {
+        api.postCaregiverPortalAuditEvent({
+          event: `${scopeKey}_view_clicked_ui`,
+          target_id: gid,
+          note: `caregiver clicked View ${scopeKey}`,
+        });
+      } catch (_e) {}
+      try {
+        const res = await api.caregiverPortalAccessLog(gid, {
+          scope_key: scopeKey,
+          surface: 'caregiver_portal',
+          note: `View ${scopeKey} clicked`,
+        });
+        if (res && res.accepted) {
+          window._showNotifToast && window._showNotifToast({
+            title: `Access logged: ${scopeKey}`,
+            body: 'The patient will see this access in their audit trail.',
+            severity: 'success',
+          });
+        }
+      } catch (e) {
+        const msg = (e && e.message) || '';
+        if (/forbidden|403/i.test(msg)) {
+          window._showNotifToast && window._showNotifToast({
+            title: 'Not authorised',
+            body: `You do not have ${scopeKey} scope on this grant.`,
+            severity: 'warning',
+          });
+        } else {
+          window._showNotifToast && window._showNotifToast({
+            title: 'Access not logged',
+            body: 'The access could not be recorded right now.',
+            severity: 'warning',
+          });
+        }
+      }
+    });
+  });
 }
 
 // ── Help & Support ───────────────────────────────────────────────────────────
