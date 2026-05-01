@@ -1333,6 +1333,51 @@ export const api = {
   exportAdverseEventCioms: (id) =>
     apiFetchBinary(`/api/v1/adverse-events/${encodeURIComponent(id)}/export.cioms`),
 
+  // ── Population Analytics (launch-audit 2026-05-01) ─────────────────────
+  // All numbers traced to real SQL aggregates over patients /
+  // treatment_courses / outcome_series / adverse_events. No AI fabrication;
+  // PHI is not exposed in cohort previews. See router docstring for the
+  // exact aggregate SQL.
+  getPopulationCohortSummary: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/population-analytics/cohorts/summary${q ? '?' + q : ''}`);
+  },
+  getPopulationCohortList: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/population-analytics/cohorts/list${q ? '?' + q : ''}`);
+  },
+  getPopulationOutcomeTrend: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/population-analytics/outcomes/trend${q ? '?' + q : ''}`);
+  },
+  getPopulationAEIncidence: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/population-analytics/adverse-events/incidence${q ? '?' + q : ''}`);
+  },
+  getPopulationTreatmentResponse: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/population-analytics/treatment-response${q ? '?' + q : ''}`);
+  },
+  exportPopulationCsv: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchBinary(`/api/v1/population-analytics/export.csv${q ? '?' + q : ''}`);
+  },
+  exportPopulationNdjson: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchBinary(`/api/v1/population-analytics/export.ndjson${q ? '?' + q : ''}`);
+  },
+  logPopulationAnalyticsAudit: (event) => {
+    try {
+      const body = JSON.stringify(event || {});
+      return apiFetch('/api/v1/population-analytics/audit-events', {
+        method: 'POST',
+        body,
+      });
+    } catch (_) {
+      return Promise.resolve(null);
+    }
+  },
+
   // ── Review queue ─────────────────────────────────────────────────────────
   listReviewQueue: (params = {}) => {
     const q = new URLSearchParams(params).toString();

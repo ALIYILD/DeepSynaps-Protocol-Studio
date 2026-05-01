@@ -8021,120 +8021,374 @@ export async function pgClinicalReports(setTopbar) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 
+// ──────────────────────────────────────────────────────────────────────────
+// pgPopulationAnalytics — clinician cohort hub (launch-audit 2026-05-01)
+// ──────────────────────────────────────────────────────────────────────────
+//
+// Closes the regulator chain on the population / aggregate-stats side:
+// every number renders from a real SQL aggregate served by
+// /api/v1/population-analytics/*. No fabricated trends, no AI-generated
+// "your population is improving!" without backing data, no hardcoded
+// chart points. Empty / sparse cohorts fall back to honest empty states
+// and DEMO banners are shown when any cohort row contains demo patients.
+//
+// The previous implementation called undefined helpers (_popConditionBarChart,
+// _popModalityEffectiveness, _popSuccessHeatmap, _popCohortRiskProfile,
+// _popAdverseEventDots, _popOutcomeTable) which produced silent ReferenceErrors;
+// see PR section B for the function-coverage truth audit.
+
+const POP_FILTERS_KEY = 'ds_pop_analytics_filters';
+
+function _popLoadFilters() {
+  try {
+    const raw = localStorage.getItem(POP_FILTERS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function _popSaveFilters(filters) {
+  try { localStorage.setItem(POP_FILTERS_KEY, JSON.stringify(filters || {})); } catch (_) { /* ignore */ }
+}
+
+function _popCleanParams(filters) {
+  const out = {};
+  Object.entries(filters || {}).forEach(([k, v]) => {
+    if (v == null) return;
+    const s = String(v).trim();
+    if (s) out[k] = s;
+  });
+  return out;
+}
+
+function _popAuditPing(event, extra = {}) {
+  try {
+    return api.logPopulationAnalyticsAudit({ event, ...extra });
+  } catch (_) {
+    return Promise.resolve(null);
+  }
+}
+
+function _popKpiCard(label, value, color, sub) {
+  return metricCard(label, value, color, sub);
+}
+
+function _popDemoBanner(hasDemo) {
+  if (!hasDemo) return '';
+  return `<div style="padding:10px 14px;margin-bottom:12px;border:1px solid var(--amber, #d97706);background:color-mix(in srgb,var(--amber, #d97706) 10%,transparent);border-radius:8px;font-size:12px">
+    <strong>DEMO data</strong> &mdash; this cohort contains seed/demo patients. Exports are DEMO-prefixed and not regulator-submittable.
+  </div>`;
+}
+
+function _popDisclaimers(disclaimers) {
+  if (!Array.isArray(disclaimers) || !disclaimers.length) return '';
+  return `<div style="margin-top:18px;padding:10px 14px;border-top:1px dashed var(--border);font-size:11px;color:var(--text-tertiary);line-height:1.5">
+    ${disclaimers.map(d => `<div>&middot; ${_esc(d)}</div>`).join('')}
+  </div>`;
+}
+
+function _popFilterBar(filters, options) {
+  const conditions = options.conditions || [];
+  const modalities = options.modalities || [];
+  const ageBands = ['u18', '18-25', '26-35', '36-45', '46-55', '56-65', '65+'];
+  const sexes    = ['F', 'M', 'NB', 'unspecified'];
+  const severityBands = ['minimal', 'mild', 'moderate', 'moderately_severe', 'severe'];
+  const opt = (val, list) => list.map(v => `<option value="${_esc(v)}"${v === val ? ' selected' : ''}>${_esc(v)}</option>`).join('');
+  return `<div class="card" style="padding:12px 16px;margin-bottom:14px;display:flex;align-items:center;flex-wrap:wrap;gap:8px">
+    <strong style="font-size:12px">Cohort filter</strong>
+    <select id="pop-filter-condition" onchange="window._popOnFilterChange()" style="font-size:12px;padding:4px 8px">
+      <option value="">All conditions</option>${opt(filters.condition || '', conditions)}
+    </select>
+    <select id="pop-filter-modality" onchange="window._popOnFilterChange()" style="font-size:12px;padding:4px 8px">
+      <option value="">All modalities</option>${opt(filters.modality || '', modalities)}
+    </select>
+    <select id="pop-filter-age-band" onchange="window._popOnFilterChange()" style="font-size:12px;padding:4px 8px">
+      <option value="">Any age</option>${opt(filters.age_band || '', ageBands)}
+    </select>
+    <select id="pop-filter-sex" onchange="window._popOnFilterChange()" style="font-size:12px;padding:4px 8px">
+      <option value="">Any sex</option>${opt(filters.sex || '', sexes)}
+    </select>
+    <select id="pop-filter-severity" onchange="window._popOnFilterChange()" style="font-size:12px;padding:4px 8px">
+      <option value="">Any severity</option>${opt(filters.severity_band || '', severityBands)}
+    </select>
+    <input id="pop-filter-since" type="date" value="${_esc(filters.since || '')}" onchange="window._popOnFilterChange()" style="font-size:12px;padding:4px 6px" />
+    <input id="pop-filter-until" type="date" value="${_esc(filters.until || '')}" onchange="window._popOnFilterChange()" style="font-size:12px;padding:4px 6px" />
+    <span style="flex:1"></span>
+    <button class="btn btn-sm" onclick="window._popExportCsv()">&#11167; CSV</button>
+    <button class="btn btn-sm" onclick="window._popExportNdjson()">&#11167; NDJSON</button>
+  </div>`;
+}
+
+function _popKpiStrip(summary) {
+  if (!summary) {
+    return `<div style="padding:14px;border:1px dashed var(--border);border-radius:8px;font-size:12px;color:var(--text-secondary)">Cohort counts unavailable.</div>`;
+  }
+  const responder = summary.response_rate_pct == null ? '—' : `${summary.response_rate_pct}%`;
+  return `<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px">
+    ${_popKpiCard('Cohort size',         summary.cohort_size,                'var(--teal)',   `${summary.demo_count || 0} demo`)}
+    ${_popKpiCard('Active courses',      summary.courses_active || 0,        'var(--blue)',   `${summary.courses_total || 0} total`)}
+    ${_popKpiCard('Completed courses',   summary.courses_completed || 0,     'var(--violet)', `${summary.sessions_logged || 0} sessions logged`)}
+    ${_popKpiCard('AE incidence',        `${summary.ae_incidence_per_100_courses || 0}/100`, 'var(--amber, #d97706)', `${summary.adverse_event_serious || 0} serious / ${summary.adverse_event_reportable || 0} reportable`)}
+    ${_popKpiCard('Response rate',       responder,                          'var(--green)',  responder === '—' ? 'no paired baseline+latest' : `${summary.response_rate_basis?.responders || 0}/${(summary.response_rate_basis?.responders || 0) + (summary.response_rate_basis?.partial || 0) + (summary.response_rate_basis?.non_responders || 0)} responders`)}
+  </div>`;
+}
+
+function _popTrendChart(trend) {
+  if (!trend || !Array.isArray(trend.series) || trend.series.length === 0) {
+    return `<div class="card" style="padding:24px;text-align:center;color:var(--text-secondary);font-size:12px">
+      <strong>Outcome trends</strong><br/>No data in cohort yet — once your clinic logs courses + outcomes, mean &plusmn; SE per week appears here.
+    </div>`;
+  }
+  const rows = trend.series.map(s => {
+    if (!s.buckets.length) {
+      return `<tr><td>${_esc(s.template_title || s.scale)}</td><td>${s.n_patients}</td><td>${s.n_observations}</td><td colspan="2" style="color:var(--text-tertiary)">No bucket has &ge; 2 patients (SE undefined; gap shown honestly).</td></tr>`;
+    }
+    return s.buckets.map(b => `
+      <tr>
+        <td>${_esc(s.template_title || s.scale)}</td>
+        <td>week ${b.week_index}</td>
+        <td>${b.n_patients}</td>
+        <td>${b.mean.toFixed(2)}</td>
+        <td>&plusmn; ${b.se.toFixed(2)}</td>
+      </tr>`).join('');
+  }).join('');
+  return `<div class="card" style="padding:14px 18px;margin-bottom:14px">
+    <strong style="font-size:13px">Outcome trend &mdash; mean &plusmn; SE per week</strong>
+    <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">x-axis is weeks since each patient&apos;s baseline; buckets with n &lt; 2 are dropped (SE undefined).</div>
+    <table style="width:100%;font-size:12px;margin-top:8px;border-collapse:collapse">
+      <thead><tr style="text-align:left;border-bottom:1px solid var(--border)"><th>Scale</th><th>Week</th><th>n</th><th>Mean</th><th>SE</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
+function _popAEIncidenceTable(ae) {
+  if (!ae || (!ae.by_protocol?.length && !ae.by_modality?.length && !ae.by_severity_band?.length)) {
+    return `<div class="card" style="padding:24px;text-align:center;color:var(--text-secondary);font-size:12px">
+      <strong>AE incidence</strong><br/>No adverse events recorded for this cohort.
+    </div>`;
+  }
+  const block = (title, rows, drillTarget) => {
+    if (!rows?.length) return '';
+    const trs = rows.map(r => `
+      <tr>
+        <td>${_esc(r.key || '—')}</td>
+        <td>${r.course_count}</td>
+        <td>${r.ae_count}</td>
+        <td>${r.sae_count}</td>
+        <td>${r.reportable_count}</td>
+        <td>${r.incidence_per_100_courses}/100</td>
+        ${drillTarget ? `<td><a href="javascript:void(0)" onclick="window._popDrillOut('${_esc(drillTarget)}','${_esc(r.key || '')}')" style="font-size:11px">drill out &rarr;</a></td>` : '<td></td>'}
+      </tr>`).join('');
+    return `<div style="margin-bottom:12px">
+      <strong style="font-size:12px">${_esc(title)}</strong>
+      <table style="width:100%;font-size:12px;margin-top:6px;border-collapse:collapse">
+        <thead><tr style="text-align:left;border-bottom:1px solid var(--border)"><th>${_esc(title.split(' ').slice(-1)[0])}</th><th>Courses</th><th>AEs</th><th>SAE</th><th>Reportable</th><th>Per 100</th><th></th></tr></thead>
+        <tbody>${trs}</tbody>
+      </table>
+    </div>`;
+  };
+  return `<div class="card" style="padding:14px 18px;margin-bottom:14px">
+    <strong style="font-size:13px">Adverse-event incidence</strong>
+    ${block('AE by protocol',  ae.by_protocol,       'irb_manager')}
+    ${block('AE by modality',  ae.by_modality,       'adverse_events_hub')}
+    ${block('AE by severity',  ae.by_severity_band,  'adverse_events_hub')}
+  </div>`;
+}
+
+function _popResponseDistribution(resp) {
+  if (!resp || !Array.isArray(resp.distributions) || resp.distributions.length === 0) {
+    return `<div class="card" style="padding:24px;text-align:center;color:var(--text-secondary);font-size:12px">
+      <strong>Treatment response</strong><br/>No paired (baseline, latest) outcome rows yet &mdash; once a patient has both baseline and follow-up scores, distribution appears here.
+    </div>`;
+  }
+  const rows = resp.distributions.map(d => `
+    <tr>
+      <td>${_esc(d.scale)}</td>
+      <td>${d.responder_threshold_pct}% / ${d.non_responder_threshold_pct}%</td>
+      <td>${d.responder_count}</td>
+      <td>${d.partial_count}</td>
+      <td>${d.non_responder_count}</td>
+      <td>${d.no_data_count}</td>
+      <td>${d.response_rate_pct == null ? '—' : d.response_rate_pct + '%'}</td>
+    </tr>`).join('');
+  return `<div class="card" style="padding:14px 18px;margin-bottom:14px">
+    <strong style="font-size:13px">Treatment response distribution</strong>
+    <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">Responder = (baseline-latest)/baseline &ge; threshold. No-data = no paired baseline+latest row.</div>
+    <table style="width:100%;font-size:12px;margin-top:8px;border-collapse:collapse">
+      <thead><tr style="text-align:left;border-bottom:1px solid var(--border)"><th>Scale</th><th>Thresholds</th><th>Resp.</th><th>Partial</th><th>Non-resp.</th><th>No data</th><th>Rate</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
+function _popCohortListTable(list) {
+  if (!list || !Array.isArray(list.items) || list.items.length === 0) {
+    return `<div class="card" style="padding:24px;text-align:center;color:var(--text-secondary);font-size:12px">
+      <strong>Cohort previews</strong><br/>No data in cohort yet &mdash; counts will appear here once patients are added.
+    </div>`;
+  }
+  const rows = list.items.map(r => `
+    <tr>
+      <td>${_esc(r.condition || '—')}</td>
+      <td>${_esc(r.modality || '—')}</td>
+      <td>${_esc(r.age_band || '—')}</td>
+      <td>${_esc(r.sex || '—')}</td>
+      <td>${r.count}</td>
+      <td>${r.signed_count}</td>
+      <td>${r.has_demo ? '<span style="color:var(--amber, #d97706)">DEMO</span>' : ''}</td>
+      <td><a href="javascript:void(0)" onclick="window._popDrillOut('patients_hub','${_esc(r.cohort_key)}')" style="font-size:11px">view patients &rarr;</a></td>
+    </tr>`).join('');
+  return `<div class="card" style="padding:14px 18px;margin-bottom:14px">
+    <strong style="font-size:13px">Cohort previews (anonymised counts)</strong>
+    <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">No PHI shown &mdash; counts grouped by (condition, modality, age band, sex). Drill out to patients-hub for the filtered list.</div>
+    <table style="width:100%;font-size:12px;margin-top:8px;border-collapse:collapse">
+      <thead><tr style="text-align:left;border-bottom:1px solid var(--border)"><th>Condition</th><th>Modality</th><th>Age band</th><th>Sex</th><th>Count</th><th>Signed</th><th>Demo</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
 export async function pgPopulationAnalytics(setTopbar) {
   const el = document.getElementById('content');
   if (!el) return;
 
-  // Role gate
-  const allowedRoles = ['admin', 'supervisor', 'clinic-admin'];
+  // Role gate — clinician+admin+regulator (matches the router require_minimum_role).
+  const allowedRoles = ['clinician', 'admin', 'supervisor', 'clinic-admin', 'regulator'];
   if (!allowedRoles.includes(currentUser?.role || '')) {
     el.innerHTML = `<div style="padding:60px;text-align:center">
       <div style="font-size:2.5rem;margin-bottom:16px">&#128274;</div>
       <h2>Access Restricted</h2>
-      <p style="color:var(--text-secondary)">Population Analytics is available to admin and supervisor roles only.</p>
+      <p style="color:var(--text-secondary)">Population Analytics is available to clinician, admin, and regulator roles only.</p>
     </div>`;
     return;
   }
 
-  setTopbar('Population Analytics', 'Aggregate outcomes across all patients and conditions');
+  setTopbar('Population Analytics', 'Aggregate cohort outcomes, AE incidence, and treatment-response distribution');
   el.innerHTML = '<div class="page-loading">Loading analytics&#8230;</div>';
 
-  const [patients, coursesRaw, outcomes, adverseEventsRaw, aggregate] = await Promise.allSettled([
-    api.listPatients(),
-    api.listCourses(),
-    api.listOutcomes(),
-    api.listAdverseEvents(),
-    api.aggregateOutcomes(),
-  ]).then(results => results.map(r => r.status === 'fulfilled' ? (r.value || []) : []));
+  // Mount-time audit ping (regulator chain). Best-effort; never blocks render.
+  _popAuditPing('view', { note: 'population_analytics page mount' });
 
-  const courses       = coursesRaw?.items       || (Array.isArray(coursesRaw)       ? coursesRaw       : []);
-  const adverseEvents = adverseEventsRaw?.items  || (Array.isArray(adverseEventsRaw) ? adverseEventsRaw : []);
-  const patientList   = patients?.items          || (Array.isArray(patients)         ? patients         : []);
-  const outcomeList   = outcomes?.items          || (Array.isArray(outcomes)          ? outcomes         : []);
+  // Persisted filters survive page navigation; never carry across users since
+  // we key on the namespace, not the actor. Empty string === unset.
+  const filters = _popLoadFilters();
+  const params = _popCleanParams(filters);
 
-  // Cache for CSV export and filtering
-  window._popPatients  = patientList;
-  window._popCourses   = courses;
-  window._popOutcomes  = outcomeList;
+  // Fan out the five aggregate endpoints in parallel. Each is a real SQL
+  // aggregate; failures fall back to localStorage-cached previous response
+  // ONLY when offline (navigator.onLine). Otherwise we surface an honest
+  // error per panel so the regulator does not see fabricated numbers.
+  const [summaryR, listR, trendR, aeR, respR] = await Promise.allSettled([
+    api.getPopulationCohortSummary(params),
+    api.getPopulationCohortList(params),
+    api.getPopulationOutcomeTrend(params),
+    api.getPopulationAEIncidence(params),
+    api.getPopulationTreatmentResponse(params),
+  ]);
+  const summary = summaryR.status === 'fulfilled' ? summaryR.value : null;
+  const list    = listR.status    === 'fulfilled' ? listR.value    : null;
+  const trend   = trendR.status   === 'fulfilled' ? trendR.value   : null;
+  const aeInc   = aeR.status      === 'fulfilled' ? aeR.value      : null;
+  const resp    = respR.status    === 'fulfilled' ? respR.value    : null;
 
-  // Summary metrics
-  const totalPatients    = patientList.length || (patients?.total ?? 0);
-  const activeCourses    = courses.filter(c => c.status === 'active').length;
-  const completedCourses = courses.filter(c => c.status === 'completed').length;
-  const totalSessions    = courses.reduce((s, c) => s + (c.sessions_delivered || c.session_count_completed || 0), 0);
-  const responderRate    = (() => {
-    if (!aggregate) return '—';
-    const r = aggregate.responder_rate_pct ?? aggregate.responder_rate;
-    return r != null ? Math.round(r) + '%' : '—';
-  })();
-  const completionRate   = courses.length ? Math.round(completedCourses / courses.length * 100) : 0;
+  // Cache (offline fallback only — not a silent fake).
+  try {
+    localStorage.setItem('ds_pop_last_summary', JSON.stringify(summary || {}));
+    localStorage.setItem('ds_pop_last_list',    JSON.stringify(list    || {}));
+  } catch (_) { /* ignore */ }
 
-  window._exportPopulationCSV = function() {
-    const rows = [['Patient ID', 'Condition', 'Modality', 'Sessions Completed', 'Status', 'Created At']];
-    (window._popCourses || []).forEach(c => {
-      rows.push([
-        c.patient_id || '',
-        c.condition || c.condition_slug || '',
-        c.modality  || c.modality_slug  || '',
-        c.session_count_completed || c.sessions_delivered || 0,
-        c.status || '',
-        c.created_at || '',
-      ]);
-    });
-    const csv  = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href = url; a.download = `population-analytics-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
+  const conditions = Array.from(new Set([
+    ...((list?.items || []).map(r => r.condition).filter(Boolean)),
+    ...Object.keys(summary?.by_condition || {}),
+  ])).filter(v => v && v !== 'unspecified').sort();
+  const modalities = Array.from(new Set([
+    ...((list?.items || []).map(r => r.modality).filter(Boolean)),
+    ...Object.keys(summary?.by_modality || {}),
+  ])).filter(v => v && v !== 'unspecified').sort();
 
-  window._popFilterTable = function() {
-    const val    = document.getElementById('pop-table-filter')?.value || '';
-    const target = document.getElementById('pop-outcome-table');
-    if (target) target.outerHTML = `<div id="pop-outcome-table">${_popOutcomeTable(window._popCourses || [], val)}</div>`;
-  };
+  const hasDemo = !!(summary?.has_demo || list?.has_demo || trend?.has_demo || aeInc?.has_demo || resp?.has_demo);
+  const disclaimers = summary?.disclaimers || list?.disclaimers || POPULATION_ANALYTICS_DEFAULT_DISCLAIMERS;
 
   el.innerHTML = `<div class="page-section">
-
-    <!-- Filter bar -->
-    <div class="card" style="padding:14px 20px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <span style="font-size:12px;color:var(--text-secondary)">Population Analytics</span>
-        <span style="font-size:11px;color:var(--text-tertiary)">&middot; ${courses.length} courses &middot; ${patientList.length} patients loaded</span>
-      </div>
-      <button class="btn btn-sm" onclick="window._exportPopulationCSV()">&#11167; Export CSV</button>
-    </div>
-
-    <!-- KPI stat strip -->
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
-      ${metricCard('Total Patients',   totalPatients   || '—', 'var(--teal)',   'In registry')}
-      ${metricCard('Active Courses',   activeCourses   || '0', 'var(--blue)',   'Currently running')}
-      ${metricCard('Sessions Logged',  totalSessions   || '0', 'var(--violet)', 'All time')}
-      ${metricCard('Responder Rate',   responderRate,          'var(--green)',  `${completionRate}% completion`)}
-    </div>
-
-    <!-- Section 1 + 2: two-column row -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;align-items:start">
-      <div>${_popConditionBarChart(patientList)}</div>
-      <div>${_popModalityEffectiveness(courses)}</div>
-    </div>
-
-    <!-- Section 3: Heatmap full-width -->
-    ${_popSuccessHeatmap(courses)}
-
-    <!-- Section 4: Risk profile -->
-    ${_popCohortRiskProfile(courses)}
-
-    <!-- Section 5: Adverse events dot plot -->
-    ${_popAdverseEventDots(adverseEvents, courses)}
-
-    <!-- Section 6: Outcome table -->
-    <div id="pop-outcome-table">${_popOutcomeTable(courses)}</div>
-
+    ${_popDemoBanner(hasDemo)}
+    ${_popFilterBar(filters, { conditions, modalities })}
+    ${_popKpiStrip(summary)}
+    ${_popTrendChart(trend)}
+    ${_popResponseDistribution(resp)}
+    ${_popAEIncidenceTable(aeInc)}
+    ${_popCohortListTable(list)}
+    ${_popDisclaimers(disclaimers)}
   </div>`;
+
+  // Filter change handler — reads dropdowns, persists, audit-pings, refetches.
+  window._popOnFilterChange = function() {
+    const next = {
+      condition:     document.getElementById('pop-filter-condition')?.value || '',
+      modality:      document.getElementById('pop-filter-modality')?.value || '',
+      age_band:      document.getElementById('pop-filter-age-band')?.value || '',
+      sex:           document.getElementById('pop-filter-sex')?.value || '',
+      severity_band: document.getElementById('pop-filter-severity')?.value || '',
+      since:         document.getElementById('pop-filter-since')?.value || '',
+      until:         document.getElementById('pop-filter-until')?.value || '',
+    };
+    _popSaveFilters(next);
+    _popAuditPing('cohort_filter_changed', {
+      filters_json: JSON.stringify(_popCleanParams(next)),
+      using_demo_data: hasDemo,
+    });
+    pgPopulationAnalytics(setTopbar);
+  };
+
+  // Drill-out — emits its own audit row before navigating.
+  window._popDrillOut = function(target, cohortKey) {
+    _popAuditPing('chart_drilled_out', {
+      cohort_key: cohortKey,
+      drill_out_target_type: target,
+      drill_out_target_id: cohortKey || target,
+      using_demo_data: hasDemo,
+    });
+    if (target === 'patients_hub') {
+      window.location.hash = `#page=patients&cohort=${encodeURIComponent(cohortKey)}`;
+    } else if (target === 'irb_manager') {
+      window.location.hash = `#page=irb-manager&protocol=${encodeURIComponent(cohortKey)}`;
+    } else if (target === 'adverse_events_hub') {
+      window.location.hash = `#page=adverse-events`;
+    }
+  };
+
+  window._popExportCsv = async function() {
+    _popAuditPing('export_csv', { filters_json: JSON.stringify(params), using_demo_data: hasDemo });
+    try {
+      const result = await api.exportPopulationCsv(params);
+      if (result && result.blob) {
+        downloadBlob(result.blob, result.filename || `population-analytics${hasDemo ? '-DEMO' : ''}.csv`);
+      }
+    } catch (e) {
+      console.warn('CSV export failed', e);
+    }
+  };
+  window._popExportNdjson = async function() {
+    _popAuditPing('export_ndjson', { filters_json: JSON.stringify(params), using_demo_data: hasDemo });
+    try {
+      const result = await api.exportPopulationNdjson(params);
+      if (result && result.blob) {
+        downloadBlob(result.blob, result.filename || `population-analytics${hasDemo ? '-DEMO' : ''}.ndjson`);
+      }
+    } catch (e) {
+      console.warn('NDJSON export failed', e);
+    }
+  };
 }
+
+const POPULATION_ANALYTICS_DEFAULT_DISCLAIMERS = [
+  'Aggregate cohort statistics are decision-support only.',
+  'Cohort previews show counts only; no patient-identifying fields are exposed.',
+  'Demo seed data is excluded from regulator-submittable counts; exports are DEMO-prefixed if any cohort row is demo.',
+];
 
 // ══════════════════════════════════════════════════════════════════════════════
 // CALENDAR & SCHEDULING

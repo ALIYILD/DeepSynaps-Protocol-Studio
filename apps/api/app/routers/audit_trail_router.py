@@ -151,6 +151,16 @@ KNOWN_SURFACES = {
     # faulty home neuromodulation device is a clinical-safety signal that
     # must surface in the care-team feed without exposing PHI.
     "home_devices",
+    # Population Analytics launch-audit (2026-05-01). Clinician-facing
+    # cohort hub. Closes the regulator chain on the population /
+    # aggregate-stats side after Patient Profile (#338) closed it on the
+    # per-patient side. Events: view, cohort_filter_changed,
+    # chart_drilled_out, export_csv, export_ndjson, plus the page-level
+    # events posted via /api/v1/population-analytics/audit-events. All
+    # numbers on the page trace to a real SQL aggregate over patients /
+    # treatment_courses / outcome_series / adverse_events — no AI
+    # fabrication; PHI is not exposed in cohort previews.
+    "population_analytics",
 }
 
 
