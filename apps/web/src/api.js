@@ -1806,6 +1806,36 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
+  // ── Patient Adherence Events launch-audit (2026-05-01) ───────────────────
+  // Sixth patient-facing launch-audit surface. Closes the home-therapy
+  // patient-side regulatory chain (register → log session → adherence
+  // event → side-effect → escalate to AE Hub draft). All helpers return
+  // null on offline / 404 so the page can render an honest empty state.
+  adherenceEventsList: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/adherence/events${q ? '?' + q : ''}`).catch(() => null);
+  },
+  adherenceEventsSummary: () => apiFetch('/api/v1/adherence/summary').catch(() => null),
+  adherenceEventGet: (id) =>
+    apiFetch(`/api/v1/adherence/events/${encodeURIComponent(id)}`).catch(() => null),
+  adherenceEventLog: (data) =>
+    apiFetch('/api/v1/adherence/events', { method: 'POST', body: JSON.stringify(data || {}) }),
+  adherenceEventSideEffect: (id, data) =>
+    apiFetch(`/api/v1/adherence/events/${encodeURIComponent(id)}/side-effect`, {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  adherenceEventEscalate: (id, reason) =>
+    apiFetch(`/api/v1/adherence/events/${encodeURIComponent(id)}/escalate`, {
+      method: 'POST',
+      body: JSON.stringify({ reason: reason || '' }),
+    }),
+  postAdherenceAuditEvent: (data) =>
+    apiFetch('/api/v1/adherence/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
   // ── Home Program Tasks (patient portal) ───────────────────────────────────
   portalListHomeProgramTasks: () => apiFetch('/api/v1/patient-portal/home-program-tasks'),
   portalCompleteHomeProgramTask: (serverTaskId, data) =>

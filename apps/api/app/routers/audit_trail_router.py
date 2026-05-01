@@ -151,6 +151,18 @@ KNOWN_SURFACES = {
     # faulty home neuromodulation device is a clinical-safety signal that
     # must surface in the care-team feed without exposing PHI.
     "home_devices",
+    # Patient Adherence Events launch-audit (2026-05-01). Sixth patient-facing
+    # surface. Closes the home-therapy patient-side chain (register →
+    # log session → adherence event → side-effect → escalate). Events:
+    # view, summary_viewed, event_viewed, task_completed, task_skipped,
+    # task_partial, side_effect_logged, escalated_to_clinician, export,
+    # plus the page-level events posted via /api/v1/adherence/audit-events
+    # (filter_changed, deep_link_followed, demo_banner_shown,
+    # consent_banner_shown). Side-effects with severity >= 7 emit a
+    # clinician-visible mirror at HIGH priority. Escalation creates an
+    # AdverseEvent draft (status='reported') that surfaces in the AE Hub
+    # so the regulatory chain stays intact end-to-end.
+    "adherence_events",
     # Population Analytics launch-audit (2026-05-01). Clinician-facing
     # cohort hub. Closes the regulator chain on the population /
     # aggregate-stats side after Patient Profile (#338) closed it on the

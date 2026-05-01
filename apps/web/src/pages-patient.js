@@ -22084,21 +22084,84 @@ export async function pgPatientHomeSessionLog() {
 }
 
 // ── pgPatientAdherenceEvents ──────────────────────────────────────────────────
+//
+// Sixth patient-facing launch-audit surface (PR 2026-05-01). Wires to the
+// new ``/api/v1/adherence/*`` endpoints in
+// ``apps/api/app/routers/adherence_events_router.py``:
+//
+//   GET    /api/v1/adherence/events            — list (audited)
+//   GET    /api/v1/adherence/summary           — top counts
+//   POST   /api/v1/adherence/events            — log task complete/skip/partial
+//   POST   /api/v1/adherence/events/{id}/side-effect  — sev 1..10
+//   POST   /api/v1/adherence/events/{id}/escalate     — AE Hub draft
+//   GET    /api/v1/adherence/export.csv        — DEMO-prefixed when demo
+//   POST   /api/v1/adherence/audit-events      — page audit ingestion
+//
+// Integrity guard: this page intentionally does NOT cache "AI-suggested
+// explanations" in localStorage. AI-fabricated narratives attached to a
+// regulatory adherence record would be an integrity issue; if a future
+// version re-adds an AI explainer it must come from a server endpoint
+// with a model + version + provenance trail, never from a frontend
+// freeform LLM call cached locally.
 export async function pgPatientAdherenceEvents() {
-  setTopbar('Report Adherence Event');
+  setTopbar('Adherence Events');
   const el = document.getElementById('patient-content');
   if (!el) return;
   el.innerHTML = spinner();
 
   // 3s timeout so a hung Fly backend can never wedge the Adherence Events
-  // form on a spinner. On timeout `raw` is null and events stays [].
+  // form on a spinner. On timeout each result is null and the page
+  // renders an honest empty state.
   const _timeout = (ms) => new Promise(r => setTimeout(() => r(null), ms));
   const _raceNull = (p) => Promise.race([
     Promise.resolve(p).catch(() => null),
     _timeout(3000),
   ]);
-  const raw = await _raceNull(api.portalListAdherenceEvents());
-  const events = Array.isArray(raw) ? raw : [];
+
+  const [listEnvelope, summary] = await Promise.all([
+    _raceNull(api.adherenceEventsList()),
+    _raceNull(api.adherenceEventsSummary()),
+  ]);
+
+  // The new endpoint returns { items, total, consent_active, is_demo,
+  // disclaimers }. The legacy endpoint returns a bare array. Tolerate
+  // both so a half-deployed Fly stack can't break the patient page.
+  let events = [];
+  let consentActive = true;
+  let isDemo = false;
+  let disclaimers = [];
+  if (Array.isArray(listEnvelope)) {
+    events = listEnvelope;
+  } else if (listEnvelope && typeof listEnvelope === 'object') {
+    events = Array.isArray(listEnvelope.items) ? listEnvelope.items : [];
+    consentActive = listEnvelope.consent_active !== false;
+    isDemo = !!listEnvelope.is_demo;
+    disclaimers = Array.isArray(listEnvelope.disclaimers) ? listEnvelope.disclaimers : [];
+  } else {
+    // Final fallback: previous portal endpoint, returns plain array.
+    const legacy = await _raceNull(api.portalListAdherenceEvents());
+    events = Array.isArray(legacy) ? legacy : [];
+  }
+
+  if (summary && typeof summary === 'object') {
+    if (summary.consent_active === false) consentActive = false;
+    if (summary.is_demo) isDemo = true;
+  }
+
+  // Mount-time audit ping (best-effort; never block the UI).
+  try {
+    api.postAdherenceAuditEvent({
+      event: 'view',
+      note: `items=${events.length}`,
+      using_demo_data: !!isDemo,
+    });
+    if (isDemo) {
+      api.postAdherenceAuditEvent({ event: 'demo_banner_shown', using_demo_data: true });
+    }
+    if (!consentActive) {
+      api.postAdherenceAuditEvent({ event: 'consent_banner_shown' });
+    }
+  } catch (_e) { /* never block UI */ }
 
   const todayStr = new Date().toISOString().slice(0, 10);
 
@@ -22113,123 +22176,310 @@ export async function pgPatientAdherenceEvents() {
     device_request: 'Device Request',
   };
 
+  // Banner stack — kept on the page to make demo / consent state visible
+  // to reviewers without needing to crack open dev tools.
+  const banners = [];
+  if (isDemo) {
+    banners.push(`
+      <div class="notice notice-warning" style="margin-bottom:14px;font-size:12.5px;line-height:1.55">
+        <strong>Demo data.</strong> Exports will be DEMO-prefixed. The
+        adherence events shown here are for demo purposes only.
+      </div>`);
+  }
+  if (!consentActive) {
+    banners.push(`
+      <div class="notice notice-info" style="margin-bottom:14px;font-size:12.5px;line-height:1.55">
+        <strong>Read-only.</strong> Your consent is currently withdrawn.
+        Existing adherence records remain visible, but logging new events,
+        side-effects, or escalations is paused until consent is reinstated.
+      </div>`);
+  }
+  if (disclaimers.length) {
+    banners.push(`
+      <div class="notice notice-info" style="margin-bottom:14px;font-size:12px;line-height:1.55">
+        ${disclaimers.map(d => `<div style="margin-bottom:4px">${_hdEsc(d)}</div>`).join('')}
+      </div>`);
+  }
+
+  // Top counts strip — driven entirely by the server summary; every
+  // number traces to a real PatientAdherenceEvent row. No hardcoded
+  // compliance %, no fake streak counters.
+  const counts = summary && typeof summary === 'object' ? summary : null;
+  const countCard = (label, value, sub) => `
+    <div class="card" style="padding:14px;text-align:center">
+      <div style="font-size:22px;font-weight:700;font-family:var(--font-display);color:var(--text-primary)">${_hdEsc(String(value ?? '—'))}</div>
+      <div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin-top:4px">${_hdEsc(label)}</div>
+      ${sub ? `<div style="font-size:10px;color:var(--text-tertiary);margin-top:2px">${_hdEsc(sub)}</div>` : ''}
+    </div>`;
+  const countsStrip = counts ? `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px">
+      ${countCard('Today completed', counts.completed_today ?? 0, 'tasks')}
+      ${countCard('Today skipped',   counts.skipped_today   ?? 0, 'tasks')}
+      ${countCard('Today partial',   counts.partial_today   ?? 0, 'tasks')}
+      ${countCard('Side-effects (7d)', counts.side_effects_7d ?? 0, 'logged')}
+      ${countCard('Escalated',       counts.escalated_open  ?? 0, 'open')}
+      ${countCard('Missed streak',   counts.missed_streak_days ?? 0, 'days')}
+    </div>` : '';
+
+  const writeDisabled = !consentActive;
+  const writeDisabledAttr = writeDisabled ? 'disabled' : '';
+
   el.innerHTML = `
-    <!-- Report form -->
+    ${banners.join('')}
+    ${countsStrip}
+
+    <!-- Log a task -->
     <div class="card" style="margin-bottom:24px">
-      <div class="card-header"><h3>Report an Adherence Event</h3></div>
+      <div class="card-header"><h3>Log a home-program task</h3></div>
       <div class="card-body" style="padding:20px">
         <div class="form-group">
-          <label class="form-label">Event Type</label>
-          <select id="hae-type" class="form-control">
-            <option value="">Select type…</option>
-            <option value="adherence_report">Adherence Report</option>
-            <option value="side_effect">Side Effect</option>
-            <option value="tolerance_change">Tolerance Change</option>
-            <option value="break_request">Break Request</option>
-            <option value="concern">Concern</option>
-            <option value="positive_feedback">Positive Feedback</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Severity</label>
-          <select id="hae-severity" class="form-control">
-            <option value="low">Low</option>
-            <option value="moderate">Moderate</option>
-            <option value="high">High</option>
-            <option value="urgent">Urgent — contact clinic immediately</option>
+          <label class="form-label">Status</label>
+          <select id="hae-task-status" class="form-control" ${writeDisabledAttr}>
+            <option value="complete">Complete</option>
+            <option value="partial">Partial</option>
+            <option value="skipped">Skipped</option>
           </select>
         </div>
         <div class="form-group">
           <label class="form-label">Date</label>
-          <input type="date" id="hae-date" class="form-control" value="${todayStr}" max="${todayStr}">
+          <input type="date" id="hae-date" class="form-control" value="${todayStr}" max="${todayStr}" ${writeDisabledAttr}>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Reason / notes (optional)</label>
+          <textarea id="hae-body" class="form-control" rows="3" placeholder="Anything you want your clinician to know about this task?" ${writeDisabledAttr}></textarea>
+        </div>
+        <div id="hae-status" style="display:none;margin-bottom:10px;font-size:13px"></div>
+        <button class="btn btn-primary" style="width:100%;padding:11px" onclick="window._haeLog()" ${writeDisabledAttr}>Log task →</button>
+      </div>
+    </div>
+
+    <!-- Side-effect form -->
+    <div class="card" style="margin-bottom:24px">
+      <div class="card-header"><h3>Log a side-effect</h3></div>
+      <div class="card-body" style="padding:20px">
+        <div class="notice notice-info" style="font-size:12px;line-height:1.5;margin-bottom:12px">
+          For medical emergencies call your local emergency number. Severity 7 or higher will alert your care team at high priority.
+        </div>
+        <div class="form-group">
+          <label class="form-label">Severity (1 = mild, 10 = severe)</label>
+          <input type="number" id="hae-se-sev" class="form-control" min="1" max="10" value="3" ${writeDisabledAttr}>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Body part (optional)</label>
+          <input type="text" id="hae-se-body-part" class="form-control" maxlength="80" placeholder="e.g. forehead, scalp, left arm" ${writeDisabledAttr}>
         </div>
         <div class="form-group">
           <label class="form-label">Description</label>
-          <textarea id="hae-body" class="form-control" rows="4" placeholder="Describe what happened, how you felt, or any symptoms you noticed…"></textarea>
+          <textarea id="hae-se-note" class="form-control" rows="3" placeholder="What did you experience?" ${writeDisabledAttr}></textarea>
         </div>
-        <div id="hae-status" style="display:none;margin-bottom:10px;font-size:13px"></div>
-        <button class="btn btn-primary" style="width:100%;padding:11px" onclick="window._haeSubmit()">Submit Report →</button>
-        <div class="notice notice-info" style="margin-top:12px;font-size:12px">
-          For medical emergencies call your local emergency number. This form is for non-urgent reports only.
+        <div class="form-group">
+          <label class="form-label">Attach to event</label>
+          <select id="hae-se-parent" class="form-control" ${writeDisabledAttr}>
+            ${events.length === 0
+              ? `<option value="">— Log a task above first —</option>`
+              : events.map(ev => `<option value="${_hdEsc(ev.id)}">${_hdEsc((EVENT_TYPE_LABELS[ev.event_type] || ev.event_type || 'Event'))} · ${_hdEsc(ev.report_date || '')}</option>`).join('')}
+          </select>
         </div>
+        <div id="hae-se-status" style="display:none;margin-bottom:10px;font-size:13px"></div>
+        <button class="btn btn-secondary" style="width:100%;padding:11px" onclick="window._haeLogSideEffect()" ${writeDisabledAttr || (events.length === 0 ? 'disabled' : '')}>Log side-effect →</button>
       </div>
     </div>
 
     <!-- Event history -->
     <div class="card" style="margin-bottom:20px">
       <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
-        <h3>Report History</h3>
-        <span style="font-size:12px;color:var(--text-tertiary)">${events.length} report${events.length !== 1 ? 's' : ''}</span>
+        <h3>Event history</h3>
+        <span style="font-size:12px;color:var(--text-tertiary)">${events.length} event${events.length !== 1 ? 's' : ''}</span>
       </div>
       <div style="padding:0 0 4px">
         ${events.length === 0
-          ? `<div style="padding:24px;text-align:center;color:var(--text-tertiary);font-size:13px">No reports yet.</div>`
+          ? `<div style="padding:24px;text-align:center;color:var(--text-tertiary);font-size:13px">No adherence events yet. As you complete or skip home tasks, they will appear here.</div>`
           : events.slice().sort((a,b) => new Date(b.report_date||b.created_at||0)-new Date(a.report_date||a.created_at||0)).map(ev => {
               const sev   = ev.severity || 'low';
               const color = SEVERITY_COLORS[sev] || 'var(--text-secondary)';
-              const label = EVENT_TYPE_LABELS[ev.event_type] || _hdEsc(ev.event_type || 'Report');
+              const label = EVENT_TYPE_LABELS[ev.event_type] || _hdEsc(ev.event_type || 'Event');
               const ack   = (ev.status && ev.status !== 'open') ? ` · ${ev.status.charAt(0).toUpperCase() + ev.status.slice(1)}` : '';
+              const escalated = ev.status === 'escalated';
               return `<div style="padding:12px 18px;border-bottom:1px solid var(--border)">
                 <div style="display:flex;align-items:flex-start;gap:10px">
                   <div style="flex:1">
-                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
                       <span style="font-size:13px;font-weight:600;color:var(--text-primary)">${_hdEsc(label)}</span>
-                      <span style="font-size:10px;padding:2px 8px;border-radius:99px;background:${color}22;color:${color};font-weight:600">${_hdEsc(sev)}</span>
+                      ${ev.event_type === 'side_effect' ? `<span style="font-size:10px;padding:2px 8px;border-radius:99px;background:${color}22;color:${color};font-weight:600">${_hdEsc(sev)}</span>` : ''}
+                      ${escalated ? `<span style="font-size:10px;padding:2px 8px;border-radius:99px;background:rgba(255,107,107,0.18);color:#ff6b6b;font-weight:600">Escalated</span>` : ''}
                     </div>
                     <div style="font-size:11.5px;color:var(--text-tertiary)">${fmtDate(ev.report_date||ev.created_at)}${_hdEsc(ack)}</div>
                     ${ev.body ? `<div style="font-size:12.5px;color:var(--text-secondary);margin-top:5px;line-height:1.55">${_hdEsc(ev.body)}</div>` : ''}
+                    ${(!escalated && !writeDisabled) ? `<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+                      <button class="btn btn-ghost" style="font-size:11.5px;padding:5px 10px" onclick="window._haeEscalate('${_hdEsc(ev.id)}')">Escalate to clinician →</button>
+                    </div>` : ''}
+                    ${escalated ? `<div style="margin-top:8px"><a href="#" onclick="event.preventDefault(); window._haeViewAEHub('${_hdEsc(ev.id)}')" style="font-size:11.5px;color:var(--blue)">View AE Hub draft →</a></div>` : ''}
                   </div>
                 </div>
               </div>`;
             }).join('')}
       </div>
     </div>
+
+    <!-- Export strip -->
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-body" style="padding:14px 18px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <span style="font-size:12.5px;color:var(--text-secondary)">Export your adherence record:</span>
+        <a class="btn btn-ghost" style="font-size:12px;padding:6px 12px" href="/api/v1/adherence/export.csv" onclick="window._haeAuditExport('csv')">CSV</a>
+        <a class="btn btn-ghost" style="font-size:12px;padding:6px 12px" href="/api/v1/adherence/export.ndjson" onclick="window._haeAuditExport('ndjson')">NDJSON</a>
+      </div>
+    </div>
   `;
 
-  window._haeSubmit = async function() {
-    const typeEl     = document.getElementById('hae-type');
-    const severityEl = document.getElementById('hae-severity');
-    const dateEl     = document.getElementById('hae-date');
-    const bodyEl     = document.getElementById('hae-body');
-    const statusEl   = document.getElementById('hae-status');
+  // ── Action handlers ──────────────────────────────────────────────────────
 
-    if (!typeEl?.value) {
-      if (statusEl) { statusEl.style.display=''; statusEl.style.color='#ff6b6b'; statusEl.textContent='Please select an event type.'; }
-      return;
-    }
-    if (!bodyEl?.value?.trim()) {
-      if (statusEl) { statusEl.style.display=''; statusEl.style.color='#ff6b6b'; statusEl.textContent='Please add a description.'; }
-      return;
-    }
+  window._haeLog = async function() {
+    if (writeDisabled) return;
+    const statusEl = document.getElementById('hae-task-status');
+    const dateEl   = document.getElementById('hae-date');
+    const bodyEl   = document.getElementById('hae-body');
+    const statusOut = document.getElementById('hae-status');
 
     const payload = {
-      event_type:  typeEl.value,
-      severity:    severityEl?.value || 'low',
-      report_date: dateEl?.value || new Date().toISOString().slice(0,10),
-      body:        bodyEl.value.trim(),
+      status: statusEl?.value || 'complete',
+      report_date: dateEl?.value || todayStr,
+      body: (bodyEl?.value || '').trim() || null,
     };
 
-    const btn = el.querySelector('button.btn-primary[onclick*="_haeSubmit"]');
-    if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
-    if (statusEl) statusEl.style.display = 'none';
+    const btn = el.querySelector('button.btn-primary[onclick*="_haeLog"]');
+    if (btn) { btn.disabled = true; btn.textContent = 'Logging…'; }
+    if (statusOut) statusOut.style.display = 'none';
 
     try {
-      await api.portalSubmitAdherenceEvent(payload);
-      if (statusEl) {
-        statusEl.style.display='';
-        statusEl.style.color='var(--teal)';
-        statusEl.textContent='Report recorded. Clinic review timing depends on portal workflow.';
+      await api.adherenceEventLog(payload);
+      if (statusOut) {
+        statusOut.style.display = '';
+        statusOut.style.color = 'var(--teal)';
+        statusOut.textContent = 'Task logged. It will appear in your event history below.';
       }
-      if (btn) { btn.disabled = false; btn.textContent = 'Submit Report →'; }
-      setTimeout(() => pgPatientAdherenceEvents(), 1000);
+      try {
+        api.postAdherenceAuditEvent({
+          event: payload.status === 'complete' ? 'task_completed' : (payload.status === 'skipped' ? 'task_skipped' : 'task_partial'),
+          note: `date=${payload.report_date}`,
+          using_demo_data: !!isDemo,
+        });
+      } catch (_e) { /* never block UI */ }
+      if (btn) { btn.disabled = false; btn.textContent = 'Log task →'; }
+      setTimeout(() => pgPatientAdherenceEvents(), 800);
     } catch (err) {
-      if (statusEl) {
-        statusEl.style.display='';
-        statusEl.style.color='#ff6b6b';
-        statusEl.textContent='Could not submit report: ' + (err?.message || 'Unknown error');
+      if (statusOut) {
+        statusOut.style.display = '';
+        statusOut.style.color = '#ff6b6b';
+        statusOut.textContent = 'Could not log task: ' + (err?.message || 'Unknown error');
       }
-      if (btn) { btn.disabled = false; btn.textContent = 'Submit Report →'; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Log task →'; }
     }
+  };
+
+  window._haeLogSideEffect = async function() {
+    if (writeDisabled) return;
+    const sevEl   = document.getElementById('hae-se-sev');
+    const bpEl    = document.getElementById('hae-se-body-part');
+    const noteEl  = document.getElementById('hae-se-note');
+    const parentEl = document.getElementById('hae-se-parent');
+    const out     = document.getElementById('hae-se-status');
+
+    const sev = parseInt(sevEl?.value || '0', 10);
+    if (!(sev >= 1 && sev <= 10)) {
+      if (out) { out.style.display=''; out.style.color='#ff6b6b'; out.textContent = 'Severity must be between 1 and 10.'; }
+      return;
+    }
+    if (!noteEl?.value?.trim()) {
+      if (out) { out.style.display=''; out.style.color='#ff6b6b'; out.textContent = 'Please describe the side-effect.'; }
+      return;
+    }
+    const parentId = parentEl?.value || '';
+    if (!parentId) {
+      if (out) { out.style.display=''; out.style.color='#ff6b6b'; out.textContent = 'Pick an event to attach the side-effect to.'; }
+      return;
+    }
+
+    const btn = el.querySelector('button[onclick*="_haeLogSideEffect"]');
+    if (btn) { btn.disabled = true; btn.textContent = 'Logging…'; }
+    if (out) out.style.display = 'none';
+
+    try {
+      await api.adherenceEventSideEffect(parentId, {
+        severity: sev,
+        body_part: (bpEl?.value || '').trim() || null,
+        note: noteEl.value.trim(),
+      });
+      if (out) {
+        out.style.display = '';
+        out.style.color = 'var(--teal)';
+        out.textContent = sev >= 7
+          ? 'Side-effect logged. Your care team has been alerted at high priority.'
+          : 'Side-effect logged.';
+      }
+      try {
+        api.postAdherenceAuditEvent({
+          event: 'side_effect_logged',
+          event_record_id: parentId,
+          note: `severity=${sev}`,
+          using_demo_data: !!isDemo,
+        });
+      } catch (_e) { /* never block UI */ }
+      if (btn) { btn.disabled = false; btn.textContent = 'Log side-effect →'; }
+      setTimeout(() => pgPatientAdherenceEvents(), 800);
+    } catch (err) {
+      if (out) {
+        out.style.display = '';
+        out.style.color = '#ff6b6b';
+        out.textContent = 'Could not log side-effect: ' + (err?.message || 'Unknown error');
+      }
+      if (btn) { btn.disabled = false; btn.textContent = 'Log side-effect →'; }
+    }
+  };
+
+  window._haeEscalate = async function(eventId) {
+    if (writeDisabled || !eventId) return;
+    const reason = window.prompt('Briefly describe why you want to escalate this to your clinician:');
+    if (!reason || !reason.trim()) return;
+    try {
+      const result = await api.adherenceEventEscalate(eventId, reason.trim());
+      try {
+        api.postAdherenceAuditEvent({
+          event: 'escalated_to_clinician',
+          event_record_id: eventId,
+          note: result?.adverse_event_id ? `ae_id=${result.adverse_event_id}` : 'no_ae_draft',
+          using_demo_data: !!isDemo,
+        });
+      } catch (_e) { /* never block UI */ }
+      pgPatientAdherenceEvents();
+    } catch (err) {
+      window.alert('Could not escalate: ' + (err?.message || 'Unknown error'));
+    }
+  };
+
+  window._haeViewAEHub = function(eventId) {
+    try {
+      api.postAdherenceAuditEvent({
+        event: 'deep_link_followed',
+        event_record_id: eventId,
+        note: 'target=adverse_events_hub',
+        using_demo_data: !!isDemo,
+      });
+    } catch (_e) { /* never block UI */ }
+    if (typeof window._navPatient === 'function') {
+      window._navPatient('pt-adverse-events');
+    } else {
+      window.location.hash = '#pt-adverse-events';
+    }
+  };
+
+  window._haeAuditExport = function(format) {
+    try {
+      api.postAdherenceAuditEvent({
+        event: 'export',
+        note: `format=${format}`,
+        using_demo_data: !!isDemo,
+      });
+    } catch (_e) { /* never block UI */ }
   };
 }
 
