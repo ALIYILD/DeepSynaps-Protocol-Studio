@@ -432,3 +432,56 @@ def test_endpoints_require_clinician_role(client: TestClient, phase6_fixture):
     assert r1.status_code in (401, 403)
     r2 = client.post(f"/api/v1/qeeg-raw/{aid}/cleaning-report")
     assert r2.status_code in (401, 403)
+
+
+# ── 5. Phase 7 — window perf stats (in-memory ring buffer) ────────────────
+
+
+def test_window_perf_stats_post_then_get_aggregates(
+    client: TestClient, phase6_fixture
+):
+    """Phase 7: clients can push (frame_ms, load_ms) samples and read p50/p95."""
+    aid = phase6_fixture["analysis_id"]
+    headers = {"Authorization": f"Bearer {phase6_fixture['token']}"}
+
+    # Reset the ring buffer for this analysis to avoid cross-test contamination.
+    from app.routers import qeeg_raw_router as _qr
+
+    _qr._PERF_RING.pop(aid, None)
+
+    samples = [
+        {"frame_render_ms": 5.0,  "window_load_ms": 30.0,  "sample_count": 2500, "channel_count": 19},
+        {"frame_render_ms": 7.5,  "window_load_ms": 40.0,  "sample_count": 2500, "channel_count": 19},
+        {"frame_render_ms": 12.0, "window_load_ms": 80.0,  "sample_count": 2500, "channel_count": 19},
+    ]
+    for s in samples:
+        r = client.post(
+            f"/api/v1/qeeg-raw/{aid}/window-perf-stats",
+            json=s,
+            headers=headers,
+        )
+        assert r.status_code == 200, r.text
+
+    r = client.get(f"/api/v1/qeeg-raw/{aid}/window-perf-stats", headers=headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["sample_count"] == 3
+    # Percentiles are non-null and ordered sensibly.
+    assert body["p50_frame_ms"] is not None
+    assert body["p95_frame_ms"] is not None
+    assert body["p50_frame_ms"] <= body["p95_frame_ms"]
+    assert body["p50_window_load_ms"] is not None
+    assert len(body["last_n"]) == 3
+
+
+def test_window_perf_stats_requires_clinician_role(
+    client: TestClient, phase6_fixture
+):
+    aid = phase6_fixture["analysis_id"]
+    r = client.get(f"/api/v1/qeeg-raw/{aid}/window-perf-stats")
+    assert r.status_code in (401, 403)
+    r2 = client.post(
+        f"/api/v1/qeeg-raw/{aid}/window-perf-stats",
+        json={"frame_render_ms": 1, "window_load_ms": 2, "sample_count": 0, "channel_count": 0},
+    )
+    assert r2.status_code in (401, 403)

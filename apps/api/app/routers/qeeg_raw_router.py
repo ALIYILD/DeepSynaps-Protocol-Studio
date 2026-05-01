@@ -1285,3 +1285,98 @@ def post_cleaning_report(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ── Phase 7 — perf telemetry ────────────────────────────────────────────────
+#
+# The frontend renderer is already externally windowed (see
+# apps/web/src/eeg-signal-renderer.js header comment). Phase 7 adds a tiny,
+# memory-only ring buffer of perf samples per analysis so we can answer
+# "is rendering still smooth on long recordings" without persisting anything
+# to the database. The buffer is intentionally process-local — it resets on
+# restart and is not rate-limited because the only writers are the workstation
+# clients themselves.
+
+class WindowPerfSampleIn(BaseModel):
+    frame_render_ms: float = Field(..., ge=0)
+    window_load_ms: float = Field(..., ge=0)
+    sample_count: int = Field(..., ge=0)
+    channel_count: int = Field(..., ge=0)
+
+
+class WindowPerfStatsResponse(BaseModel):
+    analysis_id: str
+    sample_count: int = 0
+    p50_frame_ms: Optional[float] = None
+    p95_frame_ms: Optional[float] = None
+    p50_window_load_ms: Optional[float] = None
+    p95_window_load_ms: Optional[float] = None
+    last_n: list[dict[str, Any]] = Field(default_factory=list)
+
+
+# Per-process ring buffer keyed by analysis id. Capped at _PERF_BUF_SIZE
+# samples per analysis to bound memory regardless of client behaviour.
+_PERF_BUF_SIZE = 64
+_PERF_RING: dict[str, list[dict[str, Any]]] = {}
+
+
+def _percentile(values: list[float], pct: float) -> Optional[float]:
+    if not values:
+        return None
+    s = sorted(values)
+    if len(s) == 1:
+        return float(s[0])
+    k = max(0, min(len(s) - 1, int(round((pct / 100.0) * (len(s) - 1)))))
+    return float(s[k])
+
+
+@router.post(
+    "/{analysis_id}/window-perf-stats",
+    response_model=WindowPerfStatsResponse,
+)
+def push_window_perf_sample(
+    analysis_id: str,
+    sample: WindowPerfSampleIn,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> WindowPerfStatsResponse:
+    """Append one (frame_ms, load_ms) sample to the in-memory ring buffer."""
+    require_minimum_role(actor, "clinician")
+    _load_analysis(analysis_id, db)
+    buf = _PERF_RING.setdefault(analysis_id, [])
+    buf.append(sample.model_dump())
+    if len(buf) > _PERF_BUF_SIZE:
+        del buf[: len(buf) - _PERF_BUF_SIZE]
+    return _summarise_perf(analysis_id, buf)
+
+
+@router.get(
+    "/{analysis_id}/window-perf-stats",
+    response_model=WindowPerfStatsResponse,
+)
+def get_window_perf_stats(
+    analysis_id: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> WindowPerfStatsResponse:
+    """Return aggregated render perf stats from the in-memory ring buffer."""
+    require_minimum_role(actor, "clinician")
+    _load_analysis(analysis_id, db)
+    buf = _PERF_RING.get(analysis_id, [])
+    return _summarise_perf(analysis_id, buf)
+
+
+def _summarise_perf(analysis_id: str, buf: list[dict[str, Any]]) -> WindowPerfStatsResponse:
+    if not buf:
+        return WindowPerfStatsResponse(analysis_id=analysis_id, sample_count=0, last_n=[])
+    frame_vals = [float(s["frame_render_ms"]) for s in buf]
+    load_vals = [float(s["window_load_ms"]) for s in buf]
+    return WindowPerfStatsResponse(
+        analysis_id=analysis_id,
+        sample_count=len(buf),
+        p50_frame_ms=_percentile(frame_vals, 50),
+        p95_frame_ms=_percentile(frame_vals, 95),
+        p50_window_load_ms=_percentile(load_vals, 50),
+        p95_window_load_ms=_percentile(load_vals, 95),
+        last_n=buf[-10:],
+    )

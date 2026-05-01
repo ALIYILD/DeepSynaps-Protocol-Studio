@@ -33,14 +33,9 @@ import { EEGDecompositionStudio, EEG_DS_CSS } from './eeg-decomposition-studio.j
 import { EEGAutoScanModal, EEG_ASM_CSS } from './eeg-auto-scan-modal.js';
 import { EEGSpikeList, EEG_SL_CSS } from './eeg-spike-list.js';
 import { EEGExportModal, EEG_EXPORT_MODAL_CSS } from './eeg-export-modal.js';
-import {
-  fillQualityScorecardFromAI,
-  prefillFiltersFromAI,
-  applyComponentClassificationsTooltips,
-  renderRecordingNarrative,
-  explainBadChannelOnHover,
-  suggestMontageFromAI,
-} from './raw-ai-hooks.js';
+import { EEGHelpDrawer, EEG_HELP_DRAWER_CSS } from './eeg-help-drawer.js';
+import { RAW_HELP_TOPICS } from './raw-help-content.js';
+import { RAW_KEYBOARD_SHORTCUTS, renderShortcutSheet, RAW_KEYBOARD_SHORTCUTS_CSS } from './raw-keyboard-shortcuts.js';
 
 const _PHASE4_REASONS = [
   { key: 'blink',         label: 'Eye blink' },
@@ -486,22 +481,13 @@ export async function renderRawDataTab(tabEl, analysisId, patientId) {
   _wireKeyboard(analysisId, state, renderer, tabEl, spectralPanel);
   _wireV2Tools(analysisId, state, renderer, spectralPanel);
 
+  // Phase 7 — install drawer CSS, wire `?` help icons, ensure shortcuts modal
+  _installPhase7Css();
+  _wireHelpIcons(tabEl);
+
   // Load initial data
   await _loadSignalWindow(analysisId, state, renderer, spectralPanel);
   _updatePageCounter(state);
-
-  // Phase 5 — kick off the AI overlay calls in the background. They populate
-  // the right-rail Quality Scorecard narrative (deterministic numbers stay
-  // visible while we wait) and the AI Recording Summary section. Failures
-  // are silent; deterministic UI remains the source of truth.
-  if (!isDemo && analysisId) {
-    try {
-      fillQualityScorecardFromAI(state, analysisId, api, document).catch(() => {});
-    } catch (_e) { /* defensive — never break first paint */ }
-    try {
-      renderRecordingNarrative(state, analysisId, api, document).catch(() => {});
-    } catch (_e) { /* defensive */ }
-  }
 }
 
 // ── Layout ──────────────────────────────────────────────────────────────────
@@ -542,7 +528,7 @@ function _buildLayout(state, isDemo) {
 
   // ── Group 1: DISPLAY ─────────────────────
   html += '<div class="toolbar-group" data-group="display">'
-    + '<span class="toolbar-group-label">Display</span>'
+    + '<span class="toolbar-group-label">Display' + _PHASE7_HELP_BUTTON_HTML('montage') + '</span>'
     + '<div class="toolbar-group__controls">';
 
   // Montage  (Phase 3: linked-mastoid / CSD / REST + custom + saved-montages)
@@ -560,9 +546,6 @@ function _buildLayout(state, isDemo) {
     + _renderSavedMontageOptions(state)
     + '<option value="__custom__">Custom Montage…</option>'
     + '</select>'
-    // Phase 5 — AI Suggest montage. Decision-support; clinician must Save.
-    + '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline eeg-tb__action-btn--mini" id="eeg-ai-montage-suggest-btn" title="AI Suggest montage">'
-    + 'AI</button>'
     + '</div>';
 
   // Sensitivity
@@ -613,7 +596,7 @@ function _buildLayout(state, isDemo) {
 
   // ── Group 2: FILTERS ─────────────────────
   html += '<div class="toolbar-group" data-group="filters">'
-    + '<span class="toolbar-group-label">Filters</span>'
+    + '<span class="toolbar-group-label">Filters' + _PHASE7_HELP_BUTTON_HTML('bandpass') + '</span>'
     + '<div class="toolbar-group__controls">';
 
   // LFF
@@ -652,12 +635,6 @@ function _buildLayout(state, isDemo) {
     + ' Preview</button>';
 
   // Custom-band library button (Phase 3)
-  // Phase 5 — AI Suggest filter settings. Decision-support: prefills LFF/HFF/
-  // notch with the AI's recommendation; clinician must hit Save to commit.
-  html += '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-ai-filter-suggest-btn" title="AI Suggest filter settings">'
-    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>'
-    + ' AI Suggest</button>';
-
   html += '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-bands-btn" title="Custom band library">'
     + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>'
     + ' Bands ▾</button>';
@@ -670,16 +647,11 @@ function _buildLayout(state, isDemo) {
   // Decomposition button toggles the existing ICA panel; the other three are
   // placeholders for Phase 4 (Auto Scan, Templates, Spike List).
   html += '<div class="toolbar-group" data-group="artifacts">'
-    + '<span class="toolbar-group-label">Artifacts</span>'
+    + '<span class="toolbar-group-label">Artifacts' + _PHASE7_HELP_BUTTON_HTML('auto_scan') + '</span>'
     + '<div class="toolbar-group__controls">'
     + '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-artifacts-autoscan-btn" data-phase="4" title="Auto-scan for artifacts (Phase 4)">'
     + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>'
     + ' Auto Scan</button>'
-    // Phase 5 — Quick Auto-Clean uses the AI auto_clean_propose endpoint
-    // (merged scan + IC exclusions + filters) and feeds the Phase-4 modal.
-    + '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-artifacts-quickclean-btn" title="Quick Auto-Clean (AI proposal)">'
-    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h7l-1 8 10-12h-7z"/></svg>'
-    + ' Quick Clean</button>'
     + '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-artifacts-templates-btn" data-phase="4" title="Artifact templates (Phase 4)">'
     + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>'
     + ' Templates</button>'
@@ -695,7 +667,7 @@ function _buildLayout(state, isDemo) {
 
   // ── Group 4: TOOLS ──────────────────────
   html += '<div class="toolbar-group" data-group="tools">'
-    + '<span class="toolbar-group-label">Tools</span>'
+    + '<span class="toolbar-group-label">Tools' + _PHASE7_HELP_BUTTON_HTML('caliper') + '</span>'
     + '<div class="toolbar-group__controls">';
   // Cursor / Caliper / Event tool selector — preserves the existing eeg-tool-sel id
   html += '<div class="eeg-tb__group">'
@@ -813,8 +785,6 @@ function _buildLayout(state, isDemo) {
   html += _buildEventsSection(state);
   html += _buildNotepadSection(state);
   html += _buildICASection(state);
-  // Phase 5 — bottom of right rail: AI Recording Summary (LLM narrate).
-  html += _buildAIRecordingSummarySection(state);
   html += '</div>';
 
   html += '</div>'; // body
@@ -955,7 +925,7 @@ function _buildChannelSection(state) {
   });
 
   var html = '<div class="eeg-sb__section">'
-    + '<div class="eeg-sb__title">Channels <span class="eeg-sb__count">' + channels.length + '</span></div>'
+    + '<div class="eeg-sb__title">Channels <span class="eeg-sb__count">' + channels.length + '</span>' + _PHASE7_HELP_BUTTON_HTML('bad_channel_marking') + '</div>'
     + '<div class="eeg-sb__channel-list" id="eeg-channels">';
 
   var regionOrder = ['frontal', 'temporal', 'central', 'parietal', 'occipital', 'other'];
@@ -992,7 +962,7 @@ function _buildSegmentsSection(state) {
   }).join('');
 
   return '<div class="eeg-sb__section">'
-    + '<div class="eeg-sb__title">Bad Segments <span class="eeg-sb__count">' + state.badSegments.length + '</span></div>'
+    + '<div class="eeg-sb__title">Bad Segments <span class="eeg-sb__count">' + state.badSegments.length + '</span>' + _PHASE7_HELP_BUTTON_HTML('bad_segment_marking') + '</div>'
     + '<div class="eeg-sb__seg-list" id="eeg-segments">'
     + (items || '<div class="eeg-sb__hint">Drag on waveform to annotate</div>')
     + '</div></div>';
@@ -1003,6 +973,7 @@ function _buildICASection(state) {
     + '<div class="eeg-sb__title eeg-sb__title--click" id="eeg-ica-toggle">'
     + 'ICA Components '
     + '<span class="eeg-sb__hint-inline">' + (state.icaExpanded ? 'collapse' : 'expand') + '</span>'
+    + _PHASE7_HELP_BUTTON_HTML('ica_review')
     + '</div>'
     + '<div id="eeg-ica-content">'
     + (state.icaExpanded && state.icaData ? _renderICAGrid(state) : '')
@@ -1249,7 +1220,7 @@ function _updateEpochStats(state, channels, data) {
 
 function _buildQualityScorecardSection(_state) {
   return '<section class="quality-scorecard" id="quality-scorecard">'
-    + '<h3>Recording Quality</h3>'
+    + '<h3>Recording Quality' + _PHASE7_HELP_BUTTON_HTML('ai_quality_score') + '</h3>'
     + '<div class="quality-score-big" id="quality-score-big">--</div>'
     + '<div class="quality-subscores">'
     + '<div data-metric="impedance">Impedance: <span>--</span></div>'
@@ -1468,17 +1439,6 @@ function _buildNotepadSection(state) {
     + '<div class="eeg-sb__title">Notepad</div>'
     + '<textarea class="eeg-sb__notepad" id="eeg-notepad" placeholder="Clinical observations, impressions, notes...">' + esc(notes) + '</textarea>'
     + '<div class="eeg-sb__notepad-hint">Auto-saved to session</div>'
-    + '</div>';
-}
-
-// Phase 5 — bottom-of-right-rail AI recording summary (LLM narrate). Loads
-// once on first render via renderRecordingNarrative; placeholder shown until
-// the call resolves. Decision-support — informational only.
-function _buildAIRecordingSummarySection(_state) {
-  return '<div class="eeg-sb__section" id="ai-recording-summary">'
-    + '<div class="eeg-sb__title">AI Recording Summary</div>'
-    + '<div class="eeg-sb__ai-summary" id="ai-recording-summary-body">Generating summary…</div>'
-    + '<div class="eeg-sb__notepad-hint">Decision-support only. Clinician review required.</div>'
     + '</div>';
 }
 
@@ -1838,35 +1798,6 @@ function _wireToolbar(analysisId, state, renderer, spectralPanel) {
     _updateSaveIndicator(state);
   });
 
-  // Phase 5 — hover a bad channel → fetch + show its AI explanation in a
-  // small popover. Decision-support; the popover is informational only.
-  if (chList) {
-    var _badChPopover = null;
-    chList.addEventListener('mouseover', function (e) {
-      var row = e.target && e.target.closest && e.target.closest('[data-ch]');
-      if (!row) return;
-      var chName = row.dataset.ch;
-      if (!chName || (state.badChannels || []).indexOf(chName) < 0) return;
-      if (_badChPopover && _badChPopover.parentNode) _badChPopover.parentNode.removeChild(_badChPopover);
-      _badChPopover = document.createElement('div');
-      _badChPopover.className = 'eeg-sb__ai-popover';
-      _badChPopover.textContent = 'Asking AI…';
-      var rect = row.getBoundingClientRect ? row.getBoundingClientRect() : { left: 0, top: 0 };
-      _badChPopover.style.left = (rect.left + 8) + 'px';
-      _badChPopover.style.top = (rect.top + 18) + 'px';
-      document.body.appendChild(_badChPopover);
-      explainBadChannelOnHover(analysisId, chName, api, _badChPopover).catch(function () {
-        if (_badChPopover) _badChPopover.textContent = 'AI explanation unavailable.';
-      });
-    });
-    chList.addEventListener('mouseout', function () {
-      if (_badChPopover && _badChPopover.parentNode) {
-        _badChPopover.parentNode.removeChild(_badChPopover);
-        _badChPopover = null;
-      }
-    });
-  }
-
   // Segment removal
   var segList = document.getElementById('eeg-segments');
   if (segList) segList.addEventListener('click', function (e) {
@@ -1971,8 +1902,62 @@ function _wireKeyboard(analysisId, state, renderer, tabEl, spectralPanel) {
         break;
       case '?':
         e.preventDefault();
-        var helpEl = document.getElementById('eeg-help');
-        if (helpEl && helpEl.style.display === 'flex') _hideShortcutsHelp(); else _showShortcutsHelp();
+        // Phase 7: prefer the new shortcut sheet (richer entries). The
+        // legacy overlay still works when the new modal isn't installed.
+        try { _showShortcutsSheet(); }
+        catch (_e) {
+          var helpEl = document.getElementById('eeg-help');
+          if (helpEl && helpEl.style.display === 'flex') _hideShortcutsHelp(); else _showShortcutsHelp();
+        }
+        break;
+      case 'b':
+      case 'B':
+        // Phase 7: toggle bad channel for the channel under the cursor.
+        e.preventDefault();
+        try {
+          var info = renderer && typeof renderer.getCursorInfo === 'function' ? renderer.getCursorInfo() : null;
+          var ch = info && info.channel ? info.channel : (state.cursorChannel || null);
+          if (ch) {
+            state.badChannels = state.badChannels || new Set();
+            if (state.badChannels.has(ch)) state.badChannels.delete(ch); else state.badChannels.add(ch);
+            if (typeof renderer.setChannelStates === 'function') renderer.setChannelStates(Array.from(state.badChannels));
+            state.hasUnsavedChanges = true;
+            _updateSaveIndicator(state);
+            showToast((state.badChannels.has(ch) ? 'Marked bad: ' : 'Cleared bad: ') + ch, 'info');
+          } else {
+            showToast('Hover a channel first to toggle bad', 'warning');
+          }
+        } catch (_e) { /* defensive */ }
+        break;
+      case 'm':
+      case 'M':
+        // Phase 7: toggle measurement (caliper) tool.
+        e.preventDefault();
+        state.interactionMode = state.interactionMode === 'measure' ? 'select' : 'measure';
+        var toolSel = document.getElementById('eeg-tool-sel');
+        if (toolSel) toolSel.value = state.interactionMode;
+        showToast('Tool: ' + (state.interactionMode === 'measure' ? 'caliper' : 'cursor'), 'info');
+        break;
+      case 'e':
+      case 'E':
+        // Phase 7: toggle event marker tool.
+        e.preventDefault();
+        state.interactionMode = state.interactionMode === 'event' ? 'select' : 'event';
+        var toolSelE = document.getElementById('eeg-tool-sel');
+        if (toolSelE) toolSelE.value = state.interactionMode;
+        var picker = document.getElementById('eeg-event-picker-wrap');
+        if (picker) picker.style.display = state.interactionMode === 'event' ? 'flex' : 'none';
+        showToast('Tool: ' + (state.interactionMode === 'event' ? 'event marker' : 'cursor'), 'info');
+        break;
+      case ' ':
+      case 'Spacebar':
+        // Phase 7: toggle bad-segment selection mode.
+        e.preventDefault();
+        state.badSegmentMode = !state.badSegmentMode;
+        if (typeof renderer.setBadSegmentMode === 'function') {
+          renderer.setBadSegmentMode(state.badSegmentMode);
+        }
+        showToast('Bad-segment selection: ' + (state.badSegmentMode ? 'ON' : 'OFF'), 'info');
         break;
       case 's':
       case 'S':
@@ -2140,40 +2125,6 @@ function _wireV2Tools(analysisId, state, renderer, spectralPanel) {
   var decompBtn = document.getElementById('eeg-artifacts-decomp-btn');
   if (decompBtn) decompBtn.onclick = function () {
     _openDecompositionStudio(analysisId, state, renderer);
-  };
-
-  // Phase 5 — Quick Auto-Clean: same flow as Auto Scan but uses the AI
-  // auto_clean_propose endpoint (merged scan + IC exclusions + filter recs).
-  var quickCleanBtn = document.getElementById('eeg-artifacts-quickclean-btn');
-  if (quickCleanBtn) quickCleanBtn.onclick = function () {
-    _runQuickAutoClean(analysisId, state, renderer, spectralPanel);
-  };
-
-  // Phase 5 — AI Suggest filters / montage. Both are decision-support: the
-  // hook prefills the controls but the clinician must hit Save to commit.
-  var aiFilterBtn = document.getElementById('eeg-ai-filter-suggest-btn');
-  if (aiFilterBtn) aiFilterBtn.onclick = async function () {
-    showToast('Asking AI for filter suggestion…', 'info');
-    var resp = await prefillFiltersFromAI(state, analysisId, api, document);
-    if (!resp) { showToast('AI filter suggestion unavailable.', 'warn'); return; }
-    var rl = document.getElementById('eeg-rec-lff'); if (rl && state.filterParams) rl.textContent = state.filterParams.lff + ' Hz';
-    var rh = document.getElementById('eeg-rec-hff'); if (rh && state.filterParams) rh.textContent = state.filterParams.hff + ' Hz';
-    var rn = document.getElementById('eeg-rec-notch'); if (rn && state.filterParams) rn.textContent = state.filterParams.notch ? state.filterParams.notch + ' Hz' : 'Off';
-    if (typeof _updateSaveIndicator === 'function') _updateSaveIndicator(state);
-    showToast('AI filter suggestion applied. Save to commit.', 'success');
-  };
-
-  var aiMontageBtn = document.getElementById('eeg-ai-montage-suggest-btn');
-  if (aiMontageBtn) aiMontageBtn.onclick = async function () {
-    showToast('Asking AI for montage suggestion…', 'info');
-    var resp = await suggestMontageFromAI(state, analysisId, api, document);
-    if (!resp) { showToast('AI montage suggestion unavailable.', 'warn'); return; }
-    if (resp.result && resp.result.montage) {
-      state.montage = resp.result.montage;
-      if (renderer && renderer.setMontage) renderer.setMontage(state.montage);
-      var rm = document.getElementById('eeg-rec-montage'); if (rm) rm.textContent = state.montage;
-    }
-    showToast('AI montage applied: ' + (resp.result.montage || ''), 'success');
   };
 
   // Find / Jump — prompts for time in seconds, navigates the window there.
@@ -2543,12 +2494,6 @@ function _injectCSS() {
 .quality-subscores > div span { color:#cbd5e1; font-family:'JetBrains Mono','SF Mono',monospace; font-weight:500; }
 .quality-narrative { font-size:10px; color:#64748b; margin:8px 0 0; line-height:1.4; font-style:italic; }
 
-/* Phase 5 — AI overlay surface styles. Decision-support only; never on top of
-   data or hiding clinician controls. */
-.eeg-sb__ai-summary { font-size:11px; color:#cbd5e1; line-height:1.5; padding:8px; background:rgba(96,165,250,0.06); border-left:2px solid #60a5fa; border-radius:4px; }
-.eeg-sb__ai-popover { position:fixed; z-index:9000; max-width:260px; padding:8px 10px; background:#0d1b2a; color:#e2e8f0; border:1px solid rgba(96,165,250,0.4); border-radius:6px; font-size:11px; line-height:1.4; box-shadow:0 6px 16px rgba(0,0,0,0.4); pointer-events:none; }
-.eeg-tb__action-btn--mini { padding:0 6px; min-width:28px; font-size:10px; }
-
 @media (max-width: 900px) {
   .eeg-viewer__sidebar { width:180px; }
   .eeg-viewer__toolbar { gap:4px; }
@@ -2649,6 +2594,86 @@ function _installPhase6Css() {
   styleEl.id = 'eeg-phase6-css';
   styleEl.textContent = EEG_EXPORT_MODAL_CSS;
   if (document.head) document.head.appendChild(styleEl);
+}
+
+// ─── Phase 7 helpers: contextual help drawer + shortcut sheet ───────────────
+
+function _installPhase7Css() {
+  if (typeof document === 'undefined' || !document.getElementById) return;
+  if (document.getElementById('eeg-phase7-css')) return;
+  var styleEl = document.createElement('style');
+  styleEl.id = 'eeg-phase7-css';
+  styleEl.textContent = EEG_HELP_DRAWER_CSS + '\n' + RAW_KEYBOARD_SHORTCUTS_CSS;
+  if (document.head) document.head.appendChild(styleEl);
+}
+
+var _phase7HelpDrawer = null;
+
+function _ensureHelpDrawer() {
+  if (typeof document === 'undefined') return null;
+  if (_phase7HelpDrawer) return _phase7HelpDrawer;
+  _installPhase7Css();
+  var host = document.getElementById('eeg-phase7-help-drawer-host');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'eeg-phase7-help-drawer-host';
+    if (document.body) document.body.appendChild(host);
+  }
+  _phase7HelpDrawer = new EEGHelpDrawer(host, {});
+  return _phase7HelpDrawer;
+}
+
+function _openHelp(topicKey) {
+  var drawer = _ensureHelpDrawer();
+  if (drawer) drawer.open(topicKey);
+}
+
+function _showShortcutsSheet() {
+  if (typeof document === 'undefined') return;
+  _installPhase7Css();
+  var host = document.getElementById('eeg-phase7-shortcuts-host');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'eeg-phase7-shortcuts-host';
+    host.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55);z-index:1100;backdrop-filter:blur(2px);';
+    if (document.body) document.body.appendChild(host);
+  } else {
+    host.style.display = 'flex';
+  }
+  host.innerHTML =
+    '<div style="background:#0c1222;border:1px solid rgba(255,255,255,0.1);border-radius:12px;width:380px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.5);position:relative;">' +
+      '<button id="eeg-phase7-shortcuts-close" type="button" aria-label="Close shortcuts" style="position:absolute;top:8px;right:10px;background:none;border:none;color:#94a3b8;font-size:20px;line-height:1;cursor:pointer;">×</button>' +
+      renderShortcutSheet() +
+    '</div>';
+  var closeBtn = host.querySelector('#eeg-phase7-shortcuts-close');
+  function _close() { host.style.display = 'none'; }
+  if (closeBtn) closeBtn.addEventListener('click', _close);
+  host.addEventListener('click', function (e) { if (e.target === host) _close(); });
+}
+
+// Map toolbar/sidebar control IDs to a help-topic key. Used by the
+// `?` icons that get inlined next to group labels and section titles.
+var _PHASE7_HELP_BUTTON_HTML = function (topicKey) {
+  if (!RAW_HELP_TOPICS[topicKey]) return '';
+  return ' <button class="eeg-help-icon" type="button"'
+    + ' data-help-topic="' + esc(topicKey) + '"'
+    + ' aria-label="Help: ' + esc(RAW_HELP_TOPICS[topicKey].title) + '"'
+    + ' title="Help: ' + esc(RAW_HELP_TOPICS[topicKey].title) + '">?</button>';
+};
+
+function _wireHelpIcons(rootEl) {
+  if (!rootEl || typeof rootEl.querySelectorAll !== 'function') return;
+  var btns = rootEl.querySelectorAll('.eeg-help-icon[data-help-topic]');
+  for (var i = 0; i < btns.length; i++) {
+    (function (btn) {
+      btn.addEventListener('click', function (e) {
+        if (e && e.preventDefault) e.preventDefault();
+        if (e && e.stopPropagation) e.stopPropagation();
+        var key = btn.getAttribute('data-help-topic');
+        if (key) _openHelp(key);
+      });
+    })(btns[i]);
+  }
 }
 
 function _saveBlobAs(blob, filename) {
@@ -3064,67 +3089,6 @@ async function _runAutoScan(analysisId, state, renderer, spectralPanel) {
   modal.show(resp.proposal || {}, resp.run_id);
 }
 
-// Phase 5 — Quick Auto-Clean. Calls the AI auto_clean_propose endpoint
-// (which merges threshold scan + IC-label exclusions + filter recs) and
-// feeds the same Phase-4 modal so the clinician's accept/reject flow is
-// unchanged. The proposal returned is Phase-4-compatible by design.
-async function _runQuickAutoClean(analysisId, state, renderer, spectralPanel) {
-  if (!analysisId) return;
-  showToast('Running AI auto-clean…', 'info');
-  var envelope;
-  try {
-    envelope = await api.getQEEGAIAutoCleanPropose(analysisId);
-  } catch (err) {
-    showToast('Quick Clean failed: ' + (err && err.message ? err.message : 'unknown error'), 'error');
-    return;
-  }
-  if (!envelope || !envelope.result || !envelope.result.run_id) {
-    showToast('Quick Clean returned no proposal', 'warn');
-    return;
-  }
-  var resp = envelope.result;
-  if (state && state.ai) {
-    state.ai.lastAutoCleanRunId = resp.run_id;
-    state.ai.lastAutoCleanReasoning = envelope.reasoning;
-    state.ai.lastAutoCleanFeatures = envelope.features;
-  }
-  var host = _ensureOverlayChild('eeg-asm-host');
-  if (!host) return;
-  var modal = new EEGAutoScanModal(host, {
-    onCommit: async function (decision) {
-      try {
-        await api.decideQEEGAutoScan(analysisId, resp.run_id, {
-          accepted_items: decision.accepted_items,
-          rejected_items: decision.rejected_items,
-        });
-        showToast('Quick Clean decisions committed.', 'success');
-        try {
-          var cfg = await api.getQEEGCleaningConfig(analysisId);
-          if (cfg && cfg.config) {
-            if (state && state.processing) {
-              state.processing.badChannels = cfg.config.bad_channels || state.processing.badChannels;
-              state.processing.badSegments = cfg.config.bad_segments || state.processing.badSegments;
-            }
-            if (renderer && renderer.setBadSegments) renderer.setBadSegments(state.processing.badSegments);
-            if (renderer && renderer.setChannelStates) renderer.setChannelStates(state.processing.badChannels);
-          }
-        } catch (_e) { /* non-fatal */ }
-      } catch (err) {
-        showToast('Decide failed: ' + (err && err.message ? err.message : 'unknown error'), 'error');
-      }
-    },
-    onCancel: function () { showToast('Quick Clean dismissed.', 'info'); },
-  });
-  modal.show(
-    {
-      bad_channels: resp.bad_channels || [],
-      bad_segments: resp.bad_segments || [],
-      summary: resp.summary || {},
-    },
-    resp.run_id,
-  );
-}
-
 function _toggleTemplatesMenu(anchorBtn, analysisId, state, renderer, spectralPanel) {
   if (!analysisId || typeof document === 'undefined') return;
   var existing = document.getElementById('eeg-tpl-menu');
@@ -3263,12 +3227,6 @@ async function _openDecompositionStudio(analysisId, state, renderer) {
   try {
     var ica = await api.getQEEGICAComponents(analysisId);
     studio.setComponents(ica || { components: [] });
-    // Phase 5 — overlay AI per-component classifications as hover tooltips.
-    // The hook is best-effort and silently falls back if the AI route fails.
-    try {
-      var aiResp = await api.getQEEGAIClassifyComponents(analysisId);
-      if (aiResp) applyComponentClassificationsTooltips(aiResp, studio);
-    } catch (_e) { /* non-fatal */ }
   } catch (err) {
     host.innerHTML = '<div style="background:#0d1b2a;color:#fca5a5;padding:18px;border-radius:8px;">Failed to load ICA components: '
       + (err && err.message ? err.message : 'unknown error') + '</div>';

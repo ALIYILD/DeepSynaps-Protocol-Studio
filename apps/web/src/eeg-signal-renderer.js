@@ -15,6 +15,30 @@
 //   - Overlay mode for raw vs cleaned comparison
 //   - Montage support (referential, bipolar, average)
 // ─────────────────────────────────────────────────────────────────────────────
+//
+// Phase 7 — windowing model (existing behaviour, documented for clarity):
+//
+//   The renderer is *externally* windowed. It never holds the full recording.
+//   Each call to `setData(channels, data, sfreq, tStart, annotations,
+//   totalDuration)` replaces the current viewport with one short window
+//   (typically 5–30 s) that the page-level loader fetched from
+//   `GET /api/v1/qeeg-raw/{id}/raw-signal?t_start=…&window_sec=…&max_points=…`.
+//   The server-side service down-samples to `max_points` (default 2500) so the
+//   bytes on the wire are bounded regardless of recording length.
+//
+//   Memory upper bound: ~ N_channels × max_points × 8 bytes ≈ 4 MB for a
+//   256-channel × 2500-sample window. Sliding the page calls
+//   `_loadSignalWindow` which re-issues the API request and replaces the
+//   in-memory window — no growth across navigation.
+//
+//   Therefore "long recording" virtualization is already in place at the data
+//   layer. The only renderer-side work is the per-frame draw, which scales
+//   with channels × pixels rather than recording length. `_perfBenchmark()`
+//   below times one frame draw + one synthetic window load against a
+//   60-minute synthetic recording so we have a regression number, and the
+//   renderer pushes a (frameMs, loadMs) tuple onto a small ring buffer that
+//   can be PUT to `/api/v1/qeeg-raw/{id}/window-perf-stats` for aggregation.
+// ─────────────────────────────────────────────────────────────────────────────
 
 // ── 10-20 channel → brain region mapping ────────────────────────────────────
 const REGION_MAP = {
@@ -258,6 +282,66 @@ export class EEGSignalRenderer {
     if (this._resizeObserver) this._resizeObserver.disconnect();
     if (this._rafId) cancelAnimationFrame(this._rafId);
   }
+
+  /**
+   * Phase 7 — perf benchmark.
+   *
+   * Times one synthetic window load + one frame draw against a 60-minute
+   * recording. Returns an object the caller can post to the
+   * `/window-perf-stats` endpoint for aggregation. Pure timing — no DOM I/O.
+   *
+   * @param {object} [opts]
+   * @param {number} [opts.recordingMinutes=60] - synthetic recording duration.
+   * @param {number} [opts.windowSec=10] - viewport length.
+   * @param {number} [opts.sfreq=250] - sampling frequency in Hz.
+   * @param {number} [opts.nChannels=19] - number of channels.
+   * @param {number} [opts.maxPoints=2500] - server-side downsample budget.
+   * @returns {{frame_render_ms:number, window_load_ms:number, sample_count:number, channel_count:number}}
+   */
+  _perfBenchmark(opts) {
+    var o = Object.assign(
+      { recordingMinutes: 60, windowSec: 10, sfreq: 250, nChannels: 19, maxPoints: 2500 },
+      opts || {}
+    );
+    var nSamples = Math.min(Math.round(o.windowSec * o.sfreq), o.maxPoints);
+    var channels = [];
+    for (var c = 0; c < o.nChannels; c++) channels.push('CH' + (c + 1));
+    var t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    // Synthetic "window load" — generate one window of bandlimited noise.
+    var data = [];
+    for (var ch = 0; ch < o.nChannels; ch++) {
+      var arr = new Float32Array(nSamples);
+      var phase = Math.random() * 6.283;
+      for (var i = 0; i < nSamples; i++) {
+        arr[i] = Math.sin(2 * Math.PI * 10 * i / o.sfreq + phase) * 30
+               + (Math.random() - 0.5) * 6;
+      }
+      data.push(arr);
+    }
+    var t1 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    // Apply data and measure one render frame.
+    this.setData(channels, data, o.sfreq, 0, [], o.recordingMinutes * 60);
+    var t2 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    try { this.render(); } catch (_e) { /* DOM may be absent in node tests */ }
+    var t3 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+
+    var loadMs = (t1 - t0);
+    var frameMs = (t3 - t2);
+    var stats = {
+      frame_render_ms: frameMs,
+      window_load_ms: loadMs,
+      sample_count: nSamples,
+      channel_count: o.nChannels,
+    };
+    // Push onto a tiny ring buffer for later aggregation.
+    if (!this._perfRing) this._perfRing = [];
+    this._perfRing.push(stats);
+    if (this._perfRing.length > 50) this._perfRing.shift();
+    return stats;
+  }
+
+  /** Returns the recent perf samples (newest last). */
+  _perfSamples() { return (this._perfRing || []).slice(); }
 
   // ── New public API (v2 features) ────────────────────────────────────
 

@@ -157,7 +157,10 @@ function preparePatchedModule() {
     .replace(/from\s+['"]\.\/eeg-auto-scan-modal\.js['"];?/, `from '${fileUrl(join(realDir, 'eeg-auto-scan-modal.js'))}';`)
     .replace(/from\s+['"]\.\/eeg-spike-list\.js['"];?/, `from '${fileUrl(join(realDir, 'eeg-spike-list.js'))}';`)
     .replace(/from\s+['"]\.\/eeg-export-modal\.js['"];?/, `from '${fileUrl(join(realDir, 'eeg-export-modal.js'))}';`)
-    .replace(/from\s+['"]\.\/raw-ai-hooks\.js['"];?/, `from '${fileUrl(join(realDir, 'raw-ai-hooks.js'))}';`);
+    // Phase 7 imports — drawer, help content, keyboard-shortcuts.
+    .replace(/from\s+['"]\.\/eeg-help-drawer\.js['"];?/, `from '${fileUrl(join(realDir, 'eeg-help-drawer.js'))}';`)
+    .replace(/from\s+['"]\.\/raw-help-content\.js['"];?/, `from '${fileUrl(join(realDir, 'raw-help-content.js'))}';`)
+    .replace(/from\s+['"]\.\/raw-keyboard-shortcuts\.js['"];?/, `from '${fileUrl(join(realDir, 'raw-keyboard-shortcuts.js'))}';`);
   const MODPATH = join(TMP, 'pages-qeeg-raw.js');
   writeFileSync(MODPATH, PATCHED);
   return MODPATH;
@@ -263,11 +266,12 @@ test('source toolbar carries the four named clusters via data-group', () => {
   assert.match(SRC, /data-group="filters"/);
   assert.match(SRC, /data-group="artifacts"/);
   assert.match(SRC, /data-group="tools"/);
-  // Every group has its uppercase label.
-  assert.match(SRC, /toolbar-group-label">Display</);
-  assert.match(SRC, /toolbar-group-label">Filters</);
-  assert.match(SRC, /toolbar-group-label">Artifacts</);
-  assert.match(SRC, /toolbar-group-label">Tools</);
+  // Every group has its uppercase label. Phase 7 appends a `?` help-icon
+  // template after each label, so allow optional trailing whitespace + concat.
+  assert.match(SRC, /toolbar-group-label">Display(?:'|\s|<|\+)/);
+  assert.match(SRC, /toolbar-group-label">Filters(?:'|\s|<|\+)/);
+  assert.match(SRC, /toolbar-group-label">Artifacts(?:'|\s|<|\+)/);
+  assert.match(SRC, /toolbar-group-label">Tools(?:'|\s|<|\+)/);
   // Visible vertical dividers between groups.
   assert.ok((SRC.match(/toolbar-group-divider/g) || []).length >= 3,
     'at least three dividers between four groups');
