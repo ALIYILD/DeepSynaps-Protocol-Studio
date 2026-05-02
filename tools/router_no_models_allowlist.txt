@@ -24,6 +24,7 @@ apps/api/app/routers/caregiver_delivery_concern_resolution_audit_hub_router.py
 apps/api/app/routers/caregiver_delivery_concern_resolution_outcome_tracker_router.py
 apps/api/app/routers/caregiver_delivery_concern_resolution_router.py
 apps/api/app/routers/caregiver_email_digest_router.py
+apps/api/app/routers/channel_auth_drift_resolution_audit_hub_router.py
 apps/api/app/routers/channel_auth_drift_resolution_router.py
 apps/api/app/routers/channel_auth_health_probe_router.py
 apps/api/app/routers/chat_router.py

@@ -437,6 +437,17 @@ KNOWN_SURFACES = {
     # mark_rotated_submitted, mark_rotated_failed, list_filter_changed,
     # demo_banner_shown.
     "channel_auth_drift_resolution",
+    # Channel Auth Drift Resolution Audit Hub launch-audit (CSAHP3,
+    # 2026-05-02). Cohort dashboard built on the audit trail emitted by
+    # CSAHP1 (#417) and CSAHP2 (#422). Read-only, clinician minimum, no
+    # companion worker. Surfaces the drift → mark → confirm rotation
+    # funnel, rotation-method distribution (manual / automated_rotation
+    # / key_revoked), per-channel time-to-rotate / time-to-confirm
+    # medians, per-channel re-flag-within-30d rate (leading indicator of
+    # credential storage / policy issues), and top rotators leaderboard.
+    # Page-level events: view, window_changed, top_rotators_view,
+    # audit_hub_link_clicked, demo_banner_shown.
+    "channel_auth_drift_resolution_audit_hub",
     # Caregiver Delivery Concern Aggregator launch-audit (2026-05-01).
     # Closes section I rec from #389. Rolling-window worker groups every
     # delivery-concern audit row in the last N hours by (caregiver_user_id,
