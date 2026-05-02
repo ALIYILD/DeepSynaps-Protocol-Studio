@@ -305,13 +305,14 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
       <div id="ra-body"></div>
     </div>`;
 
+  const $ = (id) => document.getElementById(id);
+
   function _syncDemoBanner() {
     const slot = $('ra-demo-banner');
     if (!slot) return;
     slot.innerHTML = usingFixtures && isDemoSession() ? DEMO_FIXTURE_BANNER_HTML : '';
   }
 
-  const $ = (id) => document.getElementById(id);
 
   function setBreadcrumb() {
     const bc = $('ra-breadcrumb');
