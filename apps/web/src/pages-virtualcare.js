@@ -7,6 +7,10 @@ import { CONDITION_HOME_TEMPLATES } from './home-program-condition-templates.js'
 import { EVIDENCE_TOTAL_PAPERS } from './evidence-dataset.js';
 import { loadResearchBundleOverview } from './research-bundle-overview.js';
 import { api } from './api.js';
+import {
+  VOICE_DECISION_SUPPORT_INLINE,
+  voiceApiErrorToast,
+} from './voice-decision-support.js';
 
 const _e = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const _fmtTime = iso => { try { return new Date(iso).toLocaleString('en-GB',{hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'}); } catch { return iso; } };
@@ -59,10 +63,6 @@ const _EXPRESSION_W = [0.25, 0.50, 0.10, 0.10, 0.05];
 const _MOOD_POOL = ['calm','tense','engaged','withdrawn','hopeful','reflective','cooperative'];
 const _EXPRESSION_EMOJI = { happy:'\uD83D\uDE0A', neutral:'\uD83D\uDE10', sad:'\uD83D\uDE1E', anxious:'\uD83D\uDE1F', frustrated:'\uD83D\uDE23' };
 const VIDEO_ANALYZER_DISCLAIMER = 'Video Analyzer outputs are decision-support observations for clinician review only; they are not diagnoses, validated rating-scale scores, or autonomous safety alerts.';
-const VOICE_BIOMARKER_DISCLAIMER = (
-  'Voice biomarker outputs are clinical decision-support signals for review alongside history and examination; '
-  + 'they are not diagnoses or substitutes for standardized speech–language assessment.'
-);
 
 function _weightedPick(items, weights) {
   const r = Math.random();
@@ -1894,7 +1894,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
             <div id="vc-analysis-panel" class="vc-analysis-panel" style="${_vc.analysisPanelVisible ? '' : 'display:none'}">
               <div class="vc-analysis-section">
                 <div class="vc-analysis-hdr"><span class="vc-pulse-dot"></span> Voice Analysis <span style="font-size:9px;color:var(--text-tertiary);font-weight:400">(simulated)</span></div>
-                <div style="font-size:10px;color:var(--amber);line-height:1.35;margin-bottom:8px;padding:6px 8px;border:1px solid rgba(246,178,60,.25);border-radius:8px;background:rgba(246,178,60,.08)">${VOICE_BIOMARKER_DISCLAIMER} Full acoustic reports run when you capture a voice note — literature links attach automatically.</div>
+                <div style="font-size:10px;color:var(--amber);line-height:1.35;margin-bottom:8px;padding:6px 8px;border:1px solid rgba(246,178,60,.25);border-radius:8px;background:rgba(246,178,60,.08)">${VOICE_DECISION_SUPPORT_INLINE}</div>
                 <div style="margin-bottom:6px"><span style="font-size:10px;color:var(--text-tertiary)">Sentiment</span> <span id="vc-va-sentiment" class="vc-pill vc-pill--neutral">--</span></div>
                 <div class="vc-gauge-row"><span class="vc-gauge-label">Stress</span><div class="vc-gauge-track"><div id="vc-va-stress-fill" class="vc-gauge-fill" style="width:0%;background:#4ade80"></div></div><span id="vc-va-stress-val" class="vc-gauge-val">--</span></div>
                 <div class="vc-gauge-row"><span class="vc-gauge-label">Energy</span><div class="vc-gauge-track"><div id="vc-va-energy-fill" class="vc-gauge-fill" style="width:0%;background:#00d4bc"></div></div><span id="vc-va-energy-val" class="vc-gauge-val">--</span></div>
@@ -2801,18 +2801,18 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
               transcript: (_vc.recording?.transcription || '').trim() || null,
             });
             if (res?.ok && res.analysis_id) {
+              try { window._lastVoiceAnalysisId = res.analysis_id; } catch (_) {}
+              try { sessionStorage.setItem('ds_va_last_analysis_id', res.analysis_id); } catch (_) {}
+              const pv = res?.voice_report?.provenance?.pipeline_version;
               window._showNotifToast?.({
                 title: 'Acoustic voice report saved',
-                body: 'DeepSynaps Voice Analyzer — open Reports or patient analytics for details.',
+                body: (pv ? 'Pipeline ' + pv + ' · ' : '') + 'Decision-support only — not a diagnosis. Open Voice Analyzer for full report.',
                 severity: 'success',
               });
             }
           } catch (e) {
-            window._showNotifToast?.({
-              title: 'Voice biomarker upload skipped',
-              body: (e?.message || 'Worker may lack voice analyzer dependencies.'),
-              severity: 'warning',
-            });
+            const t = voiceApiErrorToast(e);
+            window._showNotifToast?.({ title: t.title, body: t.body, severity: t.severity });
           }
         };
         _vc.recorder.start();
@@ -3251,6 +3251,7 @@ function _lsRender() {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div>
           <div style="font-size:10px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Voice</div>
+          <div style="font-size:9px;color:var(--amber);line-height:1.35;margin-bottom:6px;padding:4px 6px;border-radius:6px;border:1px solid rgba(246,178,60,.22);background:rgba(246,178,60,.06)">${VOICE_DECISION_SUPPORT_INLINE}</div>
           <div style="margin-bottom:4px"><span style="font-size:10px;color:var(--text-tertiary)">Sentiment</span> <span id="ls-va-sentiment" class="vc-pill vc-pill--neutral">--</span></div>
           <div class="vc-gauge-row"><span class="vc-gauge-label">Stress</span><div class="vc-gauge-track"><div id="ls-va-stress-fill" class="vc-gauge-fill" style="width:0%"></div></div><span id="ls-va-stress-val" class="vc-gauge-val">--</span></div>
           <div class="vc-gauge-row"><span class="vc-gauge-label">Energy</span><div class="vc-gauge-track"><div id="ls-va-energy-fill" class="vc-gauge-fill" style="width:0%"></div></div><span id="ls-va-energy-val" class="vc-gauge-val">--</span></div>

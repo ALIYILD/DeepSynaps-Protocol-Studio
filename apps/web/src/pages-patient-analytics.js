@@ -17,6 +17,7 @@ import {
 } from './evidence-intelligence.js';
 import { emptyPatientEvidenceContext, loadPatientEvidenceContext } from './patient-evidence-context.js';
 import { EVIDENCE_TOTAL_PAPERS } from './evidence-dataset.js';
+import { VOICE_DECISION_SUPPORT_SHORT } from './voice-decision-support.js';
 
 function emptyAnalyticsEvidenceContext(patientId = '') {
   return emptyPatientEvidenceContext(patientId);
@@ -549,7 +550,7 @@ function widgetVoice(_tel, patientId) {
       { name: 'Pause ratio', value: '0.18', modality: 'Voice', direction: 'down', contribution: 0.18 },
     ])}</div>
     <div style="margin-bottom:8px;padding:7px 9px;border:1px solid rgba(139,125,255,.22);border-radius:9px;background:rgba(139,125,255,.06);font-size:10px;line-height:1.4;color:var(--text-secondary)">
-      <strong style="color:var(--text-primary)">Decision-support:</strong> Run the Voice Analyzer to generate acoustic biomarker reports with DeepSynaps literature retrieval (${EVIDENCE_TOTAL_PAPERS.toLocaleString()} papers) — adjunct signals only, not diagnoses.
+      <strong style="color:var(--text-primary)">Decision-support:</strong> ${VOICE_DECISION_SUPPORT_SHORT} Literature context draws from the DeepSynaps corpus (~${EVIDENCE_TOTAL_PAPERS.toLocaleString()} papers indexed).
     </div>
     <svg width="100%" height="36" viewBox="0 0 200 36" preserveAspectRatio="none">${bars}</svg>
     <div class="pa-voice-list">${rows}</div>

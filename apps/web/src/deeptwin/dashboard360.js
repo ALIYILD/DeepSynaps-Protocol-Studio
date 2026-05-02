@@ -11,6 +11,7 @@
 // - safety + decision-support disclaimers are wired throughout
 
 import { api } from '../api.js';
+import { VOICE_DECISION_SUPPORT_SHORT, VOICE_DEEPTWIN_DOMAIN_NOTE } from '../voice-decision-support.js';
 import { EVIDENCE_TOTAL_PAPERS } from '../evidence-dataset.js';
 import { getDemoPatientHeader } from './mockData.js';
 
@@ -324,6 +325,16 @@ export function renderDashboard360Skeleton() {
 }
 
 export function renderDashboard360(payload) {
+  let hint360 = '';
+  try {
+    if (window._deeptwinDomainHint === 'voice') {
+      window._deeptwinDomainHint = null;
+      hint360 = `
+        <div style="margin-bottom:14px;padding:10px 14px;font-size:11px;line-height:1.45;color:var(--text-secondary);border:1px solid rgba(246,178,60,.35);background:rgba(246,178,60,.09);border-radius:10px">
+          <strong style="color:var(--text-primary)">Voice domain</strong> — ${ESC(VOICE_DEEPTWIN_DOMAIN_NOTE)}
+        </div>`;
+    }
+  } catch (_) {}
   const top = `
     <div class="dt360-top-grid">
       ${_topCardPatient(payload)}
@@ -349,6 +360,7 @@ export function renderDashboard360(payload) {
   `;
   return `
     <div class="dt360-page" id="dt360-root">
+      ${hint360}
       ${top}
       <div class="dt360-section-h">22-domain matrix</div>
       ${grid}
@@ -384,6 +396,10 @@ function _renderDomainDetail(d) {
     unavailable: 'This domain does not have an ingestion path in the platform yet.',
   };
 
+  const voiceNote = d.key === 'voice'
+    ? `<div class="dt360-warn" style="margin-top:8px;border-color:rgba(139,125,255,.3)">${ESC(VOICE_DECISION_SUPPORT_SHORT)}</div>`
+    : '';
+
   return `
     <button class="dt360-panel-close" id="dt360-panel-close" aria-label="Close">&times;</button>
     <div class="dt360-panel-header">
@@ -409,6 +425,7 @@ function _renderDomainDetail(d) {
         <span style="color:var(--text-secondary)">${ESC(d.summary)}</span>
       </div>` : ''}
       ${warnings ? `<div class="dt360-panel-warnings">${warnings}</div>` : ''}
+      ${voiceNote}
     </div>
     <div class="dt360-panel-actions">
       ${navBtn}

@@ -24,6 +24,7 @@ import { ASSESS_REGISTRY } from './registries/assess-instruments-registry.js';
 import { EVIDENCE_SUMMARY, CONDITION_EVIDENCE, getConditionEvidence } from './evidence-dataset.js';
 import { PROTOCOL_LIBRARY, CONDITIONS as PROTO_CONDITIONS, DEVICES as PROTO_DEVICES, getProtocolsByCondition } from './protocols-data.js';
 import { DEMO_PATIENT_ROSTER } from './patient-dashboard-helpers.js';
+import { VOICE_DECISION_SUPPORT_SHORT, voiceApiErrorToast } from './voice-decision-support.js';
 
 function shortMrn(p) {
   if (p?.mrn) return String(p.mrn);
@@ -7329,6 +7330,7 @@ export async function pgMonitorHub(setTopbar, navigate) {
               <span class="ch-card-title">Session Recordings</span>
               <button class="ch-btn-sm ch-btn-teal" id="rec-upload-btn" onclick="window._recUpload()">+ Upload Recording</button>
             </div>
+            <div style="font-size:11px;color:var(--text-secondary);padding:0 16px 12px;line-height:1.45;border-bottom:1px solid var(--border)">${VOICE_DECISION_SUPPORT_SHORT} Audio rows can run the Voice Analyzer pipeline server-side.</div>
             <input type="file" id="rec-upload-input" accept="audio/mpeg,audio/wav,audio/webm,video/mp4,video/webm" style="display:none" onchange="window._recUploadPick(event)">
             <div id="rec-server-player" style="padding:10px 14px 0;display:none"></div>
             <div id="rec-log-list">
@@ -7505,9 +7507,10 @@ export async function pgMonitorHub(setTopbar, navigate) {
         if (res?.analysis_id) {
           try { window._lastVoiceAnalysisId = res.analysis_id; } catch (_) {}
           try { sessionStorage.setItem('ds_va_last_analysis_id', res.analysis_id); } catch (_) {}
+          const pv = res?.voice_report?.provenance?.pipeline_version;
           window._dsToast?.({
             title: 'Voice report ready',
-            body: 'Analysis ID ' + String(res.analysis_id).slice(0, 8) + '… — decision-support only, not a diagnosis. Open Voice Analyzer for full JSON + evidence.',
+            body: (pv ? 'Pipeline ' + pv + ' · ' : '') + 'Analysis ID ' + String(res.analysis_id).slice(0, 8) + '… — decision-support only. Opening Voice Analyzer…',
             severity: 'success',
           });
           setTimeout(() => {
@@ -7517,12 +7520,8 @@ export async function pgMonitorHub(setTopbar, navigate) {
           window._dsToast?.({ title: 'Unexpected response', body: JSON.stringify(res || {}).slice(0, 120), severity: 'warning' });
         }
       } catch (err) {
-        const detail = err?.body?.detail || err?.message || 'Unknown error';
-        window._dsToast?.({
-          title: 'Voice analysis failed',
-          body: String(detail).slice(0, 220) + (String(detail).length > 220 ? '…' : ''),
-          severity: 'error',
-        });
+        const t = voiceApiErrorToast(err);
+        window._dsToast?.({ title: t.title, body: t.body, severity: t.severity });
       }
     };
     // Kick off the initial load.

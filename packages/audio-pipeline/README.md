@@ -37,6 +37,10 @@ implementation tasks for cloud agents.
 `CLAUDE.md` is the per-package memory file that downstream Claude Code
 sessions read on every run.
 
+## Research / decision-support positioning
+
+Acoustic and risk outputs are **clinical decision-support and research-monitoring signals**, not standalone diagnoses, FDA-cleared tests, or treatment instructions. Use with full clinical context, appropriate consent, and (when indicated) speech–language or specialist assessment.
+
 ## Clinician API and persistence
 
 The Studio API exposes multipart upload (`POST /api/v1/audio/analyze-upload`) and session-recording analysis (`POST /api/v1/audio/analyze-recording/{recording_id}`) so clinicians never need a raw server-side path. Set `DEEPSYNAPS_AUDIO_RUN_STORE_DIR` on workers so pipeline run records are written to disk and survive process restarts.

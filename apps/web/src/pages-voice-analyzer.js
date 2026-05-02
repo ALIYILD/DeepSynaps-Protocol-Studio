@@ -5,6 +5,11 @@
 
 import { api } from './api.js';
 import { EVIDENCE_TOTAL_PAPERS } from './evidence-dataset.js';
+import {
+  VOICE_DECISION_SUPPORT_FULL,
+  voiceApiErrorToast,
+  voicePipelineMetaBlock,
+} from './voice-decision-support.js';
 
 const VA_LAST_ANALYSIS_KEY = 'ds_va_last_analysis_id';
 
@@ -16,11 +21,7 @@ function esc(s) {
     .replace(/"/g, '&quot;');
 }
 
-const DISCLAIMER = (
-  'Outputs are clinical decision-support signals derived from acoustic heuristics and literature retrieval. '
-  + 'They are not diagnoses, FDA-cleared tests, or treatment recommendations. Interpret with full clinical context, '
-  + 'and consider standardized speech–language assessment when indicated.'
-);
+const DISCLAIMER = VOICE_DECISION_SUPPORT_FULL;
 
 export async function pgVoiceAnalyzer(setTopbar, navigate) {
   try {
@@ -109,9 +110,10 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
       resultEl().innerHTML = _renderReportHtml(res);
       statusEl().textContent = res?.ok ? 'Complete.' : 'Finished with warnings.';
     } catch (e) {
-      statusEl().textContent = e?.message || 'Analysis failed.';
+      const t = voiceApiErrorToast(e);
+      statusEl().textContent = t.title + ' — ' + t.body.slice(0, 120);
       resultEl().style.display = '';
-      resultEl().innerHTML = `<div style="color:#f87171;padding:12px;border-radius:10px;background:rgba(248,113,113,.08)">${esc(e?.message || String(e))}</div>`;
+      resultEl().innerHTML = `<div style="color:#f87171;padding:12px;border-radius:10px;background:rgba(248,113,113,.08)"><strong>${esc(t.title)}</strong><br/>${esc(t.body)}</div>`;
     }
   });
 
@@ -156,7 +158,10 @@ async function _tryLoadPendingReport(statusEl, resultEl) {
     statusEl().textContent = 'Showing stored report.';
     _persistLastAnalysisId(id);
   } catch (e) {
+    const t = voiceApiErrorToast(e);
     statusEl().textContent = '';
+    resultEl().style.display = '';
+    resultEl().innerHTML = `<div style="padding:12px;border-radius:10px;border:1px solid rgba(246,178,60,.35);background:rgba(246,178,60,.1);font-size:12px"><strong>${esc(t.title)}</strong><br/>${esc(t.body)}</div>`;
     try {
       sessionStorage.removeItem(VA_LAST_ANALYSIS_KEY);
     } catch (_) {}
@@ -200,6 +205,7 @@ function _renderReportHtml(res) {
       <div style="font-weight:700;margin-bottom:8px">Analysis ${aid ? esc(aid) : ''}</div>
       ${ds.disclaimer ? `<p style="font-size:11px;color:var(--text-tertiary);margin-bottom:12px">${esc(ds.disclaimer)}</p>` : ''}
       <div style="margin-bottom:12px;font-size:11px;color:var(--text-tertiary)">${esc(res?.clinical_disclaimer || '')}</div>
+      ${voicePipelineMetaBlock(vr)}
       <details style="margin-bottom:12px"><summary style="cursor:pointer;font-weight:600">Structured report (JSON overview)</summary>
         <pre style="font-size:10px;overflow:auto;max-height:220px;margin-top:8px;padding:10px;border-radius:8px;background:rgba(0,0,0,.2)">${esc(JSON.stringify({ qc: vr.qc, pd_voice: vr.pd_voice, cognitive_speech: vr.cognitive_speech }, null, 2))}</pre>
       </details>
