@@ -28996,6 +28996,34 @@ body[data-sr-open="1"] { overflow:hidden; }
 .va-evidence-meta a {
   color: var(--teal);
 }
+.va-motion-panel {
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 212, 188, 0.18);
+  background: rgba(0, 212, 188, 0.05);
+}
+.va-motion-panel--warn {
+  border-color: rgba(255, 181, 71, 0.35);
+  background: rgba(255, 181, 71, 0.06);
+}
+.va-motion-title {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+}
+.va-motion-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px 12px;
+  font-size: 12px;
+}
+.va-motion-grid strong {
+  display: block;
+  font-size: 14px;
+  margin-top: 2px;
+}
 .va-mode-toggle { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
 .va-grid {
   display: grid;

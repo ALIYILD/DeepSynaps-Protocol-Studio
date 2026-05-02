@@ -9,6 +9,7 @@ import {
   mergeServerDocument,
   summarizeSession,
 } from './video-assessment-protocol.js';
+import { analyzeVideoBlobMotion, MOTION_ENGINE_ID } from './video-assessment-motion.js';
 import { api, downloadBlob, getToken } from './api.js';
 import { currentUser } from './auth.js';
 import { showToast } from './helpers.js';
@@ -73,6 +74,8 @@ var _vaEvidenceError = '';
 /** @type {object|null} */
 var _vaEvidenceResult = null;
 var _vaEvidenceFetchedForId = '';
+var _vaMotionRunId = 0;
+var _vaMotionLoading = false;
 
 function _effectivePatientIdForEvidence(session) {
   const s = session || _ensureSession();
@@ -100,6 +103,10 @@ function _buildVideoAssessmentFeatureSummary(session) {
     if (tr.task_completed) parts.push(`task_completed:${tr.task_completed}`);
     if (tr.video_quality) parts.push(`video_quality:${tr.video_quality}`);
     if (tr.patient_compliance) parts.push(`compliance:${tr.patient_compliance}`);
+    const am = t.ai_automated_metrics;
+    if (am && !am.status && am.motion_activity_score_0_100 != null) {
+      parts.push(`motion_activity:${am.motion_activity_score_0_100}`);
+    }
     const ss = tr.structured_scores && typeof tr.structured_scores === 'object' ? tr.structured_scores : {};
     for (const [k, v] of Object.entries(ss)) {
       if (v != null && String(v).trim()) parts.push(`${k}:${String(v).trim()}`);
@@ -307,9 +314,110 @@ function _queueSyncTask(task) {
     skip_reason: task.skip_reason,
     unsafe_flag: task.unsafe_flag,
     recording_asset_id: task.recording_asset_id,
+    recording_storage_ref: task.recording_storage_ref,
     clinician_review: task.clinician_review,
+    ai_analysis_status: task.ai_analysis_status,
+    ai_automated_metrics: task.ai_automated_metrics,
   };
   _patchSessionToApi([t]);
+}
+
+function _updateFutureAiAggregatePlaceholder() {
+  const s = _ensureSession();
+  const tasks = s.tasks || [];
+  const ok = tasks.filter((x) => x.ai_automated_metrics && !x.ai_automated_metrics.status);
+  const scores = ok
+    .map((x) => x.ai_automated_metrics.motion_activity_score_0_100)
+    .filter((n) => n != null && Number.isFinite(Number(n)));
+  const meanAct =
+    scores.length > 0
+      ? Math.round(scores.reduce((a, b) => a + Number(b), 0) / scores.length)
+      : null;
+  const prev = s.future_ai_metrics_placeholder || {};
+  s.future_ai_metrics_placeholder = {
+    pose_metrics: prev.pose_metrics ?? null,
+    movement_counts: ok.length
+      ? {
+          tasks_with_motion_proxy: ok.length,
+          engine: MOTION_ENGINE_ID,
+        }
+      : prev.movement_counts ?? null,
+    speed_metrics:
+      meanAct != null
+        ? {
+            motion_activity_score_mean_0_100: meanAct,
+            sample_tasks: scores.length,
+            engine: MOTION_ENGINE_ID,
+            note: 'Heuristic mean of per-clip motion-activity scores (frame differencing).',
+          }
+        : prev.speed_metrics ?? null,
+    amplitude_metrics: prev.amplitude_metrics ?? null,
+    symmetry_metrics: prev.symmetry_metrics ?? null,
+    longitudinal_comparison: prev.longitudinal_comparison ?? null,
+  };
+}
+
+async function _patchFutureAiToApi() {
+  if (!_vaSession || !_vaSession.id || String(_vaSession.id).startsWith('vas_')) return;
+  if (String(_vaSession.overall_status || '') === 'finalized') return;
+  try {
+    const doc = await api.videoAssessmentPatchSession(_vaSession.id, {
+      future_ai_metrics_placeholder: _vaSession.future_ai_metrics_placeholder,
+    });
+    _vaSession = mergeServerDocument(doc);
+  } catch (e) {
+    showToast('Could not save motion summary: ' + (e && e.message));
+  }
+}
+
+async function _runMotionForTask(task, blob) {
+  if (!task || !blob) return;
+  const run = ++_vaMotionRunId;
+  task.ai_analysis_status = 'running';
+  _vaMotionLoading = true;
+  _render();
+  try {
+    const metrics = await analyzeVideoBlobMotion(blob, { task_id: task.task_id });
+    if (run !== _vaMotionRunId) return;
+    task.ai_automated_metrics = metrics;
+    task.ai_analysis_status = metrics.status === 'failed' ? 'failed' : 'complete';
+    _updateFutureAiAggregatePlaceholder();
+    if (_vaSession && _vaSession.id && !String(_vaSession.id).startsWith('vas_') && getToken()) {
+      await _patchSessionToApi([
+        {
+          task_id: task.task_id,
+          ai_analysis_status: task.ai_analysis_status,
+          ai_automated_metrics: task.ai_automated_metrics,
+        },
+      ]);
+      await _patchFutureAiToApi();
+    } else {
+      _persistSession();
+    }
+  } catch (e) {
+    if (run !== _vaMotionRunId) return;
+    task.ai_automated_metrics = {
+      engine: MOTION_ENGINE_ID,
+      status: 'failed',
+      error_code: 'exception',
+      error_message: (e && e.message) || 'Motion analysis error',
+    };
+    task.ai_analysis_status = 'failed';
+    if (_vaSession && _vaSession.id && !String(_vaSession.id).startsWith('vas_') && getToken()) {
+      await _patchSessionToApi([
+        {
+          task_id: task.task_id,
+          ai_analysis_status: 'failed',
+          ai_automated_metrics: task.ai_automated_metrics,
+        },
+      ]);
+    }
+  } finally {
+    if (run === _vaMotionRunId) {
+      _vaMotionLoading = false;
+      _render();
+    }
+  }
 }
 
 async function _bootstrapApiSession() {
@@ -734,9 +842,44 @@ function _renderClinicianForm(task, locked) {
       ? `<div><video id="va-clin-review-video" controls playsinline style="width:100%;border-radius:8px;background:#000"></video><p class="va-muted" id="va-clin-video-status" style="font-size:12px;margin-top:6px">Loading recording…</p></div>`
       : `<div class="va-video-placeholder">No recording for this task yet.</div>`;
 
+  const am = task.ai_automated_metrics;
+  let motionBlock = '';
+  if (am && !am.status) {
+    motionBlock = `<div class="va-motion-panel">
+      <div class="va-motion-title">Automated motion proxy <span class="va-muted" style="font-size:11px">(${esc(MOTION_ENGINE_ID)})</span></div>
+      <div class="va-motion-grid">
+        <div><span class="va-muted">Activity score (0–100)</span><strong>${esc(String(am.motion_activity_score_0_100 ?? '—'))}</strong></div>
+        <div><span class="va-muted">Mean motion</span><strong>${esc(String(am.mean_motion_0_255 ?? '—'))}</strong></div>
+        <div><span class="va-muted">Variability (SD)</span><strong>${esc(String(am.std_motion_0_255 ?? '—'))}</strong></div>
+        <div><span class="va-muted">Peaks (rough)</span><strong>${esc(String(am.repetitive_motion_peak_count ?? '—'))}</strong></div>
+      </div>
+      <p class="va-muted" style="font-size:10px;margin:8px 0 0;line-height:1.45">${esc(am.disclaimer || '')}</p>
+    </div>`;
+  } else if (am && am.status === 'failed') {
+    motionBlock = `<div class="va-motion-panel va-motion-panel--warn">
+      <div class="va-motion-title">Motion analysis unavailable</div>
+      <p class="va-muted" style="font-size:12px">${esc(am.error_message || 'Failed')}</p>
+    </div>`;
+  } else if (task.ai_analysis_status === 'running' || _vaMotionLoading) {
+    motionBlock = `<div class="va-motion-panel"><p class="va-muted" style="font-size:12px">Running motion analysis\u2026</p></div>`;
+  }
+
+  const canReRunMotion =
+    !locked &&
+    needsServerStream &&
+    getToken() &&
+    _vaSession &&
+    !String(_vaSession.id).startsWith('vas_') &&
+    String(_vaSession.overall_status || '') !== 'finalized';
+  const reRunBtn = canReRunMotion
+    ? `<button type="button" class="btn btn-sm btn-secondary" id="va-rerun-motion">Re-run motion analysis</button>`
+    : '';
+
   return `<div class="va-clinician-form">
     ${unsafeBadge}${skipBadge}
     <div style="margin-bottom:12px">${videoBlock}</div>
+    ${motionBlock}
+    ${reRunBtn ? `<div style="margin-bottom:12px">${reRunBtn}</div>` : ''}
     ${baseFields}
     ${structured}
     <div class="form-group"><label class="form-label">Free-text comment</label>
@@ -1140,12 +1283,16 @@ function _wire() {
   document.getElementById('va-use-clip')?.addEventListener('click', async () => {
     const task = _currentTask();
     if (!task) return;
+    let motionBlob = null;
     if (_vaLastRecordedBlob && _vaSession && _vaSession.id && !String(_vaSession.id).startsWith('vas_') && getToken()) {
       try {
+        motionBlob = _vaLastRecordedBlob.slice(0, _vaLastRecordedBlob.size, _vaLastRecordedBlob.type || 'video/webm');
         const file = new File([_vaLastRecordedBlob], 'clip.webm', { type: 'video/webm' });
         const res = await api.videoAssessmentUploadTask(_vaSession.id, task.task_id, file);
         if (res && res.session) {
           _vaSession = mergeServerDocument(res.session);
+          const mergedTask = (_vaSession.tasks || []).find((x) => x.task_id === task.task_id);
+          if (mergedTask) Object.assign(task, mergedTask);
           _applySummary();
         } else {
           task.recording_status = 'accepted';
@@ -1158,11 +1305,15 @@ function _wire() {
         return;
       }
     } else {
+      if (_vaLastRecordedBlob) {
+        motionBlob = _vaLastRecordedBlob.slice(0, _vaLastRecordedBlob.size, _vaLastRecordedBlob.type || 'video/webm');
+      }
       task.recording_status = 'accepted';
       task.unsafe_flag = false;
       _queueSyncTask(task);
     }
     _advanceTask();
+    if (motionBlob) void _runMotionForTask(task, motionBlob);
   });
 
   document.getElementById('va-rerecord')?.addEventListener('click', () => {
@@ -1269,6 +1420,23 @@ function _wire() {
     }
   });
 
+  document.getElementById('va-rerun-motion')?.addEventListener('click', async () => {
+    const session = _ensureSession();
+    const task = session.tasks && session.tasks[_vaSelectedClinicianTask];
+    if (!task || !session.id || String(session.id).startsWith('vas_')) return;
+    if (!task.recording_storage_ref) {
+      showToast('No recording for this task.');
+      return;
+    }
+    try {
+      const { blob } = await api.videoAssessmentFetchTaskVideo(session.id, task.task_id);
+      await _runMotionForTask(task, blob);
+      showToast('Motion analysis complete');
+    } catch (e) {
+      showToast('Could not analyze: ' + (e && e.message));
+    }
+  });
+
   document.getElementById('va-load-evidence')?.addEventListener('click', () => {
     void _fetchEvidenceForSession();
   });
@@ -1334,6 +1502,7 @@ export async function pgVideoAssessments(setTopbar, navigate, opts = {}) {
     _vaSession = persisted || createEmptySession({ patient_id: _isDemoMode() ? 'demo-patient' : 'local' });
   }
   _applySummary();
+  _updateFutureAiAggregatePlaceholder();
 
   if (_vaPageLayout === 'review') _vaUiMode = 'clinician';
   else if (_vaPageLayout === 'capture') _vaUiMode = 'patient';
