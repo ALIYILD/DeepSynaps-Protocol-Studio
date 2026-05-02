@@ -16428,6 +16428,15 @@ export async function pgIRBManager(setTopbar) {
   let _amdProtocolList = [];
   let _amdLoadError = null;
   let _amdActorRole = null;
+  // ── IRB-AMD2 reviewer workload state (page-local). _amd2Workload
+  // holds the latest /workload response; _amd2Unassigned holds the
+  // latest /unassigned-amendments response; _amd2Status holds the
+  // /worker/status snapshot so the disclaimer can render the honest
+  // enabled flag.
+  let _amd2Workload = null;
+  let _amd2Unassigned = null;
+  let _amd2Status = null;
+  let _amd2LoadError = null;
   let _docFilterType  = '';
 
   function toast(msg, ok) {
@@ -16730,6 +16739,76 @@ export async function pgIRBManager(setTopbar) {
         return '<li style="background:var(--hover-bg);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:11.5px;font-family:monospace"><div><strong>'+_kEsc(r.action)+'</strong> &middot; '+_kEsc(r.actor_id)+' &middot; '+_kEsc(r.created_at)+'</div><div style="color:var(--text-muted);margin-top:2px">'+_kEsc(r.note||'')+'</div></li>';
       }).join('') + '</ul>';
   }
+  // ── IRB-AMD2 Reviewer workload renderer ──
+  // Renders the per-clinic reviewer workload sub-section that sits at
+  // the top of the Amendments Workflow tab. KPI tiles + workload
+  // table + unassigned-amendments list + honest worker-status
+  // disclaimer.
+  function _amd2SlaChip(it) {
+    if (it.sla_breach) {
+      return '<span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;background:var(--rose)22;color:var(--rose);border:1px solid var(--rose)55">SLA breach</span>';
+    }
+    if (it.sla_warn) {
+      return '<span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;background:var(--amber)22;color:var(--amber);border:1px solid var(--amber)55">Approaching SLA</span>';
+    }
+    return '<span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;background:var(--teal)22;color:var(--teal);border:1px solid var(--teal)55">OK</span>';
+  }
+  function renderReviewerWorkload() {
+    var role = _amdActorRole || 'clinician';
+    var w = _amd2Workload || { items: [], queue_threshold: 5, age_threshold_days: 7, sla_breach_count: 0, sla_warn_count: 0, total_pending: 0, avg_oldest_pending_age_days: 0 };
+    var unassigned = (_amd2Unassigned && _amd2Unassigned.items) || [];
+    var status = _amd2Status || { enabled: false };
+    var headerRow = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">' +
+      '<div style="font-size:13px;font-weight:800;color:var(--text)">Reviewer workload</div>' +
+      (role === 'admin'
+        ? '<button class="nnna-btn-sm" onclick="window._irbAmd2RunSlaCheck()">Run SLA check now</button>'
+        : '') +
+      '</div>';
+    var enabledLabel = status.enabled ? 'enabled' : 'disabled';
+    var disclaimer = '<div style="background:var(--blue)10;border:1px solid var(--blue)33;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11.5px;color:var(--text-muted)">SLA worker is currently <strong style="color:var(--text)">' + enabledLabel + '</strong> at the system level. Thresholds: '+_kEsc(w.queue_threshold)+' pending or '+_kEsc(w.age_threshold_days)+'d oldest age.</div>';
+    if (_amd2LoadError) {
+      disclaimer += '<div style="background:var(--rose)18;border:1px solid var(--rose)55;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11.5px;color:var(--rose);font-weight:600">Workload API error: '+_kEsc(_amd2LoadError)+'.</div>';
+    }
+    var tiles = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">' +
+      [
+        ['Reviewers in clinic', w.items.length, 'var(--text)'],
+        ['Pending amendments total', w.total_pending, 'var(--blue)'],
+        ['Avg oldest-pending-age (d)', w.avg_oldest_pending_age_days, 'var(--amber)'],
+        ['SLA breaches', w.sla_breach_count, w.sla_breach_count ? 'var(--rose)' : 'var(--teal)'],
+      ].map(function(t) {
+        return '<div style="background:var(--hover-bg);border:1px solid var(--border);border-radius:8px;padding:8px 12px;min-width:140px"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;font-weight:700;margin-bottom:2px">'+_kEsc(t[0])+'</div><div style="font-size:18px;font-weight:800;color:'+t[2]+'">'+_kEsc(t[1])+'</div></div>';
+      }).join('') +
+      '</div>';
+    var table;
+    if (!w.items.length) {
+      table = '<div style="background:var(--hover-bg);border:1px dashed var(--border);border-radius:8px;padding:16px;text-align:center;color:var(--text-muted);font-size:12px;margin-bottom:14px">No assigned reviewers in this clinic.</div>';
+    } else {
+      table = '<div style="overflow-x:auto;margin-bottom:14px"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="text-align:left;color:var(--text-muted);text-transform:uppercase;font-size:10px;letter-spacing:.5px"><th style="padding:6px 8px;border-bottom:1px solid var(--border)">Reviewer</th><th style="padding:6px 8px;border-bottom:1px solid var(--border)">Assigned</th><th style="padding:6px 8px;border-bottom:1px solid var(--border)">Under review</th><th style="padding:6px 8px;border-bottom:1px solid var(--border)">Total</th><th style="padding:6px 8px;border-bottom:1px solid var(--border)">Oldest</th><th style="padding:6px 8px;border-bottom:1px solid var(--border)">SLA</th><th style="padding:6px 8px;border-bottom:1px solid var(--border)">Last decision</th></tr></thead><tbody>' +
+        w.items.map(function(it) {
+          return '<tr><td style="padding:6px 8px;border-bottom:1px solid var(--border);font-family:monospace">'+_kEsc(it.display_name || it.reviewer_user_id)+'</td><td style="padding:6px 8px;border-bottom:1px solid var(--border)">'+_kEsc(it.pending_assigned)+'</td><td style="padding:6px 8px;border-bottom:1px solid var(--border)">'+_kEsc(it.pending_under_review)+'</td><td style="padding:6px 8px;border-bottom:1px solid var(--border);font-weight:700">'+_kEsc(it.total_pending)+'</td><td style="padding:6px 8px;border-bottom:1px solid var(--border)">'+_kEsc(it.oldest_pending_age_days)+'d</td><td style="padding:6px 8px;border-bottom:1px solid var(--border)">'+_amd2SlaChip(it)+'</td><td style="padding:6px 8px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-muted)">'+_kEsc(it.last_decision_at || '-')+'</td></tr>';
+        }).join('') +
+        '</tbody></table></div>';
+    }
+    var unassignedList;
+    if (!unassigned.length) {
+      unassignedList = '<div style="font-size:11.5px;color:var(--text-muted);padding:8px 0">No unassigned amendments.</div>';
+    } else {
+      unassignedList = '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px">' +
+        unassigned.map(function(it) {
+          return '<div style="display:flex;justify-content:space-between;align-items:center;background:var(--hover-bg);border:1px solid var(--border);border-radius:8px;padding:8px 12px"><div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+_kEsc(it.title || it.id)+'</div><div style="font-size:11px;color:var(--text-muted)">'+_kEsc(it.submission_age_days)+'d waiting · '+_kEsc(it.id)+'</div></div>' +
+            (role === 'admin'
+              ? '<button class="nnna-btn-sm" onclick="window._irbAmd2AutoAssign(\''+_kEsc(it.id)+'\')">Auto-assign reviewer</button>'
+              : '') +
+            '</div>';
+        }).join('') +
+        '</div>';
+    }
+    return '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:18px">' +
+      headerRow + disclaimer + tiles + table +
+      '<div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Unassigned amendments ('+unassigned.length+')</div>' +
+      unassignedList +
+      '</div>';
+  }
   function renderAmendmentsWorkflow() {
     var disclaimer = '<div style="background:var(--blue)12;border:1px solid var(--blue)44;border-radius:8px;padding:11px 14px;margin-bottom:14px;font-size:12px;color:var(--text)"><strong style="color:var(--blue)">Regulator-credible amendment workflow:</strong> Lifecycle (draft → submitted → reviewer_assigned → under_review → approved / rejected / revisions_requested → effective). All transitions are audit-trailed. Approved amendments merge into the effective protocol document on the parent register tab; rejected amendments stay as historical record.</div>';
     if (_amdLoadError) {
@@ -16747,11 +16826,12 @@ export async function pgIRBManager(setTopbar) {
          ? '<a class="nnna-btn-sm nnna-btn-amber" href="'+_kEsc(api.irbAmdRegBinderUrl(_amdProtocolFilter))+'" download>Download reg-binder (.zip)</a>'
          : '') +
       '</div>';
+    var workloadHtml = renderReviewerWorkload();
     if (_amdItems === null) {
-      return '<div>'+disclaimer+actionsBar+'<div style="padding:40px;text-align:center;color:var(--text-muted)">Loading amendments…</div></div>';
+      return '<div>'+disclaimer+actionsBar+workloadHtml+'<div style="padding:40px;text-align:center;color:var(--text-muted)">Loading amendments…</div></div>';
     }
     if (!_amdItems.length) {
-      return '<div>'+disclaimer+actionsBar+'<div style="text-align:center;padding:40px 20px;color:var(--text-muted);background:var(--hover-bg);border:1px dashed var(--border);border-radius:10px">No amendments yet. Click "New amendment" to start a draft.</div></div>';
+      return '<div>'+disclaimer+actionsBar+workloadHtml+'<div style="text-align:center;padding:40px 20px;color:var(--text-muted);background:var(--hover-bg);border:1px dashed var(--border);border-radius:10px">No amendments yet. Click "New amendment" to start a draft.</div></div>';
     }
     var groups = _amdGroupByStatus(_amdItems);
     var sections = [];
@@ -16791,7 +16871,7 @@ export async function pgIRBManager(setTopbar) {
         '<div style="display:flex;gap:8px;flex-wrap:wrap">'+_amdActionButtons(it)+'</div>' +
         '</div>';
     }
-    return '<div>'+disclaimer+actionsBar+sections.join('')+detail+'</div>';
+    return '<div>'+disclaimer+actionsBar+workloadHtml+sections.join('')+detail+'</div>';
   }
 
   function render() {
@@ -17399,6 +17479,51 @@ export async function pgIRBManager(setTopbar) {
     });
   };
 
+  // ── IRB-AMD2 Reviewer workload window-bound helpers ──────────────────────
+  function _amd2Load() {
+    return Promise.all([
+      api.irbAmd2Workload({}),
+      api.irbAmd2Unassigned({ limit: 50 }),
+      api.irbAmd2WorkerStatus(),
+    ]).then(function(results) {
+      _amd2Workload = results[0] || null;
+      _amd2Unassigned = results[1] || null;
+      _amd2Status = results[2] || null;
+      _amd2LoadError = null;
+    }).catch(function(err) {
+      _amd2LoadError = (err && err.message) || 'Failed to load workload';
+    });
+  }
+  window._irbAmd2RunSlaCheck = function() {
+    api.irbAmd2WorkerTick().then(function(res) {
+      if (res && res.accepted) {
+        toast('SLA check completed: '+(res.breaches_emitted||0)+' breach(es) emitted, '+(res.skipped_cooldown||0)+' skipped (cooldown)');
+      } else {
+        toast('SLA check failed', false);
+      }
+      _amd2Load().then(render);
+    }).catch(function(err) {
+      toast('SLA check failed: '+(err && err.message ? err.message : ''), false);
+    });
+  };
+  window._irbAmd2AutoAssign = function(amendmentId) {
+    api.irbAmd2SuggestReviewer(amendmentId).then(function(res) {
+      var rid = res && res.suggested_reviewer_user_id;
+      if (!rid) {
+        toast('No suggested reviewer available', false);
+        return null;
+      }
+      if (!confirm('Auto-assign reviewer ' + rid + ' to this amendment?')) return null;
+      return api.irbAmdAssignReviewer(amendmentId, { reviewer_user_id: rid }).then(function() {
+        toast('Reviewer ' + rid + ' assigned');
+        _emitAmdAudit('amendment_reviewer_auto_assigned', { amendment_id: amendmentId, reviewer_user_id: rid });
+        return Promise.all([_amdLoad(), _amd2Load()]).then(render);
+      });
+    }).catch(function(err) {
+      toast('Auto-assign failed: '+(err && err.message ? err.message : ''), false);
+    });
+  };
+
   // ── IRB-AMD1 Amendment Workflow window-bound helpers ─────────────────────
   function _amdLoad() {
     var params = {};
@@ -17615,6 +17740,7 @@ export async function pgIRBManager(setTopbar) {
     if (typeof _origTabFn === 'function') _origTabFn(tab);
     if (tab === 'amendments-workflow' && _amdItems === null) {
       _amdLoad().then(render);
+      _amd2Load().then(render);
     }
   };
 }
