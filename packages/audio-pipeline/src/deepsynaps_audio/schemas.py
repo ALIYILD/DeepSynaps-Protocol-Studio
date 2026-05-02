@@ -233,7 +233,90 @@ class DystoniaIndex(BaseModel):
     confidence: float
 
 
-# --- cognitive --------------------------------------------------------
+# --- cognitive speech analyzer (MCI / AD spectrum) -------------------
+
+
+class VoiceSegment(BaseModel):
+    """A time-bounded slice of audio within a longer recording."""
+
+    start_s: float = 0.0
+    end_s: float
+    sample_rate_hz: int
+    waveform: list[float] = Field(default_factory=list)
+
+
+class VoiceAsset(BaseModel):
+    """A whole recording or clip referenced for cognitive speech analysis."""
+
+    duration_s: float
+    sample_rate_hz: int
+    waveform: Optional[list[float]] = None
+    asset_id: Optional[UUID] = None
+
+
+class AcousticFeatureSet(BaseModel):
+    """Precomputed acoustic descriptors when raw waveform is unavailable or partial."""
+
+    f0_mean_hz: Optional[float] = None
+    f0_sd_hz: Optional[float] = None
+    intensity_mean_db: Optional[float] = None
+    intensity_sd_db: Optional[float] = None
+    voiced_fraction: Optional[float] = None
+
+
+class ParalinguisticCognitiveFeatures(BaseModel):
+    """Timing and prosody-related features associated with cognitive status in speech.
+
+    Based on MCI/AD speech biomarker literature: speech rate, articulation rate,
+    pause patterns, and variability in pitch / intensity (proxies for prosodic control).
+    """
+
+    speech_rate_wpm: float
+    articulation_rate_syl_per_s: float
+    pause_count: int
+    pause_mean_s: float
+    pause_sd_s: float
+    pause_time_ratio: float
+    mean_pause_duration_s: float
+    f0_variability_hz: float
+    intensity_variability_db: float
+    syllable_count_est: int
+    word_count_est: int
+    extraction_notes: list[str] = Field(default_factory=list)
+
+
+class LinguisticFeatures(BaseModel):
+    """Lexical, syntactic, and discourse-level features from a transcript (no ASR here).
+
+    Mirrors constructs used in PD/AD speech work: richness, complexity, coherence,
+    and repetition.
+    """
+
+    type_token_ratio: float
+    mtld: float
+    brunet_w: float
+    honore_r: float
+    mean_sentence_length: float
+    repetition_ratio: float
+    coherence_score: float
+    noun_ratio: float
+    verb_ratio: float
+    pronoun_ratio: float
+    idea_density: Optional[float] = None
+
+
+class CognitiveSpeechRiskScore(BaseModel):
+    """Research/wellness cognitive-speech risk envelope — not a clinical diagnosis."""
+
+    score: float = Field(ge=0.0, le=1.0, description="Continuous risk indicator (0–1).")
+    model_name: str
+    model_version: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    drivers: list[str] = Field(default_factory=list)
+    linguistic_features_used: bool = False
+
+
+# --- cognitive (legacy alias toward analyzer) -------------------------
 
 
 class MCIRisk(BaseModel):
