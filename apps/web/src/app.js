@@ -1435,6 +1435,19 @@ async function renderPage() {
       await m.pgCaregiverDeliveryConcernResolutionAuditHub(setTopbar);
       break;
     }
+    // Resolver Coaching Inbox launch-audit (DCRO2, 2026-05-02). Private,
+    // read-only inbox view per resolver showing THEIR OWN wrong
+    // false_positive calls. Mirrors the Wearables Workbench →
+    // Clinician Inbox handoff (#353/#354): admins do NOT drill into
+    // another resolver's coaching rows; coaching is resolver-led
+    // self-correction. Reviewer minimum.
+    case 'resolver-coaching-inbox':
+    case 'coaching-inbox':
+    case 'my-coaching': {
+      const m = await loadKnowledge();
+      await m.pgResolverCoachingInbox(setTopbar);
+      break;
+    }
     // Clinician Adherence Hub launch-audit (2026-05-01). Bidirectional
     // counterpart to the patient-side Adherence Events page (#350).
     // Cross-patient triage of adherence reports, side-effects, and

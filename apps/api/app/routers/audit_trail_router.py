@@ -456,6 +456,12 @@ KNOWN_SURFACES = {
     # worker re-flag them within 30 days? Page-level events: view,
     # window_changed, min_resolutions_changed.
     "caregiver_delivery_concern_resolution_outcome_tracker",
+    # Resolver Coaching Inbox launch-audit (DCRO2, 2026-05-02). Private,
+    # read-only inbox view per resolver showing their wrong false_positive
+    # calls (resolutions where the resolver said "false_positive" but the
+    # DCA worker re-flagged the same caregiver within 30 days). Page-level
+    # events: view, self_review_note_filed, window_changed.
+    "resolver_coaching_inbox",
 }
 
 
