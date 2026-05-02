@@ -840,3 +840,54 @@ def recompute_categories(
 
     db.commit()
     return results
+
+
+def apply_category_override(
+    patient_id: str,
+    category: str,
+    level: str,
+    reason: str,
+    actor_id: Optional[str],
+    db: Session,
+) -> dict:
+    """Manual clinician override for one traffic-light category (used by Risk Analyzer + stratification API)."""
+    row = db.execute(
+        select(RiskStratificationResult).where(
+            RiskStratificationResult.patient_id == patient_id,
+            RiskStratificationResult.category == category,
+        )
+    ).scalar_one_or_none()
+
+    if not row:
+        compute_risk_profile(patient_id, db, clinician_id=actor_id)
+        row = db.execute(
+            select(RiskStratificationResult).where(
+                RiskStratificationResult.patient_id == patient_id,
+                RiskStratificationResult.category == category,
+            )
+        ).scalar_one_or_none()
+
+    if not row:
+        return {"ok": False, "error": "not_found"}
+
+    previous_effective = row.override_level or row.level
+
+    row.override_level = level
+    row.override_by = actor_id
+    row.override_at = datetime.now(timezone.utc)
+    row.override_reason = reason
+    row.updated_at = datetime.now(timezone.utc)
+
+    if previous_effective != level:
+        db.add(RiskStratificationAudit(
+            id=str(uuid.uuid4()),
+            patient_id=patient_id,
+            category=category,
+            previous_level=previous_effective,
+            new_level=level,
+            trigger="manual_override",
+            actor_id=actor_id,
+        ))
+
+    db.commit()
+    return {"ok": True, "category": category, "override_level": level, "previous_effective": previous_effective}
