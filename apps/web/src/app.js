@@ -451,6 +451,16 @@ document.addEventListener('keydown', (e) => {
     const shortcuts = { d: 'dashboard', p: 'patients', c: 'courses', r: 'review-queue', s: 'session-execution' };
     if (shortcuts[e.key]) { e.preventDefault(); window._nav(shortcuts[e.key]); }
   }
+  // "/" → focus the sidebar patient search (when not already typing in a field).
+  // Lets a clinician jump to a patient with one keystroke from anywhere.
+  if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    const tag = (e.target && e.target.tagName) || '';
+    const isEditable = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+      || (e.target && e.target.isContentEditable);
+    if (isEditable) return;
+    const ptInput = document.getElementById('nav-pt-search');
+    if (ptInput) { e.preventDefault(); ptInput.focus(); ptInput.select?.(); }
+  }
 });
 
 // ── Mobile sidebar toggle ─────────────────────────────────────────────────────
@@ -484,76 +494,56 @@ const ROLE_NAV_HIDE = {
   clinician:  ['population-analytics'],
 };
 
-// ── Nav definition — design-v2 grouping (CLINICAL / PROTOCOL / SESSIONS / ADMIN)
+// ── Nav definition — design-v2 grouping (TODAY / PATIENTS / ANALYZERS / PROTOCOL / SESSIONS / ADMIN)
+// Ordered to match a clinician's day: top-of-day triage → patient roster → analyzers
+// (used during a workup) → protocol design → live sessions → admin.
 // design-v2 nav IDs — new routes alongside legacy; per-phase migration reparents bodies.
 const NAV = [
-  // ── CLINICAL ─────────────────────────────────────────────────────────────────
-  { section: 'Clinical', sectionId: 'clinical', collapsed: false },
-  { id: 'home',               label: 'Dashboard',         icon: '🏠' },
-  // Clinician Inbox / Notifications Hub launch-audit (2026-05-01).
-  // Top-of-day triage surface that aggregates HIGH-priority mirror audit
-  // rows from every patient-facing launch audit so urgent signals don't
-  // get lost in the regulator-shaped Audit Trail page.
-  { id: 'clinician-inbox',    label: 'Inbox',             icon: '📬' },
-  // Clinician Adherence Hub — bidirectional counterpart to Adherence
-  // Events #350. Cross-patient triage of adherence reports, side-effects,
-  // and escalations scoped to the clinic. Closes the home-therapy
-  // adherence regulator chain end-to-end.
-  { id: 'clinician-adherence', label: 'Adherence Hub',    icon: '✅' },
-  // Clinician Wellness Hub — bidirectional counterpart to Wellness Hub
-  // #345. Cross-patient triage of wellness check-ins (mood / energy /
-  // sleep / anxiety / focus / pain) scoped to the clinic. Closes the
-  // early disengagement detection regulator chain — wellness signals
-  // correlate strongly with adherence drop-offs and side-effect risk
-  // before adherence breaks down.
-  { id: 'clinician-wellness',  label: 'Wellness Hub',     icon: '💚' },
-  // Clinician Notifications Pulse / Daily Digest launch-audit (2026-05-01).
-  // End-of-shift summary across the four clinician hubs (Inbox, Wearables
-  // Workbench, Adherence, Wellness) plus AE Hub escalations. Top-of-loop
-  // telemetry the Care Team Coverage SLA chain (#357) currently lacks.
-  { id: 'clinician-digest',    label: 'Daily Digest',     icon: '📰' },
-  { id: 'risk-analyzer',      label: 'Risk Analyzer',     icon: '⚠' },
-  { id: 'schedule-v2',        label: 'Schedule',          icon: '🗓️' },
-  { id: 'assessments-v2',     label: 'Assessments',       icon: '◉' },
-  { id: 'patients-v2',        label: 'Patients',          icon: '👥' },
-  { id: 'deeptwin',           label: 'Deeptwin',          icon: 'BT', ai: true },
-  { id: 'monitor',            label: 'Devices',           icon: '🔌' },
-  { id: 'mri-analysis',       label: 'MRI Analyzer',      icon: '🧠', ai: true },
-  { id: 'voice-analyzer',    label: 'Voice Analyzer',    icon: '🎙️', ai: true },
+  // ── TODAY — top-of-day triage (what a doctor opens first) ────────────────────
+  { section: 'Today', sectionId: 'clinical', collapsed: false },
+  { id: 'home',                label: 'Dashboard',     icon: '🏠' },
+  { id: 'clinician-inbox',     label: 'Inbox',         icon: '📬' },
+  { id: 'clinician-adherence', label: 'Adherence',     icon: '✅' },
+  { id: 'clinician-wellness',  label: 'Wellness',      icon: '💚' },
+  { id: 'clinician-digest',    label: 'Daily Digest',  icon: '📰' },
+  { id: 'risk-analyzer',       label: 'Risk Analyzer', icon: '⚠' },
+  { id: 'schedule-v2',         label: 'Schedule',      icon: '🗓️' },
 
-  // ── PROTOCOL ─────────────────────────────────────────────────────────────────
+  // ── PATIENTS — roster + per-patient surfaces ─────────────────────────────────
+  { section: 'Patients', sectionId: 'patients-section', collapsed: false },
+  { id: 'patients-v2',        label: 'Patients',          icon: '👥' },
+  { id: 'assessments-v2',     label: 'Assessments',       icon: '◉' },
+  { id: 'deeptwin',           label: 'DeepTwin',          icon: 'BT', ai: true },
+  { id: 'monitor',            label: 'Devices',           icon: '🔌' },
+
+  // ── ANALYZERS — single canonical entry point for every signal modality.
+  // Sits before Protocol Studio because clinicians run analyzers WHEN
+  // building / reviewing a protocol. The duplicate per-modality entries
+  // that used to live under Clinical / Protocol have been removed so each
+  // analyzer has exactly one place to live. Backed by analyzer routers in
+  // `apps/api/app/routers/`.
+  { section: 'Analyzers', sectionId: 'analyzers', collapsed: false },
+  { id: 'mri-analysis',       label: 'MRI',          icon: '🧠', ai: true },
+  { id: 'qeeg-analysis',      label: 'qEEG',         icon: '📊', ai: true },
+  { id: 'voice-analyzer',     label: 'Voice',        icon: '🎙️', ai: true },
+  { id: 'video-assessments',  label: 'Video',        icon: '🎥' },
+  { id: 'text-analyzer',      label: 'Text',         icon: '📝', ai: true },
+  { id: 'wearables',          label: 'Biometrics',   icon: '⌚' },
+
+  // ── PROTOCOL — design / review treatment plans ───────────────────────────────
   { section: 'Protocol', sectionId: 'protocol', collapsed: false },
   { id: 'protocol-studio',    label: 'Protocol Studio',   icon: '🧪', ai: true },
   { id: 'brainmap-v2',        label: 'Brain Map Planner', icon: '🧠' },
-  { id: 'qeeg-analysis',      label: 'qEEG Analyzer',     icon: '🧠', ai: true },
-  { id: 'biomarkers',          label: 'Biomarkers',         icon: '🧬' },
+  { id: 'biomarkers',         label: 'Biomarkers',        icon: '🧬' },
   { id: 'handbooks-v2',       label: 'Handbooks',         icon: '📚' },
   { id: 'research-evidence',  label: 'Research Evidence', icon: '🔬', ai: true },
 
-  // ── SESSIONS ─────────────────────────────────────────────────────────────────
+  // ── SESSIONS — live patient interactions ─────────────────────────────────────
   { section: 'Sessions', sectionId: 'sessions', collapsed: false },
   { id: 'live-session',       label: 'Virtual Care',      icon: '📹', ai: true },
-  { id: 'video-assessments',  label: 'Video Assessments', icon: '🎥' },
 
-  // ── ANALYZERS ────────────────────────────────────────────────────────────────
-  // Unified entry-point group for all DeepSynaps clinical analyzers. Buttons
-  // are duplicates of the per-domain entries above (e.g. MRI / qEEG / Voice
-  // already appear under Clinical / Protocol), but grouping them here gives
-  // clinicians one canonical place to launch any analyzer regardless of the
-  // organising section. Backed by the analyzer routers in `apps/api/app/
-  // routers/`: mri_analysis_router, qeeg_analysis_router, audio_analysis_
-  // router, video pipeline (packages/video-pipeline), clinical_text_router,
-  // and the wearables router.
-  { section: 'Analyzers', sectionId: 'analyzers', collapsed: false },
-  { id: 'mri-analysis',       label: 'MRI Analyzer',      icon: '🧠', ai: true },
-  { id: 'qeeg-analysis',      label: 'qEEG Analyzer',     icon: '📊', ai: true },
-  { id: 'voice-analyzer',     label: 'Voice Analyzer',    icon: '🎙️', ai: true },
-  { id: 'video-assessments',  label: 'Video Analyzer',    icon: '🎥' },
-  { id: 'text-analyzer',      label: 'Text Analyzer',     icon: '📝', ai: true },
-  { id: 'wearables',          label: 'Biometrics',        icon: '⌚' },
-
-  // ── ADMIN ────────────────────────────────────────────────────────────────────
-  { section: 'Admin', sectionId: 'admin', collapsed: false },
+  // ── ADMIN — clinic operations (collapsed by default; doctors rarely live here)
+  { section: 'Admin', sectionId: 'admin', collapsed: true },
   { id: 'documents-v2',       label: 'Documents',         icon: '📄' },
   { id: 'reports-v2',         label: 'Reports',           icon: '📈' },
   { id: 'finance-v2',         label: 'Finance',           icon: '💰' },
@@ -642,16 +632,34 @@ NAV_ICONS['marketplace']     = `<svg viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 
 
 // ── Section labels ────────────────────────────────────────────────────────────
 const SECTION_LABELS = {
-  clinical:        'Clinical',
-  protocol:        'Protocol',
-  sessions:        'Sessions',
-  analyzers:       'Analyzers',
-  admin:           'Admin',
+  clinical:           'Today',
+  'patients-section': 'Patients',
+  protocol:           'Protocol',
+  sessions:           'Sessions',
+  analyzers:          'Analyzers',
+  admin:              'Admin',
   // Legacy section ids retained so any other consumer that looks them up still works.
   'patient-care':  'Patient Care',
   'clinical-tools':'Clinical Tools',
   operations:      'Operations',
   research:        'Research',
+};
+
+// ── Section tint tokens (icon hue per section) ───────────────────────────────
+// Designer follow-up to PR #429 — see the
+// `[data-section="X"] .nav-item .nav-icon` block in styles.css. The tint is
+// applied entirely via CSS using the `data-section` attribute already set on
+// each `.nav-section-group` in renderNav(), so this map is the single source
+// of truth that documents the choice in JS for future consumers
+// (analytics, tooltips, design-token export). To re-skin the sidebar, edit
+// the matching `--nav-section-*` CSS custom properties in styles.css —
+// the JS does not need to change.
+const NAV_SECTION_TINTS = {
+  clinical:  'var(--nav-section-clinical)',  // blue   — patient triage / inbox / dashboard
+  protocol:  'var(--nav-section-protocol)',  // amber  — protocol design / brain-map planning
+  sessions:  'var(--nav-section-sessions)',  // rose   — live virtual care / video assessments
+  analyzers: 'var(--nav-section-analyzers)', // violet — AI analyzer launchpad (MRI / qEEG / Voice / Text)
+  admin:     'var(--nav-section-admin)',     // slate  — neutral on purpose; admin items shouldn't compete
 };
 
 // ── Nav collapse state ────────────────────────────────────────────────────────
@@ -692,7 +700,8 @@ function renderNav() {
         Start Session
       </button>
       <div style="position:relative">
-        <input id="nav-pt-search" type="text" placeholder="Search patients…" class="nav-pt-search-input"
+        <input id="nav-pt-search" type="text" placeholder="Search patients · press /" class="nav-pt-search-input"
+          aria-label="Search patients (press / to focus)"
           oninput="window._navPtSearch(this.value)"
           onfocus="this.style.borderColor='var(--teal)'"
           onblur="this.style.borderColor='var(--border)'">
@@ -992,8 +1001,8 @@ const PAGE_TITLES = {
   'ai-note-assistant': 'AI Note Assistant',
   'intake': 'Patient Intake & Consent',
   'patient-profile': 'Patient Profile',
-  'brain-twin': 'Deeptwin',
-  deeptwin: 'Deeptwin',
+  'brain-twin': 'DeepTwin',
+  deeptwin: 'DeepTwin',
   'pt-journal': 'Symptom Journal',
   'pt-notifications': 'Notification Settings',
   'pt-outcomes': 'My Progress',
@@ -1292,8 +1301,8 @@ async function renderPage() {
     el.innerHTML = `
       <div class="auth-required-notice">
         <div class="auth-required-icon">🔒</div>
-        <div class="auth-required-text">Please log in to access this page.</div>
-        <button class="btn btn-primary" onclick="window._nav('home')">Go to Login</button>
+        <div class="auth-required-text">Please sign in to view this page.</div>
+        <button class="btn btn-primary" onclick="window._nav('home')">Sign in</button>
       </div>
     `;
     return;

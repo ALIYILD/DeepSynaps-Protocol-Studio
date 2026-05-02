@@ -3701,6 +3701,113 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
+  // ── CSAHP5 Advisor Outcome Tracker launch-audit ──
+  // (2026-05-02). Pairs each ``advice_snapshot`` audit row at time T
+  // (emitted by the CSAHP5 background snapshot worker) with the
+  // same-key snapshot at T+14d (±2d tolerance) and reports
+  // per-advice-code predictive accuracy
+  // (card_disappeared_pct = how often the card stopped appearing 14
+  // days after the clinic acted on it). Mirrors the DCRO1 pattern
+  // (#393) — pure read-side calibration analytics on top of the
+  // existing audit_event_records table. Helpers placed BEFORE CSAHP4's
+  // section so the CSAHP4 slice-boundary sentinel stays clean — CSAHP5
+  // uses its own unique header anchor + slice-boundary sentinel.
+  fetchAdvisorOutcomeTrackerSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.pair_lookahead_days != null)
+      usp.set('pair_lookahead_days', String(params.pair_lookahead_days));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/rotation-policy-advisor-outcome-tracker/summary' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  fetchAdvisorOutcomeTrackerList: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.pair_lookahead_days != null)
+      usp.set('pair_lookahead_days', String(params.pair_lookahead_days));
+    if (params && params.advice_code) usp.set('advice_code', params.advice_code);
+    if (params && params.channel) usp.set('channel', params.channel);
+    if (params && params.page != null) usp.set('page', String(params.page));
+    if (params && params.page_size != null)
+      usp.set('page_size', String(params.page_size));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/rotation-policy-advisor-outcome-tracker/list' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  runAdvisorSnapshotNow: () =>
+    apiFetch('/api/v1/rotation-policy-advisor-outcome-tracker/run-snapshot-now', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }).catch(() => null),
+  fetchAdvisorOutcomeTrackerAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/rotation-policy-advisor-outcome-tracker/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  postAdvisorOutcomeTrackerAuditEvent: (data) =>
+    apiFetch('/api/v1/rotation-policy-advisor-outcome-tracker/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  // end CSAHP5 helpers
+  // ━━ CSAHP5 SLICE BOUNDARY ━━ (do not remove; the launch-audit
+  // test for the CSAHP5 section finds the header above then walks to
+  // this unique sentinel substring to bound the slice).
+
+  // ── CSAHP4 Rotation Policy Advisor launch-audit ──
+  // (2026-05-02). Read-only advisor surface that consumes the
+  // leading-indicator signals already exposed by CSAHP3 (#424) and
+  // emits heuristic recommendation cards (REFLAG_HIGH /
+  // MANUAL_REFLAG / AUTH_DOMINANT). No new schema, no worker — pure
+  // presentation building on the leading-indicator signal CSAHP3
+  // already exposes. Mirrors the DCRO5 / CSAHP3 read-only advisor
+  // pattern. Helpers placed BEFORE CSAHP3's section so the CSAHP3
+  // slice-boundary sentinel stays clean — CSAHP4 uses its own unique
+  // header anchor + slice-boundary sentinel.
+  fetchRotationPolicyAdvice: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/auth-drift-rotation-policy-advisor/advice' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  fetchRotationPolicyAdvisorAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/auth-drift-rotation-policy-advisor/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  postRotationPolicyAdvisorAuditEvent: (data) =>
+    apiFetch('/api/v1/auth-drift-rotation-policy-advisor/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  // end CSAHP4 helpers
+  // ━━ CSAHP4 SLICE BOUNDARY ━━ (do not remove; the launch-audit
+  // test for the CSAHP4 section finds the header above then walks to
+  // this unique sentinel substring to bound the slice).
+
   // ── CSAHP3 Auth Drift Resolution Audit Hub launch-audit ──
   // (2026-05-02). Cohort dashboard built on the audit trail emitted by
   // CSAHP1 (#417) and CSAHP2 (#422). Mirrors the DCR2 → DCRO1 pattern

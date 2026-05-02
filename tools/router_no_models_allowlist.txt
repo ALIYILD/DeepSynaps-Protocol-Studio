@@ -14,6 +14,7 @@ apps/api/app/routers/agents_router.py
 apps/api/app/routers/annotations_router.py
 apps/api/app/routers/audio_analysis_router.py
 apps/api/app/routers/audit_trail_router.py
+apps/api/app/routers/auth_drift_rotation_policy_advisor_router.py
 apps/api/app/routers/auto_page_worker_router.py
 apps/api/app/routers/care_team_coverage_router.py
 apps/api/app/routers/caregiver_consent_router.py
@@ -87,6 +88,8 @@ apps/api/app/routers/resolver_coaching_digest_audit_hub_router.py
 apps/api/app/routers/resolver_coaching_inbox_router.py
 apps/api/app/routers/resolver_coaching_self_review_digest_router.py
 apps/api/app/routers/risk_stratification_router.py
+apps/api/app/routers/rotation_policy_advisor_outcome_tracker_router.py
+
 apps/api/app/routers/schedules_router.py
 apps/api/app/routers/sessions_router.py
 apps/api/app/routers/symptom_journal_router.py

@@ -327,7 +327,7 @@ export async function pgPatientHub(setTopbar, navigate) {
       }
       if (p.outcome_trend === 'worsened') return '<span style="font-family:var(--font-mono);font-size:11.5px;color:var(--amber)">Trend ↓</span>';
       if (p.outcome_trend === 'improved') return '<span style="font-family:var(--font-mono);font-size:11.5px;color:var(--teal)">Trend ↑</span>';
-      return '<span style="font-family:var(--font-mono);font-size:11.5px;color:var(--text-tertiary)">No data</span>';
+      return '<span title="No assessment scores recorded yet" style="font-family:var(--font-mono);font-size:11.5px;color:var(--text-tertiary);cursor:help">Not assessed</span>';
     }
 
     // Next-step chip is rule-based: adverse event > scheduled session > assessment

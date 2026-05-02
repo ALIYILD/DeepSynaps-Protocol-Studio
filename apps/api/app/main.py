@@ -127,6 +127,12 @@ from app.routers.channel_auth_drift_resolution_router import (
 from app.routers.channel_auth_drift_resolution_audit_hub_router import (
     router as channel_auth_drift_resolution_audit_hub_router,
 )
+from app.routers.auth_drift_rotation_policy_advisor_router import (
+    router as auth_drift_rotation_policy_advisor_router,
+)
+from app.routers.rotation_policy_advisor_outcome_tracker_router import (
+    router as rotation_policy_advisor_outcome_tracker_router,
+)
 from app.routers.caregiver_delivery_concern_aggregator_router import (
     router as caregiver_delivery_concern_aggregator_router,
 )
@@ -218,6 +224,10 @@ from app.workers.channel_misconfiguration_detector_worker import (
 from app.workers.channel_auth_health_probe_worker import (
     shutdown_worker as shutdown_channel_auth_health_probe_worker,
     start_worker_if_enabled as start_channel_auth_health_probe_worker,
+)
+from app.workers.rotation_policy_advisor_snapshot_worker import (
+    shutdown_worker as shutdown_rotation_policy_advisor_snapshot_worker,
+    start_worker_if_enabled as start_rotation_policy_advisor_snapshot_worker,
 )
 from app.workers.caregiver_delivery_concern_aggregator_worker import (
     shutdown_worker as shutdown_caregiver_delivery_concern_aggregator_worker,
@@ -342,6 +352,12 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
     # admin can still manually invoke /tick at any time regardless of
     # the env flag.
     start_channel_auth_health_probe_worker()
+    # Rotation Policy Advisor Snapshot Worker (CSAHP5, 2026-05-02) — gated
+    # on ROTATION_POLICY_ADVISOR_SNAPSHOT_ENABLED so tests / CI don't
+    # generate snapshot rows unprompted. Daily snapshot of CSAHP4 advice
+    # cards so the CSAHP5 outcome-tracker can pair "card at T" with
+    # "card at T+14d" and report predictive accuracy.
+    start_rotation_policy_advisor_snapshot_worker()
     # Caregiver Delivery Concern Aggregator (2026-05-01) — gated on
     # DEEPSYNAPS_CG_CONCERN_AGGREGATOR_ENABLED so tests / CI don't fire
     # flags. Rolling-window scan that flags caregivers with N+ delivery
@@ -363,6 +379,7 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
         shutdown_caregiver_email_digest_worker()
         shutdown_channel_misconfig_detector_worker()
         shutdown_channel_auth_health_probe_worker()
+        shutdown_rotation_policy_advisor_snapshot_worker()
         shutdown_caregiver_delivery_concern_aggregator_worker()
         shutdown_resolver_coaching_self_review_digest_worker()
 
@@ -526,6 +543,24 @@ app.include_router(channel_auth_drift_resolution_router)
 # scoping. Page-level events: view, window_changed, top_rotators_view,
 # audit_hub_link_clicked.
 app.include_router(channel_auth_drift_resolution_audit_hub_router)
+# Auth Drift Rotation Policy Advisor (CSAHP4, 2026-05-02). Read-only
+# advisor surface that consumes CSAHP3's per-channel re-flag-rate /
+# manual-rotation-share / auth-error-class signals and emits heuristic
+# recommendation cards. No new audit rows, no schema, no worker —
+# pure presentation building on the leading-indicator signals CSAHP3
+# already exposes. Mirrors the DCRO5 / CSAHP3 read-only advisor pattern.
+app.include_router(auth_drift_rotation_policy_advisor_router)
+# Rotation Policy Advisor Outcome Tracker (CSAHP5, 2026-05-02). Closes
+# the section I rec from CSAHP4 (#428) — pair each advice card snapshot
+# at time T with the same-key snapshot at T+14d (±2d tolerance) and
+# compute per-advice-code predictive accuracy (card_disappeared_pct).
+# Backed by the daily CSAHP5 background snapshot worker (default-off,
+# opt-in via ROTATION_POLICY_ADVISOR_SNAPSHOT_ENABLED) which emits
+# advice_snapshot + snapshot_run audit rows for each clinic. Pure
+# read-side analytics on top of the existing audit_event_records table —
+# no new schema, no migration. Page-level events: view, window_changed,
+# run_snapshot_now_clicked, demo_banner_shown.
+app.include_router(rotation_policy_advisor_outcome_tracker_router)
 # Caregiver Delivery Concern Aggregator launch-audit (2026-05-01). Closes
 # section I rec from the Channel Misconfiguration Detector (#389).
 # Rolling-window scan that flags caregivers with N+ delivery concerns

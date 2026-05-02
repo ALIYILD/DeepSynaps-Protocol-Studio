@@ -694,16 +694,33 @@ export async function pgDash(setTopbar, navigate) {
   };
 
   const _todayDateStr = new Date().toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'short', year:'numeric' });
-  setTopbar('Dashboard \u2014 ' + _todayDateStr,
-    `<button class="btn btn-sm btn-ghost" onclick="window._cdAddWalkin?.() || window._nav('clinic-day')" style="white-space:nowrap">+ Walk-in</button>` +
+  setTopbar('Today \u2014 ' + _todayDateStr,
+    `<button class="btn btn-sm btn-ghost" onclick="window._cdAddWalkin?.() || window._nav('clinic-day')" style="white-space:nowrap" title="Add a walk-in patient to today's list">+ Walk-in</button>` +
     `<button class="btn btn-sm btn-ghost" onclick="window._nav('risk-analyzer')" style="white-space:nowrap;margin-left:6px" title="Operational safety, formulation, and transparent prediction support">\u26a0 Risk Analyzer</button>` +
     `<button class="btn btn-sm btn-ghost" onclick="window._nav('deeptwin')" style="white-space:nowrap;margin-left:6px" title="Open the patient intelligence hub">\ud83e\udde0 DeepTwin</button>` +
-    `<button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')" style="white-space:nowrap;margin-left:6px">&#9654; Start Session</button>` +
-    `<button class="btn btn-sm" aria-label="Report adverse event during active session" onclick="window._nav('adverse-events')" style="white-space:nowrap;margin-left:6px;border-color:var(--red);color:var(--red)">&#9888; Report Adverse Event</button>`
+    `<button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')" style="white-space:nowrap;margin-left:6px" title="Open the live session console">&#9654; Start Session</button>` +
+    // Adverse Event report \u2014 kept accessible but visually de-escalated until
+    // it's actually needed. Red was always-on; the button now uses an
+    // amber-tinted, ghost style and shows the full label only on hover so it
+    // doesn't compete for attention on a normal day.
+    `<button class="btn btn-sm btn-ghost" aria-label="Report an adverse event" onclick="window._nav('adverse-events')" style="white-space:nowrap;margin-left:6px;color:var(--amber);border-color:rgba(255,181,71,0.35)" title="Report an adverse event">&#9888; Report AE</button>`
   );
 
   const el = document.getElementById('content');
-  el.innerHTML = spinner();
+  const _attnSkeleton = `<div class="dh2-wrap"><div class="dh2-attn-strip" aria-busy="true" aria-label="Loading what's waiting for you">`
+    + [
+        ['amber',  'Awaiting sign-off'],
+        ['blue',   'New messages'],
+        ['rose',   "Today's sessions"],
+        ['violet', 'Pending reviews'],
+        ['red',    'Critical flags'],
+      ].map(([t, l]) => `<div class="dh2-attn-chip dh2-attn-chip--${t} dh2-attn-chip--muted" aria-hidden="true">
+        <span class="dh2-attn-dot"></span>
+        <span class="dh2-attn-num">&mdash;</span>
+        <span class="dh2-attn-lbl">${l}</span>
+      </div>`).join('')
+    + `</div></div>`;
+  el.innerHTML = _attnSkeleton + spinner();
 
   // ── Abort guard: cancel stale writes if user navigates away ───────────────
   const _abortCtrl = new AbortController();
@@ -716,11 +733,13 @@ export async function pgDash(setTopbar, navigate) {
   let wearableAlertSummary = null;
   let riskSummaryData = [];
   let _overview = null;
+  let _inboxSummary = null;
+  let _inboxLoadFailed = false;
   const _withTimeout = (promise, ms = 8000) =>
     Promise.race([promise, new Promise(resolve => setTimeout(() => resolve(null), ms))]);
   let _apiFailCount = 0;
   try {
-    const [ptsRes, coursesRes, queueRes, aeRes, outRes, consentsRes, mediaQueueRes, wearableAlertsRes, riskRes, overviewRes] = await Promise.all([
+    const [ptsRes, coursesRes, queueRes, aeRes, outRes, consentsRes, mediaQueueRes, wearableAlertsRes, riskRes, overviewRes, inboxRes] = await Promise.all([
       _withTimeout(api.listPatients().catch(() => null)),
       _withTimeout(api.listCourses().catch(() => null)),
       _withTimeout(api.listReviewQueue({ status: 'pending' }).catch(() => null)),
@@ -731,6 +750,7 @@ export async function pgDash(setTopbar, navigate) {
       _withTimeout(api.getClinicAlertSummary().catch(() => null)),
       _withTimeout(api.getClinicRiskSummary().catch(() => null)),
       _withTimeout(api.getDashboardOverview().catch(() => null), 6000),
+      _withTimeout((api.clinicianInboxSummary ? api.clinicianInboxSummary() : Promise.resolve(null)).catch(() => null), 5000),
     ]);
     if (overviewRes) _overview = overviewRes;
     if (ptsRes)       allPatients    = ptsRes.items || []; else _apiFailCount++;
@@ -742,6 +762,7 @@ export async function pgDash(setTopbar, navigate) {
     if (mediaQueueRes) allMediaItems = Array.isArray(mediaQueueRes) ? mediaQueueRes : (mediaQueueRes.items || []); else _apiFailCount++;
     if (wearableAlertsRes) wearableAlertSummary = wearableAlertsRes; else _apiFailCount++;
     if (riskRes) riskSummaryData = riskRes.patients || []; // no _apiFailCount++ — risk is optional
+    if (inboxRes) _inboxSummary = inboxRes; else _inboxLoadFailed = true;
   } catch (e) { console.error('[Dashboard] Data load failed:', e); _apiFailCount = 8; }
   // Treat "both core endpoints failed" as a hard load failure even if the
   // total fail count is < 8 — without patients/courses the dashboard is
@@ -761,11 +782,11 @@ export async function pgDash(setTopbar, navigate) {
   })();
   if (_coreLoadFailed && !_demoModeBuild) {
     if (_abortCtrl.signal.aborted) { window.removeEventListener('hashchange', _onLeave); return; }
-    el.innerHTML = `<div style="padding:48px 24px;text-align:center">
-      <div style="font-size:24px;margin-bottom:12px;opacity:0.4">&#9888;</div>
-      <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Dashboard data unavailable</div>
-      <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:16px">The clinical backend did not respond. Please refresh, or contact support if the problem persists.</div>
-      <button class="btn btn-primary" onclick="location.reload()">Retry</button>
+    el.innerHTML = `<div style="padding:48px 24px;text-align:center;max-width:420px;margin:0 auto">
+      <div style="font-size:32px;margin-bottom:12px;opacity:0.5">&#9888;</div>
+      <div style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:8px">We couldn't reach your clinic data right now.</div>
+      <div style="font-size:12.5px;color:var(--text-tertiary);margin-bottom:18px;line-height:1.5">This usually clears in a few seconds. Try again, or contact support if it keeps happening.</div>
+      <button class="btn btn-primary" onclick="location.reload()">Try again</button>
     </div>`;
     window.removeEventListener('hashchange', _onLeave);
     return;
@@ -825,11 +846,11 @@ export async function pgDash(setTopbar, navigate) {
     _apiFailCount = 0; // suppress fail banner — demo is intentional
   } else if (_apiFailCount >= 8) {
     if (_abortCtrl.signal.aborted) { window.removeEventListener('hashchange', _onLeave); return; }
-    el.innerHTML = `<div style="padding:48px 24px;text-align:center">
-      <div style="font-size:24px;margin-bottom:12px;opacity:0.4">&#9888;</div>
-      <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Unable to load dashboard data</div>
-      <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:16px">Check your connection and try again.</div>
-      <button class="btn btn-primary" onclick="location.reload()">Retry</button>
+    el.innerHTML = `<div style="padding:48px 24px;text-align:center;max-width:420px;margin:0 auto">
+      <div style="font-size:32px;margin-bottom:12px;opacity:0.5">&#9888;</div>
+      <div style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Your dashboard isn't loading.</div>
+      <div style="font-size:12.5px;color:var(--text-tertiary);margin-bottom:18px;line-height:1.5">Check your connection and try again. If the problem keeps happening, your clinic IT team can help.</div>
+      <button class="btn btn-primary" onclick="location.reload()">Try again</button>
     </div>`;
     window.removeEventListener('hashchange', _onLeave);
     return;
@@ -1443,6 +1464,54 @@ export async function pgDash(setTopbar, navigate) {
     <button class="dh2-launch-btn primary" onclick="window._nav('${_topAlert.nav}')">Review now</button>
   </div>`;
 
+  let _attnTodayApptQ = [];
+  try { _attnTodayApptQ = JSON.parse(localStorage.getItem('ds_today_queue') || '[]'); } catch (_) {}
+  const _signoffCount  = pendingQueue.length;
+  const _msgsCount     = (_inboxSummary && typeof _inboxSummary.high_priority_unread === 'number')
+                          ? _inboxSummary.high_priority_unread
+                          : (_inboxLoadFailed ? null : 0);
+  const _todaysCount   = _attnTodayApptQ.length > 0 ? _attnTodayApptQ.length : Math.min(activeCourses.length, 6);
+  const _reviewsCount  = (allMediaItems?.length || 0) + (offLabelPending?.length || 0);
+  const _criticalCount = (seriousAEs?.length || 0) + _totalRed;
+
+  const _attnLoadFailed = (_apiFailCount > 0 && _signoffCount === 0 && _todaysCount === 0 && _reviewsCount === 0);
+
+  const _renderChip = (key, tint, label, nav, count, ariaSuffix) => {
+    const isMissing = count === null || count === undefined;
+    const isZero    = !isMissing && count === 0;
+    const isCrit    = key === 'critical' && !isMissing && count > 0;
+    const cls = ['dh2-attn-chip', `dh2-attn-chip--${tint}`,
+                  isMissing ? 'dh2-attn-chip--muted' : (isZero ? 'dh2-attn-chip--zero' : ''),
+                  isCrit ? 'dh2-attn-chip--alarm' : ''].filter(Boolean).join(' ');
+    const display = isMissing ? '—' : String(count);
+    const aria = isMissing
+      ? `${label}: count unavailable`
+      : `${label}: ${count} ${ariaSuffix || (count === 1 ? 'item' : 'items')}`;
+    return `<button type="button" class="${cls}" data-attn="${key}" aria-label="${_esc(aria)}" onclick="window._nav('${nav}')">
+      <span class="dh2-attn-dot" aria-hidden="true"></span>
+      <span class="dh2-attn-num">${display}</span>
+      <span class="dh2-attn-lbl">${_esc(label)}</span>
+    </button>`;
+  };
+
+  const _attentionChips = [
+    _renderChip('signoff',  'amber',  'Awaiting sign-off', 'review-queue',     _signoffCount,  'reports'),
+    _renderChip('messages', 'blue',   'New messages',      'clinician-inbox',  _msgsCount,     'unread'),
+    _renderChip('today',    'rose',   "Today's sessions",  'clinic-day',       _todaysCount,   'on schedule'),
+    _renderChip('reviews',  'violet', 'Pending reviews',   'review-queue',     _reviewsCount,  'cases'),
+    _renderChip('critical', 'red',    'Critical flags',    'adverse-events',   _criticalCount, 'flags'),
+  ].join('');
+
+  const _attentionStrip = `<div class="dh2-attn-strip" role="region" aria-label="What's waiting for you">
+    ${_attnLoadFailed
+      ? `<div class="dh2-attn-fallback">
+           <span class="dh2-attn-fallback-ico" aria-hidden="true">&#9888;</span>
+           <span>Couldn't load your queue right now &mdash; try refreshing.</span>
+           <button type="button" class="dh2-attn-retry" onclick="location.reload()">Retry</button>
+         </div>`
+      : _attentionChips}
+  </div>`;
+
   // ── KPI grid ──────────────────────────────────────────────────────────────────
   const _phqDelta = outcomeSummary?.mean_phq9_delta != null ? outcomeSummary.mean_phq9_delta : null;
   const _phqDeltaStr = _phqDelta != null ? (_phqDelta > 0 ? '+' : '') + _phqDelta.toFixed(1) : '—';
@@ -1998,6 +2067,7 @@ export async function pgDash(setTopbar, navigate) {
     + _demoBanner
     + _failBanner
     + _pageHead
+    + _attentionStrip
     + _alertStrip
     + _kpiGrid
     + `<div class="dh2-row-2-1">` + _scheduleCard + _brainCard + `</div>`
