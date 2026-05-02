@@ -61,6 +61,8 @@ class ChannelInfoResponse(BaseModel):
     n_channels: int = 0
 
 
+# core-schema-exempt: workbench-internal audit row projection — only
+# consumed by the qeeg-raw cleaning-log endpoint in this router.
 class CleaningLogItem(BaseModel):
     id: str
     actor: str  # 'ai' | 'user'
@@ -71,11 +73,14 @@ class CleaningLogItem(BaseModel):
     created_at: Optional[str] = None
 
 
+# core-schema-exempt: trivial wrapper for cleaning-log response.
 class CleaningLogResponse(BaseModel):
     analysis_id: str
     items: list[CleaningLogItem] = Field(default_factory=list)
 
 
+# core-schema-exempt: workbench-only header block; PHI fields are
+# explicitly redacted server-side.
 class RawMetadataResponse(BaseModel):
     """Lightweight identification block for the Raw Cleaning Workbench
     header. Deliberately omits PHI — ``patient_name`` is always
