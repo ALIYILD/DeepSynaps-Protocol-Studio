@@ -506,6 +506,106 @@ const _MEDICATION = {
   active_protocol: _medActiveProtocol,
 };
 
+function _tsBuildSessions(prefix, total, completed, options) {
+  const opts = options || {};
+  const baseDate = new Date(opts.startISO || '2026-02-05T09:00:00Z').getTime();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const cadenceDays = opts.cadenceDays || 2;
+  const out = [];
+  for (let i = 0; i < completed; i += 1) {
+    const flagAE = (opts.aeIndices || []).includes(i + 1);
+    const flagDeviation = (opts.deviationIndices || []).includes(i + 1);
+    const unsigned = (opts.unsignedIndices || []).includes(i + 1);
+    const scheduled = new Date(baseDate + i * cadenceDays * dayMs).toISOString();
+    out.push({
+      id: `demo-${prefix}-s${i + 1}`,
+      session_number: i + 1,
+      scheduled_at: scheduled,
+      intensity_label: opts.intensity || '—',
+      duration_minutes: flagDeviation && opts.deviationDuration ? opts.deviationDuration : (opts.duration || 20),
+      comfort_score: flagAE ? 4 : (opts.comfort || 8),
+      signed: !unsigned,
+      has_ae: flagAE,
+      modality: opts.modality || '',
+      telemetry_summary: opts.telemetry || 'Within prescribed envelope.',
+      impedance_summary: opts.impedance || 'All electrodes < 10 kΩ.',
+      comfort_summary: flagAE ? 'Patient reported tingling and brief headache (NRS-SE 4).' : 'Tolerated well, NRS-SE within target.',
+      ae_log: flagAE ? 'Mild headache resolved within 30 min, no escalation.' : '',
+    });
+  }
+  return out;
+}
+
+const _TS_DETAIL = {
+  'demo-pt-samantha-li': () => {
+    const sessions = _tsBuildSessions('sam', 24, 18, {
+      modality: 'tDCS', intensity: '2 mA · 20 min · F3-anodal',
+      duration: 20, comfort: 9, cadenceDays: 2, startISO: '2026-02-05T09:30:00Z',
+    });
+    return {
+      course: {
+        id: 'demo-course-sam-tdcs', patient_id: 'demo-pt-samantha-li', patient_name: 'Samantha Li',
+        protocol_name: 'Anodal tDCS · L-DLPFC for MDD', modality: 'tDCS', target_site: 'L-DLPFC (F3)',
+        total_sessions: 24, completed_sessions: 18, adherence_pct: 92,
+        current_week: 9, total_weeks: 12, started_at: '2026-02-05T09:30:00Z',
+      },
+      sessions,
+      summary: { signed_count: 18, delivered_count: 18 },
+      deviations: [],
+      outcomes: { scale: 'PHQ-9', scores: [14, 13, 12, 11, 10, 9, 8, 7, 7, 6, 6] },
+    };
+  },
+  'demo-pt-marcus-chen': () => {
+    const sessions = _tsBuildSessions('mar', 30, 8, {
+      modality: 'rTMS', intensity: '120% rMT · 10 Hz · 3000 pulses',
+      duration: 38, comfort: 7, cadenceDays: 2, startISO: '2026-04-05T10:00:00Z',
+      aeIndices: [4], unsignedIndices: [7, 8],
+    });
+    return {
+      course: {
+        id: 'demo-course-mar-rtms', patient_id: 'demo-pt-marcus-chen', patient_name: 'Marcus Chen',
+        protocol_name: '10 Hz rTMS · L-DLPFC', modality: 'rTMS', target_site: 'L-DLPFC (BA46)',
+        total_sessions: 30, completed_sessions: 8, adherence_pct: 75,
+        current_week: 4, total_weeks: 6, started_at: '2026-04-05T10:00:00Z',
+      },
+      sessions,
+      summary: { signed_count: 6, delivered_count: 8 },
+      deviations: [],
+      outcomes: { scale: 'HAM-A', scores: [22, 22, 21, 21, 20] },
+    };
+  },
+  'demo-pt-elena-vasquez': () => {
+    const sessions = _tsBuildSessions('ele', 12, 6, {
+      modality: 'ECT', intensity: '1.5× ST · brief-pulse bifrontal',
+      duration: 8, comfort: 8, cadenceDays: 3, startISO: '2026-04-15T08:00:00Z',
+      deviationIndices: [4], deviationDuration: 11,
+    });
+    return {
+      course: {
+        id: 'demo-course-ele-ect', patient_id: 'demo-pt-elena-vasquez', patient_name: 'Elena Vasquez',
+        protocol_name: 'Bilateral ECT · refractory depression in chronic pain', modality: 'ECT', target_site: 'Bifrontal',
+        total_sessions: 12, completed_sessions: 6, adherence_pct: 100,
+        current_week: 3, total_weeks: 4, started_at: '2026-04-15T08:00:00Z',
+      },
+      sessions,
+      summary: { signed_count: 6, delivered_count: 6 },
+      deviations: [
+        {
+          session_number: 4, scheduled_at: '2026-04-24T08:00:00Z',
+          parameter: 'Stimulus duration', prescribed: '8 s', delivered: '11 s',
+          note: 'Operator extended on the fly; reviewer flagged for chart note.',
+        },
+      ],
+      outcomes: { scale: 'HAM-D', scores: [28, 27, 25, 23, 21, 19, 18] },
+    };
+  },
+};
+
+const _TREATMENT_SESSIONS = {
+  patients: ['demo-pt-samantha-li', 'demo-pt-marcus-chen', 'demo-pt-elena-vasquez'],
+  detail: (pid) => (_TS_DETAIL[pid] ? _TS_DETAIL[pid]() : null),
+};
+
 export const ANALYZER_DEMO_FIXTURES = Object.freeze({
   patients: DEMO_PATIENTS,
   mri: _MRI,
@@ -516,6 +616,7 @@ export const ANALYZER_DEMO_FIXTURES = Object.freeze({
   biometrics: _BIOMETRICS,
   video: _VIDEO,
   medication: _MEDICATION,
+  treatmentSessions: _TREATMENT_SESSIONS,
 });
 
 export function isFixtureFallbackActive() {
