@@ -96,6 +96,15 @@ function _listSection(title, items, render) {
   </details>`;
 }
 
+function _initPatientIdFromUrl() {
+  try {
+    const sp = new URLSearchParams(window.location.search || '');
+    return sp.get('patient_id') || sp.get('patient') || '';
+  } catch {
+    return '';
+  }
+}
+
 export async function pgMedicationAnalyzer(setTopbar, navigate) {
   try {
     setTopbar({
@@ -109,6 +118,9 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
   const el = document.getElementById('content');
   if (!el) return;
 
+  /** @type {object|null} */
+  let lastAnalyzerPayload = null;
+
   el.innerHTML = `
     <div class="ds-med-analyzer-shell" style="max-width:1040px;margin:0 auto;padding:16px 20px 48px" data-testid="medication-analyzer-page">
       <div style="padding:14px 16px;border-radius:12px;border:1px solid rgba(246,178,60,.35);background:rgba(246,178,60,.09);margin-bottom:18px;font-size:12px;line-height:1.5;color:var(--text-secondary)">
@@ -121,9 +133,20 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
           <button type="button" class="btn btn-primary" id="ma-load">Load analyzer</button>
           <button type="button" class="btn btn-ghost" id="ma-recompute">Recompute</button>
         </div>
+        <div style="font-size:11px;color:var(--text-tertiary);margin-top:8px;line-height:1.45">
+          Deep link: append <code style="font-size:10px">?patient_id=&lt;uuid&gt;</code> to pre-fill the field.
+        </div>
         <div id="ma-status" style="margin-top:10px;font-size:12px;color:var(--text-tertiary)"></div>
       </div>
       <div id="ma-body" style="display:none">
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;align-items:center">
+          <span style="font-size:11px;color:var(--text-tertiary);margin-right:4px">Cross-links</span>
+          <button type="button" class="btn btn-ghost btn-sm" id="ma-open-profile" disabled title="Open patient chart">Patient profile</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="ma-open-analytics" disabled title="Multimodal patient terminal">Patient analytics</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="ma-open-deeptwin" disabled title="360° overview">DeepTwin</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="ma-open-irb" disabled title="Download JSON for IRB / appendix">Export IRB JSON</button>
+        </div>
+        <div id="ma-risk-panel" style="display:none;margin-bottom:16px;padding:12px 14px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.02)"></div>
         <h2 style="font-size:15px;font-weight:700;margin:0 0 12px">Medication snapshot</h2>
         <div id="ma-snapshot" style="margin-bottom:20px"></div>
         <details style="margin-bottom:16px;border:1px solid var(--border);border-radius:12px;background:var(--bg-card)">
@@ -185,9 +208,14 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
   async function applyPayload(data) {
     renderPayload(data);
     await loadAuditStrip(document.getElementById('ma-patient-id')?.value?.trim());
+    await loadRiskPanel(document.getElementById('ma-patient-id')?.value?.trim());
   }
 
   function renderPayload(data) {
+    lastAnalyzerPayload = data;
+    ['ma-open-profile', 'ma-open-analytics', 'ma-open-deeptwin', 'ma-open-irb'].forEach((id) => {
+      document.getElementById(id)?.removeAttribute('disabled');
+    });
     document.getElementById('ma-snapshot').innerHTML = _renderSnapshot(data.snapshot);
     document.getElementById('ma-research').innerHTML = _renderRegulatoryDisclosures(data.regulatory_disclosures);
     document.getElementById('ma-timeline').innerHTML = _renderTimeline(data.timeline || []);
@@ -223,6 +251,30 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
     bodyEl().style.display = 'block';
   }
 
+  async function loadRiskPanel(pid) {
+    const panel = document.getElementById('ma-risk-panel');
+    if (!panel || !pid) return;
+    panel.style.display = 'block';
+    panel.innerHTML = '<div style="font-size:12px;color:var(--text-tertiary)">Loading Risk Analyzer summary…</div>';
+    try {
+      const rp = await api.getPatientRiskProfile(pid);
+      const cats = Array.isArray(rp.categories) ? rp.categories : [];
+      const rows = cats.slice(0, 12).map((c) => {
+        const lvl = esc(c.level || c.computed_level || '');
+        const lab = esc(c.label || c.category || '');
+        return `<div style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">
+          <span>${lab}</span><span style="font-weight:600">${lvl}</span>
+        </div>`;
+      }).join('');
+      panel.innerHTML = `
+        <div style="font-weight:600;font-size:13px;margin-bottom:8px">Risk Analyzer (traffic lights)</div>
+        <div style="max-height:220px;overflow:auto">${rows || '<div style="color:var(--text-tertiary);font-size:12px">No categories returned.</div>'}</div>
+        <div style="font-size:11px;color:var(--text-tertiary);margin-top:8px">Uses GET /api/v1/risk/patient — medication-related categories may update after Rx changes.</div>`;
+    } catch {
+      panel.innerHTML = '<div style="font-size:12px;color:var(--text-tertiary)">Risk profile unavailable (offline demo, permissions, or API error). Open Patient analytics or Profile when online.</div>';
+    }
+  }
+
   async function loadAuditStrip(pid) {
     const strip = document.getElementById('ma-audit-strip');
     if (!strip || !pid) return;
@@ -254,12 +306,73 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
       const data = await api.medicationAnalyzerPayload(pid);
       renderPayload(data);
       await loadAuditStrip(pid);
+      await loadRiskPanel(pid);
       statusEl().textContent = `Loaded · generated ${data.generated_at || ''}`;
     } catch (e) {
       statusEl().textContent = e.message || String(e);
       bodyEl().style.display = 'none';
     }
   }
+
+  const seedPid = _initPatientIdFromUrl();
+  if (seedPid && document.getElementById('ma-patient-id')) {
+    document.getElementById('ma-patient-id').value = seedPid;
+    load();
+  }
+
+  document.getElementById('ma-open-profile')?.addEventListener('click', () => {
+    const pid = document.getElementById('ma-patient-id')?.value?.trim();
+    if (!pid) return;
+    try {
+      window.openPatient?.(pid);
+      sessionStorage.setItem('ds_pat_selected_id', pid);
+    } catch {}
+    window._selectedPatientId = pid;
+    window._profilePatientId = pid;
+    navigate('patient-profile');
+  });
+  document.getElementById('ma-open-analytics')?.addEventListener('click', () => {
+    const pid = document.getElementById('ma-patient-id')?.value?.trim();
+    if (!pid) return;
+    window._paPatientId = pid;
+    navigate('patient-analytics');
+  });
+  document.getElementById('ma-open-deeptwin')?.addEventListener('click', () => {
+    const pid = document.getElementById('ma-patient-id')?.value?.trim();
+    if (!pid) return;
+    window._selectedPatientId = pid;
+    window._profilePatientId = pid;
+    try { sessionStorage.setItem('ds_pat_selected_id', pid); } catch {}
+    navigate('deeptwin');
+  });
+  document.getElementById('ma-open-irb')?.addEventListener('click', () => {
+    if (!lastAnalyzerPayload) return;
+    const bundle = {
+      export_kind: 'medication_analyzer_irb_appendix',
+      exported_at: new Date().toISOString(),
+      patient_id: lastAnalyzerPayload.patient_id,
+      audit_ref: lastAnalyzerPayload.audit_ref,
+      schema_version: lastAnalyzerPayload.schema_version,
+      generated_at: lastAnalyzerPayload.generated_at,
+      regulatory_disclosures: lastAnalyzerPayload.regulatory_disclosures,
+      provenance: lastAnalyzerPayload.provenance,
+      snapshot: lastAnalyzerPayload.snapshot,
+      timeline: lastAnalyzerPayload.timeline,
+      adherence: lastAnalyzerPayload.adherence,
+      safety_alerts: lastAnalyzerPayload.safety_alerts,
+      confounds: lastAnalyzerPayload.confounds,
+      recommendations: lastAnalyzerPayload.recommendations,
+      persisted_review_notes: lastAnalyzerPayload.persisted_review_notes,
+    };
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    const safeId = String(lastAnalyzerPayload.patient_id || 'patient').replace(/[^a-z0-9_-]/gi, '_').slice(0, 36);
+    a.href = URL.createObjectURL(blob);
+    a.download = `medication-analyzer-irb-${safeId}-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    window._dsToast?.({ title: 'Export ready', body: 'IRB appendix JSON downloaded.', severity: 'info' });
+  });
 
   document.getElementById('ma-load')?.addEventListener('click', load);
   document.getElementById('ma-note-save')?.addEventListener('click', async () => {

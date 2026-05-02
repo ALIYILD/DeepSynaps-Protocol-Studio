@@ -18,4 +18,6 @@ test('pgMedicationAnalyzer renders disclaimer and test id', async () => {
   assert.ok(html.includes('Does not prescribe'));
   assert.ok(html.includes('Save note'));
   assert.ok(html.includes('Add timeline annotation'));
+  assert.ok(html.includes('Patient profile'));
+  assert.ok(html.includes('Export IRB JSON'));
 });
