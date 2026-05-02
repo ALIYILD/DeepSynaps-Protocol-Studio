@@ -174,6 +174,42 @@ def compute_bradykinesia_metrics(
     )
 
 
+def analyze_finger_tapping(
+    pose_trajectories: tuple[JointTrajectory, ...] | list[JointTrajectory],
+    **kwargs: Any,
+) -> BradykinesiaMetrics:
+    """Compatibility wrapper for finger-tapping bradykinesia tasks."""
+
+    return compute_bradykinesia_metrics(pose_trajectories, task_type="finger_tapping", **kwargs)
+
+
+def analyze_hand_open_close(
+    pose_trajectories: tuple[JointTrajectory, ...] | list[JointTrajectory],
+    **kwargs: Any,
+) -> BradykinesiaMetrics:
+    """Compatibility wrapper for hand open/close bradykinesia tasks."""
+
+    return compute_bradykinesia_metrics(pose_trajectories, task_type="hand_open_close", **kwargs)
+
+
+def analyze_toe_tapping(
+    pose_trajectories: tuple[JointTrajectory, ...] | list[JointTrajectory],
+    **kwargs: Any,
+) -> BradykinesiaMetrics:
+    """Compatibility wrapper for toe-tapping bradykinesia tasks."""
+
+    return compute_bradykinesia_metrics(pose_trajectories, task_type="toe_tapping", **kwargs)
+
+
+def analyze_leg_agility(
+    pose_trajectories: tuple[JointTrajectory, ...] | list[JointTrajectory],
+    **kwargs: Any,
+) -> BradykinesiaMetrics:
+    """Compatibility wrapper for leg-agility bradykinesia tasks."""
+
+    return compute_bradykinesia_metrics(pose_trajectories, task_type="leg_agility", **kwargs)
+
+
 def map_bradykinesia_severity(
     metrics: BradykinesiaMetrics | None = None,
     *,
@@ -350,6 +386,10 @@ def _confidence(repetition_count: int, limitations: list[str]) -> float:
 __all__ = [
     "BradykinesiaMetrics",
     "BradykinesiaSeverityThresholds",
+    "analyze_finger_tapping",
+    "analyze_hand_open_close",
+    "analyze_leg_agility",
+    "analyze_toe_tapping",
     "compute_bradykinesia_metrics",
     "map_bradykinesia_severity",
 ]

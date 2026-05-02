@@ -107,6 +107,33 @@ def compute_tremor_metrics(
     )
 
 
+def analyze_rest_tremor(
+    pose_trajectories: tuple[JointTrajectory, ...] | list[JointTrajectory] | MotionSignal,
+    **kwargs: Any,
+) -> TremorMetrics:
+    """Analyze a rest tremor task using the generic tremor metric extractor."""
+
+    return compute_tremor_metrics(pose_trajectories, task_type="rest", **kwargs)
+
+
+def analyze_postural_tremor(
+    pose_trajectories: tuple[JointTrajectory, ...] | list[JointTrajectory] | MotionSignal,
+    **kwargs: Any,
+) -> TremorMetrics:
+    """Analyze an outstretched-hands/postural tremor task."""
+
+    return compute_tremor_metrics(pose_trajectories, task_type="postural", **kwargs)
+
+
+def analyze_kinetic_tremor(
+    pose_trajectories: tuple[JointTrajectory, ...] | list[JointTrajectory] | MotionSignal,
+    **kwargs: Any,
+) -> TremorMetrics:
+    """Analyze a kinetic tremor task such as reach or finger-nose movement."""
+
+    return compute_tremor_metrics(pose_trajectories, task_type="kinetic", **kwargs)
+
+
 def map_tremor_severity(
     metrics_or_amplitude: TremorMetrics | float | None,
     *,
@@ -208,6 +235,9 @@ def _confidence(signal: MotionSignal, dominant: float | None, limitations: list[
 
 __all__ = [
     "TremorMetrics",
+    "analyze_kinetic_tremor",
+    "analyze_postural_tremor",
+    "analyze_rest_tremor",
     "compute_tremor_metrics",
     "map_tremor_severity",
 ]

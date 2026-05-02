@@ -52,6 +52,37 @@ def estimate_2d_pose(
     )
 
 
+def run_pose_estimation(
+    video_ref: str,
+    *,
+    backend: str | PoseBackend = "noop",
+    frame_times: Iterable[float] | None = None,
+    subject_id: str | None = None,
+    parameters: dict[str, object] | None = None,
+) -> Pose2DSequence:
+    """Compatibility wrapper for the architecture function table."""
+
+    return estimate_2d_pose(
+        video_ref,
+        backend=backend,
+        frame_times=frame_times,
+        subject_id=subject_id,
+        parameters=parameters,
+    )
+
+
+def run_hand_pose_estimation(*args: object, **kwargs: object) -> Pose2DSequence:
+    """Placeholder-compatible hand pose wrapper using the registered 2D backend."""
+
+    return estimate_2d_pose(*args, **kwargs)  # type: ignore[arg-type]
+
+
+def run_face_landmark_estimation(*args: object, **kwargs: object) -> Pose2DSequence:
+    """Placeholder-compatible face landmark wrapper using the registered 2D backend."""
+
+    return estimate_2d_pose(*args, **kwargs)  # type: ignore[arg-type]
+
+
 def estimate_3d_pose(
     pose_2d_ref: Pose2DSequence,
     *,
@@ -162,6 +193,9 @@ def smooth_pose_trajectories(
             "smoothing": {"method": "centered_moving_average", "window_size": window_size},
         },
     )
+
+
+smooth_landmark_tracks = smooth_pose_trajectories
 
 
 def _smooth_2d_frames(

@@ -446,6 +446,46 @@ def detect_interaction_events(
     return tuple(events)
 
 
+def analyze_bed_exit_risk(
+    tracks: tuple[ActorTrack, ...] | list[ActorTrack],
+    room_layout: RoomLayout,
+    **kwargs: Any,
+) -> tuple[MonitoringEvent, ...]:
+    """Compatibility wrapper for bed-exit risk analysis."""
+
+    return detect_bed_exit_events(tracks, room_layout, **kwargs)
+
+
+def detect_fall_event(
+    tracks: tuple[ActorTrack, ...] | list[ActorTrack],
+    motion_signals: dict[str, tuple[float, ...]] | None = None,
+    **kwargs: Any,
+) -> tuple[MonitoringEvent, ...]:
+    """Compatibility wrapper for fall-like candidate detection."""
+
+    return detect_fall_like_events(tracks, motion_signals, **kwargs)
+
+
+def detect_wandering_or_exit(
+    tracks: tuple[ActorTrack, ...] | list[ActorTrack],
+    zones: RoomLayout | tuple[RoomZone, ...] | list[RoomZone],
+    **kwargs: Any,
+) -> tuple[MonitoringEvent, ...]:
+    """Compatibility wrapper for restricted-zone/doorway transitions."""
+
+    return detect_room_zone_events(tracks, zones, **kwargs)
+
+
+def summarize_staff_interactions(
+    tracks: tuple[ActorTrack, ...] | list[ActorTrack],
+    thresholds: MonitoringThresholds | None = None,
+    **kwargs: Any,
+) -> tuple[MonitoringEvent, ...]:
+    """Compatibility wrapper for staff/patient interaction summaries."""
+
+    return detect_interaction_events(tracks, thresholds, **kwargs)
+
+
 def _tracks_by_role(tracks: tuple[ActorTrack, ...] | list[ActorTrack], role: ActorRole) -> tuple[ActorTrack, ...]:
     return tuple(track for track in tracks if track.role == role)
 
@@ -594,9 +634,13 @@ __all__ = [
     "RoomLayout",
     "RoomZone",
     "TrackPoint",
+    "analyze_bed_exit_risk",
     "detect_bed_exit_events",
+    "detect_fall_event",
     "detect_fall_like_events",
     "detect_interaction_events",
     "detect_prolonged_inactivity",
     "detect_room_zone_events",
+    "detect_wandering_or_exit",
+    "summarize_staff_interactions",
 ]

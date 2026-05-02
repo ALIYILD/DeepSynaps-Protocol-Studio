@@ -320,6 +320,9 @@ def import_patient_video(
     return asset
 
 
+create_video_asset = import_patient_video
+
+
 def extract_video_metadata(
     video: VideoAsset | str | Path,
     *,
@@ -348,6 +351,9 @@ def extract_video_metadata(
         height=metadata.height,
     )
     return metadata
+
+
+probe_video_metadata = extract_video_metadata
 
 
 def normalize_video_stream(
@@ -406,6 +412,9 @@ def normalize_video_stream(
     return normalized
 
 
+normalize_video = normalize_video_stream
+
+
 def sample_video_frames(
     video: VideoAsset | NormalizedVideo | str | Path,
     *,
@@ -447,6 +456,9 @@ def sample_video_frames(
         sample_count=len(samples),
     )
     return samples
+
+
+extract_frame_sample = sample_video_frames
 
 
 def _metadata_from_ffprobe(payload: dict[str, object], source_path: Path) -> VideoMetadata:

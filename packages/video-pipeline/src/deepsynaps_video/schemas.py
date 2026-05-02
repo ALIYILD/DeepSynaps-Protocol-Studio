@@ -15,6 +15,7 @@ from typing import Any, Literal, cast
 
 VideoUseCase = Literal["clinical_task", "monitoring"]
 VideoColorSpace = Literal["rgb", "bgr", "grayscale", "unknown"]
+QCStatus = Literal["pass", "warn", "warning", "fail", "not_run"]
 
 
 class VideoSourceType(str, Enum):
@@ -190,6 +191,139 @@ class ProvenanceRecord:
     asset_id: str
     created_at: str
     details: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return json_ready(self)
+
+    def to_json_dict(self) -> dict[str, Any]:
+        return self.to_dict()
+
+
+@dataclass(frozen=True)
+class QCResult:
+    """Quality-control summary attachable to video tasks and report payloads."""
+
+    qc_id: str
+    status: QCStatus
+    confidence: float
+    checks: dict[str, bool | float | str | None] = field(default_factory=dict)
+    limitations: tuple[str, ...] = ()
+    segment_id: str | None = None
+    task_ref: str | None = None
+    created_at: str = field(default_factory=utc_now_iso)
+
+    @property
+    def score(self) -> float:
+        return self.confidence
+
+    def __post_init__(self) -> None:
+        if self.confidence < 0.0 or self.confidence > 1.0:
+            raise ValueError("QCResult confidence must be between 0 and 1")
+        if self.status in {"warn", "warning", "fail"} and not self.limitations:
+            raise ValueError("warn/fail QCResult must include limitations")
+
+    def to_dict(self) -> dict[str, Any]:
+        return json_ready(self)
+
+    def to_json_dict(self) -> dict[str, Any]:
+        return self.to_dict()
+
+
+@dataclass(frozen=True)
+class TaskSegment:
+    """Structured task interval within a source video."""
+
+    segment_id: str
+    video_id: str
+    task_label: str
+    start_seconds: float
+    end_seconds: float
+    protocol_id: str | None = None
+    side: str | None = None
+    confidence: float = 1.0
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.end_seconds <= self.start_seconds:
+            raise ValueError("TaskSegment end_seconds must be greater than start_seconds")
+        if self.confidence < 0.0 or self.confidence > 1.0:
+            raise ValueError("TaskSegment confidence must be between 0 and 1")
+
+    def to_dict(self) -> dict[str, Any]:
+        return json_ready(self)
+
+    def to_json_dict(self) -> dict[str, Any]:
+        return self.to_dict()
+
+
+@dataclass(frozen=True)
+class SubjectSelection:
+    """Primary subject selection for multi-person videos."""
+
+    subject_id: str
+    track_id: str
+    confidence: float = 1.0
+    selected_by: Literal["user", "heuristic"] = "user"
+    reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.confidence < 0.0 or self.confidence > 1.0:
+            raise ValueError("SubjectSelection confidence must be between 0 and 1")
+
+    def to_dict(self) -> dict[str, Any]:
+        return json_ready(self)
+
+    def to_json_dict(self) -> dict[str, Any]:
+        return self.to_dict()
+
+
+@dataclass(frozen=True)
+class RoomZoneDefinition:
+    """Polygonal room-zone definition independent of monitoring detectors."""
+
+    zone_id: str
+    zone_type: str
+    polygon: tuple[tuple[float, float], ...]
+    label: str | None = None
+
+    def __post_init__(self) -> None:
+        if len(self.polygon) < 3:
+            raise ValueError("RoomZoneDefinition polygon must contain at least 3 points")
+
+    def to_dict(self) -> dict[str, Any]:
+        return json_ready(self)
+
+    def to_json_dict(self) -> dict[str, Any]:
+        return self.to_dict()
+
+
+@dataclass(frozen=True)
+class RoomZoneMap:
+    """Camera-specific room-zone map."""
+
+    zone_map_id: str
+    video_id: str
+    zones: tuple[RoomZoneDefinition, ...]
+    coordinate_space: str = "image_pixels"
+
+    def to_dict(self) -> dict[str, Any]:
+        return json_ready(self)
+
+    def to_json_dict(self) -> dict[str, Any]:
+        return self.to_dict()
+
+
+@dataclass(frozen=True)
+class ClinicalVideoAnalysis:
+    """End-to-end clinical task pipeline result."""
+
+    analysis_id: str
+    video_id: str
+    report_payload: dict[str, Any]
+    metrics: dict[str, Any] = field(default_factory=dict)
+    qc: QCResult | None = None
+    provenance: tuple[ProvenanceRecord, ...] = ()
+    created_at: str = field(default_factory=utc_now_iso)
 
     def to_dict(self) -> dict[str, Any]:
         return json_ready(self)

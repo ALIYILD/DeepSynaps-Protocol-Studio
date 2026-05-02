@@ -17,7 +17,7 @@ from deepsynaps_video.analyzers.gait import GaitMetrics
 from deepsynaps_video.analyzers.monitoring import MonitoringEvent
 from deepsynaps_video.analyzers.posture import PostureMetrics
 from deepsynaps_video.analyzers.tremor import TremorMetrics
-from deepsynaps_video.schemas import json_ready, utc_now_iso
+from deepsynaps_video.schemas import QCResult, json_ready, utc_now_iso
 
 ReportPayloadType = Literal["clinical_task", "monitoring", "longitudinal"]
 TaskStatus = Literal["available", "missing", "limited"]
@@ -172,6 +172,8 @@ def generate_clinical_task_report_payload(
     video_segments: dict[str, tuple[float, float]] | None = None,
     patient_id: str | None = None,
     session_id: str | None = None,
+    qc_result: Any | None = None,
+    qc: Any | None = None,
 ) -> ClinicalTaskReportPayload:
     """Generate a JSON-friendly payload for structured movement task videos.
 
@@ -204,6 +206,10 @@ def generate_clinical_task_report_payload(
         for section in sections
         for limitation in section.limitations
     )
+    clinical_summary = _clinical_summary(sections, limitations)
+    qc_payload = qc_result if qc_result is not None else qc
+    if qc_payload is not None:
+        clinical_summary["qc"] = qc_payload.to_json_dict() if hasattr(qc_payload, "to_json_dict") else json_ready(qc_payload)
     return ClinicalTaskReportPayload(
         payload_type="clinical_task",
         video_id=video_id,
@@ -215,6 +221,7 @@ def generate_clinical_task_report_payload(
         clinical_disclaimer=_clinical_disclaimer(),
         patient_id=patient_id,
         session_id=session_id,
+        clinical_summary=clinical_summary,
     )
 
 
@@ -444,25 +451,32 @@ def _section_payload(section: TaskReportSection) -> dict[str, Any]:
 def _clinical_summary(
     sections: tuple[TaskReportSection, ...],
     limitations: tuple[str, ...],
+    qc: QCResult | None = None,
 ) -> dict[str, Any]:
     if not sections:
-        return {
+        summary = {
             "task_count": 0,
             "review_required": True,
             "limitations": ("no analyzer metrics supplied",),
         }
+        if qc is not None:
+            summary["qc"] = qc.to_json_dict()
+        return summary
     severity_values = [
         metric.severity_grade
         for section in sections
         for metric in section.metrics
         if isinstance(metric.severity_grade, int)
     ]
-    return {
+    summary = {
         "task_count": len(sections),
         "review_required": True,
         "highest_severity_grade": max(severity_values) if severity_values else None,
         "limitations": limitations,
     }
+    if qc is not None:
+        summary["qc"] = qc.to_json_dict()
+    return summary
 
 
 def _flatten_numeric_metrics(payload: dict[str, Any]) -> dict[str, float]:

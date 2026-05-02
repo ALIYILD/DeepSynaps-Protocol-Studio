@@ -365,6 +365,27 @@ def generate_gait_annotations_for_video(
     return tuple(annotations)
 
 
+detect_gait_events = compute_gait_events
+compute_spatiotemporal_gait_metrics = compute_gait_metrics
+
+
+def analyze_gait_task(
+    pose_trajectories: tuple[JointTrajectory, ...] | list[JointTrajectory],
+    video_metadata: VideoMetadata,
+    *,
+    pixel_to_meter_scale: float | None = None,
+    min_peak_prominence_px: float = 0.0,
+) -> GaitMetrics:
+    """Compatibility wrapper for the planned gait task analyzer API."""
+
+    return compute_gait_metrics(
+        pose_trajectories,
+        video_metadata,
+        pixel_to_meter_scale=pixel_to_meter_scale,
+        min_peak_prominence_px=min_peak_prominence_px,
+    )
+
+
 def _select_trajectory(
     trajectories: tuple[JointTrajectory, ...] | list[JointTrajectory],
     names: tuple[str, ...],
@@ -641,7 +662,10 @@ __all__ = [
     "GaitAnnotation",
     "GaitEvent",
     "GaitMetrics",
+    "analyze_gait_task",
+    "compute_spatiotemporal_gait_metrics",
     "compute_gait_events",
     "compute_gait_metrics",
+    "detect_gait_events",
     "generate_gait_annotations_for_video",
 ]

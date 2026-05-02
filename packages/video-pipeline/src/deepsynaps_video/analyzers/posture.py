@@ -152,6 +152,35 @@ def compute_postural_stability_metrics(
     )
 
 
+def analyze_posture_task(
+    pose_trajectories: tuple[JointTrajectory, ...] | list[JointTrajectory],
+    *,
+    task_type: PostureTaskType = "standing",
+    severity_thresholds: dict[str, float] | None = None,
+) -> PostureMetrics:
+    """Compatibility wrapper for planned posture-task API."""
+
+    return compute_postural_stability_metrics(
+        pose_trajectories,
+        task_type=task_type,
+        severity_thresholds=severity_thresholds,
+    )
+
+
+def analyze_sit_to_stand(
+    pose_trajectories: tuple[JointTrajectory, ...] | list[JointTrajectory],
+    *,
+    severity_thresholds: dict[str, float] | None = None,
+) -> PostureMetrics:
+    """Compatibility wrapper for sit-to-stand posture/mobility task."""
+
+    return compute_postural_stability_metrics(
+        pose_trajectories,
+        task_type="sit_to_stand",
+        severity_thresholds=severity_thresholds,
+    )
+
+
 def map_postural_stability_severity(
     metrics: PostureMetrics | None = None,
     *,
@@ -293,6 +322,8 @@ def _confidence(
 __all__ = [
     "PostureMetrics",
     "PosturalStabilityMetrics",
+    "analyze_posture_task",
+    "analyze_sit_to_stand",
     "compute_postural_stability_metrics",
     "map_postural_stability_severity",
 ]
