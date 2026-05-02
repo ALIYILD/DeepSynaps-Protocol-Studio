@@ -150,6 +150,7 @@ from .devices import (
     WearableObservation,
 )
 from .media import (
+    AudioAnalysis,
     ClinicianMediaNote,
     ClinicianMediaTranscript,
     ClinicianNoteDraft,
@@ -251,6 +252,7 @@ __all__ = [
     "AnalysisAnnotation",
     "Annotation",
     "AssessmentRecord",
+    "AudioAnalysis",
     "AuditEventRecord",
     "AutoCleanRun",
     "BiometricsSnapshot",
