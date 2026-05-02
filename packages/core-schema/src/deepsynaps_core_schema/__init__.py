@@ -49,6 +49,12 @@ from .protocols_generate import (
     PersonalizedProtocolRequest,
     PersonalizedProtocolResponse,
 )
+from .home_program_tasks import (
+    AuditActionRequest,
+    ClinicianTaskCompletionOut,
+    HomeProgramTaskListResponse,
+    HomeProgramTaskMutationResponse,
+)
 from .auth import (
     ActivatePatientRequest,
     ChangePasswordRequest,
@@ -133,6 +139,11 @@ __all__ = [
     "BrainScanProtocolResponse",
     "PersonalizedProtocolRequest",
     "PersonalizedProtocolResponse",
+    # home_program_tasks exports
+    "AuditActionRequest",
+    "ClinicianTaskCompletionOut",
+    "HomeProgramTaskListResponse",
+    "HomeProgramTaskMutationResponse",
     # auth exports
     "ActivatePatientRequest",
     "ChangePasswordRequest",

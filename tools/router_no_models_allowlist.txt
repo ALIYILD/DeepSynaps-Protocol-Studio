@@ -44,7 +44,6 @@ apps/api/app/routers/fusion_router.py
 apps/api/app/routers/home_device_portal_router.py
 apps/api/app/routers/home_devices_patient_router.py
 apps/api/app/routers/home_devices_router.py
-apps/api/app/routers/home_program_tasks_router.py
 apps/api/app/routers/home_task_templates_router.py
 apps/api/app/routers/irb_manager_router.py
 apps/api/app/routers/irb_router.py

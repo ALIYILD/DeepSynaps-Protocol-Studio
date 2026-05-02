@@ -489,10 +489,6 @@ apps/api/app/routers/home_devices_router.py:ReviewSessionRequest
 apps/api/app/routers/home_devices_router.py:SessionLogOut
 apps/api/app/routers/home_devices_router.py:SourceRegistryOut
 apps/api/app/routers/home_devices_router.py:UpdateAssignmentRequest
-apps/api/app/routers/home_program_tasks_router.py:AuditActionRequest
-apps/api/app/routers/home_program_tasks_router.py:ClinicianTaskCompletionOut
-apps/api/app/routers/home_program_tasks_router.py:HomeProgramTaskListResponse
-apps/api/app/routers/home_program_tasks_router.py:HomeProgramTaskMutationResponse
 apps/api/app/routers/home_task_templates_router.py:HomeTaskTemplateCreate
 apps/api/app/routers/home_task_templates_router.py:HomeTaskTemplateListResponse
 apps/api/app/routers/home_task_templates_router.py:HomeTaskTemplateOut
