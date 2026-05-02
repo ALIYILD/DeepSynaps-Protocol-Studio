@@ -1,4 +1,5 @@
 import { parseHomeProgramTaskMutationResponse } from './home-program-task-sync.js';
+import { buildMovementAnalyzerDemoPayload, movementDemoAudit } from './demo-fixtures-movement-analyzer.js';
 
 const API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 const TOKEN_KEY = 'ds_access_token';
@@ -96,6 +97,23 @@ function _demoSyntheticResponse(path, method) {
       decodeURIComponent(compare[1]),
       decodeURIComponent(compare[2]),
     );
+  }
+  const movPatient = path.match(/^\/api\/v1\/movement\/analyzer\/patient\/([^/]+)\/?$/);
+  if (movPatient && (!method || method === 'GET')) {
+    const pid = decodeURIComponent(movPatient[1]);
+    const data = buildMovementAnalyzerDemoPayload(pid);
+    data.audit_tail = movementDemoAudit(pid).items;
+    return data;
+  }
+  const movAudit = path.match(/^\/api\/v1\/movement\/analyzer\/patient\/([^/]+)\/audit\/?$/);
+  if (movAudit && (!method || method === 'GET')) {
+    const pid = decodeURIComponent(movAudit[1]);
+    return movementDemoAudit(pid);
+  }
+  const movRe = path.match(/^\/api\/v1\/movement\/analyzer\/patient\/([^/]+)\/recompute\/?$/);
+  if (movRe && method === 'POST') {
+    const pid = decodeURIComponent(movRe[1]);
+    return buildMovementAnalyzerDemoPayload(pid);
   }
   // Mutations: pretend success (return a minimal accepted-shape object).
   if (method && method !== 'GET') return { ok: true, demo: true, id: 'demo-' + Date.now() };
@@ -3006,6 +3024,22 @@ export const api = {
     apiFetch(`/api/v1/risk/patient/${encodeURIComponent(patientId)}/recompute`, { method: 'POST' }),
   getRiskAudit: (patientId) =>
     apiFetch(`/api/v1/risk/patient/${encodeURIComponent(patientId)}/audit`),
+
+  // ── Movement Analyzer (multimodal motor workspace) ─────────────────────────
+  getMovementAnalyzer: (patientId) =>
+    apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}`),
+  recomputeMovementAnalyzer: (patientId, body) =>
+    apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/recompute`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  annotateMovementAnalyzer: (patientId, body) =>
+    apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/annotation`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  getMovementAnalyzerAudit: (patientId) =>
+    apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
 
   // ── Device Sync (clinician-facing) ─────────────────────────────────────────
   deviceSyncProviders: () => apiFetchWithRetry('/api/v1/device-sync/providers'),

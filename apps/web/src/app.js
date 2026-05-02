@@ -173,6 +173,8 @@ let _modTextAnalyzer = null;
 async function loadTextAnalyzer() { return (_modTextAnalyzer ??= await import('./pages-text-analyzer.js')); }
 let _modRiskAnalyzer = null;
 async function loadRiskAnalyzer() { return (_modRiskAnalyzer ??= await import('./pages-risk-analyzer.js')); }
+let _modMovementAnalyzer = null;
+async function loadMovementAnalyzer() { return (_modMovementAnalyzer ??= await import('./pages-movement-analyzer.js')); }
 let _modMedicationAnalyzer = null;
 async function loadMedicationAnalyzer() { return (_modMedicationAnalyzer ??= await import('./pages-medication-analyzer.js')); }
 let _modTreatmentSessionsAnalyzer = null;
@@ -530,6 +532,7 @@ const NAV = [
   { id: 'qeeg-analysis',      label: 'qEEG',         icon: '📊', ai: true },
   { id: 'voice-analyzer',     label: 'Voice',        icon: '🎙️', ai: true },
   { id: 'video-assessments',  label: 'Video',        icon: '🎥' },
+  { id: 'movement-analyzer',  label: 'Movement',     icon: '🚶' },
   { id: 'text-analyzer',      label: 'Text',         icon: '📝', ai: true },
   { id: 'wearables',          label: 'Biometrics',   icon: '⌚' },
   { id: 'risk-analyzer',      label: 'Risk',         icon: '🛡️' },
@@ -618,6 +621,7 @@ NAV_ICONS['brainmap-v2']     = NAV_ICONS['brain-map-planner'];
 NAV_ICONS['handbooks-v2']    = NAV_ICONS['handbooks'];
 NAV_ICONS['live-session']    = NAV_ICONS['virtual-care-hub'];
 NAV_ICONS['video-assessments'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="M16 10l4-2v8l-4-2"/></svg>`;
+NAV_ICONS['movement-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1.2" fill="currentColor"/><path d="M12 6.5v3.5l-2.5 5.5-1.5-1.2"/><path d="M12 10l2.2 1.2 1.3-1.2"/><path d="M8.5 19.5l1-2.2 2.5.7 2.5-.7 1 2.2"/></svg>`;
 NAV_ICONS['home-tasks-v2']   = NAV_ICONS['home-task-manager'];
 NAV_ICONS['documents-v2']    = NAV_ICONS['documents-hub'];
 NAV_ICONS['reports-v2']      = NAV_ICONS['reports-hub'];
@@ -1833,6 +1837,7 @@ async function renderPage() {
     case 'video-assessments':  { const m = await loadVideoAssessments(); await m.pgVideoAssessments(setTopbar, navigate); break; }
     case 'voice-analyzer':     { const m = await loadVoiceAnalyzer(); await m.pgVoiceAnalyzer(setTopbar, navigate); break; }
     case 'text-analyzer':      { const m = await loadTextAnalyzer(); await m.pgTextAnalyzer(setTopbar, navigate); break; }
+    case 'movement-analyzer':  { const m = await loadMovementAnalyzer(); await m.pgMovementAnalyzer(setTopbar, navigate); break; }
     case 'risk-analyzer':      { const m = await loadRiskAnalyzer(); await m.pgRiskAnalyzer(setTopbar, navigate); break; }
     case 'medication-analyzer': { const m = await loadMedicationAnalyzer(); await m.pgMedicationAnalyzer(setTopbar, navigate); break; }
     case 'treatment-sessions-analyzer': { const m = await loadTreatmentSessionsAnalyzer(); await m.pgTreatmentSessionsAnalyzer(setTopbar, navigate); break; }
@@ -3031,6 +3036,7 @@ window.addEventListener('popstate', (e) => {
     { type: 'nav', icon: '🧠', title: 'MRI Analyzer', page: 'mri-analysis' },
     { type: 'nav', icon: '🎥', title: 'Video Assessments', page: 'video-assessments' },
     { type: 'nav', icon: '🎥', title: 'Video Analyzer', page: 'video-assessments' },
+    { type: 'nav', icon: '🚶', title: 'Movement Analyzer', page: 'movement-analyzer' },
     { type: 'nav', icon: '🎙️', title: 'Voice Analyzer', page: 'voice-analyzer' },
     { type: 'nav', icon: '📝', title: 'Text Analyzer', page: 'text-analyzer' },
     { type: 'nav', icon: '⌚', title: 'Biometrics', page: 'wearables' },
