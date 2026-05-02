@@ -1,0 +1,137 @@
+{
+  "features": {
+    "spectral": {
+      "bands": {
+        "alpha": {
+          "absolute_uv2": {"Fz": 5.10, "Pz": 11.32},
+          "relative":     {"Fz": 0.21, "Pz": 0.52}
+        }
+      },
+      "aperiodic": {"slope": {"Fz": 1.42}},
+      "peak_alpha_freq": {"Fz": 9.8}
+    },
+    "connectivity": {"channels": ["Fz", "Pz"]},
+    "asymmetry": {"frontal_alpha_F3_F4": 0.21, "frontal_alpha_F7_F8": 0.18},
+    "graph": {"alpha": {"clustering_coef": 0.41, "char_path_length": 1.82, "small_worldness": 1.05}},
+    "source": {"method": "eLORETA"},
+    "embedding": [0.01, -0.02, 0.03],
+    "brain_age": {"predicted_years": 38.7, "chronological_years": 34, "gap_years": 4.7, "gap_percentile": 78.4, "confidence": "moderate"},
+    "risk_scores": {"mdd_like": {"score": 0.62, "ci95": [0.51, 0.74]}},
+    "centiles": {"norm_db_version": "gamlss-v1"},
+    "explainability": {
+      "ood_score": {"percentile": 18.4, "distance": 0.42, "interpretation": "within distribution"},
+      "adebayo_sanity_pass": true,
+      "method": "integrated_gradients"
+    },
+    "clinical_summary": {
+      "qc_flags": [{"code": "ica_eye_high", "severity": "info"}],
+      "confidence": {"overall": "moderate"},
+      "method_provenance": {"normative_db": "toy-0.1"},
+      "limitations": [{"text": "single session"}]
+    }
+  },
+  "zscores": {
+    "spectral": {"bands": {"theta": {"absolute_uv2": {"Fz": 2.81}}}},
+    "flagged": [{"metric": "spectral.bands.theta.absolute_uv2", "channel": "Fz", "z": 2.81}],
+    "norm_db_version": "toy-0.1"
+  },
+  "flagged_conditions": ["mdd"],
+  "quality": {
+    "n_channels_input": 19,
+    "n_channels_rejected": 0,
+    "n_epochs_total": 60,
+    "n_epochs_retained": 58,
+    "ica_components_dropped": 2,
+    "sfreq_input": 500.0,
+    "sfreq_output": 250.0,
+    "bandpass": [1.0, 45.0],
+    "notch_hz": 50.0,
+    "pipeline_version": "0.1.0",
+    "norm_db_version": "toy-0.1"
+  },
+  "qc_flags": [{"code": "ica_eye_high", "severity": "info"}],
+  "confidence": {"overall": "moderate"},
+  "method_provenance": {"normative_db": "toy-0.1"},
+  "limitations": [{"text": "single session"}],
+  "session_number": 2,
+  "days_from_baseline": 28,
+  "fusion_recommendation": {
+    "patient_id": "PAT-001",
+    "qeeg_analysis_id": "QEEG-001",
+    "mri_analysis_id": "MRI-001",
+    "modalities_used": ["qeeg", "mri"],
+    "generated_at": "2026-05-02T09:00:00Z",
+    "recommendations": [
+      {
+        "primary_modality": "rtms_10hz",
+        "target_region": "L_DLPFC",
+        "dose": {"sessions": 20, "intensity": "120% RMT", "duration_min": 37, "frequency": "5x weekly"},
+        "session_plan": {
+          "induction":     {"sessions": 5, "notes": "ramp to full intensity"},
+          "consolidation": {"sessions": 10, "notes": "core treatment block"},
+          "maintenance":   {"sessions": 5, "notes": "taper"}
+        },
+        "contraindications": ["seizure history"],
+        "expected_response_window_weeks": [3, 6],
+        "citations": [],
+        "confidence": "moderate",
+        "rationale": "qEEG frontal alpha asymmetry + MRI sgACC-DLPFC anticorrelation converge on left DLPFC.",
+        "qeeg_support": [{"biomarker": "frontal_alpha_asymmetry_F3_F4", "value": 0.21, "z": 1.9, "weight": 0.35}],
+        "mri_support":  [{"biomarker": "sgACC_DLPFC_anticorrelation", "value": -0.37, "z": -2.6, "weight": 0.40}],
+        "fusion_boost": 1.35,
+        "agreement_score": 0.82,
+        "conflicts": []
+      }
+    ],
+    "summary": "Multi-modal convergence supports L-DLPFC rTMS as the primary research-only target.",
+    "disclaimer": "Decision-support tool. Not a medical device. Multi-modal convergent findings are research/wellness indicators only."
+  },
+  "annotations": [
+    {
+      "id": "ANN-001",
+      "analysis_id": "QEEG-001",
+      "analysis_type": "qeeg",
+      "author_id": "USR-CLIN-001",
+      "author_name": "Dr Reviewer",
+      "target": {"kind": "zscore_cell", "ref": "Fz:theta"},
+      "text": "Discuss with patient at next visit.",
+      "created_at": "2026-05-02T10:15:00Z",
+      "updated_at": null,
+      "resolved": false,
+      "resolved_by": null,
+      "tags": ["follow_up"]
+    }
+  ],
+  "outcomes": [
+    {
+      "id": "OUT-001",
+      "patient_id": "PAT-001",
+      "source": "fusion_recommendation",
+      "recommendation_id": "REC-001",
+      "protocol_modality": "rtms_10hz",
+      "target_region": "L_DLPFC",
+      "session_id": "SES-001",
+      "accepted": true,
+      "started_at": "2026-05-05T09:00:00Z",
+      "completed_sessions": 12,
+      "assessment_deltas": {"PHQ-9": {"pre": 18, "post": 8, "pct_change": -55.5}},
+      "adverse_events": [],
+      "adherence_pct": 96.0,
+      "notes": "Tolerated well; no AEs."
+    }
+  ],
+  "patient_facing_summary": {
+    "analysis_id": "QEEG-001",
+    "recorded_on": "2026-05-02",
+    "findings_plain_language": [
+      {"title": "Brain rhythms snapshot", "body": "Your recording was good quality and showed a few patterns worth discussing with your clinician.", "severity_hint": "gentle"},
+      {"title": "Attention patterns", "body": "Some patterns sometimes seen with attention difficulties. Talk to your clinician about next steps.", "severity_hint": "discuss_with_clinician"}
+    ],
+    "next_steps_generic": [
+      "Discuss these results with your clinician.",
+      "Bring any recent symptom notes to your next visit."
+    ],
+    "clinician_note_public": null,
+    "regulatory_footer": "Research/wellness use — not diagnostic."
+  }
+}
