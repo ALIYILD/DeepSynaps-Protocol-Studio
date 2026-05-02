@@ -38,8 +38,20 @@ def _bundle_file(name: str) -> Path:
     return _default_root() / name
 
 
+def _manifest_candidates() -> list[Path]:
+    root = _default_root()
+    return [root / "manifest.json", root / "research_bundle_manifest.json"]
+
+
+def _first_existing_path(paths: list[Path]) -> Path | None:
+    for path in paths:
+        if path.exists():
+            return path
+    return None
+
+
 def bundle_exists() -> bool:
-    return _bundle_file("research_bundle_manifest.json").exists()
+    return _first_existing_path(_manifest_candidates()) is not None
 
 
 def bundle_root() -> str:
@@ -55,7 +67,10 @@ def _load_manifest(path_str: str) -> dict:
 
 
 def load_manifest() -> dict:
-    return _load_manifest(str(_bundle_file("research_bundle_manifest.json")))
+    manifest_path = _first_existing_path(_manifest_candidates())
+    if manifest_path is None:
+        return {}
+    return _load_manifest(str(manifest_path))
 
 
 @lru_cache(maxsize=8)
@@ -260,7 +275,21 @@ _CSV_DATASETS: dict[str, dict[str, str]] = {
         "description": "Paper-level outcome snippets and real-world-evidence flags derived from abstracts.",
         "required": "false",
     },
+    "adjunct_evidence": {
+        "relative_path": "derived/neuromodulation_adjunct_evidence.csv",
+        "label": "Adjunct biomarker / nutrition / medication evidence",
+        "description": "Paper-level evidence slice linking labs, biomarkers, medications, supplements, vitamins, and diet topics to neuromodulation-relevant conditions and protocols.",
+        "required": "false",
+    },
 }
+
+_ADJUNCT_REVIEW_CONDITIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("depression", "Depression", ("depression",)),
+    ("ocd", "OCD", ("ocd",)),
+    ("adhd", "ADHD", ("adhd",)),
+    ("chronic_pain", "Pain", ("chronic_pain", "pain")),
+    ("epilepsy_seizures", "Epilepsy", ("epilepsy_seizures", "epilepsy", "seizures")),
+)
 
 
 def _repo_root() -> Path:
@@ -476,6 +505,27 @@ def _text_search_matches(row: dict[str, str], query: str) -> bool:
         ]
     ).lower()
     return query in haystack
+
+
+def _text_search_matches_any(row: dict[str, str], terms: list[str]) -> bool:
+    if not terms:
+        return True
+    haystack = " ".join(
+        [
+            row.get("title", ""),
+            row.get("research_summary", ""),
+            row.get("abstract", ""),
+            row.get("ai_ingestion_text", ""),
+            row.get("adjunct_topic_labels", ""),
+            row.get("adjunct_terms", ""),
+            row.get("adjunct_domains", ""),
+            row.get("condition_mentions_top", ""),
+            row.get("journal", ""),
+            row.get("journal_normalized", ""),
+            row.get("authors", ""),
+        ]
+    ).lower()
+    return any(term in haystack for term in terms if term)
 
 
 def _slugify_label(value: str | None) -> str:
@@ -963,3 +1013,267 @@ def list_protocol_coverage(limit: int = 50) -> dict[str, Any]:
 
     rows = [row for _, _, row in sorted(heap, key=lambda item: (item[0], item[1]), reverse=True)]
     return {"rows": rows, "generated_from": path.name, "total": len(rows)}
+
+
+def search_adjunct_evidence(
+    *,
+    q: str | None = None,
+    domain: str | None = None,
+    topic: str | None = None,
+    indication: str | None = None,
+    modality: str | None = None,
+    evidence_tier: str | None = None,
+    year_min: int | None = None,
+    year_max: int | None = None,
+    limit: int = 20,
+    terms: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    path = _dataset_path_if_present("adjunct_evidence")
+    if path is None:
+        return []
+
+    query = (q or "").strip().lower()
+    search_terms = [item.strip().lower() for item in (terms or []) if item and item.strip()]
+    heap: list[tuple[tuple, str, dict[str, Any]]] = []
+    handle, reader = _csv_reader(path)
+    try:
+        for row in reader:
+            year = _to_int(row.get("year"), default=-1)
+            if year_min is not None and year < year_min:
+                continue
+            if year_max is not None and year > year_max:
+                continue
+            if not _contains_filter(row.get("adjunct_domains"), domain):
+                continue
+            if not _contains_filter(
+                f"{row.get('adjunct_topic_keys', '')};{row.get('adjunct_topic_labels', '')};{row.get('adjunct_terms', '')}",
+                topic,
+            ):
+                continue
+            if not _contains_filter(row.get("indication_tags"), indication):
+                continue
+            if not _contains_filter(
+                f"{row.get('canonical_modalities', '')};{row.get('primary_modality', '')}",
+                modality,
+            ):
+                continue
+            if not _contains_filter(row.get("evidence_tier"), evidence_tier):
+                continue
+            if query and not _text_search_matches(row, query):
+                continue
+            if search_terms and not _text_search_matches_any(row, search_terms):
+                continue
+
+            out = {
+                "paper_key": row.get("paper_key") or None,
+                "title": row.get("title") or None,
+                "authors": row.get("authors") or None,
+                "journal": row.get("journal_normalized") or row.get("journal") or None,
+                "year": year if year >= 0 else None,
+                "doi": row.get("doi") or None,
+                "pmid": row.get("pmid") or None,
+                "pmcid": row.get("pmcid") or None,
+                "primary_modality": row.get("primary_modality") or None,
+                "canonical_modalities": _tokenize(row.get("canonical_modalities")),
+                "indication_tags": _tokenize(row.get("indication_tags")),
+                "study_type_normalized": row.get("study_type_normalized") or None,
+                "evidence_tier": row.get("evidence_tier") or None,
+                "paper_confidence_score": _to_int(row.get("paper_confidence_score")),
+                "priority_score": _to_int(row.get("priority_score")),
+                "citation_count": _to_int(row.get("citation_count") or row.get("cited_by_count")),
+                "record_url": row.get("record_url") or None,
+                "research_summary": row.get("research_summary") or None,
+                "adjunct_domains": _tokenize(row.get("adjunct_domains")),
+                "adjunct_topic_keys": _tokenize(row.get("adjunct_topic_keys")),
+                "adjunct_topic_labels": [item.strip() for item in (row.get("adjunct_topic_labels") or "").split(";") if item.strip()],
+                "adjunct_terms": [item.strip() for item in (row.get("adjunct_terms") or "").split(";") if item.strip()],
+                "condition_mentions_top": [item.strip() for item in (row.get("condition_mentions_top") or "").split(";") if item.strip()],
+                "relation_signal_tags": _tokenize(row.get("relation_signal_tags")),
+                "ranking_mode": "adjunct",
+            }
+            _push_top(
+                heap,
+                (
+                    out["paper_confidence_score"],
+                    out["priority_score"],
+                    out["citation_count"],
+                    out["year"] or 0,
+                    len(out["adjunct_topic_keys"]),
+                    len(out["relation_signal_tags"]),
+                ),
+                out,
+                limit,
+            )
+    finally:
+        handle.close()
+
+    return [row for _, _, row in sorted(heap, key=lambda item: (item[0], item[1]), reverse=True)]
+
+
+def build_adjunct_evidence_summary(
+    *,
+    domain: str | None = None,
+    indication: str | None = None,
+    modality: str | None = None,
+    limit: int = 5,
+) -> dict[str, Any]:
+    path = _dataset_path_if_present("adjunct_evidence")
+    if path is None:
+        return {
+            "filters": {"domain": domain, "indication": indication, "modality": modality},
+            "paper_count": 0,
+            "top_domains": [],
+            "top_topics": [],
+            "top_indications": [],
+            "top_modalities": [],
+            "top_relation_signal_tags": [],
+            "top_papers": [],
+        }
+
+    total_papers = 0
+    domain_counter: Counter[str] = Counter()
+    topic_counter: Counter[str] = Counter()
+    indication_counter: Counter[str] = Counter()
+    modality_counter: Counter[str] = Counter()
+    relation_counter: Counter[str] = Counter()
+
+    handle, reader = _csv_reader(path)
+    try:
+        for row in reader:
+            if not _contains_filter(row.get("adjunct_domains"), domain):
+                continue
+            if not _contains_filter(row.get("indication_tags"), indication):
+                continue
+            if not _contains_filter(
+                f"{row.get('canonical_modalities', '')};{row.get('primary_modality', '')}",
+                modality,
+            ):
+                continue
+            total_papers += 1
+            for item in _tokenize(row.get("adjunct_domains")):
+                domain_counter[item] += 1
+            for item in [v.strip() for v in (row.get("adjunct_topic_labels") or "").split(";") if v.strip()]:
+                topic_counter[item] += 1
+            for item in _tokenize(row.get("indication_tags")):
+                indication_counter[item] += 1
+            for item in _tokenize(row.get("canonical_modalities")) or _tokenize(row.get("primary_modality")):
+                modality_counter[item] += 1
+            for item in _tokenize(row.get("relation_signal_tags")):
+                relation_counter[item] += 1
+    finally:
+        handle.close()
+
+    return {
+        "filters": {"domain": domain, "indication": indication, "modality": modality},
+        "paper_count": total_papers,
+        "top_domains": [{"key": key, "count": count} for key, count in domain_counter.most_common(limit)],
+        "top_topics": [{"key": key, "count": count} for key, count in topic_counter.most_common(limit)],
+        "top_indications": [{"key": key, "count": count} for key, count in indication_counter.most_common(limit)],
+        "top_modalities": [{"key": key, "count": count} for key, count in modality_counter.most_common(limit)],
+        "top_relation_signal_tags": [{"key": key, "count": count} for key, count in relation_counter.most_common(limit)],
+        "top_papers": search_adjunct_evidence(domain=domain, indication=indication, modality=modality, limit=limit),
+    }
+
+
+def build_adjunct_condition_review_tables(limit_per_condition: int = 6) -> dict[str, Any]:
+    path = _dataset_path_if_present("adjunct_evidence")
+    if path is None:
+        return {
+            "generated_from": "unavailable",
+            "conditions": [],
+        }
+
+    review_payloads: list[dict[str, Any]] = []
+    for condition_slug, condition_label, aliases in _ADJUNCT_REVIEW_CONDITIONS:
+        bucket: dict[tuple[str, str], dict[str, Any]] = {}
+        handle, reader = _csv_reader(path)
+        try:
+            for row in reader:
+                indication_tokens = set(_tokenize(row.get("indication_tags")))
+                if not any(alias in indication_tokens for alias in aliases):
+                    continue
+                topic_labels = [v.strip() for v in (row.get("adjunct_topic_labels") or "").split(";") if v.strip()]
+                domains = _tokenize(row.get("adjunct_domains"))
+                if not topic_labels or not domains:
+                    continue
+                year = _to_int(row.get("year"), default=0)
+                cited = _to_int(row.get("citation_count") or row.get("cited_by_count"))
+                evidence = row.get("evidence_tier") or "unspecified"
+                modality = row.get("primary_modality") or "general_neuromodulation"
+                title = row.get("title") or ""
+                relation_tags = _tokenize(row.get("relation_signal_tags"))
+                for domain in domains:
+                    for topic in topic_labels:
+                        key = (domain, topic)
+                        payload = bucket.setdefault(
+                            key,
+                            {
+                                "condition_slug": condition_slug,
+                                "condition_label": condition_label,
+                                "domain": domain,
+                                "topic_label": topic,
+                                "paper_count": 0,
+                                "citation_sum": 0,
+                                "top_modalities_counter": Counter(),
+                                "evidence_tier_counter": Counter(),
+                                "relation_signal_counter": Counter(),
+                                "example_titles": [],
+                                "latest_year": 0,
+                            },
+                        )
+                        payload["paper_count"] += 1
+                        payload["citation_sum"] += cited
+                        payload["top_modalities_counter"][modality] += 1
+                        payload["evidence_tier_counter"][evidence] += 1
+                        payload["latest_year"] = max(payload["latest_year"], year)
+                        for tag in relation_tags:
+                            payload["relation_signal_counter"][tag] += 1
+                        if title and title not in payload["example_titles"] and len(payload["example_titles"]) < 3:
+                            payload["example_titles"].append(title)
+        finally:
+            handle.close()
+
+        rows = sorted(
+            bucket.values(),
+            key=lambda item: (
+                item["paper_count"],
+                item["citation_sum"],
+                item["latest_year"],
+            ),
+            reverse=True,
+        )[:limit_per_condition]
+        review_payloads.append(
+            {
+                "condition_slug": condition_slug,
+                "condition_label": condition_label,
+                "rows": [
+                    {
+                        "condition_slug": row["condition_slug"],
+                        "condition_label": row["condition_label"],
+                        "domain": row["domain"],
+                        "topic_label": row["topic_label"],
+                        "paper_count": row["paper_count"],
+                        "citation_sum": row["citation_sum"],
+                        "latest_year": row["latest_year"] or None,
+                        "top_modalities": [
+                            {"key": key, "count": count}
+                            for key, count in row["top_modalities_counter"].most_common(3)
+                        ],
+                        "top_evidence_tiers": [
+                            {"key": key, "count": count}
+                            for key, count in row["evidence_tier_counter"].most_common(3)
+                        ],
+                        "top_relation_signal_tags": [
+                            {"key": key, "count": count}
+                            for key, count in row["relation_signal_counter"].most_common(3)
+                        ],
+                        "example_titles": row["example_titles"],
+                    }
+                    for row in rows
+                ],
+            }
+        )
+    return {
+        "generated_from": path.name,
+        "conditions": review_payloads,
+    }

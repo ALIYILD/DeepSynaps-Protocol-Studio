@@ -79,9 +79,11 @@ apps/api/app/routers/population_analytics_router.py
 apps/api/app/routers/protocols_saved_router.py
 apps/api/app/routers/qeeg_ai_router.py
 apps/api/app/routers/qeeg_analysis_router.py
+apps/api/app/routers/qeeg_annotation_outcome_tracker_router.py
 apps/api/app/routers/qeeg_copilot_router.py
 apps/api/app/routers/qeeg_raw_router.py
 apps/api/app/routers/qeeg_records_router.py
+apps/api/app/routers/qeeg_report_annotations_router.py
 apps/api/app/routers/qeeg_viz_router.py
 apps/api/app/routers/quality_assurance_router.py
 apps/api/app/routers/recordings_router.py
@@ -90,6 +92,7 @@ apps/api/app/routers/reports_router.py
 apps/api/app/routers/resolver_coaching_digest_audit_hub_router.py
 apps/api/app/routers/resolver_coaching_inbox_router.py
 apps/api/app/routers/resolver_coaching_self_review_digest_router.py
+apps/api/app/routers/reviewer_sla_calibration_threshold_tuning_router.py
 apps/api/app/routers/risk_stratification_router.py
 apps/api/app/routers/rotation_policy_advisor_outcome_tracker_router.py
 apps/api/app/routers/rotation_policy_advisor_threshold_adoption_outcome_tracker_router.py

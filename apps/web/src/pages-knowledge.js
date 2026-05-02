@@ -16437,6 +16437,19 @@ export async function pgIRBManager(setTopbar) {
   let _amd2Unassigned = null;
   let _amd2Status = null;
   let _amd2LoadError = null;
+  // ── IRB-AMD4 SLA Threshold Tuning launch-audit ──
+  // Closes section I rec from IRB-AMD3 (#451): surfaces a "what
+  // calibration_score floor should auto-trigger an admin
+  // reassign-amendment action?" recommendation with bootstrap CI,
+  // what-if replay, clinic-scoped adoption + audit log. Mirrors the
+  // CSAHP6 (#438) tune-a-threshold console.
+  // ━━ IRB-AMD4 SLICE BOUNDARY ━━
+  let _irbAmd4Recommendation = null;
+  let _irbAmd4CurrentThreshold = null;
+  let _irbAmd4Replay = null;
+  let _irbAmd4ReplayOverride = '';
+  let _irbAmd4AdoptionHistory = null;
+  let _irbAmd4LoadError = null;
   // ── IRB-AMD3 SLA Outcome Tracker launch-audit ──
   // Closes the loop on whether the IRB-AMD2 SLA-breach signal nudges
   // reviewer behavior. Pairs each queue_breach_detected row with the
@@ -16910,6 +16923,104 @@ export async function pgIRBManager(setTopbar) {
       calTable +
       '</div>';
   }
+  // ── IRB-AMD4 SLA Threshold Tuning renderer ──
+  // Renders the "SLA threshold tuning" sub-section that sits below
+  // IRB-AMD3's outcome tracker. Recommendation card + CI badge +
+  // current-threshold card + what-if replay form + adopt-modal +
+  // adoption history. Honest insufficient-data state.
+  function renderSlaThresholdTuning() {
+    var role = _amdActorRole || 'clinician';
+    var rec = _irbAmd4Recommendation || null;
+    var cur = _irbAmd4CurrentThreshold || { threshold_value: null, auto_reassign_enabled: false };
+    var replay = _irbAmd4Replay || null;
+    var hist = (_irbAmd4AdoptionHistory && _irbAmd4AdoptionHistory.items) || [];
+    var headerRow = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">' +
+      '<div style="font-size:13px;font-weight:800;color:var(--text)">SLA threshold tuning</div>' +
+      '</div>';
+    var disclaimer = '<div style="background:var(--blue)10;border:1px solid var(--blue)33;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11.5px;color:var(--text-muted)">Recommends a calibration_score floor below which the IRB-AMD2 SLA worker would auto-reassign pending amendments away from under-performing reviewers. Adoption is clinic-scoped and immediate. Recommendation uses 180 days of paired data; CI is a 50-trial bootstrap.</div>';
+    if (_irbAmd4LoadError) {
+      disclaimer += '<div data-testid="irb-amd4-error" class="irb-amd4-error" style="background:var(--rose)18;border:1px solid var(--rose)55;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11.5px;color:var(--rose);font-weight:600">SLA threshold API error: '+_kEsc(_irbAmd4LoadError)+'.</div>';
+    }
+    // Insufficient-data state: surface honest disclaimer; hide the
+    // replay + adopt affordances.
+    if (rec && rec.insufficient_data) {
+      var reason = (rec.insufficient_data_reason === 'too_few_breaches_per_reviewer')
+        ? 'Need ≥3 reviewers with ≥2 breaches each. The cohort is too small to anchor a clinic-wide threshold.'
+        : (rec.insufficient_data_reason === 'too_few_reviewers')
+          ? 'Need ≥3 reviewers with ≥2 breaches each. Only '+_kEsc(rec.sample_size_reviewers)+' reviewer(s) have breached.'
+          : 'Need ≥3 reviewers with ≥2 breaches each. No SLA breaches recorded yet — workflow is healthy.';
+      var insuf = '<div class="irb-amd4-insufficient" data-testid="irb-amd4-insufficient" style="background:var(--hover-bg);border:1px dashed var(--border);border-radius:8px;padding:14px;text-align:center;color:var(--text-muted);font-size:12.5px">'+_kEsc(reason)+'</div>';
+      return '<div data-testid="irb-amd4-section" style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:18px">' +
+        headerRow + disclaimer + insuf + '</div>';
+    }
+    // Recommendation card with CI badge.
+    var recCard = '';
+    if (rec) {
+      var recVal = (rec.recommended == null) ? '—' : Number(rec.recommended).toFixed(2);
+      var ciTxt = '';
+      if (rec.ci_low != null && rec.ci_high != null) {
+        ciTxt = '<span class="irb-amd4-ci-badge" data-testid="irb-amd4-ci-badge" data-ci-low="'+_kEsc(rec.ci_low)+'" data-ci-high="'+_kEsc(rec.ci_high)+'" style="display:inline-block;margin-left:6px;padding:2px 8px;border-radius:8px;background:var(--blue)18;color:var(--blue);font-size:11px;font-weight:700">CI ['+_kEsc(Number(rec.ci_low).toFixed(2))+' — '+_kEsc(Number(rec.ci_high).toFixed(2))+']</span>';
+      }
+      var sampleNote = '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Sample: '+_kEsc(rec.sample_size_reviewers)+' reviewer(s) · '+_kEsc(rec.sample_size_breaches)+' breach(es) over '+_kEsc(rec.window_days)+'d</div>';
+      recCard = '<div class="irb-amd4-recommendation-card" data-testid="irb-amd4-recommendation-card" style="background:var(--hover-bg);border:1px solid var(--teal)55;border-radius:8px;padding:10px 14px;margin-bottom:10px"><div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Recommended threshold</div><div style="font-size:20px;font-weight:800;color:var(--text)">'+_kEsc(recVal)+ciTxt+'</div>'+sampleNote+'</div>';
+    }
+    // Current threshold card.
+    var curVal = (cur.threshold_value == null) ? '—' : Number(cur.threshold_value).toFixed(2);
+    var autoChip = cur.auto_reassign_enabled
+      ? '<span style="display:inline-block;padding:2px 8px;border-radius:8px;background:var(--teal)22;color:var(--teal);font-size:11px;font-weight:700;margin-left:6px">auto-reassign ON</span>'
+      : '<span style="display:inline-block;padding:2px 8px;border-radius:8px;background:var(--text-muted)22;color:var(--text-muted);font-size:11px;font-weight:700;margin-left:6px">recommend-only</span>';
+    var curCard = '<div style="background:var(--hover-bg);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:10px"><div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Current threshold</div><div style="font-size:20px;font-weight:800;color:var(--text)">'+_kEsc(curVal)+autoChip+'</div></div>';
+    // Replay form.
+    var replayForm = '<div style="background:var(--hover-bg);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:10px">' +
+      '<div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">What-if replay</div>' +
+      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+        '<input id="irb-amd4-replay-input" data-testid="irb-amd4-replay-input" type="number" step="0.05" min="-1" max="1" value="'+_kEsc(_irbAmd4ReplayOverride || (rec && rec.recommended != null ? rec.recommended : 0))+'" style="width:120px;padding:5px 8px;font-size:13px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text)" />' +
+        '<button class="nnna-btn-sm irb-amd4-replay-btn" data-testid="irb-amd4-replay-btn" onclick="window._irbAmd4RunReplay()">Run replay</button>' +
+      '</div>';
+    if (replay) {
+      var helpful = (replay.simulated_helpful_rate_pct == null) ? 0 : Number(replay.simulated_helpful_rate_pct);
+      var helpfulColor = helpful >= 50 ? 'var(--teal)' : 'var(--amber)';
+      replayForm += '<div class="irb-amd4-replay-results" data-testid="irb-amd4-replay-results" data-helpful-rate="'+_kEsc(helpful)+'" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px">' +
+        '<div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:11.5px"><span style="color:var(--text-muted)">Reviewers below floor:</span> <strong>'+_kEsc(replay.reviewers_below_floor)+'</strong></div>' +
+        '<div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:11.5px"><span style="color:var(--text-muted)">projected_reassign_count:</span> <strong>'+_kEsc(replay.projected_reassign_count)+'</strong></div>' +
+        '<div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:11.5px"><span style="color:var(--text-muted)">simulated_helpful_rate_pct:</span> <strong style="color:'+helpfulColor+'">'+_kEsc(helpful)+'%</strong></div>' +
+        '</div>';
+    }
+    replayForm += '</div>';
+    // Adopt button — admin-only, gated until helpful_rate_pct >= 50.
+    var adoptBtn = '';
+    if (role === 'admin') {
+      var hr = (replay && replay.simulated_helpful_rate_pct != null)
+        ? Number(replay.simulated_helpful_rate_pct)
+        : null;
+      // irb-amd4-adopt-gate-50: helpful_rate_pct >= 50 required.
+      var enabled = (hr != null && isFinite(hr) && hr >= 50);
+      var disabledAttr = enabled ? '' : ' disabled aria-disabled="true"';
+      var hint = enabled ? '' : '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Adopt enabled when helpful_rate_pct ≥ 50% in the most recent replay (irb-amd4-adopt-gate-50).</div>';
+      adoptBtn = '<div class="irb-amd4-adopt-admin-only" data-testid="irb-amd4-adopt-admin-only" style="margin-bottom:10px">' +
+        '<button class="nnna-btn-sm nnna-btn-primary irb-amd4-adopt-btn" data-testid="irb-amd4-adopt-btn"'+disabledAttr+' onclick="window._irbAmd4OpenAdoptModal()">Adopt threshold…</button>' +
+        hint +
+        '</div>';
+    }
+    // Adoption history.
+    var historyItems = '<div class="irb-amd4-history" data-testid="irb-amd4-history">';
+    historyItems += '<div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Adoption history</div>';
+    if (!hist.length) {
+      historyItems += '<div style="font-size:11.5px;color:var(--text-muted);font-style:italic">No threshold adoptions yet.</div>';
+    } else {
+      historyItems += '<ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px">' +
+        hist.map(function(h) {
+          var prev = (h.previous_value == null) ? '∅' : Number(h.previous_value).toFixed(2);
+          var newv = Number(h.new_value).toFixed(2);
+          return '<li style="background:var(--hover-bg);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:11.5px"><div><strong>'+_kEsc(prev)+' → '+_kEsc(newv)+'</strong> · auto_reassign: '+_kEsc(h.auto_reassign_enabled ? 'ON' : 'OFF')+' · '+_kEsc(h.adopted_by_user_id)+' · '+_kEsc(h.created_at)+'</div><div style="color:var(--text-muted);margin-top:2px">'+_kEsc(h.justification || '-')+'</div></li>';
+        }).join('') +
+      '</ul>';
+    }
+    historyItems += '</div>';
+    return '<div data-testid="irb-amd4-section" style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:18px">' +
+      headerRow + disclaimer + recCard + curCard + replayForm + adoptBtn + historyItems +
+      '</div>';
+  }
   function renderAmendmentsWorkflow() {
     var disclaimer = '<div style="background:var(--blue)12;border:1px solid var(--blue)44;border-radius:8px;padding:11px 14px;margin-bottom:14px;font-size:12px;color:var(--text)"><strong style="color:var(--blue)">Regulator-credible amendment workflow:</strong> Lifecycle (draft → submitted → reviewer_assigned → under_review → approved / rejected / revisions_requested → effective). All transitions are audit-trailed. Approved amendments merge into the effective protocol document on the parent register tab; rejected amendments stay as historical record.</div>';
     if (_amdLoadError) {
@@ -16929,11 +17040,12 @@ export async function pgIRBManager(setTopbar) {
       '</div>';
     var workloadHtml = renderReviewerWorkload();
     var slaOutcomeHtml = renderSLAOutcomeTracker();
+    var slaThresholdHtml = renderSlaThresholdTuning();
     if (_amdItems === null) {
-      return '<div>'+disclaimer+actionsBar+workloadHtml+slaOutcomeHtml+'<div style="padding:40px;text-align:center;color:var(--text-muted)">Loading amendments…</div></div>';
+      return '<div>'+disclaimer+actionsBar+workloadHtml+slaOutcomeHtml+slaThresholdHtml+'<div style="padding:40px;text-align:center;color:var(--text-muted)">Loading amendments…</div></div>';
     }
     if (!_amdItems.length) {
-      return '<div>'+disclaimer+actionsBar+workloadHtml+slaOutcomeHtml+'<div style="text-align:center;padding:40px 20px;color:var(--text-muted);background:var(--hover-bg);border:1px dashed var(--border);border-radius:10px">No amendments yet. Click "New amendment" to start a draft.</div></div>';
+      return '<div>'+disclaimer+actionsBar+workloadHtml+slaOutcomeHtml+slaThresholdHtml+'<div style="text-align:center;padding:40px 20px;color:var(--text-muted);background:var(--hover-bg);border:1px dashed var(--border);border-radius:10px">No amendments yet. Click "New amendment" to start a draft.</div></div>';
     }
     var groups = _amdGroupByStatus(_amdItems);
     var sections = [];
@@ -16973,7 +17085,7 @@ export async function pgIRBManager(setTopbar) {
         '<div style="display:flex;gap:8px;flex-wrap:wrap">'+_amdActionButtons(it)+'</div>' +
         '</div>';
     }
-    return '<div>'+disclaimer+actionsBar+workloadHtml+slaOutcomeHtml+sections.join('')+detail+'</div>';
+    return '<div>'+disclaimer+actionsBar+workloadHtml+slaOutcomeHtml+slaThresholdHtml+sections.join('')+detail+'</div>';
   }
 
   function render() {
@@ -17626,6 +17738,71 @@ export async function pgIRBManager(setTopbar) {
     });
   };
 
+  // ── IRB-AMD4 SLA Threshold Tuning window-bound helpers ─────────────────
+  function _irbAmd4Load() {
+    return Promise.all([
+      api.fetchReviewerSlaCalibrationCurrentThreshold(),
+      api.fetchReviewerSlaCalibrationRecommendation({ window_days: 180 }),
+      api.fetchReviewerSlaCalibrationAdoptionHistory({ page: 1, page_size: 25 }),
+    ]).then(function(results) {
+      _irbAmd4CurrentThreshold = results[0] || { threshold_value: null, auto_reassign_enabled: false };
+      _irbAmd4Recommendation = results[1] || null;
+      _irbAmd4AdoptionHistory = results[2] || { items: [], total: 0 };
+      _irbAmd4LoadError = null;
+    }).catch(function(err) {
+      _irbAmd4LoadError = (err && err.message) || 'Failed to load IRB-AMD4 threshold';
+    });
+  }
+  window._irbAmd4RunReplay = function() {
+    var inp = document.getElementById('irb-amd4-replay-input');
+    var v = inp ? Number(inp.value) : null;
+    if (v == null || !isFinite(v)) {
+      toast('Enter a numeric override threshold', false);
+      return;
+    }
+    _irbAmd4ReplayOverride = String(v);
+    api.runReviewerSlaCalibrationReplay({
+      override_threshold: v,
+      window_days: 180,
+    }).then(function(res) {
+      _irbAmd4Replay = res || null;
+      render();
+    }).catch(function(err) {
+      toast('Replay failed: '+(err && err.message ? err.message : ''), false);
+    });
+  };
+  window._irbAmd4OpenAdoptModal = function() {
+    var inp = document.getElementById('irb-amd4-replay-input');
+    var v = inp ? Number(inp.value) : null;
+    if (v == null || !isFinite(v)) {
+      toast('Run replay first to set the override threshold', false);
+      return;
+    }
+    var hr = (_irbAmd4Replay && _irbAmd4Replay.simulated_helpful_rate_pct != null)
+      ? Number(_irbAmd4Replay.simulated_helpful_rate_pct) : null;
+    if (hr == null || !isFinite(hr) || hr < 50) {
+      toast('Adopt requires helpful_rate_pct >= 50% in the most recent replay', false);
+      return;
+    }
+    var justification = window.prompt('Justification for adopting threshold ' + v.toFixed(2) + ' (10–500 chars):', '');
+    if (justification == null) return;
+    var auto = window.confirm('Enable auto-reassign on this threshold? OK = ON, Cancel = recommend-only.');
+    api.adoptReviewerSlaCalibrationThreshold({
+      threshold_value: v,
+      auto_reassign_enabled: !!auto,
+      justification: justification,
+    }).then(function(res) {
+      if (res && res.accepted) {
+        toast('Threshold adopted at ' + v.toFixed(2));
+        _irbAmd4Load().then(render);
+      } else {
+        toast('Adopt failed: '+((res && res.detail) || 'unknown'), false);
+      }
+    }).catch(function(err) {
+      toast('Adopt failed: '+(err && err.message ? err.message : ''), false);
+    });
+  };
+
   // ── IRB-AMD3 SLA Outcome Tracker window-bound helpers ──────────────────
   function _amd3Load() {
     return Promise.all([
@@ -17878,6 +18055,7 @@ export async function pgIRBManager(setTopbar) {
       _amdLoad().then(render);
       _amd2Load().then(render);
       _amd3Load().then(render);
+      _irbAmd4Load().then(render);
     }
   };
 }

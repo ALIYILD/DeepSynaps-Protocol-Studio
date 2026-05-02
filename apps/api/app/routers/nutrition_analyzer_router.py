@@ -34,6 +34,7 @@ def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session
         require_patient_owner(actor, clinic_id)
 
 
+# core-schema-exempt: minimal router-local request body; not reused outside this router
 class DietLogCreate(BaseModel):
     log_day: str
     calories_kcal: float | None = None
@@ -45,6 +46,7 @@ class DietLogCreate(BaseModel):
     notes: str | None = None
 
 
+# core-schema-exempt: minimal router-local request body; not reused outside this router
 class SupplementCreate(BaseModel):
     name: str
     dose: str | None = None
@@ -54,14 +56,17 @@ class SupplementCreate(BaseModel):
     started_at: str | None = None
 
 
+# core-schema-exempt: minimal router-local request body; not reused outside this router
 class ReviewNoteCreate(BaseModel):
     note: str
 
 
+# core-schema-exempt: minimal router-local response wrapper; not reused outside this router
 class AckResponse(BaseModel):
     ok: bool = True
 
 
+# core-schema-exempt: minimal router-local audit response shape; not reused outside this router
 class NutritionAuditEntry(BaseModel):
     id: str
     patient_id: str
@@ -71,6 +76,7 @@ class NutritionAuditEntry(BaseModel):
     created_at: str
 
 
+# core-schema-exempt: minimal router-local audit list response wrapper; not reused outside this router
 class NutritionAuditListResponse(BaseModel):
     items: list[NutritionAuditEntry]
     total: int
