@@ -354,3 +354,66 @@ class NeuromodulationRiskProfile(BaseModel):
         default_factory=list,
         description="Short machine-readable cue labels (no PHI).",
     )
+
+
+# --- Patient messaging (intent, urgency, action items) -------------------------
+
+MessageIntentCategory = Literal[
+    "symptom_report",
+    "medication_question",
+    "side_effect_report",
+    "appointment_request",
+    "administrative",
+    "other",
+]
+
+MessageUrgencyLevel = Literal["low", "medium", "high"]
+
+
+class MessageIntentLabel(BaseModel):
+    """Output of message / email / chat intent classification."""
+
+    intent: MessageIntentCategory
+    confidence: float = Field(ge=0.0, le=1.0, description="Classifier confidence.")
+    source: str = Field(
+        default="rule",
+        description="rule | ml | llm — which layer produced the label.",
+    )
+    matched_cues: list[str] = Field(
+        default_factory=list,
+        description="Rule ids or short labels for provenance (no PHI).",
+    )
+
+
+class MessageUrgencyLabel(BaseModel):
+    """Triage-relevant urgency for asynchronous patient messages."""
+
+    level: MessageUrgencyLevel
+    confidence: float = Field(ge=0.0, le=1.0)
+    source: str = Field(default="rule")
+    matched_cues: list[str] = Field(default_factory=list)
+
+
+ActionItemType = Literal[
+    "call_patient",
+    "adjust_medication",
+    "schedule_visit",
+    "order_test",
+    "other",
+]
+
+ResponsibleRole = Literal["MD", "RN", "admin"]
+
+
+class ActionItem(BaseModel):
+    """Suggested workflow step derived from a patient message (assistive)."""
+
+    type: ActionItemType
+    description: str = Field(description="Human-readable task summary.")
+    suggested_role: ResponsibleRole | str = Field(
+        description="Typical owner role; deployments may map to queue names.",
+    )
+    cue: str | None = Field(
+        default=None,
+        description="Short rule id or phrase id that triggered this item.",
+    )
