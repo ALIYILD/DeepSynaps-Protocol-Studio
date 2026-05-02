@@ -1717,14 +1717,13 @@ export function bindHandbooks() {
     document.body.appendChild(t);
     setTimeout(() => {
       t.remove();
-      if (typeof window._nav === 'function') {
-        window._nav('handbook-generator');
+      if (typeof window._hbSwitchTab === 'function') {
+        window._hbSwitchTab('generator');
       } else {
         const t2 = document.createElement('div');
         t2.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:380px;padding:12px 16px;border-radius:8px;background:rgba(74,158,255,.12);border:1px solid rgba(74,158,255,.3);color:#4a9eff;font-size:13px';
-        t2.textContent = '\u201c' + title + '\u201d generated \u2014 handbook-generator route not found, using Protocol Generator tab';
+        t2.textContent = '\u201c' + title + '\u201d generated \u2014 open the Generator tab to view it';
         document.body.appendChild(t2); setTimeout(() => t2.remove(), 3500);
-        window._hbSwitchTab('generator');
       }
     }, 1200);
   };

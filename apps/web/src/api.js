@@ -1,4 +1,5 @@
 import { parseHomeProgramTaskMutationResponse } from './home-program-task-sync.js';
+import { demoDigitalPhenotypingPayload } from './demo-fixtures-analyzers.js';
 
 const API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 const TOKEN_KEY = 'ds_access_token';
@@ -96,6 +97,32 @@ function _demoSyntheticResponse(path, method) {
       decodeURIComponent(compare[1]),
       decodeURIComponent(compare[2]),
     );
+  }
+  const dpObsList = path.match(
+    /^\/api\/v1\/digital-phenotyping\/analyzer\/patient\/([^/?]+)\/observations$/,
+  );
+  if (dpObsList && (!method || method === 'GET')) {
+    const pid = decodeURIComponent(dpObsList[1]);
+    return { patient_id: pid, items: [], total: 0 };
+  }
+  const dpObsPost = path.match(
+    /^\/api\/v1\/digital-phenotyping\/analyzer\/patient\/([^/?]+)\/observations(\/manual)?$/,
+  );
+  if (dpObsPost && method && method !== 'GET') {
+    const pid = decodeURIComponent(dpObsPost[1]);
+    return { ok: true, demo: true, id: 'demo-' + Date.now(), patient_id: pid };
+  }
+  const dp = path.match(
+    /^\/api\/v1\/digital-phenotyping\/analyzer\/patient\/([^/?]+)(\/audit)?$/,
+  );
+  if (dp && (!method || method === 'GET')) {
+    const pid = decodeURIComponent(dp[1]);
+    const payload = demoDigitalPhenotypingPayload(pid);
+    if (dp[2] === '/audit') {
+      const ev = payload.audit_events || [];
+      return { patient_id: pid, events: ev, total: ev.length };
+    }
+    return payload;
   }
   // Mutations: pretend success (return a minimal accepted-shape object).
   if (method && method !== 'GET') return { ok: true, demo: true, id: 'demo-' + Date.now() };
@@ -909,6 +936,24 @@ export const api = {
       Object.entries(params).filter(([, v]) => v != null && v !== '')
     ).toString();
     return apiFetch(`/api/v1/evidence/research/summary${q ? '?' + q : ''}`);
+  },
+  listResearchAdjunctEvidence: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch(`/api/v1/evidence/research/adjunct-evidence${q ? '?' + q : ''}`);
+  },
+  getResearchAdjunctSummary: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch(`/api/v1/evidence/research/adjunct-summary${q ? '?' + q : ''}`);
+  },
+  getResearchAdjunctReviewTables: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch(`/api/v1/evidence/research/adjunct-review-tables${q ? '?' + q : ''}`);
   },
   longitudinalReport: (params = {}) => {
     const q = new URLSearchParams(
@@ -3007,6 +3052,45 @@ export const api = {
   getRiskAudit: (patientId) =>
     apiFetch(`/api/v1/risk/patient/${encodeURIComponent(patientId)}/audit`),
 
+  // ── Digital Phenotyping Analyzer (passive behavioral signals) ────────────
+  getDigitalPhenotypingAnalyzer: (patientId) =>
+    apiFetch(`/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}`),
+  getDigitalPhenotypingAudit: (patientId) =>
+    apiFetch(`/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
+  recomputeDigitalPhenotyping: (patientId, body) =>
+    apiFetch(`/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/recompute`, {
+      method: 'POST',
+      body: body != null ? JSON.stringify(body) : '{}',
+    }),
+  updateDigitalPhenotypingConsent: (patientId, body) =>
+    apiFetch(`/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/consent`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  updateDigitalPhenotypingSettings: (patientId, body) =>
+    apiFetch(`/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/settings`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  listDigitalPhenotypingObservations: (patientId, params = {}) => {
+    const q = new URLSearchParams();
+    if (params.limit != null) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return apiFetch(
+      `/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/observations${qs ? '?' + qs : ''}`,
+    );
+  },
+  addDigitalPhenotypingManualObservation: (patientId, body) =>
+    apiFetch(
+      `/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/observations/manual`,
+      { method: 'POST', body: JSON.stringify(body || {}) },
+    ),
+  createDigitalPhenotypingObservation: (patientId, body) =>
+    apiFetch(
+      `/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/observations`,
+      { method: 'POST', body: JSON.stringify(body || {}) },
+    ),
+
   // ── Movement Analyzer (motor side-effects of psychiatric treatment) ───────
   getMovementProfile: (patientId) =>
     apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}`),
@@ -3016,6 +3100,29 @@ export const api = {
     apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/annotation`, { method: 'POST', body: JSON.stringify(body || {}) }),
   getMovementAudit: (patientId) =>
     apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
+
+  // ── Nutrition, Supplements & Diet Analyzer ───────────────────────────────
+  getNutritionAnalyzerPayload: (patientId) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}`),
+  recomputeNutritionAnalyzer: (patientId) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/recompute`, { method: 'POST' }),
+  postNutritionDietLog: (patientId, body) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/diet-log`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  postNutritionSupplement: (patientId, body) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/supplement`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  postNutritionReviewNote: (patientId, body) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/review-note`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  getNutritionAnalyzerAudit: (patientId) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
 
   // ── Labs / Blood Biomarkers Analyzer (psych-med + neuromodulation safety) ─
   getLabsProfile: (patientId) =>
@@ -3030,6 +3137,18 @@ export const api = {
     apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/review-note`, { method: 'POST', body: JSON.stringify(body || {}) }),
   getLabsAudit: (patientId) =>
     apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
+
+  // ── Nutrition / Supplements / Diet Analyzer (diet-drug interactions, micronutrient cover) ─
+  getNutritionProfile: (patientId) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}`),
+  recomputeNutrition: (patientId) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/recompute`, { method: 'POST' }),
+  addNutritionIntake: (patientId, body) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/diet-log`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  addNutritionAnnotation: (patientId, body) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/review-note`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  getNutritionAudit: (patientId) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
 
   // ── Device Sync (clinician-facing) ─────────────────────────────────────────
   deviceSyncProviders: () => apiFetchWithRetry('/api/v1/device-sync/providers'),
@@ -3706,6 +3825,158 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }).catch(() => null),
+
+  // ── QEEG-ANN2 Annotation Outcome Tracker launch-audit ──
+  // (2026-05-02). Closes the loop on QEEG-ANN1 (#459): pairs each
+  // QEEGReportAnnotation row's created_at with its resolved_at (or
+  // absence) and classifies the outcome (resolved_within_sla |
+  // resolved_late | still_open_overdue | still_open_grace). Surfaces
+  // per-clinician resolution latency, evidence-gap dwell time, and
+  // the "created but never resolved within 30d" backlog.
+  // Helpers placed BEFORE QEEG-ANN1's section so QEEG-ANN1's
+  // slice-boundary sentinel stays clean — QEEG-ANN2 uses its own
+  // unique header anchor + slice-boundary sentinel.
+  fetchQeegAnnotationOutcomeSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.sla_days != null)
+      usp.set('sla_days', String(params.sla_days));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/qeeg-annotation-outcome-tracker/summary' + (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  fetchQeegAnnotationCreatorSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.min_created != null)
+      usp.set('min_created', String(params.min_created));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/qeeg-annotation-outcome-tracker/clinician-creator-summary' +
+        (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  fetchQeegAnnotationResolverLatencySummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.min_resolved != null)
+      usp.set('min_resolved', String(params.min_resolved));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/qeeg-annotation-outcome-tracker/resolver-latency-summary' +
+        (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  fetchQeegAnnotationBacklog: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.sla_days != null)
+      usp.set('sla_days', String(params.sla_days));
+    if (params && params.include_grace)
+      usp.set('include_grace', 'true');
+    if (params && params.page != null) usp.set('page', String(params.page));
+    if (params && params.page_size != null)
+      usp.set('page_size', String(params.page_size));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/qeeg-annotation-outcome-tracker/backlog' + (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  fetchQeegAnnotationOutcomeAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null)
+      usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/qeeg-annotation-outcome-tracker/audit-events' +
+        (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  // end QEEG-ANN2 helpers
+  // ━━ QEEG-ANN2 SLICE BOUNDARY ━━ (do not remove; the launch-audit
+  // test for the QEEG-ANN2 section finds the header above then walks
+  // to this unique sentinel substring to bound the slice).
+
+  // ── QEEG-ANN1 Brain Map Annotations launch-audit ──
+  // (2026-05-02). Sidecar annotation system for the qEEG Brain Map
+  // report. Lets clinicians attach margin notes / region tags /
+  // flag-typed findings (clinically_significant | evidence_gap |
+  // discuss_next_session | patient_question) to specific sections
+  // WITHOUT mutating the canonical ``QEEGBrainMapReport`` contract.
+  // Mirrors the IRB-AMD4 helper layout — placed BEFORE the IRB-AMD4
+  // section so its slice-boundary sentinel stays clean. QEEG-ANN1
+  // uses its own unique header anchor + slice-boundary sentinel.
+  fetchQeegReportAnnotations: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.patient_id) usp.set('patient_id', params.patient_id);
+    if (params && params.report_id) usp.set('report_id', params.report_id);
+    if (params && params.section_path) usp.set('section_path', params.section_path);
+    if (params && params.kind) usp.set('kind', params.kind);
+    if (params && params.flag_type) usp.set('flag_type', params.flag_type);
+    if (params && params.include_resolved) usp.set('include_resolved', 'true');
+    if (params && params.page != null) usp.set('page', String(params.page));
+    if (params && params.page_size != null)
+      usp.set('page_size', String(params.page_size));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/qeeg-report-annotations/annotations' + (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  createQeegReportAnnotation: (body) =>
+    apiFetch('/api/v1/qeeg-report-annotations/annotations', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }).catch(() => null),
+  patchQeegReportAnnotation: (id, body) =>
+    apiFetch(`/api/v1/qeeg-report-annotations/annotations/${encodeURIComponent(String(id || ''))}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body || {}),
+    }).catch(() => null),
+  deleteQeegReportAnnotation: (id) =>
+    apiFetch(`/api/v1/qeeg-report-annotations/annotations/${encodeURIComponent(String(id || ''))}`, {
+      method: 'DELETE',
+    }).catch(() => null),
+  resolveQeegReportAnnotation: (id, body) =>
+    apiFetch(`/api/v1/qeeg-report-annotations/annotations/${encodeURIComponent(String(id || ''))}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }).catch(() => null),
+  fetchQeegReportAnnotationSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.patient_id) usp.set('patient_id', params.patient_id);
+    if (params && params.report_id) usp.set('report_id', params.report_id);
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/qeeg-report-annotations/summary' + (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  fetchQeegReportAnnotationAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.page != null) usp.set('page', String(params.page));
+    if (params && params.page_size != null)
+      usp.set('page_size', String(params.page_size));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/qeeg-report-annotations/audit-events' + (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  postQeegReportAnnotationAuditEvent: (data) =>
+    apiFetch('/api/v1/qeeg-report-annotations/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  // end QEEG-ANN1 helpers
+  // ━━ QEEG-ANN1 SLICE BOUNDARY ━━ (do not remove; the launch-audit
+  // test for the QEEG-ANN1 section finds the header above then walks
+  // to this unique sentinel substring to bound the slice).
 
   // ── IRB-AMD4 SLA Threshold Tuning launch-audit ──
   // (2026-05-02). Closes section I rec from IRB-AMD3 (#451):

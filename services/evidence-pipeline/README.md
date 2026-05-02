@@ -1,7 +1,7 @@
 # DeepSynaps Studio — Evidence Pipeline
 
 Local, self-hosted evidence database for an evidence-based protocol generator.
-Pulls from PubMed, OpenAlex, ClinicalTrials.gov v2, openFDA, and Unpaywall.
+Pulls from PubMed, OpenAlex, Crossref, CORE, Semantic Scholar, ClinicalTrials.gov v2, openFDA, and Unpaywall.
 No paid services. Targets local SQLite with FTS5 full-text search.
 
 ## Layout
@@ -16,6 +16,9 @@ evidence-pipeline/
   sources/
     pubmed.py              NCBI E-utilities (esearch + efetch → records)
     openalex.py            OpenAlex /works (citations, OA flag, IDs)
+    crossref.py            Crossref REST API (DOI-first metadata enrichment)
+    core.py                CORE API (OA metadata + full-text/download links)
+    semantic_scholar.py    Semantic Scholar Academic Graph (optional search + citations)
     ctgov.py               ClinicalTrials.gov v2 (preserves stim params in interventions)
     openfda.py             PMA, 510(k), HDE, and MAUDE adverse events
     unpaywall.py           DOI → OA PDF URL
@@ -28,10 +31,12 @@ evidence-pipeline/
 export NCBI_API_KEY=...          # PubMed 3→10 req/s
 export UNPAYWALL_EMAIL=you@x.com # Unpaywall "key" is your email
 export OPENFDA_API_KEY=...       # openFDA rate limits (optional but recommended)
+export CROSSREF_MAILTO=you@x.com # optional; falls back to UNPAYWALL_EMAIL
+export CORE_API_KEY=...
+export SEMANTIC_SCHOLAR_API_KEY=...
 ```
 
-Not required yet but wired in once keys arrive:
-- `SEMANTIC_SCHOLAR_API_KEY` — citation graph + TLDRs
+Not required yet but planned:
 - `UMLS_API_KEY` — SNOMED/ICD/MeSH mapping
 
 ## Quick start
@@ -48,7 +53,10 @@ python3 ingest.py --slug rtms_mdd --papers 100 --trials 50
 # 3. Ingest everything in the seed (≈20 indications)
 python3 ingest.py --all --papers 200 --trials 100 --fda 200 --unpaywall
 
-# 4. Search
+# 4. Enrich paper coverage with official free scholarly APIs
+python3 ingest.py --slug rtms_mdd --papers 150 --crossref --core --semantic-scholar
+
+# 5. Search
 python3 query.py --slug rtms_mdd --limit 10
 python3 query.py "deep brain stimulation Parkinson" --oa-only
 python3 query.py --slug hns_osa --trials-only
@@ -79,10 +87,18 @@ is data.
 
 ## What's intentionally missing (add later)
 
-- Semantic Scholar — blocked on API key; will add citation graph + TLDRs.
 - UMLS terminology layer — blocked on NIH account; will add ICD/SNOMED mapping to `indications`.
 - Protocol extractor (Hz/µs/mA/sessions → structured columns). Right now intervention JSON is stored verbatim; parsing is a follow-up.
 - MCP server wrapper so Claude Code can query `evidence.db` as a native tool.
+
+## Current recommendation
+
+For this SaaS, prefer official/open scholarly APIs over Google Scholar scraping:
+- PubMed + OpenAlex remain the default core.
+- Crossref is the safest DOI/journal metadata backfill.
+- CORE is the best OA/full-text-access backfill.
+- Semantic Scholar is the best optional citation/reference expansion layer.
+- Google Scholar should stay manual or exploratory, not a production dependency.
 
 ## Rollback
 
