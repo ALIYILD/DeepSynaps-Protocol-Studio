@@ -11,7 +11,12 @@ test('demoDigitalPhenotypingPayload has snapshot keys and multimodal links', () 
   assert.ok(p.snapshot?.mobility_stability?.value != null);
   assert.ok(p.snapshot?.data_completeness?.value != null);
   const pages = (p.multimodal_links || []).map((l) => l.nav_page_id);
+  assert.ok(pages.includes('research-evidence'));
+  assert.ok(pages.includes('qeeg-analysis'));
   assert.ok(pages.includes('risk-analyzer'));
+  assert.ok(pages.includes('session-execution'));
   assert.ok(pages.includes('live-session'));
   assert.ok(pages.includes('protocol-studio'));
+  assert.ok(pages.includes('deeptwin'));
+  assert.ok(pages.includes('ai-agent-v2'));
 });

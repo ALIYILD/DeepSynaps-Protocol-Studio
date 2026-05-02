@@ -249,11 +249,16 @@ def build_stub_analyzer_payload(patient_id: str, *, patient_name: str | None = N
             }
         ],
         "multimodal_links": [
+            _link("research-evidence", "Research Evidence", "87K+ papers — search: digital phenotyping / passive sensing", "—"),
+            _link("qeeg-analysis", "qEEG Analyzer", "Neurophysiology context for same patient", "—"),
             _link("assessments-v2", "Assessments", "Last GAD-7 within analysis window", "2026-04-28"),
             _link("wearables", "Biometrics", "Resting HR / sleep duration series", "2026-05-01"),
             _link("risk-analyzer", "Risk Analyzer", "Wellbeing + engagement categories", "2026-05-02"),
-            _link("live-session", "Virtual Care", "Scheduled or ad-hoc treatment sessions", "—"),
+            _link("session-execution", "Session execution", "In-clinic / treatment session capture", "—"),
+            _link("live-session", "Virtual Care", "Telehealth treatment sessions", "—"),
             _link("protocol-studio", "Protocol Studio", "Active protocol context for this patient", "—"),
+            _link("deeptwin", "DeepTwin", "Multimodal 360° patient view", "—"),
+            _link("ai-agent-v2", "AI Practice Agents", "Agent-assisted protocol / documentation", "—"),
             _link("voice-analyzer", "Voice Analyzer", "Optional: correlate vocal fatigue flags", "—"),
             _link("video-assessments", "Video", "Session-based functional tasks", "—"),
             _link("text-analyzer", "Clinical Text", "Recent notes entity extraction", "—"),

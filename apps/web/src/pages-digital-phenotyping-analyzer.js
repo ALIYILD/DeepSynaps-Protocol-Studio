@@ -9,6 +9,7 @@
 
 import { api } from './api.js';
 import { isDemoSession } from './demo-session.js';
+import { EVIDENCE_TOTAL_PAPERS } from './evidence-dataset.js';
 import {
   DEMO_FIXTURE_BANNER_HTML,
   demoDigitalPhenotypingPayload,
@@ -20,6 +21,11 @@ function esc(s) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function _fmtEvidenceK(n) {
+  const x = Number(n) || 0;
+  return x >= 1000 ? `${(x / 1000).toFixed(1).replace(/\.0$/, '')}K` : String(x);
 }
 
 /** Resolve patient id from global clinical context (same pattern as qEEG / roster). */
@@ -137,8 +143,11 @@ function _linksHtml(links) {
   const list = Array.isArray(links) ? links : [];
   return list.map((l) => {
     const pid = l.nav_page_id;
+    const extra = pid === 'research-evidence'
+      ? ' data-dpa-evidence="search:digital phenotyping passive sensing"'
+      : '';
     return `<div style="margin-bottom:10px">
-      <button type="button" class="btn btn-ghost btn-sm" data-nav-page="${esc(pid)}" style="min-height:44px">
+      <button type="button" class="btn btn-ghost btn-sm" data-nav-page="${esc(pid)}"${extra} style="min-height:44px">
         ${esc(l.title)} →
       </button>
       <span style="font-size:11px;color:var(--text-tertiary);margin-left:8px">${esc(l.relevance_note || '')}</span>
@@ -286,12 +295,80 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
         <button type="button" class="btn btn-primary" id="dpa-load">Load analyzer</button>
         <button type="button" class="btn btn-ghost btn-sm" id="dpa-recompute" style="min-height:44px" title="Trigger backend recomputation when ingest is connected">Refresh analysis</button>
       </div>
+      <div id="dpa-research-strip" style="margin-bottom:18px;padding:14px 16px;border-radius:14px;border:1px solid rgba(45,212,191,0.28);background:rgba(45,212,191,0.06);font-size:12px;line-height:1.45;color:var(--text-secondary)">
+        <div style="font-weight:600;color:var(--text-primary);margin-bottom:8px">Research &amp; multimodal studio</div>
+        <p style="margin:0 0 12px;font-size:12px">
+          For <strong>literature and protocols</strong>, use Research Evidence (<strong>${esc(_fmtEvidenceK(EVIDENCE_TOTAL_PAPERS))}</strong> curated papers).
+          Analyzer metrics below remain <strong>stub until passive ingest</strong> ships — safe for workflow / consent / audit demos, not for outcome claims.
+        </p>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+          <span style="font-size:11px;color:var(--text-tertiary);margin-right:4px">Quick open:</span>
+          <button type="button" class="btn btn-ghost btn-sm" data-dpa-quick="research-evidence|search|digital phenotyping passive sensing mobile health" style="min-height:40px">Evidence search</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-dpa-quick="research-evidence|aiml|machine learning digital biomarker relapse" style="min-height:40px">AI / ML tab</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-dpa-quick="qeeg-analysis||" style="min-height:40px">qEEG</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-dpa-quick="assessments-v2||" style="min-height:40px">Assessments</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-dpa-quick="wearables||" style="min-height:40px">Biometrics</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-dpa-quick="protocol-studio||" style="min-height:40px">Protocol Studio</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-dpa-quick="session-execution||" style="min-height:40px">Sessions</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-dpa-quick="live-session||" style="min-height:40px">Virtual Care</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-dpa-quick="deeptwin||" style="min-height:40px">DeepTwin</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-dpa-quick="ai-agent-v2||" style="min-height:40px">AI agents</button>
+        </div>
+      </div>
       <div id="dpa-body"></div>
     </div>`;
 
   const $ = (id) => document.getElementById(id);
 
   let usingFixtures = false;
+
+  function _pidInput() {
+    return $('dpa-patient-id')?.value?.trim() || '';
+  }
+
+  function _applyPatientContextForPage(page, patientId) {
+    if (!patientId) return;
+    try {
+      if (page === 'qeeg-analysis') window._qeegPatientId = patientId;
+      if (page === 'deeptwin') window._deeptwinPatientId = patientId;
+    } catch { /* noop */ }
+  }
+
+  function _applyResearchEvidenceQuick(tab, query) {
+    try {
+      window._resEvidenceTab = tab || 'search';
+      window._reSearch = window._reSearch || {};
+      if (query) window._reSearch[tab || 'search'] = query;
+    } catch { /* noop */ }
+  }
+
+  function _parseEvidenceAttr(attr) {
+    if (!attr) return null;
+    const idx = attr.indexOf(':');
+    if (idx === -1) return { tab: 'search', q: attr.trim() };
+    return { tab: attr.slice(0, idx).trim(), q: attr.slice(idx + 1).trim() };
+  }
+
+  /** Delegated handler for quick-link strip (outside #dpa-body). */
+  function _onShellClick(ev) {
+    const qbtn = ev.target?.closest?.('[data-dpa-quick]');
+    if (qbtn) {
+      const raw = qbtn.getAttribute('data-dpa-quick') || '';
+      const parts = raw.split('|');
+      const page = parts[0];
+      const tab = parts[1] || '';
+      const q = (parts[2] != null ? parts.slice(2).join('|') : '') || '';
+      if (page === 'research-evidence' && (tab || q)) {
+        _applyResearchEvidenceQuick(tab || 'search', q);
+      }
+      _applyPatientContextForPage(page, _pidInput());
+      try { navigate?.(page); } catch {}
+      return;
+    }
+  }
+
+  const shell = el.querySelector('.ds-dpa-shell');
+  shell?.addEventListener('click', _onShellClick);
 
   function _syncDemoBanner() {
     const slot = $('dpa-demo-banner');
@@ -303,6 +380,12 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
     body.querySelectorAll('[data-nav-page]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const p = btn.getAttribute('data-nav-page');
+        const evAttr = btn.getAttribute('data-dpa-evidence');
+        if (evAttr) {
+          const parsed = _parseEvidenceAttr(evAttr);
+          if (parsed) _applyResearchEvidenceQuick(parsed.tab, parsed.q);
+        }
+        _applyPatientContextForPage(p, _pidInput());
         try { navigate?.(p); } catch {}
       });
     });
