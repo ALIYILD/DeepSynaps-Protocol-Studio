@@ -41,6 +41,8 @@ SOURCE_PATHS = [
     REPO_ROOT / "packages" / "evidence" / "src",
     # QA package — protocol quality checks (may be added by parallel session).
     REPO_ROOT / "packages" / "qa" / "src",
+    # Clinical data registry — consolidated CSV loaders (PR #411).
+    REPO_ROOT / "packages" / "clinical-data-registry" / "src",
 ]
 
 for source_path in SOURCE_PATHS:

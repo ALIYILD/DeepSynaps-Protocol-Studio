@@ -143,6 +143,14 @@ class TickResult:
     # 'never'}`` snapshot returned to the tick endpoint so the admin
     # frontend can update the status grid synchronously.
     per_channel_status: dict[str, str] = field(default_factory=dict)
+    # CSAHP2 (2026-05-02) — count + ids of any
+    # auth_drift_resolved_confirmed rows emitted by the per-tick
+    # confirmation hook so the admin frontend can render a
+    # "Confirmed rotated" sub-table without re-querying the audit trail.
+    auth_drift_resolved_confirmed: int = 0
+    resolved_confirmed_audit_event_ids: list[str] = field(
+        default_factory=list
+    )
 
 
 @dataclass
@@ -379,6 +387,116 @@ def _emit_auth_drift_audit(
     except Exception:  # pragma: no cover - audit must never block worker
         _log.exception("channel_auth_health_probe auth_drift audit emit failed")
     return eid
+
+
+def _emit_resolved_confirmed_audit(
+    db: Session,
+    *,
+    clinic_id: Optional[str],
+    channel: str,
+    mark_rotated_event_id: str,
+) -> str:
+    """Emit a ``auth_drift_resolved_confirmed`` row (CSAHP2, 2026-05-02).
+
+    Pairs a ``auth_drift_marked_rotated`` row (admin click in
+    apps/api/app/routers/channel_auth_drift_resolution_router.py) with
+    the NEXT successful probe within 24h to confirm the rotation
+    actually worked. Closes the proactive-credential-monitoring loop
+    end-to-end.
+
+    ``priority=info`` so the Clinician Inbox HIGH-priority predicate
+    does NOT pick this up — it's a green-checkmark provenance row,
+    not an alarm signal.
+    """
+    from app.repositories.audit import create_audit_event  # noqa: PLC0415
+
+    now = datetime.now(timezone.utc)
+    eid = (
+        f"{WORKER_SURFACE}-auth_drift_resolved_confirmed-"
+        f"{(clinic_id or 'na')}-{channel}-{int(now.timestamp())}-"
+        f"{uuid.uuid4().hex[:6]}"
+    )
+    note = (
+        f"priority=info "
+        f"clinic_id={clinic_id or 'null'} "
+        f"channel={channel} "
+        f"mark_rotated_event_id={mark_rotated_event_id} "
+        f"confirmed_at={now.isoformat()}"
+    )
+    try:
+        create_audit_event(
+            db,
+            event_id=eid,
+            target_id=str(clinic_id or "all"),
+            target_type=WORKER_SURFACE,
+            action=f"{WORKER_SURFACE}.auth_drift_resolved_confirmed",
+            role="admin",
+            actor_id="channel-auth-health-probe-worker",
+            note=note[:1024],
+            created_at=now.isoformat(),
+        )
+    except Exception:  # pragma: no cover - audit must never block worker
+        _log.exception(
+            "channel_auth_health_probe resolved_confirmed audit emit failed"
+        )
+    return eid
+
+
+def _find_pending_mark_rotated(
+    db: Session,
+    *,
+    clinic_id: Optional[str],
+    channel: str,
+) -> Optional[AuditEventRecord]:
+    """Return the most recent ``auth_drift_marked_rotated`` row for the
+    given (clinic, channel) that has NO matching
+    ``auth_drift_resolved_confirmed`` row newer than it.
+
+    Used by the CSAHP2 confirmation hook (called from ``_tick_inner``
+    BEFORE the cooldown check on healthy emission so a rotation always
+    gets confirmed even if it lands inside the 24h healthy-cooldown).
+
+    Returns ``None`` when no pending mark exists, or when the most recent
+    mark already has a paired confirmed row.
+    """
+    cid_needle = f"clinic_id={clinic_id or 'null'}"
+    ch_needle = f"channel={channel}"
+
+    mark_rows = (
+        db.query(AuditEventRecord)
+        .filter(
+            AuditEventRecord.target_type == WORKER_SURFACE,
+            AuditEventRecord.action
+            == f"{WORKER_SURFACE}.auth_drift_marked_rotated",
+        )
+        .order_by(AuditEventRecord.created_at.desc())
+        .limit(50)
+        .all()
+    )
+    most_recent_mark: Optional[AuditEventRecord] = None
+    for m in mark_rows:
+        n = m.note or ""
+        if cid_needle in n and ch_needle in n:
+            most_recent_mark = m
+            break
+    if most_recent_mark is None:
+        return None
+
+    # Cooldown — don't re-confirm the same mark.
+    needle = f"mark_rotated_event_id={most_recent_mark.event_id}"
+    confirmed = (
+        db.query(AuditEventRecord)
+        .filter(
+            AuditEventRecord.target_type == WORKER_SURFACE,
+            AuditEventRecord.action
+            == f"{WORKER_SURFACE}.auth_drift_resolved_confirmed",
+        )
+        .all()
+    )
+    for c in confirmed:
+        if needle in (c.note or ""):
+            return None
+    return most_recent_mark
 
 
 def _emit_healthy_audit(
@@ -794,21 +912,36 @@ class ChannelAuthHealthProbeWorker:
                     result.per_channel_status[ch] = "never"
                     continue
 
-                # Cooldown — skip if we already emitted within the window.
+                # CSAHP2 — check for a pending mark-rotated row BEFORE
+                # the cooldown gate so a rotation always gets confirmed
+                # even if it lands inside the 24h healthy-cooldown.
+                pending_mark: Optional[AuditEventRecord] = None
                 try:
-                    if _was_emitted_within_cooldown(
-                        db,
-                        clinic_id=cid,
-                        channel=ch,
-                        cooldown_hours=self.cooldown_hours,
-                        now=now,
-                    ):
-                        result.skipped_cooldown += 1
+                    pending_mark = _find_pending_mark_rotated(
+                        db, clinic_id=cid, channel=ch
+                    )
+                except Exception:  # pragma: no cover - defensive
+                    pending_mark = None
+
+                # Cooldown — skip if we already emitted within the window.
+                # When a pending mark-rotated row exists, BYPASS the
+                # cooldown so the confirmation hook can run on the next
+                # tick instead of waiting up to 24h.
+                if pending_mark is None:
+                    try:
+                        if _was_emitted_within_cooldown(
+                            db,
+                            clinic_id=cid,
+                            channel=ch,
+                            cooldown_hours=self.cooldown_hours,
+                            now=now,
+                        ):
+                            result.skipped_cooldown += 1
+                            continue
+                    except Exception as exc:  # pragma: no cover - defensive
+                        result.errors += 1
+                        result.last_error = f"cooldown_check: {exc}"
                         continue
-                except Exception as exc:  # pragma: no cover - defensive
-                    result.errors += 1
-                    result.last_error = f"cooldown_check: {exc}"
-                    continue
 
                 outcome = self._probe_channel(
                     channel=ch, creds=creds, db=db, httpx_client=httpx_client
@@ -816,6 +949,27 @@ class ChannelAuthHealthProbeWorker:
                 result.probes_run += 1
 
                 if outcome.healthy:
+                    # CSAHP2 — emit the confirmed-row FIRST (bypasses
+                    # the healthy-cooldown logic) when a pending mark
+                    # exists for this (clinic, channel). The healthy
+                    # row below may or may not actually emit depending
+                    # on cooldown — the confirmation row always does.
+                    if pending_mark is not None:
+                        try:
+                            cid_eid = _emit_resolved_confirmed_audit(
+                                db,
+                                clinic_id=cid,
+                                channel=ch,
+                                mark_rotated_event_id=pending_mark.event_id,
+                            )
+                            result.auth_drift_resolved_confirmed += 1
+                            result.resolved_confirmed_audit_event_ids.append(
+                                cid_eid
+                            )
+                        except Exception:  # pragma: no cover - defensive
+                            _log.exception(
+                                "csahp2 confirmation emit failed"
+                            )
                     eid = _emit_healthy_audit(
                         db, clinic_id=cid, channel=ch
                     )
