@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deepsynaps.com/schemas/video_assessment_session.json",
+  "title": "VideoAssessmentSession",
+  "description": "Guided video motor assessment session for virtual care (MVP).",
+  "type": "object",
+  "required": ["id", "patient_id", "protocol_name", "mode", "started_at", "overall_status", "tasks", "summary"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "patient_id": { "type": "string" },
+    "encounter_id": { "type": ["string", "null"] },
+    "protocol_name": { "type": "string" },
+    "protocol_version": { "type": "string" },
+    "mode": {
+      "type": "string",
+      "enum": ["patient_capture", "clinician_review"]
+    },
+    "started_at": { "type": "string", "format": "date-time" },
+    "completed_at": { "type": ["string", "null"], "format": "date-time" },
+    "overall_status": {
+      "type": "string",
+      "enum": ["draft", "in_progress", "completed", "finalized", "cancelled"]
+    },
+    "safety_flags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "task_ids marked unsafe or similar"
+    },
+    "tasks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/video_assessment_task" }
+    },
+    "summary": { "$ref": "#/$defs/assessment_summary" },
+    "future_ai_metrics_placeholder": { "$ref": "#/$defs/future_ai_metrics" }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "video_assessment_task": {
+      "type": "object",
+      "required": ["task_id", "task_name", "task_order", "recording_status"],
+      "properties": {
+        "task_id": { "type": "string" },
+        "task_name": { "type": "string" },
+        "task_group": { "type": "string" },
+        "task_order": { "type": "integer" },
+        "instructions": { "type": "object" },
+        "demo_asset": { "type": ["string", "null"] },
+        "duration_seconds": { "type": "number" },
+        "safety_level": { "type": "string", "enum": ["low", "moderate", "high"] },
+        "recording_status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "recording",
+            "recorded",
+            "accepted",
+            "skipped",
+            "unsafe_skipped"
+          ]
+        },
+        "skip_reason": { "type": ["string", "null"] },
+        "unsafe_flag": { "type": "boolean" },
+        "recording_asset_id": { "type": ["string", "null"] },
+        "ai_analysis_status": {
+          "type": "string",
+          "enum": ["not_requested", "queued", "running", "complete", "failed"]
+        },
+        "clinician_review": { "anyOf": [{ "$ref": "#/$defs/clinician_review" }, { "type": "null" }] }
+      },
+      "additionalProperties": true
+    },
+    "clinician_review": {
+      "type": "object",
+      "properties": {
+        "reviewer_id": { "type": "string" },
+        "reviewed_at": { "type": ["string", "null"], "format": "date-time" },
+        "video_quality": { "type": "string", "enum": ["poor", "fair", "good"] },
+        "patient_compliance": { "type": "string", "enum": ["poor", "fair", "good"] },
+        "task_completed": { "type": "string", "enum": ["yes", "partial", "no"] },
+        "repeat_needed": { "type": "string", "enum": ["yes", "no"] },
+        "structured_scores": { "type": "object", "additionalProperties": true },
+        "free_text_comment": { "type": "string" },
+        "comment": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "assessment_summary": {
+      "type": "object",
+      "properties": {
+        "tasks_completed": { "type": "integer" },
+        "tasks_skipped": { "type": "integer" },
+        "tasks_needing_repeat": { "type": "integer" },
+        "review_completion_percent": { "type": "number" },
+        "clinician_impression": { "type": ["string", "null"] },
+        "recommended_followup": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "future_ai_metrics": {
+      "type": "object",
+      "properties": {
+        "pose_metrics": { "type": ["object", "null"] },
+        "movement_counts": { "type": ["object", "null"] },
+        "speed_metrics": { "type": ["object", "null"] },
+        "amplitude_metrics": { "type": ["object", "null"] },
+        "symmetry_metrics": { "type": ["object", "null"] },
+        "longitudinal_comparison": { "type": ["object", "null"] }
+      },
+      "additionalProperties": true
+    }
+  }
+}
