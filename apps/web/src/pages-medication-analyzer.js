@@ -3,6 +3,7 @@
  * safety / confound analysis (decision-support only; not autonomous management).
  */
 import { api } from './api.js';
+import { EVIDENCE_TOTAL_PAPERS } from './evidence-dataset.js';
 
 function esc(s) {
   return String(s ?? '')
@@ -126,6 +127,17 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
       <div style="padding:14px 16px;border-radius:12px;border:1px solid rgba(246,178,60,.35);background:rgba(246,178,60,.09);margin-bottom:18px;font-size:12px;line-height:1.5;color:var(--text-secondary)">
         <strong style="color:var(--text-primary)">Clinical decision-support.</strong> ${esc(DISCLAIMER)}
       </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;align-items:center;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:var(--bg-card)">
+        <span style="font-size:11px;color:var(--text-tertiary);margin-right:4px">Evidence & literature</span>
+        <button type="button" class="btn btn-ghost btn-sm" id="ma-open-research-evidence" title="87K curated papers — medication / neuromodulation context">Research Evidence (${EVIDENCE_TOTAL_PAPERS.toLocaleString()} papers)</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="ma-open-literature" title="Evidence library">Literature</button>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;align-items:center;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:var(--bg-card)">
+        <span style="font-size:11px;color:var(--text-tertiary);margin-right:4px">Studio</span>
+        <button type="button" class="btn btn-ghost btn-sm" id="ma-nav-dashboard">Dashboard</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="ma-nav-patients">Patients</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="ma-nav-monitor">Biometrics</button>
+      </div>
       <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:16px">
         <div style="font-weight:700;margin-bottom:8px">Patient</div>
         <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
@@ -140,10 +152,16 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
       </div>
       <div id="ma-body" style="display:none">
         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;align-items:center">
-          <span style="font-size:11px;color:var(--text-tertiary);margin-right:4px">Cross-links</span>
+          <span style="font-size:11px;color:var(--text-tertiary);margin-right:4px">Patient & analyzers</span>
           <button type="button" class="btn btn-ghost btn-sm" id="ma-open-profile" disabled title="Open patient chart">Patient profile</button>
-          <button type="button" class="btn btn-ghost btn-sm" id="ma-open-analytics" disabled title="Multimodal patient terminal">Patient analytics</button>
-          <button type="button" class="btn btn-ghost btn-sm" id="ma-open-deeptwin" disabled title="360° overview">DeepTwin</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="ma-open-analytics" disabled title="Bloomberg-style multimodal terminal">Patient analytics</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="ma-open-deeptwin" disabled title="360° fused context">DeepTwin</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="ma-open-risk-full" disabled title="Full Risk Analyzer with overrides">Risk Analyzer</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="ma-open-qeeg" disabled title="Resting EEG / spectral analysis">qEEG Analyzer</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="ma-open-mri" disabled title="Structural MRI pipeline — patient field prefilled when possible">MRI Analyzer</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="ma-open-text" title="Medication entities from clinical notes">Text Analyzer</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="ma-open-voice" title="Voice biomarkers (sedation / fatigue context)">Voice Analyzer</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="ma-open-biomarkers" title="Neuro-biomarker reference (medication caveats)">Biomarker reference</button>
           <button type="button" class="btn btn-ghost btn-sm" id="ma-open-irb" disabled title="Download JSON for IRB / appendix">Export IRB JSON</button>
         </div>
         <div id="ma-risk-panel" style="display:none;margin-bottom:16px;padding:12px 14px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.02)"></div>
@@ -213,7 +231,8 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
 
   function renderPayload(data) {
     lastAnalyzerPayload = data;
-    ['ma-open-profile', 'ma-open-analytics', 'ma-open-deeptwin', 'ma-open-irb'].forEach((id) => {
+    ['ma-open-profile', 'ma-open-analytics', 'ma-open-deeptwin', 'ma-open-risk-full',
+      'ma-open-qeeg', 'ma-open-mri', 'ma-open-irb'].forEach((id) => {
       document.getElementById(id)?.removeAttribute('disabled');
     });
     document.getElementById('ma-snapshot').innerHTML = _renderSnapshot(data.snapshot);
@@ -345,6 +364,66 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
     try { sessionStorage.setItem('ds_pat_selected_id', pid); } catch {}
     navigate('deeptwin');
   });
+  document.getElementById('ma-open-research-evidence')?.addEventListener('click', () => {
+    try { window._resEvidenceTab = 'search'; } catch {}
+    navigate('research-evidence');
+  });
+  document.getElementById('ma-open-literature')?.addEventListener('click', () => {
+    navigate('literature');
+  });
+  document.getElementById('ma-nav-dashboard')?.addEventListener('click', () => {
+    navigate('home');
+  });
+  document.getElementById('ma-nav-patients')?.addEventListener('click', () => {
+    navigate('patients-v2');
+  });
+  document.getElementById('ma-nav-monitor')?.addEventListener('click', () => {
+    navigate('wearables');
+  });
+  document.getElementById('ma-open-risk-full')?.addEventListener('click', () => {
+    const pid = document.getElementById('ma-patient-id')?.value?.trim();
+    if (!pid) {
+      window._dsToast?.({ title: 'Patient id', body: 'Load a patient first.', severity: 'info' });
+      return;
+    }
+    window._riskAnalyzerPatientId = pid;
+    navigate('risk-analyzer');
+  });
+  document.getElementById('ma-open-qeeg')?.addEventListener('click', () => {
+    const pid = document.getElementById('ma-patient-id')?.value?.trim();
+    if (!pid) {
+      window._dsToast?.({ title: 'Patient id', body: 'Load a patient first.', severity: 'info' });
+      return;
+    }
+    window._selectedPatientId = pid;
+    window._profilePatientId = pid;
+    try { sessionStorage.setItem('ds_pat_selected_id', pid); } catch {}
+    window._qeegSelectedId = null;
+    navigate('qeeg-analysis');
+  });
+  document.getElementById('ma-open-mri')?.addEventListener('click', () => {
+    const pid = document.getElementById('ma-patient-id')?.value?.trim();
+    if (!pid) {
+      window._dsToast?.({ title: 'Patient id', body: 'Load a patient first.', severity: 'info' });
+      return;
+    }
+    try { sessionStorage.setItem('ds_mri_prefill_patient_id', pid); } catch {}
+    navigate('mri-analysis');
+  });
+  document.getElementById('ma-open-text')?.addEventListener('click', () => {
+    navigate('text-analyzer');
+  });
+  document.getElementById('ma-open-voice')?.addEventListener('click', () => {
+    const pid = document.getElementById('ma-patient-id')?.value?.trim();
+    if (pid) {
+      try { window._deeptwinPatientId = pid; } catch {}
+    }
+    navigate('voice-analyzer');
+  });
+  document.getElementById('ma-open-biomarkers')?.addEventListener('click', () => {
+    navigate('biomarkers');
+  });
+
   document.getElementById('ma-open-irb')?.addEventListener('click', () => {
     if (!lastAnalyzerPayload) return;
     const bundle = {

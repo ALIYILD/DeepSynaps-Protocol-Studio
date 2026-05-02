@@ -3415,6 +3415,14 @@ export async function pgMRIAnalysis(setTopbar, navigate) {
       },
     });
     wireEvidenceChips(el, { onOpen: function (query) { openEvidenceDrawer(query); } });
+    try {
+      var prefill = sessionStorage.getItem('ds_mri_prefill_patient_id');
+      if (prefill) {
+        sessionStorage.removeItem('ds_mri_prefill_patient_id');
+        var pidInput = document.getElementById('ds-mri-pid');
+        if (pidInput && !pidInput.value) pidInput.value = prefill;
+      }
+    } catch (_pf) {}
   }
 }
 

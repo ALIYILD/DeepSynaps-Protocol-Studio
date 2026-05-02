@@ -294,6 +294,16 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
   let activePatientName = '';
   let usingFixtures = false;
 
+  try {
+    const handoff = typeof window !== 'undefined' ? window._riskAnalyzerPatientId : null;
+    if (handoff && String(handoff).trim()) {
+      activePatientId = String(handoff).trim();
+      activePatientName = 'Patient';
+      view = 'patient';
+      window._riskAnalyzerPatientId = null;
+    }
+  } catch {}
+
   el.innerHTML = `
     <div class="ds-risk-analyzer-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px">
       <div id="ra-demo-banner"></div>

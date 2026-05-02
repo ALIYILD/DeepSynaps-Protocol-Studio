@@ -20,4 +20,7 @@ test('pgMedicationAnalyzer renders disclaimer and test id', async () => {
   assert.ok(html.includes('Add timeline annotation'));
   assert.ok(html.includes('Patient profile'));
   assert.ok(html.includes('Export IRB JSON'));
+  assert.ok(html.includes('Research Evidence'));
+  assert.ok(html.includes('qEEG Analyzer'));
+  assert.ok(html.includes('Biomarker reference'));
 });
