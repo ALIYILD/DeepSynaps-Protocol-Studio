@@ -40,6 +40,8 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+
+from .adapters.subprocess_tools import run_subprocess_capture
 from typing import Literal
 
 from .schemas import IncidentalFinding, IncidentalFindingResult, MRIQCResult
@@ -137,12 +139,12 @@ def run_mriqc(
     with tempfile.TemporaryDirectory(prefix="mriqc_") as td:
         out_dir = Path(td)
         try:
-            subprocess.run(
+            proc = run_subprocess_capture(
                 [binary, str(path.parent), str(out_dir), "participant", "-m", modality],
-                check=True,
-                capture_output=True,
                 timeout=60 * 30,
             )
+            if proc.returncode != 0:
+                raise subprocess.CalledProcessError(proc.returncode, proc.args, proc.stdout, proc.stderr)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
             log.warning("mriqc subprocess failed: %s", exc)
             return MRIQCResult(
