@@ -841,10 +841,6 @@ function _nutritionDemoPayload(patientId) {
   });
 }
 
-const _NUTRITION = {
-  payload: _nutritionDemoPayload,
-};
-
 const _PHENOTYPE = {
   catalog: _PHENOTYPE_CATALOG,
   all_assignments: _PHENOTYPE_ASSIGNMENTS,
