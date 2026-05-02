@@ -16,6 +16,7 @@ from app.services.pgvector_bridge import (
     _build_filter_clause,
     check_pgvector_enabled,
     cosine_similar,
+    cosine_similar_sync,
 )
 
 
@@ -56,6 +57,23 @@ def test_cosine_similar_returns_empty_on_sqlite() -> None:
                 k=5,
                 db_session=session,
             )
+        )
+    finally:
+        session.close()
+
+    assert rows == []
+
+
+def test_cosine_similar_sync_returns_empty_on_sqlite() -> None:
+    """Sync ANN must match async: empty on SQLite without raising."""
+    session = SessionLocal()
+    try:
+        rows = cosine_similar_sync(
+            table="qeeg_analyses",
+            column="embedding",
+            query_embedding=[0.1] * 200,
+            k=5,
+            db_session=session,
         )
     finally:
         session.close()

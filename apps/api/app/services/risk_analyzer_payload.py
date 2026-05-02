@@ -2,7 +2,7 @@
 
 Operational stratification categories come from ``risk_stratification``.
 Prediction cards use transparent rule-based indices separate from traffic lights.
-Literature panels use ``evidence_intelligence.query_evidence`` against the evidence corpus (evidence.db).
+Literature panels use ``evidence_intelligence.query_evidence`` (keyword + optional pgvector ANN and cross-encoder rerank when deps/backends are available).
 """
 from __future__ import annotations
 
@@ -23,7 +23,14 @@ from app.persistence.models import (
 )
 from app.services.risk_clinical_scores import build_all_clinical_scores
 from app.services.risk_evidence_map import RISK_CATEGORY_LABELS
-from app.services.evidence_intelligence import EvidenceFeatureSummary, EvidenceQuery, EvidenceResult, query_evidence
+from app.services.evidence_intelligence import (
+    EvidenceFeatureSummary,
+    EvidenceQuery,
+    EvidenceResult,
+    TARGET_CONCEPTS,
+    normalize_target_name,
+    query_evidence,
+)
 from app.services.risk_stratification import (
     PatientContext,
     assemble_patient_context,
@@ -31,8 +38,8 @@ from app.services.risk_stratification import (
 )
 
 
-SCHEMA_VERSION = "1.1.0"
-ASSEMBLER_VERSION = "risk_analyzer_v2_medrag"
+SCHEMA_VERSION = "1.2.0"
+ASSEMBLER_VERSION = "risk_analyzer_v3_ann_rerank"
 
 log = logging.getLogger(__name__)
 
@@ -90,6 +97,30 @@ def _norm_cond(slug: Optional[str]) -> str:
     if not slug:
         return ""
     return str(slug).lower().replace(" ", "-").replace("_", "-")
+
+
+def _risk_analyzer_embed_query_text(target_key: str, ctx: PatientContext) -> str:
+    """Natural-language string for pgvector query encoding + optional cross-encoder reranking."""
+    n = normalize_target_name(target_key)
+    spec = TARGET_CONCEPTS.get(n, {})
+    claim = (spec.get("claim") or "").strip()
+    concepts = ", ".join(spec.get("concepts", [])[:10])
+    chunks: list[str] = []
+    if claim:
+        chunks.append(claim)
+    if concepts:
+        chunks.append(f"Concepts: {concepts}.")
+    p = ctx.patient or {}
+    cond = p.get("primary_condition") or p.get("primaryCondition")
+    if cond:
+        chunks.append(f"Clinical context (primary condition): {cond}.")
+    if ctx.active_modality:
+        chunks.append(f"Neuromodulation modality: {ctx.active_modality}.")
+    if _latest_assessment(ctx, "phq-9"):
+        chunks.append("Patient course includes PHQ-9.")
+    if _latest_assessment(ctx, "c-ssrs"):
+        chunks.append("Patient course includes Columbia Suicide Severity Rating Scale (C-SSRS).")
+    return " ".join(chunks).strip()
 
 
 def _build_literature_feature_summary(ctx: PatientContext) -> list[EvidenceFeatureSummary]:
@@ -155,6 +186,8 @@ def _attach_prediction_corpus(
             feature_summary=feat,
             max_results=5,
             include_counter_evidence=True,
+            embed_query_text=_risk_analyzer_embed_query_text(target_key, ctx),
+            use_cross_encoder_rerank=True,
         )
         ev_res = query_evidence(q, db)
         out["corpus_literature"]["result"] = _evidence_result_to_corpus_block(ev_res)
@@ -196,6 +229,8 @@ def _enrich_snapshots_with_corpus(
                     feature_summary=feat,
                     max_results=5,
                     include_counter_evidence=True,
+                    embed_query_text=_risk_analyzer_embed_query_text(target_key, ctx),
+                    use_cross_encoder_rerank=True,
                 )
                 ev_res = query_evidence(q, db)
                 corpus_block["result"] = _evidence_result_to_corpus_block(ev_res)

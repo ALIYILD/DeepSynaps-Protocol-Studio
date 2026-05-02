@@ -138,6 +138,32 @@ def test_query_response_shape_from_seeded_corpus():
     assert "Decision support only" in result.recommended_caution
 
 
+def test_embed_query_text_and_rerank_flags_do_not_break_sqlite_retrieval():
+    """Hybrid retrieval opts-in via embed_query_text; SQLite skips ANN without failing."""
+    _seed_ds_paper(
+        title="Depression PHQ-9 systematic review",
+        abstract="Depression and PHQ-9 severity in clinical cohorts.",
+        pub_types=["Systematic Review"],
+        citations=90,
+    )
+    session = SessionLocal()
+    try:
+        q = build_default_query("pat-embed", "depression_risk", "prediction")
+        q = q.model_copy(
+            update={
+                "embed_query_text": "PHQ-9 depression systematic review evidence.",
+                "use_cross_encoder_rerank": True,
+            }
+        )
+        result = query_evidence(q, session)
+    finally:
+        session.close()
+    assert result.supporting_papers
+    md = result.provenance.ranking_metadata
+    assert md.get("ann_retrieval") is True
+    assert md.get("cross_encoder_rerank") is False  # optional dep absent in CI
+
+
 def test_evidence_api_happy_path_save_and_overview(client: TestClient, auth_headers: dict):
     _seed_ds_paper(
         title="Depression risk multimodal cohort PHQ-9 HRV sleep",

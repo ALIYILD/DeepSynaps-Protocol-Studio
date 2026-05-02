@@ -56,6 +56,16 @@ class EvidenceQuery(BaseModel):
     include_counter_evidence: bool = True
     include_review_only: bool = False
     include_recent_only: bool = False
+    # Optional semantic retrieval (pgvector + sentence-transformers). When set on Postgres with
+    # embedded papers, ANN hits are merged with keyword/sqlite candidates.
+    embed_query_text: Optional[str] = Field(
+        default=None,
+        description="Natural-language query encoded with the corpus embedding model for ANN retrieval.",
+    )
+    use_cross_encoder_rerank: bool = Field(
+        default=False,
+        description="When True and sentence-transformers CrossEncoder is installed, rerank top candidates.",
+    )
 
 
 class EvidenceDriver(BaseModel):
@@ -226,6 +236,7 @@ class _CandidatePaper:
     cited_by_count: Optional[int]
     url: Optional[str]
     source: str
+    ann_similarity: Optional[float] = None  # set when row came from pgvector ANN
 
 
 TARGET_CONCEPTS: dict[str, dict[str, Any]] = {
@@ -444,7 +455,12 @@ def query_evidence(query: EvidenceQuery, db: Optional[Session] = None) -> Eviden
     query.target_name = normalize_target_name(query.target_name)
     concepts = resolve_concepts(query)
     candidates, corpus = _retrieve_candidates(query, concepts, db)
-    ranked = rank_papers(candidates, query, concepts)
+    ce_scores: dict[str, float] | None = None
+    if query.use_cross_encoder_rerank and candidates:
+        qtext = (query.embed_query_text or concepts.get("claim") or "").strip()
+        if qtext:
+            ce_scores = _cross_encoder_scores(qtext, candidates)
+    ranked = rank_papers(candidates, query, concepts, cross_encoder_scores=ce_scores)
     supporting = ranked[: query.max_results]
     conflicting = _build_counter_evidence(ranked[query.max_results:], query, concepts) if query.include_counter_evidence else []
     drivers = build_drivers(query)
@@ -464,6 +480,10 @@ def query_evidence(query: EvidenceQuery, db: Optional[Session] = None) -> Eviden
             "context_type": query.context_type,
             "target_name": query.target_name,
             "max_results": query.max_results,
+            "ann_retrieval": bool((query.embed_query_text or "").strip()),
+            "cross_encoder_rerank": bool(ce_scores),
+            "cross_encoder_model": os.environ.get("EVIDENCE_CROSS_ENCODER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2") if ce_scores else None,
+            "embedding_model": os.environ.get("RISK_ANALYZER_EMBED_MODEL", "BAAI/bge-m3") if (query.embed_query_text or "").strip() else None,
         },
         generated_at=datetime.now(timezone.utc).isoformat(),
         corpus=corpus,
@@ -499,7 +519,13 @@ RANK_WEIGHTS = {
 }
 
 
-def rank_papers(candidates: list[_CandidatePaper], query: EvidenceQuery, concepts: dict[str, Any]) -> list[EvidencePaper]:
+def rank_papers(
+    candidates: list[_CandidatePaper],
+    query: EvidenceQuery,
+    concepts: dict[str, Any],
+    *,
+    cross_encoder_scores: dict[str, float] | None = None,
+) -> list[EvidencePaper]:
     ranked: list[EvidencePaper] = []
     for paper in candidates:
         text = f"{paper.title} {paper.abstract}".lower()
@@ -509,6 +535,14 @@ def rank_papers(candidates: list[_CandidatePaper], query: EvidenceQuery, concept
         diagnosis_match = _term_match_score(text, concepts["diagnoses"])
         intervention_match = _term_match_score(text, concepts["interventions"])
         semantic_relevance = max(concept_overlap, _token_overlap_score(text, " ".join(concepts["concepts"])))
+        if paper.ann_similarity is not None:
+            # Blend pgvector cosine similarity (0–2) into semantic channel for hybrid retrieval.
+            ann_norm = max(0.0, min(1.0, float(paper.ann_similarity) / 2.0))
+            semantic_relevance = max(semantic_relevance, ann_norm)
+        ce_boost = 0.0
+        if cross_encoder_scores and paper.paper_id in cross_encoder_scores:
+            ce_boost = max(0.0, min(1.0, float(cross_encoder_scores[paper.paper_id])))
+            semantic_relevance = max(semantic_relevance, ce_boost)
         quality_bucket = classify_study_type(paper.pub_types, paper.title, paper.abstract)
         quality_score = study_quality_score(quality_bucket)
         recency = recency_score(paper.year)
@@ -523,6 +557,8 @@ def rank_papers(candidates: list[_CandidatePaper], query: EvidenceQuery, concept
             + recency * RANK_WEIGHTS["recency"]
             + patient_app * RANK_WEIGHTS["patient_applicability"]
         )
+        if ce_boost > 0:
+            total += 0.1 * ce_boost
         if query.include_review_only and quality_bucket not in {"meta-analysis", "systematic review", "review"}:
             continue
         if query.include_recent_only and paper.year and datetime.now(timezone.utc).year - paper.year > 5:
@@ -554,7 +590,7 @@ def rank_papers(candidates: list[_CandidatePaper], query: EvidenceQuery, concept
             url=paper.url,
             matched_concepts=matched[:8],
             score_breakdown=breakdown,
-            retrieval_reason=f"Matched {len(matched)} concepts for {query.target_name}; source={paper.source}",
+            retrieval_reason=_retrieval_reason_line(paper, matched, query, ce_boost),
         ))
     ranked.sort(key=lambda p: (p.score_breakdown.total, p.citation_count or 0, p.year or 0), reverse=True)
     return ranked
@@ -892,6 +928,157 @@ def build_report_payload(body: ReportPayloadRequest, db: Session) -> dict[str, A
     }
 
 
+def _retrieval_reason_line(
+    paper: _CandidatePaper,
+    matched: list[str],
+    query: EvidenceQuery,
+    ce_boost: float,
+) -> str:
+    parts: list[str] = [f"Matched {len(matched)} concepts for {query.target_name}; source={paper.source}"]
+    if paper.ann_similarity is not None:
+        parts.append(f"pgvector_sim≈{paper.ann_similarity:.3f}")
+    if ce_boost > 0:
+        parts.append("cross-encoder_rerank")
+    return "; ".join(parts)
+
+
+_EMBEDDING_DIM = 200
+
+
+def _truncate_l2_embed(vec: list[float], dim: int = _EMBEDDING_DIM) -> list[float]:
+    """Match ``scripts/embed_papers.py`` — BGE-M3 → first 200 dims, L2-normalize."""
+    arr = [float(x) for x in vec][:dim]
+    if len(arr) < dim:
+        arr.extend([0.0] * (dim - len(arr)))
+    norm = sum(x * x for x in arr) ** 0.5
+    if norm <= 0:
+        return arr
+    return [x / norm for x in arr]
+
+
+def _encode_query_embedding(query_text: str) -> tuple[list[float] | None, str | None]:
+    """Encode ``query_text`` with SentenceTransformer (same family as embed_papers)."""
+    text = (query_text or "").strip()
+    if not text:
+        return None, None
+    model_name = os.environ.get("RISK_ANALYZER_EMBED_MODEL", "BAAI/bge-m3")
+    try:
+        from sentence_transformers import SentenceTransformer  # type: ignore[import-not-found]
+    except ImportError:
+        return None, None
+    try:
+        model = SentenceTransformer(model_name)
+        vec = model.encode(text, normalize_embeddings=False)
+        # sentence_transformers returns ndarray
+        flat = [float(x) for x in vec.flatten().tolist()]
+        return _truncate_l2_embed(flat), model_name
+    except Exception as exc:  # pragma: no cover — optional stack
+        _logger.warning("sentence_transformers encode failed: %s", exc)
+        return None, None
+
+
+def _retrieve_ann_candidates(db: Session, query: EvidenceQuery, concepts: dict[str, Any]) -> list[_CandidatePaper]:
+    """ANN retrieval over ``ds_papers.embedding`` when Postgres + query vector available."""
+    raw_q = (query.embed_query_text or "").strip()
+    if not raw_q:
+        return []
+
+    q_emb, _model = _encode_query_embedding(raw_q)
+    if not q_emb:
+        return []
+
+    try:
+        from app.services.pgvector_bridge import cosine_similar_sync
+    except ImportError:
+        return []
+
+    k_fetch = max(query.max_results * 6, 36)
+    try:
+        ann_rows = cosine_similar_sync(
+            "ds_papers",
+            "embedding",
+            q_emb,
+            k=k_fetch,
+            db_session=db,
+        )
+    except Exception as exc:  # noqa: BLE001
+        _logger.debug("ANN candidate fetch failed: %s", exc)
+        return []
+
+    if not ann_rows:
+        return []
+
+    id_list = [r["id"] for r in ann_rows if r.get("id") is not None]
+    sim_map = {r["id"]: float(r.get("similarity", 0.0) or 0.0) for r in ann_rows}
+    if not id_list:
+        return []
+
+    rows = db.scalars(
+        select(DsPaper).where(
+            DsPaper.id.in_(id_list),
+            DsPaper.retracted.is_(False),  # noqa: E712
+        )
+    ).all()
+    by_id = {r.id: r for r in rows}
+    out: list[_CandidatePaper] = []
+    for pid in id_list:
+        row = by_id.get(pid)
+        if row is None:
+            continue
+        c = _ds_paper_to_candidate(row)
+        c.ann_similarity = sim_map.get(pid)
+        c.source = "ds_papers_ann"
+        out.append(c)
+    return out
+
+
+def _cross_encoder_scores(query_text: str, candidates: list[_CandidatePaper]) -> dict[str, float] | None:
+    """Rerank a small candidate set with a cross-encoder; returns paper_id -> score 0-1."""
+    if not candidates:
+        return None
+    model_id = os.environ.get("EVIDENCE_CROSS_ENCODER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
+    try:
+        from sentence_transformers import CrossEncoder  # type: ignore[import-not-found]
+    except ImportError:
+        return None
+    try:
+        model = CrossEncoder(model_id)
+    except Exception as exc:  # pragma: no cover
+        _logger.warning("CrossEncoder load failed: %s", exc)
+        return None
+
+    pairs: list[tuple[str, str]] = []
+    paper_ids: list[str] = []
+    cap = min(80, max(20, len(candidates)))
+    for c in candidates[:cap]:
+        doc = f"{c.title}\n{(c.abstract or '')[:2000]}"
+        paper_ids.append(c.paper_id)
+        pairs.append((query_text[:1500], doc))
+    if not pairs:
+        return None
+    try:
+        scores = model.predict(pairs)
+    except Exception as exc:  # pragma: no cover
+        _logger.warning("cross-encoder predict failed: %s", exc)
+        return None
+
+    raw = []
+    if hasattr(scores, "flatten"):
+        raw = [float(x) for x in scores.flatten().tolist()]
+    elif hasattr(scores, "tolist"):
+        raw = [float(x) for x in scores.tolist()]
+    else:
+        raw = [float(scores)]
+    if not raw:
+        return None
+    lo, hi = min(raw), max(raw)
+    span = hi - lo if hi > lo else 1.0
+    out: dict[str, float] = {}
+    for i, pid in enumerate(paper_ids):
+        out[pid] = (raw[i] - lo) / span
+    return out
+
+
 def get_paper_detail(paper_id: str, db: Session) -> Optional[EvidencePaper]:
     paper = db.get(DsPaper, paper_id)
     if paper is not None:
@@ -906,15 +1093,46 @@ def get_paper_detail(paper_id: str, db: Session) -> Optional[EvidencePaper]:
     return None
 
 
+def _merge_candidates(*groups: list[_CandidatePaper]) -> list[_CandidatePaper]:
+    """Dedupe by paper_id; keep the copy with highest pgvector similarity when present."""
+    buckets: dict[str, list[_CandidatePaper]] = {}
+    for group in groups:
+        for c in group:
+            buckets.setdefault(c.paper_id, []).append(c)
+
+    def _pick_best(lst: list[_CandidatePaper]) -> _CandidatePaper:
+        return max(
+            lst,
+            key=lambda x: (
+                x.ann_similarity is not None,
+                x.ann_similarity if x.ann_similarity is not None else -1.0,
+            ),
+        )
+
+    return [_pick_best(lst) for lst in buckets.values()]
+
+
 def _retrieve_candidates(query: EvidenceQuery, concepts: dict[str, Any], db: Optional[Session]) -> tuple[list[_CandidatePaper], str]:
     candidates: list[_CandidatePaper] = []
+    ann_hits: list[_CandidatePaper] = []
+    if db is not None and (query.embed_query_text or "").strip():
+        ann_hits = _retrieve_ann_candidates(db, query, concepts)
+
     if db is not None:
-        candidates.extend(_retrieve_ds_papers(db, query, concepts))
+        kw = _retrieve_ds_papers(db, query, concepts)
+        candidates = _merge_candidates(ann_hits, kw)
         if candidates:
-            return candidates, "ds_papers"
-        candidates.extend(_retrieve_library_papers(db, query, concepts))
+            corpus = "ds_papers"
+            if ann_hits:
+                corpus += "+pgvector_ann"
+            return candidates, corpus
+        lib = _retrieve_library_papers(db, query, concepts)
+        candidates = _merge_candidates(ann_hits, lib)
         if candidates:
-            return candidates, "literature_papers"
+            corpus = "literature_papers"
+            if ann_hits:
+                corpus += "+pgvector_ann"
+            return candidates, corpus
     candidates.extend(_retrieve_evidence_sqlite(query, concepts))
     if candidates:
         return candidates, "evidence-pipeline"
