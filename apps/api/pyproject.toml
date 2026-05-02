@@ -20,6 +20,7 @@ dependencies = [
     "deepsynaps-condition-registry",
     "deepsynaps-modality-registry",
     "deepsynaps-device-registry",
+    "deepsynaps-biometrics-pipeline",
     "deepsynaps-safety-engine",
     "deepsynaps-generation-engine",
     "slowapi>=0.1.9",

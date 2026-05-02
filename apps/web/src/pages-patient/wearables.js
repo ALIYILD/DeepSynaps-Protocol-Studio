@@ -4,6 +4,7 @@
 // verbatim wearables block from the original file, with imports rewired.
 import { api } from '../api.js';
 import { currentUser } from '../auth.js';
+import { EVIDENCE_TOTAL_PAPERS } from '../evidence-dataset.js';
 import { t } from '../i18n.js';
 import { setTopbar, spinner, fmtRelative, _vizWeekStrip, _vizTrafficLight } from './_shared.js';
 
@@ -178,6 +179,60 @@ export async function pgPatientWearables() {
   if (!pwConsentActive && api.postPatientWearablesAuditEvent) {
     api.postPatientWearablesAuditEvent({ event: 'consent_banner_shown' });
   }
+
+  // ── Evidence intelligence bridge (biometrics → 87k corpus) ─────────────────
+  let wearEvidenceBlock = '';
+  if (api.biometricsEvidence && api.biometricsCorrelations && api.biometricsFeatures) {
+    try {
+      const [corr, feat] = await Promise.all([
+        _raceNull(api.biometricsCorrelations({ days: 90 })),
+        _raceNull(api.biometricsFeatures({ days: 90 })),
+      ]);
+      const hasMatrix = corr && corr.matrix && Object.keys(corr.matrix).length > 0;
+      if (corr && feat && hasMatrix) {
+        const ev = await _raceNull(
+          api.biometricsEvidence({
+            evidence_target: 'stress_load',
+            context_type: 'biomarker',
+            max_results: 5,
+            correlation_snapshot: corr,
+            features_snapshot: feat,
+          })
+        );
+        if (ev && Array.isArray(ev.supporting_papers) && ev.supporting_papers.length) {
+          const corpus = ev.provenance && ev.provenance.corpus ? String(ev.provenance.corpus) : '';
+          const papers = ev.supporting_papers
+            .slice(0, 5)
+            .map(
+              (p) => `
+            <div class="pdw-ev-paper">
+              <div class="pdw-ev-title">${esc(p.title)}</div>
+              <div class="pdw-ev-meta">${esc([p.journal, p.year].filter(Boolean).join(' · '))}</div>
+              <p class="pdw-ev-snippet">${esc((p.abstract_snippet || p.relevance_note || '').slice(0, 280))}${(p.abstract_snippet || '').length > 280 ? '…' : ''}</p>
+              ${p.url ? `<a class="pdw-ev-link" href="${esc(p.url)}" target="_blank" rel="noreferrer">View source</a>` : ''}
+            </div>`
+            )
+            .join('');
+          const summ = esc((ev.literature_summary || '').slice(0, 500));
+          const caution = esc(ev.recommended_caution || '');
+          wearEvidenceBlock = `
+            <div class="pdw-evidence-inner">
+              ${summ ? `<p class="pdw-ev-lead">${summ}${(ev.literature_summary || '').length > 500 ? '…' : ''}</p>` : ''}
+              ${corpus ? `<p class="pdw-ev-corpus">Corpus: <span class="mono">${esc(corpus)}</span></p>` : ''}
+              <div class="pdw-ev-papers">${papers}</div>
+              <p class="pdw-ev-foot">${caution}</p>
+            </div>`;
+        }
+      }
+    } catch (_evErr) {
+      wearEvidenceBlock = '';
+    }
+  }
+  const wearEvidenceFallback = `
+    <div class="pdw-evidence-fallback">
+      <p><strong>Research library.</strong> DeepSynaps indexes on the order of <strong>${EVIDENCE_TOTAL_PAPERS.toLocaleString()}</strong> peer-reviewed works for clinical decision support (multi-source ingest including PubMed and OpenAlex). Consumer wearable metrics are <em>associational</em> — open the hub below for cited papers on sleep, HRV, and activity.</p>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="window._nav('research-evidence')">Open Research Evidence (${EVIDENCE_TOTAL_PAPERS.toLocaleString()} papers)</button>
+    </div>`;
 
   // ── LocalStorage: home device assignments + session log ───────────────────
   const homeDevKey  = 'ds_home_devices_'  + (uid || 'demo');
@@ -495,6 +550,15 @@ export async function pgPatientWearables() {
     </div>
     ${_vizWeekStrip(_bioWeekDays, { legend: false })}
     <div style="font-size:11px;color:var(--text-tertiary,#64748b);margin-top:6px">7-day check-in log · connect a device to see biometric history</div>
+  </div>
+
+  <!-- ⑤b EVIDENCE (87k library bridge) -->
+  <div class="pdw-section pdw-evidence-section">
+    <div class="pdw-section-header">
+      <h3 class="pdw-section-title"><span class="pdw-title-icon">⌕</span>Evidence behind wearable metrics</h3>
+      <span class="pdw-section-sub">Ranked citations from the DeepSynaps evidence intelligence layer — educational context only</span>
+    </div>
+    ${wearEvidenceBlock ? `<div class="pdw-evidence">${wearEvidenceBlock}</div>` : wearEvidenceFallback}
   </div>
 
   <!-- ⑥ PRIVACY & PERMISSIONS -->

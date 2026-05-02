@@ -272,6 +272,22 @@ function renderOverview(body, liveEvidence = null) {
   }
   srcHtml += '</div>';
 
+  /* Wearables ↔ biometrics evidence bridge (Studio wiring) */
+  const wearBridge =
+    '<div class="ch-card" style="padding:16px;margin-bottom:16px;border-left:3px solid var(--teal)">' +
+    '<div style="font-weight:600;margin-bottom:8px">Wearables &amp; passive sensing</div>' +
+    '<p style="font-size:13px;color:var(--text-secondary);margin:0 0 10px;line-height:1.5">' +
+    'Patient <strong>Devices &amp; Wearables</strong> can surface ranked citations via the same evidence-intelligence layer as this dashboard ' +
+    '(deterministic retrieval over the indexed corpus — typically on the order of <strong>' +
+    fmt(EVIDENCE_TOTAL_PAPERS) +
+    '</strong> works when the evidence database is mounted). ' +
+    'Biometric <em>correlation</em> readouts are associational; use the papers below for mechanistic and clinical context, not diagnosis.' +
+    '</p>' +
+    (currentUser && currentUser.role === 'patient'
+      ? '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'patient-wearables\')">Open Devices &amp; Wearables</button>'
+      : '<span style="font-size:12px;color:var(--text-tertiary)">Clinicians: review citations under patient wearable summaries in the clinical workspace.</span>') +
+    '</div>';
+
   /* year distribution */
   const yd = S.yearDistribution;
   const ydMax = Math.max(...Object.values(yd));
@@ -319,7 +335,7 @@ function renderOverview(body, liveEvidence = null) {
   tcHtml += '</div>';
 
   /* two-column layout for charts */
-  body.innerHTML = kpiHtml + srcHtml +
+  body.innerHTML = kpiHtml + srcHtml + wearBridge +
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:16px">' +
     yearHtml + gradeHtml + modHtml + tcHtml + jrnlHtml +
     '</div>';

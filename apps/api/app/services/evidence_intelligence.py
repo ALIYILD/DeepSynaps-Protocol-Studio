@@ -315,6 +315,35 @@ TARGET_CONCEPTS: dict[str, dict[str, Any]] = {
         "diagnoses": ["depression", "anxiety"],
         "modalities": ["text"],
     },
+    # Wearables / consumer sensing — used by biometrics → evidence bridge (HealthKit, HC, rings)
+    "wearable_sleep_circadian": {
+        "claim": "Decision-support evidence links sleep duration, fragmentation, and circadian proxies from consumer wearables and actigraphy to mood, cognition, and treatment monitoring contexts.",
+        "concepts": [
+            "sleep",
+            "circadian",
+            "actigraphy",
+            "consumer wearable",
+            "sleep staging",
+            "digital phenotype",
+            "remote monitoring",
+        ],
+        "diagnoses": ["depression", "anxiety", "insomnia", "sleep disorder"],
+        "modalities": ["wearables", "digital phenotype"],
+    },
+    "wearable_activity_monitoring": {
+        "claim": "Decision-support evidence links step counts, energy expenditure, and accelerometer-derived activity to behavioral activation, cardiometabolic health, and digital neuromodulation follow-up.",
+        "concepts": [
+            "physical activity",
+            "steps",
+            "accelerometer",
+            "sedentary",
+            "consumer wearable",
+            "digital biomarker",
+            "remote monitoring",
+        ],
+        "diagnoses": ["depression", "anxiety", "cardiovascular"],
+        "modalities": ["wearables", "digital phenotype"],
+    },
 }
 
 
@@ -346,6 +375,10 @@ def normalize_target_name(target_name: str) -> str:
         "text": "text_sentiment",
         "parkinson": "parkinson_voice",
         "respiratory": "respiratory_screening",
+        "wearable_sleep": "wearable_sleep_circadian",
+        "sleep_wearable": "wearable_sleep_circadian",
+        "wearable_activity": "wearable_activity_monitoring",
+        "activity_wearable": "wearable_activity_monitoring",
     }
     return aliases.get(value, value)
 
