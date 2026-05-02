@@ -7371,7 +7371,7 @@ export async function pgCareTeamCoverage(setTopbar) {
   var activeTab = window._coverageTab || 'coverage';
 
   async function loadAll() {
-    var [summary, oncall, sla, chain, breaches, roster, pages] = await Promise.all([
+    var [summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth, policyOrder, policyOverrides, policyMappings, deliveryConcerns, caregiverChannels, channelMisconfigDetectorStatus, deliveryConcernAggregatorStatus, deliveryConcernAggregatorEvents, resolutionOpenList, resolutionResolvedList] = await Promise.all([
       api.careTeamCoverageSummary(),
       api.careTeamCoverageOncallNow(),
       api.careTeamCoverageSlaConfig(),
@@ -7379,8 +7379,52 @@ export async function pgCareTeamCoverage(setTopbar) {
       api.careTeamCoverageSlaBreaches({ limit: 100 }),
       api.careTeamCoverageRoster({ week_start: weekStart }),
       api.careTeamCoveragePages({ limit: 50 }),
+      api.autoPageWorkerStatus(),
+      api.autoPageWorkerAdapterHealth(),
+      api.escalationPolicyDispatchOrder(),
+      api.escalationPolicySurfaceOverrides(),
+      api.escalationPolicyUserMappings(),
+      api.careTeamCoverageDeliveryConcerns({ limit: 100 }),
+      // Clinic Caregiver Channel Override launch-audit (2026-05-01).
+      // Returns null when the actor has no clinic_id (e.g. unattached
+      // admin) so the tab body can render an honest empty state without
+      // crashing the page.
+      typeof api.caregiverEmailDigestClinicPreferences === 'function'
+        ? api.caregiverEmailDigestClinicPreferences()
+        : null,
+      // Channel Misconfiguration Detector launch-audit (2026-05-01).
+      // Status snapshot of the nightly worker; null when the helper is
+      // not yet shipped or the API is unreachable so the panel can fall
+      // back to an honest "worker status: unreachable" banner.
+      typeof api.channelMisconfigDetectorStatus === 'function'
+        ? api.channelMisconfigDetectorStatus()
+        : null,
+      // Caregiver Delivery Concern Aggregator launch-audit (2026-05-01).
+      // Rolling-window flag worker that surfaces caregivers with N+
+      // delivery concerns. Status snapshot + flagged caregivers list
+      // both null when API unreachable so the sub-section can fall back
+      // to an honest "aggregator status: unreachable" banner.
+      typeof api.caregiverDeliveryConcernAggregatorStatus === 'function'
+        ? api.caregiverDeliveryConcernAggregatorStatus()
+        : null,
+      typeof api.caregiverDeliveryConcernAggregatorAuditEvents === 'function'
+        ? api.caregiverDeliveryConcernAggregatorAuditEvents({
+            surface: 'caregiver_portal',
+            limit: 50,
+          })
+        : null,
+      // Caregiver Delivery Concern Resolution launch-audit (DCR1, 2026-05-02).
+      // Closes the loop opened by #390. Open list = currently-flagged
+      // caregivers in this clinic (last 30d); resolved list = recently-
+      // resolved (last 7d) so the admin can see who they cleared and why.
+      typeof api.caregiverDeliveryConcernResolutionList === 'function'
+        ? api.caregiverDeliveryConcernResolutionList({ status: 'open' })
+        : null,
+      typeof api.caregiverDeliveryConcernResolutionList === 'function'
+        ? api.caregiverDeliveryConcernResolutionList({ status: 'resolved' })
+        : null,
     ]);
-    return { summary, oncall, sla, chain, breaches, roster, pages };
+    return { summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth, policyOrder, policyOverrides, policyMappings, deliveryConcerns, caregiverChannels, channelMisconfigDetectorStatus, deliveryConcernAggregatorStatus, deliveryConcernAggregatorEvents, resolutionOpenList, resolutionResolvedList };
   }
 
   function isDemo(d) {
@@ -7390,6 +7434,127 @@ export async function pgCareTeamCoverage(setTopbar) {
   }
 
   function _esc(v) { return _kEsc(v == null ? '' : String(v)); }
+
+  // Auto-Page Worker live status panel — replaces the static
+  // "Auto-page worker: OFF" badge that #357 shipped. Polls
+  // /api/v1/auto-page-worker/status every 30s (via the same
+  // window._coveragePoll tick that refreshes the breach feed) and
+  // surfaces:
+  //   - running indicator (process-wide, governed by the env var)
+  //   - per-clinic enabled flag (governed by escalation_chains.auto_page_enabled)
+  //   - last-tick timestamp (HH:MM:SS UTC)
+  //   - breaches_pending_now (live breach count for this clinic)
+  //   - paged_last_hour (delivered or queued auto-pages this hour)
+  //   - errors_last_hour (worker errors)
+  //   - admin-only Start / Stop / Run-one-tick CTAs
+  // No silent fakes — when the backend is unreachable we render an
+  // honest "Auto-page worker status: unreachable" line instead of
+  // pretending the worker is healthy.
+  function renderAutoPageWorkerPanel(workerStatus, summary) {
+    var s = workerStatus || null;
+    var enabledSurfaces = (summary && Number(summary.auto_page_enabled_surfaces)) || 0;
+    var role = (window.__deepsynapsActorRole || '').toLowerCase();
+    var isAdmin = (role === 'admin' || role === 'supervisor' || role === 'regulator');
+
+    if (!s) {
+      // Worker status endpoint unreachable — render an honest banner
+      // and STILL drop down to the legacy auto-page-enabled-surfaces
+      // count (which the summary endpoint already returns) so the
+      // page is not dishonestly silent.
+      var fallback = enabledSurfaces === 0
+        ? '<strong>Auto-page worker: OFF</strong> — admin must enable per surface in the Escalation Chain editor. Until then, all pages are manual.'
+        : '<strong>Auto-page worker: ENABLED</strong> on ' + _esc(String(enabledSurfaces)) + ' surface(s) — live worker status endpoint unreachable.';
+      return '<div class="notice notice-info" style="margin-bottom:12px;font-size:12px">' + fallback + '</div>';
+    }
+
+    var runningDot = s.running
+      ? '<span style="color:#10b981;font-weight:700">●</span>'
+      : '<span style="color:#9ca3af">○</span>';
+    var enabledDot = s.enabled_in_clinic
+      ? '<span style="color:#10b981;font-weight:700">●</span>'
+      : '<span style="color:#9ca3af">○</span>';
+    var lastTick = s.last_tick_at
+      ? new Date(s.last_tick_at).toISOString().slice(11, 19) + ' UTC'
+      : '—';
+    var lastError = s.last_error
+      ? ' <span style="color:#ef4444" title="' + _esc(s.last_error) + '">⚠ last error</span>'
+      : '';
+    var pending = Number(s.breaches_pending_now) || 0;
+    var paged = Number(s.paged_last_hour) || 0;
+    var errs = Number(s.errors_last_hour) || 0;
+
+    function chip(label, value) {
+      return '<span style="background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:3px 8px;margin-right:6px;font-size:11px"><strong>' + _esc(label) + '</strong>: ' + _esc(String(value)) + '</span>';
+    }
+
+    var ctas = '';
+    if (isAdmin) {
+      var startStop = s.enabled_in_clinic
+        ? '<button class="btn btn-sm btn-ghost" onclick="window._autoPageWorkerStop()">Stop auto-page (this clinic)</button>'
+        : '<button class="btn btn-sm" onclick="window._autoPageWorkerStart()">Start auto-page (this clinic)</button>';
+      ctas = '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">' +
+        startStop +
+        '<button class="btn btn-sm btn-ghost" onclick="window._autoPageWorkerTickOnce()">Run one tick now (admin debug)</button>' +
+        '</div>';
+    }
+
+    var processNote = s.process_enabled_via_env
+      ? ''
+      : '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Worker thread is dormant in this deploy (DEEPSYNAPS_AUTO_PAGE_ENABLED=0). Enabling per-clinic flips the flag in the DB but no scan will fire until the env var is set.</div>';
+
+    return '<div class="notice" style="margin-bottom:12px;font-size:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:10px 14px">' +
+      '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">' +
+      '<span><strong>Auto-page worker</strong></span>' +
+      '<span>' + runningDot + ' running (process)</span>' +
+      '<span>' + enabledDot + ' enabled (this clinic)</span>' +
+      '<span style="color:var(--text-muted)">last tick ' + _esc(lastTick) + '</span>' +
+      lastError +
+      '</div>' +
+      '<div style="margin-top:6px">' +
+      chip('Breaches pending now', pending) +
+      chip('Paged (last hour)', paged) +
+      chip('Errors (last hour)', errs) +
+      chip('Tick interval', String(s.interval_sec || 60) + 's') +
+      chip('Cooldown', String(s.cooldown_min || 15) + 'min') +
+      '</div>' +
+      ctas +
+      processNote +
+      '</div>';
+  }
+
+  // On-Call Delivery adapter-health panel — renders a per-adapter health
+  // row for Slack / Twilio / PagerDuty so reviewers see at a glance which
+  // delivery channels are enabled. NEVER hides a missing-env-var adapter
+  // (the backend returns it as ``enabled=false``); the UI just colours
+  // it grey + adds a "disabled" chip so reviewers see why it's silent.
+  // Mock-mode (DEEPSYNAPS_DELIVERY_MOCK=1) flips a yellow banner so demo
+  // deploys cannot dishonestly claim to have actually wired Slack.
+  function renderAdapterHealthPanel(adapterHealth) {
+    var h = adapterHealth || null;
+    var role = (window.__deepsynapsActorRole || '').toLowerCase();
+    var isAdmin = (role === 'admin' || role === 'supervisor' || role === 'regulator');
+    if (!h) {
+      return '<div class="notice notice-info" style="margin-bottom:12px;font-size:12px"><strong>On-call delivery adapters:</strong> health endpoint unreachable.</div>';
+    }
+    var rows = (h.adapters || []).map(function(a) {
+      var dot = a.enabled
+        ? '<span style="color:#10b981;font-weight:700">●</span>'
+        : '<span style="color:#9ca3af">○</span>';
+      var label = a.enabled ? 'enabled' : 'disabled (env var missing)';
+      var labelStyle = a.enabled ? 'color:#10b981' : 'color:#9ca3af';
+      return '<span style="margin-right:14px">' + dot + ' <strong>' + _esc(a.name) + '</strong> <span style="' + labelStyle + ';font-size:11px">' + _esc(label) + '</span></span>';
+    }).join('');
+    var mockBanner = h.mock_mode
+      ? '<div style="margin-top:6px;padding:4px 10px;border-radius:6px;background:#fef3c7;color:#78350f;font-weight:600;font-size:11px;display:inline-block">🧪 Mock delivery mode (DEEPSYNAPS_DELIVERY_MOCK=1) — no real pages are sent.</div>'
+      : '';
+    var testBtn = isAdmin
+      ? ' <button class="btn btn-sm btn-ghost" onclick="window._oncallDeliveryTestAdapter()">Test adapter chain</button>'
+      : '';
+    return '<div class="notice" style="margin-bottom:12px;font-size:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:10px 14px">' +
+      '<div><strong>On-call delivery adapters:</strong> ' + rows + testBtn + '</div>' +
+      mockBanner +
+      '</div>';
+  }
 
   function renderTopCounts(summary) {
     var s = summary || {};
@@ -7519,6 +7684,491 @@ export async function pgCareTeamCoverage(setTopbar) {
       '<tbody>' + rows + '</tbody></table></div>';
   }
 
+  // Patient delivery concerns — mirror feed of patient-flagged caregiver
+  // delivery problems. Each row is one
+  // ``clinician_inbox.caregiver_delivery_concern_to_clinician_mirror``
+  // audit row scoped to the actor's clinic. The "Investigate" CTA
+  // deep-links to the patient profile so the clinician can pick up the
+  // failed dispatch context. Mount-time audit ping is fired alongside
+  // care_team_coverage.view at the page entry.
+  function renderConcernsTab(d) {
+    var items = (d.deliveryConcerns && Array.isArray(d.deliveryConcerns.items))
+      ? d.deliveryConcerns.items : [];
+    api.postCareTeamCoverageAuditEvent({ event: 'delivery_concerns_view', note: 'count=' + items.length });
+    if (items.length === 0) {
+      return emptyState('📨', 'No patient delivery concerns.', 'Patient-flagged caregiver delivery problems will appear here. They also surface in the SLA breaches feed once they age past the surface SLA.');
+    }
+    var rows = items.map(function(c) {
+      var pn = c.patient_first_name ? _esc(c.patient_first_name) : 'Patient';
+      var cn = c.caregiver_first_name ? _esc(c.caregiver_first_name) : 'caregiver';
+      var ts = c.flagged_at ? _esc(String(c.flagged_at).slice(0, 19).replace('T', ' ')) : '—';
+      var concern = c.concern_text ? _esc(String(c.concern_text).slice(0, 240)) : '';
+      var demoBadge = c.is_demo ? ' <span style="background:#fef3c7;color:#78350f;padding:1px 6px;border-radius:5px;font-size:10px;margin-left:6px">DEMO</span>' : '';
+      return '<tr data-testid="ctc-concern-row">' +
+        '<td>' + ts + '</td>' +
+        '<td>' + pn + demoBadge + '</td>' +
+        '<td>' + cn + '</td>' +
+        '<td style="max-width:380px;white-space:normal;line-height:1.4">' + concern + '</td>' +
+        '<td><button class="btn btn-sm" data-testid="ctc-concern-investigate" onclick="window._coverageInvestigateConcern(\'' + _esc(c.patient_id || '') + '\',\'' + _esc(c.audit_event_id || '') + '\')">Investigate</button></td>' +
+        '</tr>';
+    }).join('');
+    return '<div data-testid="ctc-delivery-concerns" style="overflow-x:auto"><table class="data-table" style="width:100%;min-width:780px">' +
+      '<thead><tr><th>Flagged at</th><th>Patient</th><th>Caregiver</th><th>Concern</th><th>Action</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table>' +
+      '<div style="margin-top:8px;font-size:11.5px;color:var(--text-muted);line-height:1.5">' +
+      'Patient-filed concerns about failed caregiver email digest dispatches. Each row is sourced from the audit transcript (clinician_inbox.caregiver_delivery_concern_to_clinician_mirror) and scoped to your clinic. Names are first-name-only.' +
+      '</div></div>';
+  }
+
+  // Clinic Caregiver Channel Override launch-audit (2026-05-01).
+  // Admin-only tab that surfaces every CaregiverDigestPreference row in
+  // this clinic, with the resolved dispatch chain + an "Override" CTA
+  // that pins a misconfigured caregiver back to the clinic chain. The
+  // tab fires ``care_team_coverage.caregiver_channels_view`` on first
+  // render so the regulator transcript records the admin's read access.
+  // Channel Misconfiguration Detector launch-audit (2026-05-01).
+  // Renders the worker status panel + "Misconfigured: {n}" red summary
+  // badge + admin-only "Run detector now" CTA at the top of the
+  // Caregiver channels tab. Mounts a ``care_team_coverage.channel_misconfig_view``
+  // audit ping the first time the badge renders so the regulator
+  // transcript records the admin's read access. The "Run detector now"
+  // CTA additionally fires a separate audit ping via the
+  // /channel-misconfiguration-detector/audit-events endpoint so the
+  // worker-side surface also sees the click.
+  function renderChannelMisconfigDetectorPanel(d, misconfigCount) {
+    var status = d.channelMisconfigDetectorStatus || null;
+    var role = (window.__deepsynapsActorRole || '').toLowerCase();
+    var isAdmin = (role === 'admin' || role === 'supervisor' || role === 'regulator');
+    var redBadge = '<span data-testid="ctc-channel-misconfig-badge" style="background:rgba(251,113,133,0.18);color:#fb7185;padding:3px 10px;border-radius:6px;font-size:12px;font-weight:700;margin-left:8px">Misconfigured: ' + _esc(String(misconfigCount)) + '</span>';
+    var greenBadge = '<span style="background:rgba(45,212,191,0.18);color:#2dd4bf;padding:3px 10px;border-radius:6px;font-size:12px;font-weight:700;margin-left:8px">Misconfigured: 0</span>';
+    var badge = misconfigCount > 0 ? redBadge : greenBadge;
+
+    if (status == null) {
+      return '<div data-testid="ctc-channel-misconfig-panel" class="notice notice-info" style="margin-bottom:12px;font-size:12px">' +
+        '<strong>Channel misconfiguration detector status unreachable.</strong> The override surface still works; the nightly detector is not visible from this page until the API responds.' + badge +
+        '</div>';
+    }
+
+    var runningDot = status.running
+      ? '<span style="color:#10b981;font-weight:700">●</span>'
+      : '<span style="color:#9ca3af">○</span>';
+    var lastTick = status.last_tick_at
+      ? new Date(status.last_tick_at).toISOString().slice(11, 19) + ' UTC'
+      : '—';
+    var flagged24h = Number(status.misconfigs_flagged_last_24h) || 0;
+    var caregivers = Number(status.caregivers_in_clinic) || 0;
+    var processNote = status.process_enabled_via_env
+      ? ''
+      : '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Worker thread is dormant in this deploy (DEEPSYNAPS_CHANNEL_DETECTOR_ENABLED=0). Misconfig detection only runs when the env var is set; until then the badge reflects only manual /tick-once invocations.</div>';
+    var lastError = status.last_error
+      ? ' <span style="color:#ef4444" title="' + _esc(status.last_error) + '">⚠ last error</span>'
+      : '';
+
+    var ctas = '';
+    if (isAdmin) {
+      ctas = '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">' +
+        '<button class="btn btn-sm" data-testid="ctc-channel-misconfig-run-now" onclick="window._channelMisconfigDetectorRunNow()">Run detector now (admin debug)</button>' +
+        '</div>';
+    }
+
+    function chip(label, value) {
+      return '<span style="background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:3px 8px;margin-right:6px;font-size:11px"><strong>' + _esc(label) + '</strong>: ' + _esc(String(value)) + '</span>';
+    }
+
+    return '<div data-testid="ctc-channel-misconfig-panel" class="notice" style="margin-bottom:12px;font-size:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:10px 14px">' +
+      '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">' +
+      '<span><strong>Channel misconfiguration detector</strong>' + badge + '</span>' +
+      '<span>' + runningDot + ' running (process)</span>' +
+      '<span style="color:var(--text-muted)">last tick ' + _esc(lastTick) + '</span>' +
+      lastError +
+      '</div>' +
+      '<div style="margin-top:6px">' +
+      chip('caregivers', caregivers) +
+      chip('flagged 24h', flagged24h) +
+      chip('cooldown', String(Number(status.cooldown_hours) || 24) + 'h') +
+      chip('staleness', String(Number(status.staleness_hours) || 24) + 'h') +
+      '</div>' +
+      processNote +
+      ctas +
+      '</div>';
+  }
+
+  // Caregiver Delivery Concern Aggregator launch-audit (2026-05-01).
+  // Renders the rolling-window aggregator status panel + flagged
+  // caregiver list. Closes section I rec from #389: when a caregiver
+  // accumulates N delivery concerns within the configured window, this
+  // panel surfaces the flag with concern count + window + a "Review
+  // preference" link to the override admin tab.
+  function renderDeliveryConcernAggregatorPanel(d) {
+    var status = d.deliveryConcernAggregatorStatus || null;
+    var events = d.deliveryConcernAggregatorEvents || null;
+    var role = (window.__deepsynapsActorRole || '').toLowerCase();
+    var isAdmin = (role === 'admin' || role === 'supervisor' || role === 'regulator' || role === 'reviewer');
+
+    // Pull flag rows out of the audit-events list. The portal-surface
+    // query returns both threshold-reached + resolved; we group by
+    // caregiver_user_id and treat a caregiver as "unresolved" when
+    // their most recent row is threshold-reached.
+    var flagItems = (events && Array.isArray(events.items)) ? events.items : [];
+    var perCaregiver = {};
+    flagItems.forEach(function(it) {
+      var cgId = String(it.target_id || '').trim();
+      if (!cgId) return;
+      var existing = perCaregiver[cgId];
+      // Items are returned newest-first from the API.
+      if (!existing) perCaregiver[cgId] = it;
+    });
+    var unresolved = [];
+    Object.keys(perCaregiver).forEach(function(cgId) {
+      var it = perCaregiver[cgId];
+      if (String(it.action || '').indexOf('delivery_concern_threshold_reached') >= 0) {
+        unresolved.push(it);
+      }
+    });
+    var unresolvedCount = unresolved.length;
+
+    var redBadge = '<span data-testid="ctc-cgca-badge" style="background:rgba(251,113,133,0.18);color:#fb7185;padding:3px 10px;border-radius:6px;font-size:12px;font-weight:700;margin-left:8px">Flagged: ' + _esc(String(unresolvedCount)) + '</span>';
+    var greenBadge = '<span data-testid="ctc-cgca-badge" style="background:rgba(45,212,191,0.18);color:#2dd4bf;padding:3px 10px;border-radius:6px;font-size:12px;font-weight:700;margin-left:8px">Flagged: 0</span>';
+    var badge = unresolvedCount > 0 ? redBadge : greenBadge;
+
+    if (status == null) {
+      return '<div data-testid="ctc-cgca-panel" class="notice notice-info" style="margin-top:12px;font-size:12px">' +
+        '<strong>Caregiver delivery-concern aggregator status unreachable.</strong> Per-caregiver flags will reappear here when the API responds.' + badge +
+        '</div>';
+    }
+
+    var runningDot = status.running
+      ? '<span style="color:#10b981;font-weight:700">●</span>'
+      : '<span style="color:#9ca3af">○</span>';
+    var lastTick = status.last_tick_at
+      ? _relativeTime(status.last_tick_at)
+      : '—';
+    var threshold = Number(status.threshold) || 3;
+    var windowH = Number(status.window_hours) || 168;
+    var cooldownH = Number(status.cooldown_hours) || 72;
+    var flagged24h = Number(status.caregivers_flagged_last_24h) || 0;
+    var caregivers = Number(status.caregivers_in_clinic) || 0;
+    var processNote = status.process_enabled_via_env
+      ? ''
+      : '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Worker thread is dormant in this deploy (DEEPSYNAPS_CG_CONCERN_AGGREGATOR_ENABLED=0). Aggregation only runs when the env var is set; until then the badge reflects only manual /tick invocations.</div>';
+    var lastError = status.last_error
+      ? ' <span style="color:#ef4444" title="' + _esc(status.last_error) + '">⚠ last error</span>'
+      : '';
+
+    function chip(label, value) {
+      return '<span style="background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:3px 8px;margin-right:6px;font-size:11px"><strong>' + _esc(label) + '</strong>: ' + _esc(String(value)) + '</span>';
+    }
+
+    var ctas = '';
+    if (isAdmin) {
+      ctas = '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">' +
+        '<button class="btn btn-sm" data-testid="ctc-cgca-run-now" onclick="window._deliveryConcernAggregatorRunNow()">Run aggregator now (admin debug)</button>' +
+        '</div>';
+    }
+
+    var listHtml = '';
+    if (unresolvedCount === 0) {
+      listHtml = '<div data-testid="ctc-cgca-empty" style="font-size:12px;color:var(--text-muted);margin-top:8px;padding:8px;border:1px dashed var(--border);border-radius:6px">' +
+        'No caregivers currently flagged. Caregivers appear here when a patient files at least ' + _esc(String(threshold)) +
+        ' delivery concerns within ' + _esc(String(Math.round(windowH / 24))) + ' day(s).' +
+        '</div>';
+    } else {
+      var rows = unresolved.slice(0, 25).map(function(it) {
+        var note = String(it.note || '');
+        var concernMatch = note.match(/concern_count=(\d+)/);
+        var concernCount = concernMatch ? concernMatch[1] : '?';
+        var winMatch = note.match(/window_hours=(\d+)/);
+        var thisWindow = winMatch ? Math.round(Number(winMatch[1]) / 24) + 'd' : '—';
+        var cgId = it.target_id || '—';
+        var when = _relativeTime(it.created_at);
+        return '<tr data-testid="ctc-cgca-flag-row" data-caregiver-user-id="' + _esc(cgId) + '">' +
+          '<td><strong>' + _esc(cgId) + '</strong></td>' +
+          '<td>' + _esc(concernCount) + '</td>' +
+          '<td>' + _esc(thisWindow) + '</td>' +
+          '<td>' + _esc(when) + '</td>' +
+          '<td><a href="#/clinical/care-team-coverage?tab=caregiver-channels&caregiver=' + _esc(cgId) + '" data-testid="ctc-cgca-review-link" onclick="window._deliveryConcernAggregatorReviewClicked(\'' + _esc(cgId) + '\')">Review preference</a></td>' +
+          '</tr>';
+      }).join('');
+      listHtml = '<div data-testid="ctc-cgca-list" style="overflow-x:auto;margin-top:8px">' +
+        '<table class="data-table" style="width:100%;min-width:680px;font-size:12px">' +
+        '<thead><tr><th>Caregiver</th><th>Concerns</th><th>Window</th><th>Flagged</th><th>Action</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody></table>' +
+        '</div>';
+    }
+
+    return '<div data-testid="ctc-cgca-panel" class="notice" style="margin-top:12px;font-size:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:10px 14px">' +
+      '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">' +
+      '<span><strong>Delivery concerns</strong>' + badge + '</span>' +
+      '<span>' + runningDot + ' running (process)</span>' +
+      '<span style="color:var(--text-muted)">last tick ' + _esc(lastTick) + '</span>' +
+      lastError +
+      '</div>' +
+      '<div style="margin-top:6px">' +
+      chip('threshold', threshold) +
+      chip('window', String(Math.round(windowH / 24)) + 'd') +
+      chip('cooldown', String(cooldownH) + 'h') +
+      chip('caregivers', caregivers) +
+      chip('flagged 24h', flagged24h) +
+      '</div>' +
+      processNote +
+      ctas +
+      listHtml +
+      '</div>';
+  }
+
+  // Caregiver Delivery Concern Resolution launch-audit (DCR1, 2026-05-02).
+  // Renders the "Resolution" sub-section inside the existing Caregiver
+  // channels / Delivery concerns area. Closes the loop opened by the
+  // DCA aggregator (#390): admins / reviewers click "Mark as resolved"
+  // on a flagged caregiver, supply a structured reason + free-text
+  // note (10–500 chars), and the resolution row clears the cooldown
+  // so the DCA worker re-evaluates that caregiver on the next tick.
+  function renderDeliveryConcernResolutionPanel(d) {
+    var openList = d.resolutionOpenList || null;
+    var resolvedList = d.resolutionResolvedList || null;
+    var role = (window.__deepsynapsActorRole || '').toLowerCase();
+    var canResolve = (role === 'admin' || role === 'supervisor' || role === 'regulator' || role === 'reviewer' || role === 'clinician');
+
+    if (openList == null && resolvedList == null) {
+      return '<div data-testid="ctc-cgcr-panel" class="notice notice-info" style="margin-top:12px;font-size:12px">' +
+        '<strong>Caregiver delivery-concern resolution backend unreachable.</strong> Until the API responds, admins cannot clear flagged caregivers from this tab.' +
+        '</div>';
+    }
+
+    var openItems = (openList && Array.isArray(openList.items)) ? openList.items : [];
+    var resolvedItems = (resolvedList && Array.isArray(resolvedList.resolved_items)) ? resolvedList.resolved_items : [];
+
+    var openListHtml = '';
+    if (openItems.length === 0) {
+      openListHtml = '<div data-testid="ctc-cgcr-empty" style="font-size:12px;color:var(--text-muted);margin-top:8px;padding:8px;border:1px dashed var(--border);border-radius:6px">' +
+        'No flagged caregivers.' +
+        '</div>';
+    } else {
+      var openRows = openItems.slice(0, 50).map(function(it) {
+        var cgId = String(it.caregiver_user_id || '—');
+        var name = it.caregiver_display_name || it.caregiver_email || cgId;
+        var concernCount = Number(it.concern_count) || 0;
+        var days = Number(it.days_flagged) || 0;
+        var lastFlaggedRel = _relativeTime(it.last_flagged_at);
+        var actionCell = canResolve
+          ? '<button class="btn btn-sm" data-testid="ctc-cgcr-resolve-btn" data-caregiver-user-id="' + _esc(cgId) + '" onclick="window._caregiverDeliveryConcernResolutionOpenModal(\'' + _esc(cgId) + '\',\'' + _esc(name) + '\')">Mark as resolved</button>'
+          : '<span style="color:var(--text-muted);font-size:11px">Reviewer / admin only</span>';
+        return '<tr data-testid="ctc-cgcr-open-row" data-caregiver-user-id="' + _esc(cgId) + '">' +
+          '<td><strong>' + _esc(name) + '</strong><br><span style="font-size:11px;color:var(--text-muted)">' + _esc(cgId) + '</span></td>' +
+          '<td>' + _esc(String(concernCount)) + '</td>' +
+          '<td>' + _esc(String(days)) + 'd <span style="color:var(--text-muted);font-size:11px">(' + _esc(lastFlaggedRel) + ')</span></td>' +
+          '<td>' + actionCell + '</td>' +
+          '</tr>';
+      }).join('');
+      openListHtml = '<div data-testid="ctc-cgcr-open-list" style="overflow-x:auto;margin-top:8px">' +
+        '<table class="data-table" style="width:100%;min-width:640px;font-size:12px">' +
+        '<thead><tr><th>Caregiver</th><th>Concerns</th><th>Days flagged</th><th>Action</th></tr></thead>' +
+        '<tbody>' + openRows + '</tbody></table>' +
+        '</div>';
+    }
+
+    var resolvedHtml = '';
+    if (resolvedItems.length === 0) {
+      resolvedHtml = '<div data-testid="ctc-cgcr-resolved-empty" style="font-size:12px;color:var(--text-muted);margin-top:8px;padding:8px;border:1px dashed var(--border);border-radius:6px">' +
+        'No resolutions in the last 7 days.' +
+        '</div>';
+    } else {
+      var resolvedRows = resolvedItems.slice(0, 50).map(function(it) {
+        var cgId = String(it.caregiver_user_id || '—');
+        var name = it.caregiver_display_name || it.caregiver_email || cgId;
+        var reason = String(it.resolution_reason || '—');
+        var resolver = String(it.resolver_user_id || '—');
+        var note = String(it.resolution_note || '');
+        var noteShort = note.length > 80 ? note.slice(0, 77) + '…' : note;
+        var when = _relativeTime(it.resolved_at);
+        return '<tr data-testid="ctc-cgcr-resolved-row" data-caregiver-user-id="' + _esc(cgId) + '">' +
+          '<td><strong>' + _esc(name) + '</strong><br><span style="font-size:11px;color:var(--text-muted)">' + _esc(cgId) + '</span></td>' +
+          '<td>' + _esc(reason) + '</td>' +
+          '<td>' + _esc(resolver) + '</td>' +
+          '<td>' + _esc(when) + (note ? '<br><span style="font-size:11px;color:var(--text-muted)" title="' + _esc(note) + '">' + _esc(noteShort) + '</span>' : '') + '</td>' +
+          '</tr>';
+      }).join('');
+      resolvedHtml = '<div data-testid="ctc-cgcr-resolved-list" style="overflow-x:auto;margin-top:8px">' +
+        '<table class="data-table" style="width:100%;min-width:680px;font-size:12px">' +
+        '<thead><tr><th>Caregiver</th><th>Reason</th><th>Resolver</th><th>When</th></tr></thead>' +
+        '<tbody>' + resolvedRows + '</tbody></table>' +
+        '</div>';
+    }
+
+    var isAdminish = (role === 'admin' || role === 'supervisor' || role === 'regulator');
+    var hubLinkHtml = isAdminish
+      ? '<a href="#caregiver-delivery-concern-resolution-audit-hub" data-testid="ctc-cgcr-hub-link" style="margin-left:auto;font-size:11px;color:var(--accent);text-decoration:none">Resolution audit hub →</a>'
+      : '';
+    return '<div data-testid="ctc-cgcr-panel" class="notice" style="margin-top:12px;font-size:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:10px 14px">' +
+      '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">' +
+      '<span><strong>Resolution</strong></span>' +
+      '<span style="color:var(--text-muted)">Mark a flagged caregiver as resolved to clear their DCA cooldown.</span>' +
+      hubLinkHtml +
+      '</div>' +
+      '<div data-testid="ctc-cgcr-open-section" style="margin-top:8px">' +
+      '<div style="font-weight:700;font-size:11px;text-transform:uppercase;color:var(--text-muted)">Open flags' +
+        (openItems.length ? ' (' + _esc(String(openItems.length)) + ')' : '') +
+      '</div>' +
+      openListHtml +
+      '</div>' +
+      '<div data-testid="ctc-cgcr-resolved-section" style="margin-top:12px">' +
+      '<div style="font-weight:700;font-size:11px;text-transform:uppercase;color:var(--text-muted)">Recently resolved (last 7 days)' +
+        (resolvedItems.length ? ' (' + _esc(String(resolvedItems.length)) + ')' : '') +
+      '</div>' +
+      resolvedHtml +
+      '</div>' +
+      // Hidden modal scaffold — populated by _caregiverDeliveryConcernResolutionOpenModal.
+      '<div data-testid="ctc-cgcr-modal" id="ctc-cgcr-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:9999;align-items:center;justify-content:center">' +
+      '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:18px;max-width:480px;width:92%">' +
+      '<div style="font-weight:700;margin-bottom:8px">Mark as resolved</div>' +
+      '<div data-testid="ctc-cgcr-modal-target" id="ctc-cgcr-modal-target" style="font-size:12px;color:var(--text-muted);margin-bottom:10px"></div>' +
+      '<label style="display:block;font-size:11px;font-weight:700;margin-top:6px">Reason</label>' +
+      '<select data-testid="ctc-cgcr-modal-reason" id="ctc-cgcr-modal-reason" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px">' +
+      '<option value="concerns_addressed">Concerns addressed</option>' +
+      '<option value="false_positive">False positive</option>' +
+      '<option value="caregiver_replaced">Caregiver replaced</option>' +
+      '<option value="other">Other</option>' +
+      '</select>' +
+      '<label style="display:block;font-size:11px;font-weight:700;margin-top:10px">Resolution note (10–500 chars)</label>' +
+      '<textarea data-testid="ctc-cgcr-modal-note" id="ctc-cgcr-modal-note" rows="4" maxlength="500" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:12px" oninput="window._caregiverDeliveryConcernResolutionValidateNote()"></textarea>' +
+      '<div data-testid="ctc-cgcr-modal-error" id="ctc-cgcr-modal-error" style="font-size:11px;color:#ef4444;margin-top:6px;min-height:14px"></div>' +
+      '<div style="margin-top:12px;display:flex;justify-content:flex-end;gap:8px">' +
+      '<button class="btn btn-sm btn-ghost" data-testid="ctc-cgcr-modal-cancel" onclick="window._caregiverDeliveryConcernResolutionCloseModal()">Cancel</button>' +
+      '<button class="btn btn-sm" data-testid="ctc-cgcr-modal-submit" id="ctc-cgcr-modal-submit" disabled onclick="window._caregiverDeliveryConcernResolutionSubmit()">Resolve</button>' +
+      '</div>' +
+      '</div>' +
+      '</div>' +
+      '</div>';
+  }
+
+  // Format an ISO timestamp into a "X minutes/hours/days ago" string.
+  // Falls back to the raw ISO when the input is unparseable.
+  function _relativeTime(iso) {
+    if (!iso) return '—';
+    var t = Date.parse(iso);
+    if (!Number.isFinite(t)) return String(iso);
+    var deltaMs = Date.now() - t;
+    if (deltaMs < 0) deltaMs = 0;
+    var s = Math.floor(deltaMs / 1000);
+    if (s < 60) return s + ' seconds ago';
+    var m = Math.floor(s / 60);
+    if (m < 60) return m + ' minute' + (m === 1 ? '' : 's') + ' ago';
+    var h = Math.floor(m / 60);
+    if (h < 24) return h + ' hour' + (h === 1 ? '' : 's') + ' ago';
+    var d = Math.floor(h / 24);
+    return d + ' day' + (d === 1 ? '' : 's') + ' ago';
+  }
+
+  function renderCaregiverChannelsTab(d) {
+    var data = d.caregiverChannels || null;
+    var items = (data && Array.isArray(data.items)) ? data.items : [];
+    var isMockMode = !!(data && data.is_mock_mode);
+    var misconfigCount = items.filter(function(it) {
+      return it && it.is_misconfigured === true;
+    }).length;
+    api.postCareTeamCoverageAuditEvent({
+      event: 'caregiver_channels_view',
+      note: 'rows=' + items.length + (isMockMode ? '; mock_mode=1' : ''),
+    });
+    // Channel Misconfiguration Detector launch-audit (2026-05-01).
+    // Mount-time audit ping on the page-level surface so the regulator
+    // transcript joins the admin's read of this tab to the
+    // ``channel_misconfiguration_detector`` surface alongside the
+    // ``care_team_coverage.caregiver_channels_view`` ping above.
+    api.postCareTeamCoverageAuditEvent({
+      event: 'channel_misconfig_view',
+      note: 'misconfigured=' + misconfigCount + (isMockMode ? '; mock_mode=1' : ''),
+    });
+    if (typeof api.postChannelMisconfigDetectorAuditEvent === 'function') {
+      api.postChannelMisconfigDetectorAuditEvent({
+        event: 'view',
+        note: 'misconfigured=' + misconfigCount,
+      });
+    }
+    // Caregiver Delivery Concern Aggregator launch-audit (2026-05-01).
+    // Mount-time audit ping on the page-level surface so the regulator
+    // transcript records the admin's read of the rolling-window flag list.
+    if (typeof api.postCaregiverDeliveryConcernAggregatorAuditEvent === 'function') {
+      api.postCaregiverDeliveryConcernAggregatorAuditEvent({
+        event: 'view',
+        note: 'caregiver_channels tab mount',
+      });
+    }
+    // Caregiver Delivery Concern Resolution launch-audit (DCR1, 2026-05-02).
+    // Mount-time audit ping on the resolution surface so the regulator
+    // transcript records every read of the open-flag list.
+    if (typeof api.postCaregiverDeliveryConcernResolutionAuditEvent === 'function') {
+      api.postCaregiverDeliveryConcernResolutionAuditEvent({
+        event: 'view',
+        note: 'caregiver_channels tab mount',
+      });
+    }
+    var detectorPanel = renderChannelMisconfigDetectorPanel(d, misconfigCount);
+    var concernAggregatorPanel = renderDeliveryConcernAggregatorPanel(d);
+    var concernResolutionPanel = renderDeliveryConcernResolutionPanel(d);
+    if (data == null) {
+      return detectorPanel + concernAggregatorPanel + concernResolutionPanel +
+        '<div data-testid="ctc-caregiver-channels" class="notice notice-info" style="padding:14px;font-size:12px">' +
+        '<strong>Caregiver channels backend unreachable.</strong> Until the API is up the admin override surface is unavailable; caregiver-side preferences continue to dispatch via the existing clinic chain.' +
+        '</div>';
+    }
+    if (items.length === 0) {
+      return detectorPanel + concernAggregatorPanel + concernResolutionPanel + emptyState(
+        '✉',
+        'No caregiver preferences in this clinic.',
+        'Caregivers must enable the daily digest from their portal before they appear here. Once they pick a preferred channel (email / sms / slack / pagerduty) you can review or override the routing from this tab.',
+      );
+    }
+    var mockChip = isMockMode
+      ? '<span style="background:#fef3c7;color:#78350f;padding:2px 6px;border-radius:5px;font-size:10px;font-weight:600;margin-left:6px">MOCK</span>'
+      : '';
+    var rows = items.map(function(it) {
+      var name = _esc(it.caregiver_display_name || it.caregiver_email || it.caregiver_user_id || '—');
+      var email = _esc(it.caregiver_email || '');
+      var preferred = it.preferred_channel
+        ? '<span style="text-transform:capitalize">' + _esc(it.preferred_channel) + '</span>'
+        : '<span style="color:var(--text-muted)">— (clinic default)</span>';
+      var willChip = _esc(it.will_dispatch_via || '-');
+      var resolved = (Array.isArray(it.resolved_chain) && it.resolved_chain.length > 0)
+        ? it.resolved_chain.map(function(n) { return _esc(n); }).join(' → ')
+        : '—';
+      var clinicChain = (Array.isArray(it.clinic_chain) && it.clinic_chain.length > 0)
+        ? it.clinic_chain.map(function(n) { return _esc(n); }).join(' → ')
+        : '—';
+      var miscChip = it.is_misconfigured
+        ? '<span data-testid="ctc-cg-channel-misconfigured" style="background:rgba(251,113,133,0.16);color:#fb7185;padding:1px 6px;border-radius:5px;font-size:10px;font-weight:700;margin-left:6px">MISCONFIGURED</span>'
+        : '';
+      var honoredChip = it.honored_caregiver_preference
+        ? '<span style="background:rgba(45,212,191,0.16);color:#2dd4bf;padding:1px 6px;border-radius:5px;font-size:10px;font-weight:600">honored</span>'
+        : (it.preferred_channel
+            ? '<span style="background:rgba(251,191,36,0.16);color:#d97706;padding:1px 6px;border-radius:5px;font-size:10px;font-weight:600">falls back</span>'
+            : '<span style="color:var(--text-muted);font-size:10px">no override</span>');
+      var overrideBtn = it.preferred_channel
+        ? '<button class="btn btn-sm" data-testid="ctc-cg-channel-override" onclick="window._coverageCaregiverChannelOverride(\'' + _esc(it.caregiver_user_id || '') + '\')">Override → clinic chain</button>'
+        : '<span style="color:var(--text-muted);font-size:11px">No override to clear</span>';
+      return '<tr data-testid="ctc-caregiver-channel-row" data-caregiver-user-id="' + _esc(it.caregiver_user_id || '') + '">' +
+        '<td><strong>' + name + '</strong>' + miscChip + '<br><span style="font-size:11px;color:var(--text-muted)">' + email + '</span></td>' +
+        '<td>' + preferred + '</td>' +
+        '<td><span style="font-weight:700;text-transform:capitalize">' + willChip + '</span><br>' + honoredChip + '</td>' +
+        '<td><code style="font-size:11px">' + resolved + '</code></td>' +
+        '<td><code style="font-size:11px;color:var(--text-muted)">' + clinicChain + '</code></td>' +
+        '<td>' + overrideBtn + '</td>' +
+        '</tr>';
+    }).join('');
+    return detectorPanel + concernAggregatorPanel + concernResolutionPanel +
+      '<div data-testid="ctc-caregiver-channels" style="overflow-x:auto">' +
+      '<div style="margin-bottom:10px;font-size:12px;color:var(--text-secondary);line-height:1.5">' +
+        '<strong>Caregiver channel overrides for this clinic.</strong> ' + mockChip +
+        ' Each row shows the caregiver\'s preferred channel and the resolved dispatch chain. ' +
+        'Rows tagged <strong style="color:#fb7185">MISCONFIGURED</strong> picked a channel whose adapter is not configured in this deploy — the clinic chain is used as the fallback. ' +
+        'Click "Override → clinic chain" to pin a caregiver back to the clinic default.' +
+      '</div>' +
+      '<table class="data-table" style="width:100%;min-width:980px">' +
+      '<thead><tr><th>Caregiver</th><th>Preferred</th><th>Will dispatch via</th><th>Resolved chain</th><th>Clinic chain</th><th>Action</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table>' +
+      '</div>';
+  }
+
   function renderPagesTab(d) {
     var pages = (d.pages && d.pages.items) || [];
     if (pages.length === 0) {
@@ -7531,12 +8181,189 @@ export async function pgCareTeamCoverage(setTopbar) {
         '<td>' + _esc(p.paged_user_id || '—') + ' (' + _esc(p.paged_role || '—') + ')</td>' +
         '<td>' + _esc(p.paged_by) + '</td>' +
         '<td>' + _esc(p.trigger) + '</td>' +
-        '<td>' + _esc(p.delivery_status || '—') + '</td>' +
+        '<td>' + _renderDeliveryChip(p) + '</td>' +
+        '<td>' + _esc(p.external_id || '—') + '</td>' +
         '</tr>';
     }).join('');
-    return '<div style="overflow-x:auto"><table class="data-table" style="width:100%;min-width:760px">' +
-      '<thead><tr><th>When</th><th>Surface</th><th>Paged user</th><th>Paged by</th><th>Trigger</th><th>Delivery</th></tr></thead>' +
+    return '<div style="overflow-x:auto"><table class="data-table" style="width:100%;min-width:920px">' +
+      '<thead><tr><th>When</th><th>Surface</th><th>Paged user</th><th>Paged by</th><th>Trigger</th><th>Delivery</th><th>External id</th></tr></thead>' +
       '<tbody>' + rows + '</tbody></table></div>';
+  }
+
+  // Per-page delivery chip — visual treatment differs per status so
+  // reviewers can scan the queue and see which rows are honest deliveries
+  // vs. queued (no adapter wired) vs. failed vs. mock (demo mode).
+  // delivery_status='sent' + delivery_note starting with 'MOCK:' is the
+  // mock-mode case; we render that as a yellow chip (NOT green) so the
+  // mock send is visually distinct from a real send.
+  function _renderDeliveryChip(p) {
+    var status = String(p.delivery_status || '').toLowerCase();
+    var note = String(p.delivery_note || '');
+    var isMock = note.indexOf('MOCK:') === 0;
+    if (isMock) {
+      return '<span title="' + _esc(note) + '" style="background:#fef3c7;color:#78350f;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600">🧪 mock</span>';
+    }
+    if (status === 'sent') {
+      return '<span title="' + _esc(note || 'sent via adapter') + '" style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600">✓ sent</span>';
+    }
+    if (status === 'failed') {
+      return '<span title="' + _esc(note || 'all adapters failed') + '" style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600">✗ failed</span>';
+    }
+    if (status === 'queued') {
+      return '<span title="' + _esc(note || 'no adapter wired') + '" style="background:#e5e7eb;color:#374151;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600">⋯ queued</span>';
+    }
+    return '<span style="color:var(--text-muted)">' + _esc(p.delivery_status || '—') + '</span>';
+  }
+
+  // Escalation Policy tab — three subsections backed by the new
+  // /api/v1/escalation-policy/* endpoints. No localStorage path remains:
+  // dispatch order, surface override matrix, and per-user contact
+  // mapping are all server-side. Admin-only writes; clinicians see the
+  // panels read-only via the role gate at the API + the hidden CTAs.
+  // Mount-time audit ping is fired at the bottom of pgCareTeamCoverage
+  // alongside the care_team_coverage.view ping.
+  function renderPolicyTab(d) {
+    var role = (window.__deepsynapsActorRole || '').toLowerCase();
+    var isAdmin = (role === 'admin' || role === 'supervisor' || role === 'regulator');
+    var orderData = d.policyOrder || { dispatch_order: ['pagerduty', 'slack', 'twilio'], is_default: true, version: 1, known_adapters: ['pagerduty', 'slack', 'twilio'] };
+    var overridesData = d.policyOverrides || { surface_overrides: {}, known_surfaces: [], known_adapters: ['pagerduty', 'slack', 'twilio'], version: 1 };
+    var mappingsData = d.policyMappings || { items: [], total: 0 };
+
+    var order = Array.isArray(orderData.dispatch_order) ? orderData.dispatch_order.slice() : [];
+    var knownAdapters = Array.isArray(orderData.known_adapters) ? orderData.known_adapters : ['pagerduty', 'slack', 'twilio'];
+    var version = Number(orderData.version || overridesData.version || 1);
+
+    var html = '';
+
+    // Header: version + admin-only Save / Reset / Test buttons.
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">';
+    html += '<div><strong>Escalation Policy</strong> <span style="color:var(--text-muted);font-size:12px">version ' + _esc(String(version)) + (orderData.is_default ? ' (default)' : '') + '</span></div>';
+    if (isAdmin) {
+      html += '<div style="display:flex;gap:8px">';
+      html += '<button class="btn btn-sm" onclick="window._policyTestPolicy()">Test policy</button>';
+      html += '<button class="btn btn-sm btn-ghost" onclick="window._policyResetDispatchOrder()">Reset dispatch order</button>';
+      html += '</div>';
+    } else {
+      html += '<div style="font-size:12px;color:var(--text-muted)">Read-only — admin role required to edit.</div>';
+    }
+    html += '</div>';
+
+    // Disclaimers banner.
+    var discl = (orderData.disclaimers || overridesData.disclaimers || mappingsData.disclaimers || []);
+    if (discl && discl.length) {
+      html += '<div class="notice notice-info" style="margin-bottom:12px;font-size:12px">';
+      html += '<ul style="margin:0;padding-left:18px">';
+      for (var di = 0; di < discl.length; di++) {
+        html += '<li>' + _esc(String(discl[di])) + '</li>';
+      }
+      html += '</ul></div>';
+    }
+
+    // Section 1: Dispatch order with up/down reorder buttons.
+    html += '<h3 style="margin-top:18px">Dispatch order (clinic-wide)</h3>';
+    html += '<p style="color:var(--text-muted);font-size:12px;margin:0 0 8px">Tried in this order for any surface that has no per-surface override. First adapter that returns 2xx wins.</p>';
+    html += '<table class="data-table" style="margin-bottom:12px"><thead><tr><th>#</th><th>Adapter</th><th style="width:160px">Reorder</th></tr></thead><tbody>';
+    for (var i = 0; i < order.length; i++) {
+      var name = String(order[i] || '');
+      html += '<tr>';
+      html += '<td>' + (i + 1) + '</td>';
+      html += '<td><strong>' + _esc(name) + '</strong></td>';
+      html += '<td>';
+      if (isAdmin) {
+        html += '<button class="btn btn-sm btn-ghost" ' + (i === 0 ? 'disabled' : '') + ' onclick="window._policyMoveAdapter(' + i + ',-1)">↑</button> ';
+        html += '<button class="btn btn-sm btn-ghost" ' + (i === order.length - 1 ? 'disabled' : '') + ' onclick="window._policyMoveAdapter(' + i + ',1)">↓</button> ';
+        html += '<button class="btn btn-sm btn-ghost" onclick="window._policyRemoveAdapter(' + i + ')" title="Remove">✕</button>';
+      } else {
+        html += '<span style="color:var(--text-muted);font-size:12px">—</span>';
+      }
+      html += '</td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+    if (isAdmin) {
+      // Add-adapter dropdown — only adapters not already in the order.
+      var available = knownAdapters.filter(function(n) { return order.indexOf(n) < 0; });
+      if (available.length) {
+        var opts = available.map(function(n) { return '<option value="' + _esc(n) + '">' + _esc(n) + '</option>'; }).join('');
+        html += '<div style="margin-bottom:14px">';
+        html += '<select id="_policy-add-adapter" style="margin-right:8px">' + opts + '</select>';
+        html += '<button class="btn btn-sm" onclick="window._policyAddAdapter()">+ Add adapter</button>';
+        html += '<button class="btn btn-sm btn-primary" style="margin-left:8px" onclick="window._policySaveDispatchOrder()">Save dispatch order</button>';
+        html += '</div>';
+      } else {
+        html += '<div style="margin-bottom:14px"><button class="btn btn-sm btn-primary" onclick="window._policySaveDispatchOrder()">Save dispatch order</button></div>';
+      }
+    }
+
+    // Section 2: Per-surface override matrix.
+    html += '<h3 style="margin-top:24px">Per-surface override matrix</h3>';
+    html += '<p style="color:var(--text-muted);font-size:12px;margin:0 0 8px">Pin a non-default adapter chain for a specific surface. Empty means "fall back to the dispatch order above". Comma-separated list (e.g. <code>pagerduty,slack</code>).</p>';
+    var overrides = overridesData.surface_overrides || {};
+    var knownSurfaces = Array.isArray(overridesData.known_surfaces) ? overridesData.known_surfaces : [];
+    html += '<table class="data-table" style="margin-bottom:12px"><thead><tr><th>Surface</th><th>Override chain (adapters in order)</th>' + (isAdmin ? '<th style="width:120px">Edit</th>' : '') + '</tr></thead><tbody>';
+    var rendered = {};
+    // Show every surface that has an override first.
+    var keys = Object.keys(overrides).sort();
+    for (var k = 0; k < keys.length; k++) {
+      var s = keys[k];
+      var v = overrides[s] || [];
+      rendered[s] = true;
+      html += '<tr>';
+      html += '<td><code>' + _esc(s) + '</code></td>';
+      html += '<td>' + (v.length ? _esc(v.join(', ')) : '<em style="color:var(--text-muted)">(empty — falls back)</em>') + '</td>';
+      if (isAdmin) {
+        html += '<td><button class="btn btn-sm btn-ghost" onclick="window._policyEditOverride(\'' + _esc(s) + '\')">Edit</button>';
+        html += ' <button class="btn btn-sm btn-ghost" onclick="window._policyClearOverride(\'' + _esc(s) + '\')" title="Clear override">✕</button></td>';
+      }
+      html += '</tr>';
+    }
+    if (Object.keys(rendered).length === 0) {
+      html += '<tr><td colspan="' + (isAdmin ? '3' : '2') + '" style="color:var(--text-muted);text-align:center;padding:14px">No per-surface overrides — every surface uses the clinic dispatch order above.</td></tr>';
+    }
+    html += '</tbody></table>';
+    if (isAdmin && knownSurfaces.length) {
+      var surfaceOpts = knownSurfaces
+        .filter(function(s) { return !rendered[s]; })
+        .map(function(s) { return '<option value="' + _esc(s) + '">' + _esc(s) + '</option>'; })
+        .join('');
+      if (surfaceOpts) {
+        html += '<div style="margin-bottom:14px">';
+        html += '<select id="_policy-add-surface-override">' + surfaceOpts + '</select>';
+        html += ' <button class="btn btn-sm" onclick="window._policyAddOverride()">+ Add surface override</button>';
+        html += '</div>';
+      }
+    }
+
+    // Section 3: Per-user contact mappings.
+    html += '<h3 style="margin-top:24px">User → contact mapping</h3>';
+    html += '<p style="color:var(--text-muted);font-size:12px;margin:0 0 8px">Each user\'s Slack id, PagerDuty id, and Twilio phone are read by the on-call delivery service when the user is on call. Free-text <code>ShiftRoster.contact_handle</code> remains as the legacy fallback.</p>';
+    var items = Array.isArray(mappingsData.items) ? mappingsData.items : [];
+    if (items.length === 0) {
+      html += '<p style="color:var(--text-muted)">No clinic users found.</p>';
+    } else {
+      html += '<table class="data-table" style="margin-bottom:12px"><thead><tr><th>User</th><th>Role</th><th>Slack user id</th><th>PagerDuty user id</th><th>Twilio phone</th>' + (isAdmin ? '<th>Edit</th>' : '') + '</tr></thead><tbody>';
+      for (var ii = 0; ii < items.length; ii++) {
+        var it = items[ii];
+        var nameTxt = it.user_name || it.user_email || it.user_id || '';
+        var demoChip = it.is_demo_clinic ? ' <span title="Demo clinic — fill mapping to test." style="background:#fef3c7;color:#78350f;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600">DEMO</span>' : '';
+        html += '<tr>';
+        html += '<td><strong>' + _esc(nameTxt) + '</strong>' + demoChip + '<br><span style="font-size:11px;color:var(--text-muted)">' + _esc(it.user_id || '') + '</span></td>';
+        html += '<td>' + _esc(it.user_role || '—') + '</td>';
+        html += '<td><code>' + _esc(it.slack_user_id || '—') + '</code></td>';
+        html += '<td><code>' + _esc(it.pagerduty_user_id || '—') + '</code></td>';
+        html += '<td><code>' + _esc(it.twilio_phone || '—') + '</code></td>';
+        if (isAdmin) {
+          html += '<td><button class="btn btn-sm btn-ghost" onclick="window._policyEditUserMapping(\'' + _esc(it.user_id || '') + '\')">Edit</button></td>';
+        }
+        html += '</tr>';
+      }
+      html += '</tbody></table>';
+      if (it && it.is_demo_clinic) {
+        html += '<div class="notice notice-info" style="margin-bottom:12px;font-size:12px"><strong>Demo clinic — fill mapping to test.</strong> Test page will MOCK-mode unless real Slack/PagerDuty/Twilio env vars are set on the API host.</div>';
+      }
+    }
+
+    return html;
   }
 
   async function render() {
@@ -7548,18 +8375,60 @@ export async function pgCareTeamCoverage(setTopbar) {
     var demoBanner = isDemo(d)
       ? '<div class="notice notice-info" style="margin-bottom:12px;font-size:12px"><strong>DEMO clinic data:</strong> exports are DEMO-prefixed and rows are not regulator-submittable.</div>'
       : '';
-    var autoOff = (d.summary.auto_page_enabled_surfaces || 0) === 0
-      ? '<div class="notice notice-info" style="margin-bottom:12px;font-size:12px"><strong>Auto-page worker: OFF</strong> — admin must enable per surface in the Escalation Chain editor. Until then, all pages are manual.</div>'
-      : '';
+    var autoStatusPanel = renderAutoPageWorkerPanel(d.workerStatus, d.summary);
+    var adapterHealthPanel = renderAdapterHealthPanel(d.adapterHealth);
 
+    var concernsCount = (d.deliveryConcerns && Array.isArray(d.deliveryConcerns.items))
+      ? d.deliveryConcerns.items.length : 0;
+    var roleNow = (window.__deepsynapsActorRole || '').toLowerCase();
+    var isAdminRole = (roleNow === 'admin' || roleNow === 'supervisor' || roleNow === 'regulator');
+    // Clinic Caregiver Channel Override launch-audit (2026-05-01). The
+    // misconfigured-channel count is the chip the admin should react to:
+    // these are caregivers whose ``preferred_channel`` adapter is not
+    // enabled in this deploy (e.g. SMS picked but no Twilio creds).
+    var caregiverChannels = d.caregiverChannels || null;
+    var caregiverChannelsItems = (caregiverChannels && Array.isArray(caregiverChannels.items))
+      ? caregiverChannels.items : [];
+    var caregiverChannelsMisconfigured = caregiverChannelsItems.filter(function(it) {
+      return it && it.is_misconfigured === true;
+    }).length;
+    // Caregiver Delivery Concern Aggregator launch-audit (2026-05-01).
+    // Add unresolved-flag count to the Caregiver-channels tab header so
+    // the admin sees a red badge when caregivers cross the rolling-window
+    // threshold without having to open the tab first.
+    var deliveryConcernAggregatorEvents = d.deliveryConcernAggregatorEvents || null;
+    var deliveryConcernAggregatorFlagItems = (deliveryConcernAggregatorEvents && Array.isArray(deliveryConcernAggregatorEvents.items))
+      ? deliveryConcernAggregatorEvents.items : [];
+    var deliveryConcernAggregatorPerCaregiver = {};
+    deliveryConcernAggregatorFlagItems.forEach(function(it) {
+      var cgId = String(it.target_id || '').trim();
+      if (!cgId) return;
+      if (!deliveryConcernAggregatorPerCaregiver[cgId]) {
+        deliveryConcernAggregatorPerCaregiver[cgId] = it;
+      }
+    });
+    var deliveryConcernAggregatorUnresolvedCount = Object.keys(deliveryConcernAggregatorPerCaregiver).filter(function(cgId) {
+      var it = deliveryConcernAggregatorPerCaregiver[cgId];
+      return String(it.action || '').indexOf('delivery_concern_threshold_reached') >= 0;
+    }).length;
+    var caregiverChannelsHeaderCount = caregiverChannelsMisconfigured + deliveryConcernAggregatorUnresolvedCount;
     var tabs = [
       { id: 'coverage',   label: 'Coverage' },
       { id: 'breaches',   label: 'SLA breaches' },
       { id: 'roster',     label: 'Roster' },
       { id: 'sla',        label: 'SLA per surface' },
       { id: 'chain',      label: 'Escalation chain' },
+      { id: 'policy',     label: 'Policy' },
       { id: 'pages',      label: 'Pages history' },
+      { id: 'concerns',   label: 'Patient delivery concerns' + (concernsCount > 0 ? ' (' + concernsCount + ')' : '') },
     ];
+    if (isAdminRole) {
+      tabs.push({
+        id: 'caregiver-channels',
+        label: 'Caregiver channels' + (caregiverChannelsHeaderCount > 0
+          ? ' (' + caregiverChannelsHeaderCount + ')' : ''),
+      });
+    }
 
     var body = '';
     if (activeTab === 'coverage')      body = renderOncallTab(d);
@@ -7567,11 +8436,15 @@ export async function pgCareTeamCoverage(setTopbar) {
     else if (activeTab === 'roster')   body = renderRosterTab(d);
     else if (activeTab === 'sla')      body = renderSlaTab(d);
     else if (activeTab === 'chain')    body = renderChainTab(d);
+    else if (activeTab === 'policy')   body = renderPolicyTab(d);
     else if (activeTab === 'pages')    body = renderPagesTab(d);
+    else if (activeTab === 'concerns') body = renderConcernsTab(d);
+    else if (activeTab === 'caregiver-channels') body = renderCaregiverChannelsTab(d);
 
     el.innerHTML =
       demoBanner +
-      autoOff +
+      autoStatusPanel +
+      adapterHealthPanel +
       renderTopCounts(d.summary) +
       '<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">' +
         tabs.map(function(t) {
@@ -7591,6 +8464,22 @@ export async function pgCareTeamCoverage(setTopbar) {
   };
   window._coverageOpenLocal = function() { _pgStaffSchedulingLocal(setTopbar); };
 
+  window._coverageInvestigateConcern = function(patientId, auditEventId) {
+    api.postCareTeamCoverageAuditEvent({
+      event: 'delivery_concern_investigate',
+      target_id: patientId || auditEventId,
+      note: 'audit_event=' + String(auditEventId || '') + '; patient=' + String(patientId || ''),
+    });
+    // Deep-link into the clinician inbox; if the inbox cannot resolve
+    // the underlying audit row the patient profile is the next-best
+    // surface (loaded from the existing care-team flow).
+    if (patientId) {
+      try { window.location.hash = '#/clinical?page=patient&patient=' + encodeURIComponent(patientId); } catch (_e) { /* noop */ }
+    } else {
+      try { window.location.hash = '#/clinical?page=clinician-inbox'; } catch (_e) { /* noop */ }
+    }
+  };
+
   window._coveragePageOncall = async function(auditEventId) {
     var note = window.prompt('Note for the on-call page (required):');
     if (!note || !String(note).trim()) return;
@@ -7606,6 +8495,235 @@ export async function pgCareTeamCoverage(setTopbar) {
       window.alert('Page-on-call failed: ' + (e && e.message ? e.message : 'unknown'));
     }
     render();
+  };
+
+  // Clinic Caregiver Channel Override launch-audit (2026-05-01).
+  // Admin clears a caregiver's preferred_channel back to null so the
+  // clinic chain runs unmodified. Note is required — the audit row
+  // (caregiver_portal.admin_override_channel) records the reason.
+  window._coverageCaregiverChannelOverride = async function(caregiverUserId) {
+    if (!caregiverUserId) return;
+    var note = window.prompt(
+      'Override caregiver channel preference back to clinic chain.\n\n' +
+      'Note (required) — explain why (e.g. "Twilio creds not provisioned for this clinic"):'
+    );
+    if (!note || !String(note).trim()) return;
+    try {
+      api.postCareTeamCoverageAuditEvent({
+        event: 'caregiver_channel_override_clicked',
+        target_id: caregiverUserId,
+        note: 'reason=' + String(note).trim().slice(0, 200),
+      });
+      var resp = (typeof api.caregiverEmailDigestAdminOverride === 'function')
+        ? await api.caregiverEmailDigestAdminOverride(caregiverUserId, String(note).trim())
+        : null;
+      if (resp && resp.accepted) {
+        window.alert(
+          'Caregiver pinned back to clinic chain.\n' +
+          'Previous: ' + (resp.previous_preferred_channel || 'null') + '\n' +
+          'New: clinic default.\n' +
+          'Audit row recorded (caregiver_portal.admin_override_channel).'
+        );
+      } else {
+        window.alert('Override request did not accept; check your role + that the caregiver belongs to your clinic.');
+      }
+    } catch (e) {
+      window.alert('Override failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    render();
+  };
+
+  // Channel Misconfiguration Detector launch-audit (2026-05-01).
+  // Admin-only debug — runs ONE detector tick synchronously bounded to
+  // the actor's clinic and returns the counts the worker would have
+  // audited. Useful for verifying caregiver preferences + adapter
+  // wiring without waiting for the next 24h cron tick. Mirrors the
+  // /auto-page-worker/tick-once UX from #372.
+  window._channelMisconfigDetectorRunNow = async function() {
+    if (typeof api.channelMisconfigDetectorTickOnce !== 'function') {
+      window.alert('Channel misconfig detector not available in this deploy.');
+      return;
+    }
+    api.postCareTeamCoverageAuditEvent({
+      event: 'channel_misconfig_run_now_clicked',
+      note: 'admin clicked Run detector now',
+    });
+    if (typeof api.postChannelMisconfigDetectorAuditEvent === 'function') {
+      api.postChannelMisconfigDetectorAuditEvent({
+        event: 'run_now_clicked',
+        note: 'admin clicked Run detector now',
+      });
+    }
+    try {
+      var resp = await api.channelMisconfigDetectorTickOnce();
+      if (resp && resp.accepted) {
+        window.alert(
+          'Detector tick complete.\n' +
+          'Caregivers scanned: ' + (resp.caregivers_scanned || 0) + '\n' +
+          'Misconfigs flagged: ' + (resp.misconfigs_flagged || 0) + '\n' +
+          'Skipped (cooldown): ' + (resp.skipped_cooldown || 0) + '\n' +
+          'Errors: ' + (resp.errors || 0)
+        );
+      } else {
+        window.alert('Detector tick did not accept; check your role + that you belong to a clinic.');
+      }
+    } catch (e) {
+      window.alert('Detector tick failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    render();
+  };
+
+  // Caregiver Delivery Concern Aggregator launch-audit (2026-05-01).
+  // Admin-only debug — runs ONE aggregator tick synchronously bounded
+  // to the actor's clinic and returns the per-caregiver flag counts.
+  // Mirrors the /channel-misconfiguration-detector/tick-once UX from
+  // #389. The handler ALSO emits audit pings on both surfaces so the
+  // regulator transcript records the click on the page surface AND
+  // the worker surface.
+  window._deliveryConcernAggregatorRunNow = async function() {
+    if (typeof api.caregiverDeliveryConcernAggregatorTick !== 'function') {
+      window.alert('Caregiver delivery-concern aggregator not available in this deploy.');
+      return;
+    }
+    api.postCareTeamCoverageAuditEvent({
+      event: 'delivery_concern_aggregator_run_now_clicked',
+      note: 'admin clicked Run aggregator now',
+    });
+    if (typeof api.postCaregiverDeliveryConcernAggregatorAuditEvent === 'function') {
+      api.postCaregiverDeliveryConcernAggregatorAuditEvent({
+        event: 'run_now_clicked',
+        note: 'admin clicked Run aggregator now',
+      });
+    }
+    try {
+      var resp = await api.caregiverDeliveryConcernAggregatorTick();
+      if (resp && resp.accepted) {
+        window.alert(
+          'Aggregator tick complete.\n' +
+          'Concerns scanned: ' + (resp.concerns_scanned || 0) + '\n' +
+          'Caregivers evaluated: ' + (resp.caregivers_evaluated || 0) + '\n' +
+          'Caregivers flagged: ' + (resp.caregivers_flagged || 0) + '\n' +
+          'Skipped (cooldown): ' + (resp.skipped_cooldown || 0) + '\n' +
+          'Skipped (below threshold): ' + (resp.skipped_below_threshold || 0) + '\n' +
+          'Errors: ' + (resp.errors || 0)
+        );
+      } else {
+        window.alert('Aggregator tick did not accept; check your role + that you belong to a clinic.');
+      }
+    } catch (e) {
+      window.alert('Aggregator tick failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    render();
+  };
+
+  // Click handler for "Review preference" link in the flagged-caregiver
+  // list. Just emits an audit ping so the regulator transcript records
+  // which flagged caregiver the admin chose to review. Navigation to
+  // the override admin tab is handled by the link's href.
+  window._deliveryConcernAggregatorReviewClicked = function(caregiverId) {
+    if (typeof api.postCaregiverDeliveryConcernAggregatorAuditEvent === 'function') {
+      api.postCaregiverDeliveryConcernAggregatorAuditEvent({
+        event: 'review_preference_clicked',
+        target_id: caregiverId,
+        note: 'admin clicked Review preference for caregiver=' + caregiverId,
+      });
+    }
+  };
+
+  // Caregiver Delivery Concern Resolution launch-audit (DCR1, 2026-05-02).
+  // Modal handlers for the "Mark as resolved" flow inside the
+  // Caregiver channels / Resolution sub-section.
+  window._caregiverDeliveryConcernResolutionOpenModal = function(caregiverId, displayName) {
+    var modal = document.getElementById('ctc-cgcr-modal');
+    if (!modal) return;
+    modal.dataset.caregiverUserId = caregiverId || '';
+    var target = document.getElementById('ctc-cgcr-modal-target');
+    if (target) {
+      target.textContent = 'Caregiver: ' + (displayName || caregiverId || '—');
+    }
+    var note = document.getElementById('ctc-cgcr-modal-note');
+    if (note) note.value = '';
+    var reason = document.getElementById('ctc-cgcr-modal-reason');
+    if (reason) reason.value = 'concerns_addressed';
+    var err = document.getElementById('ctc-cgcr-modal-error');
+    if (err) err.textContent = '';
+    var submit = document.getElementById('ctc-cgcr-modal-submit');
+    if (submit) submit.disabled = true;
+    modal.style.display = 'flex';
+    if (typeof api.postCaregiverDeliveryConcernResolutionAuditEvent === 'function') {
+      api.postCaregiverDeliveryConcernResolutionAuditEvent({
+        event: 'resolve_modal_opened',
+        target_id: caregiverId,
+        note: 'admin opened resolve modal for caregiver=' + caregiverId,
+      });
+    }
+  };
+
+  window._caregiverDeliveryConcernResolutionCloseModal = function() {
+    var modal = document.getElementById('ctc-cgcr-modal');
+    if (modal) modal.style.display = 'none';
+  };
+
+  window._caregiverDeliveryConcernResolutionValidateNote = function() {
+    var note = document.getElementById('ctc-cgcr-modal-note');
+    var submit = document.getElementById('ctc-cgcr-modal-submit');
+    if (!note || !submit) return;
+    var len = (note.value || '').trim().length;
+    submit.disabled = !(len >= 10 && len <= 500);
+  };
+
+  window._caregiverDeliveryConcernResolutionSubmit = async function() {
+    var modal = document.getElementById('ctc-cgcr-modal');
+    if (!modal) return;
+    var caregiverId = modal.dataset.caregiverUserId || '';
+    var reasonEl = document.getElementById('ctc-cgcr-modal-reason');
+    var noteEl = document.getElementById('ctc-cgcr-modal-note');
+    var err = document.getElementById('ctc-cgcr-modal-error');
+    if (!caregiverId || !reasonEl || !noteEl || !err) return;
+    var reason = reasonEl.value;
+    var noteText = (noteEl.value || '').trim();
+    if (noteText.length < 10 || noteText.length > 500) {
+      err.textContent = 'Resolution note must be 10–500 characters.';
+      return;
+    }
+    err.textContent = '';
+    if (typeof api.postCaregiverDeliveryConcernResolutionAuditEvent === 'function') {
+      api.postCaregiverDeliveryConcernResolutionAuditEvent({
+        event: 'resolve_submitted',
+        target_id: caregiverId,
+        note: 'reason=' + reason + '; note_len=' + noteText.length,
+      });
+    }
+    try {
+      var resp = await api.caregiverDeliveryConcernResolutionResolve({
+        caregiver_user_id: caregiverId,
+        resolution_reason: reason,
+        resolution_note: noteText,
+      });
+      if (resp && resp.status === 'already_resolved') {
+        err.textContent = 'Already resolved by ' + (resp.resolver_user_id || 'another admin') + '.';
+        return;
+      }
+      window._caregiverDeliveryConcernResolutionCloseModal();
+      render();
+    } catch (e) {
+      var msg = (e && e.message) ? e.message : 'unknown';
+      // 409 indicates already-resolved race condition; surface inline.
+      if (/409/.test(msg) || /already_resolved/i.test(msg)) {
+        err.textContent = 'Already resolved by another admin.';
+      } else if (/422/.test(msg)) {
+        err.textContent = 'Validation failed: ' + msg;
+      } else {
+        err.textContent = 'Resolve failed: ' + msg;
+      }
+      if (typeof api.postCaregiverDeliveryConcernResolutionAuditEvent === 'function') {
+        api.postCaregiverDeliveryConcernResolutionAuditEvent({
+          event: 'resolve_failed',
+          target_id: caregiverId,
+          note: msg,
+        });
+      }
+    }
   };
 
   window._coverageEditSla = async function(surface, severity, currentMinutes) {
@@ -7666,16 +8784,1792 @@ export async function pgCareTeamCoverage(setTopbar) {
     render();
   };
 
-  // 30-second polling tick — refreshes the breach feed + summary so an
-  // on-call clinician sees aging items appear in real time.
+  // ── Auto-Page Worker admin CTAs ────────────────────────────────────────
+  // Start/Stop flip escalation_chains.auto_page_enabled for the actor's
+  // clinic. Tick-once runs ONE scan synchronously and reports counts.
+  // All three are admin-only at the API; the UI hides the buttons for
+  // non-admins via window.__deepsynapsActorRole. The buttons are still
+  // wired in the source so a backend-side role gate is the single source
+  // of truth.
+
+  window._autoPageWorkerStart = async function() {
+    if (!window.confirm('Enable auto-page worker for this clinic? Every escalation chain row will be flipped to auto_page_enabled=true.')) return;
+    try {
+      var resp = await api.autoPageWorkerStart();
+      if (resp && resp.accepted) {
+        window.alert('Auto-page worker enabled for ' + (resp.surfaces_changed || 0) + ' surface(s).');
+      } else {
+        window.alert('Start request did not accept; check your role + clinic.');
+      }
+    } catch (e) {
+      window.alert('Auto-page start failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    api.postAutoPageWorkerAuditEvent({ event: 'start_clicked_ui' });
+    render();
+  };
+
+  window._autoPageWorkerStop = async function() {
+    if (!window.confirm('Disable auto-page worker for this clinic? Every escalation chain row will be flipped to auto_page_enabled=false.')) return;
+    try {
+      var resp = await api.autoPageWorkerStop();
+      if (resp && resp.accepted) {
+        window.alert('Auto-page worker disabled (' + (resp.surfaces_changed || 0) + ' surfaces flipped).');
+      } else {
+        window.alert('Stop request did not accept; check your role + clinic.');
+      }
+    } catch (e) {
+      window.alert('Auto-page stop failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    api.postAutoPageWorkerAuditEvent({ event: 'stop_clicked_ui' });
+    render();
+  };
+
+  window._oncallDeliveryTestAdapter = async function() {
+    if (!window.confirm('Send a synthetic on-call test page via the configured adapters? This will hit Slack/Twilio/PagerDuty if their env vars are set.')) return;
+    try {
+      var resp = await api.autoPageWorkerTestAdapter({});
+      if (resp && resp.accepted) {
+        var lines = (resp.attempts || []).map(function(a) {
+          var prefix = a.enabled ? '' : '(disabled) ';
+          var status = a.status || (a.enabled ? 'no-result' : 'skipped');
+          var ext = a.external_id ? ' id=' + a.external_id : '';
+          return '  ' + prefix + a.name + ' = ' + status + ext;
+        }).join('\n');
+        window.alert(
+          'Adapter test complete:\n' +
+          '  overall = ' + (resp.overall_status || '?') + '\n' +
+          '  delivery_note = ' + (resp.delivery_note || '-') + '\n' +
+          'Per-adapter:\n' + (lines || '  (no adapters)')
+        );
+      } else {
+        window.alert('Test-adapter request did not accept; check your role + clinic.');
+      }
+    } catch (e) {
+      window.alert('Test-adapter call failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    api.postAutoPageWorkerAuditEvent({ event: 'adapter_test_clicked_ui' });
+    render();
+  };
+
+  window._autoPageWorkerTickOnce = async function() {
+    if (!window.confirm('Run one auto-page tick synchronously? This will scan SLA breaches and may fire on-call pages.')) return;
+    try {
+      var resp = await api.autoPageWorkerTickOnce();
+      if (resp && resp.accepted) {
+        window.alert(
+          'Tick complete:\n' +
+          '  breaches_found = ' + (resp.breaches_found || 0) + '\n' +
+          '  paged          = ' + (resp.paged || 0) + '\n' +
+          '  skipped (cooldown) = ' + (resp.skipped_cooldown || 0) + '\n' +
+          '  errors         = ' + (resp.errors || 0) +
+          (resp.last_error ? '\n  last_error    = ' + resp.last_error : '')
+        );
+      } else {
+        window.alert('Tick request did not accept; check your role + clinic.');
+      }
+    } catch (e) {
+      window.alert('Auto-page tick failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    api.postAutoPageWorkerAuditEvent({ event: 'tick_once_clicked_ui' });
+    render();
+  };
+
+  // ── Escalation Policy editor handlers ──────────────────────────────────
+  // Local-only ephemeral state for the dispatch-order reorder UI; saved
+  // to the server with an explicit "Save" click so admins can stage a
+  // few moves before commit.
+  window._policyState = window._policyState || { workingOrder: null };
+
+  function _currentOrder() {
+    var d = window._coverageState || {};
+    if (window._policyState.workingOrder) return window._policyState.workingOrder;
+    var po = d.policyOrder;
+    return Array.isArray(po && po.dispatch_order) ? po.dispatch_order.slice() : ['pagerduty', 'slack', 'twilio'];
+  }
+
+  window._policyMoveAdapter = function(idx, delta) {
+    var order = _currentOrder().slice();
+    var ni = idx + delta;
+    if (ni < 0 || ni >= order.length) return;
+    var tmp = order[idx]; order[idx] = order[ni]; order[ni] = tmp;
+    window._policyState.workingOrder = order;
+    api.postEscalationPolicyAuditEvent({ event: 'reorder_clicked_ui', note: 'pending_save' });
+    render();
+  };
+
+  window._policyAddAdapter = function() {
+    var sel = document.getElementById('_policy-add-adapter');
+    if (!sel) return;
+    var name = sel.value;
+    if (!name) return;
+    var order = _currentOrder().slice();
+    if (order.indexOf(name) >= 0) return;
+    order.push(name);
+    window._policyState.workingOrder = order;
+    render();
+  };
+
+  window._policyRemoveAdapter = function(idx) {
+    var order = _currentOrder().slice();
+    if (idx < 0 || idx >= order.length) return;
+    order.splice(idx, 1);
+    if (order.length === 0) {
+      window.alert('Dispatch order cannot be empty — leave at least one adapter.');
+      return;
+    }
+    window._policyState.workingOrder = order;
+    render();
+  };
+
+  window._policySaveDispatchOrder = async function() {
+    var order = _currentOrder();
+    if (!order || !order.length) {
+      window.alert('Dispatch order is empty.');
+      return;
+    }
+    if (!window.confirm('Save dispatch order: ' + order.join(' → ') + '?')) return;
+    try {
+      var resp = await api.escalationPolicySetDispatchOrder({ dispatch_order: order });
+      if (resp && Array.isArray(resp.dispatch_order)) {
+        window._policyState.workingOrder = null;
+        window.alert('Dispatch order saved (version ' + (resp.version || '?') + ').');
+      } else {
+        window.alert('Save did not return a parseable response; check network.');
+      }
+    } catch (e) {
+      window.alert('Save failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    api.postEscalationPolicyAuditEvent({ event: 'dispatch_order_saved_ui', note: order.join(',') });
+    render();
+  };
+
+  window._policyResetDispatchOrder = async function() {
+    if (!window.confirm('Reset dispatch order to default (pagerduty → slack → twilio)?')) return;
+    try {
+      await api.escalationPolicySetDispatchOrder({
+        dispatch_order: ['pagerduty', 'slack', 'twilio'],
+        note: 'reset to default',
+      });
+      window._policyState.workingOrder = null;
+      window.alert('Dispatch order reset to default.');
+    } catch (e) {
+      window.alert('Reset failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    api.postEscalationPolicyAuditEvent({ event: 'dispatch_order_reset_ui' });
+    render();
+  };
+
+  window._policyAddOverride = async function() {
+    var sel = document.getElementById('_policy-add-surface-override');
+    var surface = sel ? sel.value : null;
+    if (!surface) return;
+    window._policyEditOverride(surface);
+  };
+
+  window._policyEditOverride = async function(surface) {
+    var d = window._coverageState || {};
+    var cur = ((d.policyOverrides && d.policyOverrides.surface_overrides) || {})[surface] || [];
+    var v = window.prompt(
+      'Comma-separated adapter chain for ' + surface + ' (e.g. pagerduty,slack). Leave blank to clear / fall back to dispatch order.',
+      cur.join(',')
+    );
+    if (v === null) return;
+    var chain = String(v || '')
+      .split(',')
+      .map(function(s) { return s.trim().toLowerCase(); })
+      .filter(function(s) { return !!s; });
+    var allOverrides = Object.assign({}, (d.policyOverrides && d.policyOverrides.surface_overrides) || {});
+    if (chain.length === 0) {
+      delete allOverrides[surface];
+    } else {
+      allOverrides[surface] = chain;
+    }
+    try {
+      var resp = await api.escalationPolicySetSurfaceOverrides({ surface_overrides: allOverrides });
+      if (resp && resp.surface_overrides) {
+        window.alert('Surface override saved (version ' + (resp.version || '?') + ').');
+      } else {
+        window.alert('Save did not return a parseable response.');
+      }
+    } catch (e) {
+      window.alert('Override save failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    api.postEscalationPolicyAuditEvent({ event: 'override_saved_ui', note: surface + '=' + chain.join(',') });
+    render();
+  };
+
+  window._policyClearOverride = async function(surface) {
+    if (!window.confirm('Clear override for ' + surface + '? It will fall back to the clinic dispatch order.')) return;
+    var d = window._coverageState || {};
+    var allOverrides = Object.assign({}, (d.policyOverrides && d.policyOverrides.surface_overrides) || {});
+    delete allOverrides[surface];
+    try {
+      await api.escalationPolicySetSurfaceOverrides({ surface_overrides: allOverrides });
+    } catch (e) {
+      window.alert('Override clear failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    api.postEscalationPolicyAuditEvent({ event: 'override_cleared_ui', note: surface });
+    render();
+  };
+
+  window._policyEditUserMapping = async function(userId) {
+    if (!userId) return;
+    var d = window._coverageState || {};
+    var items = (d.policyMappings && d.policyMappings.items) || [];
+    var existing = null;
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].user_id === userId) { existing = items[i]; break; }
+    }
+    var slack = window.prompt('Slack user id for ' + userId + ' (e.g. U012ABCDEF):', (existing && existing.slack_user_id) || '');
+    if (slack === null) return;
+    var pd = window.prompt('PagerDuty user id for ' + userId + ':', (existing && existing.pagerduty_user_id) || '');
+    if (pd === null) return;
+    var phone = window.prompt('Twilio phone for ' + userId + ' (E.164, e.g. +15551234567):', (existing && existing.twilio_phone) || '');
+    if (phone === null) return;
+    var note = window.prompt('Note (REQUIRED — describe why the mapping changed):', '');
+    if (note === null) return;
+    var trimmed = String(note || '').trim();
+    if (!trimmed) {
+      window.alert('Note is required for user_mapping_changed audit row.');
+      return;
+    }
+    try {
+      var resp = await api.escalationPolicySetUserMappings({
+        items: [{
+          user_id: userId,
+          slack_user_id: String(slack || '').trim() || null,
+          pagerduty_user_id: String(pd || '').trim() || null,
+          twilio_phone: String(phone || '').trim() || null,
+        }],
+        change_note: trimmed,
+      });
+      if (resp && resp.items) {
+        window.alert('User mapping saved.');
+      } else {
+        window.alert('Save did not return a parseable response.');
+      }
+    } catch (e) {
+      window.alert('Mapping save failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    api.postEscalationPolicyAuditEvent({ event: 'user_mapping_saved_ui', note: userId });
+    render();
+  };
+
+  window._policyTestPolicy = async function() {
+    var surface = window.prompt('Surface to test (blank = clinic-wide dispatch order):', '');
+    if (surface === null) return;
+    surface = String(surface || '').trim();
+    if (!window.confirm('Send a synthetic test page using the active policy' + (surface ? ' for surface=' + surface : '') + '? This will hit Slack/Twilio/PagerDuty if their env vars are set.')) return;
+    try {
+      var resp = await api.escalationPolicyTest(surface ? { surface: surface } : {});
+      if (resp && resp.accepted) {
+        var lines = (resp.attempts || []).map(function(a) {
+          var prefix = a.enabled ? '' : '(disabled) ';
+          var status = a.status || (a.enabled ? 'no-result' : 'skipped');
+          var ext = a.external_id ? ' id=' + a.external_id : '';
+          return '  ' + prefix + a.name + ' = ' + status + ext;
+        }).join('\n');
+        window.alert(
+          'Policy test complete:\n' +
+          '  surface = ' + (resp.surface || '*') + '\n' +
+          '  resolved order = ' + ((resp.resolved_dispatch_order || []).join(' → ')) + '\n' +
+          '  overall = ' + (resp.overall_status || '?') + '\n' +
+          '  policy version = ' + (resp.policy_version || 1) + '\n' +
+          '  delivery_note = ' + (resp.delivery_note || '-') + '\n' +
+          'Per-adapter:\n' + (lines || '  (no adapters)')
+        );
+      } else {
+        window.alert('Test request did not accept; check your role + clinic.');
+      }
+    } catch (e) {
+      window.alert('Test policy call failed: ' + (e && e.message ? e.message : 'unknown'));
+    }
+    api.postEscalationPolicyAuditEvent({ event: 'test_clicked_ui', note: surface || '*' });
+    render();
+  };
+
+  // Mount-time audit ping for the Escalation Policy surface so the
+  // regulator audit trail records every clinician/admin who opened the
+  // Coverage page (with its embedded Policy tab) — distinct from the
+  // care_team_coverage.view + auto_page_worker.view pings.
+  api.postEscalationPolicyAuditEvent({ event: 'view', note: 'escalation-policy editor mounted' });
+
+  // Mount-time audit ping for the Auto-Page Worker surface so the
+  // regulator audit trail records every clinician who opened the
+  // Coverage page (with its embedded worker panel) — distinct from
+  // the care_team_coverage.view ping at the top of pgCareTeamCoverage.
+  api.postAutoPageWorkerAuditEvent({ event: 'view', note: 'auto-page-worker panel mounted' });
+
+  // 30-second polling tick — refreshes the breach feed + summary + worker
+  // status so an on-call clinician sees aging items appear in real time
+  // and worker health (last-tick / errors / pending count) updates live.
   if (window._coveragePoll) { clearInterval(window._coveragePoll); }
   window._coveragePoll = setInterval(function() {
     api.postCareTeamCoverageAuditEvent({ event: 'polling_tick' });
+    api.postAutoPageWorkerAuditEvent({ event: 'polling_tick' });
     render();
   }, 30000);
 
   await render();
 }
+
+// ── Caregiver Delivery Concern Resolution Audit Hub (DCR2, 2026-05-02) ────
+// Cohort dashboard built on the DCR1 audit trail. Distribution of
+// resolution reasons (concerns_addressed / false_positive /
+// caregiver_replaced / other) over time so admins can:
+//   - calibrate the DCA threshold (high false_positive rate → raise)
+//   - invest in delivery infrastructure when caregiver_replaced spikes
+//   - spot trend changes per clinic
+// Read-only analytics surface; clinician minimum.
+export async function pgCaregiverDeliveryConcernResolutionAuditHub(setTopbar) {
+  setTopbar('Resolution audit hub', `
+    <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px" onclick="window._cgcrHubRefresh()">↺ Refresh</button>
+  `);
+
+  var state = {
+    windowDays: 30,
+    reason: '',
+    page: 1,
+    pageSize: 25,
+    summary: null,
+    list: null,
+    // DCRO1 Outcome Tracker — paired-outcome summary + per-resolver
+    // calibration accuracy. Read-only secondary section on this page.
+    outcomeSummary: null,
+    resolverCalibration: null,
+    outcomeTrackerWindowDays: 90,
+    outcomeTrackerMinResolutions: 3,
+    err: null,
+  };
+
+  function _esc(v) {
+    var s = v == null ? '' : String(v);
+    return s.replace(/[&<>"']/g, function(c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+
+  function isAllDemo() {
+    var items = (state.list && Array.isArray(state.list.items)) ? state.list.items : [];
+    if (items.length === 0) return false;
+    return items.every(function(it) {
+      return /demo|seed|mock/i.test(String(it.caregiver_user_id || '')) ||
+        /demo|seed|mock/i.test(String(it.resolver_user_id || ''));
+    });
+  }
+
+  async function loadAll() {
+    var resp = {
+      summary: null,
+      list: null,
+      outcomeSummary: null,
+      resolverCalibration: null,
+      err: null,
+    };
+    try {
+      if (typeof api.caregiverDeliveryConcernResolutionAuditHubSummary === 'function') {
+        resp.summary = await api.caregiverDeliveryConcernResolutionAuditHubSummary({
+          window_days: state.windowDays,
+        });
+      }
+      if (typeof api.caregiverDeliveryConcernResolutionAuditHubList === 'function') {
+        resp.list = await api.caregiverDeliveryConcernResolutionAuditHubList({
+          reason: state.reason || undefined,
+          page: state.page,
+          page_size: state.pageSize,
+        });
+      }
+      // DCRO1 Outcome Tracker — calibration-accuracy fetches.
+      if (typeof api.fetchOutcomeTrackerSummary === 'function') {
+        resp.outcomeSummary = await api.fetchOutcomeTrackerSummary({
+          window_days: state.outcomeTrackerWindowDays,
+        });
+      }
+      if (typeof api.fetchResolverCalibration === 'function') {
+        resp.resolverCalibration = await api.fetchResolverCalibration({
+          window_days: state.outcomeTrackerWindowDays,
+          min_resolutions: state.outcomeTrackerMinResolutions,
+        });
+      }
+    } catch (e) {
+      resp.err = String(e && e.message || e || 'unknown');
+    }
+    return resp;
+  }
+
+  function renderKpiTiles(s) {
+    if (!s) {
+      return '<div data-testid="cgcr-hub-kpis-empty" style="padding:14px;font-size:12px;color:var(--text-muted)">Backend unreachable. Cannot render KPI tiles.</div>';
+    }
+    var pctFp = (s.by_reason_pct && s.by_reason_pct.false_positive) || 0;
+    var pctCr = (s.by_reason_pct && s.by_reason_pct.caregiver_replaced) || 0;
+    var medianH = s.median_time_to_resolve_hours;
+    var medianText = medianH == null ? '—' : (Number(medianH).toFixed(1) + 'h');
+    return '<div data-testid="cgcr-hub-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:10px">' +
+      '<div data-testid="cgcr-hub-kpi-total" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Total resolved</div><div style="font-size:22px;font-weight:700">' + _esc(String(s.total_resolved || 0)) + '</div></div>' +
+      '<div data-testid="cgcr-hub-kpi-fp" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">% false positive</div><div style="font-size:22px;font-weight:700">' + _esc(pctFp.toFixed(1)) + '%</div></div>' +
+      '<div data-testid="cgcr-hub-kpi-cr" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">% caregiver replaced</div><div style="font-size:22px;font-weight:700">' + _esc(pctCr.toFixed(1)) + '%</div></div>' +
+      '<div data-testid="cgcr-hub-kpi-median" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Median time-to-resolve</div><div style="font-size:22px;font-weight:700">' + _esc(medianText) + '</div></div>' +
+      '</div>';
+  }
+
+  function renderReasonBars(s) {
+    if (!s || !s.by_reason) return '';
+    var keys = ['concerns_addressed', 'false_positive', 'caregiver_replaced', 'other'];
+    var max = 0;
+    keys.forEach(function(k) { var v = Number(s.by_reason[k]) || 0; if (v > max) max = v; });
+    if (max === 0) {
+      return '<div data-testid="cgcr-hub-reason-bars-empty" style="margin-top:14px;font-size:12px;color:var(--text-muted)">No resolutions to chart.</div>';
+    }
+    var bars = keys.map(function(k) {
+      var v = Number(s.by_reason[k]) || 0;
+      var pct = max > 0 ? Math.round((v / max) * 100) : 0;
+      return '<div data-testid="cgcr-hub-reason-bar" data-reason="' + _esc(k) + '" style="display:flex;align-items:center;gap:8px;margin:4px 0;font-size:12px">' +
+        '<span style="width:170px;text-transform:capitalize">' + _esc(k.replace(/_/g, ' ')) + '</span>' +
+        '<div style="flex:1;background:var(--surface-muted);height:14px;border-radius:4px;overflow:hidden"><div style="background:var(--accent);height:100%;width:' + pct + '%"></div></div>' +
+        '<span style="width:48px;text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(v)) + '</span>' +
+        '</div>';
+    }).join('');
+    return '<div data-testid="cgcr-hub-reason-bars" class="card" style="padding:12px;margin-top:10px">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Resolution reason distribution</div>' +
+      bars + '</div>';
+  }
+
+  function renderTrendChart(s) {
+    if (!s || !Array.isArray(s.trend_buckets)) return '';
+    var buckets = s.trend_buckets;
+    if (buckets.length === 0) return '';
+    var max = 0;
+    buckets.forEach(function(b) { var c = Number(b.count) || 0; if (c > max) max = c; });
+    if (max === 0) {
+      return '<div data-testid="cgcr-hub-trend-empty" class="card" style="padding:12px;margin-top:10px;font-size:12px;color:var(--text-muted)">No trend data.</div>';
+    }
+    var bars = buckets.map(function(b) {
+      var c = Number(b.count) || 0;
+      var h = max > 0 ? Math.round((c / max) * 60) : 0;
+      var label = String(b.bucket_start || '').slice(0, 10);
+      return '<div data-testid="cgcr-hub-trend-bar" style="display:inline-block;width:32px;margin:0 2px;text-align:center;vertical-align:bottom">' +
+        '<div style="height:60px;display:flex;align-items:flex-end;justify-content:center"><div style="width:14px;background:var(--accent);height:' + h + 'px"></div></div>' +
+        '<div style="font-size:9px;color:var(--text-muted);margin-top:2px">' + _esc(label) + '</div>' +
+        '<div style="font-size:10px;font-variant-numeric:tabular-nums">' + _esc(String(c)) + '</div>' +
+        '</div>';
+    }).join('');
+    return '<div data-testid="cgcr-hub-trend" class="card" style="padding:12px;margin-top:10px;overflow-x:auto">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Trend</div>' +
+      '<div style="white-space:nowrap">' + bars + '</div>' +
+      '</div>';
+  }
+
+  function renderTopResolvers(s) {
+    if (!s || !Array.isArray(s.top_resolvers) || s.top_resolvers.length === 0) {
+      return '<div data-testid="cgcr-hub-top-resolvers-empty" class="card" style="padding:12px;margin-top:10px;font-size:12px;color:var(--text-muted)">No resolver data yet.</div>';
+    }
+    var rows = s.top_resolvers.map(function(tr) {
+      var name = tr.resolver_name || tr.resolver_user_id || '—';
+      return '<tr data-testid="cgcr-hub-top-resolver-row">' +
+        '<td><strong>' + _esc(name) + '</strong><br><span style="font-size:10px;color:var(--text-muted)">' + _esc(tr.resolver_user_id || '') + '</span></td>' +
+        '<td style="text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(tr.count || 0)) + '</td>' +
+        '</tr>';
+    }).join('');
+    return '<div data-testid="cgcr-hub-top-resolvers" class="card" style="padding:12px;margin-top:10px">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Top resolvers</div>' +
+      '<table class="data-table" style="width:100%;font-size:12px"><thead><tr><th>Resolver</th><th style="text-align:right">Count</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+      '</div>';
+  }
+
+  function renderListSection(l) {
+    if (!l) {
+      return '<div data-testid="cgcr-hub-list-err" style="padding:12px;color:#ef4444;font-size:12px">Failed to load resolutions list.</div>';
+    }
+    var items = Array.isArray(l.items) ? l.items : [];
+    var total = Number(l.total) || 0;
+    if (items.length === 0) {
+      return '<div data-testid="cgcr-hub-empty" class="card" style="padding:14px;margin-top:10px;font-size:12px;color:var(--text-muted)">No resolved delivery concerns yet.</div>';
+    }
+    var rows = items.map(function(it) {
+      var name = it.caregiver_display_name || it.caregiver_email || it.caregiver_user_id || '—';
+      var resolver = it.resolver_name || it.resolver_user_id || '—';
+      var noteShort = it.resolution_note_short || '';
+      return '<tr data-testid="cgcr-hub-row">' +
+        '<td><strong>' + _esc(name) + '</strong></td>' +
+        '<td>' + _esc(it.resolution_reason || '—') + '</td>' +
+        '<td>' + _esc(resolver) + '</td>' +
+        '<td style="font-size:11px">' + _esc(noteShort) + '</td>' +
+        '<td style="font-size:11px;color:var(--text-muted)">' + _esc((it.resolved_at || '').slice(0, 19).replace('T', ' ')) + '</td>' +
+        '</tr>';
+    }).join('');
+    var pages = Math.max(1, Math.ceil(total / state.pageSize));
+    var pager = '<div data-testid="cgcr-hub-pager" style="display:flex;gap:8px;margin-top:8px;align-items:center;font-size:12px">' +
+      '<button data-testid="cgcr-hub-prev" class="btn btn-sm btn-ghost" ' + (state.page <= 1 ? 'disabled' : '') + ' onclick="window._cgcrHubPrev()">← Prev</button>' +
+      '<span>Page ' + state.page + ' of ' + pages + ' (' + total + ' rows)</span>' +
+      '<button data-testid="cgcr-hub-next" class="btn btn-sm btn-ghost" ' + (state.page >= pages ? 'disabled' : '') + ' onclick="window._cgcrHubNext()">Next →</button>' +
+      '</div>';
+    return '<div data-testid="cgcr-hub-list" class="card" style="padding:12px;margin-top:10px">' +
+      '<table class="data-table" style="width:100%;font-size:12px"><thead><tr><th>Caregiver</th><th>Reason</th><th>Resolver</th><th>Note</th><th>When</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+      pager +
+      '</div>';
+  }
+
+  function renderControls() {
+    var reasons = ['', 'concerns_addressed', 'false_positive', 'caregiver_replaced', 'other'];
+    var chips = reasons.map(function(r) {
+      var label = r === '' ? 'All' : r.replace(/_/g, ' ');
+      var active = (state.reason || '') === r;
+      return '<button data-testid="cgcr-hub-chip" data-reason="' + _esc(r) + '" class="btn btn-sm ' + (active ? '' : 'btn-ghost') + '" onclick="window._cgcrHubSetReason(\'' + _esc(r) + '\')" style="text-transform:capitalize">' + _esc(label) + '</button>';
+    }).join(' ');
+    var windowSelect = '<label style="font-size:11px;margin-right:6px">Window:</label>' +
+      '<select data-testid="cgcr-hub-window" onchange="window._cgcrHubSetWindow(this.value)" style="padding:4px;border:1px solid var(--border);border-radius:4px;font-size:12px">' +
+      [7, 30, 90, 180].map(function(w) {
+        return '<option value="' + w + '"' + (state.windowDays === w ? ' selected' : '') + '>' + w + 'd</option>';
+      }).join('') +
+      '</select>';
+    return '<div data-testid="cgcr-hub-controls" style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:6px">' +
+      '<div>' + windowSelect + '</div>' +
+      '<div data-testid="cgcr-hub-chips">' + chips + '</div>' +
+      '</div>';
+  }
+
+  // ── DCRO1 Outcome Tracker render block ─────────────────────────────────
+  // Section: "Resolution Outcome Tracker". Pairs each resolved row with
+  // the next threshold-reached row to record stayed_resolved vs
+  // re_flagged_within_30d, then renders per-resolver calibration accuracy.
+  function _calibrationColorClass(pct) {
+    var n = Number(pct);
+    if (!isFinite(n)) return 'cgcr-cal-grey';
+    if (n >= 80) return 'cgcr-cal-green';
+    if (n >= 50) return 'cgcr-cal-yellow';
+    return 'cgcr-cal-red';
+  }
+
+  function renderOutcomeTrackerControls() {
+    var winSel = '<label style="font-size:11px;margin-right:6px">Outcome window:</label>' +
+      '<select data-testid="cgcr-outcome-window" onchange="window._cgcrOutcomeSetWindow(this.value)" style="padding:4px;border:1px solid var(--border);border-radius:4px;font-size:12px">' +
+      [30, 60, 90, 180, 365].map(function(w) {
+        return '<option value="' + w + '"' + (state.outcomeTrackerWindowDays === w ? ' selected' : '') + '>' + w + 'd</option>';
+      }).join('') +
+      '</select>';
+    return '<div data-testid="cgcr-outcome-controls" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:6px">' +
+      '<div>' + winSel + '</div>' +
+      '</div>';
+  }
+
+  function renderOutcomeTrackerSection(s, cal) {
+    var heading = '<h3 data-testid="cgcr-outcome-heading" style="font-size:14px;margin:18px 0 4px">Resolution Outcome Tracker</h3>';
+    var sub = '<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">Pairs each resolution with the NEXT delivery-concern flag for the same caregiver to measure calibration: when an admin marks "false positive", does the DCA worker re-flag them within 30 days?</div>';
+    if (!s || (Number(s.total_resolutions) || 0) === 0) {
+      return heading + sub +
+        renderOutcomeTrackerControls() +
+        '<div data-testid="cgcr-outcome-empty" class="card" style="padding:14px;margin-top:8px;font-size:12px;color:var(--text-muted)">Not enough resolution history to compute calibration yet.</div>';
+    }
+    var oc = s.outcome_counts || {};
+    var op = s.outcome_pct || {};
+    var stayedPct = Number(op.stayed_resolved) || 0;
+    var reflaggedPct = Number(op.re_flagged_within_30d) || 0;
+    var medianD = s.median_days_to_re_flag;
+    var medianText = medianD == null ? '—' : (Number(medianD).toFixed(1) + 'd');
+    var pendingCount = Number(oc.pending) || 0;
+    var totalRes = Number(s.total_resolutions) || 0;
+    var pendingPct = totalRes > 0 ? Math.round((pendingCount / totalRes) * 100) : 0;
+
+    var kpis = '<div data-testid="cgcr-outcome-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:8px">' +
+      '<div data-testid="cgcr-outcome-kpi-stayed" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">% stayed resolved</div><div style="font-size:22px;font-weight:700">' + _esc(stayedPct.toFixed(1)) + '%</div></div>' +
+      '<div data-testid="cgcr-outcome-kpi-reflagged" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">% re-flagged within 30d</div><div style="font-size:22px;font-weight:700">' + _esc(reflaggedPct.toFixed(1)) + '%</div></div>' +
+      '<div data-testid="cgcr-outcome-kpi-median" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Median days to re-flag</div><div style="font-size:22px;font-weight:700">' + _esc(medianText) + '</div></div>' +
+      '</div>';
+
+    var pendingBanner = pendingCount > 0
+      ? '<div data-testid="cgcr-outcome-pending" class="notice notice-info" style="padding:8px 12px;font-size:11px;margin-top:8px">' +
+          _esc(String(pendingPct)) + '% of resolutions are still within the 30-day re-flag window and not yet classified.' +
+        '</div>'
+      : '';
+
+    // By-reason table.
+    var br = s.by_reason || {};
+    var reasonRows = ['concerns_addressed', 'false_positive', 'caregiver_replaced', 'other'].map(function(k) {
+      var row = br[k] || {};
+      var label = k === 'false_positive' ? 'False positive' :
+                  k === 'concerns_addressed' ? 'Concerns addressed' :
+                  k === 'caregiver_replaced' ? 'Caregiver replaced' : 'Other';
+      var noun = k === 'false_positive' ? 'incorrect' : 'regression';
+      return '<tr data-testid="cgcr-outcome-reason-row" data-reason="' + _esc(k) + '">' +
+        '<td style="font-weight:600">' + _esc(label) + '</td>' +
+        '<td style="text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(row.total || 0)) + '</td>' +
+        '<td style="text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(row.re_flagged || 0)) + '</td>' +
+        '<td style="text-align:right;font-variant-numeric:tabular-nums">' + _esc(Number(row.incorrect_pct || 0).toFixed(1)) + '% ' + _esc(noun) + '</td>' +
+        '</tr>';
+    }).join('');
+    var byReasonTable = '<div data-testid="cgcr-outcome-by-reason" class="card" style="padding:12px;margin-top:10px">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Outcome by reason</div>' +
+      '<table class="data-table" style="width:100%;font-size:12px"><thead><tr><th>Reason</th><th style="text-align:right">Total</th><th style="text-align:right">Re-flagged</th><th style="text-align:right">% wrong</th></tr></thead><tbody>' + reasonRows + '</tbody></table>' +
+      '</div>';
+
+    // Resolver calibration table.
+    var calItems = (cal && Array.isArray(cal.items)) ? cal.items : [];
+    var calBody;
+    if (calItems.length === 0) {
+      calBody = '<div data-testid="cgcr-outcome-cal-empty" style="font-size:12px;color:var(--text-muted);padding:6px">Not enough resolution history to compute calibration yet.</div>';
+    } else {
+      var calRows = calItems.map(function(it) {
+        var pct = Number(it.calibration_accuracy_pct || 0);
+        var cls = _calibrationColorClass(pct);
+        var name = it.resolver_name || it.resolver_user_id || '—';
+        var when = (it.last_resolution_at || '').slice(0, 10);
+        return '<tr data-testid="cgcr-outcome-cal-row" class="' + cls + '" data-pct="' + _esc(pct.toFixed(1)) + '">' +
+          '<td><strong>' + _esc(name) + '</strong><br><span style="font-size:10px;color:var(--text-muted)">' + _esc(it.resolver_user_id || '') + '</span></td>' +
+          '<td style="text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(it.total_resolutions || 0)) + '</td>' +
+          '<td style="text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(it.false_positive_calls || 0)) + '</td>' +
+          '<td style="text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(it.false_positive_re_flagged_within_30d || 0)) + '</td>' +
+          '<td style="text-align:right;font-variant-numeric:tabular-nums;font-weight:700">' + _esc(pct.toFixed(1)) + '%</td>' +
+          '<td style="font-size:11px;color:var(--text-muted)">' + _esc(when) + '</td>' +
+          '</tr>';
+      }).join('');
+      calBody = '<table class="data-table" style="width:100%;font-size:12px"><thead><tr><th>Resolver</th><th style="text-align:right">Total</th><th style="text-align:right">FP calls</th><th style="text-align:right">FP wrong</th><th style="text-align:right">Accuracy</th><th>Last resolution</th></tr></thead><tbody>' + calRows + '</tbody></table>';
+    }
+    var legend = '<div style="font-size:10px;color:var(--text-muted);margin-top:4px">Color: <span class="cgcr-cal-green" style="padding:2px 6px;border-radius:3px;background:#dcfce7;color:#166534">≥80%</span> <span class="cgcr-cal-yellow" style="padding:2px 6px;border-radius:3px;background:#fef3c7;color:#92400e">50–79%</span> <span class="cgcr-cal-red" style="padding:2px 6px;border-radius:3px;background:#fee2e2;color:#991b1b">&lt;50%</span></div>';
+    var calCard = '<div data-testid="cgcr-outcome-calibration" class="card" style="padding:12px;margin-top:10px">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Resolver calibration accuracy</div>' +
+      calBody +
+      legend +
+      '</div>';
+
+    // Inline CSS for color classes (scoped via the testid wrapper above).
+    var styleBlock = '<style data-testid="cgcr-outcome-style">' +
+      '.cgcr-cal-green td:nth-child(5){color:#166534;background:#dcfce7}' +
+      '.cgcr-cal-yellow td:nth-child(5){color:#92400e;background:#fef3c7}' +
+      '.cgcr-cal-red td:nth-child(5){color:#991b1b;background:#fee2e2}' +
+      '</style>';
+
+    return styleBlock + heading + sub + renderOutcomeTrackerControls() + kpis + pendingBanner + byReasonTable + calCard;
+  }
+  // ── end DCRO1 Outcome Tracker render block ────────────────────────────
+
+  async function render() {
+    var el = document.getElementById('content');
+    if (!el) return;
+    el.innerHTML = '<div style="padding:14px;font-size:12px;color:var(--text-muted)">Loading resolution audit hub…</div>';
+    var resp = await loadAll();
+    state.summary = resp.summary;
+    state.list = resp.list;
+    state.outcomeSummary = resp.outcomeSummary;
+    state.resolverCalibration = resp.resolverCalibration;
+    state.err = resp.err;
+    if (state.err) {
+      el.innerHTML = '<div data-testid="cgcr-hub-err" class="notice notice-warn" style="padding:14px;font-size:12px">Failed to load resolution audit hub: ' + _esc(state.err) + '</div>';
+      return;
+    }
+    var demoBanner = isAllDemo()
+      ? '<div data-testid="cgcr-hub-demo-banner" class="notice notice-info" style="padding:8px 12px;font-size:11px;margin-bottom:8px">DEMO data — these resolutions are seeded for evaluation and are not regulator-submittable.</div>'
+      : '';
+    var heading = '<div style="display:flex;justify-content:space-between;align-items:center"><h2 style="font-size:16px;margin:0">Resolution audit hub</h2>' +
+      '<a data-testid="cgcr-hub-coaching-inbox-link" href="#/resolver-coaching-inbox" class="btn-secondary" style="font-size:.78rem;padding:5px 10px;text-decoration:none">My coaching inbox →</a>' +
+      '</div>';
+    var disclaimer = '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Cohort dashboard for caregiver delivery-concern resolutions. Source: <code>caregiver_portal.delivery_concern_resolved</code> audit rows (#391).</div>';
+    el.innerHTML = '<div style="padding:14px">' +
+      demoBanner +
+      heading + disclaimer +
+      renderControls() +
+      renderKpiTiles(state.summary) +
+      renderReasonBars(state.summary) +
+      renderTrendChart(state.summary) +
+      renderTopResolvers(state.summary) +
+      renderListSection(state.list) +
+      renderOutcomeTrackerSection(state.outcomeSummary, state.resolverCalibration) +
+      '</div>';
+
+    if (typeof api.postCaregiverDeliveryConcernResolutionAuditHubAuditEvent === 'function') {
+      api.postCaregiverDeliveryConcernResolutionAuditHubAuditEvent({
+        event: 'view',
+        note: 'window_days=' + state.windowDays + (state.reason ? '; reason=' + state.reason : ''),
+      });
+    }
+  }
+
+  window._cgcrHubRefresh = function() { render(); };
+  window._cgcrHubSetWindow = function(v) {
+    state.windowDays = Number(v) || 30;
+    state.page = 1;
+    if (typeof api.postCaregiverDeliveryConcernResolutionAuditHubAuditEvent === 'function') {
+      api.postCaregiverDeliveryConcernResolutionAuditHubAuditEvent({
+        event: 'window_changed',
+        note: 'window_days=' + state.windowDays,
+      });
+    }
+    render();
+  };
+  window._cgcrHubSetReason = function(r) {
+    state.reason = r || '';
+    state.page = 1;
+    if (typeof api.postCaregiverDeliveryConcernResolutionAuditHubAuditEvent === 'function') {
+      api.postCaregiverDeliveryConcernResolutionAuditHubAuditEvent({
+        event: 'reason_filter_changed',
+        note: 'reason=' + (state.reason || 'all'),
+      });
+    }
+    render();
+  };
+  window._cgcrHubPrev = function() {
+    if (state.page > 1) { state.page -= 1; render(); }
+  };
+  window._cgcrHubNext = function() {
+    state.page += 1; render();
+  };
+  // DCRO1 Outcome Tracker — window selector handler. Re-fetches the
+  // outcome-tracker summary + resolver calibration tables so the page
+  // reflects the new lookback. Audit ping mirrors the DCR2 pattern.
+  window._cgcrOutcomeSetWindow = function(v) {
+    state.outcomeTrackerWindowDays = Number(v) || 90;
+    if (typeof api.postOutcomeTrackerAuditEvent === 'function') {
+      api.postOutcomeTrackerAuditEvent({
+        event: 'window_changed',
+        note: 'window_days=' + state.outcomeTrackerWindowDays,
+      });
+    }
+    render();
+  };
+
+  await render();
+}
+
+// ── Resolver Coaching Inbox launch-audit (DCRO2, 2026-05-02) ──────────────
+// Private, read-only inbox view per resolver showing THEIR OWN wrong
+// false_positive calls. Mirrors the Wearables Workbench → Clinician
+// Inbox handoff (#353/#354): admins do NOT drill into another resolver's
+// coaching rows. Each card shows caregiver name, days-to-re-flag,
+// subsequent_concern_count, adapter chips, and a "Add self-review note"
+// CTA. Filing a note emits an audit row under
+// target_type='resolver_coaching_inbox' that the regulator transcript
+// can render. Admin section (visible only to admins) shows an overview
+// table of all clinic resolvers without drill-in.
+export async function pgResolverCoachingInbox(setTopbar) {
+  setTopbar('My coaching inbox', '');
+
+  var state = {
+    windowDays: 90,
+    inbox: null,
+    adminOverview: null,
+    err: null,
+    role: '',
+    modalOpen: false,
+    modalResolvedId: null,
+    modalNote: '',
+    modalErr: null,
+    // DCRO3 — Resolver Coaching Self-Review Digest opt-in (2026-05-02).
+    // The card surfaces the resolver's preference + worker enabled flag
+    // so they can opt-in to a weekly nudge when they have un-reviewed
+    // wrong false_positive calls. Honest disclaimer when worker
+    // disabled at the system level.
+    digestPref: null,
+    digestStatus: null,
+    digestSaving: false,
+    digestErr: null,
+  };
+
+  function _esc(v) {
+    var s = v == null ? '' : String(v);
+    return s.replace(/[&<>"']/g, function(c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+
+  function isAdmin() {
+    return String(state.role || '').toLowerCase() === 'admin';
+  }
+
+  async function loadAll() {
+    var resp = { inbox: null, adminOverview: null, err: null, digestPref: null, digestStatus: null };
+    try {
+      if (typeof api.fetchMyCoachingInbox === 'function') {
+        resp.inbox = await api.fetchMyCoachingInbox({ window_days: state.windowDays });
+      }
+      // Admin overview only fetched when role is admin.
+      try {
+        var u = (typeof api.getCurrentUser === 'function')
+          ? await api.getCurrentUser()
+          : null;
+        if (u && u.role) state.role = String(u.role);
+      } catch (_e) { /* role best-effort */ }
+      if (isAdmin() && typeof api.fetchResolverAdminOverview === 'function') {
+        try {
+          resp.adminOverview = await api.fetchResolverAdminOverview({
+            window_days: state.windowDays,
+            min_resolutions: 3,
+          });
+        } catch (_adminErr) {
+          resp.adminOverview = null;
+        }
+      }
+      // DCRO3 — fetch own digest preference + worker status (best-effort).
+      try {
+        if (typeof api.fetchMyResolverDigestPreference === 'function') {
+          resp.digestPref = await api.fetchMyResolverDigestPreference({});
+        }
+      } catch (_dpe) { resp.digestPref = null; }
+      try {
+        if (typeof api.fetchResolverDigestStatus === 'function') {
+          resp.digestStatus = await api.fetchResolverDigestStatus();
+        }
+      } catch (_dse) { resp.digestStatus = null; }
+    } catch (e) {
+      resp.err = String(e && e.message || e || 'unknown');
+    }
+    return resp;
+  }
+
+  // ── DCRO3 helpers ────────────────────────────────────────────────────────
+  function _digestChannelOptions() {
+    // 5 canonical channels + "auto" (= inherit clinic chain).
+    return ['auto', 'slack', 'twilio', 'sendgrid', 'pagerduty', 'email'];
+  }
+
+  function renderDigestCard() {
+    var pref = state.digestPref || {};
+    var status = state.digestStatus || {};
+    var optedIn = !!pref.opted_in;
+    var ch = pref.preferred_channel || 'auto';
+    var workerEnabled = !!(status && status.enabled);
+    var lastSent = pref.last_dispatched_at
+      ? '<div data-testid="rcsrd-last-sent" style="margin-top:6px;font-size:11.5px;color:var(--text-muted)">Last digest sent: ' + _esc(pref.last_dispatched_at) + '</div>'
+      : '<div data-testid="rcsrd-last-sent-empty" style="margin-top:6px;font-size:11.5px;color:var(--text-muted)">No digests sent yet.</div>';
+    var disclaimerBlock = !workerEnabled
+      ? '<div data-testid="rcsrd-honest-disclaimer" class="notice notice-warn" style="margin-top:8px;padding:8px 10px;font-size:11px">' +
+          'Worker is currently disabled at the system level. Your preference is saved but no digests will be sent until the system admin enables ' +
+          '<code>RESOLVER_COACHING_DIGEST_ENABLED</code>.' +
+        '</div>'
+      : '';
+    var errBlock = state.digestErr
+      ? '<div data-testid="rcsrd-err" class="notice notice-warn" style="margin-top:6px;font-size:11px">' + _esc(state.digestErr) + '</div>'
+      : '';
+    var saving = state.digestSaving;
+    var saveDisabled = saving ? ' disabled' : '';
+
+    var options = _digestChannelOptions().map(function(c) {
+      var sel = (c === ch) ? ' selected' : '';
+      var label = (c === 'auto') ? 'auto (use my EscalationPolicy)' : c;
+      return '<option value="' + _esc(c) + '"' + sel + '>' + _esc(label) + '</option>';
+    }).join('');
+
+    var adminTickBtn = isAdmin()
+      ? '<button data-testid="rcsrd-admin-tick-btn" class="btn-secondary" style="margin-left:8px;font-size:11.5px;padding:5px 10px" onclick="window._rcsrdAdminTick()">Admin: run tick now</button>'
+      : '';
+
+    return '<div data-testid="rcsrd-digest-card" class="card" style="margin-top:18px;padding:14px">' +
+      '<h3 style="font-size:13px;font-weight:700;margin:0 0 4px 0">Email/Slack me a weekly digest</h3>' +
+      '<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px">' +
+        'Send me a weekly digest of un-reviewed wrong <code>false_positive</code> calls. Routed via your preferred channel; ' +
+        'falls back to your clinic\'s EscalationPolicy chain when set to "auto".' +
+      '</div>' +
+      '<label style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:8px">' +
+        '<input data-testid="rcsrd-opt-in-toggle" type="checkbox"' + (optedIn ? ' checked' : '') + ' onchange="window._rcsrdOnToggle(event)"> ' +
+        'Send me a weekly digest of un-reviewed wrong calls' +
+      '</label>' +
+      '<div style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:6px">' +
+        '<label for="rcsrd-channel-dropdown" style="font-size:11.5px;color:var(--text-muted)">Preferred channel:</label>' +
+        '<select data-testid="rcsrd-channel-dropdown" id="rcsrd-channel-dropdown" onchange="window._rcsrdOnChannelChange(event)" style="padding:4px 8px;font-size:12px">' +
+        options +
+        '</select>' +
+        '<button data-testid="rcsrd-save-btn" class="btn"' + saveDisabled + ' onclick="window._rcsrdSave()" style="font-size:11.5px;padding:5px 12px">' +
+        (saving ? 'Saving…' : 'Save') +
+        '</button>' +
+        adminTickBtn +
+      '</div>' +
+      lastSent +
+      disclaimerBlock +
+      errBlock +
+      '</div>';
+  }
+
+  function calibrationClass(pct) {
+    var v = Number(pct) || 0;
+    if (v >= 80) return 'rci-cal-green';
+    if (v >= 50) return 'rci-cal-yellow';
+    return 'rci-cal-red';
+  }
+
+  function renderCalibrationBadge(pct) {
+    var cls = calibrationClass(pct);
+    return '<span data-testid="rci-calibration-badge" class="' + cls + '" style="display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums">Calibration accuracy: ' + _esc(Number(pct).toFixed(1)) + '%</span>';
+  }
+
+  function renderBottomQuartileCallout(inBq) {
+    if (!inBq) return '';
+    return '<div data-testid="rci-bottom-quartile-callout" class="notice notice-warn" style="margin:10px 0;padding:10px 12px;font-size:12px">' +
+      '<strong>You are in the bottom quartile</strong> of resolvers in your clinic — review these calls to recalibrate. Marking real delivery problems as <code>false_positive</code> leaves caregivers stranded; the DCA worker re-flagged each of these caregivers within 30 days of your call.' +
+      '</div>';
+  }
+
+  function renderAdapterChips(adapters) {
+    if (!adapters || !adapters.length) return '';
+    return '<div data-testid="rci-adapter-chips" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">' +
+      adapters.map(function(a) {
+        return '<span class="skill-tag" data-adapter="' + _esc(a) + '" style="font-size:10.5px;padding:2px 7px;background:var(--surface-muted);border-radius:6px">' + _esc(a) + '</span>';
+      }).join('') +
+      '</div>';
+  }
+
+  function renderWrongCallCard(card) {
+    var caregiver = card.caregiver_name || card.caregiver_user_id;
+    var reviewBlock = card.self_review_note
+      ? '<div data-testid="rci-card-self-review-note" style="margin-top:8px;padding:8px 10px;background:var(--surface-muted);border-radius:6px;font-size:12px"><strong>Self-review:</strong> «' + _esc(card.self_review_note) + '»</div>'
+      : '<button data-testid="rci-card-add-note-btn" class="btn-secondary" style="margin-top:8px;font-size:12px;padding:5px 10px" onclick="window._rciOpenNoteModal(\'' + _esc(card.resolved_audit_id) + '\')">Add self-review note</button>';
+    return '<div data-testid="rci-wrong-call-card" class="card" style="padding:12px;margin-top:10px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px">' +
+        '<div style="font-size:13px;font-weight:600">' + _esc(caregiver) + '</div>' +
+        '<div data-testid="rci-card-days" style="font-size:11px;color:var(--text-muted)">Re-flagged ' + _esc(String(card.days_to_re_flag)) + 'd after your <code>false_positive</code> call</div>' +
+      '</div>' +
+      '<div style="margin-top:6px;font-size:11.5px;color:var(--text-muted)">' +
+        'Resolved: ' + _esc(card.resolved_at) + ' → Re-flagged: ' + _esc(card.re_flagged_at) +
+      '</div>' +
+      '<div data-testid="rci-card-concern-count" style="margin-top:6px;font-size:12px">' +
+        '<strong>' + _esc(String(card.subsequent_concern_count)) + '</strong> delivery concern' + (card.subsequent_concern_count === 1 ? '' : 's') + ' filed between your call and the re-flag.' +
+      '</div>' +
+      renderAdapterChips(card.adapter_list || []) +
+      reviewBlock +
+      '</div>';
+  }
+
+  function renderEmptyState() {
+    return '<div data-testid="rci-empty-state" class="card" style="padding:18px;text-align:center;font-size:13px;color:var(--text-muted);margin-top:12px">' +
+      'No wrong <code>false_positive</code> calls in the last ' + _esc(String(state.windowDays)) + ' days. Nice.' +
+      '</div>';
+  }
+
+  function renderAdminOverviewTable(ov) {
+    if (!isAdmin()) return '';
+    if (!ov || !Array.isArray(ov.items)) {
+      return '<div data-testid="rci-admin-overview-empty" style="margin-top:18px;font-size:12px;color:var(--text-muted)">Admin overview unavailable.</div>';
+    }
+    if (ov.items.length === 0) {
+      return '<div data-testid="rci-admin-overview" class="card" style="margin-top:18px;padding:14px">' +
+        '<h3 style="font-size:13px;font-weight:700;margin:0 0 6px 0">Resolver overview</h3>' +
+        '<div style="font-size:12px;color:var(--text-muted)">No resolvers in this clinic have ' + _esc(String(ov.min_resolutions)) + '+ resolutions in the last ' + _esc(String(ov.window_days)) + ' days yet.</div>' +
+        '</div>';
+    }
+    var rows = ov.items.map(function(r) {
+      return '<tr data-testid="rci-admin-overview-row" data-resolver-id="' + _esc(r.resolver_user_id) + '">' +
+        '<td style="padding:6px 8px">' + _esc(r.resolver_name || r.resolver_user_id) + '</td>' +
+        '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(r.total_resolutions)) + '</td>' +
+        '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(r.false_positive_calls)) + '</td>' +
+        '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(r.wrong_false_positive_calls)) + '</td>' +
+        '<td class="' + calibrationClass(r.calibration_accuracy_pct) + '" style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums">' + _esc(Number(r.calibration_accuracy_pct).toFixed(1)) + '%</td>' +
+        '<td style="padding:6px 8px;text-align:center">' + (r.in_bottom_quartile ? '⚠' : '') + '</td>' +
+        '</tr>';
+    }).join('');
+    // DCRO4 admin-only link → Resolver Coaching Digest Audit Hub
+    // (admin cohort dashboard over the DCRO3 dispatched audit row stream).
+    var dcro4Link = '<a data-testid="rci-coaching-digest-hub-link" href="#/coaching-digest-hub" class="btn-secondary" style="font-size:.78rem;padding:5px 10px;text-decoration:none;float:right">Coaching digest audit hub →</a>';
+    return '<div data-testid="rci-admin-overview" class="card" style="margin-top:18px;padding:14px">' +
+      dcro4Link +
+      '<h3 style="font-size:13px;font-weight:700;margin:0 0 4px 0">Resolver overview</h3>' +
+      '<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:8px">Read-only roll-up. No drill-in into individual coaching rows — each resolver\'s inbox is private to them.</div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<thead><tr style="text-align:left;border-bottom:1px solid var(--border)">' +
+      '<th style="padding:6px 8px">Resolver</th>' +
+      '<th style="padding:6px 8px;text-align:right">Total resolutions</th>' +
+      '<th style="padding:6px 8px;text-align:right">FP calls</th>' +
+      '<th style="padding:6px 8px;text-align:right">Wrong FP calls</th>' +
+      '<th style="padding:6px 8px;text-align:right">Calibration</th>' +
+      '<th style="padding:6px 8px;text-align:center">Bottom quartile</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+
+  function renderNoteModal() {
+    if (!state.modalOpen) return '';
+    var noteLen = (state.modalNote || '').length;
+    var lenOk = noteLen >= 10 && noteLen <= 500;
+    var errBlock = state.modalErr
+      ? '<div data-testid="rci-note-modal-err" class="notice notice-warn" style="font-size:11.5px;margin-top:8px">' + _esc(state.modalErr) + '</div>'
+      : '';
+    return '<div data-testid="rci-note-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9999">' +
+      '<div class="card" style="max-width:520px;width:90%;padding:18px">' +
+      '<h3 style="margin:0 0 4px 0;font-size:14px;font-weight:700">Self-review note</h3>' +
+      '<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px">10–500 chars. Stored as an audit row tied to your resolver_user_id; no admin can see it without the regulator audit trail.</div>' +
+      '<textarea data-testid="rci-note-modal-textarea" rows="6" maxlength="500" oninput="window._rciOnNoteInput(event)" style="width:100%;padding:8px;font-size:12.5px;font-family:inherit;border:1px solid var(--border);border-radius:6px;box-sizing:border-box">' + _esc(state.modalNote) + '</textarea>' +
+      '<div data-testid="rci-note-modal-counter" style="font-size:11px;color:' + (lenOk ? 'var(--text-muted)' : 'var(--accent-warn,#b45309)') + ';margin-top:4px">' + noteLen + '/500</div>' +
+      errBlock +
+      '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">' +
+      '<button data-testid="rci-note-modal-cancel" class="btn-secondary" onclick="window._rciCloseNoteModal()">Cancel</button>' +
+      '<button data-testid="rci-note-modal-submit" class="btn"' + (lenOk ? '' : ' disabled') + ' onclick="window._rciSubmitNote()">Save note</button>' +
+      '</div></div></div>';
+  }
+
+  async function render() {
+    var el = document.getElementById('content');
+    if (!el) return;
+    el.innerHTML = '<div style="padding:14px;font-size:12px;color:var(--text-muted)">Loading coaching inbox…</div>';
+    var resp = await loadAll();
+    state.inbox = resp.inbox;
+    state.adminOverview = resp.adminOverview;
+    state.err = resp.err;
+    state.digestPref = resp.digestPref;
+    state.digestStatus = resp.digestStatus;
+    if (state.err) {
+      el.innerHTML = '<div data-testid="rci-err" class="notice notice-warn" style="padding:14px;font-size:12px">Failed to load coaching inbox: ' + _esc(state.err) + '</div>';
+      return;
+    }
+    var inbox = state.inbox || {};
+    var calls = Array.isArray(inbox.wrong_false_positive_calls) ? inbox.wrong_false_positive_calls : [];
+    var heading = '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
+      '<h2 style="font-size:16px;margin:0">My coaching inbox</h2>' +
+      renderCalibrationBadge(inbox.calibration_accuracy_pct == null ? 100 : inbox.calibration_accuracy_pct) +
+      '</div>';
+    var disclaimer = '<div data-testid="rci-disclaimer" style="font-size:11px;color:var(--text-muted);margin-top:4px">Private read-only view of your wrong <code>false_positive</code> calls — i.e., resolutions you marked <code>false_positive</code> but the DCA worker re-flagged within 30 days. Mirrors the Wearables Workbench → Clinician Inbox handoff (#353/#354). Source: <code>caregiver_portal.delivery_concern_resolved</code> audit rows (#391).</div>';
+
+    var styleBlock = '<style data-testid="rci-style">' +
+      '.rci-cal-green{color:#166534;background:#dcfce7}' +
+      '.rci-cal-yellow{color:#92400e;background:#fef3c7}' +
+      '.rci-cal-red{color:#991b1b;background:#fee2e2}' +
+      '</style>';
+
+    var summary = inbox.summary || { total_wrong_calls: 0, median_days_to_re_flag: null };
+    var summaryLine = calls.length > 0
+      ? '<div data-testid="rci-summary-line" style="margin-top:10px;font-size:12px">' +
+        '<strong>' + _esc(String(summary.total_wrong_calls || calls.length)) + '</strong> wrong <code>false_positive</code> call' + (calls.length === 1 ? '' : 's') +
+        ' in the last ' + _esc(String(state.windowDays)) + ' days' +
+        (summary.median_days_to_re_flag != null ? '. Median days-to-re-flag: <strong>' + _esc(Number(summary.median_days_to_re_flag).toFixed(1)) + '</strong>.' : '.') +
+        '</div>'
+      : '';
+
+    var cards = calls.length === 0
+      ? renderEmptyState()
+      : calls.map(renderWrongCallCard).join('');
+
+    el.innerHTML = '<div style="padding:14px">' +
+      styleBlock +
+      heading +
+      disclaimer +
+      renderBottomQuartileCallout(!!inbox.in_bottom_quartile) +
+      summaryLine +
+      cards +
+      renderDigestCard() +
+      renderAdminOverviewTable(state.adminOverview) +
+      renderNoteModal() +
+      '</div>';
+
+    if (typeof api.postOutcomeTrackerAuditEvent === 'function') {
+      // Page-view audit emitted server-side by the my-coaching-inbox
+      // GET; no need to double-emit from the client.
+    }
+  }
+
+  // ── DCRO3 — opt-in card window handlers ──────────────────────────────────
+  window._rcsrdOnToggle = function(ev) {
+    if (!state.digestPref) state.digestPref = { opted_in: false, preferred_channel: null };
+    state.digestPref.opted_in = !!(ev && ev.target && ev.target.checked);
+  };
+  window._rcsrdOnChannelChange = function(ev) {
+    if (!state.digestPref) state.digestPref = { opted_in: false, preferred_channel: null };
+    var v = (ev && ev.target && ev.target.value) || 'auto';
+    state.digestPref.preferred_channel = (v === 'auto') ? null : v;
+  };
+  window._rcsrdSave = async function() {
+    if (!state.digestPref) return;
+    state.digestSaving = true;
+    state.digestErr = null;
+    try {
+      if (typeof api.updateMyResolverDigestPreference === 'function') {
+        var saved = await api.updateMyResolverDigestPreference({
+          opted_in: !!state.digestPref.opted_in,
+          preferred_channel: state.digestPref.preferred_channel || null,
+        });
+        if (saved) state.digestPref = saved;
+      }
+    } catch (e) {
+      state.digestErr = String((e && e.message) || e || 'Failed to save digest preference.');
+    } finally {
+      state.digestSaving = false;
+    }
+    render();
+  };
+  window._rcsrdAdminTick = async function() {
+    state.digestErr = null;
+    try {
+      if (typeof api.tickResolverDigest === 'function') {
+        await api.tickResolverDigest({});
+      }
+    } catch (e) {
+      state.digestErr = String((e && e.message) || e || 'Failed to tick digest worker.');
+    }
+    // Refresh after tick so last_dispatched_at updates.
+    await render();
+  };
+
+  window._rciOpenNoteModal = function(rid) {
+    state.modalOpen = true;
+    state.modalResolvedId = rid;
+    state.modalNote = '';
+    state.modalErr = null;
+    render();
+  };
+  window._rciCloseNoteModal = function() {
+    state.modalOpen = false;
+    state.modalResolvedId = null;
+    state.modalNote = '';
+    state.modalErr = null;
+    render();
+  };
+  window._rciOnNoteInput = function(ev) {
+    state.modalNote = (ev && ev.target && ev.target.value) || '';
+    // Re-render to update the counter without flicker; only patch the
+    // textarea + counter when possible to avoid losing focus. Cheap
+    // fallback: skip render and let the next event paint.
+    var counter = document.querySelector('[data-testid="rci-note-modal-counter"]');
+    if (counter) {
+      counter.textContent = state.modalNote.length + '/500';
+    }
+    var submit = document.querySelector('[data-testid="rci-note-modal-submit"]');
+    if (submit) {
+      var ok = state.modalNote.length >= 10 && state.modalNote.length <= 500;
+      if (ok) submit.removeAttribute('disabled');
+      else submit.setAttribute('disabled', 'disabled');
+    }
+  };
+  window._rciSubmitNote = async function() {
+    if (!state.modalResolvedId) return;
+    var n = (state.modalNote || '').trim();
+    if (n.length < 10 || n.length > 500) {
+      state.modalErr = 'Self-review note must be between 10 and 500 characters.';
+      render();
+      return;
+    }
+    try {
+      if (typeof api.fileSelfReviewNote === 'function') {
+        await api.fileSelfReviewNote({
+          resolved_audit_id: state.modalResolvedId,
+          self_review_note: n,
+        });
+      }
+      state.modalOpen = false;
+      state.modalResolvedId = null;
+      state.modalNote = '';
+      state.modalErr = null;
+      // Re-fetch the inbox so the filed note renders inline.
+      await render();
+    } catch (e) {
+      state.modalErr = String((e && e.message) || e || 'Failed to save note.');
+      render();
+    }
+  };
+
+  await render();
+}
+// ── end Resolver Coaching Inbox launch-audit (DCRO2, 2026-05-02) ──────────
+
+// ── Resolver Coaching Digest Audit Hub launch-audit (DCRO4, 2026-05-02) ──
+// Admin-side cohort dashboard over the DCRO3 dispatched audit row stream
+// (resolver_coaching_self_review_digest.dispatched, emitted by #398) plus
+// the ResolverCoachingDigestPreference table from #398. Five sections:
+//   1. Opt-in stats KPI tiles
+//   2. Dispatch stats — by-channel bar chart + median per resolver
+//   3. Delivery outcomes — success rate KPI + failed click-through
+//   4. Resolver trajectory — sparklines + shrinking/flat/growing chips
+//   5. Trend chart — weekly dispatched / delivered / failed
+// Read-only — there is no companion worker. Honest "worker disabled"
+// banner when RESOLVER_COACHING_DIGEST_ENABLED=False.
+export async function pgResolverCoachingDigestAuditHub(setTopbar) {
+  setTopbar('Coaching digest audit hub', `
+    <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px" onclick="window._dcro4Refresh()">↺ Refresh</button>
+  `);
+
+  var state = {
+    windowDays: 90,
+    summary: null,
+    trajectory: null,
+    workerStatus: null,
+    err: null,
+  };
+
+  function _esc(v) {
+    var s = v == null ? '' : String(v);
+    return s.replace(/[&<>"']/g, function(c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+
+  async function loadAll() {
+    var resp = { summary: null, trajectory: null, workerStatus: null, err: null };
+    try {
+      if (typeof api.fetchCoachingDigestAuditHubSummary === 'function') {
+        resp.summary = await api.fetchCoachingDigestAuditHubSummary({
+          window_days: state.windowDays,
+        });
+      }
+      if (typeof api.fetchResolverTrajectory === 'function') {
+        resp.trajectory = await api.fetchResolverTrajectory({
+          window_days: state.windowDays,
+        });
+      }
+      // Worker status (DCRO3) gives us the enabled flag for the banner.
+      try {
+        if (typeof api.fetchResolverDigestStatus === 'function') {
+          resp.workerStatus = await api.fetchResolverDigestStatus();
+        }
+      } catch (_e) { resp.workerStatus = null; }
+    } catch (e) {
+      resp.err = String(e && e.message || e || 'unknown');
+    }
+    return resp;
+  }
+
+  function renderControls() {
+    var sel = '<label style="font-size:11px;margin-right:6px">Window:</label>' +
+      '<select data-testid="dcro4-window" onchange="window._dcro4SetWindow(this.value)" style="padding:4px;border:1px solid var(--border);border-radius:4px;font-size:12px">' +
+      [30, 90, 180].map(function(w) {
+        return '<option value="' + w + '"' + (state.windowDays === w ? ' selected' : '') + '>' + w + 'd</option>';
+      }).join('') +
+      '</select>';
+    return '<div data-testid="dcro4-controls" style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:6px">' +
+      '<div>' + sel + '</div>' +
+      '</div>';
+  }
+
+  function renderWorkerDisabledBanner(ws) {
+    if (!ws) return '';
+    if (ws.enabled) return '';
+    return '<div data-testid="dcro4-worker-disabled-banner" class="notice notice-warn" style="padding:8px 12px;font-size:11px;margin-top:8px">' +
+      'Worker is currently disabled at the system level (<code>RESOLVER_COACHING_DIGEST_ENABLED=False</code>). Historical dispatch rows are still shown, but new digests will not be sent until an admin enables the worker.' +
+      '</div>';
+  }
+
+  // ── Section 1: Opt-in stats ─────────────────────────────────────────────
+  function renderOptInTiles(s) {
+    var oi = (s && s.opt_in_stats) || {};
+    var pct = Number(oi.opt_in_pct) || 0;
+    return '<div data-testid="dcro4-opt-in-tiles" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:10px">' +
+      '<div data-testid="dcro4-kpi-total" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Total resolvers</div><div style="font-size:22px;font-weight:700">' + _esc(String(oi.total_resolvers_in_clinic || 0)) + '</div></div>' +
+      '<div data-testid="dcro4-kpi-opted-in" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Opted in</div><div style="font-size:22px;font-weight:700">' + _esc(String(oi.opted_in || 0)) + '</div></div>' +
+      '<div data-testid="dcro4-kpi-opted-out" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Opted out</div><div style="font-size:22px;font-weight:700">' + _esc(String(oi.opted_out || 0)) + '</div></div>' +
+      '<div data-testid="dcro4-kpi-opt-in-pct" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Opt-in %</div><div style="font-size:22px;font-weight:700">' + _esc(pct.toFixed(1)) + '%</div></div>' +
+      '</div>';
+  }
+
+  // ── Section 2: Dispatch stats by-channel bar chart ──────────────────────
+  function renderByChannelChart(s) {
+    var ds = (s && s.dispatch_stats) || {};
+    var bc = ds.by_channel || {};
+    var keys = ['slack', 'twilio', 'sendgrid', 'pagerduty', 'email'];
+    var max = 0;
+    keys.forEach(function(k) { var v = Number(bc[k]) || 0; if (v > max) max = v; });
+    if ((Number(ds.total_dispatched) || 0) === 0) {
+      return '<div data-testid="dcro4-by-channel-empty" class="card" style="padding:12px;margin-top:10px;font-size:12px;color:var(--text-muted)">No digests dispatched in this window yet.</div>';
+    }
+    var bars = keys.map(function(k) {
+      var v = Number(bc[k]) || 0;
+      var pct = max > 0 ? Math.round((v / max) * 100) : 0;
+      return '<div data-testid="dcro4-channel-bar" data-channel="' + _esc(k) + '" style="display:flex;align-items:center;gap:8px;margin:4px 0;font-size:12px">' +
+        '<span style="width:90px;text-transform:capitalize">' + _esc(k) + '</span>' +
+        '<div style="flex:1;background:var(--surface-muted);height:14px;border-radius:4px;overflow:hidden"><div style="background:var(--accent);height:100%;width:' + pct + '%"></div></div>' +
+        '<span style="width:48px;text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(v)) + '</span>' +
+        '</div>';
+    }).join('');
+    var medianText = ds.median_dispatches_per_resolver == null ? '—' : Number(ds.median_dispatches_per_resolver).toFixed(1);
+    return '<div data-testid="dcro4-by-channel" class="card" style="padding:12px;margin-top:10px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+      '<div style="font-size:12px;font-weight:700">Dispatched by channel</div>' +
+      '<div data-testid="dcro4-median-per-resolver" style="font-size:11px;color:var(--text-muted)">Median per resolver: <strong>' + _esc(medianText) + '</strong></div>' +
+      '</div>' +
+      bars +
+      '</div>';
+  }
+
+  // ── Section 3: Delivery outcomes ────────────────────────────────────────
+  function renderDeliveryOutcomes(s) {
+    var d = (s && s.delivery_outcomes) || {};
+    var rate = d.success_rate_pct == null ? '—' : (Number(d.success_rate_pct).toFixed(1) + '%');
+    var failedClick = (Number(d.failed) || 0) > 0
+      ? ' onclick="window._dcro4OpenFailedAuditEvents()" style="cursor:pointer"'
+      : '';
+    return '<div data-testid="dcro4-delivery-outcomes" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:10px">' +
+      '<div data-testid="dcro4-kpi-success-rate" class="card" style="padding:12px">' +
+      '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Delivery success rate</div>' +
+      '<div style="font-size:22px;font-weight:700">' + _esc(rate) + '</div>' +
+      '</div>' +
+      '<div data-testid="dcro4-kpi-delivered" class="card" style="padding:12px">' +
+      '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Delivered</div>' +
+      '<div style="font-size:22px;font-weight:700">' + _esc(String(d.delivered || 0)) + '</div>' +
+      '</div>' +
+      '<div data-testid="dcro4-kpi-failed" class="card"' + failedClick + ' style="padding:12px">' +
+      '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Failed</div>' +
+      '<div style="font-size:22px;font-weight:700;color:' + ((Number(d.failed) || 0) > 0 ? 'var(--accent-warn,#b45309)' : 'inherit') + '">' + _esc(String(d.failed || 0)) + '</div>' +
+      // Admin-only DCRO5 click-through link (next to the failure-rate KPI).
+      // Placed inline so the spec's "next to the failure-rate KPI"
+      // requirement is honoured visually without a layout change.
+      '<a data-testid="dcro4-dcro5-drilldown-link" href="#/coaching-digest-delivery-failure-drilldown" style="display:inline-block;margin-top:6px;font-size:10px;text-decoration:none;color:var(--accent)">Failure drilldown →</a>' +
+      '</div>' +
+      '</div>';
+  }
+
+  // ── Section 4: Resolver trajectory table ────────────────────────────────
+  function _trajectoryClass(t) {
+    if (t === 'shrinking') return 'dcro4-traj-green';
+    if (t === 'growing') return 'dcro4-traj-red';
+    return 'dcro4-traj-yellow';
+  }
+  function _renderSparkline(weekly) {
+    if (!Array.isArray(weekly) || weekly.length === 0) return '';
+    var values = weekly.map(function(w) { return Number(w.wrong_call_count) || 0; });
+    var max = values.reduce(function(a, b) { return Math.max(a, b); }, 0);
+    if (max === 0) max = 1;
+    // Inline SVG sparkline so we don't need a charting library.
+    var w = 120, h = 22;
+    var points = values.map(function(v, i) {
+      var x = (i / Math.max(1, values.length - 1)) * w;
+      var y = h - ((v / max) * (h - 2)) - 1;
+      return x.toFixed(1) + ',' + y.toFixed(1);
+    }).join(' ');
+    return '<svg data-testid="dcro4-sparkline" width="' + w + '" height="' + h + '" style="display:block">' +
+      '<polyline fill="none" stroke="currentColor" stroke-width="1.5" points="' + points + '" />' +
+      '</svg>';
+  }
+  function renderTrajectoryTable(items) {
+    if (!Array.isArray(items) || items.length === 0) {
+      return '<div data-testid="dcro4-trajectory-empty" class="card" style="padding:12px;margin-top:10px;font-size:12px;color:var(--text-muted)">No opted-in resolvers in this window yet.</div>';
+    }
+    var rows = items.map(function(it) {
+      var cls = _trajectoryClass(it.trajectory);
+      var name = it.resolver_name || it.resolver_user_id || '—';
+      var spark = _renderSparkline(it.weekly_backlog || []);
+      return '<tr data-testid="dcro4-trajectory-row" data-traj="' + _esc(it.trajectory) + '">' +
+        '<td style="padding:6px 8px"><strong>' + _esc(name) + '</strong><br><span style="font-size:10px;color:var(--text-muted)">' + _esc(it.resolver_user_id || '') + '</span></td>' +
+        '<td style="padding:6px 8px">' + spark + '</td>' +
+        '<td style="padding:6px 8px;text-align:center"><span data-testid="dcro4-traj-chip" class="' + cls + '" style="display:inline-block;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:600">' + _esc(it.trajectory) + '</span></td>' +
+        '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(it.current_backlog || 0)) + '</td>' +
+        '</tr>';
+    }).join('');
+    return '<div data-testid="dcro4-trajectory" class="card" style="padding:12px;margin-top:10px">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Resolver trajectory</div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<thead><tr style="text-align:left;border-bottom:1px solid var(--border)">' +
+      '<th style="padding:6px 8px">Resolver</th>' +
+      '<th style="padding:6px 8px">Weekly backlog</th>' +
+      '<th style="padding:6px 8px;text-align:center">Trajectory</th>' +
+      '<th style="padding:6px 8px;text-align:right">Current</th>' +
+      '</tr></thead>' +
+      '<tbody>' + rows + '</tbody></table></div>';
+  }
+
+  // ── Section 5: Weekly trend chart ───────────────────────────────────────
+  function renderTrendChart(s) {
+    var buckets = (s && Array.isArray(s.trend_buckets)) ? s.trend_buckets : [];
+    if (buckets.length === 0) return '';
+    var max = 0;
+    buckets.forEach(function(b) { var c = Number(b.dispatched) || 0; if (c > max) max = c; });
+    if (max === 0) {
+      return '<div data-testid="dcro4-trend-empty" class="card" style="padding:12px;margin-top:10px;font-size:12px;color:var(--text-muted)">No dispatch trend data.</div>';
+    }
+    var bars = buckets.map(function(b) {
+      var c = Number(b.dispatched) || 0;
+      var del = Number(b.delivered) || 0;
+      var fail = Number(b.failed) || 0;
+      var totalH = max > 0 ? Math.round((c / max) * 60) : 0;
+      var failH = c > 0 ? Math.round((fail / c) * totalH) : 0;
+      var delH = totalH - failH;
+      var label = String(b.week_start || '').slice(0, 10);
+      return '<div data-testid="dcro4-trend-bar" style="display:inline-block;width:32px;margin:0 2px;text-align:center;vertical-align:bottom">' +
+        '<div style="height:60px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center">' +
+        '<div style="width:14px;background:var(--accent-warn,#b45309);height:' + failH + 'px"></div>' +
+        '<div style="width:14px;background:var(--accent);height:' + delH + 'px"></div>' +
+        '</div>' +
+        '<div style="font-size:9px;color:var(--text-muted);margin-top:2px">' + _esc(label) + '</div>' +
+        '<div style="font-size:10px;font-variant-numeric:tabular-nums">' + _esc(String(c)) + '</div>' +
+        '</div>';
+    }).join('');
+    return '<div data-testid="dcro4-trend" class="card" style="padding:12px;margin-top:10px;overflow-x:auto">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Weekly dispatch trend (delivered + failed)</div>' +
+      '<div style="white-space:nowrap">' + bars + '</div>' +
+      '</div>';
+  }
+
+  function renderEmptyState(s) {
+    var total = s && s.dispatch_stats && Number(s.dispatch_stats.total_dispatched) || 0;
+    if (total > 0) return '';
+    return '<div data-testid="dcro4-empty-state" class="card" style="padding:14px;margin-top:10px;font-size:12px;color:var(--text-muted)">No coaching digests dispatched in this window yet.</div>';
+  }
+
+  async function render() {
+    var el = document.getElementById('content');
+    if (!el) return;
+    el.innerHTML = '<div style="padding:14px;font-size:12px;color:var(--text-muted)">Loading coaching digest audit hub…</div>';
+    var resp = await loadAll();
+    state.summary = resp.summary;
+    state.trajectory = resp.trajectory;
+    state.workerStatus = resp.workerStatus;
+    state.err = resp.err;
+    if (state.err) {
+      el.innerHTML = '<div data-testid="dcro4-err" class="notice notice-warn" style="padding:14px;font-size:12px">Failed to load coaching digest audit hub: ' + _esc(state.err) + '</div>';
+      return;
+    }
+
+    var styleBlock = '<style data-testid="dcro4-style">' +
+      '.dcro4-traj-green{background:#dcfce7;color:#166534}' +
+      '.dcro4-traj-yellow{background:#fef3c7;color:#92400e}' +
+      '.dcro4-traj-red{background:#fee2e2;color:#991b1b}' +
+      '</style>';
+
+    var heading = '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
+      '<h2 style="font-size:16px;margin:0">Coaching digest audit hub</h2>' +
+      '<a data-testid="dcro4-coaching-inbox-link" href="#/resolver-coaching-inbox" class="btn-secondary" style="font-size:.78rem;padding:5px 10px;text-decoration:none">My coaching inbox →</a>' +
+      '</div>';
+    var disclaimer = '<div data-testid="dcro4-disclaimer" style="font-size:11px;color:var(--text-muted);margin-top:4px">Admin cohort dashboard for the Resolver Coaching Self-Review Digest worker (#398). Source: <code>resolver_coaching_self_review_digest.dispatched</code> audit rows + <code>ResolverCoachingDigestPreference</code> table. Read-only; clinic-scoped.</div>';
+
+    var hasData = state.summary && Number(state.summary.dispatch_stats && state.summary.dispatch_stats.total_dispatched || 0) > 0;
+
+    el.innerHTML = '<div style="padding:14px">' +
+      styleBlock +
+      heading +
+      disclaimer +
+      renderWorkerDisabledBanner(state.workerStatus) +
+      renderControls() +
+      // Section 1
+      '<h3 data-testid="dcro4-section-opt-in" style="font-size:13px;margin:14px 0 4px;font-weight:700">Opt-in stats</h3>' +
+      renderOptInTiles(state.summary) +
+      // Section 2
+      '<h3 data-testid="dcro4-section-dispatch" style="font-size:13px;margin:14px 0 4px;font-weight:700">Dispatch stats</h3>' +
+      renderByChannelChart(state.summary) +
+      // Section 3
+      '<h3 data-testid="dcro4-section-delivery" style="font-size:13px;margin:14px 0 4px;font-weight:700">Delivery outcomes</h3>' +
+      renderDeliveryOutcomes(state.summary) +
+      // Section 4
+      '<h3 data-testid="dcro4-section-trajectory" style="font-size:13px;margin:14px 0 4px;font-weight:700">Resolver trajectory</h3>' +
+      renderTrajectoryTable(state.trajectory) +
+      // Section 5
+      '<h3 data-testid="dcro4-section-trend" style="font-size:13px;margin:14px 0 4px;font-weight:700">Weekly trend</h3>' +
+      renderTrendChart(state.summary) +
+      (hasData ? '' : renderEmptyState(state.summary)) +
+      '</div>';
+
+    if (typeof api.postCoachingDigestAuditHubAuditEvent === 'function') {
+      api.postCoachingDigestAuditHubAuditEvent({
+        event: 'view',
+        note: 'window_days=' + state.windowDays,
+      });
+    }
+  }
+
+  window._dcro4Refresh = function() { render(); };
+  window._dcro4SetWindow = function(v) {
+    state.windowDays = Number(v) || 90;
+    if (typeof api.postCoachingDigestAuditHubAuditEvent === 'function') {
+      api.postCoachingDigestAuditHubAuditEvent({
+        event: 'window_changed',
+        note: 'window_days=' + state.windowDays,
+      });
+    }
+    render();
+  };
+  window._dcro4OpenFailedAuditEvents = function() {
+    // Best-effort drill-in: navigate to the audit-trail filtered to the
+    // hub surface — the existing audit-trail page surfaces every row
+    // with delivery_status=failed in the note.
+    location.hash = '#/audit-trail?surface=resolver_coaching_digest_audit_hub&note_contains=delivery_status%3Dfailed';
+  };
+
+  await render();
+}
+// ── end Resolver Coaching Digest Audit Hub launch-audit (DCRO4) ─────────
+
+// ── Coaching Digest Delivery Failure Drilldown (DCRO5, 2026-05-02) ──────
+// Operational drill-down over the DCRO3 dispatched audit row stream filtered
+// to delivery_status=failed and grouped by (channel, error_class). DCRO4
+// (#402) surfaces the failure rate; DCRO5 makes it actionable with click-
+// through to the Channel Misconfig Detector (#389) when a matching
+// caregiver_portal.channel_misconfigured_detected row exists in the same ISO
+// week + clinic + channel. Read-only; clinic-scoped; clinician minimum.
+export async function pgCoachingDigestDeliveryFailureDrilldown(setTopbar) {
+  setTopbar('Delivery failure drilldown', `
+    <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px" onclick="window._dcro5Refresh()">↺ Refresh</button>
+  `);
+
+  var state = {
+    windowDays: 90,
+    summary: null,
+    failedList: null,
+    workerStatus: null,
+    page: 1,
+    pageSize: 20,
+    channelFilter: '',
+    errorClassFilter: '',
+    err: null,
+  };
+
+  function _esc(v) {
+    var s = v == null ? '' : String(v);
+    return s.replace(/[&<>"']/g, function(c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+
+  async function loadAll() {
+    var resp = { summary: null, failedList: null, workerStatus: null, err: null };
+    try {
+      if (typeof api.fetchDigestDeliveryFailureSummary === 'function') {
+        resp.summary = await api.fetchDigestDeliveryFailureSummary({
+          window_days: state.windowDays,
+        });
+      }
+      if (typeof api.fetchDigestDeliveryFailureList === 'function') {
+        resp.failedList = await api.fetchDigestDeliveryFailureList({
+          page: state.page,
+          page_size: state.pageSize,
+          channel: state.channelFilter || undefined,
+          error_class: state.errorClassFilter || undefined,
+        });
+      }
+      try {
+        if (typeof api.fetchResolverDigestStatus === 'function') {
+          resp.workerStatus = await api.fetchResolverDigestStatus();
+        }
+      } catch (_e) { resp.workerStatus = null; }
+    } catch (e) {
+      resp.err = String(e && e.message || e || 'unknown');
+    }
+    return resp;
+  }
+
+  function renderControls() {
+    var sel = '<label style="font-size:11px;margin-right:6px">Window:</label>' +
+      '<select data-testid="dcro5-window" onchange="window._dcro5SetWindow(this.value)" style="padding:4px;border:1px solid var(--border);border-radius:4px;font-size:12px">' +
+      [30, 90, 180].map(function(w) {
+        return '<option value="' + w + '"' + (state.windowDays === w ? ' selected' : '') + '>' + w + 'd</option>';
+      }).join('') +
+      '</select>';
+    return '<div data-testid="dcro5-controls" style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:6px">' +
+      '<div>' + sel + '</div>' +
+      '</div>';
+  }
+
+  function renderHonestDisclaimer(ws) {
+    var workerEnabled = ws && ws.enabled;
+    var label = workerEnabled ? 'enabled' : 'disabled';
+    return '<div data-testid="dcro5-disclaimer" class="notice" style="font-size:11px;color:var(--text-muted);margin-top:6px;padding:8px 10px;border-left:3px solid var(--border)">' +
+      'Failure data only available when the DCRO3 worker emits delivery_status. Worker is currently <strong>' + _esc(label) + '</strong>.' +
+      '</div>';
+  }
+
+  // ── Section 1: Top KPI tiles ────────────────────────────────────────────
+  function renderKpiTiles(s) {
+    var rate = (s && s.failure_rate_pct == null) ? '—' : (Number(s.failure_rate_pct).toFixed(1) + '%');
+    var failed = (s && Number(s.total_failed)) || 0;
+    var dispatched = (s && Number(s.total_dispatched)) || 0;
+    return '<div data-testid="dcro5-kpi-tiles" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:10px">' +
+      '<div data-testid="dcro5-kpi-failure-rate" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Failure rate</div><div style="font-size:22px;font-weight:700">' + _esc(rate) + '</div></div>' +
+      '<div data-testid="dcro5-kpi-total-failed" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Total failed</div><div style="font-size:22px;font-weight:700">' + _esc(String(failed)) + '</div></div>' +
+      '<div data-testid="dcro5-kpi-total-dispatched" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Total dispatched</div><div style="font-size:22px;font-weight:700">' + _esc(String(dispatched)) + '</div></div>' +
+      '</div>';
+  }
+
+  // ── Section 2: By-channel grid ──────────────────────────────────────────
+  function renderByChannelGrid(s) {
+    var bc = (s && s.by_channel) || {};
+    var keys = ['slack', 'twilio', 'sendgrid', 'pagerduty', 'email'];
+    var cards = keys.map(function(ch) {
+      var entry = bc[ch] || { failed: 0, by_error_class: {} };
+      var failed = Number(entry.failed) || 0;
+      var bec = entry.by_error_class || {};
+      var ecKeys = ['auth', 'rate_limit', 'channel_left', 'unreachable', 'other'];
+      var max = 0;
+      ecKeys.forEach(function(k) { var v = Number(bec[k]) || 0; if (v > max) max = v; });
+      var bars = ecKeys.map(function(k) {
+        var v = Number(bec[k]) || 0;
+        var pct = max > 0 ? Math.round((v / max) * 100) : 0;
+        return '<div data-testid="dcro5-error-bar" data-channel="' + _esc(ch) + '" data-error-class="' + _esc(k) + '" style="display:flex;align-items:center;gap:6px;margin:2px 0;font-size:11px">' +
+          '<span style="width:80px">' + _esc(k) + '</span>' +
+          '<div style="flex:1;background:var(--surface-muted);height:10px;border-radius:3px;overflow:hidden"><div style="background:var(--accent-warn,#b45309);height:100%;width:' + pct + '%"></div></div>' +
+          '<span style="width:28px;text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(v)) + '</span>' +
+          '</div>';
+      }).join('');
+      return '<div data-testid="dcro5-channel-card" data-channel="' + _esc(ch) + '" class="card" style="padding:10px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
+        '<span style="font-size:12px;font-weight:700;text-transform:capitalize">' + _esc(ch) + '</span>' +
+        '<span data-testid="dcro5-channel-failed-count" style="font-size:18px;font-weight:700;color:' + (failed > 0 ? 'var(--accent-warn,#b45309)' : 'inherit') + '">' + _esc(String(failed)) + '</span>' +
+        '</div>' +
+        bars +
+        '</div>';
+    }).join('');
+    return '<div data-testid="dcro5-by-channel-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:10px">' +
+      cards +
+      '</div>';
+  }
+
+  // ── Section 3: Top error classes leaderboard ────────────────────────────
+  function renderTopErrorClasses(s) {
+    var top = (s && Array.isArray(s.top_error_classes)) ? s.top_error_classes : [];
+    if (top.length === 0) {
+      return '<div data-testid="dcro5-top-empty" class="card" style="padding:10px;margin-top:10px;font-size:12px;color:var(--text-muted)">No (channel x error_class) failures in this window.</div>';
+    }
+    var rows = top.map(function(t, i) {
+      return '<tr data-testid="dcro5-top-row" data-channel="' + _esc(t.channel) + '" data-error-class="' + _esc(t.error_class) + '">' +
+        '<td style="padding:5px 8px;font-variant-numeric:tabular-nums">#' + (i + 1) + '</td>' +
+        '<td style="padding:5px 8px;text-transform:capitalize">' + _esc(t.channel) + '</td>' +
+        '<td style="padding:5px 8px">' + _esc(t.error_class) + '</td>' +
+        '<td style="padding:5px 8px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums">' + _esc(String(t.count)) + '</td>' +
+        '</tr>';
+    }).join('');
+    return '<div data-testid="dcro5-top-error-classes" class="card" style="padding:12px;margin-top:10px">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Top failure cohorts</div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<thead><tr style="text-align:left;border-bottom:1px solid var(--border)">' +
+      '<th style="padding:5px 8px">Rank</th>' +
+      '<th style="padding:5px 8px">Channel</th>' +
+      '<th style="padding:5px 8px">Error class</th>' +
+      '<th style="padding:5px 8px;text-align:right">Count</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+
+  // ── Section 4: Weekly trend chart ───────────────────────────────────────
+  function renderTrendChart(s) {
+    var buckets = (s && Array.isArray(s.trend_buckets)) ? s.trend_buckets : [];
+    if (buckets.length === 0) return '';
+    var max = 0;
+    buckets.forEach(function(b) { var c = Number(b.failed) || 0; if (c > max) max = c; });
+    if (max === 0) {
+      return '<div data-testid="dcro5-trend-empty" class="card" style="padding:10px;margin-top:10px;font-size:12px;color:var(--text-muted)">No failure trend data.</div>';
+    }
+    var bars = buckets.map(function(b) {
+      var c = Number(b.failed) || 0;
+      var h = max > 0 ? Math.round((c / max) * 60) : 0;
+      var label = String(b.week_start || '').slice(0, 10);
+      return '<div data-testid="dcro5-trend-bar" style="display:inline-block;width:30px;margin:0 2px;text-align:center;vertical-align:bottom">' +
+        '<div style="height:60px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center">' +
+        '<div style="width:14px;background:var(--accent-warn,#b45309);height:' + h + 'px"></div>' +
+        '</div>' +
+        '<div style="font-size:9px;color:var(--text-muted);margin-top:2px">' + _esc(label) + '</div>' +
+        '<div style="font-size:10px;font-variant-numeric:tabular-nums">' + _esc(String(c)) + '</div>' +
+        '</div>';
+    }).join('');
+    return '<div data-testid="dcro5-trend" class="card" style="padding:12px;margin-top:10px;overflow-x:auto">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Weekly failure trend</div>' +
+      '<div style="white-space:nowrap">' + bars + '</div>' +
+      '</div>';
+  }
+
+  // ── Section 5: Failed-list table ────────────────────────────────────────
+  function renderFailedListTable(fl) {
+    var items = (fl && Array.isArray(fl.items)) ? fl.items : [];
+    var total = (fl && Number(fl.total)) || 0;
+    if (total === 0) {
+      return '<div data-testid="dcro5-empty-state" class="card" style="padding:14px;margin-top:10px;font-size:12px;color:var(--text-muted)">No delivery failures in this window. Nice.</div>';
+    }
+    var rows = items.map(function(it) {
+      var match = !!it.has_matching_misconfig_flag;
+      var badge = match
+        ? '<span data-testid="dcro5-misconfig-badge" data-match="yes" onclick="window._dcro5OpenMisconfig(\'' + _esc(it.channel) + '\')" style="cursor:pointer;display:inline-block;padding:3px 8px;border-radius:999px;font-size:10px;font-weight:600;background:#fee2e2;color:#991b1b">Yes</span>'
+        : '<span data-testid="dcro5-misconfig-badge" data-match="no" style="display:inline-block;padding:3px 8px;border-radius:999px;font-size:10px;font-weight:600;background:#f3f4f6;color:#6b7280">No</span>';
+      var ts = String(it.dispatched_at || '').slice(0, 16).replace('T', ' ');
+      return '<tr data-testid="dcro5-failed-row">' +
+        '<td style="padding:5px 8px;text-transform:capitalize">' + _esc(it.channel) + '</td>' +
+        '<td style="padding:5px 8px"><span style="display:inline-block;padding:2px 6px;border-radius:4px;background:var(--surface-muted);font-size:10px">' + _esc(it.error_class) + '</span></td>' +
+        '<td style="padding:5px 8px"><strong>' + _esc(it.resolver_name || it.resolver_user_id || '—') + '</strong></td>' +
+        '<td style="padding:5px 8px;font-variant-numeric:tabular-nums">' + _esc(ts) + '</td>' +
+        '<td style="padding:5px 8px;text-align:center">' + badge + '</td>' +
+        '</tr>';
+    }).join('');
+    var totalPages = Math.max(1, Math.ceil(total / state.pageSize));
+    var pager = '<div data-testid="dcro5-pager" style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:11px">' +
+      '<span>Page ' + state.page + ' of ' + totalPages + ' (' + total + ' rows)</span>' +
+      '<span>' +
+      '<button class="btn-secondary" style="font-size:11px;padding:3px 8px" onclick="window._dcro5SetPage(' + Math.max(1, state.page - 1) + ')"' + (state.page <= 1 ? ' disabled' : '') + '>← Prev</button>' +
+      ' <button class="btn-secondary" style="font-size:11px;padding:3px 8px" onclick="window._dcro5SetPage(' + Math.min(totalPages, state.page + 1) + ')"' + (state.page >= totalPages ? ' disabled' : '') + '>Next →</button>' +
+      '</span>' +
+      '</div>';
+    return '<div data-testid="dcro5-failed-list" class="card" style="padding:12px;margin-top:10px">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Failed dispatches</div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<thead><tr style="text-align:left;border-bottom:1px solid var(--border)">' +
+      '<th style="padding:5px 8px">Channel</th>' +
+      '<th style="padding:5px 8px">Error class</th>' +
+      '<th style="padding:5px 8px">Resolver</th>' +
+      '<th style="padding:5px 8px">Dispatched</th>' +
+      '<th style="padding:5px 8px;text-align:center">Linked misconfig?</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table>' +
+      pager +
+      '</div>';
+  }
+
+  async function render() {
+    var el = document.getElementById('content');
+    if (!el) return;
+    el.innerHTML = '<div style="padding:14px;font-size:12px;color:var(--text-muted)">Loading delivery failure drilldown…</div>';
+    var resp = await loadAll();
+    state.summary = resp.summary;
+    state.failedList = resp.failedList;
+    state.workerStatus = resp.workerStatus;
+    state.err = resp.err;
+    if (state.err) {
+      el.innerHTML = '<div data-testid="dcro5-err" class="notice notice-warn" style="padding:14px;font-size:12px">Failed to load delivery failure drilldown: ' + _esc(state.err) + '</div>';
+      return;
+    }
+
+    var heading = '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
+      '<h2 style="font-size:16px;margin:0">Delivery failure drilldown</h2>' +
+      '<a data-testid="dcro5-back-to-hub-link" href="#/resolver-coaching-digest-audit-hub" class="btn-secondary" style="font-size:.78rem;padding:5px 10px;text-decoration:none">← Audit hub</a>' +
+      '</div>';
+
+    el.innerHTML = '<div style="padding:14px">' +
+      heading +
+      renderHonestDisclaimer(state.workerStatus) +
+      renderControls() +
+      // Section 1
+      '<h3 data-testid="dcro5-section-kpi" style="font-size:13px;margin:14px 0 4px;font-weight:700">Failure KPIs</h3>' +
+      renderKpiTiles(state.summary) +
+      // Section 2
+      '<h3 data-testid="dcro5-section-by-channel" style="font-size:13px;margin:14px 0 4px;font-weight:700">By channel x error class</h3>' +
+      renderByChannelGrid(state.summary) +
+      // Section 3
+      '<h3 data-testid="dcro5-section-top" style="font-size:13px;margin:14px 0 4px;font-weight:700">Top cohorts</h3>' +
+      renderTopErrorClasses(state.summary) +
+      // Section 4
+      '<h3 data-testid="dcro5-section-trend" style="font-size:13px;margin:14px 0 4px;font-weight:700">Weekly trend</h3>' +
+      renderTrendChart(state.summary) +
+      // Section 5
+      '<h3 data-testid="dcro5-section-list" style="font-size:13px;margin:14px 0 4px;font-weight:700">Failed dispatches</h3>' +
+      renderFailedListTable(state.failedList) +
+      '</div>';
+
+    if (typeof api.postDigestDeliveryFailureAuditEvent === 'function') {
+      api.postDigestDeliveryFailureAuditEvent({
+        event: 'view',
+        note: 'window_days=' + state.windowDays,
+      });
+    }
+  }
+
+  window._dcro5Refresh = function() { render(); };
+  window._dcro5SetWindow = function(v) {
+    state.windowDays = Number(v) || 90;
+    state.page = 1;
+    if (typeof api.postDigestDeliveryFailureAuditEvent === 'function') {
+      api.postDigestDeliveryFailureAuditEvent({
+        event: 'window_changed',
+        note: 'window_days=' + state.windowDays,
+      });
+    }
+    render();
+  };
+  window._dcro5SetPage = function(p) {
+    state.page = Number(p) || 1;
+    if (typeof api.postDigestDeliveryFailureAuditEvent === 'function') {
+      api.postDigestDeliveryFailureAuditEvent({
+        event: 'page_changed',
+        note: 'page=' + state.page,
+      });
+    }
+    render();
+  };
+  window._dcro5OpenMisconfig = function(channel) {
+    if (typeof api.postDigestDeliveryFailureAuditEvent === 'function') {
+      api.postDigestDeliveryFailureAuditEvent({
+        event: 'drill_through_clicked',
+        note: 'channel=' + (channel || ''),
+      });
+    }
+    // Navigate to the Channel Misconfig Detector route — the
+    // canonical alias accepted by app.js is 'channel-misconfig-detector'.
+    location.hash = '#/channel-misconfig-detector';
+  };
+
+  await render();
+}
+// ── end Coaching Digest Delivery Failure Drilldown (DCRO5) ──────────────
 
 // ── Local-only schedule (offline fallback / legacy view) ──────────────────
 async function _pgStaffSchedulingLocal(setTopbar) {

@@ -19,7 +19,7 @@ Stage 4 (spectral part). Output shape matches ``CONTRACT.md §1.1.spectral``:
 }
 ```
 
-SpecParam (fooof) is optional — if the package is missing, slope/offset/r² and
+SpecParam is optional — if the package is missing, slope/offset/r² and
 peak alpha frequency are returned as ``None`` per channel and a warning is
 logged.
 """
@@ -118,7 +118,7 @@ def compute(
             "psd_method": "welch",
             "welch_window_sec": float(WELCH_WINDOW_SEC),
             "welch_overlap": float(WELCH_OVERLAP),
-            "fooof_available": _fooof_available(),
+            "fooof_available": _specparam_available(),
             "fooof_freq_range": list(FOOOF_FREQ_RANGE),
             "fooof_peak_width_limits": list(FOOOF_PEAK_WIDTH_LIMITS),
             "n_epochs_contributing": int(n_epochs),
@@ -126,9 +126,9 @@ def compute(
     }
 
 
-def _fooof_available() -> bool:
+def _specparam_available() -> bool:
     try:
-        import fooof  # noqa: F401
+        import specparam  # noqa: F401
         return True
     except Exception:
         return False
@@ -170,7 +170,7 @@ def _build_spectral_confidence(
     """Per-channel confidence dict for spectral / aperiodic features.
 
     Logic mirrors community heuristics used by Brainstorm and Persyst:
-    - reliable when ≥40 epochs contributed AND FOOOF R² ≥ 0.9 AND SNR proxy ≥ 5
+    - reliable when ≥40 epochs contributed AND SpecParam R² ≥ 0.9 AND SNR proxy ≥ 5
     - degraded when 20-40 epochs OR R² 0.7-0.9 OR SNR proxy 2-5
     - unreliable when <20 epochs OR R² <0.7 OR SNR proxy <2
 
@@ -271,13 +271,13 @@ def _fit_specparam(
     psd: np.ndarray,
     ch_names: list[str],
 ) -> tuple[list[float | None], list[float | None], list[float | None], list[float | None]]:
-    """Fit FOOOF per channel; return (slope, offset, r², PAF) lists, one per channel."""
+    """Fit SpecParam per channel; return (slope, offset, r², PAF) lists, one per channel."""
     n_ch = psd.shape[0]
     none_list: list[float | None] = [None] * n_ch
     try:
-        from fooof import FOOOF
+        from specparam import SpectralModel
     except Exception as exc:
-        log.warning("fooof/SpecParam unavailable (%s). Skipping aperiodic + PAF.", exc)
+        log.warning("specparam unavailable (%s). Skipping aperiodic + PAF.", exc)
         return list(none_list), list(none_list), list(none_list), list(none_list)
 
     slope: list[float | None] = []
@@ -287,19 +287,19 @@ def _fit_specparam(
 
     for i, ch in enumerate(ch_names):
         try:
-            fm = FOOOF(peak_width_limits=list(FOOOF_PEAK_WIDTH_LIMITS), verbose=False)
-            fm.fit(freqs, psd[i], list(FOOOF_FREQ_RANGE))
-            aperiodic = fm.aperiodic_params_
+            sm = SpectralModel(peak_width_limits=list(FOOOF_PEAK_WIDTH_LIMITS), verbose=False)
+            sm.fit(freqs, psd[i], list(FOOOF_FREQ_RANGE))
+            aperiodic = sm.aperiodic_params_
             offset.append(float(aperiodic[0]))
             # aperiodic_params_ may be length 2 (offset, exponent) or 3 (offset, knee, exp)
             slope.append(float(aperiodic[-1]))
-            r_squared.append(float(fm.r_squared_))
+            r_squared.append(float(sm.r_squared_))
 
-            peaks = np.atleast_2d(getattr(fm, "peak_params_", np.zeros((0, 3))))
+            peaks = np.atleast_2d(getattr(sm, "peak_params_", np.zeros((0, 3))))
             paf_val = _peak_alpha_from_peaks(peaks, *PAF_SEARCH)
             paf.append(paf_val)
         except Exception as exc:
-            log.warning("FOOOF fit failed on %s (%s).", ch, exc)
+            log.warning("SpecParam fit failed on %s (%s).", ch, exc)
             offset.append(None)
             slope.append(None)
             r_squared.append(None)
@@ -310,7 +310,7 @@ def _fit_specparam(
 
 
 def _peak_alpha_from_peaks(peaks: np.ndarray, lo: float, hi: float) -> float | None:
-    """Pick highest-power peak within [lo, hi] Hz from FOOOF peak_params_.
+    """Pick highest-power peak within [lo, hi] Hz from SpecParam peak_params_.
 
     peak_params_ columns: [center_freq, power, bandwidth].
     """
@@ -325,7 +325,7 @@ def _peak_alpha_from_peaks(peaks: np.ndarray, lo: float, hi: float) -> float | N
 
 
 def _peak_alpha_from_psd(freqs: np.ndarray, psd_row: np.ndarray) -> float | None:
-    """Fallback PAF: argmax of PSD within 7–13 Hz when FOOOF is unavailable."""
+    """Fallback PAF: argmax of PSD within 7–13 Hz when SpecParam is unavailable."""
     mask = (freqs >= PAF_SEARCH[0]) & (freqs <= PAF_SEARCH[1])
     if not np.any(mask):
         return None

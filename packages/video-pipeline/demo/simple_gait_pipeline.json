@@ -1,0 +1,38 @@
+{
+  "pipeline_id": "simple_gait_analysis_v1",
+  "description": "Minimal auditable gait workflow: ingest -> pose -> gait metrics -> report payload.",
+  "nodes": [
+    {
+      "node_id": "ingest",
+      "operation": "ingest_video",
+      "parameters": {
+        "use_case": "clinical_task"
+      }
+    },
+    {
+      "node_id": "pose",
+      "operation": "estimate_pose_noop",
+      "depends_on": ["ingest"],
+      "parameters": {
+        "backend": "noop"
+      }
+    },
+    {
+      "node_id": "gait_metrics",
+      "operation": "compute_gait_metrics",
+      "depends_on": ["pose"],
+      "parameters": {
+        "source_artifact_id": "pose",
+        "video_metadata_artifact_id": "ingest"
+      }
+    },
+    {
+      "node_id": "clinical_report",
+      "operation": "generate_clinical_report",
+      "depends_on": ["gait_metrics"],
+      "parameters": {
+        "gait_artifact_id": "gait_metrics"
+      }
+    }
+  ]
+}

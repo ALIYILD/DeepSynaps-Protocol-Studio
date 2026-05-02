@@ -591,6 +591,8 @@ class PageOnCallOut(BaseModel):
     paged_role: Optional[str] = None
     surface: Optional[str] = None
     delivery_status: str = "logged"
+    external_id: Optional[str] = None
+    delivery_note: Optional[str] = None
 
 
 class OncallPageRowOut(BaseModel):
@@ -604,6 +606,8 @@ class OncallPageRowOut(BaseModel):
     trigger: str
     note: Optional[str] = None
     delivery_status: Optional[str] = None
+    external_id: Optional[str] = None
+    delivery_note: Optional[str] = None
     created_at: str
 
 
@@ -622,6 +626,35 @@ class CoverageAuditIn(BaseModel):
 class CoverageAuditOut(BaseModel):
     accepted: bool
     event_id: str
+
+
+class DeliveryConcernRowOut(BaseModel):
+    """One patient-flagged caregiver-delivery concern.
+
+    Sourced from the
+    ``clinician_inbox.caregiver_delivery_concern_to_clinician_mirror``
+    audit rows the Patient Delivery-Failure Flag emits when a patient
+    files a delivery concern. NO PHI of the caregiver beyond first
+    name; the patient first name is loaded via the patient lookup the
+    Inbox already performs.
+    """
+
+    audit_event_id: str
+    patient_id: str
+    patient_first_name: Optional[str] = None
+    caregiver_user_id: Optional[str] = None
+    caregiver_first_name: Optional[str] = None
+    dispatch_id: Optional[str] = None
+    concern_text: Optional[str] = None
+    flagged_at: str
+    is_demo: bool = False
+
+
+class DeliveryConcernsListOut(BaseModel):
+    items: list[DeliveryConcernRowOut] = Field(default_factory=list)
+    total: int = 0
+    since: str = ""
+    until: str = ""
 
 
 # ── Roster ──────────────────────────────────────────────────────────────────
@@ -1221,6 +1254,8 @@ def _page_to_out(row: OncallPage) -> OncallPageRowOut:
         trigger=row.trigger,
         note=row.note,
         delivery_status=row.delivery_status,
+        external_id=getattr(row, "external_id", None),
+        delivery_note=getattr(row, "delivery_note", None),
         created_at=row.created_at,
     )
 
@@ -1265,6 +1300,8 @@ def _record_oncall_page(
     note: str,
     trigger: str,
     delivery_status: str = "logged",
+    external_id: Optional[str] = None,
+    delivery_note: Optional[str] = None,
 ) -> tuple[OncallPage, str]:
     """Write the canonical audit row + the indexable mirror row.
 
@@ -1323,6 +1360,8 @@ def _record_oncall_page(
         trigger=trigger,
         note=note[:480],
         delivery_status=delivery_status,
+        external_id=external_id,
+        delivery_note=(delivery_note[:1024] if delivery_note else None),
         created_at=now.isoformat(),
     )
     db.add(page_row)
@@ -1331,20 +1370,122 @@ def _record_oncall_page(
     return page_row, audit_eid
 
 
-@router.post("/page-oncall/{audit_event_id}", response_model=PageOnCallOut)
-def page_oncall(
-    body: PageOnCallIn,
-    audit_event_id: str = Path(..., min_length=1, max_length=128),
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-    db: Session = Depends(get_db_session),
-) -> PageOnCallOut:
-    """Manually page on-call for a HIGH-priority audit row.
+def _dispatch_manual_delivery(
+    db: Session,
+    actor: AuthenticatedActor,
+    *,
+    audit_event_id: str,
+    note: str,
+    surface_override: Optional[str],
+) -> tuple[str, Optional[str], Optional[str]]:
+    """Best-effort manual-handler hook into :class:`OncallDeliveryService`.
 
-    * Note required.
-    * 404 if the audit row is not visible at the actor's clinic scope.
-    * Emits ``inbox.item_paged_to_oncall`` audit row + ``oncall_pages`` row.
+    Mirrors :meth:`AutoPageWorker._deliver_page` for the manual click
+    path so a clinician hitting "Page on-call" actually wakes a human.
+    Failures here NEVER crash the handler — we fall back to
+    ``("logged", None, None)`` which preserves the legacy honest-default
+    that #357 shipped (audit row + oncall_pages row written, but no
+    confirmed external delivery).
     """
-    _gate_read(actor)
+    try:
+        from app.services.oncall_delivery import (  # noqa: PLC0415
+            PageMessage,
+            build_default_service,
+        )
+    except Exception:  # pragma: no cover - defensive
+        return ("logged", None, None)
+    record = (
+        db.query(AuditEventRecord)
+        .filter(AuditEventRecord.event_id == audit_event_id)
+        .one_or_none()
+    )
+    if record is None:
+        # The handler will raise its own 404; here we just no-op.
+        return ("logged", None, None)
+    author = db.query(User).filter_by(id=record.actor_id).first()
+    cid = (author.clinic_id if author and author.clinic_id else actor.clinic_id) or ""
+    surface = surface_override
+    if not surface:
+        s, _evt = _split_action(record.action or "")
+        surface = s if s and s != "unknown" else (record.target_type or "")
+    primary_shift = None
+    try:
+        primary_shift, _all = _resolve_oncall_for_surface(db, cid, surface or None)
+    except Exception:
+        primary_shift = None
+    recipient_user: Optional[User] = None
+    recipient_phone: Optional[str] = None
+    if primary_shift is not None:
+        uid = getattr(primary_shift, "user_id", None)
+        if uid:
+            recipient_user = db.query(User).filter_by(id=uid).first()
+        handle = getattr(primary_shift, "contact_handle", None)
+        channel = (getattr(primary_shift, "contact_channel", "") or "").lower()
+        if handle and channel in ("sms", "phone", "tel"):
+            recipient_phone = str(handle)
+    body = (
+        f"[Manual page-on-call] {surface or '?'} breach. "
+        f"Audit event: {audit_event_id}. Clinician note: {note[:240]}"
+    )
+    message = PageMessage(
+        clinic_id=cid,
+        surface=surface or "*",
+        audit_event_id=audit_event_id,
+        body=body,
+        severity="high",
+        recipient_display_name=(
+            getattr(recipient_user, "display_name", None) if recipient_user else None
+        ),
+        recipient_email=(
+            getattr(recipient_user, "email", None) if recipient_user else None
+        ),
+        recipient_phone=recipient_phone,
+    )
+    try:
+        service = build_default_service(clinic_id=cid)
+        result = service.send(message)
+    except Exception:  # pragma: no cover - defensive
+        return ("logged", None, None)
+    return (result.status, result.external_id, result.note)
+
+
+def _page_oncall_impl(
+    db: Session,
+    actor: AuthenticatedActor,
+    *,
+    audit_event_id: str,
+    note: str,
+    surface_override: Optional[str] = None,
+    trigger: str = "manual",
+    delivery_status: str = "logged",
+    external_id: Optional[str] = None,
+    delivery_note: Optional[str] = None,
+    enforce_clinic_scope: bool = True,
+) -> PageOnCallOut:
+    """In-process page-on-call worker. Used by both the manual HTTP handler
+    and the auto-page background worker.
+
+    Splitting the body out from the FastAPI handler so the auto-page worker
+    (``app.workers.auto_page_worker``) can call it without an HTTP roundtrip
+    and without paying the request-lifecycle cost (rate-limiter, JSON
+    encode/decode). The handler itself is now a thin wrapper that calls
+    this function with ``trigger='manual'``.
+
+    Parameters
+    ----------
+    enforce_clinic_scope
+        When ``True`` (default for manual HTTP path), non-admin actors must
+        share a clinic with the audit-row author or a 404 is raised. The
+        auto-page worker passes ``False`` because it always calls with a
+        synthetic admin-scope actor that owns the clinic of the breach.
+    trigger
+        ``"manual"`` for HTTP click; ``"auto"`` for the background worker.
+    delivery_status
+        ``"logged"`` until a real Slack/Twilio/PagerDuty adapter is wired
+        (PR section F). ``"queued"`` is a synonym used by the worker when
+        an external delivery adapter is configured but has not yet
+        confirmed delivery.
+    """
     record = (
         db.query(AuditEventRecord)
         .filter(AuditEventRecord.event_id == audit_event_id)
@@ -1358,7 +1499,7 @@ def page_oncall(
         )
     # Cross-clinic visibility check: the audit row must be authored by a
     # user in the actor's clinic (admins see all clinics).
-    if not _is_admin_scope(actor):
+    if enforce_clinic_scope and not _is_admin_scope(actor):
         author = db.query(User).filter_by(id=record.actor_id).first()
         if author is None or author.clinic_id != actor.clinic_id:
             raise ApiServiceError(
@@ -1376,7 +1517,7 @@ def page_oncall(
             message="Cannot resolve clinic from audit event author.",
             status_code=400,
         )
-    surface = body.surface
+    surface = surface_override
     if not surface:
         s, _evt = _split_action(record.action or "")
         surface = s if s and s != "unknown" else (record.target_type or None)
@@ -1406,9 +1547,11 @@ def page_oncall(
         surface=surface,
         paged_user_id=primary_uid,
         paged_role=paged_role,
-        note=body.note,
-        trigger="manual",
-        delivery_status="logged",
+        note=note,
+        trigger=trigger,
+        delivery_status=delivery_status,
+        external_id=external_id,
+        delivery_note=delivery_note,
     )
     name = None
     if primary_uid:
@@ -1416,13 +1559,14 @@ def page_oncall(
         name = (u.display_name or u.email) if u else None
 
     # Page-level audit so the Care Team Coverage surface tracks the click.
+    audit_event = "manual_page_fired" if trigger == "manual" else "auto_page_fired"
     _audit(
         db, actor,
-        event="manual_page_fired",
+        event=audit_event,
         target_id=audit_event_id,
         note=(
             f"page_id={page_row.id}; surface={surface or '-'}; "
-            f"paged={primary_uid or '-'}"
+            f"paged={primary_uid or '-'}; trigger={trigger}"
         ),
         using_demo_data=cid in _DEMO_CLINIC_IDS,
     )
@@ -1434,7 +1578,48 @@ def page_oncall(
         paged_user_name=name,
         paged_role=paged_role,
         surface=surface,
-        delivery_status="logged",
+        delivery_status=delivery_status,
+        external_id=external_id,
+        delivery_note=delivery_note,
+    )
+
+
+@router.post("/page-oncall/{audit_event_id}", response_model=PageOnCallOut)
+def page_oncall(
+    body: PageOnCallIn,
+    audit_event_id: str = Path(..., min_length=1, max_length=128),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PageOnCallOut:
+    """Manually page on-call for a HIGH-priority audit row.
+
+    * Note required.
+    * 404 if the audit row is not visible at the actor's clinic scope.
+    * Emits ``inbox.item_paged_to_oncall`` audit row + ``oncall_pages`` row.
+
+    Body is delegated to :func:`_page_oncall_impl` so the auto-page
+    background worker can reuse the same code path without an HTTP
+    roundtrip.
+    """
+    _gate_read(actor)
+    # Manual page-on-call also funnels through the delivery adapter chain
+    # so a clinician's click triggers a real Slack/Twilio/PagerDuty call
+    # (or stamps "queued" honestly when no adapter is configured). The
+    # synthetic actor scope is unchanged — the handler still does the
+    # cross-clinic gate via ``enforce_clinic_scope=True``.
+    delivery_status, external_id, delivery_note = _dispatch_manual_delivery(
+        db, actor, audit_event_id=audit_event_id, note=body.note, surface_override=body.surface
+    )
+    return _page_oncall_impl(
+        db, actor,
+        audit_event_id=audit_event_id,
+        note=body.note,
+        surface_override=body.surface,
+        trigger="manual",
+        delivery_status=delivery_status,
+        external_id=external_id,
+        delivery_note=delivery_note,
+        enforce_clinic_scope=True,
     )
 
 
@@ -1464,3 +1649,146 @@ def post_audit_event(
         using_demo_data=bool(body.using_demo_data),
     )
     return CoverageAuditOut(accepted=True, event_id=eid)
+
+
+# ── Patient delivery concerns (mirror feed) ─────────────────────────────────
+
+
+_DLC_NOTE_PATIENT_RE = re.compile(r"patient=([a-zA-Z0-9_\-]+)")
+_DLC_NOTE_CAREGIVER_RE = re.compile(r"caregiver_user=([a-zA-Z0-9_\-]+)")
+_DLC_NOTE_DISPATCH_RE = re.compile(r"dispatch=([a-zA-Z0-9_\-]+)")
+_DLC_NOTE_CONCERN_RE = re.compile(r"concern=(.*)$")
+
+
+def _parse_delivery_concern_note(note: str) -> dict[str, Optional[str]]:
+    out: dict[str, Optional[str]] = {
+        "patient_id": None,
+        "caregiver_user_id": None,
+        "dispatch_id": None,
+        "concern_text": None,
+    }
+    if not note:
+        return out
+    m_p = _DLC_NOTE_PATIENT_RE.search(note)
+    if m_p:
+        out["patient_id"] = m_p.group(1)
+    m_c = _DLC_NOTE_CAREGIVER_RE.search(note)
+    if m_c:
+        out["caregiver_user_id"] = m_c.group(1)
+    m_d = _DLC_NOTE_DISPATCH_RE.search(note)
+    if m_d:
+        out["dispatch_id"] = m_d.group(1)
+    m_t = _DLC_NOTE_CONCERN_RE.search(note)
+    if m_t:
+        out["concern_text"] = m_t.group(1).strip()[:480]
+    return out
+
+
+@router.get(
+    "/delivery-concerns",
+    response_model=DeliveryConcernsListOut,
+)
+def list_delivery_concerns(
+    since: Optional[str] = Query(default=None, max_length=32),
+    until: Optional[str] = Query(default=None, max_length=32),
+    limit: int = Query(default=100, ge=1, le=500),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> DeliveryConcernsListOut:
+    """Patient-filed caregiver-delivery concerns visible to clinicians.
+
+    Reads ``audit_events`` rows where
+    ``action='clinician_inbox.caregiver_delivery_concern_to_clinician_mirror'``
+    and the patient is in the actor's clinic scope (clinicians see
+    their own clinic's patients; admins see all). The same Inbox
+    HIGH-priority predicate already routes these rows into the
+    breach feed; this endpoint exposes them in a stable shape so the
+    Care Team Coverage page can render a dedicated subsection without
+    re-implementing the patient-id parsing.
+    """
+    _gate_read(actor)
+    until_dt = datetime.now(timezone.utc)
+    since_dt = until_dt - timedelta(days=14)
+    parsed_since = _parse_iso(since)
+    parsed_until = _parse_iso(until)
+    if parsed_since is not None:
+        since_dt = parsed_since
+    if parsed_until is not None:
+        until_dt = parsed_until
+    if since_dt > until_dt:
+        since_dt, until_dt = until_dt, since_dt
+
+    rows = (
+        db.query(AuditEventRecord)
+        .filter(
+            AuditEventRecord.action
+            == "clinician_inbox.caregiver_delivery_concern_to_clinician_mirror",
+        )
+        .order_by(AuditEventRecord.created_at.desc())
+        .limit(limit * 4)  # over-pull so we can scope-filter without missing rows
+        .all()
+    )
+
+    is_admin = _is_admin_scope(actor)
+    actor_clinic = actor.clinic_id
+
+    items: list[DeliveryConcernRowOut] = []
+    for r in rows:
+        ts = _parse_iso(r.created_at)
+        if ts is None:
+            continue
+        if not (since_dt <= ts <= until_dt):
+            continue
+        parsed = _parse_delivery_concern_note(r.note or "")
+        patient_id = parsed["patient_id"] or r.target_id
+        if not patient_id:
+            continue
+        # Cross-clinic scope: clinicians only see patients at their clinic.
+        if not is_admin:
+            patient = db.query(Patient).filter_by(id=patient_id).first()
+            if patient is None:
+                continue
+            if patient.clinician_id:
+                u = db.query(User).filter_by(id=patient.clinician_id).first()
+                if u is None or u.clinic_id != actor_clinic:
+                    continue
+            else:
+                # No clinician on file — defensive default to drop.
+                continue
+        # Patient first name + caregiver first name — first-name only.
+        patient_first_name: Optional[str] = None
+        p = db.query(Patient).filter_by(id=patient_id).first()
+        if p is not None and p.first_name:
+            patient_first_name = (p.first_name.strip() or None)
+        caregiver_first_name: Optional[str] = None
+        cg_id = parsed["caregiver_user_id"]
+        if cg_id:
+            cg_user = db.query(User).filter_by(id=cg_id).first()
+            if cg_user is not None and cg_user.display_name:
+                first_token = cg_user.display_name.strip().split(" ", 1)[0]
+                if first_token:
+                    caregiver_first_name = first_token[:64]
+
+        is_demo = "DEMO" in (r.note or "").upper().split(";")[0]
+        items.append(
+            DeliveryConcernRowOut(
+                audit_event_id=r.event_id,
+                patient_id=patient_id,
+                patient_first_name=patient_first_name,
+                caregiver_user_id=cg_id,
+                caregiver_first_name=caregiver_first_name,
+                dispatch_id=parsed["dispatch_id"],
+                concern_text=parsed["concern_text"],
+                flagged_at=r.created_at,
+                is_demo=is_demo,
+            )
+        )
+        if len(items) >= limit:
+            break
+
+    return DeliveryConcernsListOut(
+        items=items,
+        total=len(items),
+        since=since_dt.isoformat(),
+        until=until_dt.isoformat(),
+    )

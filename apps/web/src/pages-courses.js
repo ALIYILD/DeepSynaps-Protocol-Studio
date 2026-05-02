@@ -12270,3 +12270,1644 @@ export async function pgQuickOutcomeCapture(setTopbar) {
 export function openQuickOutcomeCapture(courseId, sessionId, patientName) {
   window._openQuickOutcomeCapture(courseId, sessionId, patientName);
 }
+
+
+// ── pgClinicianAdherenceHub — Cross-patient adherence triage (launch-audit 2026-05-01)
+//
+// Bidirectional counterpart to the patient-facing pgPatientAdherenceEvents
+// (#350). Wires to the new ``/api/v1/clinician-adherence/*`` endpoints in
+// ``apps/api/app/routers/clinician_adherence_router.py``:
+//
+//   GET    /api/v1/clinician-adherence/events            — list (audited)
+//   GET    /api/v1/clinician-adherence/events/summary    — top counts
+//   GET    /api/v1/clinician-adherence/events/{id}       — detail
+//   POST   /api/v1/clinician-adherence/events/{id}/acknowledge
+//   POST   /api/v1/clinician-adherence/events/{id}/escalate
+//   POST   /api/v1/clinician-adherence/events/{id}/resolve
+//   POST   /api/v1/clinician-adherence/events/bulk-acknowledge
+//   GET    /api/v1/clinician-adherence/events/export.csv     — DEMO-prefixed when demo
+//   GET    /api/v1/clinician-adherence/events/export.ndjson  — DEMO-prefixed when demo
+//   POST   /api/v1/clinician-adherence/audit-events      — page audit ingestion
+//
+// Pinned page contract (mirrored in clinician-adherence-hub-launch-audit.test.js):
+//
+//   - Mount-time `clinician_adherence_hub.view` audit ping
+//   - Reads /events + /summary at mount
+//   - Items grouped by patient (per-group summary)
+//   - DEMO banner only when server returns is_demo_view=true
+//   - Honest empty state ("No adherence events pending review.")
+//   - Acknowledge / escalate / resolve buttons with note-required prompt
+//   - Bulk acknowledge: select rows + ack-all
+//   - Drill-out per-event to Patient Profile, Course Detail, AE Hub
+//   - Each ack / escalate / resolve / bulk-ack / export emits its own audit event
+//   - No silent fakes; counts come from real audit-row aggregation
+
+const _cahEsc = (s) => String(s ?? '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+function _cahNoteRequiredValid(note) {
+  if (note == null) return false;
+  return String(note).trim().length > 0;
+}
+
+function _cahBuildAuditPayload(event, extra = {}) {
+  const out = { event };
+  if (extra.event_record_id) out.event_record_id = String(extra.event_record_id);
+  if (extra.note) out.note = String(extra.note).slice(0, 480);
+  if (extra.using_demo_data) out.using_demo_data = true;
+  return out;
+}
+
+function _cahBuildFilterParams(filters) {
+  const params = {};
+  if (filters?.severity) params.severity = filters.severity;
+  if (filters?.status) params.status = filters.status;
+  if (filters?.surface_chip) params.surface_chip = filters.surface_chip;
+  if (filters?.patient_id) params.patient_id = filters.patient_id;
+  if (filters?.q) params.q = filters.q;
+  return params;
+}
+
+function _cahShouldShowDemoBanner(serverListResp) {
+  return !!(serverListResp && serverListResp.is_demo_view);
+}
+
+function _cahShouldShowEmptyState(serverListResp) {
+  if (!serverListResp || !Array.isArray(serverListResp.items)) return true;
+  return serverListResp.items.length === 0;
+}
+
+function _cahCsvExportPath() { return '/api/v1/clinician-adherence/events/export.csv'; }
+function _cahNdjsonExportPath() { return '/api/v1/clinician-adherence/events/export.ndjson'; }
+
+// Hub-level state — kept tiny so the hub can mount/unmount cleanly.
+let _cahState = {
+  items: [],
+  total: 0,
+  isDemoView: false,
+  summary: null,
+  filterSeverity: '',
+  filterStatus: '',
+  filterSurfaceChip: '',
+  filterQ: '',
+  selectedIds: new Set(),
+  loaded: false,
+  error: null,
+};
+
+const _CAH_SURFACE_CHIPS = [
+  ['', 'All types'],
+  ['adherence_report', 'Adherence Report'],
+  ['side_effect', 'Side Effect'],
+  ['tolerance_change', 'Tolerance Change'],
+  ['break_request', 'Break Request'],
+  ['concern', 'Concern'],
+  ['positive_feedback', 'Positive Feedback'],
+];
+
+const _CAH_SEVERITIES = [
+  ['', 'All severities'],
+  ['low', 'Low'],
+  ['moderate', 'Moderate'],
+  ['high', 'High'],
+  ['urgent', 'Urgent'],
+];
+
+const _CAH_STATUSES = [
+  ['', 'All statuses'],
+  ['open', 'Open'],
+  ['acknowledged', 'Acknowledged'],
+  ['escalated', 'Escalated'],
+  ['resolved', 'Resolved'],
+];
+
+function _cahGroupByPatient(items) {
+  const map = new Map();
+  for (const it of items) {
+    const key = it.patient_id || '_unknown';
+    if (!map.has(key)) {
+      map.set(key, {
+        patient_id: key,
+        patient_name: it.patient_name || key,
+        items: [],
+        total: 0,
+        side_effects: 0,
+        escalated: 0,
+        sae: 0,
+      });
+    }
+    const g = map.get(key);
+    g.items.push(it);
+    g.total += 1;
+    if (it.event_type === 'side_effect') g.side_effects += 1;
+    if (it.status === 'escalated') g.escalated += 1;
+    if (it.event_type === 'side_effect' && it.severity === 'urgent') g.sae += 1;
+  }
+  return Array.from(map.values()).sort((a, b) => b.total - a.total);
+}
+
+export async function pgClinicianAdherenceHub(setTopbar, navigate) {
+  const el = document.getElementById('app');
+  if (!el) return;
+
+  if (typeof setTopbar === 'function') {
+    setTopbar(
+      'Clinician Adherence Hub',
+      'Cross-patient triage of adherence reports, side-effects, and escalations.',
+    );
+  }
+
+  // Mount-time audit ping. Best-effort.
+  try {
+    api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('view', {
+      note: 'adherence hub page mounted',
+    }));
+  } catch (_) { /* ignore */ }
+
+  // Render skeleton — never invent rows.
+  el.innerHTML = `
+    <div id="cah-root" style="max-width:1180px;margin:0 auto;padding:18px 24px">
+      <div id="cah-summary"></div>
+      <div id="cah-filters"></div>
+      <div id="cah-banner"></div>
+      <div id="cah-content">
+        <div style="text-align:center;padding:40px;color:var(--text-tertiary);font-size:12px">Loading adherence hub…</div>
+      </div>
+    </div>`;
+
+  await _cahLoadData();
+  _cahBindFilterHandlers(navigate);
+  _cahBindRowHandlers(navigate);
+}
+
+async function _cahLoadData() {
+  const root = document.getElementById('cah-root');
+  if (!root) return; // navigated away
+  const params = _cahBuildFilterParams({
+    severity: _cahState.filterSeverity,
+    status: _cahState.filterStatus,
+    surface_chip: _cahState.filterSurfaceChip,
+    q: _cahState.filterQ,
+  });
+  const [list, summary] = await Promise.all([
+    api.clinicianAdherenceList(params),
+    api.clinicianAdherenceSummary(),
+  ]);
+
+  // Honest empty payload when offline — never fabricate rows.
+  _cahState.items = (list && Array.isArray(list.items)) ? list.items : [];
+  _cahState.total = (list && Number(list.total)) || 0;
+  _cahState.isDemoView = !!(list && list.is_demo_view);
+  _cahState.summary = summary || {
+    total_today: 0,
+    total_7d: 0,
+    side_effects_7d: 0,
+    escalated_7d: 0,
+    sae_flagged: 0,
+    response_rate_pct: 0,
+    missed_streak_top_patients: [],
+  };
+  _cahState.loaded = true;
+
+  const summaryEl = document.getElementById('cah-summary');
+  if (summaryEl) summaryEl.innerHTML = _cahRenderSummaryStrip(_cahState.summary);
+  const filtersEl = document.getElementById('cah-filters');
+  if (filtersEl) filtersEl.innerHTML = _cahRenderFilterStrip(_cahState);
+  const bannerEl = document.getElementById('cah-banner');
+  if (bannerEl) bannerEl.innerHTML = _cahShouldShowDemoBanner(list) ? _cahRenderDemoBanner() : '';
+  const contentEl = document.getElementById('cah-content');
+  if (contentEl) {
+    if (_cahShouldShowEmptyState(list)) {
+      contentEl.innerHTML = _cahRenderEmptyState();
+    } else {
+      const grouped = _cahGroupByPatient(_cahState.items);
+      contentEl.innerHTML = grouped.map(_cahRenderPatientGroup).join('');
+    }
+  }
+}
+
+function _cahRenderSummaryStrip(s) {
+  const card = (label, value, sub) => `
+    <div class="card" style="padding:14px;text-align:center">
+      <div style="font-size:22px;font-weight:700;color:var(--text-primary)">${_cahEsc(String(value ?? '—'))}</div>
+      <div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin-top:4px">${_cahEsc(label)}</div>
+      ${sub ? `<div style="font-size:10px;color:var(--text-tertiary);margin-top:2px">${_cahEsc(sub)}</div>` : ''}
+    </div>`;
+  return `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px">
+      ${card('Today', s.total_today ?? 0, 'events')}
+      ${card('Past 7d', s.total_7d ?? 0, 'events')}
+      ${card('Side-effects 7d', s.side_effects_7d ?? 0, 'logged')}
+      ${card('Escalated 7d', s.escalated_7d ?? 0, 'open')}
+      ${card('SAE-flagged', s.sae_flagged ?? 0, 'urgent')}
+      ${card('Response rate', `${(s.response_rate_pct ?? 0).toFixed ? s.response_rate_pct.toFixed(1) : s.response_rate_pct}%`, 'actioned')}
+    </div>
+    ${s.missed_streak_top_patients && s.missed_streak_top_patients.length
+      ? `<div class="card" style="padding:12px 14px;margin-bottom:14px">
+          <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px">Missed-streak top patients</div>
+          ${s.missed_streak_top_patients.map(p => `
+            <div style="font-size:12px;color:var(--text-primary);margin-bottom:3px">
+              <button class="cah-drill-patient-btn" data-patient="${_cahEsc(p.patient_id)}" style="background:none;border:none;color:var(--accent,#3b82f6);text-decoration:underline;cursor:pointer;padding:0">${_cahEsc(p.patient_name)}</button>
+              · ${_cahEsc(String(p.streak_days))} day(s) without complete adherence
+            </div>`).join('')}
+        </div>`
+      : ''}
+  `;
+}
+
+function _cahRenderFilterStrip(state) {
+  const opts = (arr, sel) => arr.map(([v, l]) =>
+    `<option value="${_cahEsc(v)}"${v === sel ? ' selected' : ''}>${_cahEsc(l)}</option>`).join('');
+  return `
+    <div class="card" style="padding:12px 14px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+      <select id="cah-filter-severity" class="form-control" style="max-width:160px">
+        ${opts(_CAH_SEVERITIES, state.filterSeverity)}
+      </select>
+      <select id="cah-filter-status" class="form-control" style="max-width:160px">
+        ${opts(_CAH_STATUSES, state.filterStatus)}
+      </select>
+      <select id="cah-filter-surface-chip" class="form-control" style="max-width:180px">
+        ${opts(_CAH_SURFACE_CHIPS, state.filterSurfaceChip)}
+      </select>
+      <input id="cah-filter-q" class="form-control" style="max-width:220px" placeholder="Search body…" value="${_cahEsc(state.filterQ || '')}">
+      <button id="cah-bulk-ack-btn" class="btn btn-secondary" style="margin-left:auto">Bulk acknowledge (${state.selectedIds.size})</button>
+      <a id="cah-export-csv-btn" class="btn btn-link" href="${_cahCsvExportPath()}" target="_blank">Export CSV</a>
+      <a id="cah-export-ndjson-btn" class="btn btn-link" href="${_cahNdjsonExportPath()}" target="_blank">Export NDJSON</a>
+    </div>`;
+}
+
+function _cahRenderDemoBanner() {
+  return `
+    <div class="notice notice-warning" style="margin-bottom:14px;font-size:12.5px;line-height:1.55">
+      <strong>Demo data.</strong> Some events shown are from demo patients. Exports will be DEMO-prefixed; not regulator-submittable.
+    </div>`;
+}
+
+function _cahRenderEmptyState() {
+  return `
+    <div class="card" style="padding:36px 24px;text-align:center;color:var(--text-secondary)">
+      <div style="font-size:2.4rem;margin-bottom:14px">✓</div>
+      <div style="font-size:1.05rem;font-weight:600;margin-bottom:6px">No adherence events pending review.</div>
+      <div style="font-size:0.85rem;color:var(--text-tertiary);max-width:480px;margin:0 auto">
+        Adherence reports, side-effects, and escalations from your clinic's patients will appear here. Counts are real audit-table aggregates, not AI-fabricated cohort scoring.
+      </div>
+    </div>`;
+}
+
+function _cahRenderPatientGroup(g) {
+  return `
+    <div class="card" style="padding:0;margin-bottom:14px;overflow:hidden">
+      <div style="padding:12px 14px;border-bottom:1px solid var(--border-color);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <div>
+          <button class="cah-drill-patient-btn" data-patient="${_cahEsc(g.patient_id)}" style="background:none;border:none;color:var(--accent,#3b82f6);font-weight:600;text-decoration:underline;cursor:pointer;padding:0;font-size:14px">${_cahEsc(g.patient_name)}</button>
+          <span style="margin-left:8px;font-size:11px;color:var(--text-tertiary)">${_cahEsc(g.patient_id)}</span>
+        </div>
+        <div style="font-size:11px;color:var(--text-secondary)">
+          ${_cahEsc(String(g.total))} events · ${_cahEsc(String(g.side_effects))} side-effect${g.side_effects === 1 ? '' : 's'} · ${_cahEsc(String(g.escalated))} escalated · ${_cahEsc(String(g.sae))} SAE
+        </div>
+      </div>
+      <div>
+        ${g.items.map(_cahRenderEventRow).join('')}
+      </div>
+    </div>`;
+}
+
+function _cahRenderEventRow(it) {
+  const sevColor = (
+    it.severity === 'urgent' ? '#ff6b6b' :
+    it.severity === 'high'   ? '#f59e0b' :
+    it.severity === 'moderate' ? '#3b82f6' :
+    it.severity === 'low'    ? '#14b8a6' :
+    'var(--text-tertiary)'
+  );
+  const statusColor = (
+    it.status === 'open'         ? '#f59e0b' :
+    it.status === 'acknowledged' ? '#3b82f6' :
+    it.status === 'escalated'    ? '#ff6b6b' :
+    it.status === 'resolved'     ? '#14b8a6' :
+    'var(--text-tertiary)'
+  );
+  const isImmutable = it.status === 'resolved';
+  return `
+    <div style="padding:10px 14px;border-bottom:1px solid var(--border-color);display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start">
+      <input type="checkbox" class="cah-row-checkbox" data-event-id="${_cahEsc(it.id)}" ${isImmutable ? 'disabled' : ''} style="margin-top:5px">
+      <div style="flex:1;min-width:240px">
+        <div style="font-size:13px;font-weight:600;color:var(--text-primary)">
+          <span style="color:${sevColor}">${_cahEsc(it.event_type)}</span>
+          ${it.severity ? `<span style="margin-left:6px;font-size:11px;color:${sevColor}">[${_cahEsc(it.severity)}]</span>` : ''}
+          <span style="margin-left:6px;font-size:11px;color:${statusColor}">[${_cahEsc(it.status)}]</span>
+          ${it.is_demo ? `<span style="margin-left:6px;font-size:10px;color:var(--text-tertiary);background:var(--bg-tertiary);padding:1px 5px;border-radius:3px">DEMO</span>` : ''}
+        </div>
+        <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">${_cahEsc(it.report_date || '')} · ${_cahEsc((it.body || '').slice(0, 160))}${(it.body || '').length > 160 ? '…' : ''}</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${isImmutable ? '' : `<button class="cah-ack-btn btn btn-secondary" data-event-id="${_cahEsc(it.id)}">Acknowledge</button>`}
+        ${isImmutable ? '' : `<button class="cah-escalate-btn btn btn-warning" data-event-id="${_cahEsc(it.id)}">Escalate</button>`}
+        ${isImmutable ? '' : `<button class="cah-resolve-btn btn btn-secondary" data-event-id="${_cahEsc(it.id)}">Resolve</button>`}
+        <button class="cah-drill-patient-btn btn btn-link" data-patient="${_cahEsc(it.patient_id)}">Patient</button>
+        ${it.course_id ? `<button class="cah-drill-course-btn btn btn-link" data-course="${_cahEsc(it.course_id)}">Course</button>` : ''}
+        <button class="cah-drill-ae-btn btn btn-link" data-patient="${_cahEsc(it.patient_id)}">AE Hub</button>
+      </div>
+    </div>`;
+}
+
+function _cahBindFilterHandlers(navigate) {
+  const sevSel = document.getElementById('cah-filter-severity');
+  if (sevSel && !sevSel._bound) {
+    sevSel._bound = true;
+    sevSel.onchange = () => {
+      _cahState.filterSeverity = sevSel.value || '';
+      try { api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('filter_changed', { note: 'severity=' + (_cahState.filterSeverity || 'all') })); } catch (_) {}
+      _cahLoadData().then(() => { _cahBindFilterHandlers(navigate); _cahBindRowHandlers(navigate); });
+    };
+  }
+  const statSel = document.getElementById('cah-filter-status');
+  if (statSel && !statSel._bound) {
+    statSel._bound = true;
+    statSel.onchange = () => {
+      _cahState.filterStatus = statSel.value || '';
+      try { api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('filter_changed', { note: 'status=' + (_cahState.filterStatus || 'all') })); } catch (_) {}
+      _cahLoadData().then(() => { _cahBindFilterHandlers(navigate); _cahBindRowHandlers(navigate); });
+    };
+  }
+  const surfSel = document.getElementById('cah-filter-surface-chip');
+  if (surfSel && !surfSel._bound) {
+    surfSel._bound = true;
+    surfSel.onchange = () => {
+      _cahState.filterSurfaceChip = surfSel.value || '';
+      try { api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('filter_changed', { note: 'surface_chip=' + (_cahState.filterSurfaceChip || 'all') })); } catch (_) {}
+      _cahLoadData().then(() => { _cahBindFilterHandlers(navigate); _cahBindRowHandlers(navigate); });
+    };
+  }
+  const qInput = document.getElementById('cah-filter-q');
+  if (qInput && !qInput._bound) {
+    qInput._bound = true;
+    let _qDebounce = null;
+    qInput.oninput = () => {
+      _cahState.filterQ = qInput.value || '';
+      if (_qDebounce) clearTimeout(_qDebounce);
+      _qDebounce = setTimeout(() => {
+        try { api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('filter_changed', { note: 'q=' + (_cahState.filterQ || '').slice(0, 60) })); } catch (_) {}
+        _cahLoadData().then(() => { _cahBindFilterHandlers(navigate); _cahBindRowHandlers(navigate); });
+      }, 300);
+    };
+  }
+  const bulkBtn = document.getElementById('cah-bulk-ack-btn');
+  if (bulkBtn && !bulkBtn._bound) {
+    bulkBtn._bound = true;
+    bulkBtn.onclick = async () => {
+      if (_cahState.selectedIds.size === 0) {
+        if (window.showToast) window.showToast('Select at least one event to acknowledge.', 'warn');
+        return;
+      }
+      const note = (typeof window !== 'undefined' ? window.prompt('Acknowledge note (required):', '') : '');
+      if (!_cahNoteRequiredValid(note)) {
+        if (window.showToast) window.showToast('Acknowledgement note is required.', 'warn');
+        return;
+      }
+      const ids = Array.from(_cahState.selectedIds);
+      try {
+        const r = await api.clinicianAdherenceBulkAcknowledge(ids, note);
+        try { api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('bulk_acknowledged', { note: `processed=${ids.length}` })); } catch (_) {}
+        const failed = (r && Array.isArray(r.failures)) ? r.failures.length : 0;
+        if (window.showToast) {
+          if (failed > 0) window.showToast(`Bulk ack: ${r?.succeeded ?? 0} ok, ${failed} failed.`, 'warn');
+          else window.showToast(`Acknowledged ${r?.succeeded ?? ids.length} events.`, 'success');
+        }
+        _cahState.selectedIds.clear();
+        await _cahLoadData();
+        _cahBindFilterHandlers(navigate);
+        _cahBindRowHandlers(navigate);
+      } catch (_) {
+        if (window.showToast) window.showToast('Bulk acknowledge failed.', 'error');
+      }
+    };
+  }
+  const csvBtn = document.getElementById('cah-export-csv-btn');
+  if (csvBtn && !csvBtn._bound) {
+    csvBtn._bound = true;
+    csvBtn.addEventListener('click', () => {
+      try { api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('export', { note: 'format=csv' })); } catch (_) {}
+    });
+  }
+  const ndBtn = document.getElementById('cah-export-ndjson-btn');
+  if (ndBtn && !ndBtn._bound) {
+    ndBtn._bound = true;
+    ndBtn.addEventListener('click', () => {
+      try { api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('export', { note: 'format=ndjson' })); } catch (_) {}
+    });
+  }
+}
+
+function _cahBindRowHandlers(navigate) {
+  const cbs = document.querySelectorAll('.cah-row-checkbox');
+  cbs.forEach(cb => {
+    if (cb._bound) return;
+    cb._bound = true;
+    cb.onchange = () => {
+      const id = cb.getAttribute('data-event-id');
+      if (cb.checked) _cahState.selectedIds.add(id);
+      else _cahState.selectedIds.delete(id);
+      const bulk = document.getElementById('cah-bulk-ack-btn');
+      if (bulk) bulk.textContent = `Bulk acknowledge (${_cahState.selectedIds.size})`;
+    };
+  });
+
+  document.querySelectorAll('.cah-ack-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = async () => {
+      const id = btn.getAttribute('data-event-id');
+      const note = (typeof window !== 'undefined' ? window.prompt('Acknowledge note (required):', '') : '');
+      if (!_cahNoteRequiredValid(note)) {
+        if (window.showToast) window.showToast('Acknowledgement note is required.', 'warn');
+        return;
+      }
+      try {
+        await api.clinicianAdherenceAcknowledge(id, note);
+        try { api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('event_acknowledged_via_modal', { event_record_id: id })); } catch (_) {}
+        if (window.showToast) window.showToast('Event acknowledged.', 'success');
+        await _cahLoadData();
+        _cahBindFilterHandlers(navigate);
+        _cahBindRowHandlers(navigate);
+      } catch (_) {
+        if (window.showToast) window.showToast('Acknowledge failed.', 'error');
+      }
+    };
+  });
+
+  document.querySelectorAll('.cah-escalate-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = async () => {
+      const id = btn.getAttribute('data-event-id');
+      const note = (typeof window !== 'undefined' ? window.prompt('Escalation note (required) — creates AE Hub draft:', '') : '');
+      if (!_cahNoteRequiredValid(note)) {
+        if (window.showToast) window.showToast('Escalation note is required.', 'warn');
+        return;
+      }
+      try {
+        const r = await api.clinicianAdherenceEscalate(id, note);
+        try { api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('event_escalated_via_modal', { event_record_id: id })); } catch (_) {}
+        if (window.showToast) {
+          window.showToast(r?.adverse_event_id ? `Escalated · AE draft ${r.adverse_event_id}` : 'Event escalated.', 'success');
+        }
+        await _cahLoadData();
+        _cahBindFilterHandlers(navigate);
+        _cahBindRowHandlers(navigate);
+      } catch (_) {
+        if (window.showToast) window.showToast('Escalation failed.', 'error');
+      }
+    };
+  });
+
+  document.querySelectorAll('.cah-resolve-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = async () => {
+      const id = btn.getAttribute('data-event-id');
+      const note = (typeof window !== 'undefined' ? window.prompt('Resolution note (required) — event is immutable thereafter:', '') : '');
+      if (!_cahNoteRequiredValid(note)) {
+        if (window.showToast) window.showToast('Resolution note is required.', 'warn');
+        return;
+      }
+      try {
+        await api.clinicianAdherenceResolve(id, note);
+        try { api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('event_resolved_via_modal', { event_record_id: id })); } catch (_) {}
+        if (window.showToast) window.showToast('Event resolved.', 'success');
+        await _cahLoadData();
+        _cahBindFilterHandlers(navigate);
+        _cahBindRowHandlers(navigate);
+      } catch (_) {
+        if (window.showToast) window.showToast('Resolve failed.', 'error');
+      }
+    };
+  });
+
+  document.querySelectorAll('.cah-drill-patient-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = () => {
+      const pid = btn.getAttribute('data-patient');
+      try { api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('deep_link_followed', { note: 'patient=' + pid })); } catch (_) {}
+      if (pid) window._patientId = pid;
+      if (typeof navigate === 'function') navigate('patient-profile');
+      else if (typeof window !== 'undefined' && window._nav) window._nav('patient-profile');
+    };
+  });
+
+  document.querySelectorAll('.cah-drill-course-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = () => {
+      const cid = btn.getAttribute('data-course');
+      try { api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('deep_link_followed', { note: 'course=' + cid })); } catch (_) {}
+      if (cid) window._courseId = cid;
+      if (typeof navigate === 'function') navigate('course-detail');
+      else if (typeof window !== 'undefined' && window._nav) window._nav('course-detail');
+    };
+  });
+
+  document.querySelectorAll('.cah-drill-ae-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = () => {
+      const pid = btn.getAttribute('data-patient');
+      try { api.postClinicianAdherenceAuditEvent(_cahBuildAuditPayload('deep_link_followed', { note: 'ae_hub=' + pid })); } catch (_) {}
+      if (pid) window._patientId = pid;
+      if (typeof navigate === 'function') navigate('adverse-events');
+      else if (typeof window !== 'undefined' && window._nav) window._nav('adverse-events');
+    };
+  });
+}
+
+
+// ── pgClinicianWellnessHub — Cross-patient wellness triage (launch-audit 2026-05-01)
+//
+// Bidirectional counterpart to the patient-facing pgPatientWellness
+// (#345). Wires to the new ``/api/v1/clinician-wellness/*`` endpoints
+// in ``apps/api/app/routers/clinician_wellness_router.py``:
+//
+//   GET    /api/v1/clinician-wellness/checkins             — list (audited)
+//   GET    /api/v1/clinician-wellness/checkins/summary     — top counts
+//   GET    /api/v1/clinician-wellness/checkins/{id}        — detail
+//   POST   /api/v1/clinician-wellness/checkins/{id}/acknowledge
+//   POST   /api/v1/clinician-wellness/checkins/{id}/escalate
+//   POST   /api/v1/clinician-wellness/checkins/{id}/resolve
+//   POST   /api/v1/clinician-wellness/checkins/bulk-acknowledge
+//   GET    /api/v1/clinician-wellness/checkins/export.csv    — DEMO-prefixed when demo
+//   GET    /api/v1/clinician-wellness/checkins/export.ndjson — DEMO-prefixed when demo
+//   POST   /api/v1/clinician-wellness/audit-events         — page audit ingestion
+//
+// Pinned page contract (mirrored in clinician-wellness-hub-launch-audit.test.js):
+//
+//   - Mount-time `clinician_wellness_hub.view` audit ping
+//   - Reads /checkins + /summary at mount
+//   - Items grouped by patient with a per-group six-axis sparkline summary
+//   - DEMO banner only when server returns is_demo_view=true
+//   - Honest empty state ("No wellness check-ins pending review.")
+//   - Acknowledge / escalate / resolve buttons with note-required prompt
+//   - Bulk acknowledge: select rows + ack-all
+//   - Drill-out per-checkin to Patient Profile, Course Detail, AE Hub,
+//     and the Clinician Adherence Hub (correlate with adherence)
+//   - Each ack / escalate / resolve / bulk-ack / export emits its own audit event
+//   - No silent fakes; counts come from real audit-row aggregation
+
+const _cwhEsc = (s) => String(s ?? '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+function _cwhNoteRequiredValid(note) {
+  if (note == null) return false;
+  return String(note).trim().length > 0;
+}
+
+function _cwhBuildAuditPayload(event, extra = {}) {
+  const out = { event };
+  if (extra.checkin_id) out.checkin_id = String(extra.checkin_id);
+  if (extra.note) out.note = String(extra.note).slice(0, 480);
+  if (extra.using_demo_data) out.using_demo_data = true;
+  return out;
+}
+
+function _cwhBuildFilterParams(filters) {
+  const params = {};
+  if (filters?.severity_band) params.severity_band = filters.severity_band;
+  if (filters?.axis) params.axis = filters.axis;
+  if (filters?.surface_chip) params.surface_chip = filters.surface_chip;
+  if (filters?.clinician_status) params.clinician_status = filters.clinician_status;
+  if (filters?.patient_id) params.patient_id = filters.patient_id;
+  if (filters?.q) params.q = filters.q;
+  return params;
+}
+
+function _cwhShouldShowDemoBanner(serverListResp) {
+  return !!(serverListResp && serverListResp.is_demo_view);
+}
+
+function _cwhShouldShowEmptyState(serverListResp) {
+  if (!serverListResp || !Array.isArray(serverListResp.items)) return true;
+  return serverListResp.items.length === 0;
+}
+
+function _cwhCsvExportPath() { return '/api/v1/clinician-wellness/checkins/export.csv'; }
+function _cwhNdjsonExportPath() { return '/api/v1/clinician-wellness/checkins/export.ndjson'; }
+
+// Hub-level state — kept tiny so the hub can mount/unmount cleanly.
+let _cwhState = {
+  items: [],
+  total: 0,
+  isDemoView: false,
+  summary: null,
+  filterSeverityBand: '',
+  filterAxis: '',
+  filterClinicianStatus: '',
+  filterQ: '',
+  selectedIds: new Set(),
+  loaded: false,
+  error: null,
+};
+
+const _CWH_AXES = [
+  ['', 'All axes'],
+  ['mood', 'Mood'],
+  ['energy', 'Energy'],
+  ['sleep', 'Sleep'],
+  ['anxiety', 'Anxiety'],
+  ['focus', 'Focus'],
+  ['pain', 'Pain'],
+];
+
+const _CWH_SEVERITY_BANDS = [
+  ['', 'All severities'],
+  ['low', 'Low'],
+  ['moderate', 'Moderate'],
+  ['high', 'High'],
+  ['urgent', 'Urgent'],
+];
+
+const _CWH_STATUSES = [
+  ['', 'All statuses'],
+  ['open', 'Open'],
+  ['acknowledged', 'Acknowledged'],
+  ['escalated', 'Escalated'],
+  ['resolved', 'Resolved'],
+];
+
+// Six-axis labels — must match server _AXES order.
+const _CWH_AXIS_KEYS = ['mood', 'energy', 'sleep', 'anxiety', 'focus', 'pain'];
+
+function _cwhAxisAvg(items, axis) {
+  const vals = items.map(it => it[axis]).filter(v => v !== null && v !== undefined);
+  if (vals.length === 0) return null;
+  return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10;
+}
+
+function _cwhGroupByPatient(items) {
+  const map = new Map();
+  for (const it of items) {
+    const key = it.patient_id || '_unknown';
+    if (!map.has(key)) {
+      map.set(key, {
+        patient_id: key,
+        patient_name: it.patient_name || key,
+        items: [],
+        total: 0,
+        candidates: 0,
+        escalated: 0,
+        urgent: 0,
+      });
+    }
+    const g = map.get(key);
+    g.items.push(it);
+    g.total += 1;
+    if (it.escalation_candidate) g.candidates += 1;
+    if (it.clinician_status === 'escalated') g.escalated += 1;
+    if (it.severity_band === 'urgent') g.urgent += 1;
+  }
+  // Compute six-axis averages per group (sparkline summary input).
+  for (const g of map.values()) {
+    g.axes_avg = {};
+    for (const axis of _CWH_AXIS_KEYS) {
+      g.axes_avg[axis] = _cwhAxisAvg(g.items, axis);
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => b.total - a.total);
+}
+
+export async function pgClinicianWellnessHub(setTopbar, navigate) {
+  const el = document.getElementById('app');
+  if (!el) return;
+
+  if (typeof setTopbar === 'function') {
+    setTopbar(
+      'Clinician Wellness Hub',
+      'Cross-patient triage of wellness check-ins, low-mood flags, and adherence-risk signals.',
+    );
+  }
+
+  // Mount-time audit ping. Best-effort.
+  try {
+    api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('view', {
+      note: 'wellness hub page mounted',
+    }));
+  } catch (_) { /* ignore */ }
+
+  // Render skeleton — never invent rows.
+  el.innerHTML = `
+    <div id="cwh-root" style="max-width:1180px;margin:0 auto;padding:18px 24px">
+      <div id="cwh-summary"></div>
+      <div id="cwh-filters"></div>
+      <div id="cwh-banner"></div>
+      <div id="cwh-content">
+        <div style="text-align:center;padding:40px;color:var(--text-tertiary);font-size:12px">Loading wellness hub…</div>
+      </div>
+    </div>`;
+
+  await _cwhLoadData();
+  _cwhBindFilterHandlers(navigate);
+  _cwhBindRowHandlers(navigate);
+}
+
+async function _cwhLoadData() {
+  const root = document.getElementById('cwh-root');
+  if (!root) return; // navigated away
+  const params = _cwhBuildFilterParams({
+    severity_band: _cwhState.filterSeverityBand,
+    axis: _cwhState.filterAxis,
+    clinician_status: _cwhState.filterClinicianStatus,
+    q: _cwhState.filterQ,
+  });
+  const [list, summary] = await Promise.all([
+    api.clinicianWellnessList(params),
+    api.clinicianWellnessSummary(),
+  ]);
+
+  // Honest empty payload when offline — never fabricate rows.
+  _cwhState.items = (list && Array.isArray(list.items)) ? list.items : [];
+  _cwhState.total = (list && Number(list.total)) || 0;
+  _cwhState.isDemoView = !!(list && list.is_demo_view);
+  _cwhState.summary = summary || {
+    total_today: 0,
+    total_7d: 0,
+    axes_trending_down_7d: 0,
+    low_mood_top_patients: [],
+    missed_streak_top_patients: [],
+    response_rate_pct: 0,
+    escalation_candidates: 0,
+  };
+  _cwhState.loaded = true;
+
+  const summaryEl = document.getElementById('cwh-summary');
+  if (summaryEl) summaryEl.innerHTML = _cwhRenderSummaryStrip(_cwhState.summary);
+  const filtersEl = document.getElementById('cwh-filters');
+  if (filtersEl) filtersEl.innerHTML = _cwhRenderFilterStrip(_cwhState);
+  const bannerEl = document.getElementById('cwh-banner');
+  if (bannerEl) bannerEl.innerHTML = _cwhShouldShowDemoBanner(list) ? _cwhRenderDemoBanner() : '';
+  const contentEl = document.getElementById('cwh-content');
+  if (contentEl) {
+    if (_cwhShouldShowEmptyState(list)) {
+      contentEl.innerHTML = _cwhRenderEmptyState();
+    } else {
+      const grouped = _cwhGroupByPatient(_cwhState.items);
+      contentEl.innerHTML = grouped.map(_cwhRenderPatientGroup).join('');
+    }
+  }
+}
+
+function _cwhRenderSummaryStrip(s) {
+  const card = (label, value, sub) => `
+    <div class="card" style="padding:14px;text-align:center">
+      <div style="font-size:22px;font-weight:700;color:var(--text-primary)">${_cwhEsc(String(value ?? '—'))}</div>
+      <div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin-top:4px">${_cwhEsc(label)}</div>
+      ${sub ? `<div style="font-size:10px;color:var(--text-tertiary);margin-top:2px">${_cwhEsc(sub)}</div>` : ''}
+    </div>`;
+  const responseStr = (s.response_rate_pct ?? 0).toFixed
+    ? s.response_rate_pct.toFixed(1)
+    : s.response_rate_pct;
+  const lowMoodHtml = (s.low_mood_top_patients && s.low_mood_top_patients.length)
+    ? `<div class="card" style="padding:12px 14px;margin-bottom:14px">
+        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px">Low-mood top patients (7d avg ≤ 5)</div>
+        ${s.low_mood_top_patients.map(p => `
+          <div style="font-size:12px;color:var(--text-primary);margin-bottom:3px">
+            <button class="cwh-drill-patient-btn" data-patient="${_cwhEsc(p.patient_id)}" style="background:none;border:none;color:var(--accent,#3b82f6);text-decoration:underline;cursor:pointer;padding:0">${_cwhEsc(p.patient_name)}</button>
+            · avg mood ${_cwhEsc(String(p.avg_mood_7d))} (${_cwhEsc(String(p.checkins_7d))} check-in${p.checkins_7d === 1 ? '' : 's'})
+          </div>`).join('')}
+      </div>`
+    : '';
+  const streakHtml = (s.missed_streak_top_patients && s.missed_streak_top_patients.length)
+    ? `<div class="card" style="padding:12px 14px;margin-bottom:14px">
+        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px">Missed-checkin streak top patients</div>
+        ${s.missed_streak_top_patients.map(p => `
+          <div style="font-size:12px;color:var(--text-primary);margin-bottom:3px">
+            <button class="cwh-drill-patient-btn" data-patient="${_cwhEsc(p.patient_id)}" style="background:none;border:none;color:var(--accent,#3b82f6);text-decoration:underline;cursor:pointer;padding:0">${_cwhEsc(p.patient_name)}</button>
+            · ${_cwhEsc(String(p.streak_days))} day(s) without a check-in
+          </div>`).join('')}
+      </div>`
+    : '';
+  return `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px">
+      ${card('Today', s.total_today ?? 0, 'check-ins')}
+      ${card('Past 7d', s.total_7d ?? 0, 'check-ins')}
+      ${card('Axes ↓ 7d', s.axes_trending_down_7d ?? 0, 'trending down')}
+      ${card('Escalation candidates', s.escalation_candidates ?? 0, 'open + severe')}
+      ${card('Response rate', `${responseStr}%`, 'actioned')}
+    </div>
+    ${lowMoodHtml}
+    ${streakHtml}
+  `;
+}
+
+function _cwhRenderFilterStrip(state) {
+  const opts = (arr, sel) => arr.map(([v, l]) =>
+    `<option value="${_cwhEsc(v)}"${v === sel ? ' selected' : ''}>${_cwhEsc(l)}</option>`).join('');
+  return `
+    <div class="card" style="padding:12px 14px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+      <select id="cwh-filter-severity-band" class="form-control" style="max-width:160px">
+        ${opts(_CWH_SEVERITY_BANDS, state.filterSeverityBand)}
+      </select>
+      <select id="cwh-filter-axis" class="form-control" style="max-width:140px">
+        ${opts(_CWH_AXES, state.filterAxis)}
+      </select>
+      <select id="cwh-filter-status" class="form-control" style="max-width:160px">
+        ${opts(_CWH_STATUSES, state.filterClinicianStatus)}
+      </select>
+      <input id="cwh-filter-q" class="form-control" style="max-width:220px" placeholder="Search note…" value="${_cwhEsc(state.filterQ || '')}">
+      <button id="cwh-bulk-ack-btn" class="btn btn-secondary" style="margin-left:auto">Bulk acknowledge (${state.selectedIds.size})</button>
+      <a id="cwh-export-csv-btn" class="btn btn-link" href="${_cwhCsvExportPath()}" target="_blank">Export CSV</a>
+      <a id="cwh-export-ndjson-btn" class="btn btn-link" href="${_cwhNdjsonExportPath()}" target="_blank">Export NDJSON</a>
+    </div>`;
+}
+
+function _cwhRenderDemoBanner() {
+  return `
+    <div class="notice notice-warning" style="margin-bottom:14px;font-size:12.5px;line-height:1.55">
+      <strong>Demo data.</strong> Some check-ins shown are from demo patients. Exports will be DEMO-prefixed; not regulator-submittable.
+    </div>`;
+}
+
+function _cwhRenderEmptyState() {
+  return `
+    <div class="card" style="padding:36px 24px;text-align:center;color:var(--text-secondary)">
+      <div style="font-size:2.4rem;margin-bottom:14px">✓</div>
+      <div style="font-size:1.05rem;font-weight:600;margin-bottom:6px">No wellness check-ins pending review.</div>
+      <div style="font-size:0.85rem;color:var(--text-tertiary);max-width:480px;margin:0 auto">
+        Wellness check-ins from your clinic's patients (mood, energy, sleep, anxiety, focus, pain) will appear here. Counts are real audit-table aggregates, not AI-fabricated cohort scoring.
+      </div>
+    </div>`;
+}
+
+function _cwhRenderPatientGroup(g) {
+  // Six-axis sparkline summary — render a tiny inline bar per axis with
+  // its 7-day average. NULL averages render as "—" so we don't lie
+  // about missing data.
+  const axisChip = (axis) => {
+    const v = g.axes_avg[axis];
+    const isHighIsBad = (axis === 'anxiety' || axis === 'pain');
+    let color = 'var(--text-tertiary)';
+    if (v != null) {
+      if (isHighIsBad) {
+        color = v >= 7 ? '#ff6b6b' : v >= 5 ? '#f59e0b' : '#14b8a6';
+      } else {
+        color = v <= 3 ? '#ff6b6b' : v <= 5 ? '#f59e0b' : '#14b8a6';
+      }
+    }
+    return `<span style="display:inline-block;font-size:11px;padding:2px 6px;border-radius:3px;background:var(--bg-tertiary);color:${color};margin-right:4px">${_cwhEsc(axis)} ${v == null ? '—' : v}</span>`;
+  };
+  return `
+    <div class="card" style="padding:0;margin-bottom:14px;overflow:hidden">
+      <div style="padding:12px 14px;border-bottom:1px solid var(--border-color);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <div>
+          <button class="cwh-drill-patient-btn" data-patient="${_cwhEsc(g.patient_id)}" style="background:none;border:none;color:var(--accent,#3b82f6);font-weight:600;text-decoration:underline;cursor:pointer;padding:0;font-size:14px">${_cwhEsc(g.patient_name)}</button>
+          <span style="margin-left:8px;font-size:11px;color:var(--text-tertiary)">${_cwhEsc(g.patient_id)}</span>
+        </div>
+        <div style="font-size:11px;color:var(--text-secondary)">
+          ${_cwhEsc(String(g.total))} check-in${g.total === 1 ? '' : 's'} · ${_cwhEsc(String(g.candidates))} escalation candidate${g.candidates === 1 ? '' : 's'} · ${_cwhEsc(String(g.escalated))} escalated · ${_cwhEsc(String(g.urgent))} urgent
+        </div>
+      </div>
+      <div style="padding:8px 14px;border-bottom:1px solid var(--border-color);font-size:11px">
+        <span style="color:var(--text-tertiary);margin-right:6px">Group avg:</span>
+        ${_CWH_AXIS_KEYS.map(axisChip).join('')}
+      </div>
+      <div>
+        ${g.items.map(_cwhRenderCheckinRow).join('')}
+      </div>
+    </div>`;
+}
+
+function _cwhRenderCheckinRow(it) {
+  const sevColor = (
+    it.severity_band === 'urgent' ? '#ff6b6b' :
+    it.severity_band === 'high'   ? '#f59e0b' :
+    it.severity_band === 'moderate' ? '#3b82f6' :
+    '#14b8a6'
+  );
+  const statusColor = (
+    it.clinician_status === 'open'         ? '#f59e0b' :
+    it.clinician_status === 'acknowledged' ? '#3b82f6' :
+    it.clinician_status === 'escalated'    ? '#ff6b6b' :
+    it.clinician_status === 'resolved'     ? '#14b8a6' :
+    'var(--text-tertiary)'
+  );
+  const isImmutable = it.clinician_status === 'resolved';
+  const axesSummary = _CWH_AXIS_KEYS
+    .map(a => it[a] != null ? `${a}=${it[a]}` : null)
+    .filter(Boolean)
+    .join(' · ') || 'no axes';
+  return `
+    <div style="padding:10px 14px;border-bottom:1px solid var(--border-color);display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start">
+      <input type="checkbox" class="cwh-row-checkbox" data-checkin-id="${_cwhEsc(it.id)}" ${isImmutable ? 'disabled' : ''} style="margin-top:5px">
+      <div style="flex:1;min-width:240px">
+        <div style="font-size:13px;font-weight:600;color:var(--text-primary)">
+          <span style="color:${sevColor}">[${_cwhEsc(it.severity_band || 'low')}]</span>
+          <span style="margin-left:6px;font-size:11px;color:${statusColor}">[${_cwhEsc(it.clinician_status)}]</span>
+          ${it.escalation_candidate ? `<span style="margin-left:6px;font-size:10px;color:#ff6b6b;background:var(--bg-tertiary);padding:1px 5px;border-radius:3px">CANDIDATE</span>` : ''}
+          ${it.is_demo ? `<span style="margin-left:6px;font-size:10px;color:var(--text-tertiary);background:var(--bg-tertiary);padding:1px 5px;border-radius:3px">DEMO</span>` : ''}
+        </div>
+        <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">${_cwhEsc(axesSummary)}</div>
+        ${it.note ? `<div style="font-size:12px;color:var(--text-secondary);margin-top:2px">${_cwhEsc((it.note || '').slice(0, 200))}${(it.note || '').length > 200 ? '…' : ''}</div>` : ''}
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${isImmutable ? '' : `<button class="cwh-ack-btn btn btn-secondary" data-checkin-id="${_cwhEsc(it.id)}">Acknowledge</button>`}
+        ${isImmutable ? '' : `<button class="cwh-escalate-btn btn btn-warning" data-checkin-id="${_cwhEsc(it.id)}">Escalate</button>`}
+        ${isImmutable ? '' : `<button class="cwh-resolve-btn btn btn-secondary" data-checkin-id="${_cwhEsc(it.id)}">Resolve</button>`}
+        <button class="cwh-drill-patient-btn btn btn-link" data-patient="${_cwhEsc(it.patient_id)}">Patient</button>
+        <button class="cwh-drill-ae-btn btn btn-link" data-patient="${_cwhEsc(it.patient_id)}">AE Hub</button>
+        <button class="cwh-drill-adherence-btn btn btn-link" data-patient="${_cwhEsc(it.patient_id)}">Adherence</button>
+      </div>
+    </div>`;
+}
+
+function _cwhBindFilterHandlers(navigate) {
+  const sevSel = document.getElementById('cwh-filter-severity-band');
+  if (sevSel && !sevSel._bound) {
+    sevSel._bound = true;
+    sevSel.onchange = () => {
+      _cwhState.filterSeverityBand = sevSel.value || '';
+      try { api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('filter_changed', { note: 'severity_band=' + (_cwhState.filterSeverityBand || 'all') })); } catch (_) {}
+      _cwhLoadData().then(() => { _cwhBindFilterHandlers(navigate); _cwhBindRowHandlers(navigate); });
+    };
+  }
+  const axisSel = document.getElementById('cwh-filter-axis');
+  if (axisSel && !axisSel._bound) {
+    axisSel._bound = true;
+    axisSel.onchange = () => {
+      _cwhState.filterAxis = axisSel.value || '';
+      try { api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('filter_changed', { note: 'axis=' + (_cwhState.filterAxis || 'all') })); } catch (_) {}
+      _cwhLoadData().then(() => { _cwhBindFilterHandlers(navigate); _cwhBindRowHandlers(navigate); });
+    };
+  }
+  const statSel = document.getElementById('cwh-filter-status');
+  if (statSel && !statSel._bound) {
+    statSel._bound = true;
+    statSel.onchange = () => {
+      _cwhState.filterClinicianStatus = statSel.value || '';
+      try { api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('filter_changed', { note: 'clinician_status=' + (_cwhState.filterClinicianStatus || 'all') })); } catch (_) {}
+      _cwhLoadData().then(() => { _cwhBindFilterHandlers(navigate); _cwhBindRowHandlers(navigate); });
+    };
+  }
+  const qInput = document.getElementById('cwh-filter-q');
+  if (qInput && !qInput._bound) {
+    qInput._bound = true;
+    let _qDebounce = null;
+    qInput.oninput = () => {
+      _cwhState.filterQ = qInput.value || '';
+      if (_qDebounce) clearTimeout(_qDebounce);
+      _qDebounce = setTimeout(() => {
+        try { api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('filter_changed', { note: 'q=' + (_cwhState.filterQ || '').slice(0, 60) })); } catch (_) {}
+        _cwhLoadData().then(() => { _cwhBindFilterHandlers(navigate); _cwhBindRowHandlers(navigate); });
+      }, 300);
+    };
+  }
+  const bulkBtn = document.getElementById('cwh-bulk-ack-btn');
+  if (bulkBtn && !bulkBtn._bound) {
+    bulkBtn._bound = true;
+    bulkBtn.onclick = async () => {
+      if (_cwhState.selectedIds.size === 0) {
+        if (window.showToast) window.showToast('Select at least one check-in to acknowledge.', 'warn');
+        return;
+      }
+      const note = (typeof window !== 'undefined' ? window.prompt('Acknowledge note (required):', '') : '');
+      if (!_cwhNoteRequiredValid(note)) {
+        if (window.showToast) window.showToast('Acknowledgement note is required.', 'warn');
+        return;
+      }
+      const ids = Array.from(_cwhState.selectedIds);
+      try {
+        const r = await api.clinicianWellnessBulkAcknowledge(ids, note);
+        try { api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('bulk_acknowledged', { note: `processed=${ids.length}` })); } catch (_) {}
+        const failed = (r && Array.isArray(r.failures)) ? r.failures.length : 0;
+        if (window.showToast) {
+          if (failed > 0) window.showToast(`Bulk ack: ${r?.succeeded ?? 0} ok, ${failed} failed.`, 'warn');
+          else window.showToast(`Acknowledged ${r?.succeeded ?? ids.length} check-ins.`, 'success');
+        }
+        _cwhState.selectedIds.clear();
+        await _cwhLoadData();
+        _cwhBindFilterHandlers(navigate);
+        _cwhBindRowHandlers(navigate);
+      } catch (_) {
+        if (window.showToast) window.showToast('Bulk acknowledge failed.', 'error');
+      }
+    };
+  }
+  const csvBtn = document.getElementById('cwh-export-csv-btn');
+  if (csvBtn && !csvBtn._bound) {
+    csvBtn._bound = true;
+    csvBtn.addEventListener('click', () => {
+      try { api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('export', { note: 'format=csv' })); } catch (_) {}
+    });
+  }
+  const ndBtn = document.getElementById('cwh-export-ndjson-btn');
+  if (ndBtn && !ndBtn._bound) {
+    ndBtn._bound = true;
+    ndBtn.addEventListener('click', () => {
+      try { api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('export', { note: 'format=ndjson' })); } catch (_) {}
+    });
+  }
+}
+
+function _cwhBindRowHandlers(navigate) {
+  const cbs = document.querySelectorAll('.cwh-row-checkbox');
+  cbs.forEach(cb => {
+    if (cb._bound) return;
+    cb._bound = true;
+    cb.onchange = () => {
+      const id = cb.getAttribute('data-checkin-id');
+      if (cb.checked) _cwhState.selectedIds.add(id);
+      else _cwhState.selectedIds.delete(id);
+      const bulk = document.getElementById('cwh-bulk-ack-btn');
+      if (bulk) bulk.textContent = `Bulk acknowledge (${_cwhState.selectedIds.size})`;
+    };
+  });
+
+  document.querySelectorAll('.cwh-ack-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = async () => {
+      const id = btn.getAttribute('data-checkin-id');
+      const note = (typeof window !== 'undefined' ? window.prompt('Acknowledge note (required):', '') : '');
+      if (!_cwhNoteRequiredValid(note)) {
+        if (window.showToast) window.showToast('Acknowledgement note is required.', 'warn');
+        return;
+      }
+      try {
+        await api.clinicianWellnessAcknowledge(id, note);
+        try { api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('checkin_acknowledged_via_modal', { checkin_id: id })); } catch (_) {}
+        if (window.showToast) window.showToast('Check-in acknowledged.', 'success');
+        await _cwhLoadData();
+        _cwhBindFilterHandlers(navigate);
+        _cwhBindRowHandlers(navigate);
+      } catch (_) {
+        if (window.showToast) window.showToast('Acknowledge failed.', 'error');
+      }
+    };
+  });
+
+  document.querySelectorAll('.cwh-escalate-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = async () => {
+      const id = btn.getAttribute('data-checkin-id');
+      const note = (typeof window !== 'undefined' ? window.prompt('Escalation note (required) — creates AE Hub draft:', '') : '');
+      if (!_cwhNoteRequiredValid(note)) {
+        if (window.showToast) window.showToast('Escalation note is required.', 'warn');
+        return;
+      }
+      try {
+        const r = await api.clinicianWellnessEscalate(id, note);
+        try { api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('checkin_escalated_via_modal', { checkin_id: id })); } catch (_) {}
+        if (window.showToast) {
+          window.showToast(r?.adverse_event_id ? `Escalated · AE draft ${r.adverse_event_id}` : 'Check-in escalated.', 'success');
+        }
+        await _cwhLoadData();
+        _cwhBindFilterHandlers(navigate);
+        _cwhBindRowHandlers(navigate);
+      } catch (_) {
+        if (window.showToast) window.showToast('Escalation failed.', 'error');
+      }
+    };
+  });
+
+  document.querySelectorAll('.cwh-resolve-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = async () => {
+      const id = btn.getAttribute('data-checkin-id');
+      const note = (typeof window !== 'undefined' ? window.prompt('Resolution note (required) — check-in is immutable thereafter:', '') : '');
+      if (!_cwhNoteRequiredValid(note)) {
+        if (window.showToast) window.showToast('Resolution note is required.', 'warn');
+        return;
+      }
+      try {
+        await api.clinicianWellnessResolve(id, note);
+        try { api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('checkin_resolved_via_modal', { checkin_id: id })); } catch (_) {}
+        if (window.showToast) window.showToast('Check-in resolved.', 'success');
+        await _cwhLoadData();
+        _cwhBindFilterHandlers(navigate);
+        _cwhBindRowHandlers(navigate);
+      } catch (_) {
+        if (window.showToast) window.showToast('Resolve failed.', 'error');
+      }
+    };
+  });
+
+  document.querySelectorAll('.cwh-drill-patient-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = () => {
+      const pid = btn.getAttribute('data-patient');
+      try { api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('deep_link_followed', { note: 'patient=' + pid })); } catch (_) {}
+      if (pid) window._patientId = pid;
+      if (typeof navigate === 'function') navigate('patient-profile');
+      else if (typeof window !== 'undefined' && window._nav) window._nav('patient-profile');
+    };
+  });
+
+  document.querySelectorAll('.cwh-drill-ae-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = () => {
+      const pid = btn.getAttribute('data-patient');
+      try { api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('deep_link_followed', { note: 'ae_hub=' + pid })); } catch (_) {}
+      if (pid) window._patientId = pid;
+      if (typeof navigate === 'function') navigate('adverse-events');
+      else if (typeof window !== 'undefined' && window._nav) window._nav('adverse-events');
+    };
+  });
+
+  document.querySelectorAll('.cwh-drill-adherence-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = () => {
+      const pid = btn.getAttribute('data-patient');
+      try { api.postClinicianWellnessAuditEvent(_cwhBuildAuditPayload('deep_link_followed', { note: 'adherence_hub=' + pid })); } catch (_) {}
+      if (pid) window._patientId = pid;
+      if (typeof navigate === 'function') navigate('clinician-adherence');
+      else if (typeof window !== 'undefined' && window._nav) window._nav('clinician-adherence');
+    };
+  });
+}
+
+
+// ── pgClinicianDailyDigest — Notifications Pulse / End-of-shift summary ─────
+// Launch-audit 2026-05-01. Top-of-loop telemetry the Care Team Coverage SLA
+// chain (#357) currently lacks. End-of-shift summary across the four
+// clinician hubs (Inbox #354, Wearables Workbench #353, Adherence Hub #361,
+// Wellness Hub #365) plus AE Hub #342 escalations. Read-only aggregator
+// + email/colleague-share audit rows; SMTP wire-up tracked in PR section F.
+const _cdgEsc = (s) => String(s ?? '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+function _cdgNoteRequiredValid(note) {
+  if (note == null) return false;
+  return String(note).trim().length > 0;
+}
+
+function _cdgBuildAuditPayload(event, extra = {}) {
+  const out = { event };
+  if (extra.target_id) out.target_id = String(extra.target_id);
+  if (extra.note) out.note = String(extra.note).slice(0, 480);
+  if (extra.using_demo_data) out.using_demo_data = true;
+  return out;
+}
+
+function _cdgBuildFilterParams(state) {
+  const params = {};
+  if (state?.since) params.since = state.since;
+  if (state?.until) params.until = state.until;
+  if (state?.surface) params.surface = state.surface;
+  if (state?.severity) params.severity = state.severity;
+  if (state?.patientId) params.patient_id = state.patientId;
+  return params;
+}
+
+function _cdgShouldShowDemoBanner(serverResp) {
+  return !!(serverResp && serverResp.is_demo_view);
+}
+
+function _cdgEmptySummary() {
+  return {
+    handled: 0, escalated: 0, paged: 0, open: 0, sla_breached: 0,
+    by_surface: {}, since: '', until: '', is_demo_view: false,
+  };
+}
+
+function _cdgPresetWindow(preset) {
+  // Returns { since, until } ISO strings for one of: today / yesterday / 7d / 12h.
+  const now = new Date();
+  if (preset === 'yesterday') {
+    const until = new Date(now);
+    until.setUTCHours(0, 0, 0, 0);
+    const since = new Date(until);
+    since.setUTCDate(since.getUTCDate() - 1);
+    return { since: since.toISOString(), until: until.toISOString() };
+  }
+  if (preset === '7d') {
+    const since = new Date(now);
+    since.setUTCDate(since.getUTCDate() - 7);
+    return { since: since.toISOString(), until: now.toISOString() };
+  }
+  if (preset === 'today') {
+    const since = new Date(now);
+    since.setUTCHours(0, 0, 0, 0);
+    return { since: since.toISOString(), until: now.toISOString() };
+  }
+  // Default: last 12h (the API default — pass null to honour it).
+  return { since: null, until: null };
+}
+
+const _CDG_SURFACE_LABEL = {
+  clinician_inbox: 'Clinician Inbox',
+  wearables_workbench: 'Wearables Workbench',
+  clinician_adherence_hub: 'Adherence Hub',
+  clinician_wellness_hub: 'Wellness Hub',
+  adverse_events_hub: 'Adverse Events Hub',
+};
+
+const _CDG_SURFACE_ROUTE = {
+  clinician_inbox: 'clinician-inbox',
+  wearables_workbench: 'monitor',
+  clinician_adherence_hub: 'clinician-adherence',
+  clinician_wellness_hub: 'clinician-wellness',
+  adverse_events_hub: 'adverse-events-hub',
+};
+
+const _CDG_PRESETS = [
+  ['12h', 'Last 12h (default)'],
+  ['today', 'Today (00:00 → now)'],
+  ['yesterday', 'Yesterday (00:00 → 24:00)'],
+  ['7d', 'Last 7 days'],
+];
+
+const _cdgState = {
+  preset: '12h',
+  since: null,
+  until: null,
+  surface: '',
+  severity: '',
+  patientId: '',
+  summary: _cdgEmptySummary(),
+  sections: [],
+  events: [],
+  loaded: false,
+  isDemoView: false,
+};
+
+export async function pgClinicianDailyDigest(setTopbar, navigate) {
+  const el = document.getElementById('app');
+  if (!el) return;
+
+  if (typeof setTopbar === 'function') {
+    setTopbar(
+      'Clinician Daily Digest',
+      'End-of-shift summary across Inbox, Wearables Workbench, Adherence, Wellness, and AE drafts.',
+    );
+  }
+
+  // Mount-time audit ping. Best-effort.
+  try {
+    api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('view', {
+      note: 'daily digest page mounted',
+    }));
+  } catch (_) { /* ignore */ }
+
+  el.innerHTML = `
+    <div id="cdg-root" style="max-width:1180px;margin:0 auto;padding:18px 24px">
+      <div id="cdg-controls"></div>
+      <div id="cdg-banner"></div>
+      <div id="cdg-summary"></div>
+      <div id="cdg-sections"></div>
+      <div id="cdg-events"></div>
+    </div>`;
+
+  await _cdgLoadData();
+  _cdgBindControls(navigate);
+  _cdgBindSectionDrillOuts(navigate);
+}
+
+async function _cdgLoadData() {
+  const root = document.getElementById('cdg-root');
+  if (!root) return; // navigated away
+  const params = _cdgBuildFilterParams(_cdgState);
+  const [summary, sections, events] = await Promise.all([
+    api.clinicianDigestSummary(params),
+    api.clinicianDigestSections({ since: params.since || '', until: params.until || '' }),
+    api.clinicianDigestEvents(params),
+  ]);
+
+  _cdgState.summary = summary || _cdgEmptySummary();
+  _cdgState.sections = (sections && Array.isArray(sections.sections)) ? sections.sections : [];
+  _cdgState.events = (events && Array.isArray(events.items)) ? events.items : [];
+  _cdgState.isDemoView = !!(_cdgState.summary.is_demo_view
+    || (sections && sections.is_demo_view)
+    || (events && events.is_demo_view));
+  _cdgState.loaded = true;
+
+  const controlsEl = document.getElementById('cdg-controls');
+  if (controlsEl) controlsEl.innerHTML = _cdgRenderControls(_cdgState);
+  const bannerEl = document.getElementById('cdg-banner');
+  if (bannerEl) bannerEl.innerHTML = _cdgShouldShowDemoBanner({ is_demo_view: _cdgState.isDemoView }) ? _cdgRenderDemoBanner() : '';
+  const summaryEl = document.getElementById('cdg-summary');
+  if (summaryEl) summaryEl.innerHTML = _cdgRenderSummaryStrip(_cdgState.summary);
+  const sectionsEl = document.getElementById('cdg-sections');
+  if (sectionsEl) sectionsEl.innerHTML = _cdgRenderSections(_cdgState.sections);
+  const eventsEl = document.getElementById('cdg-events');
+  if (eventsEl) eventsEl.innerHTML = _cdgRenderEvents(_cdgState.events);
+}
+
+function _cdgRenderControls(state) {
+  const presetOpts = _CDG_PRESETS.map(([v, l]) =>
+    `<option value="${_cdgEsc(v)}"${v === state.preset ? ' selected' : ''}>${_cdgEsc(l)}</option>`).join('');
+  const surfaceOpts = ['', ...Object.keys(_CDG_SURFACE_LABEL)].map(v => {
+    const l = v === '' ? 'All surfaces' : (_CDG_SURFACE_LABEL[v] || v);
+    return `<option value="${_cdgEsc(v)}"${v === state.surface ? ' selected' : ''}>${_cdgEsc(l)}</option>`;
+  }).join('');
+  const csvHref = api.clinicianDigestExportCsvUrl(_cdgBuildFilterParams(state));
+  const ndjsonHref = api.clinicianDigestExportNdjsonUrl(_cdgBuildFilterParams(state));
+  return `
+    <div class="card" style="padding:12px 14px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+      <select id="cdg-preset" class="form-control" style="max-width:220px">${presetOpts}</select>
+      <input id="cdg-since" class="form-control" style="max-width:200px" placeholder="since (ISO, optional)" value="${_cdgEsc(state.since || '')}">
+      <input id="cdg-until" class="form-control" style="max-width:200px" placeholder="until (ISO, optional)" value="${_cdgEsc(state.until || '')}">
+      <select id="cdg-surface" class="form-control" style="max-width:200px">${surfaceOpts}</select>
+      <input id="cdg-patient" class="form-control" style="max-width:180px" placeholder="patient_id filter" value="${_cdgEsc(state.patientId || '')}">
+      <button id="cdg-email-btn" class="btn btn-primary">Email me the digest</button>
+      <button id="cdg-share-btn" class="btn btn-secondary">Share with colleague…</button>
+      <a id="cdg-csv-btn" class="btn btn-link" href="${_cdgEsc(csvHref)}" target="_blank">Export CSV</a>
+      <a id="cdg-ndjson-btn" class="btn btn-link" href="${_cdgEsc(ndjsonHref)}" target="_blank">Export NDJSON</a>
+    </div>`;
+}
+
+function _cdgRenderDemoBanner() {
+  return `
+    <div class="notice notice-warning" style="margin-bottom:14px;font-size:12.5px;line-height:1.55">
+      <strong>Demo data.</strong> Some events shown are from demo patients. Exports will be DEMO-prefixed; not regulator-submittable.
+    </div>`;
+}
+
+function _cdgRenderSummaryStrip(s) {
+  const card = (label, value, sub) => `
+    <div class="card" style="padding:14px;text-align:center">
+      <div style="font-size:22px;font-weight:700;color:var(--text-primary)">${_cdgEsc(String(value ?? 0))}</div>
+      <div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin-top:4px">${_cdgEsc(label)}</div>
+      ${sub ? `<div style="font-size:10px;color:var(--text-tertiary);margin-top:2px">${_cdgEsc(sub)}</div>` : ''}
+    </div>`;
+  const since = s.since ? new Date(s.since).toLocaleString() : '—';
+  const until = s.until ? new Date(s.until).toLocaleString() : '—';
+  return `
+    <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:8px">Window: ${_cdgEsc(since)} → ${_cdgEsc(until)} (UTC)</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px">
+      ${card('Handled', s.handled ?? 0, 'this shift')}
+      ${card('Escalated', s.escalated ?? 0, 'AE drafts created')}
+      ${card('Paged', s.paged ?? 0, 'on-call notifications')}
+      ${card('Open', s.open ?? 0, 'still on the queue')}
+      ${card('SLA breached', s.sla_breached ?? 0, 'past per-surface SLA')}
+    </div>`;
+}
+
+function _cdgRenderSections(sections) {
+  if (!Array.isArray(sections) || sections.length === 0) {
+    return _cdgRenderEmptyState();
+  }
+  // If every section is empty (no events), surface the honest empty state.
+  const totalActivity = sections.reduce((acc, sx) =>
+    acc + (sx.handled || 0) + (sx.escalated || 0) + (sx.paged || 0) + (sx.open || 0), 0);
+  if (totalActivity === 0) {
+    return _cdgRenderEmptyState();
+  }
+  return `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-bottom:18px">
+      ${sections.map(_cdgRenderSectionCard).join('')}
+    </div>`;
+}
+
+function _cdgRenderEmptyState() {
+  return `
+    <div class="card" style="padding:36px 24px;text-align:center;color:var(--text-secondary);margin-bottom:18px">
+      <div style="font-size:2.4rem;margin-bottom:14px">∅</div>
+      <div style="font-size:1.05rem;font-weight:600;margin-bottom:6px">No events to summarise for this shift.</div>
+      <div style="font-size:0.85rem;color:var(--text-tertiary);max-width:480px;margin:0 auto">
+        Counts are real audit-table aggregates across Inbox, Wearables Workbench, Adherence, Wellness and AE drafts. Nothing to display means: nothing was acknowledged, escalated, paged, or aged past its SLA in the current window. This is not AI-fabricated.
+      </div>
+    </div>`;
+}
+
+function _cdgRenderSectionCard(sx) {
+  const label = _CDG_SURFACE_LABEL[sx.surface] || sx.surface;
+  const top = (sx.top_patients || []).slice(0, 3);
+  const topHtml = top.length
+    ? `<div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">Top activity:
+        ${top.map(p => `<button class="cdg-drill-patient-btn" data-patient="${_cdgEsc(p.patient_id)}" data-surface="${_cdgEsc(sx.surface)}" style="background:none;border:none;color:var(--accent,#3b82f6);text-decoration:underline;cursor:pointer;padding:0;font-size:11px">${_cdgEsc(p.patient_name)}</button> · ${_cdgEsc(String(p.event_count))}`).join('<br>')}
+      </div>`
+    : `<div style="margin-top:8px;font-size:11px;color:var(--text-tertiary)">No per-patient activity in this window.</div>`;
+  return `
+    <div class="card" style="padding:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${_cdgEsc(label)}</div>
+        <button class="cdg-drill-section-btn btn btn-link" data-surface="${_cdgEsc(sx.surface)}" style="padding:0;font-size:11px">Open hub →</button>
+      </div>
+      <div style="margin-top:10px;display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:11px">
+        <div><div style="font-weight:700;color:var(--text-primary);font-size:14px">${_cdgEsc(String(sx.handled ?? 0))}</div><div style="color:var(--text-tertiary)">handled</div></div>
+        <div><div style="font-weight:700;color:#ff6b6b;font-size:14px">${_cdgEsc(String(sx.escalated ?? 0))}</div><div style="color:var(--text-tertiary)">escalated</div></div>
+        <div><div style="font-weight:700;color:#f59e0b;font-size:14px">${_cdgEsc(String(sx.paged ?? 0))}</div><div style="color:var(--text-tertiary)">paged</div></div>
+        <div><div style="font-weight:700;color:#3b82f6;font-size:14px">${_cdgEsc(String(sx.open ?? 0))}</div><div style="color:var(--text-tertiary)">open</div></div>
+      </div>
+      ${topHtml}
+    </div>`;
+}
+
+function _cdgRenderEvents(events) {
+  if (!Array.isArray(events) || events.length === 0) return '';
+  const rows = events.slice(0, 50).map(_cdgRenderEventRow).join('');
+  return `
+    <div class="card" style="padding:0;margin-bottom:14px;overflow:hidden">
+      <div style="padding:10px 14px;border-bottom:1px solid var(--border-color);font-size:12px;font-weight:600;color:var(--text-secondary)">Recent events (${_cdgEsc(String(events.length))} total)</div>
+      ${rows}
+    </div>`;
+}
+
+function _cdgRenderEventRow(it) {
+  const flag = it.is_paged ? `<span style="color:#f59e0b;font-size:10px;background:var(--bg-tertiary);padding:1px 5px;border-radius:3px;margin-right:6px">PAGED</span>`
+    : it.is_escalated ? `<span style="color:#ff6b6b;font-size:10px;background:var(--bg-tertiary);padding:1px 5px;border-radius:3px;margin-right:6px">ESCALATED</span>`
+    : it.is_handled ? `<span style="color:#14b8a6;font-size:10px;background:var(--bg-tertiary);padding:1px 5px;border-radius:3px;margin-right:6px">HANDLED</span>`
+    : '';
+  const demo = it.is_demo ? `<span style="color:var(--text-tertiary);font-size:10px;background:var(--bg-tertiary);padding:1px 5px;border-radius:3px;margin-right:6px">DEMO</span>` : '';
+  const surface = _CDG_SURFACE_LABEL[it.surface] || it.surface || '—';
+  const ts = it.created_at ? new Date(it.created_at).toLocaleString() : '—';
+  const drillHtml = it.drill_out_url
+    ? `<button class="cdg-drill-event-btn btn btn-link" data-url="${_cdgEsc(it.drill_out_url)}" data-patient="${_cdgEsc(it.patient_id || '')}" data-surface="${_cdgEsc(it.surface || '')}" style="font-size:11px;padding:0">Drill out →</button>`
+    : '';
+  return `
+    <div style="padding:8px 14px;border-bottom:1px solid var(--border-color);display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;font-size:12px">
+      <div style="flex:1;min-width:240px">
+        <div>${flag}${demo}<strong>${_cdgEsc(surface)}</strong> · <span style="color:var(--text-secondary)">${_cdgEsc(it.event_type || it.action || '')}</span></div>
+        ${it.patient_name ? `<div style="font-size:11px;color:var(--text-secondary)">Patient: ${_cdgEsc(it.patient_name)} <span style="color:var(--text-tertiary)">(${_cdgEsc(it.patient_id || '')})</span></div>` : ''}
+        <div style="font-size:11px;color:var(--text-tertiary)">${_cdgEsc(ts)}</div>
+        ${it.note ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:2px">${_cdgEsc((it.note || '').slice(0, 200))}${(it.note || '').length > 200 ? '…' : ''}</div>` : ''}
+      </div>
+      <div>${drillHtml}</div>
+    </div>`;
+}
+
+function _cdgBindControls(navigate) {
+  const presetSel = document.getElementById('cdg-preset');
+  if (presetSel && !presetSel._bound) {
+    presetSel._bound = true;
+    presetSel.onchange = async () => {
+      _cdgState.preset = presetSel.value || '12h';
+      const w = _cdgPresetWindow(_cdgState.preset);
+      _cdgState.since = w.since;
+      _cdgState.until = w.until;
+      try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('date_range_changed', { note: 'preset=' + _cdgState.preset })); } catch (_) {}
+      await _cdgLoadData();
+      _cdgBindControls(navigate);
+      _cdgBindSectionDrillOuts(navigate);
+    };
+  }
+  const sinceInp = document.getElementById('cdg-since');
+  if (sinceInp && !sinceInp._bound) {
+    sinceInp._bound = true;
+    sinceInp.onchange = async () => {
+      _cdgState.since = sinceInp.value || null;
+      try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('filter_changed', { note: 'since=' + (_cdgState.since || '') })); } catch (_) {}
+      await _cdgLoadData();
+      _cdgBindControls(navigate);
+      _cdgBindSectionDrillOuts(navigate);
+    };
+  }
+  const untilInp = document.getElementById('cdg-until');
+  if (untilInp && !untilInp._bound) {
+    untilInp._bound = true;
+    untilInp.onchange = async () => {
+      _cdgState.until = untilInp.value || null;
+      try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('filter_changed', { note: 'until=' + (_cdgState.until || '') })); } catch (_) {}
+      await _cdgLoadData();
+      _cdgBindControls(navigate);
+      _cdgBindSectionDrillOuts(navigate);
+    };
+  }
+  const surfSel = document.getElementById('cdg-surface');
+  if (surfSel && !surfSel._bound) {
+    surfSel._bound = true;
+    surfSel.onchange = async () => {
+      _cdgState.surface = surfSel.value || '';
+      try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('filter_changed', { note: 'surface=' + (_cdgState.surface || 'all') })); } catch (_) {}
+      await _cdgLoadData();
+      _cdgBindControls(navigate);
+      _cdgBindSectionDrillOuts(navigate);
+    };
+  }
+  const pidInp = document.getElementById('cdg-patient');
+  if (pidInp && !pidInp._bound) {
+    pidInp._bound = true;
+    pidInp.onchange = async () => {
+      _cdgState.patientId = pidInp.value || '';
+      try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('filter_changed', { note: 'patient_id=' + (_cdgState.patientId || 'all') })); } catch (_) {}
+      await _cdgLoadData();
+      _cdgBindControls(navigate);
+      _cdgBindSectionDrillOuts(navigate);
+    };
+  }
+  const emailBtn = document.getElementById('cdg-email-btn');
+  if (emailBtn && !emailBtn._bound) {
+    emailBtn._bound = true;
+    emailBtn.onclick = async () => {
+      const ok = (typeof window !== 'undefined' && window.confirm)
+        ? window.confirm('Email this digest to your account email? (Delivery may be queued — see banner for status.)')
+        : true;
+      if (!ok) return;
+      const reason = (typeof window !== 'undefined' && window.prompt)
+        ? (window.prompt('Optional note for the audit log:', '') || '')
+        : '';
+      try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('email_initiated', { note: 'reason=' + reason.slice(0, 100) })); } catch (_) {}
+      try {
+        const r = await api.clinicianDigestSendEmail({
+          reason,
+          since: _cdgState.since,
+          until: _cdgState.until,
+        });
+        if (r && r.delivery_status === 'sent') {
+          if (window.showToast) window.showToast(`Digest emailed to ${r.recipient_email}.`, 'success');
+        } else if (r && r.delivery_status === 'queued') {
+          if (window.showToast) window.showToast(
+            `Email queued — actual delivery requires SMTP wire-up. Audit recorded for ${r.recipient_email}.`,
+            'info',
+          );
+        } else if (r && r.delivery_status === 'failed') {
+          if (window.showToast) window.showToast('Email send failed. Check audit trail for details.', 'error');
+        } else {
+          if (window.showToast) window.showToast('Email request returned no status — check the audit trail.', 'warn');
+        }
+      } catch (e) {
+        if (window.showToast) window.showToast('Email send failed.', 'error');
+      }
+    };
+  }
+  const shareBtn = document.getElementById('cdg-share-btn');
+  if (shareBtn && !shareBtn._bound) {
+    shareBtn._bound = true;
+    shareBtn.onclick = async () => {
+      const recipient = (typeof window !== 'undefined' && window.prompt)
+        ? (window.prompt('Colleague user_id (must be in your clinic):', '') || '')
+        : '';
+      if (!_cdgNoteRequiredValid(recipient)) {
+        if (window.showToast) window.showToast('Recipient user id required.', 'warn');
+        return;
+      }
+      const reason = (typeof window !== 'undefined' && window.prompt)
+        ? (window.prompt('Optional note for the audit log:', '') || '')
+        : '';
+      try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('colleague_share_initiated', { note: 'recipient=' + recipient.slice(0, 60) })); } catch (_) {}
+      try {
+        const r = await api.clinicianDigestShareColleague(recipient, reason, {
+          since: _cdgState.since, until: _cdgState.until,
+        });
+        if (r && r.recipient_email) {
+          if (window.showToast) window.showToast(
+            `Digest queued for ${r.recipient_email} (${r.delivery_status}). Audit recorded.`,
+            'info',
+          );
+        }
+      } catch (e) {
+        // 404 is the cross-clinic / unknown-recipient response.
+        if (window.showToast) window.showToast('Could not share — recipient not found in your clinic.', 'error');
+      }
+    };
+  }
+  const csvBtn = document.getElementById('cdg-csv-btn');
+  if (csvBtn && !csvBtn._bound) {
+    csvBtn._bound = true;
+    csvBtn.addEventListener('click', () => {
+      try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('export', { note: 'format=csv' })); } catch (_) {}
+    });
+  }
+  const ndBtn = document.getElementById('cdg-ndjson-btn');
+  if (ndBtn && !ndBtn._bound) {
+    ndBtn._bound = true;
+    ndBtn.addEventListener('click', () => {
+      try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('export', { note: 'format=ndjson' })); } catch (_) {}
+    });
+  }
+}
+
+function _cdgBindSectionDrillOuts(navigate) {
+  document.querySelectorAll('.cdg-drill-section-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = () => {
+      const surface = btn.getAttribute('data-surface');
+      const route = _CDG_SURFACE_ROUTE[surface];
+      try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('drill_out', { note: 'surface=' + surface })); } catch (_) {}
+      if (route && typeof navigate === 'function') navigate(route);
+      else if (route && typeof window !== 'undefined' && window._nav) window._nav(route);
+    };
+  });
+  document.querySelectorAll('.cdg-drill-patient-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = () => {
+      const pid = btn.getAttribute('data-patient');
+      const surface = btn.getAttribute('data-surface');
+      const route = _CDG_SURFACE_ROUTE[surface] || 'patient-profile';
+      try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('drill_out', { note: 'patient=' + pid + '; surface=' + surface })); } catch (_) {}
+      if (pid) window._patientId = pid;
+      if (typeof navigate === 'function') navigate(route);
+      else if (typeof window !== 'undefined' && window._nav) window._nav(route);
+    };
+  });
+  document.querySelectorAll('.cdg-drill-event-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = () => {
+      const url = btn.getAttribute('data-url') || '';
+      const surface = btn.getAttribute('data-surface') || '';
+      const pid = btn.getAttribute('data-patient') || '';
+      try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('drill_out', { note: 'event_drill; url=' + url })); } catch (_) {}
+      // url is of the form "?page=foo&patient_id=bar" — derive the route.
+      const m = url.match(/\?page=([a-z0-9_-]+)/i);
+      const route = (m && m[1]) || _CDG_SURFACE_ROUTE[surface] || 'clinician-inbox';
+      if (pid) window._patientId = pid;
+      if (typeof navigate === 'function') navigate(route);
+      else if (typeof window !== 'undefined' && window._nav) window._nav(route);
+    };
+  });
+}

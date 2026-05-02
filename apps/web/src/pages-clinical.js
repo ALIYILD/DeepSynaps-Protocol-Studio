@@ -8585,7 +8585,7 @@ export async function pgBrainData(setTopbar) {
             <input id="qr-date" class="form-control" type="date">
           </div>
           <div class="form-group"><label class="form-label">EEG Device / System</label>
-            <input id="qr-device" class="form-control" placeholder="e.g. NeuroGuide, Emotiv EPOC, Mitsar">
+            <input id="qr-device" class="form-control" placeholder="e.g. EEG amplifier model + channel count">
           </div>
           <div class="g2">
             <div class="form-group"><label class="form-label">Channels</label>

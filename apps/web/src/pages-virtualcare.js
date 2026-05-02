@@ -57,6 +57,7 @@ const _EXPRESSIONS = ['happy','neutral','sad','anxious','frustrated'];
 const _EXPRESSION_W = [0.25, 0.50, 0.10, 0.10, 0.05];
 const _MOOD_POOL = ['calm','tense','engaged','withdrawn','hopeful','reflective','cooperative'];
 const _EXPRESSION_EMOJI = { happy:'\uD83D\uDE0A', neutral:'\uD83D\uDE10', sad:'\uD83D\uDE1E', anxious:'\uD83D\uDE1F', frustrated:'\uD83D\uDE23' };
+const VIDEO_ANALYZER_DISCLAIMER = 'Video Analyzer outputs are decision-support observations for clinician review only; they are not diagnoses, validated rating-scale scores, or autonomous safety alerts.';
 
 function _weightedPick(items, weights) {
   const r = Math.random();
@@ -1903,6 +1904,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
                 <div class="vc-gauge-row"><span class="vc-gauge-label">Eye contact</span><div class="vc-gauge-track"><div id="vc-va-eyecontact-fill" class="vc-gauge-fill" style="width:0%;background:#00d4bc"></div></div><span id="vc-va-eyecontact-val" class="vc-gauge-val">--</span></div>
                 <div class="vc-gauge-row"><span class="vc-gauge-label">Posture</span><div class="vc-gauge-track"><div id="vc-va-posture-fill" class="vc-gauge-fill" style="width:0%;background:#00d4bc"></div></div><span id="vc-va-posture-val" class="vc-gauge-val">--</span></div>
                 <div id="vc-va-flags" style="margin-top:4px"></div>
+                <div style="font-size:10px;color:var(--amber);line-height:1.35;margin-top:8px;padding:6px 8px;border:1px solid rgba(246,178,60,.25);border-radius:8px;background:rgba(246,178,60,.08)">${VIDEO_ANALYZER_DISCLAIMER}</div>
               </div>
               <div class="vc-insight-box" id="vc-va-insight">Awaiting analysis data\u2026</div>
             </div>

@@ -4,7 +4,7 @@ setup-web:
 	npm install
 
 install-python:
-	python -m pip install -e ./packages/core-schema -e ./packages/condition-registry -e ./packages/modality-registry -e ./packages/device-registry -e ./packages/safety-engine -e ./packages/generation-engine -e ./packages/render-engine -e ./apps/api -e ./apps/worker
+	python -m pip install -e ./packages/core-schema -e ./packages/clinical-data-registry -e ./packages/condition-registry -e ./packages/modality-registry -e ./packages/device-registry -e ./packages/safety-engine -e ./packages/generation-engine -e ./packages/render-engine -e ./apps/api -e ./apps/worker
 
 dev-api:
 	uvicorn app.main:app --reload --app-dir apps/api
@@ -30,6 +30,7 @@ test-worker:
 	cd apps/worker && python -m pytest -q
 
 test-packages:
+	cd packages/clinical-data-registry && python -m pytest tests/ -q
 	cd packages/qa && python -m pytest tests/ -q
 	cd packages/qeeg-pipeline && python -m pytest tests/ -q
 

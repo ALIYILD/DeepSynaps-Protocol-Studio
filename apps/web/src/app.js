@@ -1,4 +1,10 @@
 import { api } from './api.js';
+// Demo migration of the typed API client (ROI #4). The legacy `api.health()`
+// call below is intentionally left untouched and remains the source of
+// truth; the typed client runs in a non-blocking shadow call so we can
+// validate parity in production logs without changing user-visible
+// behavior. See packages/api-client/README.md.
+import { apiClient as _typedApiClient } from '@deepsynaps/api-client';
 import { currentUser, setCurrentUser, updateUserBar, updatePatientBar, showApp, showPublic, showPatient, showLogin } from './auth.js';
 import { ROLE_ENTRY_PAGE } from './constants.js';
 import { t, setLocale, getLocale, LOCALES } from './i18n.js';
@@ -481,6 +487,23 @@ const NAV = [
   // rows from every patient-facing launch audit so urgent signals don't
   // get lost in the regulator-shaped Audit Trail page.
   { id: 'clinician-inbox',    label: 'Inbox',             icon: '📬' },
+  // Clinician Adherence Hub — bidirectional counterpart to Adherence
+  // Events #350. Cross-patient triage of adherence reports, side-effects,
+  // and escalations scoped to the clinic. Closes the home-therapy
+  // adherence regulator chain end-to-end.
+  { id: 'clinician-adherence', label: 'Adherence Hub',    icon: '✅' },
+  // Clinician Wellness Hub — bidirectional counterpart to Wellness Hub
+  // #345. Cross-patient triage of wellness check-ins (mood / energy /
+  // sleep / anxiety / focus / pain) scoped to the clinic. Closes the
+  // early disengagement detection regulator chain — wellness signals
+  // correlate strongly with adherence drop-offs and side-effect risk
+  // before adherence breaks down.
+  { id: 'clinician-wellness',  label: 'Wellness Hub',     icon: '💚' },
+  // Clinician Notifications Pulse / Daily Digest launch-audit (2026-05-01).
+  // End-of-shift summary across the four clinician hubs (Inbox, Wearables
+  // Workbench, Adherence, Wellness) plus AE Hub escalations. Top-of-loop
+  // telemetry the Care Team Coverage SLA chain (#357) currently lacks.
+  { id: 'clinician-digest',    label: 'Daily Digest',     icon: '📰' },
   { id: 'schedule-v2',        label: 'Schedule',          icon: '🗓️' },
   { id: 'assessments-v2',     label: 'Assessments',       icon: '◉' },
   { id: 'patients-v2',        label: 'Patients',          icon: '👥' },
@@ -492,8 +515,7 @@ const NAV = [
   { section: 'Protocol', sectionId: 'protocol', collapsed: false },
   { id: 'protocol-studio',    label: 'Protocol Studio',   icon: '🧪', ai: true },
   { id: 'brainmap-v2',        label: 'Brain Map Planner', icon: '🧠' },
-  { id: 'qeeg-launcher',      label: 'qEEG Brain Map',    icon: '🧠', ai: true },
-  { id: 'qeeg-analysis',      label: 'qEEG Analyzer',     icon: '📊', ai: true },
+  { id: 'qeeg-analysis',      label: 'qEEG Analyzer',     icon: '🧠', ai: true },
   { id: 'biomarkers',          label: 'Biomarkers',         icon: '🧬' },
   { id: 'handbooks-v2',       label: 'Handbooks',         icon: '📚' },
   { id: 'research-evidence',  label: 'Research Evidence', icon: '🔬', ai: true },
@@ -520,6 +542,10 @@ const NAV_ICONS = {
   'home':              `<svg viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`,
   // Clinician Inbox icon — envelope outline, mirrors the lucide "inbox" glyph.
   'clinician-inbox':   `<svg viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>`,
+  // Clinician Adherence Hub icon — checklist + bullets, cross-patient triage glyph.
+  'clinician-adherence': `<svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>`,
+  // Clinician Wellness Hub icon — heart + heartbeat (lucide "heart-pulse"), wellness triage glyph.
+  'clinician-wellness': `<svg viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.51 4.04 3 5.5l7 7Z"/><path d="M3.22 12H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27"/></svg>`,
   'patients':          `<svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
   'courses':           `<svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>`,
   'clinical-hub':      `<svg viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect width="8" height="4" x="8" y="2" rx="1"/><path d="M8 12h.01"/><path d="M12 12h4"/><path d="M8 16h.01"/><path d="M12 16h4"/></svg>`,
@@ -913,6 +939,10 @@ const PAGE_TITLES = {
   'trial-enrollment': 'Trial Enrollment',
   'staff-scheduling': 'Care Team Coverage',
   'care-team-coverage': 'Care Team Coverage',
+  'clinician-adherence': 'Adherence Hub',
+  'adherence-hub': 'Adherence Hub',
+  'clinician-wellness': 'Wellness Hub',
+  'wellness-hub': 'Wellness Hub',
   reports: 'Reports', admin: 'Admin Panel', 'clinic-settings': 'Clinic Settings & Branding', settings: 'Settings', 'clinician-account': 'My Account', academy: 'Academy', marketplace: 'Marketplace',
   permissions: 'Permissions & Security Admin',
   calendar: 'Schedule & Calendar',
@@ -1132,6 +1162,8 @@ async function renderPatientPage() {
     case 'pt-tickets':           await m.pgPatientTickets();                    break;
     case 'pt-billing':           await m.pgPatientBilling();                    break;
     case 'pt-academy':           await m.pgPatientEducation();                  break;
+    case 'pt-digest':            await m.pgPatientDigest(m.setTopbar);          break;
+    case 'patient-digest':       await m.pgPatientDigest(m.setTopbar);          break;
     default:                     await m.pgPatientDashboard(currentUser);
   }
 }
@@ -1397,6 +1429,111 @@ async function renderPage() {
     case 'trial-enrollment': { const { pgTrialEnrollment } = await loadKnowledge(); await pgTrialEnrollment(setTopbar); break; }
     case 'staff-scheduling': { const m = await loadKnowledge(); await m.pgStaffScheduling(setTopbar); break; }
     case 'care-team-coverage': { const m = await loadKnowledge(); await m.pgCareTeamCoverage(setTopbar); break; }
+    // Caregiver Delivery Concern Resolution Audit Hub (DCR2, 2026-05-02).
+    // Cohort dashboard built on the DCR1 audit trail — distribution of
+    // resolution reasons over time so admins can calibrate the DCA
+    // threshold and spot when caregiver_replaced is spiking. Read-only,
+    // clinician minimum.
+    case 'caregiver-delivery-concern-resolution-audit-hub':
+    case 'resolution-audit-hub':
+    case 'dcr-audit-hub': {
+      const m = await loadKnowledge();
+      await m.pgCaregiverDeliveryConcernResolutionAuditHub(setTopbar);
+      break;
+    }
+    // Resolver Coaching Inbox launch-audit (DCRO2, 2026-05-02). Private,
+    // read-only inbox view per resolver showing THEIR OWN wrong
+    // false_positive calls. Mirrors the Wearables Workbench →
+    // Clinician Inbox handoff (#353/#354): admins do NOT drill into
+    // another resolver's coaching rows; coaching is resolver-led
+    // self-correction. Reviewer minimum.
+    case 'resolver-coaching-inbox':
+    case 'coaching-inbox':
+    case 'my-coaching': {
+      const m = await loadKnowledge();
+      await m.pgResolverCoachingInbox(setTopbar);
+      break;
+    }
+    // Resolver Coaching Digest Audit Hub launch-audit (DCRO4, 2026-05-02).
+    // Admin-side cohort dashboard over the DCRO3 dispatched audit row
+    // stream + ResolverCoachingDigestPreference table. Read-only;
+    // clinician minimum. Closes the resolver-side coaching loop:
+    // DCRO1 measures → DCRO2 self-corrects → DCRO3 nudges → DCRO4
+    // admins audit. No companion worker.
+    case 'resolver-coaching-digest-audit-hub':
+    case 'coaching-digest-hub':
+    case 'dcro4-hub': {
+      const m = await loadKnowledge();
+      await m.pgResolverCoachingDigestAuditHub(setTopbar);
+      break;
+    }
+    // Coaching Digest Delivery Failure Drilldown launch-audit (DCRO5,
+    // 2026-05-02). Operational drill-down over the DCRO3 dispatched
+    // audit row stream filtered to delivery_status=failed and grouped
+    // by (channel, error_class). DCRO4 surfaces the failure rate;
+    // DCRO5 makes it actionable with click-through to the Channel
+    // Misconfig Detector when a matching channel_misconfigured_detected
+    // row exists in the same ISO week + clinic + channel. Read-only;
+    // clinic-scoped; clinician minimum.
+    case 'coaching-digest-delivery-failure-drilldown':
+    case 'digest-failure-drilldown':
+    case 'dcro5-drilldown': {
+      const m = await loadKnowledge();
+      await m.pgCoachingDigestDeliveryFailureDrilldown(setTopbar);
+      break;
+    }
+    // Channel Misconfig Detector route alias (for DCRO5 click-through).
+    // The actual UI lives inside the Care Team Coverage "Caregiver
+    // channels" tab (#389) — this alias keeps DCRO5's click-through
+    // anchor stable even if that tab moves.
+    case 'channel-misconfig-detector':
+    case 'channel-misconfiguration-detector': {
+      const m = await loadKnowledge();
+      await m.pgCareTeamCoverage(setTopbar);
+      break;
+    }
+    // Clinician Adherence Hub launch-audit (2026-05-01). Bidirectional
+    // counterpart to the patient-side Adherence Events page (#350).
+    // Cross-patient triage of adherence reports, side-effects, and
+    // escalations scoped to the clinic — acknowledge / escalate / resolve
+    // / bulk-acknowledge in bulk instead of opening one Inbox item at a
+    // time. Closes the regulator chain on home-therapy adherence: patient
+    // logs (#350) → clinician triages (THIS PAGE) → SLA breach via Care
+    // Team Coverage (#357) → on-call paging.
+    case 'adherence-hub':
+    case 'clinician-adherence': {
+      const m = await loadCourses();
+      await m.pgClinicianAdherenceHub(setTopbar, navigate);
+      break;
+    }
+    // Clinician Wellness Hub (launch-audit 2026-05-01). Bidirectional
+    // counterpart to the patient-side Wellness Hub (#345). Cross-patient
+    // triage of wellness check-ins (mood / energy / sleep / anxiety /
+    // focus / pain) scoped to the clinic — acknowledge / escalate /
+    // resolve / bulk-acknowledge in bulk instead of opening one Inbox
+    // item at a time. Closes the regulator chain on early disengagement
+    // detection: patient logs wellness (#345) → clinician triages
+    // (THIS PAGE) → SLA breach via Care Team Coverage (#357) → on-call
+    // paging.
+    case 'wellness-hub':
+    case 'clinician-wellness': {
+      const m = await loadCourses();
+      await m.pgClinicianWellnessHub(setTopbar, navigate);
+      break;
+    }
+    // Clinician Notifications Pulse / Daily Digest (launch-audit 2026-05-01).
+    // Top-of-loop telemetry the Care Team Coverage SLA chain (#357)
+    // currently lacks. End-of-shift summary across the four clinician
+    // hubs (Inbox #354, Wearables Workbench #353, Adherence Hub #361,
+    // Wellness Hub #365) plus AE Hub #342 escalations. Tells the on-call
+    // clinician at the end of their shift: "here's what happened, here's
+    // what's still open, here's what got escalated."
+    case 'daily-digest':
+    case 'clinician-digest': {
+      const m = await loadCourses();
+      await m.pgClinicianDailyDigest(setTopbar, navigate);
+      break;
+    }
     case 'clinic-analytics': { const m = await loadKnowledge(); await m.pgClinicAnalytics(setTopbar); break; }
     case 'protocol-marketplace': { const { pgProtocolMarketplace } = await loadKnowledge(); await pgProtocolMarketplace(setTopbar); break; }
     case 'data-export': { const { pgDataExport } = await loadKnowledge(); await pgDataExport(setTopbar); break; }
@@ -1612,7 +1749,12 @@ async function renderPage() {
         const url = new URL(window.location.href);
         if (!analysisId) analysisId = url.searchParams.get('analysisId');
       } catch (_e) {}
+      // Also check the bridged deep-link arg set by the router
+      if (!analysisId && window._qeegSelectedId) {
+        analysisId = window._qeegSelectedId;
+      }
       if (!analysisId) {
+        window._qeegSelectedId = null; // clear so returning to launcher works
         const launcher = await loadQEEGRawLauncher();
         await launcher.pgQEEGRawLauncher(setTopbar, navigate);
       } else {
@@ -2212,7 +2354,10 @@ async function bootApp() {
     try {
       const qp = new URL(location.href).searchParams.get('page');
       if (qp) {
-        deepLinkId = qp;
+        // Split on "/" just like hash routes — e.g. "qeeg-raw-workbench/demo"
+        const segs = qp.split('/').filter(Boolean);
+        if (segs.length > 0) deepLinkId = segs[0];
+        if (segs.length > 1) deepLinkArg = segs[1];
       } else if (location.hash && location.hash.length > 1) {
         let raw = location.hash.slice(1);
         // Tolerate a leading "/" so /#/foo and /#foo both work.
@@ -2412,6 +2557,9 @@ async function checkBackendHealth() {
   try {
     await api.health();
     document.getElementById('backend-banner')?.remove();
+    // Shadow call via the typed client (additive demo migration). Errors
+    // are swallowed — banner state is still driven by the legacy call.
+    _typedApiClient.get('/health').catch(() => {});
   } catch {
     const existing = document.getElementById('backend-banner');
     if (existing) return;

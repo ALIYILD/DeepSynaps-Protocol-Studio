@@ -106,6 +106,43 @@ from app.routers.wellness_hub_router import router as wellness_hub_router
 from app.routers.patient_messages_router import router as patient_messages_router
 from app.routers.home_devices_patient_router import router as home_devices_patient_router
 from app.routers.adherence_events_router import router as adherence_events_router
+from app.routers.clinician_adherence_router import router as clinician_adherence_router
+from app.routers.clinician_wellness_router import router as clinician_wellness_router
+from app.routers.clinician_digest_router import router as clinician_digest_router
+from app.routers.auto_page_worker_router import router as auto_page_worker_router
+from app.routers.escalation_policy_router import router as escalation_policy_router
+from app.routers.patient_oncall_router import router as patient_oncall_router
+from app.routers.patient_digest_router import router as patient_digest_router
+from app.routers.caregiver_consent_router import router as caregiver_consent_router
+from app.routers.caregiver_email_digest_router import router as caregiver_email_digest_router
+from app.routers.channel_misconfiguration_detector_router import (
+    router as channel_misconfiguration_detector_router,
+)
+from app.routers.caregiver_delivery_concern_aggregator_router import (
+    router as caregiver_delivery_concern_aggregator_router,
+)
+from app.routers.caregiver_delivery_concern_resolution_router import (
+    router as caregiver_delivery_concern_resolution_router,
+)
+from app.routers.caregiver_delivery_concern_resolution_audit_hub_router import (
+    router as caregiver_delivery_concern_resolution_audit_hub_router,
+)
+from app.routers.caregiver_delivery_concern_resolution_outcome_tracker_router import (
+    router as caregiver_delivery_concern_resolution_outcome_tracker_router,
+)
+from app.routers.resolver_coaching_inbox_router import (
+    router as resolver_coaching_inbox_router,
+)
+from app.routers.resolver_coaching_self_review_digest_router import (
+    router as resolver_coaching_self_review_digest_router,
+)
+from app.routers.resolver_coaching_digest_audit_hub_router import (
+    router as resolver_coaching_digest_audit_hub_router,
+)
+from app.routers.coaching_digest_delivery_failure_drilldown_router import (
+    router as coaching_digest_delivery_failure_drilldown_router,
+)
+from app.routers.audit_trail_router import router as audit_trail_router
 # Settings API routers (foundation scaffolded by backend subagent #1; endpoints
 # fleshed out by backend subagents #3–#6). See apps/api/SETTINGS_API_DESIGN.md.
 from app.routers.profile_router import router as profile_router
@@ -146,10 +183,7 @@ except ImportError as _qa_imp_err:
         "QA router unavailable (deepsynaps_qa not installed): %s", _qa_imp_err
     )
 from app.routers.qeeg_raw_router import router as qeeg_raw_router
-from app.routers.ai_health_router import router as ai_health_router
-from app.routers.audit_trail_router import router as audit_trail_router
-from app.routers.quality_assurance_router import router as quality_assurance_router
-from app.routers.clinical_trials_router import router as clinical_trials_router
+from app.routers.qeeg_ai_router import router as qeeg_ai_router
 from app.sentry_setup import init_sentry
 from app.settings import get_settings
 from app.services.brain_regions import list_brain_regions
@@ -158,6 +192,26 @@ from app.services.brain_targets import (
     list_brain_targets,
 )
 from app.services.agent_scheduler import shutdown_scheduler, start_scheduler
+from app.workers.auto_page_worker import (
+    shutdown_worker as shutdown_auto_page_worker,
+    start_worker_if_enabled as start_auto_page_worker,
+)
+from app.workers.caregiver_email_digest_worker import (
+    shutdown_worker as shutdown_caregiver_email_digest_worker,
+    start_worker_if_enabled as start_caregiver_email_digest_worker,
+)
+from app.workers.channel_misconfiguration_detector_worker import (
+    shutdown_worker as shutdown_channel_misconfig_detector_worker,
+    start_worker_if_enabled as start_channel_misconfig_detector_worker,
+)
+from app.workers.caregiver_delivery_concern_aggregator_worker import (
+    shutdown_worker as shutdown_caregiver_delivery_concern_aggregator_worker,
+    start_worker_if_enabled as start_caregiver_delivery_concern_aggregator_worker,
+)
+from app.workers.resolver_coaching_self_review_digest_worker import (
+    shutdown_worker as shutdown_resolver_coaching_self_review_digest_worker,
+    start_worker_if_enabled as start_resolver_coaching_self_review_digest_worker,
+)
 from app.services.agent_skills_seed import seed_default_agent_skills
 from app.services.clinical_data import seed_clinical_dataset
 from app.services.devices import list_devices
@@ -248,10 +302,43 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
     # Phase 9 — boot the agent-ops cron (gated on
     # DEEPSYNAPS_AGENT_CRON_ENABLED so tests / CI don't fire jobs).
     start_scheduler()
+    # Auto-Page Worker (2026-05-01) — gated on
+    # DEEPSYNAPS_AUTO_PAGE_ENABLED so tests / CI don't fire pages.
+    # Per-clinic enable lives on escalation_chains.auto_page_enabled.
+    start_auto_page_worker()
+    # Caregiver Email Digest Worker (2026-05-01) — gated on
+    # DEEPSYNAPS_CAREGIVER_DIGEST_ENABLED so tests / CI don't fire
+    # dispatches. Per-caregiver enable lives on
+    # caregiver_digest_preferences.enabled.
+    start_caregiver_email_digest_worker()
+    # Channel Misconfiguration Detector Worker (2026-05-01) — gated on
+    # DEEPSYNAPS_CHANNEL_DETECTOR_ENABLED so tests / CI don't fire flags.
+    # Nightly scan that turns the override admin tab's misconfig flag
+    # (#387) into an active HIGH-priority inbox row so admins don't have
+    # to discover the misconfig manually.
+    start_channel_misconfig_detector_worker()
+    # Caregiver Delivery Concern Aggregator (2026-05-01) — gated on
+    # DEEPSYNAPS_CG_CONCERN_AGGREGATOR_ENABLED so tests / CI don't fire
+    # flags. Rolling-window scan that flags caregivers with N+ delivery
+    # concerns within the configured window (default 3 in 7d) and emits
+    # a HIGH-priority inbox row so admins see the recurring delivery
+    # problem without per-caregiver drill-down.
+    start_caregiver_delivery_concern_aggregator_worker()
+    # Resolver Coaching Self-Review Digest Worker (DCRO3, 2026-05-02) — gated
+    # on RESOLVER_COACHING_DIGEST_ENABLED so tests / CI don't fire dispatches.
+    # Honest opt-in default off — closes the loop end-to-end:
+    # DCRO1 measures (#393) → DCRO2 self-corrects (#397) → DCRO3 nudges.
+    # Per-resolver opt-in lives on resolver_coaching_digest_preferences.opted_in.
+    start_resolver_coaching_self_review_digest_worker()
     try:
         yield
     finally:
         shutdown_scheduler()
+        shutdown_auto_page_worker()
+        shutdown_caregiver_email_digest_worker()
+        shutdown_channel_misconfig_detector_worker()
+        shutdown_caregiver_delivery_concern_aggregator_worker()
+        shutdown_resolver_coaching_self_review_digest_worker()
 
 
 app = FastAPI(title=settings.api_title, version=settings.api_version, lifespan=lifespan)
@@ -345,6 +432,174 @@ app.include_router(wearables_workbench_router)
 # new schema; acknowledgements are stored as their own audit rows.
 app.include_router(clinician_inbox_router)
 app.include_router(care_team_coverage_router)
+# Clinician Adherence Hub launch-audit (2026-05-01). Bidirectional
+# counterpart to Adherence Events #350 — exposes a CROSS-PATIENT triage
+# queue over patient_adherence_events scoped to the clinic so a clinician
+# can clear today's backlog in bulk (acknowledge / escalate / resolve /
+# bulk-acknowledge) instead of opening one Inbox detail at a time.
+# Cross-clinic gated; admins see all. Closes the regulator chain on
+# home-therapy adherence: patient logs (#350) → clinician triages
+# (THIS) → SLA breach via Care Team Coverage (#357) → on-call paging.
+app.include_router(clinician_adherence_router)
+# Clinician Wellness Hub launch-audit (2026-05-01). Bidirectional
+# counterpart to Wellness Hub #345 — exposes a CROSS-PATIENT triage
+# queue over wellness_checkins scoped to the clinic so a clinician can
+# clear today's wellness backlog in bulk (acknowledge / escalate /
+# resolve / bulk-acknowledge) instead of opening one Inbox detail at a
+# time. Cross-clinic gated; admins see all. Closes the regulator chain
+# on early disengagement detection: patient logs (#345) → clinician
+# triages (THIS) → SLA breach via Care Team Coverage (#357) → on-call
+# paging.
+app.include_router(clinician_wellness_router)
+# Clinician Notifications Pulse / Daily Digest launch-audit (2026-05-01).
+# End-of-shift summary across the four clinician hubs (Inbox #354,
+# Wearables Workbench #353, Adherence Hub #361, Wellness Hub #365) plus
+# AE Hub #342 escalations. Top-of-loop telemetry the Care Team Coverage
+# SLA chain (#357) lacks: tells the on-call clinician at the end of
+# their shift "here's what happened, here's what's still open, here's
+# what got escalated". Read-only aggregator + email/colleague-share
+# audit rows; SMTP wire-up tracked in PR section F.
+app.include_router(clinician_digest_router)
+# Auto-Page Worker launch-audit (2026-05-01). Closes the real-time half
+# of the Care Team Coverage launch loop (#357). Background worker scans
+# SLA breaches every 60s and fires the same page-oncall handler the
+# manual button uses (in-process, not HTTP roundtrip). Per-clinic
+# enable via escalation_chains.auto_page_enabled; process-wide enable
+# via DEEPSYNAPS_AUTO_PAGE_ENABLED=1 env var.
+app.include_router(auto_page_worker_router)
+# Channel Misconfiguration Detector launch-audit (2026-05-01). Closes
+# section I rec from the Clinic Caregiver Channel Override (#387).
+# Nightly scan that walks every CaregiverDigestPreference row, evaluates
+# adapter_available per row, and emits HIGH-priority audit rows so the
+# Clinician Inbox aggregator surfaces channel misconfigs without the
+# admin having to manually open the "Caregiver channels" tab.
+app.include_router(channel_misconfiguration_detector_router)
+# Caregiver Delivery Concern Aggregator launch-audit (2026-05-01). Closes
+# section I rec from the Channel Misconfiguration Detector (#389).
+# Rolling-window scan that flags caregivers with N+ delivery concerns
+# within the configured window (default 3 within 7d) and emits a HIGH-
+# priority audit row so admins see recurring delivery problems via the
+# Clinician Inbox aggregator (#354) without per-caregiver drill-down.
+app.include_router(caregiver_delivery_concern_aggregator_router)
+# Caregiver Delivery Concern Resolution launch-audit (2026-05-02). Closes
+# the DCA loop opened by #390 — admin-side "Mark as resolved" surface
+# inside the Care Team Coverage "Caregiver channels" tab. Emits
+# ``caregiver_portal.delivery_concern_resolved`` audit rows that the DCA
+# worker consults so resolved caregivers are not re-flagged inside the
+# cooldown window. Pure CRUD/action router; no companion worker.
+app.include_router(caregiver_delivery_concern_resolution_router)
+# Caregiver Delivery Concern Resolution Audit Hub (DCR2, 2026-05-02). Cohort
+# dashboard built on the DCR1 audit trail — distribution of resolution reasons
+# (concerns_addressed / false_positive / caregiver_replaced / other) over time
+# so admins can calibrate the DCA threshold (high false_positive → raise) and
+# invest in delivery infrastructure when caregiver_replaced spikes. Read-only,
+# clinician minimum, no companion worker. Source data is the existing
+# caregiver_portal.delivery_concern_resolved audit rows emitted by DCR1.
+app.include_router(caregiver_delivery_concern_resolution_audit_hub_router)
+# Caregiver Delivery Concern Resolution Outcome Tracker (DCRO1, 2026-05-02).
+# Calibration-accuracy dashboard built on top of the DCR1 + DCR2 audit
+# trail. Pairs each ``caregiver_portal.delivery_concern_resolved`` row
+# with the NEXT ``caregiver_portal.delivery_concern_threshold_reached``
+# row for the same caregiver to record stayed_resolved vs
+# re_flagged_within_30d, then computes per-resolver calibration
+# accuracy: when an admin marks a caregiver "false_positive", does the
+# DCA worker re-flag them within 30 days? If yes, the admin was wrong.
+# No schema change — pure pairing of existing audit rows.
+app.include_router(caregiver_delivery_concern_resolution_outcome_tracker_router)
+# Resolver Coaching Inbox (DCRO2, 2026-05-02). Private, read-only inbox
+# view per resolver showing their wrong false_positive calls — i.e.,
+# resolutions where the resolver said "false_positive" but the DCA
+# worker re-flagged the same caregiver within 30 days. Each row carries
+# the caregiver's subsequent concern_count, adapter list, and a
+# self-review-notes field. Mirrors the Wearables Workbench → Clinician
+# Inbox handoff (#353/#354): admins do NOT drill into individual
+# resolver inboxes — coaching is resolver-led self-correction. Admins
+# use the admin-overview endpoint to see who needs coaching without
+# violating individual privacy. No new schema; pure UI on top of
+# DCRO1's paired-outcome data plus a self-review-note audit row.
+app.include_router(resolver_coaching_inbox_router)
+# Resolver Coaching Self-Review Digest Worker (DCRO3, 2026-05-02). Closes
+# the resolver-side loop: DCRO1 (#393) measures calibration → DCRO2 (#397)
+# gives each resolver a private self-review surface → DCRO3 (THIS) nudges
+# them weekly via their preferred on-call channel when they have un-self-
+# reviewed wrong false_positive calls. Honest opt-in default OFF at both
+# system level (RESOLVER_COACHING_DIGEST_ENABLED env) and per-resolver
+# level (ResolverCoachingDigestPreference.opted_in). Reuses the
+# EscalationPolicy + oncall_delivery adapters from #374. Per-resolver
+# weekly cooldown (default 144h = 6 days) prevents weekly-overlap dispatch.
+app.include_router(resolver_coaching_self_review_digest_router)
+# Resolver Coaching Digest Audit Hub launch-audit (DCRO4, 2026-05-02).
+# Admin-side cohort dashboard built on the DCRO3 dispatched audit row
+# stream + the ResolverCoachingDigestPreference table. Three views:
+# (a) opted-in vs opted-out resolver counts, (b) digest delivery
+# success/failure rate per channel, (c) per-resolver weekly wrong-call
+# backlog trajectory (shrinking / flat / growing). Read-only — there
+# is no companion worker. Closes the resolver-side coaching loop:
+# DCRO1 measures → DCRO2 self-corrects → DCRO3 nudges → DCRO4 admins
+# audit. Clinician minimum; cross-clinic data hidden behind the
+# canonical ``clinic_id={cid}`` substring needle on every read path.
+app.include_router(resolver_coaching_digest_audit_hub_router)
+# Coaching Digest Delivery Failure Drilldown (DCRO5, 2026-05-02). Operational
+# drill-down over the DCRO3 dispatched audit row stream filtered to
+# delivery_status=failed and grouped by (channel, error_class). DCRO4 (#402)
+# surfaces the failure rate; DCRO5 makes it actionable with click-through to
+# the Channel Misconfig Detector (#389) when a matching
+# caregiver_portal.channel_misconfigured_detected row exists in the same ISO
+# week + clinic + channel. Read-only; clinician minimum; no schema change; no
+# companion worker (reuses the existing DCRO3 audit row stream).
+app.include_router(coaching_digest_delivery_failure_drilldown_router)
+# Escalation Policy Editor (2026-05-01) — admin-only configurable
+# dispatch order + per-surface override matrix + per-user contact mapping.
+# Replaces the hard-coded DEFAULT_ADAPTER_ORDER and contact_handle path
+# flagged by the On-Call Delivery agent (#373) as the last operational
+# gap. OncallDeliveryService consults EscalationPolicy at construction
+# time and falls back to the static default when no policy exists, so
+# every existing deploy keeps working unchanged.
+app.include_router(escalation_policy_router)
+# Patient On-Call Visibility launch-audit (2026-05-01). Patient-facing
+# complement to the admin-side Escalation Policy editor (#374): patients
+# get a read-only "Care team contact" card on their Patient Profile
+# (pages-patient.js::pgPatientProfile) showing abstract availability
+# state (coverage hours, in-hours-now, urgent path) WITHOUT exposing
+# any PHI of the on-call clinician — no name, phone, Slack handle, or
+# PagerDuty user-id surfaces here. Closes the patient-side gap flagged
+# by the Escalation Policy agent now that admin-side dispatch order is
+# editable.
+app.include_router(patient_oncall_router)
+# Patient Digest launch-audit (2026-05-01). Patient-side mirror of the
+# Clinician Digest (#366). Daily/weekly self-summary the patient sees
+# on demand: sessions completed, adherence streak, wellness trends,
+# pending messages, recent reports — all scoped to actor.patient_id;
+# NO PHI of OTHER patients leaks into the response. The IDOR regression
+# test asserts that a clinician hitting the patient endpoints with a
+# forged patient_id query param still gets a 404.
+app.include_router(patient_digest_router)
+# Caregiver Consent Grants launch-audit (2026-05-01). Closes the
+# caregiver-share loop opened by Patient Digest #376. Patient grants
+# create durable rows in ``caregiver_consent_grants`` with a JSON
+# ``scope`` (digest / messages / reports / wearables); revoke stamps
+# ``revoked_at`` + ``revocation_reason`` and the grant becomes
+# immutable. Patient Digest's share-caregiver endpoint consults
+# ``has_active_grant`` and flips ``delivery_status='sent'`` honestly
+# when ``scope.digest=True`` — otherwise stays ``queued``. Cross-
+# patient access blocked at the router (404). Caregivers see grants
+# pointed at them via ``/grants/by-caregiver``.
+app.include_router(caregiver_consent_router)
+# Caregiver Email Digest (2026-05-01) — closes the bidirectional
+# notification loop opened by Caregiver Notification Hub #379. Daily
+# roll-up of unread caregiver notifications via the on-call delivery
+# adapters in mock mode unless real env vars set. Caregivers opt in via
+# ``caregiver_digest_preferences``; the daily worker
+# (DEEPSYNAPS_CAREGIVER_DIGEST_ENABLED=1) honours a 24h per-caregiver
+# cooldown.
+app.include_router(caregiver_email_digest_router)
+# Audit Trail launch-audit (2026-04-30) — was previously included via
+# legacy main.py routes. The router carries its own filters, summary,
+# CSV / NDJSON exports, single-event detail, and audits its own reads.
+# A concurrent session reverted this include during PR #386's merge
+# storm; restoring it here so audit-trail surface tests pass and the
+# regulator transcript surface is reachable.
+app.include_router(audit_trail_router)
 # Settings API (scaffolded 024_settings_schema) — stubs; endpoints arrive in
 # follow-up subagents. Grouped together for discoverability.
 app.include_router(profile_router)
@@ -377,10 +632,7 @@ app.include_router(device_sync_router)
 if _HAS_QA_ROUTER and qa_router is not None:
     app.include_router(qa_router)
 app.include_router(qeeg_raw_router)
-app.include_router(ai_health_router)
-app.include_router(audit_trail_router)
-app.include_router(quality_assurance_router)
-app.include_router(clinical_trials_router)
+app.include_router(qeeg_ai_router)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
