@@ -7371,7 +7371,7 @@ export async function pgCareTeamCoverage(setTopbar) {
   var activeTab = window._coverageTab || 'coverage';
 
   async function loadAll() {
-    var [summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth, policyOrder, policyOverrides, policyMappings, deliveryConcerns, caregiverChannels, channelMisconfigDetectorStatus, deliveryConcernAggregatorStatus, deliveryConcernAggregatorEvents] = await Promise.all([
+    var [summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth, policyOrder, policyOverrides, policyMappings, deliveryConcerns, caregiverChannels, channelMisconfigDetectorStatus, deliveryConcernAggregatorStatus, deliveryConcernAggregatorEvents, resolutionOpenList, resolutionResolvedList] = await Promise.all([
       api.careTeamCoverageSummary(),
       api.careTeamCoverageOncallNow(),
       api.careTeamCoverageSlaConfig(),
@@ -7413,8 +7413,18 @@ export async function pgCareTeamCoverage(setTopbar) {
             limit: 50,
           })
         : null,
+      // Caregiver Delivery Concern Resolution launch-audit (DCR1, 2026-05-02).
+      // Closes the loop opened by #390. Open list = currently-flagged
+      // caregivers in this clinic (last 30d); resolved list = recently-
+      // resolved (last 7d) so the admin can see who they cleared and why.
+      typeof api.caregiverDeliveryConcernResolutionList === 'function'
+        ? api.caregiverDeliveryConcernResolutionList({ status: 'open' })
+        : null,
+      typeof api.caregiverDeliveryConcernResolutionList === 'function'
+        ? api.caregiverDeliveryConcernResolutionList({ status: 'resolved' })
+        : null,
     ]);
-    return { summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth, policyOrder, policyOverrides, policyMappings, deliveryConcerns, caregiverChannels, channelMisconfigDetectorStatus, deliveryConcernAggregatorStatus, deliveryConcernAggregatorEvents };
+    return { summary, oncall, sla, chain, breaches, roster, pages, workerStatus, adapterHealth, policyOrder, policyOverrides, policyMappings, deliveryConcerns, caregiverChannels, channelMisconfigDetectorStatus, deliveryConcernAggregatorStatus, deliveryConcernAggregatorEvents, resolutionOpenList, resolutionResolvedList };
   }
 
   function isDemo(d) {
@@ -7906,6 +7916,126 @@ export async function pgCareTeamCoverage(setTopbar) {
       '</div>';
   }
 
+  // Caregiver Delivery Concern Resolution launch-audit (DCR1, 2026-05-02).
+  // Renders the "Resolution" sub-section inside the existing Caregiver
+  // channels / Delivery concerns area. Closes the loop opened by the
+  // DCA aggregator (#390): admins / reviewers click "Mark as resolved"
+  // on a flagged caregiver, supply a structured reason + free-text
+  // note (10–500 chars), and the resolution row clears the cooldown
+  // so the DCA worker re-evaluates that caregiver on the next tick.
+  function renderDeliveryConcernResolutionPanel(d) {
+    var openList = d.resolutionOpenList || null;
+    var resolvedList = d.resolutionResolvedList || null;
+    var role = (window.__deepsynapsActorRole || '').toLowerCase();
+    var canResolve = (role === 'admin' || role === 'supervisor' || role === 'regulator' || role === 'reviewer' || role === 'clinician');
+
+    if (openList == null && resolvedList == null) {
+      return '<div data-testid="ctc-cgcr-panel" class="notice notice-info" style="margin-top:12px;font-size:12px">' +
+        '<strong>Caregiver delivery-concern resolution backend unreachable.</strong> Until the API responds, admins cannot clear flagged caregivers from this tab.' +
+        '</div>';
+    }
+
+    var openItems = (openList && Array.isArray(openList.items)) ? openList.items : [];
+    var resolvedItems = (resolvedList && Array.isArray(resolvedList.resolved_items)) ? resolvedList.resolved_items : [];
+
+    var openListHtml = '';
+    if (openItems.length === 0) {
+      openListHtml = '<div data-testid="ctc-cgcr-empty" style="font-size:12px;color:var(--text-muted);margin-top:8px;padding:8px;border:1px dashed var(--border);border-radius:6px">' +
+        'No flagged caregivers.' +
+        '</div>';
+    } else {
+      var openRows = openItems.slice(0, 50).map(function(it) {
+        var cgId = String(it.caregiver_user_id || '—');
+        var name = it.caregiver_display_name || it.caregiver_email || cgId;
+        var concernCount = Number(it.concern_count) || 0;
+        var days = Number(it.days_flagged) || 0;
+        var lastFlaggedRel = _relativeTime(it.last_flagged_at);
+        var actionCell = canResolve
+          ? '<button class="btn btn-sm" data-testid="ctc-cgcr-resolve-btn" data-caregiver-user-id="' + _esc(cgId) + '" onclick="window._caregiverDeliveryConcernResolutionOpenModal(\'' + _esc(cgId) + '\',\'' + _esc(name) + '\')">Mark as resolved</button>'
+          : '<span style="color:var(--text-muted);font-size:11px">Reviewer / admin only</span>';
+        return '<tr data-testid="ctc-cgcr-open-row" data-caregiver-user-id="' + _esc(cgId) + '">' +
+          '<td><strong>' + _esc(name) + '</strong><br><span style="font-size:11px;color:var(--text-muted)">' + _esc(cgId) + '</span></td>' +
+          '<td>' + _esc(String(concernCount)) + '</td>' +
+          '<td>' + _esc(String(days)) + 'd <span style="color:var(--text-muted);font-size:11px">(' + _esc(lastFlaggedRel) + ')</span></td>' +
+          '<td>' + actionCell + '</td>' +
+          '</tr>';
+      }).join('');
+      openListHtml = '<div data-testid="ctc-cgcr-open-list" style="overflow-x:auto;margin-top:8px">' +
+        '<table class="data-table" style="width:100%;min-width:640px;font-size:12px">' +
+        '<thead><tr><th>Caregiver</th><th>Concerns</th><th>Days flagged</th><th>Action</th></tr></thead>' +
+        '<tbody>' + openRows + '</tbody></table>' +
+        '</div>';
+    }
+
+    var resolvedHtml = '';
+    if (resolvedItems.length === 0) {
+      resolvedHtml = '<div data-testid="ctc-cgcr-resolved-empty" style="font-size:12px;color:var(--text-muted);margin-top:8px;padding:8px;border:1px dashed var(--border);border-radius:6px">' +
+        'No resolutions in the last 7 days.' +
+        '</div>';
+    } else {
+      var resolvedRows = resolvedItems.slice(0, 50).map(function(it) {
+        var cgId = String(it.caregiver_user_id || '—');
+        var name = it.caregiver_display_name || it.caregiver_email || cgId;
+        var reason = String(it.resolution_reason || '—');
+        var resolver = String(it.resolver_user_id || '—');
+        var note = String(it.resolution_note || '');
+        var noteShort = note.length > 80 ? note.slice(0, 77) + '…' : note;
+        var when = _relativeTime(it.resolved_at);
+        return '<tr data-testid="ctc-cgcr-resolved-row" data-caregiver-user-id="' + _esc(cgId) + '">' +
+          '<td><strong>' + _esc(name) + '</strong><br><span style="font-size:11px;color:var(--text-muted)">' + _esc(cgId) + '</span></td>' +
+          '<td>' + _esc(reason) + '</td>' +
+          '<td>' + _esc(resolver) + '</td>' +
+          '<td>' + _esc(when) + (note ? '<br><span style="font-size:11px;color:var(--text-muted)" title="' + _esc(note) + '">' + _esc(noteShort) + '</span>' : '') + '</td>' +
+          '</tr>';
+      }).join('');
+      resolvedHtml = '<div data-testid="ctc-cgcr-resolved-list" style="overflow-x:auto;margin-top:8px">' +
+        '<table class="data-table" style="width:100%;min-width:680px;font-size:12px">' +
+        '<thead><tr><th>Caregiver</th><th>Reason</th><th>Resolver</th><th>When</th></tr></thead>' +
+        '<tbody>' + resolvedRows + '</tbody></table>' +
+        '</div>';
+    }
+
+    return '<div data-testid="ctc-cgcr-panel" class="notice" style="margin-top:12px;font-size:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:10px 14px">' +
+      '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">' +
+      '<span><strong>Resolution</strong></span>' +
+      '<span style="color:var(--text-muted)">Mark a flagged caregiver as resolved to clear their DCA cooldown.</span>' +
+      '</div>' +
+      '<div data-testid="ctc-cgcr-open-section" style="margin-top:8px">' +
+      '<div style="font-weight:700;font-size:11px;text-transform:uppercase;color:var(--text-muted)">Open flags' +
+        (openItems.length ? ' (' + _esc(String(openItems.length)) + ')' : '') +
+      '</div>' +
+      openListHtml +
+      '</div>' +
+      '<div data-testid="ctc-cgcr-resolved-section" style="margin-top:12px">' +
+      '<div style="font-weight:700;font-size:11px;text-transform:uppercase;color:var(--text-muted)">Recently resolved (last 7 days)' +
+        (resolvedItems.length ? ' (' + _esc(String(resolvedItems.length)) + ')' : '') +
+      '</div>' +
+      resolvedHtml +
+      '</div>' +
+      // Hidden modal scaffold — populated by _caregiverDeliveryConcernResolutionOpenModal.
+      '<div data-testid="ctc-cgcr-modal" id="ctc-cgcr-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:9999;align-items:center;justify-content:center">' +
+      '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:18px;max-width:480px;width:92%">' +
+      '<div style="font-weight:700;margin-bottom:8px">Mark as resolved</div>' +
+      '<div data-testid="ctc-cgcr-modal-target" id="ctc-cgcr-modal-target" style="font-size:12px;color:var(--text-muted);margin-bottom:10px"></div>' +
+      '<label style="display:block;font-size:11px;font-weight:700;margin-top:6px">Reason</label>' +
+      '<select data-testid="ctc-cgcr-modal-reason" id="ctc-cgcr-modal-reason" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px">' +
+      '<option value="concerns_addressed">Concerns addressed</option>' +
+      '<option value="false_positive">False positive</option>' +
+      '<option value="caregiver_replaced">Caregiver replaced</option>' +
+      '<option value="other">Other</option>' +
+      '</select>' +
+      '<label style="display:block;font-size:11px;font-weight:700;margin-top:10px">Resolution note (10–500 chars)</label>' +
+      '<textarea data-testid="ctc-cgcr-modal-note" id="ctc-cgcr-modal-note" rows="4" maxlength="500" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:12px" oninput="window._caregiverDeliveryConcernResolutionValidateNote()"></textarea>' +
+      '<div data-testid="ctc-cgcr-modal-error" id="ctc-cgcr-modal-error" style="font-size:11px;color:#ef4444;margin-top:6px;min-height:14px"></div>' +
+      '<div style="margin-top:12px;display:flex;justify-content:flex-end;gap:8px">' +
+      '<button class="btn btn-sm btn-ghost" data-testid="ctc-cgcr-modal-cancel" onclick="window._caregiverDeliveryConcernResolutionCloseModal()">Cancel</button>' +
+      '<button class="btn btn-sm" data-testid="ctc-cgcr-modal-submit" id="ctc-cgcr-modal-submit" disabled onclick="window._caregiverDeliveryConcernResolutionSubmit()">Resolve</button>' +
+      '</div>' +
+      '</div>' +
+      '</div>' +
+      '</div>';
+  }
+
   // Format an ISO timestamp into a "X minutes/hours/days ago" string.
   // Falls back to the raw ISO when the input is unparseable.
   function _relativeTime(iso) {
@@ -7959,16 +8089,26 @@ export async function pgCareTeamCoverage(setTopbar) {
         note: 'caregiver_channels tab mount',
       });
     }
+    // Caregiver Delivery Concern Resolution launch-audit (DCR1, 2026-05-02).
+    // Mount-time audit ping on the resolution surface so the regulator
+    // transcript records every read of the open-flag list.
+    if (typeof api.postCaregiverDeliveryConcernResolutionAuditEvent === 'function') {
+      api.postCaregiverDeliveryConcernResolutionAuditEvent({
+        event: 'view',
+        note: 'caregiver_channels tab mount',
+      });
+    }
     var detectorPanel = renderChannelMisconfigDetectorPanel(d, misconfigCount);
     var concernAggregatorPanel = renderDeliveryConcernAggregatorPanel(d);
+    var concernResolutionPanel = renderDeliveryConcernResolutionPanel(d);
     if (data == null) {
-      return detectorPanel + concernAggregatorPanel +
+      return detectorPanel + concernAggregatorPanel + concernResolutionPanel +
         '<div data-testid="ctc-caregiver-channels" class="notice notice-info" style="padding:14px;font-size:12px">' +
         '<strong>Caregiver channels backend unreachable.</strong> Until the API is up the admin override surface is unavailable; caregiver-side preferences continue to dispatch via the existing clinic chain.' +
         '</div>';
     }
     if (items.length === 0) {
-      return detectorPanel + concernAggregatorPanel + emptyState(
+      return detectorPanel + concernAggregatorPanel + concernResolutionPanel + emptyState(
         '✉',
         'No caregiver preferences in this clinic.',
         'Caregivers must enable the daily digest from their portal before they appear here. Once they pick a preferred channel (email / sms / slack / pagerduty) you can review or override the routing from this tab.',
@@ -8010,7 +8150,7 @@ export async function pgCareTeamCoverage(setTopbar) {
         '<td>' + overrideBtn + '</td>' +
         '</tr>';
     }).join('');
-    return detectorPanel + concernAggregatorPanel +
+    return detectorPanel + concernAggregatorPanel + concernResolutionPanel +
       '<div data-testid="ctc-caregiver-channels" style="overflow-x:auto">' +
       '<div style="margin-bottom:10px;font-size:12px;color:var(--text-secondary);line-height:1.5">' +
         '<strong>Caregiver channel overrides for this clinic.</strong> ' + mockChip +
@@ -8482,6 +8622,102 @@ export async function pgCareTeamCoverage(setTopbar) {
         target_id: caregiverId,
         note: 'admin clicked Review preference for caregiver=' + caregiverId,
       });
+    }
+  };
+
+  // Caregiver Delivery Concern Resolution launch-audit (DCR1, 2026-05-02).
+  // Modal handlers for the "Mark as resolved" flow inside the
+  // Caregiver channels / Resolution sub-section.
+  window._caregiverDeliveryConcernResolutionOpenModal = function(caregiverId, displayName) {
+    var modal = document.getElementById('ctc-cgcr-modal');
+    if (!modal) return;
+    modal.dataset.caregiverUserId = caregiverId || '';
+    var target = document.getElementById('ctc-cgcr-modal-target');
+    if (target) {
+      target.textContent = 'Caregiver: ' + (displayName || caregiverId || '—');
+    }
+    var note = document.getElementById('ctc-cgcr-modal-note');
+    if (note) note.value = '';
+    var reason = document.getElementById('ctc-cgcr-modal-reason');
+    if (reason) reason.value = 'concerns_addressed';
+    var err = document.getElementById('ctc-cgcr-modal-error');
+    if (err) err.textContent = '';
+    var submit = document.getElementById('ctc-cgcr-modal-submit');
+    if (submit) submit.disabled = true;
+    modal.style.display = 'flex';
+    if (typeof api.postCaregiverDeliveryConcernResolutionAuditEvent === 'function') {
+      api.postCaregiverDeliveryConcernResolutionAuditEvent({
+        event: 'resolve_modal_opened',
+        target_id: caregiverId,
+        note: 'admin opened resolve modal for caregiver=' + caregiverId,
+      });
+    }
+  };
+
+  window._caregiverDeliveryConcernResolutionCloseModal = function() {
+    var modal = document.getElementById('ctc-cgcr-modal');
+    if (modal) modal.style.display = 'none';
+  };
+
+  window._caregiverDeliveryConcernResolutionValidateNote = function() {
+    var note = document.getElementById('ctc-cgcr-modal-note');
+    var submit = document.getElementById('ctc-cgcr-modal-submit');
+    if (!note || !submit) return;
+    var len = (note.value || '').trim().length;
+    submit.disabled = !(len >= 10 && len <= 500);
+  };
+
+  window._caregiverDeliveryConcernResolutionSubmit = async function() {
+    var modal = document.getElementById('ctc-cgcr-modal');
+    if (!modal) return;
+    var caregiverId = modal.dataset.caregiverUserId || '';
+    var reasonEl = document.getElementById('ctc-cgcr-modal-reason');
+    var noteEl = document.getElementById('ctc-cgcr-modal-note');
+    var err = document.getElementById('ctc-cgcr-modal-error');
+    if (!caregiverId || !reasonEl || !noteEl || !err) return;
+    var reason = reasonEl.value;
+    var noteText = (noteEl.value || '').trim();
+    if (noteText.length < 10 || noteText.length > 500) {
+      err.textContent = 'Resolution note must be 10–500 characters.';
+      return;
+    }
+    err.textContent = '';
+    if (typeof api.postCaregiverDeliveryConcernResolutionAuditEvent === 'function') {
+      api.postCaregiverDeliveryConcernResolutionAuditEvent({
+        event: 'resolve_submitted',
+        target_id: caregiverId,
+        note: 'reason=' + reason + '; note_len=' + noteText.length,
+      });
+    }
+    try {
+      var resp = await api.caregiverDeliveryConcernResolutionResolve({
+        caregiver_user_id: caregiverId,
+        resolution_reason: reason,
+        resolution_note: noteText,
+      });
+      if (resp && resp.status === 'already_resolved') {
+        err.textContent = 'Already resolved by ' + (resp.resolver_user_id || 'another admin') + '.';
+        return;
+      }
+      window._caregiverDeliveryConcernResolutionCloseModal();
+      render();
+    } catch (e) {
+      var msg = (e && e.message) ? e.message : 'unknown';
+      // 409 indicates already-resolved race condition; surface inline.
+      if (/409/.test(msg) || /already_resolved/i.test(msg)) {
+        err.textContent = 'Already resolved by another admin.';
+      } else if (/422/.test(msg)) {
+        err.textContent = 'Validation failed: ' + msg;
+      } else {
+        err.textContent = 'Resolve failed: ' + msg;
+      }
+      if (typeof api.postCaregiverDeliveryConcernResolutionAuditEvent === 'function') {
+        api.postCaregiverDeliveryConcernResolutionAuditEvent({
+          event: 'resolve_failed',
+          target_id: caregiverId,
+          note: msg,
+        });
+      }
     }
   };
 
