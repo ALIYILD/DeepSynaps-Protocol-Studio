@@ -163,6 +163,12 @@ function _medicationAnalyzerDemoPayload(patientId) {
     ],
     evidence_links: [],
     audit_ref: 'demo-med-analyzer',
+    regulatory_disclosures: {
+      intended_use: 'Clinical decision-support for structured regimen review and confound prompts (demo).',
+      not_intended_for: ['Autonomous prescribing', 'Replacement for pharmacy systems'],
+      evidence_basis: 'Deterministic demo rules — connect API for versioned rulesets.',
+      limitations: ['Not exhaustive DDI screening', 'Hypothesis-level confounds only'],
+    },
   };
 }
 
@@ -207,6 +213,14 @@ function _demoSyntheticResponse(path, method) {
   const medAz = path.match(/^\/api\/v1\/medications\/analyzer\/patient\/([^/?]+)$/);
   if (medAz && (!method || method === 'GET')) {
     return _medicationAnalyzerDemoPayload(decodeURIComponent(medAz[1]));
+  }
+  const medAzAudit = path.match(/^\/api\/v1\/medications\/analyzer\/patient\/([^/?]+)\/audit$/);
+  if (medAzAudit && (!method || method === 'GET')) {
+    return {
+      demo: true,
+      entries: [],
+      review_notes: [],
+    };
   }
   // Mutations: pretend success (return a minimal accepted-shape object).
   if (method && method !== 'GET') return { ok: true, demo: true, id: 'demo-' + Date.now() };

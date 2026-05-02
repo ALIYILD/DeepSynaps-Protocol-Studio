@@ -17,6 +17,29 @@ from app.routers.medications_router import InteractionResult, _run_interaction_c
 
 RULESET_VERSION = "med-analyzer-rules-v1"
 
+# Research / CDS posture encoded for auditor-facing payloads (not clinical validation claims).
+REGULATORY_DISCLOSURES = {
+    "intended_use": (
+        "Clinical decision-support for structured medication regimen review, adherence "
+        "context, and safety/confound prompts in neuromodulation and multimodal workflows."
+    ),
+    "not_intended_for": [
+        "Autonomous prescribing, dosing, or stopping medications.",
+        "Replacement for pharmacy systems, allergy reconciliation, or FDA labeling.",
+        "Validated adherence measurement or therapeutic drug monitoring.",
+    ],
+    "evidence_basis": (
+        "Deterministic rules over curated interaction exemplars and medication-class "
+        "heuristics; adherence estimates are clinic-review prompts when device/refill "
+        "feeds are absent. Outputs require clinician interpretation."
+    ),
+    "limitations": [
+        "Drug–drug screening uses a partial in-rule-set list—not exhaustive.",
+        "Confound attribution is hypothesis-level (possible/plausible), not causal inference.",
+        "Research deployments should version rulesets and retain audit trails.",
+    ],
+}
+
 
 def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -406,6 +429,8 @@ def generate_medication_review_actions(
 def build_page_payload(
     patient_id: str,
     med_rows: list[dict[str, Any]],
+    *,
+    extra_timeline_events: Optional[list[dict[str, Any]]] = None,
 ) -> dict[str, Any]:
     """Full ``MedicationAnalyzerPagePayload``-shaped object."""
     for r in med_rows:
@@ -428,6 +453,11 @@ def build_page_payload(
     poly = compute_polypharmacy_risk(len(active))
     normalized = normalize_medication_list(med_rows)
     timeline = build_medication_timeline(med_rows)
+    if extra_timeline_events:
+        timeline = sorted(
+            timeline + extra_timeline_events,
+            key=lambda e: e.get("occurred_at") or "",
+        )
     adherence = estimate_medication_adherence(len(active))
     confounds = _confound_flags_for_meds(normalized)
     recommendations = generate_medication_review_actions(
@@ -460,6 +490,7 @@ def build_page_payload(
             "ruleset_versions": {RULESET_VERSION: "1"},
             "model_versions": {},
         },
+        "regulatory_disclosures": REGULATORY_DISCLOSURES,
         "snapshot": {
             "active_medications": [m for m in normalized if m.get("status") == "active"],
             "recent_change_count_30d": recent_changes,

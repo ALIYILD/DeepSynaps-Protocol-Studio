@@ -439,6 +439,55 @@ class MedicationInteractionLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
+class MedicationAnalyzerAudit(Base):
+    """Durable audit row for Medication Analyzer clinician actions and reads.
+
+    Complements the umbrella :class:`AuditEventRecord` stream (regulatory
+    index); stores structured detail for research QA and cross-team review.
+    """
+    __tablename__ = "medication_analyzer_audit"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    actor_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    audit_ref: Mapped[Optional[str]] = mapped_column(String(96), nullable=True, index=True)
+    ruleset_version: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    detail_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc), index=True
+    )
+
+
+class MedicationAnalyzerReviewNote(Base):
+    """Clinician review notes attached to the Medication Analyzer context."""
+
+    __tablename__ = "medication_analyzer_review_notes"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    actor_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    note_text: Mapped[str] = mapped_column(Text(), nullable=False)
+    linked_recommendation_ids_json: Mapped[str] = mapped_column(Text(), nullable=False, default="[]")
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), index=True)
+
+
+class MedicationAnalyzerTimelineEvent(Base):
+    """Clinician-entered timeline annotations (does not replace Rx source rows)."""
+
+    __tablename__ = "medication_analyzer_timeline_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    actor_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(48), nullable=False, index=True)
+    occurred_at: Mapped[str] = mapped_column(String(64), nullable=False)
+    medication_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    payload_json: Mapped[str] = mapped_column(Text(), nullable=False, default="{}")
+    source_origin: Mapped[str] = mapped_column(String(48), nullable=False, default="clinician_entry")
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), index=True)
+
+
 # ── Reminder Campaign Models ──────────────────────────────────────────────────
 
 class ReminderCampaign(Base):

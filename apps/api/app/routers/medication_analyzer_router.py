@@ -1,16 +1,21 @@
 """Medication Analyzer — aggregated decision-support payload for the Studio UI.
 
 Prefix: ``/api/v1/medications/analyzer`` (does not replace ``/api/v1/medications`` CRUD).
+
+Audit rows, review notes, and timeline annotations persist to SQL tables;
+regulatory audit breadcrumbs post to the umbrella ``audit_events`` stream.
 """
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -20,20 +25,25 @@ from app.auth import (
     require_patient_owner,
 )
 from app.database import get_db_session
-from app.persistence.models import PatientMedication
+from app.persistence.models import (
+    MedicationAnalyzerAudit,
+    MedicationAnalyzerReviewNote,
+    MedicationAnalyzerTimelineEvent,
+    Patient,
+    PatientMedication,
+    User,
+)
 from app.repositories.patients import resolve_patient_clinic_id
 from app.routers.medications_router import MedicationOut
-from app.services.medication_analyzer import build_page_payload, json_dump_stable
 from app.services import medication_analyzer as med_az
+from app.services.medication_analyzer import RULESET_VERSION, build_page_payload
+
+_log = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/v1/medications/analyzer",
     tags=["Medication Analyzer"],
 )
-
-# In-memory audit + review notes (MVP; replace with DB table when productized)
-_ANALYZER_AUDIT: list[dict[str, Any]] = []
-_REVIEW_NOTES: list[dict[str, Any]] = []
 
 
 def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session) -> None:
@@ -42,13 +52,26 @@ def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session
         require_patient_owner(actor, clinic_id)
 
 
+def _medication_access_filter(stmt, actor: AuthenticatedActor):
+    """Clinic-wide medication visibility for covering clinicians; solo fallback."""
+    if actor.role == "admin":
+        return stmt
+    if actor.clinic_id:
+        return stmt.where(User.clinic_id == actor.clinic_id)
+    return stmt.where(PatientMedication.clinician_id == actor.actor_id)
+
+
 def _med_rows_for_patient(
     db: Session, patient_id: str, actor: AuthenticatedActor
 ) -> list[dict[str, Any]]:
-    q = db.query(PatientMedication).filter(PatientMedication.patient_id == patient_id)
-    if actor.role != "admin":
-        q = q.filter(PatientMedication.clinician_id == actor.actor_id)
-    records = q.order_by(PatientMedication.created_at.desc()).all()
+    stmt = (
+        select(PatientMedication)
+        .join(Patient, Patient.id == PatientMedication.patient_id)
+        .join(User, User.id == Patient.clinician_id)
+        .where(PatientMedication.patient_id == patient_id)
+    )
+    stmt = _medication_access_filter(stmt, actor)
+    records = db.execute(stmt).scalars().all()
     rows: list[dict[str, Any]] = []
     for r in records:
         mo = MedicationOut.from_record(r)
@@ -74,29 +97,113 @@ def _med_rows_for_patient(
     return rows
 
 
-def _append_audit(
+def _timeline_rows_from_db(db: Session, patient_id: str) -> list[dict[str, Any]]:
+    q = (
+        select(MedicationAnalyzerTimelineEvent)
+        .where(MedicationAnalyzerTimelineEvent.patient_id == patient_id)
+        .order_by(MedicationAnalyzerTimelineEvent.created_at.asc())
+    )
+    rows = db.execute(q).scalars().all()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        try:
+            payload = json.loads(r.payload_json or "{}")
+        except Exception:
+            payload = {}
+        out.append(
+            {
+                "id": r.id,
+                "patient_id": r.patient_id,
+                "event_type": r.event_type,
+                "occurred_at": r.occurred_at,
+                "medication_id": r.medication_id,
+                "payload": payload,
+                "source": {
+                    "origin": r.source_origin,
+                    "recorded_at": r.created_at.isoformat()
+                    if r.created_at
+                    else datetime.now(timezone.utc).isoformat(),
+                    "confidence": 1.0,
+                },
+                "confidence": 1.0,
+            }
+        )
+    return out
+
+
+def _umbrella_audit(
+    db: Session,
+    actor: AuthenticatedActor,
+    *,
+    event: str,
+    patient_id: str,
+    note: str = "",
+) -> None:
+    from app.repositories.audit import create_audit_event  # noqa: PLC0415
+
+    now = datetime.now(timezone.utc)
+    event_id = (
+        f"medication_analyzer-{event}-{actor.actor_id}-{int(now.timestamp())}"
+        f"-{uuid.uuid4().hex[:6]}"
+    )
+    final_note = (note[:500] if note else event)[:1024]
+    try:
+        create_audit_event(
+            db,
+            event_id=event_id,
+            target_id=patient_id,
+            target_type="medication_analyzer",
+            action=f"medication_analyzer.{event}",
+            role=actor.role,
+            actor_id=actor.actor_id,
+            note=final_note,
+            created_at=now.isoformat(),
+        )
+    except Exception:  # pragma: no cover — audit must never block
+        _log.exception("medication_analyzer umbrella audit skipped")
+
+
+def _persist_analyzer_audit(
+    db: Session,
     patient_id: str,
     actor_id: str,
     action: str,
+    *,
+    audit_ref: Optional[str] = None,
     detail: Optional[dict[str, Any]] = None,
-) -> dict[str, Any]:
-    entry = {
-        "id": str(uuid.uuid4()),
-        "at": datetime.now(timezone.utc).isoformat(),
-        "patient_id": patient_id,
-        "actor_id": actor_id,
-        "action": action,
-        "detail": detail or {},
-        "payload_hash": None,
-    }
-    if detail and "payload" in detail:
-        import hashlib
+) -> MedicationAnalyzerAudit:
+    row = MedicationAnalyzerAudit(
+        id=str(uuid.uuid4()),
+        patient_id=patient_id,
+        actor_id=actor_id,
+        action=action,
+        audit_ref=audit_ref,
+        ruleset_version=RULESET_VERSION,
+        detail_json=json.dumps(detail, default=str) if detail else None,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
 
-        entry["payload_hash"] = hashlib.sha256(
-            json_dump_stable(detail["payload"]).encode()
-        ).hexdigest()[:24]
-    _ANALYZER_AUDIT.append(entry)
-    return entry
+
+def _audit_row_to_entry(row: MedicationAnalyzerAudit) -> dict[str, Any]:
+    detail = None
+    if row.detail_json:
+        try:
+            detail = json.loads(row.detail_json)
+        except Exception:
+            detail = {"raw": row.detail_json}
+    return {
+        "id": row.id,
+        "at": row.created_at.isoformat() if row.created_at else None,
+        "patient_id": row.patient_id,
+        "actor_id": row.actor_id,
+        "action": row.action,
+        "audit_ref": row.audit_ref,
+        "ruleset_version": row.ruleset_version,
+        "detail": detail or {},
+    }
 
 
 class RecomputeBody(BaseModel):
@@ -138,6 +245,7 @@ class ReviewNoteResponse(BaseModel):
 
 class AuditListResponse(BaseModel):
     entries: list[dict[str, Any]]
+    review_notes: list[dict[str, Any]]
 
 
 @router.get("/patient/{patient_id}")
@@ -151,13 +259,18 @@ def get_medication_analyzer_payload(
     _gate_patient_access(actor, patient_id, db)
 
     rows = _med_rows_for_patient(db, patient_id, actor)
-    payload = build_page_payload(patient_id, rows)
-    _append_audit(
+    extra_tl = _timeline_rows_from_db(db, patient_id)
+    payload = build_page_payload(patient_id, rows, extra_timeline_events=extra_tl)
+
+    _persist_analyzer_audit(
+        db,
         patient_id,
         actor.actor_id,
         "analyzer_payload_read",
-        {"audit_ref": payload.get("audit_ref")},
+        audit_ref=payload.get("audit_ref"),
+        detail={"audit_ref": payload.get("audit_ref")},
     )
+    _umbrella_audit(db, actor, event="payload_view", patient_id=patient_id)
     return payload
 
 
@@ -168,17 +281,28 @@ def recompute_medication_analyzer(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> RecomputeResponse:
-    """Recompute payload (MVP: synchronous; rules-only)."""
+    """Recompute payload (synchronous; deterministic rules)."""
     require_minimum_role(actor, "clinician")
     _gate_patient_access(actor, patient_id, db)
 
     rows = _med_rows_for_patient(db, patient_id, actor)
-    payload = build_page_payload(patient_id, rows)
-    _append_audit(
+    extra_tl = _timeline_rows_from_db(db, patient_id)
+    payload = build_page_payload(patient_id, rows, extra_timeline_events=extra_tl)
+
+    _persist_analyzer_audit(
+        db,
         patient_id,
         actor.actor_id,
         "analyzer_recompute",
-        {"modules": (body.modules if body else None), "audit_ref": payload.get("audit_ref")},
+        audit_ref=payload.get("audit_ref"),
+        detail={"modules": (body.modules if body else None), "audit_ref": payload.get("audit_ref")},
+    )
+    _umbrella_audit(
+        db,
+        actor,
+        event="recompute",
+        patient_id=patient_id,
+        note=json.dumps({"modules": body.modules if body else None})[:500],
     )
     return RecomputeResponse(status="complete", audit_ref=payload.get("audit_ref"))
 
@@ -198,7 +322,14 @@ def post_adherence_window(
     active_n = sum(1 for r in rows if r.get("active"))
     est = med_az.estimate_medication_adherence(active_n)
     est["window_days"] = body.window_days
-    _append_audit(patient_id, actor.actor_id, "adherence_estimate", {"window_days": body.window_days})
+    _persist_analyzer_audit(
+        db,
+        patient_id,
+        actor.actor_id,
+        "adherence_estimate",
+        detail={"window_days": body.window_days},
+    )
+    _umbrella_audit(db, actor, event="adherence_query", patient_id=patient_id)
     return est
 
 
@@ -209,30 +340,47 @@ def add_timeline_event(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> TimelineEventResponse:
-    """Record an analyzer timeline annotation (does not mutate Rx rows in MVP)."""
+    """Persist a clinician timeline annotation (does not mutate Rx rows)."""
     require_minimum_role(actor, "clinician")
     _gate_patient_access(actor, patient_id, db)
 
+    eid = str(uuid.uuid4())
+    row = MedicationAnalyzerTimelineEvent(
+        id=eid,
+        patient_id=patient_id,
+        actor_id=actor.actor_id,
+        event_type=body.event_type,
+        occurred_at=body.occurred_at,
+        medication_id=body.medication_id,
+        payload_json=json.dumps(body.payload, default=str),
+        source_origin=body.source_origin,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+
     ev = {
-        "id": f"anno-{uuid.uuid4().hex[:12]}",
-        "patient_id": patient_id,
-        "event_type": body.event_type,
-        "occurred_at": body.occurred_at,
-        "medication_id": body.medication_id,
+        "id": row.id,
+        "patient_id": row.patient_id,
+        "event_type": row.event_type,
+        "occurred_at": row.occurred_at,
+        "medication_id": row.medication_id,
         "payload": body.payload,
         "source": {
-            "origin": body.source_origin,
-            "recorded_at": datetime.now(timezone.utc).isoformat(),
+            "origin": row.source_origin,
+            "recorded_at": row.created_at.isoformat(),
             "confidence": 1.0,
         },
         "confidence": 1.0,
     }
-    _append_audit(
+    _persist_analyzer_audit(
+        db,
         patient_id,
         actor.actor_id,
         "timeline_annotation",
-        {"event_id": ev["id"]},
+        detail={"event_id": eid},
     )
+    _umbrella_audit(db, actor, event="timeline_event_create", patient_id=patient_id, note=eid)
     return TimelineEventResponse(ok=True, event=ev)
 
 
@@ -243,27 +391,37 @@ def add_review_note(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> ReviewNoteResponse:
-    """Attach a clinician review note to the analyzer context."""
+    """Persist a clinician review note."""
     require_minimum_role(actor, "clinician")
     _gate_patient_access(actor, patient_id, db)
 
     nid = str(uuid.uuid4())
-    created = datetime.now(timezone.utc).isoformat()
-    _REVIEW_NOTES.append(
-        {
-            "note_id": nid,
-            "patient_id": patient_id,
-            "actor_id": actor.actor_id,
-            "created_at": created,
-            "note_text": body.note_text,
-            "linked_recommendation_ids": body.linked_recommendation_ids,
-        }
+    row = MedicationAnalyzerReviewNote(
+        id=nid,
+        patient_id=patient_id,
+        actor_id=actor.actor_id,
+        note_text=body.note_text,
+        linked_recommendation_ids_json=json.dumps(body.linked_recommendation_ids),
     )
-    _append_audit(
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+
+    created = row.created_at.isoformat() if row.created_at else datetime.now(timezone.utc).isoformat()
+
+    _persist_analyzer_audit(
+        db,
         patient_id,
         actor.actor_id,
         "review_note",
-        {"note_id": nid, "linked": body.linked_recommendation_ids},
+        detail={"note_id": nid, "linked": body.linked_recommendation_ids},
+    )
+    _umbrella_audit(
+        db,
+        actor,
+        event="review_note_create",
+        patient_id=patient_id,
+        note=f"id={nid}",
     )
     return ReviewNoteResponse(note_id=nid, created_at=created)
 
@@ -274,9 +432,39 @@ def list_analyzer_audit(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> AuditListResponse:
-    """Return analyzer-specific audit entries for the patient."""
+    """Return persisted analyzer audit rows and review notes."""
     require_minimum_role(actor, "clinician")
     _gate_patient_access(actor, patient_id, db)
 
-    entries = [e for e in _ANALYZER_AUDIT if e.get("patient_id") == patient_id]
-    return AuditListResponse(entries=entries)
+    aud_rows = (
+        db.execute(
+            select(MedicationAnalyzerAudit)
+            .where(MedicationAnalyzerAudit.patient_id == patient_id)
+            .order_by(MedicationAnalyzerAudit.created_at.desc())
+        )
+        .scalars()
+        .all()
+    )
+    notes_rows = (
+        db.execute(
+            select(MedicationAnalyzerReviewNote)
+            .where(MedicationAnalyzerReviewNote.patient_id == patient_id)
+            .order_by(MedicationAnalyzerReviewNote.created_at.desc())
+        )
+        .scalars()
+        .all()
+    )
+
+    entries = [_audit_row_to_entry(r) for r in aud_rows]
+    review_notes = [
+        {
+            "note_id": r.id,
+            "patient_id": r.patient_id,
+            "actor_id": r.actor_id,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "note_text": r.note_text,
+            "linked_recommendation_ids": json.loads(r.linked_recommendation_ids_json or "[]"),
+        }
+        for r in notes_rows
+    ]
+    return AuditListResponse(entries=entries, review_notes=review_notes)

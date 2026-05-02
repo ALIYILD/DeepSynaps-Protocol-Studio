@@ -8,16 +8,6 @@ from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
 from app.persistence.models import Patient, PatientMedication
-from app.routers import medication_analyzer_router as mar_mod
-
-
-@pytest.fixture(autouse=True)
-def _clear_analyzer_stores() -> None:
-    mar_mod._ANALYZER_AUDIT.clear()
-    mar_mod._REVIEW_NOTES.clear()
-    yield
-    mar_mod._ANALYZER_AUDIT.clear()
-    mar_mod._REVIEW_NOTES.clear()
 
 
 def _seed_patient_and_meds(patient_id: str | None = None) -> str:
@@ -75,7 +65,7 @@ def test_analyzer_get_requires_auth(client: TestClient) -> None:
     assert r.status_code == 401
 
 
-def test_analyzer_payload_contains_schema_and_snapshot(
+def test_analyzer_payload_contains_schema_and_research_disclosures(
     client: TestClient, auth_headers: dict[str, dict[str, str]]
 ) -> None:
     pid = _seed_patient_and_meds()
@@ -91,9 +81,12 @@ def test_analyzer_payload_contains_schema_and_snapshot(
     assert data["snapshot"]["polypharmacy"]["active_count"] == 2
     assert len(data["safety_alerts"]) >= 1
     assert any(a.get("category") == "drug_drug" for a in data["safety_alerts"])
+    rd = data.get("regulatory_disclosures") or {}
+    assert "limitations" in rd
+    assert rd.get("not_intended_for")
 
 
-def test_analyzer_review_note_and_audit(
+def test_analyzer_review_note_persisted(
     client: TestClient, auth_headers: dict[str, dict[str, str]]
 ) -> None:
     pid = _seed_patient_and_meds()
@@ -111,8 +104,39 @@ def test_analyzer_review_note_and_audit(
         headers=auth_headers["clinician"],
     )
     assert aud.status_code == 200
-    entries = aud.json().get("entries", [])
+    j = aud.json()
+    entries = j.get("entries", [])
     assert any(e.get("action") == "review_note" for e in entries)
+    rnotes = j.get("review_notes", [])
+    assert any("chart verified" in (n.get("note_text") or "") for n in rnotes)
+
+
+def test_timeline_event_persists_and_appears_in_payload(
+    client: TestClient, auth_headers: dict[str, dict[str, str]]
+) -> None:
+    pid = _seed_patient_and_meds()
+    te = client.post(
+        f"/api/v1/medications/analyzer/patient/{pid}/timeline-event",
+        headers=auth_headers["clinician"],
+        json={
+            "event_type": "side_effect_report",
+            "occurred_at": "2025-03-15T10:00:00+00:00",
+            "payload": {"description": "nausea after titration"},
+        },
+    )
+    assert te.status_code == 200, te.text
+    ev = te.json().get("event", {})
+    assert ev.get("event_type") == "side_effect_report"
+
+    r = client.get(
+        f"/api/v1/medications/analyzer/patient/{pid}",
+        headers=auth_headers["clinician"],
+    )
+    assert r.status_code == 200
+    timeline = r.json().get("timeline", [])
+    assert any(
+        e.get("event_type") == "side_effect_report" for e in timeline
+    ), timeline
 
 
 def test_analyzer_recompute(
