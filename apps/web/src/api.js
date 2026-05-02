@@ -1,6 +1,6 @@
 import { parseHomeProgramTaskMutationResponse } from './home-program-task-sync.js';
 
-const API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
+export const API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 const TOKEN_KEY = 'ds_access_token';
 const REFRESH_KEY = 'ds_refresh_token';
 
@@ -24,7 +24,7 @@ function safeStorageRemove(key) {
   } catch {}
 }
 
-function getToken() { return safeStorageGet(TOKEN_KEY); }
+export function getToken() { return safeStorageGet(TOKEN_KEY); }
 function setToken(t) { safeStorageSet(TOKEN_KEY, t); }
 function clearToken() { safeStorageRemove(TOKEN_KEY); clearRefreshToken(); }
 
@@ -50,7 +50,8 @@ function _on401() {
 // keep reviewer consoles clean, short-circuit predictable demo failures by
 // returning a synthetic empty response WITHOUT firing the network call.
 // Auth endpoints still pass through so demo-login / refresh / me work.
-const _DEMO_PASSTHROUGH = /^\/api\/v1\/auth\/(demo-login|refresh|me|login|logout|register|activate-patient|forgot-password|reset-password)\b/;
+const _DEMO_PASSTHROUGH =
+  /^\/api\/v1\/auth\/(demo-login|refresh|me|login|logout|register|activate-patient|forgot-password|reset-password)\b|^\/api\/v1\/video-assessments\b/;
 function _isDemoSession() {
   try {
     const flag = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
@@ -2051,6 +2052,33 @@ export const api = {
     apiFetch(`/api/v1/virtual-care/sessions/${encodeURIComponent(id)}/video-analysis`, { method: 'POST', body: JSON.stringify(data) }),
   virtualCareListVideoAnalysis: (id) => apiFetch(`/api/v1/virtual-care/sessions/${encodeURIComponent(id)}/video-analysis`),
   virtualCareGetAnalysis: (id) => apiFetch(`/api/v1/virtual-care/sessions/${encodeURIComponent(id)}/analysis`),
+
+  // ── Video Assessments (guided motor; separate from virtual-care video-analysis)
+  videoAssessmentCreateSession: (data) =>
+    apiFetch('/api/v1/video-assessments/sessions', { method: 'POST', body: JSON.stringify(data || {}) }),
+  videoAssessmentGetSession: (id) => apiFetch(`/api/v1/video-assessments/sessions/${encodeURIComponent(id)}`),
+  videoAssessmentPatchSession: (id, data) =>
+    apiFetch(`/api/v1/video-assessments/sessions/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  videoAssessmentUploadTask: (sessionId, taskId, file) => {
+    const fd = new FormData();
+    fd.append('file', file, file.name || 'clip.webm');
+    return apiFetch(
+      `/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}/upload`,
+      { method: 'POST', body: fd }
+    );
+  },
+  videoAssessmentFinalize: (id, data) =>
+    apiFetch(`/api/v1/video-assessments/sessions/${encodeURIComponent(id)}/finalize`, {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  videoAssessmentFetchTaskVideo: (sessionId, taskId) =>
+    apiFetchBinary(
+      `/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}/video`
+    ),
 
   // ── Notifications ─────────────────────────────────────────────────────────
   patientPortalNotifications: () => apiFetch('/api/v1/patient-portal/notifications'),

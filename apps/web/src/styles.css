@@ -28918,6 +28918,16 @@ body[data-sr-open="1"] { overflow:hidden; }
 
 /* ── Video Assessments (virtual care motor MVP) ─────────────────────────── */
 .va-shell { max-width: 1280px; margin: 0 auto; padding: 0 4px 48px; }
+.va-api-banner {
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: rgba(74, 158, 255, 0.1);
+  border: 1px solid rgba(74, 158, 255, 0.25);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
 .va-mode-toggle { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
 .va-grid {
   display: grid;

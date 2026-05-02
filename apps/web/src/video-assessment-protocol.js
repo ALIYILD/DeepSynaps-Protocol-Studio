@@ -445,6 +445,38 @@ export function createEmptySession(overrides = {}) {
   };
 }
 
+/**
+ * Merge API session JSON with local task definitions (instructions, scripts).
+ * Server seed rows may omit rich ``instructions`` — fill from VIDEO_ASSESSMENT_TASKS.
+ * @param {Record<string, unknown>} serverDoc
+ * @returns {Record<string, unknown>}
+ */
+export function mergeServerDocument(serverDoc) {
+  const byId = new Map(VIDEO_ASSESSMENT_TASKS.map((d) => [d.task_id, d]));
+  const tasks = Array.isArray(serverDoc.tasks) ? serverDoc.tasks.map((t) => {
+    const def = byId.get(t.task_id);
+    if (!def) return t;
+    const merged = { ...t };
+    if (!merged.instructions || typeof merged.instructions !== 'object') {
+      merged.instructions = {
+        patient: def.patient_instructions,
+        camera: def.camera_setup,
+        duration_seconds: def.duration_seconds,
+        safety_warning: def.safety_warning,
+        script: def.script,
+      };
+    }
+    if (merged.duration_seconds == null) merged.duration_seconds = def.duration_seconds;
+    if (merged.safety_level == null) merged.safety_level = def.safety_level;
+    if (merged.demo_asset === undefined) merged.demo_asset = def.demo_asset;
+    if (!merged.task_name) merged.task_name = def.task_name;
+    if (!merged.task_group) merged.task_group = def.task_group;
+    if (merged.task_order == null) merged.task_order = def.task_order;
+    return merged;
+  }) : [];
+  return { ...serverDoc, tasks };
+}
+
 export function summarizeSession(session) {
   const tasks = session.tasks || [];
   let completed = 0;

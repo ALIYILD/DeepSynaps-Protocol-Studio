@@ -76,6 +76,7 @@ from app.routers.home_device_portal_router import router as home_device_portal_r
 from app.routers.marketplace_router import router as marketplace_router
 from app.routers.marketplace_seller_router import router as marketplace_seller_router
 from app.routers.virtual_care_router import router as virtual_care_router
+from app.routers.video_assessment_router import router as video_assessment_router
 from app.routers.forms_router import router as forms_router
 from app.routers.medications_router import router as medications_router
 from app.routers.consent_management_router import router as consent_management_router
@@ -371,6 +372,7 @@ app.include_router(home_device_portal_router)
 app.include_router(marketplace_router)
 app.include_router(marketplace_seller_router)
 app.include_router(virtual_care_router)
+app.include_router(video_assessment_router)
 app.include_router(forms_router)
 app.include_router(medications_router)
 app.include_router(consent_management_router)

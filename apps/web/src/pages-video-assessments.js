@@ -6,8 +6,11 @@ import {
   VIDEO_ASSESSMENT_PROTOCOL,
   VIDEO_ASSESSMENT_TASKS,
   createEmptySession,
+  mergeServerDocument,
   summarizeSession,
 } from './video-assessment-protocol.js';
+import { api, getToken } from './api.js';
+import { currentUser } from './auth.js';
 import { showToast } from './helpers.js';
 
 const DISCLAIMER =
@@ -51,6 +54,12 @@ var _vaRecordingTimer = null;
 var _vaRecordingCountdownActive = false;
 var _vaSelectedClinicianTask = 0;
 var _vaKeysBound = false;
+/** @type {Blob|null} last recorded clip before object URL */
+var _vaLastRecordedBlob = null;
+var _vaApiBootstrapDone = false;
+var _vaApiBanner = '';
+/** @type {string|null} object URL for clinician panel streamed clip */
+var _vaClinicianStreamUrl = null;
 
 function _taskDef(taskId) {
   return VIDEO_ASSESSMENT_TASKS.find((t) => t.task_id === taskId) || null;
@@ -132,6 +141,94 @@ function _applySummary() {
   _vaSession.safety_flags = sum.safety_task_ids || [];
 }
 
+function _isPatientUser() {
+  return currentUser && (currentUser.role === 'patient' || currentUser.role === 'admin');
+}
+
+function _isClinicianUser() {
+  return currentUser && ['clinician', 'admin', 'reviewer', 'supervisor'].includes(String(currentUser.role));
+}
+
+function _apiSessionKey() {
+  return 'ds_video_assessment_api_id';
+}
+
+async function _patchSessionToApi(tasksPatch) {
+  if (!_vaSession || !_vaSession.id || String(_vaSession.id).startsWith('vas_')) return;
+  try {
+    const body = { tasks: tasksPatch };
+    const doc = await api.videoAssessmentPatchSession(_vaSession.id, body);
+    _vaSession = mergeServerDocument(doc);
+    _applySummary();
+  } catch (e) {
+    showToast('Could not save to server: ' + (e && e.message));
+  }
+}
+
+/** After local blob changes, push task row to API (best-effort). */
+function _queueSyncTask(task) {
+  if (!task) return;
+  const t = {
+    task_id: task.task_id,
+    recording_status: task.recording_status,
+    skip_reason: task.skip_reason,
+    unsafe_flag: task.unsafe_flag,
+    recording_asset_id: task.recording_asset_id,
+    clinician_review: task.clinician_review,
+  };
+  _patchSessionToApi([t]);
+}
+
+async function _bootstrapApiSession() {
+  if (_vaApiBootstrapDone) return;
+  _vaApiBootstrapDone = true;
+  if (_isDemoMode() && !getToken()) {
+    _vaApiBanner = 'Demo: sign in as a patient to sync sessions to the API.';
+    return;
+  }
+  if (!getToken()) {
+    _vaApiBanner = 'Sign in to save this assessment to the server.';
+    return;
+  }
+  if (_isPatientUser()) {
+    try {
+      const created = await api.videoAssessmentCreateSession({});
+      _vaSession = mergeServerDocument(created);
+      _applySummary();
+      try {
+        sessionStorage.setItem(_apiSessionKey(), _vaSession.id);
+      } catch (_) {}
+      _vaApiBanner = 'Session saved to the server. Clips upload when you choose “Use this recording.”';
+    } catch (e) {
+      _vaApiBanner = 'API unavailable — working offline. ' + (e && e.message);
+      if (!_vaSession) _vaSession = createEmptySession();
+    }
+    return;
+  }
+  if (_isClinicianUser()) {
+    let sid = null;
+    try {
+      sid = sessionStorage.getItem(_apiSessionKey());
+    } catch (_) {}
+    if (sid) {
+      try {
+        const doc = await api.videoAssessmentGetSession(sid);
+        _vaSession = mergeServerDocument(doc);
+        _applySummary();
+        _vaApiBanner = 'Loaded patient session from this browser. Open the same machine after a patient completes capture, or enter session ID in a follow-up build.';
+      } catch (e) {
+        _vaApiBanner = 'Could not load session: ' + (e && e.message);
+        if (!_vaSession) _vaSession = createEmptySession();
+      }
+    } else {
+      _vaApiBanner = 'Clinician: have the patient complete capture on this device, or paste a session id (coming next).';
+      if (!_vaSession) _vaSession = createEmptySession();
+    }
+  } else {
+    if (!_vaSession) _vaSession = createEmptySession();
+  }
+}
+
 function _ensureSession() {
   if (!_vaSession) {
     const persisted = _loadPersistedSession();
@@ -180,10 +277,11 @@ async function _beginRecording() {
   };
   _vaMediaRecorder.onstop = () => {
     const blob = new Blob(_vaRecordedChunks, { type: mime.split(';')[0] || 'video/webm' });
+    _vaLastRecordedBlob = blob;
     _cleanupPreviewUrl();
     _vaPreviewUrl = URL.createObjectURL(blob);
     _setTaskBlobUrl(task.task_id, _vaPreviewUrl);
-    task.recording_asset_id = 'blob:' + task.task_id + ':' + Date.now();
+    task.recording_asset_id = null;
     _vaPatientPhase = 'post_record';
     _render();
   };
@@ -406,10 +504,13 @@ function _renderClinicianForm(task) {
       ? `<div class="va-skip-note">Skipped: ${esc(task.skip_reason || 'skipped')}</div>`
       : '';
 
-  const blobSrc = task.recording_asset_id ? _vaBlobUrlByTask[task.task_id] : null;
-  const videoBlock = blobSrc
-    ? `<video controls src="${esc(blobSrc)}" style="width:100%;border-radius:8px;background:#000"></video>`
-    : `<div class="va-video-placeholder">No recording in this browser session yet. After upload pipeline ships, prior captures load here.</div>`;
+  const localSrc = _vaBlobUrlByTask[task.task_id] || null;
+  const needsServerStream = !!(task.recording_storage_ref && _vaSession && _vaSession.id);
+  const videoBlock = localSrc
+    ? `<video id="va-clin-review-video" controls playsinline src="${esc(localSrc)}" style="width:100%;border-radius:8px;background:#000"></video>`
+    : needsServerStream
+      ? `<div><video id="va-clin-review-video" controls playsinline style="width:100%;border-radius:8px;background:#000"></video><p class="va-muted" id="va-clin-video-status" style="font-size:12px;margin-top:6px">Loading recording…</p></div>`
+      : `<div class="va-video-placeholder">No recording for this task yet.</div>`;
 
   return `<div class="va-clinician-form">
     ${unsafeBadge}${skipBadge}
@@ -466,6 +567,10 @@ function _renderSummaryPanel() {
   _applySummary();
   const s = session.summary;
   const flags = (session.safety_flags || []).length;
+  const finalizeBtn =
+    _isClinicianUser() && session.id && !String(session.id).startsWith('vas_')
+      ? `<button type="button" class="btn btn-primary" id="va-finalize-session">Finalize review</button>`
+      : '';
   return `<div class="ds-card va-summary"><div class="ds-card__header"><h3>Summary</h3></div><div class="ds-card__body">
     <div class="va-summary-grid">
       <div><span class="va-muted">Tasks recorded</span><strong>${s.tasks_completed}</strong></div>
@@ -480,6 +585,7 @@ function _renderSummaryPanel() {
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       <button type="button" class="btn btn-secondary" id="va-export-placeholder">Export (placeholder)</button>
       <button type="button" class="btn btn-primary" id="va-save-summary">Save draft summary</button>
+      ${finalizeBtn}
     </div>
   </div></div>`;
 }
@@ -495,8 +601,12 @@ function _render() {
   const clinicianCol =
     _vaUiMode === 'clinician' ? _renderClinicianColumn() : `<div class="va-col"><p class="va-muted">Switch to Clinician Review Mode to score recordings.</p></div>`;
 
+  const banner =
+    _vaApiBanner ? `<div class="va-api-banner" role="status">${esc(_vaApiBanner)}</div>` : '';
+
   el.innerHTML = `
 <div class="ch-shell va-shell">
+  ${banner}
   <div class="qeeg-hero" style="margin-bottom:20px">
     <div class="qeeg-hero__icon">🎥</div>
     <div>
@@ -525,6 +635,37 @@ function _render() {
 </div>`;
 
   _wire();
+  _attachClinicianVideoStream();
+}
+
+function _revokeClinicianStreamUrl() {
+  if (_vaClinicianStreamUrl) {
+    try {
+      URL.revokeObjectURL(_vaClinicianStreamUrl);
+    } catch (_) {}
+    _vaClinicianStreamUrl = null;
+  }
+}
+
+async function _attachClinicianVideoStream() {
+  _revokeClinicianStreamUrl();
+  const vid = document.getElementById('va-clin-review-video');
+  const st = document.getElementById('va-clin-video-status');
+  if (!vid || !st) return;
+  const session = _vaSession;
+  if (!session || !session.tasks) return;
+  const task = session.tasks[_vaSelectedClinicianTask];
+  if (!task || !task.recording_storage_ref) return;
+  if (_vaBlobUrlByTask[task.task_id]) return;
+  try {
+    const { blob } = await api.videoAssessmentFetchTaskVideo(session.id, task.task_id);
+    _vaClinicianStreamUrl = URL.createObjectURL(blob);
+    vid.src = _vaClinicianStreamUrl;
+    st.textContent = '';
+    st.style.display = 'none';
+  } catch (e) {
+    st.textContent = 'Could not load recording: ' + (e && e.message);
+  }
 }
 
 function _collectReviewFromDom(task) {
@@ -612,11 +753,30 @@ function _wire() {
     _stopRecordingClip();
   });
 
-  document.getElementById('va-use-clip')?.addEventListener('click', () => {
+  document.getElementById('va-use-clip')?.addEventListener('click', async () => {
     const task = _currentTask();
-    if (task) {
+    if (!task) return;
+    if (_vaLastRecordedBlob && _vaSession && _vaSession.id && !String(_vaSession.id).startsWith('vas_') && getToken()) {
+      try {
+        const file = new File([_vaLastRecordedBlob], 'clip.webm', { type: 'video/webm' });
+        const res = await api.videoAssessmentUploadTask(_vaSession.id, task.task_id, file);
+        if (res && res.session) {
+          _vaSession = mergeServerDocument(res.session);
+          _applySummary();
+        } else {
+          task.recording_status = 'accepted';
+          task.unsafe_flag = false;
+        }
+        _vaLastRecordedBlob = null;
+        showToast('Recording saved to server');
+      } catch (e) {
+        showToast('Upload failed: ' + (e && e.message));
+        return;
+      }
+    } else {
       task.recording_status = 'accepted';
       task.unsafe_flag = false;
+      _queueSyncTask(task);
     }
     _advanceTask();
   });
@@ -636,44 +796,81 @@ function _wire() {
     });
   });
 
-  document.getElementById('va-save-draft')?.addEventListener('click', () => {
+  document.getElementById('va-save-draft')?.addEventListener('click', async () => {
     const session = _ensureSession();
     const task = session.tasks[_vaSelectedClinicianTask];
     if (!task) return;
     task.clinician_review = {
       ..._collectReviewFromDom(task),
-      reviewer_id: 'local',
+      reviewer_id: currentUser?.id || 'local',
       reviewed_at: null,
     };
     _persistSession();
-    showToast('Draft saved locally');
+    await _patchSessionToApi([{ task_id: task.task_id, clinician_review: task.clinician_review }]);
+    showToast('Draft saved');
     _applySummary();
     _render();
   });
 
-  document.getElementById('va-mark-reviewed')?.addEventListener('click', () => {
+  document.getElementById('va-mark-reviewed')?.addEventListener('click', async () => {
     const session = _ensureSession();
     const task = session.tasks[_vaSelectedClinicianTask];
     if (!task) return;
     const body = _collectReviewFromDom(task);
     task.clinician_review = {
       ...body,
-      reviewer_id: 'local',
+      reviewer_id: currentUser?.id || 'local',
       reviewed_at: new Date().toISOString(),
     };
     _persistSession();
+    await _patchSessionToApi([{ task_id: task.task_id, clinician_review: task.clinician_review }]);
     showToast('Marked reviewed');
     _applySummary();
     _render();
   });
 
-  document.getElementById('va-save-summary')?.addEventListener('click', () => {
+  document.getElementById('va-save-summary')?.addEventListener('click', async () => {
     const session = _ensureSession();
+    session.summary = session.summary || {};
     session.summary.clinician_impression = document.getElementById('va-summary-impression')?.value || '';
     session.summary.recommended_followup = document.getElementById('va-summary-followup')?.value || '';
     _persistSession();
-    showToast('Summary saved locally');
+    if (!session.id || String(session.id).startsWith('vas_') || !getToken()) {
+      showToast('Summary saved locally');
+      _render();
+      return;
+    }
+    try {
+      const doc = await api.videoAssessmentPatchSession(session.id, {
+        summary: {
+          clinician_impression: session.summary.clinician_impression,
+          recommended_followup: session.summary.recommended_followup,
+        },
+      });
+      _vaSession = mergeServerDocument(doc);
+      _applySummary();
+      showToast('Summary saved');
+    } catch (e) {
+      showToast('Saved locally only: ' + (e && e.message));
+    }
     _render();
+  });
+
+  document.getElementById('va-finalize-session')?.addEventListener('click', async () => {
+    const session = _ensureSession();
+    if (!session.id || String(session.id).startsWith('vas_')) return;
+    try {
+      await api.videoAssessmentFinalize(session.id, {
+        clinician_impression: document.getElementById('va-summary-impression')?.value || '',
+        recommended_followup: document.getElementById('va-summary-followup')?.value || '',
+      });
+      const doc = await api.videoAssessmentGetSession(session.id);
+      _vaSession = mergeServerDocument(doc);
+      showToast('Session finalized');
+      _render();
+    } catch (e) {
+      showToast('Finalize failed: ' + (e && e.message));
+    }
   });
 
   document.getElementById('va-export-placeholder')?.addEventListener('click', () => {
@@ -691,6 +888,7 @@ function _skipCurrent(reason) {
   if (reason === 'unsafe') {
     _ensureSession().safety_flags = [...new Set([...(_ensureSession().safety_flags || []), task.task_id])];
   }
+  _queueSyncTask(task);
   _cleanupPreviewUrl();
   _vaPatientPhase = 'task_intro';
   _advanceTask(true);
@@ -722,10 +920,15 @@ export async function pgVideoAssessments(setTopbar, navigate) {
   void navigate;
 
   _vaSession = null;
-  _ensureSession();
-  if (_isDemoMode() && !_loadPersistedSession()) {
-    _vaSession = createEmptySession({ patient_id: 'demo-patient' });
+  _vaApiBootstrapDone = false;
+  _vaApiBanner = '';
+  _revokeClinicianStreamUrl();
+  await _bootstrapApiSession();
+  if (!_vaSession) {
+    const persisted = _loadPersistedSession();
+    _vaSession = persisted || createEmptySession({ patient_id: _isDemoMode() ? 'demo-patient' : 'local' });
   }
+  _applySummary();
 
   _vaUiMode = 'patient';
   _vaPatientPhase = 'setup';

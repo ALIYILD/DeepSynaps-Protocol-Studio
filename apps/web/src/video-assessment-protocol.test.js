@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   VIDEO_ASSESSMENT_TASKS,
   createEmptySession,
+  mergeServerDocument,
   summarizeSession,
 } from './video-assessment-protocol.js';
 
@@ -19,6 +20,14 @@ test('createEmptySession returns tasks with clinician_review null', () => {
   assert.equal(s.tasks.length, 16);
   assert.equal(s.tasks[0].clinician_review, null);
   assert.ok(s.future_ai_metrics_placeholder);
+});
+
+test('mergeServerDocument fills instructions from definitions', () => {
+  const doc = mergeServerDocument({
+    id: 's1',
+    tasks: [{ task_id: 'rest_tremor', recording_status: 'pending' }],
+  });
+  assert.ok(doc.tasks[0].instructions.script);
 });
 
 test('summarizeSession counts skipped and completed', () => {
