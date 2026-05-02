@@ -9,12 +9,15 @@ import {
   mergeServerDocument,
   summarizeSession,
 } from './video-assessment-protocol.js';
-import { api, getToken } from './api.js';
+import { api, downloadBlob, getToken } from './api.js';
 import { currentUser } from './auth.js';
 import { showToast } from './helpers.js';
 
 const DISCLAIMER =
-  'Video Assessments are for guided capture and clinician review only. They are not a substitute for an in-person examination, emergency care, or autonomous diagnosis.';
+  'Video Assessments support clinician review and authorized research when used under local policy and informed consent. Outputs are observational and require clinical judgment — not a standalone diagnosis, emergency triage system, or validated rating scale.';
+
+const EMERGENCY_BOX =
+  'Medical emergency? Call your local emergency number (e.g. 911) or seek urgent care. This tool does not monitor you in real time and cannot dispatch help.';
 
 function esc(v) {
   if (v == null) return '';
@@ -64,6 +67,32 @@ var _vaClinicianStreamUrl = null;
 var _vaPageLayout = 'both';
 /** @type {Array<{id:string,patient_id?:string,overall_status?:string,review_completion_percent?:number}>} */
 var _vaSessionListItems = [];
+
+function _sessionNeedsConsent(session) {
+  if (!session) return true;
+  const c = session.patient_consent || {};
+  return !c.recording_consent || !c.research_use_acknowledged;
+}
+
+function _renderConsentGate() {
+  if (!_isPatientUser() || !getToken()) return '';
+  const s = _ensureSession();
+  if (!_sessionNeedsConsent(s)) return '';
+  return `<div class="ds-card va-consent-card" role="region" aria-label="Consent">
+    <div class="ds-card__header"><h3>Recording &amp; research acknowledgement</h3></div>
+    <div class="ds-card__body">
+      <p class="va-muted" style="margin-bottom:12px;line-height:1.55">
+        Your clinician or study team remains responsible for care and protocol oversight. Video clips are sensitive health information —
+        storage and use follow your institution’s policies and any study consent you signed separately.
+      </p>
+      <label class="va-checkbox"><input type="checkbox" id="va-consent-record"/> I consent to recording video/audio for this assessment session as explained by my care team.</label>
+      <label class="va-checkbox"><input type="checkbox" id="va-consent-research"/> I understand recordings may be used for clinician review and, where my study or clinic authorizes it, for research quality improvement — not as an automated diagnosis.</label>
+      <div style="margin-top:14px">
+        <button type="button" class="btn btn-primary" id="va-consent-save">Continue</button>
+      </div>
+    </div>
+  </div>`;
+}
 
 function _taskDef(taskId) {
   return VIDEO_ASSESSMENT_TASKS.find((t) => t.task_id === taskId) || null;
@@ -159,6 +188,7 @@ function _apiSessionKey() {
 
 async function _patchSessionToApi(tasksPatch) {
   if (!_vaSession || !_vaSession.id || String(_vaSession.id).startsWith('vas_')) return;
+  if (String(_vaSession.overall_status || '') === 'finalized') return;
   try {
     const body = { tasks: tasksPatch };
     const doc = await api.videoAssessmentPatchSession(_vaSession.id, body);
@@ -204,7 +234,9 @@ async function _bootstrapApiSession() {
         const doc = await api.videoAssessmentGetSession(sid);
         _vaSession = mergeServerDocument(doc);
         _applySummary();
-        _vaApiBanner = 'Resumed your in-progress session from this browser.';
+        _vaApiBanner = _sessionNeedsConsent(_vaSession)
+          ? 'Confirm recording & research acknowledgement below to continue.'
+          : 'Resumed your session from this browser.';
         return;
       } catch (_) {
         try {
@@ -212,18 +244,10 @@ async function _bootstrapApiSession() {
         } catch (_e) {}
       }
     }
-    try {
-      const created = await api.videoAssessmentCreateSession({});
-      _vaSession = mergeServerDocument(created);
-      _applySummary();
-      try {
-        sessionStorage.setItem(_apiSessionKey(), _vaSession.id);
-      } catch (_) {}
-      _vaApiBanner = 'New session saved on the server. Clips upload when you choose “Use this recording.”';
-    } catch (e) {
-      _vaApiBanner = 'API unavailable — working offline. ' + (e && e.message);
-      if (!_vaSession) _vaSession = createEmptySession();
-    }
+    _vaSession = createEmptySession();
+    _applySummary();
+    _vaApiBanner =
+      'Confirm recording & research acknowledgement below. Your session is created on the server only after you continue.';
     return;
   }
   if (_isClinicianUser()) {
@@ -496,6 +520,12 @@ function _renderPatientColumn() {
   const session = _ensureSession();
   session.mode = 'patient_capture';
 
+  if (_isPatientUser() && getToken() && _sessionNeedsConsent(session)) {
+    return `<div class="va-col va-col-patient"><div class="va-muted" style="padding:16px">
+      Complete the recording acknowledgement above to unlock the camera and tasks.
+    </div></div>`;
+  }
+
   let inner = '';
   if (!_vaSetupConfirmed && _vaPatientPhase === 'setup') {
     inner = _renderSetupChecklist();
@@ -559,21 +589,22 @@ function _mergeReview(existing, def) {
   };
 }
 
-function _renderClinicianForm(task) {
+function _renderClinicianForm(task, locked) {
   const def = _taskDef(task.task_id);
   const rev = _mergeReview(task.clinician_review, def);
+  const dis = locked ? 'disabled' : '';
   const opts = (name, values) =>
     values.map((v) => `<option value="${esc(v)}" ${rev[name] === v ? 'selected' : ''}>${esc(v.replace(/_/g, ' '))}</option>`).join('');
 
   const baseFields = `
     <div class="form-group"><label class="form-label">Video quality</label>
-      <select class="form-control" data-va-field="video_quality"><option value="">Select…</option>${opts('video_quality', ['poor', 'fair', 'good'])}</select></div>
+      <select class="form-control" data-va-field="video_quality" ${dis}><option value="">Select…</option>${opts('video_quality', ['poor', 'fair', 'good'])}</select></div>
     <div class="form-group"><label class="form-label">Patient compliance</label>
-      <select class="form-control" data-va-field="patient_compliance"><option value="">Select…</option>${opts('patient_compliance', ['poor', 'fair', 'good'])}</select></div>
+      <select class="form-control" data-va-field="patient_compliance" ${dis}><option value="">Select…</option>${opts('patient_compliance', ['poor', 'fair', 'good'])}</select></div>
     <div class="form-group"><label class="form-label">Task completed (video)</label>
-      <select class="form-control" data-va-field="task_completed"><option value="">Select…</option>${opts('task_completed', ['yes', 'partial', 'no'])}</select></div>
+      <select class="form-control" data-va-field="task_completed" ${dis}><option value="">Select…</option>${opts('task_completed', ['yes', 'partial', 'no'])}</select></div>
     <div class="form-group"><label class="form-label">Repeat needed</label>
-      <select class="form-control" data-va-field="repeat_needed"><option value="">Select…</option>${opts('repeat_needed', ['yes', 'no'])}</select></div>`;
+      <select class="form-control" data-va-field="repeat_needed" ${dis}><option value="">Select…</option>${opts('repeat_needed', ['yes', 'no'])}</select></div>`;
 
   let structured = '';
   if (def) {
@@ -583,7 +614,7 @@ function _renderClinicianForm(task) {
         `<option value="${esc(v)}" ${cur === v ? 'selected' : ''}>${esc(String(v).replace(/_/g, ' '))}</option>`
       ).join('');
       structured += `<div class="form-group"><label class="form-label">${esc(k.replace(/_/g, ' '))}</label>
-        <select class="form-control" data-va-score="${esc(k)}"><option value="">Select…</option>${optHtml}</select></div>`;
+        <select class="form-control" data-va-score="${esc(k)}" ${dis}><option value="">Select…</option>${optHtml}</select></div>`;
     }
   }
 
@@ -610,10 +641,10 @@ function _renderClinicianForm(task) {
     ${baseFields}
     ${structured}
     <div class="form-group"><label class="form-label">Free-text comment</label>
-      <textarea class="form-control" rows="3" data-va-field="free_text_comment">${esc(rev.free_text_comment)}</textarea></div>
+      <textarea class="form-control" rows="3" data-va-field="free_text_comment" ${dis}>${esc(rev.free_text_comment)}</textarea></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
-      <button type="button" class="btn btn-secondary" id="va-save-draft">Save draft</button>
-      <button type="button" class="btn btn-primary" id="va-mark-reviewed">Mark reviewed</button>
+      <button type="button" class="btn btn-secondary" id="va-save-draft" ${dis}>Save draft</button>
+      <button type="button" class="btn btn-primary" id="va-mark-reviewed" ${dis}>Mark reviewed</button>
     </div>
   </div>`;
 }
@@ -621,6 +652,7 @@ function _renderClinicianForm(task) {
 function _renderClinicianColumn() {
   const session = _ensureSession();
   session.mode = 'clinician_review';
+  const locked = String(session.overall_status || '') === 'finalized';
   const tasks = session.tasks;
   const idx = Math.min(Math.max(0, _vaSelectedClinicianTask), tasks.length - 1);
   const task = tasks[idx];
@@ -646,7 +678,7 @@ function _renderClinicianColumn() {
       <div class="va-clin-main">
         <h4 style="margin:0 0 8px">${task ? esc(task.task_name) : ''}</h4>
         <p class="va-muted" style="font-size:12px">${def ? esc(def.clinical_purpose) : ''}</p>
-        ${_renderClinicianForm(task)}
+        ${_renderClinicianForm(task, locked)}
         ${historyPlaceholder}
       </div>
     </div>
@@ -659,11 +691,25 @@ function _renderSummaryPanel() {
   _applySummary();
   const s = session.summary;
   const flags = (session.safety_flags || []).length;
+  const fin = String(session.overall_status || '') === 'finalized';
   const finalizeBtn =
     _isClinicianUser() && session.id && !String(session.id).startsWith('vas_')
-      ? `<button type="button" class="btn btn-primary" id="va-finalize-session">Finalize review</button>`
+      ? `<button type="button" class="btn btn-primary" id="va-finalize-session" ${fin ? 'disabled' : ''}>Finalize review</button>`
       : '';
+  const exportBtn =
+    (_isClinicianUser() || currentUser?.role === 'admin') &&
+    session.id &&
+    !String(session.id).startsWith('vas_') &&
+    getToken()
+      ? `<button type="button" class="btn btn-secondary" id="va-export-json">Download session JSON (research record)</button>`
+      : '';
+  const cons = session.patient_consent || {};
+  const consentLine =
+    cons.recording_consent && cons.research_use_acknowledged
+      ? '<p class="va-muted" style="font-size:11px;margin-bottom:10px">Patient acknowledged recording and research use on file for this session.</p>'
+      : '<p class="va-muted" style="font-size:11px;margin-bottom:10px;color:var(--amber)">Patient consent flags not complete in session record — confirm with your protocol.</p>';
   return `<div class="ds-card va-summary"><div class="ds-card__header"><h3>Summary</h3></div><div class="ds-card__body">
+    ${consentLine}
     <div class="va-summary-grid">
       <div><span class="va-muted">Tasks recorded</span><strong>${s.tasks_completed}</strong></div>
       <div><span class="va-muted">Tasks skipped</span><strong>${s.tasks_skipped}</strong></div>
@@ -671,11 +717,12 @@ function _renderSummaryPanel() {
       <div><span class="va-muted">Review progress</span><strong>${s.review_completion_percent}%</strong></div>
     </div>
     <div class="form-group" style="margin-top:12px"><label class="form-label">Clinician impression (draft)</label>
-      <textarea id="va-summary-impression" class="form-control" rows="2" placeholder="Brief overall impression">${esc(session.summary.clinician_impression || '')}</textarea></div>
+      <textarea id="va-summary-impression" class="form-control" rows="2" placeholder="Brief overall impression" ${fin ? 'disabled' : ''}>${esc(session.summary.clinician_impression || '')}</textarea></div>
     <div class="form-group"><label class="form-label">Recommended follow-up</label>
-      <textarea id="va-summary-followup" class="form-control" rows="2" placeholder="Optional">${esc(session.summary.recommended_followup || '')}</textarea></div>
+      <textarea id="va-summary-followup" class="form-control" rows="2" placeholder="Optional" ${fin ? 'disabled' : ''}>${esc(session.summary.recommended_followup || '')}</textarea></div>
+    ${fin ? '<p class="va-finalized-note">This session is finalized on the server — edits and uploads are locked.</p>' : ''}
     <div style="display:flex;gap:10px;flex-wrap:wrap">
-      <button type="button" class="btn btn-secondary" id="va-export-placeholder">Export (placeholder)</button>
+      ${exportBtn}
       <button type="button" class="btn btn-primary" id="va-save-summary">Save draft summary</button>
       ${finalizeBtn}
     </div>
@@ -716,6 +763,10 @@ function _render() {
       </p>
     </div>
   </div>
+
+  <div class="va-emergency-banner" role="alert">${esc(EMERGENCY_BOX)}</div>
+
+  ${_renderConsentGate()}
 
   ${_renderModeToggle()}
   ${_renderClinicianSessionPicker()}
@@ -830,6 +881,48 @@ function _wire() {
   document.getElementById('va-session-refresh')?.addEventListener('click', () =>
     _refreshSessionListAndMaybeLoad(null)
   );
+
+  document.getElementById('va-consent-save')?.addEventListener('click', async () => {
+    const cr = document.getElementById('va-consent-record');
+    const rs = document.getElementById('va-consent-research');
+    if (!cr?.checked || !rs?.checked) {
+      showToast('Please check both boxes to continue.');
+      return;
+    }
+    if (!_isPatientUser() || !getToken()) return;
+    const recordedAt = new Date().toISOString();
+    const consentBody = {
+      recording_consent: true,
+      research_use_acknowledged: true,
+      consent_version: 'video_assessment_mvp_v1',
+      consent_recorded_at: recordedAt,
+    };
+    try {
+      const sid = _vaSession && _vaSession.id && !String(_vaSession.id).startsWith('vas_') ? _vaSession.id : null;
+      if (sid) {
+        const doc = await api.videoAssessmentPatchSession(sid, { patient_consent: consentBody });
+        _vaSession = mergeServerDocument(doc);
+      } else {
+        const created = await api.videoAssessmentCreateSession({
+          consent: {
+            recording_consent: true,
+            research_use_acknowledged: true,
+            consent_version: 'video_assessment_mvp_v1',
+          },
+        });
+        _vaSession = mergeServerDocument(created);
+        try {
+          sessionStorage.setItem(_apiSessionKey(), _vaSession.id);
+        } catch (_) {}
+      }
+      _applySummary();
+      _vaApiBanner = 'Consent recorded. Session is saved on the server.';
+      showToast('Consent saved');
+      _render();
+    } catch (e) {
+      showToast('Could not save consent: ' + (e && e.message));
+    }
+  });
 
   document.getElementById('va-setup-continue')?.addEventListener('click', () => {
     const cb = document.getElementById('va-setup-safe');
@@ -1010,8 +1103,16 @@ function _wire() {
     }
   });
 
-  document.getElementById('va-export-placeholder')?.addEventListener('click', () => {
-    showToast('Export will connect to API in a later sprint.');
+  document.getElementById('va-export-json')?.addEventListener('click', async () => {
+    const session = _ensureSession();
+    if (!session.id || String(session.id).startsWith('vas_')) return;
+    try {
+      const { blob, filename } = await api.videoAssessmentExportJson(session.id);
+      downloadBlob(blob, filename || `video_assessment_${session.id}.json`);
+      showToast('Download started');
+    } catch (e) {
+      showToast('Export failed: ' + (e && e.message));
+    }
   });
 }
 

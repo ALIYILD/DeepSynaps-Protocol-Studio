@@ -95,6 +95,35 @@ def test_clinician_can_finalize(client: TestClient, auth_headers: dict, demo_pat
     assert fin.json()["overall_status"] == "finalized"
 
 
+def test_export_json_endpoint(client: TestClient, auth_headers: dict, demo_patient_va: str) -> None:
+    del demo_patient_va
+    r = client.post("/api/v1/video-assessments/sessions", headers=auth_headers["patient"], json={})
+    sid = r.json()["id"]
+    ex = client.get(
+        f"/api/v1/video-assessments/sessions/{sid}/export.json",
+        headers=auth_headers["clinician"],
+    )
+    assert ex.status_code == 200, ex.text
+    assert ex.json().get("export_kind") == "video_assessment_session"
+
+
+def test_finalize_blocks_patch(client: TestClient, auth_headers: dict, demo_patient_va: str) -> None:
+    del demo_patient_va
+    r = client.post("/api/v1/video-assessments/sessions", headers=auth_headers["patient"], json={})
+    sid = r.json()["id"]
+    client.post(
+        f"/api/v1/video-assessments/sessions/{sid}/finalize",
+        headers=auth_headers["clinician"],
+        json={},
+    )
+    patch = client.patch(
+        f"/api/v1/video-assessments/sessions/{sid}",
+        headers=auth_headers["clinician"],
+        json={"summary": {"clinician_impression": "x"}},
+    )
+    assert patch.status_code == 409, patch.text
+
+
 def test_upload_task_webm(client: TestClient, auth_headers: dict, demo_patient_va: str) -> None:
     del demo_patient_va
     r = client.post("/api/v1/video-assessments/sessions", headers=auth_headers["patient"], json={})

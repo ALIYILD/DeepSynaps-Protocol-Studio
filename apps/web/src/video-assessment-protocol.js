@@ -441,6 +441,12 @@ export function createEmptySession(overrides = {}) {
       symmetry_metrics: null,
       longitudinal_comparison: null,
     },
+    patient_consent: {
+      recording_consent: false,
+      research_use_acknowledged: false,
+      consent_version: 'video_assessment_mvp_v1',
+      consent_recorded_at: null,
+    },
     ...overrides,
   };
 }
@@ -474,7 +480,16 @@ export function mergeServerDocument(serverDoc) {
     if (merged.task_order == null) merged.task_order = def.task_order;
     return merged;
   }) : [];
-  return { ...serverDoc, tasks };
+  const out = { ...serverDoc, tasks };
+  if (!out.patient_consent || typeof out.patient_consent !== 'object') {
+    out.patient_consent = {
+      recording_consent: false,
+      research_use_acknowledged: false,
+      consent_version: 'video_assessment_mvp_v1',
+      consent_recorded_at: null,
+    };
+  }
+  return out;
 }
 
 export function summarizeSession(session) {

@@ -2079,6 +2079,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }),
+  videoAssessmentExportJson: (sessionId) =>
+    apiFetchBinary(`/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/export.json`),
   videoAssessmentFetchTaskVideo: (sessionId, taskId) =>
     apiFetchBinary(
       `/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}/video`

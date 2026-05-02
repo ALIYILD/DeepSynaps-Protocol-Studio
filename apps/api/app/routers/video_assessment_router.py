@@ -23,7 +23,7 @@ from pathlib import Path as FsPath
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, Path as PathParam, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -160,8 +160,23 @@ def _save_session_body(row: VideoAssessmentSession, body: dict[str, Any]) -> Non
     row.updated_at = datetime.now(timezone.utc)
 
 
-def _new_session_document(*, patient_id: str, encounter_id: Optional[str]) -> dict[str, Any]:
+def _is_finalized(doc: dict[str, Any]) -> bool:
+    return str(doc.get("overall_status") or "") == "finalized"
+
+
+def _new_session_document(
+    *,
+    patient_id: str,
+    encounter_id: Optional[str],
+    consent: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     now = datetime.now(timezone.utc).isoformat()
+    consent_block = consent or {
+        "recording_consent": False,
+        "research_use_acknowledged": False,
+        "consent_version": "video_assessment_mvp_v1",
+        "consent_recorded_at": None,
+    }
     return {
         "id": str(uuid.uuid4()),
         "patient_id": patient_id,
@@ -173,6 +188,7 @@ def _new_session_document(*, patient_id: str, encounter_id: Optional[str]) -> di
         "completed_at": None,
         "overall_status": "in_progress",
         "safety_flags": [],
+        "patient_consent": consent_block,
         "tasks": default_tasks_payload(),
         "summary": default_summary(),
         "future_ai_metrics_placeholder": default_future_ai_placeholder(),
@@ -221,8 +237,17 @@ def _recalc_summary(body: dict[str, Any]) -> None:
     body["safety_flags"] = safety
 
 
+class PatientConsentIn(BaseModel):
+    """Acknowledgements stored on the session for research / audit trail."""
+
+    recording_consent: bool = False
+    research_use_acknowledged: bool = False
+    consent_version: str = Field(default="video_assessment_mvp_v1", max_length=64)
+
+
 class CreateSessionRequest(BaseModel):
     encounter_id: Optional[str] = Field(None, max_length=64)
+    consent: Optional[PatientConsentIn] = None
 
 
 class PatchSessionRequest(BaseModel):
@@ -234,6 +259,7 @@ class PatchSessionRequest(BaseModel):
     summary: Optional[dict[str, Any]] = None
     tasks: Optional[list[dict[str, Any]]] = None
     future_ai_metrics_placeholder: Optional[dict[str, Any]] = None
+    patient_consent: Optional[dict[str, Any]] = None
 
 
 class SessionListItem(BaseModel):
@@ -307,6 +333,14 @@ def list_sessions(
         .all()
     )
     items = [_list_item_from_row(r) for r in rows]
+    who = "admin" if actor.role == "admin" else ("patient" if actor.role == "patient" else "clinician")
+    _audit_va(
+        db,
+        actor=actor,
+        action="session_list",
+        target_id=actor.actor_id,
+        note=f"role={who} n={len(items)}" + (f" patient_filter={patient_id}" if patient_id else ""),
+    )
     return SessionListResponse(items=items, total=len(items))
 
 
@@ -317,7 +351,15 @@ def create_session(
     db: Session = Depends(get_db_session),
 ) -> dict[str, Any]:
     patient = _require_patient(actor, db)
-    doc = _new_session_document(patient_id=patient.id, encounter_id=body.encounter_id)
+    consent_payload: Optional[dict[str, Any]] = None
+    if body.consent is not None:
+        consent_payload = body.consent.model_dump()
+        consent_payload["consent_recorded_at"] = datetime.now(timezone.utc).isoformat()
+    doc = _new_session_document(
+        patient_id=patient.id,
+        encounter_id=body.encounter_id,
+        consent=consent_payload,
+    )
     sid = doc["id"]
     row = VideoAssessmentSession(
         id=sid,
@@ -347,13 +389,15 @@ def get_session(
     if row is None:
         raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
 
-    if actor.role in ("patient", "admin"):
+    if actor.role == "admin":
+        _audit_va(db, actor=actor, action="session_read", target_id=session_id, note="admin_json_fetch")
+    elif actor.role == "patient":
         patient = _require_patient(actor, db)
-        if actor.role != "admin":
-            _gate_session_patient(row, patient)
+        _gate_session_patient(row, patient)
+        _audit_va(db, actor=actor, action="session_read", target_id=session_id, note="patient_json_fetch")
     else:
         _gate_session_clinician(actor, row, db)
-        _audit_va(db, actor=actor, action="session_read", target_id=session_id, note="json_fetch")
+        _audit_va(db, actor=actor, action="session_read", target_id=session_id, note="clinician_json_fetch")
 
     return _load_session_body(row)
 
@@ -369,14 +413,23 @@ def patch_session(
     if row is None:
         raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
 
-    if actor.role in ("patient", "admin"):
+    if actor.role == "admin":
+        patient = None
+    elif actor.role == "patient":
         patient = _require_patient(actor, db)
-        if actor.role != "admin":
-            _gate_session_patient(row, patient)
+        _gate_session_patient(row, patient)
     else:
         _gate_session_clinician(actor, row, db)
 
     doc = _load_session_body(row)
+    if _is_finalized(doc):
+        raise ApiServiceError(
+            code="session_finalized",
+            message="This session is finalized and cannot be modified. Contact an administrator if a correction is required.",
+            status_code=409,
+        )
+    if body.patient_consent is not None:
+        doc["patient_consent"] = {**(doc.get("patient_consent") or {}), **body.patient_consent}
     if body.mode is not None:
         doc["mode"] = body.mode
     if body.overall_status is not None:
@@ -395,8 +448,8 @@ def patch_session(
     _recalc_summary(doc)
     _save_session_body(row, doc)
     db.commit()
-    if actor.role not in ("patient", "admin"):
-        _audit_va(db, actor=actor, action="session_patched", target_id=session_id, note="review_or_summary_update")
+    role_note = "patient" if actor.role == "patient" else ("admin" if actor.role == "admin" else "clinician")
+    _audit_va(db, actor=actor, action="session_patched", target_id=session_id, note=f"{role_note}_update")
     return doc
 
 
@@ -421,6 +474,14 @@ async def upload_task_video(
     if row is None:
         raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
     _gate_session_patient(row, patient)
+
+    doc_pre = _load_session_body(row)
+    if _is_finalized(doc_pre):
+        raise ApiServiceError(
+            code="session_finalized",
+            message="Session is finalized; uploads are disabled.",
+            status_code=409,
+        )
 
     mime = (file.content_type or "").split(";")[0].strip().lower()
     if mime not in _ALLOWED_VIDEO_MIME:
@@ -493,10 +554,11 @@ def stream_task_video(
     if row is None:
         raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
 
-    if actor.role in ("patient", "admin"):
+    if actor.role == "admin":
+        pass
+    elif actor.role == "patient":
         patient = _require_patient(actor, db)
-        if actor.role != "admin":
-            _gate_session_patient(row, patient)
+        _gate_session_patient(row, patient)
     else:
         _gate_session_clinician(actor, row, db)
 
@@ -547,6 +609,12 @@ def finalize_session(
     _gate_session_clinician(actor, row, db)
 
     doc = _load_session_body(row)
+    if _is_finalized(doc):
+        raise ApiServiceError(
+            code="session_already_finalized",
+            message="Session was already finalized.",
+            status_code=409,
+        )
     doc["overall_status"] = "finalized"
     doc["completed_at"] = datetime.now(timezone.utc).isoformat()
     row.overall_status = "finalized"
@@ -561,3 +629,47 @@ def finalize_session(
     db.commit()
     _audit_va(db, actor=actor, action="session_finalized", target_id=session_id, note="review_complete")
     return doc
+
+
+@router.get("/sessions/{session_id}/export.json")
+def export_session_json(
+    session_id: str = PathParam(..., min_length=8),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Research record export: full session JSON + export manifest (no raw video bytes).
+
+    Video clips remain server-side; ``recording_storage_ref`` references paths only.
+    """
+    row = db.query(VideoAssessmentSession).filter(VideoAssessmentSession.id == session_id).first()
+    if row is None:
+        raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
+
+    if actor.role == "admin":
+        pass
+    elif actor.role == "patient":
+        patient = _require_patient(actor, db)
+        _gate_session_patient(row, patient)
+    else:
+        require_minimum_role(actor, "clinician")
+        _gate_session_clinician(actor, row, db)
+
+    doc = _load_session_body(row)
+    now = datetime.now(timezone.utc).isoformat()
+    payload = {
+        "export_kind": "video_assessment_session",
+        "export_version": 1,
+        "exported_at": now,
+        "session": doc,
+        "disclaimer": (
+            "Structured observation data for clinician review and authorized research only. "
+            "Not a standalone diagnosis; interpret with clinical judgment and protocol IRB approval."
+        ),
+    }
+    _audit_va(db, actor=actor, action="session_export_json", target_id=session_id, note="research_bundle")
+    return JSONResponse(
+        content=payload,
+        headers={
+            "Content-Disposition": f'attachment; filename="video_assessment_{session_id}.json"',
+        },
+    )
