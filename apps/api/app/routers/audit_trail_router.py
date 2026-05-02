@@ -415,6 +415,21 @@ KNOWN_SURFACES = {
     # polling_tick, status_viewed, run_now_clicked, tick_once_clicked,
     # filter_changed, demo_banner_shown.
     "channel_misconfiguration_detector",
+    # Caregiver Delivery Concern Aggregator launch-audit (2026-05-01).
+    # Closes section I rec from #389. Rolling-window worker groups every
+    # delivery-concern audit row in the last N hours by (caregiver_user_id,
+    # clinic_id), and emits a HIGH-priority
+    # ``caregiver_portal.delivery_concern_threshold_reached`` row when
+    # the per-caregiver count meets the configured threshold (default 3
+    # in 7d). The priority=high marker auto-routes the row into the
+    # Clinician Inbox aggregator (#354) so admins see recurring delivery
+    # problems without per-caregiver drill-down. Per-tick row encodes
+    # concerns_scanned/caregivers_evaluated/caregivers_flagged/skipped_*/
+    # errors/elapsed_ms; cooldown per (caregiver, clinic) prevents
+    # duplicate flags within 72h. Page-level events recorded here: view,
+    # polling_tick, status_viewed, run_now_clicked, tick_clicked,
+    # filter_changed, demo_banner_shown.
+    "caregiver_delivery_concern_aggregator",
 }
 
 

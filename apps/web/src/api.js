@@ -3318,6 +3318,40 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }).catch(() => null),
+  // ── Caregiver Delivery Concern Aggregator launch-audit (2026-05-01) ─────
+  // Closes section I rec from #389. Rolling-window worker that flags
+  // caregivers with N+ delivery concerns (filed via Patient Digest) within
+  // the configured window (default 3 within 7d) and emits a HIGH-priority
+  // caregiver_portal.delivery_concern_threshold_reached audit row that
+  // surfaces in the Clinician Inbox aggregator (#354). The Care Team
+  // Coverage "Caregiver channels" tab consumes /status for the worker
+  // panel + /tick for the admin "Run aggregator now" CTA + /audit-events
+  // for the flagged caregivers list. Audit pings flow through the page-
+  // level surface ``caregiver_delivery_concern_aggregator``.
+  caregiverDeliveryConcernAggregatorStatus: () =>
+    apiFetch(
+      '/api/v1/caregiver-delivery-concern-aggregator/status',
+    ).catch(() => null),
+  caregiverDeliveryConcernAggregatorTick: () =>
+    apiFetch('/api/v1/caregiver-delivery-concern-aggregator/tick', {
+      method: 'POST',
+    }),
+  caregiverDeliveryConcernAggregatorAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/caregiver-delivery-concern-aggregator/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  postCaregiverDeliveryConcernAggregatorAuditEvent: (data) =>
+    apiFetch('/api/v1/caregiver-delivery-concern-aggregator/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).
