@@ -47,6 +47,7 @@ from app.database import get_db_session
 from app.logging_setup import get_logger
 from app.persistence.models import AssessmentRecord, ClinicalSession, LiteraturePaper, OutcomeSeries, Patient, TreatmentCourse
 from app.services.neuromodulation_research import (
+    build_adjunct_condition_review_tables,
     build_adjunct_evidence_summary,
     build_research_summary,
     dataset_keys,
@@ -466,6 +467,31 @@ class ResearchAdjunctSummaryOut(BaseModel):
     top_modalities: list[ResearchFacetCount] = Field(default_factory=list)
     top_relation_signal_tags: list[ResearchFacetCount] = Field(default_factory=list)
     top_papers: list[ResearchAdjunctEvidenceOut] = Field(default_factory=list)
+
+
+class ResearchAdjunctReviewRowOut(BaseModel):
+    condition_slug: str
+    condition_label: str
+    domain: str
+    topic_label: str
+    paper_count: int = 0
+    citation_sum: int = 0
+    latest_year: Optional[int] = None
+    top_modalities: list[ResearchFacetCount] = Field(default_factory=list)
+    top_evidence_tiers: list[ResearchFacetCount] = Field(default_factory=list)
+    top_relation_signal_tags: list[ResearchFacetCount] = Field(default_factory=list)
+    example_titles: list[str] = Field(default_factory=list)
+
+
+class ResearchAdjunctReviewConditionOut(BaseModel):
+    condition_slug: str
+    condition_label: str
+    rows: list[ResearchAdjunctReviewRowOut] = Field(default_factory=list)
+
+
+class ResearchAdjunctReviewTablesOut(BaseModel):
+    generated_from: str
+    conditions: list[ResearchAdjunctReviewConditionOut] = Field(default_factory=list)
 
 
 class ResearchProtocolCoverageRowOut(BaseModel):
@@ -1430,6 +1456,17 @@ def get_neuromodulation_research_adjunct_summary(
             modality=modality,
             limit=limit,
         )
+    )
+
+
+@router.get("/research/adjunct-review-tables", response_model=ResearchAdjunctReviewTablesOut)
+def get_neuromodulation_research_adjunct_review_tables(
+    limit_per_condition: int = Query(6, ge=1, le=12),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> ResearchAdjunctReviewTablesOut:
+    require_minimum_role(actor, "clinician")
+    return ResearchAdjunctReviewTablesOut(
+        **build_adjunct_condition_review_tables(limit_per_condition=limit_per_condition)
     )
 
 

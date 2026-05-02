@@ -283,6 +283,14 @@ _CSV_DATASETS: dict[str, dict[str, str]] = {
     },
 }
 
+_ADJUNCT_REVIEW_CONDITIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("depression", "Depression", ("depression",)),
+    ("ocd", "OCD", ("ocd",)),
+    ("adhd", "ADHD", ("adhd",)),
+    ("chronic_pain", "Pain", ("chronic_pain", "pain")),
+    ("epilepsy_seizures", "Epilepsy", ("epilepsy_seizures", "epilepsy", "seizures")),
+)
+
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[4]
@@ -1164,4 +1172,108 @@ def build_adjunct_evidence_summary(
         "top_modalities": [{"key": key, "count": count} for key, count in modality_counter.most_common(limit)],
         "top_relation_signal_tags": [{"key": key, "count": count} for key, count in relation_counter.most_common(limit)],
         "top_papers": search_adjunct_evidence(domain=domain, indication=indication, modality=modality, limit=limit),
+    }
+
+
+def build_adjunct_condition_review_tables(limit_per_condition: int = 6) -> dict[str, Any]:
+    path = _dataset_path_if_present("adjunct_evidence")
+    if path is None:
+        return {
+            "generated_from": "unavailable",
+            "conditions": [],
+        }
+
+    review_payloads: list[dict[str, Any]] = []
+    for condition_slug, condition_label, aliases in _ADJUNCT_REVIEW_CONDITIONS:
+        bucket: dict[tuple[str, str], dict[str, Any]] = {}
+        handle, reader = _csv_reader(path)
+        try:
+            for row in reader:
+                indication_tokens = set(_tokenize(row.get("indication_tags")))
+                if not any(alias in indication_tokens for alias in aliases):
+                    continue
+                topic_labels = [v.strip() for v in (row.get("adjunct_topic_labels") or "").split(";") if v.strip()]
+                domains = _tokenize(row.get("adjunct_domains"))
+                if not topic_labels or not domains:
+                    continue
+                year = _to_int(row.get("year"), default=0)
+                cited = _to_int(row.get("citation_count") or row.get("cited_by_count"))
+                evidence = row.get("evidence_tier") or "unspecified"
+                modality = row.get("primary_modality") or "general_neuromodulation"
+                title = row.get("title") or ""
+                relation_tags = _tokenize(row.get("relation_signal_tags"))
+                for domain in domains:
+                    for topic in topic_labels:
+                        key = (domain, topic)
+                        payload = bucket.setdefault(
+                            key,
+                            {
+                                "condition_slug": condition_slug,
+                                "condition_label": condition_label,
+                                "domain": domain,
+                                "topic_label": topic,
+                                "paper_count": 0,
+                                "citation_sum": 0,
+                                "top_modalities_counter": Counter(),
+                                "evidence_tier_counter": Counter(),
+                                "relation_signal_counter": Counter(),
+                                "example_titles": [],
+                                "latest_year": 0,
+                            },
+                        )
+                        payload["paper_count"] += 1
+                        payload["citation_sum"] += cited
+                        payload["top_modalities_counter"][modality] += 1
+                        payload["evidence_tier_counter"][evidence] += 1
+                        payload["latest_year"] = max(payload["latest_year"], year)
+                        for tag in relation_tags:
+                            payload["relation_signal_counter"][tag] += 1
+                        if title and title not in payload["example_titles"] and len(payload["example_titles"]) < 3:
+                            payload["example_titles"].append(title)
+        finally:
+            handle.close()
+
+        rows = sorted(
+            bucket.values(),
+            key=lambda item: (
+                item["paper_count"],
+                item["citation_sum"],
+                item["latest_year"],
+            ),
+            reverse=True,
+        )[:limit_per_condition]
+        review_payloads.append(
+            {
+                "condition_slug": condition_slug,
+                "condition_label": condition_label,
+                "rows": [
+                    {
+                        "condition_slug": row["condition_slug"],
+                        "condition_label": row["condition_label"],
+                        "domain": row["domain"],
+                        "topic_label": row["topic_label"],
+                        "paper_count": row["paper_count"],
+                        "citation_sum": row["citation_sum"],
+                        "latest_year": row["latest_year"] or None,
+                        "top_modalities": [
+                            {"key": key, "count": count}
+                            for key, count in row["top_modalities_counter"].most_common(3)
+                        ],
+                        "top_evidence_tiers": [
+                            {"key": key, "count": count}
+                            for key, count in row["evidence_tier_counter"].most_common(3)
+                        ],
+                        "top_relation_signal_tags": [
+                            {"key": key, "count": count}
+                            for key, count in row["relation_signal_counter"].most_common(3)
+                        ],
+                        "example_titles": row["example_titles"],
+                    }
+                    for row in rows
+                ],
+            }
+        )
+    return {
+        "generated_from": path.name,
+        "conditions": review_payloads,
     }

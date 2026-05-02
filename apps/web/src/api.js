@@ -922,6 +922,12 @@ export const api = {
     ).toString();
     return apiFetch(`/api/v1/evidence/research/adjunct-summary${q ? '?' + q : ''}`);
   },
+  getResearchAdjunctReviewTables: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch(`/api/v1/evidence/research/adjunct-review-tables${q ? '?' + q : ''}`);
+  },
   longitudinalReport: (params = {}) => {
     const q = new URLSearchParams(
       Object.entries(params).filter(([, v]) => v != null && v !== '')

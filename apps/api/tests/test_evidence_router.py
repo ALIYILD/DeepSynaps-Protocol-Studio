@@ -468,5 +468,18 @@ def test_research_adjunct_routes_use_bundle_dataset(client: TestClient, auth_hea
             payload = summary.json()
             assert payload["paper_count"] == 1
             assert payload["top_topics"][0]["key"] == "Benzodiazepines"
+
+            review_tables = client.get(
+                "/api/v1/evidence/research/adjunct-review-tables?limit_per_condition=3",
+                headers=auth_headers["clinician"],
+            )
+            assert review_tables.status_code == 200, review_tables.text
+            review_payload = review_tables.json()
+            assert review_payload["generated_from"] == "neuromodulation_adjunct_evidence.csv"
+            depression = next(
+                row for row in review_payload["conditions"] if row["condition_slug"] == "depression"
+            )
+            assert depression["rows"]
+            assert depression["rows"][0]["topic_label"] in {"Vitamin D", "Benzodiazepines"}
         finally:
             os.environ.pop("DEEPSYNAPS_NEUROMODULATION_RESEARCH_BUNDLE_ROOT", None)
