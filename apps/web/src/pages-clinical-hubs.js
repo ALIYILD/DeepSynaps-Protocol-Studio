@@ -7504,6 +7504,7 @@ export async function pgMonitorHub(setTopbar, navigate) {
         });
         if (res?.analysis_id) {
           try { window._lastVoiceAnalysisId = res.analysis_id; } catch (_) {}
+          try { sessionStorage.setItem('ds_va_last_analysis_id', res.analysis_id); } catch (_) {}
           window._dsToast?.({
             title: 'Voice report ready',
             body: 'Analysis ID ' + String(res.analysis_id).slice(0, 8) + '… — decision-support only, not a diagnosis. Open Voice Analyzer for full JSON + evidence.',

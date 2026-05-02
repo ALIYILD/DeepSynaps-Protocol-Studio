@@ -6,6 +6,8 @@
 import { api } from './api.js';
 import { EVIDENCE_TOTAL_PAPERS } from './evidence-dataset.js';
 
+const VA_LAST_ANALYSIS_KEY = 'ds_va_last_analysis_id';
+
 function esc(s) {
   return String(s ?? '')
     .replace(/&/g, '&amp;')
@@ -102,6 +104,7 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
       });
       lastReport = res?.voice_report || null;
       lastAnalysisId = res?.analysis_id || null;
+      _persistLastAnalysisId(lastAnalysisId);
       resultEl().style.display = '';
       resultEl().innerHTML = _renderReportHtml(res);
       statusEl().textContent = res?.ok ? 'Complete.' : 'Finished with warnings.';
@@ -111,6 +114,56 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
       resultEl().innerHTML = `<div style="color:#f87171;padding:12px;border-radius:10px;background:rgba(248,113,113,.08)">${esc(e?.message || String(e))}</div>`;
     }
   });
+
+  await _tryLoadPendingReport(statusEl, resultEl);
+}
+
+function _persistLastAnalysisId(id) {
+  if (!id) return;
+  try {
+    window._lastVoiceAnalysisId = id;
+  } catch (_) {}
+  try {
+    sessionStorage.setItem(VA_LAST_ANALYSIS_KEY, id);
+  } catch (_) {}
+}
+
+async function _tryLoadPendingReport(statusEl, resultEl) {
+  let id = null;
+  try {
+    id = window._lastVoiceAnalysisId || sessionStorage.getItem(VA_LAST_ANALYSIS_KEY);
+  } catch (_) {
+    id = window._lastVoiceAnalysisId;
+  }
+  if (!id || !api.audioGetReport) return;
+
+  statusEl().textContent = 'Loading last analysis…';
+  try {
+    const rep = await api.audioGetReport(id);
+    const voiceReport = rep?.voice_report || {};
+    const synthetic = {
+      ok: true,
+      analysis_id: rep?.analysis_id || id,
+      voice_report: voiceReport,
+      clinical_disclaimer: rep?.clinical_disclaimer || voiceReport?.clinical_disclaimer,
+    };
+    resultEl().style.display = '';
+    const banner =
+      '<div style="margin-bottom:12px;padding:10px 12px;border-radius:10px;border:1px solid rgba(0,212,188,.28);background:rgba(0,212,188,.08);font-size:12px;color:var(--text-secondary)">'
+      + '<strong style="color:var(--text-primary)">Latest saved report</strong> — loaded automatically. Upload a new file below to run another analysis.'
+      + '</div>';
+    resultEl().innerHTML = banner + _renderReportHtml(synthetic);
+    statusEl().textContent = 'Showing stored report.';
+    _persistLastAnalysisId(id);
+  } catch (e) {
+    statusEl().textContent = '';
+    try {
+      sessionStorage.removeItem(VA_LAST_ANALYSIS_KEY);
+    } catch (_) {}
+    try {
+      window._lastVoiceAnalysisId = null;
+    } catch (_) {}
+  }
 }
 
 function _renderReportHtml(res) {
