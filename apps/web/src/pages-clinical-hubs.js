@@ -7419,11 +7419,16 @@ export async function pgMonitorHub(setTopbar, navigate) {
           const date = (r.uploaded_at || '').slice(0, 10);
           const dur = r.duration_seconds != null ? (r.duration_seconds + 's · ') : '';
           const safeTitle = _mhEsc(r.title || 'Untitled');
+          const isAudio = (r.mime_type || '').toLowerCase().startsWith('audio/');
+          const analyzeBtn = isAudio
+            ? '<button class="ch-btn-sm ch-btn-teal" title="Run Voice Analyzer (decision-support)" style="margin-left:6px" onclick="window._recVoiceAnalyze(\'' + _mhEsc(r.id) + '\')">🎙 Analyze</button>'
+            : '';
           return '<div class="book-row" data-rec-id="' + _mhEsc(r.id) + '">'
             + '<div class="book-datetime"><div class="book-date">' + date + '</div><div class="book-time">' + dur + _fmtBytes(r.byte_size) + '</div></div>'
             + '<div class="book-info"><div class="book-patient">' + safeTitle + '</div><div class="book-notes">' + _mhEsc(r.mime_type || '') + '</div></div>'
             + '<div class="book-actions">'
             +   '<button class="ch-btn-sm" title="Play" onclick="window._recPlay(\'' + _mhEsc(r.id) + '\',\'' + _mhEsc(r.mime_type || '') + '\')">▶</button>'
+            +   analyzeBtn
             +   '<button class="ch-btn-sm" title="Delete" style="margin-left:6px" onclick="window._recDelete(\'' + _mhEsc(r.id) + '\')">✕</button>'
             + '</div></div>';
         }).join('');
@@ -7477,6 +7482,46 @@ export async function pgMonitorHub(setTopbar, navigate) {
         await window._recRefreshServer();
       } catch (err) {
         window._dsToast?.({ title: 'Delete failed', body: err?.message || 'Unknown error', severity: 'error' });
+      }
+    };
+    /**
+     * Run the server-side Voice Analyzer on a stored audio blob (SessionRecording).
+     * Decision-support only; requires deepsynaps-audio on the API worker.
+     */
+    window._recVoiceAnalyze = async (recordingId) => {
+      if (!recordingId || !api.audioAnalyzeRecording) {
+        window._dsToast?.({ title: 'Unavailable', body: 'Voice analysis API not loaded.', severity: 'warning' });
+        return;
+      }
+      const sessionId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : ('sess-' + Date.now());
+      const patientId = window._selectedPatientId || window._paPatientId || window._profilePatientId || null;
+      window._dsToast?.({ title: 'Voice Analyzer', body: 'Running acoustic pipeline…', severity: 'info' });
+      try {
+        const res = await api.audioAnalyzeRecording(recordingId, {
+          sessionId,
+          patientId: patientId || undefined,
+          taskProtocol: 'reading_passage',
+        });
+        if (res?.analysis_id) {
+          try { window._lastVoiceAnalysisId = res.analysis_id; } catch (_) {}
+          window._dsToast?.({
+            title: 'Voice report ready',
+            body: 'Analysis ID ' + String(res.analysis_id).slice(0, 8) + '… — decision-support only, not a diagnosis. Open Voice Analyzer for full JSON + evidence.',
+            severity: 'success',
+          });
+          setTimeout(() => {
+            if (typeof window._nav === 'function') window._nav('voice-analyzer');
+          }, 400);
+        } else {
+          window._dsToast?.({ title: 'Unexpected response', body: JSON.stringify(res || {}).slice(0, 120), severity: 'warning' });
+        }
+      } catch (err) {
+        const detail = err?.body?.detail || err?.message || 'Unknown error';
+        window._dsToast?.({
+          title: 'Voice analysis failed',
+          body: String(detail).slice(0, 220) + (String(detail).length > 220 ? '…' : ''),
+          severity: 'error',
+        });
       }
     };
     // Kick off the initial load.
