@@ -577,6 +577,13 @@ KNOWN_SURFACES = {
     # amendment_effective, amendment_reverted_to_draft,
     # reg_binder_downloaded, filter_changed.
     "irb_amendment_workflow",
+    # IRB Amendment Reviewer Workload (IRB-AMD2, 2026-05-02). Per-reviewer
+    # queue dashboard + SLA worker. Audit actions:
+    # workload_viewed, tick_clicked, irb_reviewer_sla.tick (worker
+    # surface), irb_reviewer_sla.queue_breach_detected (target_type
+    # irb_reviewer; carries priority=high so the Clinician Inbox
+    # aggregator picks it up).
+    "irb_amendment_reviewer_workload",
 }
 
 
