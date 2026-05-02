@@ -3888,6 +3888,62 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
+  // ── CSAHP6 Threshold Tuning launch-audit ──
+  // (2026-05-02). Closes the recursion loop opened by CSAHP5 (#434).
+  // Lets admins propose new thresholds for the 3 advice rules
+  // (REFLAG_HIGH / MANUAL_REFLAG / AUTH_DOMINANT), replay them
+  // against the last 90 days of frozen ``advice_snapshot`` rows, and
+  // adopt the new threshold when the replay shows higher predictive
+  // accuracy. Adopted values take effect immediately on the next
+  // CSAHP4 ``/advice`` call. Same calibration chain logic, applied
+  // recursively to the heuristic itself. Helpers placed BEFORE
+  // CSAHP5's section so the CSAHP5 slice-boundary sentinel stays
+  // clean — CSAHP6 uses its own unique header anchor + slice-boundary
+  // sentinel.
+  fetchCurrentThresholds: () =>
+    apiFetch('/api/v1/rotation-policy-advisor-threshold-tuning/current-thresholds')
+      .catch(() => null),
+  runThresholdReplay: (params) =>
+    apiFetch('/api/v1/rotation-policy-advisor-threshold-tuning/replay', {
+      method: 'POST',
+      body: JSON.stringify(params || {}),
+    }).catch(() => null),
+  adoptThreshold: (params) =>
+    apiFetch('/api/v1/rotation-policy-advisor-threshold-tuning/adopt', {
+      method: 'POST',
+      body: JSON.stringify(params || {}),
+    }),
+  fetchThresholdAdoptionHistory: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/rotation-policy-advisor-threshold-tuning/adoption-history' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  fetchThresholdTuningAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/rotation-policy-advisor-threshold-tuning/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  postThresholdTuningAuditEvent: (data) =>
+    apiFetch('/api/v1/rotation-policy-advisor-threshold-tuning/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  // end CSAHP6 helpers
+  // ━━ CSAHP6 SLICE BOUNDARY ━━ (do not remove; the launch-audit
+  // test for the CSAHP6 section finds the header above then walks to
+  // this unique sentinel substring to bound the slice).
+
   // ── CSAHP5 Advisor Outcome Tracker launch-audit ──
   // (2026-05-02). Pairs each ``advice_snapshot`` audit row at time T
   // (emitted by the CSAHP5 background snapshot worker) with the

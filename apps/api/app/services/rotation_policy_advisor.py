@@ -67,13 +67,47 @@ ADVISOR_CHANNELS: tuple[str, ...] = (
 
 
 # Heuristic thresholds — pinned constants so the tests and the UI
-# disclaimer can reference the same numbers.
+# disclaimer can reference the same numbers. CSAHP6 (#PR-CSAHP6) layered
+# a per-clinic override table on top via :func:`_load_thresholds`; these
+# constants remain the fallback when no override row exists for the
+# clinic.
 REFLAG_HIGH_PCT_THRESHOLD = 30.0
 REFLAG_HIGH_MIN_CONFIRMED = 3
 MANUAL_SHARE_PCT_THRESHOLD = 70.0
 MANUAL_REFLAG_PCT_THRESHOLD = 15.0
 AUTH_DOMINANT_PCT_THRESHOLD = 60.0
 AUTH_DOMINANT_MIN_DRIFTS = 5
+
+
+# Canonical advice codes the CSAHP6 console exposes for adoption. Any
+# new code must be added here AND wired into ``_load_thresholds`` /
+# ``DEFAULT_THRESHOLDS`` below.
+ROTATION_ADVICE_CODES: tuple[str, ...] = (
+    "REFLAG_HIGH",
+    "MANUAL_REFLAG",
+    "AUTH_DOMINANT",
+)
+
+
+# Default threshold map keyed by ``advice_code`` → ``threshold_key`` →
+# numeric default. The CSAHP6 router serialises this to the console
+# UI as the read-only "current value" baseline when no override row
+# exists for the clinic. Float for both percent and count thresholds
+# so the persistence column type matches.
+DEFAULT_THRESHOLDS: dict[str, dict[str, float]] = {
+    "REFLAG_HIGH": {
+        "re_flag_rate_pct_min": REFLAG_HIGH_PCT_THRESHOLD,
+        "confirmed_count_min": float(REFLAG_HIGH_MIN_CONFIRMED),
+    },
+    "MANUAL_REFLAG": {
+        "manual_share_pct_min": MANUAL_SHARE_PCT_THRESHOLD,
+        "re_flag_rate_pct_min": MANUAL_REFLAG_PCT_THRESHOLD,
+    },
+    "AUTH_DOMINANT": {
+        "auth_share_pct_min": AUTH_DOMINANT_PCT_THRESHOLD,
+        "total_drifts_min": float(AUTH_DOMINANT_MIN_DRIFTS),
+    },
+}
 
 
 # Severity ordering — used for sort-key construction. Higher integer =
@@ -180,10 +214,82 @@ def _aggregate_channel_stats(records, channels: tuple[str, ...]) -> dict[str, _C
 # ── Rule evaluation ─────────────────────────────────────────────────────────
 
 
+def _resolve_thresholds(
+    overrides: Optional[dict[str, dict[str, float]]],
+) -> dict[str, dict[str, float]]:
+    """Merge an override map onto :data:`DEFAULT_THRESHOLDS`.
+
+    Missing advice codes / threshold keys fall back to the default —
+    this keeps the heuristic stable when a clinic has only adopted a
+    subset of the available knobs. The returned map is always
+    fully-populated so callers can index without ``KeyError``.
+    """
+    merged: dict[str, dict[str, float]] = {
+        code: dict(d) for code, d in DEFAULT_THRESHOLDS.items()
+    }
+    if not overrides:
+        return merged
+    for code, kv in overrides.items():
+        if not isinstance(kv, dict):
+            continue
+        slot = merged.setdefault(code, {})
+        for k, v in kv.items():
+            try:
+                slot[k] = float(v)
+            except Exception:  # pragma: no cover - defensive
+                continue
+    return merged
+
+
+def _load_thresholds(
+    db: Session, clinic_id: str | int
+) -> dict[str, dict[str, float]]:
+    """Read :class:`RotationPolicyAdvisorThreshold` rows for the clinic
+    and merge them onto :data:`DEFAULT_THRESHOLDS`.
+
+    Returns a fully-populated map so callers can read every
+    ``(advice_code, threshold_key)`` pair without ``KeyError``. Missing
+    rows fall back to the hardcoded defaults.
+
+    Defensive: if the table does not exist (pre-migration test envs)
+    we return the defaults silently so the heuristic keeps working.
+    """
+    cid = str(clinic_id) if clinic_id is not None else ""
+    if not cid:
+        return _resolve_thresholds(None)
+    try:
+        from app.persistence.models import (  # noqa: PLC0415
+            RotationPolicyAdvisorThreshold,
+        )
+
+        rows = (
+            db.query(RotationPolicyAdvisorThreshold)
+            .filter(RotationPolicyAdvisorThreshold.clinic_id == cid)
+            .all()
+        )
+    except Exception:
+        return _resolve_thresholds(None)
+    overrides: dict[str, dict[str, float]] = {}
+    for row in rows:
+        try:
+            code = str(row.advice_code)
+            key = str(row.threshold_key)
+            val = float(row.threshold_value)
+        except Exception:
+            continue
+        overrides.setdefault(code, {})[key] = val
+    return _resolve_thresholds(overrides)
+
+
 def _eval_rules_for_channel(
-    stats: _ChannelStats, *, generated_at: datetime
+    stats: _ChannelStats,
+    *,
+    generated_at: datetime,
+    thresholds: dict[str, dict[str, float]],
 ) -> list[RotationAdvice]:
-    """Evaluate the three heuristic rules and return any matched cards."""
+    """Evaluate the three heuristic rules against ``thresholds`` and
+    return any matched cards. ``thresholds`` is the fully-resolved map
+    returned by :func:`_resolve_thresholds`."""
     out: list[RotationAdvice] = []
 
     re_flag_pct = _round_pct(stats.re_flagged, stats.confirmed)
@@ -205,11 +311,42 @@ def _eval_rules_for_channel(
 
     pretty = _channel_pretty(stats.channel)
 
+    reflag_high = thresholds.get("REFLAG_HIGH", {})
+    manual_reflag = thresholds.get("MANUAL_REFLAG", {})
+    auth_dominant = thresholds.get("AUTH_DOMINANT", {})
+
+    reflag_high_pct = float(
+        reflag_high.get("re_flag_rate_pct_min", REFLAG_HIGH_PCT_THRESHOLD)
+    )
+    reflag_high_min = int(
+        float(
+            reflag_high.get(
+                "confirmed_count_min", float(REFLAG_HIGH_MIN_CONFIRMED)
+            )
+        )
+    )
+    manual_share_min = float(
+        manual_reflag.get("manual_share_pct_min", MANUAL_SHARE_PCT_THRESHOLD)
+    )
+    manual_reflag_pct = float(
+        manual_reflag.get("re_flag_rate_pct_min", MANUAL_REFLAG_PCT_THRESHOLD)
+    )
+    auth_share_min = float(
+        auth_dominant.get("auth_share_pct_min", AUTH_DOMINANT_PCT_THRESHOLD)
+    )
+    auth_total_min = int(
+        float(
+            auth_dominant.get(
+                "total_drifts_min", float(AUTH_DOMINANT_MIN_DRIFTS)
+            )
+        )
+    )
+
     # Rule A — REFLAG_HIGH.
     if (
         re_flag_pct is not None
-        and re_flag_pct > REFLAG_HIGH_PCT_THRESHOLD
-        and stats.confirmed >= REFLAG_HIGH_MIN_CONFIRMED
+        and re_flag_pct > reflag_high_pct
+        and stats.confirmed >= reflag_high_min
     ):
         out.append(
             RotationAdvice(
@@ -230,9 +367,9 @@ def _eval_rules_for_channel(
     # Rule B — MANUAL_REFLAG.
     if (
         manual_share_pct is not None
-        and manual_share_pct >= MANUAL_SHARE_PCT_THRESHOLD
+        and manual_share_pct >= manual_share_min
         and re_flag_pct is not None
-        and re_flag_pct > MANUAL_REFLAG_PCT_THRESHOLD
+        and re_flag_pct > manual_reflag_pct
     ):
         out.append(
             RotationAdvice(
@@ -252,8 +389,8 @@ def _eval_rules_for_channel(
     # Rule C — AUTH_DOMINANT.
     if (
         auth_share_pct is not None
-        and auth_share_pct >= AUTH_DOMINANT_PCT_THRESHOLD
-        and stats.total_drifts >= AUTH_DOMINANT_MIN_DRIFTS
+        and auth_share_pct >= auth_share_min
+        and stats.total_drifts >= auth_total_min
     ):
         out.append(
             RotationAdvice(
@@ -280,6 +417,8 @@ def compute_rotation_advice(
     db: Session,
     clinic_id: str | int,
     window_days: int = DEFAULT_WINDOW_DAYS,
+    *,
+    override_thresholds: Optional[dict[str, dict[str, float]]] = None,
 ) -> list[RotationAdvice]:
     """Return advice cards for a clinic over the last ``window_days``.
 
@@ -287,6 +426,18 @@ def compute_rotation_advice(
     safety is delegated to :func:`pair_drifts_with_resolutions` which
     filters every audit row by the ``clinic_id={cid}`` substring
     needle (so a clinician in clinic A never sees data from clinic B).
+
+    Threshold resolution (CSAHP6, 2026-05-02)
+    -----------------------------------------
+    When ``override_thresholds`` is ``None`` (the default, used by
+    the live ``/advice`` endpoint and the snapshot worker), the
+    function loads any per-clinic override rows from
+    :class:`RotationPolicyAdvisorThreshold` and merges them onto
+    :data:`DEFAULT_THRESHOLDS`. When ``override_thresholds`` is
+    provided (used by the CSAHP6 what-if replay service), the
+    provided map is used in place of the DB lookup so callers can
+    test "what would have happened if the threshold was X" without
+    persisting anything.
     """
     cid = str(clinic_id) if clinic_id is not None else ""
     if not cid:
@@ -295,6 +446,11 @@ def compute_rotation_advice(
     w = _normalize_window(window_days)
     generated_at = datetime.now(timezone.utc)
 
+    if override_thresholds is None:
+        thresholds = _load_thresholds(db, cid)
+    else:
+        thresholds = _resolve_thresholds(override_thresholds)
+
     records = pair_drifts_with_resolutions(db, clinic_id=cid, window_days=w)
     by_channel = _aggregate_channel_stats(records, ADVISOR_CHANNELS)
 
@@ -302,7 +458,9 @@ def compute_rotation_advice(
     for ch in sorted(by_channel.keys()):
         cards.extend(
             _eval_rules_for_channel(
-                by_channel[ch], generated_at=generated_at
+                by_channel[ch],
+                generated_at=generated_at,
+                thresholds=thresholds,
             )
         )
 

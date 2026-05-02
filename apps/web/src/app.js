@@ -173,6 +173,8 @@ let _modTextAnalyzer = null;
 async function loadTextAnalyzer() { return (_modTextAnalyzer ??= await import('./pages-text-analyzer.js')); }
 let _modMedicationAnalyzer = null;
 async function loadMedicationAnalyzer() { return (_modMedicationAnalyzer ??= await import('./pages-medication-analyzer.js')); }
+let _modRiskAnalyzer = null;
+async function loadRiskAnalyzer() { return (_modRiskAnalyzer ??= await import('./pages-risk-analyzer.js')); }
 async function loadPractice()   { return (_modPractice  ??= await import('./pages-practice.js')); }
 async function loadCourses()    { return (_modCourses   ??= await import('./pages-courses.js')); }
 async function loadOnboarding() { return (_modOnboarding ??= await import('./pages-onboarding.js')); }
@@ -529,6 +531,7 @@ const NAV = [
   { id: 'text-analyzer',      label: 'Text',         icon: '📝', ai: true },
   { id: 'medication-analyzer', label: 'Medications', icon: '💊', ai: true },
   { id: 'wearables',          label: 'Biometrics',   icon: '⌚' },
+  { id: 'risk-analyzer',      label: 'Risk',         icon: '🛡️' },
 
   // ── PROTOCOL — design / review treatment plans ───────────────────────────────
   { section: 'Protocol', sectionId: 'protocol', collapsed: false },
@@ -627,6 +630,7 @@ NAV_ICONS['mri-analysis'] = `<svg viewBox="0 0 24 24"><path d="M9.5 2A2.5 2.5 0 
 NAV_ICONS['voice-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11c0 4 3.5 7 7 7s7-3 7-7"/><path d="M12 21v2"/></svg>`;
 NAV_ICONS['text-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>`;
 NAV_ICONS['medication-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M10.5 20.5 20 11a4.95 4.95 0 1 0-7-7l-9.5 9.5a4.95 4.95 0 1 0 7 7Z"/><path d="m8.5 8.5 7 7"/></svg>`;
+NAV_ICONS['risk-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`;
 NAV_ICONS['academy']         = `<svg viewBox="0 0 24 24"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>`;
 NAV_ICONS['marketplace']     = `<svg viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" x2="21" y1="6" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>`;
 
@@ -1826,6 +1830,7 @@ async function renderPage() {
     case 'voice-analyzer':     { const m = await loadVoiceAnalyzer(); await m.pgVoiceAnalyzer(setTopbar, navigate); break; }
     case 'text-analyzer':      { const m = await loadTextAnalyzer(); await m.pgTextAnalyzer(setTopbar, navigate); break; }
     case 'medication-analyzer': { const m = await loadMedicationAnalyzer(); await m.pgMedicationAnalyzer(setTopbar, navigate); break; }
+    case 'risk-analyzer':      { const m = await loadRiskAnalyzer(); await m.pgRiskAnalyzer(setTopbar, navigate); break; }
     case 'fusion-workbench':   { const m = await loadFusionWorkbench(); await m.pgFusionWorkbench(setTopbar, navigate); break; }
     case 'patient-timeline':   { const m = await loadPatientTimeline(); await m.pgPatientTimeline(setTopbar, navigate); break; }
     case 'biomarkers':         { const m = await loadKnowledge(); await m.pgQEEGMaps(setTopbar); break; }
@@ -3025,6 +3030,7 @@ window.addEventListener('popstate', (e) => {
     { type: 'nav', icon: '📝', title: 'Text Analyzer', page: 'text-analyzer' },
     { type: 'nav', icon: '💊', title: 'Medication Analyzer', page: 'medication-analyzer' },
     { type: 'nav', icon: '⌚', title: 'Biometrics', page: 'wearables' },
+    { type: 'nav', icon: '🛡️', title: 'Risk Analyzer', page: 'risk-analyzer' },
   );
 
   // Fuzzy match: returns score (higher = better), or 0 if no match
