@@ -1,7 +1,8 @@
-"""F0 / pitch extraction via librosa.pyin (Parselmouth optional future path)."""
+"""F0 / pitch extraction — Praat (Parselmouth) when available, else librosa pyin."""
 
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 import numpy as np
@@ -18,6 +19,20 @@ def extract_pitch(
 ) -> PitchSummary:
     """Extract F0 contour summary statistics from the recording."""
 
+    if recording.waveform is None or recording.n_samples < 256:
+        raise ValueError("recording must contain waveform with sufficient length")
+
+    fmin = float(f0_min_hz if f0_min_hz is not None else F0_RANGE_DEFAULT[0])
+    fmax = float(f0_max_hz if f0_max_hz is not None else F0_RANGE_DEFAULT[1])
+
+    use_praat = os.environ.get("DEEPSYNAPS_VOICE_USE_PRAAT", "1").lower() in ("1", "true", "yes")
+    if use_praat:
+        from .praat_backend import extract_pitch_praat
+
+        praat_out = extract_pitch_praat(recording, fmin, fmax)
+        if praat_out is not None:
+            return praat_out
+
     try:
         import librosa
     except ImportError as exc:
@@ -25,13 +40,8 @@ def extract_pitch(
             "extract_pitch requires librosa — pip install 'packages/audio-pipeline[acoustic]'."
         ) from exc
 
-    if recording.waveform is None or recording.n_samples < 256:
-        raise ValueError("recording must contain waveform with sufficient length")
-
     y = np.asarray(recording.waveform, dtype=np.float64).ravel()
     sr = recording.sample_rate
-    fmin = float(f0_min_hz if f0_min_hz is not None else F0_RANGE_DEFAULT[0])
-    fmax = float(f0_max_hz if f0_max_hz is not None else F0_RANGE_DEFAULT[1])
 
     f0_hz, voiced_flag, _ = librosa.pyin(
         y,

@@ -1,6 +1,8 @@
-"""Voice perturbation: jitter, shimmer, HNR, NHR — librosa-based approximation."""
+"""Voice perturbation: jitter, shimmer, HNR, NHR — Praat preferred, librosa fallback."""
 
 from __future__ import annotations
+
+import os
 
 import numpy as np
 
@@ -8,7 +10,18 @@ from ..schemas import PerturbationFeatures, Recording
 
 
 def extract_perturbation(recording: Recording) -> PerturbationFeatures:
-    """Jitter/shimmer-style metrics derived from pyin F0 and RMS envelope."""
+    """Jitter/shimmer/HNR — Parselmouth when ``DEEPSYNAPS_VOICE_USE_PRAAT`` set (default on)."""
+
+    if recording.waveform is None:
+        raise ValueError("recording.waveform required")
+
+    use_praat = os.environ.get("DEEPSYNAPS_VOICE_USE_PRAAT", "1").lower() in ("1", "true", "yes")
+    if use_praat:
+        from .praat_backend import extract_perturbation_praat
+
+        praat_out = extract_perturbation_praat(recording)
+        if praat_out is not None:
+            return praat_out
 
     try:
         import librosa
@@ -16,9 +29,6 @@ def extract_perturbation(recording: Recording) -> PerturbationFeatures:
         raise ImportError(
             "extract_perturbation requires librosa — pip install 'packages/audio-pipeline[acoustic]'."
         ) from exc
-
-    if recording.waveform is None:
-        raise ValueError("recording.waveform required")
 
     y = np.asarray(recording.waveform, dtype=np.float64).ravel()
     sr = recording.sample_rate

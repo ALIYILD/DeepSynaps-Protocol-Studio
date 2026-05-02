@@ -27,6 +27,7 @@ dependencies = [
 # feature engine (F0 / jitter / shimmer / HNR / NHR / formants /
 # voice-break / spectral / MFCC). This is the v1 must-have stack.
 acoustic = [
+    # Parselmouth wraps Praat — optional at runtime via env DEEPSYNAPS_VOICE_USE_PRAAT=0
     "praat-parselmouth>=0.4.3",
     "librosa>=0.10",
     "soundfile>=0.12",
