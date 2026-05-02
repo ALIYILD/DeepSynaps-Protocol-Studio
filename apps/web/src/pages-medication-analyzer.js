@@ -3,6 +3,8 @@
  * safety / confound analysis (decision-support only; not autonomous management).
  */
 import { api } from './api.js';
+import { isDemoSession } from './demo-session.js';
+import { DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 import { EVIDENCE_TOTAL_PAPERS } from './evidence-dataset.js';
 
 function esc(s) {
@@ -124,6 +126,7 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
 
   el.innerHTML = `
     <div class="ds-med-analyzer-shell" style="max-width:1040px;margin:0 auto;padding:16px 20px 48px" data-testid="medication-analyzer-page">
+      <div id="ma-demo-banner"></div>
       <div style="padding:14px 16px;border-radius:12px;border:1px solid rgba(246,178,60,.35);background:rgba(246,178,60,.09);margin-bottom:18px;font-size:12px;line-height:1.5;color:var(--text-secondary)">
         <strong style="color:var(--text-primary)">Clinical decision-support.</strong> ${esc(DISCLAIMER)}
       </div>
@@ -268,6 +271,14 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
     const ar = document.getElementById('ma-audit-ref');
     if (ar) ar.textContent = data.audit_ref ? `Audit ref: ${data.audit_ref}` : '';
     bodyEl().style.display = 'block';
+    syncDemoBanner();
+  }
+
+  function syncDemoBanner() {
+    const slot = document.getElementById('ma-demo-banner');
+    if (!slot) return;
+    const demo = lastAnalyzerPayload?.demo === true;
+    slot.innerHTML = demo && isDemoSession() ? DEMO_FIXTURE_BANNER_HTML : '';
   }
 
   async function loadRiskPanel(pid) {
@@ -330,6 +341,8 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
     } catch (e) {
       statusEl().textContent = e.message || String(e);
       bodyEl().style.display = 'none';
+      lastAnalyzerPayload = null;
+      syncDemoBanner();
     }
   }
 

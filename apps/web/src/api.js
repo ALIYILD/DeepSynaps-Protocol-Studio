@@ -3888,6 +3888,82 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
+  // ── CSAHP7 Threshold Adoption Outcome launch-audit ──
+  // (2026-05-02). Closes the meta-loop on the meta-loop opened by
+  // CSAHP6 (#438). Pairs each threshold_adopted audit row at time T
+  // with the same (advice_code, threshold_key)'s measured predictive
+  // accuracy at T+30d versus the baseline accuracy at T. Did the
+  // adopted threshold actually move the needle in production?
+  // Outcome classes: improved (delta >= +5pp) / regressed (<= -5pp) /
+  // flat / pending / insufficient_data. Per-adopter calibration_score
+  // = (improved - regressed) / max(total, 1), range -1 to 1. Helpers
+  // placed BEFORE CSAHP6's section so the CSAHP6 slice-boundary
+  // sentinel stays clean — CSAHP7 uses its own unique header anchor +
+  // slice-boundary sentinel.
+  fetchThresholdAdoptionOutcomeSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.pair_lookahead_days != null)
+      usp.set('pair_lookahead_days', String(params.pair_lookahead_days));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/rotation-policy-advisor-threshold-adoption-outcome-tracker/summary' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  fetchAdopterCalibration: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.pair_lookahead_days != null)
+      usp.set('pair_lookahead_days', String(params.pair_lookahead_days));
+    if (params && params.min_adoptions != null)
+      usp.set('min_adoptions', String(params.min_adoptions));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/rotation-policy-advisor-threshold-adoption-outcome-tracker/adopter-calibration' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  fetchThresholdAdoptionOutcomeList: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.pair_lookahead_days != null)
+      usp.set('pair_lookahead_days', String(params.pair_lookahead_days));
+    if (params && params.advice_code) usp.set('advice_code', params.advice_code);
+    if (params && params.outcome) usp.set('outcome', params.outcome);
+    if (params && params.page != null) usp.set('page', String(params.page));
+    if (params && params.page_size != null)
+      usp.set('page_size', String(params.page_size));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/rotation-policy-advisor-threshold-adoption-outcome-tracker/list' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  fetchThresholdAdoptionOutcomeAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/rotation-policy-advisor-threshold-adoption-outcome-tracker/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  postThresholdAdoptionOutcomeAuditEvent: (data) =>
+    apiFetch('/api/v1/rotation-policy-advisor-threshold-adoption-outcome-tracker/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  // end CSAHP7 helpers
+  // ━━ CSAHP7 SLICE BOUNDARY ━━ (do not remove; the launch-audit
+  // test for the CSAHP7 section finds the header above then walks to
+  // this unique sentinel substring to bound the slice).
+
   // ── CSAHP6 Threshold Tuning launch-audit ──
   // (2026-05-02). Closes the recursion loop opened by CSAHP5 (#434).
   // Lets admins propose new thresholds for the 3 advice rules
