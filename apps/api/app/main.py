@@ -136,6 +136,9 @@ from app.routers.resolver_coaching_inbox_router import (
 from app.routers.resolver_coaching_self_review_digest_router import (
     router as resolver_coaching_self_review_digest_router,
 )
+from app.routers.resolver_coaching_digest_audit_hub_router import (
+    router as resolver_coaching_digest_audit_hub_router,
+)
 from app.routers.audit_trail_router import router as audit_trail_router
 # Settings API routers (foundation scaffolded by backend subagent #1; endpoints
 # fleshed out by backend subagents #3–#6). See apps/api/SETTINGS_API_DESIGN.md.
@@ -522,6 +525,17 @@ app.include_router(resolver_coaching_inbox_router)
 # EscalationPolicy + oncall_delivery adapters from #374. Per-resolver
 # weekly cooldown (default 144h = 6 days) prevents weekly-overlap dispatch.
 app.include_router(resolver_coaching_self_review_digest_router)
+# Resolver Coaching Digest Audit Hub launch-audit (DCRO4, 2026-05-02).
+# Admin-side cohort dashboard built on the DCRO3 dispatched audit row
+# stream + the ResolverCoachingDigestPreference table. Three views:
+# (a) opted-in vs opted-out resolver counts, (b) digest delivery
+# success/failure rate per channel, (c) per-resolver weekly wrong-call
+# backlog trajectory (shrinking / flat / growing). Read-only — there
+# is no companion worker. Closes the resolver-side coaching loop:
+# DCRO1 measures → DCRO2 self-corrects → DCRO3 nudges → DCRO4 admins
+# audit. Clinician minimum; cross-clinic data hidden behind the
+# canonical ``clinic_id={cid}`` substring needle on every read path.
+app.include_router(resolver_coaching_digest_audit_hub_router)
 # Escalation Policy Editor (2026-05-01) — admin-only configurable
 # dispatch order + per-surface override matrix + per-user contact mapping.
 # Replaces the hard-coded DEFAULT_ADAPTER_ORDER and contact_handle path
