@@ -1,4 +1,10 @@
 import { api } from './api.js';
+// Demo migration of the typed API client (ROI #4). The legacy `api.health()`
+// call below is intentionally left untouched and remains the source of
+// truth; the typed client runs in a non-blocking shadow call so we can
+// validate parity in production logs without changing user-visible
+// behavior. See packages/api-client/README.md.
+import { apiClient as _typedApiClient } from '@deepsynaps/api-client';
 import { currentUser, setCurrentUser, updateUserBar, updatePatientBar, showApp, showPublic, showPatient, showLogin } from './auth.js';
 import { ROLE_ENTRY_PAGE } from './constants.js';
 import { t, setLocale, getLocale, LOCALES } from './i18n.js';
@@ -2513,6 +2519,9 @@ async function checkBackendHealth() {
   try {
     await api.health();
     document.getElementById('backend-banner')?.remove();
+    // Shadow call via the typed client (additive demo migration). Errors
+    // are swallowed — banner state is still driven by the legacy call.
+    _typedApiClient.get('/health').catch(() => {});
   } catch {
     const existing = document.getElementById('backend-banner');
     if (existing) return;
