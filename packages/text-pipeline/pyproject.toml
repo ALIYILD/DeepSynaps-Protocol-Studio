@@ -1,0 +1,29 @@
+[project]
+name = "deepsynaps-text"
+version = "0.1.0"
+description = "Clinical text ingestion, de-identification, and NLP pipeline for DeepSynaps Studio"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+authors = [{ name = "Sehzade Yildirim", email = "sehzadeyildirim@hotmail.com" }]
+
+dependencies = [
+    "pydantic>=2.5",
+]
+
+[project.optional-dependencies]
+# Heavy clinical NLP stacks live here — ingestion core stays slim.
+clinical_nlp = []
+dev = [
+    "pytest>=7.0",
+]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
