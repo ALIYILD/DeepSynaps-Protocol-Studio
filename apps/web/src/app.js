@@ -194,6 +194,8 @@ let _modQEEGLauncher = null;
 async function loadQEEGLauncher() { return (_modQEEGLauncher ??= await import('./pages-qeeg-launcher.js')); }
 let _modMRIAnalysis = null;
 async function loadMRIAnalysis() { return (_modMRIAnalysis ??= await import('./pages-mri-analysis.js')); }
+let _modVideoAssessments = null;
+async function loadVideoAssessments() { return (_modVideoAssessments ??= await import('./pages-video-assessments.js')); }
 let _modFusionWorkbench = null;
 async function loadFusionWorkbench() { return (_modFusionWorkbench ??= await import('./pages-fusion-workbench.js')); }
 let _modMonitor = null;
@@ -526,6 +528,7 @@ const NAV = [
   // ── SESSIONS ─────────────────────────────────────────────────────────────────
   { section: 'Sessions', sectionId: 'sessions', collapsed: false },
   { id: 'live-session',       label: 'Virtual Care',      icon: '📹', ai: true },
+  { id: 'video-assessments',  label: 'Video Assessments', icon: '🎥' },
 
   // ── ADMIN ────────────────────────────────────────────────────────────────────
   { section: 'Admin', sectionId: 'admin', collapsed: false },
@@ -596,6 +599,7 @@ NAV_ICONS['protocol-studio'] = NAV_ICONS['protocol-builder'];
 NAV_ICONS['brainmap-v2']     = NAV_ICONS['brain-map-planner'];
 NAV_ICONS['handbooks-v2']    = NAV_ICONS['handbooks'];
 NAV_ICONS['live-session']    = NAV_ICONS['virtual-care-hub'];
+NAV_ICONS['video-assessments'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="M16 10l4-2v8l-4-2"/></svg>`;
 NAV_ICONS['home-tasks-v2']   = NAV_ICONS['home-task-manager'];
 NAV_ICONS['documents-v2']    = NAV_ICONS['documents-hub'];
 NAV_ICONS['reports-v2']      = NAV_ICONS['reports-hub'];
@@ -1768,6 +1772,7 @@ async function renderPage() {
       break;
     }
     case 'mri-analysis':       { const m = await loadMRIAnalysis(); await m.pgMRIAnalysis(setTopbar, navigate); break; }
+    case 'video-assessments':  { const m = await loadVideoAssessments(); await m.pgVideoAssessments(setTopbar, navigate); break; }
     case 'voice-analyzer':     { const m = await loadVoiceAnalyzer(); await m.pgVoiceAnalyzer(setTopbar, navigate); break; }
     case 'fusion-workbench':   { const m = await loadFusionWorkbench(); await m.pgFusionWorkbench(setTopbar, navigate); break; }
     case 'patient-timeline':   { const m = await loadPatientTimeline(); await m.pgPatientTimeline(setTopbar, navigate); break; }
@@ -2962,6 +2967,7 @@ window.addEventListener('popstate', (e) => {
   NAV_COMMANDS.push(
     { type: 'nav', icon: '📊', title: 'qEEG Analyzer', page: 'qeeg-analysis' },
     { type: 'nav', icon: '🧠', title: 'MRI Analyzer', page: 'mri-analysis' },
+    { type: 'nav', icon: '🎥', title: 'Video Assessments', page: 'video-assessments' },
     { type: 'nav', icon: '🎙️', title: 'Voice Analyzer', page: 'voice-analyzer' },
   );
 
