@@ -41,6 +41,7 @@ def test_subpackage_modules_import() -> None:
         db,
         cli,
     )
+    from deepsynaps_audio import analyzers
 
     assert all(
         m is not None
@@ -54,6 +55,7 @@ def test_subpackage_modules_import() -> None:
             worker,
             db,
             cli,
+            analyzers,
         )
     )
 

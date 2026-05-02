@@ -357,6 +357,45 @@ class RespRisk(BaseModel):
     model_version: str
 
 
+class RespiratoryFeatures(BaseModel):
+    """Acoustic features from cough and breath clips for smartphone-style respiratory screening.
+
+    Band ratios approximate energy distribution (e.g., cough harshness vs breath noise).
+    ``wheeze_like_band_ratio`` emphasises mid-frequency narrowband energy vs broadband,
+    a coarse proxy for wheeze-like spectral structure — research/wellness use only.
+    """
+
+    task_type: Literal["cough", "breath", "other"] = "cough"
+    cough_count: int = 0
+    cough_rate_per_min: float = 0.0
+    mean_cough_duration_s: float = 0.0
+    cough_duration_sd_s: float = 0.0
+    peak_rms_db: float = 0.0
+    mean_rms_db: float = 0.0
+    spectral_centroid_hz_mean: float = 0.0
+    spectral_flatness_mean: float = 0.0
+    band_energy_ratio_low: float = 0.0
+    band_energy_ratio_mid: float = 0.0
+    band_energy_ratio_high: float = 0.0
+    wheeze_like_band_ratio: float = 0.0
+    breath_cycles_estimated: int = 0
+    inspiration_mean_s: float = 0.0
+    expiration_mean_s: float = 0.0
+    ie_ratio: float = 0.0
+    breath_rate_per_min: float = 0.0
+    extraction_notes: list[str] = Field(default_factory=list)
+
+
+class RespiratoryRiskScore(BaseModel):
+    """Research/wellness respiratory acoustic risk envelope — not a clinical diagnosis."""
+
+    score: float = Field(ge=0.0, le=1.0, description="Continuous risk indicator (0–1), e.g. COPD-style screening context.")
+    model_name: str
+    model_version: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    drivers: list[str] = Field(default_factory=list)
+
+
 # --- normative + longitudinal ----------------------------------------
 
 
