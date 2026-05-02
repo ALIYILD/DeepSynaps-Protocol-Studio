@@ -439,6 +439,29 @@ KNOWN_SURFACES = {
     # here: view, resolve_clicked, resolve_modal_opened, resolve_submitted,
     # resolve_failed, list_filter_changed, demo_banner_shown.
     "caregiver_delivery_concern_resolution",
+    # Caregiver Delivery Concern Resolution Audit Hub launch-audit (DCR2,
+    # 2026-05-02). Cohort dashboard surface — distribution of resolution
+    # reasons over time, top resolvers, median time-to-resolve, and
+    # filterable list of resolved rows. Page-level events: view,
+    # window_changed, reason_filter_changed, page_changed, export.
+    "caregiver_delivery_concern_resolution_audit_hub",
+    # Caregiver Delivery Concern Resolution Outcome Tracker launch-audit
+    # (DCRO1, 2026-05-02). Calibration-accuracy dashboard built on the
+    # DCR1 + DCR2 audit trail. Pairs each
+    # ``caregiver_portal.delivery_concern_resolved`` row with the NEXT
+    # ``caregiver_portal.delivery_concern_threshold_reached`` row for
+    # the same caregiver to record stayed_resolved vs
+    # re_flagged_within_30d, then computes per-resolver calibration
+    # accuracy: when an admin marks "false_positive", does the DCA
+    # worker re-flag them within 30 days? Page-level events: view,
+    # window_changed, min_resolutions_changed.
+    "caregiver_delivery_concern_resolution_outcome_tracker",
+    # Resolver Coaching Inbox launch-audit (DCRO2, 2026-05-02). Private,
+    # read-only inbox view per resolver showing their wrong false_positive
+    # calls (resolutions where the resolver said "false_positive" but the
+    # DCA worker re-flagged the same caregiver within 30 days). Page-level
+    # events: view, self_review_note_filed, window_changed.
+    "resolver_coaching_inbox",
 }
 
 

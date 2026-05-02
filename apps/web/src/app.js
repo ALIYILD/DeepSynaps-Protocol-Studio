@@ -1423,6 +1423,31 @@ async function renderPage() {
     case 'trial-enrollment': { const { pgTrialEnrollment } = await loadKnowledge(); await pgTrialEnrollment(setTopbar); break; }
     case 'staff-scheduling': { const m = await loadKnowledge(); await m.pgStaffScheduling(setTopbar); break; }
     case 'care-team-coverage': { const m = await loadKnowledge(); await m.pgCareTeamCoverage(setTopbar); break; }
+    // Caregiver Delivery Concern Resolution Audit Hub (DCR2, 2026-05-02).
+    // Cohort dashboard built on the DCR1 audit trail — distribution of
+    // resolution reasons over time so admins can calibrate the DCA
+    // threshold and spot when caregiver_replaced is spiking. Read-only,
+    // clinician minimum.
+    case 'caregiver-delivery-concern-resolution-audit-hub':
+    case 'resolution-audit-hub':
+    case 'dcr-audit-hub': {
+      const m = await loadKnowledge();
+      await m.pgCaregiverDeliveryConcernResolutionAuditHub(setTopbar);
+      break;
+    }
+    // Resolver Coaching Inbox launch-audit (DCRO2, 2026-05-02). Private,
+    // read-only inbox view per resolver showing THEIR OWN wrong
+    // false_positive calls. Mirrors the Wearables Workbench →
+    // Clinician Inbox handoff (#353/#354): admins do NOT drill into
+    // another resolver's coaching rows; coaching is resolver-led
+    // self-correction. Reviewer minimum.
+    case 'resolver-coaching-inbox':
+    case 'coaching-inbox':
+    case 'my-coaching': {
+      const m = await loadKnowledge();
+      await m.pgResolverCoachingInbox(setTopbar);
+      break;
+    }
     // Clinician Adherence Hub launch-audit (2026-05-01). Bidirectional
     // counterpart to the patient-side Adherence Events page (#350).
     // Cross-patient triage of adherence reports, side-effects, and

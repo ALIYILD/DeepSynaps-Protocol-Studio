@@ -124,6 +124,15 @@ from app.routers.caregiver_delivery_concern_aggregator_router import (
 from app.routers.caregiver_delivery_concern_resolution_router import (
     router as caregiver_delivery_concern_resolution_router,
 )
+from app.routers.caregiver_delivery_concern_resolution_audit_hub_router import (
+    router as caregiver_delivery_concern_resolution_audit_hub_router,
+)
+from app.routers.caregiver_delivery_concern_resolution_outcome_tracker_router import (
+    router as caregiver_delivery_concern_resolution_outcome_tracker_router,
+)
+from app.routers.resolver_coaching_inbox_router import (
+    router as resolver_coaching_inbox_router,
+)
 from app.routers.audit_trail_router import router as audit_trail_router
 # Settings API routers (foundation scaffolded by backend subagent #1; endpoints
 # fleshed out by backend subagents #3–#6). See apps/api/SETTINGS_API_DESIGN.md.
@@ -459,6 +468,36 @@ app.include_router(caregiver_delivery_concern_aggregator_router)
 # worker consults so resolved caregivers are not re-flagged inside the
 # cooldown window. Pure CRUD/action router; no companion worker.
 app.include_router(caregiver_delivery_concern_resolution_router)
+# Caregiver Delivery Concern Resolution Audit Hub (DCR2, 2026-05-02). Cohort
+# dashboard built on the DCR1 audit trail — distribution of resolution reasons
+# (concerns_addressed / false_positive / caregiver_replaced / other) over time
+# so admins can calibrate the DCA threshold (high false_positive → raise) and
+# invest in delivery infrastructure when caregiver_replaced spikes. Read-only,
+# clinician minimum, no companion worker. Source data is the existing
+# caregiver_portal.delivery_concern_resolved audit rows emitted by DCR1.
+app.include_router(caregiver_delivery_concern_resolution_audit_hub_router)
+# Caregiver Delivery Concern Resolution Outcome Tracker (DCRO1, 2026-05-02).
+# Calibration-accuracy dashboard built on top of the DCR1 + DCR2 audit
+# trail. Pairs each ``caregiver_portal.delivery_concern_resolved`` row
+# with the NEXT ``caregiver_portal.delivery_concern_threshold_reached``
+# row for the same caregiver to record stayed_resolved vs
+# re_flagged_within_30d, then computes per-resolver calibration
+# accuracy: when an admin marks a caregiver "false_positive", does the
+# DCA worker re-flag them within 30 days? If yes, the admin was wrong.
+# No schema change — pure pairing of existing audit rows.
+app.include_router(caregiver_delivery_concern_resolution_outcome_tracker_router)
+# Resolver Coaching Inbox (DCRO2, 2026-05-02). Private, read-only inbox
+# view per resolver showing their wrong false_positive calls — i.e.,
+# resolutions where the resolver said "false_positive" but the DCA
+# worker re-flagged the same caregiver within 30 days. Each row carries
+# the caregiver's subsequent concern_count, adapter list, and a
+# self-review-notes field. Mirrors the Wearables Workbench → Clinician
+# Inbox handoff (#353/#354): admins do NOT drill into individual
+# resolver inboxes — coaching is resolver-led self-correction. Admins
+# use the admin-overview endpoint to see who needs coaching without
+# violating individual privacy. No new schema; pure UI on top of
+# DCRO1's paired-outcome data plus a self-review-note audit row.
+app.include_router(resolver_coaching_inbox_router)
 # Escalation Policy Editor (2026-05-01) — admin-only configurable
 # dispatch order + per-surface override matrix + per-user contact mapping.
 # Replaces the hard-coded DEFAULT_ADAPTER_ORDER and contact_handle path
