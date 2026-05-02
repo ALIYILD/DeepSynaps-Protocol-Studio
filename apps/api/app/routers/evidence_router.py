@@ -42,10 +42,17 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
+from app.errors import ApiServiceError
 from app.logging_setup import get_logger
 from app.persistence.models import AssessmentRecord, ClinicalSession, LiteraturePaper, OutcomeSeries, Patient, TreatmentCourse
+from app.repositories.patients import resolve_patient_clinic_id
 from app.services.neuromodulation_research import (
     build_adjunct_condition_review_tables,
     build_adjunct_evidence_summary,
@@ -131,6 +138,52 @@ def _scoped_patient_query(db: Session, actor: AuthenticatedActor):
     if actor.role != "admin":
         q = q.filter(Patient.clinician_id == actor.actor_id)
     return q
+
+
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str | None, db: Session) -> None:
+    if not patient_id:
+        return
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
+        return
+    if actor.role != "admin":
+        raise ApiServiceError(
+            code="not_found",
+            message="Patient not found.",
+            status_code=404,
+        )
+
+
+def _resolve_patient_for_actor(actor: AuthenticatedActor, db: Session) -> Patient:
+    from app.persistence.models import User as _User  # noqa: PLC0415
+
+    if actor.role != "patient":
+        raise ApiServiceError(
+            code="not_found",
+            message="Patient record not found.",
+            status_code=404,
+        )
+
+    demo_patient_emails = {"patient@deepsynaps.com", "patient@demo.com"}
+    if actor.actor_id == "actor-patient-demo":
+        patient = db.query(Patient).filter(Patient.email.in_(list(demo_patient_emails))).first()
+    else:
+        user = db.query(_User).filter_by(id=actor.actor_id).first()
+        if user is None or not user.email:
+            raise ApiServiceError(
+                code="not_found",
+                message="Patient record not found.",
+                status_code=404,
+            )
+        patient = db.query(Patient).filter(Patient.email == user.email).first()
+    if patient is None:
+        raise ApiServiceError(
+            code="not_found",
+            message="Patient record not found.",
+            status_code=404,
+        )
+    return patient
 
 
 def _research_export_summary(db: Session, actor: AuthenticatedActor, consent: str, fmt: str) -> dict:
@@ -711,7 +764,17 @@ def evidence_patient_overview(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> PatientEvidenceOverview:
-    require_minimum_role(actor, "clinician")
+    if actor.role == "patient":
+        patient = _resolve_patient_for_actor(actor, db)
+        if patient.id != patient_id:
+            raise ApiServiceError(
+                code="not_found",
+                message="Patient record not found.",
+                status_code=404,
+            )
+    else:
+        require_minimum_role(actor, "clinician")
+        _gate_patient_access(actor, patient_id, db)
     overview = build_patient_overview(patient_id, db)
     _audit("intelligence.patient_overview", actor, patient_id=patient_id, result_count=len(overview.highlights))
     return overview
@@ -724,6 +787,7 @@ def evidence_query(
     db: Session = Depends(get_db_session),
 ) -> EvidenceResult:
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, body.patient_id, db)
     result = query_evidence(body, db)
     _audit(
         "intelligence.query",
@@ -742,6 +806,7 @@ def evidence_by_finding(
     db: Session = Depends(get_db_session),
 ) -> EvidenceResult:
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, body.patient_id, db)
     query = EvidenceQuery(
         patient_id=body.patient_id,
         context_type=body.context_type,  # type: ignore[arg-type]
@@ -778,6 +843,7 @@ def save_evidence_citation(
     db: Session = Depends(get_db_session),
 ) -> dict:
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, body.patient_id, db)
     record = save_citation(body, _actor_id(actor), db)
     _audit("intelligence.save_citation", actor, patient_id=body.patient_id, finding_id=body.finding_id, paper_id=body.paper_id)
     return record
@@ -793,6 +859,7 @@ def get_saved_evidence_citations(
     db: Session = Depends(get_db_session),
 ) -> list[dict]:
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
     return list_saved_citations(
         patient_id,
         db,
@@ -809,6 +876,7 @@ def evidence_report_payload(
     db: Session = Depends(get_db_session),
 ) -> dict:
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, body.patient_id, db)
     payload = build_report_payload(body, db)
     _audit("intelligence.report_payload", actor, patient_id=body.patient_id, result_count=len(payload.get("citations", [])))
     return payload
