@@ -453,3 +453,82 @@ class QEEGTimelineEvent(Base):
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     confidence: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
+# ── QEEG-ANN1: qEEG Brain Map Report Annotations (migration 084) ─────────────
+#
+# Sidecar annotation system that lets clinicians attach margin notes,
+# region tags, and flag-typed findings to specific sections of a qEEG
+# Brain Map report WITHOUT mutating the canonical
+# ``QEEGBrainMapReport`` contract in services/qeeg_report_template.py.
+#
+# Why sidecar
+# -----------
+# The Brain Map report payload is a regulator-credible artifact —
+# every consumer (PDF, web viewer, exporter) reads the SAME shape via
+# the canonical template. Inline annotations would force every
+# consumer to evolve simultaneously and would mix clinician-authored
+# prose into the AI/template-derived report payload (audit-trail
+# nightmare). Annotations live HERE, joined at render time by
+# section_path.
+#
+# Section path
+# ------------
+# ``section_path`` is a dotted-key reference into the rendered report
+# (e.g. ``summary.brain_age``, ``regions.frontal_left.alpha``,
+# ``protocol_suggestions[2].rationale``). The persistence layer only
+# stores the string — the semantic meaning is owned by the renderer
+# and the reader on each side. Validation is restricted to
+# ``a-zA-Z0-9._\-\[\]`` so future eval-style consumers can safely
+# resolve the path without shell-meta injection vectors.
+#
+# Flag types (clinically meaningful)
+# ----------------------------------
+# * ``clinically_significant`` — clinician believes this finding
+#   directly drives care decisions.
+# * ``evidence_gap`` — surfaces an FDA-questioned finding (per
+#   ``deepsynaps-qeeg-evidence-gaps`` memory: AI Brain Age, alpha
+#   reactivity, "Brain Balance" label, tDCS-O1/O2, tACS-Pz protocol
+#   suggestions). Lets the clinic track which reports lean on
+#   non-evidence-based claims.
+# * ``discuss_next_session`` — defer to next clinician-patient
+#   touchpoint; carries forward as a follow-up reminder.
+# * ``patient_question`` — patient asked something during review;
+#   queue for the answering clinician.
+
+class QEEGReportAnnotation(Base):
+    """Sidecar annotation pinned to a section of a qEEG Brain Map report.
+
+    Stored separately from the report payload (canonical
+    ``QEEGBrainMapReport`` contract) so the annotation lifecycle —
+    create, edit, resolve, audit — does not perturb the report itself.
+    """
+
+    __tablename__ = "qeeg_report_annotations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clinic_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    patient_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("patients.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    report_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    section_path: Mapped[str] = mapped_column(String(256), nullable=False, index=True)
+    annotation_kind: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    flag_type: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    body: Mapped[str] = mapped_column(Text(), nullable=False)
+    created_by_user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    resolved_by_user_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    resolution_note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc), nullable=False, index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )

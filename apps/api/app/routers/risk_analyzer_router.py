@@ -7,14 +7,16 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role, require_patient_owner
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.persistence.models import RiskAnalyzerAudit, RiskStratificationAudit
 from app.repositories.patients import resolve_patient_clinic_id
+from app.repositories.risk_analyzer import (
+    list_recent_risk_analyzer_audit,
+    list_recent_risk_stratification_audit,
+)
 from app.services.risk_analyzer_payload import (
     append_analyzer_audit,
     build_risk_analyzer_payload,
@@ -30,6 +32,7 @@ router = APIRouter(prefix="/api/v1/risk/analyzer", tags=["Risk Analyzer"])
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
 
+# core-schema-exempt: router-local PATCH body for formulation; not reused outside risk_analyzer_router
 class FormulationPatch(BaseModel):
     presenting_concerns: Optional[list] = None
     dynamic_drivers: Optional[list] = None
@@ -41,6 +44,7 @@ class FormulationPatch(BaseModel):
     safety_plan_status: Optional[dict] = None
 
 
+# core-schema-exempt: router-local PATCH body for safety plan; not reused outside risk_analyzer_router
 class SafetyPlanPatch(BaseModel):
     status: Optional[str] = None
     summary: Optional[str] = None
@@ -53,10 +57,12 @@ class SafetyPlanPatch(BaseModel):
     crisis_numbers_given: Optional[bool] = None
 
 
+# core-schema-exempt: router-local POST body for recompute action; not reused outside risk_analyzer_router
 class RecomputeBody(BaseModel):
     reason: Optional[str] = None
 
 
+# core-schema-exempt: router-local POST body for category override; not reused outside risk_analyzer_router
 class CategoryOverrideBody(BaseModel):
     category: str = Field(..., description="risk category key")
     level: str = Field(..., pattern="^(green|amber|red)$")
@@ -70,19 +76,10 @@ def _gate(actor: AuthenticatedActor, patient_id: str, db: Session) -> None:
 
 
 def _merge_audit_entries(db: Session, patient_id: str, risk_audit_limit: int) -> list[dict]:
-    ra_rows = db.execute(
-        select(RiskAnalyzerAudit)
-        .where(RiskAnalyzerAudit.patient_id == patient_id)
-        .order_by(RiskAnalyzerAudit.created_at.desc())
-        .limit(80)
-    ).scalars().all()
-
-    rs_rows = db.execute(
-        select(RiskStratificationAudit)
-        .where(RiskStratificationAudit.patient_id == patient_id)
-        .order_by(RiskStratificationAudit.created_at.desc())
-        .limit(risk_audit_limit)
-    ).scalars().all()
+    ra_rows = list_recent_risk_analyzer_audit(db, patient_id=patient_id, limit=80)
+    rs_rows = list_recent_risk_stratification_audit(
+        db, patient_id=patient_id, limit=risk_audit_limit
+    )
 
     events = []
     for r in ra_rows:

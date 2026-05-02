@@ -467,6 +467,25 @@ KNOWN_SURFACES = {
     # events: view, window_changed, run_snapshot_now_clicked,
     # demo_banner_shown.
     "rotation_policy_advisor_outcome_tracker",
+    # Rotation Policy Advisor Threshold Tuning Console (CSAHP6,
+    # 2026-05-02). Closes the recursion loop opened by CSAHP5 (#434):
+    # admins propose new thresholds for the 3 advice rules
+    # (REFLAG_HIGH / MANUAL_REFLAG / AUTH_DOMINANT), replay them
+    # against the last 90 days of frozen ``advice_snapshot`` rows,
+    # and adopt the new threshold when the replay shows higher
+    # predictive accuracy. Adopted values take effect immediately on
+    # the next CSAHP4 ``/advice`` call. Page-level events: view,
+    # threshold_changed, replay_clicked, adopt_clicked, history_viewed.
+    "rotation_policy_advisor_threshold_tuning",
+    # Rotation Policy Advisor Threshold Adoption Outcome Tracker
+    # launch-audit (CSAHP7, 2026-05-02). Closes the meta-loop on the
+    # meta-loop: pair each ``threshold_adopted`` audit row at time T
+    # with the advice-code's measured predictive accuracy at T+30d
+    # (post-adoption) vs the baseline at T (pre-adoption). Outcome
+    # classes: improved / regressed / flat / pending / insufficient_data.
+    # Per-adopter calibration_score = (improved - regressed) / total.
+    # Page-level events: view, window_changed, list_filter_changed.
+    "rotation_policy_advisor_threshold_adoption_outcome_tracker",
     # Caregiver Delivery Concern Aggregator launch-audit (2026-05-01).
     # Closes section I rec from #389. Rolling-window worker groups every
     # delivery-concern audit row in the last N hours by (caregiver_user_id,
@@ -546,6 +565,64 @@ KNOWN_SURFACES = {
     # Page-level events: view, window_changed, channel_filter_changed,
     # error_class_filter_changed, page_changed, drill_through_clicked.
     "coaching_digest_delivery_failure_drilldown",
+    # IRB Amendment Workflow launch-audit (IRB-AMD1, 2026-05-02). Real-
+    # world clinical trials hit amendment cycles every 4-6 weeks; this
+    # surface adds the regulator-credible lifecycle (draft → submitted →
+    # reviewer_assigned → under_review → approved | rejected |
+    # revisions_requested → effective) on top of the existing IRB
+    # protocol register (#334). Page-level events: view,
+    # amendment_created, amendment_submitted, amendment_reviewer_assigned,
+    # amendment_review_started, amendment_decided_approved,
+    # amendment_decided_rejected, amendment_decided_revisions_requested,
+    # amendment_effective, amendment_reverted_to_draft,
+    # reg_binder_downloaded, filter_changed.
+    "irb_amendment_workflow",
+    # IRB Amendment Reviewer Workload (IRB-AMD2, 2026-05-02). Per-reviewer
+    # queue dashboard + SLA worker. Audit actions:
+    # workload_viewed, tick_clicked, irb_reviewer_sla.tick (worker
+    # surface), irb_reviewer_sla.queue_breach_detected (target_type
+    # irb_reviewer; carries priority=high so the Clinician Inbox
+    # aggregator picks it up).
+    "irb_amendment_reviewer_workload",
+    # IRB Amendment Reviewer Workload Outcome Tracker (IRB-AMD3,
+    # 2026-05-02). Pairs each irb_reviewer_sla.queue_breach_detected
+    # row with the same reviewer's NEXT irb.amendment_decided_* row
+    # and classifies the outcome (decided_within_sla, decided_late,
+    # still_pending, pending). Per-reviewer calibration_score =
+    # (decided_within_sla - still_pending) / max(total - pending, 1).
+    # Closes the loop on whether the SLA-breach signal nudges
+    # behavior. Audit actions: summary_viewed.
+    "irb_amendment_reviewer_workload_outcome_tracker",
+    # IRB Amendment Reviewer SLA Calibration Threshold Tuning Advisor
+    # (IRB-AMD4, 2026-05-02). Closes section I rec from #451 — surfaces
+    # a "what calibration_score floor should auto-trigger an admin
+    # reassign-amendment action?" recommendation with bootstrap CI,
+    # what-if replay, and clinic-scoped adoption + audit log. Mirrors
+    # the CSAHP6 (#438) tune-a-threshold console pattern.
+    "reviewer_sla_calibration_threshold_tuning",
+    # qEEG Brain Map Report Annotations (QEEG-ANN1, 2026-05-02).
+    # Sidecar annotation system that lets clinicians attach margin
+    # notes / region tags / flag-typed findings to specific sections
+    # of a qEEG Brain Map report WITHOUT mutating the canonical
+    # ``QEEGBrainMapReport`` contract in
+    # ``apps/api/app/services/qeeg_report_template.py``. Audit
+    # actions: qeeg.annotation_created, qeeg.annotation_updated,
+    # qeeg.annotation_resolved, qeeg.annotation_deleted, plus the
+    # page-level events posted via
+    # /api/v1/qeeg-report-annotations/audit-events
+    # (view, sidebar_opened, filter_changed, modal_opened).
+    # Flag types that surface FDA-questioned findings:
+    # ``evidence_gap`` per ``deepsynaps-qeeg-evidence-gaps`` memory.
+    "qeeg_report_annotations",
+    # qEEG Annotation Resolution Outcome Tracker (QEEG-ANN2,
+    # 2026-05-02). Pairs each QEEGReportAnnotation row's created_at
+    # with its resolved_at (or absence) and classifies the outcome
+    # (resolved_within_sla / resolved_late / still_open_overdue /
+    # still_open_grace). Surfaces per-clinician resolution latency,
+    # evidence-gap dwell time, and the "created but never resolved
+    # within 30d" backlog. Pure read-only — no schema change. Mirrors
+    # IRB-AMD3 (#451) outcome-pairing precedent.
+    "qeeg_annotation_outcome_tracker",
 }
 
 

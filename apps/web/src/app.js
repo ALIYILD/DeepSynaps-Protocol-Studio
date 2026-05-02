@@ -171,6 +171,24 @@ async function loadKnowledge()  { return (_modKnowledge ??= await import('./page
 async function loadVoiceAnalyzer() { return (_modVoiceAnalyzer ??= await import('./pages-voice-analyzer.js')); }
 let _modTextAnalyzer = null;
 async function loadTextAnalyzer() { return (_modTextAnalyzer ??= await import('./pages-text-analyzer.js')); }
+let _modRiskAnalyzer = null;
+async function loadRiskAnalyzer() { return (_modRiskAnalyzer ??= await import('./pages-risk-analyzer.js')); }
+let _modDigitalPhenotypingAnalyzer = null;
+async function loadDigitalPhenotypingAnalyzer() {
+  return (_modDigitalPhenotypingAnalyzer ??= await import('./pages-digital-phenotyping-analyzer.js'));
+}
+let _modMedicationAnalyzer = null;
+async function loadMedicationAnalyzer() { return (_modMedicationAnalyzer ??= await import('./pages-medication-analyzer.js')); }
+let _modTreatmentSessionsAnalyzer = null;
+async function loadTreatmentSessionsAnalyzer() { return (_modTreatmentSessionsAnalyzer ??= await import('./pages-treatment-sessions-analyzer.js')); }
+let _modPhenotypeAnalyzer = null;
+async function loadPhenotypeAnalyzer() { return (_modPhenotypeAnalyzer ??= await import('./pages-phenotype-analyzer.js')); }
+let _modMovementAnalyzer = null;
+async function loadMovementAnalyzer() { return (_modMovementAnalyzer ??= await import('./pages-movement-analyzer.js')); }
+let _modLabsAnalyzer = null;
+async function loadLabsAnalyzer() { return (_modLabsAnalyzer ??= await import('./pages-labs-analyzer.js')); }
+let _modNutritionAnalyzer = null;
+async function loadNutritionAnalyzer() { return (_modNutritionAnalyzer ??= await import('./pages-nutrition-analyzer.js')); }
 async function loadPractice()   { return (_modPractice  ??= await import('./pages-practice.js')); }
 async function loadCourses()    { return (_modCourses   ??= await import('./pages-courses.js')); }
 async function loadOnboarding() { return (_modOnboarding ??= await import('./pages-onboarding.js')); }
@@ -208,8 +226,6 @@ let _modPatientTimeline = null;
 async function loadPatientTimeline() { return (_modPatientTimeline ??= await import('./pages-patient-timeline.js')); }
 let _modMonitoring = null;
 async function loadMonitoring() { return (_modMonitoring ??= await import('./pages-monitoring.js')); }
-let _modRiskAnalyzer = null;
-async function loadRiskAnalyzer() { return (_modRiskAnalyzer ??= await import('./pages-risk-analyzer.js')); }
 
 // ── Helpers that delegate to the clinical module once loaded ──────────────────
 // Called synchronously in navigate() before renderPage(); safe to no-op until
@@ -529,6 +545,14 @@ const NAV = [
   { id: 'video-assessments',  label: 'Video',        icon: '🎥' },
   { id: 'text-analyzer',      label: 'Text',         icon: '📝', ai: true },
   { id: 'wearables',          label: 'Biometrics',   icon: '⌚' },
+  { id: 'risk-analyzer',      label: 'Risk',         icon: '🛡️' },
+  { id: 'medication-analyzer', label: 'Medication',  icon: '💊' },
+  { id: 'treatment-sessions-analyzer', label: 'Sessions', icon: '🗓️' },
+  { id: 'phenotype-analyzer', label: 'Phenotype', icon: '🧬', ai: true },
+  { id: 'movement-analyzer', label: 'Movement', icon: '🏃', ai: true },
+  { id: 'labs-analyzer',     label: 'Labs',      icon: '🧪', ai: true },
+  { id: 'nutrition-analyzer', label: 'Nutrition', icon: '🥗', ai: true },
+  { id: 'digital-phenotyping-analyzer', label: 'Behavior', icon: '📱', ai: true },
 
   // ── PROTOCOL — design / review treatment plans ───────────────────────────────
   { section: 'Protocol', sectionId: 'protocol', collapsed: false },
@@ -627,6 +651,15 @@ NAV_ICONS['research-evidence'] = `<svg viewBox="0 0 24 24"><path d="M10 2v6a2 2 
 NAV_ICONS['mri-analysis'] = `<svg viewBox="0 0 24 24"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-1.07-3 2.5 2.5 0 0 1 .49-4.78 2.5 2.5 0 0 1 1.5-4.58A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 1.07-3 2.5 2.5 0 0 0-.49-4.78 2.5 2.5 0 0 0-1.5-4.58A2.5 2.5 0 0 0 14.5 2Z"/><circle cx="12" cy="12" r="2" fill="currentColor" opacity=".5"/></svg>`;
 NAV_ICONS['voice-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11c0 4 3.5 7 7 7s7-3 7-7"/><path d="M12 21v2"/></svg>`;
 NAV_ICONS['text-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>`;
+NAV_ICONS['risk-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`;
+NAV_ICONS['nutrition-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c-4 8-8 10-8 15a8 8 0 0 0 16 0c0-5-4-7-8-15Z"/><path d="M8.5 14h7"/><path d="M10 17h4"/><path d="M9 10h6"/></svg>`;
+NAV_ICONS['medication-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="20" rx="4"/><line x1="8" y1="12" x2="16" y2="12"/><circle cx="12" cy="7" r="0.6" fill="currentColor"/><circle cx="10.5" cy="9" r="0.6" fill="currentColor"/></svg>`;
+NAV_ICONS['treatment-sessions-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="9 15 11 17 15 13"/></svg>`;
+NAV_ICONS['phenotype-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3c4 4 10 4 14 0"/><path d="M5 21c4-4 10-4 14 0"/><path d="M5 3c0 4 0 14 0 18"/><path d="M19 3c0 4 0 14 0 18"/><line x1="7" y1="7" x2="17" y2="7"/><line x1="9" y1="11" x2="15" y2="11"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="7" y1="17" x2="17" y2="17"/></svg>`;
+NAV_ICONS['movement-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="13" cy="4" r="2"/><path d="M4 22l4-7 3 2 4-5 4 4"/><path d="M11 8l-2 4 3 2 2-3 3 1"/><path d="M9 22l1-5"/></svg>`;
+NAV_ICONS['labs-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h6"/><path d="M10 2v13.5a3.5 3.5 0 0 0 7 0V2"/><path d="M10 11h7"/><circle cx="12.5" cy="14.5" r="0.6" fill="currentColor"/><circle cx="15" cy="13" r="0.6" fill="currentColor"/><circle cx="13.5" cy="17" r="0.6" fill="currentColor"/></svg>`;
+NAV_ICONS['nutrition-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4c-1.2-2-4-2.5-5.5-1S5 7 7 8.5"/><path d="M12 4c1.2-2 4-2.5 5.5-1S19 7 17 8.5"/><path d="M12 6c-3 0-6 2-6 6 0 4 3 9 6 9s6-5 6-9c0-4-3-6-6-6z"/><path d="M12 4v3"/></svg>`;
+NAV_ICONS['digital-phenotyping-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="2"/><line x1="12" y1="19" x2="12.01" y2="19"/><polyline points="8.5 11 10 11 11 8.5 13 13.5 14 11 15.5 11"/></svg>`;
 NAV_ICONS['academy']         = `<svg viewBox="0 0 24 24"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>`;
 NAV_ICONS['marketplace']     = `<svg viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" x2="21" y1="6" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>`;
 
@@ -1016,6 +1049,8 @@ const PAGE_TITLES = {
   'advanced-search': 'Advanced Search',
   'rules-engine': 'Automated Alerts & Rules Engine',
   'data-import': 'Data Import & Migration',
+  'risk-analyzer': 'Risk Analyzer',
+  'nutrition-analyzer': 'Nutrition & Diet Analyzer',
   'wearables': 'Wearable & Biosensor Integration',
   'home-task-manager': 'Home Task Manager',
   'patient-queue': 'Today\'s Queue',
@@ -1696,7 +1731,6 @@ async function renderPage() {
       break;
     }
     case 'agent-onboarding': { const { pgAgentOnboarding } = await loadOnboarding(); await pgAgentOnboarding(setTopbar); break; }
-    case 'billing': { const { pgBilling } = await import('./pages-billing.js'); await pgBilling(setTopbar); break; }
     case 'webhooks': { const { pgWebhooks } = await import('./pages-webhooks.js'); await pgWebhooks(setTopbar); break; }
     case 'marketplace-landing': { const { pgMarketplaceLanding } = await import('./pages-marketplace.js'); await pgMarketplaceLanding(setTopbar, navigate); break; }
     case 'adverse-events': {
@@ -1831,6 +1865,18 @@ async function renderPage() {
     case 'video-assessments':  { const m = await loadVideoAssessments(); await m.pgVideoAssessments(setTopbar, navigate); break; }
     case 'voice-analyzer':     { const m = await loadVoiceAnalyzer(); await m.pgVoiceAnalyzer(setTopbar, navigate); break; }
     case 'text-analyzer':      { const m = await loadTextAnalyzer(); await m.pgTextAnalyzer(setTopbar, navigate); break; }
+    case 'risk-analyzer':      { const m = await loadRiskAnalyzer(); await m.pgRiskAnalyzer(setTopbar, navigate); break; }
+    case 'nutrition-analyzer': { const m = await loadNutritionAnalyzer(); await m.pgNutritionAnalyzer(setTopbar, navigate); break; }
+    case 'medication-analyzer': { const m = await loadMedicationAnalyzer(); await m.pgMedicationAnalyzer(setTopbar, navigate); break; }
+    case 'treatment-sessions-analyzer': { const m = await loadTreatmentSessionsAnalyzer(); await m.pgTreatmentSessionsAnalyzer(setTopbar, navigate); break; }
+    case 'phenotype-analyzer': { const m = await loadPhenotypeAnalyzer(); await m.pgPhenotypeAnalyzer(setTopbar, navigate); break; }
+    case 'movement-analyzer':  { const m = await loadMovementAnalyzer(); await m.pgMovementAnalyzer(setTopbar, navigate); break; }
+    case 'labs-analyzer':      { const m = await loadLabsAnalyzer(); await m.pgLabsAnalyzer(setTopbar, navigate); break; }
+    case 'digital-phenotyping-analyzer': {
+      const m = await loadDigitalPhenotypingAnalyzer();
+      await m.pgDigitalPhenotypingAnalyzer(setTopbar, navigate);
+      break;
+    }
     case 'fusion-workbench':   { const m = await loadFusionWorkbench(); await m.pgFusionWorkbench(setTopbar, navigate); break; }
     case 'patient-timeline':   { const m = await loadPatientTimeline(); await m.pgPatientTimeline(setTopbar, navigate); break; }
     case 'biomarkers':         { const m = await loadKnowledge(); await m.pgQEEGMaps(setTopbar); break; }
@@ -3029,6 +3075,30 @@ window.addEventListener('popstate', (e) => {
     { type: 'nav', icon: '🎙️', title: 'Voice Analyzer', page: 'voice-analyzer' },
     { type: 'nav', icon: '📝', title: 'Text Analyzer', page: 'text-analyzer' },
     { type: 'nav', icon: '⌚', title: 'Biometrics', page: 'wearables' },
+    { type: 'nav', icon: '🛡️', title: 'Risk Analyzer', page: 'risk-analyzer' },
+    { type: 'nav', icon: '🥗', title: 'Nutrition & Diet Analyzer', page: 'nutrition-analyzer' },
+    { type: 'nav', icon: '🥗', title: 'Nutrition Analyzer', page: 'nutrition-analyzer' },
+    { type: 'nav', icon: '💊', title: 'Medication Analyzer', page: 'medication-analyzer' },
+    { type: 'nav', icon: '💊', title: 'Drug Interactions', page: 'medication-analyzer' },
+    { type: 'nav', icon: '💊', title: 'Polypharmacy Safety', page: 'medication-analyzer' },
+    { type: 'nav', icon: '🗓️', title: 'Treatment Sessions Analyzer', page: 'treatment-sessions-analyzer' },
+    { type: 'nav', icon: '🗓️', title: 'Sessions Adherence', page: 'treatment-sessions-analyzer' },
+    { type: 'nav', icon: '🗓️', title: 'Sign-off Queue', page: 'treatment-sessions-analyzer' },
+    { type: 'nav', icon: '🧬', title: 'Phenotype Analyzer', page: 'phenotype-analyzer' },
+    { type: 'nav', icon: '🧬', title: 'Phenotype Assignments', page: 'phenotype-analyzer' },
+    { type: 'nav', icon: '🧬', title: 'Subtype Catalog', page: 'phenotype-analyzer' },
+    { type: 'nav', icon: '🏃', title: 'Movement Analyzer', page: 'movement-analyzer' },
+    { type: 'nav', icon: '🏃', title: 'Motor Side-Effects', page: 'movement-analyzer' },
+    { type: 'nav', icon: '🏃', title: 'Tremor / Bradykinesia / Gait', page: 'movement-analyzer' },
+    { type: 'nav', icon: '🧪', title: 'Labs Analyzer', page: 'labs-analyzer' },
+    { type: 'nav', icon: '🧪', title: 'Blood Biomarkers', page: 'labs-analyzer' },
+    { type: 'nav', icon: '🧪', title: 'Lithium / INR / TSH / eGFR', page: 'labs-analyzer' },
+    { type: 'nav', icon: '🥗', title: 'Nutrition Analyzer', page: 'nutrition-analyzer' },
+    { type: 'nav', icon: '🥗', title: 'Diet & Supplements', page: 'nutrition-analyzer' },
+    { type: 'nav', icon: '🥗', title: 'Diet-Drug Interactions', page: 'nutrition-analyzer' },
+    { type: 'nav', icon: '📱', title: 'Digital Phenotyping Analyzer', page: 'digital-phenotyping-analyzer' },
+    { type: 'nav', icon: '📱', title: 'Behavioral Signals (Sleep / Mobility / Social)', page: 'digital-phenotyping-analyzer' },
+    { type: 'nav', icon: '📱', title: 'Passive Smartphone & Wearable Phenotype', page: 'digital-phenotyping-analyzer' },
   );
 
   // Fuzzy match: returns score (higher = better), or 0 if no match

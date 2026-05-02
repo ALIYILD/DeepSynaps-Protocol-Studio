@@ -66,6 +66,9 @@ let _researchBundleState = {
   exactProtocols: [],
   safetySignals: [],
   evidenceGraph: [],
+  adjunctSummary: null,
+  adjunctPapers: [],
+  adjunctReviewTables: null,
 };
 
 function _reSlug(v) {
@@ -115,6 +118,9 @@ async function _ensureResearchBundleData() {
       _researchBundleState.exactProtocols = data.exactProtocols || [];
       _researchBundleState.safetySignals = data.safetySignals || [];
       _researchBundleState.evidenceGraph = data.evidenceGraph || [];
+      _researchBundleState.adjunctSummary = data.adjunctSummary || null;
+      _researchBundleState.adjunctPapers = data.adjunctPapers || [];
+      _researchBundleState.adjunctReviewTables = data.adjunctReviewTables || null;
       _researchBundleState.loaded = !!data.live;
     } finally {
       _researchBundleState.loading = null;
@@ -145,6 +151,7 @@ const TAB_META = {
   assessments: { label: 'Assessments & Scales',       color: 'var(--violet)' },
   protocols:   { label: 'Protocols & Devices',        color: 'var(--green)'  },
   neuro:       { label: 'Brain Targets & Biomarkers', color: 'var(--rose)'   },
+  adjunct:     { label: 'Labs / Meds / Diet',         color: 'var(--cyan,var(--teal))' },
   aiml:        { label: 'AI/ML & Psychotherapies',    color: 'var(--amber)'  },
   search:      { label: 'Evidence Search',            color: 'var(--cyan,var(--teal))' },
   review:      { label: 'Needs Review',               color: 'var(--amber)'  },
@@ -221,7 +228,8 @@ export async function pgResearchEvidence(setTopbar, navigate) {
   else if (tab === 'conditions')  renderConditions(body, q, filt, sort, sInput, pills, sortBtn);
   else if (tab === 'assessments') renderAssessments(body, q, filt, sInput, pills);
   else if (tab === 'protocols')   await renderProtocols(body, q, sInput);
-  else if (tab === 'neuro')       renderNeuro(body, q, filt, sInput, pills);
+  else if (tab === 'neuro')       await renderNeuro(body, q, filt, sInput, pills);
+  else if (tab === 'adjunct')     await renderAdjunctEvidence(body, q, sInput);
   else if (tab === 'aiml')        renderAIML(body, q, sInput);
   else if (tab === 'search')      await renderEvidenceSearch(body);
   else if (tab === 'review')      await renderNeedsReview(body);
@@ -615,7 +623,91 @@ async function renderProtocols(body, q, sInput) {
 /* ══════════════════════════════════════════════════════════════════════════════
    TAB 5 — Brain Targets & Biomarkers
    ══════════════════════════════════════════════════════════════════════════════ */
-function renderNeuro(body, q, filt, sInput, pills) {
+function renderAdjunctEvidenceSection(q, { standalone = false } = {}) {
+  const adjunctSummary = _researchBundleState.adjunctSummary || {};
+  const adjunctReviewTables = _researchBundleState.adjunctReviewTables || {};
+  const reviewConditions = Array.isArray(adjunctReviewTables.conditions)
+    ? adjunctReviewTables.conditions.filter((row) => Array.isArray(row.rows) && row.rows.length)
+    : [];
+  const adjunctRows = (_researchBundleState.adjunctPapers || [])
+    .filter((row) => !q || ([
+      row.title,
+      row.journal,
+      row.primary_modality,
+      ...(row.adjunct_topic_labels || []),
+      ...(row.adjunct_terms || []),
+      ...(row.indication_tags || []),
+    ].join(' ').toLowerCase().includes(q)))
+    .slice(0, standalone ? 12 : 8);
+
+  let html = '';
+  if (standalone) {
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:16px">';
+    html += `<div class="ch-card" style="padding:16px">
+      <div style="font-size:24px;font-weight:700;color:var(--teal)">${fmt(adjunctSummary.paper_count || 0)}</div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">Adjunct Evidence Papers</div>
+    </div>`;
+    html += `<div class="ch-card" style="padding:16px">
+      <div style="font-size:24px;font-weight:700;color:var(--blue)">${fmt((adjunctSummary.top_domains || []).length || 0)}</div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">Evidence Domains</div>
+    </div>`;
+    html += `<div class="ch-card" style="padding:16px">
+      <div style="font-size:24px;font-weight:700;color:var(--violet)">${fmt(reviewConditions.length)}</div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">Condition Review Tables</div>
+    </div>`;
+    html += '</div>';
+  }
+
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-top:16px">';
+  html += `<div class="ch-card" style="padding:16px">
+    <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:10px">
+      <div style="font-weight:600;font-size:14px">Adjunct Evidence Slice</div>
+      <span style="padding:2px 8px;font-size:10px;border-radius:999px;background:var(--rose);color:#fff">${fmt(adjunctSummary.paper_count || 0)} papers</span>
+    </div>
+    <div style="font-size:11px;color:var(--text-tertiary)">Includes medications, blood tests, biomarkers, supplements, vitamins, and diet papers that can act as neuromodulation confounders or response modifiers.</div>
+  </div>`;
+  html += `<div class="ch-card" style="padding:16px">
+    <div style="font-weight:600;font-size:14px;margin-bottom:10px">Top Topics</div>
+    ${(adjunctSummary.top_topics || []).slice(0, standalone ? 8 : 6).map((row) => `<div style="padding:8px 0;border-bottom:1px solid var(--border)"><div style="font-size:12px;font-weight:600">${esc(row.key)}</div><div style="font-size:11px;color:var(--text-tertiary);margin-top:3px">${fmt(row.count)} linked papers</div></div>`).join('') || '<div style="font-size:12px;color:var(--text-tertiary)">No topic summaries available.</div>'}
+  </div>`;
+  html += `<div class="ch-card" style="padding:16px">
+    <div style="font-weight:600;font-size:14px;margin-bottom:10px">Example Papers</div>
+    ${adjunctRows.length
+      ? adjunctRows.map((row) => `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+          <div style="font-size:12px;font-weight:600">${esc(row.title || 'Untitled paper')}</div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">${esc((row.adjunct_topic_labels || []).slice(0, 3).join(' · ') || (row.adjunct_terms || []).slice(0, 3).join(' · ') || 'Adjunct evidence')}${row.year ? ' · ' + esc(row.year) : ''}</div>
+        </div>`).join('')
+      : '<div style="font-size:12px;color:var(--text-tertiary)">No adjunct papers matched the current search.</div>'}
+  </div>`;
+  html += '</div>';
+
+  if (reviewConditions.length) {
+    html += '<div class="ch-card" style="padding:16px;margin-top:16px">';
+    html += '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:12px">';
+    html += '<div style="font-weight:600;font-size:14px">Condition Review Tables</div>';
+    html += `<div style="font-size:11px;color:var(--text-tertiary)">Focused on depression, OCD, ADHD, pain, and epilepsy review workflows.</div>`;
+    html += '</div>';
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">';
+    html += reviewConditions.map((condition) => `<div style="padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--surface-2)">
+      <div style="font-size:13px;font-weight:600;margin-bottom:10px">${esc(condition.condition_label || condition.condition_slug || 'Condition')}</div>
+      ${(condition.rows || []).map((row) => `<div style="padding:10px 0;border-top:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
+          <div style="font-size:12px;font-weight:600">${esc(row.topic_label || 'Topic')}</div>
+          <span style="padding:2px 6px;font-size:10px;border-radius:999px;background:var(--blue);color:#fff">${fmt(row.paper_count || 0)} papers</span>
+        </div>
+        <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">${esc(_reNormalizeLabel(row.domain || 'general'))}${row.latest_year ? ` · latest ${esc(row.latest_year)}` : ''}${row.citation_sum ? ` · ${fmt(row.citation_sum)} citations` : ''}</div>
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:5px">${esc((row.top_relation_signal_tags || []).map((tag) => tag.key).join(' · ') || 'No relation tags captured')}</div>
+        <div style="font-size:11px;color:var(--text-tertiary);margin-top:5px">${esc((row.example_titles || []).slice(0, 2).join(' | ') || 'No example titles available')}</div>
+      </div>`).join('')}
+    </div>`).join('');
+    html += '</div></div>';
+  }
+
+  return html;
+}
+
+async function renderNeuro(body, q, filt, sInput, pills) {
+  await _ensureResearchBundleData();
   const lobes = ['All', ...new Set(BRAIN_TARGET_REGISTRY.map(t => t.lobe).filter(Boolean))];
 
   let rows = [...BRAIN_TARGET_REGISTRY];
@@ -668,12 +760,40 @@ function renderNeuro(body, q, filt, sInput, pills) {
 
   html += '</tbody></table></div>';
   html += `<div style="font-size:11px;color:var(--text-tertiary);margin-top:8px">Showing ${rows.length} of ${BRAIN_TARGET_REGISTRY.length} brain targets</div>`;
+
+  if (_researchBundleState.adjunctSummary || _researchBundleState.adjunctPapers.length) {
+    html += renderAdjunctEvidenceSection(q);
+  }
+
   body.innerHTML = html;
 }
 
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   TAB 6 — AI/ML & Psychotherapies
+   TAB 6 — Labs / Meds / Diet
+   ══════════════════════════════════════════════════════════════════════════════ */
+async function renderAdjunctEvidence(body, q, sInput) {
+  await _ensureResearchBundleData();
+
+  let html = `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px">
+    ${sInput('Search labs, medications, supplements, vitamins, and diet evidence...')}
+  </div>`;
+
+  if (_researchBundleState.adjunctSummary || _researchBundleState.adjunctPapers.length) {
+    html += renderAdjunctEvidenceSection(q, { standalone: true });
+  } else {
+    html += `<div class="ch-card" style="padding:16px">
+      <div style="font-weight:600;font-size:14px;margin-bottom:8px">Adjunct Evidence Unavailable</div>
+      <div style="font-size:12px;color:var(--text-tertiary)">No adjunct evidence bundle is loaded yet for labs, biomarkers, medications, supplements, vitamins, and diet.</div>
+    </div>`;
+  }
+
+  body.innerHTML = html;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   TAB 7 — AI/ML & Psychotherapies
    ══════════════════════════════════════════════════════════════════════════════ */
 function renderAIML(body, q, sInput) {
   /* keyword searches across recentHighImpact */
@@ -929,6 +1049,17 @@ async function renderEvidenceSearch(body) {
     '</div>';
 
   body.innerHTML = html;
+
+  if (window._reEvidencePrefill) {
+    const _pref = String(window._reEvidencePrefill || '').trim();
+    window._reEvidencePrefill = null;
+    const _input = document.getElementById('lib-ext-q');
+    if (_input && _pref) {
+      _input.value = _pref;
+      try { _input.focus(); _input.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch {}
+      try { window._libExternalSearch?.(); } catch {}
+    }
+  }
 }
 
 

@@ -12,12 +12,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, Optional
 
+from fastapi import HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.logging_setup import get_logger
 from app.persistence.models import DsPaper, EvidenceSavedCitation, LiteraturePaper
+from app.services.neuromodulation_research import search_adjunct_evidence
 
 EvidenceLevel = Literal["low", "moderate", "high"]
 ApplicabilityMatch = Literal["weakly_matched", "partially_matched", "strongly_matched"]
@@ -913,6 +915,7 @@ def build_report_payload(body: ReportPayloadRequest, db: Session) -> dict[str, A
         analysis_id=body.analysis_id,
         report_id=body.report_id,
     ) if body.include_saved else []
+    adjunct_evidence = _build_adjunct_evidence_context(targets)
     return {
         "patient_id": body.patient_id,
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -920,6 +923,7 @@ def build_report_payload(body: ReportPayloadRequest, db: Session) -> dict[str, A
         "findings": [f.model_dump() for f in findings],
         "citations": [c.model_dump() for c in citations],
         "saved_citations": saved,
+        "adjunct_evidence": adjunct_evidence,
         "report_context": {
             "context_kind": body.context_kind,
             "analysis_id": body.analysis_id,
@@ -1220,6 +1224,41 @@ def _default_evidence_db_path() -> Optional[str]:
         return str(guess)
     fallback = "/app/evidence.db"
     return fallback if os.path.exists(fallback) else None
+
+
+def _build_adjunct_evidence_context(targets: list[str]) -> dict[str, Any]:
+    topic_terms: dict[str, list[str]] = {
+        "depression_risk": ["vitamin d", "omega-3", "sertraline", "bupropion", "ferritin", "tsh", "magnesium"],
+        "frontal_alpha_asymmetry": ["vitamin d", "omega-3", "magnesium", "ssri"],
+        "hippocampal_atrophy": ["homocysteine", "vitamin b12", "folate", "mediterranean diet"],
+        "protocol_ranking": ["ferritin", "vitamin d", "ketogenic diet", "benzodiazepine", "stimulant"],
+    }
+    terms: list[str] = []
+    seen: set[str] = set()
+    for target in targets:
+        for term in topic_terms.get(target, []):
+            key = term.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            terms.append(term)
+    try:
+        matched_papers = search_adjunct_evidence(terms=terms, limit=8) if terms else []
+        if not matched_papers:
+            matched_papers = search_adjunct_evidence(limit=8)
+    except HTTPException:
+        matched_papers = []
+    matched_topics: list[str] = []
+    for row in matched_papers:
+        for label in row.get("adjunct_topic_labels", []):
+            if label not in matched_topics:
+                matched_topics.append(label)
+    return {
+        "source": "neuromodulation_adjunct_evidence",
+        "terms": terms,
+        "matched_topics": matched_topics[:10],
+        "matched_papers": matched_papers,
+    }
 
 
 def _ds_paper_to_candidate(row: DsPaper) -> _CandidatePaper:

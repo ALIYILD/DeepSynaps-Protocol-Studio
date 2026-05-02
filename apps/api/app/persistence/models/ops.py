@@ -378,3 +378,130 @@ class ResolverCoachingDigestPreference(Base):
     )
     created_at: Mapped[str] = mapped_column(String(64), nullable=False)
     updated_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class RotationPolicyAdvisorThreshold(Base):
+    """Adopted threshold override for the CSAHP4 Rotation Policy
+    Advisor heuristic (CSAHP6, 2026-05-02).
+
+    Closes section I rec from the Rotation Policy Advisor Outcome
+    Tracker (CSAHP5, #434). CSAHP5 measures per-advice-code
+    ``predictive_accuracy_pct`` (e.g., AUTH_DOMINANT scoring 28%
+    because the threshold is too aggressive); CSAHP6 lets admins
+    propose new threshold values, replay them against the last 90
+    days of frozen ``advice_snapshot`` rows, and adopt the new
+    threshold when the replay shows higher predictive accuracy.
+
+    One row per ``(clinic_id, advice_code, threshold_key)``. A
+    missing row falls back to the hardcoded default in
+    :mod:`app.services.rotation_policy_advisor`. The CSAHP4 service
+    reads these rows on each call so adopted values take effect
+    immediately on the next ``GET /advice`` request.
+
+    ``advice_code``  one of ``REFLAG_HIGH`` / ``MANUAL_REFLAG`` /
+        ``AUTH_DOMINANT`` (free-form so a future heuristic can add
+        codes without a schema change).
+    ``threshold_key``  e.g. ``re_flag_rate_pct_min``,
+        ``confirmed_count_min``, ``manual_share_pct_min``,
+        ``auth_share_pct_min``, ``total_drifts_min``.
+    ``threshold_value``  numeric (Float so we cover both percent and
+        count thresholds without a second column).
+    ``adopted_by_user_id``  soft FK to ``users.id`` for audit
+        provenance — null only on legacy rows or when the adoption
+        flow seeds defaults.
+
+    Soft FK to ``users.id`` / ``clinics.id`` so deleting a user/clinic
+    does not cascade-clear historic threshold rows (audit hygiene —
+    matches the CSAHP4 / DCRO3 convention).
+    """
+
+    __tablename__ = "rotation_policy_advisor_thresholds"
+    __table_args__ = (
+        UniqueConstraint(
+            "clinic_id",
+            "advice_code",
+            "threshold_key",
+            name="uq_rotation_policy_advisor_thresholds_clinic_code_key",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    clinic_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, index=True
+    )
+    advice_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    threshold_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    threshold_value: Mapped[float] = mapped_column(Float(), nullable=False)
+    adopted_by_user_id: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True
+    )
+    justification: Mapped[Optional[str]] = mapped_column(
+        Text(), nullable=True
+    )
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class ReviewerSLACalibrationThreshold(Base):
+    """Adopted reviewer-SLA calibration_score floor for the IRB-AMD3
+    Reviewer SLA Outcome Tracker (IRB-AMD4, 2026-05-02).
+
+    Closes the section I rec from the IRB-AMD3 outcome tracker (#451).
+    IRB-AMD3 measures per-reviewer ``calibration_score = (within_sla -
+    still_pending) / max(total - pending, 1)``; THIS row carries the
+    durable cutoff below which the IRB-AMD2 SLA worker (or an admin
+    auto-reassign job) should auto-reassign pending amendments away
+    from the under-performing reviewer. Mirrors the CSAHP6 Rotation
+    Policy Advisor Threshold Tuning row (``rotation_policy_advisor_thresholds``)
+    but on the reviewer-SLA axis instead of the auth-drift axis.
+
+    One row per ``(clinic_id, threshold_key)`` — the threshold_key
+    namespaces future floors (today only ``calibration_floor`` is
+    used; a future ``mean_days_to_next_decision_ceiling`` could be
+    added without a schema change). A missing row falls back to the
+    "no auto-reassign" baseline so behavior is unchanged until the
+    clinic adopts a value.
+
+    ``auto_reassign_enabled``  When True, the (future) auto-reassign
+        worker uses ``threshold_value`` as a hard cutoff to reassign
+        pending amendments away from a reviewer whose calibration
+        score falls below it. When False, the row is captured as a
+        recommendation only; the UI shows the recommendation but no
+        background action fires.
+    ``threshold_value``  Numeric ``calibration_score`` floor in the
+        natural [-1.0, 1.0] range (Float because the underlying
+        score is a float). Validated in router-level ``AdoptIn``.
+    ``adopted_by_user_id``  Soft FK to ``users.id`` for audit
+        provenance.
+
+    Soft FK to ``users.id`` / ``clinics.id`` so deleting a user/clinic
+    does not cascade-clear historic threshold rows (audit hygiene —
+    matches the CSAHP6 / DCRO3 convention).
+    """
+
+    __tablename__ = "reviewer_sla_calibration_thresholds"
+    __table_args__ = (
+        UniqueConstraint(
+            "clinic_id",
+            "threshold_key",
+            name="uq_reviewer_sla_calibration_thresholds_clinic_key",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    clinic_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, index=True
+    )
+    threshold_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    threshold_value: Mapped[float] = mapped_column(Float(), nullable=False)
+    auto_reassign_enabled: Mapped[bool] = mapped_column(
+        Boolean(), nullable=False, default=False
+    )
+    adopted_by_user_id: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True
+    )
+    justification: Mapped[Optional[str]] = mapped_column(
+        Text(), nullable=True
+    )
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(64), nullable=False)

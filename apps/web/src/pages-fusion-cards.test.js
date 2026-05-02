@@ -10,6 +10,7 @@ if (typeof globalThis.document === 'undefined') {
     querySelector: () => null,
     querySelectorAll: () => [],
     createElement: () => ({ style: {}, addEventListener() {}, appendChild() {} }),
+    addEventListener() {},
     body: { appendChild() {} },
   };
 }

@@ -1,498 +1,500 @@
 /**
- * Risk Analyzer — clinician workspace for safety stratification, formulation,
- * transparent prediction support, actions, and audit. Decision-support only.
+ * Risk Analyzer — clinic-wide and per-patient risk-stratification surface.
+ *
+ * Wraps the existing `risk_stratification_router.py` endpoints:
+ *   GET  /api/v1/risk/clinic/summary
+ *   GET  /api/v1/risk/patient/{patient_id}
+ *   GET  /api/v1/risk/patient/{patient_id}/audit
+ *   POST /api/v1/risk/patient/{patient_id}/{category}/override
+ *   POST /api/v1/risk/patient/{patient_id}/recompute
+ *
+ * Two views inside one page (no extra routing):
+ *   1. Clinic summary table (default landing) with traffic-light pills per
+ *      category and per-row drill-in.
+ *   2. Patient detail with 8 category cards, override form, recompute, and
+ *      an audit-trail panel.
+ *
+ * Decision-support only — every traffic light is a model output, not a
+ * validated finding. Clinician override is always available.
  */
+
 import { api } from './api.js';
-import { getEvidenceUiStats } from './evidence-ui-live.js';
+import { isDemoSession } from './demo-session.js';
+import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 
-const LS_GEO = 'ds_risk_analyzer_region';
-
-/** Navigate with optional patient id bound for downstream pages */
-export function openRiskAnalyzerForPatient(patientId) {
-  if (patientId) {
-    window._selectedPatientId = patientId;
-    window._profilePatientId = patientId;
-    try { sessionStorage.setItem('ds_pat_selected_id', patientId); } catch { /* empty */ }
-  }
-  window._nav('risk-analyzer');
+function _isEmptyClinicSummary(s) {
+  return !s || !Array.isArray(s.patients) || s.patients.length === 0;
 }
 
 function esc(s) {
-  if (s == null) return '';
-  return String(s)
+  return String(s ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
 
-function _isDemo() {
-  try {
-    return !!(import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1');
-  } catch {
-    return false;
-  }
-}
-
-const ORDER = [
-  'suicide_risk', 'self_harm', 'mental_crisis', 'harm_to_others',
-  'seizure_risk', 'implant_risk', 'medication_interaction', 'allergy',
+const CATEGORY_ORDER = [
+  'safety',
+  'clinical_deterioration',
+  'medication',
+  'adherence',
+  'engagement',
+  'wellbeing',
+  'caregiver',
+  'logistics',
 ];
 
-const LEVEL_COLOR = {
-  red: { bg: 'rgba(239,68,68,0.12)', border: 'rgba(239,68,68,0.45)', fg: '#f87171' },
-  amber: { bg: 'rgba(245,158,11,0.12)', border: 'rgba(245,158,11,0.4)', fg: '#fbbf24' },
-  green: { bg: 'rgba(34,197,94,0.1)', border: 'rgba(34,197,94,0.35)', fg: '#4ade80' },
+const LEVEL_TO_PILL = {
+  red: 'pill-pending',
+  amber: 'pill-pending',
+  green: 'pill-active',
 };
 
-function _demoPayload(patientId) {
-  return {
-    schema_version: '1.0.0',
-    patient_id: patientId,
-    generated_at: new Date().toISOString(),
-    safety_snapshot: ORDER.map((cat) => ({
-      category: cat,
-      label: cat.replace(/_/g, ' '),
-      level: cat === 'suicide_risk' ? 'amber' : 'green',
-      computed_level: cat === 'suicide_risk' ? 'amber' : 'green',
-      confidence: 'medium',
-      rationale: 'Demo data — connect to API for live stratification.',
-      computed_at: new Date().toISOString(),
-      data_sources: [],
-      evidence_refs: [],
-    })),
-    formulation: {
-      presenting_concerns: [],
-      narrative_formulation: '',
-      protective_factors: [],
-      dynamic_drivers: [],
-      access_to_means: { level: 'unknown', notes: '' },
-      family_carer_concerns: '',
-      clinician_concerns: '',
-      safety_plan_status: { status: 'none' },
-    },
-    safety_plan: { status: 'none', summary: '' },
-    assessment_evidence: [],
-    prediction_support: [
-      { analyzer_id: 'suicide_self_harm', title: 'Suicide / self-harm — short-horizon model estimate', score: 0.28, score_type: 'probability', band_label: 'lower', horizon_hours: 72, horizon_label: '72h', contributing_factors: [], confidence: { level: 'low', calibration_note: 'Demo layout', target_population_note: 'Demo' }, model: { id: 'demo', version: '0', kind: 'rule_based' }, computed_at: new Date().toISOString() },
-      { analyzer_id: 'mental_crisis', title: 'Mental crisis — destabilization estimate', score: 0.15, score_type: 'index', band_label: 'baseline', horizon_hours: 48, horizon_label: '48h', contributing_factors: [], confidence: { level: 'low', calibration_note: 'Demo layout', target_population_note: 'Demo' }, model: { id: 'demo', version: '0', kind: 'rule_based' }, computed_at: new Date().toISOString() },
-      { analyzer_id: 'harm_to_others', title: 'Harm to others — concern profile', score: 0.12, score_type: 'probability', band_label: 'lower', horizon_hours: 72, horizon_label: '72h', contributing_factors: [], confidence: { level: 'low', calibration_note: 'Demo layout', target_population_note: 'Demo' }, model: { id: 'demo', version: '0', kind: 'rule_based' }, computed_at: new Date().toISOString() },
-      { analyzer_id: 'relapse_adherence', title: 'Relapse / adherence — research composite', score: 0.35, score_type: 'index', band_label: null, horizon_hours: 168, horizon_label: '7d', contributing_factors: [], confidence: { level: 'low', calibration_note: 'Demo layout', target_population_note: 'Demo' }, model: { id: 'demo', version: '0', kind: 'research_composite' }, computed_at: new Date().toISOString() },
-    ],
-    recommended_actions: [],
-    audit_events: [],
+function _pillFor(level) {
+  const lvl = String(level || '').toLowerCase();
+  if (lvl === 'red') {
+    return '<span class="pill" style="background:rgba(255,107,107,0.12);color:var(--red);border:1px solid rgba(255,107,107,0.25)">Critical</span>';
+  }
+  if (lvl === 'amber') {
+    return '<span class="pill pill-pending">Elevated</span>';
+  }
+  if (lvl === 'green') {
+    return '<span class="pill pill-active">Clear</span>';
+  }
+  return '<span class="pill pill-inactive">Unknown</span>';
+}
+
+function _dotFor(level) {
+  const lvl = String(level || '').toLowerCase();
+  const cls = lvl === 'red' ? 'dh2-attn-chip--red'
+    : lvl === 'amber' ? 'dh2-attn-chip--amber'
+    : lvl === 'green' ? 'dh2-attn-chip--violet'
+    : 'dh2-attn-chip--muted';
+  if (lvl === 'green') {
+    return '<span class="dh2-attn-dot" style="background:var(--green)"></span>';
+  }
+  return `<span class="dh2-attn-chip ${cls}" style="border:none;background:transparent;padding:0;min-height:0;min-width:0;display:inline-flex"><span class="dh2-attn-dot"></span></span>`;
+}
+
+function _labelFor(category, fallback) {
+  const map = {
+    safety:                 'Safety',
+    clinical_deterioration: 'Clinical deterioration',
+    medication:             'Medication',
+    adherence:              'Adherence',
+    engagement:             'Engagement',
+    wellbeing:              'Wellbeing',
+    caregiver:              'Caregiver',
+    logistics:              'Logistics',
   };
+  return map[category] || fallback || category || '—';
 }
 
-function crisisStripHtml(region) {
-  const r = region || 'us';
-  if (r === 'uk') {
-    return `<div class="ra-crisis-strip" role="region" aria-label="Crisis resources">
-      <strong>Crisis (UK):</strong> NHS 111 · Samaritans 116 123 · Emergency 999
-    </div>`;
-  }
-  return `<div class="ra-crisis-strip" role="region" aria-label="Crisis resources">
-    <strong>Crisis (US):</strong> 988 Suicide &amp; Crisis Lifeline · Emergency 911
+function _skeletonChips(n = 8) {
+  const chip = '<span style="display:inline-block;width:90px;height:22px;border-radius:11px;background:linear-gradient(90deg,rgba(255,255,255,.04),rgba(255,255,255,.08),rgba(255,255,255,.04));background-size:200% 100%;animation:dh2AttnPulse 1.6s ease-in-out infinite"></span>';
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap">${Array.from({ length: n }, () => chip).join('')}</div>`;
+}
+
+function _emptyClinicCard() {
+  return `<div style="max-width:520px;margin:48px auto;padding:24px;border:1px solid var(--border);border-radius:14px;background:var(--bg-card);text-align:center">
+    <div style="font-size:15px;font-weight:600;margin-bottom:8px">No patients yet</div>
+    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;line-height:1.5">
+      Risk stratification runs once you have at least one active patient on file.
+    </div>
+    <button type="button" class="btn btn-primary btn-sm" id="ra-go-patients">Add a patient</button>
   </div>`;
 }
 
-function renderCorpusBlock(cl) {
-  if (!cl || !cl.enabled) return '';
-  const r = cl.result;
-  const corpus = (r && r.provenance && r.provenance.corpus) || 'corpus';
-  if (cl.error) {
-    return `<div class="ra-corpus-box ra-corpus--warn">Literature retrieval unavailable (check evidence DB / EVIDENCE_DB_PATH).</div>`;
+function _errorCard(message, retryLabel = 'Try again') {
+  const safe = esc(message || 'We couldn’t reach the risk model right now.');
+  return `<div role="alert" style="max-width:560px;margin:24px auto;padding:18px 20px;border:1px solid rgba(255,107,107,0.35);background:rgba(255,107,107,0.06);border-radius:12px">
+    <div style="font-weight:600;margin-bottom:6px;color:var(--text-primary)">We couldn’t reach the risk model right now.</div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;margin-bottom:12px">${safe}</div>
+    <button type="button" class="btn btn-ghost btn-sm" data-action="retry">${esc(retryLabel)}</button>
+  </div>`;
+}
+
+function _topContributingFactors(cat) {
+  const refs = Array.isArray(cat.evidence_refs) ? cat.evidence_refs : [];
+  const sources = Array.isArray(cat.data_sources) ? cat.data_sources : [];
+  const items = [];
+  for (const r of refs) {
+    if (items.length >= 2) break;
+    if (typeof r === 'string') items.push(r);
+    else if (r && typeof r === 'object') items.push(r.label || r.name || r.id || JSON.stringify(r));
   }
-  if (!r || !r.top_papers || !r.top_papers.length) {
-    return `<div class="ra-corpus-box" style="opacity:.85">No matching papers in local corpus for <code>${esc(cl.target_key || '')}</code> — see Research Evidence when online.</div>`;
+  for (const s of sources) {
+    if (items.length >= 2) break;
+    if (typeof s === 'string' && !items.includes(s)) items.push(s);
   }
-  const papers = r.top_papers.map((p) => {
-    const y = p.year != null ? ` (${p.year})` : '';
-    const sn = (p.abstract_snippet || '').slice(0, 140);
-    return `<li><strong>${esc(p.title || p.paper_id)}</strong>${y}${p.pmid ? ` · PMID ${esc(p.pmid)}` : ''}<br><span style="color:var(--text-tertiary);font-size:10.5px">${esc(sn)}${sn.length >= 140 ? '…' : ''}</span></li>`;
+  if (!items.length && cat.rationale) items.push(String(cat.rationale).split(/\.\s|\n/)[0]);
+  return items.slice(0, 2);
+}
+
+function _categoryTableHeader() {
+  const cells = CATEGORY_ORDER.map((c) => `<th style="padding:8px 6px;text-align:center;font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)" data-sort-key="${esc(c)}" title="Sort by ${esc(_labelFor(c))}">${esc(_labelFor(c))}</th>`).join('');
+  return `<tr>
+    <th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)" data-sort-key="patient">Patient</th>
+    <th style="padding:8px 10px;text-align:center;font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)" data-sort-key="worst">Worst</th>
+    ${cells}
+  </tr>`;
+}
+
+function _miniDot(level) {
+  const lvl = String(level || '').toLowerCase();
+  const bg = lvl === 'red' ? 'var(--red)'
+    : lvl === 'amber' ? 'var(--amber)'
+    : lvl === 'green' ? 'var(--green)'
+    : 'var(--text-tertiary)';
+  const title = lvl === 'red' ? 'Critical' : lvl === 'amber' ? 'Elevated' : lvl === 'green' ? 'Clear' : 'Unknown';
+  return `<span title="${title}" aria-label="${title}" style="display:inline-block;width:14px;height:14px;border-radius:50%;background:${bg};opacity:${lvl ? 1 : 0.35}"></span>`;
+}
+
+function _renderClinicTable(summary, sortKey) {
+  const patients = Array.isArray(summary?.patients) ? summary.patients.slice() : [];
+  if (!patients.length) return _emptyClinicCard();
+
+  const rank = (l) => ({ red: 3, amber: 2, green: 1 }[String(l || '').toLowerCase()] || 0);
+  if (sortKey === 'patient') {
+    patients.sort((a, b) => String(a.patient_name || '').localeCompare(String(b.patient_name || '')));
+  } else if (sortKey === 'worst') {
+    patients.sort((a, b) => rank(b.worst_level) - rank(a.worst_level));
+  } else if (sortKey && CATEGORY_ORDER.includes(sortKey)) {
+    patients.sort((a, b) => {
+      const al = (a.categories || []).find((c) => c.category === sortKey)?.level;
+      const bl = (b.categories || []).find((c) => c.category === sortKey)?.level;
+      return rank(bl) - rank(al);
+    });
+  }
+
+  const rows = patients.map((p) => {
+    const byCat = new Map((p.categories || []).map((c) => [c.category, c]));
+    const cells = CATEGORY_ORDER.map((cat) => {
+      const c = byCat.get(cat);
+      return `<td style="padding:8px 6px;text-align:center;border-bottom:1px solid var(--border)">${_miniDot(c?.level)}</td>`;
+    }).join('');
+    return `<tr data-patient-id="${esc(p.patient_id)}" tabindex="0" role="button"
+      style="cursor:pointer;min-height:44px"
+      onmouseover="this.style.background='rgba(255,255,255,.03)'"
+      onmouseout="this.style.background='transparent'">
+      <td style="padding:10px;border-bottom:1px solid var(--border);font-weight:500">${esc(p.patient_name || 'Unknown')}</td>
+      <td style="padding:10px;text-align:center;border-bottom:1px solid var(--border)">${_pillFor(p.worst_level)}</td>
+      ${cells}
+    </tr>`;
   }).join('');
-  return `<div class="ra-corpus-box">
-    <div class="ra-corpus-hd">Corpus evidence <span class="ra-corpus-tag">${esc(corpus)}</span></div>
-    ${r.literature_summary ? `<p class="ra-corpus-sum">${esc(r.literature_summary)}</p>` : ''}
-    <ol class="ra-corpus-ol">${papers}</ol>
+
+  return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;overflow:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:760px">
+      <thead>${_categoryTableHeader()}</thead>
+      <tbody>${rows}</tbody>
+    </table>
   </div>`;
 }
 
-function renderSnapshotCard(c) {
-  const lv = (c.level || 'green').toLowerCase();
-  const pal = LEVEL_COLOR[lv] || LEVEL_COLOR.green;
-  return `<div class="ra-snap-card" style="background:${pal.bg};border:1px solid ${pal.border}">
-    <div class="ra-snap-title">${esc(c.label || c.category)}</div>
-    <div class="ra-snap-level" style="color:${pal.fg}">${esc((c.level || '').toUpperCase())}</div>
-    <div class="ra-snap-sub">${esc(c.confidence || '')} · ${esc((c.computed_at || '').slice(0, 16))}</div>
-    <p class="ra-snap-rationale">${esc((c.rationale || '').slice(0, 220))}${(c.rationale || '').length > 220 ? '…' : ''}</p>
-    ${c.override_level ? `<div class="ra-override-tag">Override active</div>` : ''}
-    ${renderCorpusBlock(c.corpus_literature)}
+function _renderCategoryCard(cat) {
+  const factors = _topContributingFactors(cat);
+  const factorsHtml = factors.length
+    ? factors.map((f) => `<li style="margin-bottom:4px">${esc(f)}</li>`).join('')
+    : '<li style="color:var(--text-tertiary)">No contributing factors recorded.</li>';
+  const overridden = !!cat.override_level;
+  const score = cat.confidence ? `<span style="font-size:11px;color:var(--text-tertiary);margin-left:8px">conf: ${esc(cat.confidence)}</span>` : '';
+  return `<div data-category="${esc(cat.category)}" style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;min-height:180px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+      <div style="font-weight:600;font-size:13px">${esc(_labelFor(cat.category, cat.label))}</div>
+      <div>${_pillFor(cat.level)}</div>
+    </div>
+    <div style="font-size:11px;color:var(--text-secondary)">
+      Computed: ${esc(cat.computed_level || '—')}${score}${overridden ? ` <span style="color:var(--amber)">• overridden</span>` : ''}
+    </div>
+    <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px">Top contributing factors</div>
+    <ul style="margin:0;padding-left:16px;font-size:12px;line-height:1.5;color:var(--text-secondary)">${factorsHtml}</ul>
+    <div style="margin-top:auto;display:flex;gap:8px">
+      <button type="button" class="btn btn-ghost btn-sm" data-action="override" data-category="${esc(cat.category)}" style="min-height:44px">Override…</button>
+    </div>
   </div>`;
 }
 
-function renderPredictionCard(p) {
-  const scoreLabel = p.score != null ? Number(p.score).toFixed(2) : '—';
-  return `<div class="ra-pred-card">
-    <div class="ra-pred-head">
-      <span class="ra-chip">Model output</span>
-      <span class="ra-pred-horizon">${esc(p.horizon_label || (p.horizon_hours ? p.horizon_hours + 'h' : ''))}</span>
+function _renderOverrideForm(cat) {
+  return `<div data-override-form="${esc(cat.category)}" style="margin-top:10px;padding:12px;border:1px dashed var(--border);border-radius:10px;background:rgba(255,255,255,.02)">
+    <div style="font-size:12px;font-weight:600;margin-bottom:8px">Override ${esc(_labelFor(cat.category, cat.label))}</div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <label style="font-size:11px;color:var(--text-tertiary)">Level</label>
+      <select class="form-control" data-role="override-level" style="max-width:140px;min-height:44px">
+        <option value="green">Clear</option>
+        <option value="amber" selected>Elevated</option>
+        <option value="red">Critical</option>
+      </select>
     </div>
-    <h4 class="ra-pred-title">${esc(p.title || p.analyzer_id)}</h4>
-    <div class="ra-pred-score-row">
-      <span class="ra-pred-score">${esc(scoreLabel)}</span>
-      <span class="ra-pred-band">${esc(p.band_label || '')}</span>
+    <div style="margin-top:8px">
+      <label style="display:block;font-size:11px;color:var(--text-tertiary);margin-bottom:4px">Reason (required)</label>
+      <textarea class="form-control" data-role="override-reason" rows="2" placeholder="Clinical rationale for the override…" style="width:100%;min-height:44px"></textarea>
     </div>
-    <p class="ra-pred-cal">${esc((p.confidence && p.confidence.calibration_note) || '')}</p>
-    <p class="ra-pred-pop">${esc((p.confidence && p.confidence.target_population_note) || '')}</p>
-    ${(p.contributing_factors || []).length ? `<ul class="ra-factor-list">${p.contributing_factors.slice(0, 6).map((f) =>
-      `<li><strong>${esc(f.name)}</strong> — ${esc(f.detail || '')}</li>`).join('')}</ul>` : ''}
-    ${renderCorpusBlock(p.corpus_literature)}
+    <div style="margin-top:10px;display:flex;gap:8px">
+      <button type="button" class="btn btn-primary btn-sm" data-action="override-submit" data-category="${esc(cat.category)}" style="min-height:44px">Save override</button>
+      <button type="button" class="btn btn-ghost btn-sm" data-action="override-cancel" data-category="${esc(cat.category)}" style="min-height:44px">Cancel</button>
+    </div>
   </div>`;
+}
+
+function _renderAudit(audit) {
+  const items = Array.isArray(audit?.items) ? audit.items : [];
+  if (!items.length) {
+    return '<div style="font-size:12px;color:var(--text-tertiary);padding:10px">No risk-level changes recorded yet.</div>';
+  }
+  const rows = items.map((it) => {
+    const when = it.created_at ? new Date(it.created_at).toLocaleString() : '—';
+    const trigger = it.trigger || '—';
+    return `<li style="padding:8px 10px;border-bottom:1px solid var(--border);font-size:12px;display:flex;justify-content:space-between;gap:10px">
+      <span><strong>${esc(_labelFor(it.category))}</strong>: ${esc(it.previous_level || '—')} → ${esc(it.new_level)} <span style="color:var(--text-tertiary)">(${esc(trigger)})</span></span>
+      <span style="color:var(--text-tertiary);white-space:nowrap">${esc(when)}</span>
+    </li>`;
+  }).join('');
+  return `<ul style="list-style:none;margin:0;padding:0">${rows}</ul>`;
+}
+
+function _renderPatientDetail(profile, audit) {
+  const cats = Array.isArray(profile?.categories) ? profile.categories : [];
+  const ordered = CATEGORY_ORDER.map((id) => cats.find((c) => c.category === id)).filter(Boolean);
+  const rest = cats.filter((c) => !CATEGORY_ORDER.includes(c.category));
+  const all = [...ordered, ...rest];
+  const grid = all.map(_renderCategoryCard).join('');
+  const computed = profile?.computed_at
+    ? `Last computed ${new Date(profile.computed_at).toLocaleString()}`
+    : 'Not yet computed.';
+
+  return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:12px 0 14px">
+      <div style="font-size:12px;color:var(--text-tertiary)">${esc(computed)}</div>
+      <button type="button" class="btn btn-ghost btn-sm" data-action="recompute" style="min-height:44px">Recompute</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px">${grid}</div>
+    <div style="margin-top:18px;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px">
+      <div style="font-weight:600;font-size:13px;margin-bottom:8px">Audit trail</div>
+      ${_renderAudit(audit)}
+    </div>`;
 }
 
 export async function pgRiskAnalyzer(setTopbar, navigate) {
-  let evidenceStrip = { totalPapers: null, live: false };
-
-  let patientId = window._selectedPatientId || window._profilePatientId || sessionStorage.getItem('ds_pat_selected_id');
-  let payload = null;
-  let err = null;
-  let region = (typeof localStorage !== 'undefined' && localStorage.getItem(LS_GEO)) || 'us';
-  let _handlersBound = false;
-
   try {
-    evidenceStrip = await getEvidenceUiStats();
-  } catch { /* empty */ }
+    setTopbar({
+      title: 'Risk Analyzer',
+      subtitle: 'Patient-level risk stratification • 8 categories',
+    });
+  } catch {
+    try { setTopbar('Risk Analyzer', 'Risk stratification'); } catch {}
+  }
 
-  const root = document.getElementById('content');
-  if (!root) return;
+  const el = document.getElementById('content');
+  if (!el) return;
 
-  try { window._openRiskAnalyzer = openRiskAnalyzerForPatient; } catch { /* empty */ }
+  let view = 'clinic';
+  let summaryCache = null;
+  let sortKey = 'worst';
+  let activePatientId = null;
+  let activePatientName = '';
+  let usingFixtures = false;
 
-  const _tbHtml = () => {
-    const pid = patientId || '';
-    const escJs = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-    return `
-<button type="button" class="btn btn-sm btn-ghost" onclick="window._nav('dashboard')" title="Clinic dashboard">⌂ Dashboard</button>
-<button type="button" class="btn btn-sm btn-ghost" onclick="window._nav('patients-hub')" title="Patient roster">Patients</button>
-<button type="button" class="btn btn-sm btn-ghost" onclick="window._nav('deeptwin')" title="DeepTwin (same patient if selected)">🧠 DeepTwin</button>
-<button type="button" class="btn btn-sm btn-ghost" onclick="window._nav('research-evidence')" title="Evidence library corpus">🔬 Evidence</button>
-${pid ? `<button type="button" class="btn btn-sm btn-primary" onclick="window._selectedPatientId='${escJs(pid)}';window._profilePatientId='${escJs(pid)}';window._nav('patient-profile')" title="Patient chart">Chart</button>` : ''}`;
-  };
-  setTopbar('Risk Analyzer', _tbHtml());
+  el.innerHTML = `
+    <div class="ds-risk-analyzer-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px">
+      <div id="ra-demo-banner"></div>
+      <div style="padding:12px 14px;border-radius:12px;border:1px solid rgba(155,127,255,0.28);background:rgba(155,127,255,0.06);margin-bottom:14px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
+        <strong style="color:var(--text-primary)">Clinical decision-support.</strong>
+        Traffic lights are model outputs. Clinician review is required before acting; every override is audited.
+      </div>
+      <div id="ra-breadcrumb" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:12px"></div>
+      <div id="ra-body"></div>
+    </div>`;
 
-  const load = async () => {
-    if (!patientId) {
-      try {
-        const res = await api.listPatients({ limit: 200 });
-        const items = res?.items || (Array.isArray(res) ? res : []);
-        if (items[0]) patientId = items[0].id;
-      } catch { /* empty */ }
+  const $ = (id) => document.getElementById(id);
+
+  function _syncDemoBanner() {
+    const slot = $('ra-demo-banner');
+    if (!slot) return;
+    slot.innerHTML = usingFixtures && isDemoSession() ? DEMO_FIXTURE_BANNER_HTML : '';
+  }
+
+
+  function setBreadcrumb() {
+    const bc = $('ra-breadcrumb');
+    if (!bc) return;
+    if (view === 'clinic') {
+      bc.innerHTML = `<span style="font-weight:600">Clinic risk summary</span>`;
+    } else {
+      bc.innerHTML = `<button type="button" class="btn btn-ghost btn-sm" id="ra-back" style="min-height:44px">← Back to clinic</button>
+        <span style="color:var(--text-tertiary)">/</span>
+        <span style="font-weight:600">${esc(activePatientName || 'Patient')}</span>`;
+      $('ra-back')?.addEventListener('click', () => { view = 'clinic'; render(); });
     }
-    if (!patientId) {
-      payload = _demoPayload('demo-patient');
-      err = 'Select a patient from the roster or patient profile to load live data.';
-      return;
-    }
+  }
+
+  async function loadClinic() {
+    const body = $('ra-body');
+    if (!body) return;
+    body.innerHTML = `<div style="padding:18px;background:var(--bg-card);border:1px solid var(--border);border-radius:14px">
+      ${_skeletonChips(6)}
+    </div>`;
     try {
-      payload = await api.getRiskAnalyzerPage(patientId);
-      if (payload.error === 'patient_not_found') {
-        err = 'Patient not found.';
-        payload = _demoPayload(patientId);
+      summaryCache = await api.getClinicRiskSummary();
+      if (_isEmptyClinicSummary(summaryCache) && isDemoSession()) {
+        summaryCache = ANALYZER_DEMO_FIXTURES.risk.clinic_summary;
+        usingFixtures = true;
+      } else {
+        usingFixtures = false;
       }
     } catch (e) {
-      err = _isDemo() ? 'API unavailable — showing demo layout.' : (e.message || 'Failed to load');
-      payload = _demoPayload(patientId);
+      if (isDemoSession()) {
+        summaryCache = ANALYZER_DEMO_FIXTURES.risk.clinic_summary;
+        usingFixtures = true;
+      } else {
+        const msg = (e && e.message) || String(e);
+        body.innerHTML = _errorCard(msg);
+        body.querySelector('[data-action="retry"]')?.addEventListener('click', loadClinic);
+        return;
+      }
     }
-  };
-
-  await load();
-
-  const snap = payload.safety_snapshot || [];
-  const snapSorted = [...snap].sort((a, b) => ORDER.indexOf(a.category) - ORDER.indexOf(b.category));
-
-  const render = () => {
-    setTopbar('Risk Analyzer', _tbHtml());
-    const form = payload.formulation || {};
-    const sp = payload.safety_plan || {};
-    const showCrisis = snapSorted.some((c) =>
-      ['suicide_risk', 'self_harm', 'mental_crisis'].includes(c.category) && c.level === 'red'
-    ) || snapSorted.some((c) =>
-      ['suicide_risk', 'self_harm', 'mental_crisis'].includes(c.category) && c.level === 'amber'
-    );
-
-    const ev = evidenceStrip;
-    const evN = ev.totalPapers != null ? Number(ev.totalPapers).toLocaleString() : '—';
-    const corpusNote = ev.live
-      ? `Evidence intelligence corpus: <strong>${evN}</strong> papers indexed (same SQLite/evidence pipeline as Research Evidence). Each category below runs <strong>ranked retrieval</strong> against that corpus via the API — decision-support only.`
-      : `Evidence corpus stats unavailable offline — open <button type="button" class="btn btn-ghost btn-sm" style="padding:0 4px;font-size:inherit;height:auto;vertical-align:baseline" onclick="window._nav('research-evidence')">Research Evidence</button> when online.`;
-
-    root.innerHTML = `
-<style>
-  .ra-wrap { max-width:1280px;margin:0 auto;padding:16px 20px 48px; }
-  .ra-banner { background:rgba(0,212,188,0.08);border:1px solid rgba(0,212,188,0.25);border-radius:10px;padding:14px 18px;margin-bottom:16px;font-size:12.5px;line-height:1.55;color:var(--text-secondary); }
-  .ra-banner strong { color:var(--text-primary); }
-  .ra-crisis-strip { background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.35);color:#fecaca;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:13px; }
-  .ra-toolbar { display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:18px; }
-  .ra-toolbar select { background:var(--bg-card);border:1px solid var(--border);color:var(--text-primary);padding:6px 10px;border-radius:8px;font-size:12px; }
-  .ra-section { margin-bottom:28px; }
-  .ra-section-h { font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--text-tertiary);margin:0 0 12px; }
-  .ra-snap-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px; }
-  .ra-snap-card { border-radius:10px;padding:12px 14px;min-height:120px; }
-  .ra-snap-title { font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.04em; }
-  .ra-snap-level { font-size:20px;font-weight:800;margin:6px 0 4px; }
-  .ra-snap-sub { font-size:10px;color:var(--text-tertiary); }
-  .ra-snap-rationale { font-size:11.5px;color:var(--text-secondary);margin:8px 0 0;line-height:1.45; }
-  .ra-override-tag { display:inline-block;margin-top:8px;font-size:10px;padding:2px 8px;border-radius:4px;background:rgba(59,130,246,0.15);color:var(--blue); }
-  .ra-two-col { display:grid;grid-template-columns:1fr 1fr;gap:16px; }
-  @media (max-width:900px){ .ra-two-col { grid-template-columns:1fr; } }
-  .ra-panel { background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:16px 18px; }
-  .ra-panel label { display:block;font-size:11px;font-weight:600;color:var(--text-tertiary);margin-bottom:6px; }
-  .ra-panel textarea, .ra-panel input { width:100%;box-sizing:border-box;background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);padding:10px 12px;font-size:13px;font-family:inherit;min-height:88px; }
-  .ra-ev-line { border-bottom:1px solid var(--border);padding:10px 0;font-size:12px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap; }
-  .ra-ev-kind { color:var(--teal);font-weight:600;font-size:11px;text-transform:uppercase; }
-  .ra-pred-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px; }
-  .ra-pred-card { background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:12px;padding:14px 16px; }
-  .ra-pred-head { display:flex;justify-content:space-between;align-items:center;margin-bottom:8px; }
-  .ra-chip { font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;background:rgba(139,92,246,0.15);color:#c4b5fd;padding:3px 8px;border-radius:4px; }
-  .ra-pred-horizon { font-size:11px;color:var(--text-tertiary); }
-  .ra-pred-title { font-size:14px;font-weight:700;margin:0 0 8px;color:var(--text-primary); }
-  .ra-pred-score-row { display:flex;align-items:baseline;gap:12px;margin-bottom:8px; }
-  .ra-pred-score { font-size:26px;font-weight:800;color:var(--text-primary); }
-  .ra-pred-band { font-size:12px;color:var(--amber);font-weight:600; }
-  .ra-pred-cal, .ra-pred-pop { font-size:11px;color:var(--text-tertiary);line-height:1.45;margin:0 0 6px; }
-  .ra-factor-list { margin:8px 0 0;padding-left:18px;font-size:11.5px;color:var(--text-secondary); }
-  .ra-act { display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--border); }
-  .ra-act-pri { font-size:10px;font-weight:800;text-transform:uppercase;padding:2px 8px;border-radius:4px;background:rgba(245,158,11,0.15);color:var(--amber); }
-  .ra-audit { font-size:11.5px;color:var(--text-secondary);border-bottom:1px solid var(--border);padding:8px 0; }
-  .ra-err { background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#fecaca;padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:12px; }
-  .ra-ev-corpus { font-size:11.5px;color:var(--text-secondary);background:rgba(139,92,246,0.06);border:1px solid rgba(139,92,246,0.22);border-radius:10px;padding:10px 14px;margin-bottom:14px;line-height:1.5; }
-  .ra-corpus-box { margin-top:10px;padding-top:10px;border-top:1px dashed rgba(255,255,255,0.12);font-size:11px;color:var(--text-secondary); }
-  .ra-corpus-box.ra-corpus--warn { color:var(--amber);border-top-color:rgba(245,158,11,0.25); }
-  .ra-corpus-hd { font-weight:700;color:var(--text-primary);margin-bottom:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap; }
-  .ra-corpus-tag { font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;background:rgba(139,92,246,0.12);color:#c4b5fd;padding:2px 7px;border-radius:4px; }
-  .ra-corpus-sum { margin:0 0 8px;line-height:1.45;font-size:10.5px; }
-  .ra-corpus-ol { margin:0;padding-left:18px; }
-  .ra-corpus-ol li { margin-bottom:8px; }
-</style>
-<div class="ra-wrap">
-  <div class="ra-ev-corpus">${corpusNote}</div>
-  ${err ? `<div class="ra-err">${esc(err)}</div>` : ''}
-  <div class="ra-banner">
-    <strong>Decision-support only.</strong> This workspace does not diagnose, predict suicide outcomes for individuals,
-    or authorize discharge. Operational traffic lights are rule-based workflow signals. Model cards are adjunctive estimates —
-    integrate with person-centred formulation and local protocol. Not for autonomous patient contact.
-  </div>
-  ${showCrisis ? crisisStripHtml(region) : ''}
-
-  <div class="ra-toolbar">
-    <button type="button" class="btn btn-primary btn-sm" id="ra-recompute">Recompute stratification</button>
-    <button type="button" class="btn btn-outline btn-sm" id="ra-override-open">Category override…</button>
-    <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary);">
-      Crisis strip region
-      <select id="ra-region">
-        <option value="us" ${region === 'us' ? 'selected' : ''}>United States</option>
-        <option value="uk" ${region === 'uk' ? 'selected' : ''}>United Kingdom</option>
-      </select>
-    </label>
-    ${patientId ? `<span style="font-size:11px;color:var(--text-tertiary)">Patient ID: ${esc(patientId)}</span>` : ''}
-  </div>
-
-  <section class="ra-section">
-    <h3 class="ra-section-h">Safety snapshot (operational)</h3>
-    <div class="ra-snap-grid">${snapSorted.map(renderSnapshotCard).join('') || '<p style="color:var(--text-tertiary)">No categories</p>'}</div>
-  </section>
-
-  <section class="ra-section ra-two-col">
-    <div class="ra-panel">
-      <h3 class="ra-section-h">Person-centred formulation</h3>
-      <label>Narrative formulation</label>
-      <textarea id="ra-narrative" placeholder="Collaborative formulation — drivers, context, meaning for this patient.">${esc(form.narrative_formulation || '')}</textarea>
-      <label style="margin-top:12px;">Clinician concerns (session)</label>
-      <textarea id="ra-clin-concerns" style="min-height:72px" placeholder="acute concerns not captured elsewhere">${esc(form.clinician_concerns || '')}</textarea>
-      <label style="margin-top:12px;">Protective factors (one per line)</label>
-      <textarea id="ra-protective" style="min-height:64px" placeholder="supports, reasons for living, engagement">${(form.protective_factors || []).join('\n')}</textarea>
-      <label style="margin-top:12px;">Family / carer concerns</label>
-      <textarea id="ra-carer" style="min-height:64px">${esc(form.family_carer_concerns || '')}</textarea>
-      <label style="margin-top:12px;">Access to means</label>
-      <select id="ra-means" style="width:100%;padding:8px;border-radius:8px;background:var(--bg-card);border:1px solid var(--border);color:var(--text-primary);">
-        ${['unknown', 'none', 'some', 'significant'].map((m) =>
-          `<option value="${m}" ${((form.access_to_means || {}).level === m) ? 'selected' : ''}>${m}</option>`).join('')}
-      </select>
-      <textarea id="ra-means-notes" style="min-height:52px;margin-top:8px" placeholder="Notes on means / environment">${esc((form.access_to_means || {}).notes || '')}</textarea>
-      <button type="button" class="btn btn-primary btn-sm" style="margin-top:12px" id="ra-save-form">Save formulation</button>
-    </div>
-    <div class="ra-panel">
-      <h3 class="ra-section-h">Safety plan status</h3>
-      <label>Status</label>
-      <select id="ra-sp-status" style="width:100%;padding:8px;border-radius:8px;margin-bottom:10px;background:var(--bg-card);border:1px solid var(--border);color:var(--text-primary);">
-        ${['none', 'draft', 'active', 'needs_review', 'expired'].map((s) =>
-          `<option value="${s}" ${(sp.status === s || form.safety_plan_status?.status === s) ? 'selected' : ''}>${s}</option>`).join('')}
-      </select>
-      <label>Summary</label>
-      <textarea id="ra-sp-sum" style="min-height:80px">${esc(sp.summary || '')}</textarea>
-      <button type="button" class="btn btn-primary btn-sm" style="margin-top:12px" id="ra-save-sp">Save safety plan</button>
-    </div>
-  </section>
-
-  <section class="ra-section">
-    <h3 class="ra-section-h">Assessment evidence</h3>
-    <div class="ra-panel" style="padding:0 16px;">
-      ${(payload.assessment_evidence || []).length
-        ? payload.assessment_evidence.slice(0, 40).map((e) => `<div class="ra-ev-line">
-            <span><span class="ra-ev-kind">${esc(e.kind)}</span> ${esc(e.label)} — ${esc(e.value_display)}</span>
-            <span style="color:var(--text-tertiary);font-size:11px">${esc(e.observed_at || e.recorded_at || '')}</span>
-          </div>`).join('')
-        : '<p style="padding:16px;color:var(--text-tertiary);font-size:13px">No assessment rows returned. Complete PHQ-9 / C-SSRS or connect intake.</p>'}
-    </div>
-  </section>
-
-  <section class="ra-section">
-    <h3 class="ra-section-h">Prediction support (transparent models)</h3>
-    <div class="ra-pred-grid">${(payload.prediction_support || []).map(renderPredictionCard).join('')}</div>
-  </section>
-
-  <section class="ra-section">
-    <h3 class="ra-section-h">Recommended actions</h3>
-    <div class="ra-panel">
-      ${(payload.recommended_actions || []).length
-        ? payload.recommended_actions.map((a) => `<div class="ra-act">
-            <span class="ra-act-pri">${esc(a.priority)}</span>
-            <div><strong>${esc(a.title)}</strong><div style="font-size:12px;color:var(--text-secondary);margin-top:4px">${esc(a.detail)}</div></div>
-          </div>`).join('')
-        : '<p style="color:var(--text-tertiary);font-size:13px">No templated actions.</p>'}
-    </div>
-  </section>
-
-  <section class="ra-section">
-    <h3 class="ra-section-h">Audit & overrides</h3>
-    <div class="ra-panel">
-      ${(payload.audit_events || []).slice(0, 25).map((ev) => `<div class="ra-audit">
-        ${esc(ev.occurred_at || '')} · ${esc(ev.event_type || '')}
-        ${ev.payload_summary ? ' — ' + esc(ev.payload_summary) : ''}
-      </div>`).join('') || '<span style="color:var(--text-tertiary);font-size:12px">No audit rows.</span>'}
-    </div>
-  </section>
-</div>`;
-
-    if (!_handlersBound) {
-      _handlersBound = true;
-      root.addEventListener('change', (e) => {
-        const t = e.target;
-        if (t && t.id === 'ra-region') {
-          region = t.value;
-          try { localStorage.setItem(LS_GEO, region); } catch { /* empty */ }
-          render();
-        }
+    _syncDemoBanner();
+    body.innerHTML = _renderClinicTable(summaryCache, sortKey);
+    body.querySelector('#ra-go-patients')?.addEventListener('click', () => {
+      try { navigate?.('patients-v2'); } catch {}
+    });
+    body.querySelectorAll('[data-sort-key]').forEach((th) => {
+      th.style.cursor = 'pointer';
+      th.addEventListener('click', () => {
+        sortKey = th.getAttribute('data-sort-key');
+        body.innerHTML = _renderClinicTable(summaryCache, sortKey);
+        wireRowClicks();
+        wireSortHeaders();
       });
-      root.addEventListener('click', async (e) => {
-        const t = e.target;
-        if (!t) return;
-        if (t.closest('#ra-recompute')) {
-          if (!patientId) return;
-          try {
-            window._showToast?.('Recomputing…', 'info');
-            payload = await api.recomputeRiskAnalyzer(patientId, {});
-            err = null;
-            render();
-            window._showToast?.('Stratification recomputed.', 'success');
-          } catch (err0) {
-            window._showToast?.(err0.message || 'Recompute failed', 'error');
-          }
-          return;
-        }
-        if (t.closest('#ra-save-form')) {
-          if (!patientId) return;
-          const protective = (document.getElementById('ra-protective').value || '')
-            .split('\n').map((s) => s.trim()).filter(Boolean);
-          const body = {
-            narrative_formulation: document.getElementById('ra-narrative').value,
-            clinician_concerns: document.getElementById('ra-clin-concerns').value,
-            protective_factors: protective,
-            family_carer_concerns: document.getElementById('ra-carer').value,
-            access_to_means: {
-              level: document.getElementById('ra-means').value,
-              notes: document.getElementById('ra-means-notes').value,
-            },
-          };
-          try {
-            const res = await api.saveRiskFormulation(patientId, body);
-            if (res.formulation) payload.formulation = res.formulation;
-            window._showToast?.('Formulation saved.', 'success');
-            await load();
-            render();
-          } catch (err0) {
-            window._showToast?.(err0.message || 'Save failed', 'error');
-          }
-          return;
-        }
-        if (t.closest('#ra-save-sp')) {
-          if (!patientId) return;
-          try {
-            const res = await api.saveRiskSafetyPlan(patientId, {
-              status: document.getElementById('ra-sp-status').value,
-              summary: document.getElementById('ra-sp-sum').value,
-            });
-            if (res.safety_plan) payload.safety_plan = res.safety_plan;
-            window._showToast?.('Safety plan saved.', 'success');
-            await load();
-            render();
-          } catch (err0) {
-            window._showToast?.(err0.message || 'Save failed', 'error');
-          }
-          return;
-        }
-        if (t.closest('#ra-override-open')) {
-          if (!patientId) {
-            window._showToast?.('Select a patient first.', 'error');
+    });
+    wireRowClicks();
+    wireSortHeaders();
+  }
+
+  function wireSortHeaders() {
+    const body = $('ra-body');
+    body?.querySelectorAll('[data-sort-key]').forEach((th) => {
+      th.style.cursor = 'pointer';
+      th.addEventListener('click', () => {
+        sortKey = th.getAttribute('data-sort-key');
+        body.innerHTML = _renderClinicTable(summaryCache, sortKey);
+        wireRowClicks();
+        wireSortHeaders();
+      });
+    });
+  }
+
+  function wireRowClicks() {
+    const body = $('ra-body');
+    body?.querySelectorAll('tr[data-patient-id]').forEach((tr) => {
+      const pid = tr.getAttribute('data-patient-id');
+      const open = () => {
+        activePatientId = pid;
+        const p = (summaryCache?.patients || []).find((x) => x.patient_id === pid);
+        activePatientName = p?.patient_name || 'Patient';
+        view = 'patient';
+        render();
+      };
+      tr.addEventListener('click', open);
+      tr.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); open(); }
+      });
+    });
+  }
+
+  async function loadPatient() {
+    const body = $('ra-body');
+    if (!body || !activePatientId) return;
+    body.innerHTML = `<div style="padding:18px;background:var(--bg-card);border:1px solid var(--border);border-radius:14px">
+      ${_skeletonChips(8)}
+    </div>`;
+    try {
+      let [profile, audit] = await Promise.all([
+        api.getPatientRiskProfile(activePatientId),
+        api.getRiskAudit(activePatientId).catch(() => ({ items: [] })),
+      ]);
+      if ((!profile || !Array.isArray(profile.categories) || profile.categories.length === 0) && isDemoSession()) {
+        profile = ANALYZER_DEMO_FIXTURES.risk.patient_profile(activePatientId);
+        audit = ANALYZER_DEMO_FIXTURES.risk.patient_audit(activePatientId);
+        usingFixtures = true;
+      }
+      _syncDemoBanner();
+      body.innerHTML = _renderPatientDetail(profile, audit);
+      wirePatientDetail(profile);
+    } catch (e) {
+      if (isDemoSession()) {
+        const profile = ANALYZER_DEMO_FIXTURES.risk.patient_profile(activePatientId);
+        const audit = ANALYZER_DEMO_FIXTURES.risk.patient_audit(activePatientId);
+        usingFixtures = true;
+        _syncDemoBanner();
+        body.innerHTML = _renderPatientDetail(profile, audit);
+        wirePatientDetail(profile);
+        return;
+      }
+      const msg = (e && e.message) || String(e);
+      body.innerHTML = _errorCard(msg);
+      body.querySelector('[data-action="retry"]')?.addEventListener('click', loadPatient);
+    }
+  }
+
+  function wirePatientDetail(profile) {
+    const body = $('ra-body');
+    if (!body) return;
+
+    body.querySelector('[data-action="recompute"]')?.addEventListener('click', async (ev) => {
+      const btn = ev.currentTarget;
+      const old = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Recomputing…';
+      try {
+        await api.recomputeRisk(activePatientId);
+        await loadPatient();
+      } catch (e) {
+        btn.disabled = false;
+        btn.textContent = old;
+        body.insertAdjacentHTML('afterbegin', _errorCard((e && e.message) || String(e)));
+      }
+    });
+
+    body.querySelectorAll('[data-action="override"]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const cat = b.getAttribute('data-category');
+        const card = body.querySelector(`[data-category="${cat}"]`);
+        if (!card) return;
+        if (card.querySelector(`[data-override-form="${cat}"]`)) return;
+        const meta = (profile?.categories || []).find((c) => c.category === cat) || { category: cat };
+        card.insertAdjacentHTML('beforeend', _renderOverrideForm(meta));
+        const form = card.querySelector(`[data-override-form="${cat}"]`);
+        form?.querySelector('[data-action="override-cancel"]')?.addEventListener('click', () => form.remove());
+        form?.querySelector('[data-action="override-submit"]')?.addEventListener('click', async () => {
+          const level = form.querySelector('[data-role="override-level"]').value;
+          const reason = form.querySelector('[data-role="override-reason"]').value.trim();
+          if (!reason) {
+            form.querySelector('[data-role="override-reason"]').focus();
             return;
           }
-          const modal = document.createElement('div');
-          modal.className = 'modal-overlay';
-          modal.innerHTML = `<div class="modal-panel card" style="max-width:420px;padding:20px">
-            <h3 style="margin:0 0 12px;font-size:16px">Override traffic-light category</h3>
-            <label style="font-size:11px">Category</label>
-            <select id="ra-ov-cat" style="width:100%;margin-bottom:10px;padding:8px">${ORDER.map((c) =>
-              `<option value="${c}">${c}</option>`).join('')}</select>
-            <label style="font-size:11px">Level</label>
-            <select id="ra-ov-lvl" style="width:100%;margin-bottom:10px;padding:8px">
-              <option value="green">green</option><option value="amber">amber</option><option value="red">red</option>
-            </select>
-            <label style="font-size:11px">Reason (required)</label>
-            <textarea id="ra-ov-reason" style="width:100%;min-height:72px;margin-bottom:12px"></textarea>
-            <div style="display:flex;gap:10px;justify-content:flex-end">
-              <button type="button" class="btn btn-outline btn-sm" id="ra-ov-cancel">Cancel</button>
-              <button type="button" class="btn btn-primary btn-sm" id="ra-ov-ok">Apply override</button>
-            </div>
-          </div>`;
-          document.body.appendChild(modal);
-          const close = () => modal.remove();
-          modal.querySelector('#ra-ov-cancel').addEventListener('click', close);
-          modal.querySelector('#ra-ov-ok').addEventListener('click', async () => {
-            const reason = modal.querySelector('#ra-ov-reason').value.trim();
-            if (reason.length < 3) {
-              window._showToast?.('Reason must be at least 3 characters.', 'error');
-              return;
-            }
-            try {
-              payload = await api.overrideRiskAnalyzerCategory(patientId, {
-                category: modal.querySelector('#ra-ov-cat').value,
-                level: modal.querySelector('#ra-ov-lvl').value,
-                reason,
-              });
-              err = null;
-              close();
-              render();
-              window._showToast?.('Override saved.', 'success');
-            } catch (err0) {
-              window._showToast?.(err0.message || 'Override failed', 'error');
-            }
-          });
-          modal.addEventListener('click', (ev) => { if (ev.target === modal) close(); });
-        }
+          const submit = form.querySelector('[data-action="override-submit"]');
+          submit.disabled = true;
+          submit.textContent = 'Saving…';
+          try {
+            await api.overrideRiskCategory(activePatientId, cat, { level, reason });
+            await loadPatient();
+          } catch (e) {
+            submit.disabled = false;
+            submit.textContent = 'Save override';
+            form.insertAdjacentHTML('beforeend', `<div style="margin-top:8px;color:var(--red);font-size:11px">${esc((e && e.message) || String(e))}</div>`);
+          }
+        });
       });
-    }
-  };
+    });
+  }
+
+  function render() {
+    setBreadcrumb();
+    if (view === 'clinic') loadClinic();
+    else loadPatient();
+  }
 
   render();
 }
+
+export default { pgRiskAnalyzer };

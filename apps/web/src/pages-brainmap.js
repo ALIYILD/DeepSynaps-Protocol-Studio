@@ -1175,3 +1175,617 @@ function styleBlock() {
     </style>
   `;
 }
+
+
+// ── QEEG-ANN1 Brain Map Annotations Sidebar ──────────────────────────────────
+// Sidecar UI for the QEEG-ANN1 backend (apps/api/app/routers/
+// qeeg_report_annotations_router.py). Renders existing annotations
+// grouped by kind (margin_note / region_tag / flag), with a "+ Annotation"
+// button that opens a modal scoped to a section_path. Honest disclaimer
+// for evidence_gap flags references the FDA-questioned findings list
+// captured in deepsynaps-qeeg-evidence-gaps memory.
+//
+// This module exports two pure helpers + a renderQeegAnnotationsSidebar
+// function so the main pgBrainMapPlanner page can mount the sidebar
+// alongside the rendered Brain Map report. The launch-audit test
+// drives these helpers directly with a fake api object.
+
+const QEEG_ANN_KINDS = ['margin_note', 'region_tag', 'flag'];
+const QEEG_ANN_FLAG_TYPES = [
+  'clinically_significant',
+  'evidence_gap',
+  'discuss_next_session',
+  'patient_question',
+];
+const QEEG_ANN_BODY_MIN = 5;
+const QEEG_ANN_BODY_MAX = 2000;
+const QEEG_ANN_AUDIT_SURFACE = 'qeeg_report_annotations';
+
+const QEEG_ANN_FLAG_CHIP_COLORS = {
+  clinically_significant: { fg: '#ff6b9d', bg: 'rgba(255,107,157,0.16)' },
+  evidence_gap: { fg: '#ffb547', bg: 'rgba(255,181,71,0.18)' },
+  discuss_next_session: { fg: '#4a9eff', bg: 'rgba(74,158,255,0.16)' },
+  patient_question: { fg: '#9b7fff', bg: 'rgba(155,127,255,0.16)' },
+};
+
+function _qeegAnnEsc(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+}
+
+export function buildQeegAnnotationsCreatePayload({
+  patientId,
+  reportId,
+  sectionPath,
+  annotationKind,
+  flagType,
+  body,
+}) {
+  if (!patientId) throw new Error('patientId required');
+  if (!reportId) throw new Error('reportId required');
+  if (!sectionPath) throw new Error('sectionPath required');
+  if (!QEEG_ANN_KINDS.includes(annotationKind))
+    throw new Error('annotationKind invalid');
+  const trimmed = String(body || '').trim();
+  if (trimmed.length < QEEG_ANN_BODY_MIN)
+    throw new Error('body too short');
+  if (trimmed.length > QEEG_ANN_BODY_MAX)
+    throw new Error('body too long');
+  const out = {
+    patient_id: patientId,
+    report_id: reportId,
+    section_path: sectionPath,
+    annotation_kind: annotationKind,
+    body: trimmed,
+  };
+  if (annotationKind === 'flag') {
+    if (!QEEG_ANN_FLAG_TYPES.includes(flagType))
+      throw new Error('flagType required and must be one of the four allowed types');
+    out.flag_type = flagType;
+  }
+  return out;
+}
+
+export function groupQeegAnnotationsByKind(items) {
+  const out = { margin_note: [], region_tag: [], flag: [] };
+  if (!Array.isArray(items)) return out;
+  for (const it of items) {
+    const k = it && it.annotation_kind;
+    if (k && Object.prototype.hasOwnProperty.call(out, k)) {
+      out[k].push(it);
+    }
+  }
+  return out;
+}
+
+export function canEditQeegAnnotation(item, actor) {
+  if (!item || !actor) return false;
+  return String(item.created_by_user_id) === String(actor.actor_id);
+}
+
+export function canDeleteQeegAnnotation(item, actor) {
+  if (!item || !actor) return false;
+  if (String(actor.role) === 'admin') return true;
+  return String(item.created_by_user_id) === String(actor.actor_id);
+}
+
+export function renderQeegAnnotationCard(item, actor) {
+  const flag = item && item.flag_type;
+  const colors = (flag && QEEG_ANN_FLAG_CHIP_COLORS[flag]) || null;
+  const chip = colors
+    ? `<span class="dv2bm-ann-chip" style="color:${colors.fg};background:${colors.bg};">${_qeegAnnEsc(flag.replace(/_/g, ' '))}</span>`
+    : '';
+  const editable = canEditQeegAnnotation(item, actor);
+  const deletable = canDeleteQeegAnnotation(item, actor);
+  const resolved = !!(item && item.resolved_at);
+  const editBtn = editable
+    ? `<button class="dv2bm-ann-action" data-action="edit" data-id="${_qeegAnnEsc(item.id)}">Edit</button>`
+    : '';
+  const delBtn = deletable
+    ? `<button class="dv2bm-ann-action dv2bm-ann-action--danger" data-action="delete" data-id="${_qeegAnnEsc(item.id)}">Delete</button>`
+    : '';
+  const resolveBtn = !resolved
+    ? `<button class="dv2bm-ann-action" data-action="resolve" data-id="${_qeegAnnEsc(item.id)}">Resolve</button>`
+    : '';
+  const resolvedTag = resolved
+    ? `<span class="dv2bm-ann-resolved">Resolved</span>`
+    : '';
+  const evidenceDisclaimer =
+    flag === 'evidence_gap'
+      ? `<div class="dv2bm-ann-disclaimer">Evidence-gap flags help track FDA-questioned findings — see qEEG evidence gaps doc.</div>`
+      : '';
+  return `
+    <div class="dv2bm-ann-card${resolved ? ' dv2bm-ann-card--resolved' : ''}" data-ann-id="${_qeegAnnEsc(item.id)}">
+      <div class="dv2bm-ann-card-head">
+        <span class="dv2bm-ann-section">${_qeegAnnEsc(item.section_path || '')}</span>
+        ${chip}
+        ${resolvedTag}
+      </div>
+      <div class="dv2bm-ann-card-body">${_qeegAnnEsc(item.body || '')}</div>
+      ${evidenceDisclaimer}
+      <div class="dv2bm-ann-card-foot">
+        <span class="dv2bm-ann-author">${_qeegAnnEsc(item.created_by_user_id || '')}</span>
+        ${editBtn}
+        ${delBtn}
+        ${resolveBtn}
+      </div>
+    </div>
+  `;
+}
+
+export function renderQeegAnnotationsSidebarMarkup({
+  annotations,
+  showResolved,
+  actor,
+  empty,
+}) {
+  if (empty) {
+    return `
+      <aside class="dv2bm-ann-sidebar" data-state="empty">
+        <header class="dv2bm-ann-sidebar-head">
+          <h3>Annotations</h3>
+          <button class="dv2bm-ann-add" data-action="open-create">+ Annotation</button>
+        </header>
+        <div class="dv2bm-ann-empty">No annotations yet — be the first to flag a finding.</div>
+      </aside>
+    `;
+  }
+  const grouped = groupQeegAnnotationsByKind(annotations);
+  const renderGroup = (label, kind) => {
+    const list = grouped[kind] || [];
+    if (!list.length) return '';
+    return `
+      <section class="dv2bm-ann-group" data-kind="${kind}">
+        <h4 class="dv2bm-ann-group-title">${_qeegAnnEsc(label)} <span class="dv2bm-ann-group-count">${list.length}</span></h4>
+        ${list.map((it) => renderQeegAnnotationCard(it, actor)).join('')}
+      </section>
+    `;
+  };
+  const toggle = `
+    <label class="dv2bm-ann-toggle">
+      <input type="checkbox" data-action="toggle-resolved" ${showResolved ? 'checked' : ''}/>
+      Show resolved
+    </label>
+  `;
+  return `
+    <aside class="dv2bm-ann-sidebar" data-state="loaded">
+      <header class="dv2bm-ann-sidebar-head">
+        <h3>Annotations</h3>
+        <button class="dv2bm-ann-add" data-action="open-create">+ Annotation</button>
+      </header>
+      ${toggle}
+      ${renderGroup('Margin notes', 'margin_note')}
+      ${renderGroup('Region tags', 'region_tag')}
+      ${renderGroup('Flags', 'flag')}
+    </aside>
+  `;
+}
+
+export function renderQeegAnnotationCreateModalMarkup({
+  sectionPath,
+  annotationKind,
+  flagType,
+  body,
+  advanced,
+}) {
+  const showFlagDropdown = annotationKind === 'flag';
+  const charCount = String(body || '').length;
+  const flagOptions = QEEG_ANN_FLAG_TYPES.map(
+    (f) =>
+      `<option value="${f}"${f === flagType ? ' selected' : ''}>${_qeegAnnEsc(f.replace(/_/g, ' '))}</option>`,
+  ).join('');
+  const kindOptions = QEEG_ANN_KINDS.map(
+    (k) =>
+      `<option value="${k}"${k === annotationKind ? ' selected' : ''}>${_qeegAnnEsc(k.replace(/_/g, ' '))}</option>`,
+  ).join('');
+  return `
+    <div class="dv2bm-ann-modal" data-state="create">
+      <div class="dv2bm-ann-modal-head">New annotation</div>
+      <label class="dv2bm-ann-field">
+        <span>Section path</span>
+        <input type="text" data-field="section_path" value="${_qeegAnnEsc(sectionPath)}"${advanced ? '' : ' readonly'}/>
+      </label>
+      <label class="dv2bm-ann-field">
+        <span>Kind</span>
+        <select data-field="annotation_kind">${kindOptions}</select>
+      </label>
+      <label class="dv2bm-ann-field" data-visible="${showFlagDropdown}" ${showFlagDropdown ? '' : 'hidden'}>
+        <span>Flag type</span>
+        <select data-field="flag_type">${flagOptions}</select>
+      </label>
+      <label class="dv2bm-ann-field">
+        <span>Body</span>
+        <textarea data-field="body" maxlength="${QEEG_ANN_BODY_MAX}" rows="5">${_qeegAnnEsc(body || '')}</textarea>
+        <span class="dv2bm-ann-charcount" data-field="char_count">${charCount} / ${QEEG_ANN_BODY_MAX}</span>
+      </label>
+      <div class="dv2bm-ann-modal-foot">
+        <button data-action="cancel">Cancel</button>
+        <button data-action="save" class="dv2bm-ann-modal-save">Save annotation</button>
+      </div>
+    </div>
+  `;
+}
+
+export function renderQeegAnnotationResolveModalMarkup({ resolutionNote }) {
+  return `
+    <div class="dv2bm-ann-modal" data-state="resolve">
+      <div class="dv2bm-ann-modal-head">Resolve annotation</div>
+      <label class="dv2bm-ann-field">
+        <span>Resolution note (optional)</span>
+        <textarea data-field="resolution_note" maxlength="${QEEG_ANN_BODY_MAX}" rows="4">${_qeegAnnEsc(resolutionNote || '')}</textarea>
+      </label>
+      <div class="dv2bm-ann-modal-foot">
+        <button data-action="cancel">Cancel</button>
+        <button data-action="confirm-resolve" class="dv2bm-ann-modal-save">Resolve</button>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * High-level orchestrator used by ``pgBrainMapPlanner`` to mount the
+ * QEEG-ANN1 sidebar on the brain-map page. Returns ``{markup, error}``.
+ *
+ * The function takes an injected api object so the launch-audit test
+ * can drive it deterministically with a fake api.
+ */
+export async function renderQeegAnnotationsSidebar({
+  api: apiClient,
+  patientId,
+  reportId,
+  actor,
+  showResolved = false,
+}) {
+  if (!apiClient || !apiClient.fetchQeegReportAnnotations) {
+    return { markup: '', error: 'api unavailable' };
+  }
+  if (!patientId || !reportId) {
+    return { markup: renderQeegAnnotationsSidebarMarkup({ annotations: [], showResolved, actor, empty: true }), error: null };
+  }
+  let res;
+  try {
+    res = await apiClient.fetchQeegReportAnnotations({
+      patient_id: patientId,
+      report_id: reportId,
+      include_resolved: showResolved,
+      page: 1,
+      page_size: 200,
+    });
+  } catch {
+    res = null;
+  }
+  if (!res) {
+    return {
+      markup: `<aside class="dv2bm-ann-sidebar" data-state="error"><div class="dv2bm-ann-error">Failed to load annotations.</div></aside>`,
+      error: 'load_failed',
+    };
+  }
+  const items = Array.isArray(res.items) ? res.items : [];
+  const markup = renderQeegAnnotationsSidebarMarkup({
+    annotations: items,
+    showResolved,
+    actor,
+    empty: items.length === 0,
+  });
+  // Best-effort audit ping — never blocks render.
+  if (apiClient.postQeegReportAnnotationAuditEvent) {
+    try {
+      apiClient.postQeegReportAnnotationAuditEvent({
+        event: 'sidebar_opened',
+        target_id: reportId,
+        note: `patient=${patientId}`,
+      });
+    } catch {
+      // swallow
+    }
+  }
+  return { markup, error: null };
+}
+
+export const _QEEG_ANN_INTERNALS = {
+  KINDS: QEEG_ANN_KINDS,
+  FLAG_TYPES: QEEG_ANN_FLAG_TYPES,
+  BODY_MIN: QEEG_ANN_BODY_MIN,
+  BODY_MAX: QEEG_ANN_BODY_MAX,
+  AUDIT_SURFACE: QEEG_ANN_AUDIT_SURFACE,
+};
+
+
+// ── QEEG-ANN2 Annotation Outcome Tracker section ─────────────────────────────
+// Outcome tracker UI rendered as a sub-section of the Brain Map page
+// (also embeddable as a standalone analytics panel). Mirrors the
+// IRB-AMD3 outcome-tracker layout: KPI tiles + by-flag-type table +
+// overdue backlog list + leaderboards + weekly trend.
+//
+// All helpers are pure so the launch-audit test can drive them with a
+// fake api object — there's no DOM dependency in the shape builders.
+
+const QEEG_ANN2_SURFACE = 'qeeg_annotation_outcome_tracker';
+const QEEG_ANN2_WINDOW_OPTIONS = [30, 90, 180, 365];
+const QEEG_ANN2_DEFAULT_WINDOW = 180;
+const QEEG_ANN2_DEFAULT_SLA = 30;
+const QEEG_ANN2_BACKLOG_PAGE_SIZE = 25;
+
+
+export function buildQeegAnnotationOutcomeKpiTiles(summary) {
+  const counts = (summary && summary.outcome_counts) || {};
+  const pct = (summary && summary.outcome_pct) || {};
+  const median = summary && summary.median_days_to_resolve;
+  const p90 = summary && summary.p90_days_to_resolve;
+  const total = (summary && summary.total_annotations) || 0;
+  const eg = (summary && summary.evidence_gap_open_overdue_count) || 0;
+  return [
+    { label: 'Total annotations', value: total },
+    {
+      label: '% resolved within SLA',
+      value: (pct.resolved_within_sla || 0) + '%',
+    },
+    {
+      label: '% resolved late',
+      value: (pct.resolved_late || 0) + '%',
+    },
+    {
+      label: 'Median days to resolve',
+      value: median == null ? '—' : median + 'd',
+    },
+    {
+      label: 'P90 days to resolve',
+      value: p90 == null ? '—' : p90 + 'd',
+    },
+    {
+      label: 'Evidence-gap overdue',
+      value: eg,
+      tone: eg > 0 ? 'rose' : 'muted',
+    },
+  ];
+}
+
+
+export function evidenceGapBadgeTone(count) {
+  if (typeof count !== 'number' || count <= 0) return 'muted';
+  return 'rose';
+}
+
+
+export function qeegAnn2OutcomeTrackerEmpty(summary) {
+  return !summary || !summary.total_annotations;
+}
+
+
+export function buildQeegAnn2BacklogRowMarkup(item) {
+  const days = item && item.days_open != null ? item.days_open : '—';
+  const flag = item && item.flag_type ? item.flag_type : (item && item.kind) || '';
+  const creator = (item && (item.creator_name || item.creator_user_id)) || '—';
+  const created = item && item.created_at ? item.created_at : '';
+  const body = item && item.body ? item.body : '';
+  return (
+    `<div class="dv2bm-ann2-backlog-row" data-id="${_qeegAnnEsc(item && item.annotation_id)}">` +
+    `<div class="dv2bm-ann2-backlog-meta">` +
+    `<span class="dv2bm-ann2-backlog-days">${_qeegAnnEsc(days)}d</span>` +
+    `<span class="dv2bm-ann2-backlog-flag">${_qeegAnnEsc(flag)}</span>` +
+    `<span class="dv2bm-ann2-backlog-creator">${_qeegAnnEsc(creator)}</span>` +
+    `<span class="dv2bm-ann2-backlog-created">${_qeegAnnEsc(created)}</span>` +
+    `</div>` +
+    `<div class="dv2bm-ann2-backlog-body">${_qeegAnnEsc(body)}</div>` +
+    `</div>`
+  );
+}
+
+
+export function buildQeegAnn2FlagTypeRows(byFlagType) {
+  if (!byFlagType || typeof byFlagType !== 'object') return [];
+  return Object.keys(byFlagType)
+    .sort()
+    .map((ft) => {
+      const stats = byFlagType[ft] || {};
+      return {
+        flag_type: ft,
+        total: stats.total || 0,
+        resolved_within_sla: stats.resolved_within_sla || 0,
+        resolved_late: stats.resolved_late || 0,
+        still_open_overdue: stats.still_open_overdue || 0,
+        still_open_grace: stats.still_open_grace || 0,
+        median_days_to_resolve: stats.median_days_to_resolve,
+      };
+    });
+}
+
+
+export function buildQeegAnn2TopCreators(items, cap = 5) {
+  if (!Array.isArray(items)) return [];
+  const sorted = [...items].sort(
+    (a, b) => (b.total_created || 0) - (a.total_created || 0),
+  );
+  return sorted.slice(0, cap);
+}
+
+
+export function buildQeegAnn2TopResolvers(items, cap = 5) {
+  if (!Array.isArray(items)) return [];
+  const sorted = [...items].sort(
+    (a, b) =>
+      (a.median_days_to_resolve || 0) - (b.median_days_to_resolve || 0),
+  );
+  return sorted.slice(0, cap);
+}
+
+
+export function qeegAnn2WindowOptions() {
+  return [...QEEG_ANN2_WINDOW_OPTIONS];
+}
+
+
+export async function loadQeegAnn2OutcomeTrackerData(
+  apiClient,
+  {
+    windowDays = QEEG_ANN2_DEFAULT_WINDOW,
+    slaDays = QEEG_ANN2_DEFAULT_SLA,
+    page = 1,
+  } = {},
+) {
+  const summaryP = (apiClient.fetchQeegAnnotationOutcomeSummary || (() => null))(
+    { window_days: windowDays, sla_days: slaDays },
+  );
+  const creatorsP = (apiClient.fetchQeegAnnotationCreatorSummary ||
+    (() => null))({ window_days: windowDays, min_created: 2 });
+  const resolversP = (apiClient.fetchQeegAnnotationResolverLatencySummary ||
+    (() => null))({ window_days: windowDays, min_resolved: 2 });
+  const backlogP = (apiClient.fetchQeegAnnotationBacklog || (() => null))({
+    window_days: windowDays,
+    sla_days: slaDays,
+    include_grace: false,
+    page,
+    page_size: QEEG_ANN2_BACKLOG_PAGE_SIZE,
+  });
+  const [summary, creators, resolvers, backlog] = await Promise.all([
+    summaryP,
+    creatorsP,
+    resolversP,
+    backlogP,
+  ]);
+  return { summary, creators, resolvers, backlog };
+}
+
+
+export async function renderQeegAnnotationOutcomeTrackerSection({
+  apiClient,
+  windowDays = QEEG_ANN2_DEFAULT_WINDOW,
+  slaDays = QEEG_ANN2_DEFAULT_SLA,
+  page = 1,
+} = {}) {
+  const data = await loadQeegAnn2OutcomeTrackerData(apiClient, {
+    windowDays,
+    slaDays,
+    page,
+  });
+  if (!data.summary) {
+    return {
+      markup:
+        `<div class="dv2bm-ann2-error">Annotation outcomes failed to load. ` +
+        `Try refreshing.</div>`,
+      error: 'load_failed',
+    };
+  }
+  const empty = qeegAnn2OutcomeTrackerEmpty(data.summary);
+  const tiles = buildQeegAnnotationOutcomeKpiTiles(data.summary);
+  const flagRows = buildQeegAnn2FlagTypeRows(data.summary.by_flag_type);
+  const trend = data.summary.trend_buckets || [];
+  const backlog = (data.backlog && data.backlog.items) || [];
+  const topCreators = buildQeegAnn2TopCreators(
+    (data.creators && data.creators.items) || [],
+  );
+  const topResolvers = buildQeegAnn2TopResolvers(
+    (data.resolvers && data.resolvers.items) || [],
+  );
+  const eg = data.summary.evidence_gap_open_overdue_count || 0;
+  const egBadge =
+    eg > 0
+      ? `<span class="dv2bm-ann2-eg-badge dv2bm-ann2-eg-badge--rose">${eg} evidence-gap overdue</span>`
+      : '';
+  const tileMarkup = tiles
+    .map(
+      (t) =>
+        `<div class="dv2bm-ann2-tile" data-tone="${_qeegAnnEsc(t.tone || '')}">` +
+        `<div class="dv2bm-ann2-tile-label">${_qeegAnnEsc(t.label)}</div>` +
+        `<div class="dv2bm-ann2-tile-value">${_qeegAnnEsc(t.value)}</div>` +
+        `</div>`,
+    )
+    .join('');
+  const flagTable = flagRows.length
+    ? `<table class="dv2bm-ann2-flag-table"><thead><tr>` +
+      `<th>Flag type</th><th>Total</th><th>Within SLA</th><th>Late</th>` +
+      `<th>Overdue</th><th>Grace</th><th>Median d</th></tr></thead><tbody>` +
+      flagRows
+        .map(
+          (r) =>
+            `<tr><td>${_qeegAnnEsc(r.flag_type)}</td>` +
+            `<td>${r.total}</td><td>${r.resolved_within_sla}</td>` +
+            `<td>${r.resolved_late}</td><td>${r.still_open_overdue}</td>` +
+            `<td>${r.still_open_grace}</td>` +
+            `<td>${r.median_days_to_resolve == null ? '—' : r.median_days_to_resolve}</td>` +
+            `</tr>`,
+        )
+        .join('') +
+      `</tbody></table>`
+    : `<div class="dv2bm-ann2-flag-empty">No flag-type data in this window.</div>`;
+  const backlogMarkup = backlog.length
+    ? backlog.map(buildQeegAnn2BacklogRowMarkup).join('')
+    : `<div class="dv2bm-ann2-backlog-empty">No overdue annotations — nothing aged past the SLA window.</div>`;
+  const creatorsMarkup = topCreators.length
+    ? topCreators
+        .map(
+          (c) =>
+            `<li><span>${_qeegAnnEsc(c.creator_name || c.creator_user_id)}</span> ` +
+            `<span class="dv2bm-ann2-mono">${c.total_created} created</span></li>`,
+        )
+        .join('')
+    : `<li class="dv2bm-ann2-leaderboard-empty">No creators with ≥ 2 annotations.</li>`;
+  const resolversMarkup = topResolvers.length
+    ? topResolvers
+        .map(
+          (r) =>
+            `<li><span>${_qeegAnnEsc(r.resolver_name || r.resolver_user_id)}</span> ` +
+            `<span class="dv2bm-ann2-mono">median ${
+              r.median_days_to_resolve == null
+                ? '—'
+                : r.median_days_to_resolve + 'd'
+            }</span></li>`,
+        )
+        .join('')
+    : `<li class="dv2bm-ann2-leaderboard-empty">No resolvers with ≥ 2 resolutions.</li>`;
+  const trendMarkup = trend.length
+    ? trend
+        .map(
+          (b) =>
+            `<div class="dv2bm-ann2-trend-bucket" title="${_qeegAnnEsc(b.week_start)}: created=${b.created} resolved=${b.resolved} abandoned=${b.abandoned}">` +
+            `<span class="dv2bm-ann2-trend-bar dv2bm-ann2-trend-bar--created" style="height:${Math.min(100, (b.created || 0) * 10)}%"></span>` +
+            `<span class="dv2bm-ann2-trend-bar dv2bm-ann2-trend-bar--resolved" style="height:${Math.min(100, (b.resolved || 0) * 10)}%"></span>` +
+            `</div>`,
+        )
+        .join('')
+    : '';
+  const disclaimer =
+    `<div class="dv2bm-ann2-disclaimer">Outcome buckets pair created_at with resolved_at. ` +
+    `Open rows past ${slaDays}d are flagged as overdue. Evidence-gap flags ` +
+    `surface FDA-questioned findings per qEEG evidence gaps doc.</div>`;
+  const emptyState = empty
+    ? `<div class="dv2bm-ann2-empty">No annotations in the last ${windowDays} days.</div>`
+    : '';
+  const markup =
+    `<section class="dv2bm-ann2-section" data-window-days="${windowDays}" data-sla-days="${slaDays}">` +
+    `<header class="dv2bm-ann2-header">` +
+    `<h3>Annotation outcomes</h3>${egBadge}` +
+    `</header>` +
+    emptyState +
+    `<div class="dv2bm-ann2-tiles">${tileMarkup}</div>` +
+    `<div class="dv2bm-ann2-flag-section">` +
+    `<h4>By flag type</h4>${flagTable}` +
+    `</div>` +
+    `<div class="dv2bm-ann2-backlog-section">` +
+    `<h4>Overdue backlog</h4>${backlogMarkup}` +
+    `</div>` +
+    `<div class="dv2bm-ann2-leaderboards">` +
+    `<div><h4>Top creators</h4><ul class="dv2bm-ann2-leaderboard">${creatorsMarkup}</ul></div>` +
+    `<div><h4>Top resolvers (fastest median)</h4><ul class="dv2bm-ann2-leaderboard">${resolversMarkup}</ul></div>` +
+    `</div>` +
+    `<div class="dv2bm-ann2-trend-section">` +
+    `<h4>Weekly trend (created vs resolved)</h4>` +
+    `<div class="dv2bm-ann2-trend-chart">${trendMarkup}</div>` +
+    `</div>` +
+    disclaimer +
+    `</section>`;
+  return { markup, error: null };
+}
+
+
+export const _QEEG_ANN2_INTERNALS = {
+  SURFACE: QEEG_ANN2_SURFACE,
+  WINDOW_OPTIONS: QEEG_ANN2_WINDOW_OPTIONS,
+  DEFAULT_WINDOW: QEEG_ANN2_DEFAULT_WINDOW,
+  DEFAULT_SLA: QEEG_ANN2_DEFAULT_SLA,
+  BACKLOG_PAGE_SIZE: QEEG_ANN2_BACKLOG_PAGE_SIZE,
+};

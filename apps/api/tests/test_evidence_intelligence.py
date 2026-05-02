@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import uuid
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -229,6 +232,32 @@ def test_report_payload_generation_contains_citations():
         session.close()
     assert payload["guardrail"].startswith("Decision support only")
     assert payload["citations"]
+
+
+def test_report_payload_includes_adjunct_evidence_context():
+    from test_evidence_router import _build_research_bundle
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        bundle_root = Path(tmp) / "bundle"
+        _build_research_bundle(bundle_root)
+        os.environ["DEEPSYNAPS_NEUROMODULATION_RESEARCH_BUNDLE_ROOT"] = str(bundle_root)
+        session = SessionLocal()
+        try:
+            payload = build_report_payload(
+                body=__import__("app.services.evidence_intelligence", fromlist=["ReportPayloadRequest"]).ReportPayloadRequest(
+                    patient_id="pat-report-bio",
+                    finding_ids=["depression_risk"],
+                    include_saved=False,
+                ),
+                db=session,
+            )
+        finally:
+            session.close()
+            os.environ.pop("DEEPSYNAPS_NEUROMODULATION_RESEARCH_BUNDLE_ROOT", None)
+
+    assert payload["adjunct_evidence"]["source"] == "neuromodulation_adjunct_evidence"
+    assert payload["adjunct_evidence"]["terms"]
+    assert "sertraline" in [term.lower() for term in payload["adjunct_evidence"]["terms"]]
 
 
 def test_saved_citations_can_be_filtered_by_report_context():
