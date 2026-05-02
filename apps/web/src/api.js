@@ -787,6 +787,27 @@ export const api = {
   audioListPatientAnalyses: (patientId, limit = 30) =>
     apiFetch(`/api/v1/audio/patients/${encodeURIComponent(patientId)}/analyses?limit=${limit}`),
 
+  // ── Clinical text NLP (OpenMed-backed analyze / pii / deidentify) ──────
+  // Backed by /api/v1/clinical-text/* in clinical_text_router.py.
+  // Decision-support framing only — extracted entities are NLP candidates,
+  // never validated clinical findings.
+  clinicalTextHealth: () => apiFetch('/api/v1/clinical-text/health'),
+  clinicalTextAnalyze: ({ text, sourceType = 'free_text', locale = 'en' } = {}) =>
+    apiFetch('/api/v1/clinical-text/analyze', {
+      method: 'POST',
+      body: JSON.stringify({ text, source_type: sourceType, locale }),
+    }),
+  clinicalTextExtractPII: ({ text, sourceType = 'free_text', locale = 'en' } = {}) =>
+    apiFetch('/api/v1/clinical-text/extract-pii', {
+      method: 'POST',
+      body: JSON.stringify({ text, source_type: sourceType, locale }),
+    }),
+  clinicalTextDeidentify: ({ text, sourceType = 'free_text', locale = 'en' } = {}) =>
+    apiFetch('/api/v1/clinical-text/deidentify', {
+      method: 'POST',
+      body: JSON.stringify({ text, source_type: sourceType, locale }),
+    }),
+
   // Custom document templates (clinician-authored, distinct from the bundled
   // DOCUMENT_TEMPLATES read-only set in apps/web/src/documents-templates.js).
   // Backed by /api/v1/documents/templates* in documents_router.py.
