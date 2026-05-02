@@ -14,6 +14,7 @@ from deepsynaps_audio.schemas import (
     AudioPipelineStage,
 )
 from deepsynaps_audio.workflow_orchestration import (
+    _get_run,
     clear_run_store_for_tests,
     collect_audio_provenance,
     execute_audio_pipeline,
@@ -93,9 +94,9 @@ def test_resume_after_failure() -> None:
     }
     with pytest.raises(RuntimeError, match="simulated"):
         execute_audio_pipeline(minimal, {"uri": "u", "session_id": "s"}, handlers=custom, run_id="r-fail-1")
-    from deepsynaps_audio.workflow_orchestration import _RUN_STORE
 
-    failed = _RUN_STORE["r-fail-1"]
+    failed = _get_run("r-fail-1")
+    assert failed is not None
     assert failed.status == "failed"
     assert "a" in failed.completed_node_ids and "b" in failed.completed_node_ids
     # resume with default neuro handler
@@ -131,3 +132,18 @@ def test_duplicate_run_id_completed_is_idempotent() -> None:
     r2 = execute_audio_pipeline(raw, inp, run_id="same-id")
     assert r1.run_id == r2.run_id
     assert r1.finished_at == r2.finished_at
+
+
+def test_run_store_rehydrates_from_disk(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DEEPSYNAPS_AUDIO_RUN_STORE_DIR", str(tmp_path))
+    clear_run_store_for_tests()
+    raw = json.loads(EXAMPLE_PATH.read_text(encoding="utf-8"))
+    inp = {"uri": "u", "session_id": "s", "task_protocol": "sustained_vowel_a"}
+    execute_audio_pipeline(raw, inp, run_id="disk-rehydrate-1")
+    assert (tmp_path / "disk-rehydrate-1.json").is_file()
+    clear_run_store_for_tests()
+    # In-memory dict cleared; load still succeeds from JSON on disk.
+    prov = collect_audio_provenance("disk-rehydrate-1")
+    assert len(prov) >= 2
+    monkeypatch.delenv("DEEPSYNAPS_AUDIO_RUN_STORE_DIR", raising=False)
+    clear_run_store_for_tests()

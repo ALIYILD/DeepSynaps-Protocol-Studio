@@ -13,8 +13,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Mapping, MutableMapping, Sequence
 
 from .constants import NORM_DB_VERSION, PIPELINE_VERSION
@@ -33,9 +35,63 @@ from .schemas import (
 
 logger = logging.getLogger(__name__)
 
-# --- run persistence (process-local; replace with DB in deployment) ---------
+# --- run persistence (in-process + optional on-disk) --------------------------
 
 _RUN_STORE: dict[str, AudioPipelineRun] = {}
+
+
+def _run_store_dir() -> Path | None:
+    """When set, each run is written to ``{DEEPSYNAPS_AUDIO_RUN_STORE_DIR}/{run_id}.json``."""
+
+    raw = os.environ.get("DEEPSYNAPS_AUDIO_RUN_STORE_DIR", "").strip()
+    if not raw:
+        return None
+    p = Path(raw).expanduser()
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _run_json_path(run_id: str) -> Path | None:
+    base = _run_store_dir()
+    if base is None:
+        return None
+    return base / f"{run_id}.json"
+
+
+def _persist_run_to_disk(run: AudioPipelineRun) -> None:
+    path = _run_json_path(run.run_id)
+    if path is None:
+        return
+    try:
+        path.write_text(json.dumps(run.model_dump(mode="json"), indent=2, default=str), encoding="utf-8")
+    except OSError:
+        logger.exception("failed to persist audio pipeline run to %s", path)
+
+
+def _load_run_from_disk(run_id: str) -> AudioPipelineRun | None:
+    path = _run_json_path(run_id)
+    if path is None or not path.is_file():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return AudioPipelineRun.model_validate(raw)
+    except (OSError, json.JSONDecodeError, ValueError):
+        logger.warning("could not load audio pipeline run from %s", path)
+        return None
+
+
+def _get_run(run_id: str) -> AudioPipelineRun | None:
+    if run_id in _RUN_STORE:
+        return _RUN_STORE[run_id]
+    loaded = _load_run_from_disk(run_id)
+    if loaded is not None:
+        _RUN_STORE[run_id] = loaded
+    return loaded
+
+
+def _put_run(run: AudioPipelineRun) -> None:
+    _RUN_STORE[run.run_id] = run
+    _persist_run_to_disk(run)
 
 OrchestratorHandler = Callable[
     [MutableMapping[str, Any], AudioPipelineNode, Mapping[str, Any]],
@@ -75,8 +131,8 @@ def execute_audio_pipeline(
     if handlers:
         active_handlers.update(dict(handlers))
 
-    if store_key in _RUN_STORE:
-        existing = _RUN_STORE[store_key]
+    existing = _get_run(store_key)
+    if existing is not None:
         if existing.status == "running":
             raise RuntimeError(f"run {store_key} is already in progress")
         if existing.status == "completed":
@@ -100,7 +156,7 @@ def execute_audio_pipeline(
         context=ctx_seed,
         started_at=_now(),
     )
-    _RUN_STORE[store_key] = run
+    _put_run(run)
 
     try:
         nodes = defn.nodes
@@ -130,7 +186,7 @@ def execute_audio_pipeline(
         run.finished_at = _now()
         raise
     finally:
-        _RUN_STORE[store_key] = run
+        _put_run(run)
 
     return run
 
@@ -138,9 +194,9 @@ def execute_audio_pipeline(
 def resume_audio_pipeline(run_id: str, *, handlers: Mapping[str, OrchestratorHandler] | None = None) -> AudioPipelineRun:
     """Continue execution from the first incomplete node."""
 
-    if run_id not in _RUN_STORE:
+    run = _get_run(run_id)
+    if run is None:
         raise KeyError(f"unknown run_id: {run_id}")
-    run = _RUN_STORE[run_id]
     if run.status == "completed":
         return run
     run.status = "running"
@@ -175,16 +231,16 @@ def resume_audio_pipeline(run_id: str, *, handlers: Mapping[str, OrchestratorHan
         run.finished_at = _now()
         raise
 
-    _RUN_STORE[run_id] = run
+    _put_run(run)
     return run
 
 
 def collect_audio_provenance(run_id: str) -> Sequence[dict[str, Any]]:
     """Flatten run-level and per-artifact provenance for audit export."""
 
-    if run_id not in _RUN_STORE:
+    run = _get_run(run_id)
+    if run is None:
         raise KeyError(f"unknown run_id: {run_id}")
-    run = _RUN_STORE[run_id]
     out: list[dict[str, Any]] = [
         {
             "kind": "run",

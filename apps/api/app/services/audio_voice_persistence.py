@@ -21,12 +21,17 @@ def persist_voice_analysis(
     session_id: Optional[str] = None,
     run_id: Optional[str] = None,
     input_path: Optional[str] = None,
+    input_recording_ref: Optional[str] = None,
     file_hash_sha256: Optional[str] = None,
     pipeline_version: Optional[str] = None,
     norm_db_version: Optional[str] = None,
     status: str = "completed",
 ) -> None:
     """Insert or replace one analysis row."""
+
+    ctx_out = dict(run_context)
+    if input_recording_ref:
+        ctx_out["input_recording_ref"] = input_recording_ref
 
     row = AudioAnalysis(
         analysis_id=analysis_id,
@@ -37,7 +42,7 @@ def persist_voice_analysis(
         file_hash_sha256=file_hash_sha256,
         status=status,
         voice_report_json=json.dumps(voice_report, default=str),
-        run_context_json=json.dumps(run_context, default=str),
+        run_context_json=json.dumps(ctx_out, default=str),
         pipeline_version=pipeline_version,
         norm_db_version=norm_db_version,
         created_at=datetime.now(timezone.utc),
