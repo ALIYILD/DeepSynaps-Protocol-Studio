@@ -47,6 +47,7 @@ from app.database import get_db_session
 from app.logging_setup import get_logger
 from app.persistence.models import AssessmentRecord, ClinicalSession, LiteraturePaper, OutcomeSeries, Patient, TreatmentCourse
 from app.services.neuromodulation_research import (
+    build_adjunct_evidence_summary,
     build_research_summary,
     dataset_keys,
     dataset_path,
@@ -59,6 +60,7 @@ from app.services.neuromodulation_research import (
     list_protocol_templates as list_research_protocol_templates,
     list_safety_signals as list_research_safety_signals,
     research_health as neuromodulation_research_health,
+    search_adjunct_evidence as search_research_adjunct_evidence,
     search_ranked_papers as search_research_ranked_papers,
 )
 from app.services.evidence_intelligence import (
@@ -425,6 +427,45 @@ class ResearchSummaryOut(BaseModel):
     top_evidence_links: list[ResearchGraphOut] = Field(default_factory=list)
     top_protocol_templates: list[ResearchTemplateOut] = Field(default_factory=list)
     recent_safety_signals: list[ResearchSafetySignalOut] = Field(default_factory=list)
+
+
+class ResearchAdjunctEvidenceOut(BaseModel):
+    paper_key: Optional[str] = None
+    title: Optional[str] = None
+    authors: Optional[str] = None
+    journal: Optional[str] = None
+    year: Optional[int] = None
+    doi: Optional[str] = None
+    pmid: Optional[str] = None
+    pmcid: Optional[str] = None
+    primary_modality: Optional[str] = None
+    canonical_modalities: list[str] = Field(default_factory=list)
+    indication_tags: list[str] = Field(default_factory=list)
+    study_type_normalized: Optional[str] = None
+    evidence_tier: Optional[str] = None
+    paper_confidence_score: int = 0
+    priority_score: int = 0
+    citation_count: int = 0
+    record_url: Optional[str] = None
+    research_summary: Optional[str] = None
+    adjunct_domains: list[str] = Field(default_factory=list)
+    adjunct_topic_keys: list[str] = Field(default_factory=list)
+    adjunct_topic_labels: list[str] = Field(default_factory=list)
+    adjunct_terms: list[str] = Field(default_factory=list)
+    condition_mentions_top: list[str] = Field(default_factory=list)
+    relation_signal_tags: list[str] = Field(default_factory=list)
+    ranking_mode: Optional[str] = None
+
+
+class ResearchAdjunctSummaryOut(BaseModel):
+    filters: dict[str, Optional[str]]
+    paper_count: int
+    top_domains: list[ResearchFacetCount] = Field(default_factory=list)
+    top_topics: list[ResearchFacetCount] = Field(default_factory=list)
+    top_indications: list[ResearchFacetCount] = Field(default_factory=list)
+    top_modalities: list[ResearchFacetCount] = Field(default_factory=list)
+    top_relation_signal_tags: list[ResearchFacetCount] = Field(default_factory=list)
+    top_papers: list[ResearchAdjunctEvidenceOut] = Field(default_factory=list)
 
 
 class ResearchProtocolCoverageRowOut(BaseModel):
@@ -1332,6 +1373,64 @@ def get_neuromodulation_research_summary(
 ) -> ResearchSummaryOut:
     require_minimum_role(actor, "clinician")
     return ResearchSummaryOut(**build_research_summary(indication=indication, modality=modality, limit=limit))
+
+
+@router.get("/research/adjunct-evidence", response_model=list[ResearchAdjunctEvidenceOut])
+def search_neuromodulation_research_adjunct_evidence(
+    q: Optional[str] = Query(None, description="Free-text search over adjunct evidence rows."),
+    domain: Optional[str] = Query(None, description="medication, lab_test, biomarker, supplement, vitamin, diet"),
+    topic: Optional[str] = Query(None),
+    indication: Optional[str] = Query(None),
+    modality: Optional[str] = Query(None),
+    evidence_tier: Optional[str] = Query(None),
+    year_min: Optional[int] = Query(None),
+    year_max: Optional[int] = Query(None),
+    limit: int = Query(20, ge=1, le=100),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[ResearchAdjunctEvidenceOut]:
+    require_minimum_role(actor, "clinician")
+    rows = search_research_adjunct_evidence(
+        q=q,
+        domain=domain,
+        topic=topic,
+        indication=indication,
+        modality=modality,
+        evidence_tier=evidence_tier,
+        year_min=year_min,
+        year_max=year_max,
+        limit=limit,
+    )
+    _audit(
+        "research.adjunct.search",
+        actor,
+        q=q,
+        domain=domain,
+        topic=topic,
+        indication=indication,
+        modality=modality,
+        evidence_tier=evidence_tier,
+        result_count=len(rows),
+    )
+    return [ResearchAdjunctEvidenceOut(**row) for row in rows]
+
+
+@router.get("/research/adjunct-summary", response_model=ResearchAdjunctSummaryOut)
+def get_neuromodulation_research_adjunct_summary(
+    domain: Optional[str] = Query(None),
+    indication: Optional[str] = Query(None),
+    modality: Optional[str] = Query(None),
+    limit: int = Query(5, ge=1, le=20),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> ResearchAdjunctSummaryOut:
+    require_minimum_role(actor, "clinician")
+    return ResearchAdjunctSummaryOut(
+        **build_adjunct_evidence_summary(
+            domain=domain,
+            indication=indication,
+            modality=modality,
+            limit=limit,
+        )
+    )
 
 
 @router.get("/research/exports/summary", response_model=ResearchExportSummaryOut)

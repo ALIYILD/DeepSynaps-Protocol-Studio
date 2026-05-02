@@ -66,6 +66,8 @@ let _researchBundleState = {
   exactProtocols: [],
   safetySignals: [],
   evidenceGraph: [],
+  adjunctSummary: null,
+  adjunctPapers: [],
 };
 
 function _reSlug(v) {
@@ -115,6 +117,8 @@ async function _ensureResearchBundleData() {
       _researchBundleState.exactProtocols = data.exactProtocols || [];
       _researchBundleState.safetySignals = data.safetySignals || [];
       _researchBundleState.evidenceGraph = data.evidenceGraph || [];
+      _researchBundleState.adjunctSummary = data.adjunctSummary || null;
+      _researchBundleState.adjunctPapers = data.adjunctPapers || [];
       _researchBundleState.loaded = !!data.live;
     } finally {
       _researchBundleState.loading = null;
@@ -221,7 +225,7 @@ export async function pgResearchEvidence(setTopbar, navigate) {
   else if (tab === 'conditions')  renderConditions(body, q, filt, sort, sInput, pills, sortBtn);
   else if (tab === 'assessments') renderAssessments(body, q, filt, sInput, pills);
   else if (tab === 'protocols')   await renderProtocols(body, q, sInput);
-  else if (tab === 'neuro')       renderNeuro(body, q, filt, sInput, pills);
+  else if (tab === 'neuro')       await renderNeuro(body, q, filt, sInput, pills);
   else if (tab === 'aiml')        renderAIML(body, q, sInput);
   else if (tab === 'search')      await renderEvidenceSearch(body);
   else if (tab === 'review')      await renderNeedsReview(body);
@@ -615,7 +619,8 @@ async function renderProtocols(body, q, sInput) {
 /* ══════════════════════════════════════════════════════════════════════════════
    TAB 5 — Brain Targets & Biomarkers
    ══════════════════════════════════════════════════════════════════════════════ */
-function renderNeuro(body, q, filt, sInput, pills) {
+async function renderNeuro(body, q, filt, sInput, pills) {
+  await _ensureResearchBundleData();
   const lobes = ['All', ...new Set(BRAIN_TARGET_REGISTRY.map(t => t.lobe).filter(Boolean))];
 
   let rows = [...BRAIN_TARGET_REGISTRY];
@@ -668,6 +673,43 @@ function renderNeuro(body, q, filt, sInput, pills) {
 
   html += '</tbody></table></div>';
   html += `<div style="font-size:11px;color:var(--text-tertiary);margin-top:8px">Showing ${rows.length} of ${BRAIN_TARGET_REGISTRY.length} brain targets</div>`;
+
+  if (_researchBundleState.adjunctSummary || _researchBundleState.adjunctPapers.length) {
+    const adjunctSummary = _researchBundleState.adjunctSummary || {};
+    const adjunctRows = (_researchBundleState.adjunctPapers || [])
+      .filter((row) => !q || ([
+        row.title,
+        row.journal,
+        row.primary_modality,
+        ...(row.adjunct_topic_labels || []),
+        ...(row.adjunct_terms || []),
+        ...(row.indication_tags || []),
+      ].join(' ').toLowerCase().includes(q)))
+      .slice(0, 8);
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-top:16px">';
+    html += `<div class="ch-card" style="padding:16px">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:10px">
+        <div style="font-weight:600;font-size:14px">Adjunct Evidence Slice</div>
+        <span style="padding:2px 8px;font-size:10px;border-radius:999px;background:var(--rose);color:#fff">${fmt(adjunctSummary.paper_count || 0)} papers</span>
+      </div>
+      <div style="font-size:11px;color:var(--text-tertiary)">Includes medications, blood tests, biomarkers, supplements, vitamins, and diet papers that can act as neuromodulation confounders or response modifiers.</div>
+    </div>`;
+    html += `<div class="ch-card" style="padding:16px">
+      <div style="font-weight:600;font-size:14px;margin-bottom:10px">Top Topics</div>
+      ${(adjunctSummary.top_topics || []).slice(0, 6).map((row) => `<div style="padding:8px 0;border-bottom:1px solid var(--border)"><div style="font-size:12px;font-weight:600">${esc(row.key)}</div><div style="font-size:11px;color:var(--text-tertiary);margin-top:3px">${fmt(row.count)} linked papers</div></div>`).join('') || '<div style="font-size:12px;color:var(--text-tertiary)">No topic summaries available.</div>'}
+    </div>`;
+    html += `<div class="ch-card" style="padding:16px">
+      <div style="font-weight:600;font-size:14px;margin-bottom:10px">Example Papers</div>
+      ${adjunctRows.length
+        ? adjunctRows.map((row) => `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+            <div style="font-size:12px;font-weight:600">${esc(row.title || 'Untitled paper')}</div>
+            <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">${esc((row.adjunct_topic_labels || []).slice(0, 3).join(' · ') || (row.adjunct_terms || []).slice(0, 3).join(' · ') || 'Adjunct evidence')}${row.year ? ' · ' + esc(row.year) : ''}</div>
+          </div>`).join('')
+        : '<div style="font-size:12px;color:var(--text-tertiary)">No adjunct papers matched the current search.</div>'}
+    </div>`;
+    html += '</div>';
+  }
+
   body.innerHTML = html;
 }
 
