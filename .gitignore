@@ -93,6 +93,7 @@ apps/api/data/exports/
 data/imports/neuromodulation-research/
 data/research/neuromodulation/raw/
 data/research/neuromodulation/derived/*.csv
+!data/research/neuromodulation/derived/neuromodulation_adjunct_evidence.csv
 data/research/neuromodulation/deepsynaps-evidence-enriched.xlsx
 data/research/neuromodulation/neuromodulation_master_database_enriched.csv
 

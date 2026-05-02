@@ -600,6 +600,20 @@ KNOWN_SURFACES = {
     # what-if replay, and clinic-scoped adoption + audit log. Mirrors
     # the CSAHP6 (#438) tune-a-threshold console pattern.
     "reviewer_sla_calibration_threshold_tuning",
+    # qEEG Brain Map Report Annotations (QEEG-ANN1, 2026-05-02).
+    # Sidecar annotation system that lets clinicians attach margin
+    # notes / region tags / flag-typed findings to specific sections
+    # of a qEEG Brain Map report WITHOUT mutating the canonical
+    # ``QEEGBrainMapReport`` contract in
+    # ``apps/api/app/services/qeeg_report_template.py``. Audit
+    # actions: qeeg.annotation_created, qeeg.annotation_updated,
+    # qeeg.annotation_resolved, qeeg.annotation_deleted, plus the
+    # page-level events posted via
+    # /api/v1/qeeg-report-annotations/audit-events
+    # (view, sidebar_opened, filter_changed, modal_opened).
+    # Flag types that surface FDA-questioned findings:
+    # ``evidence_gap`` per ``deepsynaps-qeeg-evidence-gaps`` memory.
+    "qeeg_report_annotations",
 }
 
 

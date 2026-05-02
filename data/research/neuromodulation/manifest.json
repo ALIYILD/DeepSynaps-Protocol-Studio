@@ -154,6 +154,14 @@
       "bytes": 8604,
       "row_count": null,
       "kind": "script"
+    },
+    {
+      "asset_key": "neuromodulation_adjunct_evidence",
+      "relative_path": "derived/neuromodulation_adjunct_evidence.csv",
+      "sha256": "7d9af121888cfc6037cbb8efd6f59a373f8ffcf06099eb57688115f8190e7953",
+      "bytes": 4257803,
+      "row_count": 7344,
+      "kind": "derived"
     }
   ]
 }

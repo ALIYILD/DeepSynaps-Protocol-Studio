@@ -873,6 +873,16 @@ apps/api/app/routers/qeeg_records_router.py:QEEGRecordListResponse
 apps/api/app/routers/qeeg_records_router.py:QEEGRecordOut
 apps/api/app/routers/qeeg_records_router.py:QEEGRecordUpdate
 apps/api/app/routers/qeeg_records_router.py:QEEGUploadResponse
+apps/api/app/routers/qeeg_report_annotations_router.py:AnnotationCreateIn
+apps/api/app/routers/qeeg_report_annotations_router.py:AnnotationListOut
+apps/api/app/routers/qeeg_report_annotations_router.py:AnnotationOut
+apps/api/app/routers/qeeg_report_annotations_router.py:AnnotationPatchIn
+apps/api/app/routers/qeeg_report_annotations_router.py:AnnotationResolveIn
+apps/api/app/routers/qeeg_report_annotations_router.py:AuditEventOut
+apps/api/app/routers/qeeg_report_annotations_router.py:AuditEventsListOut
+apps/api/app/routers/qeeg_report_annotations_router.py:PageAuditIn
+apps/api/app/routers/qeeg_report_annotations_router.py:PageAuditOut
+apps/api/app/routers/qeeg_report_annotations_router.py:SummaryOut
 apps/api/app/routers/qeeg_viz_router.py:AnimationResponse
 apps/api/app/routers/qeeg_viz_router.py:BandGridResponse
 apps/api/app/routers/qeeg_viz_router.py:ConnectivityPayload

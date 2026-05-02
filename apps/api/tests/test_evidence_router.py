@@ -158,6 +158,72 @@ def _build_research_bundle(root: Path) -> None:
     _write_csv(root / "derived" / "neuromodulation_protocol_template_candidates.csv", ["modality"], [])
     _write_csv(root / "derived" / "neuromodulation_safety_contraindication_signals.csv", ["paper_key"], [])
     _write_csv(
+        root / "derived" / "neuromodulation_adjunct_evidence.csv",
+        [
+            "paper_key", "title", "authors", "journal", "journal_normalized", "year", "doi", "pmid", "pmcid",
+            "primary_modality", "canonical_modalities", "indication_tags", "study_type_normalized", "evidence_tier",
+            "paper_confidence_score", "priority_score", "citation_count", "record_url", "research_summary",
+            "adjunct_domains", "adjunct_topic_keys", "adjunct_topic_labels", "adjunct_terms", "condition_mentions_top",
+            "relation_signal_tags",
+        ],
+        [
+            {
+                "paper_key": "pmid|200",
+                "title": "Vitamin D status and rTMS response in depression",
+                "authors": "Doe C",
+                "journal": "Brain Stimulation",
+                "journal_normalized": "Brain Stimulation",
+                "year": 2025,
+                "doi": "10.1000/example-vitd",
+                "pmid": "200",
+                "pmcid": "",
+                "primary_modality": "transcranial_magnetic_stimulation",
+                "canonical_modalities": "transcranial_magnetic_stimulation",
+                "indication_tags": "depression",
+                "study_type_normalized": "cohort_study",
+                "evidence_tier": "moderate",
+                "paper_confidence_score": 81,
+                "priority_score": 92,
+                "citation_count": 45,
+                "record_url": "https://example.org/vitd",
+                "research_summary": "Vitamin D deficiency may track with poorer neuromodulation response.",
+                "adjunct_domains": "biomarker;vitamin",
+                "adjunct_topic_keys": "vitamin_d",
+                "adjunct_topic_labels": "Vitamin D",
+                "adjunct_terms": "vitamin d;25-oh vitamin d",
+                "condition_mentions_top": "depression",
+                "relation_signal_tags": "response_modifier;deficiency_signal",
+            },
+            {
+                "paper_key": "pmid|201",
+                "title": "Benzodiazepine exposure and TMS antidepressant outcomes",
+                "authors": "Doe D",
+                "journal": "Neurotherapeutics",
+                "journal_normalized": "Neurotherapeutics",
+                "year": 2024,
+                "doi": "10.1000/example-benzo",
+                "pmid": "201",
+                "pmcid": "",
+                "primary_modality": "transcranial_magnetic_stimulation",
+                "canonical_modalities": "transcranial_magnetic_stimulation",
+                "indication_tags": "depression",
+                "study_type_normalized": "retrospective_cohort",
+                "evidence_tier": "moderate",
+                "paper_confidence_score": 77,
+                "priority_score": 85,
+                "citation_count": 21,
+                "record_url": "https://example.org/benzo",
+                "research_summary": "Concurrent benzodiazepine use may alter antidepressant neuromodulation response.",
+                "adjunct_domains": "medication",
+                "adjunct_topic_keys": "benzodiazepines",
+                "adjunct_topic_labels": "Benzodiazepines",
+                "adjunct_terms": "benzodiazepine;clonazepam",
+                "condition_mentions_top": "depression",
+                "relation_signal_tags": "response_modifier;medication_signal",
+            },
+        ],
+    )
+    _write_csv(
         root / "derived" / "neuromodulation_indication_modality_summary.csv",
         [
             "indication",
@@ -375,5 +441,32 @@ def test_research_protocol_coverage_uses_bundle_summary(client: TestClient, auth
             assert payload["rows"][0]["condition"] == "Major Depressive Disorder"
             assert payload["rows"][0]["modality"] == "Transcranial Direct Current Stimulation"
             assert payload["rows"][0]["coverage"] > 0
+        finally:
+            os.environ.pop("DEEPSYNAPS_NEUROMODULATION_RESEARCH_BUNDLE_ROOT", None)
+
+
+def test_research_adjunct_routes_use_bundle_dataset(client: TestClient, auth_headers) -> None:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        bundle_root = Path(tmp) / "bundle"
+        _build_research_bundle(bundle_root)
+        os.environ["DEEPSYNAPS_NEUROMODULATION_RESEARCH_BUNDLE_ROOT"] = str(bundle_root)
+        try:
+            search = client.get(
+                "/api/v1/evidence/research/adjunct-evidence?domain=medication&topic=benzodiazepine",
+                headers=auth_headers["clinician"],
+            )
+            assert search.status_code == 200, search.text
+            rows = search.json()
+            assert len(rows) == 1
+            assert rows[0]["title"] == "Benzodiazepine exposure and TMS antidepressant outcomes"
+
+            summary = client.get(
+                "/api/v1/evidence/research/adjunct-summary?domain=medication",
+                headers=auth_headers["clinician"],
+            )
+            assert summary.status_code == 200, summary.text
+            payload = summary.json()
+            assert payload["paper_count"] == 1
+            assert payload["top_topics"][0]["key"] == "Benzodiazepines"
         finally:
             os.environ.pop("DEEPSYNAPS_NEUROMODULATION_RESEARCH_BUNDLE_ROOT", None)
