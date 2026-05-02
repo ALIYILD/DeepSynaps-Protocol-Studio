@@ -133,6 +133,9 @@ from app.routers.caregiver_delivery_concern_resolution_outcome_tracker_router im
 from app.routers.resolver_coaching_inbox_router import (
     router as resolver_coaching_inbox_router,
 )
+from app.routers.resolver_coaching_self_review_digest_router import (
+    router as resolver_coaching_self_review_digest_router,
+)
 from app.routers.audit_trail_router import router as audit_trail_router
 # Settings API routers (foundation scaffolded by backend subagent #1; endpoints
 # fleshed out by backend subagents #3–#6). See apps/api/SETTINGS_API_DESIGN.md.
@@ -198,6 +201,10 @@ from app.workers.channel_misconfiguration_detector_worker import (
 from app.workers.caregiver_delivery_concern_aggregator_worker import (
     shutdown_worker as shutdown_caregiver_delivery_concern_aggregator_worker,
     start_worker_if_enabled as start_caregiver_delivery_concern_aggregator_worker,
+)
+from app.workers.resolver_coaching_self_review_digest_worker import (
+    shutdown_worker as shutdown_resolver_coaching_self_review_digest_worker,
+    start_worker_if_enabled as start_resolver_coaching_self_review_digest_worker,
 )
 from app.services.agent_skills_seed import seed_default_agent_skills
 from app.services.clinical_data import seed_clinical_dataset
@@ -311,6 +318,12 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
     # a HIGH-priority inbox row so admins see the recurring delivery
     # problem without per-caregiver drill-down.
     start_caregiver_delivery_concern_aggregator_worker()
+    # Resolver Coaching Self-Review Digest Worker (DCRO3, 2026-05-02) — gated
+    # on RESOLVER_COACHING_DIGEST_ENABLED so tests / CI don't fire dispatches.
+    # Honest opt-in default off — closes the loop end-to-end:
+    # DCRO1 measures (#393) → DCRO2 self-corrects (#397) → DCRO3 nudges.
+    # Per-resolver opt-in lives on resolver_coaching_digest_preferences.opted_in.
+    start_resolver_coaching_self_review_digest_worker()
     try:
         yield
     finally:
@@ -319,6 +332,7 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
         shutdown_caregiver_email_digest_worker()
         shutdown_channel_misconfig_detector_worker()
         shutdown_caregiver_delivery_concern_aggregator_worker()
+        shutdown_resolver_coaching_self_review_digest_worker()
 
 
 app = FastAPI(title=settings.api_title, version=settings.api_version, lifespan=lifespan)
@@ -498,6 +512,16 @@ app.include_router(caregiver_delivery_concern_resolution_outcome_tracker_router)
 # violating individual privacy. No new schema; pure UI on top of
 # DCRO1's paired-outcome data plus a self-review-note audit row.
 app.include_router(resolver_coaching_inbox_router)
+# Resolver Coaching Self-Review Digest Worker (DCRO3, 2026-05-02). Closes
+# the resolver-side loop: DCRO1 (#393) measures calibration → DCRO2 (#397)
+# gives each resolver a private self-review surface → DCRO3 (THIS) nudges
+# them weekly via their preferred on-call channel when they have un-self-
+# reviewed wrong false_positive calls. Honest opt-in default OFF at both
+# system level (RESOLVER_COACHING_DIGEST_ENABLED env) and per-resolver
+# level (ResolverCoachingDigestPreference.opted_in). Reuses the
+# EscalationPolicy + oncall_delivery adapters from #374. Per-resolver
+# weekly cooldown (default 144h = 6 days) prevents weekly-overlap dispatch.
+app.include_router(resolver_coaching_self_review_digest_router)
 # Escalation Policy Editor (2026-05-01) — admin-only configurable
 # dispatch order + per-surface override matrix + per-user contact mapping.
 # Replaces the hard-coded DEFAULT_ADAPTER_ORDER and contact_handle path

@@ -3636,6 +3636,51 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
+  // ── DCRO3 Resolver Coaching Digest launch-audit (2026-05-02) ────────────
+  // Weekly digest worker that bundles each resolver's un-self-reviewed
+  // wrong false_positive calls and dispatches via their preferred on-call
+  // channel (reusing EscalationPolicy + oncall_delivery adapters from
+  // #374). Per-resolver weekly cooldown. Honest opt-in default off.
+  // Closes the loop end-to-end: DCRO1 measures (#393) → DCRO2
+  // self-corrects (#397) → DCRO3 nudges. Helpers placed BEFORE DCRO2's
+  // section so the closing slice-boundary sentinel below stays clean —
+  // DCRO3 uses its own unique header anchor + slice-boundary sentinel.
+  fetchMyResolverDigestPreference: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.resolver_user_id) usp.set('resolver_user_id', String(params.resolver_user_id));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/resolver-coaching-self-review-digest/my-preference' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path);
+  },
+  updateMyResolverDigestPreference: (data) =>
+    apiFetch('/api/v1/resolver-coaching-self-review-digest/my-preference', {
+      method: 'PUT',
+      body: JSON.stringify(data || {}),
+    }),
+  fetchResolverDigestStatus: () =>
+    apiFetch('/api/v1/resolver-coaching-self-review-digest/status').catch(() => null),
+  tickResolverDigest: (data) =>
+    apiFetch('/api/v1/resolver-coaching-self-review-digest/tick', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  fetchResolverDigestAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/resolver-coaching-self-review-digest/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  // end DCRO3 helpers
+  // ━━ DCRO3 SLICE BOUNDARY ━━ (do not remove; the launch-audit test
+  // for the DCRO3 section finds the header above then walks to this
+  // unique sentinel substring to bound the slice).
   // ── Resolver Coaching Inbox launch-audit (DCRO2, 2026-05-02) ─────────────
   // Private, read-only inbox view per resolver showing THEIR OWN wrong
   // false_positive calls — i.e., resolutions where the resolver said

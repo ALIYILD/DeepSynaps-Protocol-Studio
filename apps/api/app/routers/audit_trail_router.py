@@ -462,6 +462,16 @@ KNOWN_SURFACES = {
     # DCA worker re-flagged the same caregiver within 30 days). Page-level
     # events: view, self_review_note_filed, window_changed.
     "resolver_coaching_inbox",
+    # Resolver Coaching Self-Review Digest Worker (DCRO3, 2026-05-02). Weekly
+    # opt-in digest worker that bundles each resolver's un-self-reviewed wrong
+    # false_positive calls and dispatches via the resolver's preferred
+    # on-call channel (Slack DM / Twilio SMS / SendGrid email / PagerDuty)
+    # reusing the EscalationPolicy + oncall_delivery adapters from #374.
+    # Honest opt-in default off at both system + per-resolver level. Closes
+    # the loop end-to-end: DCRO1 measures → DCRO2 self-corrects → DCRO3
+    # nudges. Page-level events: tick, dispatched, preference_updated,
+    # tick_clicked, status_viewed.
+    "resolver_coaching_self_review_digest",
 }
 
 

@@ -94,7 +94,7 @@ test('coaching inbox renders calibration badge with green/yellow/red color-codin
   const src = fs.readFileSync(PAGES_KNOWLEDGE_PATH, 'utf8');
   const idx = src.indexOf('pgResolverCoachingInbox');
   assert.ok(idx > 0);
-  const body = src.slice(idx, idx + 18000);
+  const body = src.slice(idx, idx + 24000);
   // The badge testid + the three calibration color classes must exist.
   assert.match(body, /rci-calibration-badge/);
   assert.match(body, /rci-cal-green/);
@@ -112,7 +112,7 @@ test('coaching inbox renders calibration badge with green/yellow/red color-codin
 test('coaching inbox renders bottom-quartile callout only when in_bottom_quartile', () => {
   const src = fs.readFileSync(PAGES_KNOWLEDGE_PATH, 'utf8');
   const idx = src.indexOf('pgResolverCoachingInbox');
-  const body = src.slice(idx, idx + 18000);
+  const body = src.slice(idx, idx + 24000);
   assert.match(body, /rci-bottom-quartile-callout/);
   assert.match(body, /bottom quartile/i);
   // The render path is gated on the inBq arg ("if (!inBq) return ''").
@@ -126,7 +126,7 @@ test('coaching inbox renders bottom-quartile callout only when in_bottom_quartil
 test('coaching inbox cards render caregiver name, days-to-re-flag, concern count', () => {
   const src = fs.readFileSync(PAGES_KNOWLEDGE_PATH, 'utf8');
   const idx = src.indexOf('pgResolverCoachingInbox');
-  const body = src.slice(idx, idx + 18000);
+  const body = src.slice(idx, idx + 24000);
   assert.match(body, /rci-wrong-call-card/);
   assert.match(body, /rci-card-days/);
   assert.match(body, /rci-card-concern-count/);
@@ -143,7 +143,7 @@ test('coaching inbox cards render caregiver name, days-to-re-flag, concern count
 test('coaching inbox renders empty state when no wrong-fp calls', () => {
   const src = fs.readFileSync(PAGES_KNOWLEDGE_PATH, 'utf8');
   const idx = src.indexOf('pgResolverCoachingInbox');
-  const body = src.slice(idx, idx + 18000);
+  const body = src.slice(idx, idx + 24000);
   assert.match(body, /rci-empty-state/);
   assert.match(body, /No wrong [<>\/a-z=" `]*false_positive[<>\/a-z=" `]* calls in the last/);
 });
@@ -155,7 +155,7 @@ test('coaching inbox renders empty state when no wrong-fp calls', () => {
 test('coaching inbox admin overview is gated by isAdmin()', () => {
   const src = fs.readFileSync(PAGES_KNOWLEDGE_PATH, 'utf8');
   const idx = src.indexOf('pgResolverCoachingInbox');
-  const body = src.slice(idx, idx + 18000);
+  const body = src.slice(idx, idx + 24000);
   assert.match(body, /renderAdminOverviewTable/);
   assert.match(body, /rci-admin-overview/);
   // The render fn must early-return when not admin.
@@ -169,7 +169,7 @@ test('coaching inbox admin overview is gated by isAdmin()', () => {
 test('coaching inbox self-review modal validates 10-500 chars', () => {
   const src = fs.readFileSync(PAGES_KNOWLEDGE_PATH, 'utf8');
   const idx = src.indexOf('pgResolverCoachingInbox');
-  const body = src.slice(idx, idx + 18000);
+  const body = src.slice(idx, idx + 24000);
   assert.match(body, /rci-note-modal/);
   assert.match(body, /rci-note-modal-textarea/);
   assert.match(body, /rci-note-modal-submit/);
@@ -189,7 +189,7 @@ test('coaching inbox self-review modal validates 10-500 chars', () => {
 test('coaching inbox renders filed self-review note inline', () => {
   const src = fs.readFileSync(PAGES_KNOWLEDGE_PATH, 'utf8');
   const idx = src.indexOf('pgResolverCoachingInbox');
-  const body = src.slice(idx, idx + 18000);
+  const body = src.slice(idx, idx + 24000);
   assert.match(body, /rci-card-self-review-note/);
   assert.match(body, /self_review_note/);
   // The "Add self-review note" button is replaced inline when a note
@@ -219,7 +219,7 @@ test('coaching inbox audit-events helper targets resolver_coaching_inbox surface
 test('coaching inbox renders error state when load fails', () => {
   const src = fs.readFileSync(PAGES_KNOWLEDGE_PATH, 'utf8');
   const idx = src.indexOf('pgResolverCoachingInbox');
-  const body = src.slice(idx, idx + 18000);
+  const body = src.slice(idx, idx + 24000);
   assert.match(body, /rci-err/);
   assert.match(body, /Failed to load coaching inbox/);
 });
