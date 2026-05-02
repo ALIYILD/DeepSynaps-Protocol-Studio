@@ -3008,12 +3008,30 @@ export const api = {
     apiFetch(`/api/v1/risk/patient/${encodeURIComponent(patientId)}/audit`),
 
   // ── Labs / Blood Biomarkers Analyzer ──────────────────────────────────────
-  getLabsAnalyzerPayload: (patientId) =>
-    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}`),
-  recomputeLabsAnalyzer: (patientId, body) =>
-    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/recompute`, {
+  getLabsAnalyzerPayload: (patientId, opts = {}) => {
+    const q = new URLSearchParams();
+    if (opts.ai_narrative) q.set('ai_narrative', 'true');
+    const qs = q.toString();
+    return apiFetch(
+      `/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}${qs ? '?' + qs : ''}`
+    );
+  },
+  recomputeLabsAnalyzer: (patientId, body, opts = {}) => {
+    const q = new URLSearchParams();
+    if (opts.ai_narrative) q.set('ai_narrative', 'true');
+    const qs = q.toString();
+    return apiFetch(
+      `/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/recompute${qs ? '?' + qs : ''}`,
+      {
+        method: 'POST',
+        body: JSON.stringify(body || { reason: 'manual' }),
+      }
+    );
+  },
+  postLabsResultsBatch: (patientId, items) =>
+    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/results`, {
       method: 'POST',
-      body: JSON.stringify(body || { reason: 'manual' }),
+      body: JSON.stringify({ items }),
     }),
   postLabsAnnotation: (patientId, data) =>
     apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/annotation`, {

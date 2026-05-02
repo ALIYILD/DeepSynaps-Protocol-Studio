@@ -145,12 +145,49 @@ function _renderInterpretations(items) {
   </div>`).join('');
 }
 
+function _renderExternalContext(ctx) {
+  if (!ctx || typeof ctx !== 'object') return '';
+  const meds = Array.isArray(ctx.active_medications) ? ctx.active_medications : [];
+  const crs = Array.isArray(ctx.treatment_courses) ? ctx.treatment_courses : [];
+  const medLine = meds.length
+    ? meds.slice(0, 6).map((m) => `${esc(m.name || '')}${m.dose ? ` ${esc(m.dose)}` : ''}`).join(' · ')
+    : '—';
+  const courseLine = crs.length
+    ? crs.slice(0, 3).map((c) => `${esc(c.modality_slug || '')} (${esc(c.status || '')})`).join(' · ')
+    : '—';
+  return `<div style="font-size:12px;color:var(--text-secondary);line-height:1.55;margin-bottom:12px;padding:12px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,.02)">
+    <div><strong style="color:var(--text-primary)">Active medications</strong> — ${medLine}</div>
+    <div style="margin-top:6px"><strong style="color:var(--text-primary)">Treatment courses</strong> — ${courseLine}</div>
+    <div style="margin-top:6px;font-size:11px;color:var(--text-tertiary)">
+      qEEG: ${esc(ctx.latest_qeeg_analysis_id || '—')} · MRI: ${esc(ctx.latest_mri_analysis_id || '—')} · Fusion: ${esc(ctx.fusion_case_id || '—')} · DeepTwin run: ${esc(ctx.deeptwin_last_run_id || '—')}
+    </div>
+  </div>`;
+}
+
+function _renderEvidenceBrief(ev, abnormalChips) {
+  if (!ev) {
+    return '<div style="font-size:12px;color:var(--text-tertiary)">Evidence excerpt unavailable (offline or corpus not mounted).</div>';
+  }
+  const pmids = Array.isArray(ev.top_pmids) ? ev.top_pmids : [];
+  const chips = (abnormalChips || []).slice(0, 6).map((t) => esc(String(t))).join(' ');
+  const pmLinks = pmids.map((p) =>
+    `<button type="button" class="pill lab-ev-pmid" data-pmid="${esc(p)}" style="cursor:pointer;font-size:10.5px;margin:2px 6px 2px 0;padding:2px 8px;background:rgba(155,127,255,0.10);border:1px solid rgba(155,127,255,0.28);color:var(--violet,#9b7fff)">PMID ${esc(p)} · 87k</button>`
+  ).join('');
+  return `<div style="padding:12px;border:1px solid var(--border);border-radius:12px;background:rgba(155,127,255,0.04)">
+    <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:6px">Literature excerpt (evidence intelligence · ranked corpus)</div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;margin-bottom:8px">${esc(ev.literature_summary || '').slice(0, 1200)}</div>
+    <div style="font-size:11px;color:var(--text-tertiary)">Confidence score: ${esc(String(ev.confidence_score ?? '—'))}</div>
+    ${pmLinks ? `<div style="margin-top:8px;display:flex;flex-wrap:wrap;align-items:center">${pmLinks}</div>` : ''}
+    ${chips ? `<div style="margin-top:8px;font-size:11px;color:var(--text-tertiary)">Suggested search terms: ${chips}</div>` : ''}
+  </div>`;
+}
+
 function _renderMultimodal(links) {
   const rows = (links || []).map((l) => `<tr data-nav="${esc(l.target_page)}" tabindex="0" role="link"
     style="cursor:pointer"
     onmouseover="this.style.background='rgba(255,255,255,.03)'"
     onmouseout="this.style.background='transparent'">
-    <td style="padding:10px;border-bottom:1px solid var(--border);font-weight:600">${esc(l.label)}</td>
+    <td style="padding:10px;border-bottom:1px solid var(--border);font-weight:600">${esc(l.label)}${l.resource_id ? ` <span style="font-size:10px;color:var(--text-tertiary)">${esc(String(l.resource_id).slice(0, 12))}…</span>` : ''}</td>
     <td style="padding:10px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-secondary)">${esc(l.rationale)}</td>
   </tr>`).join('');
   return `<div style="overflow:auto;border:1px solid var(--border);border-radius:12px">
@@ -195,6 +232,22 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
   let payload = null;
   let audit = null;
   let usingFixtures = false;
+  let aiNarrativeOn = false;
+
+  function _syncPatientContext() {
+    try {
+      const sid = sessionStorage.getItem('ds_pat_selected_id');
+      const pid = window._selectedPatientId || sid || '';
+      const sel = $('la-patient-select');
+      if (!sel || !pid) return;
+      const opt = [...sel.options].find((o) => o.value === pid);
+      if (opt) {
+        sel.value = pid;
+        activePatientId = pid;
+        activePatientName = opt.textContent || '';
+      }
+    } catch (_) {}
+  }
 
   el.innerHTML = `
     <div class="ds-labs-analyzer-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px">
@@ -209,6 +262,9 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
         </label>
         <button type="button" class="btn btn-primary btn-sm" id="la-load" style="min-height:44px;margin-top:18px">Load workspace</button>
         <button type="button" class="btn btn-ghost btn-sm" id="la-recompute" style="min-height:44px;margin-top:18px" disabled>Recompute</button>
+        <label style="font-size:11px;color:var(--text-tertiary);display:flex;align-items:center;gap:6px;margin-top:18px;cursor:pointer">
+          <input type="checkbox" id="la-ai-narrative" /> AI narrative (optional LLM)
+        </label>
       </div>
       <div id="la-body">${_skeletonBlock()}</div>
     </div>`;
@@ -264,7 +320,7 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
     body.innerHTML = _skeletonBlock();
     $('la-recompute').disabled = true;
     try {
-      payload = await api.getLabsAnalyzerPayload(activePatientId);
+      payload = await api.getLabsAnalyzerPayload(activePatientId, { ai_narrative: aiNarrativeOn });
       audit = await api.getLabsAnalyzerAudit(activePatientId).catch(() => ({ items: [] }));
       usingFixtures = false;
     } catch (e) {
@@ -283,6 +339,14 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
     const gen = payload.generated_at
       ? `Generated ${new Date(payload.generated_at).toLocaleString()}`
       : '';
+    const aiBox = payload.ai_clinical_narrative
+      ? `<div style="margin-bottom:14px;padding:12px;border:1px dashed rgba(155,127,255,0.35);border-radius:12px">
+          <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:6px">Optional AI synthesis</div>
+          <div style="font-size:12px;color:var(--text-secondary);line-height:1.55;white-space:pre-wrap">${esc(payload.ai_clinical_narrative)}</div>
+          <div style="font-size:10px;color:var(--amber);margin-top:6px">${esc(payload.ai_narrative_disclaimer || '')}</div>
+        </div>`
+      : '';
+    const chipTerms = (snap.key_abnormal_markers || []).map((x) => String(x).replace(/[^\w\s-]/g, ' ').trim()).filter(Boolean);
     body.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
         <div style="font-size:12px;color:var(--text-tertiary)">${esc(gen)} · Schema ${esc(payload.schema_version || '')}</div>
@@ -290,6 +354,11 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
       </div>
       <div style="font-weight:600;font-size:13px;margin:14px 0 8px">Lab snapshot</div>
       ${_renderSnapshot(snap)}
+      ${aiBox}
+      <div style="font-weight:600;font-size:13px;margin:14px 0 8px">Patient context (from chart)</div>
+      ${_renderExternalContext(payload.external_context)}
+      <div style="font-weight:600;font-size:13px;margin:14px 0 8px">Evidence (87k corpus)</div>
+      ${_renderEvidenceBrief(payload.evidence_brief, chipTerms)}
       <div style="font-weight:600;font-size:13px;margin:14px 0 8px">Domains</div>
       ${_renderDomains(payload.domain_summaries)}
       <div style="font-weight:600;font-size:13px;margin:14px 0 8px">Critical alerts</div>
@@ -308,11 +377,25 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
         <div style="font-size:12px;font-weight:600;margin-bottom:6px">Review note</div>
         <textarea id="la-note" class="form-control" rows="2" placeholder="Add a chart-ready note (audited)…" style="width:100%;min-height:44px"></textarea>
         <button type="button" class="btn btn-primary btn-sm" id="la-save-note" style="margin-top:8px;min-height:44px">Save note</button>
+      </div>
+      <div style="margin-top:14px;padding:12px;border:1px dashed var(--border);border-radius:12px">
+        <div style="font-size:12px;font-weight:600;margin-bottom:6px">Quick add lab row (persisted)</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px">
+          <label style="font-size:10px;color:var(--text-tertiary)">LOINC/code<input id="la-in-code" class="form-control" placeholder="718-7" style="min-height:40px"></label>
+          <label style="font-size:10px;color:var(--text-tertiary)">Name<input id="la-in-name" class="form-control" placeholder="Hemoglobin" style="min-height:40px"></label>
+          <label style="font-size:10px;color:var(--text-tertiary)">Value<input id="la-in-val" class="form-control" placeholder="12.5" style="min-height:40px"></label>
+          <label style="font-size:10px;color:var(--text-tertiary)">Unit<input id="la-in-unit" class="form-control" placeholder="g/dL" style="min-height:40px"></label>
+          <label style="font-size:10px;color:var(--text-tertiary)">Ref low<input id="la-in-low" class="form-control" placeholder="11.5" style="min-height:40px"></label>
+          <label style="font-size:10px;color:var(--text-tertiary)">Ref high<input id="la-in-high" class="form-control" placeholder="15.5" style="min-height:40px"></label>
+        </div>
+        <button type="button" class="btn btn-primary btn-sm" id="la-add-row" style="margin-top:10px;min-height:44px">Save lab row &amp; reload</button>
+        <div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">Requires DB migration <code style="font-size:10px">083_patient_lab_results</code> applied.</div>
       </div>`;
 
     $('la-recompute').disabled = false;
     _syncDemoBanner();
     wireMultimodalTable();
+    wireEvidencePmids();
 
     $('la-save-note')?.addEventListener('click', async () => {
       const ta = $('la-note');
@@ -328,9 +411,65 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
         window._announce?.(`Could not save note: ${(err && err.message) || err}`, true);
       }
     });
+
+    $('la-add-row')?.addEventListener('click', async () => {
+      const code = ($('la-in-code')?.value || '').trim();
+      const name = ($('la-in-name')?.value || '').trim();
+      const valRaw = ($('la-in-val')?.value || '').trim();
+      const unit = ($('la-in-unit')?.value || '').trim();
+      const lowRaw = ($('la-in-low')?.value || '').trim();
+      const highRaw = ($('la-in-high')?.value || '').trim();
+      if (!code || !name) {
+        window._announce?.('Enter analyte code and display name.', true);
+        return;
+      }
+      const valn = valRaw === '' ? null : Number(valRaw);
+      const low = lowRaw === '' ? null : Number(lowRaw);
+      const high = highRaw === '' ? null : Number(highRaw);
+      const item = {
+        analyte_code: code,
+        analyte_display_name: name,
+        panel_name: 'Manual entry',
+        value_numeric: Number.isFinite(valn) ? valn : null,
+        value_text: Number.isFinite(valn) ? null : (valRaw || null),
+        unit_ucum: unit || null,
+        ref_low: Number.isFinite(low) ? low : null,
+        ref_high: Number.isFinite(high) ? high : null,
+        source: 'manual',
+      };
+      try {
+        await api.postLabsResultsBatch(activePatientId, [item]);
+        window._announce?.('Lab row saved');
+        await loadPayload();
+      } catch (err) {
+        window._announce?.(`Could not save: ${(err && err.message) || err}`, true);
+      }
+    });
+  }
+
+  function wireEvidencePmids() {
+    const body = $('la-body');
+    if (!body) return;
+    body.querySelectorAll('.lab-ev-pmid').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const pmid = btn.getAttribute('data-pmid') || '';
+        const prefill = `${pmid} laboratory biomarker monitoring`;
+        try {
+          window._reEvidencePrefill = prefill;
+          window._resEvidenceTab = 'search';
+        } catch (_) {}
+        try { navigate?.('research-evidence'); } catch (_) {}
+      });
+    });
   }
 
   await loadRoster();
+  const aiCb = $('la-ai-narrative');
+  if (aiCb) {
+    aiCb.checked = aiNarrativeOn;
+    aiCb.addEventListener('change', () => { aiNarrativeOn = !!aiCb.checked; });
+  }
+  _syncPatientContext();
 
   $('la-patient-select')?.addEventListener('change', (ev) => {
     const id = ev.target.value;
@@ -351,7 +490,7 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
     btn.disabled = true;
     btn.textContent = 'Recomputing…';
     try {
-      payload = await api.recomputeLabsAnalyzer(activePatientId, { reason: 'manual' });
+      payload = await api.recomputeLabsAnalyzer(activePatientId, { reason: 'manual' }, { ai_narrative: aiNarrativeOn });
       audit = await api.getLabsAnalyzerAudit(activePatientId).catch(() => audit);
       await loadPayload();
     } catch (e) {

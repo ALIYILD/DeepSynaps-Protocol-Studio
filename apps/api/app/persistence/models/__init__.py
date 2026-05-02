@@ -161,6 +161,7 @@ from .media import (
     PatientMediaTranscript,
     PatientMediaUpload,
 )
+from .labs import PatientLabResult
 from .mri import (
     MriAnalysis,
     MriReportAudit,
@@ -349,6 +350,7 @@ __all__ = [
     "PatientMediaReviewAction",
     "PatientMediaTranscript",
     "PatientMediaUpload",
+    "PatientLabResult",
     "PatientMedication",
     "PatientPayment",
     "PhenotypeAssignment",

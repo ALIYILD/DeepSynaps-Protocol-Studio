@@ -663,7 +663,24 @@ const _LABS = {
           { target_page: 'medication-analyzer', label: 'Medication Analyzer', rationale: 'Cross-check agents that affect bleeding / marrow / liver.' },
           { target_page: 'wearables', label: 'Biometrics', rationale: 'Correlate HRV and sleep with anemia work-up.' },
           { target_page: 'deeptwin', label: 'DeepTwin', rationale: 'Fuse labs into multimodal summary.' },
+          { target_page: 'research-evidence', label: '87k evidence corpus', rationale: 'Literature search for lab monitoring and confounds.' },
         ],
+        external_context: {
+          active_medications: [],
+          treatment_courses: [],
+          latest_qeeg_analysis_id: null,
+          latest_mri_analysis_id: null,
+          fusion_case_id: null,
+          deeptwin_last_run_id: null,
+          biometrics_snapshot_id: null,
+        },
+        evidence_brief: {
+          finding_id: 'demo-labs-ev',
+          literature_summary: 'Demo: evidence intelligence returns ranked papers when the API is online.',
+          confidence_score: 0.42,
+          top_pmids: ['38000001', '38000002'],
+        },
+        ai_clinical_narrative: null,
       };
     }
     return {
@@ -702,7 +719,19 @@ const _LABS = {
       ],
       multimodal_links: [
         { target_page: 'patients-v2', label: 'Patients', rationale: 'Select a demo persona for richer scaffold data.' },
+        { target_page: 'research-evidence', label: '87k evidence corpus', rationale: 'Search supporting literature.' },
       ],
+      external_context: {
+        active_medications: [],
+        treatment_courses: [],
+        latest_qeeg_analysis_id: null,
+        latest_mri_analysis_id: null,
+        fusion_case_id: null,
+        deeptwin_last_run_id: null,
+        biometrics_snapshot_id: null,
+      },
+      evidence_brief: null,
+      ai_clinical_narrative: null,
     };
   },
   audit: (patientId) => ({

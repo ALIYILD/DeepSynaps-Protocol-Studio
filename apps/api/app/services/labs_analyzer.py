@@ -1,14 +1,18 @@
 """Labs / Blood Biomarkers Analyzer — rule-first payload assembly.
 
-MVP: deterministic scaffold from patient context (no external lab DB yet).
+Loads persisted `PatientLabResult` rows when present; otherwise uses scaffold
+panels (demo personas). Augments with medications, courses, qEEG/MRI IDs,
+fusion/deeptwin pointers, evidence corpus query, and optional LLM narrative.
 """
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
 from app.schemas.labs_analyzer import (
@@ -23,13 +27,17 @@ from app.schemas.labs_analyzer import (
     LabReviewAuditEvent,
     LabSnapshot,
     LabsAnalyzerPagePayload,
+    LabsEvidenceBrief,
+    LabsExternalContext,
     LabTrendWindow,
     MultimodalLink,
     ProvenanceBlock,
     ReferenceRange,
 )
 
-_ANALYZER_VERSION = "labs-analyzer-0.1.0"
+_LOG = logging.getLogger(__name__)
+
+_ANALYZER_VERSION = "labs-analyzer-0.2.0"
 
 
 def _iso_now() -> str:
@@ -57,29 +65,63 @@ def build_labs_analyzer_payload(
     db: Session,
     *,
     patient_name: str | None = None,
+    primary_condition: str | None = None,
+    include_ai_narrative: bool = False,
 ) -> LabsAnalyzerPagePayload:
-    """Assemble page payload from scaffold rules (DB-backed labs later)."""
-    del db  # reserved for future lab_observation queries
-
+    """Assemble page payload: DB lab rows override scaffold when present."""
     name = patient_name or "Patient"
     run_id = str(uuid.uuid4())
+    input_ids: list[str] = []
 
-    # Demo-style panels — distinct storylines per known demo IDs
-    if patient_id == "demo-pt-samantha-li":
-        results, domains, snap_extra = _panel_samantha(patient_id)
-    elif patient_id == "demo-pt-marcus-chen":
-        results, domains, snap_extra = _panel_marcus(patient_id)
-    elif patient_id == "demo-pt-elena-vasquez":
-        results, domains, snap_extra = _panel_elena(patient_id)
+    db_rows = _load_lab_rows_from_db(db, patient_id)
+    use_db = len(db_rows) > 0
+
+    if use_db:
+        results = [_lab_row_to_record(patient_id, row) for row in db_rows]
+        input_ids.append(f"db:patient_lab_results:{len(db_rows)}")
+        domains = _build_domain_summaries_from_results(results)
+        snap_extra = _rollup_extra_from_results(results, db_med_flags=0)
     else:
-        results, domains, snap_extra = _panel_generic(patient_id)
+        if patient_id == "demo-pt-samantha-li":
+            results, domains, snap_extra = _panel_samantha(patient_id)
+        elif patient_id == "demo-pt-marcus-chen":
+            results, domains, snap_extra = _panel_marcus(patient_id)
+        elif patient_id == "demo-pt-elena-vasquez":
+            results, domains, snap_extra = _panel_elena(patient_id)
+        else:
+            results, domains, snap_extra = _panel_generic(patient_id)
+        input_ids.append(f"scaffold:{patient_id}")
+
+    ext = _load_external_context(db, patient_id)
+    med_monitor_notes = _medication_lab_monitor_notes(ext.active_medications, results)
+    if med_monitor_notes:
+        snap_extra["med_safety_count"] = snap_extra.get("med_safety_count", 0) + len(med_monitor_notes)
 
     critical = _critical_from_results(results)
     trends = _trends_from_results(results)
     interpretations = _interpretations_for(results, snap_extra)
     confounds = _confounds_for(results)
+    confounds.extend(_confounds_from_context(ext, results))
     recs = _recommendations_for(results, critical)
-    links = _multimodal_links()
+    for i, note in enumerate(med_monitor_notes):
+        recs.insert(
+            0,
+            LabRecommendation(
+                id=f"rec-medmon-{i}",
+                type="med_review",
+                priority="P1",
+                text=note,
+                evidence_links=[
+                    _ev(
+                        "Laboratory monitoring",
+                        "Align labs with agent-specific monitoring references.",
+                        "ev-medmon-1",
+                    )
+                ],
+                linked_result_ids=[],
+            ),
+        )
+    links = _build_multimodal_links_from_context(patient_id, ext)
 
     abnormal_domains = sum(1 for d in domains if d.status in ("abnormal", "critical"))
     completeness = _completeness(results)
@@ -95,18 +137,46 @@ def build_labs_analyzer_payload(
         endocrine_summary=snap_extra.get("endocrine", ""),
         completeness_pct=completeness,
         missing_core_analytes=snap_extra.get("missing", []),
-        top_confound_warnings=[c.rationale for c in confounds[:3]],
+        top_confound_warnings=[c.rationale for c in confounds[:5]],
+    )
+
+    evidence_brief: LabsEvidenceBrief | None = None
+    ev_ids: list[str] = []
+    try:
+        evidence_brief, ev_ids = _labs_evidence_query(
+            patient_id=patient_id,
+            primary_condition=primary_condition,
+            medications=ext.active_medications,
+            abnormal_terms=snapshot.key_abnormal_markers,
+            db=db,
+        )
+        for eid in ev_ids:
+            input_ids.append(f"evidence_intelligence:{eid}")
+    except Exception as exc:  # noqa: BLE001
+        _LOG.debug("labs evidence query skipped: %s", exc)
+
+    ai_text: str | None = None
+    if include_ai_narrative:
+        ai_text = _labs_ai_narrative(
+            patient_name=name,
+            snapshot=snapshot,
+            external=ext,
+            evidence_summary=evidence_brief.literature_summary if evidence_brief else "",
+        )
+
+    prov = ProvenanceBlock(
+        analyzer_version=_ANALYZER_VERSION,
+        input_snapshot_ids=input_ids,
+        pipeline_run_id=run_id,
+        evidence_finding_ids=ev_ids,
+        llm_narrative_model="optional_llm" if ai_text and "LLM unavailable" not in (ai_text or "") else None,
     )
 
     return LabsAnalyzerPagePayload(
         generated_at=_iso_now(),
         patient_id=patient_id,
         patient_name=name,
-        provenance=ProvenanceBlock(
-            analyzer_version=_ANALYZER_VERSION,
-            input_snapshot_ids=[f"scaffold:{patient_id}"],
-            pipeline_run_id=run_id,
-        ),
+        provenance=prov,
         confidence=ConfidenceBlock(
             overall_panel_completeness=completeness,
             interpretation_confidence_cap=min(0.85, 0.45 + completeness * 0.4),
@@ -121,10 +191,491 @@ def build_labs_analyzer_payload(
         trend_windows=trends,
         critical_alerts=critical,
         interpretations=interpretations,
-        confound_flags=confounds,
+        confound_flags=confounds[:24],
         recommendations=recs,
         multimodal_links=links,
+        external_context=ext,
+        evidence_brief=evidence_brief,
+        ai_clinical_narrative=ai_text,
     )
+
+
+# ── DB + multimodal + evidence + optional LLM ────────────────────────────────
+
+
+def _load_lab_rows_from_db(db: Session, patient_id: str) -> list[Any]:
+    try:
+        from app.persistence.models import PatientLabResult
+    except ImportError:
+        return []
+    try:
+        rows = (
+            db.execute(
+                select(PatientLabResult)
+                .where(PatientLabResult.patient_id == patient_id)
+                .order_by(desc(PatientLabResult.sample_collected_at), desc(PatientLabResult.created_at))
+            )
+            .scalars()
+            .all()
+        )
+    except Exception as exc:  # noqa: BLE001 — table may not exist pre-migration
+        _LOG.debug("patient_lab_results query skipped: %s", exc)
+        return []
+    return list(rows)
+
+
+def _domain_for_loinc(code: str) -> str:
+    c = (code or "").strip()
+    mapping = {
+        "718-7": "hematology",
+        "4544-3": "hematology",
+        "6690-2": "hematology",
+        "789-8": "hematology",
+        "2132-9": "nutritional",
+        "2160-0": "metabolic_renal",
+        "3094-0": "metabolic_renal",
+        "33914-3": "metabolic_renal",
+        "1742-6": "metabolic_liver",
+        "1920-8": "metabolic_liver",
+        "3051-6": "endocrine",
+        "3050-8": "endocrine",
+        "2345-7": "cardiometabolic",
+        "2157-6": "cardiometabolic",
+        "2951-2": "metabolic_renal",
+    }
+    return mapping.get(c, "general")
+
+
+def _lab_row_to_record(patient_id: str, row: Any) -> LabResultRecord:
+    low = row.ref_low
+    high = row.ref_high
+    val = row.value_numeric
+    direction: Any = "unknown"
+    crit: Any = "none"
+    if low is not None and high is not None and val is not None:
+        if val < low:
+            direction = "low"
+        elif val > high:
+            direction = "high"
+        else:
+            direction = "normal"
+        crit = "moderate" if direction in ("low", "high") else "none"
+    collected = (
+        row.sample_collected_at.isoformat().replace("+00:00", "Z")
+        if row.sample_collected_at
+        else _iso_now()
+    )
+    domain = _domain_for_loinc(row.analyte_code)
+    impacted: list[str] = []
+    if domain == "hematology":
+        impacted = ["biometrics", "assessments", "risk"]
+    elif domain in ("metabolic_renal", "metabolic_liver"):
+        impacted = ["medication", "mri-analysis", "treatment-sessions-analyzer"]
+    elif domain == "endocrine":
+        impacted = ["qeeg-analysis", "assessments"]
+    return LabResultRecord(
+        id=row.id,
+        patient_id=patient_id,
+        analyte_code=row.analyte_code,
+        analyte_display_name=row.analyte_display_name,
+        test_name=row.panel_name,
+        panel_name=row.panel_name,
+        value_numeric=val,
+        value_text=row.value_text,
+        unit_ucum=row.unit_ucum,
+        reference_range=ReferenceRange(low=low, high=high, text=row.ref_text),
+        sample_collected_at=collected,
+        result_reported_at=collected,
+        abnormality_direction=direction,
+        criticality=crit,
+        domain=domain,
+        acute_chronic_class="unknown",
+        confidence=0.9,
+        linked_analyzers_impacted=impacted,
+    )
+
+
+def _build_domain_summaries_from_results(results: list[LabResultRecord]) -> list[LabDomainSummary]:
+    by_dom: dict[str, list[LabResultRecord]] = {}
+    for r in results:
+        by_dom.setdefault(r.domain, []).append(r)
+    out: list[LabDomainSummary] = []
+    for dom, rs in sorted(by_dom.items()):
+        abn = sum(1 for x in rs if x.abnormality_direction in ("low", "high"))
+        crit = sum(1 for x in rs if x.criticality == "critical")
+        if crit > 0:
+            st: Any = "critical"
+        elif abn > 0:
+            st = "abnormal"
+        else:
+            st = "clear"
+        headline = f"{len(rs)} marker(s)" + (f", {abn} outside reference" if abn else "")
+        out.append(
+            LabDomainSummary(
+                domain=dom,
+                status=st,
+                abnormal_count=abn,
+                critical_count=crit,
+                headline=headline,
+                marker_ids=[x.id for x in rs],
+            )
+        )
+    return out
+
+
+def _rollup_extra_from_results(
+    results: list[LabResultRecord], *, db_med_flags: int
+) -> dict[str, Any]:
+    abn_labels = [
+        f"{r.analyte_display_name} ({r.abnormality_direction})"
+        for r in results
+        if r.abnormality_direction in ("low", "high")
+    ]
+    return {
+        "key_abnormal": abn_labels[:8] or [],
+        "critical_summary": "See critical alerts" if any(r.criticality == "critical" for r in results) else "No critical flags in stored results.",
+        "recent_changes": "Upload consecutive draws for trend analysis.",
+        "med_safety_count": db_med_flags,
+        "inflammation": "Add CRP/ESR if inflammatory differential.",
+        "metabolic": "Review renal/hepatic panel completeness.",
+        "endocrine": "Add TSH/thyroid panel if indicated.",
+        "missing": [],
+    }
+
+
+def _load_external_context(db: Session, patient_id: str) -> LabsExternalContext:
+    from app.persistence.models import (
+        BiometricsSnapshot,
+        DeepTwinAnalysisRun,
+        FusionCase,
+        MriAnalysis,
+        PatientMedication,
+        QEEGAnalysis,
+        TreatmentCourse,
+    )
+
+    meds = db.execute(
+        select(PatientMedication)
+        .where(PatientMedication.patient_id == patient_id)
+        .where(PatientMedication.active.is_(True))
+    ).scalars().all()
+    active_medications = [
+        {
+            "id": m.id,
+            "name": m.name,
+            "generic_name": m.generic_name,
+            "dose": m.dose,
+            "frequency": m.frequency,
+        }
+        for m in meds
+    ]
+
+    courses = db.execute(
+        select(TreatmentCourse)
+        .where(TreatmentCourse.patient_id == patient_id)
+        .order_by(desc(TreatmentCourse.updated_at))
+        .limit(5)
+    ).scalars().all()
+    treatment_courses = [
+        {
+            "id": c.id,
+            "modality_slug": c.modality_slug,
+            "status": c.status,
+            "sessions_delivered": c.sessions_delivered,
+            "planned_sessions_total": c.planned_sessions_total,
+        }
+        for c in courses
+    ]
+
+    qrow = db.execute(
+        select(QEEGAnalysis.id, QEEGAnalysis.updated_at)
+        .where(QEEGAnalysis.patient_id == patient_id)
+        .where(QEEGAnalysis.analysis_status == "completed")
+        .order_by(desc(QEEGAnalysis.updated_at))
+        .limit(1)
+    ).first()
+    latest_qeeg = str(qrow[0]) if qrow else None
+
+    mrow = db.execute(
+        select(MriAnalysis.analysis_id, MriAnalysis.created_at)
+        .where(MriAnalysis.patient_id == patient_id)
+        .where(MriAnalysis.state == "SUCCESS")
+        .order_by(desc(MriAnalysis.created_at))
+        .limit(1)
+    ).first()
+    latest_mri = str(mrow[0]) if mrow else None
+
+    frow = db.execute(
+        select(FusionCase.id, FusionCase.created_at)
+        .where(FusionCase.patient_id == patient_id)
+        .order_by(desc(FusionCase.created_at))
+        .limit(1)
+    ).first()
+    fusion_id = str(frow[0]) if frow else None
+
+    drow = db.execute(
+        select(DeepTwinAnalysisRun.id, DeepTwinAnalysisRun.created_at)
+        .where(DeepTwinAnalysisRun.patient_id == patient_id)
+        .order_by(desc(DeepTwinAnalysisRun.created_at))
+        .limit(1)
+    ).first()
+    deeptwin_id = str(drow[0]) if drow else None
+
+    brow = db.execute(
+        select(BiometricsSnapshot.id, BiometricsSnapshot.recorded_at)
+        .where(BiometricsSnapshot.patient_id == patient_id)
+        .order_by(desc(BiometricsSnapshot.recorded_at))
+        .limit(1)
+    ).first()
+    bio_id = str(brow[0]) if brow else None
+
+    return LabsExternalContext(
+        active_medications=active_medications,
+        treatment_courses=treatment_courses,
+        latest_qeeg_analysis_id=latest_qeeg,
+        latest_mri_analysis_id=latest_mri,
+        fusion_case_id=fusion_id,
+        deeptwin_last_run_id=deeptwin_id,
+        biometrics_snapshot_id=bio_id,
+    )
+
+
+def _medication_lab_monitor_notes(medications: list[dict[str, Any]], results: list[LabResultRecord]) -> list[str]:
+    names = " ".join(
+        str(m.get("generic_name") or m.get("name") or "") for m in medications
+    ).lower()
+    notes: list[str] = []
+    has = {r.analyte_code for r in results}
+    if any(x in names for x in ("valpro", "depak", "divalpro")) and "1742-6" not in has and "1920-8" not in has:
+        notes.append("Valproate exposure — consider monitoring LFTs / ammonia per protocol if clinically indicated.")
+    if ("lithium" in names or "lithobid" in names) and "3094-0" not in has:
+        notes.append("Lithium — renal function and electrolytes should be tracked per monitoring protocol.")
+    if any(x in names for x in ("warfarin", "coumadin")) and "5902-2" not in has and "6301-6" not in has:
+        notes.append("Warfarin — correlate INR / CBC with bleeding risk if clinically indicated.")
+    if any(x in names for x in ("methotrex",)) and "1742-6" not in has:
+        notes.append("Methotrexate — hepatic monitoring may be indicated depending on dose/route.")
+    return notes
+
+
+def _confounds_from_context(ext: LabsExternalContext, results: list[LabResultRecord]) -> list[LabConfoundFlag]:
+    out: list[LabConfoundFlag] = []
+    abn_ids = [r.id for r in results if r.abnormality_direction in ("low", "high")]
+    if not abn_ids:
+        return out
+    if ext.latest_qeeg_analysis_id:
+        out.append(
+            LabConfoundFlag(
+                id="cf-ctx-qeeg",
+                target_analyzer="qeeg-analysis",
+                strength="moderate",
+                confound_risk_score=0.5,
+                rationale="Abnormal labs present — interpret latest qEEG in biological context.",
+                supporting_result_ids=abn_ids[:5],
+            )
+        )
+    if ext.latest_mri_analysis_id:
+        out.append(
+            LabConfoundFlag(
+                id="cf-ctx-mri",
+                target_analyzer="mri-analysis",
+                strength="moderate",
+                confound_risk_score=0.48,
+                rationale="Renal/metabolic issues may affect contrast planning and systemic comorbidity framing.",
+                supporting_result_ids=abn_ids[:5],
+            )
+        )
+    if ext.deeptwin_last_run_id:
+        out.append(
+            LabConfoundFlag(
+                id="cf-ctx-dt",
+                target_analyzer="deeptwin",
+                strength="moderate",
+                confound_risk_score=0.46,
+                rationale="Refresh multimodal integration — labs add biological confounds to fused summaries.",
+                supporting_result_ids=abn_ids[:5],
+            )
+        )
+    return out
+
+
+def _build_multimodal_links_from_context(patient_id: str, ext: LabsExternalContext) -> list[MultimodalLink]:
+    out: list[MultimodalLink] = [
+        MultimodalLink(
+            target_page="medication-analyzer",
+            label="Medication Analyzer",
+            rationale="Cross-check labs with active medications and monitoring expectations.",
+        ),
+        MultimodalLink(
+            target_page="treatment-sessions-analyzer",
+            label="Treatment Sessions",
+            rationale="Relate neuromodulation course timing with labs and tolerability.",
+        ),
+        MultimodalLink(
+            target_page="wearables",
+            label="Biometrics",
+            rationale="HRV, sleep, vitals — covary with anemia, thyroid, metabolic stress.",
+        ),
+        MultimodalLink(
+            target_page="risk-analyzer",
+            label="Risk Analyzer",
+            rationale="Safety models may shift when biology changes.",
+        ),
+        MultimodalLink(
+            target_page="assessments-v2",
+            label="Assessments",
+            rationale="Symptom scales before/after biological correction.",
+        ),
+    ]
+    if ext.latest_qeeg_analysis_id:
+        out.append(
+            MultimodalLink(
+                target_page="qeeg-analysis",
+                label="qEEG Analyzer",
+                rationale="Latest completed qEEG — interpret alongside metabolic/inflammatory context.",
+                resource_id=ext.latest_qeeg_analysis_id,
+            )
+        )
+    else:
+        out.append(
+            MultimodalLink(
+                target_page="qeeg-analysis",
+                label="qEEG Analyzer",
+                rationale="No completed qEEG — upload or run analysis for multimodal context.",
+            )
+        )
+    if ext.latest_mri_analysis_id:
+        out.append(
+            MultimodalLink(
+                target_page="mri-analysis",
+                label="MRI Analyzer",
+                rationale="Latest MRI — renal/contrast and systemic illness context.",
+                resource_id=ext.latest_mri_analysis_id,
+            )
+        )
+    else:
+        out.append(
+            MultimodalLink(
+                target_page="mri-analysis",
+                label="MRI Analyzer",
+                rationale="No completed MRI — add imaging when clinically indicated.",
+            )
+        )
+    fus_r = (
+        f"Most recent fusion case {ext.fusion_case_id} — integrate labs as biological context."
+        if ext.fusion_case_id
+        else "Open fusion workbench to build a multimodal summary including labs."
+    )
+    out.append(
+        MultimodalLink(
+            target_page="fusion-workbench",
+            label="Fusion workbench",
+            rationale=fus_r,
+            resource_id=ext.fusion_case_id,
+        )
+    )
+    out.append(
+        MultimodalLink(
+            target_page="deeptwin",
+            label="DeepTwin",
+            rationale="Multimodal correlation view — refresh after lab updates.",
+            resource_id=ext.deeptwin_last_run_id,
+        )
+    )
+    out.append(
+        MultimodalLink(
+            target_page="research-evidence",
+            label="87k evidence corpus",
+            rationale="Search PubMed-linked corpus for lab interpretation, monitoring, and confounds.",
+        )
+    )
+    return out
+
+
+def _labs_evidence_query(
+    *,
+    patient_id: str,
+    primary_condition: str | None,
+    medications: list[dict[str, Any]],
+    abnormal_terms: list[str],
+    db: Session | None,
+) -> tuple[LabsEvidenceBrief | None, list[str]]:
+    from app.services.evidence_intelligence import EvidenceFeatureSummary, EvidenceQuery, query_evidence
+
+    med_names = [str(m.get("name") or "") for m in medications[:12]]
+    feats = [
+        EvidenceFeatureSummary(name="lab_flag", value=t, modality="laboratory")
+        for t in (abnormal_terms or [])[:8]
+    ]
+    query = EvidenceQuery(
+        patient_id=patient_id,
+        context_type="biomarker",
+        target_name="blood biomarker longitudinal monitoring",
+        modality_filters=["laboratory", "clinical chemistry"],
+        diagnosis_filters=[primary_condition] if primary_condition else [],
+        medications=med_names,
+        phenotype_tags=(abnormal_terms or [])[:10],
+        feature_summary=feats,
+        max_results=6,
+    )
+    res = query_evidence(query, db)
+    pmids = []
+    for p in res.supporting_papers[:6]:
+        if p.pmid:
+            pmids.append(str(p.pmid))
+    brief = LabsEvidenceBrief(
+        finding_id=res.finding_id,
+        literature_summary=(res.literature_summary or "")[:2400],
+        confidence_score=float(res.confidence_score or 0),
+        top_pmids=pmids[:8],
+    )
+    return brief, [res.finding_id]
+
+
+def _labs_ai_narrative(
+    *,
+    patient_name: str,
+    snapshot: LabSnapshot,
+    external: LabsExternalContext,
+    evidence_summary: str,
+) -> str | None:
+    try:
+        from app.services.chat_service import _llm_chat
+    except ImportError:
+        return None
+    sys = (
+        "You are a clinical decision-support assistant for physicians. "
+        "Write 3-5 short bullet points integrating labs with medications and modalities. "
+        "Use cautious language: 'possible contributor', 'consider', 'may'. "
+        "Never diagnose or claim certainty. If evidence excerpt is empty, still give generic cautious guidance."
+    )
+    user = {
+        "patient_label": patient_name,
+        "lab_snapshot": snapshot.model_dump(),
+        "medications_count": len(external.active_medications),
+        "modalities": {
+            "qeeg": external.latest_qeeg_analysis_id,
+            "mri": external.latest_mri_analysis_id,
+            "fusion": external.fusion_case_id,
+            "deeptwin": external.deeptwin_last_run_id,
+        },
+        "evidence_excerpt": evidence_summary[:1200],
+    }
+    import json
+
+    try:
+        text = _llm_chat(
+            system=sys,
+            messages=[{"role": "user", "content": json.dumps(user)}],
+            max_tokens=400,
+            temperature=0.25,
+            not_configured_message="__not_configured__",
+        )
+    except Exception as exc:  # noqa: BLE001
+        _LOG.debug("labs AI narrative failed: %s", exc)
+        return "LLM unavailable — use structured panels and literature excerpt below."
+    if not text or "__not_configured__" in text:
+        return "LLM not configured — structured rules and evidence excerpt remain authoritative."
+    return text.strip()
 
 
 def _ref(low: float | None, high: float | None) -> ReferenceRange:
@@ -660,51 +1211,6 @@ def _recommendations_for(
     return recs
 
 
-def _multimodal_links() -> list[MultimodalLink]:
-    return [
-        MultimodalLink(
-            target_page="medication-analyzer",
-            label="Medication Analyzer",
-            rationale="Compare abnormal labs with agents that require monitoring.",
-        ),
-        MultimodalLink(
-            target_page="wearables",
-            label="Biometrics",
-            rationale="HRV, sleep, and activity may covary with anemia, thyroid, or metabolic stress.",
-        ),
-        MultimodalLink(
-            target_page="risk-analyzer",
-            label="Risk Analyzer",
-            rationale="Safety and deterioration models may be confounded by acute lab shifts.",
-        ),
-        MultimodalLink(
-            target_page="treatment-sessions-analyzer",
-            label="Treatment Sessions",
-            rationale="Relate pre/post session labs when assessing tolerability and response.",
-        ),
-        MultimodalLink(
-            target_page="assessments-v2",
-            label="Assessments",
-            rationale="Symptom scales may shift when biological contributors change.",
-        ),
-        MultimodalLink(
-            target_page="mri-analysis",
-            label="MRI Analyzer",
-            rationale="Contrast / renal function and systemic illness may affect imaging planning.",
-        ),
-        MultimodalLink(
-            target_page="qeeg-analysis",
-            label="qEEG Analyzer",
-            rationale="Metabolic or inflammatory states can influence EEG features — interpret cautiously.",
-        ),
-        MultimodalLink(
-            target_page="deeptwin",
-            label="DeepTwin / multimodal summary",
-            rationale="Integrate labs as biological context for the fused patient view.",
-        ),
-    ]
-
-
 def _completeness(results: list[LabResultRecord]) -> float:
     # Rough scaffold: more results → higher score; cap at 0.95
     base = min(0.95, 0.35 + 0.08 * len(results))
@@ -716,7 +1222,9 @@ def recompute_and_payload(
     db: Session,
     *,
     patient_name: str | None = None,
+    primary_condition: str | None = None,
     actor_id: str | None = None,
+    include_ai_narrative: bool = False,
 ) -> LabsAnalyzerPagePayload:
     """Mark recompute in audit and return fresh payload."""
     if actor_id:
@@ -730,4 +1238,10 @@ def recompute_and_payload(
                 payload={"reason": "manual"},
             ),
         )
-    return build_labs_analyzer_payload(patient_id, db, patient_name=patient_name)
+    return build_labs_analyzer_payload(
+        patient_id,
+        db,
+        patient_name=patient_name,
+        primary_condition=primary_condition,
+        include_ai_narrative=include_ai_narrative,
+    )

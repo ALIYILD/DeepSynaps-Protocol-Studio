@@ -17,6 +17,8 @@ class ProvenanceBlock(BaseModel):
     analyzer_version: str
     input_snapshot_ids: list[str] = Field(default_factory=list)
     pipeline_run_id: Optional[str] = None
+    evidence_finding_ids: list[str] = Field(default_factory=list)
+    llm_narrative_model: Optional[str] = None
 
 
 class ReferenceRange(BaseModel):
@@ -160,6 +162,9 @@ class MultimodalLink(BaseModel):
     target_page: str
     label: str
     rationale: str
+    deep_link: Optional[str] = None
+    resource_id: Optional[str] = None
+    last_updated_at: Optional[str] = None
 
 
 class LabReviewAuditEvent(BaseModel):
@@ -175,6 +180,23 @@ class LabReviewAuditEvent(BaseModel):
     actor_user_id: Optional[str] = None
     timestamp: str
     payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class LabsExternalContext(BaseModel):
+    active_medications: list[dict[str, Any]] = Field(default_factory=list)
+    treatment_courses: list[dict[str, Any]] = Field(default_factory=list)
+    latest_qeeg_analysis_id: Optional[str] = None
+    latest_mri_analysis_id: Optional[str] = None
+    fusion_case_id: Optional[str] = None
+    deeptwin_last_run_id: Optional[str] = None
+    biometrics_snapshot_id: Optional[str] = None
+
+
+class LabsEvidenceBrief(BaseModel):
+    finding_id: str
+    literature_summary: str = ""
+    confidence_score: float = 0.0
+    top_pmids: list[str] = Field(default_factory=list)
 
 
 class LabsAnalyzerPagePayload(BaseModel):
@@ -194,6 +216,12 @@ class LabsAnalyzerPagePayload(BaseModel):
     confound_flags: list[LabConfoundFlag] = Field(default_factory=list)
     recommendations: list[LabRecommendation] = Field(default_factory=list)
     multimodal_links: list[MultimodalLink] = Field(default_factory=list)
+    external_context: LabsExternalContext = Field(default_factory=LabsExternalContext)
+    evidence_brief: Optional[LabsEvidenceBrief] = None
+    ai_clinical_narrative: Optional[str] = None
+    ai_narrative_disclaimer: str = (
+        "Optional AI narrative — rules + literature excerpts below are authoritative when they conflict."
+    )
 
 
 class LabsAuditResponse(BaseModel):
