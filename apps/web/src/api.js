@@ -910,6 +910,18 @@ export const api = {
     ).toString();
     return apiFetch(`/api/v1/evidence/research/summary${q ? '?' + q : ''}`);
   },
+  listResearchAdjunctEvidence: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch(`/api/v1/evidence/research/adjunct-evidence${q ? '?' + q : ''}`);
+  },
+  getResearchAdjunctSummary: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch(`/api/v1/evidence/research/adjunct-summary${q ? '?' + q : ''}`);
+  },
   longitudinalReport: (params = {}) => {
     const q = new URLSearchParams(
       Object.entries(params).filter(([, v]) => v != null && v !== '')
@@ -3692,6 +3704,80 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }).catch(() => null),
+
+  // ── QEEG-ANN1 Brain Map Annotations launch-audit ──
+  // (2026-05-02). Sidecar annotation system for the qEEG Brain Map
+  // report. Lets clinicians attach margin notes / region tags /
+  // flag-typed findings (clinically_significant | evidence_gap |
+  // discuss_next_session | patient_question) to specific sections
+  // WITHOUT mutating the canonical ``QEEGBrainMapReport`` contract.
+  // Mirrors the IRB-AMD4 helper layout — placed BEFORE the IRB-AMD4
+  // section so its slice-boundary sentinel stays clean. QEEG-ANN1
+  // uses its own unique header anchor + slice-boundary sentinel.
+  fetchQeegReportAnnotations: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.patient_id) usp.set('patient_id', params.patient_id);
+    if (params && params.report_id) usp.set('report_id', params.report_id);
+    if (params && params.section_path) usp.set('section_path', params.section_path);
+    if (params && params.kind) usp.set('kind', params.kind);
+    if (params && params.flag_type) usp.set('flag_type', params.flag_type);
+    if (params && params.include_resolved) usp.set('include_resolved', 'true');
+    if (params && params.page != null) usp.set('page', String(params.page));
+    if (params && params.page_size != null)
+      usp.set('page_size', String(params.page_size));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/qeeg-report-annotations/annotations' + (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  createQeegReportAnnotation: (body) =>
+    apiFetch('/api/v1/qeeg-report-annotations/annotations', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }).catch(() => null),
+  patchQeegReportAnnotation: (id, body) =>
+    apiFetch(`/api/v1/qeeg-report-annotations/annotations/${encodeURIComponent(String(id || ''))}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body || {}),
+    }).catch(() => null),
+  deleteQeegReportAnnotation: (id) =>
+    apiFetch(`/api/v1/qeeg-report-annotations/annotations/${encodeURIComponent(String(id || ''))}`, {
+      method: 'DELETE',
+    }).catch(() => null),
+  resolveQeegReportAnnotation: (id, body) =>
+    apiFetch(`/api/v1/qeeg-report-annotations/annotations/${encodeURIComponent(String(id || ''))}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }).catch(() => null),
+  fetchQeegReportAnnotationSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.patient_id) usp.set('patient_id', params.patient_id);
+    if (params && params.report_id) usp.set('report_id', params.report_id);
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/qeeg-report-annotations/summary' + (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  fetchQeegReportAnnotationAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.page != null) usp.set('page', String(params.page));
+    if (params && params.page_size != null)
+      usp.set('page_size', String(params.page_size));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/qeeg-report-annotations/audit-events' + (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  postQeegReportAnnotationAuditEvent: (data) =>
+    apiFetch('/api/v1/qeeg-report-annotations/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  // end QEEG-ANN1 helpers
+  // ━━ QEEG-ANN1 SLICE BOUNDARY ━━ (do not remove; the launch-audit
+  // test for the QEEG-ANN1 section finds the header above then walks
+  // to this unique sentinel substring to bound the slice).
 
   // ── IRB-AMD4 SLA Threshold Tuning launch-audit ──
   // (2026-05-02). Closes section I rec from IRB-AMD3 (#451):

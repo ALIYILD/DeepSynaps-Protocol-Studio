@@ -82,6 +82,7 @@ apps/api/app/routers/qeeg_analysis_router.py
 apps/api/app/routers/qeeg_copilot_router.py
 apps/api/app/routers/qeeg_raw_router.py
 apps/api/app/routers/qeeg_records_router.py
+apps/api/app/routers/qeeg_report_annotations_router.py
 apps/api/app/routers/qeeg_viz_router.py
 apps/api/app/routers/quality_assurance_router.py
 apps/api/app/routers/recordings_router.py
