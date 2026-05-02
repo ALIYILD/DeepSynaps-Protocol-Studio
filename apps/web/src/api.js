@@ -3318,6 +3318,55 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }).catch(() => null),
+  // ── DCRO1 Outcome Tracker launch-audit (2026-05-02) ─────────────────────
+  // Calibration-accuracy dashboard built on top of the DCR1 + DCR2 audit
+  // trail. Pairs each caregiver_portal.delivery_concern_resolved row with
+  // the NEXT caregiver_portal.delivery_concern_threshold_reached row for
+  // the same caregiver to record stayed_resolved vs re_flagged_within_30d,
+  // then exposes per-resolver calibration accuracy: when an admin marks
+  // "false_positive", does the DCA worker re-flag them within 30 days?
+  // No schema change. Helpers grouped BEFORE the DCR2 block so DCR2 keeps
+  // working — DCRO1 test slices on the unique header above and the
+  // closing slice-boundary sentinel found below this section.
+  fetchOutcomeTrackerSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null) usp.set('window_days', String(params.window_days));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/caregiver-delivery-concern-resolution-outcome-tracker/summary' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  fetchResolverCalibration: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null) usp.set('window_days', String(params.window_days));
+    if (params && params.min_resolutions != null) usp.set('min_resolutions', String(params.min_resolutions));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/caregiver-delivery-concern-resolution-outcome-tracker/resolver-calibration' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  fetchOutcomeTrackerAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/caregiver-delivery-concern-resolution-outcome-tracker/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  postOutcomeTrackerAuditEvent: (data) =>
+    apiFetch('/api/v1/caregiver-delivery-concern-resolution-outcome-tracker/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  // end DCRO1 helpers
+  // }; — DCRO1 slice boundary sentinel (do not remove; the launch-audit
+  // test for the DCRO1 section finds the header above then walks to
+  // this literal `};` substring to bound the slice).
   // ── DCR2 Resolution Audit Hub launch-audit (2026-05-02) ─────────────────
   // Cohort dashboard built on the DCR1 audit trail: distribution of
   // resolution reasons over time + top resolvers + median time-to-resolve.
