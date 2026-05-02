@@ -1768,7 +1768,9 @@ async function renderPage() {
       break;
     }
     case 'mri-analysis':       { const m = await loadMRIAnalysis(); await m.pgMRIAnalysis(setTopbar, navigate); break; }
-    case 'video-assessments':  { const m = await loadVideoAssessments(); await m.pgVideoAssessments(setTopbar, navigate); break; }
+    case 'video-assessments': { const m = await loadVideoAssessments(); await m.pgVideoAssessments(setTopbar, navigate, { vaMode: 'both' }); break; }
+    case 'video-assessments-capture': { const m = await loadVideoAssessments(); await m.pgVideoAssessments(setTopbar, navigate, { vaMode: 'capture' }); break; }
+    case 'video-assessments-review': { const m = await loadVideoAssessments(); await m.pgVideoAssessments(setTopbar, navigate, { vaMode: 'review' }); break; }
     case 'fusion-workbench':   { const m = await loadFusionWorkbench(); await m.pgFusionWorkbench(setTopbar, navigate); break; }
     case 'patient-timeline':   { const m = await loadPatientTimeline(); await m.pgPatientTimeline(setTopbar, navigate); break; }
     case 'biomarkers':         { const m = await loadKnowledge(); await m.pgQEEGMaps(setTopbar); break; }
@@ -2963,6 +2965,8 @@ window.addEventListener('popstate', (e) => {
     { type: 'nav', icon: '📊', title: 'qEEG Analyzer', page: 'qeeg-analysis' },
     { type: 'nav', icon: '🧠', title: 'MRI Analyzer', page: 'mri-analysis' },
     { type: 'nav', icon: '🎥', title: 'Video Assessments', page: 'video-assessments' },
+    { type: 'nav', icon: '📹', title: 'Video Assessments — Capture', page: 'video-assessments-capture' },
+    { type: 'nav', icon: '📝', title: 'Video Assessments — Review', page: 'video-assessments-review' },
   );
 
   // Fuzzy match: returns score (higher = better), or 0 if no match

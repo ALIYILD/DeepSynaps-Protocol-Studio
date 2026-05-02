@@ -11,6 +11,7 @@ PATCH  /api/v1/video-assessments/sessions/{id}
 POST   /api/v1/video-assessments/sessions/{id}/tasks/{task_id}/upload
 GET    /api/v1/video-assessments/sessions/{id}/tasks/{task_id}/video
 POST   /api/v1/video-assessments/sessions/{id}/finalize
+GET    /api/v1/video-assessments/sessions                  List sessions (scoped by role + optional patient_id)
 """
 from __future__ import annotations
 
@@ -21,7 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path as FsPath
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, File, Path as PathParam, UploadFile
+from fastapi import APIRouter, Depends, File, Path as PathParam, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -30,6 +31,7 @@ from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimu
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import Patient, User, VideoAssessmentSession
+from app.repositories.audit import create_audit_event
 from app.repositories.patients import resolve_patient_clinic_id
 from app.services import media_storage
 from app.services.video_assessment_seed import (
@@ -50,6 +52,47 @@ _DEMO_ALLOWED_ENVS = frozenset({"development", "test"})
 
 _MAX_TASK_VIDEO_BYTES = 120 * 1024 * 1024  # 120 MB per task clip
 _ALLOWED_VIDEO_MIME = frozenset({"video/webm", "video/mp4", "video/quicktime"})
+
+
+def _audit_va(
+    db: Session,
+    *,
+    actor: AuthenticatedActor,
+    action: str,
+    target_id: str,
+    note: str = "",
+) -> None:
+    """Best-effort PHI-safe audit (no video bytes in note)."""
+    now = datetime.now(timezone.utc)
+    event_id = f"video_assessment-{action}-{actor.actor_id}-{int(now.timestamp())}-{uuid.uuid4().hex[:8]}"
+    try:
+        create_audit_event(
+            db,
+            event_id=event_id,
+            target_id=target_id[:64],
+            target_type="video_assessment",
+            action=f"video_assessment.{action}",
+            role=actor.role,
+            actor_id=actor.actor_id,
+            note=(note or action)[:1024],
+            created_at=now.isoformat(),
+        )
+    except Exception:
+        _log.exception("video_assessment audit skipped")
+
+
+def _sessions_query_for_clinician(actor: AuthenticatedActor, db: Session):
+    """Join sessions to patient owning clinician's clinic for IDOR-safe listing."""
+    q = (
+        db.query(VideoAssessmentSession)
+        .join(Patient, Patient.id == VideoAssessmentSession.patient_id)
+        .join(User, User.id == Patient.clinician_id)
+    )
+    if actor.role in ("admin", "supervisor"):
+        return q
+    if not getattr(actor, "clinic_id", None):
+        return q.filter(VideoAssessmentSession.id.is_(None))
+    return q.filter(User.clinic_id == actor.clinic_id)
 
 
 def _require_patient(actor: AuthenticatedActor, db: Session) -> Patient:
@@ -193,6 +236,80 @@ class PatchSessionRequest(BaseModel):
     future_ai_metrics_placeholder: Optional[dict[str, Any]] = None
 
 
+class SessionListItem(BaseModel):
+    id: str
+    patient_id: str
+    encounter_id: Optional[str] = None
+    protocol_name: str
+    protocol_version: str
+    overall_status: str
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    review_completion_percent: Optional[int] = None
+
+
+class SessionListResponse(BaseModel):
+    items: list[SessionListItem]
+    total: int
+
+
+def _list_item_from_row(row: VideoAssessmentSession) -> SessionListItem:
+    body = _load_session_body(row)
+    summ = body.get("summary") or {}
+    try:
+        pct = int(summ.get("review_completion_percent", 0)) if summ else None
+    except Exception:
+        pct = None
+    return SessionListItem(
+        id=row.id,
+        patient_id=row.patient_id,
+        encounter_id=row.encounter_id,
+        protocol_name=row.protocol_name,
+        protocol_version=row.protocol_version,
+        overall_status=row.overall_status,
+        created_at=row.created_at.isoformat() if row.created_at else None,
+        updated_at=row.updated_at.isoformat() if row.updated_at else None,
+        review_completion_percent=pct,
+    )
+
+
+@router.get("/sessions", response_model=SessionListResponse)
+def list_sessions(
+    patient_id: Optional[str] = Query(None, description="Filter to one patient (clinician; must be in your clinic)"),
+    limit: int = Query(50, ge=1, le=200),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> SessionListResponse:
+    """List video assessment sessions the caller may access."""
+    if actor.role == "patient":
+        patient = _require_patient(actor, db)
+        q = db.query(VideoAssessmentSession).filter(VideoAssessmentSession.patient_id == patient.id)
+    elif actor.role == "admin":
+        q = db.query(VideoAssessmentSession)
+    else:
+        require_minimum_role(actor, "clinician")
+        q = _sessions_query_for_clinician(actor, db)
+        if patient_id:
+            exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+            if not exists:
+                raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
+            try:
+                require_patient_owner(actor, clinic_id)
+            except ApiServiceError as exc:
+                if exc.status_code == 403:
+                    raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404) from exc
+                raise
+            q = q.filter(VideoAssessmentSession.patient_id == patient_id)
+
+    rows = (
+        q.order_by(VideoAssessmentSession.updated_at.desc())
+        .limit(limit)
+        .all()
+    )
+    items = [_list_item_from_row(r) for r in rows]
+    return SessionListResponse(items=items, total=len(items))
+
+
 @router.post("/sessions", status_code=201)
 def create_session(
     body: CreateSessionRequest,
@@ -216,6 +333,7 @@ def create_session(
     db.commit()
     db.refresh(row)
     _log.info("video_assessment session created id=%s patient=%s", sid, patient.id)
+    _audit_va(db, actor=actor, action="session_created", target_id=sid, note=f"patient_id={patient.id}")
     return _load_session_body(row)
 
 
@@ -235,6 +353,7 @@ def get_session(
             _gate_session_patient(row, patient)
     else:
         _gate_session_clinician(actor, row, db)
+        _audit_va(db, actor=actor, action="session_read", target_id=session_id, note="json_fetch")
 
     return _load_session_body(row)
 
@@ -276,6 +395,8 @@ def patch_session(
     _recalc_summary(doc)
     _save_session_body(row, doc)
     db.commit()
+    if actor.role not in ("patient", "admin"):
+        _audit_va(db, actor=actor, action="session_patched", target_id=session_id, note="review_or_summary_update")
     return doc
 
 
@@ -351,6 +472,13 @@ async def upload_task_video(
     _save_session_body(row, doc)
     row.updated_at = datetime.now(timezone.utc)
     db.commit()
+    _audit_va(
+        db,
+        actor=actor,
+        action="task_video_uploaded",
+        target_id=session_id,
+        note=f"task_id={task_id} bytes={len(raw)} asset={rid}",
+    )
     return {"recording_asset_id": rid, "recording_storage_ref": rel_ref.replace("\\", "/"), "session": doc}
 
 
@@ -395,6 +523,7 @@ def stream_task_video(
         mime = "video/mp4"
     elif path.suffix.lower() == ".mov":
         mime = "video/quicktime"
+    _audit_va(db, actor=actor, action="task_video_viewed", target_id=session_id, note=f"task_id={task_id}")
     return FileResponse(path, media_type=mime)
 
 
@@ -430,4 +559,5 @@ def finalize_session(
     _recalc_summary(doc)
     _save_session_body(row, doc)
     db.commit()
+    _audit_va(db, actor=actor, action="session_finalized", target_id=session_id, note="review_complete")
     return doc

@@ -28928,6 +28928,29 @@ body[data-sr-open="1"] { overflow:hidden; }
   font-size: 12px;
   line-height: 1.45;
 }
+.va-layout-hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.va-session-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 18px;
+  max-width: 720px;
+}
+.va-session-picker .form-label {
+  margin-bottom: 4px;
+}
+.va-session-picker select {
+  min-width: 280px;
+}
 .va-mode-toggle { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
 .va-grid {
   display: grid;

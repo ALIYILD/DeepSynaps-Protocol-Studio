@@ -60,6 +60,10 @@ var _vaApiBootstrapDone = false;
 var _vaApiBanner = '';
 /** @type {string|null} object URL for clinician panel streamed clip */
 var _vaClinicianStreamUrl = null;
+/** @type {'both'|'capture'|'review'} */
+var _vaPageLayout = 'both';
+/** @type {Array<{id:string,patient_id?:string,overall_status?:string,review_completion_percent?:number}>} */
+var _vaSessionListItems = [];
 
 function _taskDef(taskId) {
   return VIDEO_ASSESSMENT_TASKS.find((t) => t.task_id === taskId) || null;
@@ -191,6 +195,23 @@ async function _bootstrapApiSession() {
     return;
   }
   if (_isPatientUser()) {
+    let sid = null;
+    try {
+      sid = sessionStorage.getItem(_apiSessionKey());
+    } catch (_) {}
+    if (sid) {
+      try {
+        const doc = await api.videoAssessmentGetSession(sid);
+        _vaSession = mergeServerDocument(doc);
+        _applySummary();
+        _vaApiBanner = 'Resumed your in-progress session from this browser.';
+        return;
+      } catch (_) {
+        try {
+          sessionStorage.removeItem(_apiSessionKey());
+        } catch (_e) {}
+      }
+    }
     try {
       const created = await api.videoAssessmentCreateSession({});
       _vaSession = mergeServerDocument(created);
@@ -198,7 +219,7 @@ async function _bootstrapApiSession() {
       try {
         sessionStorage.setItem(_apiSessionKey(), _vaSession.id);
       } catch (_) {}
-      _vaApiBanner = 'Session saved to the server. Clips upload when you choose “Use this recording.”';
+      _vaApiBanner = 'New session saved on the server. Clips upload when you choose “Use this recording.”';
     } catch (e) {
       _vaApiBanner = 'API unavailable — working offline. ' + (e && e.message);
       if (!_vaSession) _vaSession = createEmptySession();
@@ -210,22 +231,67 @@ async function _bootstrapApiSession() {
     try {
       sid = sessionStorage.getItem(_apiSessionKey());
     } catch (_) {}
-    if (sid) {
-      try {
-        const doc = await api.videoAssessmentGetSession(sid);
+    try {
+      const list = await api.videoAssessmentListSessions({});
+      _vaSessionListItems = list.items || [];
+      let pick =
+        sid && _vaSessionListItems.some((i) => i.id === sid)
+          ? sid
+          : _vaSessionListItems[0] && _vaSessionListItems[0].id;
+      if (pick) {
+        const doc = await api.videoAssessmentGetSession(pick);
         _vaSession = mergeServerDocument(doc);
         _applySummary();
-        _vaApiBanner = 'Loaded patient session from this browser. Open the same machine after a patient completes capture, or enter session ID in a follow-up build.';
-      } catch (e) {
-        _vaApiBanner = 'Could not load session: ' + (e && e.message);
+        try {
+          sessionStorage.setItem(_apiSessionKey(), pick);
+        } catch (_) {}
+        _vaApiBanner =
+          'Loaded session ' +
+          String(pick).slice(0, 8) +
+          '… (' +
+          _vaSessionListItems.length +
+          ' session(s) in your clinic). Use the dropdown to switch.';
+      } else {
+        _vaApiBanner = 'No video assessment sessions found for your clinic yet.';
         if (!_vaSession) _vaSession = createEmptySession();
       }
-    } else {
-      _vaApiBanner = 'Clinician: have the patient complete capture on this device, or paste a session id (coming next).';
-      if (!_vaSession) _vaSession = createEmptySession();
+    } catch (e) {
+      _vaApiBanner = 'Could not list sessions: ' + (e && e.message);
+      if (_vaSessionListItems.length === 0 && sid) {
+        try {
+          const doc = await api.videoAssessmentGetSession(sid);
+          _vaSession = mergeServerDocument(doc);
+          _applySummary();
+        } catch (_e2) {
+          if (!_vaSession) _vaSession = createEmptySession();
+        }
+      } else if (!_vaSession) _vaSession = createEmptySession();
     }
   } else {
     if (!_vaSession) _vaSession = createEmptySession();
+  }
+}
+
+async function _refreshSessionListAndMaybeLoad(idToLoad) {
+  if (!_isClinicianUser() || !getToken()) return;
+  try {
+    const list = await api.videoAssessmentListSessions({});
+    _vaSessionListItems = list.items || [];
+    const pick =
+      idToLoad ||
+      (_vaSession && _vaSession.id) ||
+      (_vaSessionListItems[0] && _vaSessionListItems[0].id);
+    if (pick) {
+      const doc = await api.videoAssessmentGetSession(pick);
+      _vaSession = mergeServerDocument(doc);
+      try {
+        sessionStorage.setItem(_apiSessionKey(), pick);
+      } catch (_) {}
+      _applySummary();
+    }
+    _render();
+  } catch (e) {
+    showToast('Could not refresh: ' + (e && e.message));
   }
 }
 
@@ -310,10 +376,36 @@ function _stopRecordingClip() {
 }
 
 function _renderModeToggle() {
+  if (_vaPageLayout === 'capture') {
+    return `<p class="va-layout-hint">Patient capture — <button type="button" class="btn btn-sm btn-secondary" id="va-goto-review">Open clinician review instead</button></p>`;
+  }
+  if (_vaPageLayout === 'review') {
+    return `<p class="va-layout-hint">Clinician review — <button type="button" class="btn btn-sm btn-secondary" id="va-goto-capture">Open patient capture instead</button></p>`;
+  }
   const patientActive = _vaUiMode === 'patient';
   return `<div class="va-mode-toggle" role="tablist" aria-label="Assessment mode">
     <button type="button" role="tab" class="btn ${patientActive ? 'btn-primary' : 'btn-secondary'}" aria-selected="${patientActive}" id="va-mode-patient">Patient Capture Mode</button>
     <button type="button" role="tab" class="btn ${!patientActive ? 'btn-primary' : 'btn-secondary'}" aria-selected="${!patientActive}" id="va-mode-clinician">Clinician Review Mode</button>
+  </div>`;
+}
+
+function _renderClinicianSessionPicker() {
+  if (!_isClinicianUser() || !getToken()) return '';
+  const cur = _vaSession && _vaSession.id ? _vaSession.id : '';
+  const opts = _vaSessionListItems
+    .map((it) => {
+      const label =
+        String(it.id).slice(0, 8) +
+        '… · ' +
+        String(it.overall_status || '') +
+        (it.review_completion_percent != null ? ' · ' + it.review_completion_percent + '% reviewed' : '');
+      return `<option value="${esc(it.id)}" ${it.id === cur ? 'selected' : ''}>${esc(label)}</option>`;
+    })
+    .join('');
+  return `<div class="va-session-picker">
+    <label class="form-label" for="va-session-select">Session</label>
+    <select id="va-session-select" class="form-control">${opts || '<option value="">No sessions</option>'}</select>
+    <button type="button" class="btn btn-sm btn-secondary" id="va-session-refresh">Refresh list</button>
   </div>`;
 }
 
@@ -596,10 +688,16 @@ function _render() {
 
   _ensureSession();
 
-  const patientCol = _vaUiMode === 'patient' ? _renderPatientColumn() : `<div class="va-col"><p class="va-muted">Switch to Patient Capture Mode to use the guided flow.</p></div>`;
+  const showPatient = _vaPageLayout === 'capture' || (_vaPageLayout !== 'review' && _vaUiMode === 'patient');
+  const showClinician = _vaPageLayout === 'review' || (_vaPageLayout !== 'capture' && _vaUiMode === 'clinician');
 
-  const clinicianCol =
-    _vaUiMode === 'clinician' ? _renderClinicianColumn() : `<div class="va-col"><p class="va-muted">Switch to Clinician Review Mode to score recordings.</p></div>`;
+  const patientCol = showPatient
+    ? _renderPatientColumn()
+    : `<div class="va-col"><p class="va-muted">Patient capture is on the <a href="#" id="va-link-capture">capture page</a>.</p></div>`;
+
+  const clinicianCol = showClinician
+    ? _renderClinicianColumn()
+    : `<div class="va-col"><p class="va-muted">Clinician review is on the <a href="#" id="va-link-review">review page</a>.</p></div>`;
 
   const banner =
     _vaApiBanner ? `<div class="va-api-banner" role="status">${esc(_vaApiBanner)}</div>` : '';
@@ -620,6 +718,7 @@ function _render() {
   </div>
 
   ${_renderModeToggle()}
+  ${_renderClinicianSessionPicker()}
 
   <div class="va-grid">
     ${patientCol}
@@ -685,6 +784,23 @@ function _collectReviewFromDom(task) {
 }
 
 function _wire() {
+  document.getElementById('va-goto-review')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    if (window._nav) window._nav('video-assessments-review');
+  });
+  document.getElementById('va-goto-capture')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    if (window._nav) window._nav('video-assessments-capture');
+  });
+  document.getElementById('va-link-capture')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    if (window._nav) window._nav('video-assessments-capture');
+  });
+  document.getElementById('va-link-review')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    if (window._nav) window._nav('video-assessments-review');
+  });
+
   document.getElementById('va-mode-patient')?.addEventListener('click', () => {
     _vaUiMode = 'patient';
     _render();
@@ -693,6 +809,27 @@ function _wire() {
     _vaUiMode = 'clinician';
     _render();
   });
+
+  document.getElementById('va-session-select')?.addEventListener('change', async (e) => {
+    const id = e.target && e.target.value;
+    if (!id) return;
+    try {
+      const doc = await api.videoAssessmentGetSession(id);
+      _vaSession = mergeServerDocument(doc);
+      try {
+        sessionStorage.setItem(_apiSessionKey(), id);
+      } catch (_) {}
+      _applySummary();
+      _vaSelectedClinicianTask = 0;
+      showToast('Session loaded');
+      _render();
+    } catch (err) {
+      showToast('Load failed: ' + (err && err.message));
+    }
+  });
+  document.getElementById('va-session-refresh')?.addEventListener('click', () =>
+    _refreshSessionListAndMaybeLoad(null)
+  );
 
   document.getElementById('va-setup-continue')?.addEventListener('click', () => {
     const cb = document.getElementById('va-setup-safe');
@@ -914,11 +1051,13 @@ function _advanceTask(fromSkip) {
 /**
  * @param {(title: string, subtitle?: string) => void} setTopbar
  * @param {(id: string) => void} navigate
+ * @param {{ vaMode?: 'both'|'capture'|'review' }} [opts]
  */
-export async function pgVideoAssessments(setTopbar, navigate) {
+export async function pgVideoAssessments(setTopbar, navigate, opts = {}) {
   if (typeof setTopbar === 'function') setTopbar('Video Assessments', 'Virtual care');
   void navigate;
 
+  _vaPageLayout = opts.vaMode || 'both';
   _vaSession = null;
   _vaApiBootstrapDone = false;
   _vaApiBanner = '';
@@ -930,7 +1069,9 @@ export async function pgVideoAssessments(setTopbar, navigate) {
   }
   _applySummary();
 
-  _vaUiMode = 'patient';
+  if (_vaPageLayout === 'review') _vaUiMode = 'clinician';
+  else if (_vaPageLayout === 'capture') _vaUiMode = 'patient';
+  else _vaUiMode = 'patient';
   _vaPatientPhase = 'setup';
   _vaTaskIndex = 0;
   _vaSetupConfirmed = false;

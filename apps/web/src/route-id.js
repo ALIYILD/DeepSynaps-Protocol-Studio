@@ -1,4 +1,6 @@
 const ROUTE_ALIASES = {
+  'video-assessments-patient': 'video-assessments-capture',
+  'video-assessments-clinician': 'video-assessments-review',
   'brain-twin': 'deeptwin',
   // Single onboarding flow — collapse the legacy 4-step `onboarding` into
   // the canonical 6-step wizard so old bookmarks / e2e specs / nav calls

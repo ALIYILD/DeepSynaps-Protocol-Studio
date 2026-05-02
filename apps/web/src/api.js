@@ -2056,6 +2056,10 @@ export const api = {
   // ── Video Assessments (guided motor; separate from virtual-care video-analysis)
   videoAssessmentCreateSession: (data) =>
     apiFetch('/api/v1/video-assessments/sessions', { method: 'POST', body: JSON.stringify(data || {}) }),
+  videoAssessmentListSessions: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/video-assessments/sessions${q ? '?' + q : ''}`);
+  },
   videoAssessmentGetSession: (id) => apiFetch(`/api/v1/video-assessments/sessions/${encodeURIComponent(id)}`),
   videoAssessmentPatchSession: (id, data) =>
     apiFetch(`/api/v1/video-assessments/sessions/${encodeURIComponent(id)}`, {

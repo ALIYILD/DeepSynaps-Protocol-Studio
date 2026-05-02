@@ -67,6 +67,16 @@ def test_patient_create_and_patch_session(client: TestClient, auth_headers: dict
     assert body["summary"]["tasks_skipped"] >= 1
 
 
+def test_clinician_lists_sessions(client: TestClient, auth_headers: dict, demo_patient_va: str) -> None:
+    del demo_patient_va
+    r = client.post("/api/v1/video-assessments/sessions", headers=auth_headers["patient"], json={})
+    sid = r.json()["id"]
+    lst = client.get("/api/v1/video-assessments/sessions", headers=auth_headers["clinician"])
+    assert lst.status_code == 200, lst.text
+    ids = [x["id"] for x in lst.json().get("items", [])]
+    assert sid in ids
+
+
 def test_clinician_can_finalize(client: TestClient, auth_headers: dict, demo_patient_va: str) -> None:
     del demo_patient_va
     r = client.post(

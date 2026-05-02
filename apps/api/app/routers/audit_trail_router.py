@@ -494,6 +494,11 @@ KNOWN_SURFACES = {
     # Page-level events: view, window_changed, channel_filter_changed,
     # error_class_filter_changed, page_changed, drill_through_clicked.
     "coaching_digest_delivery_failure_drilldown",
+    # Video Assessments — guided motor capture + clinician review (MVP).
+    # Events emitted by video_assessment_router: session_created,
+    # session_read, session_patched, task_video_uploaded, task_video_viewed,
+    # session_finalized. Notes are PHI-safe (ids, counts, no raw video).
+    "video_assessment",
 }
 
 
