@@ -545,14 +545,13 @@ const NAV = [
   { id: 'text-analyzer',      label: 'Text',         icon: '📝', ai: true },
   { id: 'wearables',          label: 'Biometrics',   icon: '⌚' },
   { id: 'risk-analyzer',      label: 'Risk',         icon: '🛡️' },
-  { id: 'nutrition-analyzer', label: 'Nutrition',    icon: '🥗', ai: true },
   { id: 'medication-analyzer', label: 'Medication',  icon: '💊' },
   { id: 'treatment-sessions-analyzer', label: 'Sessions', icon: '🗓️' },
   { id: 'phenotype-analyzer', label: 'Phenotype', icon: '🧬', ai: true },
   { id: 'movement-analyzer', label: 'Movement', icon: '🏃', ai: true },
   { id: 'labs-analyzer',     label: 'Labs',      icon: '🧪', ai: true },
   { id: 'nutrition-analyzer', label: 'Nutrition', icon: '🥗', ai: true },
-  { id: 'digital-phenotyping-analyzer', label: 'Phenotyping', icon: '📱', ai: true },
+  { id: 'digital-phenotyping-analyzer', label: 'Behavior', icon: '📱', ai: true },
 
   // ── PROTOCOL — design / review treatment plans ───────────────────────────────
   { section: 'Protocol', sectionId: 'protocol', collapsed: false },
@@ -658,7 +657,7 @@ NAV_ICONS['phenotype-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="
 NAV_ICONS['movement-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="13" cy="4" r="2"/><path d="M4 22l4-7 3 2 4-5 4 4"/><path d="M11 8l-2 4 3 2 2-3 3 1"/><path d="M9 22l1-5"/></svg>`;
 NAV_ICONS['labs-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h6"/><path d="M10 2v13.5a3.5 3.5 0 0 0 7 0V2"/><path d="M10 11h7"/><circle cx="12.5" cy="14.5" r="0.6" fill="currentColor"/><circle cx="15" cy="13" r="0.6" fill="currentColor"/><circle cx="13.5" cy="17" r="0.6" fill="currentColor"/></svg>`;
 NAV_ICONS['nutrition-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4c-1.2-2-4-2.5-5.5-1S5 7 7 8.5"/><path d="M12 4c1.2-2 4-2.5 5.5-1S19 7 17 8.5"/><path d="M12 6c-3 0-6 2-6 6 0 4 3 9 6 9s6-5 6-9c0-4-3-6-6-6z"/><path d="M12 4v3"/></svg>`;
-NAV_ICONS['digital-phenotyping-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2" width="10" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/><path d="M9 6h6"/><path d="M9 9h3"/></svg>`;
+NAV_ICONS['digital-phenotyping-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="2"/><line x1="12" y1="19" x2="12.01" y2="19"/><polyline points="8.5 11 10 11 11 8.5 13 13.5 14 11 15.5 11"/></svg>`;
 NAV_ICONS['academy']         = `<svg viewBox="0 0 24 24"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>`;
 NAV_ICONS['marketplace']     = `<svg viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" x2="21" y1="6" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>`;
 
@@ -1865,7 +1864,6 @@ async function renderPage() {
     case 'phenotype-analyzer': { const m = await loadPhenotypeAnalyzer(); await m.pgPhenotypeAnalyzer(setTopbar, navigate); break; }
     case 'movement-analyzer':  { const m = await loadMovementAnalyzer(); await m.pgMovementAnalyzer(setTopbar, navigate); break; }
     case 'labs-analyzer':      { const m = await loadLabsAnalyzer(); await m.pgLabsAnalyzer(setTopbar, navigate); break; }
-    case 'nutrition-analyzer': { const m = await loadNutritionAnalyzer(); await m.pgNutritionAnalyzer(setTopbar, navigate); break; }
     case 'digital-phenotyping-analyzer': {
       const m = await loadDigitalPhenotypingAnalyzer();
       await m.pgDigitalPhenotypingAnalyzer(setTopbar, navigate);
@@ -3091,6 +3089,8 @@ window.addEventListener('popstate', (e) => {
     { type: 'nav', icon: '🥗', title: 'Diet & Supplements', page: 'nutrition-analyzer' },
     { type: 'nav', icon: '🥗', title: 'Diet-Drug Interactions', page: 'nutrition-analyzer' },
     { type: 'nav', icon: '📱', title: 'Digital Phenotyping Analyzer', page: 'digital-phenotyping-analyzer' },
+    { type: 'nav', icon: '📱', title: 'Behavioral Signals (Sleep / Mobility / Social)', page: 'digital-phenotyping-analyzer' },
+    { type: 'nav', icon: '📱', title: 'Passive Smartphone & Wearable Phenotype', page: 'digital-phenotyping-analyzer' },
   );
 
   // Fuzzy match: returns score (higher = better), or 0 if no match

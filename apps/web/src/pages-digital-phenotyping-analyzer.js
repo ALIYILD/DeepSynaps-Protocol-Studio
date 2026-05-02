@@ -1,19 +1,6 @@
-/**
- * Digital Phenotyping Analyzer — passive smartphone/wearable behavioral signals.
- *
- * Wraps GET /api/v1/digital-phenotyping/analyzer/patient/{patient_id}
- * and related consent / audit / recompute endpoints.
- *
- * Decision-support only — passive data do not diagnose; clinical correlation required.
- */
-
 import { api } from './api.js';
 import { isDemoSession } from './demo-session.js';
-import { EVIDENCE_TOTAL_PAPERS } from './evidence-dataset.js';
-import {
-  DEMO_FIXTURE_BANNER_HTML,
-  demoDigitalPhenotypingPayload,
-} from './demo-fixtures-analyzers.js';
+import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 
 function esc(s) {
   return String(s ?? '')
@@ -23,593 +10,746 @@ function esc(s) {
     .replace(/"/g, '&quot;');
 }
 
-function _fmtEvidenceK(n) {
-  const x = Number(n) || 0;
-  return x >= 1000 ? `${(x / 1000).toFixed(1).replace(/\.0$/, '')}K` : String(x);
-}
+const SIGNAL_ORDER = ['sleep', 'mobility', 'social', 'typing_cadence', 'screen_time', 'voice_diary'];
 
-/** Resolve patient id from global clinical context (same pattern as qEEG / roster). */
-function _effectivePatientIdFromContext() {
-  try {
-    return String(
-      window._dpaPatientId
-        || window._selectedPatientId
-        || window._profilePatientId
-        || window._currentPatientId
-        || window._qeegPatientId
-        || window._clinicalPatientId
-        || '',
-    ).trim();
-  } catch {
-    return '';
-  }
-}
-
-const SNAPSHOT_META = {
-  mobility_stability: { title: 'Mobility stability', unit: 'index', hint: 'Higher = more stable mobility patterns vs baseline.' },
-  routine_regularity: { title: 'Routine regularity', unit: 'index', hint: 'Day-to-day schedule consistency (proxy).' },
-  screen_time_pattern: { title: 'Screen-time pattern', unit: '× baseline', hint: '1.0 = personal baseline; &gt;1 more screen use than baseline.' },
-  sleep_timing_proxy: { title: 'Sleep timing proxy', unit: 'index', hint: 'Timing consistency from device proxies — not PSG.' },
-  sociability_proxy: { title: 'Sociability proxy', unit: 'index', hint: 'Metadata-only communication patterns when consented.' },
-  activity_level: { title: 'Activity level', unit: 'index', hint: 'Steps / motion-derived activity vs baseline.' },
-  anomaly_score: { title: 'Anomaly score', unit: 'index', hint: 'Combined deviation signal — lower burden ≠ lower clinical concern alone.' },
-  data_completeness: { title: 'Data completeness', unit: '% window', hint: 'Fraction of expected passive samples present — affects confidence.' },
+const SIGNAL_LABELS = {
+  sleep:          'Sleep',
+  mobility:       'Activity / Mobility',
+  social:         'Social engagement',
+  typing_cadence: 'Typing cadence',
+  screen_time:    'Screen time',
+  voice_diary:    'Voice diary cadence',
 };
 
-function _formatSnapshotValue(key, m) {
-  if (!m || m.value == null || Number.isNaN(Number(m.value))) return '—';
-  const v = Number(m.value);
-  if (key === 'data_completeness') return `${Math.round(v * 100)}%`;
-  if (key === 'screen_time_pattern') return `${v.toFixed(2)}×`;
-  return v.toFixed(2);
+const SIGNAL_TIPS = {
+  sleep:          'Average sleep hours from device-derived sleep proxy.',
+  mobility:       'Steps/day and time-out-of-home derived from passive motion + GPS.',
+  social:         'Outbound communication count vs personal baseline (metadata only).',
+  typing_cadence: 'Inter-key interval and word-pause distribution — psychomotor proxy.',
+  screen_time:    'Total daily screen-time share vs personal baseline.',
+  voice_diary:    'Voluntary voice diary submission cadence + speech rate.',
+};
+
+function _sevKey(s) {
+  return String(s || '').toLowerCase();
 }
 
-function _snapshotCards(snapshot) {
-  const keys = Object.keys(SNAPSHOT_META);
-  return keys.map((key) => {
-    const meta = SNAPSHOT_META[key];
-    const m = snapshot?.[key];
-    const v = _formatSnapshotValue(key, m);
-    const conf = m?.confidence != null ? `${Math.round(m.confidence * 100)}% confidence` : '';
-    const comp = m?.completeness != null ? `${Math.round(m.completeness * 100)}% data` : '';
-    const cmp = m?.baseline_comparison ? String(m.baseline_comparison) : '';
-    const sens = m?.privacy_sensitivity_level ? `${m.privacy_sensitivity_level} sensitivity` : '';
-    const sub = [cmp, conf, comp].filter(Boolean).join(' · ');
-    return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:12px 14px" title="${esc(meta.hint)}">
-      <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:4px">${esc(meta.title)}</div>
-      <div style="font-weight:700;font-size:18px">${esc(v)} <span style="font-size:11px;font-weight:500;color:var(--text-tertiary)">${esc(meta.unit)}</span></div>
-      <div style="font-size:11px;color:var(--text-secondary);margin-top:6px">${esc(sub)}${sens ? ` · ${esc(sens)}` : ''}</div>
-    </div>`;
-  }).join('');
-}
-
-function _domainsPanel(domains, consentState) {
-  const enabled = consentState?.domains_enabled || {};
-  const list = Array.isArray(domains) ? domains : [];
-  return list.map((d) => {
-    const domainKey = d.signal_domain;
-    const consentOk = enabled[domainKey] !== false;
-    const stats = d.summary_stats && typeof d.summary_stats === 'object'
-      ? Object.entries(d.summary_stats).map(([k, v]) => `${k}: ${typeof v === 'number' ? v : JSON.stringify(v)}`).join('; ')
-      : '';
-    const muted = !consentOk ? 'opacity:0.55' : '';
-    const badge = !consentOk
-      ? '<span class="pill pill-inactive" style="margin-left:8px;font-size:10px">Not consented</span>'
-      : '';
-    return `<div style="border-bottom:1px solid var(--border);padding:12px 0;${muted}">
-      <div style="font-weight:600;display:flex;align-items:center;flex-wrap:wrap">${esc(domainKey)}${badge}</div>
-      ${consentOk ? `<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">
-        Modalities: ${esc((d.collection_modalities || []).join(', '))} · Source: ${esc((d.source_types || []).join(', '))}
-      </div>
-      <div style="font-size:12px;margin-top:6px">${esc(stats)}</div>
-      <div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">Completeness: ${esc(d.completeness != null ? `${Math.round(d.completeness * 100)}%` : '—')}</div>`
-        : '<div style="font-size:12px;color:var(--text-tertiary);margin-top:6px">Patient consent does not include this domain — metrics are withheld.</div>'}
-    </div>`;
-  }).join('');
-}
-
-function _flagsPanel(flags) {
-  const list = Array.isArray(flags) ? flags : [];
-  if (!list.length) {
-    return '<div style="font-size:12px;color:var(--text-tertiary)">No behavioral indicator flags in this window.</div>';
+function _pillFor(level) {
+  const lvl = _sevKey(level);
+  if (lvl === 'red') {
+    return '<span class="pill" style="background:rgba(255,107,107,0.12);color:var(--red);border:1px solid rgba(255,107,107,0.25)">Critical</span>';
   }
-  return list.map((f) => `<div style="background:rgba(155,127,255,0.06);border:1px solid rgba(155,127,255,0.22);border-radius:12px;padding:12px;margin-bottom:10px">
-    <div style="font-weight:600">${esc(f.label)}</div>
-    <div style="font-size:12px;color:var(--text-secondary);margin-top:6px">${esc(f.detail)}</div>
-    <div style="font-size:11px;color:var(--text-tertiary);margin-top:8px">${esc(f.statement_type || '')} · severity ${esc(f.severity)} · confidence ${f.confidence != null ? Math.round(f.confidence * 100) + '%' : '—'}</div>
-    ${Array.isArray(f.caveats) && f.caveats.length ? `<ul style="margin:8px 0 0 18px;font-size:11px;color:var(--text-secondary)">${f.caveats.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}
-  </div>`).join('');
-}
-
-function _recommendationsPanel(recs) {
-  const list = Array.isArray(recs) ? recs : [];
-  if (!list.length) {
-    return '<div style="font-size:12px;color:var(--text-tertiary)">No system suggestions for this window.</div>';
+  if (lvl === 'amber') {
+    return '<span class="pill pill-pending">Elevated</span>';
   }
-  return list.map((r) => {
-    const targets = Array.isArray(r.targets) ? r.targets : [];
-    const btns = targets.map((tid) =>
-      `<button type="button" class="btn btn-ghost btn-sm" data-nav-page="${esc(tid)}" style="margin:4px 8px 0 0;min-height:40px">${esc(tid)}</button>`,
-    ).join('');
-    return `<div style="border-bottom:1px solid var(--border);padding:12px 0">
-      <div style="font-weight:600">${esc(r.title)} <span style="font-size:11px;color:var(--text-tertiary)">${esc(r.priority || '')}</span></div>
-      <div style="font-size:12px;color:var(--text-secondary);margin-top:6px">${esc(r.detail)}</div>
-      ${btns ? `<div style="margin-top:10px">${btns}</div>` : ''}
-    </div>`;
-  }).join('');
+  if (lvl === 'green') {
+    return '<span class="pill pill-active">Within range</span>';
+  }
+  return '<span class="pill pill-inactive">Unknown</span>';
 }
 
-function _linksHtml(links) {
-  const list = Array.isArray(links) ? links : [];
-  return list.map((l) => {
-    const pid = l.nav_page_id;
-    const extra = pid === 'research-evidence'
-      ? ' data-dpa-evidence="search:digital phenotyping passive sensing"'
-      : '';
-    return `<div style="margin-bottom:10px">
-      <button type="button" class="btn btn-ghost btn-sm" data-nav-page="${esc(pid)}"${extra} style="min-height:44px">
-        ${esc(l.title)} →
-      </button>
-      <span style="font-size:11px;color:var(--text-tertiary);margin-left:8px">${esc(l.relevance_note || '')}</span>
-    </div>`;
-  }).join('');
+function _miniDot(level) {
+  const lvl = _sevKey(level);
+  const bg = lvl === 'red' ? 'var(--red)'
+    : lvl === 'amber' ? 'var(--amber)'
+    : lvl === 'green' ? 'var(--green)'
+    : 'var(--text-tertiary)';
+  const title = lvl === 'red' ? 'Critical' : lvl === 'amber' ? 'Elevated' : lvl === 'green' ? 'Within range' : 'Unknown';
+  return `<span title="${title}" aria-label="${title}" style="display:inline-block;width:14px;height:14px;border-radius:50%;background:${bg};opacity:${lvl ? 1 : 0.35}"></span>`;
 }
 
-function _consentPanel(consent) {
-  if (!consent) return '';
-  const dom = consent.domains_enabled || {};
-  const rows = Object.entries(dom).map(([k, v]) => `<li><strong>${esc(k)}</strong>: ${v ? 'enabled' : 'off'}</li>`).join('');
-  return `<div style="font-size:12px;line-height:1.5">
-    <div style="margin-bottom:8px">Consent scope <strong>${esc(consent.consent_scope_version)}</strong> · updated ${esc(consent.updated_at)}</div>
-    <div style="margin-bottom:8px">${esc(consent.visibility_note || '')}</div>
-    <div>Retention (summary): ${esc(String(consent.retention_summary_days || '—'))} days</div>
-    <ul style="margin:8px 0 0 18px">${rows}</ul>
+function _trendArrow(trend) {
+  const t = String(trend || '').toLowerCase();
+  if (t === 'improving') return '<span title="Improving" style="color:var(--green)">↓</span>';
+  if (t === 'worsening') return '<span title="Worsening" style="color:var(--red)">↑</span>';
+  if (t === 'stable')    return '<span title="Stable" style="color:var(--text-tertiary)">→</span>';
+  return '<span style="color:var(--text-tertiary)">·</span>';
+}
+
+function _skeletonChips(n = 5) {
+  const chip = '<span style="display:inline-block;width:120px;height:24px;border-radius:12px;background:linear-gradient(90deg,rgba(255,255,255,.04),rgba(255,255,255,.08),rgba(255,255,255,.04));background-size:200% 100%;animation:dh2AttnPulse 1.6s ease-in-out infinite"></span>';
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap">${Array.from({ length: n }, () => chip).join('')}</div>`;
+}
+
+function _errorCard(message) {
+  const safe = esc(message || '');
+  return `<div role="alert" style="max-width:560px;margin:24px auto;padding:18px 20px;border:1px solid rgba(255,107,107,0.35);background:rgba(255,107,107,0.06);border-radius:12px">
+    <div style="font-weight:600;margin-bottom:6px;color:var(--text-primary)">We couldn’t load the digital phenotyping profile right now.</div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;margin-bottom:12px">${safe}</div>
+    <button type="button" class="btn btn-ghost btn-sm" data-action="retry" style="min-height:44px">Try again</button>
   </div>`;
 }
 
-function _consentEditor(consent) {
-  const dom = consent?.domains_enabled || {};
-  const keys = Object.keys(dom);
-  if (!keys.length) return '';
-  const checks = keys.map((k) => `<label style="display:flex;align-items:center;gap:8px;font-size:12px;margin:6px 0;cursor:pointer">
-    <input type="checkbox" data-dpa-domain="${esc(k)}" ${dom[k] ? 'checked' : ''} />
-    <span>${esc(k)}</span>
-  </label>`).join('');
-  return `<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
-    <div style="font-size:12px;font-weight:600;margin-bottom:6px">Update consent (clinic)</div>
-    <p style="font-size:11px;color:var(--text-tertiary);margin:0 0 8px;line-height:1.4">Toggles are stored on the server and drive which domains appear below. Use your org’s consent workflow; this is a technical control only.</p>
-    ${checks}
-    <button type="button" class="btn btn-sm btn-primary" id="dpa-save-consent" style="margin-top:10px;min-height:40px">Save consent</button>
-    <div id="dpa-consent-status" style="font-size:11px;margin-top:8px;color:var(--text-tertiary)"></div>
-  </div>`;
-}
-
-function _auditPanel(events) {
-  const list = Array.isArray(events) ? events : [];
-  if (!list.length) return '<div style="font-size:12px;color:var(--text-tertiary)">No audit entries.</div>';
-  return `<ul style="list-style:none;margin:0;padding:0;font-size:12px">${list.map((e) => `<li style="padding:6px 0;border-bottom:1px solid var(--border)">
-    <span style="color:var(--text-tertiary)">${esc(e.timestamp)}</span> · ${esc(e.action)} — ${esc(e.summary || '')}
-  </li>`).join('')}</ul>`;
-}
-
-function _observationsTable(rows) {
-  const list = Array.isArray(rows) ? rows : [];
-  if (!list.length) {
-    return '<div style="font-size:12px;color:var(--text-tertiary)">No rows yet — add an EMA check-in or a device note below.</div>';
-  }
-  return `<table style="width:100%;font-size:11px;border-collapse:collapse">
-    <thead><tr style="text-align:left;color:var(--text-tertiary)"><th style="padding:4px 6px">When</th><th style="padding:4px 6px">Source</th><th style="padding:4px 6px">Kind</th><th style="padding:4px 6px">Summary</th></tr></thead>
-    <tbody>${list.slice(0, 12).map((o) => {
-    const p = o.payload || {};
-    const sum = [p.mood_0_10 != null ? `mood ${p.mood_0_10}` : '', p.anxiety_0_10 != null ? `anx ${p.anxiety_0_10}` : '', p.sleep_hours != null ? `sleep ${p.sleep_hours}h` : '', p.notes || p.note].filter(Boolean).join(' · ');
-    return `<tr style="border-top:1px solid var(--border)"><td style="padding:6px;white-space:nowrap">${esc(String(o.recorded_at || '').slice(0, 16))}</td><td style="padding:6px">${esc(o.source)}</td><td style="padding:6px">${esc(o.kind)}</td><td style="padding:6px">${esc(sum || '—')}</td></tr>`;
-  }).join('')}
-    </tbody></table>`;
-}
-
-function _localDatetimeInputValue() {
-  const d = new Date();
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function _dataIntakePanel(data) {
-  const prov = data.provenance || {};
-  const manualN = prov.mvp_manual_observations_14d;
-  const devN = prov.mvp_device_observations_14d;
-  const localNow = _localDatetimeInputValue();
-  return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:22px">
-    <div style="font-weight:600;margin-bottom:6px">Data intake (MVP)</div>
-    <p style="font-size:12px;color:var(--text-secondary);margin:0 0 12px;line-height:1.45">
-      Passive phone streams are not ingested yet. Add <strong>patient-reported check-ins</strong> here and link <strong>wearables</strong> under Biometrics (device sync).
-      Last 14 days: <strong>${esc(String(manualN ?? 0))}</strong> manual · <strong>${esc(String(devN ?? 0))}</strong> device notes.
-      Total stored rows: <strong>${esc(String(data.mvp_observations_total ?? 0))}</strong>.
-    </p>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:12px">
-      <label style="font-size:11px;display:flex;flex-direction:column;gap:4px">Recorded at (local)
-        <input type="datetime-local" id="dpa-m-obs-time" class="form-control" value="${esc(localNow)}" />
-      </label>
-      <label style="font-size:11px;display:flex;flex-direction:column;gap:4px">Mood (0–10)
-        <input type="number" id="dpa-m-mood" class="form-control" min="0" max="10" step="0.1" placeholder="optional" />
-      </label>
-      <label style="font-size:11px;display:flex;flex-direction:column;gap:4px">Anxiety (0–10)
-        <input type="number" id="dpa-m-anx" class="form-control" min="0" max="10" step="0.1" placeholder="optional" />
-      </label>
-      <label style="font-size:11px;display:flex;flex-direction:column;gap:4px">Sleep (hours)
-        <input type="number" id="dpa-m-sleep" class="form-control" min="0" max="24" step="0.25" placeholder="optional" />
-      </label>
+function _emptyClinicCard() {
+  return `<div style="max-width:560px;margin:48px auto;padding:24px;border:1px solid var(--border);border-radius:14px;background:var(--bg-card);text-align:center">
+    <div style="font-size:15px;font-weight:600;margin-bottom:8px">No digital phenotyping signals captured yet.</div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.5">
+      Patients log via the mobile companion or a paired wearable. Once consent is granted and a 14-day window is collected, signals appear here.
     </div>
-    <label style="font-size:11px;display:block;margin-bottom:10px">Notes
-      <textarea id="dpa-m-notes" class="form-control" rows="2" placeholder="Optional context"></textarea>
-    </label>
-    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px">
-      <button type="button" class="btn btn-primary btn-sm" id="dpa-save-manual-obs" style="min-height:40px">Save EMA check-in</button>
-      <button type="button" class="btn btn-ghost btn-sm" id="dpa-log-device-note" style="min-height:40px">Log device sync note</button>
-      <button type="button" class="btn btn-ghost btn-sm" data-nav-page="wearables" style="min-height:40px">Open Biometrics / sync</button>
-      <span id="dpa-data-status" style="font-size:11px;color:var(--text-tertiary)"></span>
-    </div>
-    <div style="font-weight:600;font-size:12px;margin-bottom:6px">Recent observations</div>
-    ${_observationsTable(data.mvp_observations)}
   </div>`;
 }
 
-function renderAnalyzerHtml(data, auditEvents) {
-  const disclaimer = data.clinical_disclaimer || '';
-  const auditList = Array.isArray(auditEvents) ? auditEvents : (data.audit_events || []);
-  const pname = data.patient_display_name || '';
-  const pid = data.patient_id || '';
+function _sparkline(history) {
+  if (!Array.isArray(history) || history.length < 2) {
+    return `<svg viewBox="0 0 120 32" width="120" height="32" style="display:block" aria-hidden="true"></svg>`;
+  }
+  const w = 120;
+  const h = 32;
+  const pad = 2;
+  let min = Math.min(...history);
+  let max = Math.max(...history);
+  if (min === max) { min -= 1; max += 1; }
+  const step = (w - pad * 2) / (history.length - 1);
+  const coords = history.map((v, i) => {
+    const x = pad + i * step;
+    const y = h - pad - ((v - min) / (max - min)) * (h - pad * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const lastIdx = history.length - 1;
+  const lx = pad + lastIdx * step;
+  const ly = h - pad - ((history[lastIdx] - min) / (max - min)) * (h - pad * 2);
+  return `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" style="display:block;color:var(--text-secondary)" role="img" aria-label="Last ${history.length} days">
+    <polyline fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" points="${coords}"/>
+    <circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="1.8" fill="currentColor"/>
+  </svg>`;
+}
 
-  return `
-    <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:16px;padding:14px 16px;background:var(--bg-card);border:1px solid var(--border);border-radius:14px">
+function _flagPill(label, severity) {
+  const lvl = _sevKey(severity);
+  const color = lvl === 'red' ? 'var(--red)' : lvl === 'amber' ? 'var(--amber)' : lvl === 'green' ? 'var(--green)' : 'var(--text-secondary)';
+  const bg = lvl === 'red' ? 'rgba(255,107,107,0.14)' : lvl === 'amber' ? 'rgba(255,176,87,0.14)' : lvl === 'green' ? 'rgba(96,200,140,0.10)' : 'rgba(255,255,255,0.04)';
+  const border = lvl === 'red' ? 'rgba(255,107,107,0.30)' : lvl === 'amber' ? 'rgba(255,176,87,0.30)' : lvl === 'green' ? 'rgba(96,200,140,0.30)' : 'var(--border)';
+  return `<span class="pill" style="background:${bg};color:${color};border:1px solid ${border};font-size:10.5px;padding:2px 8px;min-height:24px">${esc(label)}</span>`;
+}
+
+function _renderClinicTable(rows, sortKey, sortDir) {
+  if (!Array.isArray(rows) || !rows.length) return _emptyClinicCard();
+  const dir = sortDir === 'asc' ? 1 : -1;
+  const sevRank = (s) => ({ red: 3, amber: 2, green: 1 }[_sevKey(s)] || 0);
+  const trendRank = (t) => ({ worsening: 3, stable: 2, improving: 1 }[String(t || '').toLowerCase()] || 0);
+
+  const sorted = rows.slice();
+  sorted.sort((a, b) => {
+    if (sortKey === 'name') return String(a.patient_name || '').localeCompare(String(b.patient_name || '')) * dir;
+    if (sortKey === 'captured_at') return String(a.captured_at || '').localeCompare(String(b.captured_at || '')) * dir;
+    if (sortKey === 'worst') return (sevRank(b.worst_severity) - sevRank(a.worst_severity)) * (dir === 1 ? 1 : -1);
+    if (sortKey === 'trend') return (trendRank(b.trend) - trendRank(a.trend)) * (dir === 1 ? 1 : -1);
+    return 0;
+  });
+
+  const sortInd = (k) => k === sortKey ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '';
+  const th = (key, label, align = 'left') =>
+    `<th data-sort-key="${esc(key)}" title="Sort by ${esc(label)}" style="padding:8px 8px;text-align:${align};font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border);cursor:pointer;user-select:none">${esc(label)}${sortInd(key)}</th>`;
+
+  const head = `<tr>
+    ${th('name', 'Patient')}
+    ${th('captured_at', 'Last observation')}
+    <th style="padding:8px 8px;text-align:left;font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)">Signal flags</th>
+    ${th('worst', 'Worst', 'center')}
+    ${th('trend', 'Trend', 'center')}
+    <th style="padding:8px 8px;text-align:right;font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)"></th>
+  </tr>`;
+
+  const body = sorted.map((p) => {
+    const when = p.captured_at ? new Date(p.captured_at).toLocaleDateString() : '—';
+    const flags = Array.isArray(p.flags) ? p.flags : [];
+    const flagsHtml = flags.length
+      ? flags.map((f) => _flagPill(f.label, f.severity)).join(' ')
+      : '<span style="color:var(--text-tertiary);font-size:11px">No signal data</span>';
+    const sevTint = p.worst_severity === 'red'
+      ? 'border-left:3px solid var(--red)'
+      : p.worst_severity === 'amber'
+        ? 'border-left:3px solid var(--amber)'
+        : 'border-left:3px solid var(--green)';
+    return `<tr data-patient-id="${esc(p.patient_id)}" tabindex="0" role="button" style="cursor:pointer;min-height:44px;${sevTint}"
+      onmouseover="this.style.background='rgba(255,255,255,.03)'"
+      onmouseout="this.style.background='transparent'">
+      <td style="padding:10px;border-bottom:1px solid var(--border);font-weight:500">${esc(p.patient_name || 'Unknown')}</td>
+      <td style="padding:10px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-secondary)">${esc(when)}</td>
+      <td style="padding:10px;border-bottom:1px solid var(--border);font-size:12px;display:flex;flex-wrap:wrap;gap:4px;min-width:240px">${flagsHtml}</td>
+      <td style="padding:10px 8px;text-align:center;border-bottom:1px solid var(--border)">${_miniDot(p.worst_severity)}</td>
+      <td style="padding:10px 8px;text-align:center;border-bottom:1px solid var(--border);font-size:14px">${_trendArrow(p.trend)}</td>
+      <td style="padding:10px;text-align:right;border-bottom:1px solid var(--border)">
+        <button type="button" class="btn btn-ghost btn-sm" data-action="open-patient" data-patient-id="${esc(p.patient_id)}" style="min-height:44px">View</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;overflow:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:820px">
+      <thead>${head}</thead>
+      <tbody>${body}</tbody>
+    </table>
+  </div>`;
+}
+
+function _formatScore(signal) {
+  if (!signal) return '—';
+  if (signal.score == null) return '—';
+  const num = Number(signal.score);
+  if (!Number.isFinite(num)) return String(signal.score);
+  const sign = num > 0 && /%/.test(String(signal.unit || '')) ? '+' : '';
+  return `${sign}${num}`;
+}
+
+function _renderSignalCard(key, signal, navigate) {
+  const factors = Array.isArray(signal?.contributing_factors) ? signal.contributing_factors.slice(0, 2) : [];
+  const factorsHtml = factors.length
+    ? factors.map((f) => `<li style="margin-bottom:4px">${esc(f)}</li>`).join('')
+    : '<li style="color:var(--text-tertiary)">No contributing factors recorded.</li>';
+  const score = _formatScore(signal);
+  const unit = signal?.unit || '';
+  const baseline = signal?.baseline_label || '';
+  return `<div data-signal="${esc(key)}" style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;min-height:220px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
       <div>
-        <div style="font-weight:700;font-size:16px">${esc(pname || 'Patient')}</div>
-        <div style="font-size:12px;color:var(--text-tertiary);margin-top:4px">ID <code style="font-size:11px">${esc(pid)}</code></div>
+        <div style="font-weight:600;font-size:13px">${esc(SIGNAL_LABELS[key] || key)}</div>
+        <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${esc(SIGNAL_TIPS[key] || '')}</div>
       </div>
-      <div style="font-size:11px;color:var(--text-tertiary);text-align:right">Analysis window (UTC)<br/>
-        <strong style="color:var(--text-secondary)">${esc(data.analysis_window?.start)} → ${esc(data.analysis_window?.end)}</strong>
+      <div>${_pillFor(signal?.severity)}</div>
+    </div>
+    <div style="display:flex;align-items:baseline;gap:10px">
+      <div style="font-size:22px;font-weight:600;font-variant-numeric:tabular-nums">${esc(score)}</div>
+      <div style="font-size:11px;color:var(--text-tertiary)">${esc(unit)}${baseline ? ' · ' + esc(baseline) : ''}</div>
+    </div>
+    <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px">Top contributing factors</div>
+    <ul style="margin:0;padding-left:16px;font-size:12px;line-height:1.5;color:var(--text-secondary)">${factorsHtml}</ul>
+    <div style="margin-top:auto">${_sparkline(signal?.history)}</div>
+  </div>`;
+}
+
+function _renderCrossModalCallouts(crossModal) {
+  const list = Array.isArray(crossModal) ? crossModal : [];
+  if (!list.length) {
+    return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px">
+      <div style="font-weight:600;font-size:13px;margin-bottom:8px">Cross-modal context</div>
+      <div style="font-size:12px;color:var(--text-tertiary)">No cross-modal correlations flagged for this window.</div>
+    </div>`;
+  }
+  const cards = list.map((c) => {
+    const linksHtml = (Array.isArray(c.linked_pages) ? c.linked_pages : [])
+      .map((p) => `<button type="button" class="btn btn-ghost btn-sm" data-nav-page="${esc(p)}" style="min-height:32px;font-size:11px;padding:4px 10px;margin-right:4px">${esc(p)} →</button>`)
+      .join('');
+    return `<div style="border-bottom:1px solid var(--border);padding:10px 0">
+      <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">${esc(SIGNAL_LABELS[c.signal] || c.signal || 'Signal')} — what this means</div>
+      <div style="font-size:12px;color:var(--text-secondary);line-height:1.5">${esc(c.message || '')}</div>
+      ${linksHtml ? `<div style="margin-top:6px">${linksHtml}</div>` : ''}
+    </div>`;
+  }).join('');
+  return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px">
+    <div style="font-weight:600;font-size:13px;margin-bottom:8px">Cross-modal context</div>
+    ${cards}
+  </div>`;
+}
+
+function _renderObservationForm() {
+  const today = new Date().toISOString().slice(0, 16);
+  return `<form data-observation-form style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px">
+    <div style="font-weight:600;font-size:13px">Add observation</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px">
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--text-tertiary)">Recorded at
+        <input name="recorded_at" type="datetime-local" class="form-control" value="${esc(today)}" required style="min-height:36px"/>
+      </label>
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--text-tertiary)">Mood (0–10)
+        <input name="mood_0_10" type="number" min="0" max="10" step="0.1" class="form-control" style="min-height:36px"/>
+      </label>
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--text-tertiary)">Anxiety (0–10)
+        <input name="anxiety_0_10" type="number" min="0" max="10" step="0.1" class="form-control" style="min-height:36px"/>
+      </label>
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--text-tertiary)">Sleep (h)
+        <input name="sleep_hours" type="number" min="0" max="24" step="0.25" class="form-control" style="min-height:36px"/>
+      </label>
+    </div>
+    <textarea name="notes" class="form-control" rows="2" placeholder="Optional notes (e.g. EMA check-in context)…" style="min-height:48px;width:100%"></textarea>
+    <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end">
+      <span data-form-error style="color:var(--red);font-size:11px;margin-right:auto"></span>
+      <button type="submit" class="btn btn-primary btn-sm" style="min-height:44px">Add observation</button>
+    </div>
+  </form>`;
+}
+
+function _renderAnnotationForm() {
+  return `<form data-annotation-form style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px">
+    <div style="font-weight:600;font-size:13px">Add annotation</div>
+    <textarea name="note" class="form-control" rows="2" placeholder="Clinical note (e.g. flag sleep loss + social drop, escalate review)…" style="min-height:64px;width:100%"></textarea>
+    <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end">
+      <span data-form-error style="color:var(--red);font-size:11px;margin-right:auto"></span>
+      <button type="submit" class="btn btn-primary btn-sm" style="min-height:44px">Save annotation</button>
+    </div>
+  </form>`;
+}
+
+function _renderAuditPanel(audit) {
+  const items = Array.isArray(audit?.items) ? audit.items : [];
+  if (!items.length) {
+    return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px">
+      <div style="font-weight:600;font-size:13px;margin-bottom:8px">Audit trail</div>
+      <div style="font-size:12px;color:var(--text-tertiary)">No recomputes, observations, or annotations recorded yet.</div>
+    </div>`;
+  }
+  const sorted = items.slice().sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  const tagFor = (k) => {
+    const kind = String(k || 'event').toLowerCase();
+    if (kind === 'recompute')   return '<span class="pill pill-inactive" style="font-size:10px;padding:2px 8px">Recompute</span>';
+    if (kind === 'annotation')  return '<span class="pill pill-active" style="font-size:10px;padding:2px 8px">Annotation</span>';
+    if (kind === 'observation') return '<span class="pill pill-pending" style="font-size:10px;padding:2px 8px">Observation</span>';
+    return '<span class="pill pill-inactive" style="font-size:10px;padding:2px 8px">Event</span>';
+  };
+  const rows = sorted.map((it) => {
+    const when = it.created_at ? new Date(it.created_at).toLocaleString() : '—';
+    return `<li style="padding:8px 10px;border-bottom:1px solid var(--border);font-size:12px;display:flex;flex-direction:column;gap:2px">
+      <div style="display:flex;gap:8px;align-items:center;justify-content:space-between">
+        <div style="display:flex;gap:8px;align-items:center">${tagFor(it.kind)}<span style="color:var(--text-tertiary);font-size:11px">${esc(it.actor || '—')}</span></div>
+        <span style="color:var(--text-tertiary);white-space:nowrap;font-size:11px">${esc(when)}</span>
       </div>
+      <div style="color:var(--text-secondary);line-height:1.5">${esc(it.message || '')}</div>
+    </li>`;
+  }).join('');
+  return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px">
+    <div style="font-weight:600;font-size:13px;margin-bottom:8px">Audit trail</div>
+    <ul style="list-style:none;margin:0;padding:0">${rows}</ul>
+  </div>`;
+}
+
+function _renderPatientDetail(profile, audit, navigate) {
+  const captured = profile?.captured_at ? new Date(profile.captured_at).toLocaleString() : 'No observation recorded.';
+  const cards = SIGNAL_ORDER.map((k) => _renderSignalCard(k, profile?.signals?.[k], navigate)).join('');
+  return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:12px 0 14px">
+      <div style="font-size:12px;color:var(--text-tertiary)">Last observation: ${esc(captured)}</div>
+      <button type="button" class="btn btn-ghost btn-sm" data-action="recompute" style="min-height:44px">Recompute</button>
     </div>
-    ${disclaimer ? `<div class="notice notice-info" style="margin-bottom:14px;font-size:12px;line-height:1.45">${esc(disclaimer)}</div>` : ''}
-    <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:12px">Generated ${esc(data.generated_at)}</div>
-    <h3 style="font-size:14px;margin:0 0 10px">Behavioral snapshot</h3>
-    <p style="font-size:12px;color:var(--text-secondary);margin:-4px 0 12px;line-height:1.45">Indices are unitless model summaries (not raw hours). Hover a card for a short definition.</p>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:10px;margin-bottom:22px">
-      ${_snapshotCards(data.snapshot)}
-    </div>
-    <h3 style="font-size:14px;margin:0 0 10px">Signal domains</h3>
-    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:12px 16px;margin-bottom:22px">
-      ${_domainsPanel(data.domains, data.consent_state)}
-    </div>
-    ${_dataIntakePanel(data)}
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:22px">
-      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:14px">
-        <div style="font-weight:600;margin-bottom:8px">Baseline &amp; deviation</div>
-        <div style="font-size:12px;color:var(--text-secondary);line-height:1.5">
-          Method: ${esc(data.baseline_profile?.method)} · confidence ${data.baseline_profile?.confidence != null ? Math.round(data.baseline_profile.confidence * 100) + '%' : '—'}<br/>
-          Weekday/weekend deltas (screen hours / steps): ${esc(data.baseline_profile?.weekday_weekend_delta?.screen_hours)} / ${esc(data.baseline_profile?.weekday_weekend_delta?.steps)}
-        </div>
-        <div style="margin-top:10px;font-size:12px;font-weight:600">Recent deviations</div>
-        <ul style="margin:8px 0 0 18px;font-size:12px;color:var(--text-secondary)">
-          ${(data.deviations || []).map((d) => `<li>${esc(d.summary)} (${esc(d.signal_domain)})</li>`).join('') || '<li>None flagged</li>'}
-        </ul>
-      </div>
-      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:14px">
-        <div style="font-weight:600;margin-bottom:8px">Clinical meaning (decision-support)</div>
-        ${_flagsPanel(data.clinical_flags)}
-      </div>
-    </div>
-    <h3 style="font-size:14px;margin:0 0 10px">Suggested next steps</h3>
-    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:12px 16px;margin-bottom:22px;font-size:12px">
-      ${_recommendationsPanel(data.recommendations)}
-    </div>
-    <h3 style="font-size:14px;margin:0 0 10px">Multimodal connections</h3>
-    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:22px;font-size:12px">
-      ${_linksHtml(data.multimodal_links)}
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:14px">
-        <div style="font-weight:600;margin-bottom:8px">Consent &amp; governance</div>
-        ${_consentPanel(data.consent_state)}
-        ${_consentEditor(data.consent_state)}
-      </div>
-      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:14px">
-        <div style="font-weight:600;margin-bottom:8px">Audit</div>
-        ${_auditPanel(auditList)}
-      </div>
-    </div>
-    <div style="margin-top:18px;font-size:11px;color:var(--text-tertiary)">Pipeline: ${esc(data.provenance?.feature_pipeline_version)} · schema ${esc(data.schema_version)} · sources: ${esc((data.provenance?.data_sources || []).join(', ') || 'stub')}</div>
-  `;
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">${cards}</div>
+    <div style="margin-top:18px">${_renderCrossModalCallouts(profile?.cross_modal)}</div>
+    <div style="margin-top:18px;display:grid;grid-template-columns:1fr;gap:14px">
+      ${_renderObservationForm()}
+      ${_renderAnnotationForm()}
+      ${_renderAuditPanel(audit)}
+    </div>`;
+}
+
+function _enrichPatientName(p) {
+  const personas = ANALYZER_DEMO_FIXTURES?.patients || [];
+  if (p.patient_name) return p;
+  const match = personas.find((x) => x.id === p.patient_id);
+  return { ...p, patient_name: match ? match.name : p.patient_id };
+}
+
+function _projectFromBackendPayload(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  if (raw.signals && typeof raw.signals === 'object') return raw;
+  const snap = raw.snapshot || {};
+  const sevFromCmp = (cmp) => {
+    const c = String(cmp || '').toLowerCase();
+    if (c === 'above' || c === 'below') return 'amber';
+    if (c === 'within') return 'green';
+    return null;
+  };
+  const signals = {
+    sleep: snap.sleep_timing_proxy ? {
+      score: snap.sleep_timing_proxy.value, unit: 'index',
+      severity: sevFromCmp(snap.sleep_timing_proxy.baseline_comparison),
+      baseline_label: 'baseline window',
+      contributing_factors: snap.sleep_timing_proxy.notes || ['Derived from sleep timing proxy.'],
+      history: [],
+    } : null,
+    mobility: snap.mobility_stability ? {
+      score: snap.mobility_stability.value, unit: 'index',
+      severity: sevFromCmp(snap.mobility_stability.baseline_comparison),
+      baseline_label: 'baseline window',
+      contributing_factors: ['Mobility stability index from passive GPS / motion.'],
+      history: [],
+    } : null,
+    social: snap.sociability_proxy ? {
+      score: snap.sociability_proxy.value, unit: 'index',
+      severity: sevFromCmp(snap.sociability_proxy.baseline_comparison),
+      baseline_label: 'baseline window',
+      contributing_factors: ['Communication metadata-derived sociability proxy.'],
+      history: [],
+    } : null,
+    typing_cadence: snap.activity_level ? {
+      score: snap.activity_level.value, unit: 'index',
+      severity: sevFromCmp(snap.activity_level.baseline_comparison),
+      baseline_label: 'baseline window',
+      contributing_factors: ['Activity-level proxy (typing cadence not yet ingested).'],
+      history: [],
+    } : null,
+    screen_time: snap.screen_time_pattern ? {
+      score: snap.screen_time_pattern.value, unit: '× baseline',
+      severity: sevFromCmp(snap.screen_time_pattern.baseline_comparison),
+      baseline_label: 'baseline window',
+      contributing_factors: ['Screen-time pattern vs baseline.'],
+      history: [],
+    } : null,
+    voice_diary: snap.routine_regularity ? {
+      score: snap.routine_regularity.value, unit: 'index',
+      severity: sevFromCmp(snap.routine_regularity.baseline_comparison),
+      baseline_label: 'baseline window',
+      contributing_factors: ['Routine regularity index (voice diary cadence proxy).'],
+      history: [],
+    } : null,
+  };
+  return {
+    patient_id: raw.patient_id,
+    patient_name: raw.patient_display_name || raw.patient_id,
+    captured_at: raw.generated_at,
+    signals,
+    cross_modal: [],
+  };
+}
+
+async function _loadClinicSummary() {
+  const personas = ANALYZER_DEMO_FIXTURES?.patients || [];
+  const ids = personas.map((p) => p.id);
+  const results = await Promise.all(
+    ids.map((pid) => api.getDigitalPhenotypingProfile(pid).then((r) => r).catch(() => null))
+  );
+  const SIGNAL_KEYS = ['sleep', 'mobility', 'social', 'typing_cadence', 'screen_time', 'voice_diary'];
+  const sevRank = (s) => ({ red: 3, amber: 2, green: 1 }[_sevKey(s)] || 0);
+  const patients = [];
+  results.forEach((raw) => {
+    const r = _projectFromBackendPayload(raw);
+    if (r && r.patient_id && r.signals) {
+      const enriched = _enrichPatientName(r);
+      const flags = SIGNAL_KEYS.map((k) => ({
+        key: k,
+        label: k.replace('_', ' '),
+        severity: enriched.signals?.[k]?.severity || null,
+      })).filter((f) => f.severity);
+      const worst = flags.reduce((acc, f) => Math.max(acc, sevRank(f.severity)), 0);
+      const reds = flags.filter((f) => f.severity === 'red').length;
+      const greens = flags.filter((f) => f.severity === 'green').length;
+      const trend = greens > reds ? 'improving' : reds > greens ? 'worsening' : 'stable';
+      patients.push({
+        patient_id: enriched.patient_id,
+        patient_name: enriched.patient_name,
+        captured_at: enriched.captured_at,
+        flags,
+        worst_severity: worst === 3 ? 'red' : worst === 2 ? 'amber' : 'green',
+        trend,
+      });
+    }
+  });
+  return { patients };
 }
 
 export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
   try {
     setTopbar({
       title: 'Digital Phenotyping Analyzer',
-      subtitle: 'Passive behavior signals · baseline & change · multimodal context',
+      subtitle: 'Passive smartphone & wearable behavioral signals',
     });
   } catch {
-    try { setTopbar('Digital Phenotyping Analyzer', 'Passive sensing'); } catch {}
+    try { setTopbar('Digital Phenotyping Analyzer', 'Passive behavioral signals'); } catch {}
   }
 
   const el = document.getElementById('content');
   if (!el) return;
 
-  const initialPid = _effectivePatientIdFromContext();
+  let view = 'clinic';
+  let summaryCache = null;
+  let activePatientId = null;
+  let activePatientName = '';
+  let profileCache = null;
+  let auditCache = null;
+  let sortKey = 'worst';
+  let sortDir = 'desc';
+  let usingFixtures = false;
 
   el.innerHTML = `
-    <div class="ds-dpa-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px">
-      <div id="dpa-demo-banner"></div>
+    <div class="ds-dp-analyzer-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px">
+      <div id="dp-demo-banner"></div>
       <div style="padding:12px 14px;border-radius:12px;border:1px solid rgba(155,127,255,0.28);background:rgba(155,127,255,0.06);margin-bottom:14px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
         <strong style="color:var(--text-primary)">Clinical decision-support.</strong>
-        Smartphone-derived metrics are <strong>behavioral indicators</strong>, not diagnoses.
-        Screen time and location are reviewed here as <strong>digital phenotype domains</strong> (not separate analyzers).
-        Correlate with interview, assessments, and other modalities.
+        Passive smartphone and wearable signals (sleep, mobility, social engagement, typing cadence, screen time, voice diary cadence) act as objective behavioral health markers. They do not diagnose — interpret alongside interview, assessments, and other modalities.
       </div>
-      <div style="padding:12px 14px;border-radius:12px;border:1px solid rgba(59,130,246,0.25);background:rgba(59,130,246,0.06);margin-bottom:18px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
-        <strong style="color:var(--text-primary)">Privacy &amp; consent.</strong>
-        Only streams enabled in the patient consent profile are collected; access is role-governed and audited.
-        High-sensitivity domains (e.g. location, communication metadata) require explicit scope.
-      </div>
-      <div style="margin-bottom:14px;display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">
-        <label style="font-size:12px;display:flex;flex-direction:column;gap:4px">Patient ID
-          <input id="dpa-patient-id" class="form-control" style="min-width:280px" placeholder="UUID — prefilled from roster when available" value="${esc(initialPid)}" autocomplete="off" />
-        </label>
-        <button type="button" class="btn btn-primary" id="dpa-load">Load analyzer</button>
-        <button type="button" class="btn btn-ghost btn-sm" id="dpa-recompute" style="min-height:44px" title="Trigger backend recomputation when ingest is connected">Refresh analysis</button>
-      </div>
-      <div id="dpa-research-strip" style="margin-bottom:18px;padding:14px 16px;border-radius:14px;border:1px solid rgba(45,212,191,0.28);background:rgba(45,212,191,0.06);font-size:12px;line-height:1.45;color:var(--text-secondary)">
-        <div style="font-weight:600;color:var(--text-primary);margin-bottom:8px">Research &amp; multimodal studio</div>
-        <p style="margin:0 0 12px;font-size:12px">
-          For <strong>literature and protocols</strong>, use Research Evidence (<strong>${esc(_fmtEvidenceK(EVIDENCE_TOTAL_PAPERS))}</strong> curated papers).
-          Analyzer metrics below remain <strong>stub until passive ingest</strong> ships — safe for workflow / consent / audit demos, not for outcome claims.
-        </p>
-        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
-          <span style="font-size:11px;color:var(--text-tertiary);margin-right:4px">Quick open:</span>
-          <button type="button" class="btn btn-ghost btn-sm" data-dpa-quick="research-evidence|search|digital phenotyping passive sensing mobile health" style="min-height:40px">Evidence search</button>
-          <button type="button" class="btn btn-ghost btn-sm" data-dpa-quick="research-evidence|aiml|machine learning digital biomarker relapse" style="min-height:40px">AI / ML tab</button>
-          <button type="button" class="btn btn-ghost btn-sm" data-dpa-quick="qeeg-analysis||" style="min-height:40px">qEEG</button>
-          <button type="button" class="btn btn-ghost btn-sm" data-dpa-quick="assessments-v2||" style="min-height:40px">Assessments</button>
-          <button type="button" class="btn btn-ghost btn-sm" data-dpa-quick="wearables||" style="min-height:40px">Biometrics</button>
-          <button type="button" class="btn btn-ghost btn-sm" data-dpa-quick="protocol-studio||" style="min-height:40px">Protocol Studio</button>
-          <button type="button" class="btn btn-ghost btn-sm" data-dpa-quick="session-execution||" style="min-height:40px">Sessions</button>
-          <button type="button" class="btn btn-ghost btn-sm" data-dpa-quick="live-session||" style="min-height:40px">Virtual Care</button>
-          <button type="button" class="btn btn-ghost btn-sm" data-dpa-quick="deeptwin||" style="min-height:40px">DeepTwin</button>
-          <button type="button" class="btn btn-ghost btn-sm" data-dpa-quick="ai-agent-v2||" style="min-height:40px">AI agents</button>
-        </div>
-      </div>
-      <div id="dpa-body"></div>
+      <div id="dp-breadcrumb" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:12px"></div>
+      <div id="dp-body"></div>
     </div>`;
 
   const $ = (id) => document.getElementById(id);
 
-  let usingFixtures = false;
-
-  function _pidInput() {
-    return $('dpa-patient-id')?.value?.trim() || '';
-  }
-
-  function _applyPatientContextForPage(page, patientId) {
-    if (!patientId) return;
-    try {
-      if (page === 'qeeg-analysis') window._qeegPatientId = patientId;
-      if (page === 'deeptwin') window._deeptwinPatientId = patientId;
-    } catch { /* noop */ }
-  }
-
-  function _applyResearchEvidenceQuick(tab, query) {
-    try {
-      window._resEvidenceTab = tab || 'search';
-      window._reSearch = window._reSearch || {};
-      if (query) window._reSearch[tab || 'search'] = query;
-    } catch { /* noop */ }
-  }
-
-  function _parseEvidenceAttr(attr) {
-    if (!attr) return null;
-    const idx = attr.indexOf(':');
-    if (idx === -1) return { tab: 'search', q: attr.trim() };
-    return { tab: attr.slice(0, idx).trim(), q: attr.slice(idx + 1).trim() };
-  }
-
-  /** Delegated handler for quick-link strip (outside #dpa-body). */
-  function _onShellClick(ev) {
-    const qbtn = ev.target?.closest?.('[data-dpa-quick]');
-    if (qbtn) {
-      const raw = qbtn.getAttribute('data-dpa-quick') || '';
-      const parts = raw.split('|');
-      const page = parts[0];
-      const tab = parts[1] || '';
-      const q = (parts[2] != null ? parts.slice(2).join('|') : '') || '';
-      if (page === 'research-evidence' && (tab || q)) {
-        _applyResearchEvidenceQuick(tab || 'search', q);
-      }
-      _applyPatientContextForPage(page, _pidInput());
-      try { navigate?.(page); } catch {}
-      return;
-    }
-  }
-
-  const shell = el.querySelector('.ds-dpa-shell');
-  shell?.addEventListener('click', _onShellClick);
-
   function _syncDemoBanner() {
-    const slot = $('dpa-demo-banner');
+    const slot = $('dp-demo-banner');
     if (!slot) return;
     slot.innerHTML = usingFixtures && isDemoSession() ? DEMO_FIXTURE_BANNER_HTML : '';
   }
 
-  function wireNav(body) {
-    body.querySelectorAll('[data-nav-page]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const p = btn.getAttribute('data-nav-page');
-        const evAttr = btn.getAttribute('data-dpa-evidence');
-        if (evAttr) {
-          const parsed = _parseEvidenceAttr(evAttr);
-          if (parsed) _applyResearchEvidenceQuick(parsed.tab, parsed.q);
-        }
-        _applyPatientContextForPage(p, _pidInput());
-        try { navigate?.(p); } catch {}
+  function setBreadcrumb() {
+    const bc = $('dp-breadcrumb');
+    if (!bc) return;
+    if (view === 'clinic') {
+      bc.innerHTML = `<span style="font-weight:600">Clinic digital phenotyping summary</span>`;
+    } else {
+      bc.innerHTML = `<button type="button" class="btn btn-ghost btn-sm" id="dp-back" style="min-height:44px">← Back to clinic</button>
+        <span style="color:var(--text-tertiary)">/</span>
+        <span style="font-weight:600">${esc(activePatientName || 'Patient')}</span>`;
+      $('dp-back')?.addEventListener('click', () => {
+        view = 'clinic';
+        render();
       });
-    });
-  }
-
-  function wireDataIntake(body) {
-    const manualBtn = body.querySelector('#dpa-save-manual-obs');
-    const devBtn = body.querySelector('#dpa-log-device-note');
-    const statusEl = body.querySelector('#dpa-data-status');
-
-    async function postManual() {
-      const pid = _pidInput();
-      if (!pid) return;
-      const recordedAt = body.querySelector('#dpa-m-obs-time')?.value;
-      const mood = body.querySelector('#dpa-m-mood')?.value;
-      const anx = body.querySelector('#dpa-m-anx')?.value;
-      const sleep = body.querySelector('#dpa-m-sleep')?.value;
-      const notes = body.querySelector('#dpa-m-notes')?.value?.trim();
-      const payload = {
-        kind: 'ema_checkin',
-        recorded_at: recordedAt ? new Date(recordedAt).toISOString() : undefined,
-        notes: notes || undefined,
-        mood_0_10: mood !== '' && mood != null ? Number(mood) : undefined,
-        anxiety_0_10: anx !== '' && anx != null ? Number(anx) : undefined,
-        sleep_hours: sleep !== '' && sleep != null ? Number(sleep) : undefined,
-      };
-      if (statusEl) statusEl.textContent = 'Saving…';
-      try {
-        await api.addDigitalPhenotypingManualObservation(pid, payload);
-        if (statusEl) statusEl.textContent = 'Saved.';
-        await loadPayload();
-      } catch (e) {
-        if (statusEl) statusEl.textContent = (e && e.message) || 'Save failed.';
-      }
     }
-
-    async function postDeviceNote() {
-      const pid = _pidInput();
-      if (!pid) return;
-      const notes = body.querySelector('#dpa-m-notes')?.value?.trim() || 'Wearable / device sync acknowledged';
-      const recordedAt = body.querySelector('#dpa-m-obs-time')?.value;
-      if (statusEl) statusEl.textContent = 'Logging…';
-      try {
-        await api.createDigitalPhenotypingObservation(pid, {
-          source: 'device_sync',
-          kind: 'wearables_sync_checkin',
-          recorded_at: recordedAt ? new Date(recordedAt).toISOString() : undefined,
-          payload: { note: notes },
-        });
-        if (statusEl) statusEl.textContent = 'Device note logged.';
-        await loadPayload();
-      } catch (e) {
-        if (statusEl) statusEl.textContent = (e && e.message) || 'Log failed.';
-      }
-    }
-
-    manualBtn?.addEventListener('click', () => { postManual(); });
-    devBtn?.addEventListener('click', () => { postDeviceNote(); });
   }
 
-  function wireConsentSave(body) {
-    const btn = body.querySelector('#dpa-save-consent');
-    if (!btn) return;
-    const status = body.querySelector('#dpa-consent-status');
-    const pid = $('dpa-patient-id')?.value?.trim();
-    if (!pid) return;
-    btn.addEventListener('click', async () => {
-      const domains = {};
-      body.querySelectorAll('input[data-dpa-domain]').forEach((el) => {
-        const k = el.getAttribute('data-dpa-domain');
-        if (k) domains[k] = el.checked;
-      });
-      btn.disabled = true;
-      if (status) status.textContent = 'Saving…';
-      try {
-        await api.updateDigitalPhenotypingConsent(pid, {
-          domains,
-          consent_scope_version: '2026.04',
-        });
-        if (status) status.textContent = 'Saved. Refreshing view…';
-        await loadPayload();
-      } catch (e) {
-        if (status) {
-          status.textContent = (e && e.message) || 'Save failed (check session or use a real clinic account).';
-        }
-      } finally {
-        btn.disabled = false;
-      }
-    });
-  }
-
-  async function loadPayload() {
-    const body = $('dpa-body');
+  async function loadClinic() {
+    const body = $('dp-body');
     if (!body) return;
-    const pid = $('dpa-patient-id')?.value?.trim();
-    if (!pid) {
-      body.innerHTML = `<div class="notice notice-info" style="font-size:12px">Enter a patient id, or select a patient in the roster so their id appears above.</div>`;
-      return;
-    }
-    try { window._dpaPatientId = pid; } catch {}
-
-    body.innerHTML = `<div style="padding:24px;color:var(--text-tertiary)">Loading…</div>`;
-    usingFixtures = false;
-
-    let data = null;
-    let auditEvents = [];
-
+    body.innerHTML = `<div style="padding:18px;background:var(--bg-card);border:1px solid var(--border);border-radius:14px">${_skeletonChips(5)}</div>`;
     try {
-      data = await api.getDigitalPhenotypingAnalyzer(pid);
-      const thin = !data || (!data.snapshot && !data.domains);
-      if (thin && isDemoSession()) {
-        data = demoDigitalPhenotypingPayload(pid);
+      summaryCache = await _loadClinicSummary();
+      if ((!summaryCache || !summaryCache.patients?.length) && isDemoSession() && ANALYZER_DEMO_FIXTURES?.digitalPhenotyping?.clinic_summary) {
+        summaryCache = ANALYZER_DEMO_FIXTURES.digitalPhenotyping.clinic_summary();
         usingFixtures = true;
-      }
-      try {
-        const a = await api.getDigitalPhenotypingAudit(pid);
-        if (a && Array.isArray(a.events)) auditEvents = a.events;
-        else auditEvents = data.audit_events || [];
-      } catch {
-        auditEvents = data.audit_events || [];
+      } else if (summaryCache && summaryCache.patients?.length) {
+        usingFixtures = false;
       }
     } catch (e) {
-      const status = e && e.status;
-      if (status === 404) {
-        body.innerHTML = `<div class="notice notice-info" style="font-size:13px;line-height:1.5">
-          <strong>Patient not found.</strong> Check the identifier, or open this analyzer from the patient chart after the patient is registered in your clinic.
-        </div>`;
-        return;
-      }
-      if (isDemoSession()) {
-        data = demoDigitalPhenotypingPayload(pid);
-        auditEvents = data.audit_events || [];
+      if (isDemoSession() && ANALYZER_DEMO_FIXTURES?.digitalPhenotyping?.clinic_summary) {
+        summaryCache = ANALYZER_DEMO_FIXTURES.digitalPhenotyping.clinic_summary();
         usingFixtures = true;
       } else {
         const msg = (e && e.message) || String(e);
-        body.innerHTML = `<div style="color:#f87171;padding:14px;border-radius:12px;background:rgba(248,113,113,.08);font-size:13px;line-height:1.45">
-          <strong>Unable to load analyzer.</strong><br/>${esc(msg)}
-          <div style="margin-top:10px;font-size:12px;color:var(--text-secondary)">If you recently changed clinic or role, refresh the page. For access issues, contact your administrator.</div>
-        </div>`;
+        body.innerHTML = _errorCard(msg);
+        body.querySelector('[data-action="retry"]')?.addEventListener('click', loadClinic);
         return;
       }
     }
-
     _syncDemoBanner();
-    body.innerHTML = renderAnalyzerHtml(data, auditEvents);
-    wireNav(body);
-    wireDataIntake(body);
-    wireConsentSave(body);
+    body.innerHTML = _renderClinicTable(summaryCache?.patients || [], sortKey, sortDir);
+    body.querySelectorAll('[data-sort-key]').forEach((th) => {
+      th.addEventListener('click', () => {
+        const k = th.getAttribute('data-sort-key');
+        if (k === sortKey) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+        else { sortKey = k; sortDir = k === 'name' ? 'asc' : 'desc'; }
+        body.innerHTML = _renderClinicTable(summaryCache?.patients || [], sortKey, sortDir);
+        wireClinicRows();
+      });
+    });
+    wireClinicRows();
   }
 
-  $('dpa-load')?.addEventListener('click', () => { loadPayload(); });
-  $('dpa-patient-id')?.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Enter') { ev.preventDefault(); loadPayload(); }
-  });
-  $('dpa-recompute')?.addEventListener('click', async () => {
-    const pid = $('dpa-patient-id')?.value?.trim();
-    if (!pid) return;
-    try {
-      await api.recomputeDigitalPhenotyping(pid);
-    } catch { /* backend may not implement fully */ }
-    await loadPayload();
-  });
+  function wireClinicRows() {
+    const body = $('dp-body');
+    body?.querySelectorAll('tr[data-patient-id]').forEach((tr) => {
+      const pid = tr.getAttribute('data-patient-id');
+      const open = () => {
+        const p = (summaryCache?.patients || []).find((x) => x.patient_id === pid);
+        activePatientId = pid;
+        activePatientName = p?.patient_name || pid;
+        view = 'patient';
+        render();
+      };
+      tr.addEventListener('click', (ev) => {
+        if (ev.target?.closest && ev.target.closest('[data-action]')) return;
+        open();
+      });
+      tr.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); open(); }
+      });
+    });
+    body?.querySelectorAll('[data-action="open-patient"]').forEach((btn) => {
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const pid = btn.getAttribute('data-patient-id');
+        const p = (summaryCache?.patients || []).find((x) => x.patient_id === pid);
+        activePatientId = pid;
+        activePatientName = p?.patient_name || pid;
+        view = 'patient';
+        render();
+      });
+    });
+  }
 
-  if (initialPid) await loadPayload();
+  async function loadPatient() {
+    const body = $('dp-body');
+    if (!body || !activePatientId) return;
+    body.innerHTML = `<div style="padding:18px;background:var(--bg-card);border:1px solid var(--border);border-radius:14px">${_skeletonChips(5)}</div>`;
+    try {
+      const [rawProfile, audit] = await Promise.all([
+        api.getDigitalPhenotypingProfile(activePatientId),
+        api.getPhenotypingAudit(activePatientId).catch(() => ({ items: [] })),
+      ]);
+      const projected = _projectFromBackendPayload(rawProfile);
+      profileCache = projected;
+      auditCache = audit && Array.isArray(audit.items)
+        ? audit
+        : (audit && Array.isArray(audit.events))
+          ? { items: audit.events.map((e) => ({ id: e.event_id, kind: e.action, actor: e.actor_role, message: e.summary, created_at: e.timestamp })) }
+          : { items: [] };
+      const thin = !projected || !projected.signals || !Object.values(projected.signals).some(Boolean);
+      if (thin && isDemoSession() && ANALYZER_DEMO_FIXTURES?.digitalPhenotyping?.patient_profile) {
+        profileCache = ANALYZER_DEMO_FIXTURES.digitalPhenotyping.patient_profile(activePatientId);
+        auditCache = ANALYZER_DEMO_FIXTURES.digitalPhenotyping.patient_audit(activePatientId);
+        usingFixtures = true;
+      } else if (profileCache) {
+        usingFixtures = false;
+      }
+    } catch (e) {
+      if (isDemoSession() && ANALYZER_DEMO_FIXTURES?.digitalPhenotyping?.patient_profile) {
+        profileCache = ANALYZER_DEMO_FIXTURES.digitalPhenotyping.patient_profile(activePatientId);
+        auditCache = ANALYZER_DEMO_FIXTURES.digitalPhenotyping.patient_audit(activePatientId);
+        usingFixtures = true;
+      } else {
+        const msg = (e && e.message) || String(e);
+        body.innerHTML = _errorCard(msg);
+        body.querySelector('[data-action="retry"]')?.addEventListener('click', loadPatient);
+        return;
+      }
+    }
+    _syncDemoBanner();
+    body.innerHTML = _renderPatientDetail(profileCache, auditCache, navigate);
+    wirePatientDetail();
+  }
+
+  function _rerenderPatient() {
+    const body = $('dp-body');
+    if (!body) return;
+    body.innerHTML = _renderPatientDetail(profileCache, auditCache, navigate);
+    wirePatientDetail();
+  }
+
+  function wirePatientDetail() {
+    const body = $('dp-body');
+    if (!body) return;
+
+    body.querySelectorAll('[data-nav-page]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const p = btn.getAttribute('data-nav-page');
+        try { navigate?.(p); } catch {}
+      });
+    });
+
+    body.querySelector('[data-action="recompute"]')?.addEventListener('click', async (ev) => {
+      const btn = ev.currentTarget;
+      const old = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Recomputing…';
+      try {
+        if (!usingFixtures) {
+          await api.recomputeDigitalPhenotyping(activePatientId);
+        }
+        await loadPatient();
+      } catch (e) {
+        btn.disabled = false;
+        btn.textContent = old;
+        body.insertAdjacentHTML('afterbegin', _errorCard((e && e.message) || String(e)));
+      }
+    });
+
+    body.querySelector('[data-observation-form]')?.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const form = ev.currentTarget;
+      const errSlot = form.querySelector('[data-form-error]');
+      if (errSlot) errSlot.textContent = '';
+      const fd = new FormData(form);
+      const recordedRaw = String(fd.get('recorded_at') || '').trim();
+      if (!recordedRaw) {
+        if (errSlot) errSlot.textContent = 'Recorded-at is required.';
+        return;
+      }
+      const numOrNull = (k) => {
+        const raw = fd.get(k);
+        if (raw === null || raw === '') return null;
+        const n = Number(raw);
+        return Number.isFinite(n) ? n : null;
+      };
+      const payload = {
+        source: 'manual',
+        kind: 'ema_checkin',
+        recorded_at: new Date(recordedRaw).toISOString(),
+        payload: {
+          mood_0_10: numOrNull('mood_0_10'),
+          anxiety_0_10: numOrNull('anxiety_0_10'),
+          sleep_hours: numOrNull('sleep_hours'),
+          notes: String(fd.get('notes') || '').trim() || null,
+        },
+      };
+      const submit = form.querySelector('button[type="submit"]');
+      submit.disabled = true;
+      submit.textContent = 'Adding…';
+      try {
+        if (usingFixtures) {
+          const auditAdd = {
+            id: `demo-dp-aud-${Date.now()}`,
+            kind: 'observation',
+            actor: 'Patient (EMA)',
+            message: `EMA mood ${payload.payload.mood_0_10 ?? '—'}, anxiety ${payload.payload.anxiety_0_10 ?? '—'}, sleep ${payload.payload.sleep_hours ?? '—'} h.`,
+            created_at: new Date().toISOString(),
+          };
+          auditCache = { ...(auditCache || {}), items: [auditAdd, ...((auditCache?.items) || [])] };
+        } else {
+          await api.addPhenotypingObservation(activePatientId, payload);
+          await loadPatient();
+          return;
+        }
+        form.reset();
+        _rerenderPatient();
+      } catch (e) {
+        if (errSlot) errSlot.textContent = (e && e.message) || String(e);
+      } finally {
+        if (submit && submit.isConnected) {
+          submit.disabled = false;
+          submit.textContent = 'Add observation';
+        }
+      }
+    });
+
+    body.querySelector('[data-annotation-form]')?.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const form = ev.currentTarget;
+      const errSlot = form.querySelector('[data-form-error]');
+      if (errSlot) errSlot.textContent = '';
+      const note = String(new FormData(form).get('note') || '').trim();
+      if (!note) {
+        if (errSlot) errSlot.textContent = 'Add a short clinical note before saving.';
+        form.querySelector('textarea')?.focus();
+        return;
+      }
+      const submit = form.querySelector('button[type="submit"]');
+      submit.disabled = true;
+      submit.textContent = 'Saving…';
+      try {
+        let added;
+        if (usingFixtures) {
+          added = {
+            id: `demo-dp-aud-${Date.now()}`,
+            kind: 'annotation',
+            actor: 'Dr. A. Yildirim',
+            message: note,
+            created_at: new Date().toISOString(),
+          };
+        } else {
+          const resp = await api.addPhenotypingAnnotation(activePatientId, { note });
+          added = {
+            id: (resp && resp.id) || `dp-${Date.now()}`,
+            kind: 'annotation',
+            actor: 'You',
+            message: note,
+            created_at: new Date().toISOString(),
+          };
+        }
+        const items = Array.isArray(auditCache?.items) ? auditCache.items.slice() : [];
+        items.unshift(added);
+        auditCache = { ...(auditCache || {}), items };
+        form.reset();
+        _rerenderPatient();
+      } catch (e) {
+        if (errSlot) errSlot.textContent = (e && e.message) || String(e);
+      } finally {
+        if (submit && submit.isConnected) {
+          submit.disabled = false;
+          submit.textContent = 'Save annotation';
+        }
+      }
+    });
+  }
+
+  function render() {
+    setBreadcrumb();
+    if (view === 'clinic') loadClinic();
+    else loadPatient();
+  }
+
+  render();
 }
+
+export default { pgDigitalPhenotypingAnalyzer };
