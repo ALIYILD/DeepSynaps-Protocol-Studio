@@ -169,6 +169,8 @@ async function loadDeeptwin()   { return (_modDeeptwin  ??= await import('./page
 async function loadBrainTwin()  { return (_modBrainTwin ??= await import('./pages-brain-twin.js')); }
 async function loadKnowledge()  { return (_modKnowledge ??= await import('./pages-knowledge.js')); }
 async function loadVoiceAnalyzer() { return (_modVoiceAnalyzer ??= await import('./pages-voice-analyzer.js')); }
+let _modTextAnalyzer = null;
+async function loadTextAnalyzer() { return (_modTextAnalyzer ??= await import('./pages-text-analyzer.js')); }
 async function loadPractice()   { return (_modPractice  ??= await import('./pages-practice.js')); }
 async function loadCourses()    { return (_modCourses   ??= await import('./pages-courses.js')); }
 async function loadOnboarding() { return (_modOnboarding ??= await import('./pages-onboarding.js')); }
@@ -194,6 +196,8 @@ let _modQEEGLauncher = null;
 async function loadQEEGLauncher() { return (_modQEEGLauncher ??= await import('./pages-qeeg-launcher.js')); }
 let _modMRIAnalysis = null;
 async function loadMRIAnalysis() { return (_modMRIAnalysis ??= await import('./pages-mri-analysis.js')); }
+let _modVideoAssessments = null;
+async function loadVideoAssessments() { return (_modVideoAssessments ??= await import('./pages-video-assessments.js')); }
 let _modFusionWorkbench = null;
 async function loadFusionWorkbench() { return (_modFusionWorkbench ??= await import('./pages-fusion-workbench.js')); }
 let _modMonitor = null;
@@ -526,6 +530,24 @@ const NAV = [
   // ── SESSIONS ─────────────────────────────────────────────────────────────────
   { section: 'Sessions', sectionId: 'sessions', collapsed: false },
   { id: 'live-session',       label: 'Virtual Care',      icon: '📹', ai: true },
+  { id: 'video-assessments',  label: 'Video Assessments', icon: '🎥' },
+
+  // ── ANALYZERS ────────────────────────────────────────────────────────────────
+  // Unified entry-point group for all DeepSynaps clinical analyzers. Buttons
+  // are duplicates of the per-domain entries above (e.g. MRI / qEEG / Voice
+  // already appear under Clinical / Protocol), but grouping them here gives
+  // clinicians one canonical place to launch any analyzer regardless of the
+  // organising section. Backed by the analyzer routers in `apps/api/app/
+  // routers/`: mri_analysis_router, qeeg_analysis_router, audio_analysis_
+  // router, video pipeline (packages/video-pipeline), clinical_text_router,
+  // and the wearables router.
+  { section: 'Analyzers', sectionId: 'analyzers', collapsed: false },
+  { id: 'mri-analysis',       label: 'MRI Analyzer',      icon: '🧠', ai: true },
+  { id: 'qeeg-analysis',      label: 'qEEG Analyzer',     icon: '📊', ai: true },
+  { id: 'voice-analyzer',     label: 'Voice Analyzer',    icon: '🎙️', ai: true },
+  { id: 'video-assessments',  label: 'Video Analyzer',    icon: '🎥' },
+  { id: 'text-analyzer',      label: 'Text Analyzer',     icon: '📝', ai: true },
+  { id: 'wearables',          label: 'Biometrics',        icon: '⌚' },
 
   // ── ADMIN ────────────────────────────────────────────────────────────────────
   { section: 'Admin', sectionId: 'admin', collapsed: false },
@@ -596,6 +618,7 @@ NAV_ICONS['protocol-studio'] = NAV_ICONS['protocol-builder'];
 NAV_ICONS['brainmap-v2']     = NAV_ICONS['brain-map-planner'];
 NAV_ICONS['handbooks-v2']    = NAV_ICONS['handbooks'];
 NAV_ICONS['live-session']    = NAV_ICONS['virtual-care-hub'];
+NAV_ICONS['video-assessments'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="M16 10l4-2v8l-4-2"/></svg>`;
 NAV_ICONS['home-tasks-v2']   = NAV_ICONS['home-task-manager'];
 NAV_ICONS['documents-v2']    = NAV_ICONS['documents-hub'];
 NAV_ICONS['reports-v2']      = NAV_ICONS['reports-hub'];
@@ -609,6 +632,7 @@ NAV_ICONS['system-health']   = `<svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9
 NAV_ICONS['research-evidence'] = `<svg viewBox="0 0 24 24"><path d="M10 2v6a2 2 0 0 1-2 2H2"/><path d="M14 2v6a2 2 0 0 0 2 2h6"/><path d="M12 18v4"/><path d="M8 22h8"/><circle cx="12" cy="14" r="4"/></svg>`;
 NAV_ICONS['mri-analysis'] = `<svg viewBox="0 0 24 24"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-1.07-3 2.5 2.5 0 0 1 .49-4.78 2.5 2.5 0 0 1 1.5-4.58A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 1.07-3 2.5 2.5 0 0 0-.49-4.78 2.5 2.5 0 0 0-1.5-4.58A2.5 2.5 0 0 0 14.5 2Z"/><circle cx="12" cy="12" r="2" fill="currentColor" opacity=".5"/></svg>`;
 NAV_ICONS['voice-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11c0 4 3.5 7 7 7s7-3 7-7"/><path d="M12 21v2"/></svg>`;
+NAV_ICONS['text-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>`;
 NAV_ICONS['academy']         = `<svg viewBox="0 0 24 24"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>`;
 NAV_ICONS['marketplace']     = `<svg viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" x2="21" y1="6" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>`;
 
@@ -617,6 +641,7 @@ const SECTION_LABELS = {
   clinical:        'Clinical',
   protocol:        'Protocol',
   sessions:        'Sessions',
+  analyzers:       'Analyzers',
   admin:           'Admin',
   // Legacy section ids retained so any other consumer that looks them up still works.
   'patient-care':  'Patient Care',
@@ -1768,7 +1793,9 @@ async function renderPage() {
       break;
     }
     case 'mri-analysis':       { const m = await loadMRIAnalysis(); await m.pgMRIAnalysis(setTopbar, navigate); break; }
+    case 'video-assessments':  { const m = await loadVideoAssessments(); await m.pgVideoAssessments(setTopbar, navigate); break; }
     case 'voice-analyzer':     { const m = await loadVoiceAnalyzer(); await m.pgVoiceAnalyzer(setTopbar, navigate); break; }
+    case 'text-analyzer':      { const m = await loadTextAnalyzer(); await m.pgTextAnalyzer(setTopbar, navigate); break; }
     case 'fusion-workbench':   { const m = await loadFusionWorkbench(); await m.pgFusionWorkbench(setTopbar, navigate); break; }
     case 'patient-timeline':   { const m = await loadPatientTimeline(); await m.pgPatientTimeline(setTopbar, navigate); break; }
     case 'biomarkers':         { const m = await loadKnowledge(); await m.pgQEEGMaps(setTopbar); break; }
@@ -2962,7 +2989,11 @@ window.addEventListener('popstate', (e) => {
   NAV_COMMANDS.push(
     { type: 'nav', icon: '📊', title: 'qEEG Analyzer', page: 'qeeg-analysis' },
     { type: 'nav', icon: '🧠', title: 'MRI Analyzer', page: 'mri-analysis' },
+    { type: 'nav', icon: '🎥', title: 'Video Assessments', page: 'video-assessments' },
+    { type: 'nav', icon: '🎥', title: 'Video Analyzer', page: 'video-assessments' },
     { type: 'nav', icon: '🎙️', title: 'Voice Analyzer', page: 'voice-analyzer' },
+    { type: 'nav', icon: '📝', title: 'Text Analyzer', page: 'text-analyzer' },
+    { type: 'nav', icon: '⌚', title: 'Biometrics', page: 'wearables' },
   );
 
   // Fuzzy match: returns score (higher = better), or 0 if no match

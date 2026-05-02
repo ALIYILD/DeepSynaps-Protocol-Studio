@@ -787,6 +787,27 @@ export const api = {
   audioListPatientAnalyses: (patientId, limit = 30) =>
     apiFetch(`/api/v1/audio/patients/${encodeURIComponent(patientId)}/analyses?limit=${limit}`),
 
+  // ── Clinical text NLP (OpenMed-backed analyze / pii / deidentify) ──────
+  // Backed by /api/v1/clinical-text/* in clinical_text_router.py.
+  // Decision-support framing only — extracted entities are NLP candidates,
+  // never validated clinical findings.
+  clinicalTextHealth: () => apiFetch('/api/v1/clinical-text/health'),
+  clinicalTextAnalyze: ({ text, sourceType = 'free_text', locale = 'en' } = {}) =>
+    apiFetch('/api/v1/clinical-text/analyze', {
+      method: 'POST',
+      body: JSON.stringify({ text, source_type: sourceType, locale }),
+    }),
+  clinicalTextExtractPII: ({ text, sourceType = 'free_text', locale = 'en' } = {}) =>
+    apiFetch('/api/v1/clinical-text/extract-pii', {
+      method: 'POST',
+      body: JSON.stringify({ text, source_type: sourceType, locale }),
+    }),
+  clinicalTextDeidentify: ({ text, sourceType = 'free_text', locale = 'en' } = {}) =>
+    apiFetch('/api/v1/clinical-text/deidentify', {
+      method: 'POST',
+      body: JSON.stringify({ text, source_type: sourceType, locale }),
+    }),
+
   // Custom document templates (clinician-authored, distinct from the bundled
   // DOCUMENT_TEMPLATES read-only set in apps/web/src/documents-templates.js).
   // Backed by /api/v1/documents/templates* in documents_router.py.
@@ -3661,6 +3682,49 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }).catch(() => null),
+
+  // ── CSAHP2 Auth Drift Resolution launch-audit ──
+  // (2026-05-02). Closes the proactive-credential-monitoring loop opened
+  // by CSAHP1 (#417). Admin marks an auth_drift_detected row as rotated
+  // (with rotation_method + rotation_note); the CSAHP1 worker
+  // confirmation hook pairs the rotation with the next successful probe
+  // within 24h and emits auth_drift_resolved_confirmed when the cycle
+  // closes. Mirrors the DCA → DCR loop (#392 → #393).
+  // Helpers placed BEFORE CSAHP1's section so the CSAHP1 slice-boundary
+  // sentinel stays clean — CSAHP2 uses its own unique header anchor +
+  // slice-boundary sentinel.
+  markAuthDriftRotated: (body) =>
+    apiFetch('/api/v1/channel-auth-drift-resolution/mark-rotated', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  fetchAuthDriftList: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.status) usp.set('status', params.status);
+    if (params && params.channel) usp.set('channel', params.channel);
+    if (params && params.page != null) usp.set('page', String(params.page));
+    if (params && params.page_size != null)
+      usp.set('page_size', String(params.page_size));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/channel-auth-drift-resolution/list' + (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  fetchAuthDriftResolutionAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/channel-auth-drift-resolution/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  // end CSAHP2 helpers
+  // ━━ CSAHP2 SLICE BOUNDARY ━━ (do not remove; the launch-audit test
+  // for the CSAHP2 section finds the header above then walks to this
+  // unique sentinel substring to bound the slice).
 
   // ── CSAHP1 Channel Auth Health Probe launch-audit ──
   // (2026-05-02). Proactively probes each clinic's configured adapter

@@ -10287,6 +10287,11 @@ export async function pgCoachingDigestDeliveryFailureDrilldown(setTopbar) {
     workerStatus: null,
     authHealthStatus: null,
     authHealthSelectedChannel: '',
+    // CSAHP2 — auth drift resolution lists (open / pending / resolved).
+    authDriftOpenList: null,
+    authDriftPendingList: null,
+    authDriftResolvedList: null,
+    authDriftError: null,
     page: 1,
     pageSize: 20,
     channelFilter: '',
@@ -10332,6 +10337,24 @@ export async function pgCoachingDigestDeliveryFailureDrilldown(setTopbar) {
           resp.authHealthStatus = await api.fetchChannelAuthHealthStatus();
         }
       } catch (_e) { resp.authHealthStatus = null; }
+      // CSAHP2 — fetch the three drift-resolution lists so the auth-health
+      // section can render Open / Pending confirmation / Confirmed
+      // rotated sub-tables. Errors degrade to empty state — these are
+      // optional read-side enhancements on top of the proactive
+      // probe state.
+      resp.authDriftOpenList = null;
+      resp.authDriftPendingList = null;
+      resp.authDriftResolvedList = null;
+      resp.authDriftError = null;
+      try {
+        if (typeof api.fetchAuthDriftList === 'function') {
+          resp.authDriftOpenList = await api.fetchAuthDriftList({ status: 'open', page_size: 50 });
+          resp.authDriftPendingList = await api.fetchAuthDriftList({ status: 'pending_confirmation', page_size: 50 });
+          resp.authDriftResolvedList = await api.fetchAuthDriftList({ status: 'resolved', page_size: 50 });
+        }
+      } catch (e) {
+        resp.authDriftError = String(e && e.message || e || 'unknown');
+      }
     } catch (e) {
       resp.err = String(e && e.message || e || 'unknown');
     }
@@ -10552,6 +10575,125 @@ export async function pgCoachingDigestDeliveryFailureDrilldown(setTopbar) {
       '</div>';
   }
 
+  // ── CSAHP2 Auth Drift Resolution sub-tables ───────────────────────────
+  // (2026-05-02) Closes the proactive-credential-monitoring loop. Lists
+  // open drifts (admin "Mark as rotated" CTA), pending-confirmation
+  // (after mark, awaiting next healthy probe), and confirmed-rotated
+  // (loop closed). Mirrors the DCA → DCR loop sub-table pattern.
+  function _csahp2DaysRel(iso) {
+    if (!iso) return '—';
+    try {
+      var t = new Date(iso).getTime();
+      var diff = Math.max(0, Math.round((Date.now() - t) / 86400000));
+      return diff === 0 ? 'today' : (diff + 'd ago');
+    } catch (_e) { return '—'; }
+  }
+
+  function renderAuthDriftOpenTable(list) {
+    var items = (list && Array.isArray(list.items)) ? list.items : [];
+    if (items.length === 0) {
+      return '<div data-testid="csahp2-open-empty" class="card" style="padding:10px;margin-top:8px;font-size:11px;color:var(--text-muted)">No open drifts. All channels look clean.</div>';
+    }
+    var isAdmin = _csahp1IsAdmin();
+    var rows = items.map(function(it) {
+      var btn = isAdmin
+        ? '<button data-testid="csahp2-mark-rotated-btn" class="btn-secondary" style="font-size:11px;padding:3px 8px" onclick="window._csahp2OpenMarkModal(' + Number(it.auth_drift_audit_id) + ', \'' + _esc(String(it.channel || '')) + '\')">Mark as rotated</button>'
+        : '<span style="font-size:10px;color:var(--text-muted)">admin only</span>';
+      return '<tr data-testid="csahp2-open-row">' +
+        '<td style="padding:5px 8px;text-transform:capitalize">' + _esc(String(it.channel || '—')) + '</td>' +
+        '<td style="padding:5px 8px"><span style="display:inline-block;padding:2px 6px;border-radius:4px;background:#fee2e2;color:#991b1b;font-size:10px;font-weight:600">' + _esc(String(it.error_class || '—')) + '</span></td>' +
+        '<td style="padding:5px 8px;font-size:11px;color:var(--text-muted)">' + _esc(String(it.error_message || '').slice(0, 60)) + '</td>' +
+        '<td style="padding:5px 8px;font-variant-numeric:tabular-nums">' + _esc(_csahp2DaysRel(it.flagged_at)) + '</td>' +
+        '<td style="padding:5px 8px;text-align:right">' + btn + '</td>' +
+        '</tr>';
+    }).join('');
+    return '<div data-testid="csahp2-open-table" class="card" style="padding:12px;margin-top:8px">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Open drifts <span style="font-weight:400;color:var(--text-muted)">(' + items.length + ')</span></div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<thead><tr style="text-align:left;border-bottom:1px solid var(--border)">' +
+      '<th style="padding:5px 8px">Channel</th>' +
+      '<th style="padding:5px 8px">Error class</th>' +
+      '<th style="padding:5px 8px">Error message</th>' +
+      '<th style="padding:5px 8px">Flagged</th>' +
+      '<th style="padding:5px 8px;text-align:right">Action</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table>' +
+      '</div>';
+  }
+
+  function renderAuthDriftPendingTable(list) {
+    var items = (list && Array.isArray(list.items)) ? list.items : [];
+    if (items.length === 0) {
+      return '';
+    }
+    var rows = items.map(function(it) {
+      return '<tr data-testid="csahp2-pending-row">' +
+        '<td style="padding:5px 8px;text-transform:capitalize">' + _esc(String(it.channel || '—')) + '</td>' +
+        '<td style="padding:5px 8px;font-size:11px">' + _esc(String(it.rotation_method || '—')) + '</td>' +
+        '<td style="padding:5px 8px;font-size:11px;color:var(--text-muted)">' + _esc(String(it.rotation_note || '').slice(0, 60)) + '</td>' +
+        '<td style="padding:5px 8px;font-variant-numeric:tabular-nums">' + _esc(_csahp2DaysRel(it.marked_at)) + '</td>' +
+        '<td style="padding:5px 8px"><span style="display:inline-block;padding:2px 6px;border-radius:4px;background:#fef3c7;color:#92400e;font-size:10px;font-weight:600">Awaiting probe</span></td>' +
+        '</tr>';
+    }).join('');
+    return '<div data-testid="csahp2-pending-table" class="card" style="padding:12px;margin-top:8px">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Pending confirmation <span style="font-weight:400;color:var(--text-muted)">(' + items.length + ')</span></div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<thead><tr style="text-align:left;border-bottom:1px solid var(--border)">' +
+      '<th style="padding:5px 8px">Channel</th>' +
+      '<th style="padding:5px 8px">Method</th>' +
+      '<th style="padding:5px 8px">Note</th>' +
+      '<th style="padding:5px 8px">Marked</th>' +
+      '<th style="padding:5px 8px">Status</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table>' +
+      '</div>';
+  }
+
+  function renderAuthDriftResolvedTable(list) {
+    var items = (list && Array.isArray(list.items)) ? list.items : [];
+    if (items.length === 0) {
+      return '';
+    }
+    var rows = items.map(function(it) {
+      return '<tr data-testid="csahp2-resolved-row">' +
+        '<td style="padding:5px 8px;text-transform:capitalize">' + _esc(String(it.channel || '—')) + '</td>' +
+        '<td style="padding:5px 8px;font-size:11px">' + _esc(String(it.rotation_method || '—')) + '</td>' +
+        '<td style="padding:5px 8px;font-variant-numeric:tabular-nums">' + _esc(_csahp2DaysRel(it.confirmed_at)) + '</td>' +
+        '<td style="padding:5px 8px"><span style="display:inline-block;padding:2px 6px;border-radius:4px;background:#dcfce7;color:#166534;font-size:10px;font-weight:600">Confirmed rotated</span></td>' +
+        '</tr>';
+    }).join('');
+    return '<div data-testid="csahp2-resolved-table" class="card" style="padding:12px;margin-top:8px">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Confirmed rotated <span style="font-weight:400;color:var(--text-muted)">(' + items.length + ')</span></div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<thead><tr style="text-align:left;border-bottom:1px solid var(--border)">' +
+      '<th style="padding:5px 8px">Channel</th>' +
+      '<th style="padding:5px 8px">Method</th>' +
+      '<th style="padding:5px 8px">Confirmed</th>' +
+      '<th style="padding:5px 8px">Status</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table>' +
+      '</div>';
+  }
+
+  function renderAuthDriftSection() {
+    var honestNote = '<div data-testid="csahp2-honest-disclaimer" class="notice" style="font-size:11px;color:var(--text-muted);margin-top:6px;padding:8px 10px;border-left:3px solid var(--border)">' +
+      'Confirmation requires the next health probe to succeed. Probe runs every 12h or you can run it manually.' +
+      '</div>';
+    var errBlock = state.authDriftError
+      ? '<div data-testid="csahp2-err" class="notice notice-warn" style="padding:8px 10px;font-size:11px;margin-top:6px">Failed to load drift resolution: ' + _esc(state.authDriftError) + '</div>'
+      : '';
+    var inlineErr = '';
+    if (window._csahp2InlineErr) {
+      var cls = window._csahp2InlineErrClass || 'notice-warn';
+      inlineErr = '<div data-testid="csahp2-inline-err" class="notice ' + _esc(cls) + '" style="padding:8px 10px;font-size:11px;margin-top:6px">' + _esc(window._csahp2InlineErr) + '</div>';
+    }
+    return '<div data-testid="csahp2-auth-drift-section">' +
+      honestNote +
+      errBlock +
+      inlineErr +
+      renderAuthDriftOpenTable(state.authDriftOpenList) +
+      renderAuthDriftPendingTable(state.authDriftPendingList) +
+      renderAuthDriftResolvedTable(state.authDriftResolvedList) +
+      '</div>';
+  }
+
   // ── Section 5: Failed-list table ────────────────────────────────────────
   function renderFailedListTable(fl) {
     var items = (fl && Array.isArray(fl.items)) ? fl.items : [];
@@ -10604,6 +10746,10 @@ export async function pgCoachingDigestDeliveryFailureDrilldown(setTopbar) {
     state.failedList = resp.failedList;
     state.workerStatus = resp.workerStatus;
     state.authHealthStatus = resp.authHealthStatus;
+    state.authDriftOpenList = resp.authDriftOpenList;
+    state.authDriftPendingList = resp.authDriftPendingList;
+    state.authDriftResolvedList = resp.authDriftResolvedList;
+    state.authDriftError = resp.authDriftError;
     state.err = resp.err;
     if (state.err) {
       el.innerHTML = '<div data-testid="dcro5-err" class="notice notice-warn" style="padding:14px;font-size:12px">Failed to load delivery failure drilldown: ' + _esc(state.err) + '</div>';
@@ -10640,6 +10786,12 @@ export async function pgCoachingDigestDeliveryFailureDrilldown(setTopbar) {
       // probe now CTA.
       '<h3 data-testid="csahp1-section-auth-health" style="font-size:13px;margin:14px 0 4px;font-weight:700">Auth health</h3>' +
       renderAuthHealthSection(state.authHealthStatus) +
+      // CSAHP2 — auth drift resolution sub-tables (open / pending / resolved).
+      // Mirrors the DCA → DCR loop. Lives BELOW the per-channel auth-health
+      // grid so admins read the proactive state first then drop down to
+      // the actionable open-drifts list with the Mark as rotated CTA.
+      '<h3 data-testid="csahp2-section-auth-drift" style="font-size:13px;margin:14px 0 4px;font-weight:700">Auth drift resolution</h3>' +
+      renderAuthDriftSection() +
       '</div>';
 
     if (typeof api.postDigestDeliveryFailureAuditEvent === 'function') {
@@ -10722,6 +10874,102 @@ export async function pgCoachingDigestDeliveryFailureDrilldown(setTopbar) {
         event: 'csahp1_run_channel_probe_clicked',
         note: 'channel=' + ch,
       });
+    }
+    await render();
+  };
+
+  // ── CSAHP2 modal handlers ───────────────────────────────────────────
+  // (2026-05-02) Admin marks a drift row as rotated. Modal collects
+  // rotation_method (dropdown) + rotation_note (textarea, 10–500 chars).
+  // Submit-disabled until note >= 10 chars. POSTs to
+  // /api/v1/channel-auth-drift-resolution/mark-rotated. After success,
+  // re-renders so the row moves from Open → Pending sub-table.
+  window._csahp2OpenMarkModal = function(driftAuditId, channel) {
+    window._csahp2InlineErr = null;
+    var modalHtml =
+      '<div data-testid="csahp2-modal" id="csahp2-modal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:9999">' +
+      '<div class="card" style="padding:18px;max-width:480px;width:90%;background:var(--surface)">' +
+      '<h3 style="font-size:14px;font-weight:700;margin:0 0 6px">Mark drift as rotated</h3>' +
+      '<div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">Channel: <strong>' + _esc(String(channel || '—')) + '</strong></div>' +
+      '<label style="font-size:11px;display:block;margin-top:6px">Rotation method</label>' +
+      '<select data-testid="csahp2-modal-method" id="csahp2-modal-method" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:4px;font-size:12px;margin-top:4px">' +
+        '<option value="manual">manual</option>' +
+        '<option value="automated_rotation">automated_rotation</option>' +
+        '<option value="key_revoked">key_revoked</option>' +
+      '</select>' +
+      '<label style="font-size:11px;display:block;margin-top:10px">Rotation note <span style="color:var(--text-muted)">(10–500 chars)</span></label>' +
+      '<textarea data-testid="csahp2-modal-note" id="csahp2-modal-note" oninput="window._csahp2OnNoteInput()" rows="4" maxlength="500" placeholder="Describe the rotation in 10–500 chars (audit-trail evidence)" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:4px;font-size:12px;font-family:inherit;margin-top:4px;resize:vertical"></textarea>' +
+      '<div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end">' +
+        '<button data-testid="csahp2-modal-cancel" class="btn-secondary" style="font-size:12px;padding:5px 12px" onclick="window._csahp2CloseModal()">Cancel</button>' +
+        '<button data-testid="csahp2-modal-submit" id="csahp2-modal-submit" class="btn-primary" disabled style="font-size:12px;padding:5px 12px" onclick="window._csahp2SubmitMark(' + Number(driftAuditId) + ')">Mark rotated</button>' +
+      '</div>' +
+      '</div>' +
+      '</div>';
+    var holder = document.createElement('div');
+    holder.innerHTML = modalHtml;
+    document.body.appendChild(holder.firstChild);
+    if (typeof api.postDigestDeliveryFailureAuditEvent === 'function') {
+      api.postDigestDeliveryFailureAuditEvent({
+        event: 'csahp2_mark_rotated_modal_opened',
+        note: 'auth_drift_audit_id=' + Number(driftAuditId) + '; channel=' + (channel || ''),
+      });
+    }
+  };
+
+  window._csahp2OnNoteInput = function() {
+    var note = document.getElementById('csahp2-modal-note');
+    var btn = document.getElementById('csahp2-modal-submit');
+    if (!note || !btn) return;
+    var len = (note.value || '').trim().length;
+    btn.disabled = !(len >= 10 && len <= 500);
+  };
+
+  window._csahp2CloseModal = function() {
+    var modal = document.getElementById('csahp2-modal');
+    if (modal && modal.parentNode) modal.parentNode.removeChild(modal);
+  };
+
+  window._csahp2SubmitMark = async function(driftAuditId) {
+    var method = document.getElementById('csahp2-modal-method');
+    var note = document.getElementById('csahp2-modal-note');
+    var rotationMethod = method ? String(method.value || 'manual') : 'manual';
+    var rotationNote = note ? String(note.value || '').trim() : '';
+    if (rotationNote.length < 10) return;
+    window._csahp2InlineErr = null;
+    window._csahp2InlineErrClass = 'notice-warn';
+    try {
+      if (typeof api.markAuthDriftRotated === 'function') {
+        await api.markAuthDriftRotated({
+          auth_drift_audit_id: Number(driftAuditId),
+          rotation_method: rotationMethod,
+          rotation_note: rotationNote,
+        });
+      }
+      if (typeof api.postDigestDeliveryFailureAuditEvent === 'function') {
+        api.postDigestDeliveryFailureAuditEvent({
+          event: 'csahp2_mark_rotated_submitted',
+          note: 'auth_drift_audit_id=' + Number(driftAuditId) + '; method=' + rotationMethod,
+        });
+      }
+      window._csahp2CloseModal();
+    } catch (e) {
+      var msg = String(e && e.message || e || 'unknown');
+      // 409 already-rotated — render inline error.
+      if (msg.indexOf('409') >= 0 || msg.toLowerCase().indexOf('already') >= 0) {
+        window._csahp2InlineErr = 'Already rotated within the last 24h. Wait for the next probe before re-marking.';
+      } else if (msg.indexOf('500') >= 0) {
+        window._csahp2InlineErr = 'Server error while marking rotated. Try again later.';
+      } else {
+        window._csahp2InlineErr = 'Failed to mark rotated: ' + msg;
+      }
+      window._csahp2InlineErrClass = 'notice-warn';
+      if (typeof api.postDigestDeliveryFailureAuditEvent === 'function') {
+        api.postDigestDeliveryFailureAuditEvent({
+          event: 'csahp2_mark_rotated_failed',
+          note: 'auth_drift_audit_id=' + Number(driftAuditId) + '; err=' + msg.slice(0, 120),
+        });
+      }
+      window._csahp2CloseModal();
     }
     await render();
   };
