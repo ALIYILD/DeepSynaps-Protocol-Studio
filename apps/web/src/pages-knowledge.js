@@ -10090,6 +10090,10 @@ export async function pgResolverCoachingDigestAuditHub(setTopbar) {
       '<div data-testid="dcro4-kpi-failed" class="card"' + failedClick + ' style="padding:12px">' +
       '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Failed</div>' +
       '<div style="font-size:22px;font-weight:700;color:' + ((Number(d.failed) || 0) > 0 ? 'var(--accent-warn,#b45309)' : 'inherit') + '">' + _esc(String(d.failed || 0)) + '</div>' +
+      // Admin-only DCRO5 click-through link (next to the failure-rate KPI).
+      // Placed inline so the spec's "next to the failure-rate KPI"
+      // requirement is honoured visually without a layout change.
+      '<a data-testid="dcro4-dcro5-drilldown-link" href="#/coaching-digest-delivery-failure-drilldown" style="display:inline-block;margin-top:6px;font-size:10px;text-decoration:none;color:var(--accent)">Failure drilldown →</a>' +
       '</div>' +
       '</div>';
   }
@@ -10262,6 +10266,310 @@ export async function pgResolverCoachingDigestAuditHub(setTopbar) {
   await render();
 }
 // ── end Resolver Coaching Digest Audit Hub launch-audit (DCRO4) ─────────
+
+// ── Coaching Digest Delivery Failure Drilldown (DCRO5, 2026-05-02) ──────
+// Operational drill-down over the DCRO3 dispatched audit row stream filtered
+// to delivery_status=failed and grouped by (channel, error_class). DCRO4
+// (#402) surfaces the failure rate; DCRO5 makes it actionable with click-
+// through to the Channel Misconfig Detector (#389) when a matching
+// caregiver_portal.channel_misconfigured_detected row exists in the same ISO
+// week + clinic + channel. Read-only; clinic-scoped; clinician minimum.
+export async function pgCoachingDigestDeliveryFailureDrilldown(setTopbar) {
+  setTopbar('Delivery failure drilldown', `
+    <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px" onclick="window._dcro5Refresh()">↺ Refresh</button>
+  `);
+
+  var state = {
+    windowDays: 90,
+    summary: null,
+    failedList: null,
+    workerStatus: null,
+    page: 1,
+    pageSize: 20,
+    channelFilter: '',
+    errorClassFilter: '',
+    err: null,
+  };
+
+  function _esc(v) {
+    var s = v == null ? '' : String(v);
+    return s.replace(/[&<>"']/g, function(c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+
+  async function loadAll() {
+    var resp = { summary: null, failedList: null, workerStatus: null, err: null };
+    try {
+      if (typeof api.fetchDigestDeliveryFailureSummary === 'function') {
+        resp.summary = await api.fetchDigestDeliveryFailureSummary({
+          window_days: state.windowDays,
+        });
+      }
+      if (typeof api.fetchDigestDeliveryFailureList === 'function') {
+        resp.failedList = await api.fetchDigestDeliveryFailureList({
+          page: state.page,
+          page_size: state.pageSize,
+          channel: state.channelFilter || undefined,
+          error_class: state.errorClassFilter || undefined,
+        });
+      }
+      try {
+        if (typeof api.fetchResolverDigestStatus === 'function') {
+          resp.workerStatus = await api.fetchResolverDigestStatus();
+        }
+      } catch (_e) { resp.workerStatus = null; }
+    } catch (e) {
+      resp.err = String(e && e.message || e || 'unknown');
+    }
+    return resp;
+  }
+
+  function renderControls() {
+    var sel = '<label style="font-size:11px;margin-right:6px">Window:</label>' +
+      '<select data-testid="dcro5-window" onchange="window._dcro5SetWindow(this.value)" style="padding:4px;border:1px solid var(--border);border-radius:4px;font-size:12px">' +
+      [30, 90, 180].map(function(w) {
+        return '<option value="' + w + '"' + (state.windowDays === w ? ' selected' : '') + '>' + w + 'd</option>';
+      }).join('') +
+      '</select>';
+    return '<div data-testid="dcro5-controls" style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:6px">' +
+      '<div>' + sel + '</div>' +
+      '</div>';
+  }
+
+  function renderHonestDisclaimer(ws) {
+    var workerEnabled = ws && ws.enabled;
+    var label = workerEnabled ? 'enabled' : 'disabled';
+    return '<div data-testid="dcro5-disclaimer" class="notice" style="font-size:11px;color:var(--text-muted);margin-top:6px;padding:8px 10px;border-left:3px solid var(--border)">' +
+      'Failure data only available when the DCRO3 worker emits delivery_status. Worker is currently <strong>' + _esc(label) + '</strong>.' +
+      '</div>';
+  }
+
+  // ── Section 1: Top KPI tiles ────────────────────────────────────────────
+  function renderKpiTiles(s) {
+    var rate = (s && s.failure_rate_pct == null) ? '—' : (Number(s.failure_rate_pct).toFixed(1) + '%');
+    var failed = (s && Number(s.total_failed)) || 0;
+    var dispatched = (s && Number(s.total_dispatched)) || 0;
+    return '<div data-testid="dcro5-kpi-tiles" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:10px">' +
+      '<div data-testid="dcro5-kpi-failure-rate" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Failure rate</div><div style="font-size:22px;font-weight:700">' + _esc(rate) + '</div></div>' +
+      '<div data-testid="dcro5-kpi-total-failed" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Total failed</div><div style="font-size:22px;font-weight:700">' + _esc(String(failed)) + '</div></div>' +
+      '<div data-testid="dcro5-kpi-total-dispatched" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Total dispatched</div><div style="font-size:22px;font-weight:700">' + _esc(String(dispatched)) + '</div></div>' +
+      '</div>';
+  }
+
+  // ── Section 2: By-channel grid ──────────────────────────────────────────
+  function renderByChannelGrid(s) {
+    var bc = (s && s.by_channel) || {};
+    var keys = ['slack', 'twilio', 'sendgrid', 'pagerduty', 'email'];
+    var cards = keys.map(function(ch) {
+      var entry = bc[ch] || { failed: 0, by_error_class: {} };
+      var failed = Number(entry.failed) || 0;
+      var bec = entry.by_error_class || {};
+      var ecKeys = ['auth', 'rate_limit', 'channel_left', 'unreachable', 'other'];
+      var max = 0;
+      ecKeys.forEach(function(k) { var v = Number(bec[k]) || 0; if (v > max) max = v; });
+      var bars = ecKeys.map(function(k) {
+        var v = Number(bec[k]) || 0;
+        var pct = max > 0 ? Math.round((v / max) * 100) : 0;
+        return '<div data-testid="dcro5-error-bar" data-channel="' + _esc(ch) + '" data-error-class="' + _esc(k) + '" style="display:flex;align-items:center;gap:6px;margin:2px 0;font-size:11px">' +
+          '<span style="width:80px">' + _esc(k) + '</span>' +
+          '<div style="flex:1;background:var(--surface-muted);height:10px;border-radius:3px;overflow:hidden"><div style="background:var(--accent-warn,#b45309);height:100%;width:' + pct + '%"></div></div>' +
+          '<span style="width:28px;text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(v)) + '</span>' +
+          '</div>';
+      }).join('');
+      return '<div data-testid="dcro5-channel-card" data-channel="' + _esc(ch) + '" class="card" style="padding:10px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
+        '<span style="font-size:12px;font-weight:700;text-transform:capitalize">' + _esc(ch) + '</span>' +
+        '<span data-testid="dcro5-channel-failed-count" style="font-size:18px;font-weight:700;color:' + (failed > 0 ? 'var(--accent-warn,#b45309)' : 'inherit') + '">' + _esc(String(failed)) + '</span>' +
+        '</div>' +
+        bars +
+        '</div>';
+    }).join('');
+    return '<div data-testid="dcro5-by-channel-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:10px">' +
+      cards +
+      '</div>';
+  }
+
+  // ── Section 3: Top error classes leaderboard ────────────────────────────
+  function renderTopErrorClasses(s) {
+    var top = (s && Array.isArray(s.top_error_classes)) ? s.top_error_classes : [];
+    if (top.length === 0) {
+      return '<div data-testid="dcro5-top-empty" class="card" style="padding:10px;margin-top:10px;font-size:12px;color:var(--text-muted)">No (channel x error_class) failures in this window.</div>';
+    }
+    var rows = top.map(function(t, i) {
+      return '<tr data-testid="dcro5-top-row" data-channel="' + _esc(t.channel) + '" data-error-class="' + _esc(t.error_class) + '">' +
+        '<td style="padding:5px 8px;font-variant-numeric:tabular-nums">#' + (i + 1) + '</td>' +
+        '<td style="padding:5px 8px;text-transform:capitalize">' + _esc(t.channel) + '</td>' +
+        '<td style="padding:5px 8px">' + _esc(t.error_class) + '</td>' +
+        '<td style="padding:5px 8px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums">' + _esc(String(t.count)) + '</td>' +
+        '</tr>';
+    }).join('');
+    return '<div data-testid="dcro5-top-error-classes" class="card" style="padding:12px;margin-top:10px">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Top failure cohorts</div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<thead><tr style="text-align:left;border-bottom:1px solid var(--border)">' +
+      '<th style="padding:5px 8px">Rank</th>' +
+      '<th style="padding:5px 8px">Channel</th>' +
+      '<th style="padding:5px 8px">Error class</th>' +
+      '<th style="padding:5px 8px;text-align:right">Count</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+
+  // ── Section 4: Weekly trend chart ───────────────────────────────────────
+  function renderTrendChart(s) {
+    var buckets = (s && Array.isArray(s.trend_buckets)) ? s.trend_buckets : [];
+    if (buckets.length === 0) return '';
+    var max = 0;
+    buckets.forEach(function(b) { var c = Number(b.failed) || 0; if (c > max) max = c; });
+    if (max === 0) {
+      return '<div data-testid="dcro5-trend-empty" class="card" style="padding:10px;margin-top:10px;font-size:12px;color:var(--text-muted)">No failure trend data.</div>';
+    }
+    var bars = buckets.map(function(b) {
+      var c = Number(b.failed) || 0;
+      var h = max > 0 ? Math.round((c / max) * 60) : 0;
+      var label = String(b.week_start || '').slice(0, 10);
+      return '<div data-testid="dcro5-trend-bar" style="display:inline-block;width:30px;margin:0 2px;text-align:center;vertical-align:bottom">' +
+        '<div style="height:60px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center">' +
+        '<div style="width:14px;background:var(--accent-warn,#b45309);height:' + h + 'px"></div>' +
+        '</div>' +
+        '<div style="font-size:9px;color:var(--text-muted);margin-top:2px">' + _esc(label) + '</div>' +
+        '<div style="font-size:10px;font-variant-numeric:tabular-nums">' + _esc(String(c)) + '</div>' +
+        '</div>';
+    }).join('');
+    return '<div data-testid="dcro5-trend" class="card" style="padding:12px;margin-top:10px;overflow-x:auto">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Weekly failure trend</div>' +
+      '<div style="white-space:nowrap">' + bars + '</div>' +
+      '</div>';
+  }
+
+  // ── Section 5: Failed-list table ────────────────────────────────────────
+  function renderFailedListTable(fl) {
+    var items = (fl && Array.isArray(fl.items)) ? fl.items : [];
+    var total = (fl && Number(fl.total)) || 0;
+    if (total === 0) {
+      return '<div data-testid="dcro5-empty-state" class="card" style="padding:14px;margin-top:10px;font-size:12px;color:var(--text-muted)">No delivery failures in this window. Nice.</div>';
+    }
+    var rows = items.map(function(it) {
+      var match = !!it.has_matching_misconfig_flag;
+      var badge = match
+        ? '<span data-testid="dcro5-misconfig-badge" data-match="yes" onclick="window._dcro5OpenMisconfig(\'' + _esc(it.channel) + '\')" style="cursor:pointer;display:inline-block;padding:3px 8px;border-radius:999px;font-size:10px;font-weight:600;background:#fee2e2;color:#991b1b">Yes</span>'
+        : '<span data-testid="dcro5-misconfig-badge" data-match="no" style="display:inline-block;padding:3px 8px;border-radius:999px;font-size:10px;font-weight:600;background:#f3f4f6;color:#6b7280">No</span>';
+      var ts = String(it.dispatched_at || '').slice(0, 16).replace('T', ' ');
+      return '<tr data-testid="dcro5-failed-row">' +
+        '<td style="padding:5px 8px;text-transform:capitalize">' + _esc(it.channel) + '</td>' +
+        '<td style="padding:5px 8px"><span style="display:inline-block;padding:2px 6px;border-radius:4px;background:var(--surface-muted);font-size:10px">' + _esc(it.error_class) + '</span></td>' +
+        '<td style="padding:5px 8px"><strong>' + _esc(it.resolver_name || it.resolver_user_id || '—') + '</strong></td>' +
+        '<td style="padding:5px 8px;font-variant-numeric:tabular-nums">' + _esc(ts) + '</td>' +
+        '<td style="padding:5px 8px;text-align:center">' + badge + '</td>' +
+        '</tr>';
+    }).join('');
+    var totalPages = Math.max(1, Math.ceil(total / state.pageSize));
+    var pager = '<div data-testid="dcro5-pager" style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:11px">' +
+      '<span>Page ' + state.page + ' of ' + totalPages + ' (' + total + ' rows)</span>' +
+      '<span>' +
+      '<button class="btn-secondary" style="font-size:11px;padding:3px 8px" onclick="window._dcro5SetPage(' + Math.max(1, state.page - 1) + ')"' + (state.page <= 1 ? ' disabled' : '') + '>← Prev</button>' +
+      ' <button class="btn-secondary" style="font-size:11px;padding:3px 8px" onclick="window._dcro5SetPage(' + Math.min(totalPages, state.page + 1) + ')"' + (state.page >= totalPages ? ' disabled' : '') + '>Next →</button>' +
+      '</span>' +
+      '</div>';
+    return '<div data-testid="dcro5-failed-list" class="card" style="padding:12px;margin-top:10px">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Failed dispatches</div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<thead><tr style="text-align:left;border-bottom:1px solid var(--border)">' +
+      '<th style="padding:5px 8px">Channel</th>' +
+      '<th style="padding:5px 8px">Error class</th>' +
+      '<th style="padding:5px 8px">Resolver</th>' +
+      '<th style="padding:5px 8px">Dispatched</th>' +
+      '<th style="padding:5px 8px;text-align:center">Linked misconfig?</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table>' +
+      pager +
+      '</div>';
+  }
+
+  async function render() {
+    var el = document.getElementById('content');
+    if (!el) return;
+    el.innerHTML = '<div style="padding:14px;font-size:12px;color:var(--text-muted)">Loading delivery failure drilldown…</div>';
+    var resp = await loadAll();
+    state.summary = resp.summary;
+    state.failedList = resp.failedList;
+    state.workerStatus = resp.workerStatus;
+    state.err = resp.err;
+    if (state.err) {
+      el.innerHTML = '<div data-testid="dcro5-err" class="notice notice-warn" style="padding:14px;font-size:12px">Failed to load delivery failure drilldown: ' + _esc(state.err) + '</div>';
+      return;
+    }
+
+    var heading = '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
+      '<h2 style="font-size:16px;margin:0">Delivery failure drilldown</h2>' +
+      '<a data-testid="dcro5-back-to-hub-link" href="#/resolver-coaching-digest-audit-hub" class="btn-secondary" style="font-size:.78rem;padding:5px 10px;text-decoration:none">← Audit hub</a>' +
+      '</div>';
+
+    el.innerHTML = '<div style="padding:14px">' +
+      heading +
+      renderHonestDisclaimer(state.workerStatus) +
+      renderControls() +
+      // Section 1
+      '<h3 data-testid="dcro5-section-kpi" style="font-size:13px;margin:14px 0 4px;font-weight:700">Failure KPIs</h3>' +
+      renderKpiTiles(state.summary) +
+      // Section 2
+      '<h3 data-testid="dcro5-section-by-channel" style="font-size:13px;margin:14px 0 4px;font-weight:700">By channel x error class</h3>' +
+      renderByChannelGrid(state.summary) +
+      // Section 3
+      '<h3 data-testid="dcro5-section-top" style="font-size:13px;margin:14px 0 4px;font-weight:700">Top cohorts</h3>' +
+      renderTopErrorClasses(state.summary) +
+      // Section 4
+      '<h3 data-testid="dcro5-section-trend" style="font-size:13px;margin:14px 0 4px;font-weight:700">Weekly trend</h3>' +
+      renderTrendChart(state.summary) +
+      // Section 5
+      '<h3 data-testid="dcro5-section-list" style="font-size:13px;margin:14px 0 4px;font-weight:700">Failed dispatches</h3>' +
+      renderFailedListTable(state.failedList) +
+      '</div>';
+
+    if (typeof api.postDigestDeliveryFailureAuditEvent === 'function') {
+      api.postDigestDeliveryFailureAuditEvent({
+        event: 'view',
+        note: 'window_days=' + state.windowDays,
+      });
+    }
+  }
+
+  window._dcro5Refresh = function() { render(); };
+  window._dcro5SetWindow = function(v) {
+    state.windowDays = Number(v) || 90;
+    state.page = 1;
+    if (typeof api.postDigestDeliveryFailureAuditEvent === 'function') {
+      api.postDigestDeliveryFailureAuditEvent({
+        event: 'window_changed',
+        note: 'window_days=' + state.windowDays,
+      });
+    }
+    render();
+  };
+  window._dcro5SetPage = function(p) {
+    state.page = Number(p) || 1;
+    if (typeof api.postDigestDeliveryFailureAuditEvent === 'function') {
+      api.postDigestDeliveryFailureAuditEvent({
+        event: 'page_changed',
+        note: 'page=' + state.page,
+      });
+    }
+    render();
+  };
+  window._dcro5OpenMisconfig = function(channel) {
+    if (typeof api.postDigestDeliveryFailureAuditEvent === 'function') {
+      api.postDigestDeliveryFailureAuditEvent({
+        event: 'drill_through_clicked',
+        note: 'channel=' + (channel || ''),
+      });
+    }
+    // Navigate to the Channel Misconfig Detector route — the
+    // canonical alias accepted by app.js is 'channel-misconfig-detector'.
+    location.hash = '#/channel-misconfig-detector';
+  };
+
+  await render();
+}
+// ── end Coaching Digest Delivery Failure Drilldown (DCRO5) ──────────────
 
 // ── Local-only schedule (offline fallback / legacy view) ──────────────────
 async function _pgStaffSchedulingLocal(setTopbar) {

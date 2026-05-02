@@ -480,6 +480,20 @@ KNOWN_SURFACES = {
     # companion worker. Closes the resolver-side coaching loop end-to-
     # end. Page-level events: view, window_changed, trajectory_viewed.
     "resolver_coaching_digest_audit_hub",
+    # Coaching Digest Delivery Failure Drilldown launch-audit (DCRO5,
+    # 2026-05-02). Operational drill-down over the DCRO3 dispatched
+    # audit row stream filtered to delivery_status=failed and grouped
+    # by (channel, error_class). Page surfaces a per-channel + per-
+    # error_class breakdown, top-5 leaderboard, weekly trend, and a
+    # paginated list of failed dispatches each annotated with
+    # has_matching_misconfig_flag — true when a
+    # ``caregiver_portal.channel_misconfigured_detected`` row exists in
+    # the same ISO week + clinic + channel; that boolean drives the
+    # click-through to the Channel Misconfig Detector (#389). Read-only;
+    # no companion worker; reuses the existing DCRO3 audit row stream.
+    # Page-level events: view, window_changed, channel_filter_changed,
+    # error_class_filter_changed, page_changed, drill_through_clicked.
+    "coaching_digest_delivery_failure_drilldown",
 }
 
 
