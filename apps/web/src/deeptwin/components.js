@@ -432,6 +432,9 @@ export function renderReportCenter() {
       <header class="dt-section-h"><h3>Report center</h3>
         <span class="dt-section-sub">Generate clinician, patient, prediction, correlation, causal, simulation, governance, and completeness reports.</span>
       </header>
+      <div class="dt-safety-footer" style="margin:0 0 10px 0">
+        Video Analyzer outputs can be included as DeepTwin signals for correlations, causation hypotheses, and predictions only as decision-support features. They require clinician review and do not establish diagnosis or causality by themselves.
+      </div>
       <div class="dt-report-buttons">${buttons}</div>
       <div id="dt-report-out" style="margin-top:10px"></div>
     </section>

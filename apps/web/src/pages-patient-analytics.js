@@ -560,6 +560,9 @@ function widgetVideo(_tel, patientId) {
   return `<div class="ds-evidence-card-head">${evidenceChipHtml(patientId, 'video_affect', 'multimodal_summary', 'Affect evidence', 11, 'moderate', [
       { name: 'Facial affect', value: 'Calm/engaged 46%', modality: 'Video', direction: 'protective', contribution: 0.16 },
     ])}</div>
+    <div style="margin-bottom:8px;padding:7px 9px;border:1px solid rgba(246,178,60,.22);border-radius:9px;background:rgba(246,178,60,.07);font-size:10px;line-height:1.35;color:var(--text-secondary)">
+      Video metrics are decision-support signals for clinician review. They are not validated diagnostic scores and should be interpreted with camera quality, task protocol, and consent context.
+    </div>
     <div class="pa-video-frame">
       <svg width="100%" height="100%" viewBox="0 0 200 50">
         <ellipse cx="100" cy="25" rx="22" ry="18" fill="none" stroke="rgba(255,107,139,0.3)" stroke-width="0.6"/>
@@ -570,7 +573,11 @@ function widgetVideo(_tel, patientId) {
       </svg>
     </div>
     ${svgStackBar(emotions.map(e => ({ value: e.v, color: e.c })), 180, 6)}
-    <div class="pa-video-legend">${emotions.slice(0,4).map(e => `<span><span class="pa-dot" style="background:${e.c}"></span>${e.name} ${e.v}%</span>`).join('')}</div>`;
+    <div class="pa-video-legend">${emotions.slice(0,4).map(e => `<span><span class="pa-dot" style="background:${e.c}"></span>${e.name} ${e.v}%</span>`).join('')}</div>
+    <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn btn-ghost btn-xs" data-pa-action="report" data-pa-widget="video">Generate video report</button>
+      <button class="btn btn-ghost btn-xs" data-pa-action="open-deeptwin">Use in DeepTwin correlations</button>
+    </div>`;
 }
 
 function widgetText(_tel, patientId) {

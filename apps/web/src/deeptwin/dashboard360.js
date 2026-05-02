@@ -340,7 +340,10 @@ function _demoDashboardPayload(patientId) {
     card('mri', 'missing', 'No MRI records in this demo seed.', {
       upload_links: [{ label: 'Upload MRI', href: '/mri-analysis', kind: 'mri' }],
     }),
-    card('video', 'missing', 'No video analyses on file.'),
+    card('video', 'missing', 'No video analyses on file. Video Analyzer metrics are decision-support signals and require clinician review before use in predictions, causation, or monitoring workflows.', {
+      warnings: ['Video movement/monitoring outputs are not clinically validated diagnostic scores.'],
+      upload_links: [{ label: 'Open video visits', href: '/virtualcare', kind: 'video' }],
+    }),
     card('voice', 'missing', 'No voice analyses on file.'),
     card('text', 'missing', 'No journal or message text on file.'),
     card('biometrics', 'missing', 'No biometric observations on file.'),
