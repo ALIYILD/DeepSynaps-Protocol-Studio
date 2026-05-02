@@ -167,3 +167,90 @@ class SectionedText(BaseModel):
         default_factory=list,
         description="Ordered blocks with global character offsets.",
     )
+
+
+# --- Terminology linking & auto-coding --------------------------------------
+
+CodeSystem = Literal[
+    "SNOMED_CT",
+    "ICD10CM",
+    "ICD10PCS",
+    "LOINC",
+    "RXNORM",
+    "UMLS_CUI",
+]
+
+
+class TerminologyReference(BaseModel):
+    """A single code in a standard vocabulary with optional display and confidence."""
+
+    system: CodeSystem
+    code: str = Field(description="Code as used in that system (e.g. SNOMED concept id, ICD-10-CM).")
+    display: str | None = Field(default=None, description="Human-readable preferred term.")
+    confidence: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Linker confidence for this (mention, code) pair.",
+    )
+
+
+class CodedEntity(ClinicalEntity):
+    """Extracted entity plus terminology codes (extension of :class:`ClinicalEntity`)."""
+
+    codings: list[TerminologyReference] = Field(
+        default_factory=list,
+        description="Candidate or primary codes from standard terminologies.",
+    )
+
+    model_config = {"frozen": False}
+
+
+class CodedEntityExtractionResult(BaseModel):
+    """Entity extraction with terminology linking applied."""
+
+    document_id: str
+    source_text: str
+    backend: str = Field(description="Linker backend id, e.g. biosyn, noop.")
+    model_version: str | None = Field(
+        default=None,
+        description="Optional linker / lexicon version string.",
+    )
+    entities: list[CodedEntity] = Field(default_factory=list)
+
+    model_config = {"frozen": False}
+
+
+CodingCategory = Literal["diagnosis", "procedure", "medication", "lab", "device", "other"]
+
+
+class SuggestedCode(BaseModel):
+    """One aggregated coding suggestion for billing / problem lists / orders (assistive)."""
+
+    coding_category: CodingCategory
+    system: CodeSystem
+    code: str
+    display: str | None = None
+    confidence: float = Field(ge=0.0, le=1.0)
+    source_entity_indices: list[int] = Field(
+        default_factory=list,
+        description="Indices into ``CodedEntityExtractionResult.entities`` supporting this code.",
+    )
+
+
+class AutoCodingResult(BaseModel):
+    """Note-level roll-up of suggested codes (not a billable claim)."""
+
+    document_id: str
+    backend: str
+    model_version: str | None = None
+    suggestions: list[SuggestedCode] = Field(
+        default_factory=list,
+        description="Deduplicated suggested codes with highest confidence per (system, code).",
+    )
+    by_category: dict[str, list[SuggestedCode]] = Field(
+        default_factory=dict,
+        description="Same suggestions grouped by :class:`CodingCategory` for UI.",
+    )
+
+    model_config = {"frozen": False}

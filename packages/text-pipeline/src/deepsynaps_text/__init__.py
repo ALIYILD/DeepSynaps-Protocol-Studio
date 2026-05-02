@@ -1,5 +1,6 @@
 """DeepSynaps clinical text pipeline package."""
 
+from deepsynaps_text.coding import auto_code_note, link_entities_to_terminology
 from deepsynaps_text.core_nlp import (
     ClinicalEntityBackend,
     RuleBasedClinicalBackend,
@@ -19,28 +20,38 @@ from deepsynaps_text.ingestion import (
 )
 from deepsynaps_text.schemas import (
     AssertionStatus,
+    AutoCodingResult,
     ClinicalChannel,
     ClinicalEntity,
     ClinicalEntityExtractionResult,
     ClinicalTextDocument,
     ClinicalTextMetadata,
+    CodeSystem,
+    CodedEntity,
+    CodedEntityExtractionResult,
     EntityType,
     PhiKind,
     PhiSpan,
     SectionedText,
+    SuggestedCode,
     TemporalContext,
+    TerminologyReference,
     TextSection,
     TextSpan,
 )
 
 __all__ = [
     "AssertionStatus",
+    "AutoCodingResult",
     "ClinicalChannel",
     "ClinicalEntity",
     "ClinicalEntityBackend",
     "ClinicalEntityExtractionResult",
     "ClinicalTextDocument",
     "ClinicalTextMetadata",
+    "CodeSystem",
+    "CodedEntity",
+    "CodedEntityExtractionResult",
     "DeidBackend",
     "EntityType",
     "PhiKind",
@@ -49,9 +60,12 @@ __all__ = [
     "RuleBasedClinicalBackend",
     "SectionedText",
     "SpaCyClinicalBackend",
+    "SuggestedCode",
     "TemporalContext",
+    "TerminologyReference",
     "TextSection",
     "TextSpan",
+    "auto_code_note",
     "build_note_sections_from_text",
     "deidentify_text",
     "detect_negation_and_assertion",
@@ -59,5 +73,6 @@ __all__ = [
     "detect_temporal_context",
     "extract_clinical_entities",
     "import_clinical_text",
+    "link_entities_to_terminology",
     "normalize_note_format",
 ]
