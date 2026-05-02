@@ -606,149 +606,6 @@ const _TREATMENT_SESSIONS = {
   detail: (pid) => (_TS_DETAIL[pid] ? _TS_DETAIL[pid]() : null),
 };
 
-const _LABS = {
-  /** Mirrors `GET /api/v1/labs/analyzer/patient/{id}` for offline demo. */
-  payload: (patientId) => {
-    const p = String(patientId || '');
-    const name = (DEMO_PATIENTS.find((x) => x.id === p) || {}).name || 'Patient';
-    const now = '2026-05-02T10:00:00Z';
-    if (p === 'demo-pt-samantha-li') {
-      return {
-        schema_version: '1.0.0',
-        generated_at: now,
-        patient_id: p,
-        patient_name: name,
-        provenance: { source_system: 'deepsynaps_api', analyzer_version: 'labs-analyzer-0.1.0-demo', input_snapshot_ids: ['demo:fixtures'], pipeline_run_id: 'demo-labs-1' },
-        confidence: { overall_panel_completeness: 0.68, interpretation_confidence_cap: 0.55 },
-        disclaimer_short: 'Decision-support only. Not a diagnosis. Demo payload.',
-        lab_snapshot: {
-          key_abnormal_markers: ['Hemoglobin low', 'Vitamin B12 low'],
-          critical_summary: 'No critical values on this draw.',
-          recent_changes_summary: 'Hgb −0.6 g/dL vs prior month.',
-          abnormal_domain_count: 2,
-          medication_safety_flag_count: 0,
-          inflammation_summary: 'No CRP on panel.',
-          metabolic_summary: 'Renal function within range.',
-          endocrine_summary: 'TSH not drawn.',
-          completeness_pct: 0.68,
-          missing_core_analytes: ['TSH', 'CRP', 'Ferritin'],
-          top_confound_warnings: [
-            'Hemoglobin low — interpret fatigue scores and HRV with caution.',
-            'B12 low — may confound cognitive complaint work-up vs qEEG.',
-          ],
-        },
-        domain_summaries: [
-          { domain: 'hematology', status: 'abnormal', abnormal_count: 1, critical_count: 0, headline: 'Mild anemia', marker_ids: ['lr-sam-hemo'] },
-          { domain: 'nutritional', status: 'abnormal', abnormal_count: 1, critical_count: 0, headline: 'Low B12', marker_ids: ['lr-sam-b12'] },
-        ],
-        results: [
-          { id: 'lr-sam-hemo', patient_id: p, analyte_code: '718-7', analyte_display_name: 'Hemoglobin', test_name: 'CBC', panel_name: 'Core', value_numeric: 10.8, value_text: null, unit_ucum: 'g/dL', reference_range: { low: 11.5, high: 15.5, text: null, population: null }, sample_collected_at: '2026-04-28T08:00:00Z', result_reported_at: '2026-04-28T08:00:00Z', abnormality_direction: 'low', criticality: 'moderate', domain: 'hematology', acute_chronic_class: 'unknown', confidence: 0.95, linked_analyzers_impacted: ['biometrics', 'assessments', 'risk'] },
-          { id: 'lr-sam-b12', patient_id: p, analyte_code: '2132-9', analyte_display_name: 'Vitamin B12', test_name: 'B12', panel_name: 'Core', value_numeric: 185, value_text: null, unit_ucum: 'pg/mL', reference_range: { low: 200, high: 900, text: null, population: null }, sample_collected_at: '2026-04-28T08:00:00Z', result_reported_at: '2026-04-28T08:00:00Z', abnormality_direction: 'low', criticality: 'moderate', domain: 'nutritional', acute_chronic_class: 'unknown', confidence: 0.95, linked_analyzers_impacted: ['assessments', 'qeeg'] },
-        ],
-        trend_windows: [
-          { analyte_code: '718-7', window_start: '2026-01-01T00:00:00Z', window_end: '2026-04-28T08:00:00Z', n_samples: 1, baseline_estimate: 10.8, latest_value: 10.8, delta_percent: null, trend_direction: 'flat', real_change_probability: 0.35, real_change_rationale_codes: ['single_draw'] },
-        ],
-        critical_alerts: [],
-        interpretations: [
-          { id: 'int-fatigue', category: 'fatigue', interpretation_type: 'possible_contributor', summary: 'Anemia pattern may contribute to fatigue — does not replace clinical evaluation.', supporting_result_ids: ['lr-sam-hemo'], confidence: 0.48, caveats: ['Structured hypothesis only.', 'Panel incomplete for thyroid/inflammation.'] },
-        ],
-        confound_flags: [
-          { id: 'cf-bio', target_analyzer: 'biometrics', strength: 'moderate', confound_risk_score: 0.55, rationale: 'Low hemoglobin may covary with reduced exercise tolerance and HRV.', supporting_result_ids: ['lr-sam-hemo'] },
-        ],
-        recommendations: [
-          { id: 'rec-1', type: 'repeat_lab', priority: 'P1', text: 'Repeat CBC + ferritin + B12 folate panel per clinician judgement.', evidence_links: [], linked_result_ids: ['lr-sam-hemo'] },
-          { id: 'rec-2', type: 'caution_other_analyzers', priority: 'P2', text: 'Review biometrics and symptom scales with lab confounds in mind.', evidence_links: [], linked_result_ids: [] },
-        ],
-        multimodal_links: [
-          { target_page: 'medication-analyzer', label: 'Medication Analyzer', rationale: 'Cross-check agents that affect bleeding / marrow / liver.' },
-          { target_page: 'wearables', label: 'Biometrics', rationale: 'Correlate HRV and sleep with anemia work-up.' },
-          { target_page: 'deeptwin', label: 'DeepTwin', rationale: 'Fuse labs into multimodal summary.' },
-          { target_page: 'research-evidence', label: '87k evidence corpus', rationale: 'Literature search for lab monitoring and confounds.' },
-        ],
-        external_context: {
-          active_medications: [],
-          treatment_courses: [],
-          latest_qeeg_analysis_id: null,
-          latest_mri_analysis_id: null,
-          fusion_case_id: null,
-          deeptwin_last_run_id: null,
-          biometrics_snapshot_id: null,
-        },
-        evidence_brief: {
-          finding_id: 'demo-labs-ev',
-          literature_summary: 'Demo: evidence intelligence returns ranked papers when the API is online.',
-          confidence_score: 0.42,
-          top_pmids: ['38000001', '38000002'],
-        },
-        ai_clinical_narrative: null,
-        research_evidence_prefill:
-          'blood biomarker monitoring longitudinal laboratory Major Depressive Disorder Hemoglobin Vitamin B12 Sertraline',
-        clinical_disclaimer_long:
-          'Demo: clinical decision-support and research literacy only — not a diagnosis.',
-      };
-    }
-    return {
-      schema_version: '1.0.0',
-      generated_at: now,
-      patient_id: p || 'unknown',
-      patient_name: name,
-      provenance: { source_system: 'deepsynaps_api', analyzer_version: 'labs-analyzer-0.1.0-demo', input_snapshot_ids: ['demo:generic'], pipeline_run_id: 'demo-labs-gen' },
-      confidence: { overall_panel_completeness: 0.4, interpretation_confidence_cap: 0.45 },
-      disclaimer_short: 'Decision-support only. Demo generic payload.',
-      lab_snapshot: {
-        key_abnormal_markers: [],
-        critical_summary: 'No critical values shown.',
-        recent_changes_summary: '',
-        abnormal_domain_count: 0,
-        medication_safety_flag_count: 0,
-        inflammation_summary: '—',
-        metabolic_summary: 'Single sodium sample — limited.',
-        endocrine_summary: '—',
-        completeness_pct: 0.4,
-        missing_core_analytes: ['CBC', 'CMP', 'Lipids'],
-        top_confound_warnings: [],
-      },
-      domain_summaries: [
-        { domain: 'metabolic_renal', status: 'clear', abnormal_count: 0, critical_count: 0, headline: 'Scaffold — add labs', marker_ids: ['lr-gen-na'] },
-      ],
-      results: [
-        { id: 'lr-gen-na', patient_id: p || 'unknown', analyte_code: '2951-2', analyte_display_name: 'Sodium', test_name: 'BMP', panel_name: 'Core', value_numeric: 140, value_text: null, unit_ucum: 'mmol/L', reference_range: { low: 135, high: 145, text: null, population: null }, sample_collected_at: '2026-05-01T08:00:00Z', result_reported_at: null, abnormality_direction: 'normal', criticality: 'none', domain: 'metabolic_renal', acute_chronic_class: 'unknown', confidence: 0.95, linked_analyzers_impacted: [] },
-      ],
-      trend_windows: [],
-      critical_alerts: [],
-      interpretations: [],
-      confound_flags: [],
-      recommendations: [
-        { id: 'rec-mm', type: 'caution_other_analyzers', priority: 'P2', text: 'Upload fuller panels to enable confound detection across modalities.', evidence_links: [], linked_result_ids: [] },
-      ],
-      multimodal_links: [
-        { target_page: 'patients-v2', label: 'Patients', rationale: 'Select a demo persona for richer scaffold data.' },
-        { target_page: 'research-evidence', label: '87k evidence corpus', rationale: 'Search supporting literature.' },
-      ],
-      external_context: {
-        active_medications: [],
-        treatment_courses: [],
-        latest_qeeg_analysis_id: null,
-        latest_mri_analysis_id: null,
-        fusion_case_id: null,
-        deeptwin_last_run_id: null,
-        biometrics_snapshot_id: null,
-      },
-      evidence_brief: null,
-      ai_clinical_narrative: null,
-      research_evidence_prefill: 'blood biomarker laboratory monitoring sodium electrolyte',
-      clinical_disclaimer_long:
-        'Demo: clinical decision-support and research literacy only — not a diagnosis.',
-    };
-  },
-  audit: (patientId) => ({
-    patient_id: patientId,
-    items: [
-      { event_id: 'demo-labs-audit-1', event_type: 'view', actor_user_id: null, timestamp: '2026-05-02T09:00:00Z', payload: { source: 'demo_fixture' } },
-    ],
-  }),
-};
-
 const _PHENOTYPE_CATALOG = [
   {
     id: 'demo-ph-anxious-depression',
@@ -1176,6 +1033,239 @@ const _MOVEMENT = {
   patient_audit: _movementAuditFor,
 };
 
+const _LABS_PROFILES = {
+  'demo-pt-samantha-li': {
+    patient_id: 'demo-pt-samantha-li',
+    patient_name: 'Samantha Li',
+    captured_at: '2026-04-26T08:30:00Z',
+    panels: [
+      {
+        name: 'Complete Blood Count',
+        results: [
+          { analyte: 'Hemoglobin',  value: 13.4, unit: 'g/dL',   ref_low: 12.0, ref_high: 16.0, status: 'normal', captured_at: '2026-04-26T08:30:00Z' },
+          { analyte: 'WBC',         value: 6.1,  unit: '10^9/L', ref_low: 4.0,  ref_high: 11.0, status: 'normal', captured_at: '2026-04-26T08:30:00Z' },
+          { analyte: 'Platelets',   value: 248,  unit: '10^9/L', ref_low: 150,  ref_high: 400,  status: 'normal', captured_at: '2026-04-26T08:30:00Z' },
+        ],
+      },
+      {
+        name: 'Comprehensive Metabolic Panel',
+        results: [
+          { analyte: 'Sodium',     value: 140, unit: 'mmol/L', ref_low: 135, ref_high: 145, status: 'normal', captured_at: '2026-04-26T08:30:00Z' },
+          { analyte: 'Potassium',  value: 4.2, unit: 'mmol/L', ref_low: 3.5, ref_high: 5.0, status: 'normal', captured_at: '2026-04-26T08:30:00Z' },
+          { analyte: 'Creatinine', value: 0.8, unit: 'mg/dL',  ref_low: 0.6, ref_high: 1.1, status: 'normal', captured_at: '2026-04-26T08:30:00Z' },
+          { analyte: 'eGFR',       value: 96,  unit: 'mL/min', ref_low: 90,  ref_high: 120, status: 'normal', captured_at: '2026-04-26T08:30:00Z' },
+        ],
+      },
+      {
+        name: 'Endocrine',
+        results: [
+          { analyte: 'TSH',        value: 4.8,  unit: 'mIU/L', ref_low: 0.4, ref_high: 4.0,  status: 'high', captured_at: '2026-04-26T08:30:00Z', note: 'Sub-clinical hypothyroid pattern.' },
+          { analyte: 'Free T4',    value: 1.0,  unit: 'ng/dL', ref_low: 0.8, ref_high: 1.8,  status: 'normal', captured_at: '2026-04-26T08:30:00Z' },
+          { analyte: 'Vitamin D',  value: 18,   unit: 'ng/mL', ref_low: 30,  ref_high: 100,  status: 'low',  captured_at: '2026-04-26T08:30:00Z', note: 'Insufficient — supplementation indicated.' },
+        ],
+      },
+    ],
+    flags: [
+      {
+        analyte: 'TSH',
+        severity: 'major',
+        mechanism: 'Sub-clinical hypothyroidism (TSH 4.8 mIU/L) is a recognised contributor to depressive symptoms and treatment resistance, particularly in young women on SSRIs.',
+        recommendation: 'Consider endocrine referral; treat hypothyroidism before escalating sertraline or adding augmentation. Repeat TSH + anti-TPO in 6 weeks.',
+        references: [
+          { pmid: '19833552', title: 'Safety of TMS — consensus guideline (Rossi et al., 2009)', year: 2009, journal: 'Clinical Neurophysiology' },
+        ],
+      },
+      {
+        analyte: 'Vitamin D',
+        severity: 'monitor',
+        mechanism: 'Vitamin D insufficiency (18 ng/mL) co-occurs with low mood and may blunt antidepressant response.',
+        recommendation: 'Start cholecalciferol 2000 IU daily; recheck 25-OH-D at 12 weeks.',
+        references: [],
+      },
+    ],
+    prior_results: [
+      { captured_at: '2025-11-04T08:00:00Z', analyte: 'TSH', value: 3.2 },
+      { captured_at: '2026-01-12T08:00:00Z', analyte: 'TSH', value: 3.9 },
+      { captured_at: '2026-02-22T08:00:00Z', analyte: 'TSH', value: 4.3 },
+      { captured_at: '2026-03-30T08:00:00Z', analyte: 'TSH', value: 4.6 },
+      { captured_at: '2026-04-26T08:30:00Z', analyte: 'TSH', value: 4.8 },
+      { captured_at: '2025-11-04T08:00:00Z', analyte: 'Vitamin D', value: 26 },
+      { captured_at: '2026-01-12T08:00:00Z', analyte: 'Vitamin D', value: 22 },
+      { captured_at: '2026-03-30T08:00:00Z', analyte: 'Vitamin D', value: 19 },
+      { captured_at: '2026-04-26T08:30:00Z', analyte: 'Vitamin D', value: 18 },
+    ],
+  },
+  'demo-pt-marcus-chen': {
+    patient_id: 'demo-pt-marcus-chen',
+    patient_name: 'Marcus Chen',
+    captured_at: '2026-04-28T09:10:00Z',
+    panels: [
+      {
+        name: 'Complete Blood Count',
+        results: [
+          { analyte: 'Hemoglobin',  value: 14.8, unit: 'g/dL',   ref_low: 13.5, ref_high: 17.5, status: 'normal', captured_at: '2026-04-28T09:10:00Z' },
+          { analyte: 'WBC',         value: 6.6,  unit: '10^9/L', ref_low: 4.0,  ref_high: 11.0, status: 'normal', captured_at: '2026-04-28T09:10:00Z' },
+          { analyte: 'Platelets',   value: 271,  unit: '10^9/L', ref_low: 150,  ref_high: 400,  status: 'normal', captured_at: '2026-04-28T09:10:00Z' },
+        ],
+      },
+      {
+        name: 'Comprehensive Metabolic Panel',
+        results: [
+          { analyte: 'Sodium',     value: 139, unit: 'mmol/L', ref_low: 135, ref_high: 145, status: 'normal', captured_at: '2026-04-28T09:10:00Z' },
+          { analyte: 'Creatinine', value: 0.9, unit: 'mg/dL',  ref_low: 0.7, ref_high: 1.2, status: 'normal', captured_at: '2026-04-28T09:10:00Z' },
+          { analyte: 'eGFR',       value: 95,  unit: 'mL/min', ref_low: 90,  ref_high: 120, status: 'normal', captured_at: '2026-04-28T09:10:00Z' },
+          { analyte: 'ALT',        value: 28,  unit: 'U/L',    ref_low: 7,   ref_high: 56,  status: 'normal', captured_at: '2026-04-28T09:10:00Z' },
+        ],
+      },
+      {
+        name: 'Therapeutic Drug Monitoring',
+        results: [
+          { analyte: 'Lithium (trough)', value: 0.4, unit: 'mmol/L', ref_low: 0.6, ref_high: 1.0, status: 'low', captured_at: '2026-04-28T09:10:00Z', note: 'Sub-therapeutic — drawn 12 h post-dose.' },
+        ],
+      },
+    ],
+    flags: [
+      {
+        analyte: 'Lithium (trough)',
+        severity: 'major',
+        mechanism: 'Trough lithium 0.4 mmol/L sits below the 0.6–1.0 mmol/L therapeutic window. Concurrent rTMS course will not compensate for sub-therapeutic mood-stabiliser cover.',
+        recommendation: 'Review prescribing — confirm adherence and timing of last dose, consider dose increase to 600–900 mg or augmentation. Repeat trough in 5–7 days.',
+        references: [
+          { pmid: '19833552', title: 'Safety of TMS — consensus guideline (Rossi et al., 2009)', year: 2009, journal: 'Clinical Neurophysiology' },
+        ],
+      },
+    ],
+    prior_results: [
+      { captured_at: '2026-01-30T09:00:00Z', analyte: 'Lithium (trough)', value: 0.7 },
+      { captured_at: '2026-02-27T09:00:00Z', analyte: 'Lithium (trough)', value: 0.6 },
+      { captured_at: '2026-03-26T09:00:00Z', analyte: 'Lithium (trough)', value: 0.5 },
+      { captured_at: '2026-04-28T09:10:00Z', analyte: 'Lithium (trough)', value: 0.4 },
+      { captured_at: '2026-01-30T09:00:00Z', analyte: 'eGFR', value: 98 },
+      { captured_at: '2026-02-27T09:00:00Z', analyte: 'eGFR', value: 96 },
+      { captured_at: '2026-04-28T09:10:00Z', analyte: 'eGFR', value: 95 },
+    ],
+  },
+  'demo-pt-elena-vasquez': {
+    patient_id: 'demo-pt-elena-vasquez',
+    patient_name: 'Elena Vasquez',
+    captured_at: '2026-05-01T07:45:00Z',
+    panels: [
+      {
+        name: 'Coagulation',
+        results: [
+          { analyte: 'INR',        value: 3.8,  unit: 'ratio', ref_low: 2.0, ref_high: 3.0, status: 'critical', captured_at: '2026-05-01T07:45:00Z', note: 'Supratherapeutic — bleeding risk. Concurrent ibuprofen + ECT-day proximity.' },
+          { analyte: 'PT',         value: 38.2, unit: 's',     ref_low: 11,  ref_high: 14,  status: 'high',     captured_at: '2026-05-01T07:45:00Z' },
+        ],
+      },
+      {
+        name: 'Complete Blood Count',
+        results: [
+          { analyte: 'Hemoglobin',  value: 11.4, unit: 'g/dL',   ref_low: 12.0, ref_high: 16.0, status: 'low',    captured_at: '2026-05-01T07:45:00Z', note: 'Mild anemia — investigate for occult bleeding given supratherapeutic INR.' },
+          { analyte: 'WBC',         value: 7.0,  unit: '10^9/L', ref_low: 4.0,  ref_high: 11.0, status: 'normal', captured_at: '2026-05-01T07:45:00Z' },
+          { analyte: 'Platelets',   value: 232,  unit: '10^9/L', ref_low: 150,  ref_high: 400,  status: 'normal', captured_at: '2026-05-01T07:45:00Z' },
+        ],
+      },
+      {
+        name: 'Comprehensive Metabolic Panel',
+        results: [
+          { analyte: 'Sodium',     value: 141, unit: 'mmol/L', ref_low: 135, ref_high: 145, status: 'normal', captured_at: '2026-05-01T07:45:00Z' },
+          { analyte: 'Potassium',  value: 4.0, unit: 'mmol/L', ref_low: 3.5, ref_high: 5.0, status: 'normal', captured_at: '2026-05-01T07:45:00Z' },
+          { analyte: 'Creatinine', value: 1.0, unit: 'mg/dL',  ref_low: 0.6, ref_high: 1.1, status: 'normal', captured_at: '2026-05-01T07:45:00Z' },
+          { analyte: 'eGFR',       value: 71,  unit: 'mL/min', ref_low: 60,  ref_high: 120, status: 'normal', captured_at: '2026-05-01T07:45:00Z' },
+        ],
+      },
+    ],
+    flags: [
+      {
+        analyte: 'INR',
+        severity: 'critical',
+        mechanism: 'INR 3.8 with concurrent ibuprofen 400 mg TID and a scheduled ECT session creates a stacked bleeding risk: supratherapeutic warfarin, NSAID-induced platelet inhibition, plus airway/dental trauma exposure during ECT-related muscle relaxation.',
+        recommendation: 'Hold warfarin tonight; coordinate with hematology before next ECT session. Stop ibuprofen, switch analgesia to paracetamol. Recheck INR in 24 h before re-dosing.',
+        references: [
+          { pmid: '19833552', title: 'Safety of TMS — consensus guideline (Rossi et al., 2009)', year: 2009, journal: 'Clinical Neurophysiology' },
+        ],
+      },
+      {
+        analyte: 'Hemoglobin',
+        severity: 'monitor',
+        mechanism: 'Mild anemia (11.4 g/dL) in the setting of supratherapeutic anticoagulation suggests possible occult GI loss.',
+        recommendation: 'Order ferritin + reticulocytes; consider stool occult-blood testing if Hb continues to drift.',
+        references: [],
+      },
+    ],
+    prior_results: [
+      { captured_at: '2026-02-15T08:00:00Z', analyte: 'INR', value: 2.4 },
+      { captured_at: '2026-03-15T08:00:00Z', analyte: 'INR', value: 2.7 },
+      { captured_at: '2026-04-08T08:00:00Z', analyte: 'INR', value: 3.1 },
+      { captured_at: '2026-04-22T08:00:00Z', analyte: 'INR', value: 3.4 },
+      { captured_at: '2026-05-01T07:45:00Z', analyte: 'INR', value: 3.8 },
+      { captured_at: '2026-02-15T08:00:00Z', analyte: 'Hemoglobin', value: 12.6 },
+      { captured_at: '2026-03-15T08:00:00Z', analyte: 'Hemoglobin', value: 12.1 },
+      { captured_at: '2026-04-22T08:00:00Z', analyte: 'Hemoglobin', value: 11.7 },
+      { captured_at: '2026-05-01T07:45:00Z', analyte: 'Hemoglobin', value: 11.4 },
+    ],
+  },
+};
+
+const _LABS_AUDITS = {
+  'demo-pt-samantha-li': [
+    { id: 'lab-aud-sam-1', kind: 'recompute',   actor: 'system',          message: 'Lab profile recomputed after CMP/TSH panel uploaded.', created_at: '2026-04-26T08:32:00Z' },
+    { id: 'lab-aud-sam-2', kind: 'annotation',  actor: 'Dr. A. Yildirim', message: 'TSH trending up across 6 months — request anti-TPO and refer endocrine.', created_at: '2026-04-26T09:14:00Z' },
+    { id: 'lab-aud-sam-3', kind: 'review-note', actor: 'Dr. A. Yildirim', message: 'Reviewed and signed: hold sertraline dose escalation pending thyroid workup.', created_at: '2026-04-26T09:18:00Z' },
+    { id: 'lab-aud-sam-4', kind: 'result-add',  actor: 'Lab Corp (HL7)',  message: 'Added Vitamin D 25-OH result.', created_at: '2026-04-26T08:40:00Z' },
+  ],
+  'demo-pt-marcus-chen': [
+    { id: 'lab-aud-mar-1', kind: 'recompute',   actor: 'system',          message: 'Lab profile recomputed after lithium trough result.', created_at: '2026-04-28T09:12:00Z' },
+    { id: 'lab-aud-mar-2', kind: 'annotation',  actor: 'Dr. A. Yildirim', message: 'Trough 0.4 mmol/L — confirm timing of last dose with patient before dose change.', created_at: '2026-04-28T09:35:00Z' },
+    { id: 'lab-aud-mar-3', kind: 'review-note', actor: 'Dr. A. Yildirim', message: 'Sign-off: increase lithium to 600 mg nocte; repeat trough in 1 week.', created_at: '2026-04-28T10:02:00Z' },
+  ],
+  'demo-pt-elena-vasquez': [
+    { id: 'lab-aud-ele-1', kind: 'recompute',   actor: 'system',          message: 'Lab profile recomputed after coagulation panel.', created_at: '2026-05-01T07:48:00Z' },
+    { id: 'lab-aud-ele-2', kind: 'annotation',  actor: 'Dr. A. Yildirim', message: 'INR critical at 3.8 + concurrent ibuprofen — pause ECT session, brief hematology.', created_at: '2026-05-01T08:02:00Z' },
+    { id: 'lab-aud-ele-3', kind: 'review-note', actor: 'Dr. R. Patel',    message: 'Sign-off: hold warfarin tonight, recheck INR 24 h, reassess ECT slot.', created_at: '2026-05-01T08:18:00Z' },
+    { id: 'lab-aud-ele-4', kind: 'annotation',  actor: 'Dr. A. Yildirim', message: 'Mild anemia trending — order ferritin and reticulocytes.', created_at: '2026-05-01T08:25:00Z' },
+    { id: 'lab-aud-ele-5', kind: 'result-add',  actor: 'Lab Corp (HL7)',  message: 'Added INR 3.8 + PT 38.2 s.', created_at: '2026-05-01T07:46:00Z' },
+  ],
+};
+
+function _labsProfileFor(patientId) {
+  return _LABS_PROFILES[patientId] || null;
+}
+
+function _labsAuditFor(patientId) {
+  const items = _LABS_AUDITS[patientId] || [];
+  return { patient_id: patientId, items };
+}
+
+function _labsClinicSummary() {
+  return {
+    captured_at: '2026-05-02T07:30:00Z',
+    patients: Object.values(_LABS_PROFILES).map((p) => {
+      const allResults = (p.panels || []).flatMap((pn) => pn.results || []);
+      const abnormal = allResults.filter((r) => r.status && r.status !== 'normal');
+      const top = abnormal.find((r) => r.status === 'critical') || abnormal[0] || null;
+      const topLabel = top
+        ? `${top.analyte} ${top.value} ${top.unit || ''} — ${top.status}`
+        : '';
+      return {
+        patient_id: p.patient_id,
+        patient_name: p.patient_name,
+        captured_at: p.captured_at,
+        abnormal_count: abnormal.length,
+        critical_count: abnormal.filter((r) => r.status === 'critical').length,
+        top_flag_label: topLabel,
+        top_flag_status: top?.status || null,
+      };
+    }),
+  };
+}
+
+const _LABS = {
+  clinic_summary: _labsClinicSummary,
+  patient_profile: _labsProfileFor,
+  patient_audit: _labsAuditFor,
+};
+
 export const ANALYZER_DEMO_FIXTURES = Object.freeze({
   patients: DEMO_PATIENTS,
   mri: _MRI,
@@ -1187,9 +1277,9 @@ export const ANALYZER_DEMO_FIXTURES = Object.freeze({
   video: _VIDEO,
   medication: _MEDICATION,
   treatmentSessions: _TREATMENT_SESSIONS,
-  labs: _LABS,
   phenotype: _PHENOTYPE,
   movement: _MOVEMENT,
+  labs: _LABS,
 });
 
 export function isFixtureFallbackActive() {

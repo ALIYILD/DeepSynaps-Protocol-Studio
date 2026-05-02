@@ -593,6 +593,13 @@ KNOWN_SURFACES = {
     # Closes the loop on whether the SLA-breach signal nudges
     # behavior. Audit actions: summary_viewed.
     "irb_amendment_reviewer_workload_outcome_tracker",
+    # IRB Amendment Reviewer SLA Calibration Threshold Tuning Advisor
+    # (IRB-AMD4, 2026-05-02). Closes section I rec from #451 — surfaces
+    # a "what calibration_score floor should auto-trigger an admin
+    # reassign-amendment action?" recommendation with bootstrap CI,
+    # what-if replay, and clinic-scoped adoption + audit log. Mirrors
+    # the CSAHP6 (#438) tune-a-threshold console pattern.
+    "reviewer_sla_calibration_threshold_tuning",
 }
 
 

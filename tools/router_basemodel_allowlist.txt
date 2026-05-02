@@ -538,7 +538,6 @@ apps/api/app/routers/irb_amendment_reviewer_workload_router.py:UnassignedListOut
 apps/api/app/routers/irb_amendment_reviewer_workload_router.py:WorkerStatusOut
 apps/api/app/routers/irb_amendment_reviewer_workload_router.py:WorkloadListOut
 apps/api/app/routers/irb_amendment_workflow_router.py:AmendmentCreateIn
-apps/api/app/routers/irb_amendment_workflow_router.py:AmendmentDetailOut
 apps/api/app/routers/irb_amendment_workflow_router.py:AmendmentListOut
 apps/api/app/routers/irb_amendment_workflow_router.py:AmendmentOut
 apps/api/app/routers/irb_amendment_workflow_router.py:AssignReviewerIn
@@ -949,6 +948,19 @@ apps/api/app/routers/resolver_coaching_self_review_digest_router.py:PreferenceUp
 apps/api/app/routers/resolver_coaching_self_review_digest_router.py:TickIn
 apps/api/app/routers/resolver_coaching_self_review_digest_router.py:TickOut
 apps/api/app/routers/resolver_coaching_self_review_digest_router.py:WorkerStatusOut
+apps/api/app/routers/reviewer_sla_calibration_threshold_tuning_router.py:AdoptIn
+apps/api/app/routers/reviewer_sla_calibration_threshold_tuning_router.py:AdoptOut
+apps/api/app/routers/reviewer_sla_calibration_threshold_tuning_router.py:AdoptionHistoryItem
+apps/api/app/routers/reviewer_sla_calibration_threshold_tuning_router.py:AdoptionHistoryOut
+apps/api/app/routers/reviewer_sla_calibration_threshold_tuning_router.py:AuditEventOut
+apps/api/app/routers/reviewer_sla_calibration_threshold_tuning_router.py:AuditEventsListOut
+apps/api/app/routers/reviewer_sla_calibration_threshold_tuning_router.py:CurrentThresholdOut
+apps/api/app/routers/reviewer_sla_calibration_threshold_tuning_router.py:PageAuditIn
+apps/api/app/routers/reviewer_sla_calibration_threshold_tuning_router.py:PageAuditOut
+apps/api/app/routers/reviewer_sla_calibration_threshold_tuning_router.py:QualifyingReviewerOut
+apps/api/app/routers/reviewer_sla_calibration_threshold_tuning_router.py:RecommendationOut
+apps/api/app/routers/reviewer_sla_calibration_threshold_tuning_router.py:ReplayIn
+apps/api/app/routers/reviewer_sla_calibration_threshold_tuning_router.py:ReplayOut
 apps/api/app/routers/risk_stratification_router.py:AuditEntry
 apps/api/app/routers/risk_stratification_router.py:CategoryOut
 apps/api/app/routers/risk_stratification_router.py:ClinicRiskSummaryResponse

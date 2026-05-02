@@ -3007,45 +3007,6 @@ export const api = {
   getRiskAudit: (patientId) =>
     apiFetch(`/api/v1/risk/patient/${encodeURIComponent(patientId)}/audit`),
 
-  // ── Labs / Blood Biomarkers Analyzer ──────────────────────────────────────
-  getLabsAnalyzerPayload: (patientId, opts = {}) => {
-    const q = new URLSearchParams();
-    if (opts.ai_narrative) q.set('ai_narrative', 'true');
-    const qs = q.toString();
-    return apiFetch(
-      `/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}${qs ? '?' + qs : ''}`
-    );
-  },
-  recomputeLabsAnalyzer: (patientId, body, opts = {}) => {
-    const q = new URLSearchParams();
-    if (opts.ai_narrative) q.set('ai_narrative', 'true');
-    const qs = q.toString();
-    return apiFetch(
-      `/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/recompute${qs ? '?' + qs : ''}`,
-      {
-        method: 'POST',
-        body: JSON.stringify(body || { reason: 'manual' }),
-      }
-    );
-  },
-  postLabsResultsBatch: (patientId, items) =>
-    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/results`, {
-      method: 'POST',
-      body: JSON.stringify({ items }),
-    }),
-  postLabsAnnotation: (patientId, data) =>
-    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/annotation`, {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    }),
-  postLabsReviewNote: (patientId, data) =>
-    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/review-note`, {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    }),
-  getLabsAnalyzerAudit: (patientId) =>
-    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
-
   // ── Movement Analyzer (motor side-effects of psychiatric treatment) ───────
   getMovementProfile: (patientId) =>
     apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}`),
@@ -3055,6 +3016,20 @@ export const api = {
     apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/annotation`, { method: 'POST', body: JSON.stringify(body || {}) }),
   getMovementAudit: (patientId) =>
     apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
+
+  // ── Labs / Blood Biomarkers Analyzer (psych-med + neuromodulation safety) ─
+  getLabsProfile: (patientId) =>
+    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}`),
+  recomputeLabs: (patientId) =>
+    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/recompute`, { method: 'POST' }),
+  addLabResult: (patientId, body) =>
+    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/results`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  addLabsAnnotation: (patientId, body) =>
+    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/annotation`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  addLabsReviewNote: (patientId, body) =>
+    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/review-note`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  getLabsAudit: (patientId) =>
+    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
 
   // ── Device Sync (clinician-facing) ─────────────────────────────────────────
   deviceSyncProviders: () => apiFetchWithRetry('/api/v1/device-sync/providers'),
@@ -3731,6 +3706,78 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }).catch(() => null),
+
+  // ── IRB-AMD4 SLA Threshold Tuning launch-audit ──
+  // (2026-05-02). Closes section I rec from IRB-AMD3 (#451):
+  // surfaces a "what calibration_score floor should auto-trigger
+  // an admin reassign-amendment action?" recommendation with a
+  // bootstrap confidence interval, supports what-if replay, and
+  // persists adopted floors with a clinic-scoped audit log.
+  // Mirrors the CSAHP6 (#438) tune-a-threshold console pattern.
+  // Helpers placed BEFORE IRB-AMD3's section so IRB-AMD3's
+  // slice-boundary sentinel stays clean — IRB-AMD4 uses its own
+  // unique header anchor + slice-boundary sentinel.
+  fetchReviewerSlaCalibrationCurrentThreshold: () =>
+    apiFetch(
+      '/api/v1/reviewer-sla-calibration-threshold-tuning/current-threshold',
+    ).catch(() => null),
+  fetchReviewerSlaCalibrationRecommendation: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.sla_response_days != null)
+      usp.set('sla_response_days', String(params.sla_response_days));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/reviewer-sla-calibration-threshold-tuning/recommend' +
+        (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  runReviewerSlaCalibrationReplay: (body) =>
+    apiFetch('/api/v1/reviewer-sla-calibration-threshold-tuning/replay', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }).catch(() => null),
+  adoptReviewerSlaCalibrationThreshold: (body) =>
+    apiFetch('/api/v1/reviewer-sla-calibration-threshold-tuning/adopt', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }).catch(() => null),
+  fetchReviewerSlaCalibrationAdoptionHistory: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.page != null) usp.set('page', String(params.page));
+    if (params && params.page_size != null)
+      usp.set('page_size', String(params.page_size));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/reviewer-sla-calibration-threshold-tuning/adoption-history' +
+        (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  fetchReviewerSlaCalibrationAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null)
+      usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/reviewer-sla-calibration-threshold-tuning/audit-events' +
+        (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  postReviewerSlaCalibrationAuditEvent: (data) =>
+    apiFetch(
+      '/api/v1/reviewer-sla-calibration-threshold-tuning/audit-events',
+      {
+        method: 'POST',
+        body: JSON.stringify(data || {}),
+      },
+    ).catch(() => null),
+  // end IRB-AMD4 helpers
+  // ━━ IRB-AMD4 SLICE BOUNDARY ━━ (do not remove; the launch-audit
+  // test for the IRB-AMD4 section finds the header above then walks
+  // to this unique sentinel substring to bound the slice).
 
   // ── IRB-AMD3 SLA Outcome Tracker launch-audit ──
   // (2026-05-02). Closes the loop on "did the IRB-AMD2 SLA-breach

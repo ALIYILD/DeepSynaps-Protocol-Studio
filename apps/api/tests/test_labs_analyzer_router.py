@@ -114,7 +114,12 @@ def test_labs_payload_shape(client: TestClient, labs_setup: dict[str, Any]) -> N
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
+    # PR #457 frontend contract (simple top-level shape)
     assert data["patient_id"] == pid
+    assert "captured_at" in data
+    assert "panels" in data and isinstance(data["panels"], list)
+    assert "flags" in data and isinstance(data["flags"], list)
+    # Rich payload retained as additive fields
     assert "lab_snapshot" in data
     assert "domain_summaries" in data
     assert "results" in data
@@ -135,5 +140,9 @@ def test_recompute_and_audit(client: TestClient, labs_setup: dict[str, Any]) -> 
     audit = r2.json()
     assert audit["patient_id"] == pid
     assert isinstance(audit["items"], list)
-    types = {i["event_type"] for i in audit["items"]}
-    assert "recompute_requested" in types
+    # Audit items now match PR #457 frontend shape:
+    # { id, kind, actor, message, created_at }
+    kinds = {i["kind"] for i in audit["items"]}
+    assert "recompute" in kinds
+    for item in audit["items"]:
+        assert {"id", "kind", "actor", "message", "created_at"}.issubset(item.keys())
