@@ -118,6 +118,9 @@ from app.routers.caregiver_email_digest_router import router as caregiver_email_
 from app.routers.channel_misconfiguration_detector_router import (
     router as channel_misconfiguration_detector_router,
 )
+from app.routers.channel_auth_health_probe_router import (
+    router as channel_auth_health_probe_router,
+)
 from app.routers.caregiver_delivery_concern_aggregator_router import (
     router as caregiver_delivery_concern_aggregator_router,
 )
@@ -204,6 +207,10 @@ from app.workers.caregiver_email_digest_worker import (
 from app.workers.channel_misconfiguration_detector_worker import (
     shutdown_worker as shutdown_channel_misconfig_detector_worker,
     start_worker_if_enabled as start_channel_misconfig_detector_worker,
+)
+from app.workers.channel_auth_health_probe_worker import (
+    shutdown_worker as shutdown_channel_auth_health_probe_worker,
+    start_worker_if_enabled as start_channel_auth_health_probe_worker,
 )
 from app.workers.caregiver_delivery_concern_aggregator_worker import (
     shutdown_worker as shutdown_caregiver_delivery_concern_aggregator_worker,
@@ -318,6 +325,16 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
     # (#387) into an active HIGH-priority inbox row so admins don't have
     # to discover the misconfig manually.
     start_channel_misconfig_detector_worker()
+    # Channel-Specific Auth Health Probe Worker (CSAHP1, 2026-05-02) — gated
+    # on CHANNEL_AUTH_HEALTH_PROBE_ENABLED so tests / CI don't fire HTTP
+    # probes against real adapter endpoints. Periodic probe of each
+    # configured adapter's credentials (Slack OAuth, SendGrid API key,
+    # Twilio account auth, PagerDuty token) — emits an
+    # ``auth_drift_detected`` audit row BEFORE the next digest dispatch
+    # fails so admins can rotate creds without missing a digest. The
+    # admin can still manually invoke /tick at any time regardless of
+    # the env flag.
+    start_channel_auth_health_probe_worker()
     # Caregiver Delivery Concern Aggregator (2026-05-01) — gated on
     # DEEPSYNAPS_CG_CONCERN_AGGREGATOR_ENABLED so tests / CI don't fire
     # flags. Rolling-window scan that flags caregivers with N+ delivery
@@ -338,6 +355,7 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
         shutdown_auto_page_worker()
         shutdown_caregiver_email_digest_worker()
         shutdown_channel_misconfig_detector_worker()
+        shutdown_channel_auth_health_probe_worker()
         shutdown_caregiver_delivery_concern_aggregator_worker()
         shutdown_resolver_coaching_self_review_digest_worker()
 
@@ -475,6 +493,13 @@ app.include_router(auto_page_worker_router)
 # Clinician Inbox aggregator surfaces channel misconfigs without the
 # admin having to manually open the "Caregiver channels" tab.
 app.include_router(channel_misconfiguration_detector_router)
+# Channel-Specific Auth Health Probe launch-audit (CSAHP1, 2026-05-02). Closes
+# section I rec from the Coaching Digest Delivery Failure Drilldown (DCRO5,
+# #406). Periodic probe of each configured adapter's credentials so admins
+# learn about an OAuth-token drift / expired API key BEFORE the next digest
+# dispatch fails. The auth_drift_detected row joins back into DCRO5's
+# has_matching_misconfig_flag click-through via the (channel, week) key.
+app.include_router(channel_auth_health_probe_router)
 # Caregiver Delivery Concern Aggregator launch-audit (2026-05-01). Closes
 # section I rec from the Channel Misconfiguration Detector (#389).
 # Rolling-window scan that flags caregivers with N+ delivery concerns
