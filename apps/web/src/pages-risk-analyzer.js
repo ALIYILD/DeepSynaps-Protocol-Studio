@@ -3,8 +3,19 @@
  * transparent prediction support, actions, and audit. Decision-support only.
  */
 import { api } from './api.js';
+import { getEvidenceUiStats } from './evidence-ui-live.js';
 
 const LS_GEO = 'ds_risk_analyzer_region';
+
+/** Navigate with optional patient id bound for downstream pages */
+export function openRiskAnalyzerForPatient(patientId) {
+  if (patientId) {
+    window._selectedPatientId = patientId;
+    window._profilePatientId = patientId;
+    try { sessionStorage.setItem('ds_pat_selected_id', patientId); } catch { /* empty */ }
+  }
+  window._nav('risk-analyzer');
+}
 
 function esc(s) {
   if (s == null) return '';
@@ -117,15 +128,34 @@ function renderPredictionCard(p) {
 }
 
 export async function pgRiskAnalyzer(setTopbar, navigate) {
-  setTopbar('Risk Analyzer', '');
-  const root = document.getElementById('page-content');
-  if (!root) return;
+  let evidenceStrip = { totalPapers: null, live: false };
 
   let patientId = window._selectedPatientId || window._profilePatientId || sessionStorage.getItem('ds_pat_selected_id');
   let payload = null;
   let err = null;
   let region = (typeof localStorage !== 'undefined' && localStorage.getItem(LS_GEO)) || 'us';
   let _handlersBound = false;
+
+  try {
+    evidenceStrip = await getEvidenceUiStats();
+  } catch { /* empty */ }
+
+  const root = document.getElementById('content');
+  if (!root) return;
+
+  try { window._openRiskAnalyzer = openRiskAnalyzerForPatient; } catch { /* empty */ }
+
+  const _tbHtml = () => {
+    const pid = patientId || '';
+    const escJs = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    return `
+<button type="button" class="btn btn-sm btn-ghost" onclick="window._nav('dashboard')" title="Clinic dashboard">⌂ Dashboard</button>
+<button type="button" class="btn btn-sm btn-ghost" onclick="window._nav('patients-hub')" title="Patient roster">Patients</button>
+<button type="button" class="btn btn-sm btn-ghost" onclick="window._nav('deeptwin')" title="DeepTwin (same patient if selected)">🧠 DeepTwin</button>
+<button type="button" class="btn btn-sm btn-ghost" onclick="window._nav('research-evidence')" title="Evidence library corpus">🔬 Evidence</button>
+${pid ? `<button type="button" class="btn btn-sm btn-primary" onclick="window._selectedPatientId='${escJs(pid)}';window._profilePatientId='${escJs(pid)}';window._nav('patient-profile')" title="Patient chart">Chart</button>` : ''}`;
+  };
+  setTopbar('Risk Analyzer', _tbHtml());
 
   const load = async () => {
     if (!patientId) {
@@ -158,6 +188,7 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
   const snapSorted = [...snap].sort((a, b) => ORDER.indexOf(a.category) - ORDER.indexOf(b.category));
 
   const render = () => {
+    setTopbar('Risk Analyzer', _tbHtml());
     const form = payload.formulation || {};
     const sp = payload.safety_plan || {};
     const showCrisis = snapSorted.some((c) =>
@@ -165,6 +196,12 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
     ) || snapSorted.some((c) =>
       ['suicide_risk', 'self_harm', 'mental_crisis'].includes(c.category) && c.level === 'amber'
     );
+
+    const ev = evidenceStrip;
+    const evN = ev.totalPapers != null ? Number(ev.totalPapers).toLocaleString() : '—';
+    const corpusNote = ev.live
+      ? `MedRAG / evidence corpus: <strong>${evN}</strong> papers indexed (same backend as Research Evidence). Stratification cross-references use condition packages + literature links — not a live RAG query per row.`
+      : `Evidence corpus stats unavailable offline — open <button type="button" class="btn btn-ghost btn-sm" style="padding:0 4px;font-size:inherit;height:auto;vertical-align:baseline" onclick="window._nav('research-evidence')">Research Evidence</button> when online.`;
 
     root.innerHTML = `
 <style>
@@ -205,8 +242,10 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
   .ra-act-pri { font-size:10px;font-weight:800;text-transform:uppercase;padding:2px 8px;border-radius:4px;background:rgba(245,158,11,0.15);color:var(--amber); }
   .ra-audit { font-size:11.5px;color:var(--text-secondary);border-bottom:1px solid var(--border);padding:8px 0; }
   .ra-err { background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#fecaca;padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:12px; }
+  .ra-ev-corpus { font-size:11.5px;color:var(--text-secondary);background:rgba(139,92,246,0.06);border:1px solid rgba(139,92,246,0.22);border-radius:10px;padding:10px 14px;margin-bottom:14px;line-height:1.5; }
 </style>
 <div class="ra-wrap">
+  <div class="ra-ev-corpus">${corpusNote}</div>
   ${err ? `<div class="ra-err">${esc(err)}</div>` : ''}
   <div class="ra-banner">
     <strong>Decision-support only.</strong> This workspace does not diagnose, predict suicide outcomes for individuals,

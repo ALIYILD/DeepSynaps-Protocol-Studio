@@ -402,6 +402,14 @@ function _setTopbar(setTopbar) {
       { label: 'Patient profile', onClick: () => {
           if (id) { window._selectedPatientId = id; window._profilePatientId = id; window._nav('patient-profile'); }
         } },
+      { label: 'Risk Analyzer', onClick: () => {
+          if (id) {
+            window._selectedPatientId = id;
+            window._profilePatientId = id;
+            try { sessionStorage.setItem('ds_pat_selected_id', id); } catch {}
+          }
+          window._nav('risk-analyzer');
+        } },
       { label: 'qEEG analyzer', onClick: () => {
           if (id) { window._selectedPatientId = id; window._nav('qeeg-analysis'); }
         } },
