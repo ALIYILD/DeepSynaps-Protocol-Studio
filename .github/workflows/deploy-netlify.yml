@@ -43,13 +43,11 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
-      - name: Install web dependencies
-        working-directory: apps/web
+      - name: Install workspace dependencies (root — picks up packages/api-client)
         run: npm ci --no-audit --no-fund
 
       - name: Build (demo flag on, API → Fly)
-        working-directory: apps/web
-        run: npx vite build
+        run: npm run build:web
 
       - name: Deploy to Netlify
         env:
