@@ -1,7 +1,7 @@
 """Digital Phenotyping Analyzer — patient consent/settings + audit trail.
 
-Revision ID: 082_digital_phenotyping_state_audit
-Revises: 081_rotation_policy_advisor_thresholds
+Revision ID: 084_digital_phenotyping_state_audit
+Revises: 082_irb_amendment_workflow
 Create Date: 2026-05-02
 """
 from __future__ import annotations
@@ -9,8 +9,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "082_digital_phenotyping_state_audit"
-down_revision = "081_rotation_policy_advisor_thresholds"
+revision = "084_digital_phenotyping_state_audit"
+down_revision = "082_irb_amendment_workflow"
 branch_labels = None
 depends_on = None
 

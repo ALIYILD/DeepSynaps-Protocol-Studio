@@ -89,6 +89,9 @@ from app.routers.annotations_router import router as annotations_router
 from app.routers.reminders_router import router as reminders_router
 from app.routers.irb_router import router as irb_router
 from app.routers.irb_manager_router import router as irb_manager_router
+from app.routers.irb_amendment_workflow_router import (
+    router as irb_amendment_workflow_router,
+)
 from app.routers.evidence_router import router as evidence_router
 from app.routers.literature_router import router as literature_router
 from app.routers.literature_watch_router import router as literature_watch_router
@@ -135,6 +138,9 @@ from app.routers.rotation_policy_advisor_threshold_tuning_router import (
 )
 from app.routers.rotation_policy_advisor_outcome_tracker_router import (
     router as rotation_policy_advisor_outcome_tracker_router,
+)
+from app.routers.rotation_policy_advisor_threshold_adoption_outcome_tracker_router import (
+    router as rotation_policy_advisor_threshold_adoption_outcome_tracker_router,
 )
 from app.routers.caregiver_delivery_concern_aggregator_router import (
     router as caregiver_delivery_concern_aggregator_router,
@@ -434,6 +440,7 @@ app.include_router(annotations_router)
 app.include_router(reminders_router)
 app.include_router(irb_router)
 app.include_router(irb_manager_router)
+app.include_router(irb_amendment_workflow_router)
 app.include_router(literature_router)
 app.include_router(literature_watch_router)
 app.include_router(evidence_router)
@@ -573,6 +580,19 @@ app.include_router(rotation_policy_advisor_outcome_tracker_router)
 # effect immediately on the next CSAHP4 ``/advice`` call. Same
 # calibration chain logic, applied recursively to the heuristic itself.
 app.include_router(rotation_policy_advisor_threshold_tuning_router)
+# Rotation Policy Advisor Threshold Adoption Outcome Tracker (CSAHP7,
+# 2026-05-02). Closes the meta-loop on the meta-loop opened by CSAHP6
+# (#438): pair each ``threshold_adopted`` audit row at time T with the
+# same (advice_code, threshold_key) pair's measured predictive accuracy
+# at T+30d (post-adoption window) versus the baseline accuracy at T.
+# Did the adopted threshold actually move the needle in production?
+# Outcome classes: improved (delta >= +5pp) / regressed (<= -5pp) /
+# flat / pending (window not elapsed) / insufficient_data (<3 paired
+# cards in either window). Per-adopter calibration_score = (improved -
+# regressed) / total_adoptions. Pure read-side analytics on the
+# existing audit_event_records table — no new schema, no migration.
+# Page-level events: view, window_changed, list_filter_changed.
+app.include_router(rotation_policy_advisor_threshold_adoption_outcome_tracker_router)
 # Caregiver Delivery Concern Aggregator launch-audit (2026-05-01). Closes
 # section I rec from the Channel Misconfiguration Detector (#389).
 # Rolling-window scan that flags caregivers with N+ delivery concerns

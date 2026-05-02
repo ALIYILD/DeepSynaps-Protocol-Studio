@@ -9,12 +9,15 @@ GET    /api/v1/digital-phenotyping/analyzer/patient/{patient_id}/audit
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -35,6 +38,7 @@ from app.persistence.models import (
 from app.repositories.patients import resolve_patient_clinic_id
 from app.services.digital_phenotyping import (
     DEFAULT_DOMAINS_ENABLED,
+    attach_research_metadata,
     audit_rows_to_payload_events,
     build_stub_analyzer_payload,
     merge_observations_into_payload,
@@ -208,8 +212,67 @@ def _build_payload_for_patient(
     obs = _fetch_observation_dicts(db, patient_id)
     merged = merge_observations_into_payload(merged, observations=obs)
     merged["mvp_observations"] = obs[:50]
-    merged["mvp_observations_total"] = _observation_count(db, patient_id)
+    total_obs = _observation_count(db, patient_id)
+    merged["mvp_observations_total"] = total_obs
+    merged = attach_research_metadata(
+        merged,
+        patient_id=patient_id,
+        observation_row_count=total_obs,
+        consent_scope_version=state.consent_scope_version or "2026.04",
+    )
     return merged
+
+
+def _build_research_export_bundle(db: Session, patient_id: str) -> dict[str, Any]:
+    """Full reproducibility bundle (JSON) — audited on GET export."""
+    payload = _build_payload_for_patient(db, patient_id, hide_stub_audit=True)
+    obs = _fetch_observation_dicts(db, patient_id, limit=5000)
+    audit_rows = db.execute(
+        select(DigitalPhenotypingAudit)
+        .where(DigitalPhenotypingAudit.patient_id == patient_id)
+        .order_by(DigitalPhenotypingAudit.created_at.desc())
+        .limit(500)
+    ).scalars().all()
+    audit_export = []
+    for r in audit_rows:
+        detail = {}
+        if r.detail_json:
+            try:
+                detail = json.loads(r.detail_json)
+            except json.JSONDecodeError:
+                detail = {}
+        audit_export.append(
+            {
+                "id": r.id,
+                "action": r.action,
+                "actor_id": r.actor_id,
+                "created_at": _audit_ts_iso(r.created_at),
+                "detail": detail,
+            }
+        )
+    state = _load_or_create_state(db, patient_id)
+    consent_domains = _parse_domains_json(state.domains_enabled_json)
+    return {
+        "kind": "deepsynaps_digital_phenotyping_research_export",
+        "schema_version": "1.1.0",
+        "patient_id": patient_id,
+        "exported_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "analyzer_payload": payload,
+        "observations": obs,
+        "consent_domains_snapshot": consent_domains,
+        "consent_scope_version": state.consent_scope_version,
+        "audit_trail_subset": audit_export,
+    }
+
+
+def _audit_ts_iso(dt: Any) -> str:
+    if dt is None:
+        return ""
+    if isinstance(dt, datetime):
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.isoformat().replace("+00:00", "Z")
+    return str(dt)
 
 
 @router.get("/patient/{patient_id}")
@@ -368,7 +431,7 @@ def list_digital_phenotyping_observations(
     _gate_patient(actor, patient_id, db)
     lim = max(1, min(limit, 200))
     obs = _fetch_observation_dicts(db, patient_id, limit=lim)
-    return {"patient_id": patient_id, "items": obs, "total": len(obs)}
+    return {"patient_id": patient_id, "items": obs, "total": _observation_count(db, patient_id)}
 
 
 def _add_observation_row(

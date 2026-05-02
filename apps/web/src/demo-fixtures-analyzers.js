@@ -566,6 +566,261 @@ export function demoDigitalPhenotypingPayload(patientId) {
   return _digitalPhenotypingPayload(patientId);
 }
 
+const _MED_PATIENT_REGIMENS = {
+  'demo-pt-samantha-li': [
+    { id: 'demo-med-sam-1', patient_id: 'demo-pt-samantha-li', name: 'Sertraline',  generic_name: 'sertraline',  dose: '100 mg', frequency: 'once daily',   route: 'PO', prescriber: 'Dr. A. Yildirim', started_at: '2025-11-04', active: true },
+    { id: 'demo-med-sam-2', patient_id: 'demo-pt-samantha-li', name: 'Tramadol',    generic_name: 'tramadol',    dose: '50 mg',  frequency: 'twice daily',  route: 'PO', prescriber: 'Dr. A. Yildirim', started_at: '2026-03-21', active: true },
+    { id: 'demo-med-sam-3', patient_id: 'demo-pt-samantha-li', name: 'Melatonin',   generic_name: 'melatonin',   dose: '3 mg',   frequency: 'at bedtime',   route: 'PO', prescriber: 'Self-initiated',  started_at: '2026-02-12', active: true },
+  ],
+  'demo-pt-marcus-chen': [
+    { id: 'demo-med-mar-1', patient_id: 'demo-pt-marcus-chen', name: 'Sertraline',  generic_name: 'sertraline',  dose: '100 mg', frequency: 'once daily',   route: 'PO', prescriber: 'Dr. A. Yildirim', started_at: '2025-09-02', active: true },
+    { id: 'demo-med-mar-2', patient_id: 'demo-pt-marcus-chen', name: 'Melatonin',   generic_name: 'melatonin',   dose: '3 mg',   frequency: 'at bedtime',   route: 'PO', prescriber: 'Dr. A. Yildirim', started_at: '2026-01-15', active: true },
+    { id: 'demo-med-mar-3', patient_id: 'demo-pt-marcus-chen', name: 'Bupropion',   generic_name: 'bupropion',   dose: '150 mg', frequency: 'once daily',   route: 'PO', prescriber: 'Dr. A. Yildirim', started_at: '2026-02-08', active: true },
+  ],
+  'demo-pt-elena-vasquez': [
+    { id: 'demo-med-ele-1', patient_id: 'demo-pt-elena-vasquez', name: 'Warfarin',     generic_name: 'warfarin',     dose: '5 mg',  frequency: 'once daily',  route: 'PO', prescriber: 'Dr. R. Patel',     started_at: '2024-06-19', active: true },
+    { id: 'demo-med-ele-2', patient_id: 'demo-pt-elena-vasquez', name: 'Ibuprofen',    generic_name: 'ibuprofen',    dose: '400 mg', frequency: 'three times daily', route: 'PO', prescriber: 'Self-initiated', started_at: '2026-04-08', active: true },
+    { id: 'demo-med-ele-3', patient_id: 'demo-pt-elena-vasquez', name: 'Amitriptyline',generic_name: 'amitriptyline',dose: '25 mg',  frequency: 'at bedtime',  route: 'PO', prescriber: 'Dr. A. Yildirim', started_at: '2025-12-01', active: true },
+    { id: 'demo-med-ele-4', patient_id: 'demo-pt-elena-vasquez', name: 'Pregabalin',   generic_name: 'pregabalin',   dose: '75 mg',  frequency: 'twice daily', route: 'PO', prescriber: 'Dr. A. Yildirim', started_at: '2025-10-12', active: true },
+  ],
+};
+
+const _MED_INTERACTION_RESULTS = {
+  'demo-pt-samantha-li': {
+    medications_checked: ['Sertraline', 'Tramadol', 'Melatonin'],
+    interactions: [
+      {
+        drugs: ['sertraline', 'tramadol'],
+        severity: 'moderate',
+        description: 'Co-administration of an SSRI with tramadol increases the risk of serotonin syndrome via additive serotonergic activity.',
+        recommendation: 'Monitor for tremor, hyperreflexia, agitation, hyperthermia. Consider non-opioid analgesia or reduce tramadol dose; counsel patient on warning signs.',
+      },
+    ],
+    severity_summary: 'moderate',
+  },
+  'demo-pt-marcus-chen': {
+    medications_checked: ['Sertraline', 'Melatonin'],
+    interactions: [],
+    severity_summary: 'none',
+  },
+  'demo-pt-elena-vasquez': {
+    medications_checked: ['Warfarin', 'Ibuprofen', 'Amitriptyline', 'Pregabalin'],
+    interactions: [
+      {
+        drugs: ['warfarin', 'ibuprofen'],
+        severity: 'severe',
+        description: 'NSAIDs displace warfarin from plasma protein binding and inhibit platelet aggregation, substantially increasing major-bleed risk (GI and intracranial).',
+        recommendation: 'Stop ibuprofen. Switch to paracetamol or topical NSAID. If continued use is unavoidable, add gastroprotection and re-check INR within 3–5 days.',
+      },
+      {
+        drugs: ['amitriptyline', 'pregabalin'],
+        severity: 'mild',
+        description: 'Additive CNS depression and anticholinergic load; modest increase in sedation, dizziness, and falls risk in older adults.',
+        recommendation: 'Counsel on driving / fall risk. Review necessity of both agents for chronic pain; consider tapering one if symptom control allows.',
+      },
+    ],
+    severity_summary: 'severe',
+  },
+};
+
+const _MED_INTERACTION_LOG = [
+  {
+    id: 'demo-med-log-1',
+    patient_id: 'demo-pt-elena-vasquez',
+    patient_name: 'Elena Vasquez',
+    medications_checked: ['Warfarin', 'Ibuprofen', 'Amitriptyline', 'Pregabalin'],
+    interactions_found: _MED_INTERACTION_RESULTS['demo-pt-elena-vasquez'].interactions,
+    severity_summary: 'severe',
+    created_at: '2026-05-02T07:42:00Z',
+  },
+  {
+    id: 'demo-med-log-2',
+    patient_id: 'demo-pt-samantha-li',
+    patient_name: 'Samantha Li',
+    medications_checked: ['Sertraline', 'Tramadol', 'Melatonin'],
+    interactions_found: _MED_INTERACTION_RESULTS['demo-pt-samantha-li'].interactions,
+    severity_summary: 'moderate',
+    created_at: '2026-05-01T15:18:00Z',
+  },
+  {
+    id: 'demo-med-log-3',
+    patient_id: 'demo-pt-marcus-chen',
+    patient_name: 'Marcus Chen',
+    medications_checked: ['Sertraline', 'Melatonin'],
+    interactions_found: [],
+    severity_summary: 'none',
+    created_at: '2026-04-30T11:02:00Z',
+  },
+];
+
+function _medPatientMedications(patientId) {
+  return _MED_PATIENT_REGIMENS[patientId] || [];
+}
+
+const _MED_PATIENT_ACTIVE_PROTOCOLS = {
+  'demo-pt-samantha-li': {
+    id: 'demo-protocol-sam-tdcs',
+    patient_id: 'demo-pt-samantha-li',
+    protocol_name: 'Anodal tDCS · L-DLPFC for MDD',
+    modality: 'tdcs',
+    target_region: 'L-DLPFC (F3)',
+    session_frequency: '5×/week',
+    duration: '4 weeks',
+    status: 'active',
+    created_at: '2026-04-12T10:14:00Z',
+  },
+  'demo-pt-marcus-chen': {
+    id: 'demo-protocol-mar-rtms',
+    patient_id: 'demo-pt-marcus-chen',
+    protocol_name: '10 Hz rTMS · L-DLPFC for treatment-resistant anxiety / depression',
+    modality: 'rtms',
+    target_region: 'L-DLPFC (BA46)',
+    session_frequency: '5×/week',
+    duration: '6 weeks',
+    status: 'active',
+    created_at: '2026-04-22T09:31:00Z',
+  },
+  'demo-pt-elena-vasquez': {
+    id: 'demo-protocol-ele-ect',
+    patient_id: 'demo-pt-elena-vasquez',
+    protocol_name: 'Bilateral ECT for refractory chronic-pain–associated severe depression',
+    modality: 'ect',
+    target_region: 'Bifrontal',
+    session_frequency: '3×/week',
+    duration: '3 weeks',
+    status: 'active',
+    created_at: '2026-04-18T08:02:00Z',
+  },
+};
+
+function _medActiveProtocol(patientId) {
+  const proto = _MED_PATIENT_ACTIVE_PROTOCOLS[patientId];
+  return proto ? { items: [proto] } : { items: [] };
+}
+
+function _medCheckInteractions(patientId, names) {
+  const seeded = _MED_INTERACTION_RESULTS[patientId];
+  if (seeded) {
+    return {
+      medications_checked: names && names.length ? names : seeded.medications_checked,
+      interactions: seeded.interactions,
+      severity_summary: seeded.severity_summary,
+    };
+  }
+  return {
+    medications_checked: names || [],
+    interactions: [],
+    severity_summary: 'none',
+  };
+}
+
+const _MEDICATION = {
+  patient_medications: _medPatientMedications,
+  check_interactions: _medCheckInteractions,
+  interaction_log: _MED_INTERACTION_LOG,
+  active_protocol: _medActiveProtocol,
+};
+
+function _tsBuildSessions(prefix, total, completed, options) {
+  const opts = options || {};
+  const baseDate = new Date(opts.startISO || '2026-02-05T09:00:00Z').getTime();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const cadenceDays = opts.cadenceDays || 2;
+  const out = [];
+  for (let i = 0; i < completed; i += 1) {
+    const flagAE = (opts.aeIndices || []).includes(i + 1);
+    const flagDeviation = (opts.deviationIndices || []).includes(i + 1);
+    const unsigned = (opts.unsignedIndices || []).includes(i + 1);
+    const scheduled = new Date(baseDate + i * cadenceDays * dayMs).toISOString();
+    out.push({
+      id: `demo-${prefix}-s${i + 1}`,
+      session_number: i + 1,
+      scheduled_at: scheduled,
+      intensity_label: opts.intensity || '—',
+      duration_minutes: flagDeviation && opts.deviationDuration ? opts.deviationDuration : (opts.duration || 20),
+      comfort_score: flagAE ? 4 : (opts.comfort || 8),
+      signed: !unsigned,
+      has_ae: flagAE,
+      modality: opts.modality || '',
+      telemetry_summary: opts.telemetry || 'Within prescribed envelope.',
+      impedance_summary: opts.impedance || 'All electrodes < 10 kΩ.',
+      comfort_summary: flagAE ? 'Patient reported tingling and brief headache (NRS-SE 4).' : 'Tolerated well, NRS-SE within target.',
+      ae_log: flagAE ? 'Mild headache resolved within 30 min, no escalation.' : '',
+    });
+  }
+  return out;
+}
+
+const _TS_DETAIL = {
+  'demo-pt-samantha-li': () => {
+    const sessions = _tsBuildSessions('sam', 24, 18, {
+      modality: 'tDCS', intensity: '2 mA · 20 min · F3-anodal',
+      duration: 20, comfort: 9, cadenceDays: 2, startISO: '2026-02-05T09:30:00Z',
+    });
+    return {
+      course: {
+        id: 'demo-course-sam-tdcs', patient_id: 'demo-pt-samantha-li', patient_name: 'Samantha Li',
+        protocol_name: 'Anodal tDCS · L-DLPFC for MDD', modality: 'tDCS', target_site: 'L-DLPFC (F3)',
+        total_sessions: 24, completed_sessions: 18, adherence_pct: 92,
+        current_week: 9, total_weeks: 12, started_at: '2026-02-05T09:30:00Z',
+      },
+      sessions,
+      summary: { signed_count: 18, delivered_count: 18 },
+      deviations: [],
+      outcomes: { scale: 'PHQ-9', scores: [14, 13, 12, 11, 10, 9, 8, 7, 7, 6, 6] },
+    };
+  },
+  'demo-pt-marcus-chen': () => {
+    const sessions = _tsBuildSessions('mar', 30, 8, {
+      modality: 'rTMS', intensity: '120% rMT · 10 Hz · 3000 pulses',
+      duration: 38, comfort: 7, cadenceDays: 2, startISO: '2026-04-05T10:00:00Z',
+      aeIndices: [4], unsignedIndices: [7, 8],
+    });
+    return {
+      course: {
+        id: 'demo-course-mar-rtms', patient_id: 'demo-pt-marcus-chen', patient_name: 'Marcus Chen',
+        protocol_name: '10 Hz rTMS · L-DLPFC', modality: 'rTMS', target_site: 'L-DLPFC (BA46)',
+        total_sessions: 30, completed_sessions: 8, adherence_pct: 75,
+        current_week: 4, total_weeks: 6, started_at: '2026-04-05T10:00:00Z',
+      },
+      sessions,
+      summary: { signed_count: 6, delivered_count: 8 },
+      deviations: [],
+      outcomes: { scale: 'HAM-A', scores: [22, 22, 21, 21, 20] },
+    };
+  },
+  'demo-pt-elena-vasquez': () => {
+    const sessions = _tsBuildSessions('ele', 12, 6, {
+      modality: 'ECT', intensity: '1.5× ST · brief-pulse bifrontal',
+      duration: 8, comfort: 8, cadenceDays: 3, startISO: '2026-04-15T08:00:00Z',
+      deviationIndices: [4], deviationDuration: 11,
+    });
+    return {
+      course: {
+        id: 'demo-course-ele-ect', patient_id: 'demo-pt-elena-vasquez', patient_name: 'Elena Vasquez',
+        protocol_name: 'Bilateral ECT · refractory depression in chronic pain', modality: 'ECT', target_site: 'Bifrontal',
+        total_sessions: 12, completed_sessions: 6, adherence_pct: 100,
+        current_week: 3, total_weeks: 4, started_at: '2026-04-15T08:00:00Z',
+      },
+      sessions,
+      summary: { signed_count: 6, delivered_count: 6 },
+      deviations: [
+        {
+          session_number: 4, scheduled_at: '2026-04-24T08:00:00Z',
+          parameter: 'Stimulus duration', prescribed: '8 s', delivered: '11 s',
+          note: 'Operator extended on the fly; reviewer flagged for chart note.',
+        },
+      ],
+      outcomes: { scale: 'HAM-D', scores: [28, 27, 25, 23, 21, 19, 18] },
+    };
+  },
+};
+
+const _TREATMENT_SESSIONS = {
+  patients: ['demo-pt-samantha-li', 'demo-pt-marcus-chen', 'demo-pt-elena-vasquez'],
+  detail: (pid) => (_TS_DETAIL[pid] ? _TS_DETAIL[pid]() : null),
+};
+
 export const ANALYZER_DEMO_FIXTURES = Object.freeze({
   patients: DEMO_PATIENTS,
   mri: _MRI,
@@ -576,6 +831,8 @@ export const ANALYZER_DEMO_FIXTURES = Object.freeze({
   biometrics: _BIOMETRICS,
   video: _VIDEO,
   digitalPhenotyping: { payload: _digitalPhenotypingPayload },
+  medication: _MEDICATION,
+  treatmentSessions: _TREATMENT_SESSIONS,
 });
 
 export function isFixtureFallbackActive() {

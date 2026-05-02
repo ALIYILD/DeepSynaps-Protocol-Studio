@@ -929,6 +929,17 @@ async function renderEvidenceSearch(body) {
     '</div>';
 
   body.innerHTML = html;
+
+  if (window._reEvidencePrefill) {
+    const _pref = String(window._reEvidencePrefill || '').trim();
+    window._reEvidencePrefill = null;
+    const _input = document.getElementById('lib-ext-q');
+    if (_input && _pref) {
+      _input.value = _pref;
+      try { _input.focus(); _input.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch {}
+      try { window._libExternalSearch?.(); } catch {}
+    }
+  }
 }
 
 

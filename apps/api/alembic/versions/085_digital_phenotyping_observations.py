@@ -1,15 +1,15 @@
 """Digital phenotyping — manual / device-sourced observation log (MVP).
 
-Revision ID: 083_digital_phenotyping_observations
-Revises: 082_digital_phenotyping_state_audit
+Revision ID: 085_digital_phenotyping_observations
+Revises: 084_digital_phenotyping_state_audit
 """
 from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "083_digital_phenotyping_observations"
-down_revision = "082_digital_phenotyping_state_audit"
+revision = "085_digital_phenotyping_observations"
+down_revision = "084_digital_phenotyping_state_audit"
 branch_labels = None
 depends_on = None
 

@@ -338,6 +338,9 @@ class IRBProtocol(Base):
     closed_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     closure_note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     created_by: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    # IRB-AMD1: bumped each time an approved amendment is marked effective.
+    # Nullable for back-compat with rows created before migration 082.
+    version: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True, default=1)
 
 class IRBProtocolAmendment(Base):
     """Amendment record on an IRB protocol.
@@ -361,8 +364,18 @@ class IRBProtocolAmendment(Base):
     reason: Mapped[str] = mapped_column(Text(), nullable=False)
     submitted_by: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     submitted_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
-    status: Mapped[str] = mapped_column(String(24), nullable=False, default="submitted")  # submitted | approved | rejected
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="submitted")  # IRB-AMD1 lifecycle: draft | submitted | reviewer_assigned | under_review | approved | rejected | revisions_requested | effective
     consent_version_after: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    # IRB-AMD1 lifecycle fields. All nullable additive so legacy rows still
+    # round-trip; new amendments set these as the workflow progresses.
+    assigned_reviewer_user_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    effective_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    review_decision_note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    amendment_diff_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    version: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True, default=1)
+    created_by_user_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    payload_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
 
 class IRBProtocolRevision(Base):
     """Append-only revision row for every IRBProtocol state change."""

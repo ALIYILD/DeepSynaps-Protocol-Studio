@@ -11020,7 +11020,9 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
   //   csahp3-section-funnel csahp3-section-methods csahp3-section-by-channel
   //   csahp3-section-top-rotators csahp3-section-trend csahp3-empty
   //   csahp4-section-advice csahp5-section-accuracy csahp6-section-tuning
+  //   csahp7-section-outcomes
   //   csahp3-err csahp3-window state.err state.windowDays = Number(v)
+  //   state.advice = resp.advice
   //   window._csahp3SetWindow = window.[30, 90, 180]
   //   "No auth drift detections in this window."
   setTopbar('Auth drift resolution audit hub', `
@@ -11042,6 +11044,13 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
     proposedThresholds: {},
     lastReplay: null,
     adoptionHistory: null,
+    // CSAHP7 — threshold adoption outcome state. Pairs each
+    // threshold_adopted audit row with the (advice_code,
+    // threshold_key)'s measured predictive accuracy at T+30d versus
+    // the baseline at T. Holds the cohort summary + adopter
+    // calibration table.
+    adoptionOutcomeSummary: null,
+    adopterCalibration: null,
     err: null,
   };
 
@@ -11088,6 +11097,21 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
       if (typeof api.fetchThresholdAdoptionHistory === 'function') {
         resp.adoptionHistory = await api.fetchThresholdAdoptionHistory({
           limit: 10,
+        });
+      }
+      // CSAHP7 — fetch the threshold adoption outcome summary +
+      // adopter calibration so the "Adoption outcomes" section
+      // renders beneath the CSAHP6 threshold tuning console.
+      if (typeof api.fetchThresholdAdoptionOutcomeSummary === 'function') {
+        resp.adoptionOutcomeSummary = await api.fetchThresholdAdoptionOutcomeSummary({
+          window_days: 180,
+          pair_lookahead_days: 30,
+        });
+      }
+      if (typeof api.fetchAdopterCalibration === 'function') {
+        resp.adopterCalibration = await api.fetchAdopterCalibration({
+          window_days: 180,
+          min_adoptions: 2,
         });
       }
     } catch (e) {
@@ -11719,6 +11743,213 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
       '</div>';
   }
 
+  // CSAHP7 — Adoption outcomes section. Pairs each threshold_adopted
+  // audit row at time T with the same (advice_code, threshold_key)'s
+  // measured predictive accuracy at T+30d versus the baseline at T.
+  // KPI tiles + per-advice-code mini-cards + outcome distribution bar
+  // + adopter calibration table. Closes the meta-loop on the meta-loop.
+  function _csahp7CalibrationColor(score) {
+    var n = Number(score);
+    if (!isFinite(n)) return { bg: '#e5e7eb', fg: '#374151', cls: 'csahp7-calibration-grey' };
+    if (n >= 0.3) return { bg: '#dcfce7', fg: '#166534', cls: 'csahp7-calibration-green' };
+    if (n < 0) return { bg: '#fee2e2', fg: '#991b1b', cls: 'csahp7-calibration-red' };
+    return { bg: '#fef3c7', fg: '#854d0e', cls: 'csahp7-calibration-yellow' };
+  }
+
+  function renderCsahp7KpiTiles(s) {
+    if (!s) {
+      return '<div data-testid="csahp7-kpis-empty" style="padding:10px;font-size:11px;color:var(--text-muted)">' +
+        'Awaiting adoption history.</div>';
+    }
+    var total = Number(s.total_adoptions) || 0;
+    var pct = s.outcome_pct || {};
+    var counts = s.outcome_counts || {};
+    var improvedPct = pct.improved == null ? '—' : Number(pct.improved).toFixed(1) + '%';
+    var regressedPct = pct.regressed == null ? '—' : Number(pct.regressed).toFixed(1) + '%';
+    var medDelta = s.median_accuracy_delta;
+    var medStr = medDelta == null ? '—'
+      : (medDelta > 0 ? '+' : '') + Number(medDelta).toFixed(1) + 'pp';
+    return '<div data-testid="csahp7-kpis" style="display:grid;' +
+      'grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;' +
+      'margin-top:6px">' +
+      '<div data-testid="csahp7-kpi-total" class="card" style="padding:12px">' +
+      '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Total adoptions</div>' +
+      '<div style="font-size:22px;font-weight:700">' + _esc(String(total)) + '</div></div>' +
+      '<div data-testid="csahp7-kpi-improved" class="card" style="padding:12px">' +
+      '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">% improved</div>' +
+      '<div style="font-size:22px;font-weight:700;color:#166534">' + _esc(improvedPct) + '</div>' +
+      '<div style="font-size:11px;color:var(--text-muted)">' + _esc(String(counts.improved || 0)) + ' rows</div></div>' +
+      '<div data-testid="csahp7-kpi-regressed" class="card" style="padding:12px">' +
+      '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">% regressed</div>' +
+      '<div style="font-size:22px;font-weight:700;color:#991b1b">' + _esc(regressedPct) + '</div>' +
+      '<div style="font-size:11px;color:var(--text-muted)">' + _esc(String(counts.regressed || 0)) + ' rows</div></div>' +
+      '<div data-testid="csahp7-kpi-median" class="card" style="padding:12px">' +
+      '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Median Δ accuracy</div>' +
+      '<div style="font-size:22px;font-weight:700">' + _esc(medStr) + '</div>' +
+      '<div style="font-size:11px;color:var(--text-muted)">percentage points</div></div>' +
+      '</div>';
+  }
+
+  function renderCsahp7CodeCards(s) {
+    if (!s || !s.by_advice_code) return '';
+    var byCode = s.by_advice_code;
+    var codes = ['REFLAG_HIGH', 'MANUAL_REFLAG', 'AUTH_DOMINANT'];
+    var cards = codes.map(function(code) {
+      var slot = byCode[code] || {};
+      var total = Number(slot.total_adoptions) || 0;
+      var imp = Number(slot.improved_count) || 0;
+      var reg = Number(slot.regressed_count) || 0;
+      var flat = Number(slot.flat_count) || 0;
+      var meanDelta = slot.mean_accuracy_delta;
+      var meanStr = meanDelta == null ? '—'
+        : (meanDelta > 0 ? '+' : '') + Number(meanDelta).toFixed(1) + 'pp';
+      return '<div data-testid="csahp7-code-card" data-code="' + _esc(code) + '" ' +
+        'class="card" style="padding:10px">' +
+        '<div style="font-size:12px;font-weight:700;margin-bottom:4px">' + _esc(code) + '</div>' +
+        '<div style="font-size:11px;color:var(--text-muted)">' +
+        _esc(String(total)) + ' adoptions</div>' +
+        '<div style="margin-top:4px;display:flex;gap:8px;flex-wrap:wrap;font-size:11px">' +
+        '<span style="color:#166534">↑ ' + _esc(String(imp)) + ' improved</span>' +
+        '<span style="color:#991b1b">↓ ' + _esc(String(reg)) + ' regressed</span>' +
+        '<span style="color:#854d0e">• ' + _esc(String(flat)) + ' flat</span>' +
+        '</div>' +
+        '<div style="margin-top:4px;font-size:11px;color:var(--text-muted)">' +
+        'Mean Δ: <strong>' + _esc(meanStr) + '</strong></div>' +
+        '</div>';
+    }).join('');
+    return '<div data-testid="csahp7-code-cards" style="display:grid;' +
+      'grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin-top:8px">' +
+      cards + '</div>';
+  }
+
+  function renderCsahp7DistributionBar(s) {
+    if (!s || !s.outcome_counts) return '';
+    var c = s.outcome_counts;
+    var imp = Number(c.improved) || 0;
+    var reg = Number(c.regressed) || 0;
+    var flat = Number(c.flat) || 0;
+    var pend = Number(c.pending) || 0;
+    var insuf = Number(c.insufficient_data) || 0;
+    var total = imp + reg + flat + pend + insuf;
+    if (total === 0) {
+      return '<div data-testid="csahp7-distribution-empty" style="padding:8px;' +
+        'font-size:11px;color:var(--text-muted)">No outcomes to display yet.</div>';
+    }
+    function pct(n) { return (n / total * 100).toFixed(1); }
+    return '<div data-testid="csahp7-distribution" style="margin-top:10px">' +
+      '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Outcome distribution</div>' +
+      '<div style="display:flex;height:18px;border-radius:4px;overflow:hidden;border:1px solid var(--border)">' +
+      '<div data-testid="csahp7-bar-improved" style="width:' + pct(imp) + '%;background:#16a34a" ' +
+      'title="' + _esc(String(imp)) + ' improved"></div>' +
+      '<div data-testid="csahp7-bar-regressed" style="width:' + pct(reg) + '%;background:#dc2626" ' +
+      'title="' + _esc(String(reg)) + ' regressed"></div>' +
+      '<div data-testid="csahp7-bar-flat" style="width:' + pct(flat) + '%;background:#facc15" ' +
+      'title="' + _esc(String(flat)) + ' flat"></div>' +
+      '<div data-testid="csahp7-bar-pending" style="width:' + pct(pend) + '%;background:#9ca3af" ' +
+      'title="' + _esc(String(pend)) + ' pending"></div>' +
+      '<div data-testid="csahp7-bar-insufficient" style="width:' + pct(insuf) + '%;background:#d1d5db" ' +
+      'title="' + _esc(String(insuf)) + ' insufficient"></div>' +
+      '</div>' +
+      '<div style="font-size:10px;color:var(--text-muted);margin-top:4px;display:flex;gap:10px;flex-wrap:wrap">' +
+      '<span><span style="display:inline-block;width:10px;height:10px;background:#16a34a;border-radius:2px;margin-right:3px"></span>Improved</span>' +
+      '<span><span style="display:inline-block;width:10px;height:10px;background:#dc2626;border-radius:2px;margin-right:3px"></span>Regressed</span>' +
+      '<span><span style="display:inline-block;width:10px;height:10px;background:#facc15;border-radius:2px;margin-right:3px"></span>Flat</span>' +
+      '<span><span style="display:inline-block;width:10px;height:10px;background:#9ca3af;border-radius:2px;margin-right:3px"></span>Pending</span>' +
+      '<span><span style="display:inline-block;width:10px;height:10px;background:#d1d5db;border-radius:2px;margin-right:3px"></span>Insufficient</span>' +
+      '</div>' +
+      '</div>';
+  }
+
+  function renderCsahp7AdopterCalibration(cal) {
+    if (!cal || !Array.isArray(cal.items) || cal.items.length === 0) {
+      return '<div data-testid="csahp7-calibration-empty" class="card" ' +
+        'style="padding:10px;margin-top:8px;font-size:11px;color:var(--text-muted)">' +
+        'No adopter calibration data yet (need at least 2 adoptions per adopter).</div>';
+    }
+    var rows = cal.items.map(function(it) {
+      var score = Number(it.calibration_score);
+      var swatch = _csahp7CalibrationColor(score);
+      var prefix = score > 0 ? '+' : '';
+      return '<tr data-testid="csahp7-calibration-row" data-adopter="' + _esc(it.adopter_user_id) + '">' +
+        '<td style="padding:4px 8px;font-size:11px">' + _esc(it.adopter_user_id) + '</td>' +
+        '<td style="padding:4px 8px;font-size:11px;font-variant-numeric:tabular-nums">' +
+        _esc(String(it.total_adoptions)) + '</td>' +
+        '<td style="padding:4px 8px;font-size:11px;color:#166534">' +
+        _esc(String(it.improved_count)) + '</td>' +
+        '<td style="padding:4px 8px;font-size:11px;color:#991b1b">' +
+        _esc(String(it.regressed_count)) + '</td>' +
+        '<td style="padding:4px 8px;font-size:11px"><span class="' + swatch.cls + '" ' +
+        'style="background:' + swatch.bg + ';color:' + swatch.fg + ';padding:2px 6px;border-radius:3px;' +
+        'font-variant-numeric:tabular-nums">' +
+        _esc(prefix + (isFinite(score) ? score.toFixed(2) : '0.00')) + '</span></td>' +
+        '</tr>';
+    }).join('');
+    return '<div data-testid="csahp7-calibration" class="card" ' +
+      'style="padding:10px;margin-top:8px;overflow-x:auto">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Adopter calibration</div>' +
+      '<table class="data-table" style="width:100%;font-size:11px"><thead><tr>' +
+      '<th style="padding:4px 8px;text-align:left">Adopter</th>' +
+      '<th style="padding:4px 8px;text-align:left">Adoptions</th>' +
+      '<th style="padding:4px 8px;text-align:left">Improved</th>' +
+      '<th style="padding:4px 8px;text-align:left">Regressed</th>' +
+      '<th style="padding:4px 8px;text-align:left">Calibration score</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table>' +
+      '<div style="font-size:10px;color:var(--text-muted);margin-top:6px">' +
+      'Score = (improved − regressed) / total. Range -1 to 1. ' +
+      '<span style="color:#166534">≥0.3 green</span>, ' +
+      '<span style="color:#854d0e">0–0.29 yellow</span>, ' +
+      '<span style="color:#991b1b">&lt;0 red</span>.' +
+      '</div>' +
+      '</div>';
+  }
+
+  function renderCsahp7PendingNote(s) {
+    if (!s || !s.outcome_counts) return '';
+    var pending = Number(s.outcome_counts.pending) || 0;
+    if (pending === 0) return '';
+    return '<div data-testid="csahp7-pending-note" ' +
+      'style="padding:6px 10px;font-size:11px;color:var(--text-muted);margin-top:6px">' +
+      _esc(String(pending)) + ' adoptions still within 30-day evaluation window.' +
+      '</div>';
+  }
+
+  function renderCsahp7Section() {
+    var s = state.adoptionOutcomeSummary;
+    var cal = state.adopterCalibration;
+    var heading = '<h3 data-testid="csahp7-section-heading" style="font-size:13px;' +
+      'margin:14px 0 4px;font-weight:700">Adoption outcomes</h3>';
+    var disclaimer =
+      '<div data-testid="csahp7-disclaimer" class="notice notice-info" ' +
+      'style="padding:8px 12px;font-size:11px;margin-top:6px">' +
+      'Pairs each threshold adoption at T with the advice-code accuracy ' +
+      'at T+30d vs the baseline at T. Outcomes need ≥3 paired cards in ' +
+      'each window to classify; otherwise marked as insufficient_data. ' +
+      'Adoptions less than 30 days old are pending.</div>';
+
+    if (!s || Number(s.total_adoptions) === 0) {
+      return '<div data-testid="csahp7-section-outcomes" style="margin-top:8px">' +
+        heading +
+        '<div data-testid="csahp7-empty" class="card" style="padding:14px;' +
+        'font-size:12px;color:var(--text-muted)">' +
+        'No threshold adoptions to evaluate yet. After admins adopt new ' +
+        'thresholds via the console above, this section will report ' +
+        'whether the adoption actually improved the advice-code\'s ' +
+        'predictive accuracy 30 days later.</div>' +
+        disclaimer +
+        '</div>';
+    }
+
+    return '<div data-testid="csahp7-section-outcomes" style="margin-top:8px">' +
+      heading +
+      renderCsahp7KpiTiles(s) +
+      renderCsahp7CodeCards(s) +
+      renderCsahp7DistributionBar(s) +
+      renderCsahp7AdopterCalibration(cal) +
+      renderCsahp7PendingNote(s) +
+      disclaimer +
+      '</div>';
+  }
+
   async function render() {
     var el = document.getElementById('content');
     if (!el) return;
@@ -11730,6 +11961,8 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
     state.advisorOutcome = resp.advisorOutcome;
     state.thresholds = resp.thresholds;
     state.adoptionHistory = resp.adoptionHistory;
+    state.adoptionOutcomeSummary = resp.adoptionOutcomeSummary;
+    state.adopterCalibration = resp.adopterCalibration;
     state.err = resp.err;
 
     if (state.err) {
@@ -11751,6 +11984,7 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
         renderRotationPolicyAdvice(state.advice) +
         renderCsahp5Section(state.advisorOutcome) +
         renderCsahp6Section() +
+        renderCsahp7Section() +
         '<div data-testid="csahp3-empty" class="card" style="padding:14px;margin-top:10px;font-size:12px;color:var(--text-muted)">No auth drift detections in this window.</div>' +
         '</div>';
       if (typeof api.postAuthDriftResolutionAuditHubAuditEvent === 'function') {
@@ -11774,6 +12008,8 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
       renderCsahp5Section(state.advisorOutcome) +
       // CSAHP6 — Threshold tuning console.
       renderCsahp6Section() +
+      // CSAHP7 — Adoption outcomes (post-30d accuracy delta).
+      renderCsahp7Section() +
       // Section 1: rotation funnel
       '<h3 data-testid="csahp3-section-funnel" style="font-size:13px;margin:14px 0 4px;font-weight:700">Rotation funnel</h3>' +
       renderFunnelKpis(s) +
@@ -16180,6 +16416,18 @@ export async function pgIRBManager(setTopbar) {
   let _wizardStep    = 1;
   let _wizardDraft   = { info:{}, population:{}, arms:[{name:'',intervention:'',sessions:'',duration:'',frequency:''}], regulatory:{} };
   let _docFilterStudy = '';
+  // ── IRB-AMD1 amendments workflow state (page-local). _amdItems holds
+  // the latest /amendments list response; _amdSelected the currently
+  // open detail panel; _amdAuditTrail the per-amendment audit history;
+  // _amdProtocolFilter the protocol_id filter pulled from the URL or
+  // user pick.
+  let _amdItems = null;
+  let _amdSelected = null;
+  let _amdAuditTrail = [];
+  let _amdProtocolFilter = '';
+  let _amdProtocolList = [];
+  let _amdLoadError = null;
+  let _amdActorRole = null;
   let _docFilterType  = '';
 
   function toast(msg, ok) {
@@ -16231,6 +16479,7 @@ export async function pgIRBManager(setTopbar) {
   function tabBar() {
     var tabs = [
       {id:'protocols-register',label:'Protocols Register'},
+      {id:'amendments-workflow',label:'Amendments Workflow'},
       {id:'active-studies',label:'Active Studies (legacy demo)'},
       {id:'study-design',label:'Study Design Builder (legacy demo)'},
       {id:'adverse-events',label:'Adverse Events (legacy demo)'},
@@ -16397,9 +16646,158 @@ export async function pgIRBManager(setTopbar) {
     return '<div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px"><div><h2 style="margin:0;font-size:1.1rem;font-weight:800;color:var(--text)">Regulatory Document Registry</h2><div style="font-size:12px;color:var(--text-muted);margin-top:3px">' + docs.length + ' documents across ' + studies.length + ' studies</div></div><button class="nnna-btn-primary" onclick="window._irbUploadDocModal()">Upload New Version</button></div><div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap"><select class="form-control" style="width:auto;font-size:12px" onchange="window._irbDocFilter(\'study\',this.value)"><option value="">All Studies</option>' + studyOpts + '</select><select class="form-control" style="width:auto;font-size:12px" onchange="window._irbDocFilter(\'type\',this.value)"><option value="">All Types</option>' + typeOpts + '</select></div><div id="irb-doc-preview" style="display:none;background:var(--hover-bg);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><span id="irb-doc-preview-title" style="font-size:13px;font-weight:700;color:var(--text)"></span><button class="nnna-btn-sm nnna-btn-rose" onclick="document.getElementById(\'irb-doc-preview\').style.display=\'none\'">Close</button></div><pre id="irb-doc-preview-body" style="font-size:12px;color:var(--text);white-space:pre-wrap;line-height:1.6;margin:0;font-family:monospace"></pre></div><div>' + docRows + '</div></div>';
   }
 
+  // ── IRB-AMD1 Amendment Workflow tab ────────────────────────────────────
+  function _amdStatusColor(s) {
+    if (s === 'draft') return 'var(--text-muted)';
+    if (s === 'submitted') return 'var(--blue)';
+    if (s === 'reviewer_assigned') return 'var(--violet)';
+    if (s === 'under_review') return 'var(--amber)';
+    if (s === 'approved') return 'var(--teal)';
+    if (s === 'rejected') return 'var(--rose)';
+    if (s === 'revisions_requested') return 'var(--amber)';
+    if (s === 'effective') return 'var(--teal)';
+    return 'var(--text-muted)';
+  }
+  function _amdStatusBadge(s) {
+    var color = _amdStatusColor(s);
+    return '<span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;background:'+color+'22;color:'+color+';border:1px solid '+color+'55">'+_kEsc(s||'-')+'</span>';
+  }
+  function _amdGroupByStatus(items) {
+    var groups = { draft:[], submitted:[], reviewer_assigned:[], under_review:[], approved:[], rejected:[], revisions_requested:[], effective:[] };
+    (items||[]).forEach(function(it) {
+      if (groups[it.status]) groups[it.status].push(it);
+    });
+    return groups;
+  }
+  function _amdDaysInState(it) {
+    // Approximation: most-recent-known timestamp for the current state.
+    var t = it.effective_at || it.reviewed_at || it.submitted_at || null;
+    if (!t) return '-';
+    var now = Date.now();
+    var then = new Date(t).getTime();
+    if (isNaN(then)) return '-';
+    var d = Math.max(0, Math.floor((now-then)/(1000*60*60*24)));
+    return d + 'd';
+  }
+  function _amdActionButtons(it) {
+    var actorId = (window._currentActorId || 'actor-clinician-demo');
+    var role = _amdActorRole || 'clinician';
+    var isCreator = (it.created_by_user_id || it.submitted_by) === actorId;
+    var isReviewer = it.assigned_reviewer_user_id === actorId;
+    var isAdmin = role === 'admin';
+    var btns = [];
+    if (it.status === 'draft' && (isCreator || isAdmin)) {
+      btns.push('<button class="nnna-btn-sm nnna-btn-primary" onclick="window._irbAmdSubmit(\''+_kEsc(it.id)+'\')">Submit for review</button>');
+    }
+    if (it.status === 'submitted' && isAdmin) {
+      btns.push('<button class="nnna-btn-sm" onclick="window._irbAmdAssignModal(\''+_kEsc(it.id)+'\')">Assign reviewer…</button>');
+    }
+    if (it.status === 'reviewer_assigned' && (isReviewer || isAdmin)) {
+      btns.push('<button class="nnna-btn-sm" onclick="window._irbAmdStartReview(\''+_kEsc(it.id)+'\')">Start review</button>');
+    }
+    if (it.status === 'under_review' && (isReviewer || isAdmin)) {
+      btns.push('<button class="nnna-btn-sm nnna-btn-teal" onclick="window._irbAmdDecideModal(\''+_kEsc(it.id)+'\',\'approved\')">Approve</button>');
+      btns.push('<button class="nnna-btn-sm nnna-btn-rose" onclick="window._irbAmdDecideModal(\''+_kEsc(it.id)+'\',\'rejected\')">Reject</button>');
+      btns.push('<button class="nnna-btn-sm nnna-btn-amber" onclick="window._irbAmdDecideModal(\''+_kEsc(it.id)+'\',\'revisions_requested\')">Request revisions</button>');
+    }
+    if (it.status === 'approved' && isAdmin) {
+      btns.push('<button class="nnna-btn-sm nnna-btn-primary" onclick="window._irbAmdMarkEffective(\''+_kEsc(it.id)+'\')">Mark effective</button>');
+    }
+    if (it.status === 'revisions_requested' && (isCreator || isAdmin)) {
+      btns.push('<button class="nnna-btn-sm" onclick="window._irbAmdRevert(\''+_kEsc(it.id)+'\')">Revert to draft</button>');
+    }
+    return btns.join(' ');
+  }
+  function _amdRenderDiff(diff) {
+    if (!diff || !diff.length) return '<div style="color:var(--text-muted);font-size:12px;padding:8px">No tracked-field changes.</div>';
+    return '<div style="display:flex;flex-direction:column;gap:6px">' + diff.map(function(d) {
+      var bg = d.change_type === 'added'    ? 'var(--teal)18' :
+               d.change_type === 'removed'  ? 'var(--rose)18' :
+                                              'var(--amber)18';
+      var bd = d.change_type === 'added'    ? 'var(--teal)55' :
+               d.change_type === 'removed'  ? 'var(--rose)55' :
+                                              'var(--amber)55';
+      var lbl = d.change_type === 'added' ? 'ADDED' : d.change_type === 'removed' ? 'REMOVED' : 'MODIFIED';
+      var oldS = d.old_value == null ? '∅' : (typeof d.old_value === 'string' ? d.old_value : JSON.stringify(d.old_value));
+      var newS = d.new_value == null ? '∅' : (typeof d.new_value === 'string' ? d.new_value : JSON.stringify(d.new_value));
+      return '<div style="background:'+bg+';border:1px solid '+bd+';border-radius:8px;padding:10px"><div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">'+lbl+' · '+_kEsc(d.field)+'</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12px;font-family:monospace;color:var(--text)"><div><div style="color:var(--text-muted);font-size:10px;margin-bottom:2px">old</div><div style="white-space:pre-wrap">'+_kEsc(oldS)+'</div></div><div><div style="color:var(--text-muted);font-size:10px;margin-bottom:2px">new</div><div style="white-space:pre-wrap">'+_kEsc(newS)+'</div></div></div></div>';
+    }).join('') + '</div>';
+  }
+  function _amdRenderAuditTrail(items) {
+    if (!items || !items.length) return '<div style="color:var(--text-muted);font-size:12px;padding:8px">No audit rows yet.</div>';
+    return '<ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px">' +
+      items.map(function(r) {
+        return '<li style="background:var(--hover-bg);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:11.5px;font-family:monospace"><div><strong>'+_kEsc(r.action)+'</strong> &middot; '+_kEsc(r.actor_id)+' &middot; '+_kEsc(r.created_at)+'</div><div style="color:var(--text-muted);margin-top:2px">'+_kEsc(r.note||'')+'</div></li>';
+      }).join('') + '</ul>';
+  }
+  function renderAmendmentsWorkflow() {
+    var disclaimer = '<div style="background:var(--blue)12;border:1px solid var(--blue)44;border-radius:8px;padding:11px 14px;margin-bottom:14px;font-size:12px;color:var(--text)"><strong style="color:var(--blue)">Regulator-credible amendment workflow:</strong> Lifecycle (draft → submitted → reviewer_assigned → under_review → approved / rejected / revisions_requested → effective). All transitions are audit-trailed. Approved amendments merge into the effective protocol document on the parent register tab; rejected amendments stay as historical record.</div>';
+    if (_amdLoadError) {
+      disclaimer += '<div style="background:var(--rose)18;border:1px solid var(--rose)55;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--rose);font-weight:600">API error: '+_kEsc(_amdLoadError)+'. Retry or check authentication.</div>';
+    }
+    var protoOpts = '<option value="">All protocols</option>' + _amdProtocolList.map(function(p) {
+      var sel = _amdProtocolFilter === p.id ? ' selected' : '';
+      return '<option value="'+_kEsc(p.id)+'"'+sel+'>'+_kEsc(p.title || p.id)+'</option>';
+    }).join('');
+    var actionsBar = '<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:flex-end">' +
+      '<button class="nnna-btn-primary" onclick="window._irbAmdNewModal()">+ New amendment</button>' +
+      '<select class="form-control" style="font-size:12px;width:auto" onchange="window._irbAmdFilterProtocol(this.value)">'+protoOpts+'</select>' +
+      '<button class="nnna-btn-sm" onclick="window._irbAmdRefresh()">Refresh</button>' +
+      (_amdProtocolFilter && (_amdActorRole === 'admin' || _amdActorRole === 'clinician')
+         ? '<a class="nnna-btn-sm nnna-btn-amber" href="'+_kEsc(api.irbAmdRegBinderUrl(_amdProtocolFilter))+'" download>Download reg-binder (.zip)</a>'
+         : '') +
+      '</div>';
+    if (_amdItems === null) {
+      return '<div>'+disclaimer+actionsBar+'<div style="padding:40px;text-align:center;color:var(--text-muted)">Loading amendments…</div></div>';
+    }
+    if (!_amdItems.length) {
+      return '<div>'+disclaimer+actionsBar+'<div style="text-align:center;padding:40px 20px;color:var(--text-muted);background:var(--hover-bg);border:1px dashed var(--border);border-radius:10px">No amendments yet. Click "New amendment" to start a draft.</div></div>';
+    }
+    var groups = _amdGroupByStatus(_amdItems);
+    var sections = [];
+    [
+      ['draft','Draft'],
+      ['submitted','Submitted'],
+      ['reviewer_assigned','Reviewer Assigned'],
+      ['under_review','Under Review'],
+      ['approved','Approved'],
+      ['revisions_requested','Revisions Requested'],
+      ['rejected','Rejected'],
+      ['effective','Effective'],
+    ].forEach(function(g) {
+      var arr = groups[g[0]] || [];
+      if (!arr.length) return;
+      sections.push('<div style="margin-bottom:18px"><div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">'+_kEsc(g[1])+' ('+arr.length+')</div>' +
+        '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px">' + arr.map(function(it) {
+          return '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:12px;cursor:pointer" onclick="window._irbAmdOpen(\''+_kEsc(it.id)+'\')">' +
+            '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px">' +
+            '<div style="font-size:13px;font-weight:700;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">v'+_kEsc(it.version)+' &middot; '+_kEsc(it.description||'(no description)')+'</div>' +
+            _amdStatusBadge(it.status) +
+            '</div>' +
+            '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">by '+_kEsc(it.created_by_user_id||it.submitted_by||'-')+'</div>' +
+            '<div style="font-size:11px;color:var(--text-muted)">'+_amdDaysInState(it)+' in '+_kEsc(it.status)+'</div>' +
+            '</div>';
+        }).join('') + '</div></div>');
+    });
+    var detail = '';
+    if (_amdSelected) {
+      var it = _amdSelected;
+      detail = '<div id="irb-amd-detail" style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:18px;margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div><div style="font-size:14px;font-weight:800;color:var(--text)">Amendment v'+_kEsc(it.version)+' &middot; '+_amdStatusBadge(it.status)+'</div><div style="font-size:11px;color:var(--text-muted);margin-top:3px">'+_kEsc(it.id)+'</div></div><button class="nnna-btn-sm" onclick="window._irbAmdClose()">Close</button></div>' +
+        '<div style="margin-bottom:14px"><div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Reason</div><div style="font-size:13px;color:var(--text)">'+_kEsc(it.reason||'-')+'</div></div>' +
+        '<div style="margin-bottom:14px"><div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Description</div><div style="font-size:13px;color:var(--text);white-space:pre-wrap">'+_kEsc(it.description||'-')+'</div></div>' +
+        (it.review_decision_note ? '<div style="margin-bottom:14px"><div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Reviewer decision note</div><div style="font-size:13px;color:var(--text);white-space:pre-wrap">'+_kEsc(it.review_decision_note)+'</div></div>' : '') +
+        '<div style="margin-bottom:14px"><div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Computed diff vs parent protocol</div>'+_amdRenderDiff(it.diff)+'</div>' +
+        '<div style="margin-bottom:14px"><div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Audit trail</div>'+_amdRenderAuditTrail(_amdAuditTrail)+'</div>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap">'+_amdActionButtons(it)+'</div>' +
+        '</div>';
+    }
+    return '<div>'+disclaimer+actionsBar+sections.join('')+detail+'</div>';
+  }
+
   function render() {
     var body = '';
     if (_activeTab === 'protocols-register') body = renderProtocolsRegister();
+    if (_activeTab === 'amendments-workflow') body = renderAmendmentsWorkflow();
     if (_activeTab === 'active-studies')   body = renderActiveStudies();
     if (_activeTab === 'study-design')     body = renderStudyDesign();
     if (_activeTab === 'adverse-events')   body = renderAEReporting();
@@ -16999,6 +17397,225 @@ export async function pgIRBManager(setTopbar) {
     }).catch(function(err) {
       toast('Reopen failed: ' + (err && err.message ? err.message : ''), false);
     });
+  };
+
+  // ── IRB-AMD1 Amendment Workflow window-bound helpers ─────────────────────
+  function _amdLoad() {
+    var params = {};
+    if (_amdProtocolFilter) params.protocol_id = _amdProtocolFilter;
+    return api.irbAmdList(params).then(function(res) {
+      _amdLoadError = null;
+      _amdItems = (res && res.items) || [];
+      // populate the protocol dropdown from the protocols register the user
+      // already has visibility on. Reuse _apiProtocols from the parent tab
+      // if present; else fall back to fetching once.
+      if (_amdProtocolList.length === 0) {
+        if (Array.isArray(_apiProtocols) && _apiProtocols.length) {
+          _amdProtocolList = _apiProtocols.map(function(p) { return { id:p.id, title:p.title }; });
+        } else {
+          api.listIrbProtocols({ limit:200 }).then(function(r) {
+            _amdProtocolList = (r && r.items ? r.items : []).map(function(p) { return { id:p.id, title:p.title }; });
+            render();
+          }).catch(function() {});
+        }
+      }
+      // Probe role for the action-button gating (best-effort).
+      if (_amdActorRole == null) {
+        try {
+          _amdActorRole = (window.currentUser && window.currentUser.role) || 'clinician';
+        } catch (_) { _amdActorRole = 'clinician'; }
+      }
+    }).catch(function(err) {
+      _amdLoadError = (err && err.message) || 'Failed to load';
+      _amdItems = [];
+    });
+  }
+  window._irbAmdRefresh = function() {
+    _amdLoad().then(render);
+  };
+  window._irbAmdFilterProtocol = function(pid) {
+    _amdProtocolFilter = pid || '';
+    _amdItems = null;
+    _amdSelected = null;
+    render();
+    _amdLoad().then(render);
+  };
+  window._irbAmdOpen = function(amendmentId) {
+    api.irbAmdGetDetail(amendmentId).then(function(detail) {
+      _amdSelected = detail;
+      return api.irbAmdGetAuditTrail(amendmentId);
+    }).then(function(res) {
+      _amdAuditTrail = (res && res.items) || [];
+      render();
+    }).catch(function() {
+      toast('Failed to load amendment detail', false);
+    });
+  };
+  window._irbAmdClose = function() {
+    _amdSelected = null;
+    _amdAuditTrail = [];
+    render();
+  };
+  window._irbAmdNewModal = function() {
+    var existing = document.getElementById('irb-amd-new-modal');
+    if (existing) existing.remove();
+    var protoOpts = _amdProtocolList.map(function(p) {
+      var sel = _amdProtocolFilter === p.id ? ' selected' : '';
+      return '<option value="'+_kEsc(p.id)+'"'+sel+'>'+_kEsc(p.title || p.id)+'</option>';
+    }).join('');
+    var html = '<div id="irb-amd-new-modal" onclick="if(event.target.id===\'irb-amd-new-modal\')window._irbAmdCloseModal(\'irb-amd-new-modal\')" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9100;display:flex;align-items:center;justify-content:center;padding:20px"><div style="background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:600px;max-height:90vh;overflow-y:auto"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><h3 style="margin:0;font-size:15px;font-weight:800">New amendment (draft)</h3><button onclick="window._irbAmdCloseModal(\'irb-amd-new-modal\')" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:20px">x</button></div>' +
+      '<div class="nnna-form-group" style="margin-bottom:10px"><label>Parent protocol *</label><select class="form-control" id="amd-new-pid">'+protoOpts+'</select></div>' +
+      '<div class="nnna-form-group" style="margin-bottom:10px"><label>Title *</label><input class="form-control" id="amd-new-title" placeholder="Updated phase II title…"></div>' +
+      '<div class="nnna-form-group" style="margin-bottom:10px"><label>Summary</label><textarea class="form-control" id="amd-new-summary" rows="2" placeholder="Updated high-level summary…"></textarea></div>' +
+      '<div class="nnna-form-group" style="margin-bottom:10px"><label>Intervention description</label><textarea class="form-control" id="amd-new-int" rows="2"></textarea></div>' +
+      '<div class="nnna-form-group" style="margin-bottom:10px"><label>Eligibility criteria</label><textarea class="form-control" id="amd-new-elig" rows="2"></textarea></div>' +
+      '<div class="nnna-form-group" style="margin-bottom:10px"><label>Primary outcome</label><input class="form-control" id="amd-new-po" placeholder="e.g. HDRS-17 at 4 weeks"></div>' +
+      '<div class="nnna-form-group" style="margin-bottom:10px"><label>Safety monitoring</label><textarea class="form-control" id="amd-new-safety" rows="2"></textarea></div>' +
+      '<div class="nnna-form-group" style="margin-bottom:14px"><label>Reason *</label><textarea class="form-control" id="amd-new-reason" rows="2" placeholder="Why this amendment is needed…"></textarea></div>' +
+      '<div style="display:flex;justify-content:flex-end;gap:8px"><button class="nnna-btn-sm" onclick="window._irbAmdCloseModal(\'irb-amd-new-modal\')">Cancel</button><button class="nnna-btn-primary" onclick="window._irbAmdSubmitNew()">Create draft</button></div></div></div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+  };
+  window._irbAmdCloseModal = function(id) {
+    var el = document.getElementById(id);
+    if (el) el.remove();
+  };
+  window._irbAmdSubmitNew = function() {
+    var pid    = (document.getElementById('amd-new-pid')||{}).value;
+    var title  = ((document.getElementById('amd-new-title')||{}).value||'').trim();
+    var summary= ((document.getElementById('amd-new-summary')||{}).value||'').trim();
+    var inter  = ((document.getElementById('amd-new-int')||{}).value||'').trim();
+    var elig   = ((document.getElementById('amd-new-elig')||{}).value||'').trim();
+    var po     = ((document.getElementById('amd-new-po')||{}).value||'').trim();
+    var safety = ((document.getElementById('amd-new-safety')||{}).value||'').trim();
+    var reason = ((document.getElementById('amd-new-reason')||{}).value||'').trim();
+    if (!pid || !title || !reason) { toast('Protocol, title and reason are required', false); return; }
+    api.irbAmdCreateDraft({
+      parent_protocol_id: pid,
+      title: title,
+      summary: summary || null,
+      intervention_description: inter || null,
+      eligibility_criteria: elig || null,
+      primary_outcome: po || null,
+      safety_monitoring: safety || null,
+      reason: reason,
+      description: title,
+    }).then(function() {
+      window._irbAmdCloseModal('irb-amd-new-modal');
+      toast('Draft amendment created');
+      _emitAmdAudit('amendment_created', { protocol_id: pid });
+      _amdLoad().then(render);
+    }).catch(function(err) {
+      toast('Create failed: '+(err && err.message ? err.message : ''), false);
+    });
+  };
+  window._irbAmdSubmit = function(id) {
+    if (!confirm('Submit this amendment for review? Once submitted it cannot be edited.')) return;
+    api.irbAmdSubmit(id).then(function() {
+      toast('Amendment submitted for review');
+      _emitAmdAudit('amendment_submitted', { amendment_id: id });
+      _amdLoad().then(render);
+    }).catch(function(err) {
+      toast('Submit failed: '+(err && err.message ? err.message : ''), false);
+    });
+  };
+  window._irbAmdAssignModal = function(id) {
+    var existing = document.getElementById('irb-amd-assign-modal');
+    if (existing) existing.remove();
+    // Build a clinician selector — for honesty we just expose a free
+    // text input plus best-effort dropdown if window.__clinicClinicians is set.
+    var html = '<div id="irb-amd-assign-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9100;display:flex;align-items:center;justify-content:center;padding:20px"><div style="background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:480px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><h3 style="margin:0;font-size:15px;font-weight:800">Assign reviewer</h3><button onclick="window._irbAmdCloseModal(\'irb-amd-assign-modal\')" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:20px">x</button></div>' +
+      '<div class="nnna-form-group" style="margin-bottom:14px"><label>Reviewer user_id *</label><input class="form-control" id="amd-assign-uid" placeholder="actor-…"></div>' +
+      '<div style="display:flex;justify-content:flex-end;gap:8px"><button class="nnna-btn-sm" onclick="window._irbAmdCloseModal(\'irb-amd-assign-modal\')">Cancel</button><button class="nnna-btn-primary" onclick="window._irbAmdAssign(\''+_kEsc(id)+'\')">Assign</button></div></div></div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+  };
+  window._irbAmdAssign = function(id) {
+    var uid = ((document.getElementById('amd-assign-uid')||{}).value||'').trim();
+    if (!uid) { toast('Reviewer user_id is required', false); return; }
+    api.irbAmdAssignReviewer(id, { reviewer_user_id: uid }).then(function() {
+      window._irbAmdCloseModal('irb-amd-assign-modal');
+      toast('Reviewer assigned');
+      _emitAmdAudit('amendment_reviewer_assigned', { amendment_id: id });
+      _amdLoad().then(render);
+    }).catch(function(err) {
+      toast('Assign failed: '+(err && err.message ? err.message : ''), false);
+    });
+  };
+  window._irbAmdStartReview = function(id) {
+    api.irbAmdStartReview(id).then(function() {
+      toast('Review started');
+      _emitAmdAudit('amendment_review_started', { amendment_id: id });
+      _amdLoad().then(render);
+    }).catch(function(err) {
+      toast('Start review failed: '+(err && err.message ? err.message : ''), false);
+    });
+  };
+  window._irbAmdDecideModal = function(id, decision) {
+    var existing = document.getElementById('irb-amd-decide-modal');
+    if (existing) existing.remove();
+    var label = decision === 'approved' ? 'Approve' : decision === 'rejected' ? 'Reject' : 'Request revisions';
+    var html = '<div id="irb-amd-decide-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9100;display:flex;align-items:center;justify-content:center;padding:20px"><div style="background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:520px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><h3 style="margin:0;font-size:15px;font-weight:800">'+_kEsc(label)+'</h3><button onclick="window._irbAmdCloseModal(\'irb-amd-decide-modal\')" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:20px">x</button></div>' +
+      '<div class="nnna-form-group" style="margin-bottom:14px"><label>Reviewer note (10-2000 chars) *</label><textarea class="form-control" id="amd-decide-note" rows="4" placeholder="Detailed reviewer note…"></textarea></div>' +
+      '<div style="display:flex;justify-content:flex-end;gap:8px"><button class="nnna-btn-sm" onclick="window._irbAmdCloseModal(\'irb-amd-decide-modal\')">Cancel</button><button class="nnna-btn-primary" onclick="window._irbAmdSubmitDecision(\''+_kEsc(id)+'\',\''+_kEsc(decision)+'\')">'+_kEsc(label)+'</button></div></div></div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+  };
+  window._irbAmdSubmitDecision = function(id, decision) {
+    var note = ((document.getElementById('amd-decide-note')||{}).value||'').trim();
+    if (note.length < 10 || note.length > 2000) {
+      toast('Reviewer note must be 10-2000 chars', false);
+      return;
+    }
+    api.irbAmdDecide(id, { decision: decision, review_note: note }).then(function() {
+      window._irbAmdCloseModal('irb-amd-decide-modal');
+      toast('Decision recorded: '+decision);
+      _emitAmdAudit('amendment_decided_'+decision, { amendment_id: id });
+      _amdLoad().then(render);
+    }).catch(function(err) {
+      toast('Decision failed: '+(err && err.message ? err.message : ''), false);
+    });
+  };
+  window._irbAmdMarkEffective = function(id) {
+    if (!confirm('Mark this amendment as effective? This will bump the parent protocol version and cannot be undone.')) return;
+    api.irbAmdMarkEffective(id).then(function() {
+      toast('Amendment marked effective');
+      _emitAmdAudit('amendment_effective', { amendment_id: id });
+      _amdLoad().then(render);
+    }).catch(function(err) {
+      toast('Mark effective failed: '+(err && err.message ? err.message : ''), false);
+    });
+  };
+  window._irbAmdRevert = function(id) {
+    if (!confirm('Revert this amendment to draft so the creator can edit and re-submit?')) return;
+    api.irbAmdRevertToDraft(id).then(function() {
+      toast('Reverted to draft');
+      _emitAmdAudit('amendment_reverted_to_draft', { amendment_id: id });
+      _amdLoad().then(render);
+    }).catch(function(err) {
+      toast('Revert failed: '+(err && err.message ? err.message : ''), false);
+    });
+  };
+  // Override _emitAudit's IRB-AMD1 routing — we route amendment_*
+  // events through the workflow surface so the audit-trail tab on the
+  // workflow router has the page-level pings, while the protocols
+  // register surface (irb_manager) keeps its existing pings.
+  function _emitAmdAudit(event, opts) {
+    try {
+      api.postIrbAmdAuditEvent({
+        event: event,
+        target_id: (opts && (opts.amendment_id || opts.protocol_id)) || null,
+        note: (opts && opts.note) || '',
+      });
+    } catch (_) {}
+  }
+
+  // First-time load triggered by tab switch into amendments-workflow.
+  // We hook the existing _irbTab dispatcher: when a user picks the
+  // amendments-workflow tab, kick off the list load.
+  var _origTabFn = window._irbTab;
+  window._irbTab = function(tab) {
+    if (typeof _origTabFn === 'function') _origTabFn(tab);
+    if (tab === 'amendments-workflow' && _amdItems === null) {
+      _amdLoad().then(render);
+    }
   };
 }
 

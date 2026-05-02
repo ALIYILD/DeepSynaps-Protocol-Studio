@@ -50,6 +50,7 @@ apps/api/app/routers/home_device_portal_router.py
 apps/api/app/routers/home_devices_patient_router.py
 apps/api/app/routers/home_devices_router.py
 apps/api/app/routers/home_task_templates_router.py
+apps/api/app/routers/irb_amendment_workflow_router.py
 apps/api/app/routers/irb_manager_router.py
 apps/api/app/routers/irb_router.py
 apps/api/app/routers/leads_reception_router.py
@@ -89,6 +90,7 @@ apps/api/app/routers/resolver_coaching_inbox_router.py
 apps/api/app/routers/resolver_coaching_self_review_digest_router.py
 apps/api/app/routers/risk_stratification_router.py
 apps/api/app/routers/rotation_policy_advisor_outcome_tracker_router.py
+apps/api/app/routers/rotation_policy_advisor_threshold_adoption_outcome_tracker_router.py
 apps/api/app/routers/rotation_policy_advisor_threshold_tuning_router.py
 
 apps/api/app/routers/schedules_router.py

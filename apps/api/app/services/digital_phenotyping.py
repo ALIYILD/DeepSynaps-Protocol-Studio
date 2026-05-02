@@ -1,13 +1,17 @@
 """Digital Phenotyping Analyzer — stub aggregation until passive ingest lands.
 
 Merges persisted per-patient consent/state from ``digital_phenotyping_patient_state``.
+Research bundle: explicit metadata for IRB-friendly exports (manual/device rows first).
 """
 
 from __future__ import annotations
 
 import json
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
+
+RESEARCH_METADATA_SCHEMA_VERSION = "1.0.0"
 
 # Canonical signal_domain keys — must match UI / fixtures.
 DEFAULT_DOMAINS_ENABLED: dict[str, bool] = {
@@ -191,13 +195,68 @@ def merge_observations_into_payload(
     return out
 
 
+def attach_research_metadata(
+    payload: dict[str, Any],
+    *,
+    patient_id: str,
+    observation_row_count: int,
+    consent_scope_version: str,
+) -> dict[str, Any]:
+    """Add IRB-oriented research block; does not claim passive ingest validity."""
+    out = dict(payload)
+    prov = dict(out.get("provenance") or {})
+    pipe = str(prov.get("feature_pipeline_version") or "unknown")
+    passive_state = "stub_synthetic"
+    if prov.get("source_system") == "stub":
+        passive_state = "stub_synthetic"
+
+    # Suitable for secondary analysis of **stored observation rows** (EMA / device notes).
+    obs_ok = observation_row_count > 0
+    # Stable id for reproducibility when patient/data revision unchanged (cite with generated_at).
+    bundle_key = f"dpa|{patient_id}|{consent_scope_version}|{observation_row_count}|{pipe}"
+    bundle_id = str(uuid.uuid5(uuid.NAMESPACE_URL, bundle_key))
+    rm = {
+        "research_metadata_schema_version": RESEARCH_METADATA_SCHEMA_VERSION,
+        "export_bundle_id": bundle_id,
+        "generator": "deepsynaps_digital_phenotyping_analyzer",
+        "generated_at": _iso(datetime.now(timezone.utc)),
+        "software_versions": {
+            "payload_schema": str(out.get("schema_version") or "1.0.0"),
+            "feature_pipeline": pipe,
+            "consent_scope": consent_scope_version,
+        },
+        "passive_signal_pipeline_status": passive_state,
+        "limitations": [
+            "Automated passive smartphone streams (GPS, screen events, etc.) are not production-ingested; headline indices are synthetic stubs unless/until ingest is enabled.",
+            "Primary efficacy claims must not rely on stub indices; use persisted manual EMA / device_sync observations and external anchors (assessments, biometrics) per protocol.",
+            "Exports include observation timestamps and payloads; free-text notes may contain identifiers — handle under IRB and de-identification policy.",
+        ],
+        "suitable_for_protocol_secondary_analysis": bool(obs_ok),
+        "suitable_for_stub_endpoint_claims": False,
+        "recommended_citation_suffix": (
+            "DeepSynaps Studio Digital Phenotyping Analyzer export "
+            f"(pipeline {pipe}, schema {out.get('schema_version')})"
+        ),
+        "irb_checklist_reminder": (
+            "Confirm consent covers digital phenotyping, passive sensing (if enabled later), "
+            "and observation exports; document linkage keys and retention outside this bundle."
+        ),
+    }
+    out["research_metadata"] = rm
+    out["research_use_notice"] = (
+        "Research use: stub-derived passive indices are not validated endpoints. "
+        "Use exported observation rows and multimodal study data per IRB."
+    )
+    return out
+
+
 def build_stub_analyzer_payload(patient_id: str, *, patient_name: str | None = None) -> dict[str, Any]:
     """Build a demo-shaped page payload (matches web contract v1)."""
     now = datetime.now(timezone.utc)
     start = now - timedelta(days=28)
     display_name = (patient_name or "").strip() or "Patient"
     return {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "clinical_disclaimer": (
             "Decision-support only. Passive phone data do not diagnose a disorder. "
             "Signals are behavioral indicators that require clinical correlation."
