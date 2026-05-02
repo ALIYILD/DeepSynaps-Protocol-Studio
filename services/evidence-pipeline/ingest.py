@@ -14,11 +14,21 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import db
-from sources import pubmed, openalex, ctgov, openfda, unpaywall
+from sources import ctgov, crossref, openalex, openfda, pubmed, semantic_scholar, unpaywall
 from indications_seed import SEED, MODALITY_PRODUCT_CODES
 
 
-def ingest_indication(conn, entry: dict, n_papers: int, n_trials: int, n_fda: int, n_events: int) -> dict:
+def ingest_indication(
+    conn,
+    entry: dict,
+    n_papers: int,
+    n_trials: int,
+    n_fda: int,
+    n_events: int,
+    *,
+    use_crossref: bool = False,
+    use_semantic_scholar: bool = False,
+) -> dict:
     ind_id = db.upsert_indication(
         conn, entry["slug"], entry["label"], entry["modality"], entry["condition"],
         grade=entry.get("grade"), regulatory=entry.get("regulatory"),
@@ -32,6 +42,14 @@ def ingest_indication(conn, entry: dict, n_papers: int, n_trials: int, n_fda: in
 
     oa = openalex.search(entry["broad_q"], max_records=n_papers)
     summary["openalex_new"] = openalex.upsert_papers(conn, oa, ind_id)
+
+    if use_crossref:
+        cr = crossref.search(entry["broad_q"], max_records=n_papers)
+        summary["crossref_new"] = crossref.upsert_papers(conn, cr, ind_id)
+
+    if use_semantic_scholar:
+        ss = semantic_scholar.search(entry["broad_q"], max_records=n_papers)
+        summary["semantic_scholar_new"] = semantic_scholar.upsert_papers(conn, ss, ind_id)
 
     # Trials
     trials = ctgov.search(entry["trial_q"], max_records=n_trials)
@@ -71,6 +89,10 @@ def main():
     ap.add_argument("--events", type=int, default=200)
     ap.add_argument("--unpaywall", action="store_true",
                     help="After ingestion, resolve OA status for all papers with a DOI.")
+    ap.add_argument("--crossref", action="store_true",
+                    help="Supplement paper ingest with Crossref metadata (official public REST API).")
+    ap.add_argument("--semantic-scholar", action="store_true",
+                    help="Supplement paper ingest with Semantic Scholar Academic Graph results.")
     args = ap.parse_args()
 
     db.init()
@@ -94,7 +116,16 @@ def main():
     for i, e in enumerate(entries, start=1):
         print(f"[{i}/{len(entries)}] {e['slug']} — {e['label']}", flush=True)
         try:
-            s = ingest_indication(conn, e, args.papers, args.trials, args.fda, args.events)
+            s = ingest_indication(
+                conn,
+                e,
+                args.papers,
+                args.trials,
+                args.fda,
+                args.events,
+                use_crossref=args.crossref,
+                use_semantic_scholar=args.semantic_scholar,
+            )
             print(f"    {s}", flush=True)
         except Exception as ex:
             print(f"    ERROR: {ex}", file=sys.stderr)
