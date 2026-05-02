@@ -61,6 +61,7 @@ RUN pip install --no-cache-dir \
     -e ./packages/qa \
     -e ./packages/qeeg-pipeline \
     -e ./packages/mri-pipeline \
+    -e ./packages/biometrics-pipeline \
     -e ./apps/api
 
 RUN mkdir -p ./data/snapshots/clinical-database ./data/backups
