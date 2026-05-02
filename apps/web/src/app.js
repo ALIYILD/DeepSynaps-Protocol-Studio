@@ -1448,6 +1448,19 @@ async function renderPage() {
       await m.pgResolverCoachingInbox(setTopbar);
       break;
     }
+    // Resolver Coaching Digest Audit Hub launch-audit (DCRO4, 2026-05-02).
+    // Admin-side cohort dashboard over the DCRO3 dispatched audit row
+    // stream + ResolverCoachingDigestPreference table. Read-only;
+    // clinician minimum. Closes the resolver-side coaching loop:
+    // DCRO1 measures → DCRO2 self-corrects → DCRO3 nudges → DCRO4
+    // admins audit. No companion worker.
+    case 'resolver-coaching-digest-audit-hub':
+    case 'coaching-digest-hub':
+    case 'dcro4-hub': {
+      const m = await loadKnowledge();
+      await m.pgResolverCoachingDigestAuditHub(setTopbar);
+      break;
+    }
     // Clinician Adherence Hub launch-audit (2026-05-01). Bidirectional
     // counterpart to the patient-side Adherence Events page (#350).
     // Cross-patient triage of adherence reports, side-effects, and

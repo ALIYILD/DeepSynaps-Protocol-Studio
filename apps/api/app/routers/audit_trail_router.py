@@ -472,6 +472,14 @@ KNOWN_SURFACES = {
     # nudges. Page-level events: tick, dispatched, preference_updated,
     # tick_clicked, status_viewed.
     "resolver_coaching_self_review_digest",
+    # Resolver Coaching Digest Audit Hub launch-audit (DCRO4, 2026-05-02).
+    # Admin cohort dashboard over the DCRO3 dispatched audit row stream:
+    # opted-in / opted-out splits, by-channel dispatch tallies, delivery
+    # success vs failure rate, and per-resolver weekly wrong-call
+    # backlog trajectory (shrinking / flat / growing). Read-only — no
+    # companion worker. Closes the resolver-side coaching loop end-to-
+    # end. Page-level events: view, window_changed, trajectory_viewed.
+    "resolver_coaching_digest_audit_hub",
 }
 
 
