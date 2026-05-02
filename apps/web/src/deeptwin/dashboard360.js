@@ -11,6 +11,7 @@
 // - safety + decision-support disclaimers are wired throughout
 
 import { api } from '../api.js';
+import { EVIDENCE_TOTAL_PAPERS } from '../evidence-dataset.js';
 import { getDemoPatientHeader } from './mockData.js';
 
 const ESC = (s) => String(s ?? '')
@@ -245,7 +246,7 @@ export function renderDashboard360(payload) {
     </div>
   `;
   return `
-    <div class="dt360-page">
+    <div class="dt360-page" id="dt360-root">
       ${top}
       <div class="dt360-section-h">22-domain matrix</div>
       ${grid}
@@ -280,7 +281,17 @@ export function wireDashboard360Actions() {
       if (href.includes('/qeeg')) window._nav?.('qeeg-analysis');
       else if (href.includes('/mri')) window._nav?.('mri-analysis');
       else if (href.includes('/assessments')) window._nav?.('assessments');
-      else window._nav?.('patient-profile');
+      else if (href.includes('research-evidence')) {
+        try { window._resEvidenceTab = 'search'; } catch {}
+        window._nav?.('research-evidence');
+      } else if (href.includes('patient-analytics')) {
+        const pid = window._selectedPatientId || window._profilePatientId || '';
+        if (pid) {
+          window._paPatientId = pid;
+          try { sessionStorage.setItem('ds_pat_selected_id', pid); } catch {}
+        }
+        window._nav?.('patient-analytics');
+      } else window._nav?.('patient-profile');
     });
   });
 }
@@ -340,8 +351,12 @@ function _demoDashboardPayload(patientId) {
     card('mri', 'missing', 'No MRI records in this demo seed.', {
       upload_links: [{ label: 'Upload MRI', href: '/mri-analysis', kind: 'mri' }],
     }),
-    card('video', 'missing', 'No video analyses on file. Video Analyzer metrics are decision-support signals and require clinician review before use in predictions, causation, or monitoring workflows.', {
+    card('video', 'missing', `No video analyses on file. When present, each task section carries evidence_context: registry-backed (${EVIDENCE_TOTAL_PAPERS.toLocaleString()} papers) condition anchors + rationale for why kinematics map to literature — not diagnostic proof.`, {
       warnings: ['Video movement/monitoring outputs are not clinically validated diagnostic scores.'],
+      source_links: [
+        { label: 'Research evidence (87k)', href: '/research-evidence' },
+        { label: 'Patient analytics · video panel', href: '/patient-analytics' },
+      ],
       upload_links: [{ label: 'Open video visits', href: '/virtualcare', kind: 'video' }],
     }),
     card('voice', 'missing', 'No voice analyses on file.'),

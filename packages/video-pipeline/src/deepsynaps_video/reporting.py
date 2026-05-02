@@ -17,6 +17,11 @@ from deepsynaps_video.analyzers.gait import GaitMetrics
 from deepsynaps_video.analyzers.monitoring import MonitoringEvent
 from deepsynaps_video.analyzers.posture import PostureMetrics
 from deepsynaps_video.analyzers.tremor import TremorMetrics
+from deepsynaps_video.evidence_catalog import (
+    evidence_links_for_task_families,
+    monitoring_evidence_links,
+    registry_snapshot,
+)
 from deepsynaps_video.schemas import QCResult, json_ready, utc_now_iso
 
 ReportPayloadType = Literal["clinical_task", "monitoring", "longitudinal"]
@@ -96,11 +101,13 @@ class ClinicalTaskReportPayload:
     patient_id: str | None = None
     session_id: str | None = None
     clinical_summary: dict[str, Any] = field(default_factory=dict)
+    evidence_context: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         payload = json_ready(self)
         payload["sections"] = [_section_payload(section) for section in self.sections]
         payload["clinical_summary"] = self.clinical_summary or _clinical_summary(self.sections, self.limitations)
+        payload["evidence_context"] = self.evidence_context or _build_evidence_context(self.sections)
         return payload
 
     def to_json_dict(self) -> dict[str, Any]:
@@ -121,10 +128,12 @@ class MonitoringReportPayload:
     review_segments: tuple[VideoSegmentReference, ...]
     clinical_disclaimer: str
     event_count: int = 0
+    evidence_context: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         payload = json_ready(self)
         payload["events_by_type"] = payload.get("event_counts", {})
+        payload["evidence_context"] = self.evidence_context or _monitoring_evidence_context()
         for event in payload.get("events", []):
             if isinstance(event, dict) and "evidence_segment" in event:
                 event["video_segment"] = event["evidence_segment"]
@@ -147,6 +156,7 @@ class LongitudinalSummaryPayload:
     metric_trends: dict[str, dict[str, float | int | None]]
     limitations: tuple[str, ...]
     clinical_disclaimer: str
+    evidence_context: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         payload = json_ready(self)
@@ -155,6 +165,7 @@ class LongitudinalSummaryPayload:
             key: value.get("delta")
             for key, value in self.metric_trends.items()
         }
+        payload["evidence_context"] = self.evidence_context or _longitudinal_evidence_context()
         return payload
 
     def to_json_dict(self) -> dict[str, Any]:
@@ -210,6 +221,7 @@ def generate_clinical_task_report_payload(
     qc_payload = qc_result if qc_result is not None else qc
     if qc_payload is not None:
         clinical_summary["qc"] = qc_payload.to_json_dict() if hasattr(qc_payload, "to_json_dict") else json_ready(qc_payload)
+    evidence_context = _build_evidence_context(sections)
     return ClinicalTaskReportPayload(
         payload_type="clinical_task",
         video_id=video_id,
@@ -222,6 +234,7 @@ def generate_clinical_task_report_payload(
         patient_id=patient_id,
         session_id=session_id,
         clinical_summary=clinical_summary,
+        evidence_context=evidence_context,
     )
 
 
@@ -263,6 +276,7 @@ def generate_monitoring_report_payload(
         review_segments=tuple(review_segments),
         clinical_disclaimer=_monitoring_disclaimer(),
         event_count=len(event_dicts),
+        evidence_context=_monitoring_evidence_context(),
     )
 
 
@@ -307,6 +321,7 @@ def generate_longitudinal_summary(
             "longitudinal trends require consistent task protocol, camera placement, and analyzer version",
         ),
         clinical_disclaimer=_clinical_disclaimer(),
+        evidence_context=_longitudinal_evidence_context(),
     )
 
 
@@ -440,12 +455,60 @@ def _section_payload(section: TaskReportSection) -> dict[str, Any]:
     payload["task_name"] = section.task_family
     if section.source_segment is not None:
         payload["video_segment"] = section.source_segment.to_json_dict()
+    link_tuple = evidence_links_for_task_families((section.task_family,))
+    if link_tuple:
+        payload["evidence_link"] = link_tuple[0].to_dict()
     units: dict[str, str] = {}
     for metric in section.metrics:
         if metric.units:
             units[metric.key] = metric.units
     payload["units"] = units
     return payload
+
+
+def _build_evidence_context(sections: tuple[TaskReportSection, ...]) -> dict[str, Any]:
+    """Bundle registry metadata + per-task literature anchors for DeepTwin / API consumers."""
+
+    families = tuple(s.task_family for s in sections if s.status != "missing")
+    task_links = [link.to_dict() for link in evidence_links_for_task_families(families)]
+    return {
+        **registry_snapshot(),
+        "task_family_links": task_links,
+        "how_to_interpret": (
+            "Each metric is a reproducible transform of pose or track data (see pipeline provenance). "
+            "Registry links show where similar measurements are discussed in the literature; they do not "
+            "certify that this deployment matches those studies."
+        ),
+        "deeptwin_query_hint": {
+            "use_feature_summary": True,
+            "suggested_phenotype_tags": list(families),
+        },
+    }
+
+
+def _monitoring_evidence_context() -> dict[str, Any]:
+    links = [link.to_dict() for link in monitoring_evidence_links()]
+    return {
+        **registry_snapshot(),
+        "task_family_links": links,
+        "how_to_interpret": (
+            "Events are candidate safety markers from heuristics on person tracks and room layout. "
+            "Compare with registry literature on fall risk and mobility; validate alarms locally before "
+            "operational use."
+        ),
+    }
+
+
+def _longitudinal_evidence_context() -> dict[str, Any]:
+    return {
+        **registry_snapshot(),
+        "task_family_links": [],
+        "how_to_interpret": (
+            "Trends aggregate repeated sessions; evidence links in each session report describe which "
+            "clinical domains the kinematics relate to. Within-patient drift may reflect protocol or "
+            "camera changes — review alongside intake notes."
+        ),
+    }
 
 
 def _clinical_summary(
@@ -542,3 +605,4 @@ __all__ = [
     "generate_longitudinal_summary",
     "generate_monitoring_report_payload",
 ]
+

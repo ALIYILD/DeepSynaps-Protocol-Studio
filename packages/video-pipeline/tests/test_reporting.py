@@ -93,6 +93,9 @@ def test_generate_clinical_task_report_payload_contains_sections_and_review_refs
     assert gait_section["video_segment"]["start_seconds"] == 0.0
     assert gait_section["units"]
     assert data["clinical_summary"]["review_required"] is True
+    assert data["evidence_context"]["registry_total_papers"] == 87000
+    assert any(link["task_family"] == "gait" for link in data["evidence_context"]["task_family_links"])
+    assert gait_section.get("evidence_link", {}).get("condition_id") == "post-stroke-motor"
 
 
 def test_generate_clinical_report_handles_missing_metrics_gracefully() -> None:
@@ -122,6 +125,8 @@ def test_generate_monitoring_report_payload_groups_events() -> None:
     assert data["event_count"] == 1
     assert data["events_by_type"]["prolonged_inactivity"] == 1
     assert data["events"][0]["video_segment"]["end_seconds"] == 10.0
+    assert data["evidence_context"]["registry_total_papers"] == 87000
+    assert data["evidence_context"]["task_family_links"]
 
 
 def test_generate_longitudinal_summary_orders_sessions_and_deltas() -> None:
