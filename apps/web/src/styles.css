@@ -26316,6 +26316,18 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
    ═══════════════════════════════════════════════════════════════════════════════ */
 .ds-mri-shell { display: flex; flex-direction: column; min-height: 100%; gap: 12px; }
 
+.ds-mri-shell .visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* Demo / preview — matches qEEG sample banner tone */
 .ds-mri-demo-banner {
   display: flex;
@@ -26363,6 +26375,16 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   gap: 6px;
   align-items: center;
 }
+.ds-mri-sections-nav__mobile {
+  display: none;
+  flex: 1 1 160px;
+  min-width: 0;
+}
+.ds-mri-sections-nav__select {
+  width: 100%;
+  font-size: 12px;
+  padding: 6px 10px;
+}
 .ds-mri-nav__btn {
   padding: 5px 10px;
   border-radius: 999px;
@@ -26384,8 +26406,74 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   outline-offset: 2px;
 }
 
+@media (max-width: 640px) {
+  .ds-mri-sections-nav__btns { display: none; }
+  .ds-mri-sections-nav__mobile { display: block; }
+}
+
 .ds-mri-report-section {
   scroll-margin-top: 16px;
+}
+
+.ds-mri-report-details {
+  scroll-margin-top: 16px;
+  margin-bottom: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  overflow: hidden;
+}
+.ds-mri-report-details__summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  list-style: none;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text-primary);
+  user-select: none;
+}
+.ds-mri-report-details__summary::-webkit-details-marker { display: none; }
+.ds-mri-report-details__chev {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--text-tertiary);
+  border-bottom: 2px solid var(--text-tertiary);
+  transform: rotate(-45deg);
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+.ds-mri-report-details[open] .ds-mri-report-details__chev {
+  transform: rotate(45deg);
+}
+.ds-mri-report-details__title { flex: 0 1 auto; }
+.ds-mri-report-details__sub {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+}
+.ds-mri-report-details__body {
+  padding: 0 12px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.ds-mri-report-details__body > .ds-card:first-child { margin-top: 10px; }
+
+.ds-mri-panel__hd {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.ds-mri-panel-empty {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-tertiary);
+}
+.ds-mri-panel--stub {
+  opacity: 0.92;
 }
 
 .ds-mri-layout {
