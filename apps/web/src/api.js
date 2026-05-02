@@ -2144,6 +2144,18 @@ export const api = {
   virtualCareListVideoAnalysis: (id) => apiFetch(`/api/v1/virtual-care/sessions/${encodeURIComponent(id)}/video-analysis`),
   virtualCareGetAnalysis: (id) => apiFetch(`/api/v1/virtual-care/sessions/${encodeURIComponent(id)}/analysis`),
 
+  // ── Biometrics analytics + evidence bridge (packages/biometrics-pipeline) ─
+  biometricsCorrelations: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/biometrics/correlations${q ? '?' + q : ''}`);
+  },
+  biometricsFeatures: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/biometrics/features${q ? '?' + q : ''}`);
+  },
+  biometricsEvidence: (data) =>
+    apiFetch('/api/biometrics/evidence', { method: 'POST', body: JSON.stringify(data) }),
+
   // ── Notifications ─────────────────────────────────────────────────────────
   patientPortalNotifications: () => apiFetch('/api/v1/patient-portal/notifications'),
   patientPortalMarkNotificationRead: (id) =>

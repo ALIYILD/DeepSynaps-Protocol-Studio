@@ -44,6 +44,7 @@ jobs:
             -e packages/safety-engine \
             -e packages/generation-engine \
             -e packages/render-engine \
+            -e packages/biometrics-pipeline \
             -e apps/api
       - name: Check API syntax
         run: python -m py_compile apps/api/app/main.py

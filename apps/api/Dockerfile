@@ -53,6 +53,7 @@ RUN pip install --no-cache-dir \
     -e ./packages/render-engine \
     -e ./packages/evidence \
     -e ./packages/mri-pipeline \
+    -e ./packages/biometrics-pipeline \
     -e ./apps/api
 
 # Create persistent volume mount point and data directories

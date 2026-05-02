@@ -78,6 +78,7 @@ jobs:
             -e packages/safety-engine \
             -e packages/generation-engine \
             -e packages/render-engine \
+            -e packages/biometrics-pipeline \
             -e apps/api
       - name: Start FastAPI backend on :8001
         # vite.config.ts proxies /api and /health to 127.0.0.1:8001, so the
@@ -159,6 +160,7 @@ jobs:
             -e packages/safety-engine \
             -e packages/generation-engine \
             -e packages/render-engine \
+            -e packages/biometrics-pipeline \
             -e apps/api
       - name: Run tests
         working-directory: apps/api
@@ -190,6 +192,7 @@ jobs:
             -e packages/safety-engine \
             -e packages/generation-engine \
             -e packages/render-engine \
+            -e packages/biometrics-pipeline \
             -e apps/api
       - name: Run smoke tests
         working-directory: apps/api

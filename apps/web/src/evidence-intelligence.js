@@ -20,6 +20,10 @@ export const EVIDENCE_TARGETS = {
   text: { target_name: 'text_sentiment', context_type: 'multimodal_summary', modality: 'text', diagnosis: 'depression' },
   depression: { target_name: 'depression_risk', context_type: 'prediction', modality: 'assessment', diagnosis: 'depression' },
   anxiety: { target_name: 'anxiety_risk', context_type: 'risk_score', modality: 'assessment', diagnosis: 'anxiety' },
+  /** Consumer wearables — routes to evidence_intelligence TARGET_CONCEPTS + 87k corpus */
+  wearable_sleep: { target_name: 'wearable_sleep_circadian', context_type: 'biomarker', modality: 'wearables', diagnosis: 'depression' },
+  wearable_activity: { target_name: 'wearable_activity_monitoring', context_type: 'biomarker', modality: 'wearables', diagnosis: 'depression' },
+  wearable_autonomic: { target_name: 'stress_load', context_type: 'biomarker', modality: 'wearables', diagnosis: 'anxiety' },
 };
 
 export function EvidenceChip({
