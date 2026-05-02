@@ -593,3 +593,83 @@ class LongitudinalVoiceSummaryPayload(BaseModel):
         description="Simple last-minus-first delta per trend key when both endpoints exist.",
     )
     provenance: VoiceReportProvenance
+
+
+# --- workflow orchestration ---------------------------------------------
+
+
+AudioPipelineStage = Literal[
+    "ingestion",
+    "qc",
+    "acoustic_feature_engine",
+    "neurological_voice_analyzers",
+    "cognitive_speech_analyzers",
+    "respiratory_voice_analyzer",
+    "reporting",
+]
+
+
+class AudioPipelineNode(BaseModel):
+    """One step in an audio/voice analysis DAG (executed in definition order)."""
+
+    node_id: str
+    stage: AudioPipelineStage
+    params: dict[str, Any] = Field(default_factory=dict)
+    depends_on: list[str] = Field(
+        default_factory=list,
+        description="Optional node_ids that must complete before this step (validated only).",
+    )
+
+
+class AudioPipelineDefinition(BaseModel):
+    """Named pipeline template (JSON-serializable)."""
+
+    pipeline_id: str
+    version: str = "1.0.0"
+    description: str = ""
+    nodes: list[AudioPipelineNode]
+
+
+class AudioArtifactRecord(BaseModel):
+    """Immutable-style record for one step output (metadata + references, no raw audio)."""
+
+    artifact_id: str
+    run_id: str
+    node_id: str
+    stage: AudioPipelineStage
+    kind: str = Field(description="Logical artifact kind, e.g. ingestion_metadata, acoustic_features.")
+    reference_uri: Optional[str] = None
+    checksum_sha256: Optional[str] = None
+    summary: dict[str, Any] = Field(default_factory=dict)
+    provenance: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Models, versions, parameters used for this artifact.",
+    )
+    created_at: datetime
+
+
+AudioPipelineStatus = Literal["queued", "running", "completed", "failed"]
+
+
+class AudioPipelineRun(BaseModel):
+    """Single execution of a pipeline with per-step provenance and artifacts."""
+
+    run_id: str
+    pipeline_id: str
+    pipeline_version: str
+    pipeline_definition: dict[str, Any] = Field(
+        description="Snapshot of the definition used at run start (JSON-friendly).",
+    )
+    input_audio_ref: dict[str, Any]
+    status: AudioPipelineStatus = "queued"
+    error_message: Optional[str] = None
+    completed_node_ids: list[str] = Field(default_factory=list)
+    current_node_index: int = 0
+    artifacts: list[AudioArtifactRecord] = Field(default_factory=list)
+    context: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Rolling JSON-serializable context for resume and downstream tooling.",
+    )
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    orchestrator_version: str = "deepsynaps_audio.workflow/v1"
