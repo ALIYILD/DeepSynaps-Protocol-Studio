@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
-from app.persistence.models import DsPaper
+from app.persistence.models import Clinic, DsPaper, Patient, User
 from app.services.evidence_intelligence import (
     EvidenceQuery,
     SaveCitationRequest,
@@ -53,6 +53,56 @@ def _seed_ds_paper(
         session.add(paper)
         session.commit()
         return paper.id
+    finally:
+        session.close()
+
+
+def _seed_patient(patient_id: str, clinician_id: str = "actor-clinician-demo") -> None:
+    session = SessionLocal()
+    try:
+        if session.get(Patient, patient_id) is None:
+            session.add(
+                Patient(
+                    id=patient_id,
+                    clinician_id=clinician_id,
+                    first_name="Evidence",
+                    last_name="Patient",
+                )
+            )
+            session.commit()
+    finally:
+        session.close()
+
+
+def _seed_other_clinic_patient(patient_id: str) -> None:
+    session = SessionLocal()
+    try:
+        if session.get(Clinic, "clinic-other") is None:
+            session.add(Clinic(id="clinic-other", name="Other Clinic"))
+            session.flush()
+        if session.get(User, "actor-other-clinic") is None:
+            session.add(
+                User(
+                    id="actor-other-clinic",
+                    email="other_clinician@example.com",
+                    display_name="Other Clinician",
+                    hashed_password="x",
+                    role="clinician",
+                    package_id="clinician_pro",
+                    clinic_id="clinic-other",
+                )
+            )
+            session.flush()
+        if session.get(Patient, patient_id) is None:
+            session.add(
+                Patient(
+                    id=patient_id,
+                    clinician_id="actor-other-clinic",
+                    first_name="Other",
+                    last_name="Clinic",
+                )
+            )
+        session.commit()
     finally:
         session.close()
 
@@ -142,6 +192,7 @@ def test_query_response_shape_from_seeded_corpus():
 
 
 def test_evidence_api_happy_path_save_and_overview(client: TestClient, auth_headers: dict):
+    _seed_patient("pat-api")
     _seed_ds_paper(
         title="Depression risk multimodal cohort PHQ-9 HRV sleep",
         abstract="Depression cohort data link PHQ-9, HRV and sleep decline with clinical symptom severity.",
@@ -186,6 +237,7 @@ def test_evidence_api_happy_path_save_and_overview(client: TestClient, auth_head
 
 
 def test_report_payload_generation_contains_citations():
+    _seed_patient("pat-report")
     _seed_ds_paper(
         title="Frontal alpha asymmetry depression systematic review",
         abstract="Frontal alpha asymmetry EEG evidence in depression and anxiety cohorts.",
@@ -211,6 +263,7 @@ def test_report_payload_generation_contains_citations():
 def test_report_payload_includes_adjunct_evidence_context():
     from test_evidence_router import _build_research_bundle
 
+    _seed_patient("pat-report-bio")
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         bundle_root = Path(tmp) / "bundle"
         _build_research_bundle(bundle_root)
@@ -235,6 +288,7 @@ def test_report_payload_includes_adjunct_evidence_context():
 
 
 def test_saved_citations_can_be_filtered_by_report_context():
+    _seed_patient("pat-scope")
     session = SessionLocal()
     try:
         save_citation(
@@ -285,6 +339,7 @@ def test_saved_citations_can_be_filtered_by_report_context():
 
 
 def test_report_payload_respects_saved_citation_context_filters():
+    _seed_patient("pat-report-scope")
     session = SessionLocal()
     try:
         save_citation(
@@ -335,3 +390,61 @@ def test_report_payload_respects_saved_citation_context_filters():
         assert payload["saved_citations"][0]["paper_id"] == "paper-qeeg"
     finally:
         session.close()
+
+
+def test_evidence_patient_routes_reject_cross_clinic_access(client: TestClient, auth_headers: dict):
+    _seed_other_clinic_patient("pat-other-clinic")
+    _seed_ds_paper(
+        title="Cross clinic access should be gated",
+        abstract="Evidence access must respect clinic ownership.",
+        pub_types=["Systematic Review"],
+        citations=77,
+    )
+    query_resp = client.post(
+        "/api/v1/evidence/query",
+        json={
+            "patient_id": "pat-other-clinic",
+            "context_type": "prediction",
+            "target_name": "depression_risk",
+        },
+        headers=auth_headers["clinician"],
+    )
+    assert query_resp.status_code == 403, query_resp.text
+
+    save_resp = client.post(
+        "/api/v1/evidence/save-citation",
+        json={
+            "patient_id": "pat-other-clinic",
+            "finding_id": "finding-x",
+            "finding_label": "Finding X",
+            "claim": "Claim X",
+            "paper_id": "paper-x",
+            "paper_title": "Paper X",
+            "citation_payload": {"inline_citation": "(X, 2026)"},
+        },
+        headers=auth_headers["clinician"],
+    )
+    assert save_resp.status_code == 403, save_resp.text
+
+    overview_resp = client.get(
+        "/api/v1/evidence/patient/pat-other-clinic/overview",
+        headers=auth_headers["clinician"],
+    )
+    assert overview_resp.status_code == 403, overview_resp.text
+
+    saved_resp = client.get(
+        "/api/v1/evidence/patient/pat-other-clinic/saved-citations",
+        headers=auth_headers["clinician"],
+    )
+    assert saved_resp.status_code == 403, saved_resp.text
+
+    report_resp = client.post(
+        "/api/v1/evidence/report-payload",
+        json={
+            "patient_id": "pat-other-clinic",
+            "finding_ids": ["depression_risk"],
+            "include_saved": False,
+        },
+        headers=auth_headers["clinician"],
+    )
+    assert report_resp.status_code == 403, report_resp.text

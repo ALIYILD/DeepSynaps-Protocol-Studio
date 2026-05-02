@@ -17,6 +17,30 @@ test('Research Evidence route keeps live bundle watch sections wired', () => {
   assert.match(src, /Live Coverage Watch/);
   assert.match(src, /Live Safety Signals/);
   assert.match(src, /Live Evidence Graph Links/);
+  assert.match(src, /Labs \/ Meds \/ Diet/);
+  assert.match(src, /Condition Review Tables/);
+  assert.match(src, /renderAdjunctEvidenceSection\(q, \{ standalone: true \}\)/);
+  assert.match(src, /_hasAdjunctEvidenceBundleData\(\)/);
+  assert.match(src, /adjunctReviewTables/);
+});
+
+test('Research bundle workspace keeps adjunct review tables linked as live data', () => {
+  const src = read('./research-bundle-workspace.js');
+  assert.match(src, /getResearchAdjunctReviewTables/);
+  assert.match(src, /hasAdjunctReviewRows/);
+  assert.match(src, /adjunctReviewTablesLive/);
+  assert.match(src, /adjunctReviewTables: adjunctReviewTables \|\| null/);
+});
+
+test('Research Evidence entry routes keep adjunct evidence discoverable from app shell and labs workflow', () => {
+  const appSrc = read('./app.js');
+  const labsSrc = read('./pages-labs-analyzer.js');
+  const clinicalSrc = read('./pages-clinical.js');
+  assert.match(appSrc, /case 'adjunct-evidence'/);
+  assert.match(appSrc, /case 'research-adjunct'/);
+  assert.match(appSrc, /window\._resEvidenceTab = 'adjunct'; window\._nav\('research-evidence'\)/);
+  assert.match(labsSrc, /window\._resEvidenceTab = 'adjunct'/);
+  assert.match(clinicalSrc, /Labs \/ meds \/ diet evidence/);
 });
 
 test('Clinical route keeps live evidence watch in wizard and builder flows', () => {

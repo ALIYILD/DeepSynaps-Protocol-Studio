@@ -15,6 +15,9 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from app.database import SessionLocal
+from app.persistence.models import Patient
+
 PIPELINE = Path(__file__).resolve().parents[3] / "services" / "evidence-pipeline"
 
 
@@ -280,6 +283,23 @@ def _build_research_bundle(root: Path) -> None:
     (root / "top_condition_knowledge_base.json").write_text(json.dumps({}), encoding="utf-8")
 
 
+def _seed_patient(patient_id: str, clinician_id: str = "actor-clinician-demo") -> None:
+    session = SessionLocal()
+    try:
+        if session.get(Patient, patient_id) is None:
+            session.add(
+                Patient(
+                    id=patient_id,
+                    clinician_id=clinician_id,
+                    first_name="Evidence",
+                    last_name="Patient",
+                )
+            )
+            session.commit()
+    finally:
+        session.close()
+
+
 def _build_fixture_db(path: str) -> None:
     """Create a minimal evidence.db with one indication + one paper + one trial.
 
@@ -481,5 +501,96 @@ def test_research_adjunct_routes_use_bundle_dataset(client: TestClient, auth_hea
             )
             assert depression["rows"]
             assert depression["rows"][0]["topic_label"] in {"Vitamin D", "Benzodiazepines"}
+            assert depression["rows"][0]["example_titles"]
+            assert depression["rows"][0]["top_relation_signal_tags"]
+        finally:
+            os.environ.pop("DEEPSYNAPS_NEUROMODULATION_RESEARCH_BUNDLE_ROOT", None)
+
+
+def test_report_payload_route_keeps_adjunct_context_and_report_scoped_saved_citations(
+    client: TestClient, auth_headers
+) -> None:
+    _seed_patient("pat-report-link")
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        bundle_root = Path(tmp) / "bundle"
+        _build_research_bundle(bundle_root)
+        os.environ["DEEPSYNAPS_NEUROMODULATION_RESEARCH_BUNDLE_ROOT"] = str(bundle_root)
+        try:
+            patient_resp = client.post(
+                "/api/v1/patients",
+                json={
+                    "first_name": "Adjunct",
+                    "last_name": "Linkage",
+                    "dob": "1990-01-15",
+                    "gender": "F",
+                },
+                headers=auth_headers["clinician"],
+            )
+            assert patient_resp.status_code == 201, patient_resp.text
+            patient_id = patient_resp.json()["id"]
+
+            save_qeeg = client.post(
+                "/api/v1/evidence/save-citation",
+                json={
+                    "patient_id": patient_id,
+                    "finding_id": "qeeg:frontal_alpha_asymmetry",
+                    "finding_label": "Frontal alpha asymmetry",
+                    "claim": "qEEG-linked claim",
+                    "paper_id": "paper-qeeg",
+                    "paper_title": "qEEG Adjunct Link",
+                    "context_kind": "qeeg",
+                    "analysis_id": "qeeg-42",
+                    "report_id": "report-42",
+                    "citation_payload": {"inline_citation": "(QEEG, 2026)"},
+                },
+                headers=auth_headers["clinician"],
+            )
+            assert save_qeeg.status_code == 201, save_qeeg.text
+
+            save_other = client.post(
+                "/api/v1/evidence/save-citation",
+                json={
+                    "patient_id": patient_id,
+                    "finding_id": "mri:hippocampal_atrophy",
+                    "finding_label": "Hippocampal atrophy",
+                    "claim": "MRI-linked claim",
+                    "paper_id": "paper-mri",
+                    "paper_title": "MRI Adjunct Link",
+                    "context_kind": "mri",
+                    "analysis_id": "mri-9",
+                    "report_id": "report-9",
+                    "citation_payload": {"inline_citation": "(MRI, 2026)"},
+                },
+                headers=auth_headers["clinician"],
+            )
+            assert save_other.status_code == 201, save_other.text
+
+            payload_resp = client.post(
+                "/api/v1/evidence/report-payload",
+                json={
+                    "patient_id": patient_id,
+                    "finding_ids": ["protocol_ranking"],
+                    "include_saved": True,
+                    "context_kind": "qeeg",
+                    "analysis_id": "qeeg-42",
+                    "report_id": "report-42",
+                },
+                headers=auth_headers["clinician"],
+            )
+            assert payload_resp.status_code == 200, payload_resp.text
+            payload = payload_resp.json()
+            assert payload["report_context"] == {
+                "context_kind": "qeeg",
+                "analysis_id": "qeeg-42",
+                "report_id": "report-42",
+            }
+            assert [row["paper_id"] for row in payload["saved_citations"]] == ["paper-qeeg"]
+            assert payload["adjunct_evidence"]["source"] == "neuromodulation_adjunct_evidence"
+            assert "benzodiazepine" in [term.lower() for term in payload["adjunct_evidence"]["terms"]]
+            assert "Benzodiazepines" in payload["adjunct_evidence"]["matched_topics"]
+            assert any(
+                row["title"] == "Benzodiazepine exposure and TMS antidepressant outcomes"
+                for row in payload["adjunct_evidence"]["matched_papers"]
+            )
         finally:
             os.environ.pop("DEEPSYNAPS_NEUROMODULATION_RESEARCH_BUNDLE_ROOT", None)
