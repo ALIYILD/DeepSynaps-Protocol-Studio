@@ -641,6 +641,23 @@ const SECTION_LABELS = {
   research:        'Research',
 };
 
+// ── Section tint tokens (icon hue per section) ───────────────────────────────
+// Designer follow-up to PR #429 — see the
+// `[data-section="X"] .nav-item .nav-icon` block in styles.css. The tint is
+// applied entirely via CSS using the `data-section` attribute already set on
+// each `.nav-section-group` in renderNav(), so this map is the single source
+// of truth that documents the choice in JS for future consumers
+// (analytics, tooltips, design-token export). To re-skin the sidebar, edit
+// the matching `--nav-section-*` CSS custom properties in styles.css —
+// the JS does not need to change.
+const NAV_SECTION_TINTS = {
+  clinical:  'var(--nav-section-clinical)',  // blue   — patient triage / inbox / dashboard
+  protocol:  'var(--nav-section-protocol)',  // amber  — protocol design / brain-map planning
+  sessions:  'var(--nav-section-sessions)',  // rose   — live virtual care / video assessments
+  analyzers: 'var(--nav-section-analyzers)', // violet — AI analyzer launchpad (MRI / qEEG / Voice / Text)
+  admin:     'var(--nav-section-admin)',     // slate  — neutral on purpose; admin items shouldn't compete
+};
+
 // ── Nav collapse state ────────────────────────────────────────────────────────
 // Primary key: ds_nav_collapsed_sections (new); falls back to legacy ds_nav_collapsed
 const _navCollapsed = (() => {
