@@ -415,6 +415,18 @@ KNOWN_SURFACES = {
     # polling_tick, status_viewed, run_now_clicked, tick_once_clicked,
     # filter_changed, demo_banner_shown.
     "channel_misconfiguration_detector",
+    # Channel-Specific Auth Health Probe launch-audit (CSAHP1, 2026-05-02).
+    # Closes section I rec from DCRO5 (#406). Companion worker proactively
+    # probes each clinic's configured adapter credentials (Slack OAuth,
+    # SendGrid API key, Twilio account auth, PagerDuty token) and emits an
+    # ``auth_drift_detected`` audit row BEFORE the next digest dispatch fails.
+    # auth_drift_detected rows carry priority=high so the Clinician Inbox
+    # aggregator picks them up; healthy rows carry priority=info so the
+    # status grid can render last-verified timestamps without spamming the
+    # audit trail. Cooldown per (clinic, channel) is 24h. Page-level events
+    # recorded here: status_viewed, tick_clicked, view, polling_tick,
+    # filter_changed.
+    "channel_auth_health_probe",
     # Caregiver Delivery Concern Aggregator launch-audit (2026-05-01).
     # Closes section I rec from #389. Rolling-window worker groups every
     # delivery-concern audit row in the last N hours by (caregiver_user_id,
