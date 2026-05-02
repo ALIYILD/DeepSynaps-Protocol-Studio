@@ -583,6 +583,38 @@ class RiskStratificationAudit(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
+class DigitalPhenotypingPatientState(Base):
+    """Per-patient consent domains + UI settings for the Digital Phenotyping Analyzer."""
+
+    __tablename__ = "digital_phenotyping_patient_state"
+
+    patient_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("patients.id", ondelete="CASCADE"), primary_key=True
+    )
+    domains_enabled_json: Mapped[str] = mapped_column(Text(), nullable=False, default="{}")
+    ui_settings_json: Mapped[str] = mapped_column(Text(), nullable=False, default="{}")
+    consent_scope_version: Mapped[str] = mapped_column(String(64), nullable=False, default="2026.04")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
+    )
+    updated_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
+
+class DigitalPhenotypingAudit(Base):
+    """Append-only audit trail for Digital Phenotyping Analyzer actions."""
+
+    __tablename__ = "digital_phenotyping_audit"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    detail_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    actor_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+
 # ── Evidence Citation Validator Models (migration 045) ────────────────────────
 #
 # Implements the pgvector-backed literature corpus, claim-citation linkage,

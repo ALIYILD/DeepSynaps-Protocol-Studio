@@ -1,16 +1,104 @@
 """Digital Phenotyping Analyzer — stub aggregation until passive ingest lands.
 
-Returns a deterministic, JSON-serializable payload for clinician UI scaffolding.
+Merges persisted per-patient consent/state from ``digital_phenotyping_patient_state``.
 """
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Optional
+
+# Canonical signal_domain keys — must match UI / fixtures.
+DEFAULT_DOMAINS_ENABLED: dict[str, bool] = {
+    "screen_use": True,
+    "location_mobility": True,
+    "physical_activity": True,
+    "sleep_proxy": True,
+    "social_communication": False,
+    "device_engagement": True,
+    "ema_active": True,
+}
+
+# Map consent domain → snapshot metric key (subset of domains affect headline cards).
+_DOMAIN_TO_SNAPSHOT: dict[str, str] = {
+    "screen_use": "screen_time_pattern",
+    "location_mobility": "mobility_stability",
+    "physical_activity": "activity_level",
+    "sleep_proxy": "sleep_timing_proxy",
+    "social_communication": "sociability_proxy",
+}
 
 
 def _iso(dt: datetime) -> str:
     return dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _parse_domains_json(raw: Optional[str]) -> dict[str, bool]:
+    if not raw or not raw.strip():
+        return dict(DEFAULT_DOMAINS_ENABLED)
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            return dict(DEFAULT_DOMAINS_ENABLED)
+        out = dict(DEFAULT_DOMAINS_ENABLED)
+        for k, v in data.items():
+            if isinstance(v, bool):
+                out[str(k)] = v
+        return out
+    except json.JSONDecodeError:
+        return dict(DEFAULT_DOMAINS_ENABLED)
+
+
+def merge_state_into_payload(
+    payload: dict[str, Any],
+    *,
+    domains_enabled: dict[str, bool],
+    consent_scope_version: str,
+    state_updated_at: Optional[datetime],
+    hide_stub_audit_when_persisted: bool,
+) -> dict[str, Any]:
+    """Apply consent gates and consent_state metadata. Mutates a shallow copy."""
+    out = dict(payload)
+    now = datetime.now(timezone.utc)
+    merged_domains = {**DEFAULT_DOMAINS_ENABLED, **domains_enabled}
+
+    consent_state = dict(out.get("consent_state") or {})
+    consent_state["domains_enabled"] = merged_domains
+    consent_state["consent_scope_version"] = consent_scope_version
+    consent_state["updated_at"] = _iso(state_updated_at or now)
+    out["consent_state"] = consent_state
+
+    snap = dict(out.get("snapshot") or {})
+    for domain, metric_key in _DOMAIN_TO_SNAPSHOT.items():
+        if merged_domains.get(domain) is False:
+            m = snap.get(metric_key)
+            if isinstance(m, dict):
+                m = dict(m)
+                m["value"] = None
+                m["completeness"] = 0.0
+                m["baseline_comparison"] = "unknown"
+                snap[metric_key] = m
+    out["snapshot"] = snap
+
+    dom_list = out.get("domains")
+    if isinstance(dom_list, list):
+        new_list = []
+        for d in dom_list:
+            if not isinstance(d, dict):
+                continue
+            dd = dict(d)
+            key = dd.get("signal_domain")
+            if key and merged_domains.get(key) is False:
+                dd["summary_stats"] = {"withheld": "consent_off"}
+                dd["completeness"] = 0.0
+            new_list.append(dd)
+        out["domains"] = new_list
+
+    if hide_stub_audit_when_persisted:
+        out["audit_events"] = []
+
+    return out
 
 
 def build_stub_analyzer_payload(patient_id: str, *, patient_name: str | None = None) -> dict[str, Any]:
@@ -173,15 +261,7 @@ def build_stub_analyzer_payload(patient_id: str, *, patient_name: str | None = N
         "consent_state": {
             "updated_at": _iso(now - timedelta(days=30)),
             "consent_scope_version": "2026.04",
-            "domains_enabled": {
-                "screen_use": True,
-                "location_mobility": True,
-                "physical_activity": True,
-                "sleep_proxy": True,
-                "social_communication": False,
-                "device_engagement": True,
-                "ema_active": True,
-            },
+            "domains_enabled": dict(DEFAULT_DOMAINS_ENABLED),
             "retention_summary_days": 365,
             "visibility_note": "Clinic care team per organization policy.",
         },
@@ -240,3 +320,36 @@ def _link(page_id: str, title: str, note: str, last_updated: str) -> dict[str, A
         "relevance_note": note,
         "last_updated": last_updated,
     }
+
+
+def _fmt_audit_ts(dt: Any) -> str:
+    if dt is None:
+        return ""
+    if isinstance(dt, datetime):
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.isoformat().replace("+00:00", "Z")
+    return str(dt)
+
+
+def audit_rows_to_payload_events(rows: list[Any]) -> list[dict[str, Any]]:
+    """Map ORM audit rows to the JSON shape expected by the web client."""
+    out = []
+    for r in rows:
+        summary = ""
+        if getattr(r, "detail_json", None):
+            try:
+                detail = json.loads(r.detail_json)
+                summary = str(detail.get("summary") or detail.get("message") or "")
+            except json.JSONDecodeError:
+                summary = ""
+        out.append(
+            {
+                "event_id": r.id,
+                "timestamp": _fmt_audit_ts(r.created_at),
+                "action": r.action,
+                "actor_role": "clinician",
+                "summary": summary or r.action,
+            }
+        )
+    return out

@@ -158,6 +158,23 @@ function _consentPanel(consent) {
   </div>`;
 }
 
+function _consentEditor(consent) {
+  const dom = consent?.domains_enabled || {};
+  const keys = Object.keys(dom);
+  if (!keys.length) return '';
+  const checks = keys.map((k) => `<label style="display:flex;align-items:center;gap:8px;font-size:12px;margin:6px 0;cursor:pointer">
+    <input type="checkbox" data-dpa-domain="${esc(k)}" ${dom[k] ? 'checked' : ''} />
+    <span>${esc(k)}</span>
+  </label>`).join('');
+  return `<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+    <div style="font-size:12px;font-weight:600;margin-bottom:6px">Update consent (clinic)</div>
+    <p style="font-size:11px;color:var(--text-tertiary);margin:0 0 8px;line-height:1.4">Toggles are stored on the server and drive which domains appear below. Use your org’s consent workflow; this is a technical control only.</p>
+    ${checks}
+    <button type="button" class="btn btn-sm btn-primary" id="dpa-save-consent" style="margin-top:10px;min-height:40px">Save consent</button>
+    <div id="dpa-consent-status" style="font-size:11px;margin-top:8px;color:var(--text-tertiary)"></div>
+  </div>`;
+}
+
 function _auditPanel(events) {
   const list = Array.isArray(events) ? events : [];
   if (!list.length) return '<div style="font-size:12px;color:var(--text-tertiary)">No audit entries.</div>';
@@ -222,6 +239,7 @@ function renderAnalyzerHtml(data, auditEvents) {
       <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:14px">
         <div style="font-weight:600;margin-bottom:8px">Consent &amp; governance</div>
         ${_consentPanel(data.consent_state)}
+        ${_consentEditor(data.consent_state)}
       </div>
       <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:14px">
         <div style="font-weight:600;margin-bottom:8px">Audit</div>
@@ -290,6 +308,37 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
     });
   }
 
+  function wireConsentSave(body) {
+    const btn = body.querySelector('#dpa-save-consent');
+    if (!btn) return;
+    const status = body.querySelector('#dpa-consent-status');
+    const pid = $('dpa-patient-id')?.value?.trim();
+    if (!pid) return;
+    btn.addEventListener('click', async () => {
+      const domains = {};
+      body.querySelectorAll('input[data-dpa-domain]').forEach((el) => {
+        const k = el.getAttribute('data-dpa-domain');
+        if (k) domains[k] = el.checked;
+      });
+      btn.disabled = true;
+      if (status) status.textContent = 'Saving…';
+      try {
+        await api.updateDigitalPhenotypingConsent(pid, {
+          domains,
+          consent_scope_version: '2026.04',
+        });
+        if (status) status.textContent = 'Saved. Refreshing view…';
+        await loadPayload();
+      } catch (e) {
+        if (status) {
+          status.textContent = (e && e.message) || 'Save failed (check session or use a real clinic account).';
+        }
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  }
+
   async function loadPayload() {
     const body = $('dpa-body');
     if (!body) return;
@@ -345,6 +394,7 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
     _syncDemoBanner();
     body.innerHTML = renderAnalyzerHtml(data, auditEvents);
     wireNav(body);
+    wireConsentSave(body);
   }
 
   $('dpa-load')?.addEventListener('click', () => { loadPayload(); });
