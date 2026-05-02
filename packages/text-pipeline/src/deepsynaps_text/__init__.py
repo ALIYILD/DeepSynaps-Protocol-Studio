@@ -10,6 +10,7 @@ from deepsynaps_text.core_nlp import (
     detect_temporal_context,
     extract_clinical_entities,
 )
+from deepsynaps_text.llm_extraction import LlmClient, benchmark_llm_extractors, run_llm_extraction_task
 from deepsynaps_text.message_analyzers import (
     MessageAnalysisBackend,
     RuleBasedMessageBackend,
@@ -44,6 +45,10 @@ from deepsynaps_text.schemas import (
     ActionItem,
     ActionItemType,
     EntityType,
+    LLMExtractionBenchmarkResult,
+    LLMExtractionResult,
+    LLMExtractionTaskBenchmarkRow,
+    LLMExtractionTaskConfig,
     MessageIntentCategory,
     MessageIntentLabel,
     MessageUrgencyLabel,
@@ -81,6 +86,11 @@ __all__ = [
     "ActionItem",
     "ActionItemType",
     "EntityType",
+    "LlmClient",
+    "LLMExtractionBenchmarkResult",
+    "LLMExtractionResult",
+    "LLMExtractionTaskBenchmarkRow",
+    "LLMExtractionTaskConfig",
     "MessageAnalysisBackend",
     "MessageIntentCategory",
     "MessageIntentLabel",
@@ -105,6 +115,7 @@ __all__ = [
     "TerminologyReference",
     "TextSection",
     "TextSpan",
+    "benchmark_llm_extractors",
     "auto_code_note",
     "build_note_sections_from_text",
     "deidentify_text",
@@ -120,5 +131,6 @@ __all__ = [
     "extract_stimulation_parameters",
     "import_clinical_text",
     "link_entities_to_terminology",
+    "run_llm_extraction_task",
     "normalize_note_format",
 ]

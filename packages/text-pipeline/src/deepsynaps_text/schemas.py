@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -416,4 +416,80 @@ class ActionItem(BaseModel):
     cue: str | None = Field(
         default=None,
         description="Short rule id or phrase id that triggered this item.",
+    )
+
+
+# --- LLM extraction (configurable tasks) ------------------------------------
+
+
+class LLMExtractionTaskConfig(BaseModel):
+    """
+    Data-driven LLM task: prompt, which document fields to inject, output contract.
+
+    ``prompt_template`` is formatted with a context built from the document; only
+    keys listed in ``input_fields`` (plus built-in ``document_id``) are provided.
+    """
+
+    task_id: str = Field(description="Stable task identifier for logging and benchmarks.")
+    target_model: str = Field(description="Model id passed to the LLM client (deployment-specific).")
+    prompt_template: str = Field(
+        description="Python ``str.format`` template; use placeholders matching ``input_fields`` + document_id.",
+    )
+    input_fields: list[str] = Field(
+        default_factory=lambda: ["clinical_text"],
+        description=(
+            "Keys passed to ``prompt_template.format``. Built-ins: clinical_text (canonical "
+            "note body), raw_text, deidentified_text, normalized_text, clinical_note_text, "
+            "document_id, channel, patient_ref, encounter_ref, author_role."
+        ),
+    )
+    output_json_schema: dict[str, Any] = Field(
+        description="JSON Schema (draft 2020-12 or compatible) for validated structured output.",
+    )
+    max_retries: int = Field(default=2, ge=0, le=10, description="Retries on invalid JSON or schema failure.")
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+
+
+class LLMExtractionResult(BaseModel):
+    """One LLM extraction run with parsing and QC metadata."""
+
+    task_id: str
+    document_id: str
+    target_model: str
+    success: bool
+    parsed_output: dict[str, Any] | None = Field(
+        default=None,
+        description="Validated JSON object when success.",
+    )
+    raw_response: str | None = Field(default=None, description="Raw model text (truncate at caller if logging).")
+    parse_error: str | None = None
+    schema_validation_errors: list[str] = Field(default_factory=list)
+    attempts_used: int = Field(ge=1)
+    latency_ms: float | None = Field(default=None, description="End-to-end latency for this task.")
+    qc_notes: list[str] = Field(
+        default_factory=list,
+        description="Machine-readable QC tags (e.g. repaired_json, schema_fallback).",
+    )
+
+
+class LLMExtractionTaskBenchmarkRow(BaseModel):
+    """Aggregate stats for one task across benchmark documents."""
+
+    task_id: str
+    runs: int
+    successes: int
+    failures: int
+    avg_latency_ms: float | None = None
+
+
+class LLMExtractionBenchmarkResult(BaseModel):
+    """Batch benchmark over tasks × documents."""
+
+    total_runs: int
+    successful_runs: int
+    failed_runs: int
+    per_task: list[LLMExtractionTaskBenchmarkRow] = Field(default_factory=list)
+    sample_errors: list[str] = Field(
+        default_factory=list,
+        description="First N error strings for debugging (no PHI).",
     )

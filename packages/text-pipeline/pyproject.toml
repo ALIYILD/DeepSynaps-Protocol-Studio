@@ -9,6 +9,7 @@ authors = [{ name = "Sehzade Yildirim", email = "sehzadeyildirim@hotmail.com" }]
 
 dependencies = [
     "pydantic>=2.5",
+    "jsonschema>=4.0",
 ]
 
 [project.optional-dependencies]
