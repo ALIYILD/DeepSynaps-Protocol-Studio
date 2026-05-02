@@ -370,6 +370,10 @@ function _digitalPhenotypingPayload(patientId) {
       source_system: 'demo_fixture',
       ingest_batch_id: null,
       feature_pipeline_version: '0.1.0-demo',
+      data_sources: ['stub_pipeline'],
+      mvp_manual_observations_14d: 0,
+      mvp_device_observations_14d: 0,
+      mvp_observation_kinds_14d: {},
     },
     audit_summary: {
       last_computed_at: now,
@@ -385,7 +389,14 @@ function _digitalPhenotypingPayload(patientId) {
       sociability_proxy: { value: 0.55, confidence: 0.60, completeness: 0.55, baseline_comparison: 'below', privacy_sensitivity_level: 'high' },
       activity_level: { value: 0.70, confidence: 0.80, completeness: 0.81, baseline_comparison: 'within', privacy_sensitivity_level: 'low' },
       anomaly_score: { value: 0.38, confidence: 0.55, completeness: 0.81, baseline_comparison: 'above', privacy_sensitivity_level: 'low' },
-      data_completeness: { value: 0.81, confidence: 0.95, completeness: 1, baseline_comparison: 'within', privacy_sensitivity_level: 'low' },
+      data_completeness: {
+        value: 0.81,
+        confidence: 0.95,
+        completeness: 1,
+        baseline_comparison: 'within',
+        privacy_sensitivity_level: 'low',
+        notes: ['No manual or device-sync observations in the last 14 days — add via the Data panel.'],
+      },
     },
     domains: [
       {
@@ -546,6 +557,8 @@ function _digitalPhenotypingPayload(patientId) {
     audit_events: [
       { event_id: 'demo-aud-1', timestamp: '2026-05-02T09:00:00Z', action: 'view', actor_role: 'clinician', summary: 'Page payload viewed (demo)' },
     ],
+    mvp_observations: [],
+    mvp_observations_total: 0,
   };
 }
 

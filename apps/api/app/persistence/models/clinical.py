@@ -615,6 +615,26 @@ class DigitalPhenotypingAudit(Base):
     )
 
 
+class DigitalPhenotypingObservation(Base):
+    """User- or sync-entered data points for the Digital Phenotyping MVP (EMA, estimates, device backfill)."""
+
+    __tablename__ = "digital_phenotyping_observations"
+    __table_args__ = (Index("ix_dpa_obs_patient_recorded", "patient_id", "recorded_at"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source: Mapped[str] = mapped_column(String(32), nullable=False)  # manual, device_sync
+    kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False, index=True)
+    payload_json: Mapped[str] = mapped_column(Text(), nullable=False, default="{}")
+    created_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+
 # ── Evidence Citation Validator Models (migration 045) ────────────────────────
 #
 # Implements the pgvector-backed literature corpus, claim-citation linkage,

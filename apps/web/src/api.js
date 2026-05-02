@@ -98,6 +98,20 @@ function _demoSyntheticResponse(path, method) {
       decodeURIComponent(compare[2]),
     );
   }
+  const dpObsList = path.match(
+    /^\/api\/v1\/digital-phenotyping\/analyzer\/patient\/([^/?]+)\/observations$/,
+  );
+  if (dpObsList && (!method || method === 'GET')) {
+    const pid = decodeURIComponent(dpObsList[1]);
+    return { patient_id: pid, items: [], total: 0 };
+  }
+  const dpObsPost = path.match(
+    /^\/api\/v1\/digital-phenotyping\/analyzer\/patient\/([^/?]+)\/observations(\/manual)?$/,
+  );
+  if (dpObsPost && method && method !== 'GET') {
+    const pid = decodeURIComponent(dpObsPost[1]);
+    return { ok: true, demo: true, id: 'demo-' + Date.now(), patient_id: pid };
+  }
   const dp = path.match(
     /^\/api\/v1\/digital-phenotyping\/analyzer\/patient\/([^/?]+)(\/audit)?$/,
   );
@@ -3040,6 +3054,24 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body || {}),
     }),
+  listDigitalPhenotypingObservations: (patientId, params = {}) => {
+    const q = new URLSearchParams();
+    if (params.limit != null) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return apiFetch(
+      `/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/observations${qs ? '?' + qs : ''}`,
+    );
+  },
+  addDigitalPhenotypingManualObservation: (patientId, body) =>
+    apiFetch(
+      `/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/observations/manual`,
+      { method: 'POST', body: JSON.stringify(body || {}) },
+    ),
+  createDigitalPhenotypingObservation: (patientId, body) =>
+    apiFetch(
+      `/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/observations`,
+      { method: 'POST', body: JSON.stringify(body || {}) },
+    ),
 
   // ── Device Sync (clinician-facing) ─────────────────────────────────────────
   deviceSyncProviders: () => apiFetchWithRetry('/api/v1/device-sync/providers'),

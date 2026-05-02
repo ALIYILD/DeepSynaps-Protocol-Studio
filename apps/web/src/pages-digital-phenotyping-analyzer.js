@@ -192,6 +192,67 @@ function _auditPanel(events) {
   </li>`).join('')}</ul>`;
 }
 
+function _observationsTable(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) {
+    return '<div style="font-size:12px;color:var(--text-tertiary)">No rows yet — add an EMA check-in or a device note below.</div>';
+  }
+  return `<table style="width:100%;font-size:11px;border-collapse:collapse">
+    <thead><tr style="text-align:left;color:var(--text-tertiary)"><th style="padding:4px 6px">When</th><th style="padding:4px 6px">Source</th><th style="padding:4px 6px">Kind</th><th style="padding:4px 6px">Summary</th></tr></thead>
+    <tbody>${list.slice(0, 12).map((o) => {
+    const p = o.payload || {};
+    const sum = [p.mood_0_10 != null ? `mood ${p.mood_0_10}` : '', p.anxiety_0_10 != null ? `anx ${p.anxiety_0_10}` : '', p.sleep_hours != null ? `sleep ${p.sleep_hours}h` : '', p.notes || p.note].filter(Boolean).join(' · ');
+    return `<tr style="border-top:1px solid var(--border)"><td style="padding:6px;white-space:nowrap">${esc(String(o.recorded_at || '').slice(0, 16))}</td><td style="padding:6px">${esc(o.source)}</td><td style="padding:6px">${esc(o.kind)}</td><td style="padding:6px">${esc(sum || '—')}</td></tr>`;
+  }).join('')}
+    </tbody></table>`;
+}
+
+function _localDatetimeInputValue() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function _dataIntakePanel(data) {
+  const prov = data.provenance || {};
+  const manualN = prov.mvp_manual_observations_14d;
+  const devN = prov.mvp_device_observations_14d;
+  const localNow = _localDatetimeInputValue();
+  return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:22px">
+    <div style="font-weight:600;margin-bottom:6px">Data intake (MVP)</div>
+    <p style="font-size:12px;color:var(--text-secondary);margin:0 0 12px;line-height:1.45">
+      Passive phone streams are not ingested yet. Add <strong>patient-reported check-ins</strong> here and link <strong>wearables</strong> under Biometrics (device sync).
+      Last 14 days: <strong>${esc(String(manualN ?? 0))}</strong> manual · <strong>${esc(String(devN ?? 0))}</strong> device notes.
+      Total stored rows: <strong>${esc(String(data.mvp_observations_total ?? 0))}</strong>.
+    </p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:12px">
+      <label style="font-size:11px;display:flex;flex-direction:column;gap:4px">Recorded at (local)
+        <input type="datetime-local" id="dpa-m-obs-time" class="form-control" value="${esc(localNow)}" />
+      </label>
+      <label style="font-size:11px;display:flex;flex-direction:column;gap:4px">Mood (0–10)
+        <input type="number" id="dpa-m-mood" class="form-control" min="0" max="10" step="0.1" placeholder="optional" />
+      </label>
+      <label style="font-size:11px;display:flex;flex-direction:column;gap:4px">Anxiety (0–10)
+        <input type="number" id="dpa-m-anx" class="form-control" min="0" max="10" step="0.1" placeholder="optional" />
+      </label>
+      <label style="font-size:11px;display:flex;flex-direction:column;gap:4px">Sleep (hours)
+        <input type="number" id="dpa-m-sleep" class="form-control" min="0" max="24" step="0.25" placeholder="optional" />
+      </label>
+    </div>
+    <label style="font-size:11px;display:block;margin-bottom:10px">Notes
+      <textarea id="dpa-m-notes" class="form-control" rows="2" placeholder="Optional context"></textarea>
+    </label>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px">
+      <button type="button" class="btn btn-primary btn-sm" id="dpa-save-manual-obs" style="min-height:40px">Save EMA check-in</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="dpa-log-device-note" style="min-height:40px">Log device sync note</button>
+      <button type="button" class="btn btn-ghost btn-sm" data-nav-page="wearables" style="min-height:40px">Open Biometrics / sync</button>
+      <span id="dpa-data-status" style="font-size:11px;color:var(--text-tertiary)"></span>
+    </div>
+    <div style="font-weight:600;font-size:12px;margin-bottom:6px">Recent observations</div>
+    ${_observationsTable(data.mvp_observations)}
+  </div>`;
+}
+
 function renderAnalyzerHtml(data, auditEvents) {
   const disclaimer = data.clinical_disclaimer || '';
   const auditList = Array.isArray(auditEvents) ? auditEvents : (data.audit_events || []);
@@ -219,6 +280,7 @@ function renderAnalyzerHtml(data, auditEvents) {
     <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:12px 16px;margin-bottom:22px">
       ${_domainsPanel(data.domains, data.consent_state)}
     </div>
+    ${_dataIntakePanel(data)}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:22px">
       <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:14px">
         <div style="font-weight:600;margin-bottom:8px">Baseline &amp; deviation</div>
@@ -255,7 +317,7 @@ function renderAnalyzerHtml(data, auditEvents) {
         ${_auditPanel(auditList)}
       </div>
     </div>
-    <div style="margin-top:18px;font-size:11px;color:var(--text-tertiary)">Pipeline: ${esc(data.provenance?.feature_pipeline_version)} · schema ${esc(data.schema_version)}</div>
+    <div style="margin-top:18px;font-size:11px;color:var(--text-tertiary)">Pipeline: ${esc(data.provenance?.feature_pipeline_version)} · schema ${esc(data.schema_version)} · sources: ${esc((data.provenance?.data_sources || []).join(', ') || 'stub')}</div>
   `;
 }
 
@@ -391,6 +453,61 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
     });
   }
 
+  function wireDataIntake(body) {
+    const manualBtn = body.querySelector('#dpa-save-manual-obs');
+    const devBtn = body.querySelector('#dpa-log-device-note');
+    const statusEl = body.querySelector('#dpa-data-status');
+
+    async function postManual() {
+      const pid = _pidInput();
+      if (!pid) return;
+      const recordedAt = body.querySelector('#dpa-m-obs-time')?.value;
+      const mood = body.querySelector('#dpa-m-mood')?.value;
+      const anx = body.querySelector('#dpa-m-anx')?.value;
+      const sleep = body.querySelector('#dpa-m-sleep')?.value;
+      const notes = body.querySelector('#dpa-m-notes')?.value?.trim();
+      const payload = {
+        kind: 'ema_checkin',
+        recorded_at: recordedAt ? new Date(recordedAt).toISOString() : undefined,
+        notes: notes || undefined,
+        mood_0_10: mood !== '' && mood != null ? Number(mood) : undefined,
+        anxiety_0_10: anx !== '' && anx != null ? Number(anx) : undefined,
+        sleep_hours: sleep !== '' && sleep != null ? Number(sleep) : undefined,
+      };
+      if (statusEl) statusEl.textContent = 'Saving…';
+      try {
+        await api.addDigitalPhenotypingManualObservation(pid, payload);
+        if (statusEl) statusEl.textContent = 'Saved.';
+        await loadPayload();
+      } catch (e) {
+        if (statusEl) statusEl.textContent = (e && e.message) || 'Save failed.';
+      }
+    }
+
+    async function postDeviceNote() {
+      const pid = _pidInput();
+      if (!pid) return;
+      const notes = body.querySelector('#dpa-m-notes')?.value?.trim() || 'Wearable / device sync acknowledged';
+      const recordedAt = body.querySelector('#dpa-m-obs-time')?.value;
+      if (statusEl) statusEl.textContent = 'Logging…';
+      try {
+        await api.createDigitalPhenotypingObservation(pid, {
+          source: 'device_sync',
+          kind: 'wearables_sync_checkin',
+          recorded_at: recordedAt ? new Date(recordedAt).toISOString() : undefined,
+          payload: { note: notes },
+        });
+        if (statusEl) statusEl.textContent = 'Device note logged.';
+        await loadPayload();
+      } catch (e) {
+        if (statusEl) statusEl.textContent = (e && e.message) || 'Log failed.';
+      }
+    }
+
+    manualBtn?.addEventListener('click', () => { postManual(); });
+    devBtn?.addEventListener('click', () => { postDeviceNote(); });
+  }
+
   function wireConsentSave(body) {
     const btn = body.querySelector('#dpa-save-consent');
     if (!btn) return;
@@ -477,6 +594,7 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
     _syncDemoBanner();
     body.innerHTML = renderAnalyzerHtml(data, auditEvents);
     wireNav(body);
+    wireDataIntake(body);
     wireConsentSave(body);
   }
 

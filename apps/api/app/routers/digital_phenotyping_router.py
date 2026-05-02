@@ -16,7 +16,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -28,6 +28,7 @@ from app.auth import (
 from app.database import get_db_session
 from app.persistence.models import (
     DigitalPhenotypingAudit,
+    DigitalPhenotypingObservation,
     DigitalPhenotypingPatientState,
     Patient,
 )
@@ -36,6 +37,7 @@ from app.services.digital_phenotyping import (
     DEFAULT_DOMAINS_ENABLED,
     audit_rows_to_payload_events,
     build_stub_analyzer_payload,
+    merge_observations_into_payload,
     merge_state_into_payload,
     _parse_domains_json,
 )
@@ -62,6 +64,26 @@ class RecomputeBody(BaseModel):
     window: Optional[dict[str, str]] = None
     domains: Optional[list[str]] = None
     force: bool = False
+
+
+class ManualObservationBody(BaseModel):
+    """Clinician-entered proxy row (EMA-style) — MVP until passive ingest."""
+
+    kind: str = "ema_checkin"
+    recorded_at: Optional[str] = None
+    notes: Optional[str] = None
+    mood_0_10: Optional[float] = None
+    anxiety_0_10: Optional[float] = None
+    sleep_hours: Optional[float] = None
+
+
+class ObservationCreateBody(BaseModel):
+    """Manual or device-attributed observation row."""
+
+    source: str = "manual"  # manual | device_sync
+    kind: str = "ema_checkin"
+    recorded_at: Optional[str] = None
+    payload: dict[str, Any] = Field(default_factory=dict)
 
 
 def _require_known_patient(db: Session, patient_id: str) -> None:
@@ -128,6 +150,47 @@ def _append_audit(
     db.commit()
 
 
+def _observation_count(db: Session, patient_id: str) -> int:
+    return int(
+        db.scalar(
+            select(func.count())
+            .select_from(DigitalPhenotypingObservation)
+            .where(DigitalPhenotypingObservation.patient_id == patient_id)
+        )
+        or 0
+    )
+
+
+def _fetch_observation_dicts(db: Session, patient_id: str, limit: int = 400) -> list[dict[str, Any]]:
+    rows = db.execute(
+        select(DigitalPhenotypingObservation)
+        .where(DigitalPhenotypingObservation.patient_id == patient_id)
+        .order_by(DigitalPhenotypingObservation.recorded_at.desc())
+        .limit(limit)
+    ).scalars().all()
+    out = []
+    for r in rows:
+        payload: dict[str, Any] = {}
+        try:
+            payload = json.loads(r.payload_json or "{}")
+        except json.JSONDecodeError:
+            payload = {}
+        ra = r.recorded_at
+        ts = ra.isoformat().replace("+00:00", "Z") if hasattr(ra, "isoformat") else str(ra)
+        out.append(
+            {
+                "id": r.id,
+                "patient_id": r.patient_id,
+                "source": r.source,
+                "kind": r.kind,
+                "recorded_at": ts,
+                "payload": payload,
+                "created_by": r.created_by,
+            }
+        )
+    return out
+
+
 def _build_payload_for_patient(
     db: Session, patient_id: str, *, hide_stub_audit: bool
 ) -> dict[str, Any]:
@@ -135,13 +198,18 @@ def _build_payload_for_patient(
     state = _load_or_create_state(db, patient_id)
     domains = _parse_domains_json(state.domains_enabled_json)
     base = build_stub_analyzer_payload(patient_id, patient_name=pname)
-    return merge_state_into_payload(
+    merged = merge_state_into_payload(
         base,
         domains_enabled=domains,
         consent_scope_version=state.consent_scope_version or "2026.04",
         state_updated_at=state.updated_at,
         hide_stub_audit_when_persisted=hide_stub_audit,
     )
+    obs = _fetch_observation_dicts(db, patient_id)
+    merged = merge_observations_into_payload(merged, observations=obs)
+    merged["mvp_observations"] = obs[:50]
+    merged["mvp_observations_total"] = _observation_count(db, patient_id)
+    return merged
 
 
 @router.get("/patient/{patient_id}")
@@ -285,6 +353,142 @@ def update_digital_phenotyping_settings(
         "patient_id": patient_id,
         "settings": new_settings,
     }
+
+
+@router.get("/patient/{patient_id}/observations")
+def list_digital_phenotyping_observations(
+    patient_id: str,
+    limit: int = 50,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """List manual / device-sync observation rows (newest first)."""
+    require_minimum_role(actor, "clinician")
+    _require_known_patient(db, patient_id)
+    _gate_patient(actor, patient_id, db)
+    lim = max(1, min(limit, 200))
+    obs = _fetch_observation_dicts(db, patient_id, limit=lim)
+    return {"patient_id": patient_id, "items": obs, "total": len(obs)}
+
+
+def _add_observation_row(
+    db: Session,
+    *,
+    patient_id: str,
+    actor_id: Optional[str],
+    source: str,
+    kind: str,
+    recorded_at: Optional[str],
+    payload: dict[str, Any],
+    audit_action: str,
+    audit_summary: str,
+) -> dict[str, Any]:
+    src = (source or "manual").strip().lower()
+    if src not in ("manual", "device_sync"):
+        raise HTTPException(status_code=422, detail="source must be 'manual' or 'device_sync'")
+
+    rec_at = datetime.now(timezone.utc)
+    if recorded_at:
+        try:
+            raw = recorded_at.replace("Z", "+00:00")
+            parsed = datetime.fromisoformat(raw)
+            rec_at = parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            pass
+
+    clean = {k: v for k, v in (payload or {}).items() if v is not None and v != ""}
+    oid = str(uuid.uuid4())
+    db.add(
+        DigitalPhenotypingObservation(
+            id=oid,
+            patient_id=patient_id,
+            source=src,
+            kind=kind or "ema_checkin",
+            recorded_at=rec_at,
+            payload_json=json.dumps(clean),
+            created_by=actor_id,
+        )
+    )
+    db.commit()
+
+    _append_audit(
+        db,
+        patient_id=patient_id,
+        action=audit_action,
+        actor_id=actor_id,
+        summary=audit_summary,
+        extra={"observation_id": oid, "kind": kind, "source": src},
+    )
+
+    return {
+        "ok": True,
+        "id": oid,
+        "patient_id": patient_id,
+        "recorded_at": rec_at.isoformat().replace("+00:00", "Z"),
+    }
+
+
+@router.post("/patient/{patient_id}/observations")
+def create_digital_phenotyping_observation(
+    patient_id: str,
+    body: ObservationCreateBody,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Append a manual or device-attributed observation (MVP data layer)."""
+    require_minimum_role(actor, "clinician")
+    _require_known_patient(db, patient_id)
+    _gate_patient(actor, patient_id, db)
+
+    src = (body.source or "manual").strip().lower()
+    summary = (
+        "Device-sync observation logged"
+        if src == "device_sync"
+        else "Manual digital phenotyping observation recorded"
+    )
+    action = "device_observation" if src == "device_sync" else "manual_observation"
+    return _add_observation_row(
+        db,
+        patient_id=patient_id,
+        actor_id=actor.actor_id,
+        source=body.source,
+        kind=body.kind,
+        recorded_at=body.recorded_at,
+        payload=body.payload,
+        audit_action=action,
+        audit_summary=summary,
+    )
+
+
+@router.post("/patient/{patient_id}/observations/manual")
+def add_manual_digital_phenotyping_observation(
+    patient_id: str,
+    body: ManualObservationBody,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Legacy path — same as POST /observations with source=manual."""
+    require_minimum_role(actor, "clinician")
+    _require_known_patient(db, patient_id)
+    _gate_patient(actor, patient_id, db)
+
+    payload = {
+        "notes": body.notes,
+        "mood_0_10": body.mood_0_10,
+        "anxiety_0_10": body.anxiety_0_10,
+        "sleep_hours": body.sleep_hours,
+    }
+    return _add_observation_row(
+        db,
+        patient_id=patient_id,
+        actor_id=actor.actor_id,
+        source="manual",
+        kind=body.kind,
+        recorded_at=body.recorded_at,
+        payload=payload,
+        audit_action="manual_observation",
+        audit_summary="Manual digital phenotyping observation recorded",
+    )
 
 
 @router.get("/patient/{patient_id}/audit")

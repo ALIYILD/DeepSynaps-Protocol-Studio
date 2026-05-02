@@ -101,6 +101,96 @@ def merge_state_into_payload(
     return out
 
 
+def merge_observations_into_payload(
+    payload: dict[str, Any],
+    *,
+    observations: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Fold MVP observation log into provenance + snapshot completeness (additive)."""
+    out = dict(payload)
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=14)
+
+    def _parse_ts(s: Any) -> Optional[datetime]:
+        if not s:
+            return None
+        if isinstance(s, datetime):
+            return s if s.tzinfo else s.replace(tzinfo=timezone.utc)
+        try:
+            raw = str(s).replace("Z", "+00:00")
+            dt = datetime.fromisoformat(raw)
+            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            return None
+
+    recent = []
+    for o in observations:
+        ra = _parse_ts(o.get("recorded_at"))
+        if ra is None:
+            continue
+        if ra >= cutoff:
+            recent.append(o)
+
+    n_manual = sum(1 for o in recent if o.get("source") == "manual")
+    n_device = sum(1 for o in recent if o.get("source") == "device_sync")
+    kind_counts: dict[str, int] = {}
+    for o in recent:
+        k = str(o.get("kind") or "unknown")
+        kind_counts[k] = kind_counts.get(k, 0) + 1
+
+    prov = dict(out.get("provenance") or {})
+    prov["mvp_manual_observations_14d"] = n_manual
+    prov["mvp_device_observations_14d"] = n_device
+    prov["mvp_observation_kinds_14d"] = kind_counts
+    sources = ["stub_pipeline"]
+    if n_manual:
+        sources.append("manual_observations")
+    if n_device:
+        sources.append("device_sync_log")
+    prov["data_sources"] = sources
+    out["provenance"] = prov
+
+    snap = dict(out.get("snapshot") or {})
+    dc = snap.get("data_completeness")
+    if not isinstance(dc, dict):
+        dc = {"value": 0.76, "confidence": 0.9, "completeness": 1.0, "baseline_comparison": "within", "privacy_sensitivity_level": "low"}
+    else:
+        dc = dict(dc)
+    base_v = float(dc.get("value") or 0.76)
+    bump = min(0.18, 0.015 * min(len(recent), 12))
+    dc["value"] = min(1.0, base_v + bump)
+    dc["baseline_comparison"] = "within"
+    notes = dc.get("notes") if isinstance(dc.get("notes"), list) else []
+    if recent:
+        notes = list(notes) + [
+            f"MVP: {len(recent)} observation(s) in last 14d (manual {n_manual}, device_sync {n_device}).",
+        ]
+    elif len(notes) == 0:
+        notes = ["No manual or device-sync observations in the last 14 days — add via the Data panel."]
+    dc["notes"] = notes[:5]
+    snap["data_completeness"] = dc
+    out["snapshot"] = snap
+
+    recs = list(out.get("recommendations") or [])
+    if len(recent) == 0 and not any(
+        isinstance(r, dict) and r.get("id") == "mvp-rec-add-data" for r in recs
+    ):
+        recs.append(
+            {
+                "id": "mvp-rec-add-data",
+                "priority": "P2",
+                "title": "Add patient-reported or device data",
+                "detail": "Enter an EMA row in the Data panel or open Biometrics (Device Sync) to connect a wearable — improves completeness until passive phone ingest ships.",
+                "action_type": "review_assessment",
+                "targets": ["wearables"],
+                "confidence": 0.9,
+            }
+        )
+    out["recommendations"] = recs
+
+    return out
+
+
 def build_stub_analyzer_payload(patient_id: str, *, patient_name: str | None = None) -> dict[str, Any]:
     """Build a demo-shaped page payload (matches web contract v1)."""
     now = datetime.now(timezone.utc)

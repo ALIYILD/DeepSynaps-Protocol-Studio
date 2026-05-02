@@ -98,3 +98,29 @@ def test_digital_phenotyping_consent_persisted(
         assert len(aud) >= 2
     finally:
         db.close()
+
+
+def test_manual_observation_merges_into_payload(
+    client: TestClient,
+    clinician_headers: dict[str, str],
+    patient_id: str,
+) -> None:
+    h = clinician_headers
+    pid = patient_id
+
+    r2 = client.post(
+        f"/api/v1/digital-phenotyping/analyzer/patient/{pid}/observations/manual",
+        json={
+            "kind": "ema_checkin",
+            "mood_0_10": 6.5,
+            "sleep_hours": 7.0,
+        },
+        headers=h,
+    )
+    assert r2.status_code == 200, r2.text
+
+    out = client.get(f"/api/v1/digital-phenotyping/analyzer/patient/{pid}", headers=h)
+    assert out.status_code == 200, out.text
+    data = out.json()
+    assert data.get("mvp_observations_total", 0) >= 1
+    assert "manual_observations" in (data.get("provenance") or {}).get("data_sources", [])
