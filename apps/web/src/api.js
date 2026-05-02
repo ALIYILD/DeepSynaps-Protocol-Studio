@@ -3017,6 +3017,29 @@ export const api = {
   getMovementAudit: (patientId) =>
     apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
 
+  // ── Nutrition, Supplements & Diet Analyzer ───────────────────────────────
+  getNutritionAnalyzerPayload: (patientId) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}`),
+  recomputeNutritionAnalyzer: (patientId) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/recompute`, { method: 'POST' }),
+  postNutritionDietLog: (patientId, body) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/diet-log`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  postNutritionSupplement: (patientId, body) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/supplement`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  postNutritionReviewNote: (patientId, body) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/review-note`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  getNutritionAnalyzerAudit: (patientId) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
+
   // ── Device Sync (clinician-facing) ─────────────────────────────────────────
   deviceSyncProviders: () => apiFetchWithRetry('/api/v1/device-sync/providers'),
   deviceSyncAuthorize: (provider) =>

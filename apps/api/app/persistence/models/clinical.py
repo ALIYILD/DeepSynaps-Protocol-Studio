@@ -439,6 +439,61 @@ class MedicationInteractionLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
+# ── Nutrition Analyzer (MVP scaffold) ─────────────────────────────────────────
+
+class PatientNutritionDietLog(Base):
+    """Single-day nutrition intake aggregation for decision-support scaffolding."""
+
+    __tablename__ = "patient_nutrition_diet_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    log_day: Mapped[str] = mapped_column(String(20), nullable=False)  # YYYY-MM-DD
+    calories_kcal: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    protein_g: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    carbs_g: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    fat_g: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    sodium_mg: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    fiber_g: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
+class PatientSupplement(Base):
+    """Over-the-counter or clinician-documented supplement for nutrition analysis."""
+
+    __tablename__ = "patient_supplements"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    dose: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    frequency: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=True, index=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    started_at: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
+    )
+
+
+class NutritionAnalyzerAudit(Base):
+    """Append-only nutrition analyzer events for MVP audit trail."""
+
+    __tablename__ = "nutrition_analyzer_audits"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    message: Mapped[str] = mapped_column(Text(), nullable=False, default="")
+    actor_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
 # ── Reminder Campaign Models ──────────────────────────────────────────────────
 
 class ReminderCampaign(Base):
