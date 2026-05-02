@@ -9196,28 +9196,34 @@ body.light-theme .topbar--scrolled { box-shadow: 0 1px 8px rgba(0,0,0,0.1); }
 #sidebar .logo-sub,
 #patient-sidebar .logo-sub { font-size: 8px; letter-spacing: 1.8px; margin-top: 1px; }
 
-/* ── Nav items: rounded pill shape ── */
+/* ── Nav items: rounded pill shape ──
+   Padding is sized so each row clears the WCAG 2.5.5 (Level AAA) 44px tap-
+   target minimum on touch devices — clinicians often work on iPads between
+   patients and need to hit the right link first time. */
 .nav-item {
-  margin: 1px 8px;
-  padding: 7px 10px;
+  margin: 2px 8px;
+  padding: 9px 10px;
+  min-height: 36px;
   border-radius: 8px;
-  gap: 9px;
-  font-size: 12.5px;
+  gap: 10px;
+  font-size: 13px;
   font-weight: 400;
-  color: rgba(136,146,164,0.9);
+  color: rgba(180,190,208,0.95);
   transition: background 0.12s ease, color 0.12s ease;
   border-left: 2px solid transparent;
 }
 .nav-item:hover {
-  background: rgba(255,255,255,0.05);
+  background: rgba(255,255,255,0.07);
   color: var(--text-primary);
 }
 
-/* Active: pill with teal left border + subtle glow background */
+/* Active: pill with teal left border + slightly stronger background tint —
+   needed for legibility on bright clinic monitors where the previous 0.09
+   alpha wash was almost invisible. */
 .nav-item.active {
-  background: rgba(0,212,188,0.09);
+  background: rgba(0,212,188,0.14);
   color: var(--teal);
-  font-weight: 500;
+  font-weight: 600;
   border-left: 2px solid var(--teal);
   padding-left: 9px;
 }
@@ -9256,21 +9262,27 @@ body.light-theme .topbar--scrolled { box-shadow: 0 1px 8px rgba(0,0,0,0.1); }
   margin-top: 4px;
 }
 
-/* ── Section header ── */
+/* ── Section header — clearer label + clickable chevron ── */
 .nav-section-header {
-  padding: 10px 14px 3px;
+  padding: 12px 14px 5px;
   margin-top: 0;
+  border-radius: 6px;
+}
+.nav-section-header:not(.nav-section-header--static):hover {
+  background: rgba(255,255,255,0.025);
 }
 .nav-section-label {
   font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: rgba(255,255,255,0.22);
+  color: rgba(255,255,255,0.42);
 }
 .nav-section-chevron {
-  color: rgba(255,255,255,0.2);
+  color: rgba(255,255,255,0.4);
   opacity: 1;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 /* ── Start Session button ── */
@@ -9474,12 +9486,49 @@ body.light-theme .logo-wrap { border-bottom-color: rgba(0,0,0,0.08); }
 }
 
 /* ── Sidebar section color indicators ─────────────────────────────────────────── */
-/* Color dot per section in the nav */
+/* Color dot per section in the nav (legacy section ids — kept for any stale group) */
 [data-section="patient-care"] .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--blue); margin-right:7px; vertical-align:middle; opacity:0.8; }
 [data-section="protocols"]    .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--teal); margin-right:7px; vertical-align:middle; opacity:0.8; }
 [data-section="clinical-tools"].nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--amber); margin-right:7px; vertical-align:middle; opacity:0.8; }
 [data-section="registries"]   .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--violet); margin-right:7px; vertical-align:middle; opacity:0.8; }
 [data-section="clinic"]       .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--text-tertiary); margin-right:7px; vertical-align:middle; opacity:0.6; }
+
+/* ── Section-tinted nav icons (designer recommendation, follow-up to #429) ─────
+   Each top-level NAV section gets one accent hue applied to its idle icons so
+   the sidebar reads faster under fluorescent clinic lights. Tints reuse the
+   existing theme tokens so the palette stays in lockstep with the rest of the
+   product. The active-page treatment (teal bar + teal-ghost background, see
+   .nav-item.active) intentionally still wins the eye — section tint is a
+   recognition aid, not a status signal. Critical-meaning colors (red AE,
+   amber pending review) remain untouched in pills and badges.
+
+   Section → tint:
+     clinical   → blue   (--nav-section-clinical)
+     protocol   → amber  (--nav-section-protocol)
+     sessions   → rose   (--nav-section-sessions)
+     analyzers  → violet (--nav-section-analyzers)
+     admin      → slate  (--nav-section-admin)  — neutral on purpose
+*/
+:root {
+  --nav-section-clinical:  var(--blue);
+  --nav-section-protocol:  var(--amber);
+  --nav-section-sessions:  var(--rose);
+  --nav-section-analyzers: var(--violet);
+  --nav-section-admin:     var(--text-tertiary);
+}
+[data-section="clinical"]  .nav-item:not(.active) .nav-icon { color: var(--nav-section-clinical);  opacity: 0.85; }
+[data-section="protocol"]  .nav-item:not(.active) .nav-icon { color: var(--nav-section-protocol);  opacity: 0.85; }
+[data-section="sessions"]  .nav-item:not(.active) .nav-icon { color: var(--nav-section-sessions);  opacity: 0.85; }
+[data-section="analyzers"] .nav-item:not(.active) .nav-icon { color: var(--nav-section-analyzers); opacity: 0.85; }
+[data-section="admin"]     .nav-item:not(.active) .nav-icon { color: var(--nav-section-admin);     opacity: 0.7;  }
+/* Hover lifts saturation slightly without competing with the active state. */
+[data-section] .nav-item:not(.active):hover .nav-icon { opacity: 1; }
+/* Section header label dot — tint each visible section (same hues as icons). */
+[data-section="clinical"]  .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--nav-section-clinical);  margin-right:7px; vertical-align:middle; opacity:0.85; }
+[data-section="protocol"]  .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--nav-section-protocol);  margin-right:7px; vertical-align:middle; opacity:0.85; }
+[data-section="sessions"]  .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--nav-section-sessions);  margin-right:7px; vertical-align:middle; opacity:0.85; }
+[data-section="analyzers"] .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--nav-section-analyzers); margin-right:7px; vertical-align:middle; opacity:0.85; }
+[data-section="admin"]     .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--nav-section-admin);     margin-right:7px; vertical-align:middle; opacity:0.7;  }
 
 /* ── End Sidebar Redesign ─────────────────────────────────────────────────────── */
 
@@ -29194,4 +29243,119 @@ body[data-sr-open="1"] { overflow:hidden; }
 @media (max-width: 700px) {
   .va-summary-grid { grid-template-columns: repeat(2, 1fr); }
 }
+
+.dh2-attn-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.dh2-attn-chip {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 44px;
+  padding: 8px 14px 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  flex: 1 1 0;
+  min-width: 160px;
+  transition: border-color 0.12s ease, background 0.12s ease, transform 0.08s ease;
+}
+.dh2-attn-chip:hover { border-color: var(--text-secondary); background: var(--bg-card-hover, var(--bg-card)); }
+.dh2-attn-chip:active { transform: translateY(1px); }
+.dh2-attn-chip:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+.dh2-attn-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--text-tertiary);
+  flex-shrink: 0;
+}
+.dh2-attn-num {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.dh2-attn-lbl {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh2-attn-chip--amber  .dh2-attn-dot { background: var(--amber); }
+.dh2-attn-chip--blue   .dh2-attn-dot { background: var(--blue); }
+.dh2-attn-chip--rose   .dh2-attn-dot { background: var(--rose); }
+.dh2-attn-chip--violet .dh2-attn-dot { background: var(--violet); }
+.dh2-attn-chip--red    .dh2-attn-dot { background: var(--red, #ff6b6b); }
+.dh2-attn-chip--amber:hover  { border-color: rgba(255,181,71,0.45); }
+.dh2-attn-chip--blue:hover   { border-color: rgba(74,158,255,0.45); }
+.dh2-attn-chip--rose:hover   { border-color: rgba(255,107,157,0.45); }
+.dh2-attn-chip--violet:hover { border-color: rgba(155,127,255,0.45); }
+.dh2-attn-chip--red:hover    { border-color: rgba(255,107,107,0.55); }
+.dh2-attn-chip--zero .dh2-attn-num { color: var(--text-secondary); font-weight: 500; }
+.dh2-attn-chip--zero .dh2-attn-dot { opacity: 0.45; }
+.dh2-attn-chip--zero { background: transparent; }
+.dh2-attn-chip--muted .dh2-attn-num { color: var(--text-tertiary); font-weight: 500; }
+.dh2-attn-chip--muted .dh2-attn-dot { opacity: 0.3; }
+.dh2-attn-chip--muted { background: transparent; }
+.dh2-attn-chip--alarm {
+  border-color: rgba(255,107,107,0.65);
+  background: rgba(255,107,107,0.06);
+  animation: dh2AttnPulse 2.4s ease-in-out infinite;
+}
+.dh2-attn-chip--alarm .dh2-attn-num { color: var(--red, #ff6b6b); font-weight: 700; }
+.dh2-attn-chip--alarm .dh2-attn-lbl { color: var(--text-primary); }
+@keyframes dh2AttnPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255,107,107,0.0); }
+  50%      { box-shadow: 0 0 0 4px rgba(255,107,107,0.12); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dh2-attn-chip--alarm { animation: none; }
+}
+.dh2-attn-fallback {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 100%;
+  padding: 10px 14px;
+  min-height: 44px;
+  border: 1px solid rgba(255,181,71,0.28);
+  background: rgba(255,181,71,0.06);
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.dh2-attn-fallback-ico { color: var(--amber); font-size: 16px; }
+.dh2-attn-retry {
+  margin-left: auto;
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+.dh2-attn-retry:hover { border-color: var(--amber); color: var(--amber); }
+@media (max-width: 900px) {
+  .dh2-attn-chip { flex: 1 1 calc(50% - 5px); min-width: 0; }
+}
+@media (max-width: 480px) {
+  .dh2-attn-chip { flex: 1 1 100%; }
+  .dh2-attn-num { font-size: 17px; }
+}
+
 .va-summary-grid strong { display: block; font-size: 20px; margin-top: 4px; }

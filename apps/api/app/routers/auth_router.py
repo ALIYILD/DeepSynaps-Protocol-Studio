@@ -6,16 +6,51 @@ import re
 import secrets as _secrets
 import string
 from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING
 
 import pyotp
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import BaseModel
-from sqlalchemy import select
 from sqlalchemy.orm import Session
+
+from deepsynaps_core_schema import (
+    ActivatePatientRequest,
+    ChangePasswordRequest,
+    DemoLoginRequest,
+    ForgotPasswordRequest,
+    LoginRequest,
+    LogoutRequest,
+    MessageResponse,
+    OthersRevokedResponse,
+    RefreshRequest,
+    RegisterRequest,
+    ResetPasswordRequest,
+    SessionItem,
+    SessionRevokedResponse,
+    SessionsListResponse,
+    TokenResponse,
+    TwoFactorDisableRequest,
+    TwoFactorSetupResponse,
+    TwoFactorVerifyRequest,
+    TwoFactorVerifyResponse,
+    UserProfile,
+)
 
 from ..database import get_db_session
 from ..errors import ApiServiceError
 from ..registries.auth import DEMO_ACTOR_TOKENS
+from ..repositories.auth import (
+    create_password_reset_token,
+    create_user_session,
+    get_password_reset_token_by_hash,
+    get_patient_by_email,
+    get_patient_invite_by_code,
+    get_user_2fa_secret,
+    get_user_session_by_id,
+    get_user_session_by_refresh_hash,
+    get_user_session_for_user_by_refresh_hash,
+    list_active_user_sessions,
+    upsert_user_2fa_secret,
+)
 from ..repositories.users import (
     create_subscription,
     create_user,
@@ -24,116 +59,23 @@ from ..repositories.users import (
 )
 from ..services import auth_service
 from ..auth import AuthenticatedActor, get_authenticated_actor
-from ..persistence.models import (
-    PasswordResetToken,
-    PatientInvite,
-    User,
-    User2FASecret,
-    UserSession,
-)
 from ..settings import get_settings
 from ..limiter import limiter
+
+if TYPE_CHECKING:
+    # Type-only references for the SQLAlchemy ORM rows handed back by the
+    # repository layer. Erased at runtime — see tools/lint_router_no_models.py
+    # which explicitly allows TYPE_CHECKING imports.
+    from ..persistence.models import User
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="", tags=["auth"])
 
-# ── Pydantic models ────────────────────────────────────────────────────────────
+# Payload types live in `deepsynaps_core_schema.auth` (Architect Rec #5).
+# Imported above; declared here only for readability of the contract surface.
 
 _ALLOWED_SELF_REGISTER_ROLES = {"guest", "clinician", "technician", "reviewer"}
-
-
-class RegisterRequest(BaseModel):
-    email: str
-    display_name: str
-    password: str  # min 8 chars
-    role: str = "clinician"  # default role for professional self-signup
-
-
-class LoginRequest(BaseModel):
-    email: str
-    password: str
-
-
-class UserProfile(BaseModel):
-    id: str
-    email: str
-    display_name: str
-    role: str
-    package_id: str
-    is_verified: bool
-
-
-class TokenResponse(BaseModel):
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-    user: UserProfile
-
-
-class RefreshRequest(BaseModel):
-    refresh_token: str
-
-
-class ForgotPasswordRequest(BaseModel):
-    email: str
-
-
-class ResetPasswordRequest(BaseModel):
-    token: str
-    new_password: str
-
-
-class MessageResponse(BaseModel):
-    message: str
-
-
-# ── Settings API request/response models ──────────────────────────────────────
-
-
-class ChangePasswordRequest(BaseModel):
-    current_password: str
-    new_password: str
-
-
-class TwoFactorSetupResponse(BaseModel):
-    secret: str
-    qr_uri: str
-    backup_codes: list[str]
-
-
-class TwoFactorVerifyRequest(BaseModel):
-    code: str
-
-
-class TwoFactorVerifyResponse(BaseModel):
-    enabled: bool
-
-
-class TwoFactorDisableRequest(BaseModel):
-    password: str
-    code: str
-
-
-class SessionItem(BaseModel):
-    id: str
-    user_agent: str
-    ip_address: str
-    created_at: str
-    last_seen_at: str
-    is_current: bool
-
-
-class SessionsListResponse(BaseModel):
-    items: list[SessionItem]
-
-
-class SessionRevokedResponse(BaseModel):
-    message: str
-
-
-class OthersRevokedResponse(BaseModel):
-    revoked_count: int
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -238,13 +180,12 @@ def _record_user_session(
         if request is not None:
             ua = (request.headers.get("user-agent") or "")[:512]
             ip = (request.client.host if request.client else "") or ""
-        db.add(
-            UserSession(
-                user_id=user_id,
-                refresh_token_hash=auth_service.hash_refresh_token(refresh_token),
-                user_agent=ua,
-                ip_address=ip[:64],
-            )
+        create_user_session(
+            db,
+            user_id=user_id,
+            refresh_token_hash=auth_service.hash_refresh_token(refresh_token),
+            user_agent=ua,
+            ip_address=ip[:64],
         )
         db.commit()
     except Exception:  # pragma: no cover — best-effort
@@ -270,7 +211,7 @@ def _touch_user_session(
     because that fallback was a token-replay revival vector."""
     try:
         old_hash = auth_service.hash_refresh_token(old_refresh_token)
-        row = db.scalar(select(UserSession).where(UserSession.refresh_token_hash == old_hash))
+        row = get_user_session_by_refresh_hash(db, old_hash)
         now = datetime.now(timezone.utc)
         if row is not None:
             row.refresh_token_hash = auth_service.hash_refresh_token(new_refresh_token)
@@ -297,12 +238,7 @@ def _revoke_all_sessions_except_current(
 ) -> int:
     """Mark every non-revoked UserSession for user as revoked_at=now, except
     the row matching `current_hash`. Returns count revoked."""
-    rows = db.scalars(
-        select(UserSession).where(
-            UserSession.user_id == user_id,
-            UserSession.revoked_at.is_(None),
-        )
-    ).all()
+    rows = list_active_user_sessions(db, user_id)
     now = datetime.now(timezone.utc)
     count = 0
     for row in rows:
@@ -527,11 +463,8 @@ def refresh_token(
     # effectively reviving any harvested token. Now: hash mismatch or
     # revoked row both 401.
     presented_hash = auth_service.hash_refresh_token(body.refresh_token)
-    session_row = db.scalar(
-        select(UserSession).where(
-            UserSession.refresh_token_hash == presented_hash,
-            UserSession.user_id == user.id,
-        )
+    session_row = get_user_session_for_user_by_refresh_hash(
+        db, user_id=user.id, refresh_token_hash=presented_hash
     )
     if session_row is None or session_row.revoked_at is not None:
         raise ApiServiceError(
@@ -644,10 +577,6 @@ def me(
     )
 
 
-class LogoutRequest(BaseModel):
-    refresh_token: str | None = None
-
-
 @router.post("/api/v1/auth/logout", response_model=MessageResponse)
 def logout(
     body: LogoutRequest | None = None,
@@ -659,29 +588,18 @@ def logout(
     refresh_token = (body.refresh_token if body else None) or ""
     if refresh_token:
         token_hash = auth_service.hash_refresh_token(refresh_token)
-        row = db.scalar(
-            select(UserSession).where(UserSession.refresh_token_hash == token_hash)
-        )
+        row = get_user_session_by_refresh_hash(db, token_hash)
         if row and row.revoked_at is None:
             row.revoked_at = now
             db.commit()
     elif actor.actor_id and actor.actor_id != "anonymous":
         # No specific token supplied — revoke all active sessions for this user.
-        rows = db.scalars(
-            select(UserSession).where(
-                UserSession.user_id == actor.actor_id,
-                UserSession.revoked_at.is_(None),
-            )
-        ).all()
+        rows = list_active_user_sessions(db, actor.actor_id)
         for row in rows:
             row.revoked_at = now
         if rows:
             db.commit()
     return MessageResponse(message="Successfully logged out.")
-
-
-class DemoLoginRequest(BaseModel):
-    token: str
 
 
 @limiter.limit("10/minute")
@@ -737,13 +655,12 @@ def forgot_password(
     raw_token, token_hash = auth_service.generate_password_reset_token()
     expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
 
-    reset_record = PasswordResetToken(
+    create_password_reset_token(
+        db,
         user_id=user.id,
         token_hash=token_hash,
         expires_at=expires_at,
     )
-    db.add(reset_record)
-    db.commit()
 
     # Do NOT log any portion of the raw token or the user's email — log
     # aggregation pipelines (Fly logs, Datadog, etc.) widen the blast radius
@@ -772,9 +689,7 @@ def reset_password(
 
     token_hash = auth_service.hash_reset_token(body.token)
 
-    reset_record = db.scalar(
-        select(PasswordResetToken).where(PasswordResetToken.token_hash == token_hash)
-    )
+    reset_record = get_password_reset_token_by_hash(db, token_hash)
 
     if reset_record is None:
         raise ApiServiceError(
@@ -819,12 +734,7 @@ def reset_password(
     # refresh JWT issued before the reset remained valid for its full
     # 30-day TTL even after the password was changed.
     now = datetime.now(timezone.utc)
-    for session_row in db.scalars(
-        select(UserSession).where(
-            UserSession.user_id == user.id,
-            UserSession.revoked_at.is_(None),
-        )
-    ).all():
+    for session_row in list_active_user_sessions(db, user.id):
         session_row.revoked_at = now
 
     db.commit()
@@ -833,13 +743,6 @@ def reset_password(
 
 
 # ── Patient Activation ─────────────────────────────────────────────────────────
-
-
-class ActivatePatientRequest(BaseModel):
-    invite_code: str
-    email: str
-    display_name: str
-    password: str
 
 
 @limiter.limit("5/minute")
@@ -853,9 +756,7 @@ def activate_patient(
     _validate_email(body.email)
     _validate_password(body.password)
 
-    invite = db.scalar(
-        select(PatientInvite).where(PatientInvite.invite_code == body.invite_code)
-    )
+    invite = get_patient_invite_by_code(db, body.invite_code)
     if invite is None:
         raise ApiServiceError(
             code="invalid_invite_code",
@@ -908,10 +809,7 @@ def activate_patient(
     # If the invite has a patient_email different from the activation email,
     # update the Patient record's email so the portal email-match works.
     if invite.patient_email and invite.patient_email.lower() != body.email.lower():
-        from app.persistence.models import Patient
-        linked_patient = db.query(Patient).filter(
-            Patient.email == invite.patient_email
-        ).first()
+        linked_patient = get_patient_by_email(db, invite.patient_email)
         if linked_patient is not None:
             linked_patient.email = body.email
 
@@ -1041,22 +939,12 @@ def twofa_setup(
     backup_codes = _generate_backup_codes(10)
     backup_blob = _hash_backup_codes(backup_codes)
 
-    row = db.scalar(select(User2FASecret).where(User2FASecret.user_id == user.id))
-    if row is None:
-        row = User2FASecret(
-            user_id=user.id,
-            secret_encrypted=enc_secret,
-            enabled=False,
-            backup_codes_encrypted=backup_blob,
-        )
-        db.add(row)
-    else:
-        # Re-enrollment — overwrite secret & backup codes; keep enabled=False
-        # until the user proves possession with /verify.
-        row.secret_encrypted = enc_secret
-        row.backup_codes_encrypted = backup_blob
-        row.enabled = False
-        row.enabled_at = None
+    upsert_user_2fa_secret(
+        db,
+        user_id=user.id,
+        secret_encrypted=enc_secret,
+        backup_codes_encrypted=backup_blob,
+    )
     db.commit()
 
     qr_uri = pyotp.TOTP(secret).provisioning_uri(
@@ -1077,7 +965,7 @@ def twofa_verify(
     """Confirm a TOTP code. On success, flips enabled=True."""
     user = _require_current_user(authorization, db)
 
-    row = db.scalar(select(User2FASecret).where(User2FASecret.user_id == user.id))
+    row = get_user_2fa_secret(db, user.id)
     if row is None:
         raise ApiServiceError(
             code="twofa_not_enrolled",
@@ -1143,7 +1031,7 @@ def twofa_disable(
             status_code=401,
         )
 
-    row = db.scalar(select(User2FASecret).where(User2FASecret.user_id == user.id))
+    row = get_user_2fa_secret(db, user.id)
     if row is None or not row.enabled:
         raise ApiServiceError(
             code="twofa_not_enabled",
@@ -1203,11 +1091,7 @@ def list_sessions(
     user = _require_current_user(authorization, db)
     current_hash = _current_refresh_hash_from_request(x_refresh_token)
 
-    rows = db.scalars(
-        select(UserSession)
-        .where(UserSession.user_id == user.id, UserSession.revoked_at.is_(None))
-        .order_by(UserSession.last_seen_at.desc())
-    ).all()
+    rows = list_active_user_sessions(db, user.id)
 
     items = [
         SessionItem(
@@ -1260,11 +1144,7 @@ def revoke_session(
     (use POST /auth/logout for that)."""
     user = _require_current_user(authorization, db)
 
-    row = db.scalar(
-        select(UserSession).where(
-            UserSession.id == session_id, UserSession.user_id == user.id
-        )
-    )
+    row = get_user_session_by_id(db, session_id=session_id, user_id=user.id)
     if row is None:
         raise ApiServiceError(
             code="session_not_found",

@@ -6,17 +6,20 @@ import json
 import re
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from fastapi import APIRouter, Body, Depends, Query, Response
-from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.persistence.models import ClinicianHomeProgramTask, PatientHomeProgramTaskCompletion
+from app.repositories.home_program_tasks import (
+    get_clinician_home_program_task,
+    insert_clinician_home_program_task,
+    list_patient_completions_for_clinician,
+)
 from app.services.home_program_task_audit import (
     ACTION_CREATE_REPLAY,
     ACTION_FORCE_OVERWRITE,
@@ -40,7 +43,19 @@ from app.services.home_program_tasks import (
     merge_provenance_from_previous,
     validate_and_normalize_task_dict,
 )
-from deepsynaps_core_schema import patient_safe_home_program_selection
+from deepsynaps_core_schema import (
+    AuditActionRequest,
+    ClinicianTaskCompletionOut,
+    HomeProgramTaskListResponse,
+    HomeProgramTaskMutationResponse,
+    patient_safe_home_program_selection,
+)
+
+if TYPE_CHECKING:
+    # Type-only ORM reference for the row passed into private helpers.
+    # Erased at runtime — see tools/lint_router_no_models.py which
+    # explicitly allows TYPE_CHECKING imports.
+    from app.persistence.models import ClinicianHomeProgramTask
 
 router = APIRouter(prefix="/api/v1/home-program-tasks", tags=["Home Program Tasks"])
 
@@ -51,33 +66,8 @@ _SERVER_UUID_RE = re.compile(
 )
 
 
-class HomeProgramTaskListResponse(BaseModel):
-    items: list[dict[str, Any]]
-    total: int
-
-
-class AuditActionRequest(BaseModel):
-    external_task_id: str = Field(..., min_length=1, max_length=96)
-    action: Literal["take_server", "retry_success"]
-    server_revision: int | None = None
-
-
-class HomeProgramTaskMutationResponse(BaseModel):
-    """Task payload (from stored JSON + server metadata) plus explicit write disposition.
-
-    Task fields are dynamic; ``createDisposition`` is the stable contract for how the row was written.
-    """
-
-    model_config = ConfigDict(extra="allow")
-
-    createDisposition: Literal["created", "replay", "legacy_put_create"] | None = Field(
-        default=None,
-        description=(
-            "POST: ``created`` (inserted) or ``replay`` (idempotent duplicate POST). "
-            "PUT: ``legacy_put_create`` only when this PUT created a missing row (deprecated; prefer POST). "
-            "Omitted on normal PUT updates."
-        ),
-    )
+# Payload types live in `deepsynaps_core_schema.home_program_tasks`
+# (Architect Rec #5). Imported above.
 
 
 def _now() -> datetime:
@@ -142,17 +132,6 @@ def list_home_program_tasks(
     return HomeProgramTaskListResponse(items=items, total=len(items))
 
 
-class ClinicianTaskCompletionOut(BaseModel):
-    server_task_id: str
-    patient_id: str
-    completed: bool
-    completed_at: str
-    rating: int | None = None
-    difficulty: int | None = None
-    feedback_text: str | None = None
-    media_upload_id: str | None = None
-
-
 @router.get("/completions", response_model=list[ClinicianTaskCompletionOut])
 def list_task_completions(
     patient_id: str | None = None,
@@ -160,12 +139,9 @@ def list_task_completions(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> list[ClinicianTaskCompletionOut]:
     require_minimum_role(actor, "clinician")
-    q = session.query(PatientHomeProgramTaskCompletion).filter(
-        PatientHomeProgramTaskCompletion.clinician_id == actor.actor_id
+    rows = list_patient_completions_for_clinician(
+        session, clinician_id=actor.actor_id, patient_id=patient_id
     )
-    if patient_id:
-        q = q.filter(PatientHomeProgramTaskCompletion.patient_id == patient_id)
-    rows = q.order_by(PatientHomeProgramTaskCompletion.completed_at.desc()).limit(200).all()
     return [
         ClinicianTaskCompletionOut(
             server_task_id=r.server_task_id,
@@ -211,7 +187,7 @@ def create_home_program_task(
     _validate_external_task_id(task_id)
     assert_patient_owned_by_clinician(session, patient_id=patient_id, clinician_id=actor.actor_id)
 
-    existing = session.get(ClinicianHomeProgramTask, task_id)
+    existing = get_clinician_home_program_task(session, task_id)
     if existing is not None:
         if existing.clinician_id != actor.actor_id:
             raise ApiServiceError(code="forbidden", message="Not allowed to access this task.", status_code=403)
@@ -238,8 +214,9 @@ def create_home_program_task(
     payload = json.dumps(to_store, separators=(",", ":"), ensure_ascii=False)
 
     now = _now()
-    row = ClinicianHomeProgramTask(
-        id=task_id,
+    row = insert_clinician_home_program_task(
+        session,
+        task_id=task_id,
         server_task_id=str(uuid.uuid4()),
         patient_id=patient_id,
         clinician_id=actor.actor_id,
@@ -248,12 +225,11 @@ def create_home_program_task(
         created_at=now,
         updated_at=now,
     )
-    session.add(row)
     try:
         session.commit()
     except IntegrityError:
         session.rollback()
-        again = session.get(ClinicianHomeProgramTask, task_id)
+        again = get_clinician_home_program_task(session, task_id)
         if (
             again is not None
             and again.clinician_id == actor.actor_id
@@ -302,7 +278,7 @@ def post_home_program_audit_action(
     """Record client-side conflict resolution / retry outcomes (server task id is authoritative)."""
     require_minimum_role(actor, "clinician")
     _validate_external_task_id(body.external_task_id)
-    row = session.get(ClinicianHomeProgramTask, body.external_task_id)
+    row = get_clinician_home_program_task(session, body.external_task_id)
     if row is None:
         raise ApiServiceError(code="not_found", message="Task not found.", status_code=404)
     if row.clinician_id != actor.actor_id:
@@ -337,7 +313,7 @@ def get_home_program_task_patient_view(
     """Non-clinical subset for future patient channels (no raw confidence tiers/scores)."""
     require_minimum_role(actor, "clinician")
     _validate_external_task_id(task_id)
-    row = session.get(ClinicianHomeProgramTask, task_id)
+    row = get_clinician_home_program_task(session, task_id)
     if row is None:
         raise ApiServiceError(code="not_found", message="Task not found.", status_code=404)
     if row.clinician_id != actor.actor_id:
@@ -357,7 +333,7 @@ def get_home_program_task_export_stub(
     """Structured audit/export projection (extend for bulk DOCX/JSON later)."""
     require_minimum_role(actor, "clinician")
     _validate_external_task_id(task_id)
-    row = session.get(ClinicianHomeProgramTask, task_id)
+    row = get_clinician_home_program_task(session, task_id)
     if row is None:
         raise ApiServiceError(code="not_found", message="Task not found.", status_code=404)
     if row.clinician_id != actor.actor_id:
@@ -374,7 +350,7 @@ def get_home_program_task(
 ) -> dict[str, Any]:
     require_minimum_role(actor, "clinician")
     _validate_external_task_id(task_id)
-    row = session.get(ClinicianHomeProgramTask, task_id)
+    row = get_clinician_home_program_task(session, task_id)
     if row is None:
         raise ApiServiceError(code="not_found", message="Task not found.", status_code=404)
     if row.clinician_id != actor.actor_id:
@@ -414,7 +390,7 @@ def upsert_home_program_task(
     if raw.get("id") is not None and raw.get("id") != task_id:
         raise ApiServiceError(code="id_mismatch", message="Payload id must match URL task id.", status_code=422)
 
-    existing = session.get(ClinicianHomeProgramTask, task_id)
+    existing = get_clinician_home_program_task(session, task_id)
     legacy_put_create = existing is None
     if existing is not None:
         if existing.clinician_id != actor.actor_id:
@@ -452,8 +428,9 @@ def upsert_home_program_task(
 
     now = _now()
     if existing is None:
-        row = ClinicianHomeProgramTask(
-            id=task_id,
+        row = insert_clinician_home_program_task(
+            session,
+            task_id=task_id,
             server_task_id=str(uuid.uuid4()),
             patient_id=patient_id,
             clinician_id=actor.actor_id,
@@ -462,7 +439,6 @@ def upsert_home_program_task(
             created_at=now,
             updated_at=now,
         )
-        session.add(row)
         session.flush()
     else:
         existing.task_json = payload
@@ -508,7 +484,7 @@ def delete_home_program_task(
 ) -> dict[str, str]:
     require_minimum_role(actor, "clinician")
     _validate_external_task_id(task_id)
-    row = session.get(ClinicianHomeProgramTask, task_id)
+    row = get_clinician_home_program_task(session, task_id)
     if row is None:
         raise ApiServiceError(code="not_found", message="Task not found.", status_code=404)
     if row.clinician_id != actor.actor_id:

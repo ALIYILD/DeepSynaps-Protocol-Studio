@@ -8,14 +8,18 @@ protocol, then layer a structured enrichment block on top. No external AI
 calls are made — all logic is data-driven from the imported CSVs.
 """
 
-from typing import Optional
-
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from deepsynaps_core_schema import ProtocolDraftRequest, ProtocolDraftResponse
+from deepsynaps_core_schema import (
+    BrainScanProtocolRequest,
+    BrainScanProtocolResponse,
+    PersonalizedProtocolRequest,
+    PersonalizedProtocolResponse,
+    ProtocolDraftRequest,
+    ProtocolDraftResponse,
+)
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.services.clinical_data import generate_protocol_draft_from_clinical_data
@@ -43,36 +47,8 @@ _DEFAULT_EVIDENCE_MAP: dict[str, str] = {
 # ---------------------------------------------------------------------------
 # Shared extended response schemas
 # ---------------------------------------------------------------------------
-
-class BrainScanProtocolRequest(BaseModel):
-    condition: str
-    scan_type: str = "qEEG"           # qEEG | fMRI | NIRS
-    primary_target: str = "DLPFC"     # e.g. DLPFC, ACC, M1
-    eeg_markers: list[str] = []
-    phenotype: str = ""
-    device: str = ""
-
-
-class BrainScanProtocolResponse(ProtocolDraftResponse):
-    scan_guidance: str = ""
-    recommended_montage: str = ""
-    marker_adjustment: str = ""
-
-
-class PersonalizedProtocolRequest(BaseModel):
-    condition: str
-    patient_id: str = "demo"
-    phq9: Optional[float] = None
-    gad7: Optional[float] = None
-    moca: Optional[float] = None
-    medication_load: str = ""
-    chronotype: str = ""        # morning | evening | neutral
-    treatment_history: str = ""
-    device: str = ""
-
-
-class PersonalizedProtocolResponse(ProtocolDraftResponse):
-    personalization_rationale: str = ""
+# Payload types live in `deepsynaps_core_schema.protocols_generate` (Architect
+# Rec #5). They are re-exported from the top-level package and imported above.
 
 
 # ---------------------------------------------------------------------------

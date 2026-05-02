@@ -1,4 +1,5 @@
 import { parseHomeProgramTaskMutationResponse } from './home-program-task-sync.js';
+import { demoDigitalPhenotypingPayload } from './demo-fixtures-analyzers.js';
 
 const API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 const TOKEN_KEY = 'ds_access_token';
@@ -96,6 +97,32 @@ function _demoSyntheticResponse(path, method) {
       decodeURIComponent(compare[1]),
       decodeURIComponent(compare[2]),
     );
+  }
+  const dpObsList = path.match(
+    /^\/api\/v1\/digital-phenotyping\/analyzer\/patient\/([^/?]+)\/observations$/,
+  );
+  if (dpObsList && (!method || method === 'GET')) {
+    const pid = decodeURIComponent(dpObsList[1]);
+    return { patient_id: pid, items: [], total: 0 };
+  }
+  const dpObsPost = path.match(
+    /^\/api\/v1\/digital-phenotyping\/analyzer\/patient\/([^/?]+)\/observations(\/manual)?$/,
+  );
+  if (dpObsPost && method && method !== 'GET') {
+    const pid = decodeURIComponent(dpObsPost[1]);
+    return { ok: true, demo: true, id: 'demo-' + Date.now(), patient_id: pid };
+  }
+  const dp = path.match(
+    /^\/api\/v1\/digital-phenotyping\/analyzer\/patient\/([^/?]+)(\/audit)?$/,
+  );
+  if (dp && (!method || method === 'GET')) {
+    const pid = decodeURIComponent(dp[1]);
+    const payload = demoDigitalPhenotypingPayload(pid);
+    if (dp[2] === '/audit') {
+      const ev = payload.audit_events || [];
+      return { patient_id: pid, events: ev, total: ev.length };
+    }
+    return payload;
   }
   // Mutations: pretend success (return a minimal accepted-shape object).
   if (method && method !== 'GET') return { ok: true, demo: true, id: 'demo-' + Date.now() };
@@ -909,6 +936,24 @@ export const api = {
       Object.entries(params).filter(([, v]) => v != null && v !== '')
     ).toString();
     return apiFetch(`/api/v1/evidence/research/summary${q ? '?' + q : ''}`);
+  },
+  listResearchAdjunctEvidence: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch(`/api/v1/evidence/research/adjunct-evidence${q ? '?' + q : ''}`);
+  },
+  getResearchAdjunctSummary: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch(`/api/v1/evidence/research/adjunct-summary${q ? '?' + q : ''}`);
+  },
+  getResearchAdjunctReviewTables: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch(`/api/v1/evidence/research/adjunct-review-tables${q ? '?' + q : ''}`);
   },
   longitudinalReport: (params = {}) => {
     const q = new URLSearchParams(
@@ -3019,6 +3064,127 @@ export const api = {
   getRiskAudit: (patientId) =>
     apiFetch(`/api/v1/risk/patient/${encodeURIComponent(patientId)}/audit`),
 
+  // ── Digital Phenotyping Analyzer (passive behavioral signals) ────────────
+  getDigitalPhenotypingAnalyzer: (patientId) =>
+    apiFetch(`/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}`),
+  getDigitalPhenotypingAudit: (patientId) =>
+    apiFetch(`/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
+  recomputeDigitalPhenotyping: (patientId, body) =>
+    apiFetch(`/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/recompute`, {
+      method: 'POST',
+      body: body != null ? JSON.stringify(body) : '{}',
+    }),
+  updateDigitalPhenotypingConsent: (patientId, body) =>
+    apiFetch(`/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/consent`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  updateDigitalPhenotypingSettings: (patientId, body) =>
+    apiFetch(`/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/settings`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  listDigitalPhenotypingObservations: (patientId, params = {}) => {
+    const q = new URLSearchParams();
+    if (params.limit != null) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return apiFetch(
+      `/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/observations${qs ? '?' + qs : ''}`,
+    );
+  },
+  addDigitalPhenotypingManualObservation: (patientId, body) =>
+    apiFetch(
+      `/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/observations/manual`,
+      { method: 'POST', body: JSON.stringify(body || {}) },
+    ),
+  createDigitalPhenotypingObservation: (patientId, body) =>
+    apiFetch(
+      `/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/observations`,
+      { method: 'POST', body: JSON.stringify(body || {}) },
+    ),
+  getDigitalPhenotypingProfile: (patientId) =>
+    apiFetch(`/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}`),
+  addPhenotypingObservation: (patientId, body) =>
+    apiFetch(
+      `/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/observations`,
+      { method: 'POST', body: JSON.stringify(body || {}) },
+    ),
+  addPhenotypingAnnotation: (patientId, body) => {
+    const note = (body && (body.note || body.message)) || '';
+    return apiFetch(
+      `/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/observations/manual`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          kind: 'clinician_annotation',
+          notes: note,
+          ...(body && body.recorded_at ? { recorded_at: body.recorded_at } : {}),
+        }),
+      },
+    );
+  },
+  getPhenotypingAudit: (patientId) =>
+    apiFetch(`/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
+
+  // ── Movement Analyzer (motor side-effects of psychiatric treatment) ───────
+  getMovementProfile: (patientId) =>
+    apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}`),
+  recomputeMovement: (patientId) =>
+    apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/recompute`, { method: 'POST' }),
+  addMovementAnnotation: (patientId, body) =>
+    apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/annotation`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  getMovementAudit: (patientId) =>
+    apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
+
+  // ── Nutrition, Supplements & Diet Analyzer ───────────────────────────────
+  getNutritionAnalyzerPayload: (patientId) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}`),
+  recomputeNutritionAnalyzer: (patientId) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/recompute`, { method: 'POST' }),
+  postNutritionDietLog: (patientId, body) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/diet-log`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  postNutritionSupplement: (patientId, body) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/supplement`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  postNutritionReviewNote: (patientId, body) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/review-note`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  getNutritionAnalyzerAudit: (patientId) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
+
+  // ── Labs / Blood Biomarkers Analyzer (psych-med + neuromodulation safety) ─
+  getLabsProfile: (patientId) =>
+    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}`),
+  recomputeLabs: (patientId) =>
+    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/recompute`, { method: 'POST' }),
+  addLabResult: (patientId, body) =>
+    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/results`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  addLabsAnnotation: (patientId, body) =>
+    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/annotation`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  addLabsReviewNote: (patientId, body) =>
+    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/review-note`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  getLabsAudit: (patientId) =>
+    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
+
+  // ── Nutrition / Supplements / Diet Analyzer (diet-drug interactions, micronutrient cover) ─
+  getNutritionProfile: (patientId) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}`),
+  recomputeNutrition: (patientId) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/recompute`, { method: 'POST' }),
+  addNutritionIntake: (patientId, body) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/diet-log`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  addNutritionAnnotation: (patientId, body) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/review-note`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  getNutritionAudit: (patientId) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
+
   // ── Device Sync (clinician-facing) ─────────────────────────────────────────
   deviceSyncProviders: () => apiFetchWithRetry('/api/v1/device-sync/providers'),
   deviceSyncAuthorize: (provider) =>
@@ -3694,6 +3860,746 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }).catch(() => null),
+
+  // ── QEEG-ANN2 Annotation Outcome Tracker launch-audit ──
+  // (2026-05-02). Closes the loop on QEEG-ANN1 (#459): pairs each
+  // QEEGReportAnnotation row's created_at with its resolved_at (or
+  // absence) and classifies the outcome (resolved_within_sla |
+  // resolved_late | still_open_overdue | still_open_grace). Surfaces
+  // per-clinician resolution latency, evidence-gap dwell time, and
+  // the "created but never resolved within 30d" backlog.
+  // Helpers placed BEFORE QEEG-ANN1's section so QEEG-ANN1's
+  // slice-boundary sentinel stays clean — QEEG-ANN2 uses its own
+  // unique header anchor + slice-boundary sentinel.
+  fetchQeegAnnotationOutcomeSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.sla_days != null)
+      usp.set('sla_days', String(params.sla_days));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/qeeg-annotation-outcome-tracker/summary' + (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  fetchQeegAnnotationCreatorSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.min_created != null)
+      usp.set('min_created', String(params.min_created));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/qeeg-annotation-outcome-tracker/clinician-creator-summary' +
+        (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  fetchQeegAnnotationResolverLatencySummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.min_resolved != null)
+      usp.set('min_resolved', String(params.min_resolved));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/qeeg-annotation-outcome-tracker/resolver-latency-summary' +
+        (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  fetchQeegAnnotationBacklog: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.sla_days != null)
+      usp.set('sla_days', String(params.sla_days));
+    if (params && params.include_grace)
+      usp.set('include_grace', 'true');
+    if (params && params.page != null) usp.set('page', String(params.page));
+    if (params && params.page_size != null)
+      usp.set('page_size', String(params.page_size));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/qeeg-annotation-outcome-tracker/backlog' + (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  fetchQeegAnnotationOutcomeAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null)
+      usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/qeeg-annotation-outcome-tracker/audit-events' +
+        (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  // end QEEG-ANN2 helpers
+  // ━━ QEEG-ANN2 SLICE BOUNDARY ━━ (do not remove; the launch-audit
+  // test for the QEEG-ANN2 section finds the header above then walks
+  // to this unique sentinel substring to bound the slice).
+
+  // ── QEEG-ANN1 Brain Map Annotations launch-audit ──
+  // (2026-05-02). Sidecar annotation system for the qEEG Brain Map
+  // report. Lets clinicians attach margin notes / region tags /
+  // flag-typed findings (clinically_significant | evidence_gap |
+  // discuss_next_session | patient_question) to specific sections
+  // WITHOUT mutating the canonical ``QEEGBrainMapReport`` contract.
+  // Mirrors the IRB-AMD4 helper layout — placed BEFORE the IRB-AMD4
+  // section so its slice-boundary sentinel stays clean. QEEG-ANN1
+  // uses its own unique header anchor + slice-boundary sentinel.
+  fetchQeegReportAnnotations: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.patient_id) usp.set('patient_id', params.patient_id);
+    if (params && params.report_id) usp.set('report_id', params.report_id);
+    if (params && params.section_path) usp.set('section_path', params.section_path);
+    if (params && params.kind) usp.set('kind', params.kind);
+    if (params && params.flag_type) usp.set('flag_type', params.flag_type);
+    if (params && params.include_resolved) usp.set('include_resolved', 'true');
+    if (params && params.page != null) usp.set('page', String(params.page));
+    if (params && params.page_size != null)
+      usp.set('page_size', String(params.page_size));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/qeeg-report-annotations/annotations' + (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  createQeegReportAnnotation: (body) =>
+    apiFetch('/api/v1/qeeg-report-annotations/annotations', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }).catch(() => null),
+  patchQeegReportAnnotation: (id, body) =>
+    apiFetch(`/api/v1/qeeg-report-annotations/annotations/${encodeURIComponent(String(id || ''))}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body || {}),
+    }).catch(() => null),
+  deleteQeegReportAnnotation: (id) =>
+    apiFetch(`/api/v1/qeeg-report-annotations/annotations/${encodeURIComponent(String(id || ''))}`, {
+      method: 'DELETE',
+    }).catch(() => null),
+  resolveQeegReportAnnotation: (id, body) =>
+    apiFetch(`/api/v1/qeeg-report-annotations/annotations/${encodeURIComponent(String(id || ''))}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }).catch(() => null),
+  fetchQeegReportAnnotationSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.patient_id) usp.set('patient_id', params.patient_id);
+    if (params && params.report_id) usp.set('report_id', params.report_id);
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/qeeg-report-annotations/summary' + (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  fetchQeegReportAnnotationAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.page != null) usp.set('page', String(params.page));
+    if (params && params.page_size != null)
+      usp.set('page_size', String(params.page_size));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/qeeg-report-annotations/audit-events' + (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  postQeegReportAnnotationAuditEvent: (data) =>
+    apiFetch('/api/v1/qeeg-report-annotations/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  // end QEEG-ANN1 helpers
+  // ━━ QEEG-ANN1 SLICE BOUNDARY ━━ (do not remove; the launch-audit
+  // test for the QEEG-ANN1 section finds the header above then walks
+  // to this unique sentinel substring to bound the slice).
+
+  // ── IRB-AMD4 SLA Threshold Tuning launch-audit ──
+  // (2026-05-02). Closes section I rec from IRB-AMD3 (#451):
+  // surfaces a "what calibration_score floor should auto-trigger
+  // an admin reassign-amendment action?" recommendation with a
+  // bootstrap confidence interval, supports what-if replay, and
+  // persists adopted floors with a clinic-scoped audit log.
+  // Mirrors the CSAHP6 (#438) tune-a-threshold console pattern.
+  // Helpers placed BEFORE IRB-AMD3's section so IRB-AMD3's
+  // slice-boundary sentinel stays clean — IRB-AMD4 uses its own
+  // unique header anchor + slice-boundary sentinel.
+  fetchReviewerSlaCalibrationCurrentThreshold: () =>
+    apiFetch(
+      '/api/v1/reviewer-sla-calibration-threshold-tuning/current-threshold',
+    ).catch(() => null),
+  fetchReviewerSlaCalibrationRecommendation: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.sla_response_days != null)
+      usp.set('sla_response_days', String(params.sla_response_days));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/reviewer-sla-calibration-threshold-tuning/recommend' +
+        (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  runReviewerSlaCalibrationReplay: (body) =>
+    apiFetch('/api/v1/reviewer-sla-calibration-threshold-tuning/replay', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }).catch(() => null),
+  adoptReviewerSlaCalibrationThreshold: (body) =>
+    apiFetch('/api/v1/reviewer-sla-calibration-threshold-tuning/adopt', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }).catch(() => null),
+  fetchReviewerSlaCalibrationAdoptionHistory: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.page != null) usp.set('page', String(params.page));
+    if (params && params.page_size != null)
+      usp.set('page_size', String(params.page_size));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/reviewer-sla-calibration-threshold-tuning/adoption-history' +
+        (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  fetchReviewerSlaCalibrationAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null)
+      usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/reviewer-sla-calibration-threshold-tuning/audit-events' +
+        (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  postReviewerSlaCalibrationAuditEvent: (data) =>
+    apiFetch(
+      '/api/v1/reviewer-sla-calibration-threshold-tuning/audit-events',
+      {
+        method: 'POST',
+        body: JSON.stringify(data || {}),
+      },
+    ).catch(() => null),
+  // end IRB-AMD4 helpers
+  // ━━ IRB-AMD4 SLICE BOUNDARY ━━ (do not remove; the launch-audit
+  // test for the IRB-AMD4 section finds the header above then walks
+  // to this unique sentinel substring to bound the slice).
+
+  // ── IRB-AMD3 SLA Outcome Tracker launch-audit ──
+  // (2026-05-02). Closes the loop on "did the IRB-AMD2 SLA-breach
+  // signal actually nudge reviewer behavior?" Pairs each
+  // irb_reviewer_sla.queue_breach_detected row at time T with the
+  // same reviewer's NEXT irb.amendment_decided_* row, classifies
+  // outcome (decided_within_sla / decided_late / still_pending /
+  // pending), computes per-reviewer calibration_score =
+  // (decided_within_sla - still_pending) / max(total - pending, 1).
+  // Helpers placed BEFORE IRB-AMD2's section so IRB-AMD2's
+  // slice-boundary sentinel stays clean — IRB-AMD3 uses its own
+  // unique header anchor + slice-boundary sentinel.
+  fetchSLAOutcomeSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.sla_response_days != null)
+      usp.set('sla_response_days', String(params.sla_response_days));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/irb-amendment-reviewer-workload-outcome-tracker/summary' +
+        (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  fetchReviewerCalibration: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.sla_response_days != null)
+      usp.set('sla_response_days', String(params.sla_response_days));
+    if (params && params.min_breaches != null)
+      usp.set('min_breaches', String(params.min_breaches));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/irb-amendment-reviewer-workload-outcome-tracker/reviewer-calibration' +
+        (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  fetchSLAOutcomeList: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.sla_response_days != null)
+      usp.set('sla_response_days', String(params.sla_response_days));
+    if (params && params.reviewer_user_id)
+      usp.set('reviewer_user_id', params.reviewer_user_id);
+    if (params && params.outcome) usp.set('outcome', params.outcome);
+    if (params && params.page != null) usp.set('page', String(params.page));
+    if (params && params.page_size != null)
+      usp.set('page_size', String(params.page_size));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/irb-amendment-reviewer-workload-outcome-tracker/list' +
+        (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  fetchSLAOutcomeAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null)
+      usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/irb-amendment-reviewer-workload-outcome-tracker/audit-events' +
+        (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  // end IRB-AMD3 helpers
+  // ━━ IRB-AMD3 SLICE BOUNDARY ━━ (do not remove; the launch-audit
+  // test for the IRB-AMD3 section finds the header above then walks
+  // to this unique sentinel substring to bound the slice).
+
+  // ── IRB-AMD2 Reviewer Workload launch-audit ──
+  // (2026-05-02). Closes "workflow exists" → "workflow has SLA
+  // enforcement". The IRB-AMD1 amendment workflow shipped a
+  // regulator-credible lifecycle but no SLA enforcement. IRB-AMD2
+  // adds per-reviewer queue snapshots, an unassigned-amendments
+  // bucket, and a HIGH-priority queue_breach_detected audit row
+  // routed into the existing Clinician Inbox aggregator (#354) via
+  // the priority=high token. No new aggregation logic.
+  // Helpers placed BEFORE IRB-AMD1's section so IRB-AMD1's
+  // slice-boundary sentinel stays clean — IRB-AMD2 uses its own
+  // unique header anchor + slice-boundary sentinel.
+  irbAmd2Workload: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.clinic_id) usp.set('clinic_id', params.clinic_id);
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/irb-amendment-reviewer-workload/workload' + (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  irbAmd2Unassigned: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.clinic_id) usp.set('clinic_id', params.clinic_id);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/irb-amendment-reviewer-workload/unassigned-amendments' +
+        (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  irbAmd2SuggestReviewer: (amendmentId) => {
+    const qs = new URLSearchParams({ amendment_id: amendmentId }).toString();
+    return apiFetch(
+      '/api/v1/irb-amendment-reviewer-workload/suggest-reviewer?' + qs,
+    ).catch(() => null);
+  },
+  irbAmd2WorkerTick: () =>
+    apiFetch('/api/v1/irb-amendment-reviewer-workload/worker/tick', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }).catch(() => null),
+  irbAmd2WorkerStatus: () =>
+    apiFetch(
+      '/api/v1/irb-amendment-reviewer-workload/worker/status',
+    ).catch(() => null),
+  irbAmd2AuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null)
+      usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/irb-amendment-reviewer-workload/audit-events' +
+        (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  // end IRB-AMD2 helpers
+  // ━━ IRB-AMD2 SLICE BOUNDARY ━━ (do not remove; the launch-audit
+  // test for the IRB-AMD2 section finds the header above then walks
+  // to this unique sentinel substring to bound the slice).
+
+  // ── IRB-AMD1 Amendment Workflow launch-audit ──
+  // (2026-05-02). Real-world clinical trials hit amendment cycles every
+  // 4-6 weeks; the existing IRB Manager amendments tab only logged a
+  // single 3-state row. IRB-AMD1 introduces the regulator-credible
+  // lifecycle: draft → submitted → reviewer_assigned → under_review →
+  // approved | rejected | revisions_requested → effective. Plus a
+  // reg-binder ZIP export bundling protocol + amendments + audit trail.
+  // Helpers placed BEFORE CSAHP7's section so the CSAHP7 slice-boundary
+  // sentinel stays clean — IRB-AMD1 uses its own unique header anchor
+  // + slice-boundary sentinel.
+  irbAmdCreateDraft: (body) =>
+    apiFetch('/api/v1/irb-amendment-workflow/amendments', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  irbAmdSubmit: (id) =>
+    apiFetch(`/api/v1/irb-amendment-workflow/amendments/${encodeURIComponent(id)}/submit`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  irbAmdAssignReviewer: (id, body) =>
+    apiFetch(
+      `/api/v1/irb-amendment-workflow/amendments/${encodeURIComponent(id)}/assign-reviewer`,
+      { method: 'POST', body: JSON.stringify(body || {}) }
+    ),
+  irbAmdStartReview: (id) =>
+    apiFetch(
+      `/api/v1/irb-amendment-workflow/amendments/${encodeURIComponent(id)}/start-review`,
+      { method: 'POST', body: JSON.stringify({}) }
+    ),
+  irbAmdDecide: (id, body) =>
+    apiFetch(`/api/v1/irb-amendment-workflow/amendments/${encodeURIComponent(id)}/decide`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  irbAmdMarkEffective: (id) =>
+    apiFetch(
+      `/api/v1/irb-amendment-workflow/amendments/${encodeURIComponent(id)}/mark-effective`,
+      { method: 'POST', body: JSON.stringify({}) }
+    ),
+  irbAmdRevertToDraft: (id) =>
+    apiFetch(
+      `/api/v1/irb-amendment-workflow/amendments/${encodeURIComponent(id)}/revert-to-draft`,
+      { method: 'POST', body: JSON.stringify({}) }
+    ),
+  irbAmdList: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.protocol_id) usp.set('protocol_id', params.protocol_id);
+    if (params && params.status) usp.set('status', params.status);
+    if (params && params.page != null) usp.set('page', String(params.page));
+    if (params && params.page_size != null) usp.set('page_size', String(params.page_size));
+    const qs = usp.toString();
+    return apiFetch('/api/v1/irb-amendment-workflow/amendments' + (qs ? '?' + qs : '')).catch(
+      () => null,
+    );
+  },
+  irbAmdGetDetail: (id) =>
+    apiFetch(`/api/v1/irb-amendment-workflow/amendments/${encodeURIComponent(id)}`).catch(
+      () => null,
+    ),
+  irbAmdGetAuditTrail: (id) =>
+    apiFetch(
+      `/api/v1/irb-amendment-workflow/amendments/${encodeURIComponent(id)}/audit-trail`,
+    ).catch(() => null),
+  irbAmdRegBinderUrl: (protocolId) =>
+    `${API_BASE}/api/v1/irb-amendment-workflow/protocols/${encodeURIComponent(protocolId)}/reg-binder.zip`,
+  irbAmdAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/irb-amendment-workflow/audit-events' + (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  postIrbAmdAuditEvent: (data) =>
+    apiFetch('/api/v1/irb-amendment-workflow/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  // end IRB-AMD1 helpers
+  // ━━ IRB-AMD1 SLICE BOUNDARY ━━ (do not remove; the launch-audit
+  // test for the IRB-AMD1 section finds the header above then walks to
+  // this unique sentinel substring to bound the slice).
+
+  // ── CSAHP7 Threshold Adoption Outcome launch-audit ──
+  // (2026-05-02). Closes the meta-loop on the meta-loop opened by
+  // CSAHP6 (#438). Pairs each threshold_adopted audit row at time T
+  // with the same (advice_code, threshold_key)'s measured predictive
+  // accuracy at T+30d versus the baseline accuracy at T. Did the
+  // adopted threshold actually move the needle in production?
+  // Outcome classes: improved (delta >= +5pp) / regressed (<= -5pp) /
+  // flat / pending / insufficient_data. Per-adopter calibration_score
+  // = (improved - regressed) / max(total, 1), range -1 to 1. Helpers
+  // placed BEFORE CSAHP6's section so the CSAHP6 slice-boundary
+  // sentinel stays clean — CSAHP7 uses its own unique header anchor +
+  // slice-boundary sentinel.
+  fetchThresholdAdoptionOutcomeSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.pair_lookahead_days != null)
+      usp.set('pair_lookahead_days', String(params.pair_lookahead_days));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/rotation-policy-advisor-threshold-adoption-outcome-tracker/summary' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  fetchAdopterCalibration: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.pair_lookahead_days != null)
+      usp.set('pair_lookahead_days', String(params.pair_lookahead_days));
+    if (params && params.min_adoptions != null)
+      usp.set('min_adoptions', String(params.min_adoptions));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/rotation-policy-advisor-threshold-adoption-outcome-tracker/adopter-calibration' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  fetchThresholdAdoptionOutcomeList: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.pair_lookahead_days != null)
+      usp.set('pair_lookahead_days', String(params.pair_lookahead_days));
+    if (params && params.advice_code) usp.set('advice_code', params.advice_code);
+    if (params && params.outcome) usp.set('outcome', params.outcome);
+    if (params && params.page != null) usp.set('page', String(params.page));
+    if (params && params.page_size != null)
+      usp.set('page_size', String(params.page_size));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/rotation-policy-advisor-threshold-adoption-outcome-tracker/list' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  fetchThresholdAdoptionOutcomeAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/rotation-policy-advisor-threshold-adoption-outcome-tracker/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  postThresholdAdoptionOutcomeAuditEvent: (data) =>
+    apiFetch('/api/v1/rotation-policy-advisor-threshold-adoption-outcome-tracker/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  // end CSAHP7 helpers
+  // ━━ CSAHP7 SLICE BOUNDARY ━━ (do not remove; the launch-audit
+  // test for the CSAHP7 section finds the header above then walks to
+  // this unique sentinel substring to bound the slice).
+
+  // ── CSAHP6 Threshold Tuning launch-audit ──
+  // (2026-05-02). Closes the recursion loop opened by CSAHP5 (#434).
+  // Lets admins propose new thresholds for the 3 advice rules
+  // (REFLAG_HIGH / MANUAL_REFLAG / AUTH_DOMINANT), replay them
+  // against the last 90 days of frozen ``advice_snapshot`` rows, and
+  // adopt the new threshold when the replay shows higher predictive
+  // accuracy. Adopted values take effect immediately on the next
+  // CSAHP4 ``/advice`` call. Same calibration chain logic, applied
+  // recursively to the heuristic itself. Helpers placed BEFORE
+  // CSAHP5's section so the CSAHP5 slice-boundary sentinel stays
+  // clean — CSAHP6 uses its own unique header anchor + slice-boundary
+  // sentinel.
+  fetchCurrentThresholds: () =>
+    apiFetch('/api/v1/rotation-policy-advisor-threshold-tuning/current-thresholds')
+      .catch(() => null),
+  runThresholdReplay: (params) =>
+    apiFetch('/api/v1/rotation-policy-advisor-threshold-tuning/replay', {
+      method: 'POST',
+      body: JSON.stringify(params || {}),
+    }).catch(() => null),
+  adoptThreshold: (params) =>
+    apiFetch('/api/v1/rotation-policy-advisor-threshold-tuning/adopt', {
+      method: 'POST',
+      body: JSON.stringify(params || {}),
+    }),
+  fetchThresholdAdoptionHistory: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/rotation-policy-advisor-threshold-tuning/adoption-history' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  fetchThresholdTuningAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/rotation-policy-advisor-threshold-tuning/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  postThresholdTuningAuditEvent: (data) =>
+    apiFetch('/api/v1/rotation-policy-advisor-threshold-tuning/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  // end CSAHP6 helpers
+  // ━━ CSAHP6 SLICE BOUNDARY ━━ (do not remove; the launch-audit
+  // test for the CSAHP6 section finds the header above then walks to
+  // this unique sentinel substring to bound the slice).
+
+  // ── CSAHP5 Advisor Outcome Tracker launch-audit ──
+  // (2026-05-02). Pairs each ``advice_snapshot`` audit row at time T
+  // (emitted by the CSAHP5 background snapshot worker) with the
+  // same-key snapshot at T+14d (±2d tolerance) and reports
+  // per-advice-code predictive accuracy
+  // (card_disappeared_pct = how often the card stopped appearing 14
+  // days after the clinic acted on it). Mirrors the DCRO1 pattern
+  // (#393) — pure read-side calibration analytics on top of the
+  // existing audit_event_records table. Helpers placed BEFORE CSAHP4's
+  // section so the CSAHP4 slice-boundary sentinel stays clean — CSAHP5
+  // uses its own unique header anchor + slice-boundary sentinel.
+  fetchAdvisorOutcomeTrackerSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.pair_lookahead_days != null)
+      usp.set('pair_lookahead_days', String(params.pair_lookahead_days));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/rotation-policy-advisor-outcome-tracker/summary' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  fetchAdvisorOutcomeTrackerList: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.pair_lookahead_days != null)
+      usp.set('pair_lookahead_days', String(params.pair_lookahead_days));
+    if (params && params.advice_code) usp.set('advice_code', params.advice_code);
+    if (params && params.channel) usp.set('channel', params.channel);
+    if (params && params.page != null) usp.set('page', String(params.page));
+    if (params && params.page_size != null)
+      usp.set('page_size', String(params.page_size));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/rotation-policy-advisor-outcome-tracker/list' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  runAdvisorSnapshotNow: () =>
+    apiFetch('/api/v1/rotation-policy-advisor-outcome-tracker/run-snapshot-now', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }).catch(() => null),
+  fetchAdvisorOutcomeTrackerAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/rotation-policy-advisor-outcome-tracker/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  postAdvisorOutcomeTrackerAuditEvent: (data) =>
+    apiFetch('/api/v1/rotation-policy-advisor-outcome-tracker/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  // end CSAHP5 helpers
+  // ━━ CSAHP5 SLICE BOUNDARY ━━ (do not remove; the launch-audit
+  // test for the CSAHP5 section finds the header above then walks to
+  // this unique sentinel substring to bound the slice).
+
+  // ── CSAHP4 Rotation Policy Advisor launch-audit ──
+  // (2026-05-02). Read-only advisor surface that consumes the
+  // leading-indicator signals already exposed by CSAHP3 (#424) and
+  // emits heuristic recommendation cards (REFLAG_HIGH /
+  // MANUAL_REFLAG / AUTH_DOMINANT). No new schema, no worker — pure
+  // presentation building on the leading-indicator signal CSAHP3
+  // already exposes. Mirrors the DCRO5 / CSAHP3 read-only advisor
+  // pattern. Helpers placed BEFORE CSAHP3's section so the CSAHP3
+  // slice-boundary sentinel stays clean — CSAHP4 uses its own unique
+  // header anchor + slice-boundary sentinel.
+  fetchRotationPolicyAdvice: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/auth-drift-rotation-policy-advisor/advice' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  fetchRotationPolicyAdvisorAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/auth-drift-rotation-policy-advisor/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  postRotationPolicyAdvisorAuditEvent: (data) =>
+    apiFetch('/api/v1/auth-drift-rotation-policy-advisor/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  // end CSAHP4 helpers
+  // ━━ CSAHP4 SLICE BOUNDARY ━━ (do not remove; the launch-audit
+  // test for the CSAHP4 section finds the header above then walks to
+  // this unique sentinel substring to bound the slice).
+
+  // ── CSAHP3 Auth Drift Resolution Audit Hub launch-audit ──
+  // (2026-05-02). Cohort dashboard built on the audit trail emitted by
+  // CSAHP1 (#417) and CSAHP2 (#422). Mirrors the DCR2 → DCRO1 pattern
+  // (#392 / #393): pure read-side analytics, no migration, no worker.
+  // Surfaces:
+  //   - rotation_funnel: detected → marked → confirmed → re-flagged
+  //   - rotation_funnel_pct: marked_pct / confirmed_pct / re_flag_pct
+  //   - rotation_method_distribution: manual / automated_rotation /
+  //     key_revoked / other
+  //   - by_channel: per-channel mean / median time-to-rotate +
+  //     time-to-confirm + re-flag rate
+  //   - top-rotators: leaderboard of rotators by count + median TTR
+  // Helpers placed BEFORE CSAHP2's section so the CSAHP2 slice-boundary
+  // sentinel stays clean — CSAHP3 uses its own unique header anchor +
+  // slice-boundary sentinel.
+  fetchAuthDriftResolutionAuditHubSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/channel-auth-drift-resolution-audit-hub/summary' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  fetchAuthDriftTopRotators: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.min_rotations != null)
+      usp.set('min_rotations', String(params.min_rotations));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/channel-auth-drift-resolution-audit-hub/top-rotators' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  fetchAuthDriftResolutionAuditHubAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/channel-auth-drift-resolution-audit-hub/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  postAuthDriftResolutionAuditHubAuditEvent: (data) =>
+    apiFetch('/api/v1/channel-auth-drift-resolution-audit-hub/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  // end CSAHP3 helpers
+  // ━━ CSAHP3 SLICE BOUNDARY ━━ (do not remove; the launch-audit test
+  // for the CSAHP3 section finds the header above then walks to this
+  // unique sentinel substring to bound the slice).
 
   // ── CSAHP2 Auth Drift Resolution launch-audit ──
   // (2026-05-02). Closes the proactive-credential-monitoring loop opened

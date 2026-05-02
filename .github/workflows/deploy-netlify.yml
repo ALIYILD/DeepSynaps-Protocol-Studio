@@ -63,4 +63,5 @@ jobs:
             --dir apps/web/dist \
             --prod \
             --site "$NETLIFY_SITE_ID" \
+            --filter @deepsynaps/web \
             --message "GHA ${GITHUB_SHA::7}"

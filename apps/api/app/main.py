@@ -78,6 +78,7 @@ from app.routers.marketplace_seller_router import router as marketplace_seller_r
 from app.routers.virtual_care_router import router as virtual_care_router
 from app.routers.forms_router import router as forms_router
 from app.routers.medications_router import router as medications_router
+from app.routers.nutrition_analyzer_router import router as nutrition_analyzer_router
 from app.routers.consent_management_router import router as consent_management_router
 from app.routers.home_program_tasks_router import router as home_program_tasks_router
 from app.routers.patient_home_program_tasks_router import (
@@ -88,7 +89,26 @@ from app.routers.agent_skills_router import router as agent_skills_router
 from app.routers.annotations_router import router as annotations_router
 from app.routers.reminders_router import router as reminders_router
 from app.routers.irb_router import router as irb_router
+from app.routers.clinical_trials_router import router as clinical_trials_router
 from app.routers.irb_manager_router import router as irb_manager_router
+from app.routers.irb_amendment_workflow_router import (
+    router as irb_amendment_workflow_router,
+)
+from app.routers.irb_amendment_reviewer_workload_router import (
+    router as irb_amendment_reviewer_workload_router,
+)
+from app.routers.irb_amendment_reviewer_workload_outcome_tracker_router import (
+    router as irb_amendment_reviewer_workload_outcome_tracker_router,
+)
+from app.routers.reviewer_sla_calibration_threshold_tuning_router import (
+    router as reviewer_sla_calibration_threshold_tuning_router,
+)
+from app.routers.qeeg_report_annotations_router import (
+    router as qeeg_report_annotations_router,
+)
+from app.routers.qeeg_annotation_outcome_tracker_router import (
+    router as qeeg_annotation_outcome_tracker_router,
+)
 from app.routers.evidence_router import router as evidence_router
 from app.routers.literature_router import router as literature_router
 from app.routers.literature_watch_router import router as literature_watch_router
@@ -124,6 +144,21 @@ from app.routers.channel_auth_health_probe_router import (
 from app.routers.channel_auth_drift_resolution_router import (
     router as channel_auth_drift_resolution_router,
 )
+from app.routers.channel_auth_drift_resolution_audit_hub_router import (
+    router as channel_auth_drift_resolution_audit_hub_router,
+)
+from app.routers.auth_drift_rotation_policy_advisor_router import (
+    router as auth_drift_rotation_policy_advisor_router,
+)
+from app.routers.rotation_policy_advisor_threshold_tuning_router import (
+    router as rotation_policy_advisor_threshold_tuning_router,
+)
+from app.routers.rotation_policy_advisor_outcome_tracker_router import (
+    router as rotation_policy_advisor_outcome_tracker_router,
+)
+from app.routers.rotation_policy_advisor_threshold_adoption_outcome_tracker_router import (
+    router as rotation_policy_advisor_threshold_adoption_outcome_tracker_router,
+)
 from app.routers.caregiver_delivery_concern_aggregator_router import (
     router as caregiver_delivery_concern_aggregator_router,
 )
@@ -157,6 +192,9 @@ from app.routers.team_router import router as team_router
 from app.routers.preferences_router import router as preferences_router
 from app.routers.data_privacy_router import router as data_privacy_router
 from app.routers.risk_stratification_router import router as risk_stratification_router
+from app.routers.labs_analyzer_router import router as labs_analyzer_router
+from app.routers.digital_phenotyping_router import router as digital_phenotyping_router
+from app.routers.movement_analyzer_router import router as movement_analyzer_router
 from app.routers.qeeg_analysis_router import router as qeeg_analysis_router
 from app.routers.qeeg_live_router import router as qeeg_live_router
 from app.routers.qeeg_copilot_router import router as qeeg_copilot_router
@@ -215,6 +253,14 @@ from app.workers.channel_misconfiguration_detector_worker import (
 from app.workers.channel_auth_health_probe_worker import (
     shutdown_worker as shutdown_channel_auth_health_probe_worker,
     start_worker_if_enabled as start_channel_auth_health_probe_worker,
+)
+from app.workers.irb_reviewer_sla_worker import (
+    shutdown_worker as shutdown_irb_reviewer_sla_worker,
+    start_worker_if_enabled as start_irb_reviewer_sla_worker,
+)
+from app.workers.rotation_policy_advisor_snapshot_worker import (
+    shutdown_worker as shutdown_rotation_policy_advisor_snapshot_worker,
+    start_worker_if_enabled as start_rotation_policy_advisor_snapshot_worker,
 )
 from app.workers.caregiver_delivery_concern_aggregator_worker import (
     shutdown_worker as shutdown_caregiver_delivery_concern_aggregator_worker,
@@ -339,6 +385,12 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
     # admin can still manually invoke /tick at any time regardless of
     # the env flag.
     start_channel_auth_health_probe_worker()
+    # Rotation Policy Advisor Snapshot Worker (CSAHP5, 2026-05-02) — gated
+    # on ROTATION_POLICY_ADVISOR_SNAPSHOT_ENABLED so tests / CI don't
+    # generate snapshot rows unprompted. Daily snapshot of CSAHP4 advice
+    # cards so the CSAHP5 outcome-tracker can pair "card at T" with
+    # "card at T+14d" and report predictive accuracy.
+    start_rotation_policy_advisor_snapshot_worker()
     # Caregiver Delivery Concern Aggregator (2026-05-01) — gated on
     # DEEPSYNAPS_CG_CONCERN_AGGREGATOR_ENABLED so tests / CI don't fire
     # flags. Rolling-window scan that flags caregivers with N+ delivery
@@ -352,6 +404,14 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
     # DCRO1 measures (#393) → DCRO2 self-corrects (#397) → DCRO3 nudges.
     # Per-resolver opt-in lives on resolver_coaching_digest_preferences.opted_in.
     start_resolver_coaching_self_review_digest_worker()
+    # IRB Reviewer SLA Worker (IRB-AMD2, 2026-05-02) — gated on
+    # IRB_REVIEWER_SLA_ENABLED so tests / CI don't fire breach rows
+    # unprompted. Daily scan that surfaces per-reviewer queue snapshots
+    # for the IRB-AMD1 amendment workflow (#446) and emits a HIGH-priority
+    # queue_breach_detected audit row when a reviewer's queue exceeds
+    # the configured thresholds (default ≥5 pending for ≥7d). Closes
+    # "workflow exists" → "workflow has SLA enforcement".
+    start_irb_reviewer_sla_worker()
     try:
         yield
     finally:
@@ -360,8 +420,10 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
         shutdown_caregiver_email_digest_worker()
         shutdown_channel_misconfig_detector_worker()
         shutdown_channel_auth_health_probe_worker()
+        shutdown_rotation_policy_advisor_snapshot_worker()
         shutdown_caregiver_delivery_concern_aggregator_worker()
         shutdown_resolver_coaching_self_review_digest_worker()
+        shutdown_irb_reviewer_sla_worker()
 
 
 app = FastAPI(title=settings.api_title, version=settings.api_version, lifespan=lifespan)
@@ -396,6 +458,7 @@ app.include_router(marketplace_seller_router)
 app.include_router(virtual_care_router)
 app.include_router(forms_router)
 app.include_router(medications_router)
+app.include_router(nutrition_analyzer_router)
 app.include_router(consent_management_router)
 # Patient Home Program Tasks (Homework) launch-audit (2026-05-01).
 # Mounted BEFORE the clinician-side ``home_program_tasks_router`` so the
@@ -410,7 +473,14 @@ app.include_router(agent_skills_router)
 app.include_router(annotations_router)
 app.include_router(reminders_router)
 app.include_router(irb_router)
+app.include_router(clinical_trials_router)
 app.include_router(irb_manager_router)
+app.include_router(irb_amendment_workflow_router)
+app.include_router(irb_amendment_reviewer_workload_router)
+app.include_router(irb_amendment_reviewer_workload_outcome_tracker_router)
+app.include_router(reviewer_sla_calibration_threshold_tuning_router)
+app.include_router(qeeg_report_annotations_router)
+app.include_router(qeeg_annotation_outcome_tracker_router)
 app.include_router(literature_router)
 app.include_router(literature_watch_router)
 app.include_router(evidence_router)
@@ -512,6 +582,57 @@ app.include_router(channel_auth_health_probe_router)
 # DCA → DCR loop (#392 → #393) — admin-side resolution surface that the
 # worker honors so the same drift isn't re-flagged after rotation.
 app.include_router(channel_auth_drift_resolution_router)
+# Channel Auth Drift Resolution Audit Hub (CSAHP3, 2026-05-02). Cohort
+# dashboard built on the audit trail emitted by CSAHP1 (#417) and
+# CSAHP2 (#422). Mirrors the DCR2 → DCRO1 pattern (#392/#393): pure
+# read-side analytics, no migration, no worker. Surfaces the drift →
+# mark → confirm rotation funnel + per-channel time-to-rotate /
+# time-to-confirm + per-channel re-flag-within-30d rate (leading
+# indicator of credential storage / policy issues) + top rotators
+# leaderboard. Read-only, clinician minimum, strict cross-clinic
+# scoping. Page-level events: view, window_changed, top_rotators_view,
+# audit_hub_link_clicked.
+app.include_router(channel_auth_drift_resolution_audit_hub_router)
+# Auth Drift Rotation Policy Advisor (CSAHP4, 2026-05-02). Read-only
+# advisor surface that consumes CSAHP3's per-channel re-flag-rate /
+# manual-rotation-share / auth-error-class signals and emits heuristic
+# recommendation cards. No new audit rows, no schema, no worker —
+# pure presentation building on the leading-indicator signals CSAHP3
+# already exposes. Mirrors the DCRO5 / CSAHP3 read-only advisor pattern.
+app.include_router(auth_drift_rotation_policy_advisor_router)
+# Rotation Policy Advisor Outcome Tracker (CSAHP5, 2026-05-02). Closes
+# the section I rec from CSAHP4 (#428) — pair each advice card snapshot
+# at time T with the same-key snapshot at T+14d (±2d tolerance) and
+# compute per-advice-code predictive accuracy (card_disappeared_pct).
+# Backed by the daily CSAHP5 background snapshot worker (default-off,
+# opt-in via ROTATION_POLICY_ADVISOR_SNAPSHOT_ENABLED) which emits
+# advice_snapshot + snapshot_run audit rows for each clinic. Pure
+# read-side analytics on top of the existing audit_event_records table —
+# no new schema, no migration. Page-level events: view, window_changed,
+# run_snapshot_now_clicked, demo_banner_shown.
+app.include_router(rotation_policy_advisor_outcome_tracker_router)
+# Rotation Policy Advisor Threshold Tuning Console (CSAHP6, 2026-05-02).
+# Closes the recursion loop opened by CSAHP5 (#434). Lets admins propose
+# new thresholds for any of the 3 advice rules (REFLAG_HIGH /
+# MANUAL_REFLAG / AUTH_DOMINANT), replay them against the last 90 days
+# of frozen ``advice_snapshot`` rows, and adopt the new threshold when
+# the replay shows higher predictive accuracy. Adopted values take
+# effect immediately on the next CSAHP4 ``/advice`` call. Same
+# calibration chain logic, applied recursively to the heuristic itself.
+app.include_router(rotation_policy_advisor_threshold_tuning_router)
+# Rotation Policy Advisor Threshold Adoption Outcome Tracker (CSAHP7,
+# 2026-05-02). Closes the meta-loop on the meta-loop opened by CSAHP6
+# (#438): pair each ``threshold_adopted`` audit row at time T with the
+# same (advice_code, threshold_key) pair's measured predictive accuracy
+# at T+30d (post-adoption window) versus the baseline accuracy at T.
+# Did the adopted threshold actually move the needle in production?
+# Outcome classes: improved (delta >= +5pp) / regressed (<= -5pp) /
+# flat / pending (window not elapsed) / insufficient_data (<3 paired
+# cards in either window). Per-adopter calibration_score = (improved -
+# regressed) / total_adoptions. Pure read-side analytics on the
+# existing audit_event_records table — no new schema, no migration.
+# Page-level events: view, window_changed, list_filter_changed.
+app.include_router(rotation_policy_advisor_threshold_adoption_outcome_tracker_router)
 # Caregiver Delivery Concern Aggregator launch-audit (2026-05-01). Closes
 # section I rec from the Channel Misconfiguration Detector (#389).
 # Rolling-window scan that flags caregivers with N+ delivery concerns
@@ -646,6 +767,9 @@ app.include_router(team_router)
 app.include_router(preferences_router)
 app.include_router(data_privacy_router)
 app.include_router(risk_stratification_router)
+app.include_router(labs_analyzer_router)
+app.include_router(digital_phenotyping_router)
+app.include_router(movement_analyzer_router)
 app.include_router(qeeg_analysis_router)
 app.include_router(qeeg_live_router)
 app.include_router(qeeg_copilot_router)

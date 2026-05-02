@@ -10,6 +10,8 @@ import {
   voiceApiErrorToast,
   voicePipelineMetaBlock,
 } from './voice-decision-support.js';
+import { isDemoSession } from './demo-session.js';
+import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 
 const VA_LAST_ANALYSIS_KEY = 'ds_va_last_analysis_id';
 
@@ -118,6 +120,12 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
   });
 
   await _tryLoadPendingReport(statusEl, resultEl);
+
+  if (isDemoSession() && resultEl().style.display === 'none') {
+    resultEl().style.display = '';
+    resultEl().innerHTML = DEMO_FIXTURE_BANNER_HTML + _renderReportHtml(ANALYZER_DEMO_FIXTURES.voice);
+    statusEl().textContent = 'Showing demo report.';
+  }
 }
 
 function _persistLastAnalysisId(id) {
@@ -158,6 +166,14 @@ async function _tryLoadPendingReport(statusEl, resultEl) {
     statusEl().textContent = 'Showing stored report.';
     _persistLastAnalysisId(id);
   } catch (e) {
+    if (isDemoSession()) {
+      resultEl().style.display = '';
+      resultEl().innerHTML = DEMO_FIXTURE_BANNER_HTML + _renderReportHtml(ANALYZER_DEMO_FIXTURES.voice);
+      statusEl().textContent = 'Showing demo report.';
+      try { sessionStorage.removeItem(VA_LAST_ANALYSIS_KEY); } catch (_) {}
+      try { window._lastVoiceAnalysisId = null; } catch (_) {}
+      return;
+    }
     const t = voiceApiErrorToast(e);
     statusEl().textContent = '';
     resultEl().style.display = '';
