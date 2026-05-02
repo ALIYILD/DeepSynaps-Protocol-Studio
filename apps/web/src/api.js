@@ -434,6 +434,8 @@ export const api = {
   getPatientSessions: (patientId) => apiFetch(`/api/v1/patients/${patientId}/sessions`),
   getPatientCourse: (patientId) => apiFetch(`/api/v1/patients/${patientId}/courses`),
   getPatientCourses: (patientId) => apiFetch(`/api/v1/patients/${patientId}/courses`),
+  getTreatmentSessionsAnalyzer: (patientId) =>
+    apiFetch(`/api/v1/patients/${encodeURIComponent(patientId)}/treatment-sessions-analyzer`),
   getPatientAssessments: (patientId) => apiFetch(`/api/v1/patients/${patientId}/assessments`),
   getPatientReports: (patientId) => apiFetch(`/api/v1/patients/${patientId}/reports`),
   getPatientMessages: (patientId) => apiFetch(`/api/v1/patients/${patientId}/messages`),
