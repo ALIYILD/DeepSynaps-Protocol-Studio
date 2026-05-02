@@ -367,26 +367,57 @@ def _was_flagged_within_cooldown(
     now: datetime,
 ) -> bool:
     """Return True when a threshold-reached audit row already exists for this
-    (caregiver, clinic) newer than ``now - cooldown_hours``."""
+    (caregiver, clinic) newer than ``now - cooldown_hours`` AND that
+    flag has not been resolved by a later
+    ``caregiver_portal.delivery_concern_resolved`` row.
+
+    Resolution-aware cooldown skip (added 2026-05-02 to close the
+    Caregiver Delivery Concern Resolution #DCR1 loop): if the admin
+    cleared the flag via the resolution surface, the cooldown is
+    considered "consumed" — the worker is allowed to re-flag the
+    caregiver immediately if fresh concerns have come in. Without this,
+    a caregiver resolved by an admin would silently sit unflagged for
+    the remaining cooldown window even when their concern volume
+    spikes again.
+    """
     cutoff_iso = (now - timedelta(hours=cooldown_hours)).isoformat()
-    rows = (
+    flag_rows = (
         db.query(AuditEventRecord)
         .filter(
             AuditEventRecord.target_id == caregiver_user_id,
             AuditEventRecord.action == FLAG_ACTION,
             AuditEventRecord.created_at >= cutoff_iso,
         )
+        .order_by(AuditEventRecord.created_at.desc())
         .all()
     )
-    if not rows:
+    needle = f"clinic_id={clinic_id}" if clinic_id else None
+
+    # Pick the most recent flag row matching this (caregiver, clinic).
+    last_flag: Optional[AuditEventRecord] = None
+    for r in flag_rows:
+        if needle is None or needle in (r.note or ""):
+            last_flag = r
+            break
+    if last_flag is None:
         return False
-    if not clinic_id:
-        return True
-    needle = f"clinic_id={clinic_id}"
-    for r in rows:
-        if needle in (r.note or ""):
-            return True
-    return False
+
+    # Was there a resolution row newer than that flag? If yes — cooldown
+    # is consumed and the worker may flag again.
+    resolution_rows = (
+        db.query(AuditEventRecord)
+        .filter(
+            AuditEventRecord.target_id == caregiver_user_id,
+            AuditEventRecord.action == RESOLVE_ACTION,
+            AuditEventRecord.created_at >= (last_flag.created_at or ""),
+        )
+        .order_by(AuditEventRecord.created_at.desc())
+        .all()
+    )
+    for r in resolution_rows:
+        if needle is None or needle in (r.note or ""):
+            return False
+    return True
 
 
 def _was_resolved_after(

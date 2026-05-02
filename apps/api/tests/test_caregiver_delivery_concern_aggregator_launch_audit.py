@@ -720,13 +720,19 @@ class TestClinicianInboxSurfacing:
 
     def test_resolution_event_can_be_emitted(self) -> None:
         """The aggregator emits a HIGH-priority threshold-reached row
-        once. The resolution flow (out of scope for this worker — handled
-        by the admin-side review tab) emits a
+        once. The resolution flow (handled by the admin-side resolution
+        router #DCR1) emits a
         ``caregiver_portal.delivery_concern_resolved`` row that the
         Clinician Inbox aggregator's existing "resolved" predicate
-        clears. We assert the resolution row CAN be written and a fresh
-        worker tick respects the resolution by NOT re-flagging within
-        the cooldown window."""
+        clears.
+
+        Cooldown semantics (updated 2026-05-02 to close the DCR1 loop):
+        when a resolution row is newer than the most recent flag row,
+        the cooldown is "consumed" — the worker is allowed to re-flag
+        the caregiver if fresh concerns come in. We assert the
+        resolution row CAN be written and a fresh worker tick re-flags
+        because the resolution cleared the cooldown.
+        """
         from app.workers.caregiver_delivery_concern_aggregator_worker import (
             get_worker,
         )
@@ -757,14 +763,16 @@ class TestClinicianInboxSurfacing:
         )
         assert resolve_eid
 
-        # Re-tick — cooldown still in effect, so no duplicate flag.
+        # Re-tick — the resolution row consumes the cooldown so the
+        # worker re-flags the caregiver (the same fresh concerns are
+        # still in the rolling window). DCR1 loop verified.
         db = SessionLocal()
         try:
             r2 = worker.tick(db, only_clinic_id="clinic-demo-default")
         finally:
             db.close()
-        assert r2.caregivers_flagged == 0
-        assert r2.skipped_cooldown >= 1
+        assert r2.caregivers_flagged == 1
+        assert r2.skipped_cooldown == 0
 
 
 # ── 9. Empty clinic ─────────────────────────────────────────────────────────

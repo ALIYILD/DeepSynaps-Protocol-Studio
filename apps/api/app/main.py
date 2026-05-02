@@ -121,6 +121,9 @@ from app.routers.channel_misconfiguration_detector_router import (
 from app.routers.caregiver_delivery_concern_aggregator_router import (
     router as caregiver_delivery_concern_aggregator_router,
 )
+from app.routers.caregiver_delivery_concern_resolution_router import (
+    router as caregiver_delivery_concern_resolution_router,
+)
 from app.routers.audit_trail_router import router as audit_trail_router
 # Settings API routers (foundation scaffolded by backend subagent #1; endpoints
 # fleshed out by backend subagents #3–#6). See apps/api/SETTINGS_API_DESIGN.md.
@@ -449,6 +452,13 @@ app.include_router(channel_misconfiguration_detector_router)
 # priority audit row so admins see recurring delivery problems via the
 # Clinician Inbox aggregator (#354) without per-caregiver drill-down.
 app.include_router(caregiver_delivery_concern_aggregator_router)
+# Caregiver Delivery Concern Resolution launch-audit (2026-05-02). Closes
+# the DCA loop opened by #390 — admin-side "Mark as resolved" surface
+# inside the Care Team Coverage "Caregiver channels" tab. Emits
+# ``caregiver_portal.delivery_concern_resolved`` audit rows that the DCA
+# worker consults so resolved caregivers are not re-flagged inside the
+# cooldown window. Pure CRUD/action router; no companion worker.
+app.include_router(caregiver_delivery_concern_resolution_router)
 # Escalation Policy Editor (2026-05-01) — admin-only configurable
 # dispatch order + per-surface override matrix + per-user contact mapping.
 # Replaces the hard-coded DEFAULT_ADAPTER_ORDER and contact_handle path
