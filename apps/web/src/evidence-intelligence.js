@@ -11,6 +11,12 @@ export const EVIDENCE_TARGETS = {
   mri: { target_name: 'hippocampal_atrophy', context_type: 'biomarker', modality: 'mri', diagnosis: 'mci' },
   voice: { target_name: 'voice_affect', context_type: 'multimodal_summary', modality: 'voice', diagnosis: 'depression' },
   video: { target_name: 'video_affect', context_type: 'multimodal_summary', modality: 'video', diagnosis: 'anxiety' },
+  /** Video Analyzer kinematics — keys align with packages/video-pipeline evidence_catalog task links */
+  video_gait_kinematics: { target_name: 'video_gait_kinematics', context_type: 'biomarker', modality: 'video', diagnosis: 'post-stroke-motor' },
+  video_bradykinesia_proxy: { target_name: 'video_bradykinesia_proxy', context_type: 'biomarker', modality: 'video', diagnosis: 'parkinsons-motor' },
+  video_tremor_frequency_proxy: { target_name: 'video_tremor_frequency_proxy', context_type: 'biomarker', modality: 'video', diagnosis: 'essential-tremor' },
+  video_postural_sway_proxy: { target_name: 'video_postural_sway_proxy', context_type: 'biomarker', modality: 'video', diagnosis: 'parkinsons-motor' },
+  video_room_monitoring: { target_name: 'video_room_monitoring', context_type: 'safety_signal', modality: 'video', diagnosis: 'alzheimers-dementia' },
   text: { target_name: 'text_sentiment', context_type: 'multimodal_summary', modality: 'text', diagnosis: 'depression' },
   depression: { target_name: 'depression_risk', context_type: 'prediction', modality: 'assessment', diagnosis: 'depression' },
   anxiety: { target_name: 'anxiety_risk', context_type: 'risk_score', modality: 'assessment', diagnosis: 'anxiety' },

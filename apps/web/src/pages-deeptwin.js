@@ -449,13 +449,15 @@ async function _renderActiveTab(setTopbar) {
   const active = STATE.activeTab || 'overview';
   if (active === '360') {
     _setMain(`<div class="dt-page">${_renderTabStrip('360')}${renderDashboard360Skeleton()}</div>`);
+    _wireTabStrip();
     try {
       const payload = await loadDashboard360(patientId);
       const root = document.getElementById('dt360-root');
       if (root) root.outerHTML = renderDashboard360(payload);
-      wireDashboard360Actions();
+      wireDashboard360Actions(payload);
     } catch (e) {
       _setMain(`<div class="dt-page">${_renderTabStrip('360')}${errorBlock('Failed to load 360 dashboard: ' + (e.message || e))}${renderSafetyFooter()}</div>`);
+      _wireTabStrip();
     }
     return;
   }
@@ -479,6 +481,7 @@ async function _renderActiveTab(setTopbar) {
         ${renderSafetyFooter()}
       </div>
     `);
+    _wireTabStrip();
     return;
   }
   // overview (default) — original full layout
@@ -496,6 +499,7 @@ export async function pgDeeptwin(setTopbar /* , navigate */) {
 
   if (!patientId) {
     _setMain(`<div class="dt-page">${_renderTabStrip(STATE.activeTab)}${decisionSupportBanner()}${emptyPatientBlock()}${renderSafetyFooter()}</div>`);
+    _wireTabStrip(setTopbar);
     return;
   }
 
@@ -506,5 +510,6 @@ export async function pgDeeptwin(setTopbar /* , navigate */) {
     _wireTabStrip(setTopbar);
   } catch (e) {
     _setMain(`<div class="dt-page">${_renderTabStrip(STATE.activeTab)}${decisionSupportBanner()}${errorBlock('Failed to load DeepTwin: ' + (e.message || e))}${renderSafetyFooter()}</div>`);
+    _wireTabStrip(setTopbar);
   }
 }

@@ -11,12 +11,20 @@ from deepsynaps_core_schema import (
     QEEGConditionMapListResponse,
 )
 
-from app.services.clinical_data import _read_csv_records, _split_values
-from app.settings import CLINICAL_DATA_ROOT
+# Re-export shim — see docs/adr/0009-registry-packages.md.
+# The CSV filename constants and the _read_csv_records primitive moved to
+# packages/clinical-data-registry. We import them here so existing call
+# sites (`from app.services.neuro_csv import _BRAIN_REGIONS_FILE`) keep
+# working until the shim is dropped in PR-C.
+from clinical_data_registry import (  # noqa: F401  (public re-exports)
+    _BRAIN_REGIONS_FILE,
+    _QEEG_BIOMARKERS_FILE,
+    _QEEG_CONDITION_MAP_FILE,
+    _read_csv_records,
+)
 
-_BRAIN_REGIONS_FILE = "brain_regions.csv"
-_QEEG_BIOMARKERS_FILE = "qeeg_biomarkers.csv"
-_QEEG_CONDITION_MAP_FILE = "qeeg_condition_map.csv"
+from app.services.clinical_data import _split_values
+from app.settings import CLINICAL_DATA_ROOT
 
 
 @lru_cache(maxsize=1)

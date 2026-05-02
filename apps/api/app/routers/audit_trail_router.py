@@ -240,6 +240,260 @@ KNOWN_SURFACES = {
     # audit_events and stores acknowledgements as their own audit rows so
     # the regulator audit transcript stays single-sourced.
     "clinician_inbox",
+    # Care Team Coverage / Staff Scheduling launch-audit (2026-05-01).
+    # Owns the on-call schedule + per-surface SLA + escalation chain that
+    # turn Clinician Inbox HIGH-priority predicate breaches into a real
+    # human page. Events: view, roster_viewed, roster_edited,
+    # sla_config_viewed, sla_edited, chain_viewed, chain_edited,
+    # oncall_viewed, sla_breaches_viewed, manual_page_fired,
+    # auto_page_fired. The page-on-call action itself is recorded under
+    # the existing ``clinician_inbox`` surface as
+    # ``inbox.item_paged_to_oncall`` so the Inbox audit transcript stays
+    # the single source of truth for "an item was paged".
+    "care_team_coverage",
+    # Clinician Adherence Hub launch-audit (2026-05-01). Bidirectional
+    # counterpart to the patient-facing ``adherence_events`` surface added
+    # in #350. The patient surface records what the PATIENT does on the
+    # adherence page (log, side-effect, escalate-to-clinician); the
+    # ``clinician_adherence_hub`` surface records what the CLINICIAN does
+    # on the cross-patient triage queue: view, events_listed, summary_viewed,
+    # event_viewed, event_acknowledged, event_escalated (HIGH-priority —
+    # creates AdverseEvent draft visible across the clinic), event_resolved,
+    # bulk_acknowledged, export, deep_link_followed, demo_banner_shown.
+    # The escalate flow mirrors the regulatory chain already used by
+    # Wearables Workbench #353 → AE Hub #342, so an adherence event that a
+    # clinician deems clinically meaningful can graduate into an
+    # AdverseEvent without dropping audit continuity. Resolved events are
+    # immutable — any subsequent state change attempts return 409 so the
+    # regulator sees a clean ack → escalate (optional) → resolve transcript
+    # per row.
+    "clinician_adherence_hub",
+    # Clinician Wellness Hub launch-audit (2026-05-01). Bidirectional
+    # counterpart to the patient-facing ``wellness_hub`` surface added in
+    # #345. The patient surface records what the PATIENT does on the
+    # wellness page (log check-in, share, soft-delete); the
+    # ``clinician_wellness_hub`` surface records what the CLINICIAN does
+    # on the cross-patient triage queue: view, checkins_listed,
+    # summary_viewed, checkin_viewed, checkin_acknowledged,
+    # checkin_escalated (HIGH-priority — creates AdverseEvent draft visible
+    # across the clinic), checkin_resolved, bulk_acknowledged, export,
+    # deep_link_followed, demo_banner_shown. The escalate flow mirrors the
+    # regulatory chain already used by Clinician Adherence Hub #361 → AE
+    # Hub #342, so a wellness check-in flagged by the deterministic
+    # severity-band rule (anxiety/pain >= 7 OR mood <= 3) can graduate
+    # into an AdverseEvent without dropping audit continuity. Resolved
+    # check-ins are immutable — any subsequent state change attempts
+    # return 409 so the regulator sees a clean ack → escalate (optional)
+    # → resolve transcript per row.
+    "clinician_wellness_hub",
+    # Clinician Notifications Pulse / Daily Digest launch-audit (2026-05-01).
+    # End-of-shift summary across the four clinician hubs (Inbox #354,
+    # Wearables Workbench #353, Adherence Hub #361, Wellness Hub #365)
+    # plus AE Hub #342 escalations. Page-level surface that records
+    # what the on-call clinician did with the digest: view,
+    # summary_viewed, sections_viewed, events_listed, filter_changed,
+    # date_range_changed, drill_out, email_initiated, email_sent,
+    # colleague_share_initiated, colleague_shared, export,
+    # demo_banner_shown. Email + colleague-share record a regulator-
+    # credible audit row even though SMTP / Slack / pager wire-up is
+    # documented as out-of-scope (delivery_status='queued') — the audit
+    # row is enough to prove intent, recipient, and headline counts.
+    "clinician_digest",
+    # Auto-Page Worker launch-audit (2026-05-01). Closes the real-time
+    # half of the Care Team Coverage launch loop (#357). Background
+    # worker scans SLA breaches every 60s and fires the same
+    # page-oncall handler the manual button uses (in-process, not HTTP
+    # roundtrip). Page-level events recorded here: view, polling_tick,
+    # status_viewed, start_clicked, stop_clicked, tick_once_clicked,
+    # filter_changed, demo_banner_shown. The auto-fired page itself is
+    # recorded as ``inbox.item_paged_to_oncall`` under the existing
+    # ``clinician_inbox`` whitelist entry (single-sourced with the
+    # manual page-on-call so the regulator transcript stays consistent).
+    # Each cron tick also emits ONE ``auto_page_worker.tick`` row with
+    # note encoding clinics_scanned/breaches_found/paged/skipped_cooldown/
+    # errors/elapsed_ms so ops gets a per-tick transcript without
+    # scanning oncall_pages. delivery_status='queued' until a real
+    # Slack/Twilio/PagerDuty adapter is wired (PR section F).
+    "auto_page_worker",
+    # On-Call Delivery launch-audit (2026-05-01). Closes the LAST gap in
+    # the on-call escalation chain (Care Team Coverage #357 → Auto-Page
+    # Worker #372 → THIS surface). Records each adapter dispatch attempt
+    # under target_type='oncall_delivery' so regulators see a per-attempt
+    # transcript: which adapter (slack|twilio|pagerduty), what status
+    # (sent|failed|queued|mock), the provider-side message id (Slack ts,
+    # Twilio SID, PagerDuty dedup_key), and any failure reason. The page
+    # row itself is still recorded under ``clinician_inbox`` as
+    # ``inbox.item_paged_to_oncall`` (single-sourced); this surface is
+    # ONLY for the per-adapter delivery telemetry. Events: dispatch,
+    # adapter_test, adapter_failed, mock_send.
+    "oncall_delivery",
+    # Escalation Policy Editor launch-audit (2026-05-01). Closes the LAST
+    # operational gap of the on-call escalation chain (#357 → #372 →
+    # #373 → THIS PR). Records every admin edit to the per-clinic
+    # dispatch order, per-surface override matrix, and per-user contact
+    # mapping (Slack / PagerDuty / Twilio). Events: view,
+    # dispatch_order_viewed, dispatch_order_changed,
+    # surface_overrides_viewed, override_changed, user_mappings_viewed,
+    # user_mapping_changed, policy_tested. Each row carries the policy
+    # version so reviewers can correlate a delivery attempt with the
+    # exact policy that was active at the time.
+    "escalation_policy",
+    # Patient On-Call Visibility launch-audit (2026-05-01). Patient-facing
+    # surface — read-only "Care team contact" card on the Patient Profile
+    # that shows abstract on-call state (coverage_hours, in_hours_now,
+    # urgent_path) WITHOUT exposing any PHI of the on-call clinician
+    # (no name, phone, Slack handle, or PagerDuty user-id). Events: view,
+    # oncall_status_seen, urgent_message_started, learn_more_clicked,
+    # demo_banner_shown. Closes the patient-side complement to the
+    # admin-side Escalation Policy editor (#374) — admins control the
+    # dispatch order, patients see WHEN they will reach a clinician and
+    # HOW to escalate without ever seeing the clinician's identity.
+    "patient_oncall_visibility",
+    # Patient Digest launch-audit (2026-05-01). Patient-side mirror of the
+    # Clinician Digest (#366). Daily/weekly self-summary the patient sees
+    # on demand: sessions completed, adherence streak, wellness trends,
+    # pending messages, recent reports. Scoped to actor.patient_id; NO PHI
+    # of OTHER patients leaks. Events: view, summary_viewed,
+    # sections_viewed, date_range_changed, section_drill_out,
+    # email_initiated, email_sent, caregiver_share_initiated,
+    # caregiver_shared, export, demo_banner_shown.
+    "patient_digest",
+    # Caregiver Consent Grants launch-audit (2026-05-01). Closes the
+    # caregiver-share loop opened by Patient Digest #376. Records every
+    # grant lifecycle event (grant_created, grant_updated, grant_revoked,
+    # grants_listed, grant_viewed, by_caregiver_listed) plus page-level
+    # breadcrumbs (view, grant_form_opened, revoke_form_opened,
+    # demo_banner_shown). The mutation events also feed the Patient
+    # Digest share-caregiver flow — when ``has_active_grant`` returns a
+    # row with ``scope.digest=True`` the digest endpoint flips
+    # ``delivery_status='sent'`` and emits a clinician-visible audit row
+    # carrying the grant_id, granted_at, caregiver_user_id, and scope so
+    # the regulator transcript joins the digest send to its consent
+    # provenance.
+    "caregiver_consent",
+    # Caregiver Portal launch-audit (2026-05-01). Caregiver-side viewer
+    # surface for ``pgPatientCaregiver`` — distinct from the patient-side
+    # ``caregiver_consent`` so the regulator transcript can cleanly
+    # separate "patient granted X" rows from "caregiver actually viewed X"
+    # rows. Events: view, demo_banner_shown, revocation_acknowledged,
+    # revocation_acknowledged_duplicate, grant_accessed,
+    # grant_accessed_after_revocation, grant_accessed_out_of_scope,
+    # digest_view_clicked_ui, messages_view_clicked_ui. The
+    # acknowledge-revocation + access-log endpoints emit grant_id +
+    # patient_id in the audit note so the patient's audit trail joins
+    # caregiver-side activity to the grant they own.
+    "caregiver_portal",
+    # Caregiver Email Digest launch-audit (2026-05-01). Closes the
+    # bidirectional notification loop opened by Caregiver Notification
+    # Hub #379. Daily roll-up dispatch of unread caregiver
+    # notifications via the on-call delivery adapters (#373) in mock
+    # mode unless real env vars are set. Page-level events recorded
+    # here: view, preview_loaded, send_now_clicked,
+    # preferences_form_opened, frequency_changed_ui,
+    # time_of_day_changed_ui, demo_banner_shown. Each cron tick emits
+    # ONE ``caregiver_email_digest_worker.tick`` row with note encoding
+    # caregivers_processed/digests_sent/skipped_*/errors/elapsed_ms so
+    # ops gets a per-tick transcript without scanning audit_event_records.
+    # Per-caregiver dispatches additionally emit a
+    # ``caregiver_portal.email_digest_sent`` row (single-sourced with
+    # the manual send-now handler so the regulator transcript stays
+    # consistent across worker + portal triggers).
+    "caregiver_email_digest_worker",
+    # Channel Misconfiguration Detector launch-audit (2026-05-01). Closes
+    # section I rec from the Clinic Caregiver Channel Override #387.
+    # Nightly worker walks every ``CaregiverDigestPreference`` row,
+    # evaluates ``adapter_available`` per row, and emits a HIGH-priority
+    # ``caregiver_portal.channel_misconfigured_detected`` audit row when
+    # the caregiver's preferred channel adapter is unavailable AND no
+    # successful delivery has been observed in the last 24h. The
+    # priority=high marker auto-routes the row into the Clinician Inbox
+    # aggregator (#354) so admins don't have to discover the misconfig
+    # manually by opening the "Caregiver channels" tab. Per-tick row
+    # encodes caregivers_scanned/misconfigs_flagged/skipped_*/errors/
+    # elapsed_ms; cooldown per (caregiver, clinic) prevents duplicate
+    # flags within 24h. Page-level events recorded here: view,
+    # polling_tick, status_viewed, run_now_clicked, tick_once_clicked,
+    # filter_changed, demo_banner_shown.
+    "channel_misconfiguration_detector",
+    # Caregiver Delivery Concern Aggregator launch-audit (2026-05-01).
+    # Closes section I rec from #389. Rolling-window worker groups every
+    # delivery-concern audit row in the last N hours by (caregiver_user_id,
+    # clinic_id), and emits a HIGH-priority
+    # ``caregiver_portal.delivery_concern_threshold_reached`` row when
+    # the per-caregiver count meets the configured threshold (default 3
+    # in 7d). The priority=high marker auto-routes the row into the
+    # Clinician Inbox aggregator (#354) so admins see recurring delivery
+    # problems without per-caregiver drill-down. Per-tick row encodes
+    # concerns_scanned/caregivers_evaluated/caregivers_flagged/skipped_*/
+    # errors/elapsed_ms; cooldown per (caregiver, clinic) prevents
+    # duplicate flags within 72h. Page-level events recorded here: view,
+    # polling_tick, status_viewed, run_now_clicked, tick_clicked,
+    # filter_changed, demo_banner_shown.
+    "caregiver_delivery_concern_aggregator",
+    # Caregiver Delivery Concern Resolution launch-audit (2026-05-02).
+    # Closes the DCA loop opened by #390. Admin-side "Mark as resolved"
+    # surface inside the Care Team Coverage "Caregiver channels" tab.
+    # Emits ``caregiver_portal.delivery_concern_resolved`` audit rows
+    # that the DCA worker consults so resolved caregivers are not
+    # re-flagged inside the cooldown window. Page-level events recorded
+    # here: view, resolve_clicked, resolve_modal_opened, resolve_submitted,
+    # resolve_failed, list_filter_changed, demo_banner_shown.
+    "caregiver_delivery_concern_resolution",
+    # Caregiver Delivery Concern Resolution Audit Hub launch-audit (DCR2,
+    # 2026-05-02). Cohort dashboard surface — distribution of resolution
+    # reasons over time, top resolvers, median time-to-resolve, and
+    # filterable list of resolved rows. Page-level events: view,
+    # window_changed, reason_filter_changed, page_changed, export.
+    "caregiver_delivery_concern_resolution_audit_hub",
+    # Caregiver Delivery Concern Resolution Outcome Tracker launch-audit
+    # (DCRO1, 2026-05-02). Calibration-accuracy dashboard built on the
+    # DCR1 + DCR2 audit trail. Pairs each
+    # ``caregiver_portal.delivery_concern_resolved`` row with the NEXT
+    # ``caregiver_portal.delivery_concern_threshold_reached`` row for
+    # the same caregiver to record stayed_resolved vs
+    # re_flagged_within_30d, then computes per-resolver calibration
+    # accuracy: when an admin marks "false_positive", does the DCA
+    # worker re-flag them within 30 days? Page-level events: view,
+    # window_changed, min_resolutions_changed.
+    "caregiver_delivery_concern_resolution_outcome_tracker",
+    # Resolver Coaching Inbox launch-audit (DCRO2, 2026-05-02). Private,
+    # read-only inbox view per resolver showing their wrong false_positive
+    # calls (resolutions where the resolver said "false_positive" but the
+    # DCA worker re-flagged the same caregiver within 30 days). Page-level
+    # events: view, self_review_note_filed, window_changed.
+    "resolver_coaching_inbox",
+    # Resolver Coaching Self-Review Digest Worker (DCRO3, 2026-05-02). Weekly
+    # opt-in digest worker that bundles each resolver's un-self-reviewed wrong
+    # false_positive calls and dispatches via the resolver's preferred
+    # on-call channel (Slack DM / Twilio SMS / SendGrid email / PagerDuty)
+    # reusing the EscalationPolicy + oncall_delivery adapters from #374.
+    # Honest opt-in default off at both system + per-resolver level. Closes
+    # the loop end-to-end: DCRO1 measures → DCRO2 self-corrects → DCRO3
+    # nudges. Page-level events: tick, dispatched, preference_updated,
+    # tick_clicked, status_viewed.
+    "resolver_coaching_self_review_digest",
+    # Resolver Coaching Digest Audit Hub launch-audit (DCRO4, 2026-05-02).
+    # Admin cohort dashboard over the DCRO3 dispatched audit row stream:
+    # opted-in / opted-out splits, by-channel dispatch tallies, delivery
+    # success vs failure rate, and per-resolver weekly wrong-call
+    # backlog trajectory (shrinking / flat / growing). Read-only — no
+    # companion worker. Closes the resolver-side coaching loop end-to-
+    # end. Page-level events: view, window_changed, trajectory_viewed.
+    "resolver_coaching_digest_audit_hub",
+    # Coaching Digest Delivery Failure Drilldown launch-audit (DCRO5,
+    # 2026-05-02). Operational drill-down over the DCRO3 dispatched
+    # audit row stream filtered to delivery_status=failed and grouped
+    # by (channel, error_class). Page surfaces a per-channel + per-
+    # error_class breakdown, top-5 leaderboard, weekly trend, and a
+    # paginated list of failed dispatches each annotated with
+    # has_matching_misconfig_flag — true when a
+    # ``caregiver_portal.channel_misconfigured_detected`` row exists in
+    # the same ISO week + clinic + channel; that boolean drives the
+    # click-through to the Channel Misconfig Detector (#389). Read-only;
+    # no companion worker; reuses the existing DCRO3 audit row stream.
+    # Page-level events: view, window_changed, channel_filter_changed,
+    # error_class_filter_changed, page_changed, drill_through_clicked.
+    "coaching_digest_delivery_failure_drilldown",
 }
 
 

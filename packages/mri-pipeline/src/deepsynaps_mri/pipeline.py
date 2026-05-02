@@ -36,6 +36,7 @@ from . import qc as qc_mod
 from . import registration as reg_mod
 from . import structural as struct_mod
 from . import targeting as tgt_mod
+from .pipeline_manifests import write_stage_manifest
 from .schemas import (
     MedRAGFinding,
     MedRAGQuery,
@@ -140,6 +141,30 @@ def run_pipeline(
         if "DTI" in ctx.scans or "DWI" in ctx.scans:
             modalities_present.append(Modality.DTI)
 
+        write_stage_manifest(
+            out_dir / "artefacts",
+            "ingest",
+            {
+                "tool": "deepsynaps_mri.io.ingest",
+                "session_dir": str(ctx.session_dir.resolve()),
+                "nifti_output_dir": str((out_dir / "artefacts" / "nifti").resolve()),
+                "pseudo_patient_id": patient.patient_id,
+                "n_scans": len(scans_list),
+                "scans": [
+                    {
+                        "modality_guess": s.modality_guess,
+                        "nifti_path": str(Path(s.nifti_path).resolve()),
+                        "n_volumes": s.n_volumes,
+                        "sidecar_path": str(Path(s.sidecar_path).resolve())
+                        if s.sidecar_path
+                        else None,
+                    }
+                    for s in scans_list
+                ],
+                "canonical_keys": dict(ctx.scans),
+            },
+        )
+
         # ── Radiology screening layer (AI_UPGRADES §P0 #5) ──────────────
         # MRIQC IQMs + incidental-finding triage run at the earliest point
         # after ingest. Results populate QCMetrics.mriqc / .incidental. A
@@ -164,6 +189,16 @@ def run_pipeline(
         t1_mni_path = out_dir / "artefacts" / "t1_mni.nii.gz"
         xfm.warped_moving.to_filename(str(t1_mni_path))
         ctx.t1_mni_path = t1_mni_path
+        try:
+            reg_mod.write_registration_manifest(
+                out_dir / "artefacts",
+                moving_t1_path=ctx.scans["T1"],
+                warped_mni_path=t1_mni_path,
+                xfm=xfm,
+                transform_type="SyN",
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("registration manifest skipped: %s", exc)
 
     # 3. STRUCTURAL
     if "structural" in stages and "T1" in ctx.scans:
@@ -178,6 +213,7 @@ def run_pipeline(
                 seg_result,
                 age=float(patient.age) if patient.age else None,
                 sex=patient.sex.value if patient.sex else None,
+                artefacts_root=out_dir / "artefacts",
             )
         except Exception as e:                              # noqa: BLE001
             log.warning("structural stage failed: %s", e)
@@ -276,18 +312,6 @@ def run_pipeline(
 
     from .clinical_summary import build_clinical_summary
 
-    clinical_summary = build_clinical_summary(
-        patient=patient,
-        modalities_present=modalities_present,
-        qc=ctx.qc,
-        structural=struct_metrics,
-        functional=func_metrics,
-        diffusion=diff_metrics,
-        stim_targets=stim_targets,
-        medrag_query=medrag_q,
-        qc_warnings=qc_warnings,
-    )
-
     report = MRIReport(
         analysis_id=uuid4(),
         patient=patient,
@@ -300,8 +324,10 @@ def run_pipeline(
         medrag_query=medrag_q,
         overlays=overlays,
         qc_warnings=qc_warnings,
-        clinical_summary=clinical_summary,
+        clinical_summary={},
     )
+    clinical_summary = build_clinical_summary(report)
+    report = report.model_copy(update={"clinical_summary": clinical_summary})
     ctx.report = report
 
     # 9. REPORT (HTML + PDF) — deferred import to avoid weasyprint cost at CLI boot

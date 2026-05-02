@@ -174,6 +174,7 @@ test('regulatory footer appears in every rendered view', () => {
   assert.match(loadedView, /ds-mri-footer-regulatory/);
   assert.match(loadedView, /For neuronavigation planning only\./);
 
+  // Demo banner (explicit flag — matches Netlify preview labelling)
   const demoBannerView = renderFullView({ report: DEMO_MRI_REPORT, showDemoBanner: true });
   assert.match(demoBannerView, /data-testid="mri-demo-banner"/);
   assert.match(demoBannerView, /Sample MRI analysis/);
@@ -204,7 +205,7 @@ test('auto-demo populates _report from DEMO_MRI_REPORT when demo mode is on', as
     assert.equal(state.jobId, 'demo');
     const fullAfterDemo = renderFullView({ report: state.report });
     assert.match(fullAfterDemo, /data-testid="mri-demo-banner"/,
-      'banner when loaded analysis is the canned demo report');
+      'banner should appear when module state reflects canned demo analysis');
   } else {
     // If env says demo is off, report should remain null.
     assert.equal(state.report, null);

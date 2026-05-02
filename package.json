@@ -3,7 +3,8 @@
   "private": true,
   "version": "0.1.0",
   "workspaces": [
-    "apps/web"
+    "apps/web",
+    "packages/api-client"
   ],
   "scripts": {
     "build": "npm run build:web",
@@ -12,6 +13,8 @@
     "build:web": "npm run build --workspace @deepsynaps/web",
     "lint:web": "npm run lint --workspace @deepsynaps/web",
     "test:web": "npm run test --workspace @deepsynaps/web",
+    "api-client:generate": "npm run generate --workspace @deepsynaps/api-client",
+    "api-client:check-drift": "npm run check:drift --workspace @deepsynaps/api-client",
     "overnight:summary": ".\\.venv\\Scripts\\python.exe scripts/generate_overnight_swarm_summary.py"
   },
   "dependencies": {
