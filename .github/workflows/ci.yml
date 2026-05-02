@@ -221,6 +221,24 @@ jobs:
         working-directory: apps/worker
         run: python -m pytest -q --tb=short
 
+  router-schema-lint:
+    name: Router Schema Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Lint routers for top-level BaseModel declarations
+        # Architect Rec #5 PR-A: payload types belong in
+        # packages/core-schema, not inside FastAPI routers. The linter
+        # is AST-only (no imports) and runs in well under 5s. The
+        # frozen allowlist at tools/router_basemodel_allowlist.txt lets
+        # the legacy 102 routers pass on day one; future PRs migrate
+        # types to packages/core-schema and shrink the allowlist.
+        run: python3 tools/lint_router_basemodel.py
+
   api-image-smoke:
     name: API Image Smoke
     runs-on: ubuntu-latest
