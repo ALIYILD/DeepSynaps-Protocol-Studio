@@ -14,7 +14,6 @@ apps/api/app/routers/agents_router.py
 apps/api/app/routers/annotations_router.py
 apps/api/app/routers/assessments_router.py
 apps/api/app/routers/audit_trail_router.py
-apps/api/app/routers/auth_router.py
 apps/api/app/routers/auto_page_worker_router.py
 apps/api/app/routers/care_team_coverage_router.py
 apps/api/app/routers/caregiver_consent_router.py
