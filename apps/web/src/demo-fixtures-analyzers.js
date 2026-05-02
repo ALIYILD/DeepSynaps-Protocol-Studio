@@ -351,6 +351,118 @@ const _VIDEO = {
   notes: 'All 5 guided tasks captured cleanly. Clinician review complete.',
 };
 
+const _MED_PATIENT_REGIMENS = {
+  'demo-pt-samantha-li': [
+    { id: 'demo-med-sam-1', patient_id: 'demo-pt-samantha-li', name: 'Sertraline',  generic_name: 'sertraline',  dose: '100 mg', frequency: 'once daily',   route: 'PO', prescriber: 'Dr. A. Yildirim', started_at: '2025-11-04', active: true },
+    { id: 'demo-med-sam-2', patient_id: 'demo-pt-samantha-li', name: 'Tramadol',    generic_name: 'tramadol',    dose: '50 mg',  frequency: 'twice daily',  route: 'PO', prescriber: 'Dr. A. Yildirim', started_at: '2026-03-21', active: true },
+    { id: 'demo-med-sam-3', patient_id: 'demo-pt-samantha-li', name: 'Melatonin',   generic_name: 'melatonin',   dose: '3 mg',   frequency: 'at bedtime',   route: 'PO', prescriber: 'Self-initiated',  started_at: '2026-02-12', active: true },
+  ],
+  'demo-pt-marcus-chen': [
+    { id: 'demo-med-mar-1', patient_id: 'demo-pt-marcus-chen', name: 'Sertraline',  generic_name: 'sertraline',  dose: '100 mg', frequency: 'once daily',   route: 'PO', prescriber: 'Dr. A. Yildirim', started_at: '2025-09-02', active: true },
+    { id: 'demo-med-mar-2', patient_id: 'demo-pt-marcus-chen', name: 'Melatonin',   generic_name: 'melatonin',   dose: '3 mg',   frequency: 'at bedtime',   route: 'PO', prescriber: 'Dr. A. Yildirim', started_at: '2026-01-15', active: true },
+  ],
+  'demo-pt-elena-vasquez': [
+    { id: 'demo-med-ele-1', patient_id: 'demo-pt-elena-vasquez', name: 'Warfarin',     generic_name: 'warfarin',     dose: '5 mg',  frequency: 'once daily',  route: 'PO', prescriber: 'Dr. R. Patel',     started_at: '2024-06-19', active: true },
+    { id: 'demo-med-ele-2', patient_id: 'demo-pt-elena-vasquez', name: 'Ibuprofen',    generic_name: 'ibuprofen',    dose: '400 mg', frequency: 'three times daily', route: 'PO', prescriber: 'Self-initiated', started_at: '2026-04-08', active: true },
+    { id: 'demo-med-ele-3', patient_id: 'demo-pt-elena-vasquez', name: 'Amitriptyline',generic_name: 'amitriptyline',dose: '25 mg',  frequency: 'at bedtime',  route: 'PO', prescriber: 'Dr. A. Yildirim', started_at: '2025-12-01', active: true },
+    { id: 'demo-med-ele-4', patient_id: 'demo-pt-elena-vasquez', name: 'Pregabalin',   generic_name: 'pregabalin',   dose: '75 mg',  frequency: 'twice daily', route: 'PO', prescriber: 'Dr. A. Yildirim', started_at: '2025-10-12', active: true },
+  ],
+};
+
+const _MED_INTERACTION_RESULTS = {
+  'demo-pt-samantha-li': {
+    medications_checked: ['Sertraline', 'Tramadol', 'Melatonin'],
+    interactions: [
+      {
+        drugs: ['sertraline', 'tramadol'],
+        severity: 'moderate',
+        description: 'Co-administration of an SSRI with tramadol increases the risk of serotonin syndrome via additive serotonergic activity.',
+        recommendation: 'Monitor for tremor, hyperreflexia, agitation, hyperthermia. Consider non-opioid analgesia or reduce tramadol dose; counsel patient on warning signs.',
+      },
+    ],
+    severity_summary: 'moderate',
+  },
+  'demo-pt-marcus-chen': {
+    medications_checked: ['Sertraline', 'Melatonin'],
+    interactions: [],
+    severity_summary: 'none',
+  },
+  'demo-pt-elena-vasquez': {
+    medications_checked: ['Warfarin', 'Ibuprofen', 'Amitriptyline', 'Pregabalin'],
+    interactions: [
+      {
+        drugs: ['warfarin', 'ibuprofen'],
+        severity: 'severe',
+        description: 'NSAIDs displace warfarin from plasma protein binding and inhibit platelet aggregation, substantially increasing major-bleed risk (GI and intracranial).',
+        recommendation: 'Stop ibuprofen. Switch to paracetamol or topical NSAID. If continued use is unavoidable, add gastroprotection and re-check INR within 3–5 days.',
+      },
+      {
+        drugs: ['amitriptyline', 'pregabalin'],
+        severity: 'mild',
+        description: 'Additive CNS depression and anticholinergic load; modest increase in sedation, dizziness, and falls risk in older adults.',
+        recommendation: 'Counsel on driving / fall risk. Review necessity of both agents for chronic pain; consider tapering one if symptom control allows.',
+      },
+    ],
+    severity_summary: 'severe',
+  },
+};
+
+const _MED_INTERACTION_LOG = [
+  {
+    id: 'demo-med-log-1',
+    patient_id: 'demo-pt-elena-vasquez',
+    patient_name: 'Elena Vasquez',
+    medications_checked: ['Warfarin', 'Ibuprofen', 'Amitriptyline', 'Pregabalin'],
+    interactions_found: _MED_INTERACTION_RESULTS['demo-pt-elena-vasquez'].interactions,
+    severity_summary: 'severe',
+    created_at: '2026-05-02T07:42:00Z',
+  },
+  {
+    id: 'demo-med-log-2',
+    patient_id: 'demo-pt-samantha-li',
+    patient_name: 'Samantha Li',
+    medications_checked: ['Sertraline', 'Tramadol', 'Melatonin'],
+    interactions_found: _MED_INTERACTION_RESULTS['demo-pt-samantha-li'].interactions,
+    severity_summary: 'moderate',
+    created_at: '2026-05-01T15:18:00Z',
+  },
+  {
+    id: 'demo-med-log-3',
+    patient_id: 'demo-pt-marcus-chen',
+    patient_name: 'Marcus Chen',
+    medications_checked: ['Sertraline', 'Melatonin'],
+    interactions_found: [],
+    severity_summary: 'none',
+    created_at: '2026-04-30T11:02:00Z',
+  },
+];
+
+function _medPatientMedications(patientId) {
+  return _MED_PATIENT_REGIMENS[patientId] || [];
+}
+
+function _medCheckInteractions(patientId, names) {
+  const seeded = _MED_INTERACTION_RESULTS[patientId];
+  if (seeded) {
+    return {
+      medications_checked: names && names.length ? names : seeded.medications_checked,
+      interactions: seeded.interactions,
+      severity_summary: seeded.severity_summary,
+    };
+  }
+  return {
+    medications_checked: names || [],
+    interactions: [],
+    severity_summary: 'none',
+  };
+}
+
+const _MEDICATION = {
+  patient_medications: _medPatientMedications,
+  check_interactions: _medCheckInteractions,
+  interaction_log: _MED_INTERACTION_LOG,
+};
+
 export const ANALYZER_DEMO_FIXTURES = Object.freeze({
   patients: DEMO_PATIENTS,
   mri: _MRI,
@@ -360,6 +472,7 @@ export const ANALYZER_DEMO_FIXTURES = Object.freeze({
   risk: _RISK,
   biometrics: _BIOMETRICS,
   video: _VIDEO,
+  medication: _MEDICATION,
 });
 
 export function isFixtureFallbackActive() {
