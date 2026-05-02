@@ -427,6 +427,16 @@ KNOWN_SURFACES = {
     # recorded here: status_viewed, tick_clicked, view, polling_tick,
     # filter_changed.
     "channel_auth_health_probe",
+    # Channel Auth Drift Resolution Tracker launch-audit (CSAHP2, 2026-05-02).
+    # Closes the proactive-credential-monitoring loop opened by CSAHP1 (#417).
+    # Admin marks an auth_drift_detected row as rotated (with rotation_method
+    # + rotation_note); the CSAHP1 worker confirmation hook pairs the
+    # rotation with the next successful probe within 24h and emits a
+    # auth_drift_resolved_confirmed row when the cycle closes. Page-level
+    # events recorded here: view, mark_rotated_clicked, mark_rotated_modal_opened,
+    # mark_rotated_submitted, mark_rotated_failed, list_filter_changed,
+    # demo_banner_shown.
+    "channel_auth_drift_resolution",
     # Caregiver Delivery Concern Aggregator launch-audit (2026-05-01).
     # Closes section I rec from #389. Rolling-window worker groups every
     # delivery-concern audit row in the last N hours by (caregiver_user_id,

@@ -175,7 +175,9 @@ test('Linked misconfig badge renders Yes and No states', () => {
 test('click-through navigates to channel-misconfig-detector route', () => {
   const knowledgeSrc = fs.readFileSync(PAGES_KNOWLEDGE_PATH, 'utf8');
   const idx = knowledgeSrc.indexOf('pgCoachingDigestDeliveryFailureDrilldown');
-  const body = knowledgeSrc.slice(idx, idx + 30000);
+  // Slice bumped from 30000 → 50000 chars (2026-05-02) to accommodate
+  // CSAHP1 (#417) + CSAHP2 frontend additions to the DCRO5 page.
+  const body = knowledgeSrc.slice(idx, idx + 50000);
   // The window helper navigates to #/channel-misconfig-detector.
   assert.match(body, /_dcro5OpenMisconfig/);
   assert.match(body, /#\/channel-misconfig-detector/);
@@ -192,7 +194,9 @@ test('click-through navigates to channel-misconfig-detector route', () => {
 test('window selector triggers state update + render', () => {
   const src = fs.readFileSync(PAGES_KNOWLEDGE_PATH, 'utf8');
   const idx = src.indexOf('pgCoachingDigestDeliveryFailureDrilldown');
-  const body = src.slice(idx, idx + 30000);
+  // Slice bumped from 30000 → 50000 chars (2026-05-02) to accommodate
+  // CSAHP1 (#417) + CSAHP2 frontend additions to the DCRO5 page.
+  const body = src.slice(idx, idx + 50000);
   assert.match(body, /_dcro5SetWindow/);
   assert.match(body, /window_days=' \+ state\.windowDays/);
   // Selector renders the three documented windows.

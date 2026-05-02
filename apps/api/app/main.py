@@ -121,6 +121,9 @@ from app.routers.channel_misconfiguration_detector_router import (
 from app.routers.channel_auth_health_probe_router import (
     router as channel_auth_health_probe_router,
 )
+from app.routers.channel_auth_drift_resolution_router import (
+    router as channel_auth_drift_resolution_router,
+)
 from app.routers.caregiver_delivery_concern_aggregator_router import (
     router as caregiver_delivery_concern_aggregator_router,
 )
@@ -500,6 +503,14 @@ app.include_router(channel_misconfiguration_detector_router)
 # dispatch fails. The auth_drift_detected row joins back into DCRO5's
 # has_matching_misconfig_flag click-through via the (channel, week) key.
 app.include_router(channel_auth_health_probe_router)
+# Channel Auth Drift Resolution Tracker launch-audit (CSAHP2, 2026-05-02).
+# Closes the proactive-credential-monitoring loop opened by CSAHP1 (#417).
+# Admin marks an auth_drift_detected row as rotated; the CSAHP1 worker
+# pairs the rotation with the next successful probe within 24h and emits
+# auth_drift_resolved_confirmed when the cycle closes. Mirrors the
+# DCA → DCR loop (#392 → #393) — admin-side resolution surface that the
+# worker honors so the same drift isn't re-flagged after rotation.
+app.include_router(channel_auth_drift_resolution_router)
 # Caregiver Delivery Concern Aggregator launch-audit (2026-05-01). Closes
 # section I rec from the Channel Misconfiguration Detector (#389).
 # Rolling-window scan that flags caregivers with N+ delivery concerns

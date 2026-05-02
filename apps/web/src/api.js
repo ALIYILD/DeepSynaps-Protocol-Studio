@@ -3662,6 +3662,49 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
+  // ── CSAHP2 Auth Drift Resolution launch-audit ──
+  // (2026-05-02). Closes the proactive-credential-monitoring loop opened
+  // by CSAHP1 (#417). Admin marks an auth_drift_detected row as rotated
+  // (with rotation_method + rotation_note); the CSAHP1 worker
+  // confirmation hook pairs the rotation with the next successful probe
+  // within 24h and emits auth_drift_resolved_confirmed when the cycle
+  // closes. Mirrors the DCA → DCR loop (#392 → #393).
+  // Helpers placed BEFORE CSAHP1's section so the CSAHP1 slice-boundary
+  // sentinel stays clean — CSAHP2 uses its own unique header anchor +
+  // slice-boundary sentinel.
+  markAuthDriftRotated: (body) =>
+    apiFetch('/api/v1/channel-auth-drift-resolution/mark-rotated', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  fetchAuthDriftList: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.status) usp.set('status', params.status);
+    if (params && params.channel) usp.set('channel', params.channel);
+    if (params && params.page != null) usp.set('page', String(params.page));
+    if (params && params.page_size != null)
+      usp.set('page_size', String(params.page_size));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/channel-auth-drift-resolution/list' + (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  fetchAuthDriftResolutionAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/channel-auth-drift-resolution/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  // end CSAHP2 helpers
+  // ━━ CSAHP2 SLICE BOUNDARY ━━ (do not remove; the launch-audit test
+  // for the CSAHP2 section finds the header above then walks to this
+  // unique sentinel substring to bound the slice).
+
   // ── CSAHP1 Channel Auth Health Probe launch-audit ──
   // (2026-05-02). Proactively probes each clinic's configured adapter
   // credentials (Slack OAuth, SendGrid API key, Twilio account auth,

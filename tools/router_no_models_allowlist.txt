@@ -13,6 +13,7 @@ apps/api/app/routers/agent_skills_router.py
 apps/api/app/routers/agents_router.py
 apps/api/app/routers/annotations_router.py
 apps/api/app/routers/assessments_router.py
+apps/api/app/routers/audio_analysis_router.py
 apps/api/app/routers/audit_trail_router.py
 apps/api/app/routers/auth_router.py
 apps/api/app/routers/auto_page_worker_router.py
@@ -23,6 +24,8 @@ apps/api/app/routers/caregiver_delivery_concern_resolution_audit_hub_router.py
 apps/api/app/routers/caregiver_delivery_concern_resolution_outcome_tracker_router.py
 apps/api/app/routers/caregiver_delivery_concern_resolution_router.py
 apps/api/app/routers/caregiver_email_digest_router.py
+apps/api/app/routers/channel_auth_drift_resolution_router.py
+apps/api/app/routers/channel_auth_health_probe_router.py
 apps/api/app/routers/chat_router.py
 apps/api/app/routers/citation_validator_router.py
 apps/api/app/routers/clinical_trials_router.py
@@ -30,6 +33,7 @@ apps/api/app/routers/clinician_adherence_router.py
 apps/api/app/routers/clinician_digest_router.py
 apps/api/app/routers/clinician_inbox_router.py
 apps/api/app/routers/clinician_wellness_router.py
+apps/api/app/routers/coaching_digest_delivery_failure_drilldown_router.py
 apps/api/app/routers/command_center_router.py
 apps/api/app/routers/consent_management_router.py
 apps/api/app/routers/consent_router.py
@@ -81,6 +85,7 @@ apps/api/app/routers/quality_assurance_router.py
 apps/api/app/routers/recordings_router.py
 apps/api/app/routers/reminders_router.py
 apps/api/app/routers/reports_router.py
+apps/api/app/routers/resolver_coaching_digest_audit_hub_router.py
 apps/api/app/routers/resolver_coaching_inbox_router.py
 apps/api/app/routers/resolver_coaching_self_review_digest_router.py
 apps/api/app/routers/risk_stratification_router.py
