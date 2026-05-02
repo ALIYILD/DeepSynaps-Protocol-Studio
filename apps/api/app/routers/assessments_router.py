@@ -3,12 +3,30 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import BaseModel, Field
-from sqlalchemy import select
 from sqlalchemy.orm import Session
+
+from deepsynaps_core_schema import (
+    AiSummaryResponse,
+    AssessmentApproveRequest,
+    AssessmentAssignRequest,
+    AssessmentCreate,
+    AssessmentEscalateRequest,
+    AssessmentField,
+    AssessmentListResponse,
+    AssessmentOut,
+    AssessmentSection,
+    AssessmentTemplateOut,
+    AssessmentUpdate,
+    BulkAssignRequest,
+    BulkAssignResponse,
+    BulkAssignmentItem,
+    CsvExportResponseV2,
+    LicensingInfo,
+    ScaleCatalogEntry,
+)
 
 from app.auth import (
     AuthenticatedActor,
@@ -19,7 +37,6 @@ from app.auth import (
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.limiter import limiter
-from app.persistence.models import AssessmentRecord
 from app.repositories.patients import resolve_patient_clinic_id
 
 
@@ -36,8 +53,10 @@ from app.repositories.assessments import (
     create_assessment,
     delete_assessment,
     get_assessment,
+    get_patient_for_assessment_router,
     list_assessments_for_clinician,
     list_assessments_for_patient,
+    list_prior_completed_for_template,
     update_assessment,
 )
 from app.services.assessment_scoring import (
@@ -51,6 +70,12 @@ from app.services.assessment_summary import (
     normalize_assessment_score,
     extract_ai_assessment_context,
 )
+
+if TYPE_CHECKING:
+    # Type-only ORM reference for the row→DTO converter helper. Erased at
+    # runtime; see tools/lint_router_no_models.py for the TYPE_CHECKING
+    # exception.
+    from app.persistence.models import AssessmentRecord
 
 _log = logging.getLogger(__name__)
 
@@ -75,220 +100,90 @@ router = APIRouter(prefix="/api/v1/assessments", tags=["assessments"])
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
-
-class AssessmentCreate(BaseModel):
-    template_id: Optional[str] = None
-    template_title: Optional[str] = None
-    # Frontend Library form-filler uses `scale_id` as alias for template_id.
-    scale_id: Optional[str] = None
-    patient_id: Optional[str] = None
-    data: dict = {}
-    clinician_notes: Optional[str] = None
-    status: str = "draft"
-    score: Optional[str] = None
-    score_numeric: Optional[float] = None
-    items: Optional[dict] = None
-    subscales: Optional[dict] = None
-    interpretation: Optional[str] = None
-    severity: Optional[str] = None
-    respondent_type: Optional[str] = None  # 'patient' | 'clinician' | 'caregiver'
-    phase: Optional[str] = None  # 'baseline' | 'mid' | 'post' | 'follow_up' | 'weekly' | 'pre_session' | 'post_session'
-    due_date: Optional[str] = None  # ISO date
-    due_at: Optional[str] = None  # alias used by new frontend
-    completed_at: Optional[str] = None
-    scale_version: Optional[str] = None
-    bundle_id: Optional[str] = None
+# All BaseModel payloads live in `deepsynaps_core_schema.assessments` per
+# Architect Rec #5. The previous classmethod `AssessmentOut.from_record` is
+# replaced by the module-level helper `_assessment_out_from_record` below so
+# the schema package stays free of any ORM dependency.
 
 
-class AssessmentUpdate(BaseModel):
-    patient_id: Optional[str] = None
-    data: Optional[dict] = None
-    clinician_notes: Optional[str] = None
-    status: Optional[str] = None
-    score: Optional[str] = None
-    score_numeric: Optional[float] = None
-    items: Optional[dict] = None
-    subscales: Optional[dict] = None
-    interpretation: Optional[str] = None
-    severity: Optional[str] = None
-    respondent_type: Optional[str] = None
-    phase: Optional[str] = None
-    due_date: Optional[str] = None
-    due_at: Optional[str] = None
-    completed_at: Optional[str] = None
-    scale_version: Optional[str] = None
-    bundle_id: Optional[str] = None
-    # When True, skip server-side canonical score validation (for rare
-    # clinician-override cases where item text is copyrighted and not submitted).
-    override_score_validation: Optional[bool] = None
-
-
-class AssessmentOut(BaseModel):
-    id: str
-    clinician_id: str
-    patient_id: Optional[str]
-    template_id: str
-    template_title: str
-    # scale_id: alias of template_id for new frontend (pgAssessmentsHub + Library)
-    scale_id: str
-    data: dict
-    items: Optional[dict] = None
-    subscales: Optional[dict] = None
-    clinician_notes: Optional[str]
-    status: str
-    score: Optional[str]
-    score_numeric: Optional[float] = None
-    severity: Optional[str] = None
-    severity_label: Optional[str] = None
-    interpretation: Optional[str] = None
-    respondent_type: Optional[str] = None
-    phase: Optional[str] = None
-    due_date: Optional[str] = None
-    due_at: Optional[str] = None
-    completed_at: Optional[str] = None
-    scale_version: Optional[str] = None
-    bundle_id: Optional[str] = None
-    approved_status: Optional[str] = None
-    reviewed_by: Optional[str] = None
-    reviewed_at: Optional[str] = None
-    ai_summary: Optional[str] = None
-    ai_model: Optional[str] = None
-    ai_confidence: Optional[float] = None
-    ai_generated: bool = False
-    ai_generated_at: Optional[str] = None
-    escalated: bool = False
-    escalated_at: Optional[str] = None
-    escalation_reason: Optional[str] = None
-    escalated_by: Optional[str] = None
-    created_at: str
-    updated_at: str
-
-    @classmethod
-    def from_record(cls, r) -> "AssessmentOut":
-        data = {}
+def _assessment_out_from_record(r: "AssessmentRecord") -> AssessmentOut:
+    data = {}
+    try:
+        data = json.loads(r.data_json or "{}")
+    except Exception:
+        pass
+    items = None
+    items_raw = getattr(r, "items_json", None)
+    if items_raw:
         try:
-            data = json.loads(r.data_json or "{}")
+            items = json.loads(items_raw)
         except Exception:
-            pass
-        items = None
-        items_raw = getattr(r, "items_json", None)
-        if items_raw:
-            try:
-                items = json.loads(items_raw)
-            except Exception:
-                items = None
-        subscales = None
-        subs_raw = getattr(r, "subscales_json", None)
-        if subs_raw:
-            try:
-                subscales = json.loads(subs_raw)
-            except Exception:
-                subscales = None
-        stored_score_numeric = getattr(r, "score_numeric", None)
-        score_numeric: Optional[float]
-        if stored_score_numeric is not None:
-            score_numeric = float(stored_score_numeric)
-        else:
-            try:
-                score_numeric = float(r.score) if r.score is not None and r.score != "" else None
-            except (ValueError, TypeError):
-                score_numeric = None
-        severity_info = normalize_assessment_score(r.template_id, score_numeric) if score_numeric is not None else {"severity": None, "label": None}
-        stored_severity = getattr(r, "severity", None)
-        severity_val = stored_severity or severity_info.get("severity")
-        ai_ts = getattr(r, "ai_generated_at", None)
-        due_date_obj = getattr(r, "due_date", None)
-        due_iso = due_date_obj.isoformat() if due_date_obj else None
-        completed_obj = getattr(r, "completed_at", None)
-        completed_iso = completed_obj.isoformat() if completed_obj else None
-        reviewed_at_obj = getattr(r, "reviewed_at", None)
-        escalated_at_obj = getattr(r, "escalated_at", None)
-        return cls(
-            id=r.id,
-            clinician_id=r.clinician_id,
-            patient_id=r.patient_id,
-            template_id=r.template_id,
-            template_title=r.template_title,
-            scale_id=r.template_id,
-            data=data,
-            items=items,
-            subscales=subscales,
-            clinician_notes=r.clinician_notes,
-            status=r.status,
-            score=r.score,
-            score_numeric=score_numeric,
-            severity=severity_val,
-            severity_label=severity_info.get("label"),
-            interpretation=getattr(r, "interpretation", None),
-            respondent_type=getattr(r, "respondent_type", None),
-            phase=getattr(r, "phase", None),
-            due_date=due_iso,
-            due_at=due_iso,
-            completed_at=completed_iso,
-            scale_version=getattr(r, "scale_version", None),
-            bundle_id=getattr(r, "bundle_id", None),
-            approved_status=getattr(r, "approved_status", None),
-            reviewed_by=getattr(r, "reviewed_by", None),
-            reviewed_at=(reviewed_at_obj.isoformat() if reviewed_at_obj else None),
-            ai_summary=getattr(r, "ai_summary", None),
-            ai_model=getattr(r, "ai_model", None),
-            ai_confidence=getattr(r, "ai_confidence", None),
-            ai_generated=ai_ts is not None,
-            ai_generated_at=(ai_ts.isoformat() if ai_ts else None),
-            escalated=bool(getattr(r, "escalated", False)),
-            escalated_at=(escalated_at_obj.isoformat() if escalated_at_obj else None),
-            escalation_reason=getattr(r, "escalation_reason", None),
-            escalated_by=getattr(r, "escalated_by", None),
-            created_at=r.created_at.isoformat(),
-            updated_at=r.updated_at.isoformat(),
-        )
-
-
-class AssessmentListResponse(BaseModel):
-    items: list[AssessmentOut]
-    total: int
-
-
-# ── Assessment Template Schemas ────────────────────────────────────────────────
-
-class AssessmentField(BaseModel):
-    id: str
-    label: str
-    type: str  # "likert5" | "likert4" | "text" | "number" | "yesno" | "select" | "score_entry"
-    options: list[str] = []
-    required: bool = True
-    reverse_scored: bool = False
-
-
-class AssessmentSection(BaseModel):
-    id: str
-    title: str
-    fields: list[AssessmentField]
-
-
-class LicensingInfo(BaseModel):
-    tier: str  # 'public_domain' | 'us_gov' | 'academic' | 'licensed' | 'restricted'
-    source: str
-    url: Optional[str] = None
-    attribution: str
-    embedded_text_allowed: bool = False
-    notes: Optional[str] = None
-
-
-class AssessmentTemplateOut(BaseModel):
-    id: str
-    title: str
-    abbreviation: str
-    description: str
-    conditions: list[str]
-    instructions: str
-    sections: list[AssessmentSection] = Field(default_factory=list)
-    scoring_info: str
-    time_minutes: int
-    respondent_type: str = "patient"  # 'patient' | 'clinician' | 'caregiver'
-    score_only: bool = False  # true for licensed instruments where items cannot be embedded
-    licensing: LicensingInfo
-    version: str = "1.0.0"
+            items = None
+    subscales = None
+    subs_raw = getattr(r, "subscales_json", None)
+    if subs_raw:
+        try:
+            subscales = json.loads(subs_raw)
+        except Exception:
+            subscales = None
+    stored_score_numeric = getattr(r, "score_numeric", None)
+    score_numeric: Optional[float]
+    if stored_score_numeric is not None:
+        score_numeric = float(stored_score_numeric)
+    else:
+        try:
+            score_numeric = float(r.score) if r.score is not None and r.score != "" else None
+        except (ValueError, TypeError):
+            score_numeric = None
+    severity_info = normalize_assessment_score(r.template_id, score_numeric) if score_numeric is not None else {"severity": None, "label": None}
+    stored_severity = getattr(r, "severity", None)
+    severity_val = stored_severity or severity_info.get("severity")
+    ai_ts = getattr(r, "ai_generated_at", None)
+    due_date_obj = getattr(r, "due_date", None)
+    due_iso = due_date_obj.isoformat() if due_date_obj else None
+    completed_obj = getattr(r, "completed_at", None)
+    completed_iso = completed_obj.isoformat() if completed_obj else None
+    reviewed_at_obj = getattr(r, "reviewed_at", None)
+    escalated_at_obj = getattr(r, "escalated_at", None)
+    return AssessmentOut(
+        id=r.id,
+        clinician_id=r.clinician_id,
+        patient_id=r.patient_id,
+        template_id=r.template_id,
+        template_title=r.template_title,
+        scale_id=r.template_id,
+        data=data,
+        items=items,
+        subscales=subscales,
+        clinician_notes=r.clinician_notes,
+        status=r.status,
+        score=r.score,
+        score_numeric=score_numeric,
+        severity=severity_val,
+        severity_label=severity_info.get("label"),
+        interpretation=getattr(r, "interpretation", None),
+        respondent_type=getattr(r, "respondent_type", None),
+        phase=getattr(r, "phase", None),
+        due_date=due_iso,
+        due_at=due_iso,
+        completed_at=completed_iso,
+        scale_version=getattr(r, "scale_version", None),
+        bundle_id=getattr(r, "bundle_id", None),
+        approved_status=getattr(r, "approved_status", None),
+        reviewed_by=getattr(r, "reviewed_by", None),
+        reviewed_at=(reviewed_at_obj.isoformat() if reviewed_at_obj else None),
+        ai_summary=getattr(r, "ai_summary", None),
+        ai_model=getattr(r, "ai_model", None),
+        ai_confidence=getattr(r, "ai_confidence", None),
+        ai_generated=ai_ts is not None,
+        ai_generated_at=(ai_ts.isoformat() if ai_ts else None),
+        escalated=bool(getattr(r, "escalated", False)),
+        escalated_at=(escalated_at_obj.isoformat() if escalated_at_obj else None),
+        escalation_reason=getattr(r, "escalation_reason", None),
+        escalated_by=getattr(r, "escalated_by", None),
+        created_at=r.created_at.isoformat(),
+        updated_at=r.updated_at.isoformat(),
+    )
 
 
 # ── Reusable field option sets (public-domain response scales) ─────────────────
@@ -677,19 +572,6 @@ def list_assessment_templates() -> list[AssessmentTemplateOut]:
     return ASSESSMENT_TEMPLATES
 
 
-class ScaleCatalogEntry(BaseModel):
-    id: str
-    title: str
-    abbreviation: str
-    conditions: list[str]
-    respondent_type: str
-    score_only: bool
-    score_range: dict
-    licensing: LicensingInfo
-    time_minutes: int
-    version: str = "1.0.0"
-
-
 @router.get("/scales", response_model=list[ScaleCatalogEntry])
 def list_scale_catalog() -> list[ScaleCatalogEntry]:
     """Return a lightweight catalog of scales for the Assessments Hub sidebar.
@@ -739,18 +621,8 @@ def list_assessments_endpoint(
         records = list_assessments_for_patient(session, patient_id, actor.actor_id)
     else:
         records = list_assessments_for_clinician(session, actor.actor_id)
-    items = [AssessmentOut.from_record(r) for r in records]
+    items = [_assessment_out_from_record(r) for r in records]
     return AssessmentListResponse(items=items, total=len(items))
-
-
-class AssessmentAssignRequest(BaseModel):
-    patient_id: str
-    template_id: str
-    clinician_notes: Optional[str] = None
-    due_date: Optional[str] = None  # ISO date
-    phase: Optional[str] = None
-    bundle_id: Optional[str] = None
-    respondent_type: Optional[str] = None
 
 
 @router.post("/assign", response_model=AssessmentOut, status_code=201)
@@ -792,42 +664,7 @@ def assign_assessment_endpoint(
         score=None,
         **extra,
     )
-    return AssessmentOut.from_record(record)
-
-
-class BulkAssignmentItem(BaseModel):
-    """Per-assignment payload used by the new pgAssessmentsHub frontend."""
-    patient_id: str
-    scale_id: Optional[str] = None  # alias of template_id
-    template_id: Optional[str] = None
-    due_at: Optional[str] = None  # alias of due_date
-    due_date: Optional[str] = None
-    phase: Optional[str] = None
-    bundle_id: Optional[str] = None
-    recurrence: Optional[str] = None
-    clinician_notes: Optional[str] = None
-
-
-class BulkAssignRequest(BaseModel):
-    # Legacy shape (pages-clinical-tools.js): one patient, many templates.
-    patient_id: Optional[str] = None
-    # Cap at 50 templates per request — prevents memory/CPU DoS via a
-    # massive template_ids array and bounds the per-request commit count.
-    template_ids: Optional[list[str]] = Field(default=None, max_length=50)
-    phase: Optional[str] = None
-    due_date: Optional[str] = None
-    bundle_id: Optional[str] = None
-    clinician_notes: Optional[str] = None
-    # New shape (design-v2 Hub): list of per-patient assignments. Cap at 100
-    # — same DoS argument; legitimate clinic workflows assign tens, not
-    # thousands, of items at once.
-    assignments: Optional[list[BulkAssignmentItem]] = Field(default=None, max_length=100)
-
-
-class BulkAssignResponse(BaseModel):
-    created: list[AssessmentOut]
-    failed: list[dict]
-    total: int
+    return _assessment_out_from_record(record)
 
 
 def _lookup_template(tpl_id: str) -> tuple[str, str]:
@@ -849,7 +686,7 @@ def _create_one_assignment(
     bundle_id: Optional[str],
     clinician_notes: Optional[str],
     recurrence: Optional[str] = None,
-) -> AssessmentRecord:
+) -> "AssessmentRecord":
     template_title, respondent_type = _lookup_template(template_id)
     extra: dict = {"respondent_type": respondent_type}
     if due_date:
@@ -911,7 +748,7 @@ def bulk_assign_assessments(
                     clinician_notes=item.clinician_notes,
                     recurrence=item.recurrence,
                 )
-                created.append(AssessmentOut.from_record(record))
+                created.append(_assessment_out_from_record(record))
             except Exception as exc:  # noqa: BLE001
                 failed.append({"template_id": tpl_id, "reason": str(exc)})
         return BulkAssignResponse(created=created, failed=failed, total=len(created))
@@ -936,7 +773,7 @@ def bulk_assign_assessments(
                 bundle_id=body.bundle_id,
                 clinician_notes=body.clinician_notes,
             )
-            created.append(AssessmentOut.from_record(record))
+            created.append(_assessment_out_from_record(record))
         except Exception as exc:  # noqa: BLE001 — record rather than abort
             failed.append({"template_id": tpl_id, "reason": str(exc)})
     return BulkAssignResponse(created=created, failed=failed, total=len(created))
@@ -1016,7 +853,7 @@ def create_assessment_endpoint(
         if sev.get("severity") and sev["severity"] != "unknown":
             payload["severity"] = sev["severity"]
     record = create_assessment(session, clinician_id=actor.actor_id, **payload)
-    return AssessmentOut.from_record(record)
+    return _assessment_out_from_record(record)
 
 
 # ── CSV export (launch-audit 2026-04-30) ──────────────────────────────────────
@@ -1025,13 +862,6 @@ def create_assessment_endpoint(
 # clinician's assessments (or a single patient's) with audit-friendly columns.
 # Registered BEFORE `/{assessment_id}` so the path-param route does not catch
 # it.
-
-class CsvExportResponseV2(BaseModel):
-    csv: str
-    rows: int
-    generated_at: str
-    demo: bool = False
-
 
 def _build_csv_export(
     patient_id: Optional[str],
@@ -1062,7 +892,7 @@ def _build_csv_export(
 
     lines: list[str] = [",".join(headers)]
     for r in records:
-        out = AssessmentOut.from_record(r)
+        out = _assessment_out_from_record(r)
         red = bool(out.escalated)
         if (out.template_id or "").lower() in ("phq9", "phq-9") and out.items:
             try:
@@ -1109,7 +939,7 @@ def get_assessment_endpoint(
     record = get_assessment(session, assessment_id, actor.actor_id)
     if record is None:
         raise ApiServiceError(code="not_found", message="Assessment not found.", status_code=404)
-    return AssessmentOut.from_record(record)
+    return _assessment_out_from_record(record)
 
 
 @router.patch("/{assessment_id}", response_model=AssessmentOut)
@@ -1195,12 +1025,7 @@ def update_assessment_endpoint(
             actor.actor_id,
             session,
         )
-    return AssessmentOut.from_record(record)
-
-
-class AssessmentApproveRequest(BaseModel):
-    approved: bool = True
-    review_notes: Optional[str] = None
+    return _assessment_out_from_record(record)
 
 
 @router.post("/{assessment_id}/approve", response_model=AssessmentOut)
@@ -1221,7 +1046,7 @@ def approve_assessment_endpoint(
     record = update_assessment(session, assessment_id, actor.actor_id, **updates)
     if record is None:
         raise ApiServiceError(code="not_found", message="Assessment not found.", status_code=404)
-    return AssessmentOut.from_record(record)
+    return _assessment_out_from_record(record)
 
 
 @router.delete("/{assessment_id}", status_code=204)
@@ -1237,11 +1062,6 @@ def delete_assessment_endpoint(
 
 
 # ── Escalation ─────────────────────────────────────────────────────────────────
-
-class AssessmentEscalateRequest(BaseModel):
-    reason: Optional[str] = None
-    severity: Optional[str] = None  # optional override, usually "critical"
-    notes: Optional[str] = None
 
 
 @router.post("/{assessment_id}/escalate", response_model=AssessmentOut)
@@ -1297,18 +1117,10 @@ def escalate_assessment_endpoint(
     record = update_assessment(session, assessment_id, actor.actor_id, **updates)
     if record is None:
         raise ApiServiceError(code="not_found", message="Assessment not found.", status_code=404)
-    return AssessmentOut.from_record(record)
+    return _assessment_out_from_record(record)
 
 
 # ── AI summary generation ─────────────────────────────────────────────────────
-
-class AiSummaryResponse(BaseModel):
-    summary: str
-    model: str
-    confidence: float
-    red_flags: list[str] = Field(default_factory=list)
-    source: str  # "llm" | "deterministic_stub"
-
 
 _AI_SYSTEM_PROMPT = (
     "You are a clinical assistant for a neuromodulation clinic. Summarize the "
@@ -1370,14 +1182,7 @@ def _deterministic_stub(severity: Optional[str], template_title: str, score: Opt
 def _resolve_patient_initials_and_condition(session: Session, patient_id: Optional[str]) -> tuple[str, Optional[str]]:
     if not patient_id:
         return ("—", None)
-    try:
-        from app.persistence.models import Patient  # lazy import to avoid cycles
-    except Exception:
-        return ("—", None)
-    try:
-        p = session.get(Patient, patient_id)
-    except Exception:
-        return ("—", None)
+    p = get_patient_for_assessment_router(session, patient_id)
     if p is None:
         return ("—", None)
     first = getattr(p, "first_name", "") or ""
@@ -1396,18 +1201,13 @@ def _prior_same_instrument_scores(
 ) -> list[tuple[str, Optional[float], Optional[str]]]:
     if not patient_id:
         return []
-    stmt = (
-        select(AssessmentRecord)
-        .where(
-            AssessmentRecord.patient_id == patient_id,
-            AssessmentRecord.template_id == template_id,
-            AssessmentRecord.id != current_assessment_id,
-            AssessmentRecord.status == "completed",
-        )
-        .order_by(AssessmentRecord.updated_at.desc())
-        .limit(limit)
+    rows = list_prior_completed_for_template(
+        session,
+        patient_id=patient_id,
+        template_id=template_id,
+        exclude_assessment_id=current_assessment_id,
+        limit=limit,
     )
-    rows = list(session.scalars(stmt).all())
     out: list[tuple[str, Optional[float], Optional[str]]] = []
     for r in rows:
         score_num: Optional[float] = r.score_numeric

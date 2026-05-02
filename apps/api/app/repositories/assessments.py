@@ -7,7 +7,7 @@ from typing import Any, Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.persistence.models import AssessmentRecord
+from app.persistence.models import AssessmentRecord, Patient
 
 
 _ALLOWED_FIELDS = {
@@ -226,3 +226,41 @@ def delete_assessment(session: Session, assessment_id: str, clinician_id: str) -
     session.delete(record)
     session.commit()
     return True
+
+
+def list_prior_completed_for_template(
+    session: Session,
+    *,
+    patient_id: str,
+    template_id: str,
+    exclude_assessment_id: str,
+    limit: int = 3,
+) -> list[AssessmentRecord]:
+    """Most-recent-first list of completed same-instrument assessments for a
+    patient, excluding the given assessment id. Used by the AI summary endpoint
+    to assemble trend context."""
+    return list(
+        session.scalars(
+            select(AssessmentRecord)
+            .where(
+                AssessmentRecord.patient_id == patient_id,
+                AssessmentRecord.template_id == template_id,
+                AssessmentRecord.id != exclude_assessment_id,
+                AssessmentRecord.status == "completed",
+            )
+            .order_by(AssessmentRecord.updated_at.desc())
+            .limit(limit)
+        ).all()
+    )
+
+
+def get_patient_for_assessment_router(
+    session: Session, patient_id: str
+) -> Optional[Patient]:
+    """Patient lookup used by the AI summary endpoint to pull initials and
+    primary condition. Kept here so the router doesn't need to import the
+    Patient model directly (Architect Rec #8)."""
+    try:
+        return session.get(Patient, patient_id)
+    except Exception:
+        return None

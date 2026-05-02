@@ -12,10 +12,8 @@ apps/api/app/routers/agent_billing_router.py
 apps/api/app/routers/agent_skills_router.py
 apps/api/app/routers/agents_router.py
 apps/api/app/routers/annotations_router.py
-apps/api/app/routers/assessments_router.py
 apps/api/app/routers/audio_analysis_router.py
 apps/api/app/routers/audit_trail_router.py
-apps/api/app/routers/auth_router.py
 apps/api/app/routers/auto_page_worker_router.py
 apps/api/app/routers/care_team_coverage_router.py
 apps/api/app/routers/caregiver_consent_router.py
@@ -49,7 +47,6 @@ apps/api/app/routers/fusion_router.py
 apps/api/app/routers/home_device_portal_router.py
 apps/api/app/routers/home_devices_patient_router.py
 apps/api/app/routers/home_devices_router.py
-apps/api/app/routers/home_program_tasks_router.py
 apps/api/app/routers/home_task_templates_router.py
 apps/api/app/routers/irb_manager_router.py
 apps/api/app/routers/irb_router.py
@@ -93,7 +90,6 @@ apps/api/app/routers/schedules_router.py
 apps/api/app/routers/sessions_router.py
 apps/api/app/routers/symptom_journal_router.py
 apps/api/app/routers/telegram_router.py
-apps/api/app/routers/treatment_courses_router.py
 apps/api/app/routers/virtual_care_router.py
 apps/api/app/routers/wearable_router.py
 apps/api/app/routers/wearables_workbench_router.py
