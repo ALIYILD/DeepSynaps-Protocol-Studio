@@ -61,6 +61,40 @@ class ChannelInfoResponse(BaseModel):
     n_channels: int = 0
 
 
+class CleaningLogItem(BaseModel):
+    id: str
+    actor: str  # 'ai' | 'user'
+    action: str
+    target: Optional[str] = None
+    accepted_by_user: Optional[bool] = None
+    confidence: Optional[float] = None
+    created_at: Optional[str] = None
+
+
+class CleaningLogResponse(BaseModel):
+    analysis_id: str
+    items: list[CleaningLogItem] = Field(default_factory=list)
+
+
+class RawMetadataResponse(BaseModel):
+    """Lightweight identification block for the Raw Cleaning Workbench
+    header. Deliberately omits PHI — ``patient_name`` is always
+    ``[redacted]`` because the workbench is a clinician-facing
+    technical tool and the patient is referenced by ``patient_id``.
+    """
+    analysis_id: str
+    patient_id: Optional[str] = None
+    patient_name: Optional[str] = "[redacted]"
+    original_filename: Optional[str] = None
+    recording_date: Optional[str] = None
+    eyes_condition: Optional[str] = None
+    equipment: Optional[str] = None
+    sample_rate_hz: Optional[float] = None
+    channel_count: Optional[int] = None
+    recording_duration_sec: Optional[float] = None
+    analysis_status: Optional[str] = None
+
+
 class AnnotationItem(BaseModel):
     onset: float
     duration: float
@@ -262,6 +296,70 @@ def _require_mne() -> None:
             message="EEG signal service unavailable",
             status_code=503,
         )
+
+
+# ── Endpoint 0: Lightweight metadata (no MNE) ──────────────────────────────
+
+
+@router.get("/{analysis_id}/metadata", response_model=RawMetadataResponse)
+def get_raw_metadata(
+    analysis_id: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> RawMetadataResponse:
+    """Return the workbench header block (identification + recording
+    parameters) without touching MNE or the EDF file. Patient name is
+    redacted by design — the workbench is keyed on ``patient_id``.
+    """
+    require_minimum_role(actor, "clinician")
+    analysis = _load_analysis(analysis_id, db, actor)
+    return RawMetadataResponse(
+        analysis_id=analysis_id,
+        patient_id=getattr(analysis, "patient_id", None),
+        original_filename=getattr(analysis, "original_filename", None),
+        recording_date=getattr(analysis, "recording_date", None),
+        eyes_condition=getattr(analysis, "eyes_condition", None),
+        equipment=getattr(analysis, "equipment", None),
+        sample_rate_hz=getattr(analysis, "sample_rate_hz", None),
+        channel_count=getattr(analysis, "channel_count", None),
+        recording_duration_sec=getattr(analysis, "recording_duration_sec", None),
+        analysis_status=getattr(analysis, "analysis_status", None),
+    )
+
+
+# ── Endpoint 0b: Cleaning Log (CleaningDecision audit trail) ────────────────
+
+
+@router.get("/{analysis_id}/cleaning-log", response_model=CleaningLogResponse)
+def get_cleaning_log(
+    analysis_id: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> CleaningLogResponse:
+    """Return the per-analysis ``CleaningDecision`` audit rows (AI
+    suggestions + clinician accept/edit/reject), newest-first.
+    """
+    require_minimum_role(actor, "clinician")
+    _load_analysis(analysis_id, db, actor)
+    rows = (
+        db.query(CleaningDecision)
+        .filter(CleaningDecision.analysis_id == analysis_id)
+        .order_by(CleaningDecision.created_at.desc())
+        .all()
+    )
+    items = [
+        CleaningLogItem(
+            id=r.id,
+            actor=r.actor,
+            action=r.action,
+            target=r.target,
+            accepted_by_user=r.accepted_by_user,
+            confidence=r.confidence,
+            created_at=r.created_at.isoformat() if r.created_at else None,
+        )
+        for r in rows
+    ]
+    return CleaningLogResponse(analysis_id=analysis_id, items=items)
 
 
 # ── Endpoint 1: Channel Info ────────────────────────────────────────────────

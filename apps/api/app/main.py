@@ -209,7 +209,6 @@ from app.routers.clinical_text_router import router as clinical_text_router
 from app.routers.agents_router import router as agents_router
 from app.routers.agent_admin_router import router as agent_admin_router
 from app.routers.admin_pgvector_router import router as admin_pgvector_router
-from app.routers.fusion_router import router as fusion_router
 from app.routers.monitor_router import router as monitor_router
 from app.routers.deeptwin_router import brain_twin_router, router as deeptwin_router
 from app.routers.feature_store_router import router as feature_store_router
