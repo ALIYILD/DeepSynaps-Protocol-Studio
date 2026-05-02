@@ -541,6 +541,7 @@ const NAV = [
   { id: 'text-analyzer',      label: 'Text',         icon: '📝', ai: true },
   { id: 'wearables',          label: 'Biometrics',   icon: '⌚' },
   { id: 'risk-analyzer',      label: 'Risk',         icon: '🛡️' },
+  { id: 'nutrition-analyzer', label: 'Nutrition',    icon: '🥗', ai: true },
   { id: 'medication-analyzer', label: 'Medication',  icon: '💊' },
   { id: 'treatment-sessions-analyzer', label: 'Sessions', icon: '🗓️' },
   { id: 'phenotype-analyzer', label: 'Phenotype', icon: '🧬', ai: true },
@@ -645,6 +646,7 @@ NAV_ICONS['mri-analysis'] = `<svg viewBox="0 0 24 24"><path d="M9.5 2A2.5 2.5 0 
 NAV_ICONS['voice-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11c0 4 3.5 7 7 7s7-3 7-7"/><path d="M12 21v2"/></svg>`;
 NAV_ICONS['text-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>`;
 NAV_ICONS['risk-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`;
+NAV_ICONS['nutrition-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c-4 8-8 10-8 15a8 8 0 0 0 16 0c0-5-4-7-8-15Z"/><path d="M8.5 14h7"/><path d="M10 17h4"/><path d="M9 10h6"/></svg>`;
 NAV_ICONS['medication-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="20" rx="4"/><line x1="8" y1="12" x2="16" y2="12"/><circle cx="12" cy="7" r="0.6" fill="currentColor"/><circle cx="10.5" cy="9" r="0.6" fill="currentColor"/></svg>`;
 NAV_ICONS['treatment-sessions-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="9 15 11 17 15 13"/></svg>`;
 NAV_ICONS['phenotype-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3c4 4 10 4 14 0"/><path d="M5 21c4-4 10-4 14 0"/><path d="M5 3c0 4 0 14 0 18"/><path d="M19 3c0 4 0 14 0 18"/><line x1="7" y1="7" x2="17" y2="7"/><line x1="9" y1="11" x2="15" y2="11"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="7" y1="17" x2="17" y2="17"/></svg>`;
@@ -1040,6 +1042,8 @@ const PAGE_TITLES = {
   'advanced-search': 'Advanced Search',
   'rules-engine': 'Automated Alerts & Rules Engine',
   'data-import': 'Data Import & Migration',
+  'risk-analyzer': 'Risk Analyzer',
+  'nutrition-analyzer': 'Nutrition & Diet Analyzer',
   'wearables': 'Wearable & Biosensor Integration',
   'home-task-manager': 'Home Task Manager',
   'patient-queue': 'Today\'s Queue',
@@ -1849,6 +1853,7 @@ async function renderPage() {
     case 'voice-analyzer':     { const m = await loadVoiceAnalyzer(); await m.pgVoiceAnalyzer(setTopbar, navigate); break; }
     case 'text-analyzer':      { const m = await loadTextAnalyzer(); await m.pgTextAnalyzer(setTopbar, navigate); break; }
     case 'risk-analyzer':      { const m = await loadRiskAnalyzer(); await m.pgRiskAnalyzer(setTopbar, navigate); break; }
+    case 'nutrition-analyzer': { const m = await loadNutritionAnalyzer(); await m.pgNutritionAnalyzer(setTopbar, navigate); break; }
     case 'medication-analyzer': { const m = await loadMedicationAnalyzer(); await m.pgMedicationAnalyzer(setTopbar, navigate); break; }
     case 'treatment-sessions-analyzer': { const m = await loadTreatmentSessionsAnalyzer(); await m.pgTreatmentSessionsAnalyzer(setTopbar, navigate); break; }
     case 'phenotype-analyzer': { const m = await loadPhenotypeAnalyzer(); await m.pgPhenotypeAnalyzer(setTopbar, navigate); break; }
@@ -3054,6 +3059,8 @@ window.addEventListener('popstate', (e) => {
     { type: 'nav', icon: '📝', title: 'Text Analyzer', page: 'text-analyzer' },
     { type: 'nav', icon: '⌚', title: 'Biometrics', page: 'wearables' },
     { type: 'nav', icon: '🛡️', title: 'Risk Analyzer', page: 'risk-analyzer' },
+    { type: 'nav', icon: '🥗', title: 'Nutrition & Diet Analyzer', page: 'nutrition-analyzer' },
+    { type: 'nav', icon: '🥗', title: 'Nutrition Analyzer', page: 'nutrition-analyzer' },
     { type: 'nav', icon: '💊', title: 'Medication Analyzer', page: 'medication-analyzer' },
     { type: 'nav', icon: '💊', title: 'Drug Interactions', page: 'medication-analyzer' },
     { type: 'nav', icon: '💊', title: 'Polypharmacy Safety', page: 'medication-analyzer' },

@@ -766,6 +766,81 @@ function _phenotypeAssignmentsFor(patientId) {
   return _PHENOTYPE_ASSIGNMENTS.filter((a) => a.patient_id === patientId);
 }
 
+function _nutritionDemoPayload(patientId) {
+  const pid = patientId || 'demo-pt-samantha-li';
+  const persona = DEMO_PATIENTS.find((p) => p.id === pid) || DEMO_PATIENTS[0];
+  const asOf = '2026-05-02T08:00:00Z';
+  return Object.freeze({
+    patient_id: pid,
+    computation_id: `demo-nut-${pid.slice(-8)}`,
+    data_as_of: asOf,
+    schema_version: '1',
+    clinical_disclaimer:
+      'Decision-support only. Not a prescription or diet order. '
+      + 'Clinician judgment and local policy govern all care decisions.',
+    snapshot: Object.freeze([
+      Object.freeze({ label: 'Energy (7d mean)', value: '1840', unit: 'kcal/d', confidence: 0.62, provenance: 'demo_food_summary', as_of: asOf }),
+      Object.freeze({ label: 'Protein (7d mean)', value: '78', unit: 'g/d', confidence: 0.58, provenance: 'demo_food_summary', as_of: asOf }),
+      Object.freeze({ label: 'Active supplements', value: pid === 'demo-pt-elena-vasquez' ? '5' : '3', unit: 'agents', confidence: 0.72, provenance: 'demo_chart', as_of: asOf }),
+      Object.freeze({ label: 'Omega-3 index (est.)', value: '—', unit: '%', confidence: 0.2, provenance: 'not_measured', as_of: asOf }),
+    ]),
+    diet: Object.freeze({
+      window_days: 7,
+      avg_calories_kcal: 1840,
+      avg_protein_g: 78,
+      avg_carbs_g: 195,
+      avg_fat_g: 72,
+      avg_sodium_mg: 2680,
+      avg_fiber_g: 19,
+      logging_coverage_pct: 71,
+      confidence: 0.61,
+      provenance: 'demo_aggregated_log',
+      notes: `Illustrative aggregates for ${persona.name} — replace with device / EHR feeds when integrated.`,
+    }),
+    supplements: Object.freeze(
+      pid === 'demo-pt-elena-vasquez'
+        ? [
+          Object.freeze({ id: 'demo-sup-ele-1', name: 'Vitamin D3', dose: '2000 IU', frequency: 'daily', active: true, notes: 'OTC', started_at: '2025-06-01', confidence: 0.8, provenance: 'demo' }),
+          Object.freeze({ id: 'demo-sup-ele-2', name: 'Magnesium glycinate', dose: '200 mg', frequency: 'bedtime', active: true, notes: 'Sleep support', started_at: '2026-01-12', confidence: 0.74, provenance: 'demo' }),
+          Object.freeze({ id: 'demo-sup-ele-3', name: 'Omega-3 (EPA/DHA)', dose: '1 g', frequency: 'daily', active: true, notes: null, started_at: '2025-09-20', confidence: 0.7, provenance: 'demo' }),
+          Object.freeze({ id: 'demo-sup-ele-4', name: 'Curcumin', dose: '500 mg', frequency: 'twice daily', active: false, notes: 'Stopped — GI upset', started_at: '2025-11-01', confidence: 0.65, provenance: 'demo' }),
+          Object.freeze({ id: 'demo-sup-ele-5', name: 'Iron (with vitamin C)', dose: '65 mg', frequency: 'alternate days', active: true, notes: 'Directed by PCP', started_at: '2026-03-04', confidence: 0.82, provenance: 'demo' }),
+        ]
+        : [
+          Object.freeze({ id: 'demo-sup-1', name: 'Vitamin D3', dose: '1000 IU', frequency: 'daily', active: true, notes: null, started_at: '2025-08-10', confidence: 0.78, provenance: 'demo' }),
+          Object.freeze({ id: 'demo-sup-2', name: 'Omega-3', dose: '500 mg', frequency: 'daily', active: true, notes: null, started_at: '2026-02-01', confidence: 0.7, provenance: 'demo' }),
+          Object.freeze({ id: 'demo-sup-3', name: 'Multivitamin', dose: '1 tab', frequency: 'morning', active: true, notes: 'General', started_at: '2025-11-15', confidence: 0.55, provenance: 'demo' }),
+        ],
+    ),
+    biomarker_links: Object.freeze([
+      Object.freeze({ label: 'Wearable biometrics', page_id: 'wearables', detail: 'Sleep & activity vs intake', confidence: 0.45 }),
+      Object.freeze({ label: 'Risk stratification', page_id: 'risk-analyzer', detail: 'Cross-check adherence & safety', confidence: 0.5 }),
+      Object.freeze({ label: 'Medication safety', page_id: 'medication-analyzer', detail: 'Drug–supplement overlap screen (future)', confidence: 0.35 }),
+    ]),
+    recommendations: Object.freeze([
+      Object.freeze({
+        title: 'Discuss sodium with patient',
+        detail: 'Rolling average above many cardiovascular targets; correlate with BP readings and prescribing context.',
+        priority: 'follow_up',
+        confidence: 0.49,
+        provenance: 'demo_heuristic',
+      }),
+      Object.freeze({
+        title: 'Fiber adequacy',
+        detail: 'Trending below 25–30 g/day; explore dietitian referral if symptoms or comorbidities warrant.',
+        priority: 'routine',
+        confidence: 0.46,
+        provenance: 'demo_heuristic',
+      }),
+    ]),
+    audit_events: Object.freeze({
+      total_events: 2,
+      last_event_at: '2026-05-01T14:22:00Z',
+      last_event_type: 'review_note',
+    }),
+  });
+}
+
 const _PHENOTYPE = {
   catalog: _PHENOTYPE_CATALOG,
   all_assignments: _PHENOTYPE_ASSIGNMENTS,

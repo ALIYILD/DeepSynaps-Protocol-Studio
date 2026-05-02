@@ -3035,6 +3035,29 @@ export const api = {
   getMovementAudit: (patientId) =>
     apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
 
+  // ── Nutrition, Supplements & Diet Analyzer ───────────────────────────────
+  getNutritionAnalyzerPayload: (patientId) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}`),
+  recomputeNutritionAnalyzer: (patientId) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/recompute`, { method: 'POST' }),
+  postNutritionDietLog: (patientId, body) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/diet-log`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  postNutritionSupplement: (patientId, body) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/supplement`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  postNutritionReviewNote: (patientId, body) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/review-note`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  getNutritionAnalyzerAudit: (patientId) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
+
   // ── Labs / Blood Biomarkers Analyzer (psych-med + neuromodulation safety) ─
   getLabsProfile: (patientId) =>
     apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}`),
