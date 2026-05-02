@@ -92,6 +92,12 @@ from app.routers.irb_manager_router import router as irb_manager_router
 from app.routers.irb_amendment_workflow_router import (
     router as irb_amendment_workflow_router,
 )
+from app.routers.irb_amendment_reviewer_workload_router import (
+    router as irb_amendment_reviewer_workload_router,
+)
+from app.routers.irb_amendment_reviewer_workload_outcome_tracker_router import (
+    router as irb_amendment_reviewer_workload_outcome_tracker_router,
+)
 from app.routers.evidence_router import router as evidence_router
 from app.routers.literature_router import router as literature_router
 from app.routers.literature_watch_router import router as literature_watch_router
@@ -233,6 +239,10 @@ from app.workers.channel_misconfiguration_detector_worker import (
 from app.workers.channel_auth_health_probe_worker import (
     shutdown_worker as shutdown_channel_auth_health_probe_worker,
     start_worker_if_enabled as start_channel_auth_health_probe_worker,
+)
+from app.workers.irb_reviewer_sla_worker import (
+    shutdown_worker as shutdown_irb_reviewer_sla_worker,
+    start_worker_if_enabled as start_irb_reviewer_sla_worker,
 )
 from app.workers.rotation_policy_advisor_snapshot_worker import (
     shutdown_worker as shutdown_rotation_policy_advisor_snapshot_worker,
@@ -380,6 +390,14 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
     # DCRO1 measures (#393) → DCRO2 self-corrects (#397) → DCRO3 nudges.
     # Per-resolver opt-in lives on resolver_coaching_digest_preferences.opted_in.
     start_resolver_coaching_self_review_digest_worker()
+    # IRB Reviewer SLA Worker (IRB-AMD2, 2026-05-02) — gated on
+    # IRB_REVIEWER_SLA_ENABLED so tests / CI don't fire breach rows
+    # unprompted. Daily scan that surfaces per-reviewer queue snapshots
+    # for the IRB-AMD1 amendment workflow (#446) and emits a HIGH-priority
+    # queue_breach_detected audit row when a reviewer's queue exceeds
+    # the configured thresholds (default ≥5 pending for ≥7d). Closes
+    # "workflow exists" → "workflow has SLA enforcement".
+    start_irb_reviewer_sla_worker()
     try:
         yield
     finally:
@@ -391,6 +409,7 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
         shutdown_rotation_policy_advisor_snapshot_worker()
         shutdown_caregiver_delivery_concern_aggregator_worker()
         shutdown_resolver_coaching_self_review_digest_worker()
+        shutdown_irb_reviewer_sla_worker()
 
 
 app = FastAPI(title=settings.api_title, version=settings.api_version, lifespan=lifespan)
@@ -441,6 +460,8 @@ app.include_router(reminders_router)
 app.include_router(irb_router)
 app.include_router(irb_manager_router)
 app.include_router(irb_amendment_workflow_router)
+app.include_router(irb_amendment_reviewer_workload_router)
+app.include_router(irb_amendment_reviewer_workload_outcome_tracker_router)
 app.include_router(literature_router)
 app.include_router(literature_watch_router)
 app.include_router(evidence_router)

@@ -577,6 +577,22 @@ KNOWN_SURFACES = {
     # amendment_effective, amendment_reverted_to_draft,
     # reg_binder_downloaded, filter_changed.
     "irb_amendment_workflow",
+    # IRB Amendment Reviewer Workload (IRB-AMD2, 2026-05-02). Per-reviewer
+    # queue dashboard + SLA worker. Audit actions:
+    # workload_viewed, tick_clicked, irb_reviewer_sla.tick (worker
+    # surface), irb_reviewer_sla.queue_breach_detected (target_type
+    # irb_reviewer; carries priority=high so the Clinician Inbox
+    # aggregator picks it up).
+    "irb_amendment_reviewer_workload",
+    # IRB Amendment Reviewer Workload Outcome Tracker (IRB-AMD3,
+    # 2026-05-02). Pairs each irb_reviewer_sla.queue_breach_detected
+    # row with the same reviewer's NEXT irb.amendment_decided_* row
+    # and classifies the outcome (decided_within_sla, decided_late,
+    # still_pending, pending). Per-reviewer calibration_score =
+    # (decided_within_sla - still_pending) / max(total - pending, 1).
+    # Closes the loop on whether the SLA-breach signal nudges
+    # behavior. Audit actions: summary_viewed.
+    "irb_amendment_reviewer_workload_outcome_tracker",
 }
 
 

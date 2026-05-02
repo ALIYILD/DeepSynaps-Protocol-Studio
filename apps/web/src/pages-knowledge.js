@@ -16428,6 +16428,26 @@ export async function pgIRBManager(setTopbar) {
   let _amdProtocolList = [];
   let _amdLoadError = null;
   let _amdActorRole = null;
+  // ── IRB-AMD2 reviewer workload state (page-local). _amd2Workload
+  // holds the latest /workload response; _amd2Unassigned holds the
+  // latest /unassigned-amendments response; _amd2Status holds the
+  // /worker/status snapshot so the disclaimer can render the honest
+  // enabled flag.
+  let _amd2Workload = null;
+  let _amd2Unassigned = null;
+  let _amd2Status = null;
+  let _amd2LoadError = null;
+  // ── IRB-AMD3 SLA Outcome Tracker launch-audit ──
+  // Closes the loop on whether the IRB-AMD2 SLA-breach signal nudges
+  // reviewer behavior. Pairs each queue_breach_detected row with the
+  // same reviewer's next amendment_decided row; classifies outcome
+  // (decided_within_sla / decided_late / still_pending / pending) and
+  // computes per-reviewer calibration_score.
+  // ━━ IRB-AMD3 SLICE BOUNDARY ━━
+  let _amd3Summary = null;
+  let _amd3Calibration = null;
+  let _amd3WindowDays = 180;
+  let _amd3LoadError = null;
   let _docFilterType  = '';
 
   function toast(msg, ok) {
@@ -16730,6 +16750,166 @@ export async function pgIRBManager(setTopbar) {
         return '<li style="background:var(--hover-bg);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:11.5px;font-family:monospace"><div><strong>'+_kEsc(r.action)+'</strong> &middot; '+_kEsc(r.actor_id)+' &middot; '+_kEsc(r.created_at)+'</div><div style="color:var(--text-muted);margin-top:2px">'+_kEsc(r.note||'')+'</div></li>';
       }).join('') + '</ul>';
   }
+  // ── IRB-AMD2 Reviewer workload renderer ──
+  // Renders the per-clinic reviewer workload sub-section that sits at
+  // the top of the Amendments Workflow tab. KPI tiles + workload
+  // table + unassigned-amendments list + honest worker-status
+  // disclaimer.
+  function _amd2SlaChip(it) {
+    if (it.sla_breach) {
+      return '<span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;background:var(--rose)22;color:var(--rose);border:1px solid var(--rose)55">SLA breach</span>';
+    }
+    if (it.sla_warn) {
+      return '<span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;background:var(--amber)22;color:var(--amber);border:1px solid var(--amber)55">Approaching SLA</span>';
+    }
+    return '<span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;background:var(--teal)22;color:var(--teal);border:1px solid var(--teal)55">OK</span>';
+  }
+  function renderReviewerWorkload() {
+    var role = _amdActorRole || 'clinician';
+    var w = _amd2Workload || { items: [], queue_threshold: 5, age_threshold_days: 7, sla_breach_count: 0, sla_warn_count: 0, total_pending: 0, avg_oldest_pending_age_days: 0 };
+    var unassigned = (_amd2Unassigned && _amd2Unassigned.items) || [];
+    var status = _amd2Status || { enabled: false };
+    var headerRow = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">' +
+      '<div style="font-size:13px;font-weight:800;color:var(--text)">Reviewer workload</div>' +
+      (role === 'admin'
+        ? '<button class="nnna-btn-sm" onclick="window._irbAmd2RunSlaCheck()">Run SLA check now</button>'
+        : '') +
+      '</div>';
+    var enabledLabel = status.enabled ? 'enabled' : 'disabled';
+    var disclaimer = '<div style="background:var(--blue)10;border:1px solid var(--blue)33;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11.5px;color:var(--text-muted)">SLA worker is currently <strong style="color:var(--text)">' + enabledLabel + '</strong> at the system level. Thresholds: '+_kEsc(w.queue_threshold)+' pending or '+_kEsc(w.age_threshold_days)+'d oldest age.</div>';
+    if (_amd2LoadError) {
+      disclaimer += '<div style="background:var(--rose)18;border:1px solid var(--rose)55;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11.5px;color:var(--rose);font-weight:600">Workload API error: '+_kEsc(_amd2LoadError)+'.</div>';
+    }
+    var tiles = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">' +
+      [
+        ['Reviewers in clinic', w.items.length, 'var(--text)'],
+        ['Pending amendments total', w.total_pending, 'var(--blue)'],
+        ['Avg oldest-pending-age (d)', w.avg_oldest_pending_age_days, 'var(--amber)'],
+        ['SLA breaches', w.sla_breach_count, w.sla_breach_count ? 'var(--rose)' : 'var(--teal)'],
+      ].map(function(t) {
+        return '<div style="background:var(--hover-bg);border:1px solid var(--border);border-radius:8px;padding:8px 12px;min-width:140px"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;font-weight:700;margin-bottom:2px">'+_kEsc(t[0])+'</div><div style="font-size:18px;font-weight:800;color:'+t[2]+'">'+_kEsc(t[1])+'</div></div>';
+      }).join('') +
+      '</div>';
+    var table;
+    if (!w.items.length) {
+      table = '<div style="background:var(--hover-bg);border:1px dashed var(--border);border-radius:8px;padding:16px;text-align:center;color:var(--text-muted);font-size:12px;margin-bottom:14px">No assigned reviewers in this clinic.</div>';
+    } else {
+      table = '<div style="overflow-x:auto;margin-bottom:14px"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="text-align:left;color:var(--text-muted);text-transform:uppercase;font-size:10px;letter-spacing:.5px"><th style="padding:6px 8px;border-bottom:1px solid var(--border)">Reviewer</th><th style="padding:6px 8px;border-bottom:1px solid var(--border)">Assigned</th><th style="padding:6px 8px;border-bottom:1px solid var(--border)">Under review</th><th style="padding:6px 8px;border-bottom:1px solid var(--border)">Total</th><th style="padding:6px 8px;border-bottom:1px solid var(--border)">Oldest</th><th style="padding:6px 8px;border-bottom:1px solid var(--border)">SLA</th><th style="padding:6px 8px;border-bottom:1px solid var(--border)">Last decision</th></tr></thead><tbody>' +
+        w.items.map(function(it) {
+          return '<tr><td style="padding:6px 8px;border-bottom:1px solid var(--border);font-family:monospace">'+_kEsc(it.display_name || it.reviewer_user_id)+'</td><td style="padding:6px 8px;border-bottom:1px solid var(--border)">'+_kEsc(it.pending_assigned)+'</td><td style="padding:6px 8px;border-bottom:1px solid var(--border)">'+_kEsc(it.pending_under_review)+'</td><td style="padding:6px 8px;border-bottom:1px solid var(--border);font-weight:700">'+_kEsc(it.total_pending)+'</td><td style="padding:6px 8px;border-bottom:1px solid var(--border)">'+_kEsc(it.oldest_pending_age_days)+'d</td><td style="padding:6px 8px;border-bottom:1px solid var(--border)">'+_amd2SlaChip(it)+'</td><td style="padding:6px 8px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-muted)">'+_kEsc(it.last_decision_at || '-')+'</td></tr>';
+        }).join('') +
+        '</tbody></table></div>';
+    }
+    var unassignedList;
+    if (!unassigned.length) {
+      unassignedList = '<div style="font-size:11.5px;color:var(--text-muted);padding:8px 0">No unassigned amendments.</div>';
+    } else {
+      unassignedList = '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px">' +
+        unassigned.map(function(it) {
+          return '<div style="display:flex;justify-content:space-between;align-items:center;background:var(--hover-bg);border:1px solid var(--border);border-radius:8px;padding:8px 12px"><div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+_kEsc(it.title || it.id)+'</div><div style="font-size:11px;color:var(--text-muted)">'+_kEsc(it.submission_age_days)+'d waiting · '+_kEsc(it.id)+'</div></div>' +
+            (role === 'admin'
+              ? '<button class="nnna-btn-sm" onclick="window._irbAmd2AutoAssign(\''+_kEsc(it.id)+'\')">Auto-assign reviewer</button>'
+              : '') +
+            '</div>';
+        }).join('') +
+        '</div>';
+    }
+    return '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:18px">' +
+      headerRow + disclaimer + tiles + table +
+      '<div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Unassigned amendments ('+unassigned.length+')</div>' +
+      unassignedList +
+      '</div>';
+  }
+  // ── IRB-AMD3 SLA Outcome Tracker renderer ──
+  // Renders the "SLA breach outcomes" sub-section that sits right
+  // below IRB-AMD2's Reviewer workload card. KPI tiles + per-reviewer
+  // calibration table + honest disclaimer about the worker dependency.
+  function _amd3CalibrationColor(score) {
+    if (typeof score !== 'number') return 'var(--text-muted)';
+    if (score >= 0.3) return 'var(--teal)';
+    if (score >= 0) return 'var(--amber)';
+    return 'var(--rose)';
+  }
+  function renderSLAOutcomeTracker() {
+    var role = _amdActorRole || 'clinician';
+    var s = _amd3Summary || {
+      total_breaches: 0,
+      sla_response_days: 14,
+      window_days: _amd3WindowDays,
+      outcome_counts: { decided_within_sla: 0, decided_late: 0, still_pending: 0, pending: 0 },
+      outcome_pct: { decided_within_sla: 0, decided_late: 0, still_pending: 0 },
+      median_days_to_next_decision: null,
+      by_reviewer_top: [],
+    };
+    var cal = (_amd3Calibration && _amd3Calibration.items) || [];
+    var headerRow = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">' +
+      '<div style="font-size:13px;font-weight:800;color:var(--text)">SLA breach outcomes</div>' +
+      '<div style="display:flex;align-items:center;gap:6px">' +
+      '<label style="font-size:11px;color:var(--text-muted)">Window:</label>' +
+      '<select class="form-control" style="font-size:11px;width:auto;padding:3px 8px" onchange="window._irbAmd3SetWindow(this.value)">' +
+        [90, 180, 365].map(function(d) {
+          var sel = (Number(_amd3WindowDays) === d) ? ' selected' : '';
+          return '<option value="'+d+'"'+sel+'>'+d+'d</option>';
+        }).join('') +
+      '</select>' +
+      (role === 'admin'
+        ? '<a class="nnna-btn-sm" href="#" onclick="window._irbAmd3ViewAuditTrail();return false;">View audit trail</a>'
+        : '') +
+      '</div></div>';
+    var disclaimer = '<div style="background:var(--blue)10;border:1px solid var(--blue)33;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11.5px;color:var(--text-muted)">Outcome tracking requires the SLA worker to be enabled. If you see no data, check <code style="background:var(--hover-bg);padding:1px 4px;border-radius:3px">IRB_REVIEWER_SLA_ENABLED</code> env flag. Calibration score = (within_sla − still_pending) / max(total − pending, 1).</div>';
+    if (_amd3LoadError) {
+      disclaimer += '<div style="background:var(--rose)18;border:1px solid var(--rose)55;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11.5px;color:var(--rose);font-weight:600">SLA outcome API error: '+_kEsc(_amd3LoadError)+'.</div>';
+    }
+    if (!s.total_breaches) {
+      var emptyState = '<div style="background:var(--hover-bg);border:1px dashed var(--border);border-radius:8px;padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px">No SLA breaches recorded yet. Workflow is healthy or worker is disabled.</div>';
+      return '<div data-testid="irb-amd3-sla-outcome-tracker" style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:18px">' +
+        headerRow + disclaimer + emptyState + '</div>';
+    }
+    var pct = s.outcome_pct || {};
+    var counts = s.outcome_counts || {};
+    var medianTxt = (s.median_days_to_next_decision == null) ? '—' : (s.median_days_to_next_decision + 'd');
+    var tiles = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">' +
+      [
+        ['Total breaches', s.total_breaches, 'var(--text)'],
+        ['% within SLA', (pct.decided_within_sla || 0) + '%', 'var(--teal)'],
+        ['% late', (pct.decided_late || 0) + '%', 'var(--amber)'],
+        ['% still pending', (pct.still_pending || 0) + '%', 'var(--rose)'],
+        ['Median days to decision', medianTxt, 'var(--blue)'],
+      ].map(function(t) {
+        return '<div style="background:var(--hover-bg);border:1px solid var(--border);border-radius:8px;padding:8px 12px;min-width:140px"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;font-weight:700;margin-bottom:2px">'+_kEsc(t[0])+'</div><div style="font-size:18px;font-weight:800;color:'+t[2]+'">'+_kEsc(t[1])+'</div></div>';
+      }).join('') +
+      '</div>';
+    var pendingNote = '';
+    if (counts.pending) {
+      pendingNote = '<div style="font-size:11.5px;color:var(--text-muted);font-style:italic;margin-bottom:10px">'+_kEsc(counts.pending)+' breach(es) still within '+_kEsc(s.sla_response_days)+'-day evaluation window.</div>';
+    }
+    var calTable;
+    if (!cal.length) {
+      calTable = '<div style="background:var(--hover-bg);border:1px dashed var(--border);border-radius:8px;padding:14px;text-align:center;color:var(--text-muted);font-size:12px">No reviewers meet the minimum-breaches floor for calibration scoring yet.</div>';
+    } else {
+      calTable = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="text-align:left;color:var(--text-muted);text-transform:uppercase;font-size:10px;letter-spacing:.5px"><th style="padding:6px 8px;border-bottom:1px solid var(--border)">Reviewer</th><th style="padding:6px 8px;border-bottom:1px solid var(--border)">Breaches</th><th style="padding:6px 8px;border-bottom:1px solid var(--border)">Within SLA</th><th style="padding:6px 8px;border-bottom:1px solid var(--border)">Late</th><th style="padding:6px 8px;border-bottom:1px solid var(--border)">Still pending</th><th style="padding:6px 8px;border-bottom:1px solid var(--border)">Calibration score</th></tr></thead><tbody>' +
+        cal.map(function(it) {
+          var color = _amd3CalibrationColor(it.calibration_score);
+          return '<tr><td style="padding:6px 8px;border-bottom:1px solid var(--border);font-family:monospace">'+_kEsc(it.reviewer_name || it.reviewer_user_id)+'</td><td style="padding:6px 8px;border-bottom:1px solid var(--border)">'+_kEsc(it.total_breaches)+'</td><td style="padding:6px 8px;border-bottom:1px solid var(--border);color:var(--teal)">'+_kEsc(it.decided_within_sla_count)+'</td><td style="padding:6px 8px;border-bottom:1px solid var(--border);color:var(--amber)">'+_kEsc(it.decided_late_count)+'</td><td style="padding:6px 8px;border-bottom:1px solid var(--border);color:var(--rose)">'+_kEsc(it.still_pending_count)+'</td><td style="padding:6px 8px;border-bottom:1px solid var(--border);font-weight:700;color:'+color+'">'+_kEsc(it.calibration_score)+'</td></tr>';
+        }).join('') +
+        '</tbody></table></div>';
+    }
+    var topLeader = '';
+    if ((s.by_reviewer_top || []).length) {
+      topLeader = '<div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin:10px 0 6px">By reviewer (worst first, top 5)</div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">' +
+        s.by_reviewer_top.map(function(t) {
+          var color = _amd3CalibrationColor(t.calibration_score);
+          return '<div style="background:var(--hover-bg);border:1px solid '+color+'55;border-radius:6px;padding:5px 10px;font-size:11.5px"><span style="color:var(--text);font-weight:600">'+_kEsc(t.reviewer_name || t.reviewer_user_id)+'</span> <span style="color:'+color+';font-weight:700">'+_kEsc(t.calibration_score)+'</span> <span style="color:var(--text-muted)">('+_kEsc(t.total_breaches)+' breach)</span></div>';
+        }).join('') +
+        '</div>';
+    }
+    return '<div data-testid="irb-amd3-sla-outcome-tracker" style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:18px">' +
+      headerRow + disclaimer + tiles + pendingNote + topLeader +
+      '<div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Per-reviewer calibration</div>' +
+      calTable +
+      '</div>';
+  }
   function renderAmendmentsWorkflow() {
     var disclaimer = '<div style="background:var(--blue)12;border:1px solid var(--blue)44;border-radius:8px;padding:11px 14px;margin-bottom:14px;font-size:12px;color:var(--text)"><strong style="color:var(--blue)">Regulator-credible amendment workflow:</strong> Lifecycle (draft → submitted → reviewer_assigned → under_review → approved / rejected / revisions_requested → effective). All transitions are audit-trailed. Approved amendments merge into the effective protocol document on the parent register tab; rejected amendments stay as historical record.</div>';
     if (_amdLoadError) {
@@ -16747,11 +16927,13 @@ export async function pgIRBManager(setTopbar) {
          ? '<a class="nnna-btn-sm nnna-btn-amber" href="'+_kEsc(api.irbAmdRegBinderUrl(_amdProtocolFilter))+'" download>Download reg-binder (.zip)</a>'
          : '') +
       '</div>';
+    var workloadHtml = renderReviewerWorkload();
+    var slaOutcomeHtml = renderSLAOutcomeTracker();
     if (_amdItems === null) {
-      return '<div>'+disclaimer+actionsBar+'<div style="padding:40px;text-align:center;color:var(--text-muted)">Loading amendments…</div></div>';
+      return '<div>'+disclaimer+actionsBar+workloadHtml+slaOutcomeHtml+'<div style="padding:40px;text-align:center;color:var(--text-muted)">Loading amendments…</div></div>';
     }
     if (!_amdItems.length) {
-      return '<div>'+disclaimer+actionsBar+'<div style="text-align:center;padding:40px 20px;color:var(--text-muted);background:var(--hover-bg);border:1px dashed var(--border);border-radius:10px">No amendments yet. Click "New amendment" to start a draft.</div></div>';
+      return '<div>'+disclaimer+actionsBar+workloadHtml+slaOutcomeHtml+'<div style="text-align:center;padding:40px 20px;color:var(--text-muted);background:var(--hover-bg);border:1px dashed var(--border);border-radius:10px">No amendments yet. Click "New amendment" to start a draft.</div></div>';
     }
     var groups = _amdGroupByStatus(_amdItems);
     var sections = [];
@@ -16791,7 +16973,7 @@ export async function pgIRBManager(setTopbar) {
         '<div style="display:flex;gap:8px;flex-wrap:wrap">'+_amdActionButtons(it)+'</div>' +
         '</div>';
     }
-    return '<div>'+disclaimer+actionsBar+sections.join('')+detail+'</div>';
+    return '<div>'+disclaimer+actionsBar+workloadHtml+slaOutcomeHtml+sections.join('')+detail+'</div>';
   }
 
   function render() {
@@ -17399,6 +17581,85 @@ export async function pgIRBManager(setTopbar) {
     });
   };
 
+  // ── IRB-AMD2 Reviewer workload window-bound helpers ──────────────────────
+  function _amd2Load() {
+    return Promise.all([
+      api.irbAmd2Workload({}),
+      api.irbAmd2Unassigned({ limit: 50 }),
+      api.irbAmd2WorkerStatus(),
+    ]).then(function(results) {
+      _amd2Workload = results[0] || null;
+      _amd2Unassigned = results[1] || null;
+      _amd2Status = results[2] || null;
+      _amd2LoadError = null;
+    }).catch(function(err) {
+      _amd2LoadError = (err && err.message) || 'Failed to load workload';
+    });
+  }
+  window._irbAmd2RunSlaCheck = function() {
+    api.irbAmd2WorkerTick().then(function(res) {
+      if (res && res.accepted) {
+        toast('SLA check completed: '+(res.breaches_emitted||0)+' breach(es) emitted, '+(res.skipped_cooldown||0)+' skipped (cooldown)');
+      } else {
+        toast('SLA check failed', false);
+      }
+      Promise.all([_amd2Load(), _amd3Load()]).then(render);
+    }).catch(function(err) {
+      toast('SLA check failed: '+(err && err.message ? err.message : ''), false);
+    });
+  };
+  window._irbAmd2AutoAssign = function(amendmentId) {
+    api.irbAmd2SuggestReviewer(amendmentId).then(function(res) {
+      var rid = res && res.suggested_reviewer_user_id;
+      if (!rid) {
+        toast('No suggested reviewer available', false);
+        return null;
+      }
+      if (!confirm('Auto-assign reviewer ' + rid + ' to this amendment?')) return null;
+      return api.irbAmdAssignReviewer(amendmentId, { reviewer_user_id: rid }).then(function() {
+        toast('Reviewer ' + rid + ' assigned');
+        _emitAmdAudit('amendment_reviewer_auto_assigned', { amendment_id: amendmentId, reviewer_user_id: rid });
+        return Promise.all([_amdLoad(), _amd2Load()]).then(render);
+      });
+    }).catch(function(err) {
+      toast('Auto-assign failed: '+(err && err.message ? err.message : ''), false);
+    });
+  };
+
+  // ── IRB-AMD3 SLA Outcome Tracker window-bound helpers ──────────────────
+  function _amd3Load() {
+    return Promise.all([
+      api.fetchSLAOutcomeSummary({ window_days: _amd3WindowDays }),
+      api.fetchReviewerCalibration({
+        window_days: _amd3WindowDays,
+        min_breaches: 1,
+      }),
+    ]).then(function(results) {
+      _amd3Summary = results[0] || null;
+      _amd3Calibration = results[1] || null;
+      _amd3LoadError = null;
+    }).catch(function(err) {
+      _amd3LoadError = (err && err.message) || 'Failed to load SLA outcomes';
+    });
+  }
+  window._irbAmd3SetWindow = function(days) {
+    var n = Number(days);
+    if (!isFinite(n) || n <= 0) return;
+    _amd3WindowDays = Math.max(7, Math.min(365, Math.floor(n)));
+    _amd3Load().then(render);
+  };
+  window._irbAmd3ViewAuditTrail = function() {
+    api.fetchSLAOutcomeAuditEvents({
+      surface: 'irb_amendment_reviewer_workload_outcome_tracker',
+      limit: 50,
+    }).then(function(res) {
+      var items = (res && res.items) || [];
+      toast('Audit trail loaded: '+items.length+' event(s)');
+    }).catch(function(err) {
+      toast('Audit trail load failed: '+(err && err.message ? err.message : ''), false);
+    });
+  };
+
   // ── IRB-AMD1 Amendment Workflow window-bound helpers ─────────────────────
   function _amdLoad() {
     var params = {};
@@ -17615,6 +17876,8 @@ export async function pgIRBManager(setTopbar) {
     if (typeof _origTabFn === 'function') _origTabFn(tab);
     if (tab === 'amendments-workflow' && _amdItems === null) {
       _amdLoad().then(render);
+      _amd2Load().then(render);
+      _amd3Load().then(render);
     }
   };
 }
