@@ -171,6 +171,8 @@ async function loadKnowledge()  { return (_modKnowledge ??= await import('./page
 async function loadVoiceAnalyzer() { return (_modVoiceAnalyzer ??= await import('./pages-voice-analyzer.js')); }
 let _modTextAnalyzer = null;
 async function loadTextAnalyzer() { return (_modTextAnalyzer ??= await import('./pages-text-analyzer.js')); }
+let _modMedicationAnalyzer = null;
+async function loadMedicationAnalyzer() { return (_modMedicationAnalyzer ??= await import('./pages-medication-analyzer.js')); }
 async function loadPractice()   { return (_modPractice  ??= await import('./pages-practice.js')); }
 async function loadCourses()    { return (_modCourses   ??= await import('./pages-courses.js')); }
 async function loadOnboarding() { return (_modOnboarding ??= await import('./pages-onboarding.js')); }
@@ -525,6 +527,7 @@ const NAV = [
   { id: 'voice-analyzer',     label: 'Voice',        icon: '🎙️', ai: true },
   { id: 'video-assessments',  label: 'Video',        icon: '🎥' },
   { id: 'text-analyzer',      label: 'Text',         icon: '📝', ai: true },
+  { id: 'medication-analyzer', label: 'Medications', icon: '💊', ai: true },
   { id: 'wearables',          label: 'Biometrics',   icon: '⌚' },
 
   // ── PROTOCOL — design / review treatment plans ───────────────────────────────
@@ -623,6 +626,7 @@ NAV_ICONS['research-evidence'] = `<svg viewBox="0 0 24 24"><path d="M10 2v6a2 2 
 NAV_ICONS['mri-analysis'] = `<svg viewBox="0 0 24 24"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-1.07-3 2.5 2.5 0 0 1 .49-4.78 2.5 2.5 0 0 1 1.5-4.58A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 1.07-3 2.5 2.5 0 0 0-.49-4.78 2.5 2.5 0 0 0-1.5-4.58A2.5 2.5 0 0 0 14.5 2Z"/><circle cx="12" cy="12" r="2" fill="currentColor" opacity=".5"/></svg>`;
 NAV_ICONS['voice-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11c0 4 3.5 7 7 7s7-3 7-7"/><path d="M12 21v2"/></svg>`;
 NAV_ICONS['text-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>`;
+NAV_ICONS['medication-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M10.5 20.5 20 11a4.95 4.95 0 1 0-7-7l-9.5 9.5a4.95 4.95 0 1 0 7 7Z"/><path d="m8.5 8.5 7 7"/></svg>`;
 NAV_ICONS['academy']         = `<svg viewBox="0 0 24 24"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>`;
 NAV_ICONS['marketplace']     = `<svg viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" x2="21" y1="6" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>`;
 
@@ -1821,6 +1825,7 @@ async function renderPage() {
     case 'video-assessments':  { const m = await loadVideoAssessments(); await m.pgVideoAssessments(setTopbar, navigate); break; }
     case 'voice-analyzer':     { const m = await loadVoiceAnalyzer(); await m.pgVoiceAnalyzer(setTopbar, navigate); break; }
     case 'text-analyzer':      { const m = await loadTextAnalyzer(); await m.pgTextAnalyzer(setTopbar, navigate); break; }
+    case 'medication-analyzer': { const m = await loadMedicationAnalyzer(); await m.pgMedicationAnalyzer(setTopbar, navigate); break; }
     case 'fusion-workbench':   { const m = await loadFusionWorkbench(); await m.pgFusionWorkbench(setTopbar, navigate); break; }
     case 'patient-timeline':   { const m = await loadPatientTimeline(); await m.pgPatientTimeline(setTopbar, navigate); break; }
     case 'biomarkers':         { const m = await loadKnowledge(); await m.pgQEEGMaps(setTopbar); break; }
@@ -3018,6 +3023,7 @@ window.addEventListener('popstate', (e) => {
     { type: 'nav', icon: '🎥', title: 'Video Analyzer', page: 'video-assessments' },
     { type: 'nav', icon: '🎙️', title: 'Voice Analyzer', page: 'voice-analyzer' },
     { type: 'nav', icon: '📝', title: 'Text Analyzer', page: 'text-analyzer' },
+    { type: 'nav', icon: '💊', title: 'Medication Analyzer', page: 'medication-analyzer' },
     { type: 'nav', icon: '⌚', title: 'Biometrics', page: 'wearables' },
   );
 
