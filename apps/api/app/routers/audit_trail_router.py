@@ -445,6 +445,17 @@ KNOWN_SURFACES = {
     # filterable list of resolved rows. Page-level events: view,
     # window_changed, reason_filter_changed, page_changed, export.
     "caregiver_delivery_concern_resolution_audit_hub",
+    # Caregiver Delivery Concern Resolution Outcome Tracker launch-audit
+    # (DCRO1, 2026-05-02). Calibration-accuracy dashboard built on the
+    # DCR1 + DCR2 audit trail. Pairs each
+    # ``caregiver_portal.delivery_concern_resolved`` row with the NEXT
+    # ``caregiver_portal.delivery_concern_threshold_reached`` row for
+    # the same caregiver to record stayed_resolved vs
+    # re_flagged_within_30d, then computes per-resolver calibration
+    # accuracy: when an admin marks "false_positive", does the DCA
+    # worker re-flag them within 30 days? Page-level events: view,
+    # window_changed, min_resolutions_changed.
+    "caregiver_delivery_concern_resolution_outcome_tracker",
 }
 
 

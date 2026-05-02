@@ -9133,6 +9133,12 @@ export async function pgCaregiverDeliveryConcernResolutionAuditHub(setTopbar) {
     pageSize: 25,
     summary: null,
     list: null,
+    // DCRO1 Outcome Tracker — paired-outcome summary + per-resolver
+    // calibration accuracy. Read-only secondary section on this page.
+    outcomeSummary: null,
+    resolverCalibration: null,
+    outcomeTrackerWindowDays: 90,
+    outcomeTrackerMinResolutions: 3,
     err: null,
   };
 
@@ -9153,7 +9159,13 @@ export async function pgCaregiverDeliveryConcernResolutionAuditHub(setTopbar) {
   }
 
   async function loadAll() {
-    var resp = { summary: null, list: null, err: null };
+    var resp = {
+      summary: null,
+      list: null,
+      outcomeSummary: null,
+      resolverCalibration: null,
+      err: null,
+    };
     try {
       if (typeof api.caregiverDeliveryConcernResolutionAuditHubSummary === 'function') {
         resp.summary = await api.caregiverDeliveryConcernResolutionAuditHubSummary({
@@ -9165,6 +9177,18 @@ export async function pgCaregiverDeliveryConcernResolutionAuditHub(setTopbar) {
           reason: state.reason || undefined,
           page: state.page,
           page_size: state.pageSize,
+        });
+      }
+      // DCRO1 Outcome Tracker — calibration-accuracy fetches.
+      if (typeof api.fetchOutcomeTrackerSummary === 'function') {
+        resp.outcomeSummary = await api.fetchOutcomeTrackerSummary({
+          window_days: state.outcomeTrackerWindowDays,
+        });
+      }
+      if (typeof api.fetchResolverCalibration === 'function') {
+        resp.resolverCalibration = await api.fetchResolverCalibration({
+          window_days: state.outcomeTrackerWindowDays,
+          min_resolutions: state.outcomeTrackerMinResolutions,
         });
       }
     } catch (e) {
@@ -9305,6 +9329,120 @@ export async function pgCaregiverDeliveryConcernResolutionAuditHub(setTopbar) {
       '</div>';
   }
 
+  // ── DCRO1 Outcome Tracker render block ─────────────────────────────────
+  // Section: "Resolution Outcome Tracker". Pairs each resolved row with
+  // the next threshold-reached row to record stayed_resolved vs
+  // re_flagged_within_30d, then renders per-resolver calibration accuracy.
+  function _calibrationColorClass(pct) {
+    var n = Number(pct);
+    if (!isFinite(n)) return 'cgcr-cal-grey';
+    if (n >= 80) return 'cgcr-cal-green';
+    if (n >= 50) return 'cgcr-cal-yellow';
+    return 'cgcr-cal-red';
+  }
+
+  function renderOutcomeTrackerControls() {
+    var winSel = '<label style="font-size:11px;margin-right:6px">Outcome window:</label>' +
+      '<select data-testid="cgcr-outcome-window" onchange="window._cgcrOutcomeSetWindow(this.value)" style="padding:4px;border:1px solid var(--border);border-radius:4px;font-size:12px">' +
+      [30, 60, 90, 180, 365].map(function(w) {
+        return '<option value="' + w + '"' + (state.outcomeTrackerWindowDays === w ? ' selected' : '') + '>' + w + 'd</option>';
+      }).join('') +
+      '</select>';
+    return '<div data-testid="cgcr-outcome-controls" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:6px">' +
+      '<div>' + winSel + '</div>' +
+      '</div>';
+  }
+
+  function renderOutcomeTrackerSection(s, cal) {
+    var heading = '<h3 data-testid="cgcr-outcome-heading" style="font-size:14px;margin:18px 0 4px">Resolution Outcome Tracker</h3>';
+    var sub = '<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">Pairs each resolution with the NEXT delivery-concern flag for the same caregiver to measure calibration: when an admin marks "false positive", does the DCA worker re-flag them within 30 days?</div>';
+    if (!s || (Number(s.total_resolutions) || 0) === 0) {
+      return heading + sub +
+        renderOutcomeTrackerControls() +
+        '<div data-testid="cgcr-outcome-empty" class="card" style="padding:14px;margin-top:8px;font-size:12px;color:var(--text-muted)">Not enough resolution history to compute calibration yet.</div>';
+    }
+    var oc = s.outcome_counts || {};
+    var op = s.outcome_pct || {};
+    var stayedPct = Number(op.stayed_resolved) || 0;
+    var reflaggedPct = Number(op.re_flagged_within_30d) || 0;
+    var medianD = s.median_days_to_re_flag;
+    var medianText = medianD == null ? '—' : (Number(medianD).toFixed(1) + 'd');
+    var pendingCount = Number(oc.pending) || 0;
+    var totalRes = Number(s.total_resolutions) || 0;
+    var pendingPct = totalRes > 0 ? Math.round((pendingCount / totalRes) * 100) : 0;
+
+    var kpis = '<div data-testid="cgcr-outcome-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:8px">' +
+      '<div data-testid="cgcr-outcome-kpi-stayed" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">% stayed resolved</div><div style="font-size:22px;font-weight:700">' + _esc(stayedPct.toFixed(1)) + '%</div></div>' +
+      '<div data-testid="cgcr-outcome-kpi-reflagged" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">% re-flagged within 30d</div><div style="font-size:22px;font-weight:700">' + _esc(reflaggedPct.toFixed(1)) + '%</div></div>' +
+      '<div data-testid="cgcr-outcome-kpi-median" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Median days to re-flag</div><div style="font-size:22px;font-weight:700">' + _esc(medianText) + '</div></div>' +
+      '</div>';
+
+    var pendingBanner = pendingCount > 0
+      ? '<div data-testid="cgcr-outcome-pending" class="notice notice-info" style="padding:8px 12px;font-size:11px;margin-top:8px">' +
+          _esc(String(pendingPct)) + '% of resolutions are still within the 30-day re-flag window and not yet classified.' +
+        '</div>'
+      : '';
+
+    // By-reason table.
+    var br = s.by_reason || {};
+    var reasonRows = ['concerns_addressed', 'false_positive', 'caregiver_replaced', 'other'].map(function(k) {
+      var row = br[k] || {};
+      var label = k === 'false_positive' ? 'False positive' :
+                  k === 'concerns_addressed' ? 'Concerns addressed' :
+                  k === 'caregiver_replaced' ? 'Caregiver replaced' : 'Other';
+      var noun = k === 'false_positive' ? 'incorrect' : 'regression';
+      return '<tr data-testid="cgcr-outcome-reason-row" data-reason="' + _esc(k) + '">' +
+        '<td style="font-weight:600">' + _esc(label) + '</td>' +
+        '<td style="text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(row.total || 0)) + '</td>' +
+        '<td style="text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(row.re_flagged || 0)) + '</td>' +
+        '<td style="text-align:right;font-variant-numeric:tabular-nums">' + _esc(Number(row.incorrect_pct || 0).toFixed(1)) + '% ' + _esc(noun) + '</td>' +
+        '</tr>';
+    }).join('');
+    var byReasonTable = '<div data-testid="cgcr-outcome-by-reason" class="card" style="padding:12px;margin-top:10px">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Outcome by reason</div>' +
+      '<table class="data-table" style="width:100%;font-size:12px"><thead><tr><th>Reason</th><th style="text-align:right">Total</th><th style="text-align:right">Re-flagged</th><th style="text-align:right">% wrong</th></tr></thead><tbody>' + reasonRows + '</tbody></table>' +
+      '</div>';
+
+    // Resolver calibration table.
+    var calItems = (cal && Array.isArray(cal.items)) ? cal.items : [];
+    var calBody;
+    if (calItems.length === 0) {
+      calBody = '<div data-testid="cgcr-outcome-cal-empty" style="font-size:12px;color:var(--text-muted);padding:6px">Not enough resolution history to compute calibration yet.</div>';
+    } else {
+      var calRows = calItems.map(function(it) {
+        var pct = Number(it.calibration_accuracy_pct || 0);
+        var cls = _calibrationColorClass(pct);
+        var name = it.resolver_name || it.resolver_user_id || '—';
+        var when = (it.last_resolution_at || '').slice(0, 10);
+        return '<tr data-testid="cgcr-outcome-cal-row" class="' + cls + '" data-pct="' + _esc(pct.toFixed(1)) + '">' +
+          '<td><strong>' + _esc(name) + '</strong><br><span style="font-size:10px;color:var(--text-muted)">' + _esc(it.resolver_user_id || '') + '</span></td>' +
+          '<td style="text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(it.total_resolutions || 0)) + '</td>' +
+          '<td style="text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(it.false_positive_calls || 0)) + '</td>' +
+          '<td style="text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(it.false_positive_re_flagged_within_30d || 0)) + '</td>' +
+          '<td style="text-align:right;font-variant-numeric:tabular-nums;font-weight:700">' + _esc(pct.toFixed(1)) + '%</td>' +
+          '<td style="font-size:11px;color:var(--text-muted)">' + _esc(when) + '</td>' +
+          '</tr>';
+      }).join('');
+      calBody = '<table class="data-table" style="width:100%;font-size:12px"><thead><tr><th>Resolver</th><th style="text-align:right">Total</th><th style="text-align:right">FP calls</th><th style="text-align:right">FP wrong</th><th style="text-align:right">Accuracy</th><th>Last resolution</th></tr></thead><tbody>' + calRows + '</tbody></table>';
+    }
+    var legend = '<div style="font-size:10px;color:var(--text-muted);margin-top:4px">Color: <span class="cgcr-cal-green" style="padding:2px 6px;border-radius:3px;background:#dcfce7;color:#166534">≥80%</span> <span class="cgcr-cal-yellow" style="padding:2px 6px;border-radius:3px;background:#fef3c7;color:#92400e">50–79%</span> <span class="cgcr-cal-red" style="padding:2px 6px;border-radius:3px;background:#fee2e2;color:#991b1b">&lt;50%</span></div>';
+    var calCard = '<div data-testid="cgcr-outcome-calibration" class="card" style="padding:12px;margin-top:10px">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Resolver calibration accuracy</div>' +
+      calBody +
+      legend +
+      '</div>';
+
+    // Inline CSS for color classes (scoped via the testid wrapper above).
+    var styleBlock = '<style data-testid="cgcr-outcome-style">' +
+      '.cgcr-cal-green td:nth-child(5){color:#166534;background:#dcfce7}' +
+      '.cgcr-cal-yellow td:nth-child(5){color:#92400e;background:#fef3c7}' +
+      '.cgcr-cal-red td:nth-child(5){color:#991b1b;background:#fee2e2}' +
+      '</style>';
+
+    return styleBlock + heading + sub + renderOutcomeTrackerControls() + kpis + pendingBanner + byReasonTable + calCard;
+  }
+  // ── end DCRO1 Outcome Tracker render block ────────────────────────────
+
   async function render() {
     var el = document.getElementById('content');
     if (!el) return;
@@ -9312,6 +9450,8 @@ export async function pgCaregiverDeliveryConcernResolutionAuditHub(setTopbar) {
     var resp = await loadAll();
     state.summary = resp.summary;
     state.list = resp.list;
+    state.outcomeSummary = resp.outcomeSummary;
+    state.resolverCalibration = resp.resolverCalibration;
     state.err = resp.err;
     if (state.err) {
       el.innerHTML = '<div data-testid="cgcr-hub-err" class="notice notice-warn" style="padding:14px;font-size:12px">Failed to load resolution audit hub: ' + _esc(state.err) + '</div>';
@@ -9331,6 +9471,7 @@ export async function pgCaregiverDeliveryConcernResolutionAuditHub(setTopbar) {
       renderTrendChart(state.summary) +
       renderTopResolvers(state.summary) +
       renderListSection(state.list) +
+      renderOutcomeTrackerSection(state.outcomeSummary, state.resolverCalibration) +
       '</div>';
 
     if (typeof api.postCaregiverDeliveryConcernResolutionAuditHubAuditEvent === 'function') {
@@ -9369,6 +9510,19 @@ export async function pgCaregiverDeliveryConcernResolutionAuditHub(setTopbar) {
   };
   window._cgcrHubNext = function() {
     state.page += 1; render();
+  };
+  // DCRO1 Outcome Tracker — window selector handler. Re-fetches the
+  // outcome-tracker summary + resolver calibration tables so the page
+  // reflects the new lookback. Audit ping mirrors the DCR2 pattern.
+  window._cgcrOutcomeSetWindow = function(v) {
+    state.outcomeTrackerWindowDays = Number(v) || 90;
+    if (typeof api.postOutcomeTrackerAuditEvent === 'function') {
+      api.postOutcomeTrackerAuditEvent({
+        event: 'window_changed',
+        note: 'window_days=' + state.outcomeTrackerWindowDays,
+      });
+    }
+    render();
   };
 
   await render();
