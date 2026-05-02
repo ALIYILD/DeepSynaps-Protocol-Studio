@@ -15,6 +15,7 @@ import json
 import os
 import re
 import sqlite3
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -30,8 +31,14 @@ from app.persistence.models import (
     MriAnalysis,
     OutcomeSeries,
     Patient,
+    PatientMedication,
     QEEGAnalysis,
     TreatmentCourse,
+)
+from app.repositories.audit import create_audit_event
+from app.services.medication_interactions import (
+    normalize_therapy_tokens,
+    run_interaction_check,
 )
 
 _logger = get_logger(__name__)
@@ -238,12 +245,56 @@ def build_treatment_sessions_analyzer_payload(
         ae_q = ae_q.filter(AdverseEvent.clinician_id == actor.actor_id)
     ae_rows = ae_q.order_by(AdverseEvent.reported_at.desc()).limit(20).all()
 
+    med_q = db.query(PatientMedication).filter(PatientMedication.patient_id == patient_id)
+    if actor.role not in ("admin", "patient"):
+        med_q = med_q.filter(PatientMedication.clinician_id == actor.actor_id)
+    medication_rows = med_q.order_by(PatientMedication.created_at.desc()).limit(80).all()
+
+    therapy_tokens = normalize_therapy_tokens(
+        modality if modality != "unknown" else None,
+        primary_course.protocol_id if primary_course else None,
+        [s.modality or "" for s in sessions[-12:]],
+    )
+    med_tokens: list[str] = []
+    med_summaries: list[dict[str, Any]] = []
+    for m in medication_rows:
+        if not getattr(m, "active", True):
+            continue
+        med_summaries.append(
+            {
+                "id": m.id,
+                "name": m.name,
+                "generic_name": m.generic_name,
+                "drug_class": m.drug_class,
+                "dose": m.dose,
+                "active": bool(m.active),
+            }
+        )
+        for field in (m.name, m.generic_name, m.drug_class):
+            if field and str(field).strip():
+                med_tokens.append(str(field).strip())
+
+    check_tokens = list(dict.fromkeys([*med_tokens, *therapy_tokens]))
+    interaction_rows, severity_worst = run_interaction_check(check_tokens)
+    enrich_medication_interactions: dict[str, Any] = {
+        "medications_on_file": len(med_summaries),
+        "therapy_modality_tokens": therapy_tokens,
+        "tokens_checked": check_tokens[:60],
+        "interactions": interaction_rows,
+        "severity_summary": severity_worst,
+        "rules_engine": "medication_interactions_v1",
+        "note": (
+            "Drug–drug and drug–therapy rules match Medication Safety check-interactions. "
+            "Not a substitute for pharmacy/clinical interaction databases."
+        ),
+    }
+
     linked = {
         "mri": [r.analysis_id for r in mri_rows],
         "qeeg": [r.id for r in qeeg_rows],
         "assessments": [r.id for r in assessment_rows],
         "outcomes": [r.id for r in outcome_rows],
-        "medications": [],
+        "medications": [m.id for m in medication_rows],
         "video": [],
         "voice": [],
         "text": [],
@@ -398,20 +449,29 @@ def build_treatment_sessions_analyzer_payload(
             "id": "mmc_meds",
             "updated_at": generated_at,
             "provenance": {
-                "source": "rule",
-                "source_ref": "patient/medical_history",
+                "source": "api",
+                "source_ref": "patient_medications+therapy_tokens",
                 "extracted_at": generated_at,
             },
             "domain": "medications",
             "biomarker_role": "unknown",
-            "summary": "Medication changes can confound EEG, sleep, and mood trajectories — review timeline.",
-            "relevance_score": 0.4,
-            "confidence": 0.45,
-            "data_quality": "unknown",
-            "linked_artifact_ids": [],
-            "linked_analyzer_route": "/?page=patients-v2",
-            "impacted_predictions": ["confound_risk"],
-            "caveats": [],
+            "summary": (
+                f"{len(med_summaries)} active medication(s) on file; "
+                f"interaction screen: {severity_worst}."
+                if med_summaries
+                else "No active medications on file — drug–therapy screens use modality context only."
+            ),
+            "relevance_score": 0.55 if med_summaries else 0.25,
+            "confidence": 0.55 if med_summaries else 0.35,
+            "data_quality": "good" if med_summaries else "missing",
+            "linked_artifact_ids": [m["id"] for m in med_summaries[:5]],
+            "linked_analyzer_route": "/?page=med-interactions",
+            "impacted_predictions": ["confound_risk", "seizure_threshold"],
+            "caveats": (
+                ["Review flagged drug–drug or drug–therapy pairs in Medication Safety."]
+                if interaction_rows
+                else []
+            ),
         },
         {
             "id": "mmc_video",
@@ -537,6 +597,43 @@ def build_treatment_sessions_analyzer_payload(
         )
 
     optimization_prompts: list[dict[str, Any]] = []
+    if interaction_rows:
+        worst_rank = {"none": 0, "mild": 1, "moderate": 2, "severe": 3}.get(
+            severity_worst or "none", 0
+        )
+        if worst_rank >= 2:
+            hit = interaction_rows[0]
+            optimization_prompts.append(
+                {
+                    "id": "pop_med_therapy_interaction",
+                    "created_at": generated_at,
+                    "provenance": {
+                        "source": "rules_engine",
+                        "source_ref": "medication_interactions_v1",
+                        "extracted_at": generated_at,
+                    },
+                    "prompt_type": "medication_review",
+                    "severity": severity_worst or "moderate",
+                    "urgency": "urgent" if worst_rank >= 3 else "routine",
+                    "title": "Medication–therapy interaction flags",
+                    "detail": (
+                        f"{hit.get('description', '')} "
+                        f"Suggested action: {hit.get('recommendation', '')}"
+                    ).strip(),
+                    "suggested_actions": [
+                        {
+                            "label": "Medication Safety — interaction check",
+                            "type": "navigate",
+                            "target": "med-interactions",
+                        }
+                    ],
+                    "deterministic": True,
+                    "evidence_link_ids": [],
+                    "requires_clinician_review": True,
+                    "confidence": 0.85 if worst_rank >= 3 else 0.65,
+                }
+            )
+
     if missed >= 2:
         optimization_prompts.append(
             {
@@ -659,6 +756,29 @@ def build_treatment_sessions_analyzer_payload(
                     "related_domains": [str(hl.get("context_type") or "clinical")],
                 }
             )
+
+    if actor.role in ("admin", "clinician"):
+        recommendations.append(
+            {
+                "id": "trec_med_safety",
+                "created_at": generated_at,
+                "provenance": {
+                    "source": "rule",
+                    "source_ref": "navigation/med-interactions",
+                    "extracted_at": generated_at,
+                },
+                "kind": "navigation",
+                "title": "Open Medication Safety (interactions + neuromodulation context)",
+                "body": "Run the full interaction check and edit the med list on file.",
+                "priority": "medium" if interaction_rows else "low",
+                "decision_support_only": True,
+                "clinician_review_required": False,
+                "structured": {"navigate_page": "med-interactions"},
+                "evidence_link_ids": [],
+                "confidence": 1.0,
+                "time_horizon": "n/a",
+            }
+        )
 
     if actor.role in ("admin", "clinician"):
         recommendations.append(
@@ -860,8 +980,47 @@ def build_treatment_sessions_analyzer_payload(
         "confidence": 0.45 if not uncertainty_drivers else 0.35,
     }
 
+    if actor.role in ("admin", "clinician"):
+        now_utc = _now_iso()
+        ev_id = f"tsa-mlfb-{patient_id}-{uuid.uuid4().hex[:12]}"
+        learn_note = json.dumps(
+            {
+                "surface": "treatment_sessions_analyzer",
+                "interaction_severity": severity_worst,
+                "interaction_hits": len(interaction_rows),
+                "medication_count": len(med_summaries),
+                "modality": modality,
+            },
+            separators=(",", ":"),
+        )[:1024]
+        audit_events.append(
+            {
+                "id": ev_id,
+                "at": now_utc,
+                "actor": {"user_id": actor.actor_id, "role": actor.role},
+                "action": "aggregated_view_for_feedback",
+                "subject": {"type": "patient", "id": patient_id},
+                "rationale": "Training/analytics signal — payload snapshot hashed server-side for cohort learning.",
+                "ml_feedback": True,
+            }
+        )
+        try:
+            create_audit_event(
+                db,
+                event_id=ev_id,
+                target_id=patient_id,
+                target_type="treatment_sessions_analyzer",
+                action="treatment_sessions_analyzer.view",
+                role=actor.role,
+                actor_id=actor.actor_id,
+                note=learn_note,
+                created_at=now_utc,
+            )
+        except Exception as exc:
+            _logger.debug("treatment_sessions_analyzer audit skipped: %s", exc)
+
     return {
-        "schema_version": "1.1.0",
+        "schema_version": "1.2.0",
         "generated_at": generated_at,
         "patient_id": patient_id,
         "provenance": {
@@ -883,6 +1042,7 @@ def build_treatment_sessions_analyzer_payload(
         "audit_events": audit_events,
         "data_gaps": data_gaps,
         "enrich_evidence": enrich_evidence,
+        "enrich_medication_interactions": enrich_medication_interactions,
         "prediction_horizon": {
             "label": "acute_plus_12_weeks",
             "start": generated_at,
@@ -892,5 +1052,6 @@ def build_treatment_sessions_analyzer_payload(
             "rules_engine_version": "treatment_sessions_analyzer_v1",
             "forecast_note": "Response probability is a seeded heuristic for UX wiring — replace with calibrated model.",
             "enrichment": "live_evidence_db + neuromodulation_research_bundle + evidence_intelligence overview (clinician)",
+            "learning_feedback": "clinician views append audit_events + audit trail row treatment_sessions_analyzer.view",
         },
     }

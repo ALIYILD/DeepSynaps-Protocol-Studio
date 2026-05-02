@@ -16,7 +16,7 @@ function esc(s) {
 function _demoPayload() {
   const t = new Date().toISOString();
   return {
-    schema_version: '1.1.0',
+    schema_version: '1.2.0',
     generated_at: t,
     patient_id: 'demo',
     provenance: { source: 'demo', source_ref: 'offline', extracted_at: t },
@@ -169,6 +169,20 @@ function _demoPayload() {
       live_evidence_corpus: { available: true, counts: { papers: 87000, trials: 1200, devices: 400 } },
       neuromodulation_research_bundle: { available: true, paper_count: 87042, filters: { indication: 'mdd', modality: 'tms' } },
       filters_used: { indication_slug: 'mdd', modality_slug: 'tms' },
+    },
+    enrich_medication_interactions: {
+      medications_on_file: 2,
+      therapy_modality_tokens: ['tms'],
+      interactions: [
+        {
+          drugs: ['tms', 'tricyclics'],
+          severity: 'mild',
+          description: 'Demo: TCA may lower seizure threshold during TMS.',
+          recommendation: 'Screen seizure risk; review dosing.',
+        },
+      ],
+      severity_summary: 'mild',
+      tokens_checked: ['sertraline', 'tms'],
     },
     prediction_horizon: { label: 'demo', start: t, end: t },
     meta: { rules_engine_version: 'demo', forecast_note: 'Offline preview' },
@@ -340,6 +354,36 @@ function _renderAudit(rows) {
   return r.map((a) => `<div style="font-size:12px;padding:6px 0;border-bottom:1px solid var(--border)">${esc(JSON.stringify(a))}</div>`).join('');
 }
 
+function _renderMedicationInteractions(enrich) {
+  const m = enrich && typeof enrich === 'object' ? enrich : {};
+  const hits = Array.isArray(m.interactions) ? m.interactions : [];
+  const sev = m.severity_summary || 'none';
+  const medCt = m.medications_on_file != null ? m.medications_on_file : '—';
+  const tokens = Array.isArray(m.therapy_modality_tokens) ? m.therapy_modality_tokens.join(', ') : '—';
+
+  const rows = hits.length
+    ? hits
+        .map(
+          (h) =>
+            `<li style="margin-bottom:10px"><span class="pill pill-pending" style="font-size:10px">${esc(h.severity)}</span>
+            <strong>${esc((h.drugs || []).join(' + '))}</strong>
+            <div style="margin-top:4px;color:var(--text-secondary)">${esc(h.description)}</div>
+            <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">${esc(h.recommendation)}</div></li>`,
+        )
+        .join('')
+    : '<li style="color:var(--text-tertiary)">No rule hits — review medications if clinical suspicion remains.</li>';
+
+  return `
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px;font-size:12px">
+      <span><strong>Screen severity:</strong> ${esc(sev)}</span>
+      <span style="color:var(--text-tertiary)">· Active meds: ${esc(medCt)}</span>
+      <span style="color:var(--text-tertiary)">· Therapy tokens: ${esc(tokens)}</span>
+      <button type="button" class="btn btn-ghost btn-sm tsa-nav-page" data-page="med-interactions" style="min-height:40px">Medication Safety →</button>
+    </div>
+    <ul style="margin:0;padding-left:18px;font-size:12px">${rows}</ul>
+    <p style="font-size:11px;color:var(--text-tertiary);margin:10px 0 0;line-height:1.45">${esc(m.note || '')}</p>`;
+}
+
 function _renderEvidenceIntegration(enrich, patientId) {
   const e = enrich && typeof enrich === 'object' ? enrich : {};
   const live = e.live_evidence_corpus || {};
@@ -482,6 +526,7 @@ export async function pgTreatmentSessionsAnalyzer(setTopbar, navigate) {
       ${_section('Treatment course snapshot', _renderCourse(payload.course))}
       ${_section('Session timeline', _renderTimeline(payload.sessions))}
       ${_section('Multimodal contributors', _renderContributors(payload.multimodal_contributors))}
+      ${_section('Medications & therapy interactions', _renderMedicationInteractions(payload.enrich_medication_interactions))}
       ${_section('Evidence & corpora (MRI / EEG context + assessments + 87k bundle + live DB)', _renderEvidenceIntegration(payload.enrich_evidence, patientId))}
       ${_section('Outcomes & response', _renderOutcomes(payload.outcome_trends))}
       ${_section('Side-effects & tolerability', _renderSideFx(payload.side_effect_events))}

@@ -20,6 +20,19 @@ The analyzer payload includes **`enrich_evidence`** (schema ≥ `1.1.0`):
 
 Frontend: **Analyzers → Sessions** shows an **Evidence & corpora** panel with links to **Research Evidence**, corpus stats, and optional clipboard of the overview API path. Multimodal tiles already deep-link to **MRI**, **qEEG**, **Assessments**.
 
+### Medication & therapy interactions (v1)
+
+Payload includes **`enrich_medication_interactions`**:
+
+- Loads **`PatientMedication`** rows (scoped like other patient resources).
+- Builds **therapy tokens** from course modality + recent session modalities (`tms`, `tdcs`, …).
+- Runs the **same rule engine** as `POST /api/v1/medications/check-interactions` via shared module `app/services/medication_interactions.py`.
+- Surfaces hits in **optimization prompts** (moderate+) and links to **`med-interactions`** (Medication Safety).
+
+### Learning / analytics feedback
+
+Each clinician load records **`audit_events[0]`** with `ml_feedback: true` and persists **`audit_trail`** row `treatment_sessions_analyzer.view` with a compact JSON note (severity, hit count, med count, modality) for cohort analytics — **no PHI** in the note beyond counts/slug metadata.
+
 ---
 
 ### DR / pilot readiness (engineering)

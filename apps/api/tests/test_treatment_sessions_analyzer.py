@@ -17,7 +17,7 @@ class TestTreatmentSessionsAnalyzer:
         )
         assert r.status_code == 200
         body = r.json()
-        assert body["schema_version"] == "1.1.0"
+        assert body["schema_version"] == "1.2.0"
         assert body["patient_id"] == pid
         assert "planning_snapshot" in body
         assert "multimodal_contributors" in body
@@ -27,6 +27,13 @@ class TestTreatmentSessionsAnalyzer:
         assert "live_evidence_corpus" in ev
         assert "neuromodulation_research_bundle" in ev
         assert "filters_used" in ev
+        mi = body["enrich_medication_interactions"]
+        assert "interactions" in mi
+        assert "severity_summary" in mi
+        ae = body["audit_events"]
+        assert isinstance(ae, list)
+        assert len(ae) >= 1
+        assert ae[0].get("ml_feedback") is True
 
     def test_guest_is_forbidden(self, client: TestClient, auth_headers: dict) -> None:
         pid = _create_patient(client, auth_headers)

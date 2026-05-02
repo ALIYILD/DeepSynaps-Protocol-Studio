@@ -24,6 +24,8 @@ test('page exports pgTreatmentSessionsAnalyzer and disclaimer copy', () => {
   assert.ok(PAGE.includes('decision-support'), 'stance');
   assert.ok(PAGE.includes('enrich_evidence'), 'payload field for evidence/bundle');
   assert.ok(PAGE.includes('_renderEvidenceIntegration'), 'evidence panel');
+  assert.ok(PAGE.includes('enrich_medication_interactions'), 'med interaction enrichment');
+  assert.ok(PAGE.includes('_renderMedicationInteractions'), 'med panel');
 });
 
 test('guest role does not list Treatment Sessions Analyzer in sidebar', () => {

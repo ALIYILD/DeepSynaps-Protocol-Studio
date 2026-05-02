@@ -22,6 +22,9 @@ from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimu
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import MedicationInteractionLog, PatientMedication
+from app.services.medication_interactions import (
+    run_interaction_check as _run_interaction_check_dicts,
+)
 
 import logging as _logging
 _med_log = _logging.getLogger(__name__)
@@ -35,48 +38,6 @@ def _trigger_med_risk_recompute(patient_id: str, trigger: str, actor_id: str | N
         _med_log.debug("Risk recompute skipped after %s", trigger, exc_info=True)
 
 router = APIRouter(prefix="/api/v1/medications", tags=["Medication Safety"])
-
-
-# ── Known interaction rules (V1 in-memory; replace with external API in V2) ────
-
-_INTERACTION_RULES: list[dict] = [
-    {
-        "drugs": ["sertraline", "tramadol"],
-        "severity": "severe",
-        "description": "Risk of serotonin syndrome. Avoid concurrent use.",
-        "recommendation": "Use an alternative analgesic.",
-    },
-    {
-        "drugs": ["warfarin", "aspirin"],
-        "severity": "moderate",
-        "description": "Increased bleeding risk due to additive anticoagulation.",
-        "recommendation": "Monitor INR closely. Consider dose adjustment.",
-    },
-    {
-        "drugs": ["ssri", "maoi"],
-        "severity": "severe",
-        "description": "Risk of serotonin syndrome; potentially life-threatening.",
-        "recommendation": "Contraindicated. Allow washout period.",
-    },
-    {
-        "drugs": ["lithium", "ibuprofen"],
-        "severity": "moderate",
-        "description": "NSAIDs may increase lithium levels.",
-        "recommendation": "Monitor lithium levels. Consider paracetamol instead.",
-    },
-    {
-        "drugs": ["tms", "tricyclics"],
-        "severity": "mild",
-        "description": "Tricyclic antidepressants may lower seizure threshold during TMS.",
-        "recommendation": "Use lower TMS intensity; screen for seizure risk.",
-    },
-    {
-        "drugs": ["tdcs", "stimulants"],
-        "severity": "mild",
-        "description": "Stimulants may potentiate tDCS excitability effects.",
-        "recommendation": "Monitor for side-effects; consider dosage timing.",
-    },
-]
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
@@ -219,30 +180,18 @@ class InteractionLogListResponse(BaseModel):
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
-_SEVERITY_ORDER = {"none": 0, "mild": 1, "moderate": 2, "severe": 3}
-
-
 def _run_interaction_check(med_names: list[str]) -> tuple[list[InteractionResult], str]:
     """Simple local heuristic interaction check against known rules."""
-    lower_names = [m.lower() for m in med_names]
-    found: list[InteractionResult] = []
-    worst = "none"
-
-    for rule in _INTERACTION_RULES:
-        matched = all(
-            any(drug in name for name in lower_names)
-            for drug in rule["drugs"]
+    dict_rows, worst = _run_interaction_check_dicts(med_names)
+    found = [
+        InteractionResult(
+            drugs=r["drugs"],
+            severity=r["severity"],
+            description=r["description"],
+            recommendation=r["recommendation"],
         )
-        if matched:
-            found.append(InteractionResult(
-                drugs=rule["drugs"],
-                severity=rule["severity"],
-                description=rule["description"],
-                recommendation=rule["recommendation"],
-            ))
-            if _SEVERITY_ORDER.get(rule["severity"], 0) > _SEVERITY_ORDER.get(worst, 0):
-                worst = rule["severity"]
-
+        for r in dict_rows
+    ]
     return found, worst
 
 
