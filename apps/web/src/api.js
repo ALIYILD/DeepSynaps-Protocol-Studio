@@ -3025,20 +3025,40 @@ export const api = {
   getRiskAudit: (patientId) =>
     apiFetch(`/api/v1/risk/patient/${encodeURIComponent(patientId)}/audit`),
 
-  // ── Movement Analyzer (multimodal motor workspace) ─────────────────────────
+  // ── Movement Analyzer (multimodal workspace + legacy aliases for clinic summary callers)
   getMovementAnalyzer: (patientId) =>
+    apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}`),
+  getMovementProfile: (patientId) =>
     apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}`),
   recomputeMovementAnalyzer: (patientId, body) =>
     apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/recompute`, {
       method: 'POST',
-      body: JSON.stringify(body || {}),
+      body: JSON.stringify(body ?? {}),
+    }),
+  recomputeMovement: (patientId) =>
+    apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/recompute`, {
+      method: 'POST',
+      body: JSON.stringify({}),
     }),
   annotateMovementAnalyzer: (patientId, body) =>
     apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/annotation`, {
       method: 'POST',
       body: JSON.stringify(body || {}),
     }),
+  addMovementAnnotation: (patientId, body) => {
+    const b = body || {};
+    const payload =
+      b.note != null ? { note: b.note }
+      : b.message != null ? { note: String(b.message) }
+      : b;
+    return apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/annotation`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
   getMovementAnalyzerAudit: (patientId) =>
+    apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
+  getMovementAudit: (patientId) =>
     apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
 
   // ── Device Sync (clinician-facing) ─────────────────────────────────────────
@@ -3716,6 +3736,78 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }).catch(() => null),
+
+  // ── IRB-AMD3 SLA Outcome Tracker launch-audit ──
+  // (2026-05-02). Closes the loop on "did the IRB-AMD2 SLA-breach
+  // signal actually nudge reviewer behavior?" Pairs each
+  // irb_reviewer_sla.queue_breach_detected row at time T with the
+  // same reviewer's NEXT irb.amendment_decided_* row, classifies
+  // outcome (decided_within_sla / decided_late / still_pending /
+  // pending), computes per-reviewer calibration_score =
+  // (decided_within_sla - still_pending) / max(total - pending, 1).
+  // Helpers placed BEFORE IRB-AMD2's section so IRB-AMD2's
+  // slice-boundary sentinel stays clean — IRB-AMD3 uses its own
+  // unique header anchor + slice-boundary sentinel.
+  fetchSLAOutcomeSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.sla_response_days != null)
+      usp.set('sla_response_days', String(params.sla_response_days));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/irb-amendment-reviewer-workload-outcome-tracker/summary' +
+        (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  fetchReviewerCalibration: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.sla_response_days != null)
+      usp.set('sla_response_days', String(params.sla_response_days));
+    if (params && params.min_breaches != null)
+      usp.set('min_breaches', String(params.min_breaches));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/irb-amendment-reviewer-workload-outcome-tracker/reviewer-calibration' +
+        (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  fetchSLAOutcomeList: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.sla_response_days != null)
+      usp.set('sla_response_days', String(params.sla_response_days));
+    if (params && params.reviewer_user_id)
+      usp.set('reviewer_user_id', params.reviewer_user_id);
+    if (params && params.outcome) usp.set('outcome', params.outcome);
+    if (params && params.page != null) usp.set('page', String(params.page));
+    if (params && params.page_size != null)
+      usp.set('page_size', String(params.page_size));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/irb-amendment-reviewer-workload-outcome-tracker/list' +
+        (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  fetchSLAOutcomeAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null)
+      usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/irb-amendment-reviewer-workload-outcome-tracker/audit-events' +
+        (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  // end IRB-AMD3 helpers
+  // ━━ IRB-AMD3 SLICE BOUNDARY ━━ (do not remove; the launch-audit
+  // test for the IRB-AMD3 section finds the header above then walks
+  // to this unique sentinel substring to bound the slice).
 
   // ── IRB-AMD2 Reviewer Workload launch-audit ──
   // (2026-05-02). Closes "workflow exists" → "workflow has SLA

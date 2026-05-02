@@ -95,6 +95,9 @@ from app.routers.irb_amendment_workflow_router import (
 from app.routers.irb_amendment_reviewer_workload_router import (
     router as irb_amendment_reviewer_workload_router,
 )
+from app.routers.irb_amendment_reviewer_workload_outcome_tracker_router import (
+    router as irb_amendment_reviewer_workload_outcome_tracker_router,
+)
 from app.routers.evidence_router import router as evidence_router
 from app.routers.literature_router import router as literature_router
 from app.routers.literature_watch_router import router as literature_watch_router
@@ -458,6 +461,7 @@ app.include_router(irb_router)
 app.include_router(irb_manager_router)
 app.include_router(irb_amendment_workflow_router)
 app.include_router(irb_amendment_reviewer_workload_router)
+app.include_router(irb_amendment_reviewer_workload_outcome_tracker_router)
 app.include_router(literature_router)
 app.include_router(literature_watch_router)
 app.include_router(evidence_router)

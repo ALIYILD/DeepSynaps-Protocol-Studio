@@ -534,7 +534,7 @@ const NAV = [
   { id: 'qeeg-analysis',      label: 'qEEG',         icon: '📊', ai: true },
   { id: 'voice-analyzer',     label: 'Voice',        icon: '🎙️', ai: true },
   { id: 'video-assessments',  label: 'Video',        icon: '🎥' },
-  { id: 'movement-analyzer',  label: 'Movement',     icon: '🚶' },
+  { id: 'movement-analyzer',  label: 'Movement',     icon: '🚶', ai: true },
   { id: 'text-analyzer',      label: 'Text',         icon: '📝', ai: true },
   { id: 'wearables',          label: 'Biometrics',   icon: '⌚' },
   { id: 'risk-analyzer',      label: 'Risk',         icon: '🛡️' },
