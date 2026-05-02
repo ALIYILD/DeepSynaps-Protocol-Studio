@@ -1345,6 +1345,264 @@ const _LABS = {
   patient_audit: _labsAuditFor,
 };
 
+const _NUTRITION_PROFILES = {
+  'demo-pt-samantha-li': {
+    patient_id: 'demo-pt-samantha-li',
+    patient_name: 'Samantha Li',
+    captured_at: '2026-04-30T08:30:00Z',
+    macros: {
+      day: '2026-04-30',
+      calories: { intake: 1620, target: 2000, status: 'low' },
+      protein:  { intake: 64,   target: 75,   status: 'low',    unit: 'g' },
+      carbs:    { intake: 198,  target: 240,  status: 'normal', unit: 'g' },
+      fat:      { intake: 58,   target: 65,   status: 'normal', unit: 'g' },
+      fiber:    { intake: 12,   target: 28,   status: 'low',    unit: 'g' },
+      sodium:   { intake: 2400, target: 2300, status: 'normal', unit: 'mg' },
+    },
+    micronutrients: [
+      { key: 'vit_d',      label: 'Vitamin D',     intake: 600, unit: 'IU',  rdi: 2000, rdi_pct: 30,  status: 'low',
+        history: [620, 580, 640, 600, 590, 610, 600, 580, 610, 600, 590, 580, 600, 600] },
+      { key: 'vit_b12',    label: 'Vitamin B12',   intake: 4.1, unit: 'µg',  rdi: 2.4,  rdi_pct: 171, status: 'normal',
+        history: [3.8, 4.0, 4.2, 4.1, 4.0, 4.1, 4.2, 4.0, 4.1, 4.0, 4.2, 4.1, 4.1, 4.1] },
+      { key: 'folate',     label: 'Folate',        intake: 380, unit: 'µg',  rdi: 400,  rdi_pct: 95,  status: 'normal',
+        history: [350, 360, 370, 380, 390, 380, 370, 380, 390, 380, 370, 380, 380, 380] },
+      { key: 'iron',       label: 'Iron',          intake: 12,  unit: 'mg',  rdi: 18,   rdi_pct: 67,  status: 'low',
+        history: [11, 12, 13, 12, 11, 12, 12, 13, 12, 11, 12, 12, 13, 12] },
+      { key: 'magnesium',  label: 'Magnesium',     intake: 380, unit: 'mg',  rdi: 320,  rdi_pct: 119, status: 'normal',
+        history: [340, 360, 380, 390, 380, 360, 370, 380, 390, 380, 370, 380, 380, 380] },
+      { key: 'omega3',     label: 'Omega-3 (EPA+DHA)', intake: 220, unit: 'mg', rdi: 500, rdi_pct: 44, status: 'low',
+        history: [200, 210, 220, 230, 220, 210, 220, 230, 220, 210, 220, 220, 220, 220] },
+    ],
+    supplements: [
+      { id: 'sup-sam-1', name: 'Magnesium glycinate', dose: '400 mg', frequency: 'at bedtime', active: true, notes: 'For sleep onset; well-tolerated.' },
+      { id: 'sup-sam-2', name: 'Vitamin D3',          dose: '600 IU',  frequency: 'once daily',  active: true, notes: 'Sub-therapeutic — increase to 2000 IU.' },
+    ],
+    interactions: [
+      {
+        category: 'micronutrient_deficiency',
+        severity: 'major',
+        title: 'Vitamin D insufficiency overlapping with depressive presentation',
+        mechanism: 'Daily Vitamin D intake (~600 IU) is well below the 2000 IU/day target needed to correct the lab-confirmed 25-OH-D of 18 ng/mL. Insufficiency is associated with blunted SSRI response in MDD.',
+        recommendation: 'Increase cholecalciferol to 2000 IU daily; recheck 25-OH-D in 12 weeks. Coordinate with the Labs Analyzer flag (Vit D 18 ng/mL).',
+        references: [
+          { pmid: '19833552', title: 'Safety of TMS — consensus guideline (Rossi et al., 2009)', year: 2009, journal: 'Clinical Neurophysiology' },
+        ],
+      },
+      {
+        category: 'diet_drug',
+        severity: 'monitor',
+        title: 'Low fiber intake with serotonergic regimen',
+        mechanism: 'Fiber 12 g/day (target 28 g) increases risk of SSRI-related GI distress (sertraline + tramadol). Adequate fiber also moderates serum-tryptophan absorption rhythms.',
+        recommendation: 'Counsel on dietary fibre (vegetables, legumes, oats); consider psyllium 5 g daily if reflux/constipation reported.',
+        references: [],
+      },
+    ],
+    daily_log: [
+      { day: '2026-04-30', calories_kcal: 1620, protein_g: 64, carbs_g: 198, fat_g: 58, fiber_g: 12, sodium_mg: 2400 },
+      { day: '2026-04-29', calories_kcal: 1580, protein_g: 60, carbs_g: 190, fat_g: 56, fiber_g: 14, sodium_mg: 2350 },
+      { day: '2026-04-28', calories_kcal: 1700, protein_g: 68, carbs_g: 210, fat_g: 62, fiber_g: 13, sodium_mg: 2500 },
+    ],
+  },
+  'demo-pt-marcus-chen': {
+    patient_id: 'demo-pt-marcus-chen',
+    patient_name: 'Marcus Chen',
+    captured_at: '2026-04-29T09:15:00Z',
+    macros: {
+      day: '2026-04-29',
+      calories: { intake: 2350, target: 2400, status: 'normal' },
+      protein:  { intake: 95,   target: 90,   status: 'normal', unit: 'g' },
+      carbs:    { intake: 290,  target: 300,  status: 'normal', unit: 'g' },
+      fat:      { intake: 80,   target: 78,   status: 'normal', unit: 'g' },
+      fiber:    { intake: 22,   target: 30,   status: 'low',    unit: 'g' },
+      sodium:   { intake: 2900, target: 2300, status: 'high',   unit: 'mg' },
+    },
+    micronutrients: [
+      { key: 'vit_d',      label: 'Vitamin D',     intake: 1200, unit: 'IU',  rdi: 2000, rdi_pct: 60,  status: 'low',
+        history: [1100, 1150, 1200, 1180, 1200, 1220, 1200, 1180, 1200, 1180, 1200, 1220, 1200, 1200] },
+      { key: 'vit_b12',    label: 'Vitamin B12',   intake: 5.2,  unit: 'µg',  rdi: 2.4,  rdi_pct: 217, status: 'normal',
+        history: [5.0, 5.1, 5.2, 5.3, 5.2, 5.1, 5.2, 5.3, 5.2, 5.1, 5.2, 5.3, 5.2, 5.2] },
+      { key: 'folate',     label: 'Folate',        intake: 420,  unit: 'µg',  rdi: 400,  rdi_pct: 105, status: 'normal',
+        history: [410, 420, 430, 420, 410, 420, 430, 420, 410, 420, 430, 420, 420, 420] },
+      { key: 'iron',       label: 'Iron',          intake: 10,   unit: 'mg',  rdi: 8,    rdi_pct: 125, status: 'normal',
+        history: [9, 10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10, 10, 10] },
+      { key: 'magnesium',  label: 'Magnesium',     intake: 290,  unit: 'mg',  rdi: 420,  rdi_pct: 69,  status: 'low',
+        history: [280, 290, 300, 290, 280, 290, 300, 290, 280, 290, 300, 290, 290, 290] },
+      { key: 'omega3',     label: 'Omega-3 (EPA+DHA)', intake: 1000, unit: 'mg', rdi: 500, rdi_pct: 200, status: 'normal',
+        history: [950, 1000, 1050, 1000, 950, 1000, 1050, 1000, 950, 1000, 1050, 1000, 1000, 1000] },
+      { key: 'caffeine',   label: 'Caffeine',      intake: 500,  unit: 'mg',  rdi: 400,  rdi_pct: 125, status: 'high',
+        history: [480, 500, 520, 510, 500, 490, 500, 520, 510, 500, 490, 510, 500, 500] },
+    ],
+    supplements: [
+      { id: 'sup-mar-1', name: 'Fish oil (EPA/DHA)', dose: '1 g',   frequency: 'once daily',  active: true, notes: 'Adjunct for mood.' },
+      { id: 'sup-mar-2', name: 'L-theanine',         dose: '200 mg', frequency: 'twice daily', active: true, notes: 'For caffeine-related arousal.' },
+    ],
+    interactions: [
+      {
+        category: 'diet_drug',
+        severity: 'critical',
+        title: 'Caffeine + bupropion + rTMS — additive seizure-threshold concern',
+        mechanism: 'Habitual caffeine intake of ~500 mg/day (5 cups coffee equivalent) combined with bupropion 150 mg daily (dose-dependent seizure-threshold reduction) and an active rTMS course produces an additive cortical-excitability load. Recent withdrawal-rebound caffeine surges further destabilise the threshold on stim days.',
+        recommendation: 'Cap caffeine ≤200 mg/day, no caffeine within 4 h of an rTMS session. Confirm bupropion dose remains ≤300 mg/day. Brief patient on prodromes (tinnitus, twitching, tunnel vision).',
+        references: [
+          { pmid: '19833552', title: 'Safety of TMS — consensus guideline (Rossi et al., 2009)', year: 2009, journal: 'Clinical Neurophysiology' },
+        ],
+      },
+      {
+        category: 'micronutrient_deficiency',
+        severity: 'monitor',
+        title: 'Low magnesium intake on lithium augmentation',
+        mechanism: 'Magnesium 290 mg/day (target 420 mg) co-occurring with sub-therapeutic lithium trough (0.4 mmol/L per Labs Analyzer) may compound mood-stabiliser failure; magnesium adequacy supports lithium pharmacodynamics in some studies.',
+        recommendation: 'Encourage magnesium-rich foods (leafy greens, nuts, seeds) or trial magnesium glycinate 200 mg nocte. Coordinate with the lithium dose review.',
+        references: [],
+      },
+      {
+        category: 'hydration',
+        severity: 'monitor',
+        title: 'Low water intake on lithium',
+        mechanism: 'Self-report water intake ≈ 800 mL/day with high caffeine load; lithium toxicity risk rises with dehydration via reduced renal clearance.',
+        recommendation: 'Target 2.0–2.5 L water/day; counsel on dehydration warning signs (tremor, nausea, confusion).',
+        references: [],
+      },
+    ],
+    daily_log: [
+      { day: '2026-04-29', calories_kcal: 2350, protein_g: 95, carbs_g: 290, fat_g: 80, fiber_g: 22, sodium_mg: 2900 },
+      { day: '2026-04-28', calories_kcal: 2280, protein_g: 92, carbs_g: 280, fat_g: 78, fiber_g: 24, sodium_mg: 2750 },
+      { day: '2026-04-27', calories_kcal: 2400, protein_g: 98, carbs_g: 295, fat_g: 82, fiber_g: 21, sodium_mg: 3000 },
+    ],
+  },
+  'demo-pt-elena-vasquez': {
+    patient_id: 'demo-pt-elena-vasquez',
+    patient_name: 'Elena Vasquez',
+    captured_at: '2026-05-01T07:50:00Z',
+    macros: {
+      day: '2026-05-01',
+      calories: { intake: 1850, target: 1900, status: 'normal' },
+      protein:  { intake: 78,   target: 75,   status: 'normal', unit: 'g' },
+      carbs:    { intake: 230,  target: 220,  status: 'normal', unit: 'g' },
+      fat:      { intake: 64,   target: 65,   status: 'normal', unit: 'g' },
+      fiber:    { intake: 26,   target: 25,   status: 'normal', unit: 'g' },
+      sodium:   { intake: 2100, target: 2300, status: 'normal', unit: 'mg' },
+    },
+    micronutrients: [
+      { key: 'vit_d',      label: 'Vitamin D',     intake: 1500, unit: 'IU', rdi: 2000, rdi_pct: 75, status: 'normal',
+        history: [1450, 1500, 1550, 1500, 1450, 1500, 1550, 1500, 1450, 1500, 1550, 1500, 1500, 1500] },
+      { key: 'vit_b12',    label: 'Vitamin B12',   intake: 4.6,  unit: 'µg', rdi: 2.4,  rdi_pct: 192, status: 'normal',
+        history: [4.5, 4.6, 4.7, 4.6, 4.5, 4.6, 4.7, 4.6, 4.5, 4.6, 4.7, 4.6, 4.6, 4.6] },
+      { key: 'folate',     label: 'Folate',        intake: 480,  unit: 'µg', rdi: 400,  rdi_pct: 120, status: 'normal',
+        history: [470, 480, 490, 480, 470, 480, 490, 480, 470, 480, 490, 480, 480, 480] },
+      { key: 'iron',       label: 'Iron',          intake: 16,   unit: 'mg', rdi: 18,   rdi_pct: 89,  status: 'normal',
+        history: [15, 16, 17, 16, 15, 16, 17, 16, 15, 16, 17, 16, 16, 16] },
+      { key: 'magnesium',  label: 'Magnesium',     intake: 360,  unit: 'mg', rdi: 320,  rdi_pct: 113, status: 'normal',
+        history: [340, 350, 360, 370, 360, 350, 360, 370, 360, 350, 360, 370, 360, 360] },
+      { key: 'omega3',     label: 'Omega-3 (EPA+DHA)', intake: 350, unit: 'mg', rdi: 500, rdi_pct: 70, status: 'low',
+        history: [330, 340, 350, 360, 350, 340, 350, 360, 350, 340, 350, 360, 350, 350] },
+      { key: 'vit_k',      label: 'Vitamin K',     intake: 410,  unit: 'µg', rdi: 90,   rdi_pct: 456, status: 'high',
+        history: [380, 400, 420, 410, 390, 400, 420, 430, 410, 400, 420, 430, 410, 410] },
+    ],
+    supplements: [
+      { id: 'sup-ele-1', name: 'Turmeric (curcumin)', dose: '500 mg', frequency: 'twice daily', active: true, notes: 'Self-initiated for joint pain — antiplatelet effect.' },
+      { id: 'sup-ele-2', name: 'Multivitamin',        dose: '1 tab',  frequency: 'once daily',  active: true, notes: 'Generic OTC formulation.' },
+    ],
+    interactions: [
+      {
+        category: 'diet_drug',
+        severity: 'critical',
+        title: 'Vitamin K-rich diet destabilising warfarin (INR 3.8) — critical bleed risk',
+        mechanism: 'Daily large kale serving (~410 µg vitamin K, 4.5× RDI) drives erratic warfarin response and was followed by a paradoxical INR rise to 3.8 (per Labs Analyzer). The actual concern is week-to-week variability of vitamin K intake rather than absolute amount; intake swings shift effective warfarin dose. Concurrent ibuprofen 400 mg TID adds platelet inhibition; ECT day adds airway/dental trauma exposure.',
+        recommendation: 'Stabilise vitamin K intake (consistent leafy-green portion daily, avoid sudden boluses or eliminations). Coordinate with hematology before next ECT session. Stop ibuprofen, switch to paracetamol. Repeat INR in 24 h before re-dosing warfarin.',
+        references: [
+          { pmid: '19833552', title: 'Safety of TMS — consensus guideline (Rossi et al., 2009)', year: 2009, journal: 'Clinical Neurophysiology' },
+        ],
+      },
+      {
+        category: 'supplement_drug',
+        severity: 'critical',
+        title: 'Turmeric (curcumin) on warfarin + NSAID — additive bleeding risk',
+        mechanism: 'Curcumin inhibits platelet aggregation and CYP-mediated warfarin metabolism. Layered on supratherapeutic INR and ibuprofen, it stacks three independent bleeding mechanisms (anticoagulation, COX inhibition, platelet inhibition) — a recognised pre-procedural red flag for ECT.',
+        recommendation: 'Stop turmeric supplement until INR back in range and ECT course complete. Document as patient-initiated supplement on the Medication Analyzer. Re-introduce only with hematology sign-off.',
+        references: [
+          { pmid: '19833552', title: 'Safety of TMS — consensus guideline (Rossi et al., 2009)', year: 2009, journal: 'Clinical Neurophysiology' },
+        ],
+      },
+    ],
+    daily_log: [
+      { day: '2026-05-01', calories_kcal: 1850, protein_g: 78, carbs_g: 230, fat_g: 64, fiber_g: 26, sodium_mg: 2100 },
+      { day: '2026-04-30', calories_kcal: 1820, protein_g: 76, carbs_g: 225, fat_g: 62, fiber_g: 27, sodium_mg: 2050 },
+      { day: '2026-04-29', calories_kcal: 1900, protein_g: 80, carbs_g: 235, fat_g: 66, fiber_g: 25, sodium_mg: 2200 },
+    ],
+  },
+};
+
+const _NUTRITION_AUDITS = {
+  'demo-pt-samantha-li': [
+    { id: 'nut-aud-sam-1', kind: 'recompute',  actor: 'system',          message: 'Nutrition profile recomputed after diet log uploaded.', created_at: '2026-04-30T08:32:00Z' },
+    { id: 'nut-aud-sam-2', kind: 'diet-log',   actor: 'Patient (mobile app)', message: 'Logged 2026-04-30 intake (1620 kcal, fiber 12 g).',  created_at: '2026-04-30T08:30:00Z' },
+    { id: 'nut-aud-sam-3', kind: 'annotation', actor: 'Dr. A. Yildirim', message: 'Vit D intake 600 IU mirrors lab insufficiency (18 ng/mL) — increase to 2000 IU.', created_at: '2026-04-30T09:14:00Z' },
+    { id: 'nut-aud-sam-4', kind: 'supplement-add', actor: 'Patient',     message: 'Added supplement: Magnesium glycinate 400 mg qhs.', created_at: '2026-04-26T20:05:00Z' },
+  ],
+  'demo-pt-marcus-chen': [
+    { id: 'nut-aud-mar-1', kind: 'recompute',  actor: 'system',          message: 'Nutrition profile recomputed after caffeine flag triggered.', created_at: '2026-04-29T09:18:00Z' },
+    { id: 'nut-aud-mar-2', kind: 'diet-log',   actor: 'Patient (mobile app)', message: 'Logged 2026-04-29 intake — caffeine 500 mg.', created_at: '2026-04-29T09:15:00Z' },
+    { id: 'nut-aud-mar-3', kind: 'annotation', actor: 'Dr. A. Yildirim', message: 'Caffeine 500 mg + bupropion + rTMS — counsel patient to cap at 200 mg/day, not on stim mornings.', created_at: '2026-04-29T10:02:00Z' },
+    { id: 'nut-aud-mar-4', kind: 'supplement-add', actor: 'Dr. A. Yildirim', message: 'Started L-theanine 200 mg BID for arousal counterbalance.', created_at: '2026-04-22T11:14:00Z' },
+  ],
+  'demo-pt-elena-vasquez': [
+    { id: 'nut-aud-ele-1', kind: 'recompute',  actor: 'system',          message: 'Nutrition profile recomputed after vit-K bolus logged.', created_at: '2026-05-01T07:52:00Z' },
+    { id: 'nut-aud-ele-2', kind: 'diet-log',   actor: 'Patient (mobile app)', message: 'Logged 2026-05-01 intake — kale 200 g (vit K ≈ 410 µg).', created_at: '2026-05-01T07:50:00Z' },
+    { id: 'nut-aud-ele-3', kind: 'annotation', actor: 'Dr. A. Yildirim', message: 'Vit K bolus precedes INR rise to 3.8 — counsel on consistent leafy-green intake; halt turmeric until ECT done.', created_at: '2026-05-01T08:08:00Z' },
+    { id: 'nut-aud-ele-4', kind: 'supplement-add', actor: 'Patient',     message: 'Added supplement: Turmeric 500 mg BID (self-initiated).', created_at: '2026-04-15T13:22:00Z' },
+    { id: 'nut-aud-ele-5', kind: 'annotation', actor: 'Dr. R. Patel',    message: 'Sign-off: stop turmeric pending hematology review; warfarin held tonight.', created_at: '2026-05-01T08:30:00Z' },
+  ],
+};
+
+function _nutritionProfileFor(patientId) {
+  return _NUTRITION_PROFILES[patientId] || null;
+}
+
+function _nutritionAuditFor(patientId) {
+  const items = _NUTRITION_AUDITS[patientId] || [];
+  return { patient_id: patientId, items };
+}
+
+function _nutritionClinicSummary() {
+  return {
+    captured_at: '2026-05-02T07:30:00Z',
+    patients: Object.values(_NUTRITION_PROFILES).map((p) => {
+      const flags = [];
+      (p.micronutrients || []).forEach((m) => {
+        if (m.status === 'low')  flags.push({ label: `${m.label} low`,  status: 'low' });
+        if (m.status === 'high') flags.push({ label: `${m.label} high`, status: 'high' });
+      });
+      const macros = p.macros || {};
+      ['fiber', 'sodium'].forEach((k) => {
+        const v = macros[k];
+        if (v && v.status === 'low')  flags.push({ label: `${k} low`,  status: 'low' });
+        if (v && v.status === 'high') flags.push({ label: `${k} high`, status: 'high' });
+      });
+      const supplementCount = (p.supplements || []).length;
+      const log = Array.isArray(p.daily_log) ? p.daily_log : [];
+      const lastLogDay = log[0]?.day || null;
+      const adherencePct = log.length ? Math.min(100, Math.round((log.length / 3) * 100)) : 0;
+      const critical = (p.interactions || []).some((i) => i.severity === 'critical');
+      return {
+        patient_id: p.patient_id,
+        patient_name: p.patient_name,
+        last_log_day: lastLogDay,
+        flags: flags.slice(0, 4),
+        supplement_count: supplementCount,
+        adherence_pct: adherencePct,
+        worst_severity: critical ? 'critical' : (flags.length ? 'monitor' : 'green'),
+      };
+    }),
+  };
+}
+
+const _NUTRITION = {
+  clinic_summary: _nutritionClinicSummary,
+  patient_profile: _nutritionProfileFor,
+  patient_audit: _nutritionAuditFor,
+};
+
 export const ANALYZER_DEMO_FIXTURES = Object.freeze({
   patients: DEMO_PATIENTS,
   mri: _MRI,

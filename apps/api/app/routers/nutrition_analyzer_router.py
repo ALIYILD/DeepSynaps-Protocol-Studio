@@ -20,7 +20,12 @@ from sqlalchemy.orm import Session
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role, require_patient_owner
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.persistence.models import NutritionAnalyzerAudit, PatientNutritionDietLog, PatientSupplement
+from app.repositories.nutrition import (
+    append_audit,
+    insert_diet_log,
+    insert_supplement,
+    list_audit_rows,
+)
 from app.repositories.patients import resolve_patient_clinic_id
 from app.schemas.nutrition_analyzer import NutritionAnalyzerPayload
 from app.services.nutrition_analyzer import build_patient_nutrition_payload, new_computation_id
@@ -107,14 +112,13 @@ def recompute_nutrition_analyzer(
     require_minimum_role(actor, "clinician")
     _gate_patient_access(actor, patient_id, db)
     comp = new_computation_id()
-    row = NutritionAnalyzerAudit(
+    append_audit(
+        db,
         patient_id=patient_id,
         clinician_id=actor.actor_id,
         event_type="recompute",
         message=f"Recompute requested. computation_id={comp}",
-        actor_id=actor.actor_id,
     )
-    db.add(row)
     db.commit()
     return build_patient_nutrition_payload(
         patient_id,
@@ -137,7 +141,8 @@ def append_diet_log(
     day = body.log_day.strip()
     if not day:
         raise ApiServiceError(code="invalid_request", message="log_day is required.", status_code=422)
-    row = PatientNutritionDietLog(
+    insert_diet_log(
+        db,
         patient_id=patient_id,
         clinician_id=actor.actor_id,
         log_day=day,
@@ -149,15 +154,12 @@ def append_diet_log(
         fiber_g=body.fiber_g,
         notes=body.notes,
     )
-    db.add(row)
-    db.add(
-        NutritionAnalyzerAudit(
-            patient_id=patient_id,
-            clinician_id=actor.actor_id,
-            event_type="diet_log",
-            message=f"Appended diet log for {day}",
-            actor_id=actor.actor_id,
-        )
+    append_audit(
+        db,
+        patient_id=patient_id,
+        clinician_id=actor.actor_id,
+        event_type="diet_log",
+        message=f"Appended diet log for {day}",
     )
     db.commit()
     return AckResponse()
@@ -175,7 +177,8 @@ def append_supplement(
     name = body.name.strip()
     if not name:
         raise ApiServiceError(code="invalid_request", message="name is required.", status_code=422)
-    row = PatientSupplement(
+    insert_supplement(
+        db,
         patient_id=patient_id,
         clinician_id=actor.actor_id,
         name=name,
@@ -185,15 +188,12 @@ def append_supplement(
         notes=body.notes,
         started_at=body.started_at,
     )
-    db.add(row)
-    db.add(
-        NutritionAnalyzerAudit(
-            patient_id=patient_id,
-            clinician_id=actor.actor_id,
-            event_type="supplement_add",
-            message=f"Added supplement: {name}",
-            actor_id=actor.actor_id,
-        )
+    append_audit(
+        db,
+        patient_id=patient_id,
+        clinician_id=actor.actor_id,
+        event_type="supplement_add",
+        message=f"Added supplement: {name}",
     )
     db.commit()
     return AckResponse()
@@ -211,14 +211,12 @@ def append_review_note(
     note = (body.note or "").strip()
     if not note:
         raise ApiServiceError(code="invalid_request", message="note is required.", status_code=422)
-    db.add(
-        NutritionAnalyzerAudit(
-            patient_id=patient_id,
-            clinician_id=actor.actor_id,
-            event_type="review_note",
-            message=note[:4000],
-            actor_id=actor.actor_id,
-        )
+    append_audit(
+        db,
+        patient_id=patient_id,
+        clinician_id=actor.actor_id,
+        event_type="review_note",
+        message=note[:4000],
     )
     db.commit()
     return AckResponse()
@@ -232,10 +230,13 @@ def list_nutrition_audit(
 ) -> NutritionAuditListResponse:
     require_minimum_role(actor, "clinician")
     _gate_patient_access(actor, patient_id, db)
-    q = db.query(NutritionAnalyzerAudit).filter(NutritionAnalyzerAudit.patient_id == patient_id)
-    if actor.role != "admin":
-        q = q.filter(NutritionAnalyzerAudit.clinician_id == actor.actor_id)
-    rows = q.order_by(NutritionAnalyzerAudit.created_at.desc()).limit(200).all()
+    rows = list_audit_rows(
+        db,
+        patient_id=patient_id,
+        actor_id=actor.actor_id,
+        is_admin=(actor.role == "admin"),
+        limit=200,
+    )
 
     def _dt(v: datetime | None) -> str:
         if v is None:
