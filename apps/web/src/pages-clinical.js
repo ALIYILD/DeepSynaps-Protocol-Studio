@@ -12426,7 +12426,7 @@ export async function pgPatientProfile(setTopbar) {
         break;
       case 'audit-trail':
         window._auditTrailPatientFilter = pid;
-        window._nav('audit-trail');
+        window._nav('audittrail');
         break;
       default:
         window._nav(targetPage);

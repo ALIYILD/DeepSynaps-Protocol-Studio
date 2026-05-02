@@ -1714,7 +1714,6 @@ async function renderPage() {
       break;
     }
     case 'agent-onboarding': { const { pgAgentOnboarding } = await loadOnboarding(); await pgAgentOnboarding(setTopbar); break; }
-    case 'billing': { const { pgBilling } = await import('./pages-billing.js'); await pgBilling(setTopbar); break; }
     case 'webhooks': { const { pgWebhooks } = await import('./pages-webhooks.js'); await pgWebhooks(setTopbar); break; }
     case 'marketplace-landing': { const { pgMarketplaceLanding } = await import('./pages-marketplace.js'); await pgMarketplaceLanding(setTopbar, navigate); break; }
     case 'adverse-events': {
