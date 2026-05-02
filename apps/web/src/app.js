@@ -179,6 +179,8 @@ let _modTreatmentSessionsAnalyzer = null;
 async function loadTreatmentSessionsAnalyzer() { return (_modTreatmentSessionsAnalyzer ??= await import('./pages-treatment-sessions-analyzer.js')); }
 let _modPhenotypeAnalyzer = null;
 async function loadPhenotypeAnalyzer() { return (_modPhenotypeAnalyzer ??= await import('./pages-phenotype-analyzer.js')); }
+let _modMovementAnalyzer = null;
+async function loadMovementAnalyzer() { return (_modMovementAnalyzer ??= await import('./pages-movement-analyzer.js')); }
 async function loadPractice()   { return (_modPractice  ??= await import('./pages-practice.js')); }
 async function loadCourses()    { return (_modCourses   ??= await import('./pages-courses.js')); }
 async function loadOnboarding() { return (_modOnboarding ??= await import('./pages-onboarding.js')); }
@@ -538,6 +540,7 @@ const NAV = [
   { id: 'medication-analyzer', label: 'Medication',  icon: '💊' },
   { id: 'treatment-sessions-analyzer', label: 'Sessions', icon: '🗓️' },
   { id: 'phenotype-analyzer', label: 'Phenotype', icon: '🧬', ai: true },
+  { id: 'movement-analyzer', label: 'Movement', icon: '🏃', ai: true },
 
   // ── PROTOCOL — design / review treatment plans ───────────────────────────────
   { section: 'Protocol', sectionId: 'protocol', collapsed: false },
@@ -639,6 +642,7 @@ NAV_ICONS['risk-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="curre
 NAV_ICONS['medication-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="20" rx="4"/><line x1="8" y1="12" x2="16" y2="12"/><circle cx="12" cy="7" r="0.6" fill="currentColor"/><circle cx="10.5" cy="9" r="0.6" fill="currentColor"/></svg>`;
 NAV_ICONS['treatment-sessions-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="9 15 11 17 15 13"/></svg>`;
 NAV_ICONS['phenotype-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3c4 4 10 4 14 0"/><path d="M5 21c4-4 10-4 14 0"/><path d="M5 3c0 4 0 14 0 18"/><path d="M19 3c0 4 0 14 0 18"/><line x1="7" y1="7" x2="17" y2="7"/><line x1="9" y1="11" x2="15" y2="11"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="7" y1="17" x2="17" y2="17"/></svg>`;
+NAV_ICONS['movement-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="13" cy="4" r="2"/><path d="M4 22l4-7 3 2 4-5 4 4"/><path d="M11 8l-2 4 3 2 2-3 3 1"/><path d="M9 22l1-5"/></svg>`;
 NAV_ICONS['academy']         = `<svg viewBox="0 0 24 24"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>`;
 NAV_ICONS['marketplace']     = `<svg viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" x2="21" y1="6" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>`;
 
@@ -1841,6 +1845,7 @@ async function renderPage() {
     case 'medication-analyzer': { const m = await loadMedicationAnalyzer(); await m.pgMedicationAnalyzer(setTopbar, navigate); break; }
     case 'treatment-sessions-analyzer': { const m = await loadTreatmentSessionsAnalyzer(); await m.pgTreatmentSessionsAnalyzer(setTopbar, navigate); break; }
     case 'phenotype-analyzer': { const m = await loadPhenotypeAnalyzer(); await m.pgPhenotypeAnalyzer(setTopbar, navigate); break; }
+    case 'movement-analyzer':  { const m = await loadMovementAnalyzer(); await m.pgMovementAnalyzer(setTopbar, navigate); break; }
     case 'fusion-workbench':   { const m = await loadFusionWorkbench(); await m.pgFusionWorkbench(setTopbar, navigate); break; }
     case 'patient-timeline':   { const m = await loadPatientTimeline(); await m.pgPatientTimeline(setTopbar, navigate); break; }
     case 'biomarkers':         { const m = await loadKnowledge(); await m.pgQEEGMaps(setTopbar); break; }
@@ -3049,6 +3054,9 @@ window.addEventListener('popstate', (e) => {
     { type: 'nav', icon: '🧬', title: 'Phenotype Analyzer', page: 'phenotype-analyzer' },
     { type: 'nav', icon: '🧬', title: 'Phenotype Assignments', page: 'phenotype-analyzer' },
     { type: 'nav', icon: '🧬', title: 'Subtype Catalog', page: 'phenotype-analyzer' },
+    { type: 'nav', icon: '🏃', title: 'Movement Analyzer', page: 'movement-analyzer' },
+    { type: 'nav', icon: '🏃', title: 'Motor Side-Effects', page: 'movement-analyzer' },
+    { type: 'nav', icon: '🏃', title: 'Tremor / Bradykinesia / Gait', page: 'movement-analyzer' },
   );
 
   // Fuzzy match: returns score (higher = better), or 0 if no match
