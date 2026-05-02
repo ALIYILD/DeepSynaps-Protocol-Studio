@@ -177,6 +177,8 @@ let _modMedicationAnalyzer = null;
 async function loadMedicationAnalyzer() { return (_modMedicationAnalyzer ??= await import('./pages-medication-analyzer.js')); }
 let _modTreatmentSessionsAnalyzer = null;
 async function loadTreatmentSessionsAnalyzer() { return (_modTreatmentSessionsAnalyzer ??= await import('./pages-treatment-sessions-analyzer.js')); }
+let _modLabsAnalyzer = null;
+async function loadLabsAnalyzer() { return (_modLabsAnalyzer ??= await import('./pages-labs-analyzer.js')); }
 async function loadPractice()   { return (_modPractice  ??= await import('./pages-practice.js')); }
 async function loadCourses()    { return (_modCourses   ??= await import('./pages-courses.js')); }
 async function loadOnboarding() { return (_modOnboarding ??= await import('./pages-onboarding.js')); }
@@ -535,6 +537,7 @@ const NAV = [
   { id: 'risk-analyzer',      label: 'Risk',         icon: '🛡️' },
   { id: 'medication-analyzer', label: 'Medication',  icon: '💊' },
   { id: 'treatment-sessions-analyzer', label: 'Sessions', icon: '🗓️' },
+  { id: 'labs-analyzer', label: 'Labs', icon: '🧪', ai: true },
 
   // ── PROTOCOL — design / review treatment plans ───────────────────────────────
   { section: 'Protocol', sectionId: 'protocol', collapsed: false },
@@ -635,7 +638,8 @@ NAV_ICONS['text-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="curre
 NAV_ICONS['risk-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`;
 NAV_ICONS['medication-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="20" rx="4"/><line x1="8" y1="12" x2="16" y2="12"/><circle cx="12" cy="7" r="0.6" fill="currentColor"/><circle cx="10.5" cy="9" r="0.6" fill="currentColor"/></svg>`;
 NAV_ICONS['treatment-sessions-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="9 15 11 17 15 13"/></svg>`;
-NAV_ICONS['academy']         = `<svg viewBox="0 0 24 24"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>`;
+  NAV_ICONS['labs-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2v6a2 2 0 0 0 2 2h6"/><path d="M16 13H8a2 2 0 0 0-2 2v6"/><path d="M8 2v6a2 2 0 0 1-2 2H2"/><circle cx="12" cy="12" r="2" fill="currentColor" opacity=".35"/><path d="M9 18h6"/></svg>`;
+  NAV_ICONS['academy']         = `<svg viewBox="0 0 24 24"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>`;
 NAV_ICONS['marketplace']     = `<svg viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" x2="21" y1="6" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>`;
 
 // ── Section labels ────────────────────────────────────────────────────────────
@@ -1836,6 +1840,7 @@ async function renderPage() {
     case 'risk-analyzer':      { const m = await loadRiskAnalyzer(); await m.pgRiskAnalyzer(setTopbar, navigate); break; }
     case 'medication-analyzer': { const m = await loadMedicationAnalyzer(); await m.pgMedicationAnalyzer(setTopbar, navigate); break; }
     case 'treatment-sessions-analyzer': { const m = await loadTreatmentSessionsAnalyzer(); await m.pgTreatmentSessionsAnalyzer(setTopbar, navigate); break; }
+    case 'labs-analyzer':      { const m = await loadLabsAnalyzer(); await m.pgLabsAnalyzer(setTopbar, navigate); break; }
     case 'fusion-workbench':   { const m = await loadFusionWorkbench(); await m.pgFusionWorkbench(setTopbar, navigate); break; }
     case 'patient-timeline':   { const m = await loadPatientTimeline(); await m.pgPatientTimeline(setTopbar, navigate); break; }
     case 'biomarkers':         { const m = await loadKnowledge(); await m.pgQEEGMaps(setTopbar); break; }
@@ -3041,6 +3046,7 @@ window.addEventListener('popstate', (e) => {
     { type: 'nav', icon: '🗓️', title: 'Treatment Sessions Analyzer', page: 'treatment-sessions-analyzer' },
     { type: 'nav', icon: '🗓️', title: 'Sessions Adherence', page: 'treatment-sessions-analyzer' },
     { type: 'nav', icon: '🗓️', title: 'Sign-off Queue', page: 'treatment-sessions-analyzer' },
+    { type: 'nav', icon: '🧪', title: 'Labs · Blood Biomarkers', page: 'labs-analyzer' },
   );
 
   // Fuzzy match: returns score (higher = better), or 0 if no match

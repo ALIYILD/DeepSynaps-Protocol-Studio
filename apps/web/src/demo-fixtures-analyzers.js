@@ -606,6 +606,113 @@ const _TREATMENT_SESSIONS = {
   detail: (pid) => (_TS_DETAIL[pid] ? _TS_DETAIL[pid]() : null),
 };
 
+const _LABS = {
+  /** Mirrors `GET /api/v1/labs/analyzer/patient/{id}` for offline demo. */
+  payload: (patientId) => {
+    const p = String(patientId || '');
+    const name = (DEMO_PATIENTS.find((x) => x.id === p) || {}).name || 'Patient';
+    const now = '2026-05-02T10:00:00Z';
+    if (p === 'demo-pt-samantha-li') {
+      return {
+        schema_version: '1.0.0',
+        generated_at: now,
+        patient_id: p,
+        patient_name: name,
+        provenance: { source_system: 'deepsynaps_api', analyzer_version: 'labs-analyzer-0.1.0-demo', input_snapshot_ids: ['demo:fixtures'], pipeline_run_id: 'demo-labs-1' },
+        confidence: { overall_panel_completeness: 0.68, interpretation_confidence_cap: 0.55 },
+        disclaimer_short: 'Decision-support only. Not a diagnosis. Demo payload.',
+        lab_snapshot: {
+          key_abnormal_markers: ['Hemoglobin low', 'Vitamin B12 low'],
+          critical_summary: 'No critical values on this draw.',
+          recent_changes_summary: 'Hgb −0.6 g/dL vs prior month.',
+          abnormal_domain_count: 2,
+          medication_safety_flag_count: 0,
+          inflammation_summary: 'No CRP on panel.',
+          metabolic_summary: 'Renal function within range.',
+          endocrine_summary: 'TSH not drawn.',
+          completeness_pct: 0.68,
+          missing_core_analytes: ['TSH', 'CRP', 'Ferritin'],
+          top_confound_warnings: [
+            'Hemoglobin low — interpret fatigue scores and HRV with caution.',
+            'B12 low — may confound cognitive complaint work-up vs qEEG.',
+          ],
+        },
+        domain_summaries: [
+          { domain: 'hematology', status: 'abnormal', abnormal_count: 1, critical_count: 0, headline: 'Mild anemia', marker_ids: ['lr-sam-hemo'] },
+          { domain: 'nutritional', status: 'abnormal', abnormal_count: 1, critical_count: 0, headline: 'Low B12', marker_ids: ['lr-sam-b12'] },
+        ],
+        results: [
+          { id: 'lr-sam-hemo', patient_id: p, analyte_code: '718-7', analyte_display_name: 'Hemoglobin', test_name: 'CBC', panel_name: 'Core', value_numeric: 10.8, value_text: null, unit_ucum: 'g/dL', reference_range: { low: 11.5, high: 15.5, text: null, population: null }, sample_collected_at: '2026-04-28T08:00:00Z', result_reported_at: '2026-04-28T08:00:00Z', abnormality_direction: 'low', criticality: 'moderate', domain: 'hematology', acute_chronic_class: 'unknown', confidence: 0.95, linked_analyzers_impacted: ['biometrics', 'assessments', 'risk'] },
+          { id: 'lr-sam-b12', patient_id: p, analyte_code: '2132-9', analyte_display_name: 'Vitamin B12', test_name: 'B12', panel_name: 'Core', value_numeric: 185, value_text: null, unit_ucum: 'pg/mL', reference_range: { low: 200, high: 900, text: null, population: null }, sample_collected_at: '2026-04-28T08:00:00Z', result_reported_at: '2026-04-28T08:00:00Z', abnormality_direction: 'low', criticality: 'moderate', domain: 'nutritional', acute_chronic_class: 'unknown', confidence: 0.95, linked_analyzers_impacted: ['assessments', 'qeeg'] },
+        ],
+        trend_windows: [
+          { analyte_code: '718-7', window_start: '2026-01-01T00:00:00Z', window_end: '2026-04-28T08:00:00Z', n_samples: 1, baseline_estimate: 10.8, latest_value: 10.8, delta_percent: null, trend_direction: 'flat', real_change_probability: 0.35, real_change_rationale_codes: ['single_draw'] },
+        ],
+        critical_alerts: [],
+        interpretations: [
+          { id: 'int-fatigue', category: 'fatigue', interpretation_type: 'possible_contributor', summary: 'Anemia pattern may contribute to fatigue — does not replace clinical evaluation.', supporting_result_ids: ['lr-sam-hemo'], confidence: 0.48, caveats: ['Structured hypothesis only.', 'Panel incomplete for thyroid/inflammation.'] },
+        ],
+        confound_flags: [
+          { id: 'cf-bio', target_analyzer: 'biometrics', strength: 'moderate', confound_risk_score: 0.55, rationale: 'Low hemoglobin may covary with reduced exercise tolerance and HRV.', supporting_result_ids: ['lr-sam-hemo'] },
+        ],
+        recommendations: [
+          { id: 'rec-1', type: 'repeat_lab', priority: 'P1', text: 'Repeat CBC + ferritin + B12 folate panel per clinician judgement.', evidence_links: [], linked_result_ids: ['lr-sam-hemo'] },
+          { id: 'rec-2', type: 'caution_other_analyzers', priority: 'P2', text: 'Review biometrics and symptom scales with lab confounds in mind.', evidence_links: [], linked_result_ids: [] },
+        ],
+        multimodal_links: [
+          { target_page: 'medication-analyzer', label: 'Medication Analyzer', rationale: 'Cross-check agents that affect bleeding / marrow / liver.' },
+          { target_page: 'wearables', label: 'Biometrics', rationale: 'Correlate HRV and sleep with anemia work-up.' },
+          { target_page: 'deeptwin', label: 'DeepTwin', rationale: 'Fuse labs into multimodal summary.' },
+        ],
+      };
+    }
+    return {
+      schema_version: '1.0.0',
+      generated_at: now,
+      patient_id: p || 'unknown',
+      patient_name: name,
+      provenance: { source_system: 'deepsynaps_api', analyzer_version: 'labs-analyzer-0.1.0-demo', input_snapshot_ids: ['demo:generic'], pipeline_run_id: 'demo-labs-gen' },
+      confidence: { overall_panel_completeness: 0.4, interpretation_confidence_cap: 0.45 },
+      disclaimer_short: 'Decision-support only. Demo generic payload.',
+      lab_snapshot: {
+        key_abnormal_markers: [],
+        critical_summary: 'No critical values shown.',
+        recent_changes_summary: '',
+        abnormal_domain_count: 0,
+        medication_safety_flag_count: 0,
+        inflammation_summary: '—',
+        metabolic_summary: 'Single sodium sample — limited.',
+        endocrine_summary: '—',
+        completeness_pct: 0.4,
+        missing_core_analytes: ['CBC', 'CMP', 'Lipids'],
+        top_confound_warnings: [],
+      },
+      domain_summaries: [
+        { domain: 'metabolic_renal', status: 'clear', abnormal_count: 0, critical_count: 0, headline: 'Scaffold — add labs', marker_ids: ['lr-gen-na'] },
+      ],
+      results: [
+        { id: 'lr-gen-na', patient_id: p || 'unknown', analyte_code: '2951-2', analyte_display_name: 'Sodium', test_name: 'BMP', panel_name: 'Core', value_numeric: 140, value_text: null, unit_ucum: 'mmol/L', reference_range: { low: 135, high: 145, text: null, population: null }, sample_collected_at: '2026-05-01T08:00:00Z', result_reported_at: null, abnormality_direction: 'normal', criticality: 'none', domain: 'metabolic_renal', acute_chronic_class: 'unknown', confidence: 0.95, linked_analyzers_impacted: [] },
+      ],
+      trend_windows: [],
+      critical_alerts: [],
+      interpretations: [],
+      confound_flags: [],
+      recommendations: [
+        { id: 'rec-mm', type: 'caution_other_analyzers', priority: 'P2', text: 'Upload fuller panels to enable confound detection across modalities.', evidence_links: [], linked_result_ids: [] },
+      ],
+      multimodal_links: [
+        { target_page: 'patients-v2', label: 'Patients', rationale: 'Select a demo persona for richer scaffold data.' },
+      ],
+    };
+  },
+  audit: (patientId) => ({
+    patient_id: patientId,
+    items: [
+      { event_id: 'demo-labs-audit-1', event_type: 'view', actor_user_id: null, timestamp: '2026-05-02T09:00:00Z', payload: { source: 'demo_fixture' } },
+    ],
+  }),
+};
+
 export const ANALYZER_DEMO_FIXTURES = Object.freeze({
   patients: DEMO_PATIENTS,
   mri: _MRI,
@@ -617,6 +724,7 @@ export const ANALYZER_DEMO_FIXTURES = Object.freeze({
   video: _VIDEO,
   medication: _MEDICATION,
   treatmentSessions: _TREATMENT_SESSIONS,
+  labs: _LABS,
 });
 
 export function isFixtureFallbackActive() {

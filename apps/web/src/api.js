@@ -3007,6 +3007,27 @@ export const api = {
   getRiskAudit: (patientId) =>
     apiFetch(`/api/v1/risk/patient/${encodeURIComponent(patientId)}/audit`),
 
+  // ── Labs / Blood Biomarkers Analyzer ──────────────────────────────────────
+  getLabsAnalyzerPayload: (patientId) =>
+    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}`),
+  recomputeLabsAnalyzer: (patientId, body) =>
+    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/recompute`, {
+      method: 'POST',
+      body: JSON.stringify(body || { reason: 'manual' }),
+    }),
+  postLabsAnnotation: (patientId, data) =>
+    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/annotation`, {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  postLabsReviewNote: (patientId, data) =>
+    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/review-note`, {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  getLabsAnalyzerAudit: (patientId) =>
+    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
+
   // ── Device Sync (clinician-facing) ─────────────────────────────────────────
   deviceSyncProviders: () => apiFetchWithRetry('/api/v1/device-sync/providers'),
   deviceSyncAuthorize: (provider) =>
