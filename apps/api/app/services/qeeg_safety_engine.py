@@ -13,6 +13,19 @@ from app.persistence.models import QEEGAnalysis
 
 _log = logging.getLogger(__name__)
 
+# ── Optional medication atlas (deepsynaps_qeeg knowledge base) ──────────────
+try:
+    from deepsynaps_qeeg.knowledge.medication_eeg import (
+        MedicationEEGAtlas,
+        _ALIASES,
+    )
+
+    _HAS_MED_ATLAS: bool = True
+except Exception:  # pragma: no cover
+    MedicationEEGAtlas = None  # type: ignore[assignment,misc]
+    _ALIASES = {}  # type: ignore[assignment]
+    _HAS_MED_ATLAS = False
+
 
 # ── Safety thresholds ────────────────────────────────────────────────────────
 _MIN_DURATION_SEC = 60.0
@@ -253,16 +266,27 @@ def detect_red_flags(analysis: QEEGAnalysis, notes: Optional[str] = None) -> dic
     # 5. Medication / sedation confound
     if notes:
         lowered = notes.lower()
-        for kw in _MEDICATION_CONFOUND_KEYWORDS:
-            if kw in lowered:
-                flags.append({
-                    "code": "MEDICATION_CONFOUND",
-                    "severity": "medium",
-                    "title": "Medication / sedation confound possible",
-                    "message": f"Keyword '{kw}' detected in notes.",
-                    "action": "Interpret qEEG in context of current medications. Consider medication washout if clinically appropriate.",
-                })
-                break
+        med_found = False
+
+        # Atlas-first scan for evidence-based, drug-specific flags
+        if _HAS_MED_ATLAS and MedicationEEGAtlas is not None:
+            atlas_flags = _scan_medications_atlas(notes)
+            flags.extend(atlas_flags)
+            med_found = bool(atlas_flags)
+
+        # Fallback keyword scanner for broad clinical terms not in the atlas
+        # (e.g. "sedation", "general anaesthetic").
+        if not med_found:
+            for kw in _MEDICATION_CONFOUND_KEYWORDS:
+                if kw in lowered:
+                    flags.append({
+                        "code": "MEDICATION_CONFOUND",
+                        "severity": "medium",
+                        "title": "Medication / sedation confound possible",
+                        "message": f"Keyword '{kw}' detected in notes.",
+                        "action": "Interpret qEEG in context of current medications. Consider medication washout if clinically appropriate.",
+                    })
+                    break
 
     # 6. Acute neurological concern
     if notes:
@@ -327,6 +351,63 @@ def _mean_band_z(z_by_channel: dict[str, dict[str, float]], band: str) -> Option
     if not values:
         return None
     return sum(values) / len(values)
+
+
+def _profile_search_terms(profile: Any) -> list[str]:
+    """Generate lowercase search terms from a medication profile."""
+    terms: list[str] = []
+    name = profile.name.lower()
+    terms.append(name)
+    if "(e.g.," in name:
+        class_name = name.split("(e.g.,")[0].strip()
+        terms.append(class_name)
+        # Singular form for classes ending in 's' (e.g. benzodiazepines → benzodiazepine)
+        if class_name.endswith("s") and len(class_name) > 2:
+            terms.append(class_name[:-1])
+    return terms
+
+
+def _scan_medications_atlas(notes: str) -> list[dict[str, Any]]:
+    """Return rich medication-confound flags using the full EEG atlas."""
+    flags: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    lowered = notes.lower()
+
+    # Scan using aliases (specific drug names) first.
+    for alias, canonical in _ALIASES.items():
+        if alias in lowered and canonical not in seen:
+            seen.add(canonical)
+
+    # Scan using profile names / drug classes.
+    if MedicationEEGAtlas is not None:
+        for profile in MedicationEEGAtlas.all_profiles():
+            for term in _profile_search_terms(profile):
+                if term in lowered and profile.name not in seen:
+                    seen.add(profile.name)
+                    break
+
+    for canonical in seen:
+        if MedicationEEGAtlas is None:
+            continue
+        profile = MedicationEEGAtlas.lookup(canonical)
+        if profile is None:
+            continue
+        effects = "; ".join(profile.eeg_effects)
+        flags.append(
+            {
+                "code": "MEDICATION_CONFOUND",
+                "severity": "medium",
+                "title": "Medication / sedation confound possible",
+                "message": f"{profile.name} detected in notes. Expected EEG effects: {effects}",
+                "action": (
+                    f"{profile.clinical_note} "
+                    "Interpret qEEG in context of current medications. "
+                    "Consider medication washout if clinically appropriate."
+                ),
+            }
+        )
+
+    return flags
 
 
 # ── Phase 4: red-flag → AdverseEvent escalation ──────────────────────────────

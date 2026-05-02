@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.database import SessionLocal
+from app.errors import ApiServiceError
 from app.persistence.models import QEEGAnalysis
 from app.services import media_storage
 from app.settings import get_settings
@@ -712,3 +713,383 @@ def run_custom_pipeline_sync(analysis_id: str) -> dict[str, Any]:
             except OSError:
                 pass
         session.close()
+
+
+# ── Phase 3: Montage application ────────────────────────────────────────────
+#
+# Operates directly on a 2-D numpy array (channels × samples) plus a list of
+# channel names. Pure-numpy where possible so the service stays callable from
+# tests that build a synthetic 19-channel array without a full MNE Raw.
+#
+# Supported montages:
+#   referential    — pass-through (no re-reference)
+#   bipolar_long   — longitudinal bipolar pairs (Fp1-F7, F7-T3, ...)
+#   bipolar_trans  — transverse bipolar pairs  (F7-F3, F3-Fz, ...)
+#   average        — common-average reference
+#   laplacian      — small-Laplacian (per-channel mean of nearest neighbors)
+#   linked_mastoid — average of A1/A2 (or M1/M2) used as reference
+#   csd            — Current Source Density via MNE (compute_current_source_density)
+#   rest           — REST reference (simplified; full lead-field deferred)
+
+
+_LONGITUDINAL_PAIRS: list[tuple[str, str]] = [
+    ("Fp1", "F7"), ("F7", "T3"), ("T3", "T5"), ("T5", "O1"),
+    ("Fp1", "F3"), ("F3", "C3"), ("C3", "P3"), ("P3", "O1"),
+    ("Fz",  "Cz"), ("Cz", "Pz"),
+    ("Fp2", "F4"), ("F4", "C4"), ("C4", "P4"), ("P4", "O2"),
+    ("Fp2", "F8"), ("F8", "T4"), ("T4", "T6"), ("T6", "O2"),
+]
+
+_TRANSVERSE_PAIRS: list[tuple[str, str]] = [
+    ("F7", "F3"), ("F3", "Fz"), ("Fz", "F4"), ("F4", "F8"),
+    ("T3", "C3"), ("C3", "Cz"), ("Cz", "C4"), ("C4", "T4"),
+    ("T5", "P3"), ("P3", "Pz"), ("Pz", "P4"), ("P4", "T6"),
+]
+
+# Small-Laplacian neighbor map for the 10-20 system. Each entry lists the
+# nearest cardinal neighbours used to build a per-channel reference.
+_LAPLACIAN_NEIGHBORS: dict[str, list[str]] = {
+    "Fp1": ["F3", "F7"],
+    "Fp2": ["F4", "F8"],
+    "F7":  ["Fp1", "F3", "T3"],
+    "F3":  ["Fp1", "F7", "Fz", "C3"],
+    "Fz":  ["F3", "F4", "Cz"],
+    "F4":  ["Fp2", "F8", "Fz", "C4"],
+    "F8":  ["Fp2", "F4", "T4"],
+    "T3":  ["F7", "C3", "T5"],
+    "C3":  ["F3", "T3", "Cz", "P3"],
+    "Cz":  ["Fz", "C3", "C4", "Pz"],
+    "C4":  ["F4", "T4", "Cz", "P4"],
+    "T4":  ["F8", "C4", "T6"],
+    "T5":  ["T3", "P3", "O1"],
+    "P3":  ["C3", "T5", "Pz", "O1"],
+    "Pz":  ["Cz", "P3", "P4"],
+    "P4":  ["C4", "T6", "Pz", "O2"],
+    "T6":  ["T4", "P4", "O2"],
+    "O1":  ["T5", "P3", "O2"],
+    "O2":  ["T6", "P4", "O1"],
+}
+
+
+def _normalize_ch(name: str) -> str:
+    """Normalize channel name for case-insensitive matching."""
+    return str(name).strip().upper()
+
+
+def _channel_index_map(channels: list[str]) -> dict[str, int]:
+    return {_normalize_ch(c): i for i, c in enumerate(channels)}
+
+
+def _find_channel(idx_map: dict[str, int], *names: str) -> int | None:
+    for n in names:
+        i = idx_map.get(_normalize_ch(n))
+        if i is not None:
+            return i
+    return None
+
+
+def apply_montage_to_array(
+    data: Any,
+    channels: list[str],
+    montage: str,
+    custom_pairs: list[dict[str, str]] | None = None,
+) -> tuple[Any, list[str]]:
+    """Apply a clinical EEG montage to a (channels, samples) numpy array.
+
+    Returns (new_data, new_channel_names). Raises :class:`ApiServiceError`
+    for missing-reference scenarios. The returned channel list reflects
+    the montage's output (e.g. bipolar pair labels like "Fp1-F7").
+    """
+    if not _HAS_NUMPY:
+        raise RuntimeError("NumPy is required")
+
+    montage = (montage or "referential").lower()
+    idx_map = _channel_index_map(channels)
+
+    if montage in ("referential", "raw", "none", ""):
+        return data, list(channels)
+
+    if montage == "average":
+        ref = data.mean(axis=0, keepdims=True)
+        return data - ref, list(channels)
+
+    if montage in ("bipolar_long", "bipolar_longitudinal", "bipolar_trans", "bipolar_transverse"):
+        pairs = (
+            _LONGITUDINAL_PAIRS
+            if montage.startswith("bipolar_long")
+            else _TRANSVERSE_PAIRS
+        )
+        rows: list[Any] = []
+        labels: list[str] = []
+        for anode, cathode in pairs:
+            ai = _find_channel(idx_map, anode)
+            ci = _find_channel(idx_map, cathode)
+            if ai is None or ci is None:
+                continue
+            rows.append(data[ai] - data[ci])
+            labels.append(f"{anode}-{cathode}")
+        if not rows:
+            raise ApiServiceError(
+                code="missing_reference",
+                message=f"Bipolar montage requires 10-20 channels (found none of: {pairs[0]}…)",
+                status_code=400,
+            )
+        return np.stack(rows, axis=0), labels
+
+    if montage == "laplacian":
+        rows = []
+        labels = []
+        for ch_name, neighbors in _LAPLACIAN_NEIGHBORS.items():
+            ci = _find_channel(idx_map, ch_name)
+            if ci is None:
+                continue
+            neighbor_indices = [
+                _find_channel(idx_map, n) for n in neighbors
+            ]
+            neighbor_indices = [n for n in neighbor_indices if n is not None]
+            if not neighbor_indices:
+                continue
+            mean_neighbor = np.mean(data[neighbor_indices, :], axis=0)
+            rows.append(data[ci] - mean_neighbor)
+            labels.append(ch_name)
+        if not rows:
+            raise ApiServiceError(
+                code="missing_reference",
+                message="Laplacian montage requires 10-20 channels",
+                status_code=400,
+            )
+        return np.stack(rows, axis=0), labels
+
+    if montage == "linked_mastoid":
+        # Try A1/A2, then M1/M2.
+        left = _find_channel(idx_map, "A1", "M1")
+        right = _find_channel(idx_map, "A2", "M2")
+        if left is None or right is None:
+            raise ApiServiceError(
+                code="missing_reference",
+                message="Linked mastoid requires A1/A2 or M1/M2 channels",
+                status_code=400,
+            )
+        ref = (data[left] + data[right]) / 2.0
+        return data - ref[np.newaxis, :], list(channels)
+
+    if montage == "csd":
+        # CSD requires MNE plus channel positions. The function in this file
+        # operates on a bare array; full CSD is delegated to apply_montage_to_raw
+        # which has a real Raw object.  Guard here so callers know.
+        if not _HAS_MNE:
+            raise ApiServiceError(
+                code="dependency_missing",
+                message="CSD montage requires MNE-Python with channel positions.",
+                status_code=503,
+            )
+        # Without positions in the bare-array path, fall back to a Laplacian
+        # approximation. Real CSD path is in apply_montage_to_raw.
+        return apply_montage_to_array(data, channels, "laplacian")
+
+    if montage == "rest":
+        # Simplified REST: average reference + small DC correction term.
+        # TODO Phase X: full REST via lead-field matrix (requires a forward
+        # model — out of scope until a head-model dependency lands).
+        ref = data.mean(axis=0, keepdims=True)
+        # Small correction term: subtract the per-channel temporal mean so the
+        # reference does not absorb a DC offset that biases the average.
+        per_ch_mean = data.mean(axis=1, keepdims=True)
+        corrected_ref = ref - per_ch_mean.mean(axis=0, keepdims=True)
+        return data - corrected_ref, list(channels)
+
+    if montage == "custom" and custom_pairs:
+        rows = []
+        labels = []
+        for pair in custom_pairs:
+            anode = pair.get("anode")
+            cathode = pair.get("cathode")
+            if not anode or not cathode or anode == cathode:
+                continue
+            ai = _find_channel(idx_map, anode)
+            ci = _find_channel(idx_map, cathode)
+            if ai is None or ci is None:
+                continue
+            rows.append(data[ai] - data[ci])
+            labels.append(f"{anode}-{cathode}")
+        if not rows:
+            raise ApiServiceError(
+                code="missing_reference",
+                message="Custom montage has no resolvable pairs",
+                status_code=400,
+            )
+        return np.stack(rows, axis=0), labels
+
+    # Unknown montage — fall back to referential rather than raising so the UI
+    # never wedges on a typo.
+    return data, list(channels)
+
+
+def apply_montage_to_raw(raw: Any, montage: str) -> Any:
+    """Apply a montage to an MNE Raw object, returning a new Raw.
+
+    Used by the live signal-window endpoints so the wire format stays
+    unchanged. Falls back to array-based path when MNE-specific helpers
+    are not available.
+    """
+    if not _HAS_MNE:
+        raise RuntimeError("MNE-Python is not installed")
+
+    montage = (montage or "referential").lower()
+
+    if montage == "csd":
+        try:
+            from mne.preprocessing import compute_current_source_density  # type: ignore
+            return compute_current_source_density(raw.copy())
+        except Exception as exc:
+            raise ApiServiceError(
+                code="dependency_missing",
+                message=f"CSD montage failed: {exc}",
+                status_code=503,
+            ) from exc
+
+    if montage in ("referential", "raw", "none", ""):
+        return raw
+
+    # For everything else, route through the array path on a copy.
+    raw_copy = raw.copy()
+    data = raw_copy.get_data()
+    new_data, new_chs = apply_montage_to_array(data, list(raw_copy.ch_names), montage)
+    if new_chs == list(raw_copy.ch_names):
+        # Same channels — just write the data back.
+        raw_copy._data = new_data
+        return raw_copy
+    # Channel set changed (bipolar / laplacian) — build a new Info.
+    info = mne.create_info(new_chs, raw_copy.info["sfreq"], ch_types="eeg")
+    return mne.io.RawArray(new_data, info, verbose=False)
+
+
+# ── Phase 3: Filter preview ─────────────────────────────────────────────────
+
+
+def _butterworth_freqz(
+    lff: float | None,
+    hff: float | None,
+    notch: float | None,
+    sfreq: float,
+    n_points: int = 256,
+) -> dict[str, list[float]]:
+    """Compute an approximate magnitude response (in dB) for the cascaded
+    LFF / HFF / notch filter pipeline.
+
+    Pure numpy — no scipy dependency. Uses a 2nd-order Butterworth analytic
+    magnitude formula plus a narrowband notch with Q=30. Good enough for a
+    UI preview; the actual signal filtering is still done by MNE.
+    """
+    if not _HAS_NUMPY:
+        raise RuntimeError("NumPy is required")
+
+    nyq = max(1.0, sfreq / 2.0)
+    hz = np.linspace(0.1, nyq, n_points)
+    mag = np.ones_like(hz)
+
+    # 2nd-order high-pass (LFF). |H| = (f/fc)^N / sqrt(1 + (f/fc)^(2N))
+    if lff and lff > 0:
+        ratio = hz / float(lff)
+        mag *= (ratio ** 2) / np.sqrt(1.0 + ratio ** 4)
+
+    # 2nd-order low-pass (HFF). |H| = 1 / sqrt(1 + (f/fc)^(2N))
+    if hff and hff > 0:
+        ratio = hz / float(hff)
+        mag *= 1.0 / np.sqrt(1.0 + ratio ** 4)
+
+    # Narrow notch around the line-noise frequency.
+    if notch and notch > 0:
+        Q = 30.0
+        w0 = float(notch)
+        bw = w0 / Q
+        # Notch transfer mag: |H| = (f^2 - w0^2) / sqrt((f^2 - w0^2)^2 + (f*bw)^2)
+        f2 = hz ** 2
+        num = np.abs(f2 - w0 ** 2)
+        den = np.sqrt((f2 - w0 ** 2) ** 2 + (hz * bw) ** 2 + 1e-12)
+        mag *= num / den
+
+    # Convert to dB. Floor at -80 dB for plotting.
+    with np.errstate(divide="ignore"):
+        mag_db = 20.0 * np.log10(np.maximum(mag, 1e-4))
+    mag_db = np.clip(mag_db, -80.0, 5.0)
+
+    return {
+        "hz": [float(x) for x in hz.tolist()],
+        "magnitude_db": [float(x) for x in mag_db.tolist()],
+    }
+
+
+def compute_filter_preview(
+    analysis_id: str,
+    db: Any,
+    t_start: float = 0.0,
+    window_sec: float = 10.0,
+    lff: float | None = 1.0,
+    hff: float | None = 45.0,
+    notch: float | None = 50.0,
+    max_points_per_channel: int = 1500,
+    max_channels: int = 6,
+) -> dict[str, Any]:
+    """Return paired raw/filtered traces + frequency response for the UI.
+
+    Limits the response to ``max_channels`` (first N) and downsamples to
+    ``max_points_per_channel`` so the JSON stays small enough to fit in a
+    popover preview.
+    """
+    if not _HAS_MNE or not _HAS_NUMPY:
+        raise RuntimeError("MNE-Python and NumPy are required")
+
+    raw = load_raw_for_analysis(analysis_id, db)
+    raw_window = raw.copy()
+    sfreq = float(raw_window.info["sfreq"])
+    total = raw_window.times[-1] if len(raw_window.times) > 0 else 0.0
+    t0 = max(0.0, min(float(t_start), max(0.0, total - 0.1)))
+    t1 = min(t0 + max(0.5, float(window_sec)), total)
+
+    start_sample = int(t0 * sfreq)
+    stop_sample = int(t1 * sfreq)
+    raw_data, _times = raw_window[: max_channels, start_sample:stop_sample]
+    raw_data = raw_data * 1e6  # → microvolts
+
+    # Build a filtered copy by applying LFF/HFF/notch via MNE.
+    filt = raw_window.copy()
+    try:
+        l_freq = float(lff) if lff and lff > 0 else None
+        h_freq = float(hff) if hff and hff > 0 else None
+        if l_freq is not None or h_freq is not None:
+            filt.filter(l_freq=l_freq, h_freq=h_freq, verbose=False)
+        if notch and float(notch) > 0:
+            filt.notch_filter(freqs=float(notch), verbose=False)
+    except Exception as exc:
+        _log.warning("filter-preview: filter step failed (%s) — returning raw both sides", exc)
+
+    filt_data, _ = filt[: max_channels, start_sample:stop_sample]
+    filt_data = filt_data * 1e6
+
+    # Downsample.
+    n = raw_data.shape[1]
+    if n > max_points_per_channel:
+        ds = math.ceil(n / max_points_per_channel)
+        raw_data = raw_data[:, ::ds]
+        filt_data = filt_data[:, ::ds]
+
+    freq_resp = _butterworth_freqz(lff, hff, notch, sfreq)
+
+    ch_names = list(raw_window.ch_names[: max_channels])
+    return {
+        "analysis_id": analysis_id,
+        "t_start": float(t0),
+        "t_end": float(t1),
+        "sfreq": float(sfreq),
+        "channels": ch_names,
+        "raw": [row.tolist() for row in raw_data],
+        "filtered": [row.tolist() for row in filt_data],
+        "freq_response": freq_resp,
+        "params": {
+            "lff": float(lff) if lff is not None else None,
+            "hff": float(hff) if hff is not None else None,
+            "notch": float(notch) if notch is not None else None,
+        },
+    }
+

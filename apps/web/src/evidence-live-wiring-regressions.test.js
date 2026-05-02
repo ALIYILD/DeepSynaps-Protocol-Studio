@@ -39,7 +39,11 @@ test('Courses route keeps live protocol watch in detail and session execution', 
 });
 
 test('Patient route keeps live evidence context on Home and Reports surfaces', () => {
-  const src = read('./pages-patient.js');
+  // pgPatientDashboard was extracted to pages-patient/dashboard.js on
+  // 2026-05-02 (continuation of #403). Concatenate both files so the
+  // source-grep keeps catching the Home + Reports wiring regardless of
+  // which module currently hosts the literal.
+  const src = read('./pages-patient.js') + '\n' + read('./pages-patient/dashboard.js');
   assert.match(src, /loadPatientEvidenceContext/);
   assert.match(src, /patient-evidence-context\.js/);
   assert.match(src, /For you today/);

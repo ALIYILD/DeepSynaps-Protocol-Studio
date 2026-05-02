@@ -350,9 +350,13 @@ def _row_count(path: Path) -> int:
     return _row_count_cached(*_stat_signature(path))
 
 
-def _csv_reader(path: Path):
-    handle = path.open(newline="", encoding="utf-8")
-    return handle, csv.DictReader(handle)
+# Re-export shim — see docs/adr/0009-registry-packages.md.
+# _csv_reader moved to packages/clinical-data-registry; this binding keeps
+# the existing local call sites in this module (search_ranked_papers,
+# search_ai_ingestion, list_protocol_templates, list_evidence_graph,
+# list_safety_signals, build_research_summary, list_protocol_coverage)
+# working unchanged. The shim disappears in PR-C.
+from clinical_data_registry import _csv_reader  # noqa: E402,F401
 
 
 def list_datasets() -> list[dict[str, Any]]:

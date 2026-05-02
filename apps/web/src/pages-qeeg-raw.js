@@ -1,8 +1,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // pages-qeeg-raw.js — Clinical-Grade Raw EEG Data Viewer
 //
-// Professional EEG viewer inspired by Persyst, NeuroWorks, EDFbrowser, and
-// MNE-Python. Features:
+// Professional EEG viewer built on open standards (10-20 system, IFCN
+// guidelines, MNE-Python conventions). Features:
 //   - Montage selection (Referential, Bipolar Longitudinal/Transverse, Average)
 //   - Sensitivity dropdown with standard clinical values
 //   - Timebase / page size control
@@ -27,6 +27,28 @@ import { renderBrainMap10_20 } from './brain-map-svg.js';
 import { EEGSpectralPanel, _computePSD } from './eeg-spectral-panel.js';
 import { EEGEventEditor, EEGMeasurementTool, EEGExporter, EEGUndoManager } from './eeg-tools.js';
 import { EEGMontageEditor, EEGChannelManager, EEGRecordingInfo } from './eeg-montage-editor.js';
+import { EEGCustomMontageBuilder, EEG_MONTAGE_BUILDER_CSS } from './eeg-montage-builder.js';
+import { EEGFilterPreview } from './eeg-filter-preview.js';
+import { EEGDecompositionStudio, EEG_DS_CSS } from './eeg-decomposition-studio.js';
+import { EEGAutoScanModal, EEG_ASM_CSS } from './eeg-auto-scan-modal.js';
+import { EEGSpikeList, EEG_SL_CSS } from './eeg-spike-list.js';
+import { EEGExportModal, EEG_EXPORT_MODAL_CSS } from './eeg-export-modal.js';
+import { EEGHelpDrawer, EEG_HELP_DRAWER_CSS } from './eeg-help-drawer.js';
+import { RAW_HELP_TOPICS } from './raw-help-content.js';
+import { RAW_KEYBOARD_SHORTCUTS, renderShortcutSheet, RAW_KEYBOARD_SHORTCUTS_CSS } from './raw-keyboard-shortcuts.js';
+
+const _PHASE4_REASONS = [
+  { key: 'blink',         label: 'Eye blink' },
+  { key: 'lateral_eye',   label: 'Lateral eye' },
+  { key: 'sweat',         label: 'Sweat' },
+  { key: 'movement',      label: 'Movement' },
+  { key: 'emg',           label: 'Muscle (EMG)' },
+  { key: 'ecg',           label: 'Heart (ECG)' },
+  { key: 'electrode_pop', label: 'Electrode pop' },
+  { key: 'line_noise',    label: 'Line noise' },
+  { key: 'flatline',      label: 'Flatline' },
+  { key: 'other',         label: 'Other' },
+];
 
 function esc(v) {
   if (v == null) return '';
@@ -35,7 +57,11 @@ function esc(v) {
 
 // ── Demo mode ───────────────────────────────────────────────────────────────
 function _isDemoMode() {
-  return Boolean(import.meta?.env?.DEV) || import.meta?.env?.VITE_ENABLE_DEMO === '1';
+  try {
+    return !!(import.meta.env && (import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1'));
+  } catch (_e) {
+    return false;
+  }
 }
 
 var _DEMO_CHANNELS = ['Fp1','Fp2','F7','F3','Fz','F4','F8','T3','C3','Cz','C4','T4','T5','P3','Pz','P4','T6','O1','O2'];
@@ -101,40 +127,139 @@ function _getDemoSignalWindow(tStart, windowSec) {
 var SENSITIVITY_VALUES = [3, 5, 7, 10, 15, 20, 30, 50, 70, 100, 150, 200, 300, 500];
 
 // ── State ───────────────────────────────────────────────────────────────────
+//
+// Phase 2 migration path:
+//   The state shape is now sliced into four logical buckets — display,
+//   processing, ai, ui — to make ownership obvious and to reserve space for
+//   Phase 5's AI co-pilot overlay without polluting unrelated code paths.
+//
+//   Existing call sites still read `state.montage`, `state.badChannels`,
+//   `state.interactionMode` etc. directly. To avoid a giant rename in this
+//   phase, the top-level object exposes flat-name getter/setter pairs that
+//   forward to the right slice. New code SHOULD prefer the slice form
+//   (e.g. `state.display.montage`); legacy code keeps working unchanged.
+//   Each subsequent phase can opt into the slice form gradually.
+
+function _flatLegacyMap() {
+  // flat-name -> slice path. The slice keys here mirror the structured
+  // state literal in _initState() exactly.
+  return {
+    // display slice
+    montage:               ['display', 'montage'],
+    tStart:                ['display', 'tStart'],
+    windowSec:             ['display', 'windowSec'],
+    sensitivity:           ['display', 'sensitivity'],
+    view:                  ['display', 'view'],
+    channelOrdering:       ['display', 'channelOrdering'],
+    regionTogglesByRegion: ['display', 'regionTogglesByRegion'],
+    // processing slice
+    badChannels:        ['processing', 'badChannels'],
+    badSegments:        ['processing', 'badSegments'],
+    excludedICA:        ['processing', 'excludedICA'],
+    includedICA:        ['processing', 'includedICA'],
+    filterParams:       ['processing', 'filterParams'],
+    channelInfo:        ['processing', 'channelInfo'],
+    icaData:            ['processing', 'icaData'],
+    hasUnsavedChanges:  ['processing', 'hasUnsavedChanges'],
+    icaExpanded:        ['processing', 'icaExpanded'],
+    icaMethod:          ['processing', 'icaMethod'],
+    icaSeed:            ['processing', 'icaSeed'],
+    // ui slice
+    interactionMode:    ['ui', 'interactionMode'],
+    spectralMode:       ['ui', 'spectralMode'],
+    spectralVisible:    ['ui', 'spectralVisible'],
+    notepad:            ['ui', 'notepad'],
+    cursorInfo:         ['ui', 'cursorInfo'],
+    eventEditor:        ['ui', 'eventEditor'],
+    measurementTool:    ['ui', 'measurementTool'],
+    undoManager:        ['ui', 'undoManager'],
+    channelManager:     ['ui', 'channelManager'],
+    montageEditor:      ['ui', 'montageEditor'],
+    recordingInfo:      ['ui', 'recordingInfo'],
+    measurePointCount:  ['ui', 'measurePointCount'],
+  };
+}
+
+function _installLegacyFlatShim(state) {
+  var map = _flatLegacyMap();
+  Object.keys(map).forEach(function (key) {
+    if (Object.prototype.hasOwnProperty.call(state, key)) return; // never shadow real keys
+    var path = map[key];
+    Object.defineProperty(state, key, {
+      configurable: true,
+      enumerable: false,
+      get: function () { return state[path[0]][path[1]]; },
+      set: function (v) { state[path[0]][path[1]] = v; },
+    });
+  });
+}
 
 function _initState() {
   if (!window._qeegRawState) {
-    window._qeegRawState = {
-      view: 'raw',
-      montage: 'referential',
-      tStart: 0,
-      windowSec: 10,
-      sensitivity: 50,
-      badChannels: [],
-      badSegments: [],
-      excludedICA: [],
-      includedICA: [],
-      filterParams: { lff: 1.0, hff: 45.0, notch: 50 },
-      channelInfo: null,
-      icaData: null,
-      hasUnsavedChanges: false,
-      icaExpanded: false,
-      cursorInfo: null,
-      // v2 features
-      interactionMode: 'select',
-      spectralMode: 'psd',
-      spectralVisible: false,
-      notepad: '',
-      eventEditor: new EEGEventEditor(),
-      measurementTool: new EEGMeasurementTool(),
-      undoManager: new EEGUndoManager(),
-      channelManager: null,
-      montageEditor: null,
-      recordingInfo: new EEGRecordingInfo(),
-      measurePointCount: 0,
+    var s = {
+      display: {
+        montage: 'referential',
+        tStart: 0,
+        windowSec: 10,
+        sensitivity: 50,
+        view: 'raw',
+        channelOrdering: '10-20',
+        regionTogglesByRegion: {
+          frontal: true, central: true, temporal: true,
+          parietal: true, occipital: true, other: true,
+        },
+        // Phase 3 — display-only additions for filter preview + custom montages.
+        filterPreviewEnabled: false,
+        savedMontages: [],          // [{ id, name, pairs: [{anode, cathode}, …] }]
+        activeCustomMontageId: null,
+        bandPreset: 'broadband',
+        customBands: [],            // [{ id, name, low, high }]
+      },
+      processing: {
+        badChannels: [],
+        badSegments: [],
+        excludedICA: [],
+        includedICA: [],
+        filterParams: { lff: 1.0, hff: 45.0, notch: 50 },
+        channelInfo: null,
+        icaData: null,
+        hasUnsavedChanges: false,
+        icaExpanded: false,
+        icaMethod: 'picard',
+        icaSeed: 42,
+      },
+      ai: {
+        qualityScore: null,
+        qualityNarrative: null,
+        suggestions: [],
+        lastAutoCleanRunId: null,
+        suggestionsLoading: false,
+      },
+      ui: {
+        interactionMode: 'select',
+        spectralMode: 'psd',
+        spectralVisible: false,
+        notepad: '',
+        cursorInfo: null,
+        eventEditor: new EEGEventEditor(),
+        measurementTool: new EEGMeasurementTool(),
+        undoManager: new EEGUndoManager(),
+        channelManager: null,
+        montageEditor: null,
+        recordingInfo: new EEGRecordingInfo(),
+        measurePointCount: 0,
+      },
     };
+    _installLegacyFlatShim(s);
+    window._qeegRawState = s;
   }
   return window._qeegRawState;
+}
+
+// Reset for tests / hot reloads. Not called in production.
+function _resetStateForTest() {
+  delete window._qeegRawState;
+  return _initState();
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -155,7 +280,7 @@ function _pageInfo(state) {
 
 export async function renderRawDataTab(tabEl, analysisId, patientId) {
   var state = _initState();
-  var isDemo = _isDemoMode() && analysisId === 'demo';
+  var isDemo = analysisId === 'demo';
 
   tabEl.innerHTML = spinner('Initializing EEG viewer...');
 
@@ -263,10 +388,17 @@ export async function renderRawDataTab(tabEl, analysisId, patientId) {
   };
 
   renderer.onSegmentSelect = function (startSec, endSec) {
+    // Phase 4 \u2014 wrap the manual mark with a reason picker (10 reasons drawn
+    // from the Phase 1 reason vocabulary). Picker resolves to null when the
+    // clinician hits "Skip (mark unspecified)" \u2014 the segment is still saved
+    // but with reason=null so legacy behavior is preserved.
     var seg = {
       start_sec: Math.round(startSec * 100) / 100,
       end_sec: Math.round(endSec * 100) / 100,
       description: 'BAD_user',
+      reason: null,
+      source: 'user',
+      confidence: null,
     };
     state.badSegments.push(seg);
     state.hasUnsavedChanges = true;
@@ -293,6 +425,18 @@ export async function renderRawDataTab(tabEl, analysisId, patientId) {
     _updateSaveIndicator(state);
     _updateUndoButtons(state);
     showToast('Segment marked: ' + startSec.toFixed(1) + 's \u2013 ' + endSec.toFixed(1) + 's', 'info');
+    // Asynchronously prompt for the reason; mutating ``seg`` in-place updates
+    // the same object already in state.badSegments and the undo manager.
+    try {
+      _promptBadSegmentReason().then(function (r) {
+        if (r) {
+          seg.reason = r;
+          state.hasUnsavedChanges = true;
+          _updateSegmentsList(state);
+          _updateSaveIndicator(state);
+        }
+      });
+    } catch (_e) { /* picker is best-effort */ }
   };
 
   renderer.onTimeNavigate = function (newTStart) {
@@ -341,6 +485,10 @@ export async function renderRawDataTab(tabEl, analysisId, patientId) {
   _wireKeyboard(analysisId, state, renderer, tabEl, spectralPanel);
   _wireV2Tools(analysisId, state, renderer, spectralPanel);
 
+  // Phase 7 — install drawer CSS, wire `?` help icons, ensure shortcuts modal
+  _installPhase7Css();
+  _wireHelpIcons(tabEl);
+
   // Load initial data
   await _loadSignalWindow(analysisId, state, renderer, spectralPanel);
   _updatePageCounter(state);
@@ -382,7 +530,12 @@ function _buildLayout(state, isDemo) {
   // ── Main toolbar
   html += '<div class="eeg-viewer__toolbar">';
 
-  // Montage
+  // ── Group 1: DISPLAY ─────────────────────
+  html += '<div class="toolbar-group" data-group="display">'
+    + '<span class="toolbar-group-label">Display' + _PHASE7_HELP_BUTTON_HTML('montage') + '</span>'
+    + '<div class="toolbar-group__controls">';
+
+  // Montage  (Phase 3: linked-mastoid / CSD / REST + custom + saved-montages)
   html += '<div class="eeg-tb__group">'
     + '<label class="eeg-tb__label">Montage</label>'
     + '<select id="eeg-montage-sel" class="eeg-tb__select">'
@@ -391,6 +544,11 @@ function _buildLayout(state, isDemo) {
     + '<option value="bipolar_trans"' + (state.montage === 'bipolar_trans' ? ' selected' : '') + '>Bipolar (Transverse)</option>'
     + '<option value="average"' + (state.montage === 'average' ? ' selected' : '') + '>Average Reference</option>'
     + '<option value="laplacian"' + (state.montage === 'laplacian' ? ' selected' : '') + '>Laplacian</option>'
+    + '<option value="linked_mastoid"' + (state.montage === 'linked_mastoid' ? ' selected' : '') + '>Linked Mastoid (A1/A2)</option>'
+    + '<option value="csd"' + (state.montage === 'csd' ? ' selected' : '') + '>CSD (Current Source Density)</option>'
+    + '<option value="rest"' + (state.montage === 'rest' ? ' selected' : '') + '>REST</option>'
+    + _renderSavedMontageOptions(state)
+    + '<option value="__custom__">Custom Montage…</option>'
     + '</select>'
     + '</div>';
 
@@ -415,32 +573,7 @@ function _buildLayout(state, isDemo) {
     + '<option value="30"' + (state.windowSec === 30 ? ' selected' : '') + '>30 sec</option>'
     + '</select></div>';
 
-  // Separator
-  html += '<div class="eeg-tb__sep"></div>';
-
-  // Filters
-  html += '<div class="eeg-tb__group">'
-    + '<label class="eeg-tb__label">LFF</label>'
-    + '<select id="eeg-lff-sel" class="eeg-tb__select eeg-tb__select--mini">'
-    + _filterOpts([0.1, 0.3, 0.5, 1.0, 1.5, 2.0, 5.0, 10.0], state.filterParams.lff, 'Hz')
-    + '</select></div>'
-    + '<div class="eeg-tb__group">'
-    + '<label class="eeg-tb__label">HFF</label>'
-    + '<select id="eeg-hff-sel" class="eeg-tb__select eeg-tb__select--mini">'
-    + _filterOpts([15, 20, 25, 30, 35, 40, 45, 50, 70, 100], state.filterParams.hff, 'Hz')
-    + '</select></div>'
-    + '<div class="eeg-tb__group">'
-    + '<label class="eeg-tb__label">Notch</label>'
-    + '<select id="eeg-notch-sel" class="eeg-tb__select eeg-tb__select--mini">'
-    + '<option value="0"' + (state.filterParams.notch === 0 ? ' selected' : '') + '>Off</option>'
-    + '<option value="50"' + (state.filterParams.notch === 50 ? ' selected' : '') + '>50 Hz</option>'
-    + '<option value="60"' + (state.filterParams.notch === 60 ? ' selected' : '') + '>60 Hz</option>'
-    + '</select></div>';
-
-  // Separator
-  html += '<div class="eeg-tb__sep"></div>';
-
-  // View mode
+  // View
   html += '<div class="eeg-tb__group">'
     + '<label class="eeg-tb__label">View</label>'
     + '<select id="eeg-view-sel" class="eeg-tb__select eeg-tb__select--narrow">'
@@ -449,19 +582,106 @@ function _buildLayout(state, isDemo) {
     + '<option value="overlay"' + (state.view === 'overlay' ? ' selected' : '') + '>Overlay</option>'
     + '</select></div>';
 
-  // Separator
-  html += '<div class="eeg-tb__sep"></div>';
+  // Channel ordering (Phase 2)
+  html += '<div class="eeg-tb__group">'
+    + '<label class="eeg-tb__label">Order</label>'
+    + '<select id="eeg-chord-sel" class="eeg-tb__select eeg-tb__select--narrow" title="Channel ordering">'
+    + '<option value="10-20"' + (state.channelOrdering === '10-20' ? ' selected' : '') + '>10-20</option>'
+    + '<option value="10-10"' + (state.channelOrdering === '10-10' ? ' selected' : '') + '>10-10</option>'
+    + '<option value="alphabetical"' + (state.channelOrdering === 'alphabetical' ? ' selected' : '') + '>Alphabetical</option>'
+    + '<option value="anatomical"' + (state.channelOrdering === 'anatomical' ? ' selected' : '') + '>Anatomical</option>'
+    + '<option value="custom"' + (state.channelOrdering === 'custom' ? ' selected' : '') + '>Custom</option>'
+    + '</select></div>';
 
-  // Tool mode selector (v2)
+  html += '</div></div>'; // /toolbar-group display
+
+  // Visible vertical divider
+  html += '<div class="toolbar-group-divider" aria-hidden="true"></div>';
+
+  // ── Group 2: FILTERS ─────────────────────
+  html += '<div class="toolbar-group" data-group="filters">'
+    + '<span class="toolbar-group-label">Filters' + _PHASE7_HELP_BUTTON_HTML('bandpass') + '</span>'
+    + '<div class="toolbar-group__controls">';
+
+  // LFF
+  html += '<div class="eeg-tb__group">'
+    + '<label class="eeg-tb__label">LFF</label>'
+    + '<select id="eeg-lff-sel" class="eeg-tb__select eeg-tb__select--mini">'
+    + _filterOpts([0.1, 0.3, 0.5, 1.0, 1.5, 2.0, 5.0, 10.0], state.filterParams.lff, 'Hz')
+    + '</select></div>';
+  // HFF
+  html += '<div class="eeg-tb__group">'
+    + '<label class="eeg-tb__label">HFF</label>'
+    + '<select id="eeg-hff-sel" class="eeg-tb__select eeg-tb__select--mini">'
+    + _filterOpts([15, 20, 25, 30, 35, 40, 45, 50, 70, 100], state.filterParams.hff, 'Hz')
+    + '</select></div>';
+  // Notch
+  html += '<div class="eeg-tb__group">'
+    + '<label class="eeg-tb__label">Notch</label>'
+    + '<select id="eeg-notch-sel" class="eeg-tb__select eeg-tb__select--mini">'
+    + '<option value="0"' + (state.filterParams.notch === 0 ? ' selected' : '') + '>Off</option>'
+    + '<option value="50"' + (state.filterParams.notch === 50 ? ' selected' : '') + '>50 Hz</option>'
+    + '<option value="60"' + (state.filterParams.notch === 60 ? ' selected' : '') + '>60 Hz</option>'
+    + '</select></div>';
+  // Band preset (Phase 3 — built-in + user custom bands)
+  html += '<div class="eeg-tb__group">'
+    + '<label class="eeg-tb__label">Band</label>'
+    + '<select id="eeg-band-preset-sel" class="eeg-tb__select eeg-tb__select--narrow" title="Band preset">'
+    + _renderBandPresetOptions(state)
+    + '</select></div>';
+
+  // Filter Preview toggle (Phase 3)
+  var fpOn = !!(state.display && state.display.filterPreviewEnabled);
+  html += '<button class="eeg-tb__action-btn ' + (fpOn ? 'eeg-tb__action-btn--primary' : 'eeg-tb__action-btn--outline')
+    + '" id="eeg-filter-preview-toggle" data-active="' + (fpOn ? '1' : '0') + '"'
+    + ' title="Toggle filter preview" aria-pressed="' + (fpOn ? 'true' : 'false') + '">'
+    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>'
+    + ' Preview</button>';
+
+  // Custom-band library button (Phase 3)
+  html += '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-bands-btn" title="Custom band library">'
+    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>'
+    + ' Bands ▾</button>';
+
+  html += '</div></div>'; // /toolbar-group filters
+
+  html += '<div class="toolbar-group-divider" aria-hidden="true"></div>';
+
+  // ── Group 3: ARTIFACTS ────────────────────
+  // Decomposition button toggles the existing ICA panel; the other three are
+  // placeholders for Phase 4 (Auto Scan, Templates, Spike List).
+  html += '<div class="toolbar-group" data-group="artifacts">'
+    + '<span class="toolbar-group-label">Artifacts' + _PHASE7_HELP_BUTTON_HTML('auto_scan') + '</span>'
+    + '<div class="toolbar-group__controls">'
+    + '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-artifacts-autoscan-btn" data-phase="4" title="Auto-scan for artifacts (Phase 4)">'
+    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>'
+    + ' Auto Scan</button>'
+    + '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-artifacts-templates-btn" data-phase="4" title="Artifact templates (Phase 4)">'
+    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>'
+    + ' Templates</button>'
+    + '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-artifacts-decomp-btn" title="Toggle ICA decomposition panel">'
+    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18"/><path d="M3 12h18"/><circle cx="12" cy="12" r="9"/></svg>'
+    + ' Decomposition</button>'
+    + '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-artifacts-spikes-btn" data-phase="4" title="Spike list (Phase 4)">'
+    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>'
+    + ' Spike List</button>'
+    + '</div></div>'; // /toolbar-group artifacts
+
+  html += '<div class="toolbar-group-divider" aria-hidden="true"></div>';
+
+  // ── Group 4: TOOLS ──────────────────────
+  html += '<div class="toolbar-group" data-group="tools">'
+    + '<span class="toolbar-group-label">Tools' + _PHASE7_HELP_BUTTON_HTML('caliper') + '</span>'
+    + '<div class="toolbar-group__controls">';
+  // Cursor / Caliper / Event tool selector — preserves the existing eeg-tool-sel id
   html += '<div class="eeg-tb__group">'
     + '<label class="eeg-tb__label">Tool</label>'
     + '<select id="eeg-tool-sel" class="eeg-tb__select eeg-tb__select--narrow">'
-    + '<option value="select"' + (state.interactionMode === 'select' ? ' selected' : '') + '>Select</option>'
-    + '<option value="measure"' + (state.interactionMode === 'measure' ? ' selected' : '') + '>Measure</option>'
+    + '<option value="select"' + (state.interactionMode === 'select' ? ' selected' : '') + '>Cursor</option>'
+    + '<option value="measure"' + (state.interactionMode === 'measure' ? ' selected' : '') + '>Caliper</option>'
     + '<option value="event"' + (state.interactionMode === 'event' ? ' selected' : '') + '>Event</option>'
     + '</select></div>';
-
-  // Event type picker (shown when tool=event)
+  // Event-type picker (only visible when tool=event)
   html += '<div class="eeg-tb__group" id="eeg-event-picker-wrap" style="display:' + (state.interactionMode === 'event' ? 'flex' : 'none') + '">'
     + '<select id="eeg-event-type-sel" class="eeg-tb__select eeg-tb__select--narrow">';
   var evtTypes = EEGEventEditor.EVENT_TYPES;
@@ -469,24 +689,49 @@ function _buildLayout(state, isDemo) {
     html += '<option value="' + eti + '">' + esc(evtTypes[eti].label) + '</option>';
   }
   html += '</select></div>';
-
-  // Separator
-  html += '<div class="eeg-tb__sep"></div>';
-
-  // Undo / Redo (v2)
-  html += '<div class="eeg-tb__group">'
-    + '<button class="eeg-tb__nav-btn" id="eeg-undo-btn" title="Undo (Ctrl+Z)" disabled>'
+  // Find / Jump (Phase 2 placeholder — opens timeline jump prompt; wired below)
+  html += '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-find-btn" title="Find / jump to time (G)">'
+    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>'
+    + ' Find</button>';
+  // Bookmark — adds a bookmark event at current window start
+  html += '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-bookmark-btn" title="Bookmark current location">'
+    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>'
+    + ' Bookmark</button>';
+  // Export
+  html += '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-export-btn" title="Export (CSV/PNG)">'
+    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>'
+    + ' Export</button>';
+  // Spectral toggle
+  html += '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-spectral-toggle" title="Toggle Spectral Panel">'
+    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>'
+    + ' Spectral</button>';
+  // Save
+  html += '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-save-btn" title="Save cleaning config">'
+    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>'
+    + ' Save</button>';
+  // Reprocess
+  html += '<button class="eeg-tb__action-btn eeg-tb__action-btn--primary" id="eeg-reprocess-btn" title="Re-process with edits">'
+    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6"/><path d="M2.5 22v-6h6"/><path d="M2.5 12A10 10 0 0119 5.6"/><path d="M21.5 12A10 10 0 015 18.4"/></svg>'
+    + ' Reprocess</button>';
+  // Undo / Redo
+  html += '<button class="eeg-tb__nav-btn" id="eeg-undo-btn" title="Undo (Ctrl+Z)" disabled>'
     + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 105.08-11.37L1 10"/></svg>'
     + '</button>'
     + '<button class="eeg-tb__nav-btn" id="eeg-redo-btn" title="Redo (Ctrl+Y)" disabled>'
     + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-5.08-11.37L23 10"/></svg>'
-    + '</button>'
-    + '</div>';
+    + '</button>';
+  // Snapshot
+  html += '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-snapshot-btn" title="Snapshot PNG (S)">'
+    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>'
+    + ' Snapshot</button>';
+  // Workbench (full-screen)
+  html += '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-workbench-btn" title="Open full-screen workbench">'
+    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>'
+    + ' Workbench</button>';
+  html += '</div></div>'; // /toolbar-group tools
 
-  // Spacer
+  // Page navigation lives outside the four named clusters (cross-cutting).
   html += '<div class="eeg-tb__spacer"></div>';
-
-  // Page navigation
   html += '<div class="eeg-tb__group eeg-tb__nav">'
     + '<button class="eeg-tb__nav-btn" id="eeg-nav-first" title="First page (Home)">'
     + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><line x1="7" y1="12" x2="18" y2="12"/><line x1="6" y1="4" x2="6" y2="20"/></svg>'
@@ -501,28 +746,6 @@ function _buildLayout(state, isDemo) {
     + '<button class="eeg-tb__nav-btn" id="eeg-nav-last" title="Last page (End)">'
     + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="13 17 18 12 13 7"/><line x1="6" y1="12" x2="17" y2="12"/><line x1="18" y1="4" x2="18" y2="20"/></svg>'
     + '</button>'
-    + '</div>';
-
-  // Actions
-  html += '<div class="eeg-tb__group">'
-    + '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-snapshot-btn" title="Snapshot PNG (S)">'
-    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>'
-    + ' Snapshot</button>'
-    + '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-export-btn" title="Export (CSV/PNG)">'
-    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>'
-    + ' Export</button>'
-    + '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-spectral-toggle" title="Toggle Spectral Panel">'
-    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>'
-    + ' Spectral</button>'
-    + '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-save-btn" title="Save cleaning config">'
-    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>'
-    + ' Save</button>'
-    + '<button class="eeg-tb__action-btn eeg-tb__action-btn--primary" id="eeg-reprocess-btn" title="Re-process with edits">'
-    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6"/><path d="M2.5 22v-6h6"/><path d="M2.5 12A10 10 0 0119 5.6"/><path d="M21.5 12A10 10 0 015 18.4"/></svg>'
-    + ' Reprocess</button>'
-    + '<button class="eeg-tb__action-btn eeg-tb__action-btn--outline" id="eeg-workbench-btn" title="Open full-screen workbench">'
-    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>'
-    + ' Workbench</button>'
     + '</div>';
 
   html += '</div>'; // toolbar
@@ -554,6 +777,8 @@ function _buildLayout(state, isDemo) {
 
   // Right sidebar
   html += '<div class="eeg-viewer__sidebar" id="eeg-sidebar">';
+  // Phase 2: Quality Scorecard sits above Recording Info.
+  html += _buildQualityScorecardSection(state);
   html += _buildRecordingInfoSection(state);
   html += _buildBandPowerSection(state);
   html += _buildEpochStatsSection(state);
@@ -588,6 +813,91 @@ function _filterOpts(values, selected, unit) {
   }).join('');
 }
 
+// ── Phase 3 helpers — saved montages, custom bands, persistence ─────────────
+
+var _BUILTIN_BANDS = [
+  { id: 'broadband', name: 'Broadband', low: null, high: null },
+  { id: 'delta', name: 'Delta',  low: 1,  high: 4 },
+  { id: 'theta', name: 'Theta',  low: 4,  high: 8 },
+  { id: 'alpha', name: 'Alpha',  low: 8,  high: 13 },
+  { id: 'beta',  name: 'Beta',   low: 13, high: 30 },
+  { id: 'gamma', name: 'Gamma',  low: 30, high: 80 },
+];
+
+function _qeegStorageKey(prefix) {
+  var uid = 'anon';
+  try {
+    if (typeof window !== 'undefined') {
+      uid = (window._qeegUserId || (window.localStorage && window.localStorage.getItem('userId')) || 'anon');
+    }
+  } catch (_e) { uid = 'anon'; }
+  return prefix + '_' + uid;
+}
+
+function _loadSavedMontages() {
+  try {
+    var raw = window.localStorage.getItem(_qeegStorageKey('qeegSavedMontages'));
+    if (!raw) return [];
+    var parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_e) { return []; }
+}
+
+function _persistSavedMontages(arr) {
+  try {
+    window.localStorage.setItem(_qeegStorageKey('qeegSavedMontages'), JSON.stringify(arr || []));
+  } catch (_e) { /* localStorage unavailable */ }
+}
+
+function _loadCustomBands() {
+  try {
+    var raw = window.localStorage.getItem('qeegCustomBands');
+    if (!raw) return [];
+    var parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_e) { return []; }
+}
+
+function _persistCustomBands(arr) {
+  try {
+    window.localStorage.setItem('qeegCustomBands', JSON.stringify(arr || []));
+  } catch (_e) { /* noop */ }
+}
+
+function _renderSavedMontageOptions(state) {
+  var saved = (state.display && Array.isArray(state.display.savedMontages))
+    ? state.display.savedMontages : [];
+  if (!saved.length) return '';
+  var s = '<optgroup label="Saved montages">';
+  for (var i = 0; i < saved.length; i++) {
+    var m = saved[i];
+    if (!m || !m.id) continue;
+    var key = 'saved:' + m.id;
+    var sel = (state.display.activeCustomMontageId === m.id) ? ' selected' : '';
+    s += '<option value="' + esc(key) + '"' + sel + '>' + esc(m.name || ('Custom ' + (i + 1))) + '</option>';
+  }
+  s += '</optgroup>';
+  return s;
+}
+
+function _allBands(state) {
+  var custom = (state.display && Array.isArray(state.display.customBands))
+    ? state.display.customBands : [];
+  return _BUILTIN_BANDS.concat(custom);
+}
+
+function _renderBandPresetOptions(state) {
+  var bands = _allBands(state);
+  var current = (state.display && state.display.bandPreset) || 'broadband';
+  var html = '';
+  for (var i = 0; i < bands.length; i++) {
+    var b = bands[i];
+    if (!b || !b.id) continue;
+    html += '<option value="' + esc(b.id) + '"' + (current === b.id ? ' selected' : '') + '>' + esc(b.name || b.id) + '</option>';
+  }
+  return html;
+}
+
 function _formatDuration(sec) {
   if (sec < 60) return sec.toFixed(1) + 's';
   var m = Math.floor(sec / 60);
@@ -619,7 +929,7 @@ function _buildChannelSection(state) {
   });
 
   var html = '<div class="eeg-sb__section">'
-    + '<div class="eeg-sb__title">Channels <span class="eeg-sb__count">' + channels.length + '</span></div>'
+    + '<div class="eeg-sb__title">Channels <span class="eeg-sb__count">' + channels.length + '</span>' + _PHASE7_HELP_BUTTON_HTML('bad_channel_marking') + '</div>'
     + '<div class="eeg-sb__channel-list" id="eeg-channels">';
 
   var regionOrder = ['frontal', 'temporal', 'central', 'parietal', 'occipital', 'other'];
@@ -656,7 +966,7 @@ function _buildSegmentsSection(state) {
   }).join('');
 
   return '<div class="eeg-sb__section">'
-    + '<div class="eeg-sb__title">Bad Segments <span class="eeg-sb__count">' + state.badSegments.length + '</span></div>'
+    + '<div class="eeg-sb__title">Bad Segments <span class="eeg-sb__count">' + state.badSegments.length + '</span>' + _PHASE7_HELP_BUTTON_HTML('bad_segment_marking') + '</div>'
     + '<div class="eeg-sb__seg-list" id="eeg-segments">'
     + (items || '<div class="eeg-sb__hint">Drag on waveform to annotate</div>')
     + '</div></div>';
@@ -667,6 +977,7 @@ function _buildICASection(state) {
     + '<div class="eeg-sb__title eeg-sb__title--click" id="eeg-ica-toggle">'
     + 'ICA Components '
     + '<span class="eeg-sb__hint-inline">' + (state.icaExpanded ? 'collapse' : 'expand') + '</span>'
+    + _PHASE7_HELP_BUTTON_HTML('ica_review')
     + '</div>'
     + '<div id="eeg-ica-content">'
     + (state.icaExpanded && state.icaData ? _renderICAGrid(state) : '')
@@ -903,6 +1214,212 @@ function _updateEpochStats(state, channels, data) {
   container.innerHTML = '<div class="eeg-sb__stats-head"><span>Ch</span><span>Range</span></div>' + rows;
 }
 
+// ── Phase 2: Recording Quality scorecard ───────────────────────────────────
+//
+// Deterministic-only metrics — line noise, blink density, channel agreement.
+// Phase 5 will extend this with AI-powered narrative + impedance + motion.
+// The shell renders even before the first signal window has loaded so the
+// clinician sees what is coming. _computeDeterministicQuality(state) returns
+// { score, subscores, narrative } and is exported for unit tests.
+
+function _buildQualityScorecardSection(_state) {
+  return '<section class="quality-scorecard" id="quality-scorecard">'
+    + '<h3>Recording Quality' + _PHASE7_HELP_BUTTON_HTML('ai_quality_score') + '</h3>'
+    + '<div class="quality-score-big" id="quality-score-big">--</div>'
+    + '<div class="quality-subscores">'
+    + '<div data-metric="impedance">Impedance: <span>--</span></div>'
+    + '<div data-metric="line_noise">Line noise: <span>--</span></div>'
+    + '<div data-metric="blink_density">Blinks: <span>--</span></div>'
+    + '<div data-metric="motion">Motion: <span>--</span></div>'
+    + '<div data-metric="channel_agreement">Channel agreement: <span>--</span></div>'
+    + '</div>'
+    + '<p class="quality-narrative" id="quality-narrative">Quality assessment will compute when signal is loaded.</p>'
+    + '</section>';
+}
+
+// _computePSD is imported from eeg-spectral-panel.js. We keep the math
+// inline + small so quality scoring is testable in isolation.
+function _qsBandPower(power, freqs, lo, hi) {
+  var p = 0;
+  for (var k = 0; k < freqs.length; k++) {
+    if (freqs[k] >= lo && freqs[k] < hi) p += power[k];
+  }
+  return p;
+}
+
+function _qsLineNoiseLabel(ratio) {
+  if (ratio == null || !isFinite(ratio)) return '--';
+  if (ratio < 0.05) return 'Low';
+  if (ratio < 0.15) return 'Med';
+  return 'High';
+}
+
+function _qsLineNoiseScore(ratio) {
+  if (ratio == null || !isFinite(ratio)) return 50;
+  if (ratio < 0.05) return 90;
+  if (ratio < 0.15) return 60;
+  return 25;
+}
+
+function _qsBlinkScore(perMin) {
+  if (perMin == null || !isFinite(perMin)) return 50;
+  // 0–0.5/min ≈ excellent; 2/min ≈ borderline; >5/min poor.
+  if (perMin < 0.5) return 90;
+  if (perMin < 2) return 70;
+  if (perMin < 5) return 50;
+  return 25;
+}
+
+function _qsAgreementScore(fraction) {
+  // Fraction of channel pairs with alpha-band correlation > 0.3.
+  if (fraction == null || !isFinite(fraction)) return 50;
+  // 0.3 of pairs ~ borderline; 0.6+ healthy.
+  return Math.max(0, Math.min(100, fraction * 120));
+}
+
+function _pearson(a, b) {
+  var n = Math.min(a.length, b.length);
+  if (n < 2) return 0;
+  var ma = 0, mb = 0;
+  for (var i = 0; i < n; i++) { ma += a[i]; mb += b[i]; }
+  ma /= n; mb /= n;
+  var num = 0, da = 0, db = 0;
+  for (var j = 0; j < n; j++) {
+    var x = a[j] - ma, y = b[j] - mb;
+    num += x * y; da += x * x; db += y * y;
+  }
+  var d = Math.sqrt(da * db);
+  return d > 0 ? num / d : 0;
+}
+
+function _computeDeterministicQuality(state) {
+  // Inputs come from state.channelInfo (sfreq) + the most-recent renderer
+  // payload, which we stash in state.processing._lastSignal whenever
+  // _loadSignalWindow finishes. We only score the metrics the deterministic
+  // path can compute today — impedance + motion stay '--' until Phase 5
+  // wires AI inputs.
+  var snapshot = (state.processing && state.processing._lastSignal) || null;
+  var subscores = {
+    line_noise: '--',
+    blink_density: '--',
+    channel_agreement: '--',
+    motion: '--',
+    impedance: '--',
+  };
+  var rawScores = { line_noise: null, blink_density: null, channel_agreement: null, motion: null, impedance: null };
+
+  // Line noise — peak around 50 Hz and 60 Hz vs total power.
+  if (snapshot && snapshot.data && snapshot.data.length && snapshot.sfreq > 0) {
+    var data = snapshot.data;
+    var sfreq = snapshot.sfreq;
+    var nfft = 1; while (nfft < data[0].length) nfft <<= 1;
+    var maxRatio = 0;
+    var ratios = [];
+    for (var ci = 0; ci < data.length; ci++) {
+      if (!data[ci] || data[ci].length < 16) continue;
+      try {
+        var psd = _computePSD(data[ci], sfreq, nfft);
+        var freqs = psd.freqs, power = psd.power;
+        var total = 0;
+        for (var k = 0; k < freqs.length; k++) total += power[k];
+        if (total <= 0) continue;
+        var noisePow = _qsBandPower(power, freqs, 49.5, 50.5)
+                     + _qsBandPower(power, freqs, 59.5, 60.5);
+        var r = noisePow / total;
+        ratios.push(r);
+        if (r > maxRatio) maxRatio = r;
+      } catch (_) {}
+    }
+    if (ratios.length) {
+      subscores.line_noise = _qsLineNoiseLabel(maxRatio);
+      rawScores.line_noise = _qsLineNoiseScore(maxRatio);
+    }
+
+    // Channel agreement — fraction of pairs with alpha-band correlation > 0.3.
+    var nCh = data.length;
+    if (nCh >= 2) {
+      var pairCount = 0, hits = 0;
+      var maxPairs = 60; // bound the work
+      for (var i = 0; i < nCh && pairCount < maxPairs; i++) {
+        for (var j = i + 1; j < nCh && pairCount < maxPairs; j++) {
+          if (!data[i] || !data[j]) continue;
+          var corr = _pearson(data[i], data[j]);
+          if (corr > 0.3) hits++;
+          pairCount++;
+        }
+      }
+      if (pairCount > 0) {
+        var frac = hits / pairCount;
+        subscores.channel_agreement = (frac * 100).toFixed(0) + '%';
+        rawScores.channel_agreement = _qsAgreementScore(frac);
+      }
+    }
+  }
+
+  // Blink density — count BAD_user / blink-tagged segments per minute of
+  // current signal window. Conservative: only segments whose description
+  // contains "blink" or starts with "BAD_user" feed the count.
+  var blinkPerMin = null;
+  var segs = (state.processing && state.processing.badSegments) || state.badSegments || [];
+  if (segs && segs.length && snapshot && snapshot.data && snapshot.data[0] && snapshot.sfreq) {
+    var winSec = snapshot.data[0].length / snapshot.sfreq;
+    if (winSec > 0) {
+      var blinks = 0;
+      for (var s = 0; s < segs.length; s++) {
+        var d = (segs[s].description || '').toLowerCase();
+        if (d.indexOf('blink') >= 0 || d.indexOf('bad_user') >= 0) blinks++;
+      }
+      blinkPerMin = blinks / (winSec / 60);
+      subscores.blink_density = blinkPerMin.toFixed(1) + '/min';
+      rawScores.blink_density = _qsBlinkScore(blinkPerMin);
+    }
+  } else if (segs) {
+    // Even without a snapshot, expose a count-based proxy for tests.
+    if (segs.length === 0) subscores.blink_density = '0.0/min';
+  }
+
+  // Composite — weighted score, missing components default to 50.
+  var weights = { line_noise: 25, blink_density: 20, channel_agreement: 35, motion: 10, impedance: 10 };
+  var totalW = 0, totalS = 0;
+  Object.keys(weights).forEach(function (key) {
+    var w = weights[key];
+    var s = rawScores[key] != null ? rawScores[key] : 50;
+    totalS += s * w;
+    totalW += w;
+  });
+  var composite = totalW > 0 ? Math.round(totalS / totalW) : null;
+
+  // Narrative — a short sentence summarising the deterministic signal.
+  var bits = [];
+  if (subscores.line_noise !== '--') bits.push('line noise ' + subscores.line_noise.toLowerCase());
+  if (subscores.channel_agreement !== '--') bits.push('channel agreement ' + subscores.channel_agreement);
+  if (subscores.blink_density !== '--') bits.push('blink density ' + subscores.blink_density);
+  var narrative = bits.length
+    ? 'Deterministic metrics — ' + bits.join(', ') + '. Impedance and motion will populate once AI assist runs.'
+    : 'Quality assessment will compute when signal is loaded.';
+
+  return { score: composite, subscores: subscores, narrative: narrative };
+}
+
+function _updateQualityScorecard(state) {
+  var q = _computeDeterministicQuality(state);
+  if (state.ai) {
+    state.ai.qualityScore = q.score;
+    state.ai.qualityNarrative = q.narrative;
+  }
+  var bigEl = document.getElementById('quality-score-big');
+  if (bigEl) bigEl.textContent = q.score == null ? '--' : String(q.score);
+  var card = document.getElementById('quality-scorecard');
+  if (card) {
+    Object.keys(q.subscores).forEach(function (key) {
+      var row = card.querySelector('[data-metric="' + key + '"] span');
+      if (row) row.textContent = q.subscores[key];
+    });
+  }
+  var narEl = document.getElementById('quality-narrative');
+  if (narEl) narEl.textContent = q.narrative;
+}
+
 function _buildRecordingInfoSection(state) {
   var info = state.channelInfo || {};
   var fp = state.filterParams || {};
@@ -1028,7 +1545,7 @@ function _hideShortcutsHelp() {
 // ── Data loading ────────────────────────────────────────────────────────────
 
 async function _loadSignalWindow(analysisId, state, renderer, spectralPanel) {
-  var isDemo = _isDemoMode() && analysisId === 'demo';
+  var isDemo = analysisId === 'demo';
   try {
     if (isDemo) {
       var demoData = _getDemoSignalWindow(state.tStart, state.windowSec);
@@ -1047,6 +1564,9 @@ async function _loadSignalWindow(analysisId, state, renderer, spectralPanel) {
       _updateCorrelationMatrix(state, demoData.channels, demoData.data);
       _updateMontageDiagram(state);
       _updateTimelineOverview(state);
+      // Phase 2: stash signal snapshot + recompute deterministic quality.
+      state.processing._lastSignal = { channels: demoData.channels, data: demoData.data, sfreq: demoData.sfreq, tStart: demoData.t_start };
+      _updateQualityScorecard(state);
       return;
     }
 
@@ -1080,6 +1600,11 @@ async function _loadSignalWindow(analysisId, state, renderer, spectralPanel) {
     if (_lastChannels) _updateCorrelationMatrix(state, _lastChannels, _lastData);
     _updateMontageDiagram(state);
     _updateTimelineOverview(state);
+    // Phase 2: stash signal snapshot + recompute deterministic quality.
+    if (_lastChannels) {
+      state.processing._lastSignal = { channels: _lastChannels, data: _lastData, sfreq: _lastSfreq, tStart: _lastTStart };
+      _updateQualityScorecard(state);
+    }
   } catch (err) {
     showToast('Signal load failed: ' + (err.message || err), 'error');
   }
@@ -1089,12 +1614,37 @@ async function _loadSignalWindow(analysisId, state, renderer, spectralPanel) {
 
 function _wireToolbar(analysisId, state, renderer, spectralPanel) {
   var isDemo = _isDemoMode() && analysisId === 'demo';
-  var MONTAGE_LABELS = { referential: 'Referential', bipolar_long: 'Bipolar (Long)', bipolar_trans: 'Bipolar (Trans)', average: 'Average Ref', laplacian: 'Laplacian' };
+  var MONTAGE_LABELS = {
+    referential: 'Referential',
+    bipolar_long: 'Bipolar (Long)',
+    bipolar_trans: 'Bipolar (Trans)',
+    average: 'Average Ref',
+    laplacian: 'Laplacian',
+    linked_mastoid: 'Linked Mastoid',
+    csd: 'CSD',
+    rest: 'REST',
+  };
 
-  // Montage
+  // Montage  (Phase 3: handles __custom__, saved:<id>, and the new montages)
   var montageSel = document.getElementById('eeg-montage-sel');
   if (montageSel) montageSel.onchange = function () {
-    state.montage = montageSel.value;
+    var v = montageSel.value;
+    if (v === '__custom__') {
+      _openCustomMontageModal(analysisId, state, renderer, spectralPanel);
+      // Restore previous selection while modal is open.
+      montageSel.value = state.display.activeCustomMontageId
+        ? ('saved:' + state.display.activeCustomMontageId)
+        : (state.montage || 'referential');
+      return;
+    }
+    if (v && v.indexOf('saved:') === 0) {
+      var sid = v.slice('saved:'.length);
+      _applySavedMontage(sid, state, renderer);
+      _loadSignalWindow(analysisId, state, renderer, spectralPanel);
+      return;
+    }
+    state.display.activeCustomMontageId = null;
+    state.montage = v;
     renderer.setMontage(state.montage);
     var lbl = document.getElementById('eeg-info-montage');
     if (lbl) lbl.textContent = MONTAGE_LABELS[state.montage] || state.montage;
@@ -1127,9 +1677,43 @@ function _wireToolbar(analysisId, state, renderer, spectralPanel) {
   var lffSel = document.getElementById('eeg-lff-sel');
   var hffSel = document.getElementById('eeg-hff-sel');
   var notchSel = document.getElementById('eeg-notch-sel');
-  if (lffSel) lffSel.onchange = function () { state.filterParams.lff = parseFloat(lffSel.value); state.hasUnsavedChanges = true; _updateSaveIndicator(state); var rl = document.getElementById('eeg-rec-lff'); if (rl) rl.textContent = state.filterParams.lff + ' Hz'; };
-  if (hffSel) hffSel.onchange = function () { state.filterParams.hff = parseFloat(hffSel.value); state.hasUnsavedChanges = true; _updateSaveIndicator(state); var rh = document.getElementById('eeg-rec-hff'); if (rh) rh.textContent = state.filterParams.hff + ' Hz'; };
-  if (notchSel) notchSel.onchange = function () { state.filterParams.notch = parseFloat(notchSel.value); state.hasUnsavedChanges = true; _updateSaveIndicator(state); var rn = document.getElementById('eeg-rec-notch'); if (rn) rn.textContent = state.filterParams.notch ? state.filterParams.notch + ' Hz' : 'Off'; };
+  if (lffSel) lffSel.onchange = function () { state.filterParams.lff = parseFloat(lffSel.value); state.hasUnsavedChanges = true; _updateSaveIndicator(state); var rl = document.getElementById('eeg-rec-lff'); if (rl) rl.textContent = state.filterParams.lff + ' Hz'; _maybeFilterPreview(analysisId, state); };
+  if (hffSel) hffSel.onchange = function () { state.filterParams.hff = parseFloat(hffSel.value); state.hasUnsavedChanges = true; _updateSaveIndicator(state); var rh = document.getElementById('eeg-rec-hff'); if (rh) rh.textContent = state.filterParams.hff + ' Hz'; _maybeFilterPreview(analysisId, state); };
+  if (notchSel) notchSel.onchange = function () { state.filterParams.notch = parseFloat(notchSel.value); state.hasUnsavedChanges = true; _updateSaveIndicator(state); var rn = document.getElementById('eeg-rec-notch'); if (rn) rn.textContent = state.filterParams.notch ? state.filterParams.notch + ' Hz' : 'Off'; _maybeFilterPreview(analysisId, state); };
+
+  // Phase 3 — filter-preview toggle
+  var fpToggle = document.getElementById('eeg-filter-preview-toggle');
+  if (fpToggle) fpToggle.addEventListener('click', function () {
+    state.display.filterPreviewEnabled = !state.display.filterPreviewEnabled;
+    fpToggle.dataset.active = state.display.filterPreviewEnabled ? '1' : '0';
+    fpToggle.setAttribute('aria-pressed', state.display.filterPreviewEnabled ? 'true' : 'false');
+    fpToggle.classList.toggle('eeg-tb__action-btn--primary', state.display.filterPreviewEnabled);
+    fpToggle.classList.toggle('eeg-tb__action-btn--outline', !state.display.filterPreviewEnabled);
+    if (state.display.filterPreviewEnabled) _maybeFilterPreview(analysisId, state);
+    else _hideFilterPreview();
+  });
+
+  // Phase 3 — band preset
+  var bandSel = document.getElementById('eeg-band-preset-sel');
+  if (bandSel) bandSel.onchange = function () {
+    state.display.bandPreset = bandSel.value;
+    var band = _allBands(state).find(function (b) { return b.id === bandSel.value; });
+    if (band && band.low != null && band.high != null) {
+      state.filterParams.lff = band.low;
+      state.filterParams.hff = band.high;
+      var lf = document.getElementById('eeg-lff-sel'); if (lf) lf.value = String(band.low);
+      var hf = document.getElementById('eeg-hff-sel'); if (hf) hf.value = String(band.high);
+      state.hasUnsavedChanges = true;
+      _updateSaveIndicator(state);
+    }
+    _maybeFilterPreview(analysisId, state);
+  };
+
+  // Phase 3 — Bands button → custom-band library modal
+  var bandsBtn = document.getElementById('eeg-bands-btn');
+  if (bandsBtn) bandsBtn.addEventListener('click', function () {
+    _openCustomBandsModal(state);
+  });
 
   // Navigation buttons
   function _navTo(tStart) {
@@ -1322,8 +1906,62 @@ function _wireKeyboard(analysisId, state, renderer, tabEl, spectralPanel) {
         break;
       case '?':
         e.preventDefault();
-        var helpEl = document.getElementById('eeg-help');
-        if (helpEl && helpEl.style.display === 'flex') _hideShortcutsHelp(); else _showShortcutsHelp();
+        // Phase 7: prefer the new shortcut sheet (richer entries). The
+        // legacy overlay still works when the new modal isn't installed.
+        try { _showShortcutsSheet(); }
+        catch (_e) {
+          var helpEl = document.getElementById('eeg-help');
+          if (helpEl && helpEl.style.display === 'flex') _hideShortcutsHelp(); else _showShortcutsHelp();
+        }
+        break;
+      case 'b':
+      case 'B':
+        // Phase 7: toggle bad channel for the channel under the cursor.
+        e.preventDefault();
+        try {
+          var info = renderer && typeof renderer.getCursorInfo === 'function' ? renderer.getCursorInfo() : null;
+          var ch = info && info.channel ? info.channel : (state.cursorChannel || null);
+          if (ch) {
+            state.badChannels = state.badChannels || new Set();
+            if (state.badChannels.has(ch)) state.badChannels.delete(ch); else state.badChannels.add(ch);
+            if (typeof renderer.setChannelStates === 'function') renderer.setChannelStates(Array.from(state.badChannels));
+            state.hasUnsavedChanges = true;
+            _updateSaveIndicator(state);
+            showToast((state.badChannels.has(ch) ? 'Marked bad: ' : 'Cleared bad: ') + ch, 'info');
+          } else {
+            showToast('Hover a channel first to toggle bad', 'warning');
+          }
+        } catch (_e) { /* defensive */ }
+        break;
+      case 'm':
+      case 'M':
+        // Phase 7: toggle measurement (caliper) tool.
+        e.preventDefault();
+        state.interactionMode = state.interactionMode === 'measure' ? 'select' : 'measure';
+        var toolSel = document.getElementById('eeg-tool-sel');
+        if (toolSel) toolSel.value = state.interactionMode;
+        showToast('Tool: ' + (state.interactionMode === 'measure' ? 'caliper' : 'cursor'), 'info');
+        break;
+      case 'e':
+      case 'E':
+        // Phase 7: toggle event marker tool.
+        e.preventDefault();
+        state.interactionMode = state.interactionMode === 'event' ? 'select' : 'event';
+        var toolSelE = document.getElementById('eeg-tool-sel');
+        if (toolSelE) toolSelE.value = state.interactionMode;
+        var picker = document.getElementById('eeg-event-picker-wrap');
+        if (picker) picker.style.display = state.interactionMode === 'event' ? 'flex' : 'none';
+        showToast('Tool: ' + (state.interactionMode === 'event' ? 'event marker' : 'cursor'), 'info');
+        break;
+      case ' ':
+      case 'Spacebar':
+        // Phase 7: toggle bad-segment selection mode.
+        e.preventDefault();
+        state.badSegmentMode = !state.badSegmentMode;
+        if (typeof renderer.setBadSegmentMode === 'function') {
+          renderer.setBadSegmentMode(state.badSegmentMode);
+        }
+        showToast('Bad-segment selection: ' + (state.badSegmentMode ? 'ON' : 'OFF'), 'info');
         break;
       case 's':
       case 'S':
@@ -1405,13 +2043,19 @@ function _wireV2Tools(analysisId, state, renderer, spectralPanel) {
   if (undoBtn) undoBtn.onclick = function () { state.undoManager.undo(); _updateUndoButtons(state); };
   if (redoBtn) redoBtn.onclick = function () { state.undoManager.redo(); _updateUndoButtons(state); };
 
-  // Export button
+  // Export button — Phase 6: opens the export+report modal. Falls back to the
+  // legacy PNG snapshot only when no analysis_id is in scope (pre-load state).
   var exportBtn = document.getElementById('eeg-export-btn');
   if (exportBtn) exportBtn.onclick = function () {
-    var canvas = document.getElementById('qeeg-raw-canvas');
-    if (!canvas) return;
-    EEGExporter.exportPNG(canvas, 'eeg-raw-view.png');
-    showToast('PNG exported', 'success');
+    if (!analysisId || analysisId === 'demo') {
+      var canvas = document.getElementById('qeeg-raw-canvas');
+      if (canvas) {
+        EEGExporter.exportPNG(canvas, 'eeg-raw-view.png');
+        showToast('PNG exported', 'success');
+      }
+      return;
+    }
+    _openExportModal(analysisId);
   };
 
   // Spectral toggle
@@ -1447,6 +2091,79 @@ function _wireV2Tools(analysisId, state, renderer, spectralPanel) {
     renderer.setEventMarkers(state.eventEditor.getEvents());
     _updateEventList(state);
   });
+
+  // ── Phase 2: new toolbar buttons ──────────────────────────────────────
+  // Channel ordering selector — recorded in display slice; rendering wires
+  // up in Phase 3.
+  var chordSel = document.getElementById('eeg-chord-sel');
+  if (chordSel) chordSel.onchange = function () {
+    state.channelOrdering = chordSel.value;
+    state.hasUnsavedChanges = true;
+    _updateSaveIndicator(state);
+  };
+
+  // Band preset (Phase 3 wires it; Phase 2 just records the choice).
+  var bandPresetSel = document.getElementById('eeg-band-preset-sel');
+  if (bandPresetSel) bandPresetSel.onchange = function () {
+    showToast('Band preset noted (' + bandPresetSel.value + ') — wiring lands in Phase 3', 'info');
+  };
+
+  // Artifacts group — Phase 4 wiring: real auto-scan, templates dropdown,
+  // decomposition studio, spike list. All four go through the new endpoints
+  // and write CleaningDecision audit rows server-side.
+  _installPhase4Css();
+
+  var autoScanBtn = document.getElementById('eeg-artifacts-autoscan-btn');
+  if (autoScanBtn) autoScanBtn.onclick = function () {
+    _runAutoScan(analysisId, state, renderer, spectralPanel);
+  };
+  var templatesBtn = document.getElementById('eeg-artifacts-templates-btn');
+  if (templatesBtn) templatesBtn.onclick = function (ev) {
+    if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation();
+    _toggleTemplatesMenu(templatesBtn, analysisId, state, renderer, spectralPanel);
+  };
+  var spikesBtn = document.getElementById('eeg-artifacts-spikes-btn');
+  if (spikesBtn) spikesBtn.onclick = function () {
+    _openSpikeList(analysisId, state, renderer);
+  };
+  var decompBtn = document.getElementById('eeg-artifacts-decomp-btn');
+  if (decompBtn) decompBtn.onclick = function () {
+    _openDecompositionStudio(analysisId, state, renderer);
+  };
+
+  // Find / Jump — prompts for time in seconds, navigates the window there.
+  var findBtn = document.getElementById('eeg-find-btn');
+  if (findBtn) findBtn.onclick = function () {
+    var dur = (state.channelInfo || {}).duration_sec || 0;
+    var raw = window.prompt && window.prompt('Jump to time (seconds):', String(state.tStart));
+    if (raw == null) return;
+    var t = parseFloat(raw);
+    if (!isFinite(t) || t < 0) { showToast('Invalid time', 'error'); return; }
+    state.tStart = Math.max(0, Math.min(dur - state.windowSec, t));
+    _loadSignalWindow(analysisId, state, renderer, spectralPanel);
+    _updatePageCounter(state);
+  };
+
+  // Bookmark — adds a labelled event marker at the current window start.
+  var bookmarkBtn = document.getElementById('eeg-bookmark-btn');
+  if (bookmarkBtn) bookmarkBtn.onclick = function () {
+    if (!state.eventEditor) return;
+    var t = state.tStart || 0;
+    var evt = state.eventEditor.addEvent(t, 'Bookmark', '#00d4bc');
+    renderer.setEventMarkers(state.eventEditor.getEvents());
+    _updateEventList(state);
+    _updateTimelineOverview(state);
+    state.hasUnsavedChanges = true;
+    _updateSaveIndicator(state);
+    state.undoManager.push({
+      type: 'add_bookmark',
+      data: evt,
+      undo: function () { state.eventEditor.removeEvent(evt.id); renderer.setEventMarkers(state.eventEditor.getEvents()); _updateEventList(state); _updateTimelineOverview(state); },
+      redo: function () { state.eventEditor.addEvent(t, 'Bookmark', '#00d4bc'); renderer.setEventMarkers(state.eventEditor.getEvents()); _updateEventList(state); _updateTimelineOverview(state); },
+    });
+    _updateUndoButtons(state);
+    showToast('Bookmark added at ' + t.toFixed(1) + 's', 'success');
+  };
 }
 
 // ── UI update helpers ───────────────────────────────────────────────────────
@@ -1763,6 +2480,24 @@ function _injectCSS() {
 /* Disabled nav buttons */
 .eeg-tb__nav-btn:disabled { opacity:0.35; cursor:not-allowed; pointer-events:none; }
 
+/* ── Phase 2: grouped toolbar clusters ─────────────────────────────────── */
+.toolbar-group { display:flex; flex-direction:column; align-items:flex-start; gap:2px; padding:0 4px; }
+.toolbar-group-label { font-size:8px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:.08em; padding:0 2px; line-height:1; }
+.toolbar-group__controls { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.toolbar-group-divider { width:1px; align-self:stretch; min-height:32px; background:rgba(255,255,255,0.12); margin:0 4px; flex-shrink:0; }
+.toolbar-group[data-group="artifacts"] .toolbar-group__controls,
+.toolbar-group[data-group="tools"] .toolbar-group__controls { gap:4px; }
+
+/* ── Phase 2: Quality Scorecard ────────────────────────────────────────── */
+.quality-scorecard { padding:12px 14px; border-bottom:1px solid rgba(255,255,255,0.05); background:rgba(0,212,188,0.03); }
+.quality-scorecard h3 { font-size:10px; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:.05em; margin:0 0 8px; }
+.quality-score-big { font-family:'JetBrains Mono','SF Mono',monospace; font-size:34px; font-weight:700; color:#00d4bc; line-height:1; margin:0 0 8px; text-align:center; letter-spacing:-0.02em; }
+.quality-subscores { display:flex; flex-direction:column; gap:3px; font-size:10px; color:#94a3b8; }
+.quality-subscores > div { display:flex; justify-content:space-between; padding:2px 0; border-bottom:1px solid rgba(255,255,255,0.04); }
+.quality-subscores > div:last-child { border-bottom:none; }
+.quality-subscores > div span { color:#cbd5e1; font-family:'JetBrains Mono','SF Mono',monospace; font-weight:500; }
+.quality-narrative { font-size:10px; color:#64748b; margin:8px 0 0; line-height:1.4; font-style:italic; }
+
 @media (max-width: 900px) {
   .eeg-viewer__sidebar { width:180px; }
   .eeg-viewer__toolbar { gap:4px; }
@@ -1774,3 +2509,797 @@ function _injectCSS() {
 `;
   document.head.appendChild(style);
 }
+
+// ── Phase 3 — modals, popovers, custom-montage / filter-preview wiring ─────
+
+function _mountQeegModalShell() {
+  var existing = document.getElementById('qeeg-modal-shell');
+  if (existing) return existing;
+  var shell = document.createElement('div');
+  shell.id = 'qeeg-modal-shell';
+  shell.className = 'qeeg-modal-shell';
+  shell.style.display = 'none';
+  shell.innerHTML = ''
+    + '<div class="qeeg-modal-backdrop" data-role="backdrop"></div>'
+    + '<div class="qeeg-modal" role="dialog" aria-modal="true">'
+    +   '<header class="qeeg-modal__hdr">'
+    +     '<h3 id="qeeg-modal-title">Modal</h3>'
+    +     '<button type="button" class="qeeg-modal__close" data-role="close" aria-label="Close">×</button>'
+    +   '</header>'
+    +   '<div class="qeeg-modal__body" id="qeeg-modal-body"></div>'
+    +   '<footer class="qeeg-modal__ftr" id="qeeg-modal-footer"></footer>'
+    + '</div>';
+  document.body.appendChild(shell);
+  shell.addEventListener('click', function (e) {
+    var t = e.target;
+    if (t && t.dataset && (t.dataset.role === 'backdrop' || t.dataset.role === 'close')) {
+      shell.style.display = 'none';
+    }
+  });
+  return shell;
+}
+
+function _showQeegModal(title, bodyHtmlOrEl, footerHtml) {
+  var shell = _mountQeegModalShell();
+  var titleEl = document.getElementById('qeeg-modal-title');
+  var bodyEl = document.getElementById('qeeg-modal-body');
+  var ftrEl = document.getElementById('qeeg-modal-footer');
+  if (titleEl) titleEl.textContent = title || '';
+  if (bodyEl) {
+    bodyEl.innerHTML = '';
+    if (typeof bodyHtmlOrEl === 'string') bodyEl.innerHTML = bodyHtmlOrEl;
+    else if (bodyHtmlOrEl && bodyHtmlOrEl.nodeType === 1) bodyEl.appendChild(bodyHtmlOrEl);
+  }
+  if (ftrEl) ftrEl.innerHTML = footerHtml || '';
+  shell.style.display = 'flex';
+  return { shell: shell, body: bodyEl, footer: ftrEl };
+}
+
+function _closeQeegModal() {
+  var shell = document.getElementById('qeeg-modal-shell');
+  if (shell) shell.style.display = 'none';
+}
+
+function _injectPhase3CSS() {
+  if (document.getElementById('qeeg-phase3-css')) return;
+  var style = document.createElement('style');
+  style.id = 'qeeg-phase3-css';
+  style.textContent = ''
+    + '.qeeg-modal-shell { position:fixed; inset:0; z-index:9000; display:flex; align-items:center; justify-content:center; }'
+    + '.qeeg-modal-backdrop { position:absolute; inset:0; background:rgba(0,0,0,0.55); }'
+    + '.qeeg-modal { position:relative; min-width:340px; max-width:560px; max-height:80vh; background:#0d1b2a; color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); border-radius:10px; display:flex; flex-direction:column; box-shadow:0 16px 48px rgba(0,0,0,0.5); }'
+    + '.qeeg-modal__hdr { display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid rgba(255,255,255,0.08); }'
+    + '.qeeg-modal__hdr h3 { margin:0; font-size:13px; font-weight:700; color:#cbd5e1; }'
+    + '.qeeg-modal__close { background:transparent; border:none; color:#94a3b8; font-size:18px; cursor:pointer; padding:0 4px; line-height:1; }'
+    + '.qeeg-modal__close:hover { color:#e2e8f0; }'
+    + '.qeeg-modal__body { padding:8px; overflow-y:auto; }'
+    + '.qeeg-modal__ftr { padding:10px 14px; border-top:1px solid rgba(255,255,255,0.08); display:flex; justify-content:flex-end; gap:8px; }'
+    + '.qeeg-modal__ftr button { padding:6px 14px; border-radius:6px; border:1px solid rgba(255,255,255,0.12); background:transparent; color:#e2e8f0; font-size:12px; cursor:pointer; }'
+    + '.qeeg-modal__ftr button.qeeg-modal__btn--primary { border-color:rgba(0,212,188,0.4); background:rgba(0,212,188,0.15); color:#00d4bc; }'
+    + '.qeeg-modal__ftr button:hover { background:rgba(255,255,255,0.05); }'
+    + '.qeeg-bands-list { display:flex; flex-direction:column; gap:6px; padding:8px; }'
+    + '.qeeg-bands-row { display:flex; align-items:center; gap:6px; padding:6px; background:rgba(255,255,255,0.02); border-radius:6px; }'
+    + '.qeeg-bands-row input { padding:4px 6px; border-radius:5px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:#e2e8f0; font-size:12px; flex:1; }'
+    + '.qeeg-bands-row input.qeeg-bands-row__num { max-width:64px; flex:0 0 auto; }'
+    + '.qeeg-bands-row__rm { background:transparent; border:1px solid rgba(239,68,68,0.3); color:#ef4444; border-radius:4px; cursor:pointer; padding:2px 8px; }'
+    + '.qeeg-bands-add { padding:6px 12px; border-radius:6px; border:1px dashed rgba(0,212,188,0.4); background:rgba(0,212,188,0.08); color:#00d4bc; font-size:12px; cursor:pointer; }'
+    + '.qeeg-fp-popover { position:absolute; z-index:7500; padding:6px; background:#0d1b2a; border:1px solid rgba(0,212,188,0.25); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.5); }'
+    + '.qeeg-fp-popover canvas { display:block; width:380px; height:260px; }'
+    + EEG_MONTAGE_BUILDER_CSS;
+  document.head.appendChild(style);
+}
+
+// ─── Phase 6 helpers: cleaned-signal export + Cleaning Report PDF ──────────
+
+function _installPhase6Css() {
+  if (typeof document === 'undefined' || !document.getElementById) return;
+  if (document.getElementById('eeg-phase6-css')) return;
+  var styleEl = document.createElement('style');
+  styleEl.id = 'eeg-phase6-css';
+  styleEl.textContent = EEG_EXPORT_MODAL_CSS;
+  if (document.head) document.head.appendChild(styleEl);
+}
+
+// ─── Phase 7 helpers: contextual help drawer + shortcut sheet ───────────────
+
+function _installPhase7Css() {
+  if (typeof document === 'undefined' || !document.getElementById) return;
+  if (document.getElementById('eeg-phase7-css')) return;
+  var styleEl = document.createElement('style');
+  styleEl.id = 'eeg-phase7-css';
+  styleEl.textContent = EEG_HELP_DRAWER_CSS + '\n' + RAW_KEYBOARD_SHORTCUTS_CSS;
+  if (document.head) document.head.appendChild(styleEl);
+}
+
+var _phase7HelpDrawer = null;
+
+function _ensureHelpDrawer() {
+  if (typeof document === 'undefined') return null;
+  if (_phase7HelpDrawer) return _phase7HelpDrawer;
+  _installPhase7Css();
+  var host = document.getElementById('eeg-phase7-help-drawer-host');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'eeg-phase7-help-drawer-host';
+    if (document.body) document.body.appendChild(host);
+  }
+  _phase7HelpDrawer = new EEGHelpDrawer(host, {});
+  return _phase7HelpDrawer;
+}
+
+function _openHelp(topicKey) {
+  var drawer = _ensureHelpDrawer();
+  if (drawer) drawer.open(topicKey);
+}
+
+function _showShortcutsSheet() {
+  if (typeof document === 'undefined') return;
+  _installPhase7Css();
+  var host = document.getElementById('eeg-phase7-shortcuts-host');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'eeg-phase7-shortcuts-host';
+    host.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55);z-index:1100;backdrop-filter:blur(2px);';
+    if (document.body) document.body.appendChild(host);
+  } else {
+    host.style.display = 'flex';
+  }
+  host.innerHTML =
+    '<div style="background:#0c1222;border:1px solid rgba(255,255,255,0.1);border-radius:12px;width:380px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.5);position:relative;">' +
+      '<button id="eeg-phase7-shortcuts-close" type="button" aria-label="Close shortcuts" style="position:absolute;top:8px;right:10px;background:none;border:none;color:#94a3b8;font-size:20px;line-height:1;cursor:pointer;">×</button>' +
+      renderShortcutSheet() +
+    '</div>';
+  var closeBtn = host.querySelector('#eeg-phase7-shortcuts-close');
+  function _close() { host.style.display = 'none'; }
+  if (closeBtn) closeBtn.addEventListener('click', _close);
+  host.addEventListener('click', function (e) { if (e.target === host) _close(); });
+}
+
+// Map toolbar/sidebar control IDs to a help-topic key. Used by the
+// `?` icons that get inlined next to group labels and section titles.
+var _PHASE7_HELP_BUTTON_HTML = function (topicKey) {
+  if (!RAW_HELP_TOPICS[topicKey]) return '';
+  return ' <button class="eeg-help-icon" type="button"'
+    + ' data-help-topic="' + esc(topicKey) + '"'
+    + ' aria-label="Help: ' + esc(RAW_HELP_TOPICS[topicKey].title) + '"'
+    + ' title="Help: ' + esc(RAW_HELP_TOPICS[topicKey].title) + '">?</button>';
+};
+
+function _wireHelpIcons(rootEl) {
+  if (!rootEl || typeof rootEl.querySelectorAll !== 'function') return;
+  var btns = rootEl.querySelectorAll('.eeg-help-icon[data-help-topic]');
+  for (var i = 0; i < btns.length; i++) {
+    (function (btn) {
+      btn.addEventListener('click', function (e) {
+        if (e && e.preventDefault) e.preventDefault();
+        if (e && e.stopPropagation) e.stopPropagation();
+        var key = btn.getAttribute('data-help-topic');
+        if (key) _openHelp(key);
+      });
+    })(btns[i]);
+  }
+}
+
+function _saveBlobAs(blob, filename) {
+  try {
+    if (typeof window === 'undefined' || !window.URL || !window.URL.createObjectURL) return;
+    var url = window.URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () {
+      try { document.body.removeChild(a); } catch (_) {}
+      try { window.URL.revokeObjectURL(url); } catch (_) {}
+    }, 0);
+  } catch (e) { /* best-effort */ }
+}
+
+function _exportFilenameForFormat(analysisId, fmt) {
+  var ext = '.edf';
+  if (fmt === 'bdf') ext = '.bdf';
+  else if (fmt === 'fif') ext = '_raw.fif';
+  return 'cleaned_' + String(analysisId) + ext;
+}
+
+function _openExportModal(analysisId) {
+  _installPhase6Css();
+  var container = document.getElementById('eeg-phase6-export-modal-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'eeg-phase6-export-modal-container';
+    document.body.appendChild(container);
+  }
+  var modal = new EEGExportModal(container, {
+    onCancel: function () { /* hide handled internally */ },
+    onDownloadCleaned: async function (choice) {
+      try {
+        showToast('Preparing cleaned signal export…', 'info');
+        var resp = await api.postQEEGExportCleaned(analysisId, {
+          format: choice.format,
+          interpolate_bad_channels: !!choice.interpolate_bad_channels,
+        });
+        var filename = (resp && resp.filename) || _exportFilenameForFormat(analysisId, choice.format);
+        _saveBlobAs(resp.blob, filename);
+        showToast('Cleaned signal exported', 'success');
+        modal.hide();
+      } catch (err) {
+        showToast('Export failed: ' + (err && err.message ? err.message : err), 'error');
+      }
+    },
+    onDownloadReport: async function () {
+      try {
+        showToast('Generating Cleaning Report PDF…', 'info');
+        var resp = await api.postQEEGCleaningReport(analysisId);
+        var filename = (resp && resp.filename) || ('cleaning_report_' + analysisId + '.pdf');
+        _saveBlobAs(resp.blob, filename);
+        showToast('Cleaning Report PDF generated', 'success');
+        modal.hide();
+      } catch (err) {
+        showToast('Cleaning report failed: ' + (err && err.message ? err.message : err), 'error');
+      }
+    },
+  });
+  modal.show();
+}
+
+
+function _openCustomMontageModal(analysisId, state, renderer, spectralPanel) {
+  _injectPhase3CSS();
+  var chNames = ((state.channelInfo && state.channelInfo.channels) || []).map(function (c) { return c.name || c; });
+  var builder = new EEGCustomMontageBuilder(chNames);
+  // If editing the current saved montage, prefill it.
+  if (state.display.activeCustomMontageId) {
+    var current = (state.display.savedMontages || []).find(function (m) { return m.id === state.display.activeCustomMontageId; });
+    if (current) builder.loadPreset(current);
+  }
+  var bodyDiv = document.createElement('div');
+  builder.render(bodyDiv);
+
+  var footer = ''
+    + '<button type="button" data-role="cancel">Cancel</button>'
+    + '<button type="button" class="qeeg-modal__btn--primary" data-role="save">Save montage</button>';
+  var ctx = _showQeegModal('Custom Montage Builder', bodyDiv, footer);
+  ctx.footer.querySelector('[data-role="cancel"]').addEventListener('click', _closeQeegModal);
+  ctx.footer.querySelector('[data-role="save"]').addEventListener('click', function () {
+    var serialized = builder.serialize();
+    if (!serialized.pairs.length) {
+      showToast('Add at least one pair before saving', 'warning');
+      return;
+    }
+    var id = 'cm_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+    var record = { id: id, name: serialized.name, pairs: serialized.pairs };
+    state.display.savedMontages = (state.display.savedMontages || []).concat([record]);
+    state.display.activeCustomMontageId = id;
+    _persistSavedMontages(state.display.savedMontages);
+    _closeQeegModal();
+    showToast('Custom montage saved', 'success');
+    // Re-render the montage select to include the new entry.
+    var sel = document.getElementById('eeg-montage-sel');
+    if (sel) {
+      // Insert the new <option> into the saved-montages optgroup, or rebuild it.
+      var opt = document.createElement('option');
+      opt.value = 'saved:' + id;
+      opt.textContent = record.name;
+      opt.selected = true;
+      var grp = sel.querySelector('optgroup[label="Saved montages"]');
+      if (!grp) {
+        grp = document.createElement('optgroup');
+        grp.label = 'Saved montages';
+        // Insert before the __custom__ option.
+        var customOpt = sel.querySelector('option[value="__custom__"]');
+        if (customOpt) sel.insertBefore(grp, customOpt);
+        else sel.appendChild(grp);
+      }
+      grp.appendChild(opt);
+      sel.value = 'saved:' + id;
+    }
+    _applySavedMontage(id, state, renderer);
+    _loadSignalWindow(analysisId, state, renderer, spectralPanel);
+  });
+}
+
+function _applySavedMontage(savedId, state, renderer) {
+  var found = (state.display.savedMontages || []).find(function (m) { return m.id === savedId; });
+  if (!found) return;
+  state.display.activeCustomMontageId = savedId;
+  // Renderer keeps treating this as 'referential' for the wire format; the
+  // server returns referential data and we tag the display as a custom build.
+  // Future Phase: pass the pair list to the renderer to draw bipolar diffs
+  // client-side.  For now we just tag montage and update the readout.
+  state.montage = 'referential';
+  if (typeof renderer.setMontage === 'function') renderer.setMontage('referential');
+  if (typeof renderer.setCustomMontagePairs === 'function') {
+    renderer.setCustomMontagePairs(found.pairs || []);
+  }
+  var lbl = document.getElementById('eeg-info-montage');
+  if (lbl) lbl.textContent = 'Custom: ' + (found.name || savedId);
+}
+
+function _openCustomBandsModal(state) {
+  _injectPhase3CSS();
+  function rowHtml(b, i) {
+    return '<div class="qeeg-bands-row" data-band-i="' + i + '">'
+      + '<input type="text" data-field="name" value="' + esc(b.name || '') + '" maxlength="40" placeholder="Band name" />'
+      + '<input type="number" class="qeeg-bands-row__num" data-field="low" value="' + (b.low != null ? b.low : '') + '" placeholder="Low Hz" min="0" max="500" step="0.1" />'
+      + '<input type="number" class="qeeg-bands-row__num" data-field="high" value="' + (b.high != null ? b.high : '') + '" placeholder="High Hz" min="0" max="500" step="0.1" />'
+      + '<button type="button" class="qeeg-bands-row__rm" data-action="rm" data-band-i="' + i + '">×</button>'
+      + '</div>';
+  }
+  function listHtml() {
+    var bands = state.display.customBands || [];
+    var s = '<div class="qeeg-bands-list" id="qeeg-bands-list">';
+    if (!bands.length) s += '<div style="padding:12px;color:#64748b;font-size:12px;font-style:italic">No custom bands yet.</div>';
+    for (var i = 0; i < bands.length; i++) s += rowHtml(bands[i], i);
+    s += '</div>';
+    s += '<div style="padding:8px"><button type="button" class="qeeg-bands-add" id="qeeg-bands-add">+ Add band</button></div>';
+    return s;
+  }
+  var ctx = _showQeegModal('Custom Band Library', listHtml(),
+    '<button type="button" data-role="cancel">Close</button>'
+    + '<button type="button" class="qeeg-modal__btn--primary" data-role="save">Save bands</button>');
+
+  function refresh() { ctx.body.innerHTML = listHtml(); wire(); }
+
+  function wire() {
+    var addBtn = document.getElementById('qeeg-bands-add');
+    if (addBtn) addBtn.onclick = function () {
+      state.display.customBands = (state.display.customBands || []).concat([{ id: 'cb_' + Date.now().toString(36), name: 'New band', low: 1, high: 4 }]);
+      refresh();
+    };
+    var list = document.getElementById('qeeg-bands-list');
+    if (list) {
+      list.addEventListener('click', function (e) {
+        var t = e.target;
+        if (t && t.dataset && t.dataset.action === 'rm') {
+          var i = parseInt(t.dataset.bandI, 10);
+          if (!isNaN(i)) { state.display.customBands.splice(i, 1); refresh(); }
+        }
+      });
+      list.addEventListener('input', function (e) {
+        var t = e.target;
+        if (!t || !t.dataset || !t.dataset.field) return;
+        var row = t.closest && t.closest('.qeeg-bands-row');
+        if (!row) return;
+        var i = parseInt(row.dataset.bandI, 10);
+        if (isNaN(i)) return;
+        var band = state.display.customBands[i];
+        if (!band) return;
+        if (t.dataset.field === 'name') band.name = String(t.value || '').slice(0, 40);
+        else if (t.dataset.field === 'low') band.low = t.value === '' ? null : parseFloat(t.value);
+        else if (t.dataset.field === 'high') band.high = t.value === '' ? null : parseFloat(t.value);
+      });
+    }
+  }
+  wire();
+
+  ctx.footer.querySelector('[data-role="cancel"]').addEventListener('click', _closeQeegModal);
+  ctx.footer.querySelector('[data-role="save"]').addEventListener('click', function () {
+    var cleaned = (state.display.customBands || []).filter(function (b) {
+      return b && b.name && b.low != null && b.high != null && b.high > b.low;
+    });
+    state.display.customBands = cleaned;
+    _persistCustomBands(cleaned);
+    // Refresh the band-preset dropdown options.
+    var sel = document.getElementById('eeg-band-preset-sel');
+    if (sel) sel.innerHTML = _renderBandPresetOptions(_initState());
+    _closeQeegModal();
+    showToast('Custom bands saved', 'success');
+  });
+}
+
+// Filter-preview popover (singleton).
+var _fpPopoverEl = null;
+var _fpPreviewInst = null;
+var _fpDebounceTimer = null;
+
+function _ensureFilterPreviewPopover() {
+  _injectPhase3CSS();
+  if (_fpPopoverEl && document.body.contains && document.body.contains(_fpPopoverEl)) return _fpPopoverEl;
+  _fpPopoverEl = document.createElement('div');
+  _fpPopoverEl.className = 'qeeg-fp-popover';
+  _fpPopoverEl.id = 'qeeg-filter-preview-popover';
+  _fpPopoverEl.style.display = 'none';
+  var canvas = document.createElement('canvas');
+  canvas.width = 380;
+  canvas.height = 260;
+  _fpPopoverEl.appendChild(canvas);
+  document.body.appendChild(_fpPopoverEl);
+  _fpPreviewInst = new EEGFilterPreview(canvas);
+  return _fpPopoverEl;
+}
+
+function _hideFilterPreview() {
+  if (_fpPopoverEl) _fpPopoverEl.style.display = 'none';
+}
+
+function _maybeFilterPreview(analysisId, state) {
+  if (!state.display || !state.display.filterPreviewEnabled) return;
+  // Debounce
+  if (_fpDebounceTimer) clearTimeout(_fpDebounceTimer);
+  _fpDebounceTimer = setTimeout(function () {
+    _runFilterPreview(analysisId, state);
+  }, 200);
+}
+
+async function _runFilterPreview(analysisId, state) {
+  var pop = _ensureFilterPreviewPopover();
+  // Position the popover above the toolbar Filters group.
+  var anchor = document.getElementById('eeg-filter-preview-toggle');
+  if (anchor && anchor.getBoundingClientRect) {
+    var r = anchor.getBoundingClientRect();
+    pop.style.top = (r.top + window.scrollY - 270) + 'px';
+    pop.style.left = (r.left + window.scrollX) + 'px';
+  }
+  pop.style.display = 'block';
+
+  var fp = state.filterParams || {};
+  var t0 = state.tStart || 0;
+  var win = state.windowSec || 10;
+  try {
+    var resp;
+    if (typeof api.getQEEGFilterPreview === 'function') {
+      resp = await api.getQEEGFilterPreview(analysisId, {
+        t_start: t0, window_sec: win, lff: fp.lff, hff: fp.hff, notch: fp.notch,
+      });
+    } else if (api && typeof api.fetch === 'function') {
+      resp = await api.fetch('/api/v1/qeeg-raw/' + encodeURIComponent(analysisId) + '/filter-preview', {
+        method: 'POST',
+        body: JSON.stringify({ t_start: t0, window_sec: win, lff: fp.lff, hff: fp.hff, notch: fp.notch }),
+      });
+    } else {
+      // Demo fallback: synthesize a frequency response curve from filterParams.
+      resp = _demoFilterPreview(fp);
+    }
+    if (_fpPreviewInst) _fpPreviewInst.update(resp.raw || [], resp.filtered || [], resp.freq_response || { hz: [], magnitude_db: [] });
+  } catch (err) {
+    if (_fpPreviewInst) {
+      var demo = _demoFilterPreview(fp);
+      _fpPreviewInst.update(demo.raw, demo.filtered, demo.freq_response);
+    }
+  }
+}
+
+function _demoFilterPreview(fp) {
+  var n = 256;
+  var hz = [], db = [];
+  var lff = fp && fp.lff ? fp.lff : 0;
+  var hff = fp && fp.hff ? fp.hff : 100;
+  var notch = fp && fp.notch ? fp.notch : 0;
+  for (var i = 0; i < n; i++) {
+    var f = (i + 1) * (128.0 / n);
+    var mag = 1;
+    if (lff > 0) { var r1 = f / lff; mag *= (r1 * r1) / Math.sqrt(1 + Math.pow(r1, 4)); }
+    if (hff > 0) { var r2 = f / hff; mag *= 1 / Math.sqrt(1 + Math.pow(r2, 4)); }
+    if (notch > 0) { var dist = Math.abs(f - notch); if (dist < 2) mag *= dist / 2; }
+    hz.push(f);
+    db.push(20 * Math.log10(Math.max(mag, 1e-4)));
+  }
+  // Two synthetic channels: raw 10 Hz sine + filtered version (same).
+  var raw = [], filtered = [];
+  for (var c = 0; c < 2; c++) {
+    var rawRow = [], filtRow = [];
+    for (var j = 0; j < 200; j++) {
+      var t = j / 100;
+      var v = 25 * Math.sin(2 * Math.PI * 10 * t + c) + 6 * (Math.random() - 0.5);
+      rawRow.push(v);
+      filtRow.push(v * 0.85);
+    }
+    raw.push(rawRow); filtered.push(filtRow);
+  }
+  return { raw: raw, filtered: filtered, freq_response: { hz: hz, magnitude_db: db } };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 4 — Artifact tooling helpers (auto-scan, templates, decomposition,
+// spike list, manual reason picker)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function _installPhase4Css() {
+  if (typeof document === 'undefined' || !document.getElementById) return;
+  if (document.getElementById('eeg-phase4-css')) return;
+  var styleEl = document.createElement('style');
+  styleEl.id = 'eeg-phase4-css';
+  styleEl.textContent = ''
+    + EEG_DS_CSS + '\n' + EEG_ASM_CSS + '\n' + EEG_SL_CSS + '\n'
+    + '.eeg-tpl-menu{position:absolute;background:#0f172a;border:1px solid #334155;border-radius:6px;min-width:180px;padding:4px 0;z-index:1100;box-shadow:0 4px 16px rgba(2,6,23,0.5);}\n'
+    + '.eeg-tpl-menu__item{display:block;width:100%;text-align:left;background:transparent;color:#e2e8f0;border:none;padding:6px 12px;cursor:pointer;font-size:13px;}\n'
+    + '.eeg-tpl-menu__item:hover{background:#1e293b;}\n'
+    + '.eeg-rsn-overlay{position:fixed;inset:0;z-index:1100;background:rgba(2,6,23,0.4);display:flex;align-items:center;justify-content:center;}\n'
+    + '.eeg-rsn{background:#0d1b2a;border:1px solid #334155;border-radius:8px;padding:14px 16px;color:#e2e8f0;font-family:Inter,system-ui,sans-serif;width:min(360px,90vw);}\n'
+    + '.eeg-rsn__t{font-weight:600;margin-bottom:8px;}\n'
+    + '.eeg-rsn__opts{display:grid;grid-template-columns:1fr 1fr;gap:6px;}\n'
+    + '.eeg-rsn__opt{background:#1e293b;border:1px solid #334155;color:#e2e8f0;padding:6px 10px;border-radius:5px;cursor:pointer;font-size:12px;text-align:left;}\n'
+    + '.eeg-rsn__opt:hover{background:#334155;}\n'
+    + '.eeg-rsn__cancel{margin-top:10px;background:transparent;color:#94a3b8;border:none;cursor:pointer;font-size:12px;}\n';
+  document.head && document.head.appendChild(styleEl);
+}
+
+/** Ensure a single overlay container exists for modals. */
+function _getPhase4Overlay() {
+  if (typeof document === 'undefined') return null;
+  var el = document.getElementById('eeg-phase4-overlay');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'eeg-phase4-overlay';
+    el.style.position = 'fixed';
+    el.style.inset = '0';
+    el.style.zIndex = '1000';
+    el.style.pointerEvents = 'none';
+    el.innerHTML = '';
+    if (document.body && document.body.appendChild) document.body.appendChild(el);
+  }
+  return el;
+}
+
+function _ensureOverlayChild(id) {
+  var ov = _getPhase4Overlay();
+  if (!ov) return null;
+  var child = document.getElementById(id);
+  if (!child) {
+    child = document.createElement('div');
+    child.id = id;
+    child.style.pointerEvents = 'auto';
+    ov.appendChild(child);
+  }
+  return child;
+}
+
+async function _runAutoScan(analysisId, state, renderer, spectralPanel) {
+  if (!analysisId) return;
+  showToast('Running auto-scan…', 'info');
+  var resp;
+  try {
+    resp = await api.postQEEGAutoScan(analysisId);
+  } catch (err) {
+    showToast('Auto-scan failed: ' + (err && err.message ? err.message : 'unknown error'), 'error');
+    return;
+  }
+  if (!resp || !resp.run_id) {
+    showToast('Auto-scan returned no proposal', 'warn');
+    return;
+  }
+  if (state && state.ai) state.ai.lastAutoCleanRunId = resp.run_id;
+  var host = _ensureOverlayChild('eeg-asm-host');
+  if (!host) return;
+  var modal = new EEGAutoScanModal(host, {
+    onCommit: async function (decision) {
+      try {
+        await api.decideQEEGAutoScan(analysisId, resp.run_id, {
+          accepted_items: decision.accepted_items,
+          rejected_items: decision.rejected_items,
+        });
+        showToast('Auto-scan decisions committed.', 'success');
+        // Pull fresh cleaning config so badChannels/badSegments reflect server state.
+        try {
+          var cfg = await api.getQEEGCleaningConfig(analysisId);
+          if (cfg && cfg.config) {
+            if (state && state.processing) {
+              state.processing.badChannels = cfg.config.bad_channels || state.processing.badChannels;
+              state.processing.badSegments = cfg.config.bad_segments || state.processing.badSegments;
+            }
+            if (renderer && renderer.setBadSegments) renderer.setBadSegments(state.processing.badSegments);
+            if (renderer && renderer.setChannelStates) renderer.setChannelStates(state.processing.badChannels);
+          }
+        } catch (_e) { /* non-fatal */ }
+      } catch (err) {
+        showToast('Decide failed: ' + (err && err.message ? err.message : 'unknown error'), 'error');
+      }
+    },
+    onCancel: function () { showToast('Auto-scan dismissed.', 'info'); },
+  });
+  modal.show(resp.proposal || {}, resp.run_id);
+}
+
+function _toggleTemplatesMenu(anchorBtn, analysisId, state, renderer, spectralPanel) {
+  if (!analysisId || typeof document === 'undefined') return;
+  var existing = document.getElementById('eeg-tpl-menu');
+  if (existing && existing.parentNode) {
+    existing.parentNode.removeChild(existing);
+    return;
+  }
+  var menu = document.createElement('div');
+  menu.id = 'eeg-tpl-menu';
+  menu.className = 'eeg-tpl-menu';
+  var rect = anchorBtn && anchorBtn.getBoundingClientRect ? anchorBtn.getBoundingClientRect() : { left: 100, bottom: 100 };
+  menu.style.left = (rect.left || 0) + 'px';
+  menu.style.top = ((rect.bottom || 0) + 4) + 'px';
+  var TEMPLATES = [
+    { key: 'eye_blink',     label: 'Eye blink' },
+    { key: 'lateral_eye',   label: 'Lateral eye' },
+    { key: 'emg',           label: 'Muscle (EMG)' },
+    { key: 'ecg',           label: 'Heart (ECG)' },
+    { key: 'electrode_pop', label: 'Electrode pop' },
+  ];
+  TEMPLATES.forEach(function (t) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'eeg-tpl-menu__item';
+    btn.textContent = t.label;
+    btn.onclick = async function () {
+      if (menu.parentNode) menu.parentNode.removeChild(menu);
+      try {
+        var resp = await api.applyQEEGTemplate(analysisId, t.key);
+        var n = (resp && resp.components_excluded) ? resp.components_excluded.length : 0;
+        showToast('Template "' + t.label + '" excluded ' + n + ' components.', n > 0 ? 'success' : 'info');
+        // Refresh ICA panel state if loaded.
+        if (state && state.processing && resp && Array.isArray(resp.components_excluded)) {
+          var cur = state.processing.excludedICA || [];
+          resp.components_excluded.forEach(function (i) {
+            if (cur.indexOf(i) < 0) cur.push(i);
+          });
+          state.processing.excludedICA = cur;
+        }
+      } catch (err) {
+        showToast('Template apply failed: ' + (err && err.message ? err.message : 'unknown error'), 'error');
+      }
+    };
+    menu.appendChild(btn);
+  });
+  if (document.body && document.body.appendChild) document.body.appendChild(menu);
+  // Click-outside to dismiss.
+  setTimeout(function () {
+    function _close(ev) {
+      if (menu.contains && menu.contains(ev.target)) return;
+      if (menu.parentNode) menu.parentNode.removeChild(menu);
+      document.removeEventListener('click', _close, true);
+    }
+    document.addEventListener('click', _close, true);
+  }, 0);
+}
+
+async function _openSpikeList(analysisId, state, renderer) {
+  if (!analysisId) return;
+  var host = _ensureOverlayChild('eeg-sl-host');
+  if (!host) return;
+  host.style.position = 'fixed';
+  host.style.right = '18px';
+  host.style.top = '90px';
+  var list = new EEGSpikeList(host, {
+    onJump: function (tSec, channel) {
+      if (state) state.tStart = Math.max(0, tSec - (state.windowSec || 10) / 2);
+      // Reuse the existing time-navigation hook used by Find/Jump.
+      if (renderer && typeof renderer.onTimeNavigate === 'function') {
+        try { renderer.onTimeNavigate(state.tStart); } catch (_e) { /* ignore */ }
+      }
+      showToast('Jumped to ' + tSec.toFixed(1) + 's' + (channel ? ' on ' + channel : ''), 'info');
+    },
+  });
+  list.setEvents([], { detectorAvailable: false });
+  try {
+    var resp = await api.getQEEGSpikeEvents(analysisId);
+    if (resp && Array.isArray(resp.events)) {
+      list.setEvents(resp.events, { detectorAvailable: !!resp.detector_available });
+    } else {
+      list.setEvents([], { detectorAvailable: false });
+    }
+  } catch (err) {
+    list.setEvents([], { detectorAvailable: false });
+    showToast('Spike events fetch failed: ' + (err && err.message ? err.message : 'unknown'), 'warn');
+  }
+}
+
+async function _openDecompositionStudio(analysisId, state, renderer) {
+  if (!analysisId) return;
+  var host = _ensureOverlayChild('eeg-ds-host');
+  if (!host) return;
+  host.style.position = 'fixed';
+  host.style.left = '50%';
+  host.style.top = '50%';
+  host.style.transform = 'translate(-50%, -50%)';
+  host.style.zIndex = '1050';
+  host.style.maxWidth = '92vw';
+  host.style.width = '900px';
+  var studio = new EEGDecompositionStudio(host, {
+    onExclude: function (idx) {
+      if (state && state.processing) {
+        var cur = state.processing.excludedICA || [];
+        if (cur.indexOf(idx) < 0) cur.push(idx);
+        state.processing.excludedICA = cur;
+        state.processing.hasUnsavedChanges = true;
+      }
+    },
+    onInclude: function (idx) {
+      if (state && state.processing) {
+        var cur = state.processing.excludedICA || [];
+        var i = cur.indexOf(idx);
+        if (i >= 0) cur.splice(i, 1);
+        state.processing.excludedICA = cur;
+        state.processing.hasUnsavedChanges = true;
+      }
+    },
+    onApplyTemplate: async function (template) {
+      try {
+        var resp = await api.applyQEEGTemplate(analysisId, template);
+        var n = (resp && resp.components_excluded) ? resp.components_excluded.length : 0;
+        showToast('Template "' + template + '" excluded ' + n + ' components.', n > 0 ? 'success' : 'info');
+        // Refresh studio with updated ICA payload.
+        try {
+          var ica = await api.getQEEGICAComponents(analysisId);
+          studio.setComponents(ica || {});
+        } catch (_e) { /* ignore */ }
+      } catch (err) {
+        showToast('Template apply failed: ' + (err && err.message ? err.message : 'unknown'), 'error');
+      }
+    },
+    onClose: function () { host.innerHTML = ''; },
+  });
+  // Show a loading state while ICA loads.
+  host.innerHTML = '<div style="background:#0d1b2a;color:#94a3b8;padding:18px;border-radius:8px;">Loading ICA components…</div>';
+  try {
+    var ica = await api.getQEEGICAComponents(analysisId);
+    studio.setComponents(ica || { components: [] });
+  } catch (err) {
+    host.innerHTML = '<div style="background:#0d1b2a;color:#fca5a5;padding:18px;border-radius:8px;">Failed to load ICA components: '
+      + (err && err.message ? err.message : 'unknown error') + '</div>';
+  }
+}
+
+/**
+ * Show an inline reason picker after a manual drag-to-mark. Returns a Promise
+ * that resolves with the selected reason key (one of the 10 Phase 1 reasons)
+ * or `null` if cancelled.
+ */
+function _promptBadSegmentReason() {
+  return new Promise(function (resolve) {
+    if (typeof document === 'undefined' || !document.createElement) {
+      resolve(null);
+      return;
+    }
+    _installPhase4Css();
+    var overlay = document.createElement('div');
+    overlay.className = 'eeg-rsn-overlay';
+    var inner = document.createElement('div');
+    inner.className = 'eeg-rsn';
+    inner.innerHTML = '<div class="eeg-rsn__t">Why is this segment bad?</div>'
+      + '<div class="eeg-rsn__opts">'
+      + _PHASE4_REASONS.map(function (r) {
+        return '<button class="eeg-rsn__opt" type="button" data-r="' + r.key + '">' + r.label + '</button>';
+      }).join('')
+      + '</div>'
+      + '<button class="eeg-rsn__cancel" type="button" id="eeg-rsn-cancel">Skip (mark unspecified)</button>';
+    overlay.appendChild(inner);
+    function _close(reason) {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      resolve(reason);
+    }
+    if (document.body) document.body.appendChild(overlay);
+    var opts = overlay.querySelectorAll && overlay.querySelectorAll('.eeg-rsn__opt');
+    if (opts && opts.length) {
+      for (var i = 0; i < opts.length; i++) {
+        (function (el) {
+          el.onclick = function () { _close(el.dataset && el.dataset.r); };
+        })(opts[i]);
+      }
+    }
+    var cancelBtn = overlay.querySelector && overlay.querySelector('#eeg-rsn-cancel');
+    if (cancelBtn) cancelBtn.onclick = function () { _close(null); };
+  });
+}
+
+// Hydrate state.display.savedMontages + customBands once at module init time.
+(function _hydrateLocalStorageState() {
+  if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') return;
+  try {
+    var s = _initState();
+    if (!s.display.savedMontages || !s.display.savedMontages.length) {
+      s.display.savedMontages = _loadSavedMontages();
+    }
+    if (!s.display.customBands || !s.display.customBands.length) {
+      s.display.customBands = _loadCustomBands();
+    }
+  } catch (_e) { /* localStorage / window stub */ }
+})();
+
+// ── Phase 2: named exports for unit tests ──────────────────────────────────
+export {
+  _initState,
+  _resetStateForTest,
+  _computeDeterministicQuality,
+  _flatLegacyMap,
+  _renderBandPresetOptions,
+  _renderSavedMontageOptions,
+  _allBands,
+};

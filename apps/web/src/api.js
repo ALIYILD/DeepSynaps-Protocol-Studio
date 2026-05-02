@@ -59,7 +59,44 @@ function _isDemoSession() {
     return !!(t && t.endsWith('-demo-token'));
   } catch { return false; }
 }
+function _mriDemoLongitudinalCompare(baselineId, followupId) {
+  return {
+    demo: true,
+    baseline_analysis_id: baselineId,
+    followup_analysis_id: followupId,
+    days_between: 30,
+    summary:
+      'Demo longitudinal preview — use a real clinician session against the API for visit-to-visit change maps from stored analyses.',
+    structural_changes: [
+      {
+        region: 'Left-Hippocampus',
+        baseline_value: 4200.0,
+        followup_value: 4150.0,
+        delta_absolute: -50.0,
+        delta_pct: -1.19,
+        flagged: false,
+        metric: 'subcortical_volume_mm3',
+      },
+    ],
+    functional_changes: [],
+    diffusion_changes: [],
+    comparison_meta: {
+      key_findings: [
+        { domain: 'structural', region: 'Left-Hippocampus', delta_pct: -1.19 },
+      ],
+    },
+    pipeline_version: '0.1.0',
+  };
+}
+
 function _demoSyntheticResponse(path, method) {
+  const compare = path.match(/^\/api\/v1\/mri\/compare\/([^/]+)\/([^/?]+)/);
+  if (compare && (!method || method === 'GET')) {
+    return _mriDemoLongitudinalCompare(
+      decodeURIComponent(compare[1]),
+      decodeURIComponent(compare[2]),
+    );
+  }
   // Mutations: pretend success (return a minimal accepted-shape object).
   if (method && method !== 'GET') return { ok: true, demo: true, id: 'demo-' + Date.now() };
   // Reads: list-shaped endpoints get { items: [] }; singular getters get null.
@@ -255,6 +292,20 @@ async function apiFetchBlob(path, data) {
 }
 
 async function apiFetchBinary(path, opts = {}) {
+  // Demo preview: MRI PDF/HTML/overlay routes cannot satisfy auth from <iframe src>.
+  // Return a tiny HTML stub so download/open flows do not throw noisy 401s.
+  if (_isDemoSession() && !_DEMO_PASSTHROUGH.test(path)) {
+    const binaryMri = /^\/api\/v1\/mri\/(report\/[^/]+\/(pdf|html)|overlay\/[^/]+\/[^/?]+)/.test(path);
+    if (binaryMri) {
+      const stub =
+        '<!DOCTYPE html><html><head><meta charset="utf-8"><title>MRI demo</title></head>'
+        + '<body style="font-family:system-ui;padding:16px;background:#0f172a;color:#e2e8f0">'
+        + '<p>MRI demo preview — PDF/HTML/overlay downloads require a live API session.</p>'
+        + '</body></html>';
+      const blob = new Blob([stub], { type: 'text/html;charset=utf-8' });
+      return { blob, contentType: 'text/html;charset=utf-8', filename: 'mri_demo_preview.html' };
+    }
+  }
   const token = getToken();
   const headers = { ...(opts.headers || {}) };
   if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -3010,6 +3061,72 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ cleaning_version_id: cleaningVersionId }),
     }),
+  // ── qEEG Raw — Phase 4 artifact tooling ───────────────────────────────────
+  // Threshold-based auto-scan, ICA-template apply, spike events. Decision-
+  // support only — every mutation writes a CleaningDecision audit row. The
+  // /spike-events endpoint returns 200 with `{events: []}` even when no
+  // detector is installed; the empty list is a valid clinical signal.
+  postQEEGAutoScan: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/auto-scan`, { method: 'POST' }),
+  decideQEEGAutoScan: (analysisId, runId, body) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/auto-scan/${encodeURIComponent(runId)}/decide`, {
+      method: 'POST',
+      body: JSON.stringify(body || { accepted_items: { bad_channels: [], bad_segments: [] }, rejected_items: { bad_channels: [], bad_segments: [] } }),
+    }),
+  applyQEEGTemplate: (analysisId, template) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/apply-template`, {
+      method: 'POST',
+      body: JSON.stringify({ template }),
+    }),
+  getQEEGSpikeEvents: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/spike-events`),
+  // ── qEEG Raw — Phase 6 export + cleaning report ──────────────────────────
+  // Both endpoints stream binary payloads. We use apiFetchBinary so the
+  // caller gets back the raw blob + filename hint from Content-Disposition.
+  postQEEGExportCleaned: (analysisId, body = {}) =>
+    apiFetchBinary(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/export-cleaned`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        format: body.format || 'edf',
+        interpolate_bad_channels: body.interpolate_bad_channels !== false,
+      }),
+    }),
+  postQEEGCleaningReport: (analysisId) =>
+    apiFetchBinary(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/cleaning-report`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    }),
+
+  // ── qEEG AI co-pilot overlay — Phase 5 ────────────────────────────────────
+  // Every endpoint returns `{result, reasoning, features}` so the UI can show
+  // "why this suggestion" beside every AI output. Each AI proposal call also
+  // writes a CleaningDecision audit row server-side at proposal time
+  // (actor='ai', action='propose_*'), giving a complete audit trail of what
+  // the AI said even before the clinician decides.
+  getQEEGAIQualityScore: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/quality_score`, { method: 'POST' }),
+  getQEEGAIAutoCleanPropose: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/auto_clean_propose`, { method: 'POST' }),
+  getQEEGAIExplainBadChannel: (analysisId, channel) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/explain_bad_channel/${encodeURIComponent(channel)}`, { method: 'POST' }),
+  getQEEGAIClassifyComponents: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/classify_components`, { method: 'POST' }),
+  getQEEGAIClassifySegment: (analysisId, startSec, endSec) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/classify_segment`, {
+      method: 'POST',
+      body: JSON.stringify({ start_sec: Number(startSec), end_sec: Number(endSec) }),
+    }),
+  getQEEGAIRecommendFilters: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/recommend_filters`, { method: 'POST' }),
+  getQEEGAIRecommendMontage: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/recommend_montage`, { method: 'POST' }),
+  getQEEGAISegmentEoEc: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/segment_eo_ec`, { method: 'POST' }),
+  getQEEGAINarrate: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/narrate`, { method: 'POST' }),
+
   // Dashboard endpoints
   getDashboardOverview: () => apiFetchWithRetry('/api/v1/dashboard/overview'),
   dashboardSearch: (q) => apiFetch('/api/v1/dashboard/search?q=' + encodeURIComponent(q || '')),
@@ -3044,6 +3161,847 @@ export const api = {
     `${API_BASE}/api/v1/clinician-inbox/export.csv`,
   postClinicianInboxAuditEvent: (data) =>
     apiFetch('/api/v1/clinician-inbox/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
+  // ── Care Team Coverage launch-audit (2026-04-30) ──────────────────────────
+  // pgCareTeamCoverage in pages-knowledge.js calls these helpers; they
+  // were defined in #357 but a concurrent session reverted them. The
+  // care-team-coverage-launch-audit.test.js asserts each helper name is
+  // present in api.js, so restoring them here.
+  careTeamCoverageSummary: () =>
+    apiFetch('/api/v1/care-team-coverage/summary').catch(() => null),
+  careTeamCoverageOncallNow: () =>
+    apiFetch('/api/v1/care-team-coverage/oncall-now').catch(() => null),
+  careTeamCoverageSlaConfig: () =>
+    apiFetch('/api/v1/care-team-coverage/sla-config').catch(() => null),
+  careTeamCoverageEscalationChain: () =>
+    apiFetch('/api/v1/care-team-coverage/escalation-chain').catch(() => null),
+  careTeamCoverageSlaBreaches: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/care-team-coverage/sla-breaches${q ? '?' + q : ''}`).catch(() => null);
+  },
+  careTeamCoverageRoster: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/care-team-coverage/roster${q ? '?' + q : ''}`).catch(() => null);
+  },
+  careTeamCoveragePages: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/care-team-coverage/pages${q ? '?' + q : ''}`).catch(() => null);
+  },
+  careTeamCoverageDeliveryConcerns: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/care-team-coverage/delivery-concerns${q ? '?' + q : ''}`).catch(() => null);
+  },
+  careTeamCoverageUpsertRoster: (body) =>
+    apiFetch('/api/v1/care-team-coverage/roster', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  careTeamCoverageUpsertSla: (body) =>
+    apiFetch('/api/v1/care-team-coverage/sla-config', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  careTeamCoverageUpsertEscalationChain: (body) =>
+    apiFetch('/api/v1/care-team-coverage/escalation-chain', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  careTeamCoveragePageOncall: (auditEventId, body) =>
+    apiFetch(
+      `/api/v1/care-team-coverage/page-oncall/${encodeURIComponent(auditEventId)}`,
+      {
+        method: 'POST',
+        body: JSON.stringify(body || {}),
+      },
+    ),
+  postCareTeamCoverageAuditEvent: (data) =>
+    apiFetch('/api/v1/care-team-coverage/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
+  // ── Auto-Page Worker (#367) ───────────────────────────────────────────────
+  autoPageWorkerStatus: () =>
+    apiFetch('/api/v1/auto-page-worker/status').catch(() => null),
+  autoPageWorkerAdapterHealth: () =>
+    apiFetch('/api/v1/auto-page-worker/adapters').catch(() => null),
+  autoPageWorkerStart: () =>
+    apiFetch('/api/v1/auto-page-worker/start', { method: 'POST' }),
+  autoPageWorkerStop: () =>
+    apiFetch('/api/v1/auto-page-worker/stop', { method: 'POST' }),
+  autoPageWorkerTickOnce: () =>
+    apiFetch('/api/v1/auto-page-worker/tick-once', { method: 'POST' }),
+  autoPageWorkerTestAdapter: (data) =>
+    apiFetch('/api/v1/auto-page-worker/test-adapter', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  postAutoPageWorkerAuditEvent: (data) =>
+    apiFetch('/api/v1/auto-page-worker/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
+  // ── Escalation Policy (#374) ──────────────────────────────────────────────
+  escalationPolicyDispatchOrder: () =>
+    apiFetch('/api/v1/escalation-policy/dispatch-order').catch(() => null),
+  escalationPolicySurfaceOverrides: () =>
+    apiFetch('/api/v1/escalation-policy/surface-overrides').catch(() => null),
+  escalationPolicyUserMappings: () =>
+    apiFetch('/api/v1/escalation-policy/user-mappings').catch(() => null),
+  escalationPolicySetDispatchOrder: (body) =>
+    apiFetch('/api/v1/escalation-policy/dispatch-order', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  escalationPolicySetSurfaceOverrides: (body) =>
+    apiFetch('/api/v1/escalation-policy/surface-overrides', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  escalationPolicySetUserMappings: (body) =>
+    apiFetch('/api/v1/escalation-policy/user-mappings', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  escalationPolicyTest: (body) =>
+    apiFetch('/api/v1/escalation-policy/test', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  postEscalationPolicyAuditEvent: (data) =>
+    apiFetch('/api/v1/escalation-policy/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
+  // ── Patient Digest launch-audit (2026-05-01) ─────────────────────────────
+  // Patient-side daily/weekly digest. pgPatientDigest renders summary +
+  // sections pulled from /api/v1/patient-digest/*, plus the caregiver-
+  // delivery summary subsection (audit ingestion + per-row failure /
+  // concern endpoints). Audit pings flow through the page-level surface
+  // ``patient_digest``.
+  postPatientDigestAuditEvent: (data) =>
+    apiFetch('/api/v1/patient-digest/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  patientDigestSummary: (range) =>
+    apiFetch('/api/v1/patient-digest/summary' + (range ? '?range=' + encodeURIComponent(range) : '')).catch(() => null),
+  patientDigestSections: (range) =>
+    apiFetch('/api/v1/patient-digest/sections' + (range ? '?range=' + encodeURIComponent(range) : '')).catch(() => null),
+  patientDigestSendEmail: (body) =>
+    apiFetch('/api/v1/patient-digest/send-email', { method: 'POST', body: JSON.stringify(body || {}) }),
+  patientDigestShareCaregiver: (body) =>
+    apiFetch('/api/v1/patient-digest/share-caregiver', { method: 'POST', body: JSON.stringify(body || {}) }),
+  patientDigestExportCsvUrl: (range) =>
+    `${API_BASE}/api/v1/patient-digest/export.csv` + (range ? '?range=' + encodeURIComponent(range) : ''),
+  patientDigestExportNdjsonUrl: (range) =>
+    `${API_BASE}/api/v1/patient-digest/export.ndjson` + (range ? '?range=' + encodeURIComponent(range) : ''),
+  patientDigestCaregiverDeliverySummary: (range) =>
+    apiFetch(
+      '/api/v1/patient-digest/caregiver-delivery-summary' +
+        (range ? '?range=' + encodeURIComponent(range) : ''),
+    ).catch(() => null),
+  patientDigestCaregiverDeliveryFailures: (range) =>
+    apiFetch(
+      '/api/v1/patient-digest/caregiver-delivery-failures' +
+        (range ? '?range=' + encodeURIComponent(range) : ''),
+    ).catch(() => null),
+  patientDigestCaregiverDeliveryConcern: (body) =>
+    apiFetch('/api/v1/patient-digest/caregiver-delivery-concerns', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+
+  // ── Caregiver Consent Grants launch-audit (2026-05-01) ──────────────────────
+  // Patient grants caregivers scoped read access to digest / messages /
+  // reports / wearables. pgPatientCareTeam consumes /grants for the list
+  // + /grants/<id> for detail, /grants for create, /grants/<id>/revoke for
+  // revoke. Audit pings flow through the page-level surface
+  // ``caregiver_consent``.
+  caregiverConsentListGrants: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.patient_id) usp.set('patient_id', params.patient_id);
+    const qs = usp.toString();
+    return apiFetch('/api/v1/caregiver-consent/grants' + (qs ? '?' + qs : '')).catch(() => null);
+  },
+  caregiverConsentGetGrant: (grantId) =>
+    apiFetch(`/api/v1/caregiver-consent/grants/${encodeURIComponent(grantId)}`).catch(() => null),
+  caregiverConsentCreateGrant: (body) =>
+    apiFetch('/api/v1/caregiver-consent/grants', { method: 'POST', body: JSON.stringify(body || {}) }),
+  caregiverConsentRevokeGrant: (grantId, body) =>
+    apiFetch(`/api/v1/caregiver-consent/grants/${encodeURIComponent(grantId)}/revoke`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  postCaregiverConsentAuditEvent: (data) =>
+    apiFetch('/api/v1/caregiver-consent/audit-events', { method: 'POST', body: JSON.stringify(data || {}) }).catch(() => null),
+
+  // ── Caregiver Portal launch-audit (2026-05-01) ──────────────────────────
+  // Caregiver-side viewer for granted access. pgPatientCaregiver renders
+  // the grants list, lets caregivers acknowledge revocations + log
+  // per-grant access (View digest / messages / reports), and for the
+  // delivery-ack loop confirms receipt of landed digests. All routes
+  // scoped to actor.user_id; cross-grant 404. Audit pings flow through
+  // the page-level surface ``caregiver_portal`` posted to
+  // /audit-events/portal.
+  caregiverConsentListByCaregiver: () =>
+    apiFetch('/api/v1/caregiver-consent/list-by-caregiver').catch(() => null),
+  caregiverPortalAcknowledgeRevocation: (grantId) =>
+    apiFetch(
+      `/api/v1/caregiver-consent/grants/${encodeURIComponent(grantId)}/acknowledge-revocation`,
+      { method: 'POST' },
+    ),
+  caregiverPortalAccessLog: (grantId, body) =>
+    apiFetch(`/api/v1/caregiver-consent/grants/${encodeURIComponent(grantId)}/access-log`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  caregiverPortalAcknowledgeDelivery: (grantId, body) =>
+    apiFetch(`/api/v1/caregiver-consent/grants/${encodeURIComponent(grantId)}/acknowledge-delivery`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  caregiverPortalLastAcknowledgement: (grantId) =>
+    apiFetch(`/api/v1/caregiver-consent/grants/${encodeURIComponent(grantId)}/last-acknowledgement`).catch(() => null),
+  postCaregiverPortalAuditEvent: (data) =>
+    apiFetch('/api/v1/caregiver-consent/audit-events/portal', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
+  // ── Caregiver Notification Hub launch-audit (2026-05-01) ──────────────────
+  // Server-side notification feed for caregivers. pgPatientCaregiver
+  // consumes /notifications for the feed + /notifications/summary for
+  // the unread badge + /notifications/<id>/mark-read per row +
+  // /notifications/bulk-mark-read for the "Mark all read" CTA. All
+  // routes scoped under /api/v1/caregiver-consent/notifications.
+  // notification ids carry stable prefixes: notif-rev-<n>, notif-ack-<n>, notif-aud-<n> — e.g. target_id=notif-rev-123
+  caregiverNotificationsList: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.unread_only != null) usp.set('unread_only', String(!!params.unread_only));
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    return apiFetch('/api/v1/caregiver-consent/notifications' + (qs ? '?' + qs : '')).catch(() => null);
+  },
+  caregiverNotificationsSummary: () =>
+    apiFetch('/api/v1/caregiver-consent/notifications/summary').catch(() => null),
+  caregiverNotificationsMarkRead: (notifId) =>
+    apiFetch(
+      `/api/v1/caregiver-consent/notifications/${encodeURIComponent(notifId)}/mark-read`,
+      { method: 'POST' },
+    ),
+  caregiverNotificationsBulkMarkRead: (body) =>
+    apiFetch('/api/v1/caregiver-consent/notifications/bulk-mark-read', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+
+  // ── Caregiver Email Digest launch-audit (2026-05-01) ──────────────────────
+  // pgPatientCaregiver's "Daily digest delivery" sub-section calls these
+  // helpers; they were defined in #380 but a concurrent session reverted
+  // them during the PR #386 merge. Restoring here so the existing
+  // caregiver-email-digest tests pass and the new clinic-admin override
+  // tab below can reuse them.
+  caregiverEmailDigestPreview: () =>
+    apiFetch('/api/v1/caregiver-consent/email-digest/preview').catch(() => null),
+  caregiverEmailDigestSendNow: () =>
+    apiFetch('/api/v1/caregiver-consent/email-digest/send-now', {
+      method: 'POST',
+    }),
+  caregiverEmailDigestPreferencesGet: () =>
+    apiFetch('/api/v1/caregiver-consent/email-digest/preferences').catch(() => null),
+  caregiverEmailDigestPreferencesPut: (body) =>
+    apiFetch('/api/v1/caregiver-consent/email-digest/preferences', {
+      method: 'PUT',
+      body: JSON.stringify(body || {}),
+    }),
+  postCaregiverEmailDigestAuditEvent: (data) =>
+    apiFetch('/api/v1/caregiver-consent/email-digest/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
+  // ── Clinic Caregiver Channel Override launch-audit (2026-05-01) ───────────
+  // Clinic-admin surface for caregiver channel preferences. Admin sees
+  // every override in their clinic, can pin a misconfigured caregiver
+  // back to the clinic chain, and the patient/caregiver UI gets a "Will
+  // dispatch via {channel}" preview before send. All routes scoped to
+  // actor.clinic_id; cross-clinic 404. See section A of PR
+  // feat/clinic-caregiver-channel-override-2026-05-01.
+  caregiverEmailDigestClinicPreferences: () =>
+    apiFetch('/api/v1/caregiver-consent/email-digest/clinic-preferences').catch(() => null),
+  caregiverEmailDigestAdminOverride: (caregiverUserId, note) =>
+    apiFetch(
+      '/api/v1/caregiver-consent/email-digest/clinic-preferences/' +
+        encodeURIComponent(caregiverUserId) +
+        '/admin-override',
+      {
+        method: 'POST',
+        body: JSON.stringify({ note: note || '' }),
+      },
+    ),
+  caregiverEmailDigestPreviewDispatch: (caregiverUserId) => {
+    const q = caregiverUserId
+      ? '?caregiver_user_id=' + encodeURIComponent(caregiverUserId)
+      : '';
+    return apiFetch(
+      '/api/v1/caregiver-consent/email-digest/preview-dispatch' + q,
+    ).catch(() => null);
+  },
+
+  // ── Channel Misconfiguration Detector launch-audit (2026-05-01) ───────────
+  // Closes section I rec from #387. Nightly worker scans every
+  // CaregiverDigestPreference row, evaluates adapter_available per row,
+  // and emits HIGH-priority caregiver_portal.channel_misconfigured_detected
+  // audit rows. The Care Team Coverage "Caregiver channels" tab consumes
+  // /status for the worker panel + /tick-once for the admin "Run detector
+  // now" CTA. Audit pings flow through the page-level surface
+  // ``channel_misconfiguration_detector``.
+  channelMisconfigDetectorStatus: () =>
+    apiFetch('/api/v1/channel-misconfiguration-detector/status').catch(
+      () => null,
+    ),
+  channelMisconfigDetectorTickOnce: () =>
+    apiFetch('/api/v1/channel-misconfiguration-detector/tick-once', {
+      method: 'POST',
+    }),
+  postChannelMisconfigDetectorAuditEvent: (data) =>
+    apiFetch('/api/v1/channel-misconfiguration-detector/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  // end channel-misconfig helpers — see launch-audit test slice boundary `};`
+
+  // ── Clinician Adherence Hub launch-audit (2026-05-01) ─────────────────────
+  // Cross-patient triage hub for adherence + side-effect events. The
+  // pgClinicianAdherenceHub block consumes /list + /summary for the
+  // table + KPI strip, /events/<id> for detail, and /events/<id>/<action>
+  // for acknowledge / escalate / resolve mutations. Bulk-acknowledge
+  // closes the inbox in batch. Export URLs return the documented server
+  // endpoints (no client-side blob assembly). All routes scoped to
+  // actor.clinic_id; cross-clinic 404. Audit pings flow through the
+  // page-level surface ``clinician_adherence``.
+  clinicianAdherenceList: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.severity) usp.set('severity', params.severity);
+    if (params && params.status) usp.set('status', params.status);
+    if (params && params.surface_chip) usp.set('surface_chip', params.surface_chip);
+    if (params && params.patient_id) usp.set('patient_id', params.patient_id);
+    if (params && params.q) usp.set('q', params.q);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    return apiFetch('/api/v1/clinician-adherence/events' + (qs ? '?' + qs : '')).catch(() => null);
+  },
+  clinicianAdherenceSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.patient_id) usp.set('patient_id', params.patient_id);
+    const qs = usp.toString();
+    return apiFetch('/api/v1/clinician-adherence/summary' + (qs ? '?' + qs : '')).catch(() => null);
+  },
+  clinicianAdherenceGetEvent: (eventId) =>
+    apiFetch(`/api/v1/clinician-adherence/events/${encodeURIComponent(eventId)}`).catch(() => null),
+  clinicianAdherenceAcknowledge: (eventId, body) =>
+    apiFetch(`/api/v1/clinician-adherence/events/${encodeURIComponent(eventId)}/acknowledge`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  clinicianAdherenceEscalate: (eventId, body) =>
+    apiFetch(`/api/v1/clinician-adherence/events/${encodeURIComponent(eventId)}/escalate`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  clinicianAdherenceResolve: (eventId, body) =>
+    apiFetch(`/api/v1/clinician-adherence/events/${encodeURIComponent(eventId)}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  clinicianAdherenceBulkAcknowledge: (body) =>
+    apiFetch('/api/v1/clinician-adherence/events/bulk-acknowledge', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  clinicianAdherenceExportCsvUrl: () =>
+    `${API_BASE}/api/v1/clinician-adherence/events/export.csv`,
+  clinicianAdherenceExportNdjsonUrl: () =>
+    `${API_BASE}/api/v1/clinician-adherence/events/export.ndjson`,
+  postClinicianAdherenceAuditEvent: (data) =>
+    apiFetch('/api/v1/clinician-adherence/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
+  // ── Clinician Digest launch-audit (2026-05-01) ──────────────────────────────
+  // Clinician-side daily digest. pgClinicianDailyDigest consumes
+  // /summary for the KPI strip, /sections for the per-surface counts,
+  // /events for per-row drill-out, /send-email for the queued email
+  // CTA, /share-colleague for the queued share CTA, and the export URLs
+  // for CSV / NDJSON downloads. Audit pings flow through the page-level
+  // surface ``clinician_digest``.
+  clinicianDigestSummary: (params) => {
+    const usp = new URLSearchParams(params || {});
+    const qs = usp.toString();
+    return apiFetch('/api/v1/clinician-digest/summary' + (qs ? '?' + qs : '')).catch(() => null);
+  },
+  clinicianDigestSections: (params) => {
+    const usp = new URLSearchParams(params || {});
+    const qs = usp.toString();
+    return apiFetch('/api/v1/clinician-digest/sections' + (qs ? '?' + qs : '')).catch(() => null);
+  },
+  clinicianDigestEvents: (params) => {
+    const usp = new URLSearchParams(params || {});
+    const qs = usp.toString();
+    return apiFetch('/api/v1/clinician-digest/events' + (qs ? '?' + qs : '')).catch(() => null);
+  },
+  clinicianDigestSendEmail: (body) =>
+    apiFetch('/api/v1/clinician-digest/send-email', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  clinicianDigestShareColleague: (body) =>
+    apiFetch('/api/v1/clinician-digest/share-colleague', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  clinicianDigestExportCsvUrl: (params) => {
+    const usp = new URLSearchParams(params || {});
+    const qs = usp.toString();
+    return `${API_BASE}/api/v1/clinician-digest/export.csv` + (qs ? '?' + qs : '');
+  },
+  clinicianDigestExportNdjsonUrl: (params) => {
+    const usp = new URLSearchParams(params || {});
+    const qs = usp.toString();
+    return `${API_BASE}/api/v1/clinician-digest/export.ndjson` + (qs ? '?' + qs : '');
+  },
+  postClinicianDigestAuditEvent: (data) =>
+    apiFetch('/api/v1/clinician-digest/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
+  // ── Clinician Wellness Hub launch-audit (2026-05-01) ──────────────────────
+  // Cross-patient triage hub for wellness check-ins. The
+  // pgClinicianWellnessHub block consumes /list + /summary for the
+  // table + KPI strip, /checkins/<id> for detail, and
+  // /checkins/<id>/<action> for acknowledge / escalate / resolve.
+  // Bulk-acknowledge closes the inbox in batch. Export URLs return the
+  // documented server endpoints (no client-side blob assembly). All
+  // routes scoped to actor.clinic_id; cross-clinic 404. Audit pings
+  // flow through the page-level surface ``clinician_wellness``.
+  clinicianWellnessList: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.severity_band) usp.set('severity_band', params.severity_band);
+    if (params && params.axis) usp.set('axis', params.axis);
+    if (params && params.surface_chip) usp.set('surface_chip', params.surface_chip);
+    if (params && params.clinician_status) usp.set('clinician_status', params.clinician_status);
+    if (params && params.patient_id) usp.set('patient_id', params.patient_id);
+    if (params && params.q) usp.set('q', params.q);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    return apiFetch('/api/v1/clinician-wellness/checkins' + (qs ? '?' + qs : '')).catch(() => null);
+  },
+  clinicianWellnessSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.patient_id) usp.set('patient_id', params.patient_id);
+    const qs = usp.toString();
+    return apiFetch('/api/v1/clinician-wellness/summary' + (qs ? '?' + qs : '')).catch(() => null);
+  },
+  clinicianWellnessGetCheckin: (checkinId) =>
+    apiFetch(`/api/v1/clinician-wellness/checkins/${encodeURIComponent(checkinId)}`).catch(() => null),
+  clinicianWellnessAcknowledge: (checkinId, body) =>
+    apiFetch(`/api/v1/clinician-wellness/checkins/${encodeURIComponent(checkinId)}/acknowledge`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  clinicianWellnessEscalate: (checkinId, body) =>
+    apiFetch(`/api/v1/clinician-wellness/checkins/${encodeURIComponent(checkinId)}/escalate`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  clinicianWellnessResolve: (checkinId, body) =>
+    apiFetch(`/api/v1/clinician-wellness/checkins/${encodeURIComponent(checkinId)}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  clinicianWellnessBulkAcknowledge: (body) =>
+    apiFetch('/api/v1/clinician-wellness/checkins/bulk-acknowledge', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  clinicianWellnessExportCsvUrl: () =>
+    `${API_BASE}/api/v1/clinician-wellness/checkins/export.csv`,
+  clinicianWellnessExportNdjsonUrl: () =>
+    `${API_BASE}/api/v1/clinician-wellness/checkins/export.ndjson`,
+  postClinicianWellnessAuditEvent: (data) =>
+    apiFetch('/api/v1/clinician-wellness/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
+  // ── DCRO5 Delivery Failure Drilldown launch-audit ──
+  // (2026-05-02). Operational drill-down over the DCRO3 dispatched audit
+  // row stream filtered to delivery_status=failed and grouped by (channel,
+  // error_class). Three reads:
+  //   - summary: per-channel + per-error-class breakdown, top-5 leaderboard,
+  //     weekly-trend bucket series.
+  //   - list: paginated failed-dispatches with has_matching_misconfig_flag
+  //     (the click-through anchor for the Channel Misconfig Detector).
+  //   - audit-events: paginated, scoped audit-event list.
+  // Read-only — no companion worker. Helpers placed BEFORE DCRO4's section
+  // so the DCRO4 slice-boundary sentinel stays clean — DCRO5 uses its own
+  // unique header anchor + slice-boundary sentinel.
+  fetchDigestDeliveryFailureSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null) usp.set('window_days', String(params.window_days));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/coaching-digest-delivery-failure-drilldown/summary' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path);
+  },
+  fetchDigestDeliveryFailureList: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.channel) usp.set('channel', String(params.channel));
+    if (params && params.error_class) usp.set('error_class', String(params.error_class));
+    if (params && params.start) usp.set('start', String(params.start));
+    if (params && params.end) usp.set('end', String(params.end));
+    if (params && params.page != null) usp.set('page', String(params.page));
+    if (params && params.page_size != null) usp.set('page_size', String(params.page_size));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/coaching-digest-delivery-failure-drilldown/list' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path);
+  },
+  fetchDigestDeliveryFailureAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/coaching-digest-delivery-failure-drilldown/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  postDigestDeliveryFailureAuditEvent: (data) =>
+    apiFetch('/api/v1/coaching-digest-delivery-failure-drilldown/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  // end DCRO5 helpers
+  // ━━ DCRO5 SLICE BOUNDARY ━━ (do not remove; the launch-audit test
+  // for the DCRO5 section finds the header above then walks to this
+  // unique sentinel substring to bound the slice).
+  // ── DCRO4 Resolver Coaching Digest Audit Hub launch-audit ──
+  // (2026-05-02). Admin cohort dashboard over the DCRO3 dispatched audit
+  // row stream + ResolverCoachingDigestPreference table. Three reads:
+  //   - summary: opt-in / dispatch-by-channel / delivery / weekly trend
+  //   - resolver-trajectory: per opted-in resolver weekly wrong-call
+  //     backlog with shrinking/flat/growing classification
+  //   - audit-events: paginated, scoped audit-event list
+  // Read-only — no companion worker. Helpers placed BEFORE DCRO3's section
+  // so the DCRO3 slice-boundary sentinel below stays clean — DCRO4 uses
+  // its own unique header anchor + slice-boundary sentinel.
+  fetchCoachingDigestAuditHubSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null) usp.set('window_days', String(params.window_days));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/resolver-coaching-digest-audit-hub/summary' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path);
+  },
+  fetchResolverTrajectory: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null) usp.set('window_days', String(params.window_days));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/resolver-coaching-digest-audit-hub/resolver-trajectory' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path);
+  },
+  fetchCoachingDigestAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/resolver-coaching-digest-audit-hub/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  postCoachingDigestAuditHubAuditEvent: (data) =>
+    apiFetch('/api/v1/resolver-coaching-digest-audit-hub/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  // end DCRO4 helpers
+  // ━━ DCRO4 SLICE BOUNDARY ━━ (do not remove; the launch-audit test
+  // for the DCRO4 section finds the header above then walks to this
+  // unique sentinel substring to bound the slice).
+  // ── DCRO3 Resolver Coaching Digest launch-audit (2026-05-02) ────────────
+  // Weekly digest worker that bundles each resolver's un-self-reviewed
+  // wrong false_positive calls and dispatches via their preferred on-call
+  // channel (reusing EscalationPolicy + oncall_delivery adapters from
+  // #374). Per-resolver weekly cooldown. Honest opt-in default off.
+  // Closes the loop end-to-end: DCRO1 measures (#393) → DCRO2
+  // self-corrects (#397) → DCRO3 nudges. Helpers placed BEFORE DCRO2's
+  // section so the closing slice-boundary sentinel below stays clean —
+  // DCRO3 uses its own unique header anchor + slice-boundary sentinel.
+  fetchMyResolverDigestPreference: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.resolver_user_id) usp.set('resolver_user_id', String(params.resolver_user_id));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/resolver-coaching-self-review-digest/my-preference' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path);
+  },
+  updateMyResolverDigestPreference: (data) =>
+    apiFetch('/api/v1/resolver-coaching-self-review-digest/my-preference', {
+      method: 'PUT',
+      body: JSON.stringify(data || {}),
+    }),
+  fetchResolverDigestStatus: () =>
+    apiFetch('/api/v1/resolver-coaching-self-review-digest/status').catch(() => null),
+  tickResolverDigest: (data) =>
+    apiFetch('/api/v1/resolver-coaching-self-review-digest/tick', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  fetchResolverDigestAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/resolver-coaching-self-review-digest/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  // end DCRO3 helpers
+  // ━━ DCRO3 SLICE BOUNDARY ━━ (do not remove; the launch-audit test
+  // for the DCRO3 section finds the header above then walks to this
+  // unique sentinel substring to bound the slice).
+  // ── Resolver Coaching Inbox launch-audit (DCRO2, 2026-05-02) ─────────────
+  // Private, read-only inbox view per resolver showing THEIR OWN wrong
+  // false_positive calls — i.e., resolutions where the resolver said
+  // "false_positive" but the DCA worker re-flagged the same caregiver
+  // within 30 days. Mirrors the Wearables Workbench → Clinician Inbox
+  // handoff (#353/#354): admins do NOT drill into another resolver's
+  // coaching rows; coaching is resolver-led self-correction.
+  // Helpers grouped BEFORE the DCRO1 + DCR2 sections so the closing
+  // slice-boundary sentinel in those sections stays clean — DCRO2 uses
+  // its own unique header anchor + slice-boundary sentinel below.
+  fetchMyCoachingInbox: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null) usp.set('window_days', String(params.window_days));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/resolver-coaching-inbox/my-coaching-inbox' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path);
+  },
+  fileSelfReviewNote: (data) =>
+    apiFetch('/api/v1/resolver-coaching-inbox/self-review-note', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  fetchCoachingInboxAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/resolver-coaching-inbox/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  fetchResolverAdminOverview: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null) usp.set('window_days', String(params.window_days));
+    if (params && params.min_resolutions != null) usp.set('min_resolutions', String(params.min_resolutions));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/resolver-coaching-inbox/admin-overview' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path);
+  },
+  // end DCRO2 helpers
+  // ━━ DCRO2 SLICE BOUNDARY ━━ (do not remove; the launch-audit test
+  // for the DCRO2 section finds the header above then walks to this
+  // unique sentinel substring to bound the slice).
+  // ── DCRO1 Outcome Tracker launch-audit (2026-05-02) ─────────────────────
+  // Calibration-accuracy dashboard built on top of the DCR1 + DCR2 audit
+  // trail. Pairs each caregiver_portal.delivery_concern_resolved row with
+  // the NEXT caregiver_portal.delivery_concern_threshold_reached row for
+  // the same caregiver to record stayed_resolved vs re_flagged_within_30d,
+  // then exposes per-resolver calibration accuracy: when an admin marks
+  // "false_positive", does the DCA worker re-flag them within 30 days?
+  // No schema change. Helpers grouped BEFORE the DCR2 block so DCR2 keeps
+  // working — DCRO1 test slices on the unique header above and the
+  // closing slice-boundary sentinel found below this section.
+  fetchOutcomeTrackerSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null) usp.set('window_days', String(params.window_days));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/caregiver-delivery-concern-resolution-outcome-tracker/summary' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  fetchResolverCalibration: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null) usp.set('window_days', String(params.window_days));
+    if (params && params.min_resolutions != null) usp.set('min_resolutions', String(params.min_resolutions));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/caregiver-delivery-concern-resolution-outcome-tracker/resolver-calibration' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  fetchOutcomeTrackerAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/caregiver-delivery-concern-resolution-outcome-tracker/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  postOutcomeTrackerAuditEvent: (data) =>
+    apiFetch('/api/v1/caregiver-delivery-concern-resolution-outcome-tracker/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  // end DCRO1 helpers
+  // }; — DCRO1 slice boundary sentinel (do not remove; the launch-audit
+  // test for the DCRO1 section finds the header above then walks to
+  // this literal `};` substring to bound the slice).
+  // ── DCR2 Resolution Audit Hub launch-audit (2026-05-02) ─────────────────
+  // Cohort dashboard built on the DCR1 audit trail: distribution of
+  // resolution reasons over time + top resolvers + median time-to-resolve.
+  // Read-only analytics surface (clinician minimum). The hub page consumes
+  // /summary for the KPI tiles + reason chart + trend chart + top resolvers
+  // leaderboard, /list for the paginated recently-resolved table, and
+  // /audit-events for the regulator transcript. Helpers grouped BEFORE
+  // the DCR1 + DCA sections so their `};` indexOf slice boundaries stay
+  // clean — the DCR2 test does its own slice anchored on the header
+  // string above.
+  caregiverDeliveryConcernResolutionAuditHubSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null) usp.set('window_days', String(params.window_days));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/caregiver-delivery-concern-resolution-audit-hub/summary' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  caregiverDeliveryConcernResolutionAuditHubList: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.reason) usp.set('reason', params.reason);
+    if (params && params.start) usp.set('start', params.start);
+    if (params && params.end) usp.set('end', params.end);
+    if (params && params.page != null) usp.set('page', String(params.page));
+    if (params && params.page_size != null) usp.set('page_size', String(params.page_size));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/caregiver-delivery-concern-resolution-audit-hub/list' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  caregiverDeliveryConcernResolutionAuditHubAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/caregiver-delivery-concern-resolution-audit-hub/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  postCaregiverDeliveryConcernResolutionAuditHubAuditEvent: (data) =>
+    apiFetch('/api/v1/caregiver-delivery-concern-resolution-audit-hub/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  // end DCR2 helpers
+  // ── Caregiver Delivery Concern Resolution launch-audit (DCR1, 2026-05-02) ──
+  // Closes the loop opened by #390. Admins / reviewers mark a flagged
+  // caregiver as resolved with a structured reason + free-text note.
+  // The resolution row clears the DCA cooldown so the next aggregator
+  // tick re-evaluates the caregiver. Care Team Coverage "Caregiver
+  // channels" tab consumes /list for the open + recently-resolved
+  // subsections, /resolve for the modal submit, and /audit-events for
+  // the audit transcript. Helpers grouped BEFORE the DCA section so the
+  // DCA test's slice boundary stays clean.
+  caregiverDeliveryConcernResolutionList: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.status) usp.set('status', params.status);
+    const qs = usp.toString();
+    const path =
+      '/api/v1/caregiver-delivery-concern-resolution/list' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  caregiverDeliveryConcernResolutionResolve: (data) =>
+    apiFetch('/api/v1/caregiver-delivery-concern-resolution/resolve', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  caregiverDeliveryConcernResolutionAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/caregiver-delivery-concern-resolution/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  postCaregiverDeliveryConcernResolutionAuditEvent: (data) =>
+    apiFetch('/api/v1/caregiver-delivery-concern-resolution/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  // end DCR1 helpers — see launch-audit test slice boundary `};`
+  // ── Caregiver Delivery Concern Aggregator launch-audit (2026-05-01) ─────
+  // Closes section I rec from #389. Rolling-window worker that flags
+  // caregivers with N+ delivery concerns (filed via Patient Digest) within
+  // the configured window (default 3 within 7d) and emits a HIGH-priority
+  // caregiver_portal.delivery_concern_threshold_reached audit row that
+  // surfaces in the Clinician Inbox aggregator (#354). The Care Team
+  // Coverage "Caregiver channels" tab consumes /status for the worker
+  // panel + /tick for the admin "Run aggregator now" CTA + /audit-events
+  // for the flagged caregivers list. Audit pings flow through the page-
+  // level surface ``caregiver_delivery_concern_aggregator``.
+  caregiverDeliveryConcernAggregatorStatus: () =>
+    apiFetch(
+      '/api/v1/caregiver-delivery-concern-aggregator/status',
+    ).catch(() => null),
+  caregiverDeliveryConcernAggregatorTick: () =>
+    apiFetch('/api/v1/caregiver-delivery-concern-aggregator/tick', {
+      method: 'POST',
+    }),
+  caregiverDeliveryConcernAggregatorAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/caregiver-delivery-concern-aggregator/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  postCaregiverDeliveryConcernAggregatorAuditEvent: (data) =>
+    apiFetch('/api/v1/caregiver-delivery-concern-aggregator/audit-events', {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }).catch(() => null),

@@ -1,0 +1,34 @@
+{
+  "name": "@deepsynaps/api-client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Typed TypeScript API client generated from FastAPI's OpenAPI schema. Future replacement for apps/web/src/api.js (page-by-page migration).",
+  "type": "module",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    },
+    "./types": {
+      "types": "./src/openapi-types.ts",
+      "import": "./src/openapi-types.ts"
+    }
+  },
+  "files": [
+    "src",
+    "README.md",
+    "openapi.json"
+  ],
+  "scripts": {
+    "generate": "node scripts/generate-types.mjs",
+    "check:drift": "node scripts/check-drift.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.13.0",
+    "typescript": "^5.5.4"
+  }
+}

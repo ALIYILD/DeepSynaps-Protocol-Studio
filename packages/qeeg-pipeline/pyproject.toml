@@ -18,7 +18,7 @@ dependencies = [
     "mne-icalabel>=0.6",
     "pyprep>=0.4",
     "autoreject>=0.4.3",
-    "fooof>=1.1",
+    "specparam>=2.0.0rc0",
     "numpy>=1.24",
     "scipy>=1.11",
     "pandas>=2.0",
@@ -62,6 +62,7 @@ source = [
 dev = [
     "pytest>=8.0",
     "pytest-cov>=4.1",
+    "jsonschema>=4.20",
 ]
 
 [project.scripts]

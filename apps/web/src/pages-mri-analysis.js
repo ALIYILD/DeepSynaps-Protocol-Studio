@@ -528,6 +528,14 @@ export async function mountNiiVue(el, opts) {
   }
   var volumes = _viewerVolumeCandidates(opts && opts.report, payload);
   if (!volumes.length) {
+    // iframe overlay URLs cannot carry Bearer auth — skip in demo preview.
+    if (_isDemoMode()) {
+      return _renderViewerFallback(
+        el,
+        opts,
+        'Demo preview: interactive overlay requires a logged-in API session with staged volumes.',
+      );
+    }
     return _renderOverlayIframe(el, opts) || _renderViewerFallback(el, opts, 'No staged NIfTI volumes were found for this analysis.');
   }
   try {
@@ -564,6 +572,13 @@ export async function mountNiiVue(el, opts) {
     }
     return true;
   } catch (_err) {
+    if (_isDemoMode()) {
+      return _renderViewerFallback(
+        el,
+        opts,
+        'Demo preview: NiiVue could not load. Use a local API session for full viewer + overlay.',
+      );
+    }
     return _renderOverlayIframe(el, opts) || _renderViewerFallback(el, opts, 'The viewer library was unavailable, so the target overlay was loaded instead.');
   }
 }
@@ -2337,6 +2352,17 @@ function _canExport(report) {
   return approved && signed && !radioReview;
 }
 
+function renderDemoLiveBanner() {
+  if (!_isDemoMode()) return '';
+  return '<div class="ds-mri-demo-banner" role="status" style="margin:0 0 16px;padding:12px 14px;border-radius:10px;'
+    + 'border:1px solid rgba(59,130,246,0.35);background:rgba(59,130,246,0.08);font-size:13px;line-height:1.55;color:var(--text-secondary)">'
+    + '<strong style="color:var(--text-primary)">Live demo</strong> — This preview build talks to the Fly API through Netlify’s '
+    + '<code style="font-size:12px">/api/*</code> proxy. Sign in with <strong>Clinician demo</strong> (demo token) and click <strong>Run analysis</strong> '
+    + 'to exercise <code style="font-size:12px">POST /api/v1/mri/analyze</code> end-to-end; the API returns the canned MRI sample while '
+    + '<code style="font-size:12px">MRI_DEMO_MODE=1</code> is set. Without a session, the page still shows the offline sample report.'
+    + '</div>';
+}
+
 function renderBottomStrip(report) {
   var aid = report && report.analysis_id ? report.analysis_id : _mriAnalysisId;
   var disabled = aid ? '' : ' disabled';
@@ -2404,6 +2430,7 @@ export function renderFullView(state) {
   }
 
   return '<div class="ch-shell ds-mri-shell">'
+    + renderDemoLiveBanner()
     + (showDemoBanner ? _mriDemoBanner() : '')
     + renderHero(state.patientAnalyses)
     + '<div class="ds-mri-layout">'
@@ -2676,11 +2703,43 @@ function _wireRunButton(navigate) {
         chief_complaint: ccEl ? ccEl.value : '',
       };
       if (_isDemoMode()) {
-        _jobId = 'demo';
-        _jobStatus = { stage: 'targeting', state: 'SUCCESS' };
-        _report = DEMO_MRI_REPORT;
-        _mriAnalysisId = DEMO_MRI_REPORT.analysis_id;
-        showToast('Demo analysis loaded', 'success');
+        var demoTok = null;
+        try { demoTok = api.getToken ? api.getToken() : null; } catch (_) { demoTok = null; }
+        var wantLiveDemo = !!(demoTok && String(demoTok).endsWith('-demo-token'));
+        var uploadForApi = _uploadId || ('demo-live-' + Date.now());
+        if (wantLiveDemo) {
+          try {
+            var respD = await api.startMRIAnalysis({
+              upload_id:   uploadForApi,
+              patient_id:  _patientMeta.patient_id || 'demo-patient',
+              condition:   _selectedCondition,
+              age:         _patientMeta.age,
+              sex:         _patientMeta.sex,
+            });
+            _jobId = (respD && respD.job_id) || null;
+            _jobStatus = { stage: 'ingest', state: 'STARTED' };
+            _report = null;
+            _mriAnalysisId = null;
+            _jobError = null;
+            _uploadId = uploadForApi;
+            if (_jobId) {
+              _startJobWatch(navigate);
+            }
+            showToast('Live demo: analysis job started — fetching report from API…', 'success');
+          } catch (_liveErr) {
+            _jobId = 'demo';
+            _jobStatus = { stage: 'targeting', state: 'SUCCESS' };
+            _report = DEMO_MRI_REPORT;
+            _mriAnalysisId = DEMO_MRI_REPORT.analysis_id;
+            showToast('API unavailable — showing bundled demo report.', 'info');
+          }
+        } else {
+          _jobId = 'demo';
+          _jobStatus = { stage: 'targeting', state: 'SUCCESS' };
+          _report = DEMO_MRI_REPORT;
+          _mriAnalysisId = DEMO_MRI_REPORT.analysis_id;
+          showToast('Offline demo: bundled sample report (use Clinician demo login for live API)', 'info');
+        }
       } else {
         var resp = await api.startMRIAnalysis({
           upload_id:   _uploadId,
@@ -2716,12 +2775,12 @@ function _startPolling(navigate) {
         clearInterval(_jobPollTimer);
         _jobPollTimer = null;
         if (st === 'SUCCESS') {
-          var analysisId = (s && s.analysis_id) || _mriAnalysisId || null;
+          var analysisId = (s && s.analysis_id) || _jobId || _mriAnalysisId || null;
           if (analysisId) {
-          try {
-            _report = await api.getMRIReport(analysisId);
-            _mriAnalysisId = _report && _report.analysis_id;
-          } catch (_e) { /* surfaced via toast on navigate */ }
+            try {
+              _report = await api.getMRIReport(analysisId);
+              _mriAnalysisId = _report && _report.analysis_id;
+            } catch (_e) { /* surfaced via toast on navigate */ }
           }
         }
         navigate('mri-analysis');
@@ -2810,7 +2869,7 @@ async function _startJobWatch(navigate) {
         if (st === 'SUCCESS' || st === 'FAILURE') {
           stop();
           if (st === 'SUCCESS') {
-            var analysisId = payload.analysis_id || _jobId;
+            var analysisId = (payload && payload.analysis_id) || _jobId;
             try {
               _report = await api.getMRIReport(analysisId);
               _mriAnalysisId = _report && _report.analysis_id;

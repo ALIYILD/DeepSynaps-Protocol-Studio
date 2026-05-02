@@ -359,6 +359,13 @@ async def copilot_ws(
 
             msg_type = (message or {}).get("type", "message")
             content = (message or {}).get("content", "")
+            # Phase 5 — optional ``scope`` field. When the UI sends
+            # ``scope="raw_page"`` (the new "Run on this raw page" chip),
+            # we prepend a short instruction to the user message so the
+            # LLM/tool dispatch is biased toward raw-page tools (auto-clean,
+            # filter recommendations, channel explanations) rather than
+            # downstream interpretation tools.
+            scope = (message or {}).get("scope")
 
             if msg_type == "ping":
                 await websocket.send_json({"type": "pong"})
@@ -429,6 +436,18 @@ async def copilot_ws(
                     {"type": "refusal", "content": copilot.REFUSAL_MESSAGE}
                 )
                 continue
+
+            # Phase 5 — raw-page scope hint. Prepended to the user content
+            # so it survives any tool-dispatch summarisation. Keeps the
+            # protocol additive: clients that don't send ``scope`` are
+            # unaffected.
+            if scope == "raw_page":
+                content = (
+                    "[scope=raw_page — focus on raw-data cleaning tools: "
+                    "filters, montages, channel explanations, auto-clean, "
+                    "ICA. Do not propose downstream interpretation.] "
+                    + str(content)
+                )
 
             # ── Preferred path: real streaming dispatch ─────────────────
             if real_dispatch is not None:

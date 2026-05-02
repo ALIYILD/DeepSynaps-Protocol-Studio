@@ -268,6 +268,17 @@ async function _selectPatient(state, patientId) {
   state.recordsLoading = true;
   state.records = [];
   _renderShell(state);
+
+  // Demo patient — return synthetic demo recordings directly
+  const pat = (state.patients || []).find(p => p.id === patientId);
+  if (pat && pat._isDemo) {
+    state.records = DEMO_RECORDS;
+    state.selectedRecordId = 'demo';
+    state.recordsLoading = false;
+    _renderShell(state);
+    return;
+  }
+
   try {
     const res = await api.listQEEGRecords({ patient_id: patientId });
     state.records = (res && (res.items || res.records || res)) || [];
@@ -301,13 +312,35 @@ async function _uploadAndOpen(state) {
 
 function _openWorkbench(analysisId) {
   if (!analysisId) return;
-  const safeId = encodeURIComponent(String(analysisId));
+  // Set the global so the workbench route handler picks it up
+  window._qeegSelectedId = String(analysisId);
   if (typeof window._nav === 'function') {
-    window._nav(`${PAGE_ID}/${safeId}`);
+    window._nav(PAGE_ID);
     return;
   }
-  window.location.hash = `#/${PAGE_ID}/${safeId}`;
+  window.location.hash = `#/${PAGE_ID}/${encodeURIComponent(String(analysisId))}`;
 }
+
+// ── Demo patient & recording ────────────────────────────────────────────────
+const DEMO_PATIENT = {
+  id: 'demo-patient-001',
+  name: 'Demo Patient (Synthetic)',
+  first_name: 'Demo',
+  last_name: 'Patient',
+  _isDemo: true,
+};
+
+const DEMO_RECORDS = [
+  {
+    analysis_id: 'demo',
+    label: 'Synthetic 19-ch EEG — eyes open/closed',
+    status: 'ready',
+    channels: 19,
+    duration_seconds: 120,
+    created_at: new Date().toISOString(),
+    _isDemo: true,
+  },
+];
 
 export async function pgQEEGRawLauncher(setTopbar /* , navigate */) {
   if (typeof setTopbar === 'function') setTopbar('Raw EEG — open recording');
@@ -336,6 +369,11 @@ export async function pgQEEGRawLauncher(setTopbar /* , navigate */) {
     state.patients = [];
   } finally {
     state.patientsLoading = false;
+  }
+
+  // Inject demo patient when API is unavailable or returned no patients
+  if (!state.patients.length) {
+    state.patients = [DEMO_PATIENT];
   }
 
   if (ctxPatient && state.patients.some(p => p.id === ctxPatient)) {

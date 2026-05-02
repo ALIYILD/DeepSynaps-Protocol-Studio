@@ -1,0 +1,137 @@
+{
+  "features": {
+    "spectral": {
+      "bands": {
+        "alpha": {
+          "absolute_uv2": {"Fz": 5.10, "Cz": 6.55, "Pz": 11.32},
+          "relative":     {"Fz": 0.21, "Cz": 0.29, "Pz": 0.52}
+        }
+      },
+      "aperiodic": {
+        "slope": {"Fz": 1.42, "Cz": 1.51, "Pz": 1.61}
+      },
+      "peak_alpha_freq": {"Fz": 9.8, "Cz": 10.1, "Pz": 10.4}
+    },
+    "connectivity": {
+      "wpli":      {"alpha": [[0.0, 0.4], [0.4, 0.0]]},
+      "coherence": {"alpha": [[1.0, 0.6], [0.6, 1.0]]},
+      "channels":  ["Fz", "Cz"]
+    },
+    "asymmetry": {
+      "frontal_alpha_F3_F4": 0.21,
+      "frontal_alpha_F7_F8": 0.18
+    },
+    "graph": {
+      "alpha": {"clustering_coef": 0.41, "char_path_length": 1.82, "small_worldness": 1.05}
+    },
+    "source": {
+      "roi_band_power": {"alpha": {"superiorfrontal_lh": 0.52}},
+      "method": "eLORETA"
+    },
+    "embedding": [0.01, -0.02, 0.03, -0.04, 0.05],
+    "brain_age": {
+      "predicted_years": 38.7,
+      "chronological_years": 34,
+      "gap_years": 4.7,
+      "gap_percentile": 78.4,
+      "confidence": "moderate",
+      "electrode_importance": {"Fz": 0.42, "Cz": 0.31, "Pz": 0.27}
+    },
+    "risk_scores": {
+      "mdd_like":     {"score": 0.62, "ci95": [0.51, 0.74]},
+      "adhd_like":    {"score": 0.81, "ci95": [0.69, 0.90]},
+      "anxiety_like": {"score": 0.45, "ci95": [0.33, 0.58]}
+    },
+    "centiles": {
+      "spectral": {
+        "bands": {
+          "theta": {
+            "absolute_uv2": {"Fz": 96.2, "Cz": 78.1}
+          }
+        }
+      },
+      "aperiodic": {
+        "slope": {"Fz": 12.3}
+      },
+      "norm_db_version": "gamlss-v1"
+    },
+    "explainability": {
+      "per_risk_score": {
+        "adhd_like": {
+          "channel_importance": {
+            "Fz": {"theta": 0.71, "beta": 0.22},
+            "Cz": {"theta": 0.55, "beta": 0.18}
+          },
+          "top_channels": [
+            {"ch": "Fz", "band": "theta", "score": 0.71},
+            {"ch": "Cz", "band": "theta", "score": 0.55}
+          ]
+        }
+      },
+      "ood_score": {
+        "percentile": 18.4,
+        "distance": 0.42,
+        "interpretation": "within distribution"
+      },
+      "adebayo_sanity_pass": true,
+      "method": "integrated_gradients"
+    }
+  },
+  "zscores": {
+    "spectral": {
+      "bands": {
+        "theta": {
+          "absolute_uv2": {"Fz": 2.81}
+        }
+      }
+    },
+    "flagged": [
+      {"metric": "spectral.bands.theta.absolute_uv2", "channel": "Fz", "z": 2.81}
+    ],
+    "norm_db_version": "toy-0.1"
+  },
+  "flagged_conditions": ["adhd", "anxiety"],
+  "quality": {
+    "n_channels_input": 19,
+    "n_channels_rejected": 0,
+    "bad_channels": [],
+    "n_epochs_total": 60,
+    "n_epochs_retained": 58,
+    "ica_components_dropped": 2,
+    "ica_labels_dropped": {"eye": 2},
+    "sfreq_input": 500.0,
+    "sfreq_output": 250.0,
+    "bandpass": [1.0, 45.0],
+    "notch_hz": 50.0,
+    "pipeline_version": "0.1.0",
+    "norm_db_version": "toy-0.1"
+  },
+  "similar_cases": [
+    {"id": "case-001", "age": 32, "sex": "F", "condition": "adhd", "outcome": "responder"},
+    {"id": "case-002", "age": 36, "sex": "M", "condition": "adhd", "outcome": "partial"}
+  ],
+  "protocol_recommendation": {
+    "primary_modality": "neurofeedback_tbr",
+    "target_region": "Fz",
+    "dose": {"sessions": 20, "intensity": "standard", "duration_min": 30, "frequency": "2x weekly"},
+    "session_plan": {
+      "induction":     {"sessions": 5, "notes": "establish baseline + threshold tuning"},
+      "consolidation": {"sessions": 10, "notes": "main training block"},
+      "maintenance":   {"sessions": 5, "notes": "tapered booster sessions"}
+    },
+    "contraindications": ["uncontrolled epilepsy"],
+    "expected_response_window_weeks": [4, 8],
+    "citations": [
+      {"n": 1, "pmid": "23994199", "doi": null, "title": "Neurofeedback for ADHD pilot RCT", "year": 2013, "url": "https://pubmed.ncbi.nlm.nih.gov/23994199"}
+    ],
+    "confidence": "moderate",
+    "alternative_protocols": [],
+    "rationale": "Elevated frontal theta with reduced beta is consistent with TBR-targetable pattern; selected on the basis of CONTRACT_V2 §5 priors."
+  },
+  "longitudinal": {
+    "sessions": 1,
+    "trajectory": {"theta_Fz_z": [2.81]}
+  },
+  "session_number": 1,
+  "days_from_baseline": 0
+}
