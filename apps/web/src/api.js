@@ -3636,6 +3636,54 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
+  // ── DCRO4 Resolver Coaching Digest Audit Hub launch-audit ──
+  // (2026-05-02). Admin cohort dashboard over the DCRO3 dispatched audit
+  // row stream + ResolverCoachingDigestPreference table. Three reads:
+  //   - summary: opt-in / dispatch-by-channel / delivery / weekly trend
+  //   - resolver-trajectory: per opted-in resolver weekly wrong-call
+  //     backlog with shrinking/flat/growing classification
+  //   - audit-events: paginated, scoped audit-event list
+  // Read-only — no companion worker. Helpers placed BEFORE DCRO3's section
+  // so the DCRO3 slice-boundary sentinel below stays clean — DCRO4 uses
+  // its own unique header anchor + slice-boundary sentinel.
+  fetchCoachingDigestAuditHubSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null) usp.set('window_days', String(params.window_days));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/resolver-coaching-digest-audit-hub/summary' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path);
+  },
+  fetchResolverTrajectory: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null) usp.set('window_days', String(params.window_days));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/resolver-coaching-digest-audit-hub/resolver-trajectory' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path);
+  },
+  fetchCoachingDigestAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/resolver-coaching-digest-audit-hub/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  postCoachingDigestAuditHubAuditEvent: (data) =>
+    apiFetch('/api/v1/resolver-coaching-digest-audit-hub/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  // end DCRO4 helpers
+  // ━━ DCRO4 SLICE BOUNDARY ━━ (do not remove; the launch-audit test
+  // for the DCRO4 section finds the header above then walks to this
+  // unique sentinel substring to bound the slice).
   // ── DCRO3 Resolver Coaching Digest launch-audit (2026-05-02) ────────────
   // Weekly digest worker that bundles each resolver's un-self-reviewed
   // wrong false_positive calls and dispatches via their preferred on-call
