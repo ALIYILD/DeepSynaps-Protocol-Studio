@@ -118,7 +118,7 @@ test('portal audit-events helper posts to /audit-events/portal', () => {
 
 
 function _readCaregiverPageSrc() {
-  return fs.readFileSync(path.join(__dirname, 'pages-patient.js'), 'utf8');
+  return (fs.readFileSync(path.join(__dirname, 'pages-patient.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'caregiver.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'digest.js'), 'utf8'));
 }
 
 
