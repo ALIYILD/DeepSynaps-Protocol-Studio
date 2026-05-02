@@ -3636,6 +3636,43 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
+  // ── CSAHP1 Channel Auth Health Probe launch-audit ──
+  // (2026-05-02). Proactively probes each clinic's configured adapter
+  // credentials (Slack OAuth, SendGrid API key, Twilio account auth,
+  // PagerDuty token) and emits an auth_drift_detected audit row BEFORE
+  // the next digest dispatch fails. The DCRO5 drilldown's auth-health
+  // section consumes:
+  //   - status: per-channel {status, last_probed_at, error_class} grid
+  //     + enabled flag for the worker disclaimer.
+  //   - tick: admin-only one-shot probe (body optional {channel}).
+  //   - audit-events: paginated, scoped audit-event list (surface=
+  //     channel_auth_health_probe).
+  // Helpers placed BEFORE DCRO5's section so the DCRO5 slice-boundary
+  // sentinel stays clean — CSAHP1 uses its own unique header anchor +
+  // slice-boundary sentinel.
+  fetchChannelAuthHealthStatus: () =>
+    apiFetch('/api/v1/channel-auth-health-probe/status').catch(() => null),
+  tickChannelAuthHealthProbe: (body) =>
+    apiFetch('/api/v1/channel-auth-health-probe/tick', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  fetchChannelAuthHealthAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/channel-auth-health-probe/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  // end CSAHP1 helpers
+  // ━━ CSAHP1 SLICE BOUNDARY ━━ (do not remove; the launch-audit test
+  // for the CSAHP1 section finds the header above then walks to this
+  // unique sentinel substring to bound the slice).
+
   // ── DCRO5 Delivery Failure Drilldown launch-audit ──
   // (2026-05-02). Operational drill-down over the DCRO3 dispatched audit
   // row stream filtered to delivery_status=failed and grouped by (channel,
