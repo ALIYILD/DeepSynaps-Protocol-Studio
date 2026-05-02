@@ -88,6 +88,7 @@ from app.routers.agent_skills_router import router as agent_skills_router
 from app.routers.annotations_router import router as annotations_router
 from app.routers.reminders_router import router as reminders_router
 from app.routers.irb_router import router as irb_router
+from app.routers.clinical_trials_router import router as clinical_trials_router
 from app.routers.irb_manager_router import router as irb_manager_router
 from app.routers.irb_amendment_workflow_router import (
     router as irb_amendment_workflow_router,
@@ -467,6 +468,7 @@ app.include_router(agent_skills_router)
 app.include_router(annotations_router)
 app.include_router(reminders_router)
 app.include_router(irb_router)
+app.include_router(clinical_trials_router)
 app.include_router(irb_manager_router)
 app.include_router(irb_amendment_workflow_router)
 app.include_router(irb_amendment_reviewer_workload_router)
