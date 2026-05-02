@@ -565,6 +565,18 @@ KNOWN_SURFACES = {
     # Page-level events: view, window_changed, channel_filter_changed,
     # error_class_filter_changed, page_changed, drill_through_clicked.
     "coaching_digest_delivery_failure_drilldown",
+    # IRB Amendment Workflow launch-audit (IRB-AMD1, 2026-05-02). Real-
+    # world clinical trials hit amendment cycles every 4-6 weeks; this
+    # surface adds the regulator-credible lifecycle (draft → submitted →
+    # reviewer_assigned → under_review → approved | rejected |
+    # revisions_requested → effective) on top of the existing IRB
+    # protocol register (#334). Page-level events: view,
+    # amendment_created, amendment_submitted, amendment_reviewer_assigned,
+    # amendment_review_started, amendment_decided_approved,
+    # amendment_decided_rejected, amendment_decided_revisions_requested,
+    # amendment_effective, amendment_reverted_to_draft,
+    # reg_binder_downloaded, filter_changed.
+    "irb_amendment_workflow",
 }
 
 
