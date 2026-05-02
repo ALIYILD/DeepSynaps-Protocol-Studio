@@ -928,6 +928,7 @@ export async function pgQEEGMaps(setTopbar) {
   setTopbar('Neuro-Biomarker Reference', `
     <input id="qeeg-search" class="form-control" style="width:240px;display:inline-block;margin-right:8px" placeholder="Search markers, conditions, interventions..." oninput="window._qeegSearch(this.value)">
     <button class="btn btn-ghost btn-sm" onclick="window._qeegSearch('')">Clear</button>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="window._nav('voice-analyzer')" title="Acoustic voice biomarkers">Voice Analyzer</button>
   `);
 
   const el = document.getElementById('content');

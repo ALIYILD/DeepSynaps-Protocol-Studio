@@ -24,6 +24,7 @@ import { ASSESS_REGISTRY } from './registries/assess-instruments-registry.js';
 import { EVIDENCE_SUMMARY, CONDITION_EVIDENCE, getConditionEvidence } from './evidence-dataset.js';
 import { PROTOCOL_LIBRARY, CONDITIONS as PROTO_CONDITIONS, DEVICES as PROTO_DEVICES, getProtocolsByCondition } from './protocols-data.js';
 import { DEMO_PATIENT_ROSTER } from './patient-dashboard-helpers.js';
+import { VOICE_DECISION_SUPPORT_SHORT, voiceApiErrorToast } from './voice-decision-support.js';
 
 function shortMrn(p) {
   if (p?.mrn) return String(p.mrn);
@@ -7329,6 +7330,7 @@ export async function pgMonitorHub(setTopbar, navigate) {
               <span class="ch-card-title">Session Recordings</span>
               <button class="ch-btn-sm ch-btn-teal" id="rec-upload-btn" onclick="window._recUpload()">+ Upload Recording</button>
             </div>
+            <div style="font-size:11px;color:var(--text-secondary);padding:0 16px 12px;line-height:1.45;border-bottom:1px solid var(--border)">${VOICE_DECISION_SUPPORT_SHORT} Audio rows can run the Voice Analyzer pipeline server-side.</div>
             <input type="file" id="rec-upload-input" accept="audio/mpeg,audio/wav,audio/webm,video/mp4,video/webm" style="display:none" onchange="window._recUploadPick(event)">
             <div id="rec-server-player" style="padding:10px 14px 0;display:none"></div>
             <div id="rec-log-list">
@@ -7419,11 +7421,16 @@ export async function pgMonitorHub(setTopbar, navigate) {
           const date = (r.uploaded_at || '').slice(0, 10);
           const dur = r.duration_seconds != null ? (r.duration_seconds + 's · ') : '';
           const safeTitle = _mhEsc(r.title || 'Untitled');
+          const isAudio = (r.mime_type || '').toLowerCase().startsWith('audio/');
+          const analyzeBtn = isAudio
+            ? '<button class="ch-btn-sm ch-btn-teal" title="Run Voice Analyzer (decision-support)" style="margin-left:6px" onclick="window._recVoiceAnalyze(\'' + _mhEsc(r.id) + '\')">🎙 Analyze</button>'
+            : '';
           return '<div class="book-row" data-rec-id="' + _mhEsc(r.id) + '">'
             + '<div class="book-datetime"><div class="book-date">' + date + '</div><div class="book-time">' + dur + _fmtBytes(r.byte_size) + '</div></div>'
             + '<div class="book-info"><div class="book-patient">' + safeTitle + '</div><div class="book-notes">' + _mhEsc(r.mime_type || '') + '</div></div>'
             + '<div class="book-actions">'
             +   '<button class="ch-btn-sm" title="Play" onclick="window._recPlay(\'' + _mhEsc(r.id) + '\',\'' + _mhEsc(r.mime_type || '') + '\')">▶</button>'
+            +   analyzeBtn
             +   '<button class="ch-btn-sm" title="Delete" style="margin-left:6px" onclick="window._recDelete(\'' + _mhEsc(r.id) + '\')">✕</button>'
             + '</div></div>';
         }).join('');
@@ -7477,6 +7484,44 @@ export async function pgMonitorHub(setTopbar, navigate) {
         await window._recRefreshServer();
       } catch (err) {
         window._dsToast?.({ title: 'Delete failed', body: err?.message || 'Unknown error', severity: 'error' });
+      }
+    };
+    /**
+     * Run the server-side Voice Analyzer on a stored audio blob (SessionRecording).
+     * Decision-support only; requires deepsynaps-audio on the API worker.
+     */
+    window._recVoiceAnalyze = async (recordingId) => {
+      if (!recordingId || !api.audioAnalyzeRecording) {
+        window._dsToast?.({ title: 'Unavailable', body: 'Voice analysis API not loaded.', severity: 'warning' });
+        return;
+      }
+      const sessionId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : ('sess-' + Date.now());
+      const patientId = window._selectedPatientId || window._paPatientId || window._profilePatientId || null;
+      window._dsToast?.({ title: 'Voice Analyzer', body: 'Running acoustic pipeline…', severity: 'info' });
+      try {
+        const res = await api.audioAnalyzeRecording(recordingId, {
+          sessionId,
+          patientId: patientId || undefined,
+          taskProtocol: 'reading_passage',
+        });
+        if (res?.analysis_id) {
+          try { window._lastVoiceAnalysisId = res.analysis_id; } catch (_) {}
+          try { sessionStorage.setItem('ds_va_last_analysis_id', res.analysis_id); } catch (_) {}
+          const pv = res?.voice_report?.provenance?.pipeline_version;
+          window._dsToast?.({
+            title: 'Voice report ready',
+            body: (pv ? 'Pipeline ' + pv + ' · ' : '') + 'Analysis ID ' + String(res.analysis_id).slice(0, 8) + '… — decision-support only. Opening Voice Analyzer…',
+            severity: 'success',
+          });
+          setTimeout(() => {
+            if (typeof window._nav === 'function') window._nav('voice-analyzer');
+          }, 400);
+        } else {
+          window._dsToast?.({ title: 'Unexpected response', body: JSON.stringify(res || {}).slice(0, 120), severity: 'warning' });
+        }
+      } catch (err) {
+        const t = voiceApiErrorToast(err);
+        window._dsToast?.({ title: t.title, body: t.body, severity: t.severity });
       }
     };
     // Kick off the initial load.

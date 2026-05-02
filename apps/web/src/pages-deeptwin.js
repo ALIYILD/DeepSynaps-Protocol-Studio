@@ -35,6 +35,7 @@ import {
   loadingBlock, errorBlock, emptyPatientBlock,
 } from './deeptwin/components.js';
 import { decisionSupportBanner } from './deeptwin/safety.js';
+import { VOICE_DEEPTWIN_DOMAIN_NOTE } from './voice-decision-support.js';
 import { buildReport, reportToMarkdown, reportToJSONString, downloadBlob, renderReportPreview } from './deeptwin/reports.js';
 import { startHandoff } from './deeptwin/handoff.js';
 import { PRESET_SCENARIOS } from './deeptwin/mockData.js';
@@ -130,6 +131,7 @@ function _renderAll() {
     <div class="dt-page">
       ${_renderTabStrip(STATE.activeTab || 'overview')}
       ${decisionSupportBanner()}
+      ${_voiceDomainHintBanner()}
       ${renderHeader({ patientLabel, condition, summary: STATE.summary, dataSources: STATE.dataSources })}
       ${renderDataSources({ summary: STATE.summary, dataSources: STATE.dataSources })}
       ${renderSignalMatrix({ signals: STATE.signals })}
@@ -431,6 +433,19 @@ function _renderTabStrip(active) {
 }
 
 let _setTopbarRef = null;
+
+function _voiceDomainHintBanner() {
+  try {
+    if (window._deeptwinDomainHint !== 'voice') return '';
+    window._deeptwinDomainHint = null;
+  } catch (_) {
+    return '';
+  }
+  return `
+    <div class="card" style="margin:0 0 14px;padding:10px 14px;font-size:11.5px;line-height:1.45;color:var(--text-secondary);border:1px solid rgba(246,178,60,.35);background:rgba(246,178,60,.09);border-radius:10px">
+      <strong style="color:var(--text-primary)">Voice domain</strong> — ${VOICE_DEEPTWIN_DOMAIN_NOTE}
+    </div>`;
+}
 
 function _wireTabStrip(setTopbar) {
   if (setTopbar) _setTopbarRef = setTopbar;

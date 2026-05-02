@@ -1,0 +1,9 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"/><title>Voice summary</title></head>
+<body>
+  <h1>Voice session report</h1>
+  <p><strong>Session</strong>: {{ payload.session_id | default('—') }}</p>
+  <pre>{{ payload | tojson(indent=2) }}</pre>
+</body>
+</html>

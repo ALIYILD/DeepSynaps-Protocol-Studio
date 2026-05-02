@@ -1,0 +1,43 @@
+{
+  "pipeline_id": "pd_voice_neuromod_baseline",
+  "version": "1.0.0",
+  "description": "Ingestion, QC, acoustic features, PD/dysarthria-style neurological scores, optional cognitive layer, report pointer. Fake handlers in workflow_orchestration for tests.",
+  "nodes": [
+    {
+      "node_id": "n1_ingest",
+      "stage": "ingestion",
+      "params": { "mode": "noop" },
+      "depends_on": []
+    },
+    {
+      "node_id": "n2_qc",
+      "stage": "qc",
+      "params": { "fake_qc": true, "qc_engine_version": "1.0.0" },
+      "depends_on": ["n1_ingest"]
+    },
+    {
+      "node_id": "n3_acoustic",
+      "stage": "acoustic_feature_engine",
+      "params": { "extractor_version": "noop-v1" },
+      "depends_on": ["n2_qc"]
+    },
+    {
+      "node_id": "n4_neuro",
+      "stage": "neurological_voice_analyzers",
+      "params": { "pd_model": "pd_fake", "pd_model_version": "0.1.0" },
+      "depends_on": ["n3_acoustic"]
+    },
+    {
+      "node_id": "n5_cognitive",
+      "stage": "cognitive_speech_analyzers",
+      "params": { "model_name": "baseline_cognitive_lr", "model_version": "1.0.0", "linguistic": false },
+      "depends_on": ["n4_neuro"]
+    },
+    {
+      "node_id": "n6_report",
+      "stage": "reporting",
+      "params": { "report_builder_version": "voice_reporting/v1" },
+      "depends_on": ["n5_cognitive"]
+    }
+  ]
+}

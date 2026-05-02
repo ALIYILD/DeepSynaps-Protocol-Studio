@@ -35,6 +35,7 @@ from sqlalchemy.orm import Session
 from app.persistence.models import (
     AdverseEvent,
     AssessmentRecord,
+    AudioAnalysis,
     ClinicalSession,
     Message,
     MriAnalysis,
@@ -299,12 +300,39 @@ def _video(session: Session, patient_id: str) -> dict[str, Any]:
 
 
 def _voice(session: Session, patient_id: str) -> dict[str, Any]:
-    n, latest = _count_and_latest(session, VoiceAnalysis, patient_id, ts_col="created_at")
-    upload = [{"label": "Upload voice", "href": f"/patients/{patient_id}/media/upload?kind=audio", "kind": "voice"}]
+    n_vc, latest_vc = _count_and_latest(session, VoiceAnalysis, patient_id, ts_col="created_at")
+    n_bio, latest_bio = _count_and_latest(session, AudioAnalysis, patient_id, ts_col="created_at")
+    n = n_vc + n_bio
+    _dates = [x for x in (latest_vc, latest_bio) if x]
+    latest = max(_dates) if _dates else None
+    upload = [
+        {"label": "Voice Analyzer", "href": "/voice-analyzer", "kind": "voice_analyzer"},
+        {"label": "Upload voice clip", "href": f"/patients/{patient_id}/media/upload?kind=audio", "kind": "voice"},
+    ]
+    source_links = [{"label": "Open Voice Analyzer", "href": "/voice-analyzer"}]
     if n == 0:
-        return _domain("voice", status="missing", summary="No voice analyses on file.", upload_links=upload)
-    return _domain("voice", status="available", record_count=n, last_updated=latest,
-                   summary=f"{n} voice analysis row(s) on file.", upload_links=upload)
+        return _domain(
+            "voice",
+            status="missing",
+            summary="No voice biomarker analyses on file.",
+            upload_links=upload,
+            source_links=source_links,
+        )
+    parts = []
+    if n_bio:
+        parts.append(f"{n_bio} acoustic biomarker run(s)")
+    if n_vc:
+        parts.append(f"{n_vc} virtual-care voice segment(s)")
+    summary = "; ".join(parts) + "."
+    return _domain(
+        "voice",
+        status="available",
+        record_count=n,
+        last_updated=latest,
+        summary=summary,
+        upload_links=upload,
+        source_links=source_links,
+    )
 
 
 def _text(session: Session, patient_id: str) -> dict[str, Any]:
