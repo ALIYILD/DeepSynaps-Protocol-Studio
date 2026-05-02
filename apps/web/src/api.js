@@ -761,6 +761,32 @@ export const api = {
     return URL.createObjectURL(blob);
   },
 
+  // ── Voice / Audio biomarker analyzer (deepsynaps-audio pipeline) ───────
+  audioAnalyzeUpload: (file, { sessionId, patientId, taskProtocol, transcript } = {}) => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('session_id', sessionId || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Date.now())));
+    if (patientId) form.append('patient_id', patientId);
+    if (taskProtocol) form.append('task_protocol', taskProtocol);
+    if (transcript) form.append('transcript', transcript);
+    return apiFetch('/api/v1/audio/analyze-upload', { method: 'POST', body: form });
+  },
+  audioAnalyzeRecording: (recordingId, { sessionId, patientId, taskProtocol, transcript } = {}) => {
+    const q = new URLSearchParams();
+    q.set('session_id', sessionId || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Date.now())));
+    if (patientId) q.set('patient_id', patientId);
+    if (taskProtocol) q.set('task_protocol', taskProtocol);
+    if (transcript) q.set('transcript', transcript);
+    return apiFetch(
+      `/api/v1/audio/analyze-recording/${encodeURIComponent(recordingId)}?${q.toString()}`,
+      { method: 'POST' },
+    );
+  },
+  audioGetReport: (analysisId) =>
+    apiFetch(`/api/v1/audio/report/${encodeURIComponent(analysisId)}`),
+  audioListPatientAnalyses: (patientId, limit = 30) =>
+    apiFetch(`/api/v1/audio/patients/${encodeURIComponent(patientId)}/analyses?limit=${limit}`),
+
   // Custom document templates (clinician-authored, distinct from the bundled
   // DOCUMENT_TEMPLATES read-only set in apps/web/src/documents-templates.js).
   // Backed by /api/v1/documents/templates* in documents_router.py.
@@ -3635,6 +3661,43 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }).catch(() => null),
+
+  // ── CSAHP1 Channel Auth Health Probe launch-audit ──
+  // (2026-05-02). Proactively probes each clinic's configured adapter
+  // credentials (Slack OAuth, SendGrid API key, Twilio account auth,
+  // PagerDuty token) and emits an auth_drift_detected audit row BEFORE
+  // the next digest dispatch fails. The DCRO5 drilldown's auth-health
+  // section consumes:
+  //   - status: per-channel {status, last_probed_at, error_class} grid
+  //     + enabled flag for the worker disclaimer.
+  //   - tick: admin-only one-shot probe (body optional {channel}).
+  //   - audit-events: paginated, scoped audit-event list (surface=
+  //     channel_auth_health_probe).
+  // Helpers placed BEFORE DCRO5's section so the DCRO5 slice-boundary
+  // sentinel stays clean — CSAHP1 uses its own unique header anchor +
+  // slice-boundary sentinel.
+  fetchChannelAuthHealthStatus: () =>
+    apiFetch('/api/v1/channel-auth-health-probe/status').catch(() => null),
+  tickChannelAuthHealthProbe: (body) =>
+    apiFetch('/api/v1/channel-auth-health-probe/tick', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  fetchChannelAuthHealthAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/channel-auth-health-probe/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  // end CSAHP1 helpers
+  // ━━ CSAHP1 SLICE BOUNDARY ━━ (do not remove; the launch-audit test
+  // for the CSAHP1 section finds the header above then walks to this
+  // unique sentinel substring to bound the slice).
 
   // ── DCRO5 Delivery Failure Drilldown launch-audit ──
   // (2026-05-02). Operational drill-down over the DCRO3 dispatched audit

@@ -928,6 +928,7 @@ export async function pgQEEGMaps(setTopbar) {
   setTopbar('Neuro-Biomarker Reference', `
     <input id="qeeg-search" class="form-control" style="width:240px;display:inline-block;margin-right:8px" placeholder="Search markers, conditions, interventions..." oninput="window._qeegSearch(this.value)">
     <button class="btn btn-ghost btn-sm" onclick="window._qeegSearch('')">Clear</button>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="window._nav('voice-analyzer')" title="Acoustic voice biomarkers">Voice Analyzer</button>
   `);
 
   const el = document.getElementById('content');
@@ -10284,6 +10285,8 @@ export async function pgCoachingDigestDeliveryFailureDrilldown(setTopbar) {
     summary: null,
     failedList: null,
     workerStatus: null,
+    authHealthStatus: null,
+    authHealthSelectedChannel: '',
     page: 1,
     pageSize: 20,
     channelFilter: '',
@@ -10299,7 +10302,7 @@ export async function pgCoachingDigestDeliveryFailureDrilldown(setTopbar) {
   }
 
   async function loadAll() {
-    var resp = { summary: null, failedList: null, workerStatus: null, err: null };
+    var resp = { summary: null, failedList: null, workerStatus: null, authHealthStatus: null, err: null };
     try {
       if (typeof api.fetchDigestDeliveryFailureSummary === 'function') {
         resp.summary = await api.fetchDigestDeliveryFailureSummary({
@@ -10319,6 +10322,16 @@ export async function pgCoachingDigestDeliveryFailureDrilldown(setTopbar) {
           resp.workerStatus = await api.fetchResolverDigestStatus();
         }
       } catch (_e) { resp.workerStatus = null; }
+      // CSAHP1 — fetch the proactive auth-health probe status so the
+      // drilldown can render a per-channel green/red/grey grid + Run
+      // probe now CTA on top of the historical failure data. Errors
+      // here must NOT bubble; the auth-health section degrades to an
+      // empty state when the API 500s (worker disabled or unwired).
+      try {
+        if (typeof api.fetchChannelAuthHealthStatus === 'function') {
+          resp.authHealthStatus = await api.fetchChannelAuthHealthStatus();
+        }
+      } catch (_e) { resp.authHealthStatus = null; }
     } catch (e) {
       resp.err = String(e && e.message || e || 'unknown');
     }
@@ -10442,6 +10455,103 @@ export async function pgCoachingDigestDeliveryFailureDrilldown(setTopbar) {
       '</div>';
   }
 
+  // ── CSAHP1 Auth-health section ──────────────────────────────────────────
+  // (2026-05-02) Renders the proactive auth-health probe state on top of
+  // the historical failure data. Per-channel tiles colour-coded
+  // green/red/grey + Last verified timestamp. Admin-only Run probe now
+  // CTA + per-channel dropdown so the admin can re-probe a single
+  // channel after rotating creds without waiting for the next 12h tick.
+  function _csahp1RelativeTime(iso) {
+    if (!iso) return '—';
+    try {
+      var t = new Date(iso).getTime();
+      var now = Date.now();
+      var diffSec = Math.max(0, Math.round((now - t) / 1000));
+      if (diffSec < 60) return diffSec + 's ago';
+      if (diffSec < 3600) return Math.round(diffSec / 60) + 'm ago';
+      if (diffSec < 86400) return Math.round(diffSec / 3600) + 'h ago';
+      return Math.round(diffSec / 86400) + 'd ago';
+    } catch (_e) { return '—'; }
+  }
+
+  function _csahp1IsAdmin() {
+    try {
+      var u = (window.currentUser && window.currentUser()) || null;
+      return !!(u && (u.role === 'admin' || u.role === 'supervisor' || u.role === 'regulator'));
+    } catch (_e) { return false; }
+  }
+
+  function renderAuthHealthSection(s) {
+    if (!s) {
+      return '<div data-testid="csahp1-empty-state" class="card" style="padding:14px;margin-top:10px;font-size:12px;color:var(--text-muted)">' +
+        'Auth health data unavailable. Worker is disabled or the endpoint is unreachable.' +
+        '</div>';
+    }
+    var enabled = !!s.enabled;
+    var disclaimer = '<div data-testid="csahp1-disclaimer" class="notice" style="font-size:11px;color:var(--text-muted);margin-top:6px;padding:8px 10px;border-left:3px solid var(--border)">' +
+      'Worker is currently <strong>' + _esc(enabled ? 'enabled' : 'disabled') + '</strong> at the system level.' +
+      '</div>';
+
+    var per = s.per_channel || {};
+    var keys = ['slack', 'sendgrid', 'twilio', 'pagerduty'];
+    var anyProbed = false;
+    var tiles = keys.map(function(ch) {
+      var snap = per[ch] || { status: 'never', last_probed_at: null, error_class: null };
+      var status = String(snap.status || 'never');
+      if (status !== 'never') anyProbed = true;
+      var color = status === 'healthy' ? '#16a34a' : (status === 'unhealthy' ? '#dc2626' : '#9ca3af');
+      var bg = status === 'healthy' ? '#dcfce7' : (status === 'unhealthy' ? '#fee2e2' : '#f3f4f6');
+      var fg = status === 'healthy' ? '#166534' : (status === 'unhealthy' ? '#991b1b' : '#6b7280');
+      var label = status.charAt(0).toUpperCase() + status.slice(1);
+      var rel = _csahp1RelativeTime(snap.last_probed_at);
+      var errLine = '';
+      if (status === 'unhealthy' && snap.error_class) {
+        errLine = '<div data-testid="csahp1-tile-err" style="font-size:10px;color:#991b1b;margin-top:2px">error: ' + _esc(String(snap.error_class)) + '</div>';
+      }
+      return '<div data-testid="csahp1-channel-tile" data-channel="' + _esc(ch) + '" data-status="' + _esc(status) + '" class="card" style="padding:10px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
+        '<span style="font-size:12px;font-weight:700;text-transform:capitalize">' + _esc(ch) + '</span>' +
+        '<span data-testid="csahp1-tile-badge" style="display:inline-block;width:10px;height:10px;border-radius:999px;background:' + color + '"></span>' +
+        '</div>' +
+        '<div data-testid="csahp1-tile-status" style="display:inline-block;padding:2px 6px;border-radius:4px;background:' + bg + ';color:' + fg + ';font-size:10px;font-weight:700">' + _esc(label) + '</div>' +
+        '<div data-testid="csahp1-tile-relative" style="font-size:11px;color:var(--text-muted);margin-top:4px">Last verified: ' + _esc(rel) + '</div>' +
+        errLine +
+        '</div>';
+    }).join('');
+    var grid = '<div data-testid="csahp1-channel-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:10px">' +
+      tiles +
+      '</div>';
+
+    var emptyState = '';
+    if (!anyProbed) {
+      emptyState = '<div data-testid="csahp1-never-probed" style="font-size:11px;color:var(--text-muted);margin-top:6px">No probes have run yet. Click <strong>Run probe now</strong> to verify all channels.</div>';
+    }
+
+    var ctas = '';
+    if (_csahp1IsAdmin()) {
+      var dropdown = '<select data-testid="csahp1-channel-select" id="csahp1-channel-select" style="padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:12px">' +
+        '<option value="">All channels</option>' +
+        keys.map(function(c) {
+          var sel = (state.authHealthSelectedChannel === c) ? ' selected' : '';
+          return '<option value="' + _esc(c) + '"' + sel + '>' + _esc(c) + '</option>';
+        }).join('') +
+        '</select>';
+      ctas = '<div data-testid="csahp1-admin-ctas" style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">' +
+        '<button data-testid="csahp1-run-now-btn" class="btn-secondary" style="font-size:12px;padding:5px 10px" onclick="window._csahp1RunProbe()">Run probe now</button>' +
+        '<span style="font-size:11px;color:var(--text-muted)">or</span>' +
+        dropdown +
+        '<button data-testid="csahp1-run-channel-btn" class="btn-secondary" style="font-size:12px;padding:5px 10px" onclick="window._csahp1RunChannelProbe()">Run for one channel</button>' +
+        '</div>';
+    }
+
+    return '<div data-testid="csahp1-auth-health-section">' +
+      disclaimer +
+      grid +
+      emptyState +
+      ctas +
+      '</div>';
+  }
+
   // ── Section 5: Failed-list table ────────────────────────────────────────
   function renderFailedListTable(fl) {
     var items = (fl && Array.isArray(fl.items)) ? fl.items : [];
@@ -10493,6 +10603,7 @@ export async function pgCoachingDigestDeliveryFailureDrilldown(setTopbar) {
     state.summary = resp.summary;
     state.failedList = resp.failedList;
     state.workerStatus = resp.workerStatus;
+    state.authHealthStatus = resp.authHealthStatus;
     state.err = resp.err;
     if (state.err) {
       el.innerHTML = '<div data-testid="dcro5-err" class="notice notice-warn" style="padding:14px;font-size:12px">Failed to load delivery failure drilldown: ' + _esc(state.err) + '</div>';
@@ -10523,6 +10634,12 @@ export async function pgCoachingDigestDeliveryFailureDrilldown(setTopbar) {
       // Section 5
       '<h3 data-testid="dcro5-section-list" style="font-size:13px;margin:14px 0 4px;font-weight:700">Failed dispatches</h3>' +
       renderFailedListTable(state.failedList) +
+      // CSAHP1 — proactive auth-health probe section. Lives BELOW the
+      // failed dispatches table so admins read the historical failure
+      // first then drop down to the proactive auth-health grid + Run
+      // probe now CTA.
+      '<h3 data-testid="csahp1-section-auth-health" style="font-size:13px;margin:14px 0 4px;font-weight:700">Auth health</h3>' +
+      renderAuthHealthSection(state.authHealthStatus) +
       '</div>';
 
     if (typeof api.postDigestDeliveryFailureAuditEvent === 'function') {
@@ -10565,6 +10682,48 @@ export async function pgCoachingDigestDeliveryFailureDrilldown(setTopbar) {
     // Navigate to the Channel Misconfig Detector route — the
     // canonical alias accepted by app.js is 'channel-misconfig-detector'.
     location.hash = '#/channel-misconfig-detector';
+  };
+
+  // CSAHP1 — Run probe now (admin-only). Calls /tick with no body so
+  // every channel is probed; re-fetches /status; renders.
+  window._csahp1RunProbe = async function() {
+    try {
+      if (typeof api.tickChannelAuthHealthProbe === 'function') {
+        await api.tickChannelAuthHealthProbe();
+      }
+    } catch (_e) { /* swallow — render() will surface state */ }
+    if (typeof api.postDigestDeliveryFailureAuditEvent === 'function') {
+      api.postDigestDeliveryFailureAuditEvent({
+        event: 'csahp1_run_probe_clicked',
+        note: 'channel=all',
+      });
+    }
+    await render();
+  };
+
+  // CSAHP1 — Run probe for one channel (admin-only). Reads the
+  // dropdown selection at click time so the admin can switch between
+  // channels without re-rendering the whole page.
+  window._csahp1RunChannelProbe = async function() {
+    var sel = document.getElementById('csahp1-channel-select');
+    var ch = sel ? String(sel.value || '').trim() : '';
+    if (!ch) {
+      window._csahp1RunProbe();
+      return;
+    }
+    state.authHealthSelectedChannel = ch;
+    try {
+      if (typeof api.tickChannelAuthHealthProbe === 'function') {
+        await api.tickChannelAuthHealthProbe({ channel: ch });
+      }
+    } catch (_e) { /* swallow — render() will surface state */ }
+    if (typeof api.postDigestDeliveryFailureAuditEvent === 'function') {
+      api.postDigestDeliveryFailureAuditEvent({
+        event: 'csahp1_run_channel_probe_clicked',
+        note: 'channel=' + ch,
+      });
+    }
+    await render();
   };
 
   await render();

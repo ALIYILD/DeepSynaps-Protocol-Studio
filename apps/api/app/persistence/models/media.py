@@ -173,4 +173,25 @@ class ClinicianNoteDraft(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
+class AudioAnalysis(Base):
+    """One Voice/Audio analyzer run; JSON matches :class:`VoiceSessionReportPayload` + context."""
+
+    __tablename__ = "audio_analyses"
+
+    analysis_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    patient_id: Mapped[Optional[str]] = mapped_column(Text(), nullable=True, index=True)
+    session_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    run_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    input_path: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    file_hash_sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="completed")
+    voice_report_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    run_context_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    pipeline_version: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    norm_db_version: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc), index=True,
+    )
+
+
 # ── Home Device Workflow Models (Phase 1) ───────────────────────────────────────
