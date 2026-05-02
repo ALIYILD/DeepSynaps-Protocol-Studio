@@ -57,6 +57,7 @@ jobs:
             -e packages/safety-engine \
             -e packages/generation-engine \
             -e packages/render-engine \
+            -e packages/biometrics-pipeline \
             -e apps/api
 
       - name: Start FastAPI backend on :8001

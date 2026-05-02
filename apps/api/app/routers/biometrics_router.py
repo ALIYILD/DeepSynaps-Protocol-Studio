@@ -52,12 +52,14 @@ from deepsynaps_biometrics.schemas import (
 router = APIRouter(prefix="/api/biometrics", tags=["Biometrics MVP"])
 
 
+# core-schema-exempt: thin provider-connect response unique to /api/biometrics router
 class ConnectOut(BaseModel):
     mode: str
     provider: str
     details: dict[str, Any] = Field(default_factory=dict)
 
 
+# core-schema-exempt: ingestion request body specific to /api/biometrics/sync
 class SyncRequest(BaseModel):
     patient_id: Optional[str] = None
     connection_id: Optional[str] = None
