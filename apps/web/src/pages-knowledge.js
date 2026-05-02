@@ -10786,6 +10786,15 @@ export async function pgCoachingDigestDeliveryFailureDrilldown(setTopbar) {
       // probe now CTA.
       '<h3 data-testid="csahp1-section-auth-health" style="font-size:13px;margin:14px 0 4px;font-weight:700">Auth health</h3>' +
       renderAuthHealthSection(state.authHealthStatus) +
+      // CSAHP3 — admin-only audit hub link. Cohort dashboard built on
+      // the CSAHP1/CSAHP2 audit trail. Lives in the Auth health section
+      // so admins can drop into the funnel/per-channel/leaderboard view
+      // without leaving the Coaching Digest Delivery Failure Drilldown.
+      (_csahp1IsAdmin() ?
+        '<div data-testid="csahp3-audit-hub-link" style="margin-top:6px;font-size:12px">' +
+          '<a href="#/auth-drift-audit-hub" onclick="window._csahp3OpenAuditHub()">Audit hub →</a>' +
+        '</div>'
+      : '') +
       // CSAHP2 — auth drift resolution sub-tables (open / pending / resolved).
       // Mirrors the DCA → DCR loop. Lives BELOW the per-channel auth-health
       // grid so admins read the proactive state first then drop down to
@@ -10834,6 +10843,20 @@ export async function pgCoachingDigestDeliveryFailureDrilldown(setTopbar) {
     // Navigate to the Channel Misconfig Detector route — the
     // canonical alias accepted by app.js is 'channel-misconfig-detector'.
     location.hash = '#/channel-misconfig-detector';
+  };
+
+  // CSAHP3 — admin-only audit hub link click. Emits an audit event
+  // before letting the hash-router navigate to the cohort dashboard.
+  window._csahp3OpenAuditHub = function() {
+    if (typeof api.postDigestDeliveryFailureAuditEvent === 'function') {
+      api.postDigestDeliveryFailureAuditEvent({
+        event: 'csahp3_audit_hub_link_clicked',
+        note: 'window_days=' + state.windowDays,
+      });
+    }
+    // Hash-router handles navigation via the anchor href; no need to
+    // assign location.hash explicitly. Returning undefined lets the
+    // default link behaviour take over.
   };
 
   // CSAHP1 — Run probe now (admin-only). Calls /tick with no body so
@@ -10977,6 +11000,285 @@ export async function pgCoachingDigestDeliveryFailureDrilldown(setTopbar) {
   await render();
 }
 // ── end Coaching Digest Delivery Failure Drilldown (DCRO5) ──────────────
+
+// ── Channel Auth Drift Resolution Audit Hub (CSAHP3, 2026-05-02) ────────
+// Cohort dashboard built on the audit trail emitted by CSAHP1 (#417) and
+// CSAHP2 (#422). Read-only analytics, no migration, no worker. Mirrors
+// the DCR2 → DCRO1 pattern (#392 / #393).
+export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
+  setTopbar('Auth drift resolution audit hub', `
+    <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px" onclick="window._csahp3Refresh()">↺ Refresh</button>
+  `);
+
+  var state = {
+    windowDays: 90,
+    minRotations: 2,
+    summary: null,
+    topRotators: null,
+    err: null,
+  };
+
+  function _esc(v) {
+    var s = v == null ? '' : String(v);
+    return s.replace(/[&<>"']/g, function(c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+
+  async function loadAll() {
+    var resp = { summary: null, topRotators: null, err: null };
+    try {
+      if (typeof api.fetchAuthDriftResolutionAuditHubSummary === 'function') {
+        resp.summary = await api.fetchAuthDriftResolutionAuditHubSummary({
+          window_days: state.windowDays,
+        });
+      }
+      if (typeof api.fetchAuthDriftTopRotators === 'function') {
+        resp.topRotators = await api.fetchAuthDriftTopRotators({
+          window_days: state.windowDays,
+          min_rotations: state.minRotations,
+        });
+      }
+    } catch (e) {
+      resp.err = String(e && e.message || e || 'unknown');
+    }
+    return resp;
+  }
+
+  function renderControls() {
+    var winSel = '<label style="font-size:11px;margin-right:6px">Window:</label>' +
+      '<select data-testid="csahp3-window" onchange="window._csahp3SetWindow(this.value)" style="padding:4px;border:1px solid var(--border);border-radius:4px;font-size:12px">' +
+      [30, 90, 180].map(function(w) {
+        return '<option value="' + w + '"' + (state.windowDays === w ? ' selected' : '') + '>' + w + 'd</option>';
+      }).join('') +
+      '</select>';
+    return '<div data-testid="csahp3-controls" style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:6px">' +
+      '<div>' + winSel + '</div>' +
+      '</div>';
+  }
+
+  function renderFunnelKpis(s) {
+    if (!s) {
+      return '<div data-testid="csahp3-kpis-empty" style="padding:14px;font-size:12px;color:var(--text-muted)">Backend unreachable. Cannot render funnel.</div>';
+    }
+    var f = s.rotation_funnel || {};
+    var p = s.rotation_funnel_pct || {};
+    var markedPct = p.marked_pct == null ? '—' : Number(p.marked_pct).toFixed(1) + '%';
+    var confirmedPct = p.confirmed_pct == null ? '—' : Number(p.confirmed_pct).toFixed(1) + '%';
+    var reFlagPct = p.re_flag_pct == null ? '—' : Number(p.re_flag_pct).toFixed(1) + '%';
+    return '<div data-testid="csahp3-funnel" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:10px">' +
+      '<div data-testid="csahp3-kpi-detected" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Detected</div><div style="font-size:22px;font-weight:700">' + _esc(String(f.detected || 0)) + '</div></div>' +
+      '<div data-testid="csahp3-kpi-marked" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Marked rotated</div><div style="font-size:22px;font-weight:700">' + _esc(String(f.marked_rotated || 0)) + '</div><div style="font-size:11px;color:var(--text-muted)">' + _esc(markedPct) + ' of detected</div></div>' +
+      '<div data-testid="csahp3-kpi-confirmed" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Confirmed</div><div style="font-size:22px;font-weight:700">' + _esc(String(f.confirmed || 0)) + '</div><div style="font-size:11px;color:var(--text-muted)">' + _esc(confirmedPct) + ' of marked</div></div>' +
+      '<div data-testid="csahp3-kpi-reflagged" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Re-flagged within 30d</div><div style="font-size:22px;font-weight:700">' + _esc(String(f.re_flagged_within_30d || 0)) + '</div><div style="font-size:11px;color:var(--text-muted)">' + _esc(reFlagPct) + ' of confirmed</div></div>' +
+      '</div>';
+  }
+
+  function renderMethodDistribution(s) {
+    if (!s || !s.rotation_method_distribution) return '';
+    var d = s.rotation_method_distribution;
+    var keys = ['manual', 'automated_rotation', 'key_revoked', 'other'];
+    var total = keys.reduce(function(acc, k) { return acc + (Number(d[k]) || 0); }, 0);
+    if (total === 0) {
+      return '<div data-testid="csahp3-methods-empty" class="card" style="padding:12px;margin-top:10px;font-size:12px;color:var(--text-muted)">No rotation method data yet.</div>';
+    }
+    var rows = keys.map(function(k) {
+      var v = Number(d[k]) || 0;
+      var pct = total > 0 ? Math.round((v / total) * 100) : 0;
+      return '<div data-testid="csahp3-method-row" data-method="' + _esc(k) + '" style="display:flex;align-items:center;gap:8px;margin:4px 0;font-size:12px">' +
+        '<span style="width:170px;text-transform:capitalize">' + _esc(k.replace(/_/g, ' ')) + '</span>' +
+        '<div style="flex:1;background:var(--surface-muted);height:14px;border-radius:4px;overflow:hidden"><div style="background:var(--accent);height:100%;width:' + pct + '%"></div></div>' +
+        '<span style="width:64px;text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(v)) + ' (' + pct + '%)</span>' +
+        '</div>';
+    }).join('');
+    return '<div data-testid="csahp3-methods" class="card" style="padding:12px;margin-top:10px">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Rotation method distribution</div>' +
+      rows +
+      '</div>';
+  }
+
+  function _reFlagColorClass(pct) {
+    if (pct == null) return 'csahp3-ch-grey';
+    var n = Number(pct);
+    if (!isFinite(n)) return 'csahp3-ch-grey';
+    if (n < 10) return 'csahp3-ch-green';
+    if (n <= 30) return 'csahp3-ch-yellow';
+    return 'csahp3-ch-red';
+  }
+
+  function renderByChannelTable(s) {
+    if (!s || !s.by_channel) return '';
+    var keys = Object.keys(s.by_channel || {}).sort();
+    if (keys.length === 0) {
+      return '<div data-testid="csahp3-by-channel-empty" class="card" style="padding:12px;margin-top:10px;font-size:12px;color:var(--text-muted)">No per-channel data yet.</div>';
+    }
+    var rows = keys.map(function(k) {
+      var ch = s.by_channel[k] || {};
+      var ttr = ch.median_time_to_rotate_hours == null ? '—' : Number(ch.median_time_to_rotate_hours).toFixed(1) + 'h';
+      var ttc = ch.median_time_to_confirm_hours == null ? '—' : Number(ch.median_time_to_confirm_hours).toFixed(1) + 'h';
+      var rfp = ch.re_flag_rate_pct == null ? '—' : Number(ch.re_flag_rate_pct).toFixed(1) + '%';
+      var cls = _reFlagColorClass(ch.re_flag_rate_pct);
+      return '<tr data-testid="csahp3-channel-row" data-channel="' + _esc(k) + '" class="' + cls + '">' +
+        '<td style="font-weight:600;text-transform:capitalize">' + _esc(k) + '</td>' +
+        '<td style="text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(ch.drifts || 0)) + '</td>' +
+        '<td style="text-align:right;font-variant-numeric:tabular-nums">' + _esc(ttr) + '</td>' +
+        '<td style="text-align:right;font-variant-numeric:tabular-nums">' + _esc(ttc) + '</td>' +
+        '<td style="text-align:right;font-variant-numeric:tabular-nums">' + _esc(rfp) + '</td>' +
+        '</tr>';
+    }).join('');
+    return '<div data-testid="csahp3-by-channel" class="card" style="padding:12px;margin-top:10px">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Per-channel metrics</div>' +
+      '<table class="data-table" style="width:100%;font-size:12px"><thead><tr><th>Channel</th><th style="text-align:right">Drifts</th><th style="text-align:right">Median TTR</th><th style="text-align:right">Median TTC</th><th style="text-align:right">Re-flag rate</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+      '</div>';
+  }
+
+  function renderTopRotators(tr) {
+    var items = (tr && Array.isArray(tr.items)) ? tr.items : [];
+    if (items.length === 0) {
+      return '<div data-testid="csahp3-top-rotators-empty" class="card" style="padding:12px;margin-top:10px;font-size:12px;color:var(--text-muted)">No rotators meeting the threshold yet.</div>';
+    }
+    var rows = items.map(function(it) {
+      var name = it.rotator_name || it.rotator_user_id || '—';
+      var ttr = it.median_time_to_rotate_hours == null ? '—' : Number(it.median_time_to_rotate_hours).toFixed(1) + 'h';
+      var rfp = it.re_flag_rate_pct == null ? '—' : Number(it.re_flag_rate_pct).toFixed(1) + '%';
+      return '<tr data-testid="csahp3-rotator-row">' +
+        '<td><strong>' + _esc(name) + '</strong><br><span style="font-size:10px;color:var(--text-muted)">' + _esc(it.rotator_user_id || '') + '</span></td>' +
+        '<td style="text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(it.rotations || 0)) + '</td>' +
+        '<td style="text-align:right;font-variant-numeric:tabular-nums">' + _esc(ttr) + '</td>' +
+        '<td style="text-align:right;font-variant-numeric:tabular-nums">' + _esc(rfp) + '</td>' +
+        '</tr>';
+    }).join('');
+    return '<div data-testid="csahp3-top-rotators" class="card" style="padding:12px;margin-top:10px">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Top rotators</div>' +
+      '<table class="data-table" style="width:100%;font-size:12px"><thead><tr><th>Rotator</th><th style="text-align:right">Rotations</th><th style="text-align:right">Median TTR</th><th style="text-align:right">Re-flag rate</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+      '</div>';
+  }
+
+  function renderTrendChart(s) {
+    if (!s || !Array.isArray(s.trend_buckets)) return '';
+    var buckets = s.trend_buckets;
+    if (buckets.length === 0) return '';
+    var max = 0;
+    buckets.forEach(function(b) {
+      var d = Number(b.detected) || 0; if (d > max) max = d;
+      var r = Number(b.rotated) || 0; if (r > max) max = r;
+    });
+    if (max === 0) {
+      return '<div data-testid="csahp3-trend-empty" class="card" style="padding:12px;margin-top:10px;font-size:12px;color:var(--text-muted)">No trend data.</div>';
+    }
+    var bars = buckets.map(function(b) {
+      var d = Number(b.detected) || 0;
+      var r = Number(b.rotated) || 0;
+      var rf = Number(b.re_flagged) || 0;
+      var hd = max > 0 ? Math.round((d / max) * 50) : 0;
+      var hr = max > 0 ? Math.round((r / max) * 50) : 0;
+      var hrf = max > 0 ? Math.round((rf / max) * 50) : 0;
+      var label = String(b.week_start || '').slice(0, 10);
+      return '<div data-testid="csahp3-trend-bar" style="display:inline-block;width:42px;margin:0 2px;text-align:center;vertical-align:bottom">' +
+        '<div style="height:55px;display:flex;align-items:flex-end;justify-content:center;gap:1px">' +
+          '<div style="width:8px;background:var(--accent);height:' + hd + 'px" title="detected"></div>' +
+          '<div style="width:8px;background:#10b981;height:' + hr + 'px" title="rotated"></div>' +
+          '<div style="width:8px;background:#ef4444;height:' + hrf + 'px" title="re-flagged"></div>' +
+        '</div>' +
+        '<div style="font-size:9px;color:var(--text-muted);margin-top:2px">' + _esc(label) + '</div>' +
+        '</div>';
+    }).join('');
+    return '<div data-testid="csahp3-trend" class="card" style="padding:12px;margin-top:10px;overflow-x:auto">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Weekly trend (detected / rotated / re-flagged)</div>' +
+      '<div style="white-space:nowrap">' + bars + '</div>' +
+      '</div>';
+  }
+
+  function renderWorkerDisclaimer(s) {
+    var enabled = s && s.worker_enabled === true;
+    var status = enabled ? 'enabled' : 'disabled';
+    return '<div data-testid="csahp3-worker-disclaimer" class="notice notice-info" style="padding:8px 12px;font-size:11px;margin-top:10px">' +
+      'Confirmation requires the next CSAHP1 health probe to succeed. CSAHP1 worker is currently <strong>' + _esc(status) + '</strong>. ' +
+      'When disabled, the funnel\'s confirmed step will lag detected/marked indefinitely.' +
+      '</div>';
+  }
+
+  async function render() {
+    var el = document.getElementById('content');
+    if (!el) return;
+    el.innerHTML = '<div style="padding:14px;font-size:12px;color:var(--text-muted)">Loading…</div>';
+    var resp = await loadAll();
+    state.summary = resp.summary;
+    state.topRotators = resp.topRotators;
+    state.err = resp.err;
+
+    if (state.err) {
+      el.innerHTML = '<div data-testid="csahp3-err" class="notice notice-error" style="padding:14px">' +
+        'Failed to load auth drift audit hub: ' + _esc(state.err) +
+        '</div>';
+      return;
+    }
+
+    var s = state.summary;
+    var totalDrifts = (s && Number(s.total_drifts)) || 0;
+
+    if (totalDrifts === 0) {
+      el.innerHTML = '<div data-testid="csahp3-page" style="padding:18px">' +
+        '<h2 style="font-size:16px;margin:0 0 6px">Auth drift resolution audit hub</h2>' +
+        '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Cohort dashboard built on the CSAHP1 / CSAHP2 audit trail.</div>' +
+        renderControls() +
+        renderWorkerDisclaimer(s) +
+        '<div data-testid="csahp3-empty" class="card" style="padding:14px;margin-top:10px;font-size:12px;color:var(--text-muted)">No auth drift detections in this window.</div>' +
+        '</div>';
+      if (typeof api.postAuthDriftResolutionAuditHubAuditEvent === 'function') {
+        api.postAuthDriftResolutionAuditHubAuditEvent({
+          event: 'view',
+          note: 'window_days=' + state.windowDays + '; total_drifts=0',
+        });
+      }
+      return;
+    }
+
+    el.innerHTML = '<div data-testid="csahp3-page" style="padding:18px">' +
+      '<h2 style="font-size:16px;margin:0 0 6px">Auth drift resolution audit hub</h2>' +
+      '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Cohort dashboard built on the CSAHP1 / CSAHP2 audit trail.</div>' +
+      renderControls() +
+      renderWorkerDisclaimer(s) +
+      // Section 1: rotation funnel
+      '<h3 data-testid="csahp3-section-funnel" style="font-size:13px;margin:14px 0 4px;font-weight:700">Rotation funnel</h3>' +
+      renderFunnelKpis(s) +
+      // Section 2: rotation method distribution
+      '<h3 data-testid="csahp3-section-methods" style="font-size:13px;margin:14px 0 4px;font-weight:700">Rotation method distribution</h3>' +
+      renderMethodDistribution(s) +
+      // Section 3: per-channel metrics
+      '<h3 data-testid="csahp3-section-by-channel" style="font-size:13px;margin:14px 0 4px;font-weight:700">Per-channel metrics</h3>' +
+      renderByChannelTable(s) +
+      // Section 4: top rotators
+      '<h3 data-testid="csahp3-section-top-rotators" style="font-size:13px;margin:14px 0 4px;font-weight:700">Top rotators</h3>' +
+      renderTopRotators(state.topRotators) +
+      // Section 5: trend chart
+      '<h3 data-testid="csahp3-section-trend" style="font-size:13px;margin:14px 0 4px;font-weight:700">Weekly trend</h3>' +
+      renderTrendChart(s) +
+      '</div>';
+
+    if (typeof api.postAuthDriftResolutionAuditHubAuditEvent === 'function') {
+      api.postAuthDriftResolutionAuditHubAuditEvent({
+        event: 'view',
+        note: 'window_days=' + state.windowDays + '; total_drifts=' + totalDrifts,
+      });
+    }
+  }
+
+  window._csahp3Refresh = function() { render(); };
+  window._csahp3SetWindow = function(v) {
+    state.windowDays = Number(v) || 90;
+    if (typeof api.postAuthDriftResolutionAuditHubAuditEvent === 'function') {
+      api.postAuthDriftResolutionAuditHubAuditEvent({
+        event: 'window_changed',
+        note: 'window_days=' + state.windowDays,
+      });
+    }
+    render();
+  };
+
+  await render();
+}
+// ── end Channel Auth Drift Resolution Audit Hub (CSAHP3) ────────────────
 
 // ── Local-only schedule (offline fallback / legacy view) ──────────────────
 async function _pgStaffSchedulingLocal(setTopbar) {

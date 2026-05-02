@@ -124,6 +124,9 @@ from app.routers.channel_auth_health_probe_router import (
 from app.routers.channel_auth_drift_resolution_router import (
     router as channel_auth_drift_resolution_router,
 )
+from app.routers.channel_auth_drift_resolution_audit_hub_router import (
+    router as channel_auth_drift_resolution_audit_hub_router,
+)
 from app.routers.caregiver_delivery_concern_aggregator_router import (
     router as caregiver_delivery_concern_aggregator_router,
 )
@@ -511,6 +514,17 @@ app.include_router(channel_auth_health_probe_router)
 # DCA → DCR loop (#392 → #393) — admin-side resolution surface that the
 # worker honors so the same drift isn't re-flagged after rotation.
 app.include_router(channel_auth_drift_resolution_router)
+# Channel Auth Drift Resolution Audit Hub (CSAHP3, 2026-05-02). Cohort
+# dashboard built on the audit trail emitted by CSAHP1 (#417) and
+# CSAHP2 (#422). Mirrors the DCR2 → DCRO1 pattern (#392/#393): pure
+# read-side analytics, no migration, no worker. Surfaces the drift →
+# mark → confirm rotation funnel + per-channel time-to-rotate /
+# time-to-confirm + per-channel re-flag-within-30d rate (leading
+# indicator of credential storage / policy issues) + top rotators
+# leaderboard. Read-only, clinician minimum, strict cross-clinic
+# scoping. Page-level events: view, window_changed, top_rotators_view,
+# audit_hub_link_clicked.
+app.include_router(channel_auth_drift_resolution_audit_hub_router)
 # Caregiver Delivery Concern Aggregator launch-audit (2026-05-01). Closes
 # section I rec from the Channel Misconfiguration Detector (#389).
 # Rolling-window scan that flags caregivers with N+ delivery concerns
