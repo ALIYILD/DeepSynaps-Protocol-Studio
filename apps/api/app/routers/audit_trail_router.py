@@ -439,6 +439,12 @@ KNOWN_SURFACES = {
     # here: view, resolve_clicked, resolve_modal_opened, resolve_submitted,
     # resolve_failed, list_filter_changed, demo_banner_shown.
     "caregiver_delivery_concern_resolution",
+    # Caregiver Delivery Concern Resolution Audit Hub launch-audit (DCR2,
+    # 2026-05-02). Cohort dashboard surface — distribution of resolution
+    # reasons over time, top resolvers, median time-to-resolve, and
+    # filterable list of resolved rows. Page-level events: view,
+    # window_changed, reason_filter_changed, page_changed, export.
+    "caregiver_delivery_concern_resolution_audit_hub",
 }
 
 

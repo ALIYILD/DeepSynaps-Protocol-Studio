@@ -1423,6 +1423,18 @@ async function renderPage() {
     case 'trial-enrollment': { const { pgTrialEnrollment } = await loadKnowledge(); await pgTrialEnrollment(setTopbar); break; }
     case 'staff-scheduling': { const m = await loadKnowledge(); await m.pgStaffScheduling(setTopbar); break; }
     case 'care-team-coverage': { const m = await loadKnowledge(); await m.pgCareTeamCoverage(setTopbar); break; }
+    // Caregiver Delivery Concern Resolution Audit Hub (DCR2, 2026-05-02).
+    // Cohort dashboard built on the DCR1 audit trail — distribution of
+    // resolution reasons over time so admins can calibrate the DCA
+    // threshold and spot when caregiver_replaced is spiking. Read-only,
+    // clinician minimum.
+    case 'caregiver-delivery-concern-resolution-audit-hub':
+    case 'resolution-audit-hub':
+    case 'dcr-audit-hub': {
+      const m = await loadKnowledge();
+      await m.pgCaregiverDeliveryConcernResolutionAuditHub(setTopbar);
+      break;
+    }
     // Clinician Adherence Hub launch-audit (2026-05-01). Bidirectional
     // counterpart to the patient-side Adherence Events page (#350).
     // Cross-patient triage of adherence reports, side-effects, and

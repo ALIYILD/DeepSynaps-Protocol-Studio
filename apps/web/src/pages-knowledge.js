@@ -7995,10 +7995,15 @@ export async function pgCareTeamCoverage(setTopbar) {
         '</div>';
     }
 
+    var isAdminish = (role === 'admin' || role === 'supervisor' || role === 'regulator');
+    var hubLinkHtml = isAdminish
+      ? '<a href="#caregiver-delivery-concern-resolution-audit-hub" data-testid="ctc-cgcr-hub-link" style="margin-left:auto;font-size:11px;color:var(--accent);text-decoration:none">Resolution audit hub →</a>'
+      : '';
     return '<div data-testid="ctc-cgcr-panel" class="notice" style="margin-top:12px;font-size:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:10px 14px">' +
       '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">' +
       '<span><strong>Resolution</strong></span>' +
       '<span style="color:var(--text-muted)">Mark a flagged caregiver as resolved to clear their DCA cooldown.</span>' +
+      hubLinkHtml +
       '</div>' +
       '<div data-testid="ctc-cgcr-open-section" style="margin-top:8px">' +
       '<div style="font-weight:700;font-size:11px;text-transform:uppercase;color:var(--text-muted)">Open flags' +
@@ -9104,6 +9109,267 @@ export async function pgCareTeamCoverage(setTopbar) {
     api.postAutoPageWorkerAuditEvent({ event: 'polling_tick' });
     render();
   }, 30000);
+
+  await render();
+}
+
+// ── Caregiver Delivery Concern Resolution Audit Hub (DCR2, 2026-05-02) ────
+// Cohort dashboard built on the DCR1 audit trail. Distribution of
+// resolution reasons (concerns_addressed / false_positive /
+// caregiver_replaced / other) over time so admins can:
+//   - calibrate the DCA threshold (high false_positive rate → raise)
+//   - invest in delivery infrastructure when caregiver_replaced spikes
+//   - spot trend changes per clinic
+// Read-only analytics surface; clinician minimum.
+export async function pgCaregiverDeliveryConcernResolutionAuditHub(setTopbar) {
+  setTopbar('Resolution audit hub', `
+    <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px" onclick="window._cgcrHubRefresh()">↺ Refresh</button>
+  `);
+
+  var state = {
+    windowDays: 30,
+    reason: '',
+    page: 1,
+    pageSize: 25,
+    summary: null,
+    list: null,
+    err: null,
+  };
+
+  function _esc(v) {
+    var s = v == null ? '' : String(v);
+    return s.replace(/[&<>"']/g, function(c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+
+  function isAllDemo() {
+    var items = (state.list && Array.isArray(state.list.items)) ? state.list.items : [];
+    if (items.length === 0) return false;
+    return items.every(function(it) {
+      return /demo|seed|mock/i.test(String(it.caregiver_user_id || '')) ||
+        /demo|seed|mock/i.test(String(it.resolver_user_id || ''));
+    });
+  }
+
+  async function loadAll() {
+    var resp = { summary: null, list: null, err: null };
+    try {
+      if (typeof api.caregiverDeliveryConcernResolutionAuditHubSummary === 'function') {
+        resp.summary = await api.caregiverDeliveryConcernResolutionAuditHubSummary({
+          window_days: state.windowDays,
+        });
+      }
+      if (typeof api.caregiverDeliveryConcernResolutionAuditHubList === 'function') {
+        resp.list = await api.caregiverDeliveryConcernResolutionAuditHubList({
+          reason: state.reason || undefined,
+          page: state.page,
+          page_size: state.pageSize,
+        });
+      }
+    } catch (e) {
+      resp.err = String(e && e.message || e || 'unknown');
+    }
+    return resp;
+  }
+
+  function renderKpiTiles(s) {
+    if (!s) {
+      return '<div data-testid="cgcr-hub-kpis-empty" style="padding:14px;font-size:12px;color:var(--text-muted)">Backend unreachable. Cannot render KPI tiles.</div>';
+    }
+    var pctFp = (s.by_reason_pct && s.by_reason_pct.false_positive) || 0;
+    var pctCr = (s.by_reason_pct && s.by_reason_pct.caregiver_replaced) || 0;
+    var medianH = s.median_time_to_resolve_hours;
+    var medianText = medianH == null ? '—' : (Number(medianH).toFixed(1) + 'h');
+    return '<div data-testid="cgcr-hub-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:10px">' +
+      '<div data-testid="cgcr-hub-kpi-total" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Total resolved</div><div style="font-size:22px;font-weight:700">' + _esc(String(s.total_resolved || 0)) + '</div></div>' +
+      '<div data-testid="cgcr-hub-kpi-fp" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">% false positive</div><div style="font-size:22px;font-weight:700">' + _esc(pctFp.toFixed(1)) + '%</div></div>' +
+      '<div data-testid="cgcr-hub-kpi-cr" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">% caregiver replaced</div><div style="font-size:22px;font-weight:700">' + _esc(pctCr.toFixed(1)) + '%</div></div>' +
+      '<div data-testid="cgcr-hub-kpi-median" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Median time-to-resolve</div><div style="font-size:22px;font-weight:700">' + _esc(medianText) + '</div></div>' +
+      '</div>';
+  }
+
+  function renderReasonBars(s) {
+    if (!s || !s.by_reason) return '';
+    var keys = ['concerns_addressed', 'false_positive', 'caregiver_replaced', 'other'];
+    var max = 0;
+    keys.forEach(function(k) { var v = Number(s.by_reason[k]) || 0; if (v > max) max = v; });
+    if (max === 0) {
+      return '<div data-testid="cgcr-hub-reason-bars-empty" style="margin-top:14px;font-size:12px;color:var(--text-muted)">No resolutions to chart.</div>';
+    }
+    var bars = keys.map(function(k) {
+      var v = Number(s.by_reason[k]) || 0;
+      var pct = max > 0 ? Math.round((v / max) * 100) : 0;
+      return '<div data-testid="cgcr-hub-reason-bar" data-reason="' + _esc(k) + '" style="display:flex;align-items:center;gap:8px;margin:4px 0;font-size:12px">' +
+        '<span style="width:170px;text-transform:capitalize">' + _esc(k.replace(/_/g, ' ')) + '</span>' +
+        '<div style="flex:1;background:var(--surface-muted);height:14px;border-radius:4px;overflow:hidden"><div style="background:var(--accent);height:100%;width:' + pct + '%"></div></div>' +
+        '<span style="width:48px;text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(v)) + '</span>' +
+        '</div>';
+    }).join('');
+    return '<div data-testid="cgcr-hub-reason-bars" class="card" style="padding:12px;margin-top:10px">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Resolution reason distribution</div>' +
+      bars + '</div>';
+  }
+
+  function renderTrendChart(s) {
+    if (!s || !Array.isArray(s.trend_buckets)) return '';
+    var buckets = s.trend_buckets;
+    if (buckets.length === 0) return '';
+    var max = 0;
+    buckets.forEach(function(b) { var c = Number(b.count) || 0; if (c > max) max = c; });
+    if (max === 0) {
+      return '<div data-testid="cgcr-hub-trend-empty" class="card" style="padding:12px;margin-top:10px;font-size:12px;color:var(--text-muted)">No trend data.</div>';
+    }
+    var bars = buckets.map(function(b) {
+      var c = Number(b.count) || 0;
+      var h = max > 0 ? Math.round((c / max) * 60) : 0;
+      var label = String(b.bucket_start || '').slice(0, 10);
+      return '<div data-testid="cgcr-hub-trend-bar" style="display:inline-block;width:32px;margin:0 2px;text-align:center;vertical-align:bottom">' +
+        '<div style="height:60px;display:flex;align-items:flex-end;justify-content:center"><div style="width:14px;background:var(--accent);height:' + h + 'px"></div></div>' +
+        '<div style="font-size:9px;color:var(--text-muted);margin-top:2px">' + _esc(label) + '</div>' +
+        '<div style="font-size:10px;font-variant-numeric:tabular-nums">' + _esc(String(c)) + '</div>' +
+        '</div>';
+    }).join('');
+    return '<div data-testid="cgcr-hub-trend" class="card" style="padding:12px;margin-top:10px;overflow-x:auto">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Trend</div>' +
+      '<div style="white-space:nowrap">' + bars + '</div>' +
+      '</div>';
+  }
+
+  function renderTopResolvers(s) {
+    if (!s || !Array.isArray(s.top_resolvers) || s.top_resolvers.length === 0) {
+      return '<div data-testid="cgcr-hub-top-resolvers-empty" class="card" style="padding:12px;margin-top:10px;font-size:12px;color:var(--text-muted)">No resolver data yet.</div>';
+    }
+    var rows = s.top_resolvers.map(function(tr) {
+      var name = tr.resolver_name || tr.resolver_user_id || '—';
+      return '<tr data-testid="cgcr-hub-top-resolver-row">' +
+        '<td><strong>' + _esc(name) + '</strong><br><span style="font-size:10px;color:var(--text-muted)">' + _esc(tr.resolver_user_id || '') + '</span></td>' +
+        '<td style="text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(tr.count || 0)) + '</td>' +
+        '</tr>';
+    }).join('');
+    return '<div data-testid="cgcr-hub-top-resolvers" class="card" style="padding:12px;margin-top:10px">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Top resolvers</div>' +
+      '<table class="data-table" style="width:100%;font-size:12px"><thead><tr><th>Resolver</th><th style="text-align:right">Count</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+      '</div>';
+  }
+
+  function renderListSection(l) {
+    if (!l) {
+      return '<div data-testid="cgcr-hub-list-err" style="padding:12px;color:#ef4444;font-size:12px">Failed to load resolutions list.</div>';
+    }
+    var items = Array.isArray(l.items) ? l.items : [];
+    var total = Number(l.total) || 0;
+    if (items.length === 0) {
+      return '<div data-testid="cgcr-hub-empty" class="card" style="padding:14px;margin-top:10px;font-size:12px;color:var(--text-muted)">No resolved delivery concerns yet.</div>';
+    }
+    var rows = items.map(function(it) {
+      var name = it.caregiver_display_name || it.caregiver_email || it.caregiver_user_id || '—';
+      var resolver = it.resolver_name || it.resolver_user_id || '—';
+      var noteShort = it.resolution_note_short || '';
+      return '<tr data-testid="cgcr-hub-row">' +
+        '<td><strong>' + _esc(name) + '</strong></td>' +
+        '<td>' + _esc(it.resolution_reason || '—') + '</td>' +
+        '<td>' + _esc(resolver) + '</td>' +
+        '<td style="font-size:11px">' + _esc(noteShort) + '</td>' +
+        '<td style="font-size:11px;color:var(--text-muted)">' + _esc((it.resolved_at || '').slice(0, 19).replace('T', ' ')) + '</td>' +
+        '</tr>';
+    }).join('');
+    var pages = Math.max(1, Math.ceil(total / state.pageSize));
+    var pager = '<div data-testid="cgcr-hub-pager" style="display:flex;gap:8px;margin-top:8px;align-items:center;font-size:12px">' +
+      '<button data-testid="cgcr-hub-prev" class="btn btn-sm btn-ghost" ' + (state.page <= 1 ? 'disabled' : '') + ' onclick="window._cgcrHubPrev()">← Prev</button>' +
+      '<span>Page ' + state.page + ' of ' + pages + ' (' + total + ' rows)</span>' +
+      '<button data-testid="cgcr-hub-next" class="btn btn-sm btn-ghost" ' + (state.page >= pages ? 'disabled' : '') + ' onclick="window._cgcrHubNext()">Next →</button>' +
+      '</div>';
+    return '<div data-testid="cgcr-hub-list" class="card" style="padding:12px;margin-top:10px">' +
+      '<table class="data-table" style="width:100%;font-size:12px"><thead><tr><th>Caregiver</th><th>Reason</th><th>Resolver</th><th>Note</th><th>When</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+      pager +
+      '</div>';
+  }
+
+  function renderControls() {
+    var reasons = ['', 'concerns_addressed', 'false_positive', 'caregiver_replaced', 'other'];
+    var chips = reasons.map(function(r) {
+      var label = r === '' ? 'All' : r.replace(/_/g, ' ');
+      var active = (state.reason || '') === r;
+      return '<button data-testid="cgcr-hub-chip" data-reason="' + _esc(r) + '" class="btn btn-sm ' + (active ? '' : 'btn-ghost') + '" onclick="window._cgcrHubSetReason(\'' + _esc(r) + '\')" style="text-transform:capitalize">' + _esc(label) + '</button>';
+    }).join(' ');
+    var windowSelect = '<label style="font-size:11px;margin-right:6px">Window:</label>' +
+      '<select data-testid="cgcr-hub-window" onchange="window._cgcrHubSetWindow(this.value)" style="padding:4px;border:1px solid var(--border);border-radius:4px;font-size:12px">' +
+      [7, 30, 90, 180].map(function(w) {
+        return '<option value="' + w + '"' + (state.windowDays === w ? ' selected' : '') + '>' + w + 'd</option>';
+      }).join('') +
+      '</select>';
+    return '<div data-testid="cgcr-hub-controls" style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:6px">' +
+      '<div>' + windowSelect + '</div>' +
+      '<div data-testid="cgcr-hub-chips">' + chips + '</div>' +
+      '</div>';
+  }
+
+  async function render() {
+    var el = document.getElementById('content');
+    if (!el) return;
+    el.innerHTML = '<div style="padding:14px;font-size:12px;color:var(--text-muted)">Loading resolution audit hub…</div>';
+    var resp = await loadAll();
+    state.summary = resp.summary;
+    state.list = resp.list;
+    state.err = resp.err;
+    if (state.err) {
+      el.innerHTML = '<div data-testid="cgcr-hub-err" class="notice notice-warn" style="padding:14px;font-size:12px">Failed to load resolution audit hub: ' + _esc(state.err) + '</div>';
+      return;
+    }
+    var demoBanner = isAllDemo()
+      ? '<div data-testid="cgcr-hub-demo-banner" class="notice notice-info" style="padding:8px 12px;font-size:11px;margin-bottom:8px">DEMO data — these resolutions are seeded for evaluation and are not regulator-submittable.</div>'
+      : '';
+    var heading = '<div style="display:flex;justify-content:space-between;align-items:center"><h2 style="font-size:16px;margin:0">Resolution audit hub</h2></div>';
+    var disclaimer = '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Cohort dashboard for caregiver delivery-concern resolutions. Source: <code>caregiver_portal.delivery_concern_resolved</code> audit rows (#391).</div>';
+    el.innerHTML = '<div style="padding:14px">' +
+      demoBanner +
+      heading + disclaimer +
+      renderControls() +
+      renderKpiTiles(state.summary) +
+      renderReasonBars(state.summary) +
+      renderTrendChart(state.summary) +
+      renderTopResolvers(state.summary) +
+      renderListSection(state.list) +
+      '</div>';
+
+    if (typeof api.postCaregiverDeliveryConcernResolutionAuditHubAuditEvent === 'function') {
+      api.postCaregiverDeliveryConcernResolutionAuditHubAuditEvent({
+        event: 'view',
+        note: 'window_days=' + state.windowDays + (state.reason ? '; reason=' + state.reason : ''),
+      });
+    }
+  }
+
+  window._cgcrHubRefresh = function() { render(); };
+  window._cgcrHubSetWindow = function(v) {
+    state.windowDays = Number(v) || 30;
+    state.page = 1;
+    if (typeof api.postCaregiverDeliveryConcernResolutionAuditHubAuditEvent === 'function') {
+      api.postCaregiverDeliveryConcernResolutionAuditHubAuditEvent({
+        event: 'window_changed',
+        note: 'window_days=' + state.windowDays,
+      });
+    }
+    render();
+  };
+  window._cgcrHubSetReason = function(r) {
+    state.reason = r || '';
+    state.page = 1;
+    if (typeof api.postCaregiverDeliveryConcernResolutionAuditHubAuditEvent === 'function') {
+      api.postCaregiverDeliveryConcernResolutionAuditHubAuditEvent({
+        event: 'reason_filter_changed',
+        note: 'reason=' + (state.reason || 'all'),
+      });
+    }
+    render();
+  };
+  window._cgcrHubPrev = function() {
+    if (state.page > 1) { state.page -= 1; render(); }
+  };
+  window._cgcrHubNext = function() {
+    state.page += 1; render();
+  };
 
   await render();
 }
