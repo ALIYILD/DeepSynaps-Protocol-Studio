@@ -102,9 +102,19 @@ def normalize_note_format(doc: ClinicalTextDocument) -> ClinicalTextDocument:
     Operates on ``deidentified_text`` when present, otherwise ``raw_text``.
     """
     source = doc.deidentified_text if doc.deidentified_text is not None else doc.raw_text
-    collapsed = _collapse_whitespace(source)
-    sections = _split_into_sections(collapsed)
+    collapsed, sections = build_note_sections_from_text(source)
     return doc.model_copy(update={"normalized_text": collapsed, "sections": sections})
+
+
+def build_note_sections_from_text(text: str) -> tuple[str, list[TextSection]]:
+    """
+    Collapse whitespace and split into headed sections (same rules as :func:`normalize_note_format`).
+
+    Public helper for :mod:`deepsynaps_text.core_nlp` and other callers that need sections
+    without mutating a :class:`~deepsynaps_text.schemas.ClinicalTextDocument`.
+    """
+    collapsed = _collapse_whitespace(text)
+    return collapsed, _split_into_sections(collapsed)
 
 
 # ---------------------------------------------------------------------------

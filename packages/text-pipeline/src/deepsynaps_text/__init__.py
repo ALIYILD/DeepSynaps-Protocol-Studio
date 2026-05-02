@@ -1,31 +1,63 @@
 """DeepSynaps clinical text pipeline package."""
 
+from deepsynaps_text.core_nlp import (
+    ClinicalEntityBackend,
+    RuleBasedClinicalBackend,
+    SpaCyClinicalBackend,
+    detect_negation_and_assertion,
+    detect_sections,
+    detect_temporal_context,
+    extract_clinical_entities,
+)
 from deepsynaps_text.ingestion import (
     DeidBackend,
     RegexDeidBackend,
+    build_note_sections_from_text,
     deidentify_text,
     import_clinical_text,
     normalize_note_format,
 )
 from deepsynaps_text.schemas import (
+    AssertionStatus,
     ClinicalChannel,
+    ClinicalEntity,
+    ClinicalEntityExtractionResult,
     ClinicalTextDocument,
     ClinicalTextMetadata,
+    EntityType,
     PhiKind,
     PhiSpan,
+    SectionedText,
+    TemporalContext,
     TextSection,
+    TextSpan,
 )
 
 __all__ = [
+    "AssertionStatus",
     "ClinicalChannel",
+    "ClinicalEntity",
+    "ClinicalEntityBackend",
+    "ClinicalEntityExtractionResult",
     "ClinicalTextDocument",
     "ClinicalTextMetadata",
     "DeidBackend",
+    "EntityType",
     "PhiKind",
     "PhiSpan",
     "RegexDeidBackend",
+    "RuleBasedClinicalBackend",
+    "SectionedText",
+    "SpaCyClinicalBackend",
+    "TemporalContext",
     "TextSection",
+    "TextSpan",
+    "build_note_sections_from_text",
     "deidentify_text",
+    "detect_negation_and_assertion",
+    "detect_sections",
+    "detect_temporal_context",
+    "extract_clinical_entities",
     "import_clinical_text",
     "normalize_note_format",
 ]

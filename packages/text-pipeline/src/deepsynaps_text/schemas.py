@@ -84,3 +84,86 @@ class ClinicalTextDocument(BaseModel):
     )
     metadata: ClinicalTextMetadata
     model_config = {"frozen": False}
+
+
+# --- Core clinical NLP (entities, sections) ---------------------------------
+
+EntityType = Literal[
+    "problem",
+    "diagnosis",
+    "symptom",
+    "medication",
+    "lab",
+    "procedure",
+    "device",
+    "neuromodulation",
+    "other",
+]
+
+AssertionStatus = Literal[
+    "present",
+    "absent",
+    "hypothetical",
+    "historical",
+    "unknown",
+]
+
+TemporalContext = Literal["past", "current", "future", "unknown"]
+
+
+class TextSpan(BaseModel):
+    """Character span in ``ClinicalEntityExtractionResult.source_text``."""
+
+    start: int = Field(ge=0, description="Inclusive character offset.")
+    end: int = Field(ge=0, description="Exclusive character offset.")
+    text: str = Field(description="Surface form covered by this span.")
+
+
+class ClinicalEntity(BaseModel):
+    """Single extracted clinical mention with context fields (cTAKES/medSpaCy-style)."""
+
+    span: TextSpan
+    entity_type: EntityType
+    negation_assertion: AssertionStatus = Field(
+        default="unknown",
+        description="Negation / certainty / experiencer collapsed for MVP.",
+    )
+    temporal_context: TemporalContext = Field(
+        default="unknown",
+        description="Coarse temporality relative to the encounter.",
+    )
+    section: str = Field(
+        description="Section label: HPI, MEDICATIONS, PLAN, message_body, BODY, etc.",
+    )
+    attributes: dict[str, str] = Field(
+        default_factory=dict,
+        description="e.g. dose, route, frequency for medications.",
+    )
+
+    model_config = {"frozen": False}
+
+
+class ClinicalEntityExtractionResult(BaseModel):
+    """Output of entity extraction plus downstream context layers."""
+
+    document_id: str
+    source_text: str = Field(description="Exact string spans reference into.")
+    backend: str = Field(description="Logical backend id, e.g. spacy_med, rule.")
+    model_version: str | None = Field(
+        default=None,
+        description="Optional model or ruleset version string.",
+    )
+    entities: list[ClinicalEntity] = Field(default_factory=list)
+
+    model_config = {"frozen": False}
+
+
+class SectionedText(BaseModel):
+    """Note or message segmentation for NLP and display."""
+
+    document_id: str
+    full_text: str = Field(description="Same basis as offsets in ``sections``.")
+    sections: list[TextSection] = Field(
+        default_factory=list,
+        description="Ordered blocks with global character offsets.",
+    )
