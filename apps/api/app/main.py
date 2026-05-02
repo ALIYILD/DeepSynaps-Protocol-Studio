@@ -130,6 +130,9 @@ from app.routers.channel_auth_drift_resolution_audit_hub_router import (
 from app.routers.auth_drift_rotation_policy_advisor_router import (
     router as auth_drift_rotation_policy_advisor_router,
 )
+from app.routers.rotation_policy_advisor_threshold_tuning_router import (
+    router as rotation_policy_advisor_threshold_tuning_router,
+)
 from app.routers.rotation_policy_advisor_outcome_tracker_router import (
     router as rotation_policy_advisor_outcome_tracker_router,
 )
@@ -560,6 +563,15 @@ app.include_router(auth_drift_rotation_policy_advisor_router)
 # no new schema, no migration. Page-level events: view, window_changed,
 # run_snapshot_now_clicked, demo_banner_shown.
 app.include_router(rotation_policy_advisor_outcome_tracker_router)
+# Rotation Policy Advisor Threshold Tuning Console (CSAHP6, 2026-05-02).
+# Closes the recursion loop opened by CSAHP5 (#434). Lets admins propose
+# new thresholds for any of the 3 advice rules (REFLAG_HIGH /
+# MANUAL_REFLAG / AUTH_DOMINANT), replay them against the last 90 days
+# of frozen ``advice_snapshot`` rows, and adopt the new threshold when
+# the replay shows higher predictive accuracy. Adopted values take
+# effect immediately on the next CSAHP4 ``/advice`` call. Same
+# calibration chain logic, applied recursively to the heuristic itself.
+app.include_router(rotation_policy_advisor_threshold_tuning_router)
 # Caregiver Delivery Concern Aggregator launch-audit (2026-05-01). Closes
 # section I rec from the Channel Misconfiguration Detector (#389).
 # Rolling-window scan that flags caregivers with N+ delivery concerns
