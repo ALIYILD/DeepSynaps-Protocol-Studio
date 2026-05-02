@@ -2903,7 +2903,11 @@ const TAB_META = {
 function _isDemoMode() {
   // `import.meta.env` is injected by Vite in the browser build, but unit tests
   // run under plain Node where `import.meta.env` is undefined.
-  return Boolean(import.meta?.env?.DEV) || import.meta?.env?.VITE_ENABLE_DEMO === '1';
+  try {
+    return !!(import.meta.env && (import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1'));
+  } catch (_e) {
+    return false;
+  }
 }
 
 function _demoBanner() {
@@ -2979,7 +2983,7 @@ var DEMO_QEEG_ANALYSIS = {
   sample_rate_hz: 256,
   recording_duration_sec: 600,
   recording_date: '2026-04-07T10:51:29',
-  amplifier_type: 'MITSAR',
+  amplifier_type: 'Generic-19ch',
   electrode_placement: '10-20 System',
   eeg_state: 'Eyes Open',
   channel_names: ['Fp1','Fpz','Fp2','F7','F3','Fz','F4','F8','T3','C3','Cz','C4','T4','T5','P3','Pz','P4','T6','O1','Oz','O2'],
@@ -4677,8 +4681,8 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
     + '<div><div class="qeeg-hero__title">qEEG Analyzer</div>'
     + '<div class="qeeg-hero__sub">Spectral analysis &middot; AI interpretation &middot; Pre/post comparison</div>'
     + '<div style="font-size:12px;color:var(--text-tertiary);margin-top:6px">Decision-support only. Review acquisition quality and clinician context before acting on AI summaries.</div></div>'
-    + '<div class="qeeg-export-bar" style="margin-left:auto" data-testid="qeeg-hero-actions">'
-    + '<button class="btn btn-sm btn-outline" aria-label="Open the canonical Raw EEG Workbench for this recording" id="qeeg-hero-open-workbench"' + heroExportDisabled + '>Open Raw Workbench</button>'
+    + '<div class="qeeg-export-bar" id="qeeg-raw-summary-bar" style="margin-left:auto" data-testid="qeeg-hero-actions" title="Need full-screen editing?">'
+    + '<button class="btn btn-sm btn-outline" aria-label="Open the canonical Raw EEG Workbench for this recording" id="qeeg-hero-open-workbench"' + heroExportDisabled + '>Open Raw EEG Workbench</button>'
     + '<button class="btn btn-sm btn-outline" aria-label="Export band powers and z-scores as CSV" id="qeeg-hero-export-csv"' + heroExportDisabled + '>CSV</button>'
     + '<button class="btn btn-sm btn-outline" aria-label="Export patient FHIR bundle" onclick="window._qeegExportFHIRBundle()"' + heroExportDisabled + '>FHIR</button>'
     + '<button class="btn btn-sm btn-outline" aria-label="Export patient BIDS derivatives package" onclick="window._qeegExportBIDSPackage()"' + heroExportDisabled + '>BIDS</button>'
@@ -5645,60 +5649,37 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   // TAB: RAW DATA
   // ══════════════════════════════════════════════════════════════════════════
   if (tab === 'raw') {
-    const analysisId = window._qeegSelectedId;
+    let analysisId = window._qeegSelectedId;
+    // In demo mode, auto-select demo data so the workbench loads immediately
+    if (!analysisId && _isDemoMode()) {
+      analysisId = 'demo';
+      window._qeegSelectedId = 'demo';
+    }
     if (!analysisId) {
-      const editorBtn = _isDemoMode()
-        ? '<button class="btn btn-primary btn-sm" onclick="window._qeegSelectedId=\'demo\';window._qeegTab=\'raw\';window._nav(\'qeeg-analysis\')">Open Raw Data Editor</button>'
-        : '';
-      const workbenchOnclick = _isDemoMode()
-        ? "window._qeegSelectedId='demo';window.location.hash='#/qeeg-raw-workbench/demo';window._nav('qeeg-raw-workbench')"
-        : "window._nav('qeeg-raw-workbench')";
       tabEl.innerHTML =
         '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:var(--surface-tint-1);border:1px solid var(--border);text-align:center">'
         + '<div style="font-size:32px;margin-bottom:8px">📈</div>'
         + '<div style="font-size:18px;font-weight:700;margin-bottom:6px">No EEG selected</div>'
-        + '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px">Open the inline editor with sample data, pick a patient and upload a new EDF, jump to an existing analysis, or open the full-screen workbench for manual analysis.</div>'
+        + '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px">Upload a recording from the Patient &amp; Upload tab, or open demo data to explore the Raw EEG Workbench.</div>'
         + '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">'
-        +   editorBtn
-        +   '<button class="btn btn-outline btn-sm" onclick="window._nav(\'qeeg-raw-workbench\')">Pick patient &amp; upload</button>'
-        +   '<button class="btn btn-outline btn-sm" onclick="window._qeegTab=\'patient\';window._nav(\'qeeg-analysis\')">Use existing analysis</button>'
-        +   '<button class="btn btn-outline btn-sm" onclick="' + workbenchOnclick + '">Open Raw EEG Workbench (full-screen)</button>'
+        +   '<button class="btn btn-outline btn-sm" onclick="window._qeegTab=\'patient\';window._nav(\'qeeg-analysis\')">Upload recording</button>'
         + '</div>'
         + '</div>';
       return;
     }
-    tabEl.innerHTML = '<div style="text-align:center;padding:48px"><div class="spinner"></div><div style="margin-top:12px;font-size:13px;color:var(--text-secondary)">Loading Raw Data viewer&hellip;</div></div>';
+    // Load the full-screen Raw EEG Workbench inside the tab
+    tabEl.innerHTML = '<div style="text-align:center;padding:48px"><div class="spinner"></div><div style="margin-top:12px;font-size:13px;color:var(--text-secondary)">Loading Raw EEG Workbench&hellip;</div></div>';
     try {
-      const { renderRawDataTab } = await import('./pages-qeeg-raw.js');
-      await renderRawDataTab(tabEl, analysisId, patientId);
-      // Compact workbench link bar below the viewer
-      var summaryBar = document.createElement('div');
-      summaryBar.style.cssText = 'display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px;padding:10px 14px;border-radius:10px;background:var(--surface-tint-1);border:1px solid var(--border);font-size:11px;color:var(--text-secondary)';
-      summaryBar.id = 'qeeg-raw-summary-bar';
-      summaryBar.innerHTML = '<span>Need full-screen editing? <a href="#" style="color:var(--blue)" onclick="window._qeegOpenWorkbench&&window._qeegOpenWorkbench(\'' + esc(analysisId) + '\');return false;">Open Raw EEG Workbench</a></span>'
-        + '<span style="margin-left:auto;display:flex;gap:10px;align-items:center">'
-        + '<span id="qeeg-raw-summary-ch">-- channels</span>'
-        + '<span id="qeeg-raw-summary-quality">--% good</span>'
-        + '<span id="qeeg-raw-summary-band">-- dominant</span>'
-        + '</span>';
-      tabEl.appendChild(summaryBar);
-      var learningWrap = document.createElement('div');
-      learningWrap.style.marginTop = '12px';
-      learningWrap.innerHTML = renderLearningEEGReferenceCard({
-        audience: 'analyzer',
-        title: 'Learning EEG Companion',
-        intro: 'Structured reference material for the qEEG analyzer and raw viewer. Use it to connect quantitative outputs back to standard EEG interpretation concepts.'
+      const mod = await import('./pages-qeeg-raw-workbench.js');
+      // The workbench uses position:fixed so it takes over — pass setTopbar + navigate
+      await mod.pgQEEGRawWorkbench(function(title) {
+        // setTopbar callback — we're inside the analyzer so skip
+      }, function(target) {
+        // navigate callback — route back to analyzer tabs
+        if (typeof window._nav === 'function') window._nav(target);
       });
-      tabEl.appendChild(learningWrap);
-      window._qeegOpenWorkbench = function(id, mode) {
-        window._qeegSelectedId = id;
-        window.location.hash = '#/qeeg-raw-workbench/' + encodeURIComponent(id) + (mode ? '?mode=' + encodeURIComponent(mode) : '');
-        if (typeof window._nav === 'function') window._nav('qeeg-raw-workbench');
-      };
-      // Wire live summary updates from the raw viewer state
-      _wireRawViewerSummary(tabEl, analysisId);
     } catch (err) {
-      tabEl.innerHTML = '<div style="color:var(--red);padding:24px" role="alert">Failed to load Raw Data viewer: ' + esc(String(err.message || err)) + '</div>';
+      tabEl.innerHTML = '<div style="color:var(--red);padding:24px" role="alert">Failed to load Raw EEG Workbench: ' + esc(String(err.message || err)) + '</div>';
     }
     return;
   }

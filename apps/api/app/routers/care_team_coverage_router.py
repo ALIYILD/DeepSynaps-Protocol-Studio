@@ -628,6 +628,35 @@ class CoverageAuditOut(BaseModel):
     event_id: str
 
 
+class DeliveryConcernRowOut(BaseModel):
+    """One patient-flagged caregiver-delivery concern.
+
+    Sourced from the
+    ``clinician_inbox.caregiver_delivery_concern_to_clinician_mirror``
+    audit rows the Patient Delivery-Failure Flag emits when a patient
+    files a delivery concern. NO PHI of the caregiver beyond first
+    name; the patient first name is loaded via the patient lookup the
+    Inbox already performs.
+    """
+
+    audit_event_id: str
+    patient_id: str
+    patient_first_name: Optional[str] = None
+    caregiver_user_id: Optional[str] = None
+    caregiver_first_name: Optional[str] = None
+    dispatch_id: Optional[str] = None
+    concern_text: Optional[str] = None
+    flagged_at: str
+    is_demo: bool = False
+
+
+class DeliveryConcernsListOut(BaseModel):
+    items: list[DeliveryConcernRowOut] = Field(default_factory=list)
+    total: int = 0
+    since: str = ""
+    until: str = ""
+
+
 # ── Roster ──────────────────────────────────────────────────────────────────
 
 
@@ -1620,3 +1649,146 @@ def post_audit_event(
         using_demo_data=bool(body.using_demo_data),
     )
     return CoverageAuditOut(accepted=True, event_id=eid)
+
+
+# ── Patient delivery concerns (mirror feed) ─────────────────────────────────
+
+
+_DLC_NOTE_PATIENT_RE = re.compile(r"patient=([a-zA-Z0-9_\-]+)")
+_DLC_NOTE_CAREGIVER_RE = re.compile(r"caregiver_user=([a-zA-Z0-9_\-]+)")
+_DLC_NOTE_DISPATCH_RE = re.compile(r"dispatch=([a-zA-Z0-9_\-]+)")
+_DLC_NOTE_CONCERN_RE = re.compile(r"concern=(.*)$")
+
+
+def _parse_delivery_concern_note(note: str) -> dict[str, Optional[str]]:
+    out: dict[str, Optional[str]] = {
+        "patient_id": None,
+        "caregiver_user_id": None,
+        "dispatch_id": None,
+        "concern_text": None,
+    }
+    if not note:
+        return out
+    m_p = _DLC_NOTE_PATIENT_RE.search(note)
+    if m_p:
+        out["patient_id"] = m_p.group(1)
+    m_c = _DLC_NOTE_CAREGIVER_RE.search(note)
+    if m_c:
+        out["caregiver_user_id"] = m_c.group(1)
+    m_d = _DLC_NOTE_DISPATCH_RE.search(note)
+    if m_d:
+        out["dispatch_id"] = m_d.group(1)
+    m_t = _DLC_NOTE_CONCERN_RE.search(note)
+    if m_t:
+        out["concern_text"] = m_t.group(1).strip()[:480]
+    return out
+
+
+@router.get(
+    "/delivery-concerns",
+    response_model=DeliveryConcernsListOut,
+)
+def list_delivery_concerns(
+    since: Optional[str] = Query(default=None, max_length=32),
+    until: Optional[str] = Query(default=None, max_length=32),
+    limit: int = Query(default=100, ge=1, le=500),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> DeliveryConcernsListOut:
+    """Patient-filed caregiver-delivery concerns visible to clinicians.
+
+    Reads ``audit_events`` rows where
+    ``action='clinician_inbox.caregiver_delivery_concern_to_clinician_mirror'``
+    and the patient is in the actor's clinic scope (clinicians see
+    their own clinic's patients; admins see all). The same Inbox
+    HIGH-priority predicate already routes these rows into the
+    breach feed; this endpoint exposes them in a stable shape so the
+    Care Team Coverage page can render a dedicated subsection without
+    re-implementing the patient-id parsing.
+    """
+    _gate_read(actor)
+    until_dt = datetime.now(timezone.utc)
+    since_dt = until_dt - timedelta(days=14)
+    parsed_since = _parse_iso(since)
+    parsed_until = _parse_iso(until)
+    if parsed_since is not None:
+        since_dt = parsed_since
+    if parsed_until is not None:
+        until_dt = parsed_until
+    if since_dt > until_dt:
+        since_dt, until_dt = until_dt, since_dt
+
+    rows = (
+        db.query(AuditEventRecord)
+        .filter(
+            AuditEventRecord.action
+            == "clinician_inbox.caregiver_delivery_concern_to_clinician_mirror",
+        )
+        .order_by(AuditEventRecord.created_at.desc())
+        .limit(limit * 4)  # over-pull so we can scope-filter without missing rows
+        .all()
+    )
+
+    is_admin = _is_admin_scope(actor)
+    actor_clinic = actor.clinic_id
+
+    items: list[DeliveryConcernRowOut] = []
+    for r in rows:
+        ts = _parse_iso(r.created_at)
+        if ts is None:
+            continue
+        if not (since_dt <= ts <= until_dt):
+            continue
+        parsed = _parse_delivery_concern_note(r.note or "")
+        patient_id = parsed["patient_id"] or r.target_id
+        if not patient_id:
+            continue
+        # Cross-clinic scope: clinicians only see patients at their clinic.
+        if not is_admin:
+            patient = db.query(Patient).filter_by(id=patient_id).first()
+            if patient is None:
+                continue
+            if patient.clinician_id:
+                u = db.query(User).filter_by(id=patient.clinician_id).first()
+                if u is None or u.clinic_id != actor_clinic:
+                    continue
+            else:
+                # No clinician on file — defensive default to drop.
+                continue
+        # Patient first name + caregiver first name — first-name only.
+        patient_first_name: Optional[str] = None
+        p = db.query(Patient).filter_by(id=patient_id).first()
+        if p is not None and p.first_name:
+            patient_first_name = (p.first_name.strip() or None)
+        caregiver_first_name: Optional[str] = None
+        cg_id = parsed["caregiver_user_id"]
+        if cg_id:
+            cg_user = db.query(User).filter_by(id=cg_id).first()
+            if cg_user is not None and cg_user.display_name:
+                first_token = cg_user.display_name.strip().split(" ", 1)[0]
+                if first_token:
+                    caregiver_first_name = first_token[:64]
+
+        is_demo = "DEMO" in (r.note or "").upper().split(";")[0]
+        items.append(
+            DeliveryConcernRowOut(
+                audit_event_id=r.event_id,
+                patient_id=patient_id,
+                patient_first_name=patient_first_name,
+                caregiver_user_id=cg_id,
+                caregiver_first_name=caregiver_first_name,
+                dispatch_id=parsed["dispatch_id"],
+                concern_text=parsed["concern_text"],
+                flagged_at=r.created_at,
+                is_demo=is_demo,
+            )
+        )
+        if len(items) >= limit:
+            break
+
+    return DeliveryConcernsListOut(
+        items=items,
+        total=len(items),
+        since=since_dt.isoformat(),
+        until=until_dt.isoformat(),
+    )

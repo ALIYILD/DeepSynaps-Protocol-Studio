@@ -24,6 +24,12 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# Non-login shells often omit ~/.fly/bin; curl https://fly.io/install.sh adds flyctl there.
+if [ -x "${HOME:-}/.fly/bin/flyctl" ]; then
+  PATH="${HOME}/.fly/bin:${PATH}"
+  export PATH
+fi
+
 NETLIFY_SITE_ID="13baea11-07e8-4ab3-9c25-af1f045c845b"
 API_BASE_URL="https://deepsynaps-studio.fly.dev"
 
@@ -50,6 +56,8 @@ case "${1:-}" in
 esac
 
 if [ "$want_web" = 1 ]; then
+  echo "▶ Installing npm workspace dependencies (npm ci)"
+  npm ci
   echo "▶ Building apps/web (demo mode on, API → $API_BASE_URL)"
   (
     cd apps/web

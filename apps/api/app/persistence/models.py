@@ -2211,6 +2211,37 @@ class AnalysisAnnotation(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
+class AutoCleanRun(Base):
+    """One AI auto-clean proposal cycle for a qEEG analysis (migration 047)."""
+    __tablename__ = "auto_clean_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    analysis_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    proposal_json: Mapped[str] = mapped_column(Text(), nullable=False)
+    accepted_items_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    rejected_items_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    created_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
+
+class CleaningDecision(Base):
+    """Audit row for every AI suggestion + clinician accept/edit/reject (migration 047)."""
+    __tablename__ = "cleaning_decisions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    analysis_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    auto_clean_run_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("auto_clean_runs.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
+    actor: Mapped[str] = mapped_column(String(8), nullable=False)  # 'ai' | 'user'
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    target: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    payload_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    accepted_by_user: Mapped[Optional[bool]] = mapped_column(Boolean(), nullable=True)
+    confidence: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
 # ── MRI Analyzer Models (migration 039) ──────────────────────────────────────
 #
 # Mirrors ``packages/mri-pipeline/medrag_extensions/04_migration_mri.sql``.
@@ -4030,5 +4061,112 @@ class UserContactMapping(Base):
     twilio_phone: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     updated_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class CaregiverConsentGrant(Base):
+    """Patient → caregiver consent grant.
+
+    Closes the caregiver-share loop opened by Patient Digest #376. A
+    grant is the durable, append-aware record that a patient has
+    explicitly authorised a specific caregiver user to receive specific
+    classes of clinical artefacts (digest summaries, messages, reports,
+    wearables). Until a grant exists with the relevant scope flag set
+    True, downstream "share-with-caregiver" endpoints stay
+    ``delivery_status='queued'`` (intent recorded, delivery NOT made).
+
+    One row per (patient, caregiver, granted_at). Revocation never
+    deletes — it stamps ``revoked_at`` + ``revoked_by_user_id`` +
+    ``revocation_reason`` so the regulator transcript stays intact.
+    Subsequent grants of the same caregiver create a new row (revisions
+    are recorded in :class:`CaregiverConsentRevision`).
+
+    ``scope`` is a JSON-encoded TEXT object. Canonical keys:
+    ``digest`` / ``messages`` / ``reports`` / ``wearables``. Unknown
+    keys are tolerated (forward-compatible) but ignored by the gate.
+
+    Soft FKs to ``patients.id`` and ``users.id`` so deleting either does
+    NOT cascade-clear the grant (audit history stays intact).
+    """
+
+    __tablename__ = "caregiver_consent_grants"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    caregiver_user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    granted_at: Mapped[str] = mapped_column(String(64), nullable=False)
+    granted_by_user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    revoked_at: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    revoked_by_user_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    revocation_reason: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    scope: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # JSON object
+    note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class CaregiverConsentRevision(Base):
+    """Append-only revisions for :class:`CaregiverConsentGrant`.
+
+    One row per state-change on a grant (create, scope_edit, revoke).
+    The grant row carries the current snapshot; this table carries the
+    full history so a regulator can reconstruct the timeline of who
+    granted / revised / revoked what scope at which moment.
+    """
+
+    __tablename__ = "caregiver_consent_revisions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    grant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    caregiver_user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)  # create | scope_edit | revoke
+    scope_before: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    scope_after: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    actor_user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    reason: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class CaregiverDigestPreference(Base):
+    """Caregiver email-digest preference row (2026-05-01).
+
+    Closes the bidirectional notification loop opened by the Caregiver
+    Notification Hub (#379). The Hub gives caregivers an in-app feed +
+    unread badge; this row carries the durable preference the daily-
+    digest worker reads to decide whether to dispatch an email/Slack/SMS
+    roll-up of unread notifications via the on-call delivery adapters.
+
+    One row per caregiver user (``caregiver_user_id`` is unique). A
+    missing row is treated as ``enabled=False`` so the worker defaults to
+    silence until the caregiver opts in. ``last_sent_at`` is stamped by
+    the worker after a successful dispatch and used to enforce the per-
+    caregiver 24h cooldown.
+
+    Soft FK to ``users.id`` so deleting a user does not cascade-clear the
+    preference row.
+    """
+
+    __tablename__ = "caregiver_digest_preferences"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    caregiver_user_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, index=True, unique=True
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    frequency: Mapped[str] = mapped_column(String(16), nullable=False, default="daily")
+    time_of_day: Mapped[str] = mapped_column(String(8), nullable=False, default="08:00")
+    last_sent_at: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # Per-Caregiver Channel Preference launch-audit (2026-05-01). Optional
+    # caregiver-level override of the clinic's per-surface dispatch chain
+    # (see EscalationPolicy from #374). When set the worker resolves the
+    # dispatch chain as ``[caregiver.preferred_channel, *clinic_chain]``
+    # with dedup so the caregiver's preferred adapter is tried first while
+    # the clinic's escalation order remains intact as the fallback. Values
+    # come from :data:`app.services.oncall_delivery.ADAPTER_CHANNEL` —
+    # currently ``email`` / ``sms`` / ``slack`` / ``pagerduty``. NULL means
+    # "no caregiver-level override; use the clinic chain as-is".
+    preferred_channel: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     created_at: Mapped[str] = mapped_column(String(64), nullable=False)
     updated_at: Mapped[str] = mapped_column(String(64), nullable=False)

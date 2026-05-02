@@ -66,6 +66,15 @@ Configuration
     Routing key is the v2 events integration key for the destination
     service. When either is absent, :class:`PagerDutyAdapter` is
     registered as ``enabled=False``.
+``SENDGRID_API_KEY``  +  ``SENDGRID_FROM_ADDRESS``
+    Both required to enable :class:`SendGridEmailAdapter`. POSTs to
+    ``https://api.sendgrid.com/v3/mail/send`` with a Bearer token;
+    SendGrid returns ``202 Accepted`` on a successful queue. Used by the
+    Caregiver Email Digest worker (#380) to turn the mock dispatch into
+    a real outbound email when both env vars are set. Loud-signal
+    on-call channels (PagerDuty / Slack / Twilio) still own the default
+    on-call dispatch order; SendGrid is opt-in for the email channel
+    only via :func:`build_email_digest_service`.
 ``DEEPSYNAPS_DELIVERY_TIMEOUT_SEC``
     Per-adapter HTTP timeout in seconds. Defaults to 5. Bad values fall
     back to 5.
@@ -469,6 +478,166 @@ class PagerDutyAdapter:
         )
 
 
+class SendGridEmailAdapter:
+    """SendGrid ``v3/mail/send`` adapter.
+
+    POST ``https://api.sendgrid.com/v3/mail/send`` with a Bearer token.
+    Routes to ``message.recipient_email``; refuses to dispatch when the
+    field is missing (the audit row records ``failed`` with a reason so
+    the regulator transcript stays honest about why the email did not
+    leave). Only enabled when BOTH ``SENDGRID_API_KEY`` and
+    ``SENDGRID_FROM_ADDRESS`` are set.
+
+    SendGrid returns ``202 Accepted`` on a successful queue (the message
+    has been handed off to their delivery infrastructure). 4xx / 5xx are
+    stamped ``failed`` with the response status code captured in
+    ``raw_response`` so retry tooling can drive back-off / re-route.
+    Timeouts count as a ``failed`` adapter at the 5s ceiling — the
+    dispatch loop is bounded so a hung SendGrid edge cannot stall the
+    Caregiver Email Digest worker.
+    """
+
+    name = "sendgrid"
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        from_address: Optional[str] = None,
+    ) -> None:
+        self.api_key = api_key if api_key is not None else os.environ.get("SENDGRID_API_KEY")
+        self.from_address = (
+            from_address
+            if from_address is not None
+            else os.environ.get("SENDGRID_FROM_ADDRESS")
+        )
+        self.enabled = bool(self.api_key and self.from_address)
+
+    def send(self, message: PageMessage) -> DeliveryResult:
+        if not self.enabled:
+            return DeliveryResult(
+                status="failed",
+                adapter=self.name,
+                note="disabled: SENDGRID_API_KEY / SENDGRID_FROM_ADDRESS missing",
+            )
+        if not message.recipient_email:
+            return DeliveryResult(
+                status="failed",
+                adapter=self.name,
+                note="no recipient_email on message",
+            )
+        # Build a HTML + plaintext multipart envelope. SendGrid's v3 API
+        # requires both ``personalizations[0].to`` and ``content`` of at
+        # least one type; we send text/plain with the body verbatim.
+        payload = {
+            "personalizations": [
+                {
+                    "to": [
+                        {
+                            "email": message.recipient_email,
+                            "name": message.recipient_display_name
+                            or message.recipient_email,
+                        }
+                    ],
+                    "subject": _sendgrid_subject(message),
+                }
+            ],
+            "from": {
+                "email": self.from_address,
+                "name": "DeepSynaps Studio",
+            },
+            "content": [
+                {"type": "text/plain", "value": message.body or ""},
+            ],
+            "categories": [
+                f"deepsynaps:{message.surface}"[:255],
+            ],
+            "custom_args": {
+                "audit_event_id": message.audit_event_id,
+                "surface": message.surface,
+                "clinic_id": message.clinic_id,
+            },
+        }
+        started = _now_ms()
+        try:
+            with httpx.Client(timeout=_timeout_sec()) as client:
+                resp = client.post(
+                    "https://api.sendgrid.com/v3/mail/send",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+        except httpx.TimeoutException:
+            return DeliveryResult(
+                status="failed",
+                adapter=self.name,
+                note="timeout",
+                latency_ms=_now_ms() - started,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            return DeliveryResult(
+                status="failed",
+                adapter=self.name,
+                note=f"error: {exc.__class__.__name__}",
+                latency_ms=_now_ms() - started,
+            )
+        latency = _now_ms() - started
+        # SendGrid returns 202 Accepted on success — also accept the
+        # broader 2xx range for forward-compatibility.
+        if 200 <= resp.status_code < 300:
+            # SendGrid's success response carries an ``X-Message-Id``
+            # header (when sandbox-mode is off) we capture as the
+            # external_id so the audit row can be correlated against
+            # the SendGrid Activity feed for delivery tracking.
+            try:
+                ext_id = (
+                    resp.headers.get("X-Message-Id")
+                    or resp.headers.get("x-message-id")
+                    or None
+                )
+            except Exception:
+                ext_id = None
+            return DeliveryResult(
+                status="sent",
+                adapter=self.name,
+                external_id=str(ext_id) if ext_id else None,
+                raw_response={"status_code": resp.status_code, "x_message_id": ext_id},
+                latency_ms=latency,
+                note=f"sendgrid 202 x_message_id={ext_id or '-'}",
+            )
+        # Capture a short body snippet for the audit row. Avoid logging
+        # full response bodies (SendGrid sometimes echoes the recipient
+        # email in the error envelope; the snippet is bounded to 200 chars
+        # so PHI exposure is minimised).
+        try:
+            err_body = resp.text[:200]
+        except Exception:
+            err_body = ""
+        return DeliveryResult(
+            status="failed",
+            adapter=self.name,
+            raw_response={"status_code": resp.status_code, "body": err_body},
+            latency_ms=latency,
+            note=f"http {resp.status_code}",
+        )
+
+
+def _sendgrid_subject(message: PageMessage) -> str:
+    """Subject line for the SendGrid envelope.
+
+    The Caregiver Email Digest worker carries ``surface=
+    'caregiver_email_digest'`` so we surface a calm, plainspoken
+    subject. Other surfaces (on-call paging) get a louder prefix so the
+    inbox row is unmissable.
+    """
+    if message.surface == "caregiver_email_digest":
+        return "Your DeepSynaps caregiver digest"
+    if message.severity == "critical":
+        return f"[DeepSynaps PAGE] {message.surface}"
+    return f"[DeepSynaps] {message.surface}"
+
+
 # ---------------------------------------------------------------------------
 # Dispatch service
 # ---------------------------------------------------------------------------
@@ -484,11 +653,136 @@ DEFAULT_ADAPTER_ORDER: tuple[type, ...] = (
 )
 
 
+# Email-channel adapter order. SendGrid is the only currently-wired
+# email adapter; we keep the tuple for symmetry so a future SES adapter
+# can drop in without churning the worker call site.
+EMAIL_ADAPTER_ORDER: tuple[type, ...] = (
+    SendGridEmailAdapter,
+)
+
+
 _ADAPTER_FACTORIES: dict[str, type] = {
     "pagerduty": PagerDutyAdapter,
     "slack": SlackAdapter,
     "twilio": TwilioSMSAdapter,
+    "sendgrid": SendGridEmailAdapter,
 }
+
+
+# Adapter-name → user-facing channel chip. The channel chip is what the
+# UI renders next to a delivery row ("via email" / "via sms") and what
+# the audit-row note carries as ``channel=<chip>`` so downstream
+# consumers (patient digest, audit trail) don't have to maintain their
+# own adapter→channel mapping.
+ADAPTER_CHANNEL: dict[str, str] = {
+    "sendgrid": "email",
+    "twilio": "sms",
+    "slack": "slack",
+    "pagerduty": "pagerduty",
+    # Mock-mode dispatch surfaces as ``channel=mock`` so the regulator
+    # transcript is unambiguous about which deploys were demo / CI vs.
+    # production.
+    "mock": "mock",
+}
+
+
+def adapter_channel(adapter_name: Optional[str]) -> str:
+    """Return the user-facing channel chip for ``adapter_name``.
+
+    Falls back to the adapter name itself when unknown so a future
+    adapter (e.g. SES) still surfaces a non-empty chip without code
+    churn — just register it in :data:`ADAPTER_CHANNEL` to make the chip
+    pretty.
+    """
+    if not adapter_name:
+        return "-"
+    key = adapter_name.strip().lower()
+    return ADAPTER_CHANNEL.get(key, key)
+
+
+def _channel_to_adapter_name(channel: Optional[str]) -> Optional[str]:
+    """Reverse-lookup an adapter name from a channel chip.
+
+    Per-Caregiver Channel Preference launch-audit (2026-05-01). The
+    caregiver-side preference stores the user-facing channel chip
+    (``email`` / ``sms`` / ``slack`` / ``pagerduty``) — the worker /
+    send-now handler needs the underlying adapter name to look up an
+    :data:`_ADAPTER_FACTORIES` entry and rebuild the dispatch chain.
+
+    Returns ``None`` when ``channel`` is empty / unknown so callers can
+    silently skip the override and fall back to the clinic chain.
+    Identity match is preserved (``slack``→``slack``,
+    ``pagerduty``→``pagerduty``) so a caller that already has an adapter
+    name does the right thing too.
+    """
+    if not channel:
+        return None
+    key = channel.strip().lower()
+    if not key:
+        return None
+    # Reverse lookup from ADAPTER_CHANNEL — first hit wins. ADAPTER_CHANNEL
+    # is small (4 entries today) so a linear scan is fine.
+    for adapter_name, chip in ADAPTER_CHANNEL.items():
+        if chip == key and adapter_name in _ADAPTER_FACTORIES:
+            return adapter_name
+    # Identity match — caller passed an adapter name.
+    if key in _ADAPTER_FACTORIES:
+        return key
+    return None
+
+
+def build_delivery_audit_note(
+    *,
+    unread_count: int,
+    recipient: Optional[str],
+    delivery_status: str,
+    adapter_name: Optional[str],
+    external_id: Optional[str],
+    grant_id: Optional[str],
+    delivery_note: Optional[str],
+    trigger: str = "send_now",
+    extra: Optional[dict[str, str]] = None,
+) -> str:
+    """Build the unified audit-row note for caregiver digest delivery.
+
+    Multi-Adapter Delivery Parity launch-audit (2026-05-01). All four
+    adapters (SendGrid, Twilio, Slack, PagerDuty) call this helper from
+    the dispatch loop so the note format is identical across channels.
+    Downstream readers (``latest_delivery_ack_for_caregiver``,
+    ``_count_caregiver_digest_deliveries``, audit-trail filter) parse
+    ``adapter=`` / ``channel=`` / ``delivery_status=`` keys.
+
+    Note format::
+
+        unread=N; recipient=<email|->; delivery_status=<sent|failed|queued>;
+        adapter=<sendgrid|twilio|slack|pagerduty|->;
+        channel=<email|sms|slack|pagerduty|->;
+        external_id=<...>; grant_id=<...>;
+        delivery_note=<...>; trigger=<send_now|worker>
+
+    The ``channel`` key is the load-bearing addition: per-adapter parity
+    means the patient digest UI can render a "via {channel}" tag without
+    needing to know the adapter taxonomy. ``trigger`` distinguishes
+    manual ``POST /send-now`` from worker-tick dispatches so the
+    regulator transcript can disambiguate the two paths.
+    """
+    note_bits: list[str] = [
+        f"unread={unread_count}",
+        f"recipient={recipient or '-'}",
+        f"delivery_status={delivery_status}",
+        f"adapter={adapter_name or '-'}",
+        f"channel={adapter_channel(adapter_name)}",
+        f"external_id={external_id or '-'}",
+        f"grant_id={grant_id or '-'}",
+        f"delivery_note={(delivery_note or '')[:160]}",
+        f"trigger={trigger}",
+    ]
+    if extra:
+        for k, v in extra.items():
+            if not k:
+                continue
+            note_bits.append(f"{k}={v}")
+    return "; ".join(note_bits)[:1024]
 
 
 def _build_adapters_for_order(order: list[str]) -> list[Adapter]:
@@ -773,16 +1067,96 @@ def is_mock_mode_enabled() -> bool:
     return _mock_mode_enabled()
 
 
+def build_caregiver_digest_service(
+    *,
+    clinic_id: Optional[str] = None,
+    db: Optional[Any] = None,
+) -> OncallDeliveryService:
+    """Construct a delivery service for the caregiver digest channel.
+
+    Multi-Adapter Delivery Parity launch-audit (2026-05-01). Uses the
+    full adapter chain (PagerDuty / Slack / Twilio + SendGrid as the
+    email channel) so the Caregiver Email Digest worker can dispatch via
+    ANY enabled adapter — not just SendGrid. The dispatch order is
+    resolved via :class:`EscalationPolicy.surface_overrides` for
+    ``surface='caregiver_digest'`` when set, falling back to the email
+    chain (SendGrid first) so deploys with only ``SENDGRID_API_KEY``
+    keep working as before.
+
+    Each adapter in the chain that returns ``status='sent'`` is recorded
+    via :func:`build_delivery_audit_note` so the regulator transcript
+    carries identical ``adapter=`` / ``channel=`` keys regardless of
+    which channel won the dispatch.
+    """
+    surface = "caregiver_digest"
+    # Build the surface-aware service. When the clinic has no policy /
+    # no override for this surface, ``_resolve_dispatch_order`` falls
+    # back to the DEFAULT_ADAPTER_ORDER (PagerDuty → Slack → Twilio).
+    # We override that fallback here with a chain that prefers SendGrid
+    # for the email channel + keeps the loud-signal adapters as
+    # secondary so a deploy with only SendGrid wired stays on the email
+    # path while a clinic that opts SMS in via the policy can do so.
+    order = OncallDeliveryService._resolve_dispatch_order(clinic_id, surface, db)
+    default_chain = [
+        getattr(cls, "name", cls.__name__.lower())
+        for cls in DEFAULT_ADAPTER_ORDER
+    ]
+    if order == default_chain:
+        # No per-surface override and no clinic-wide order — use the
+        # caregiver-digest default: SendGrid first, then the loud-signal
+        # adapters. This preserves the legacy "email digest goes via
+        # SendGrid" behaviour while keeping SMS / Slack / PagerDuty as
+        # opt-in fallbacks.
+        order = ["sendgrid", "slack", "twilio", "pagerduty"]
+    adapters = _build_adapters_for_order(order)
+    if not adapters:
+        adapters = [cls() for cls in EMAIL_ADAPTER_ORDER]
+    return OncallDeliveryService(
+        clinic_id=clinic_id,
+        adapters=adapters,
+        surface=surface,
+        db=db,
+    )
+
+
+def build_email_digest_service() -> OncallDeliveryService:
+    """Construct a delivery service tuned for the email channel.
+
+    Returns an :class:`OncallDeliveryService` whose adapters are taken
+    from :data:`EMAIL_ADAPTER_ORDER` (SendGrid only, today). Used by the
+    Caregiver Email Digest worker (#380) and the manual ``send-now``
+    handler so the dispatch chain for caregiver email goes
+    ``SendGrid (when SENDGRID_API_KEY+SENDGRID_FROM_ADDRESS set)`` →
+    ``no_adapters_enabled`` (which the caller surfaces as ``queued``).
+
+    Mock-mode (``DEEPSYNAPS_DELIVERY_MOCK=1``) short-circuits the dispatch
+    inside :meth:`OncallDeliveryService.send` regardless of which adapter
+    chain we hand it, so this constructor doesn't need to special-case
+    the mock path.
+    """
+    adapters: list[Adapter] = [cls() for cls in EMAIL_ADAPTER_ORDER]
+    return OncallDeliveryService(adapters=adapters)
+
+
 __all__ = [
+    "ADAPTER_CHANNEL",
     "Adapter",
     "DEFAULT_ADAPTER_ORDER",
     "DeliveryResult",
+    "EMAIL_ADAPTER_ORDER",
     "KNOWN_ADAPTER_NAMES",
     "OncallDeliveryService",
     "PageMessage",
     "PagerDutyAdapter",
+    "SendGridEmailAdapter",
     "SlackAdapter",
     "TwilioSMSAdapter",
+    "adapter_channel",
+    "build_caregiver_digest_service",
     "build_default_service",
+    "build_delivery_audit_note",
+    "build_email_digest_service",
     "is_mock_mode_enabled",
+    "_build_adapters_for_order",
+    "_channel_to_adapter_name",
 ]

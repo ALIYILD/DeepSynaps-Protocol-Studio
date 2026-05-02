@@ -16,6 +16,13 @@ branch_labels = None
 depends_on = None
 
 
+def _has_table(bind, table_name: str) -> bool:
+    try:
+        return table_name in sa.inspect(bind).get_table_names()
+    except Exception:
+        return False
+
+
 def _has_column(bind, table_name: str, column_name: str) -> bool:
     try:
         cols = sa.inspect(bind).get_columns(table_name)
@@ -26,6 +33,14 @@ def _has_column(bind, table_name: str, column_name: str) -> bool:
 
 def upgrade() -> None:
     bind = op.get_bind()
+    # Defensive: if the parent table was never created on this DB (e.g. a
+    # fresh sqlite that hasn't yet run the migration that creates it), skip
+    # the column adds. The table will be created by SQLAlchemy create_all
+    # on first request and the columns will already be present from the
+    # ORM model. This avoids a hard fail on alembic upgrade head when the
+    # migration history is sparse.
+    if not _has_table(bind, "evidence_saved_citations"):
+        return
     for name, length in (
         ("context_kind", 32),
         ("analysis_id", 64),
@@ -38,6 +53,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     bind = op.get_bind()
+    if not _has_table(bind, "evidence_saved_citations"):
+        return
     for name in ("report_id", "analysis_id", "context_kind"):
         if _has_column(bind, "evidence_saved_citations", name):
             op.drop_index(f"ix_evidence_saved_citations_{name}", table_name="evidence_saved_citations")

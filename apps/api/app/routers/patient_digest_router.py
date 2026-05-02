@@ -119,6 +119,7 @@ from app.auth import AuthenticatedActor, get_authenticated_actor
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import (
+    AuditEventRecord,
     ClinicalSession,
     Message,
     Patient,
@@ -641,6 +642,132 @@ class DigestAuditEventOut(BaseModel):
     event_id: str
 
 
+class CaregiverDeliverySummaryRow(BaseModel):
+    """Per-caregiver row in :class:`CaregiverDeliverySummaryOut`.
+
+    Carries ONLY the minimum fields the patient needs to confirm "my
+    caregiver received N digests this week":
+
+    * ``caregiver_user_id`` — opaque id (already known to the patient
+      via the consent grant they minted).
+    * ``caregiver_first_name`` — first name only, never the full name
+      and NEVER the caregiver's email. The IDOR / no-PHI test asserts
+      this.
+    * ``digests_delivered_count`` — count of
+      ``caregiver_portal.email_digest_sent`` audit rows whose
+      ``delivery_status='sent'`` falls inside the [since, until) window.
+    * ``last_delivered_at`` — ISO timestamp of the most recent ``sent``
+      row; ``None`` when no dispatches have occurred in the window.
+    """
+
+    caregiver_user_id: str
+    caregiver_first_name: Optional[str] = None
+    digests_delivered_count: int = 0
+    last_delivered_at: Optional[str] = None
+    # Caregiver Delivery Acknowledgement launch-audit (2026-05-01).
+    # Joined from the most recent
+    # ``caregiver_portal.delivery_acknowledged`` audit row written by
+    # the caregiver against any grant pointed at this patient. ``None``
+    # when the caregiver has not pressed "I received it" yet —
+    # frontend renders an "Awaiting confirmation" tag in that case.
+    # No PHI of the caregiver leaks: this is a timestamp only.
+    last_acknowledged_at: Optional[str] = None
+    # Multi-Adapter Delivery Parity launch-audit (2026-05-01).
+    # Channel chip for the most recent ``delivery_status=sent`` row
+    # ("email" / "sms" / "slack" / "pagerduty" / "mock"). ``None`` when
+    # the audit row pre-dates the channel-chip launch (legacy rows).
+    # No PHI: this is the chip taxonomy only — the underlying recipient
+    # / adapter / external_id stays in the audit-row note for
+    # regulator-side replay.
+    last_delivered_channel: Optional[str] = None
+
+
+class CaregiverDeliverySummaryOut(BaseModel):
+    """Patient-side reflection of caregiver email digest dispatches.
+
+    Reads from ``audit_events`` filtered to
+    ``target_type='caregiver_portal'`` +
+    ``action='caregiver_portal.email_digest_sent'`` +
+    ``actor_id=<the patient's caregiver consent grants>``. Cross-patient
+    blocked at the router (404) — the resolver uses ``actor.actor_id``
+    only so there is no ``patient_id`` to forge.
+    """
+
+    rows: list[CaregiverDeliverySummaryRow] = Field(default_factory=list)
+    total_delivered_count: int = 0
+    since: str = ""
+    until: str = ""
+    patient_id: str = ""
+    is_demo: bool = False
+
+
+class CaregiverDeliveryFailureRow(BaseModel):
+    """Per-failed-dispatch row in :class:`CaregiverDeliveryFailuresOut`.
+
+    Surfaces ONLY the minimum fields the patient needs to flag a
+    delivery problem. NO PHI of the caregiver beyond first name; the
+    audit row's note is parsed at write time and the patient view never
+    sees the caregiver's email or full name. The IDOR / no-PHI test
+    asserts this.
+    """
+
+    dispatch_id: str
+    caregiver_user_id: str
+    caregiver_first_name: Optional[str] = None
+    dispatch_attempt_at: Optional[str] = None
+    delivery_status: str = "failed"
+    error_summary: Optional[str] = None
+
+
+class CaregiverDeliveryFailuresOut(BaseModel):
+    """Patient-side aggregator of failed caregiver digest dispatches.
+
+    Reads from ``audit_events`` filtered to
+    ``target_type='caregiver_portal'`` +
+    ``action='caregiver_portal.email_digest_sent'`` whose note encodes
+    ``delivery_status=failed``, scoped to the caregivers the patient
+    has minted active consent grants for. Cross-patient blocked at the
+    router (404) — the resolver uses ``actor.actor_id`` only so there
+    is no ``patient_id`` to forge.
+    """
+
+    rows: list[CaregiverDeliveryFailureRow] = Field(default_factory=list)
+    total_failed_count: int = 0
+    since: str = ""
+    until: str = ""
+    patient_id: str = ""
+    is_demo: bool = False
+
+
+class CaregiverDeliveryConcernIn(BaseModel):
+    """Patient-driven delivery-failure concern.
+
+    The patient flags one specific failed dispatch they care about. The
+    note is required (≥1 char trimmed) so the regulator transcript and
+    the clinician-mirror inbox row carry a real human signal — not a
+    silent / accidental click.
+    """
+
+    dispatch_id: str = Field(..., min_length=1, max_length=128)
+    concern_text: str = Field(..., min_length=1, max_length=1000)
+
+    @field_validator("concern_text")
+    @classmethod
+    def _validate_text(cls, v: str) -> str:
+        s = (v or "").strip()
+        if not s:
+            raise ValueError("concern_text must be at least one non-whitespace character")
+        return s
+
+
+class CaregiverDeliveryConcernOut(BaseModel):
+    accepted: bool = True
+    audit_event_id: str
+    clinician_mirror_event_id: str
+    dispatch_id: str
+    note: str = ""
+
+
 # ── Endpoints ───────────────────────────────────────────────────────────────
 
 
@@ -860,13 +987,19 @@ def share_with_caregiver(
 ) -> DigestShareCaregiverOut:
     """Share the digest with a caregiver.
 
-    Caregiver opt-in is enforced upstream by the Patient Care Team
-    consent flow (`pt-caregiver`). At this layer we record the audit
-    row + flag ``consent_required=True`` so the frontend knows it must
-    show the consent banner before unblocking the share. This keeps
-    the audit trail honest even when the consent flow has not yet
-    been implemented end-to-end.
+    Consults the ``caregiver_consent_grants`` table (created by the
+    Caregiver Consent Grants launch-audit, 2026-05-01) for an active
+    grant pointed at ``body.caregiver_user_id`` with
+    ``scope.digest=True``. If found, ``delivery_status='sent'`` and the
+    audit row records the full consent provenance (grant_id, granted_at,
+    caregiver_user_id, scope). If absent, ``delivery_status='queued'``
+    and the response carries an honest message — intent + recipient
+    are still audited.
     """
+    from app.routers.caregiver_consent_router import (  # noqa: PLC0415
+        has_active_grant,
+    )
+
     patient = _resolve_patient_for_actor(db, actor)
     since_dt, until_dt = _resolve_window(body.since, body.until)
 
@@ -882,7 +1015,39 @@ def share_with_caregiver(
         )
 
     summary = _build_summary(db, actor, patient, since_dt, until_dt)
-    delivery_status = "queued"
+
+    grant = has_active_grant(
+        db,
+        patient_id=patient.id,
+        caregiver_user_id=body.caregiver_user_id,
+        scope_key="digest",
+    )
+    if grant is not None:
+        delivery_status = "sent"
+        consent_required = False
+        note_extra = (
+            f"grant_id={grant.id}; "
+            f"granted_at={grant.granted_at}; "
+            f"granted_by={grant.granted_by_user_id}; "
+            f"scope_digest=true"
+        )
+        response_note = (
+            "Caregiver consent active for digest sharing — delivery "
+            "recorded as sent. The audit row carries the grant_id, "
+            "granted_at, and scope so the regulator transcript joins "
+            "the send to its consent provenance."
+        )
+    else:
+        delivery_status = "queued"
+        consent_required = True
+        note_extra = "consent_required=true; reason=no_active_grant_with_digest_scope"
+        response_note = (
+            "Caregiver consent not active for digest sharing. The "
+            "audit row records intent + recipient; delivery stays "
+            "queued until the patient grants ``scope.digest=True`` on "
+            "the Caregiver Consent page."
+        )
+
     note = (
         f"caregiver_user={body.caregiver_user_id}; "
         f"caregiver_email={caregiver.email or '-'}; "
@@ -893,7 +1058,7 @@ def share_with_caregiver(
         f"reports={summary.new_reports}; "
         f"since={summary.since}; until={summary.until}; "
         f"delivery_status={delivery_status}; "
-        f"consent_required=true"
+        f"{note_extra}"
     )
     audit_event_id = _audit(
         db, actor,
@@ -907,13 +1072,9 @@ def share_with_caregiver(
         delivery_status=delivery_status,
         caregiver_user_id=body.caregiver_user_id,
         caregiver_email=caregiver.email,
-        consent_required=True,
+        consent_required=consent_required,
         audit_event_id=audit_event_id,
-        note=(
-            "Caregiver share queued. Caregiver opt-in via the Patient "
-            "Care Team consent flow is required before delivery wires "
-            "up; the audit row records the intent + recipient."
-        ),
+        note=response_note,
     )
 
 
@@ -1070,3 +1231,504 @@ def post_audit_event(
         using_demo_data=is_demo,
     )
     return DigestAuditEventOut(accepted=True, event_id=event_id)
+
+
+# ── Caregiver delivery summary (SendGrid Adapter launch-audit) ───────────────
+
+
+def _list_active_caregivers_for_patient(
+    db: Session, patient_id: str
+) -> list[tuple[str, Optional[str]]]:
+    """Return the patient's currently-active caregiver consent grants.
+
+    Each row is a ``(caregiver_user_id, caregiver_first_name)`` tuple.
+    Active grants are those where ``revoked_at IS NULL``. We deliberately
+    surface only the first name on the patient view — the regulator
+    transcript already records the full grant payload elsewhere.
+    """
+    try:
+        from app.persistence.models import CaregiverConsentGrant  # noqa: PLC0415
+    except Exception:  # pragma: no cover - defensive
+        return []
+    grants = (
+        db.query(CaregiverConsentGrant)
+        .filter(
+            CaregiverConsentGrant.patient_id == patient_id,
+            CaregiverConsentGrant.revoked_at.is_(None),
+        )
+        .all()
+    )
+    out: list[tuple[str, Optional[str]]] = []
+    seen: set[str] = set()
+    for g in grants:
+        cg_id = g.caregiver_user_id
+        if not cg_id or cg_id in seen:
+            continue
+        seen.add(cg_id)
+        first_name: Optional[str] = None
+        try:
+            user = db.query(User).filter_by(id=cg_id).first()
+        except Exception:
+            user = None
+        if user is not None and user.display_name:
+            # Display names land as "First Last"; surface the first
+            # token only so we don't leak the caregiver's full name.
+            first_token = user.display_name.strip().split(" ", 1)[0]
+            if first_token:
+                first_name = first_token[:64]
+        out.append((cg_id, first_name))
+    return out
+
+
+def _extract_channel_from_note(note: Optional[str]) -> Optional[str]:
+    """Best-effort extraction of ``channel=<chip>`` from an audit note.
+
+    Multi-Adapter Delivery Parity launch-audit (2026-05-01). The
+    delivery-side audit emitter writes ``channel=email|sms|slack|pagerduty``
+    via :func:`oncall_delivery.build_delivery_audit_note`. Legacy rows
+    (pre-launch) carry ``adapter=`` only; we fall back to the
+    adapter→channel taxonomy in that case. Returns ``None`` only when
+    neither key is present.
+    """
+    if not note:
+        return None
+    src = note
+    idx = src.find("channel=")
+    if idx != -1:
+        tail = src[idx + len("channel="):]
+        end = tail.find(";")
+        snippet = (tail if end == -1 else tail[:end]).strip()
+        if snippet and snippet != "-":
+            return snippet[:32]
+    # Fall back to ``adapter=`` (legacy row before the channel chip
+    # launch). Map via the adapter→channel taxonomy when the adapter
+    # name is recognised.
+    idx2 = src.find("adapter=")
+    if idx2 == -1:
+        return None
+    tail2 = src[idx2 + len("adapter="):]
+    end2 = tail2.find(";")
+    adapter = (tail2 if end2 == -1 else tail2[:end2]).strip()
+    if not adapter or adapter == "-":
+        return None
+    try:
+        from app.services.oncall_delivery import (  # noqa: PLC0415
+            adapter_channel,
+        )
+        return adapter_channel(adapter)[:32]
+    except Exception:  # pragma: no cover — defensive
+        return adapter[:32]
+
+
+def _count_caregiver_digest_deliveries(
+    db: Session,
+    *,
+    caregiver_user_id: str,
+    since_dt: datetime,
+    until_dt: datetime,
+) -> tuple[int, Optional[str], Optional[str]]:
+    """Count ``caregiver_portal.email_digest_sent`` rows for a caregiver.
+
+    Returns ``(count, last_delivered_at_iso, last_delivered_channel)``.
+    Only audit rows whose note encodes ``delivery_status=sent`` are
+    counted — failed/queued dispatches are intentionally excluded so the
+    patient view reflects confirmed deliveries, not intent.
+
+    Multi-Adapter Delivery Parity launch-audit (2026-05-01): the channel
+    chip on the most-recent landed row is returned alongside so the UI
+    can render "via email" / "via sms" / "via slack" per row.
+    """
+    rows = (
+        db.query(AuditEventRecord)
+        .filter(
+            AuditEventRecord.target_type == "caregiver_portal",
+            AuditEventRecord.action == "caregiver_portal.email_digest_sent",
+            AuditEventRecord.target_id == caregiver_user_id,
+        )
+        .all()
+    )
+    count = 0
+    last_iso: Optional[str] = None
+    last_dt: Optional[datetime] = None
+    last_channel: Optional[str] = None
+    for r in rows:
+        ts = _parse_iso(r.created_at)
+        if ts is None:
+            continue
+        ts = _aware(ts)
+        if ts is None or not (since_dt <= ts < until_dt):
+            continue
+        # Honest-only count: skip rows whose note flags failed/queued.
+        note = (r.note or "").lower()
+        if "delivery_status=sent" not in note:
+            continue
+        count += 1
+        if last_dt is None or ts > last_dt:
+            last_dt = ts
+            last_iso = r.created_at
+            last_channel = _extract_channel_from_note(r.note or "")
+    return count, last_iso, last_channel
+
+
+@router.get(
+    "/caregiver-delivery-summary",
+    response_model=CaregiverDeliverySummaryOut,
+)
+def get_caregiver_delivery_summary(
+    since: Optional[str] = Query(default=None, max_length=32),
+    until: Optional[str] = Query(default=None, max_length=32),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> CaregiverDeliverySummaryOut:
+    """Reflect caregiver email digest dispatches back to the patient.
+
+    Reads from ``audit_events`` filtered to
+    ``target_type='caregiver_portal'`` and
+    ``action='caregiver_portal.email_digest_sent'``, scoped to the
+    caregivers the patient has minted active consent grants for. Cross-
+    patient blocked at the router (404) because the resolver uses
+    ``actor.actor_id`` only — no path / query param carries a forgeable
+    ``patient_id``.
+
+    NO PHI of the caregiver leaks: the response surfaces only the
+    caregiver's first name (anonymised) and the count of confirmed
+    deliveries. Email addresses, full names, and audit row notes are
+    NEVER returned.
+    """
+    patient = _resolve_patient_for_actor(db, actor)
+    since_dt, until_dt = _resolve_window(since, until)
+    is_demo = _patient_is_demo(db, patient)
+
+    # Caregiver Delivery Acknowledgement launch-audit (2026-05-01).
+    # Best-effort import — if the caregiver-consent module is missing
+    # in a partial install, we still serve the row without the ack
+    # stamp instead of 500ing.
+    try:
+        from app.routers.caregiver_consent_router import (  # noqa: PLC0415
+            latest_delivery_ack_for_caregiver,
+        )
+    except Exception:  # pragma: no cover — defensive
+        latest_delivery_ack_for_caregiver = None  # type: ignore[assignment]
+
+    caregivers = _list_active_caregivers_for_patient(db, patient.id)
+    rows: list[CaregiverDeliverySummaryRow] = []
+    total = 0
+    for cg_id, first_name in caregivers:
+        count, last_iso, last_channel = _count_caregiver_digest_deliveries(
+            db,
+            caregiver_user_id=cg_id,
+            since_dt=since_dt,
+            until_dt=until_dt,
+        )
+        last_ack: Optional[str] = None
+        if latest_delivery_ack_for_caregiver is not None:
+            try:
+                last_ack = latest_delivery_ack_for_caregiver(
+                    db,
+                    patient_id=patient.id,
+                    caregiver_user_id=cg_id,
+                )
+            except Exception:  # pragma: no cover — never block the row
+                last_ack = None
+        rows.append(
+            CaregiverDeliverySummaryRow(
+                caregiver_user_id=cg_id,
+                caregiver_first_name=first_name,
+                digests_delivered_count=count,
+                last_delivered_at=last_iso,
+                last_acknowledged_at=last_ack,
+                last_delivered_channel=last_channel,
+            )
+        )
+        total += count
+
+    _audit(
+        db,
+        actor,
+        event="caregiver_delivery_summary_viewed",
+        target_id=patient.id,
+        note=(
+            f"caregivers={len(rows)}; total_delivered={total}; "
+            f"since={since_dt.isoformat()}; until={until_dt.isoformat()}"
+        ),
+        using_demo_data=is_demo,
+    )
+
+    return CaregiverDeliverySummaryOut(
+        rows=rows,
+        total_delivered_count=total,
+        since=since_dt.isoformat(),
+        until=until_dt.isoformat(),
+        patient_id=patient.id,
+        is_demo=is_demo,
+    )
+
+
+# ── Caregiver delivery FAILURES (Patient Delivery-Failure Flag) ──────────────
+
+
+def _extract_error_summary(note: str) -> Optional[str]:
+    """Best-effort error summary extracted from an audit-row note.
+
+    The Caregiver Email Digest worker writes notes shaped like
+    ``"unread=3; recipient=...; delivery_status=failed; error=..."``
+    or ``"...; delivery_note=..."``. We surface the first
+    ``error=...`` / ``delivery_note=...`` pair we find, capped at 240
+    chars. PHI of the caregiver (e.g. full email) is intentionally NOT
+    surfaced — the patient sees a short error label only.
+    """
+    if not note:
+        return None
+    src = note.lower()
+    for key in ("error=", "delivery_note=", "reason="):
+        idx = src.find(key)
+        if idx == -1:
+            continue
+        # Take everything after the key up to the next "; " separator.
+        tail = note[idx + len(key):]
+        end = tail.find(";")
+        snippet = (tail if end == -1 else tail[:end]).strip()
+        if snippet:
+            return snippet[:240]
+    return None
+
+
+def _list_failed_caregiver_dispatches(
+    db: Session,
+    *,
+    patient_id: str,
+    since_dt: datetime,
+    until_dt: datetime,
+) -> list[CaregiverDeliveryFailureRow]:
+    """Return the patient's active caregivers' failed digest dispatches.
+
+    A row qualifies when:
+      * ``target_type='caregiver_portal'``
+      * ``action='caregiver_portal.email_digest_sent'``
+      * ``target_id`` matches one of the patient's active caregiver
+        consent grants (``revoked_at IS NULL``)
+      * ``note`` encodes ``delivery_status=failed``
+      * ``created_at`` ∈ [since_dt, until_dt)
+    """
+    caregivers = _list_active_caregivers_for_patient(db, patient_id)
+    if not caregivers:
+        return []
+    name_by_id = {cg_id: first_name for cg_id, first_name in caregivers}
+    cg_ids = list(name_by_id.keys())
+    rows = (
+        db.query(AuditEventRecord)
+        .filter(
+            AuditEventRecord.target_type == "caregiver_portal",
+            AuditEventRecord.action == "caregiver_portal.email_digest_sent",
+            AuditEventRecord.target_id.in_(cg_ids),
+        )
+        .all()
+    )
+    out: list[CaregiverDeliveryFailureRow] = []
+    for r in rows:
+        ts = _parse_iso(r.created_at)
+        if ts is None:
+            continue
+        ts = _aware(ts)
+        if ts is None or not (since_dt <= ts < until_dt):
+            continue
+        note = (r.note or "").lower()
+        if "delivery_status=failed" not in note:
+            continue
+        out.append(
+            CaregiverDeliveryFailureRow(
+                dispatch_id=r.event_id,
+                caregiver_user_id=r.target_id,
+                caregiver_first_name=name_by_id.get(r.target_id),
+                dispatch_attempt_at=r.created_at,
+                delivery_status="failed",
+                error_summary=_extract_error_summary(r.note or ""),
+            )
+        )
+    # Most-recent first.
+    out.sort(key=lambda x: x.dispatch_attempt_at or "", reverse=True)
+    return out
+
+
+@router.get(
+    "/caregiver-delivery-failures",
+    response_model=CaregiverDeliveryFailuresOut,
+)
+def get_caregiver_delivery_failures(
+    since: Optional[str] = Query(default=None, max_length=32),
+    until: Optional[str] = Query(default=None, max_length=32),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> CaregiverDeliveryFailuresOut:
+    """List failed caregiver digest dispatches for the actor's grants.
+
+    Patient-only. Cross-role hits return 404 (patient-scope URL is
+    invisible to clinicians and admins). Cross-patient blocked because
+    the patient row is resolved from ``actor.actor_id`` — there is no
+    ``patient_id`` to forge.
+
+    NO PHI of the caregiver leaks beyond the first name. The audit
+    row's note is parsed for an error label only — the caregiver's
+    email and full name never appear in the response.
+    """
+    patient = _resolve_patient_for_actor(db, actor)
+    since_dt, until_dt = _resolve_window(since, until)
+    is_demo = _patient_is_demo(db, patient)
+
+    rows = _list_failed_caregiver_dispatches(
+        db,
+        patient_id=patient.id,
+        since_dt=since_dt,
+        until_dt=until_dt,
+    )
+
+    _audit(
+        db,
+        actor,
+        event="caregiver_delivery_failures_viewed",
+        target_id=patient.id,
+        note=(
+            f"failures={len(rows)}; "
+            f"since={since_dt.isoformat()}; until={until_dt.isoformat()}"
+        ),
+        using_demo_data=is_demo,
+    )
+
+    return CaregiverDeliveryFailuresOut(
+        rows=rows,
+        total_failed_count=len(rows),
+        since=since_dt.isoformat(),
+        until=until_dt.isoformat(),
+        patient_id=patient.id,
+        is_demo=is_demo,
+    )
+
+
+def _emit_clinician_delivery_concern_mirror(
+    db: Session,
+    actor: AuthenticatedActor,
+    *,
+    patient: Patient,
+    dispatch_id: str,
+    caregiver_user_id: Optional[str],
+    concern_text: str,
+    is_demo: bool,
+) -> str:
+    """Write the clinician-visible mirror audit row.
+
+    Action ``clinician_inbox.caregiver_delivery_concern_to_clinician_mirror``
+    qualifies as HIGH-priority under the Inbox predicate
+    (``_to_clinician_mirror`` suffix) so it surfaces in the clinician
+    inbox + care-team-coverage breach feed without any predicate
+    surgery. The mirror is best-effort: never raises so the patient
+    POST always succeeds end-to-end.
+    """
+    from app.repositories.audit import create_audit_event  # noqa: PLC0415
+
+    now = datetime.now(timezone.utc)
+    event_id = (
+        f"clinician_inbox-caregiver_delivery_concern_to_clinician_mirror-"
+        f"{actor.actor_id}-{int(now.timestamp())}-{uuid.uuid4().hex[:6]}"
+    )
+    note_parts: list[str] = []
+    if is_demo:
+        note_parts.append("DEMO")
+    note_parts.append("priority=high")
+    note_parts.append(f"patient={patient.id}")
+    note_parts.append(f"dispatch={dispatch_id}")
+    if caregiver_user_id:
+        note_parts.append(f"caregiver_user={caregiver_user_id}")
+    note_parts.append(f"concern={concern_text[:480]}")
+    final_note = "; ".join(note_parts)
+    try:
+        create_audit_event(
+            db,
+            event_id=event_id,
+            target_id=patient.id,
+            target_type="clinician_inbox",
+            action="clinician_inbox.caregiver_delivery_concern_to_clinician_mirror",
+            role=actor.role,
+            actor_id=actor.actor_id,
+            note=final_note[:1024],
+            created_at=now.isoformat(),
+        )
+    except Exception:  # pragma: no cover — audit must never block UI
+        _log.exception("delivery-concern clinician-mirror audit skipped")
+    return event_id
+
+
+@router.post(
+    "/caregiver-delivery-concerns",
+    response_model=CaregiverDeliveryConcernOut,
+)
+def post_caregiver_delivery_concern(
+    body: CaregiverDeliveryConcernIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> CaregiverDeliveryConcernOut:
+    """Patient flags a delivery problem for a specific dispatch.
+
+    Emits TWO audit rows:
+      1. ``patient_digest.caregiver_delivery_concern`` — patient-scope,
+         carries the full concern text + dispatch reference.
+      2. ``clinician_inbox.caregiver_delivery_concern_to_clinician_mirror``
+         — clinician-visible mirror, qualifies as HIGH-priority via the
+         existing ``_to_clinician_mirror`` predicate so it surfaces in
+         the Clinician Inbox and Care Team Coverage breach feeds.
+
+    Patient-only. Cross-role hits return 404 (patient-scope URL is
+    invisible). The dispatch reference is recorded verbatim so the
+    regulator transcript joins the concern to its underlying failed
+    dispatch row.
+    """
+    patient = _resolve_patient_for_actor(db, actor)
+    is_demo = _patient_is_demo(db, patient)
+
+    # Best-effort lookup of the underlying dispatch row (the patient
+    # could be flagging a since-deleted row; we stay honest and audit
+    # what we got). We use it to enrich the audit note + mirror row
+    # with the caregiver_user_id when available.
+    caregiver_user_id: Optional[str] = None
+    dispatch_row = (
+        db.query(AuditEventRecord)
+        .filter(AuditEventRecord.event_id == body.dispatch_id)
+        .first()
+    )
+    if dispatch_row is not None and dispatch_row.target_type == "caregiver_portal":
+        caregiver_user_id = dispatch_row.target_id
+
+    note = (
+        f"dispatch={body.dispatch_id}; "
+        + (f"caregiver_user={caregiver_user_id}; " if caregiver_user_id else "")
+        + f"concern={body.concern_text[:480]}"
+    )
+    audit_event_id = _audit(
+        db,
+        actor,
+        event="caregiver_delivery_concern",
+        target_id=body.dispatch_id,
+        note=note,
+        using_demo_data=is_demo,
+    )
+
+    mirror_event_id = _emit_clinician_delivery_concern_mirror(
+        db,
+        actor,
+        patient=patient,
+        dispatch_id=body.dispatch_id,
+        caregiver_user_id=caregiver_user_id,
+        concern_text=body.concern_text,
+        is_demo=is_demo,
+    )
+
+    return CaregiverDeliveryConcernOut(
+        accepted=True,
+        audit_event_id=audit_event_id,
+        clinician_mirror_event_id=mirror_event_id,
+        dispatch_id=body.dispatch_id,
+        note=(
+            "Concern recorded. The clinician inbox and care team "
+            "coverage breach feed will surface this dispatch under "
+            "HIGH priority for follow-up."
+        ),
+    )

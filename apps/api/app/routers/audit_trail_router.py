@@ -358,6 +358,110 @@ KNOWN_SURFACES = {
     # email_initiated, email_sent, caregiver_share_initiated,
     # caregiver_shared, export, demo_banner_shown.
     "patient_digest",
+    # Caregiver Consent Grants launch-audit (2026-05-01). Closes the
+    # caregiver-share loop opened by Patient Digest #376. Records every
+    # grant lifecycle event (grant_created, grant_updated, grant_revoked,
+    # grants_listed, grant_viewed, by_caregiver_listed) plus page-level
+    # breadcrumbs (view, grant_form_opened, revoke_form_opened,
+    # demo_banner_shown). The mutation events also feed the Patient
+    # Digest share-caregiver flow — when ``has_active_grant`` returns a
+    # row with ``scope.digest=True`` the digest endpoint flips
+    # ``delivery_status='sent'`` and emits a clinician-visible audit row
+    # carrying the grant_id, granted_at, caregiver_user_id, and scope so
+    # the regulator transcript joins the digest send to its consent
+    # provenance.
+    "caregiver_consent",
+    # Caregiver Portal launch-audit (2026-05-01). Caregiver-side viewer
+    # surface for ``pgPatientCaregiver`` — distinct from the patient-side
+    # ``caregiver_consent`` so the regulator transcript can cleanly
+    # separate "patient granted X" rows from "caregiver actually viewed X"
+    # rows. Events: view, demo_banner_shown, revocation_acknowledged,
+    # revocation_acknowledged_duplicate, grant_accessed,
+    # grant_accessed_after_revocation, grant_accessed_out_of_scope,
+    # digest_view_clicked_ui, messages_view_clicked_ui. The
+    # acknowledge-revocation + access-log endpoints emit grant_id +
+    # patient_id in the audit note so the patient's audit trail joins
+    # caregiver-side activity to the grant they own.
+    "caregiver_portal",
+    # Caregiver Email Digest launch-audit (2026-05-01). Closes the
+    # bidirectional notification loop opened by Caregiver Notification
+    # Hub #379. Daily roll-up dispatch of unread caregiver
+    # notifications via the on-call delivery adapters (#373) in mock
+    # mode unless real env vars are set. Page-level events recorded
+    # here: view, preview_loaded, send_now_clicked,
+    # preferences_form_opened, frequency_changed_ui,
+    # time_of_day_changed_ui, demo_banner_shown. Each cron tick emits
+    # ONE ``caregiver_email_digest_worker.tick`` row with note encoding
+    # caregivers_processed/digests_sent/skipped_*/errors/elapsed_ms so
+    # ops gets a per-tick transcript without scanning audit_event_records.
+    # Per-caregiver dispatches additionally emit a
+    # ``caregiver_portal.email_digest_sent`` row (single-sourced with
+    # the manual send-now handler so the regulator transcript stays
+    # consistent across worker + portal triggers).
+    "caregiver_email_digest_worker",
+    # Channel Misconfiguration Detector launch-audit (2026-05-01). Closes
+    # section I rec from the Clinic Caregiver Channel Override #387.
+    # Nightly worker walks every ``CaregiverDigestPreference`` row,
+    # evaluates ``adapter_available`` per row, and emits a HIGH-priority
+    # ``caregiver_portal.channel_misconfigured_detected`` audit row when
+    # the caregiver's preferred channel adapter is unavailable AND no
+    # successful delivery has been observed in the last 24h. The
+    # priority=high marker auto-routes the row into the Clinician Inbox
+    # aggregator (#354) so admins don't have to discover the misconfig
+    # manually by opening the "Caregiver channels" tab. Per-tick row
+    # encodes caregivers_scanned/misconfigs_flagged/skipped_*/errors/
+    # elapsed_ms; cooldown per (caregiver, clinic) prevents duplicate
+    # flags within 24h. Page-level events recorded here: view,
+    # polling_tick, status_viewed, run_now_clicked, tick_once_clicked,
+    # filter_changed, demo_banner_shown.
+    "channel_misconfiguration_detector",
+    # Caregiver Delivery Concern Aggregator launch-audit (2026-05-01).
+    # Closes section I rec from #389. Rolling-window worker groups every
+    # delivery-concern audit row in the last N hours by (caregiver_user_id,
+    # clinic_id), and emits a HIGH-priority
+    # ``caregiver_portal.delivery_concern_threshold_reached`` row when
+    # the per-caregiver count meets the configured threshold (default 3
+    # in 7d). The priority=high marker auto-routes the row into the
+    # Clinician Inbox aggregator (#354) so admins see recurring delivery
+    # problems without per-caregiver drill-down. Per-tick row encodes
+    # concerns_scanned/caregivers_evaluated/caregivers_flagged/skipped_*/
+    # errors/elapsed_ms; cooldown per (caregiver, clinic) prevents
+    # duplicate flags within 72h. Page-level events recorded here: view,
+    # polling_tick, status_viewed, run_now_clicked, tick_clicked,
+    # filter_changed, demo_banner_shown.
+    "caregiver_delivery_concern_aggregator",
+    # Caregiver Delivery Concern Resolution launch-audit (2026-05-02).
+    # Closes the DCA loop opened by #390. Admin-side "Mark as resolved"
+    # surface inside the Care Team Coverage "Caregiver channels" tab.
+    # Emits ``caregiver_portal.delivery_concern_resolved`` audit rows
+    # that the DCA worker consults so resolved caregivers are not
+    # re-flagged inside the cooldown window. Page-level events recorded
+    # here: view, resolve_clicked, resolve_modal_opened, resolve_submitted,
+    # resolve_failed, list_filter_changed, demo_banner_shown.
+    "caregiver_delivery_concern_resolution",
+    # Caregiver Delivery Concern Resolution Audit Hub launch-audit (DCR2,
+    # 2026-05-02). Cohort dashboard surface — distribution of resolution
+    # reasons over time, top resolvers, median time-to-resolve, and
+    # filterable list of resolved rows. Page-level events: view,
+    # window_changed, reason_filter_changed, page_changed, export.
+    "caregiver_delivery_concern_resolution_audit_hub",
+    # Caregiver Delivery Concern Resolution Outcome Tracker launch-audit
+    # (DCRO1, 2026-05-02). Calibration-accuracy dashboard built on the
+    # DCR1 + DCR2 audit trail. Pairs each
+    # ``caregiver_portal.delivery_concern_resolved`` row with the NEXT
+    # ``caregiver_portal.delivery_concern_threshold_reached`` row for
+    # the same caregiver to record stayed_resolved vs
+    # re_flagged_within_30d, then computes per-resolver calibration
+    # accuracy: when an admin marks "false_positive", does the DCA
+    # worker re-flag them within 30 days? Page-level events: view,
+    # window_changed, min_resolutions_changed.
+    "caregiver_delivery_concern_resolution_outcome_tracker",
+    # Resolver Coaching Inbox launch-audit (DCRO2, 2026-05-02). Private,
+    # read-only inbox view per resolver showing their wrong false_positive
+    # calls (resolutions where the resolver said "false_positive" but the
+    # DCA worker re-flagged the same caregiver within 30 days). Page-level
+    # events: view, self_review_note_filed, window_changed.
+    "resolver_coaching_inbox",
 }
 
 

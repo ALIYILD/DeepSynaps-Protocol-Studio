@@ -509,8 +509,7 @@ const NAV = [
   { section: 'Protocol', sectionId: 'protocol', collapsed: false },
   { id: 'protocol-studio',    label: 'Protocol Studio',   icon: '🧪', ai: true },
   { id: 'brainmap-v2',        label: 'Brain Map Planner', icon: '🧠' },
-  { id: 'qeeg-launcher',      label: 'qEEG Brain Map',    icon: '🧠', ai: true },
-  { id: 'qeeg-analysis',      label: 'qEEG Analyzer',     icon: '📊', ai: true },
+  { id: 'qeeg-analysis',      label: 'qEEG Analyzer',     icon: '🧠', ai: true },
   { id: 'biomarkers',          label: 'Biomarkers',         icon: '🧬' },
   { id: 'handbooks-v2',       label: 'Handbooks',         icon: '📚' },
   { id: 'research-evidence',  label: 'Research Evidence', icon: '🔬', ai: true },
@@ -1424,6 +1423,31 @@ async function renderPage() {
     case 'trial-enrollment': { const { pgTrialEnrollment } = await loadKnowledge(); await pgTrialEnrollment(setTopbar); break; }
     case 'staff-scheduling': { const m = await loadKnowledge(); await m.pgStaffScheduling(setTopbar); break; }
     case 'care-team-coverage': { const m = await loadKnowledge(); await m.pgCareTeamCoverage(setTopbar); break; }
+    // Caregiver Delivery Concern Resolution Audit Hub (DCR2, 2026-05-02).
+    // Cohort dashboard built on the DCR1 audit trail — distribution of
+    // resolution reasons over time so admins can calibrate the DCA
+    // threshold and spot when caregiver_replaced is spiking. Read-only,
+    // clinician minimum.
+    case 'caregiver-delivery-concern-resolution-audit-hub':
+    case 'resolution-audit-hub':
+    case 'dcr-audit-hub': {
+      const m = await loadKnowledge();
+      await m.pgCaregiverDeliveryConcernResolutionAuditHub(setTopbar);
+      break;
+    }
+    // Resolver Coaching Inbox launch-audit (DCRO2, 2026-05-02). Private,
+    // read-only inbox view per resolver showing THEIR OWN wrong
+    // false_positive calls. Mirrors the Wearables Workbench →
+    // Clinician Inbox handoff (#353/#354): admins do NOT drill into
+    // another resolver's coaching rows; coaching is resolver-led
+    // self-correction. Reviewer minimum.
+    case 'resolver-coaching-inbox':
+    case 'coaching-inbox':
+    case 'my-coaching': {
+      const m = await loadKnowledge();
+      await m.pgResolverCoachingInbox(setTopbar);
+      break;
+    }
     // Clinician Adherence Hub launch-audit (2026-05-01). Bidirectional
     // counterpart to the patient-side Adherence Events page (#350).
     // Cross-patient triage of adherence reports, side-effects, and
@@ -1681,7 +1705,12 @@ async function renderPage() {
         const url = new URL(window.location.href);
         if (!analysisId) analysisId = url.searchParams.get('analysisId');
       } catch (_e) {}
+      // Also check the bridged deep-link arg set by the router
+      if (!analysisId && window._qeegSelectedId) {
+        analysisId = window._qeegSelectedId;
+      }
       if (!analysisId) {
+        window._qeegSelectedId = null; // clear so returning to launcher works
         const launcher = await loadQEEGRawLauncher();
         await launcher.pgQEEGRawLauncher(setTopbar, navigate);
       } else {
@@ -2281,7 +2310,10 @@ async function bootApp() {
     try {
       const qp = new URL(location.href).searchParams.get('page');
       if (qp) {
-        deepLinkId = qp;
+        // Split on "/" just like hash routes — e.g. "qeeg-raw-workbench/demo"
+        const segs = qp.split('/').filter(Boolean);
+        if (segs.length > 0) deepLinkId = segs[0];
+        if (segs.length > 1) deepLinkArg = segs[1];
       } else if (location.hash && location.hash.length > 1) {
         let raw = location.hash.slice(1);
         // Tolerate a leading "/" so /#/foo and /#foo both work.
