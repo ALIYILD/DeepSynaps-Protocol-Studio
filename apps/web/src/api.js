@@ -1,4 +1,5 @@
 import { parseHomeProgramTaskMutationResponse } from './home-program-task-sync.js';
+import { demoDigitalPhenotypingPayload } from './demo-fixtures-analyzers.js';
 
 const API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 const TOKEN_KEY = 'ds_access_token';
@@ -96,6 +97,18 @@ function _demoSyntheticResponse(path, method) {
       decodeURIComponent(compare[1]),
       decodeURIComponent(compare[2]),
     );
+  }
+  const dp = path.match(
+    /^\/api\/v1\/digital-phenotyping\/analyzer\/patient\/([^/?]+)(\/audit)?$/,
+  );
+  if (dp && (!method || method === 'GET')) {
+    const pid = decodeURIComponent(dp[1]);
+    const payload = demoDigitalPhenotypingPayload(pid);
+    if (dp[2] === '/audit') {
+      const ev = payload.audit_events || [];
+      return { patient_id: pid, events: ev, total: ev.length };
+    }
+    return payload;
   }
   // Mutations: pretend success (return a minimal accepted-shape object).
   if (method && method !== 'GET') return { ok: true, demo: true, id: 'demo-' + Date.now() };
@@ -3006,6 +3019,27 @@ export const api = {
     apiFetch(`/api/v1/risk/patient/${encodeURIComponent(patientId)}/recompute`, { method: 'POST' }),
   getRiskAudit: (patientId) =>
     apiFetch(`/api/v1/risk/patient/${encodeURIComponent(patientId)}/audit`),
+
+  // ── Digital Phenotyping Analyzer (passive behavioral signals) ────────────
+  getDigitalPhenotypingAnalyzer: (patientId) =>
+    apiFetch(`/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}`),
+  getDigitalPhenotypingAudit: (patientId) =>
+    apiFetch(`/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
+  recomputeDigitalPhenotyping: (patientId, body) =>
+    apiFetch(`/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/recompute`, {
+      method: 'POST',
+      body: body != null ? JSON.stringify(body) : '{}',
+    }),
+  updateDigitalPhenotypingConsent: (patientId, body) =>
+    apiFetch(`/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/consent`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  updateDigitalPhenotypingSettings: (patientId, body) =>
+    apiFetch(`/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/settings`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
 
   // ── Device Sync (clinician-facing) ─────────────────────────────────────────
   deviceSyncProviders: () => apiFetchWithRetry('/api/v1/device-sync/providers'),

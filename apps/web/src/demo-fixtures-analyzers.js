@@ -351,6 +351,201 @@ const _VIDEO = {
   notes: 'All 5 guided tasks captured cleanly. Clinician review complete.',
 };
 
+/** Digital Phenotyping Analyzer — mirrors apps/api stub payload shape (v1). */
+function _digitalPhenotypingPayload(patientId) {
+  const now = '2026-05-02T12:00:00Z';
+  const start = '2026-04-04T12:00:00Z';
+  const name =
+    DEMO_PATIENTS.find((p) => p.id === patientId)?.name || 'Patient';
+  return {
+    schema_version: '1.0.0',
+    clinical_disclaimer:
+      'Decision-support only. Passive phone data do not diagnose a disorder. '
+      + 'Signals are behavioral indicators that require clinical correlation.',
+    generated_at: now,
+    patient_id: patientId,
+    patient_display_name: name,
+    analysis_window: { start, end: now, timezone: 'UTC' },
+    provenance: {
+      source_system: 'demo_fixture',
+      ingest_batch_id: null,
+      feature_pipeline_version: '0.1.0-demo',
+    },
+    audit_summary: {
+      last_computed_at: now,
+      recompute_job_id: null,
+      data_pipeline_version: '0.1.0-demo',
+    },
+    snapshot: {
+      computed_at: now,
+      mobility_stability: { value: 0.72, confidence: 0.78, completeness: 0.81, baseline_comparison: 'within', privacy_sensitivity_level: 'medium' },
+      routine_regularity: { value: 0.61, confidence: 0.65, completeness: 0.81, baseline_comparison: 'below', privacy_sensitivity_level: 'low' },
+      screen_time_pattern: { value: 1.12, confidence: 0.52, completeness: 0.81, baseline_comparison: 'above', privacy_sensitivity_level: 'medium' },
+      sleep_timing_proxy: { value: 0.88, confidence: 0.71, completeness: 0.81, baseline_comparison: 'within', privacy_sensitivity_level: 'medium' },
+      sociability_proxy: { value: 0.55, confidence: 0.60, completeness: 0.55, baseline_comparison: 'below', privacy_sensitivity_level: 'high' },
+      activity_level: { value: 0.70, confidence: 0.80, completeness: 0.81, baseline_comparison: 'within', privacy_sensitivity_level: 'low' },
+      anomaly_score: { value: 0.38, confidence: 0.55, completeness: 0.81, baseline_comparison: 'above', privacy_sensitivity_level: 'low' },
+      data_completeness: { value: 0.81, confidence: 0.95, completeness: 1, baseline_comparison: 'within', privacy_sensitivity_level: 'low' },
+    },
+    domains: [
+      {
+        signal_domain: 'screen_use',
+        collection_modalities: ['screen_events'],
+        source_types: ['passive'],
+        window_end: now,
+        completeness: 0.81,
+        summary_stats: { hours_daily_avg: 4.0, late_night_pct: 18 },
+        trend: 'unclear',
+        linked_analyzers_impacted: [],
+      },
+      {
+        signal_domain: 'location_mobility',
+        collection_modalities: ['gps'],
+        source_types: ['passive'],
+        window_end: now,
+        completeness: 0.74,
+        summary_stats: { radius_km_typical: 4.2, entropy_index: 0.68 },
+        trend: 'unclear',
+        linked_analyzers_impacted: [],
+      },
+      {
+        signal_domain: 'physical_activity',
+        collection_modalities: ['steps'],
+        source_types: ['passive'],
+        window_end: now,
+        completeness: 0.88,
+        summary_stats: { steps_daily_avg: 4980 },
+        trend: 'unclear',
+        linked_analyzers_impacted: [],
+      },
+      {
+        signal_domain: 'sleep_proxy',
+        collection_modalities: ['screen_off', 'motion'],
+        source_types: ['hybrid'],
+        window_end: now,
+        completeness: 0.79,
+        summary_stats: { bedtime_variability_min: 88 },
+        trend: 'unclear',
+        linked_analyzers_impacted: [],
+      },
+      {
+        signal_domain: 'social_communication',
+        collection_modalities: ['communication_meta'],
+        source_types: ['passive'],
+        window_end: now,
+        completeness: 0.45,
+        summary_stats: { note: 'Not enabled in demo consent profile' },
+        trend: 'unclear',
+        linked_analyzers_impacted: [],
+      },
+      {
+        signal_domain: 'device_engagement',
+        collection_modalities: ['unlock_count'],
+        source_types: ['passive'],
+        window_end: now,
+        completeness: 0.81,
+        summary_stats: { unlocks_daily_avg: 79 },
+        trend: 'unclear',
+        linked_analyzers_impacted: [],
+      },
+      {
+        signal_domain: 'ema_active',
+        collection_modalities: ['ema'],
+        source_types: ['active'],
+        window_end: now,
+        completeness: 0.72,
+        summary_stats: { ema_completion_pct: 72 },
+        trend: 'unclear',
+        linked_analyzers_impacted: [],
+      },
+    ],
+    baseline_profile: {
+      estimated_at: '2026-04-25T12:00:00Z',
+      valid_from: start,
+      baseline_window_days: 28,
+      method: 'robust_stats_demo',
+      confidence: 0.58,
+      feature_summaries: {
+        screen_hours_daily: { median: 3.6, iqr: 1.1 },
+        steps_daily: { median: 5400, iqr: 1200 },
+        routine_index: { median: 0.68, iqr: 0.12 },
+      },
+      weekday_weekend_delta: { screen_hours: 0.35, steps: -820 },
+    },
+    deviations: [
+      {
+        event_id: 'demo-dev-1',
+        detected_at: '2026-04-30T08:00:00Z',
+        window: { start: '2026-04-27T08:00:00Z', end: '2026-04-30T08:00:00Z' },
+        signal_domain: 'screen_use',
+        deviation_type: 'short_term_spike',
+        severity: 'medium',
+        urgency: 'soon',
+        confidence: 0.52,
+        summary: 'Late-night screen use increased vs personal baseline.',
+        linked_analyzers_impacted: ['risk:wellbeing', 'risk:engagement'],
+      },
+    ],
+    clinical_flags: [
+      {
+        flag_id: 'demo-cf-1',
+        raised_at: '2026-05-01T10:00:00Z',
+        category: 'sleep_disruption',
+        statement_type: 'behavioral_indicator',
+        severity: 'low',
+        urgency: 'routine',
+        confidence: 0.49,
+        label: 'Possible sleep timing instability (proxy)',
+        detail:
+          'Bedtime variability increased versus baseline. Interpret with sleep diary or wearable sleep staging when available.',
+        caveats: ['Sleep proxy only — not polysomnography.', 'Completeness 81% this window.'],
+        evidence_refs: ['sleep_timing_proxy_deviation', 'registry:sleep_circadian'],
+      },
+    ],
+    recommendations: [
+      {
+        id: 'demo-rec-1',
+        priority: 'P1',
+        title: 'Cross-check with Biometrics / Assessments',
+        detail: 'Compare passive sleep proxy with wearable sleep and recent PHQ/GAD scores.',
+        action_type: 'review_assessment',
+        targets: ['wearables', 'assessments-v2'],
+        confidence: 0.55,
+      },
+    ],
+    multimodal_links: [
+      { nav_page_id: 'assessments-v2', title: 'Assessments', relevance_note: 'Last GAD-7 within analysis window', last_updated: '2026-04-28' },
+      { nav_page_id: 'wearables', title: 'Biometrics', relevance_note: 'Sleep + resting HR trends', last_updated: '2026-05-01' },
+      { nav_page_id: 'risk-analyzer', title: 'Risk Analyzer', relevance_note: 'Wellbeing + engagement context', last_updated: '2026-05-02' },
+      { nav_page_id: 'voice-analyzer', title: 'Voice Analyzer', relevance_note: 'Optional: acoustic fatigue markers', last_updated: '—' },
+      { nav_page_id: 'video-assessments', title: 'Video', relevance_note: 'Session-based tasks', last_updated: '—' },
+      { nav_page_id: 'text-analyzer', title: 'Clinical Text', relevance_note: 'Recent notes', last_updated: '—' },
+    ],
+    consent_state: {
+      updated_at: '2026-04-02T12:00:00Z',
+      consent_scope_version: '2026.04',
+      domains_enabled: {
+        screen_use: true,
+        location_mobility: true,
+        physical_activity: true,
+        sleep_proxy: true,
+        social_communication: false,
+        device_engagement: true,
+        ema_active: true,
+      },
+      retention_summary_days: 365,
+      visibility_note: 'Clinic care team per organization policy (demo).',
+    },
+    audit_events: [
+      { event_id: 'demo-aud-1', timestamp: '2026-05-02T09:00:00Z', action: 'view', actor_role: 'clinician', summary: 'Page payload viewed (demo)' },
+    ],
+  };
+}
+
+export function demoDigitalPhenotypingPayload(patientId) {
+  return _digitalPhenotypingPayload(patientId);
+}
+
 export const ANALYZER_DEMO_FIXTURES = Object.freeze({
   patients: DEMO_PATIENTS,
   mri: _MRI,
@@ -360,6 +555,7 @@ export const ANALYZER_DEMO_FIXTURES = Object.freeze({
   risk: _RISK,
   biometrics: _BIOMETRICS,
   video: _VIDEO,
+  digitalPhenotyping: { payload: _digitalPhenotypingPayload },
 });
 
 export function isFixtureFallbackActive() {
