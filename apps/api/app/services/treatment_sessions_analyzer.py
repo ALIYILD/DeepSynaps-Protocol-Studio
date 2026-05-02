@@ -588,7 +588,11 @@ def build_treatment_sessions_analyzer_payload(
                 "protocol_key": primary_course.protocol_id if primary_course else "unspecified",
                 "label": (primary_course.protocol_id if primary_course else "Define protocol in Protocol Studio"),
                 "waveform_family": "unspecified",
-                "evidence_strength": primary_course.evidence_grade or "unknown",
+                "evidence_strength": (
+                    (primary_course.evidence_grade or "unknown")
+                    if primary_course
+                    else "unknown"
+                ),
                 "confidence": 0.55,
                 "rank": 1,
                 "rationale_bullets": [
@@ -610,7 +614,11 @@ def build_treatment_sessions_analyzer_payload(
                     "extracted_at": generated_at,
                 },
                 "modality": modality,
-                "anatomical_target": primary_course.target_region or "unspecified",
+                "anatomical_target": (
+                    (primary_course.target_region or "unspecified")
+                    if primary_course
+                    else "unspecified"
+                ),
                 "coordinate_space": "",
                 "coordinates_mm": [],
                 "confidence": 0.45 if mri_rows else 0.25,
