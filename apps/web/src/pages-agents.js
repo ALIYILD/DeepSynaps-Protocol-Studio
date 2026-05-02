@@ -1322,7 +1322,7 @@ if (typeof window !== 'undefined' && !window._agentMarketplaceRetry) {
     _marketplaceAgentsLoadFailed = false;
     _marketplaceLoaded = false;
     _marketplaceAgents = null;
-    if (typeof window._nav === 'function') window._nav('agents');
+    if (typeof window._nav === 'function') window._nav('ai-agent-v2');
   };
 }
 

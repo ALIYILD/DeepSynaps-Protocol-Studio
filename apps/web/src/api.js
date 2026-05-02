@@ -3115,6 +3115,18 @@ export const api = {
   getLabsAudit: (patientId) =>
     apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
 
+  // ── Nutrition / Supplements / Diet Analyzer (diet-drug interactions, micronutrient cover) ─
+  getNutritionProfile: (patientId) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}`),
+  recomputeNutrition: (patientId) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/recompute`, { method: 'POST' }),
+  addNutritionIntake: (patientId, body) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/diet-log`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  addNutritionAnnotation: (patientId, body) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/review-note`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  getNutritionAudit: (patientId) =>
+    apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
+
   // ── Device Sync (clinician-facing) ─────────────────────────────────────────
   deviceSyncProviders: () => apiFetchWithRetry('/api/v1/device-sync/providers'),
   deviceSyncAuthorize: (provider) =>

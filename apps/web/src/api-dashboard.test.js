@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
+import { api } from './api.js';
 
 describe('dashboard API methods', () => {
   it('getDashboardOverview is callable', () => {

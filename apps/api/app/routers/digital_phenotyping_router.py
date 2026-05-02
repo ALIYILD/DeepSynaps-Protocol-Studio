@@ -19,7 +19,6 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -29,11 +28,17 @@ from app.auth import (
     require_patient_owner,
 )
 from app.database import get_db_session
-from app.persistence.models import (
-    DigitalPhenotypingAudit,
-    DigitalPhenotypingObservation,
+from app.repositories.digital_phenotyping import (
     DigitalPhenotypingPatientState,
-    Patient,
+    append_audit as _repo_append_audit,
+    count_observations as _repo_count_observations,
+    get_patient_display_name as _repo_get_patient_display_name,
+    insert_observation as _repo_insert_observation,
+    list_recent_audit as _repo_list_recent_audit,
+    list_recent_observations as _repo_list_recent_observations,
+    load_or_create_state as _repo_load_or_create_state,
+    observation_to_dict as _repo_observation_to_dict,
+    update_state as _repo_update_state,
 )
 from app.repositories.patients import resolve_patient_clinic_id
 from app.services.digital_phenotyping import (
@@ -108,31 +113,15 @@ def _gate_patient(actor: AuthenticatedActor, patient_id: str, db: Session) -> No
 
 
 def _patient_display_name(db: Session, patient_id: str) -> Optional[str]:
-    row = db.execute(select(Patient).where(Patient.id == patient_id)).scalar_one_or_none()
-    if row is None:
-        return None
-    parts = [row.first_name or "", row.last_name or ""]
-    name = " ".join(p for p in parts if p).strip()
-    return name or None
+    return _repo_get_patient_display_name(db, patient_id)
 
 
 def _load_or_create_state(db: Session, patient_id: str) -> DigitalPhenotypingPatientState:
-    row = db.execute(
-        select(DigitalPhenotypingPatientState).where(
-            DigitalPhenotypingPatientState.patient_id == patient_id
-        )
-    ).scalar_one_or_none()
-    if row is None:
-        row = DigitalPhenotypingPatientState(
-            patient_id=patient_id,
-            domains_enabled_json=json.dumps(DEFAULT_DOMAINS_ENABLED),
-            ui_settings_json="{}",
-            consent_scope_version="2026.04",
-        )
-        db.add(row)
-        db.commit()
-        db.refresh(row)
-    return row
+    return _repo_load_or_create_state(
+        db,
+        patient_id=patient_id,
+        default_domains_enabled=DEFAULT_DOMAINS_ENABLED,
+    )
 
 
 def _append_audit(
@@ -147,57 +136,22 @@ def _append_audit(
     detail = {"summary": summary}
     if extra:
         detail.update(extra)
-    db.add(
-        DigitalPhenotypingAudit(
-            id=str(uuid.uuid4()),
-            patient_id=patient_id,
-            action=action,
-            detail_json=json.dumps(detail),
-            actor_id=actor_id,
-        )
+    _repo_append_audit(
+        db,
+        patient_id=patient_id,
+        action=action,
+        actor_id=actor_id,
+        detail_json=json.dumps(detail),
     )
-    db.commit()
 
 
 def _observation_count(db: Session, patient_id: str) -> int:
-    return int(
-        db.scalar(
-            select(func.count())
-            .select_from(DigitalPhenotypingObservation)
-            .where(DigitalPhenotypingObservation.patient_id == patient_id)
-        )
-        or 0
-    )
+    return _repo_count_observations(db, patient_id=patient_id)
 
 
 def _fetch_observation_dicts(db: Session, patient_id: str, limit: int = 400) -> list[dict[str, Any]]:
-    rows = db.execute(
-        select(DigitalPhenotypingObservation)
-        .where(DigitalPhenotypingObservation.patient_id == patient_id)
-        .order_by(DigitalPhenotypingObservation.recorded_at.desc())
-        .limit(limit)
-    ).scalars().all()
-    out = []
-    for r in rows:
-        payload: dict[str, Any] = {}
-        try:
-            payload = json.loads(r.payload_json or "{}")
-        except json.JSONDecodeError:
-            payload = {}
-        ra = r.recorded_at
-        ts = ra.isoformat().replace("+00:00", "Z") if hasattr(ra, "isoformat") else str(ra)
-        out.append(
-            {
-                "id": r.id,
-                "patient_id": r.patient_id,
-                "source": r.source,
-                "kind": r.kind,
-                "recorded_at": ts,
-                "payload": payload,
-                "created_by": r.created_by,
-            }
-        )
-    return out
+    rows = _repo_list_recent_observations(db, patient_id=patient_id, limit=limit)
+    return [_repo_observation_to_dict(r) for r in rows]
 
 
 def _build_payload_for_patient(
@@ -232,12 +186,7 @@ def _build_research_export_bundle(db: Session, patient_id: str) -> dict[str, Any
     """Full reproducibility bundle (JSON) — audited on GET export."""
     payload = _build_payload_for_patient(db, patient_id, hide_stub_audit=True)
     obs = _fetch_observation_dicts(db, patient_id, limit=5000)
-    audit_rows = db.execute(
-        select(DigitalPhenotypingAudit)
-        .where(DigitalPhenotypingAudit.patient_id == patient_id)
-        .order_by(DigitalPhenotypingAudit.created_at.desc())
-        .limit(500)
-    ).scalars().all()
+    audit_rows = _repo_list_recent_audit(db, patient_id=patient_id, limit=500)
     audit_export = []
     for r in audit_rows:
         detail = {}
@@ -301,13 +250,8 @@ def get_digital_phenotyping_analyzer(
         summary="Analyzer payload viewed",
     )
 
-    latest = db.execute(
-        select(DigitalPhenotypingAudit)
-        .where(DigitalPhenotypingAudit.patient_id == patient_id)
-        .order_by(DigitalPhenotypingAudit.created_at.desc())
-        .limit(25)
-    ).scalars().all()
-    payload["audit_events"] = audit_rows_to_payload_events(list(latest))
+    latest = _repo_list_recent_audit(db, patient_id=patient_id, limit=25)
+    payload["audit_events"] = audit_rows_to_payload_events(latest)
     return payload
 
 
@@ -465,19 +409,15 @@ def _add_observation_row(
             pass
 
     clean = {k: v for k, v in (payload or {}).items() if v is not None and v != ""}
-    oid = str(uuid.uuid4())
-    db.add(
-        DigitalPhenotypingObservation(
-            id=oid,
-            patient_id=patient_id,
-            source=src,
-            kind=kind or "ema_checkin",
-            recorded_at=rec_at,
-            payload_json=json.dumps(clean),
-            created_by=actor_id,
-        )
+    oid = _repo_insert_observation(
+        db,
+        patient_id=patient_id,
+        source=src,
+        kind=kind or "ema_checkin",
+        recorded_at=rec_at,
+        payload_json=json.dumps(clean),
+        created_by=actor_id,
     )
-    db.commit()
 
     _append_audit(
         db,
@@ -570,11 +510,6 @@ def get_digital_phenotyping_audit(
     _require_known_patient(db, patient_id)
     _gate_patient(actor, patient_id, db)
 
-    rows = db.execute(
-        select(DigitalPhenotypingAudit)
-        .where(DigitalPhenotypingAudit.patient_id == patient_id)
-        .order_by(DigitalPhenotypingAudit.created_at.desc())
-        .limit(100)
-    ).scalars().all()
-    events = audit_rows_to_payload_events(list(rows))
+    rows = _repo_list_recent_audit(db, patient_id=patient_id, limit=100)
+    events = audit_rows_to_payload_events(rows)
     return {"patient_id": patient_id, "events": events, "total": len(events)}
