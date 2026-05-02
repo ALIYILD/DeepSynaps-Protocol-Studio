@@ -360,6 +360,7 @@ const _MED_PATIENT_REGIMENS = {
   'demo-pt-marcus-chen': [
     { id: 'demo-med-mar-1', patient_id: 'demo-pt-marcus-chen', name: 'Sertraline',  generic_name: 'sertraline',  dose: '100 mg', frequency: 'once daily',   route: 'PO', prescriber: 'Dr. A. Yildirim', started_at: '2025-09-02', active: true },
     { id: 'demo-med-mar-2', patient_id: 'demo-pt-marcus-chen', name: 'Melatonin',   generic_name: 'melatonin',   dose: '3 mg',   frequency: 'at bedtime',   route: 'PO', prescriber: 'Dr. A. Yildirim', started_at: '2026-01-15', active: true },
+    { id: 'demo-med-mar-3', patient_id: 'demo-pt-marcus-chen', name: 'Bupropion',   generic_name: 'bupropion',   dose: '150 mg', frequency: 'once daily',   route: 'PO', prescriber: 'Dr. A. Yildirim', started_at: '2026-02-08', active: true },
   ],
   'demo-pt-elena-vasquez': [
     { id: 'demo-med-ele-1', patient_id: 'demo-pt-elena-vasquez', name: 'Warfarin',     generic_name: 'warfarin',     dose: '5 mg',  frequency: 'once daily',  route: 'PO', prescriber: 'Dr. R. Patel',     started_at: '2024-06-19', active: true },
@@ -441,6 +442,47 @@ function _medPatientMedications(patientId) {
   return _MED_PATIENT_REGIMENS[patientId] || [];
 }
 
+const _MED_PATIENT_ACTIVE_PROTOCOLS = {
+  'demo-pt-samantha-li': {
+    id: 'demo-protocol-sam-tdcs',
+    patient_id: 'demo-pt-samantha-li',
+    protocol_name: 'Anodal tDCS · L-DLPFC for MDD',
+    modality: 'tdcs',
+    target_region: 'L-DLPFC (F3)',
+    session_frequency: '5×/week',
+    duration: '4 weeks',
+    status: 'active',
+    created_at: '2026-04-12T10:14:00Z',
+  },
+  'demo-pt-marcus-chen': {
+    id: 'demo-protocol-mar-rtms',
+    patient_id: 'demo-pt-marcus-chen',
+    protocol_name: '10 Hz rTMS · L-DLPFC for treatment-resistant anxiety / depression',
+    modality: 'rtms',
+    target_region: 'L-DLPFC (BA46)',
+    session_frequency: '5×/week',
+    duration: '6 weeks',
+    status: 'active',
+    created_at: '2026-04-22T09:31:00Z',
+  },
+  'demo-pt-elena-vasquez': {
+    id: 'demo-protocol-ele-ect',
+    patient_id: 'demo-pt-elena-vasquez',
+    protocol_name: 'Bilateral ECT for refractory chronic-pain–associated severe depression',
+    modality: 'ect',
+    target_region: 'Bifrontal',
+    session_frequency: '3×/week',
+    duration: '3 weeks',
+    status: 'active',
+    created_at: '2026-04-18T08:02:00Z',
+  },
+};
+
+function _medActiveProtocol(patientId) {
+  const proto = _MED_PATIENT_ACTIVE_PROTOCOLS[patientId];
+  return proto ? { items: [proto] } : { items: [] };
+}
+
 function _medCheckInteractions(patientId, names) {
   const seeded = _MED_INTERACTION_RESULTS[patientId];
   if (seeded) {
@@ -461,6 +503,7 @@ const _MEDICATION = {
   patient_medications: _medPatientMedications,
   check_interactions: _medCheckInteractions,
   interaction_log: _MED_INTERACTION_LOG,
+  active_protocol: _medActiveProtocol,
 };
 
 export const ANALYZER_DEMO_FIXTURES = Object.freeze({

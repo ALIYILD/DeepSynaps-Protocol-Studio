@@ -1,6 +1,7 @@
 import { api } from './api.js';
 import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
+import { crossCheckMedNeuromod } from './medication-neuromod-rules.js';
 
 function esc(s) {
   return String(s ?? '')
@@ -175,7 +176,102 @@ function _renderInteractionResults(result) {
   </div>`;
 }
 
-function _renderPatientDetail(patient, meds, lastResult) {
+const _MODALITY_LABEL = {
+  rtms: 'rTMS', tms: 'rTMS', tdcs: 'tDCS', tacs: 'tACS', trns: 'tRNS',
+  ect: 'ECT', vns: 'VNS', tfus: 'tFUS', dbs: 'DBS', neurofeedback: 'Neurofeedback',
+};
+
+function _modLabel(m) {
+  const k = String(m || '').toLowerCase();
+  return _MODALITY_LABEL[k] || (k ? k.toUpperCase() : '—');
+}
+
+function _neuromodSeverityPill(sev) {
+  const s = String(sev || '').toLowerCase();
+  if (s === 'critical') return '<span class="pill" style="background:rgba(255,107,107,0.18);color:var(--red);border:1px solid rgba(255,107,107,0.4)">Critical</span>';
+  if (s === 'major')    return '<span class="pill" style="background:rgba(255,107,107,0.12);color:var(--red);border:1px solid rgba(255,107,107,0.25)">Major</span>';
+  if (s === 'moderate') return '<span class="pill pill-pending">Moderate</span>';
+  if (s === 'mild')     return '<span class="pill pill-review">Mild</span>';
+  if (s === 'monitor')  return '<span class="pill" style="background:rgba(96,165,250,0.12);color:var(--blue);border:1px solid rgba(96,165,250,0.25)">Monitor</span>';
+  return '<span class="pill pill-inactive">Unknown</span>';
+}
+
+function _neuromodSeverityColor(sev) {
+  const s = String(sev || '').toLowerCase();
+  if (s === 'critical' || s === 'major') return 'var(--red)';
+  if (s === 'moderate')                  return 'var(--amber)';
+  if (s === 'mild' || s === 'monitor')   return 'var(--blue)';
+  return 'var(--green)';
+}
+
+function _renderRefPills(refs) {
+  if (!Array.isArray(refs) || !refs.length) return '';
+  const items = refs.map((r) => {
+    const pmid = String(r.pmid || '').trim();
+    if (!pmid) return '';
+    const meta = [r.year, r.journal].filter(Boolean).join(' · ');
+    const title = esc(r.title || '');
+    const tooltip = esc([r.title, meta].filter(Boolean).join(' — ') || `PMID ${pmid}`);
+    const prefill = esc(`${pmid} ${r.title || ''}`.trim());
+    const pubmed = `https://pubmed.ncbi.nlm.nih.gov/${esc(pmid)}/`;
+    return `<span style="display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap;margin:2px 8px 2px 0">
+      <span style="font-size:11px;color:var(--text-tertiary);max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${tooltip}">${title}${meta ? ` <span style="opacity:.7">(${esc(meta)})</span>` : ''}</span>
+      <button type="button" class="pill" data-action="open-evidence" data-prefill="${prefill}"
+        title="Search this PMID in the local 87k evidence corpus"
+        style="background:rgba(155,127,255,0.10);color:var(--violet,#9b7fff);border:1px solid rgba(155,127,255,0.30);cursor:pointer;font-size:10.5px;min-height:24px;padding:2px 8px">📚 87k evidence</button>
+      <a class="pill" href="${pubmed}" target="_blank" rel="noopener noreferrer"
+        title="Open PMID ${esc(pmid)} on PubMed (new tab)"
+        style="background:rgba(45,212,191,0.10);color:var(--teal);border:1px solid rgba(45,212,191,0.30);text-decoration:none;font-size:10.5px;min-height:24px;padding:2px 8px">🔗 PubMed</a>
+    </span>`;
+  }).filter(Boolean).join('');
+  if (!items) return '';
+  return `<div style="margin-top:6px;display:flex;flex-direction:column;gap:4px">
+    <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.4px">References</div>
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:2px">${items}</div>
+  </div>`;
+}
+
+function _renderNeuromodSection(state) {
+  if (!state) return '';
+  const headerLine = '<div style="font-size:12px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px">Medication ↔ Neuromodulation</div>';
+  const wrap = (inner) => `<div data-neuromod-section style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:10px">${headerLine}${inner}</div>`;
+
+  if (state.status === 'loading') {
+    return wrap(`<div style="font-size:12px;color:var(--text-tertiary)">Loading active neuromodulation prescription…</div>`);
+  }
+  if (state.status === 'error') {
+    return wrap(`<div style="font-size:12px;color:var(--text-tertiary);font-style:italic">Couldn’t load active modality — cross-check unavailable. <button type="button" class="btn btn-ghost btn-sm" data-action="retry-neuromod" style="min-height:32px;padding:2px 10px;font-size:11px">Try again</button></div>`);
+  }
+  if (state.status === 'no-protocol') {
+    return wrap(`<div style="font-size:12px;color:var(--text-tertiary);font-style:italic">No active neuromodulation prescription — cross-check skipped.</div>`);
+  }
+  const proto = state.protocol || {};
+  const modality = _modLabel(proto.modality);
+  const protoLine = `<div style="font-size:12px;color:var(--text-secondary)">
+    Active prescription: <strong style="color:var(--text-primary)">${esc(proto.protocol_name || modality)}</strong> · <span style="color:var(--violet,#9b7fff);font-weight:600">${esc(modality)}</span>${proto.target_region ? ` · ${esc(proto.target_region)}` : ''}
+  </div>`;
+  const matches = Array.isArray(state.matches) ? state.matches : [];
+  if (!matches.length) {
+    return wrap(`${protoLine}<div style="font-size:12px;color:var(--text-tertiary);font-style:italic">No medication↔neuromodulation interactions flagged for this patient.</div>`);
+  }
+  const cards = matches.map((rule) => {
+    const color = _neuromodSeverityColor(rule.severity);
+    const drug = rule.drug_label || rule.matched_med_name || 'Medication';
+    const mod = _modLabel(rule.matched_modality);
+    return `<div style="padding:14px;border:1px solid ${color};background:rgba(255,255,255,.02);border-radius:12px;display:flex;flex-direction:column;gap:6px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <div style="font-weight:600;font-size:13px">${esc(drug)} + ${esc(mod)}</div>
+        <div>${_neuromodSeverityPill(rule.severity)}</div>
+      </div>
+      <div style="font-size:12px;color:var(--text-secondary);line-height:1.5">${esc(rule.mechanism || '')}</div>
+      ${rule.recommendation ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:2px"><strong style="color:var(--text-secondary)">Recommendation:</strong> ${esc(rule.recommendation)}</div>` : ''}
+      ${_renderRefPills(rule.references)}
+    </div>`;
+  }).join('');
+  return wrap(`${protoLine}<div style="font-size:11px;color:var(--text-tertiary)">${matches.length} cross-check${matches.length === 1 ? '' : 's'} flagged · references resolve to local 87k evidence corpus or PubMed.</div>${cards}`);
+}
+
+function _renderPatientDetail(patient, meds, lastResult, neuromodState) {
   const name = patient?.name || patient?.patient_name || 'Patient';
   return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:12px 0 14px">
       <div style="font-size:12px;color:var(--text-tertiary)">${esc(meds.length)} active medication${meds.length === 1 ? '' : 's'}</div>
@@ -183,7 +279,8 @@ function _renderPatientDetail(patient, meds, lastResult) {
     </div>
     <div data-med-list-slot>${_renderMedList(meds, name)}</div>
     ${_renderAddForm()}
-    <div data-interaction-results>${_renderInteractionResults(lastResult)}</div>`;
+    <div data-interaction-results>${_renderInteractionResults(lastResult)}</div>
+    <div data-neuromod-results>${_renderNeuromodSection(neuromodState)}</div>`;
 }
 
 function _normaliseMedList(resp) {
@@ -228,6 +325,7 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
   let medsCache = [];
   let lastInteractionResult = null;
   let usingFixtures = false;
+  let neuromodState = { status: 'loading', protocol: null, matches: [] };
 
   el.innerHTML = `
     <div class="ds-medication-analyzer-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px">
@@ -265,8 +363,87 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
     activePatientId = pid;
     activePatientName = pname || pid;
     lastInteractionResult = null;
+    neuromodState = { status: 'loading', protocol: null, matches: [] };
     view = 'patient';
     render();
+  }
+
+  function _refreshNeuromodSlot() {
+    const body = $('ma-body');
+    const slot = body?.querySelector('[data-neuromod-results]');
+    if (!slot) return;
+    slot.innerHTML = _renderNeuromodSection(neuromodState);
+    _wireNeuromodSlot();
+  }
+
+  function _wireNeuromodSlot() {
+    const body = $('ma-body');
+    if (!body) return;
+    body.querySelectorAll('[data-neuromod-section] [data-action="open-evidence"]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const prefill = b.getAttribute('data-prefill') || '';
+        try {
+          window._reEvidencePrefill = prefill;
+          window._resEvidenceTab = 'search';
+        } catch {}
+        try { navigate?.('research-evidence'); } catch {}
+      });
+    });
+    body.querySelectorAll('[data-neuromod-section] [data-action="retry-neuromod"]').forEach((b) => {
+      b.addEventListener('click', () => { loadNeuromodForPatient(); });
+    });
+  }
+
+  function _activeProtocolFromList(items) {
+    const arr = Array.isArray(items) ? items : [];
+    const withModality = arr.filter((p) => p && (p.modality || p.modality_key));
+    if (!withModality.length) return null;
+    const active = withModality.find((p) => String(p.status || '').toLowerCase() === 'active');
+    const ranked = (active ? [active] : withModality).slice().sort((a, b) => {
+      const ta = Date.parse(a.updated_at || a.created_at || a.started_at || 0) || 0;
+      const tb = Date.parse(b.updated_at || b.created_at || b.started_at || 0) || 0;
+      return tb - ta;
+    });
+    return ranked[0] || null;
+  }
+
+  async function loadNeuromodForPatient() {
+    if (!activePatientId) return;
+    neuromodState = { status: 'loading', protocol: null, matches: [] };
+    _refreshNeuromodSlot();
+    let items = null;
+    try {
+      if (usingFixtures && ANALYZER_DEMO_FIXTURES?.medication?.active_protocol) {
+        items = (ANALYZER_DEMO_FIXTURES.medication.active_protocol(activePatientId) || {}).items || [];
+      } else {
+        const resp = await api.listSavedProtocols(activePatientId);
+        items = Array.isArray(resp?.items) ? resp.items : (Array.isArray(resp) ? resp : []);
+        if ((!items || !items.length) && isDemoSession() && ANALYZER_DEMO_FIXTURES?.medication?.active_protocol) {
+          items = (ANALYZER_DEMO_FIXTURES.medication.active_protocol(activePatientId) || {}).items || [];
+        }
+      }
+    } catch (e) {
+      if (isDemoSession() && ANALYZER_DEMO_FIXTURES?.medication?.active_protocol) {
+        items = (ANALYZER_DEMO_FIXTURES.medication.active_protocol(activePatientId) || {}).items || [];
+      } else {
+        neuromodState = { status: 'error', protocol: null, matches: [] };
+        _refreshNeuromodSlot();
+        return;
+      }
+    }
+    const protocol = _activeProtocolFromList(items);
+    if (!protocol) {
+      neuromodState = { status: 'no-protocol', protocol: null, matches: [] };
+      _refreshNeuromodSlot();
+      return;
+    }
+    const modality = String(protocol.modality || protocol.modality_key || '').toLowerCase();
+    const matches = crossCheckMedNeuromod({
+      meds: medsCache,
+      modalities: [modality],
+    });
+    neuromodState = { status: 'ok', protocol, matches };
+    _refreshNeuromodSlot();
   }
 
   async function loadLog() {
@@ -338,8 +515,9 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
       }
     }
     _syncDemoBanner();
-    body.innerHTML = _renderPatientDetail({ name: activePatientName }, medsCache, lastInteractionResult);
+    body.innerHTML = _renderPatientDetail({ name: activePatientName }, medsCache, lastInteractionResult, neuromodState);
     wirePatientDetail();
+    loadNeuromodForPatient();
   }
 
   function _refreshMedListInPlace() {
@@ -350,6 +528,15 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
     const btn = body.querySelector('[data-action="check-interactions"]');
     if (btn) btn.disabled = medsCache.length < 2;
     wireMedRows();
+    if (neuromodState && neuromodState.status === 'ok' && neuromodState.protocol) {
+      const modality = String(neuromodState.protocol.modality || neuromodState.protocol.modality_key || '').toLowerCase();
+      neuromodState = {
+        status: 'ok',
+        protocol: neuromodState.protocol,
+        matches: crossCheckMedNeuromod({ meds: medsCache, modalities: [modality] }),
+      };
+      _refreshNeuromodSlot();
+    }
   }
 
   function wireMedRows() {
@@ -383,6 +570,7 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
     if (!body) return;
 
     wireMedRows();
+    _wireNeuromodSlot();
 
     body.querySelector('[data-add-med-form]')?.addEventListener('submit', async (ev) => {
       ev.preventDefault();
