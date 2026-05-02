@@ -1,19 +1,33 @@
-"""Biometrics MVP API — normalized schema façade over ``deepsynaps_biometrics``.
+"""Biometrics API — analytics over ``WearableDailySummary`` + ``deepsynaps_biometrics``.
 
-These routes document the MVP contract and delegate math to the sibling package.
-Existing wearable flows remain under ``/api/v1/wearables`` and ``/api/v1/device-sync``.
+Normalized ingestion batches persist observations/daily rows via
+``app.services.biometrics_analytics``. Clinician/patient wearable APIs remain
+under ``/api/v1/wearables`` and ``/api/v1/patient-portal``.
 """
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor
+from app.database import get_db_session
+from app.services.biometrics_analytics import (
+    alerts_payload,
+    baseline_payload,
+    biometrics_summary_payload,
+    correlation_payload,
+    features_payload,
+    persist_biometric_sync_batch,
+    resolve_analytics_patient_id,
+    summaries_to_feature_matrix,
+    touch_connection_last_sync,
+    load_summaries_window,
+)
 from deepsynaps_biometrics.causal import estimate_intervention_effect
-from deepsynaps_biometrics.correlation import compute_biomarker_correlation_matrix
 from deepsynaps_biometrics.device_catalog import (
     explain_device_recommendation,
     list_supported_marketplace_devices,
@@ -32,8 +46,6 @@ from deepsynaps_biometrics.schemas import (
 router = APIRouter(prefix="/api/biometrics", tags=["Biometrics MVP"])
 
 
-# ── Request / response DTOs (OpenAPI) ─────────────────────────────────────────
-
 class ConnectOut(BaseModel):
     mode: str
     provider: str
@@ -41,22 +53,18 @@ class ConnectOut(BaseModel):
 
 
 class SyncRequest(BaseModel):
-    connection_id: str
+    patient_id: Optional[str] = None
+    connection_id: Optional[str] = None
     provider: str
     cursor: Optional[str] = None
     batch: list[dict[str, Any]] = Field(default_factory=list)
-
-
-class SummaryQuery(BaseModel):
-    days: int = Field(default=7, ge=1, le=365)
+    run_clinical_flag_checks: bool = True
 
 
 @router.post("/providers/healthkit/connect", response_model=ConnectOut)
 def post_healthkit_connect(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> ConnectOut:
-    """Register intent to use HealthKit bridge; mobile app completes authorization."""
-    del actor
     d = connect_healthkit_account(state="", redirect_uri="")
     return ConnectOut(mode=str(d.get("mode")), provider=str(d.get("provider")), details=d)
 
@@ -65,7 +73,6 @@ def post_healthkit_connect(
 def post_health_connect_connect(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> ConnectOut:
-    del actor
     d = connect_health_connect_account()
     return ConnectOut(mode=str(d.get("mode")), provider=str(d.get("provider")), details=d)
 
@@ -74,7 +81,6 @@ def post_health_connect_connect(
 def post_oura_connect(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> ConnectOut:
-    del actor
     d = connect_oura_account()
     return ConnectOut(mode="oauth", provider=str(d.get("provider")), details=d)
 
@@ -83,67 +89,107 @@ def post_oura_connect(
 def post_biometrics_sync(
     body: SyncRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
 ) -> dict[str, Any]:
-    """Accept semi-normalized batches from mobile bridges (persist in service layer next)."""
-    del actor
-    return {
-        "accepted": True,
+    """Persist normalized observation rows or daily summaries; optional HK/HC bridge."""
+    patient_id = resolve_analytics_patient_id(actor, db, patient_id=body.patient_id)
+    stats = persist_biometric_sync_batch(
+        db,
+        patient_id,
+        batch=body.batch,
+        run_flag_checks_after=body.run_clinical_flag_checks,
+    )
+    touch_connection_last_sync(db, body.connection_id, patient_id)
+    out = {
+        "patient_id": patient_id,
         "connection_id": body.connection_id,
         "provider": body.provider,
         "rows_seen": len(body.batch),
+        "cursor_echo": body.cursor,
+        **stats,
     }
+    return out
 
 
 @router.get("/summary")
 def get_biometrics_summary(
-    days: int = 7,
+    days: int = Query(default=30, ge=1, le=365),
+    patient_id: Optional[str] = Query(default=None),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
 ) -> dict[str, Any]:
-    del actor
-    q = SummaryQuery(days=days)
-    return {"window_days": q.days, "series_counts": {}, "note": "Wire to WearableDailySummary in P1."}
+    pid = resolve_analytics_patient_id(actor, db, patient_id=patient_id)
+    payload = biometrics_summary_payload(db, pid, days=days)
+    matrix = summaries_to_feature_matrix(load_summaries_window(db, pid, days=days))
+    payload["feature_series_coverage"] = {k: len(v) for k, v in matrix.items()}
+    return payload
 
 
 @router.get("/features")
 def get_biometrics_features(
+    days: int = Query(default=30, ge=7, le=365),
+    patient_id: Optional[str] = Query(default=None),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
 ) -> dict[str, Any]:
-    del actor
-    return {"features": {}, "engine": "deepsynaps_biometrics.features"}
+    pid = resolve_analytics_patient_id(actor, db, patient_id=patient_id)
+    summaries = load_summaries_window(db, pid, days=days)
+    matrix = summaries_to_feature_matrix(summaries)
+    feat = features_payload(matrix)
+    feat["patient_id"] = pid
+    feat["window_days"] = days
+    return feat
 
 
 @router.get("/correlations")
 def get_biometrics_correlations(
+    days: int = Query(default=30, ge=7, le=365),
+    patient_id: Optional[str] = Query(default=None),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
 ) -> dict[str, Any]:
-    del actor
-    matrix = compute_biomarker_correlation_matrix({"a": [1.0, 2.0, 3.0], "b": [2.0, 4.0, 5.0]})
-    return {"matrix": {f"{k[0]}:{k[1]}": v for k, v in matrix.items()}}
+    pid = resolve_analytics_patient_id(actor, db, patient_id=patient_id)
+    summaries = load_summaries_window(db, pid, days=days)
+    matrix = summaries_to_feature_matrix(summaries)
+    return correlation_payload(matrix)
 
 
-@router.get("/baseline", response_model=PersonalBaselineProfile | dict[str, str])
+@router.get("/baseline", response_model=Union[PersonalBaselineProfile, dict[str, str]])
 def get_biometrics_baseline(
+    feature: str = Query(..., min_length=1, description="Column e.g. hrv_ms, sleep_duration_h"),
+    days: int = Query(default=30, ge=7, le=365),
+    patient_id: Optional[str] = Query(default=None),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
 ) -> PersonalBaselineProfile | dict[str, str]:
-    del actor
-    return {"message": "Add user_id + feature query params when wiring persistence."}
+    pid = resolve_analytics_patient_id(actor, db, patient_id=patient_id)
+    summaries = load_summaries_window(db, pid, days=days)
+    matrix = summaries_to_feature_matrix(summaries)
+    return baseline_payload(matrix, patient_id=pid, feature=feature)
 
 
 @router.get("/alerts", response_model=list[PredictiveAlert])
 def get_biometrics_alerts(
+    days: int = Query(default=30, ge=14, le=365),
+    patient_id: Optional[str] = Query(default=None),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
 ) -> list[PredictiveAlert]:
-    del actor
-    return []
+    pid = resolve_analytics_patient_id(actor, db, patient_id=patient_id)
+    summaries = load_summaries_window(db, pid, days=days)
+    matrix = summaries_to_feature_matrix(summaries)
+    return alerts_payload(matrix, patient_id=pid)
 
 
 @router.post("/causal-analysis", response_model=CausalAnalysisResult)
 def post_causal_analysis(
     body: CausalAnalysisRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
 ) -> CausalAnalysisResult:
-    """P1 module — observational estimates only; explicit warnings in payload."""
+    del db
     del actor
+    # Pass aligned matrix when we have stored series keyed by request — P1.
     return estimate_intervention_effect(body, observed_data={})
 
 

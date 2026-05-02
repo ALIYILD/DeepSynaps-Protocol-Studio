@@ -15,18 +15,26 @@ def compute_biomarker_correlation_matrix(
     method: str = "pearson",
 ) -> dict[tuple[str, str], float]:
     """``feature_matrix`` maps feature name → aligned daily values."""
+    del method
     names = list(feature_matrix.keys())
     if len(names) < 2:
         return {}
-    # Pearson pairwise (numpy), ignores NaN pairwise not implemented in MVP stub
-    data = np.array([feature_matrix[n] for n in names], dtype=float)
-    corr = np.corrcoef(data)
+    # Pearson pairwise with pairwise-complete observations (finite mask per pair).
     out: dict[tuple[str, str], float] = {}
     for i, a in enumerate(names):
         for j, b in enumerate(names):
-            if i <= j:
-                out[(a, b)] = float(corr[i, j])
-    del method
+            if i > j:
+                continue
+            va = np.asarray(feature_matrix[a], dtype=float)
+            vb = np.asarray(feature_matrix[b], dtype=float)
+            m = np.isfinite(va) & np.isfinite(vb)
+            if m.sum() < 3:
+                coef = float("nan")
+            else:
+                coef = float(np.corrcoef(va[m], vb[m])[0, 1])
+            out[(a, b)] = coef
+            if i != j:
+                out[(b, a)] = coef
     return out
 
 
