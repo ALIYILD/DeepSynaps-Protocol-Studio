@@ -15,6 +15,12 @@ from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor
 from app.database import get_db_session
+from app.services.evidence_intelligence import EvidenceResult
+from app.services.biometrics_evidence_bridge import (
+    BiometricsEvidenceRequest,
+    biometrics_evidence_result,
+    provenance_note,
+)
 from app.services.biometrics_analytics import (
     alerts_payload,
     baseline_payload,
@@ -191,6 +197,25 @@ def post_causal_analysis(
     del actor
     # Pass aligned matrix when we have stored series keyed by request — P1.
     return estimate_intervention_effect(body, observed_data={})
+
+
+@router.post("/evidence", response_model=EvidenceResult)
+def post_biometrics_evidence(
+    body: BiometricsEvidenceRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> EvidenceResult:
+    """Rank literature for a biometrics context using the 87k evidence intelligence engine.
+
+    Pass optional ``correlation_snapshot`` / ``features_snapshot`` from
+    ``GET /api/biometrics/correlations`` and ``/features`` to enrich ranking.
+    """
+    pid = resolve_analytics_patient_id(actor, db, patient_id=body.patient_id)
+    result = biometrics_evidence_result(body.model_copy(update={"patient_id": pid}))
+    note = provenance_note(result.provenance.corpus)
+    base = (result.recommended_caution or "").strip()
+    caution = f"{base} {note}".strip() if base else note
+    return result.model_copy(update={"recommended_caution": caution})
 
 
 @router.get("/marketplace/devices")
