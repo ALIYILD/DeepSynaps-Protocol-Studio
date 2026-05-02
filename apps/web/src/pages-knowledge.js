@@ -9460,7 +9460,9 @@ export async function pgCaregiverDeliveryConcernResolutionAuditHub(setTopbar) {
     var demoBanner = isAllDemo()
       ? '<div data-testid="cgcr-hub-demo-banner" class="notice notice-info" style="padding:8px 12px;font-size:11px;margin-bottom:8px">DEMO data — these resolutions are seeded for evaluation and are not regulator-submittable.</div>'
       : '';
-    var heading = '<div style="display:flex;justify-content:space-between;align-items:center"><h2 style="font-size:16px;margin:0">Resolution audit hub</h2></div>';
+    var heading = '<div style="display:flex;justify-content:space-between;align-items:center"><h2 style="font-size:16px;margin:0">Resolution audit hub</h2>' +
+      '<a data-testid="cgcr-hub-coaching-inbox-link" href="#/resolver-coaching-inbox" class="btn-secondary" style="font-size:.78rem;padding:5px 10px;text-decoration:none">My coaching inbox →</a>' +
+      '</div>';
     var disclaimer = '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Cohort dashboard for caregiver delivery-concern resolutions. Source: <code>caregiver_portal.delivery_concern_resolved</code> audit rows (#391).</div>';
     el.innerHTML = '<div style="padding:14px">' +
       demoBanner +
@@ -9527,6 +9529,294 @@ export async function pgCaregiverDeliveryConcernResolutionAuditHub(setTopbar) {
 
   await render();
 }
+
+// ── Resolver Coaching Inbox launch-audit (DCRO2, 2026-05-02) ──────────────
+// Private, read-only inbox view per resolver showing THEIR OWN wrong
+// false_positive calls. Mirrors the Wearables Workbench → Clinician
+// Inbox handoff (#353/#354): admins do NOT drill into another resolver's
+// coaching rows. Each card shows caregiver name, days-to-re-flag,
+// subsequent_concern_count, adapter chips, and a "Add self-review note"
+// CTA. Filing a note emits an audit row under
+// target_type='resolver_coaching_inbox' that the regulator transcript
+// can render. Admin section (visible only to admins) shows an overview
+// table of all clinic resolvers without drill-in.
+export async function pgResolverCoachingInbox(setTopbar) {
+  setTopbar('My coaching inbox', '');
+
+  var state = {
+    windowDays: 90,
+    inbox: null,
+    adminOverview: null,
+    err: null,
+    role: '',
+    modalOpen: false,
+    modalResolvedId: null,
+    modalNote: '',
+    modalErr: null,
+  };
+
+  function _esc(v) {
+    var s = v == null ? '' : String(v);
+    return s.replace(/[&<>"']/g, function(c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+
+  function isAdmin() {
+    return String(state.role || '').toLowerCase() === 'admin';
+  }
+
+  async function loadAll() {
+    var resp = { inbox: null, adminOverview: null, err: null };
+    try {
+      if (typeof api.fetchMyCoachingInbox === 'function') {
+        resp.inbox = await api.fetchMyCoachingInbox({ window_days: state.windowDays });
+      }
+      // Admin overview only fetched when role is admin.
+      try {
+        var u = (typeof api.getCurrentUser === 'function')
+          ? await api.getCurrentUser()
+          : null;
+        if (u && u.role) state.role = String(u.role);
+      } catch (_e) { /* role best-effort */ }
+      if (isAdmin() && typeof api.fetchResolverAdminOverview === 'function') {
+        resp.adminOverview = await api.fetchResolverAdminOverview({
+          window_days: state.windowDays,
+          min_resolutions: 3,
+        });
+      }
+    } catch (e) {
+      resp.err = String(e && e.message || e || 'unknown');
+    }
+    return resp;
+  }
+
+  function calibrationClass(pct) {
+    var v = Number(pct) || 0;
+    if (v >= 80) return 'rci-cal-green';
+    if (v >= 50) return 'rci-cal-yellow';
+    return 'rci-cal-red';
+  }
+
+  function renderCalibrationBadge(pct) {
+    var cls = calibrationClass(pct);
+    return '<span data-testid="rci-calibration-badge" class="' + cls + '" style="display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums">Calibration accuracy: ' + _esc(Number(pct).toFixed(1)) + '%</span>';
+  }
+
+  function renderBottomQuartileCallout(inBq) {
+    if (!inBq) return '';
+    return '<div data-testid="rci-bottom-quartile-callout" class="notice notice-warn" style="margin:10px 0;padding:10px 12px;font-size:12px">' +
+      '<strong>You are in the bottom quartile</strong> of resolvers in your clinic — review these calls to recalibrate. Marking real delivery problems as <code>false_positive</code> leaves caregivers stranded; the DCA worker re-flagged each of these caregivers within 30 days of your call.' +
+      '</div>';
+  }
+
+  function renderAdapterChips(adapters) {
+    if (!adapters || !adapters.length) return '';
+    return '<div data-testid="rci-adapter-chips" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">' +
+      adapters.map(function(a) {
+        return '<span class="skill-tag" data-adapter="' + _esc(a) + '" style="font-size:10.5px;padding:2px 7px;background:var(--surface-muted);border-radius:6px">' + _esc(a) + '</span>';
+      }).join('') +
+      '</div>';
+  }
+
+  function renderWrongCallCard(card) {
+    var caregiver = card.caregiver_name || card.caregiver_user_id;
+    var reviewBlock = card.self_review_note
+      ? '<div data-testid="rci-card-self-review-note" style="margin-top:8px;padding:8px 10px;background:var(--surface-muted);border-radius:6px;font-size:12px"><strong>Self-review:</strong> «' + _esc(card.self_review_note) + '»</div>'
+      : '<button data-testid="rci-card-add-note-btn" class="btn-secondary" style="margin-top:8px;font-size:12px;padding:5px 10px" onclick="window._rciOpenNoteModal(\'' + _esc(card.resolved_audit_id) + '\')">Add self-review note</button>';
+    return '<div data-testid="rci-wrong-call-card" class="card" style="padding:12px;margin-top:10px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px">' +
+        '<div style="font-size:13px;font-weight:600">' + _esc(caregiver) + '</div>' +
+        '<div data-testid="rci-card-days" style="font-size:11px;color:var(--text-muted)">Re-flagged ' + _esc(String(card.days_to_re_flag)) + 'd after your <code>false_positive</code> call</div>' +
+      '</div>' +
+      '<div style="margin-top:6px;font-size:11.5px;color:var(--text-muted)">' +
+        'Resolved: ' + _esc(card.resolved_at) + ' → Re-flagged: ' + _esc(card.re_flagged_at) +
+      '</div>' +
+      '<div data-testid="rci-card-concern-count" style="margin-top:6px;font-size:12px">' +
+        '<strong>' + _esc(String(card.subsequent_concern_count)) + '</strong> delivery concern' + (card.subsequent_concern_count === 1 ? '' : 's') + ' filed between your call and the re-flag.' +
+      '</div>' +
+      renderAdapterChips(card.adapter_list || []) +
+      reviewBlock +
+      '</div>';
+  }
+
+  function renderEmptyState() {
+    return '<div data-testid="rci-empty-state" class="card" style="padding:18px;text-align:center;font-size:13px;color:var(--text-muted);margin-top:12px">' +
+      'No wrong <code>false_positive</code> calls in the last ' + _esc(String(state.windowDays)) + ' days. Nice.' +
+      '</div>';
+  }
+
+  function renderAdminOverviewTable(ov) {
+    if (!isAdmin()) return '';
+    if (!ov || !Array.isArray(ov.items)) {
+      return '<div data-testid="rci-admin-overview-empty" style="margin-top:18px;font-size:12px;color:var(--text-muted)">Admin overview unavailable.</div>';
+    }
+    if (ov.items.length === 0) {
+      return '<div data-testid="rci-admin-overview" class="card" style="margin-top:18px;padding:14px">' +
+        '<h3 style="font-size:13px;font-weight:700;margin:0 0 6px 0">Resolver overview</h3>' +
+        '<div style="font-size:12px;color:var(--text-muted)">No resolvers in this clinic have ' + _esc(String(ov.min_resolutions)) + '+ resolutions in the last ' + _esc(String(ov.window_days)) + ' days yet.</div>' +
+        '</div>';
+    }
+    var rows = ov.items.map(function(r) {
+      return '<tr data-testid="rci-admin-overview-row" data-resolver-id="' + _esc(r.resolver_user_id) + '">' +
+        '<td style="padding:6px 8px">' + _esc(r.resolver_name || r.resolver_user_id) + '</td>' +
+        '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(r.total_resolutions)) + '</td>' +
+        '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(r.false_positive_calls)) + '</td>' +
+        '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(r.wrong_false_positive_calls)) + '</td>' +
+        '<td class="' + calibrationClass(r.calibration_accuracy_pct) + '" style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums">' + _esc(Number(r.calibration_accuracy_pct).toFixed(1)) + '%</td>' +
+        '<td style="padding:6px 8px;text-align:center">' + (r.in_bottom_quartile ? '⚠' : '') + '</td>' +
+        '</tr>';
+    }).join('');
+    return '<div data-testid="rci-admin-overview" class="card" style="margin-top:18px;padding:14px">' +
+      '<h3 style="font-size:13px;font-weight:700;margin:0 0 4px 0">Resolver overview</h3>' +
+      '<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:8px">Read-only roll-up. No drill-in into individual coaching rows — each resolver\'s inbox is private to them.</div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<thead><tr style="text-align:left;border-bottom:1px solid var(--border)">' +
+      '<th style="padding:6px 8px">Resolver</th>' +
+      '<th style="padding:6px 8px;text-align:right">Total resolutions</th>' +
+      '<th style="padding:6px 8px;text-align:right">FP calls</th>' +
+      '<th style="padding:6px 8px;text-align:right">Wrong FP calls</th>' +
+      '<th style="padding:6px 8px;text-align:right">Calibration</th>' +
+      '<th style="padding:6px 8px;text-align:center">Bottom quartile</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+
+  function renderNoteModal() {
+    if (!state.modalOpen) return '';
+    var noteLen = (state.modalNote || '').length;
+    var lenOk = noteLen >= 10 && noteLen <= 500;
+    var errBlock = state.modalErr
+      ? '<div data-testid="rci-note-modal-err" class="notice notice-warn" style="font-size:11.5px;margin-top:8px">' + _esc(state.modalErr) + '</div>'
+      : '';
+    return '<div data-testid="rci-note-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9999">' +
+      '<div class="card" style="max-width:520px;width:90%;padding:18px">' +
+      '<h3 style="margin:0 0 4px 0;font-size:14px;font-weight:700">Self-review note</h3>' +
+      '<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px">10–500 chars. Stored as an audit row tied to your resolver_user_id; no admin can see it without the regulator audit trail.</div>' +
+      '<textarea data-testid="rci-note-modal-textarea" rows="6" maxlength="500" oninput="window._rciOnNoteInput(event)" style="width:100%;padding:8px;font-size:12.5px;font-family:inherit;border:1px solid var(--border);border-radius:6px;box-sizing:border-box">' + _esc(state.modalNote) + '</textarea>' +
+      '<div data-testid="rci-note-modal-counter" style="font-size:11px;color:' + (lenOk ? 'var(--text-muted)' : 'var(--accent-warn,#b45309)') + ';margin-top:4px">' + noteLen + '/500</div>' +
+      errBlock +
+      '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">' +
+      '<button data-testid="rci-note-modal-cancel" class="btn-secondary" onclick="window._rciCloseNoteModal()">Cancel</button>' +
+      '<button data-testid="rci-note-modal-submit" class="btn"' + (lenOk ? '' : ' disabled') + ' onclick="window._rciSubmitNote()">Save note</button>' +
+      '</div></div></div>';
+  }
+
+  async function render() {
+    var el = document.getElementById('content');
+    if (!el) return;
+    el.innerHTML = '<div style="padding:14px;font-size:12px;color:var(--text-muted)">Loading coaching inbox…</div>';
+    var resp = await loadAll();
+    state.inbox = resp.inbox;
+    state.adminOverview = resp.adminOverview;
+    state.err = resp.err;
+    if (state.err) {
+      el.innerHTML = '<div data-testid="rci-err" class="notice notice-warn" style="padding:14px;font-size:12px">Failed to load coaching inbox: ' + _esc(state.err) + '</div>';
+      return;
+    }
+    var inbox = state.inbox || {};
+    var calls = Array.isArray(inbox.wrong_false_positive_calls) ? inbox.wrong_false_positive_calls : [];
+    var heading = '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
+      '<h2 style="font-size:16px;margin:0">My coaching inbox</h2>' +
+      renderCalibrationBadge(inbox.calibration_accuracy_pct == null ? 100 : inbox.calibration_accuracy_pct) +
+      '</div>';
+    var disclaimer = '<div data-testid="rci-disclaimer" style="font-size:11px;color:var(--text-muted);margin-top:4px">Private read-only view of your wrong <code>false_positive</code> calls — i.e., resolutions you marked <code>false_positive</code> but the DCA worker re-flagged within 30 days. Mirrors the Wearables Workbench → Clinician Inbox handoff (#353/#354). Source: <code>caregiver_portal.delivery_concern_resolved</code> audit rows (#391).</div>';
+
+    var styleBlock = '<style data-testid="rci-style">' +
+      '.rci-cal-green{color:#166534;background:#dcfce7}' +
+      '.rci-cal-yellow{color:#92400e;background:#fef3c7}' +
+      '.rci-cal-red{color:#991b1b;background:#fee2e2}' +
+      '</style>';
+
+    var summary = inbox.summary || { total_wrong_calls: 0, median_days_to_re_flag: null };
+    var summaryLine = calls.length > 0
+      ? '<div data-testid="rci-summary-line" style="margin-top:10px;font-size:12px">' +
+        '<strong>' + _esc(String(summary.total_wrong_calls || calls.length)) + '</strong> wrong <code>false_positive</code> call' + (calls.length === 1 ? '' : 's') +
+        ' in the last ' + _esc(String(state.windowDays)) + ' days' +
+        (summary.median_days_to_re_flag != null ? '. Median days-to-re-flag: <strong>' + _esc(Number(summary.median_days_to_re_flag).toFixed(1)) + '</strong>.' : '.') +
+        '</div>'
+      : '';
+
+    var cards = calls.length === 0
+      ? renderEmptyState()
+      : calls.map(renderWrongCallCard).join('');
+
+    el.innerHTML = '<div style="padding:14px">' +
+      styleBlock +
+      heading +
+      disclaimer +
+      renderBottomQuartileCallout(!!inbox.in_bottom_quartile) +
+      summaryLine +
+      cards +
+      renderAdminOverviewTable(state.adminOverview) +
+      renderNoteModal() +
+      '</div>';
+
+    if (typeof api.postOutcomeTrackerAuditEvent === 'function') {
+      // Page-view audit emitted server-side by the my-coaching-inbox
+      // GET; no need to double-emit from the client.
+    }
+  }
+
+  window._rciOpenNoteModal = function(rid) {
+    state.modalOpen = true;
+    state.modalResolvedId = rid;
+    state.modalNote = '';
+    state.modalErr = null;
+    render();
+  };
+  window._rciCloseNoteModal = function() {
+    state.modalOpen = false;
+    state.modalResolvedId = null;
+    state.modalNote = '';
+    state.modalErr = null;
+    render();
+  };
+  window._rciOnNoteInput = function(ev) {
+    state.modalNote = (ev && ev.target && ev.target.value) || '';
+    // Re-render to update the counter without flicker; only patch the
+    // textarea + counter when possible to avoid losing focus. Cheap
+    // fallback: skip render and let the next event paint.
+    var counter = document.querySelector('[data-testid="rci-note-modal-counter"]');
+    if (counter) {
+      counter.textContent = state.modalNote.length + '/500';
+    }
+    var submit = document.querySelector('[data-testid="rci-note-modal-submit"]');
+    if (submit) {
+      var ok = state.modalNote.length >= 10 && state.modalNote.length <= 500;
+      if (ok) submit.removeAttribute('disabled');
+      else submit.setAttribute('disabled', 'disabled');
+    }
+  };
+  window._rciSubmitNote = async function() {
+    if (!state.modalResolvedId) return;
+    var n = (state.modalNote || '').trim();
+    if (n.length < 10 || n.length > 500) {
+      state.modalErr = 'Self-review note must be between 10 and 500 characters.';
+      render();
+      return;
+    }
+    try {
+      if (typeof api.fileSelfReviewNote === 'function') {
+        await api.fileSelfReviewNote({
+          resolved_audit_id: state.modalResolvedId,
+          self_review_note: n,
+        });
+      }
+      state.modalOpen = false;
+      state.modalResolvedId = null;
+      state.modalNote = '';
+      state.modalErr = null;
+      // Re-fetch the inbox so the filed note renders inline.
+      await render();
+    } catch (e) {
+      state.modalErr = String((e && e.message) || e || 'Failed to save note.');
+      render();
+    }
+  };
+
+  await render();
+}
+// ── end Resolver Coaching Inbox launch-audit (DCRO2, 2026-05-02) ──────────
 
 // ── Local-only schedule (offline fallback / legacy view) ──────────────────
 async function _pgStaffSchedulingLocal(setTopbar) {

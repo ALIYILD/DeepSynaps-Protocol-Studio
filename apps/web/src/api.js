@@ -3318,6 +3318,55 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }).catch(() => null),
+  // ── Resolver Coaching Inbox launch-audit (DCRO2, 2026-05-02) ─────────────
+  // Private, read-only inbox view per resolver showing THEIR OWN wrong
+  // false_positive calls — i.e., resolutions where the resolver said
+  // "false_positive" but the DCA worker re-flagged the same caregiver
+  // within 30 days. Mirrors the Wearables Workbench → Clinician Inbox
+  // handoff (#353/#354): admins do NOT drill into another resolver's
+  // coaching rows; coaching is resolver-led self-correction.
+  // Helpers grouped BEFORE the DCRO1 + DCR2 sections so the closing
+  // slice-boundary sentinel in those sections stays clean — DCRO2 uses
+  // its own unique header anchor + slice-boundary sentinel below.
+  fetchMyCoachingInbox: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null) usp.set('window_days', String(params.window_days));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/resolver-coaching-inbox/my-coaching-inbox' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  fileSelfReviewNote: (data) =>
+    apiFetch('/api/v1/resolver-coaching-inbox/self-review-note', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  fetchCoachingInboxAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/resolver-coaching-inbox/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  fetchResolverAdminOverview: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null) usp.set('window_days', String(params.window_days));
+    if (params && params.min_resolutions != null) usp.set('min_resolutions', String(params.min_resolutions));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/resolver-coaching-inbox/admin-overview' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  // end DCRO2 helpers
+  // ━━ DCRO2 SLICE BOUNDARY ━━ (do not remove; the launch-audit test
+  // for the DCRO2 section finds the header above then walks to this
+  // unique sentinel substring to bound the slice).
   // ── DCRO1 Outcome Tracker launch-audit (2026-05-02) ─────────────────────
   // Calibration-accuracy dashboard built on top of the DCR1 + DCR2 audit
   // trail. Pairs each caregiver_portal.delivery_concern_resolved row with
