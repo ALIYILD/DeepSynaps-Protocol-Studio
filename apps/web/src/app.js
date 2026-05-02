@@ -1461,6 +1461,31 @@ async function renderPage() {
       await m.pgResolverCoachingDigestAuditHub(setTopbar);
       break;
     }
+    // Coaching Digest Delivery Failure Drilldown launch-audit (DCRO5,
+    // 2026-05-02). Operational drill-down over the DCRO3 dispatched
+    // audit row stream filtered to delivery_status=failed and grouped
+    // by (channel, error_class). DCRO4 surfaces the failure rate;
+    // DCRO5 makes it actionable with click-through to the Channel
+    // Misconfig Detector when a matching channel_misconfigured_detected
+    // row exists in the same ISO week + clinic + channel. Read-only;
+    // clinic-scoped; clinician minimum.
+    case 'coaching-digest-delivery-failure-drilldown':
+    case 'digest-failure-drilldown':
+    case 'dcro5-drilldown': {
+      const m = await loadKnowledge();
+      await m.pgCoachingDigestDeliveryFailureDrilldown(setTopbar);
+      break;
+    }
+    // Channel Misconfig Detector route alias (for DCRO5 click-through).
+    // The actual UI lives inside the Care Team Coverage "Caregiver
+    // channels" tab (#389) — this alias keeps DCRO5's click-through
+    // anchor stable even if that tab moves.
+    case 'channel-misconfig-detector':
+    case 'channel-misconfiguration-detector': {
+      const m = await loadKnowledge();
+      await m.pgCareTeamCoverage(setTopbar);
+      break;
+    }
     // Clinician Adherence Hub launch-audit (2026-05-01). Bidirectional
     // counterpart to the patient-side Adherence Events page (#350).
     // Cross-patient triage of adherence reports, side-effects, and
