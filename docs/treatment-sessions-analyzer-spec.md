@@ -14,7 +14,7 @@ Use this before clinician design review or pilot demos:
 | Gate | Expectation |
 |------|-------------|
 | API contract | `GET /api/v1/patients/{patient_id}/treatment-sessions-analyzer` returns `schema_version` + core panels; works when **no** `TreatmentCourse` exists (sessions-only chart). |
-| Auth | Clinician + patient self paths consistent with other `/patients/{id}/…` resources; guest denied. |
+| Auth | Clinician + patient self paths consistent with other `/patients/{id}/…` resources; guest denied (**403**). Guest sidebar hides **Analyzers → Sessions** (`ROLE_NAV_HIDE`). |
 | Tests | API: `pytest tests/test_treatment_sessions_analyzer.py`; Web: `treatment-sessions-analyzer-launch-audit.test.js` + full `apps/web` `test:unit` in CI. |
 | Honest limits | Response probability and session ranges are **heuristic** until `meta` lists a calibrated model version; multimodal “stubs” are explicit in UI. |
 | Staging smoke | Load a patient with course + sessions + at least one MRI or qEEG row; confirm contributors populate and no 500s. |

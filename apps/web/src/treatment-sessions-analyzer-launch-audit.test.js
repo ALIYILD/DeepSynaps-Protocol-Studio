@@ -23,3 +23,9 @@ test('page exports pgTreatmentSessionsAnalyzer and disclaimer copy', () => {
   assert.ok(PAGE.includes('export async function pgTreatmentSessionsAnalyzer'), 'export');
   assert.ok(PAGE.includes('decision-support'), 'stance');
 });
+
+test('guest role does not list Treatment Sessions Analyzer in sidebar', () => {
+  const m = APP.match(/guest:\s*\[([^\]]+)\]/);
+  assert.ok(m, 'ROLE_NAV_HIDE.guest array');
+  assert.match(m[1], /'treatment-sessions-analyzer'/, 'hide from guest nav (API is 403)');
+});
