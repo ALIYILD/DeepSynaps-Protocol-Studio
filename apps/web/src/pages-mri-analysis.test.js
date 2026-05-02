@@ -287,6 +287,22 @@ test('MRI per-target actions include view overlay and download JSON', () => {
   assert.match(html, /ds-mri-download-target/);
 });
 
+test('renderFullView with report includes Jump-to-section nav and anchor sections', () => {
+  const html = renderFullView({ report: DEMO_MRI_REPORT });
+  assert.match(html, /class="ds-mri-sections-nav"/);
+  assert.match(html, /data-mri-scroll-to="ds-mri-section-targets"/);
+  assert.match(html, /id="ds-mri-section-spatial"/);
+  assert.match(html, /id="ds-mri-section-review"/);
+});
+
+test('Jump nav omits Brain age when brain-age card is not shown', () => {
+  var minimal = Object.assign({}, DEMO_MRI_REPORT);
+  minimal.structural = Object.assign({}, DEMO_MRI_REPORT.structural, { brain_age: null });
+  const html = renderFullView({ report: minimal });
+  assert.ok(!/data-mri-scroll-to="ds-mri-section-brainage"/.test(html),
+    'brain-age jump button should not render without brain-age card');
+});
+
 // ═════════════════════════════════════════════════════════════════════════════
 // Demo report shape (sanity)
 // ═════════════════════════════════════════════════════════════════════════════

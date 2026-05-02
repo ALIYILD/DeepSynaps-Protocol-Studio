@@ -26316,6 +26316,78 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
    ═══════════════════════════════════════════════════════════════════════════════ */
 .ds-mri-shell { display: flex; flex-direction: column; min-height: 100%; gap: 12px; }
 
+/* Demo / preview — matches qEEG sample banner tone */
+.ds-mri-demo-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  margin: 0;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--amber);
+  background: rgba(255, 181, 71, 0.08);
+  border: 1px solid rgba(255, 181, 71, 0.22);
+}
+.ds-mri-demo-banner code {
+  font-size: 11px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Long-report navigation — buttons avoid overwriting SPA location.hash */
+.ds-mri-sections-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.ds-mri-sections-nav__label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+.ds-mri-sections-nav__btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.ds-mri-nav__btn {
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.ds-mri-nav__btn:hover {
+  color: var(--text-primary);
+  background: rgba(74, 158, 255, 0.12);
+  border-color: rgba(74, 158, 255, 0.28);
+}
+.ds-mri-nav__btn:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+.ds-mri-report-section {
+  scroll-margin-top: 16px;
+}
+
 .ds-mri-layout {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -26329,6 +26401,17 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
 .ds-mri-col { min-width: 0; }
 .ds-mri-col--left  { display: flex; flex-direction: column; gap: 0; }
 .ds-mri-col--right { display: flex; flex-direction: column; gap: 0; }
+
+@media (min-width: 1101px) {
+  .ds-mri-col--left {
+    position: sticky;
+    top: 12px;
+    align-self: start;
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+    padding-right: 2px;
+  }
+}
 
 /* Dropzone */
 .ds-mri-dropzone {

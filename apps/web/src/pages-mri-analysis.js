@@ -192,6 +192,39 @@ function _shouldShowMRIDemoBanner() {
   return false;
 }
 
+// In-page section nav: use buttons + scrollIntoView (not #hash links — would break SPA routing).
+function renderMRIReportSectionsNav(report, opts) {
+  opts = opts || {};
+  if (!report) return '';
+  var items = [
+    { id: 'ds-mri-section-summary', label: 'Summary' },
+    { id: 'ds-mri-section-safety', label: 'Safety' },
+    { id: 'ds-mri-section-targets', label: 'Targets' },
+    { id: 'ds-mri-section-spatial', label: 'Views' },
+    { id: 'ds-mri-section-medrag', label: 'Literature' },
+    { id: 'ds-mri-section-evidence-qa', label: 'QA &amp; PHI' },
+    { id: 'ds-mri-section-review', label: 'Review' },
+  ];
+  if (opts.showBrainAge) {
+    items.splice(4, 0, { id: 'ds-mri-section-brainage', label: 'Brain age' });
+  }
+  var buttons = items.map(function (it) {
+    return '<button type="button" class="ds-mri-nav__btn" data-mri-scroll-to="' + it.id + '">' + it.label + '</button>';
+  }).join('');
+  return '<nav class="ds-mri-sections-nav" aria-label="Report sections">'
+    + '<span class="ds-mri-sections-nav__label">Jump to</span>'
+    + '<div class="ds-mri-sections-nav__btns">' + buttons + '</div>'
+    + '</nav>';
+}
+
+function _brainAgeSectionVisible(report) {
+  if (!report || !report.structural) return false;
+  var ba = report.structural.brain_age;
+  if (!ba || ba.status !== 'ok' || ba.predicted_age_years == null) return false;
+  var predicted = Number(ba.predicted_age_years);
+  return Number.isFinite(predicted) && predicted > 0 && predicted <= 150;
+}
+
 // ── XSS helper ──────────────────────────────────────────────────────────────
 function esc(v) {
   if (v == null) return '';
@@ -204,8 +237,10 @@ function spinner(msg) {
     + '<span class="spinner"></span>' + esc(msg || 'Loading...') + '</div>';
 }
 
-function card(title, body, extra) {
-  return '<div class="ds-card">'
+function card(title, body, extra, sectionId) {
+  extra = extra || '';
+  var idAttr = sectionId ? ' id="' + esc(sectionId) + '"' : '';
+  return '<div class="ds-card"' + idAttr + '>'
     + (title ? '<div class="ds-card__header"><h3>' + esc(title) + '</h3>' + (extra || '') + '</div>' : '')
     + '<div class="ds-card__body">' + body + '</div></div>';
 }
@@ -1177,6 +1212,22 @@ export var DEMO_MRI_REPORT = {
   pipeline_version: "0.1.0",
   norm_db_version: "ISTAGING-v1",
 };
+
+function _mriDemoBanner() {
+  return '<div data-demo="true" data-testid="mri-demo-banner" role="note" class="ds-mri-demo-banner">'
+    + '<span class="ds-mri-demo-banner__icon" aria-hidden="true">&#x1F4CB;</span>'
+    + '<span class="ds-mri-demo-banner__text"><strong>Sample MRI analysis — clinician review required.</strong> '
+    + 'Targets, QC, and literature below reflect <code>DEMO</code> data from <code>sample_mri_report.json</code> — not for clinical use. '
+    + 'Upload a real DICOM zip or NIfTI and run analysis for live pipeline output.</span></div>';
+}
+
+function _shouldShowMRIDemoBanner() {
+  if (!_isDemoMode()) return false;
+  if (_uploadId === 'demo') return true;
+  if (_mriAnalysisId === DEMO_MRI_REPORT.analysis_id) return true;
+  if (_report && _report.analysis_id === DEMO_MRI_REPORT.analysis_id) return true;
+  return false;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants — condition enum (from api_contract.md §2) and pipeline stages.
@@ -2407,26 +2458,45 @@ export function renderFullView(state) {
     right = renderAnalysisStateCard(state)
       + renderFusionSummaryCard(state.fusion || null, state.patientId || null);
   } else {
+    var brainAgeHtml = renderBrainAgeCard(report);
+    var showBrainAgeNav = !!brainAgeHtml;
     // Amber "radiology review advised" banner sits above everything else
     // in the right column — safety-first surfacing per AI_UPGRADES §P0 #5.
     right = renderQCWarningsBanner(report)
+      + renderMRIReportSectionsNav(report, { showBrainAge: showBrainAgeNav })
+      + '<div id="ds-mri-section-summary" class="ds-mri-report-section">'
       + renderPatientQCHeader(report)
-      + renderMRISafetyCockpit(state.safetyCockpit || null)
-      + renderMRIRedFlags(state.redFlags || null)
       + renderFusionSummaryCard(state.fusion || null, report && report.patient && report.patient.patient_id)
       + renderMRIQCChips(report)
-      + renderBrainAgeCard(report)
+      + '</div>'
+      + '<div id="ds-mri-section-safety" class="ds-mri-report-section">'
+      + renderMRISafetyCockpit(state.safetyCockpit || null)
+      + renderMRIRedFlags(state.redFlags || null)
+      + '</div>'
+      + (brainAgeHtml
+        ? '<div id="ds-mri-section-brainage" class="ds-mri-report-section">' + brainAgeHtml + '</div>'
+        : '')
+      + '<div id="ds-mri-section-targets" class="ds-mri-report-section">'
       + renderMRIAtlasModelCard(state.atlasCard || null)
       + renderTargetsPanel(report)
       + renderMRIProtocolGovernance(state.targetPlans || null)
+      + '</div>'
+      + '<div id="ds-mri-section-spatial" class="ds-mri-report-section">'
       + renderBrainAtlasViewer(report)
       + renderGlassBrain(report)
+      + '</div>'
+      + '<div id="ds-mri-section-medrag" class="ds-mri-report-section">'
       + renderMedRAGPanel(state.medrag || _synthesiseMedRAGFromReport(report))
+      + '</div>'
+      + '<div id="ds-mri-section-evidence-qa" class="ds-mri-report-section">'
       + renderMRIEvidenceCitations(state.evidenceCitations || [])
       + renderMRIRegistrationQA(state.registrationQA || null)
       + renderMRIPhiAudit(state.phiAudit || null)
+      + '</div>'
+      + '<div id="ds-mri-section-review" class="ds-mri-report-section">'
       + renderMRIClinicianReview(report)
-      + renderMRIPatientReport(report);
+      + renderMRIPatientReport(report)
+      + '</div>';
   }
 
   return '<div class="ch-shell ds-mri-shell">'
@@ -2902,9 +2972,23 @@ function _registerPageCleanup() {
   };
 }
 
+function _wireMRIReportSectionNav() {
+  var shell = document.querySelector('.ds-mri-shell');
+  if (!shell) return;
+  shell.querySelectorAll('[data-mri-scroll-to]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var id = btn.getAttribute('data-mri-scroll-to');
+      if (!id) return;
+      var el = document.getElementById(id);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+}
+
 function _wireRightColumn(navigate) {
   _bindMRIAnnotationButtons();
   _wireMRIFocusViewer();
+  _wireMRIReportSectionNav();
 
   // ── Failure card CTAs ───────────────────────────────────────────────────
   var reuploadBtn = document.getElementById('ds-mri-reupload-btn');
