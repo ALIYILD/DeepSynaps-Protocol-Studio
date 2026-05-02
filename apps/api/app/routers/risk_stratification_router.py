@@ -41,6 +41,7 @@ from app.services.risk_clinical_scores import (
 )
 from app.services.risk_evidence_map import RISK_CATEGORIES, RISK_CATEGORY_LABELS
 from app.services.risk_stratification import (
+    apply_category_override,
     assemble_patient_context,
     compute_risk_profile,
 )
@@ -268,51 +269,15 @@ def override_risk_category(
             status_code=422,
         )
 
-    row = db.execute(
-        select(RiskStratificationResult).where(
-            RiskStratificationResult.patient_id == patient_id,
-            RiskStratificationResult.category == category,
-        )
-    ).scalar_one_or_none()
-
-    if not row:
-        # Compute first, then override
-        compute_risk_profile(patient_id, db, clinician_id=actor.actor_id)
-        row = db.execute(
-            select(RiskStratificationResult).where(
-                RiskStratificationResult.patient_id == patient_id,
-                RiskStratificationResult.category == category,
-            )
-        ).scalar_one_or_none()
-
-    if not row:
+    res = apply_category_override(
+        patient_id, category, body.level, body.reason, actor.actor_id, db
+    )
+    if not res.get("ok"):
         raise ApiServiceError(
             code="not_found",
             message="Patient or risk category not found",
             status_code=404,
         )
-
-    previous_effective = row.override_level or row.level
-
-    row.override_level = body.level
-    row.override_by = actor.actor_id
-    row.override_at = datetime.now(timezone.utc)
-    row.override_reason = body.reason
-    row.updated_at = datetime.now(timezone.utc)
-
-    # Audit trail
-    if previous_effective != body.level:
-        db.add(RiskStratificationAudit(
-            id=str(uuid.uuid4()),
-            patient_id=patient_id,
-            category=category,
-            previous_level=previous_effective,
-            new_level=body.level,
-            trigger="manual_override",
-            actor_id=actor.actor_id,
-        ))
-
-    db.commit()
     return {"status": "ok", "category": category, "override_level": body.level}
 
 

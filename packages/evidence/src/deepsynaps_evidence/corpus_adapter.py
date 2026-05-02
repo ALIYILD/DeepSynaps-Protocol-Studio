@@ -112,26 +112,19 @@ def find_similar(
         return []
 
     try:
-        from app.services.pgvector_bridge import cosine_similar
+        from app.services.pgvector_bridge import cosine_similar_sync
     except ImportError:
         _log.debug("pgvector_bridge not available")
         return []
 
-    import asyncio
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # We're inside an async context — run sync
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                results = pool.submit(
-                    asyncio.run,
-                    cosine_similar("ds_papers", "embedding", query_embedding, k=top_k * 2, db_session=session)
-                ).result()
-        else:
-            results = asyncio.run(
-                cosine_similar("ds_papers", "embedding", query_embedding, k=top_k * 2, db_session=session)
-            )
+        results = cosine_similar_sync(
+            "ds_papers",
+            "embedding",
+            query_embedding,
+            k=top_k * 2,
+            db_session=session,
+        )
     except Exception as exc:
         _log.warning("pgvector ANN search failed: %s", exc)
         return []

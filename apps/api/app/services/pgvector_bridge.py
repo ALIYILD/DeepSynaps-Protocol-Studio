@@ -277,6 +277,63 @@ async def cosine_similar(
     ]
 
 
+def cosine_similar_sync(
+    table: str,
+    column: str,
+    query_embedding: list[float],
+    *,
+    k: int = 10,
+    filters: dict[str, Any] | None = None,
+    db_session: Session,
+) -> list[dict[str, Any]]:
+    """Sync cosine ANN — same semantics as :func:`cosine_similar` without asyncio.
+
+    Use this from synchronous FastAPI dependencies and SQLAlchemy sessions;
+    the async wrapper remains for code paths that already await.
+    """
+    for ident, label in ((table, "table"), (column, "column")):
+        if not ident or not all(ch.isalnum() or ch == "_" for ch in ident):
+            _log.warning("cosine_similar_sync: invalid %s identifier %r", label, ident)
+            return []
+
+    backend = _dialect_name(db_session)
+    if backend != "postgresql":
+        return []
+
+    q_literal = _format_vector_literal(query_embedding)
+    filter_sql, filter_binds = _build_filter_clause(filters)
+    pk_col = _resolve_pk_column(db_session, table)
+
+    sql = text(
+        f'SELECT "{pk_col}" AS id, '
+        f'       1 - ("{column}" <=> CAST(:q AS vector)) AS similarity, '
+        f'       ("{column}" <=> CAST(:q AS vector)) AS distance '
+        f'FROM "{table}" '
+        f'WHERE "{column}" IS NOT NULL'
+        f'{filter_sql} '
+        f'ORDER BY "{column}" <=> CAST(:q AS vector) '
+        f'LIMIT :k'
+    )
+
+    params: dict[str, Any] = {"q": q_literal, "k": int(k)}
+    params.update(filter_binds)
+
+    try:
+        rows = db_session.execute(sql, params).mappings().all()
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("cosine_similar_sync failed on %s.%s: %s", table, column, exc)
+        return []
+
+    return [
+        {
+            "id": r.get("id"),
+            "similarity": float(r.get("similarity", 0.0) or 0.0),
+            "distance": float(r.get("distance", 0.0) or 0.0),
+        }
+        for r in rows
+    ]
+
+
 def _resolve_pk_column(db_session: Session, table: str) -> str:
     """Return the primary-key column name for ``table``.
 

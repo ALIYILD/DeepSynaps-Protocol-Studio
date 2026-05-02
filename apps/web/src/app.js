@@ -504,9 +504,9 @@ let currentPage = 'dashboard';
 
 // ── Role-based nav visibility ─────────────────────────────────────────────────
 const ROLE_NAV_HIDE = {
-  technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'population-analytics', 'brain-map-planner', 'handbook-generator', 'notes-dictation', 'assessments-hub', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
+  technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'risk-analyzer', 'population-analytics', 'brain-map-planner', 'handbook-generator', 'notes-dictation', 'assessments-hub', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
   reviewer:   ['session-execution', 'protocol-wizard', 'billing', 'pricing', 'population-analytics', 'brain-map-planner'],
-  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'audittrail', 'billing', 'population-analytics', 'brain-map-planner', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-handbooks', 'reg-virtual-care', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
+  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'risk-analyzer', 'audittrail', 'billing', 'population-analytics', 'brain-map-planner', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-handbooks', 'reg-virtual-care', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
   clinician:  ['population-analytics'],
 };
 
@@ -522,6 +522,7 @@ const NAV = [
   { id: 'clinician-adherence', label: 'Adherence',     icon: '✅' },
   { id: 'clinician-wellness',  label: 'Wellness',      icon: '💚' },
   { id: 'clinician-digest',    label: 'Daily Digest',  icon: '📰' },
+  { id: 'risk-analyzer',       label: 'Risk Analyzer', icon: '⚠' },
   { id: 'schedule-v2',         label: 'Schedule',      icon: '🗓️' },
 
   // ── PATIENTS — roster + per-patient surfaces ─────────────────────────────────
@@ -587,6 +588,7 @@ const NAV_ICONS = {
   'clinician-adherence': `<svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>`,
   // Clinician Wellness Hub icon — heart + heartbeat (lucide "heart-pulse"), wellness triage glyph.
   'clinician-wellness': `<svg viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.51 4.04 3 5.5l7 7Z"/><path d="M3.22 12H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27"/></svg>`,
+  'risk-analyzer': `<svg viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`,
   'patients':          `<svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
   'courses':           `<svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>`,
   'clinical-hub':      `<svg viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect width="8" height="4" x="8" y="2" rx="1"/><path d="M8 12h.01"/><path d="M12 12h4"/><path d="M8 16h.01"/><path d="M12 16h4"/></svg>`,
@@ -1072,6 +1074,7 @@ const PAGE_TITLES = {
   'system-health': 'System Health',
   'settings-v2': 'Settings',
   'tickets': 'Tickets',
+  'risk-analyzer': 'Risk Analyzer',
 };
 
 // ── Navigate ──────────────────────────────────────────────────────────────────
@@ -1623,6 +1626,11 @@ async function renderPage() {
     case 'clinician-digest': {
       const m = await loadCourses();
       await m.pgClinicianDailyDigest(setTopbar, navigate);
+      break;
+    }
+    case 'risk-analyzer': {
+      const m = await loadRiskAnalyzer();
+      await m.pgRiskAnalyzer(setTopbar, navigate);
       break;
     }
     case 'clinic-analytics': { const m = await loadKnowledge(); await m.pgClinicAnalytics(setTopbar); break; }

@@ -192,6 +192,7 @@ from app.routers.team_router import router as team_router
 from app.routers.preferences_router import router as preferences_router
 from app.routers.data_privacy_router import router as data_privacy_router
 from app.routers.risk_stratification_router import router as risk_stratification_router
+from app.routers.risk_analyzer_router import router as risk_analyzer_router
 from app.routers.labs_analyzer_router import router as labs_analyzer_router
 from app.routers.digital_phenotyping_router import router as digital_phenotyping_router
 from app.routers.movement_analyzer_router import router as movement_analyzer_router
@@ -767,6 +768,7 @@ app.include_router(team_router)
 app.include_router(preferences_router)
 app.include_router(data_privacy_router)
 app.include_router(risk_stratification_router)
+app.include_router(risk_analyzer_router)
 app.include_router(labs_analyzer_router)
 app.include_router(digital_phenotyping_router)
 app.include_router(movement_analyzer_router)

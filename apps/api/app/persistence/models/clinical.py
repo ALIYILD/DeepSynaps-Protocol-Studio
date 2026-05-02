@@ -638,6 +638,36 @@ class RiskStratificationAudit(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
+class PatientRiskFormulation(Base):
+    """Person-centred formulation + safety plan blob for Risk Analyzer workspace."""
+
+    __tablename__ = "patient_risk_formulation"
+
+    patient_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("patients.id", ondelete="CASCADE"), primary_key=True
+    )
+    formulation_json: Mapped[str] = mapped_column(Text(), nullable=False, default="{}")
+    safety_plan_json: Mapped[str] = mapped_column(Text(), nullable=False, default="{}")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
+    )
+    updated_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
+
+class RiskAnalyzerAudit(Base):
+    """Append-only Risk Analyzer events (formulation save, safety plan, notes)."""
+
+    __tablename__ = "risk_analyzer_audit"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    actor_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    payload_summary: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    payload_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
 class DigitalPhenotypingPatientState(Base):
     """Per-patient consent domains + UI settings for the Digital Phenotyping Analyzer."""
 

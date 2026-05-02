@@ -696,6 +696,7 @@ export async function pgDash(setTopbar, navigate) {
   const _todayDateStr = new Date().toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'short', year:'numeric' });
   setTopbar('Today \u2014 ' + _todayDateStr,
     `<button class="btn btn-sm btn-ghost" onclick="window._cdAddWalkin?.() || window._nav('clinic-day')" style="white-space:nowrap" title="Add a walk-in patient to today's list">+ Walk-in</button>` +
+    `<button class="btn btn-sm btn-ghost" onclick="window._nav('risk-analyzer')" style="white-space:nowrap;margin-left:6px" title="Operational safety, formulation, and transparent prediction support">\u26a0 Risk Analyzer</button>` +
     `<button class="btn btn-sm btn-ghost" onclick="window._nav('deeptwin')" style="white-space:nowrap;margin-left:6px" title="Open the patient intelligence hub">\ud83e\udde0 DeepTwin</button>` +
     `<button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')" style="white-space:nowrap;margin-left:6px" title="Open the live session console">&#9654; Start Session</button>` +
     // Adverse Event report \u2014 kept accessible but visually de-escalated until
@@ -2161,9 +2162,10 @@ export async function pgPatients(setTopbar, navigate) {
   const canAddPatient = ['clinician', 'admin', 'clinic-admin', 'supervisor'].includes(currentUser?.role);
   const canTransfer   = ['admin', 'clinic-admin'].includes(currentUser?.role);
   setTopbar('Patients',
-    canAddPatient
+    (canAddPatient
       ? `<button class="btn btn-sm" onclick="window.showImportCSV()" style="margin-right:6px">Import CSV</button><button class="btn btn-sm" onclick="window.showFHIRImport()" style="margin-right:6px">Import FHIR</button><button class="btn btn-primary btn-sm" onclick="window.showAddPatient()">+ New Patient</button>`
-      : ''
+      : '')
+      + `<button class="btn btn-sm btn-ghost" onclick="window._nav('risk-analyzer')" style="margin-left:8px" title="Open Risk Analyzer workspace">\u26a0 Risk Analyzer</button>`
   );
 
   const el = document.getElementById('content');
@@ -2549,6 +2551,7 @@ export async function pgPatients(setTopbar, navigate) {
     const primaryBtn = (p.sessions_today || 0) > 0
       ? '<button class="pat-act-btn pat-act-btn--primary" onclick="event.stopPropagation();window._patStartSession(\'' + p.id + '\')">' + 'Start Session</button>'
       : '<button class="pat-act-btn pat-act-btn--primary" onclick="event.stopPropagation();window.openPatient(\'' + p.id + '\')">' + 'Open Chart</button>';
+    const riskBtn = '<button class="pat-act-btn" onclick="event.stopPropagation();window._selectedPatientId=\'' + p.id + '\';window._profilePatientId=\'' + p.id + '\';try{sessionStorage.setItem(\'ds_pat_selected_id\',\'' + p.id + '\')}catch(e){};window._nav(\'risk-analyzer\')" title="Risk Analyzer for this patient">\u26a0 Risk</button>';
     return '<div class="pat-roster-card" data-id="' + p.id + '" data-status="' + p.status + '" data-attention="' + (att ? att.type : 'ok') + '" onclick="window.openPatient(\'' + p.id + '\')">' 
       + '<div class="pat-card-left">'
       +   '<div class="pat-card-avatar">'
@@ -2564,6 +2567,7 @@ export async function pgPatients(setTopbar, navigate) {
       + '</div>'
       + '<div class="pat-card-actions" onclick="event.stopPropagation()">'
       +   primaryBtn
+      +   riskBtn
       +   '<button class="pat-act-btn" onclick="event.stopPropagation();window._patGetInviteLink(\'' + p.id + '\')" title="Get patient invite code" style="font-size:11px">Invite</button>'
       + '</div>'
       + '</div>';
@@ -3338,6 +3342,7 @@ export async function pgProfile(setTopbar, navigate) {
   setTopbar(`${name}`,
     `<button class="btn btn-ghost btn-sm" onclick="window._nav('patients')">← All Patients</button>
      <button class="btn btn-ghost btn-sm" onclick="window._nav('dashboard')">⌂ Dashboard</button>
+     <button class="btn btn-ghost btn-sm" onclick="window._patDashRiskAnalyzer && window._patDashRiskAnalyzer()" title="Safety stratification and formulation for this patient">⚠ Risk Analyzer</button>
      <button class="btn btn-ghost btn-sm" onclick="window._patDashDeepTwin && window._patDashDeepTwin()" title="Open this patient in DeepTwin">🧠 Open in DeepTwin</button>
      <button class="btn btn-primary btn-sm" onclick="window.startNewCourse()">+ New Course</button>`
   );
@@ -3418,6 +3423,13 @@ export async function pgProfile(setTopbar, navigate) {
     window._profilePatientId = pt.id;
     try { sessionStorage.setItem('ds_pat_selected_id', pt.id); } catch {}
     window._nav('deeptwin');
+  };
+
+  window._patDashRiskAnalyzer = function() {
+    window._selectedPatientId = pt.id;
+    window._profilePatientId = pt.id;
+    try { sessionStorage.setItem('ds_pat_selected_id', pt.id); } catch {}
+    window._nav('risk-analyzer');
   };
 
   window._patDashAIProtocol = function() {

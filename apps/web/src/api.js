@@ -3063,6 +3063,24 @@ export const api = {
     apiFetch(`/api/v1/risk/patient/${encodeURIComponent(patientId)}/recompute`, { method: 'POST' }),
   getRiskAudit: (patientId) =>
     apiFetch(`/api/v1/risk/patient/${encodeURIComponent(patientId)}/audit`),
+  getPatientClinicalScores: (patientId) =>
+    apiFetch(`/api/v1/risk/patient/${encodeURIComponent(patientId)}/clinical-scores`),
+
+  // ── Risk Analyzer (unified workspace) ─────────────────────────────────────
+  getRiskAnalyzerPage: (patientId) =>
+    apiFetch(`/api/v1/risk/analyzer/patient/${encodeURIComponent(patientId)}`),
+  recomputeRiskAnalyzer: (patientId, body) =>
+    apiFetch(`/api/v1/risk/analyzer/patient/${encodeURIComponent(patientId)}/recompute`, { method: 'POST', body: body ? JSON.stringify(body) : '{}' }),
+  overrideRiskAnalyzerCategory: (patientId, data) =>
+    apiFetch(`/api/v1/risk/analyzer/patient/${encodeURIComponent(patientId)}/override`, { method: 'POST', body: JSON.stringify(data) }),
+  saveRiskFormulation: (patientId, data) =>
+    apiFetch(`/api/v1/risk/analyzer/patient/${encodeURIComponent(patientId)}/formulation`, { method: 'POST', body: JSON.stringify(data) }),
+  saveRiskSafetyPlan: (patientId, data) =>
+    apiFetch(`/api/v1/risk/analyzer/patient/${encodeURIComponent(patientId)}/safety-plan`, { method: 'POST', body: JSON.stringify(data) }),
+  getRiskAnalyzerAudit: (patientId, params) => {
+    const q = new URLSearchParams(params || {}).toString();
+    return apiFetch(`/api/v1/risk/analyzer/patient/${encodeURIComponent(patientId)}/audit${q ? '?' + q : ''}`);
+  },
 
   // ── Digital Phenotyping Analyzer (passive behavioral signals) ────────────
   getDigitalPhenotypingAnalyzer: (patientId) =>
