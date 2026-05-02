@@ -184,7 +184,10 @@ def test_csv_returns_three_seeded_rows_desc(
     auth_headers: dict[str, dict[str, str]],
     db_session,
 ) -> None:
-    base = datetime(2026, 4, 1, 12, 0, 0)
+    # Anchor seed timestamps to "now" so they fall inside the default
+    # 30-day ``since_days`` window — a hardcoded 2026-04-01 base aged
+    # out and silently filtered all rows.
+    base = datetime.utcnow() - timedelta(hours=1)
     _seed_audit_row(db=db_session, message="first", created_at=base)
     _seed_audit_row(
         db=db_session, message="second", created_at=base + timedelta(seconds=1)
@@ -306,7 +309,8 @@ def test_csv_truncates_above_safety_cap(
 ) -> None:
     # Bulk-insert 10001 rows directly so the test runs in a few seconds —
     # going through ``_seed_audit_row`` would commit per row.
-    base = datetime(2026, 4, 1, 0, 0, 0)
+    # Anchor to "now" so rows fall inside the default 30-day window.
+    base = datetime.utcnow() - timedelta(hours=4)
     rows = [
         AgentRunAudit(
             actor_id="actor-clinician-demo",
