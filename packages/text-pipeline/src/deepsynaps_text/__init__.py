@@ -18,10 +18,17 @@ from deepsynaps_text.message_analyzers import (
     classify_message_urgency,
     extract_action_items_from_message,
 )
+from deepsynaps_text.reporting import generate_clinical_text_report_payload, generate_longitudinal_text_summary
 from deepsynaps_text.neuromodulation_phenotyper import (
     extract_neuromodulation_history,
     extract_neuromodulation_risks_and_contraindications,
     extract_stimulation_parameters,
+)
+from deepsynaps_text.workflow_orchestration import (
+    collect_text_provenance,
+    default_text_pipeline_definition,
+    execute_text_pipeline,
+    resume_text_pipeline,
 )
 from deepsynaps_text.ingestion import (
     DeidBackend,
@@ -39,6 +46,7 @@ from deepsynaps_text.schemas import (
     ClinicalEntityExtractionResult,
     ClinicalTextDocument,
     ClinicalTextMetadata,
+    ClinicalTextReportPayload,
     CodeSystem,
     CodedEntity,
     CodedEntityExtractionResult,
@@ -49,6 +57,7 @@ from deepsynaps_text.schemas import (
     LLMExtractionResult,
     LLMExtractionTaskBenchmarkRow,
     LLMExtractionTaskConfig,
+    LongitudinalTextSummaryPayload,
     MessageIntentCategory,
     MessageIntentLabel,
     MessageUrgencyLabel,
@@ -68,6 +77,10 @@ from deepsynaps_text.schemas import (
     TerminologyReference,
     TextSection,
     TextSpan,
+    TextArtifactRecord,
+    TextPipelineDefinition,
+    TextPipelineNode,
+    TextPipelineRun,
 )
 
 __all__ = [
@@ -79,6 +92,7 @@ __all__ = [
     "ClinicalEntityExtractionResult",
     "ClinicalTextDocument",
     "ClinicalTextMetadata",
+    "ClinicalTextReportPayload",
     "CodeSystem",
     "CodedEntity",
     "CodedEntityExtractionResult",
@@ -91,6 +105,7 @@ __all__ = [
     "LLMExtractionResult",
     "LLMExtractionTaskBenchmarkRow",
     "LLMExtractionTaskConfig",
+    "LongitudinalTextSummaryPayload",
     "MessageAnalysisBackend",
     "MessageIntentCategory",
     "MessageIntentLabel",
@@ -115,7 +130,12 @@ __all__ = [
     "TerminologyReference",
     "TextSection",
     "TextSpan",
+    "TextArtifactRecord",
+    "TextPipelineDefinition",
+    "TextPipelineNode",
+    "TextPipelineRun",
     "benchmark_llm_extractors",
+    "collect_text_provenance",
     "auto_code_note",
     "build_note_sections_from_text",
     "deidentify_text",
@@ -123,14 +143,19 @@ __all__ = [
     "detect_sections",
     "detect_temporal_context",
     "extract_clinical_entities",
+    "default_text_pipeline_definition",
+    "execute_text_pipeline",
     "classify_message_intent",
     "classify_message_urgency",
     "extract_action_items_from_message",
     "extract_neuromodulation_history",
     "extract_neuromodulation_risks_and_contraindications",
     "extract_stimulation_parameters",
+    "generate_clinical_text_report_payload",
+    "generate_longitudinal_text_summary",
     "import_clinical_text",
     "link_entities_to_terminology",
     "run_llm_extraction_task",
     "normalize_note_format",
+    "resume_text_pipeline",
 ]

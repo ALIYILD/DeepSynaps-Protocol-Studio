@@ -493,3 +493,146 @@ class LLMExtractionBenchmarkResult(BaseModel):
         default_factory=list,
         description="First N error strings for debugging (no PHI).",
     )
+
+
+# --- Reporting & pipeline orchestration -------------------------------------
+
+PipelineStepKind = Literal[
+    "deidentify",
+    "normalize_note",
+    "extract_entities",
+    "annotate_entities",
+    "link_terminology",
+    "neuromodulation_history",
+    "neuromodulation_parameters",
+    "neuromodulation_risks",
+    "message_intent",
+    "message_urgency",
+    "message_actions",
+    "assemble_report",
+]
+
+
+class NeuromodulationReportSection(BaseModel):
+    """Neuromodulation subsection inside a clinical text report."""
+
+    history: NeuromodulationHistory | None = None
+    parameters: NeuromodulationParameters | None = None
+    risks: NeuromodulationRiskProfile | None = None
+
+
+class MessagingReportSection(BaseModel):
+    """Patient-message analysis subsection."""
+
+    intent: MessageIntentLabel | None = None
+    urgency: MessageUrgencyLabel | None = None
+    action_items: list[ActionItem] = Field(default_factory=list)
+
+
+class ClinicalTextReportPayload(BaseModel):
+    """UI-ready bundle for the Clinical Text Analyzer (one document)."""
+
+    schema_version: str = Field(default="1.0")
+    document_id: str
+    channel: ClinicalChannel
+    patient_ref: str | None = None
+    encounter_ref: str | None = None
+    document_ingested_at: datetime | None = None
+    entities: ClinicalEntityExtractionResult | None = None
+    coded_entities: CodedEntityExtractionResult | None = None
+    neuromodulation: NeuromodulationReportSection | None = None
+    messaging: MessagingReportSection | None = None
+    pipeline_run_id: str | None = Field(
+        default=None,
+        description="Optional link to :class:`TextPipelineRun` for provenance.",
+    )
+    generated_at: datetime = Field(
+        description="UTC time when the report payload was assembled.",
+    )
+
+    model_config = {"frozen": False}
+
+
+class LongitudinalEncounterRef(BaseModel):
+    """One prior report in a patient timeline (minimal PHI)."""
+
+    document_id: str
+    channel: ClinicalChannel
+    ingested_at: datetime | None = None
+    encounter_ref: str | None = None
+
+
+class LongitudinalTextSummaryPayload(BaseModel):
+    """Roll-up across multiple :class:`ClinicalTextReportPayload` for a patient."""
+
+    schema_version: str = Field(default="1.0")
+    patient_id: str
+    report_count: int
+    by_channel: dict[str, int] = Field(
+        default_factory=dict,
+        description="Counts of reports per channel key.",
+    )
+    timeline: list[LongitudinalEncounterRef] = Field(default_factory=list)
+    distinct_neuromod_modalities: list[str] = Field(default_factory=list)
+    messaging_high_urgency_events: int = Field(
+        default=0,
+        description="Count of reports where messaging urgency was high.",
+    )
+    generated_at: datetime
+
+
+class TextPipelineNode(BaseModel):
+    """One stage in a configurable text pipeline."""
+
+    node_id: str
+    step: PipelineStepKind
+    enabled: bool = True
+
+
+class TextPipelineDefinition(BaseModel):
+    """Ordered list of pipeline nodes (data-driven)."""
+
+    pipeline_id: str = "default_clinical_text"
+    nodes: list[TextPipelineNode] = Field(default_factory=list)
+
+
+class TextArtifactRecord(BaseModel):
+    """Single artefact / provenance row for a pipeline node."""
+
+    run_id: str
+    node_id: str
+    step: PipelineStepKind
+    status: Literal["ok", "skipped", "error"] = "ok"
+    duration_ms: float | None = None
+    detail: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Structured summary (versions, counts — avoid raw text).",
+    )
+
+
+PipelineRunStatus = Literal["running", "completed", "failed"]
+
+
+class TextPipelineRun(BaseModel):
+    """State for one execution of :class:`TextPipelineDefinition`."""
+
+    run_id: str
+    pipeline_id: str
+    document_id: str
+    input_document: ClinicalTextDocument | None = Field(
+        default=None,
+        description="Snapshot of input for resume / audit (no external PHI logging).",
+    )
+    definition: TextPipelineDefinition | None = Field(
+        default=None,
+        description="Snapshot of the definition used (needed for resume).",
+    )
+    status: PipelineRunStatus = "running"
+    started_at: datetime
+    completed_at: datetime | None = None
+    error_message: str | None = None
+    failed_at_node_id: str | None = None
+    report: ClinicalTextReportPayload | None = None
+    artifacts: list[TextArtifactRecord] = Field(default_factory=list)
+
+    model_config = {"frozen": False}
