@@ -52,24 +52,28 @@ router = APIRouter(
 )
 
 
+# core-schema-exempt: minimal router-local request body; not reused outside this router
 class ConsentBody(BaseModel):
     domains: dict[str, bool] = Field(default_factory=dict)
     consent_scope_version: str = "2026.04"
     artifact_ref: Optional[str] = None
 
 
+# core-schema-exempt: minimal router-local request body; not reused outside this router
 class SettingsBody(BaseModel):
     alert_thresholds: Optional[dict[str, Any]] = None
     ui_preferences: Optional[dict[str, Any]] = None
     minimization_tier: Optional[str] = None
 
 
+# core-schema-exempt: minimal router-local request body; not reused outside this router
 class RecomputeBody(BaseModel):
     window: Optional[dict[str, str]] = None
     domains: Optional[list[str]] = None
     force: bool = False
 
 
+# core-schema-exempt: minimal router-local request body; not reused outside this router
 class ManualObservationBody(BaseModel):
     """Clinician-entered proxy row (EMA-style) — MVP until passive ingest."""
 
@@ -81,6 +85,7 @@ class ManualObservationBody(BaseModel):
     sleep_hours: Optional[float] = None
 
 
+# core-schema-exempt: minimal router-local request body; not reused outside this router
 class ObservationCreateBody(BaseModel):
     """Manual or device-attributed observation row."""
 
