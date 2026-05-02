@@ -462,6 +462,38 @@ KNOWN_SURFACES = {
     # DCA worker re-flagged the same caregiver within 30 days). Page-level
     # events: view, self_review_note_filed, window_changed.
     "resolver_coaching_inbox",
+    # Resolver Coaching Self-Review Digest Worker (DCRO3, 2026-05-02). Weekly
+    # opt-in digest worker that bundles each resolver's un-self-reviewed wrong
+    # false_positive calls and dispatches via the resolver's preferred
+    # on-call channel (Slack DM / Twilio SMS / SendGrid email / PagerDuty)
+    # reusing the EscalationPolicy + oncall_delivery adapters from #374.
+    # Honest opt-in default off at both system + per-resolver level. Closes
+    # the loop end-to-end: DCRO1 measures → DCRO2 self-corrects → DCRO3
+    # nudges. Page-level events: tick, dispatched, preference_updated,
+    # tick_clicked, status_viewed.
+    "resolver_coaching_self_review_digest",
+    # Resolver Coaching Digest Audit Hub launch-audit (DCRO4, 2026-05-02).
+    # Admin cohort dashboard over the DCRO3 dispatched audit row stream:
+    # opted-in / opted-out splits, by-channel dispatch tallies, delivery
+    # success vs failure rate, and per-resolver weekly wrong-call
+    # backlog trajectory (shrinking / flat / growing). Read-only — no
+    # companion worker. Closes the resolver-side coaching loop end-to-
+    # end. Page-level events: view, window_changed, trajectory_viewed.
+    "resolver_coaching_digest_audit_hub",
+    # Coaching Digest Delivery Failure Drilldown launch-audit (DCRO5,
+    # 2026-05-02). Operational drill-down over the DCRO3 dispatched
+    # audit row stream filtered to delivery_status=failed and grouped
+    # by (channel, error_class). Page surfaces a per-channel + per-
+    # error_class breakdown, top-5 leaderboard, weekly trend, and a
+    # paginated list of failed dispatches each annotated with
+    # has_matching_misconfig_flag — true when a
+    # ``caregiver_portal.channel_misconfigured_detected`` row exists in
+    # the same ISO week + clinic + channel; that boolean drives the
+    # click-through to the Channel Misconfig Detector (#389). Read-only;
+    # no companion worker; reuses the existing DCRO3 audit row stream.
+    # Page-level events: view, window_changed, channel_filter_changed,
+    # error_class_filter_changed, page_changed, drill_through_clicked.
+    "coaching_digest_delivery_failure_drilldown",
 }
 
 

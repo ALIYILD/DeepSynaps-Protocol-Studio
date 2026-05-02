@@ -174,6 +174,11 @@ test('regulatory footer appears in every rendered view', () => {
   assert.match(loadedView, /ds-mri-footer-regulatory/);
   assert.match(loadedView, /For neuronavigation planning only\./);
 
+  // Demo banner (explicit flag — matches Netlify preview labelling)
+  const demoBannerView = renderFullView({ report: DEMO_MRI_REPORT, showDemoBanner: true });
+  assert.match(demoBannerView, /data-testid="mri-demo-banner"/);
+  assert.match(demoBannerView, /Sample MRI analysis/);
+
   // 4. The exported constant is identical to the copy in the spec.
   assert.match(REGULATORY_FOOTER_TEXT, /Decision-support tool\. Not a medical device\./);
 });
@@ -198,6 +203,9 @@ test('auto-demo populates _report from DEMO_MRI_REPORT when demo mode is on', as
     assert.equal(state.report.analysis_id, DEMO_MRI_REPORT.analysis_id);
     assert.equal(state.uploadId, 'demo');
     assert.equal(state.jobId, 'demo');
+    const fullAfterDemo = renderFullView({ report: state.report });
+    assert.match(fullAfterDemo, /data-testid="mri-demo-banner"/,
+      'banner should appear when module state reflects canned demo analysis');
   } else {
     // If env says demo is off, report should remain null.
     assert.equal(state.report, null);
@@ -277,6 +285,36 @@ test('MRI per-target actions include view overlay and download JSON', () => {
   const html = renderTargetCard(mkTarget(), 'aid-x');
   assert.match(html, /ds-mri-view-overlay/);
   assert.match(html, /ds-mri-download-target/);
+});
+
+test('renderFullView with report includes collapsible sections and jump nav', () => {
+  const html = renderFullView({ report: DEMO_MRI_REPORT });
+  assert.match(html, /class="ds-mri-sections-nav"/);
+  assert.match(html, /data-mri-scroll-to="ds-mri-section-targets"/);
+  assert.match(html, /id="ds-mri-section-spatial"/);
+  assert.match(html, /<details[^>]*id="ds-mri-section-summary"/);
+  assert.match(html, /id="ds-mri-section-review"/);
+});
+
+test('Jump nav omits Brain age when brain-age card is not shown', () => {
+  var minimal = Object.assign({}, DEMO_MRI_REPORT);
+  minimal.structural = Object.assign({}, DEMO_MRI_REPORT.structural, { brain_age: null });
+  const html = renderFullView({ report: minimal });
+  assert.ok(!/data-mri-scroll-to="ds-mri-section-brainage"/.test(html),
+    'brain-age jump button should not render without brain-age card');
+});
+
+test('Safety cockpit shows stub when API envelope is empty', () => {
+  const stub = renderMRISafetyCockpit({});
+  assert.match(stub, /ds-mri-panel--stub/);
+  assert.match(stub, /No safety envelope loaded/);
+});
+
+test('Registration QA and PHI audit show stub when API payload is empty', () => {
+  assert.match(renderMRIRegistrationQA({}), /ds-mri-panel--stub/);
+  assert.match(renderMRIRegistrationQA({}), /metadata was not returned/);
+  assert.match(renderMRIPhiAudit({}), /ds-mri-panel--stub/);
+  assert.match(renderMRIPhiAudit({}), /not attached/);
 });
 
 // ═════════════════════════════════════════════════════════════════════════════

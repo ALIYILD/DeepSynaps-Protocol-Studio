@@ -96,7 +96,7 @@ test('careTeamCoverageDeliveryConcerns routes under /api/v1/care-team-coverage/'
 
 
 test('pgPatientDigest fetches caregiver delivery failures alongside summary', () => {
-  const src = readSrc('pages-patient.js');
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js') + '\n' + readSrc('pages-patient/symptom-notifications.js') + '\n' + readSrc('pages-patient/dashboard.js') + '\n' + readSrc('pages-patient/sessions.js'));
   assert.ok(
     src.includes('patientDigestCaregiverDeliveryFailures'),
     'pgPatientDigest must call patientDigestCaregiverDeliveryFailures',
@@ -105,7 +105,7 @@ test('pgPatientDigest fetches caregiver delivery failures alongside summary', ()
 
 
 test('pgPatientDigest renders Caregiver delivery problems subsection only when failures exist', () => {
-  const src = readSrc('pages-patient.js');
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js') + '\n' + readSrc('pages-patient/symptom-notifications.js') + '\n' + readSrc('pages-patient/dashboard.js') + '\n' + readSrc('pages-patient/sessions.js'));
   assert.ok(
     src.includes('Caregiver delivery problems'),
     'page must include the failures subsection title',
@@ -120,7 +120,7 @@ test('pgPatientDigest renders Caregiver delivery problems subsection only when f
 
 
 test('pgPatientDigest exposes a "Report problem" CTA for each failure row', () => {
-  const src = readSrc('pages-patient.js');
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js') + '\n' + readSrc('pages-patient/symptom-notifications.js') + '\n' + readSrc('pages-patient/dashboard.js') + '\n' + readSrc('pages-patient/sessions.js'));
   assert.ok(
     src.includes('Report problem'),
     'each failure row must expose a Report problem CTA',
@@ -133,7 +133,7 @@ test('pgPatientDigest exposes a "Report problem" CTA for each failure row', () =
 
 
 test('Concern modal exposes a required note textarea + submit', () => {
-  const src = readSrc('pages-patient.js');
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js') + '\n' + readSrc('pages-patient/symptom-notifications.js') + '\n' + readSrc('pages-patient/dashboard.js') + '\n' + readSrc('pages-patient/sessions.js'));
   assert.ok(
     src.includes('id="pd-concern-text"'),
     'modal must include a textarea with id pd-concern-text',
@@ -153,7 +153,7 @@ test('Concern modal exposes a required note textarea + submit', () => {
 
 
 test('Concern modal initiator emits a patient_digest audit ping', () => {
-  const src = readSrc('pages-patient.js');
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js') + '\n' + readSrc('pages-patient/symptom-notifications.js') + '\n' + readSrc('pages-patient/dashboard.js') + '\n' + readSrc('pages-patient/sessions.js'));
   // The handler must call postPatientDigestAuditEvent with a
   // delivery_concern_initiated event so the regulator transcript
   // captures the user's intent before the POST goes out.
@@ -168,7 +168,7 @@ test('pgPatientDigest mount-time audit ping covers the new section without re-pi
   // The mount ping in #376 fires once on render. The delivery-failure
   // flag must NOT introduce a parallel mount ping that double-counts
   // the page view.
-  const src = readSrc('pages-patient.js');
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js') + '\n' + readSrc('pages-patient/symptom-notifications.js') + '\n' + readSrc('pages-patient/dashboard.js') + '\n' + readSrc('pages-patient/sessions.js'));
   const mounts = src.match(/postPatientDigestAuditEvent\(\{ event: 'view'/g) || [];
   assert.equal(
     mounts.length, 1,
@@ -228,7 +228,7 @@ test('Investigate CTA is wired and emits an audit ping with patient deep-link', 
 
 
 test('Failure row markup binds caregiver_first_name, never email or full name', () => {
-  const src = readSrc('pages-patient.js');
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js') + '\n' + readSrc('pages-patient/symptom-notifications.js') + '\n' + readSrc('pages-patient/dashboard.js') + '\n' + readSrc('pages-patient/sessions.js'));
   // Find the failures section by anchor and slice a window of 1500
   // chars after; the caregiver email field MUST NOT appear inside
   // that window (we deliberately bind to caregiver_first_name only).

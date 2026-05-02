@@ -9554,6 +9554,15 @@ export async function pgResolverCoachingInbox(setTopbar) {
     modalResolvedId: null,
     modalNote: '',
     modalErr: null,
+    // DCRO3 — Resolver Coaching Self-Review Digest opt-in (2026-05-02).
+    // The card surfaces the resolver's preference + worker enabled flag
+    // so they can opt-in to a weekly nudge when they have un-reviewed
+    // wrong false_positive calls. Honest disclaimer when worker
+    // disabled at the system level.
+    digestPref: null,
+    digestStatus: null,
+    digestSaving: false,
+    digestErr: null,
   };
 
   function _esc(v) {
@@ -9568,7 +9577,7 @@ export async function pgResolverCoachingInbox(setTopbar) {
   }
 
   async function loadAll() {
-    var resp = { inbox: null, adminOverview: null, err: null };
+    var resp = { inbox: null, adminOverview: null, err: null, digestPref: null, digestStatus: null };
     try {
       if (typeof api.fetchMyCoachingInbox === 'function') {
         resp.inbox = await api.fetchMyCoachingInbox({ window_days: state.windowDays });
@@ -9590,10 +9599,84 @@ export async function pgResolverCoachingInbox(setTopbar) {
           resp.adminOverview = null;
         }
       }
+      // DCRO3 — fetch own digest preference + worker status (best-effort).
+      try {
+        if (typeof api.fetchMyResolverDigestPreference === 'function') {
+          resp.digestPref = await api.fetchMyResolverDigestPreference({});
+        }
+      } catch (_dpe) { resp.digestPref = null; }
+      try {
+        if (typeof api.fetchResolverDigestStatus === 'function') {
+          resp.digestStatus = await api.fetchResolverDigestStatus();
+        }
+      } catch (_dse) { resp.digestStatus = null; }
     } catch (e) {
       resp.err = String(e && e.message || e || 'unknown');
     }
     return resp;
+  }
+
+  // ── DCRO3 helpers ────────────────────────────────────────────────────────
+  function _digestChannelOptions() {
+    // 5 canonical channels + "auto" (= inherit clinic chain).
+    return ['auto', 'slack', 'twilio', 'sendgrid', 'pagerduty', 'email'];
+  }
+
+  function renderDigestCard() {
+    var pref = state.digestPref || {};
+    var status = state.digestStatus || {};
+    var optedIn = !!pref.opted_in;
+    var ch = pref.preferred_channel || 'auto';
+    var workerEnabled = !!(status && status.enabled);
+    var lastSent = pref.last_dispatched_at
+      ? '<div data-testid="rcsrd-last-sent" style="margin-top:6px;font-size:11.5px;color:var(--text-muted)">Last digest sent: ' + _esc(pref.last_dispatched_at) + '</div>'
+      : '<div data-testid="rcsrd-last-sent-empty" style="margin-top:6px;font-size:11.5px;color:var(--text-muted)">No digests sent yet.</div>';
+    var disclaimerBlock = !workerEnabled
+      ? '<div data-testid="rcsrd-honest-disclaimer" class="notice notice-warn" style="margin-top:8px;padding:8px 10px;font-size:11px">' +
+          'Worker is currently disabled at the system level. Your preference is saved but no digests will be sent until the system admin enables ' +
+          '<code>RESOLVER_COACHING_DIGEST_ENABLED</code>.' +
+        '</div>'
+      : '';
+    var errBlock = state.digestErr
+      ? '<div data-testid="rcsrd-err" class="notice notice-warn" style="margin-top:6px;font-size:11px">' + _esc(state.digestErr) + '</div>'
+      : '';
+    var saving = state.digestSaving;
+    var saveDisabled = saving ? ' disabled' : '';
+
+    var options = _digestChannelOptions().map(function(c) {
+      var sel = (c === ch) ? ' selected' : '';
+      var label = (c === 'auto') ? 'auto (use my EscalationPolicy)' : c;
+      return '<option value="' + _esc(c) + '"' + sel + '>' + _esc(label) + '</option>';
+    }).join('');
+
+    var adminTickBtn = isAdmin()
+      ? '<button data-testid="rcsrd-admin-tick-btn" class="btn-secondary" style="margin-left:8px;font-size:11.5px;padding:5px 10px" onclick="window._rcsrdAdminTick()">Admin: run tick now</button>'
+      : '';
+
+    return '<div data-testid="rcsrd-digest-card" class="card" style="margin-top:18px;padding:14px">' +
+      '<h3 style="font-size:13px;font-weight:700;margin:0 0 4px 0">Email/Slack me a weekly digest</h3>' +
+      '<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px">' +
+        'Send me a weekly digest of un-reviewed wrong <code>false_positive</code> calls. Routed via your preferred channel; ' +
+        'falls back to your clinic\'s EscalationPolicy chain when set to "auto".' +
+      '</div>' +
+      '<label style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:8px">' +
+        '<input data-testid="rcsrd-opt-in-toggle" type="checkbox"' + (optedIn ? ' checked' : '') + ' onchange="window._rcsrdOnToggle(event)"> ' +
+        'Send me a weekly digest of un-reviewed wrong calls' +
+      '</label>' +
+      '<div style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:6px">' +
+        '<label for="rcsrd-channel-dropdown" style="font-size:11.5px;color:var(--text-muted)">Preferred channel:</label>' +
+        '<select data-testid="rcsrd-channel-dropdown" id="rcsrd-channel-dropdown" onchange="window._rcsrdOnChannelChange(event)" style="padding:4px 8px;font-size:12px">' +
+        options +
+        '</select>' +
+        '<button data-testid="rcsrd-save-btn" class="btn"' + saveDisabled + ' onclick="window._rcsrdSave()" style="font-size:11.5px;padding:5px 12px">' +
+        (saving ? 'Saving…' : 'Save') +
+        '</button>' +
+        adminTickBtn +
+      '</div>' +
+      lastSent +
+      disclaimerBlock +
+      errBlock +
+      '</div>';
   }
 
   function calibrationClass(pct) {
@@ -9672,7 +9755,11 @@ export async function pgResolverCoachingInbox(setTopbar) {
         '<td style="padding:6px 8px;text-align:center">' + (r.in_bottom_quartile ? '⚠' : '') + '</td>' +
         '</tr>';
     }).join('');
+    // DCRO4 admin-only link → Resolver Coaching Digest Audit Hub
+    // (admin cohort dashboard over the DCRO3 dispatched audit row stream).
+    var dcro4Link = '<a data-testid="rci-coaching-digest-hub-link" href="#/coaching-digest-hub" class="btn-secondary" style="font-size:.78rem;padding:5px 10px;text-decoration:none;float:right">Coaching digest audit hub →</a>';
     return '<div data-testid="rci-admin-overview" class="card" style="margin-top:18px;padding:14px">' +
+      dcro4Link +
       '<h3 style="font-size:13px;font-weight:700;margin:0 0 4px 0">Resolver overview</h3>' +
       '<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:8px">Read-only roll-up. No drill-in into individual coaching rows — each resolver\'s inbox is private to them.</div>' +
       '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
@@ -9714,6 +9801,8 @@ export async function pgResolverCoachingInbox(setTopbar) {
     state.inbox = resp.inbox;
     state.adminOverview = resp.adminOverview;
     state.err = resp.err;
+    state.digestPref = resp.digestPref;
+    state.digestStatus = resp.digestStatus;
     if (state.err) {
       el.innerHTML = '<div data-testid="rci-err" class="notice notice-warn" style="padding:14px;font-size:12px">Failed to load coaching inbox: ' + _esc(state.err) + '</div>';
       return;
@@ -9752,6 +9841,7 @@ export async function pgResolverCoachingInbox(setTopbar) {
       renderBottomQuartileCallout(!!inbox.in_bottom_quartile) +
       summaryLine +
       cards +
+      renderDigestCard() +
       renderAdminOverviewTable(state.adminOverview) +
       renderNoteModal() +
       '</div>';
@@ -9761,6 +9851,48 @@ export async function pgResolverCoachingInbox(setTopbar) {
       // GET; no need to double-emit from the client.
     }
   }
+
+  // ── DCRO3 — opt-in card window handlers ──────────────────────────────────
+  window._rcsrdOnToggle = function(ev) {
+    if (!state.digestPref) state.digestPref = { opted_in: false, preferred_channel: null };
+    state.digestPref.opted_in = !!(ev && ev.target && ev.target.checked);
+  };
+  window._rcsrdOnChannelChange = function(ev) {
+    if (!state.digestPref) state.digestPref = { opted_in: false, preferred_channel: null };
+    var v = (ev && ev.target && ev.target.value) || 'auto';
+    state.digestPref.preferred_channel = (v === 'auto') ? null : v;
+  };
+  window._rcsrdSave = async function() {
+    if (!state.digestPref) return;
+    state.digestSaving = true;
+    state.digestErr = null;
+    try {
+      if (typeof api.updateMyResolverDigestPreference === 'function') {
+        var saved = await api.updateMyResolverDigestPreference({
+          opted_in: !!state.digestPref.opted_in,
+          preferred_channel: state.digestPref.preferred_channel || null,
+        });
+        if (saved) state.digestPref = saved;
+      }
+    } catch (e) {
+      state.digestErr = String((e && e.message) || e || 'Failed to save digest preference.');
+    } finally {
+      state.digestSaving = false;
+    }
+    render();
+  };
+  window._rcsrdAdminTick = async function() {
+    state.digestErr = null;
+    try {
+      if (typeof api.tickResolverDigest === 'function') {
+        await api.tickResolverDigest({});
+      }
+    } catch (e) {
+      state.digestErr = String((e && e.message) || e || 'Failed to tick digest worker.');
+    }
+    // Refresh after tick so last_dispatched_at updates.
+    await render();
+  };
 
   window._rciOpenNoteModal = function(rid) {
     state.modalOpen = true;
@@ -9822,6 +9954,623 @@ export async function pgResolverCoachingInbox(setTopbar) {
   await render();
 }
 // ── end Resolver Coaching Inbox launch-audit (DCRO2, 2026-05-02) ──────────
+
+// ── Resolver Coaching Digest Audit Hub launch-audit (DCRO4, 2026-05-02) ──
+// Admin-side cohort dashboard over the DCRO3 dispatched audit row stream
+// (resolver_coaching_self_review_digest.dispatched, emitted by #398) plus
+// the ResolverCoachingDigestPreference table from #398. Five sections:
+//   1. Opt-in stats KPI tiles
+//   2. Dispatch stats — by-channel bar chart + median per resolver
+//   3. Delivery outcomes — success rate KPI + failed click-through
+//   4. Resolver trajectory — sparklines + shrinking/flat/growing chips
+//   5. Trend chart — weekly dispatched / delivered / failed
+// Read-only — there is no companion worker. Honest "worker disabled"
+// banner when RESOLVER_COACHING_DIGEST_ENABLED=False.
+export async function pgResolverCoachingDigestAuditHub(setTopbar) {
+  setTopbar('Coaching digest audit hub', `
+    <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px" onclick="window._dcro4Refresh()">↺ Refresh</button>
+  `);
+
+  var state = {
+    windowDays: 90,
+    summary: null,
+    trajectory: null,
+    workerStatus: null,
+    err: null,
+  };
+
+  function _esc(v) {
+    var s = v == null ? '' : String(v);
+    return s.replace(/[&<>"']/g, function(c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+
+  async function loadAll() {
+    var resp = { summary: null, trajectory: null, workerStatus: null, err: null };
+    try {
+      if (typeof api.fetchCoachingDigestAuditHubSummary === 'function') {
+        resp.summary = await api.fetchCoachingDigestAuditHubSummary({
+          window_days: state.windowDays,
+        });
+      }
+      if (typeof api.fetchResolverTrajectory === 'function') {
+        resp.trajectory = await api.fetchResolverTrajectory({
+          window_days: state.windowDays,
+        });
+      }
+      // Worker status (DCRO3) gives us the enabled flag for the banner.
+      try {
+        if (typeof api.fetchResolverDigestStatus === 'function') {
+          resp.workerStatus = await api.fetchResolverDigestStatus();
+        }
+      } catch (_e) { resp.workerStatus = null; }
+    } catch (e) {
+      resp.err = String(e && e.message || e || 'unknown');
+    }
+    return resp;
+  }
+
+  function renderControls() {
+    var sel = '<label style="font-size:11px;margin-right:6px">Window:</label>' +
+      '<select data-testid="dcro4-window" onchange="window._dcro4SetWindow(this.value)" style="padding:4px;border:1px solid var(--border);border-radius:4px;font-size:12px">' +
+      [30, 90, 180].map(function(w) {
+        return '<option value="' + w + '"' + (state.windowDays === w ? ' selected' : '') + '>' + w + 'd</option>';
+      }).join('') +
+      '</select>';
+    return '<div data-testid="dcro4-controls" style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:6px">' +
+      '<div>' + sel + '</div>' +
+      '</div>';
+  }
+
+  function renderWorkerDisabledBanner(ws) {
+    if (!ws) return '';
+    if (ws.enabled) return '';
+    return '<div data-testid="dcro4-worker-disabled-banner" class="notice notice-warn" style="padding:8px 12px;font-size:11px;margin-top:8px">' +
+      'Worker is currently disabled at the system level (<code>RESOLVER_COACHING_DIGEST_ENABLED=False</code>). Historical dispatch rows are still shown, but new digests will not be sent until an admin enables the worker.' +
+      '</div>';
+  }
+
+  // ── Section 1: Opt-in stats ─────────────────────────────────────────────
+  function renderOptInTiles(s) {
+    var oi = (s && s.opt_in_stats) || {};
+    var pct = Number(oi.opt_in_pct) || 0;
+    return '<div data-testid="dcro4-opt-in-tiles" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:10px">' +
+      '<div data-testid="dcro4-kpi-total" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Total resolvers</div><div style="font-size:22px;font-weight:700">' + _esc(String(oi.total_resolvers_in_clinic || 0)) + '</div></div>' +
+      '<div data-testid="dcro4-kpi-opted-in" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Opted in</div><div style="font-size:22px;font-weight:700">' + _esc(String(oi.opted_in || 0)) + '</div></div>' +
+      '<div data-testid="dcro4-kpi-opted-out" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Opted out</div><div style="font-size:22px;font-weight:700">' + _esc(String(oi.opted_out || 0)) + '</div></div>' +
+      '<div data-testid="dcro4-kpi-opt-in-pct" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Opt-in %</div><div style="font-size:22px;font-weight:700">' + _esc(pct.toFixed(1)) + '%</div></div>' +
+      '</div>';
+  }
+
+  // ── Section 2: Dispatch stats by-channel bar chart ──────────────────────
+  function renderByChannelChart(s) {
+    var ds = (s && s.dispatch_stats) || {};
+    var bc = ds.by_channel || {};
+    var keys = ['slack', 'twilio', 'sendgrid', 'pagerduty', 'email'];
+    var max = 0;
+    keys.forEach(function(k) { var v = Number(bc[k]) || 0; if (v > max) max = v; });
+    if ((Number(ds.total_dispatched) || 0) === 0) {
+      return '<div data-testid="dcro4-by-channel-empty" class="card" style="padding:12px;margin-top:10px;font-size:12px;color:var(--text-muted)">No digests dispatched in this window yet.</div>';
+    }
+    var bars = keys.map(function(k) {
+      var v = Number(bc[k]) || 0;
+      var pct = max > 0 ? Math.round((v / max) * 100) : 0;
+      return '<div data-testid="dcro4-channel-bar" data-channel="' + _esc(k) + '" style="display:flex;align-items:center;gap:8px;margin:4px 0;font-size:12px">' +
+        '<span style="width:90px;text-transform:capitalize">' + _esc(k) + '</span>' +
+        '<div style="flex:1;background:var(--surface-muted);height:14px;border-radius:4px;overflow:hidden"><div style="background:var(--accent);height:100%;width:' + pct + '%"></div></div>' +
+        '<span style="width:48px;text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(v)) + '</span>' +
+        '</div>';
+    }).join('');
+    var medianText = ds.median_dispatches_per_resolver == null ? '—' : Number(ds.median_dispatches_per_resolver).toFixed(1);
+    return '<div data-testid="dcro4-by-channel" class="card" style="padding:12px;margin-top:10px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+      '<div style="font-size:12px;font-weight:700">Dispatched by channel</div>' +
+      '<div data-testid="dcro4-median-per-resolver" style="font-size:11px;color:var(--text-muted)">Median per resolver: <strong>' + _esc(medianText) + '</strong></div>' +
+      '</div>' +
+      bars +
+      '</div>';
+  }
+
+  // ── Section 3: Delivery outcomes ────────────────────────────────────────
+  function renderDeliveryOutcomes(s) {
+    var d = (s && s.delivery_outcomes) || {};
+    var rate = d.success_rate_pct == null ? '—' : (Number(d.success_rate_pct).toFixed(1) + '%');
+    var failedClick = (Number(d.failed) || 0) > 0
+      ? ' onclick="window._dcro4OpenFailedAuditEvents()" style="cursor:pointer"'
+      : '';
+    return '<div data-testid="dcro4-delivery-outcomes" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:10px">' +
+      '<div data-testid="dcro4-kpi-success-rate" class="card" style="padding:12px">' +
+      '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Delivery success rate</div>' +
+      '<div style="font-size:22px;font-weight:700">' + _esc(rate) + '</div>' +
+      '</div>' +
+      '<div data-testid="dcro4-kpi-delivered" class="card" style="padding:12px">' +
+      '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Delivered</div>' +
+      '<div style="font-size:22px;font-weight:700">' + _esc(String(d.delivered || 0)) + '</div>' +
+      '</div>' +
+      '<div data-testid="dcro4-kpi-failed" class="card"' + failedClick + ' style="padding:12px">' +
+      '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Failed</div>' +
+      '<div style="font-size:22px;font-weight:700;color:' + ((Number(d.failed) || 0) > 0 ? 'var(--accent-warn,#b45309)' : 'inherit') + '">' + _esc(String(d.failed || 0)) + '</div>' +
+      // Admin-only DCRO5 click-through link (next to the failure-rate KPI).
+      // Placed inline so the spec's "next to the failure-rate KPI"
+      // requirement is honoured visually without a layout change.
+      '<a data-testid="dcro4-dcro5-drilldown-link" href="#/coaching-digest-delivery-failure-drilldown" style="display:inline-block;margin-top:6px;font-size:10px;text-decoration:none;color:var(--accent)">Failure drilldown →</a>' +
+      '</div>' +
+      '</div>';
+  }
+
+  // ── Section 4: Resolver trajectory table ────────────────────────────────
+  function _trajectoryClass(t) {
+    if (t === 'shrinking') return 'dcro4-traj-green';
+    if (t === 'growing') return 'dcro4-traj-red';
+    return 'dcro4-traj-yellow';
+  }
+  function _renderSparkline(weekly) {
+    if (!Array.isArray(weekly) || weekly.length === 0) return '';
+    var values = weekly.map(function(w) { return Number(w.wrong_call_count) || 0; });
+    var max = values.reduce(function(a, b) { return Math.max(a, b); }, 0);
+    if (max === 0) max = 1;
+    // Inline SVG sparkline so we don't need a charting library.
+    var w = 120, h = 22;
+    var points = values.map(function(v, i) {
+      var x = (i / Math.max(1, values.length - 1)) * w;
+      var y = h - ((v / max) * (h - 2)) - 1;
+      return x.toFixed(1) + ',' + y.toFixed(1);
+    }).join(' ');
+    return '<svg data-testid="dcro4-sparkline" width="' + w + '" height="' + h + '" style="display:block">' +
+      '<polyline fill="none" stroke="currentColor" stroke-width="1.5" points="' + points + '" />' +
+      '</svg>';
+  }
+  function renderTrajectoryTable(items) {
+    if (!Array.isArray(items) || items.length === 0) {
+      return '<div data-testid="dcro4-trajectory-empty" class="card" style="padding:12px;margin-top:10px;font-size:12px;color:var(--text-muted)">No opted-in resolvers in this window yet.</div>';
+    }
+    var rows = items.map(function(it) {
+      var cls = _trajectoryClass(it.trajectory);
+      var name = it.resolver_name || it.resolver_user_id || '—';
+      var spark = _renderSparkline(it.weekly_backlog || []);
+      return '<tr data-testid="dcro4-trajectory-row" data-traj="' + _esc(it.trajectory) + '">' +
+        '<td style="padding:6px 8px"><strong>' + _esc(name) + '</strong><br><span style="font-size:10px;color:var(--text-muted)">' + _esc(it.resolver_user_id || '') + '</span></td>' +
+        '<td style="padding:6px 8px">' + spark + '</td>' +
+        '<td style="padding:6px 8px;text-align:center"><span data-testid="dcro4-traj-chip" class="' + cls + '" style="display:inline-block;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:600">' + _esc(it.trajectory) + '</span></td>' +
+        '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(it.current_backlog || 0)) + '</td>' +
+        '</tr>';
+    }).join('');
+    return '<div data-testid="dcro4-trajectory" class="card" style="padding:12px;margin-top:10px">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Resolver trajectory</div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<thead><tr style="text-align:left;border-bottom:1px solid var(--border)">' +
+      '<th style="padding:6px 8px">Resolver</th>' +
+      '<th style="padding:6px 8px">Weekly backlog</th>' +
+      '<th style="padding:6px 8px;text-align:center">Trajectory</th>' +
+      '<th style="padding:6px 8px;text-align:right">Current</th>' +
+      '</tr></thead>' +
+      '<tbody>' + rows + '</tbody></table></div>';
+  }
+
+  // ── Section 5: Weekly trend chart ───────────────────────────────────────
+  function renderTrendChart(s) {
+    var buckets = (s && Array.isArray(s.trend_buckets)) ? s.trend_buckets : [];
+    if (buckets.length === 0) return '';
+    var max = 0;
+    buckets.forEach(function(b) { var c = Number(b.dispatched) || 0; if (c > max) max = c; });
+    if (max === 0) {
+      return '<div data-testid="dcro4-trend-empty" class="card" style="padding:12px;margin-top:10px;font-size:12px;color:var(--text-muted)">No dispatch trend data.</div>';
+    }
+    var bars = buckets.map(function(b) {
+      var c = Number(b.dispatched) || 0;
+      var del = Number(b.delivered) || 0;
+      var fail = Number(b.failed) || 0;
+      var totalH = max > 0 ? Math.round((c / max) * 60) : 0;
+      var failH = c > 0 ? Math.round((fail / c) * totalH) : 0;
+      var delH = totalH - failH;
+      var label = String(b.week_start || '').slice(0, 10);
+      return '<div data-testid="dcro4-trend-bar" style="display:inline-block;width:32px;margin:0 2px;text-align:center;vertical-align:bottom">' +
+        '<div style="height:60px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center">' +
+        '<div style="width:14px;background:var(--accent-warn,#b45309);height:' + failH + 'px"></div>' +
+        '<div style="width:14px;background:var(--accent);height:' + delH + 'px"></div>' +
+        '</div>' +
+        '<div style="font-size:9px;color:var(--text-muted);margin-top:2px">' + _esc(label) + '</div>' +
+        '<div style="font-size:10px;font-variant-numeric:tabular-nums">' + _esc(String(c)) + '</div>' +
+        '</div>';
+    }).join('');
+    return '<div data-testid="dcro4-trend" class="card" style="padding:12px;margin-top:10px;overflow-x:auto">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Weekly dispatch trend (delivered + failed)</div>' +
+      '<div style="white-space:nowrap">' + bars + '</div>' +
+      '</div>';
+  }
+
+  function renderEmptyState(s) {
+    var total = s && s.dispatch_stats && Number(s.dispatch_stats.total_dispatched) || 0;
+    if (total > 0) return '';
+    return '<div data-testid="dcro4-empty-state" class="card" style="padding:14px;margin-top:10px;font-size:12px;color:var(--text-muted)">No coaching digests dispatched in this window yet.</div>';
+  }
+
+  async function render() {
+    var el = document.getElementById('content');
+    if (!el) return;
+    el.innerHTML = '<div style="padding:14px;font-size:12px;color:var(--text-muted)">Loading coaching digest audit hub…</div>';
+    var resp = await loadAll();
+    state.summary = resp.summary;
+    state.trajectory = resp.trajectory;
+    state.workerStatus = resp.workerStatus;
+    state.err = resp.err;
+    if (state.err) {
+      el.innerHTML = '<div data-testid="dcro4-err" class="notice notice-warn" style="padding:14px;font-size:12px">Failed to load coaching digest audit hub: ' + _esc(state.err) + '</div>';
+      return;
+    }
+
+    var styleBlock = '<style data-testid="dcro4-style">' +
+      '.dcro4-traj-green{background:#dcfce7;color:#166534}' +
+      '.dcro4-traj-yellow{background:#fef3c7;color:#92400e}' +
+      '.dcro4-traj-red{background:#fee2e2;color:#991b1b}' +
+      '</style>';
+
+    var heading = '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
+      '<h2 style="font-size:16px;margin:0">Coaching digest audit hub</h2>' +
+      '<a data-testid="dcro4-coaching-inbox-link" href="#/resolver-coaching-inbox" class="btn-secondary" style="font-size:.78rem;padding:5px 10px;text-decoration:none">My coaching inbox →</a>' +
+      '</div>';
+    var disclaimer = '<div data-testid="dcro4-disclaimer" style="font-size:11px;color:var(--text-muted);margin-top:4px">Admin cohort dashboard for the Resolver Coaching Self-Review Digest worker (#398). Source: <code>resolver_coaching_self_review_digest.dispatched</code> audit rows + <code>ResolverCoachingDigestPreference</code> table. Read-only; clinic-scoped.</div>';
+
+    var hasData = state.summary && Number(state.summary.dispatch_stats && state.summary.dispatch_stats.total_dispatched || 0) > 0;
+
+    el.innerHTML = '<div style="padding:14px">' +
+      styleBlock +
+      heading +
+      disclaimer +
+      renderWorkerDisabledBanner(state.workerStatus) +
+      renderControls() +
+      // Section 1
+      '<h3 data-testid="dcro4-section-opt-in" style="font-size:13px;margin:14px 0 4px;font-weight:700">Opt-in stats</h3>' +
+      renderOptInTiles(state.summary) +
+      // Section 2
+      '<h3 data-testid="dcro4-section-dispatch" style="font-size:13px;margin:14px 0 4px;font-weight:700">Dispatch stats</h3>' +
+      renderByChannelChart(state.summary) +
+      // Section 3
+      '<h3 data-testid="dcro4-section-delivery" style="font-size:13px;margin:14px 0 4px;font-weight:700">Delivery outcomes</h3>' +
+      renderDeliveryOutcomes(state.summary) +
+      // Section 4
+      '<h3 data-testid="dcro4-section-trajectory" style="font-size:13px;margin:14px 0 4px;font-weight:700">Resolver trajectory</h3>' +
+      renderTrajectoryTable(state.trajectory) +
+      // Section 5
+      '<h3 data-testid="dcro4-section-trend" style="font-size:13px;margin:14px 0 4px;font-weight:700">Weekly trend</h3>' +
+      renderTrendChart(state.summary) +
+      (hasData ? '' : renderEmptyState(state.summary)) +
+      '</div>';
+
+    if (typeof api.postCoachingDigestAuditHubAuditEvent === 'function') {
+      api.postCoachingDigestAuditHubAuditEvent({
+        event: 'view',
+        note: 'window_days=' + state.windowDays,
+      });
+    }
+  }
+
+  window._dcro4Refresh = function() { render(); };
+  window._dcro4SetWindow = function(v) {
+    state.windowDays = Number(v) || 90;
+    if (typeof api.postCoachingDigestAuditHubAuditEvent === 'function') {
+      api.postCoachingDigestAuditHubAuditEvent({
+        event: 'window_changed',
+        note: 'window_days=' + state.windowDays,
+      });
+    }
+    render();
+  };
+  window._dcro4OpenFailedAuditEvents = function() {
+    // Best-effort drill-in: navigate to the audit-trail filtered to the
+    // hub surface — the existing audit-trail page surfaces every row
+    // with delivery_status=failed in the note.
+    location.hash = '#/audit-trail?surface=resolver_coaching_digest_audit_hub&note_contains=delivery_status%3Dfailed';
+  };
+
+  await render();
+}
+// ── end Resolver Coaching Digest Audit Hub launch-audit (DCRO4) ─────────
+
+// ── Coaching Digest Delivery Failure Drilldown (DCRO5, 2026-05-02) ──────
+// Operational drill-down over the DCRO3 dispatched audit row stream filtered
+// to delivery_status=failed and grouped by (channel, error_class). DCRO4
+// (#402) surfaces the failure rate; DCRO5 makes it actionable with click-
+// through to the Channel Misconfig Detector (#389) when a matching
+// caregiver_portal.channel_misconfigured_detected row exists in the same ISO
+// week + clinic + channel. Read-only; clinic-scoped; clinician minimum.
+export async function pgCoachingDigestDeliveryFailureDrilldown(setTopbar) {
+  setTopbar('Delivery failure drilldown', `
+    <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px" onclick="window._dcro5Refresh()">↺ Refresh</button>
+  `);
+
+  var state = {
+    windowDays: 90,
+    summary: null,
+    failedList: null,
+    workerStatus: null,
+    page: 1,
+    pageSize: 20,
+    channelFilter: '',
+    errorClassFilter: '',
+    err: null,
+  };
+
+  function _esc(v) {
+    var s = v == null ? '' : String(v);
+    return s.replace(/[&<>"']/g, function(c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+
+  async function loadAll() {
+    var resp = { summary: null, failedList: null, workerStatus: null, err: null };
+    try {
+      if (typeof api.fetchDigestDeliveryFailureSummary === 'function') {
+        resp.summary = await api.fetchDigestDeliveryFailureSummary({
+          window_days: state.windowDays,
+        });
+      }
+      if (typeof api.fetchDigestDeliveryFailureList === 'function') {
+        resp.failedList = await api.fetchDigestDeliveryFailureList({
+          page: state.page,
+          page_size: state.pageSize,
+          channel: state.channelFilter || undefined,
+          error_class: state.errorClassFilter || undefined,
+        });
+      }
+      try {
+        if (typeof api.fetchResolverDigestStatus === 'function') {
+          resp.workerStatus = await api.fetchResolverDigestStatus();
+        }
+      } catch (_e) { resp.workerStatus = null; }
+    } catch (e) {
+      resp.err = String(e && e.message || e || 'unknown');
+    }
+    return resp;
+  }
+
+  function renderControls() {
+    var sel = '<label style="font-size:11px;margin-right:6px">Window:</label>' +
+      '<select data-testid="dcro5-window" onchange="window._dcro5SetWindow(this.value)" style="padding:4px;border:1px solid var(--border);border-radius:4px;font-size:12px">' +
+      [30, 90, 180].map(function(w) {
+        return '<option value="' + w + '"' + (state.windowDays === w ? ' selected' : '') + '>' + w + 'd</option>';
+      }).join('') +
+      '</select>';
+    return '<div data-testid="dcro5-controls" style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:6px">' +
+      '<div>' + sel + '</div>' +
+      '</div>';
+  }
+
+  function renderHonestDisclaimer(ws) {
+    var workerEnabled = ws && ws.enabled;
+    var label = workerEnabled ? 'enabled' : 'disabled';
+    return '<div data-testid="dcro5-disclaimer" class="notice" style="font-size:11px;color:var(--text-muted);margin-top:6px;padding:8px 10px;border-left:3px solid var(--border)">' +
+      'Failure data only available when the DCRO3 worker emits delivery_status. Worker is currently <strong>' + _esc(label) + '</strong>.' +
+      '</div>';
+  }
+
+  // ── Section 1: Top KPI tiles ────────────────────────────────────────────
+  function renderKpiTiles(s) {
+    var rate = (s && s.failure_rate_pct == null) ? '—' : (Number(s.failure_rate_pct).toFixed(1) + '%');
+    var failed = (s && Number(s.total_failed)) || 0;
+    var dispatched = (s && Number(s.total_dispatched)) || 0;
+    return '<div data-testid="dcro5-kpi-tiles" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:10px">' +
+      '<div data-testid="dcro5-kpi-failure-rate" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Failure rate</div><div style="font-size:22px;font-weight:700">' + _esc(rate) + '</div></div>' +
+      '<div data-testid="dcro5-kpi-total-failed" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Total failed</div><div style="font-size:22px;font-weight:700">' + _esc(String(failed)) + '</div></div>' +
+      '<div data-testid="dcro5-kpi-total-dispatched" class="card" style="padding:12px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Total dispatched</div><div style="font-size:22px;font-weight:700">' + _esc(String(dispatched)) + '</div></div>' +
+      '</div>';
+  }
+
+  // ── Section 2: By-channel grid ──────────────────────────────────────────
+  function renderByChannelGrid(s) {
+    var bc = (s && s.by_channel) || {};
+    var keys = ['slack', 'twilio', 'sendgrid', 'pagerduty', 'email'];
+    var cards = keys.map(function(ch) {
+      var entry = bc[ch] || { failed: 0, by_error_class: {} };
+      var failed = Number(entry.failed) || 0;
+      var bec = entry.by_error_class || {};
+      var ecKeys = ['auth', 'rate_limit', 'channel_left', 'unreachable', 'other'];
+      var max = 0;
+      ecKeys.forEach(function(k) { var v = Number(bec[k]) || 0; if (v > max) max = v; });
+      var bars = ecKeys.map(function(k) {
+        var v = Number(bec[k]) || 0;
+        var pct = max > 0 ? Math.round((v / max) * 100) : 0;
+        return '<div data-testid="dcro5-error-bar" data-channel="' + _esc(ch) + '" data-error-class="' + _esc(k) + '" style="display:flex;align-items:center;gap:6px;margin:2px 0;font-size:11px">' +
+          '<span style="width:80px">' + _esc(k) + '</span>' +
+          '<div style="flex:1;background:var(--surface-muted);height:10px;border-radius:3px;overflow:hidden"><div style="background:var(--accent-warn,#b45309);height:100%;width:' + pct + '%"></div></div>' +
+          '<span style="width:28px;text-align:right;font-variant-numeric:tabular-nums">' + _esc(String(v)) + '</span>' +
+          '</div>';
+      }).join('');
+      return '<div data-testid="dcro5-channel-card" data-channel="' + _esc(ch) + '" class="card" style="padding:10px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
+        '<span style="font-size:12px;font-weight:700;text-transform:capitalize">' + _esc(ch) + '</span>' +
+        '<span data-testid="dcro5-channel-failed-count" style="font-size:18px;font-weight:700;color:' + (failed > 0 ? 'var(--accent-warn,#b45309)' : 'inherit') + '">' + _esc(String(failed)) + '</span>' +
+        '</div>' +
+        bars +
+        '</div>';
+    }).join('');
+    return '<div data-testid="dcro5-by-channel-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:10px">' +
+      cards +
+      '</div>';
+  }
+
+  // ── Section 3: Top error classes leaderboard ────────────────────────────
+  function renderTopErrorClasses(s) {
+    var top = (s && Array.isArray(s.top_error_classes)) ? s.top_error_classes : [];
+    if (top.length === 0) {
+      return '<div data-testid="dcro5-top-empty" class="card" style="padding:10px;margin-top:10px;font-size:12px;color:var(--text-muted)">No (channel x error_class) failures in this window.</div>';
+    }
+    var rows = top.map(function(t, i) {
+      return '<tr data-testid="dcro5-top-row" data-channel="' + _esc(t.channel) + '" data-error-class="' + _esc(t.error_class) + '">' +
+        '<td style="padding:5px 8px;font-variant-numeric:tabular-nums">#' + (i + 1) + '</td>' +
+        '<td style="padding:5px 8px;text-transform:capitalize">' + _esc(t.channel) + '</td>' +
+        '<td style="padding:5px 8px">' + _esc(t.error_class) + '</td>' +
+        '<td style="padding:5px 8px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums">' + _esc(String(t.count)) + '</td>' +
+        '</tr>';
+    }).join('');
+    return '<div data-testid="dcro5-top-error-classes" class="card" style="padding:12px;margin-top:10px">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Top failure cohorts</div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<thead><tr style="text-align:left;border-bottom:1px solid var(--border)">' +
+      '<th style="padding:5px 8px">Rank</th>' +
+      '<th style="padding:5px 8px">Channel</th>' +
+      '<th style="padding:5px 8px">Error class</th>' +
+      '<th style="padding:5px 8px;text-align:right">Count</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+
+  // ── Section 4: Weekly trend chart ───────────────────────────────────────
+  function renderTrendChart(s) {
+    var buckets = (s && Array.isArray(s.trend_buckets)) ? s.trend_buckets : [];
+    if (buckets.length === 0) return '';
+    var max = 0;
+    buckets.forEach(function(b) { var c = Number(b.failed) || 0; if (c > max) max = c; });
+    if (max === 0) {
+      return '<div data-testid="dcro5-trend-empty" class="card" style="padding:10px;margin-top:10px;font-size:12px;color:var(--text-muted)">No failure trend data.</div>';
+    }
+    var bars = buckets.map(function(b) {
+      var c = Number(b.failed) || 0;
+      var h = max > 0 ? Math.round((c / max) * 60) : 0;
+      var label = String(b.week_start || '').slice(0, 10);
+      return '<div data-testid="dcro5-trend-bar" style="display:inline-block;width:30px;margin:0 2px;text-align:center;vertical-align:bottom">' +
+        '<div style="height:60px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center">' +
+        '<div style="width:14px;background:var(--accent-warn,#b45309);height:' + h + 'px"></div>' +
+        '</div>' +
+        '<div style="font-size:9px;color:var(--text-muted);margin-top:2px">' + _esc(label) + '</div>' +
+        '<div style="font-size:10px;font-variant-numeric:tabular-nums">' + _esc(String(c)) + '</div>' +
+        '</div>';
+    }).join('');
+    return '<div data-testid="dcro5-trend" class="card" style="padding:12px;margin-top:10px;overflow-x:auto">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Weekly failure trend</div>' +
+      '<div style="white-space:nowrap">' + bars + '</div>' +
+      '</div>';
+  }
+
+  // ── Section 5: Failed-list table ────────────────────────────────────────
+  function renderFailedListTable(fl) {
+    var items = (fl && Array.isArray(fl.items)) ? fl.items : [];
+    var total = (fl && Number(fl.total)) || 0;
+    if (total === 0) {
+      return '<div data-testid="dcro5-empty-state" class="card" style="padding:14px;margin-top:10px;font-size:12px;color:var(--text-muted)">No delivery failures in this window. Nice.</div>';
+    }
+    var rows = items.map(function(it) {
+      var match = !!it.has_matching_misconfig_flag;
+      var badge = match
+        ? '<span data-testid="dcro5-misconfig-badge" data-match="yes" onclick="window._dcro5OpenMisconfig(\'' + _esc(it.channel) + '\')" style="cursor:pointer;display:inline-block;padding:3px 8px;border-radius:999px;font-size:10px;font-weight:600;background:#fee2e2;color:#991b1b">Yes</span>'
+        : '<span data-testid="dcro5-misconfig-badge" data-match="no" style="display:inline-block;padding:3px 8px;border-radius:999px;font-size:10px;font-weight:600;background:#f3f4f6;color:#6b7280">No</span>';
+      var ts = String(it.dispatched_at || '').slice(0, 16).replace('T', ' ');
+      return '<tr data-testid="dcro5-failed-row">' +
+        '<td style="padding:5px 8px;text-transform:capitalize">' + _esc(it.channel) + '</td>' +
+        '<td style="padding:5px 8px"><span style="display:inline-block;padding:2px 6px;border-radius:4px;background:var(--surface-muted);font-size:10px">' + _esc(it.error_class) + '</span></td>' +
+        '<td style="padding:5px 8px"><strong>' + _esc(it.resolver_name || it.resolver_user_id || '—') + '</strong></td>' +
+        '<td style="padding:5px 8px;font-variant-numeric:tabular-nums">' + _esc(ts) + '</td>' +
+        '<td style="padding:5px 8px;text-align:center">' + badge + '</td>' +
+        '</tr>';
+    }).join('');
+    var totalPages = Math.max(1, Math.ceil(total / state.pageSize));
+    var pager = '<div data-testid="dcro5-pager" style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:11px">' +
+      '<span>Page ' + state.page + ' of ' + totalPages + ' (' + total + ' rows)</span>' +
+      '<span>' +
+      '<button class="btn-secondary" style="font-size:11px;padding:3px 8px" onclick="window._dcro5SetPage(' + Math.max(1, state.page - 1) + ')"' + (state.page <= 1 ? ' disabled' : '') + '>← Prev</button>' +
+      ' <button class="btn-secondary" style="font-size:11px;padding:3px 8px" onclick="window._dcro5SetPage(' + Math.min(totalPages, state.page + 1) + ')"' + (state.page >= totalPages ? ' disabled' : '') + '>Next →</button>' +
+      '</span>' +
+      '</div>';
+    return '<div data-testid="dcro5-failed-list" class="card" style="padding:12px;margin-top:10px">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Failed dispatches</div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<thead><tr style="text-align:left;border-bottom:1px solid var(--border)">' +
+      '<th style="padding:5px 8px">Channel</th>' +
+      '<th style="padding:5px 8px">Error class</th>' +
+      '<th style="padding:5px 8px">Resolver</th>' +
+      '<th style="padding:5px 8px">Dispatched</th>' +
+      '<th style="padding:5px 8px;text-align:center">Linked misconfig?</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table>' +
+      pager +
+      '</div>';
+  }
+
+  async function render() {
+    var el = document.getElementById('content');
+    if (!el) return;
+    el.innerHTML = '<div style="padding:14px;font-size:12px;color:var(--text-muted)">Loading delivery failure drilldown…</div>';
+    var resp = await loadAll();
+    state.summary = resp.summary;
+    state.failedList = resp.failedList;
+    state.workerStatus = resp.workerStatus;
+    state.err = resp.err;
+    if (state.err) {
+      el.innerHTML = '<div data-testid="dcro5-err" class="notice notice-warn" style="padding:14px;font-size:12px">Failed to load delivery failure drilldown: ' + _esc(state.err) + '</div>';
+      return;
+    }
+
+    var heading = '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
+      '<h2 style="font-size:16px;margin:0">Delivery failure drilldown</h2>' +
+      '<a data-testid="dcro5-back-to-hub-link" href="#/resolver-coaching-digest-audit-hub" class="btn-secondary" style="font-size:.78rem;padding:5px 10px;text-decoration:none">← Audit hub</a>' +
+      '</div>';
+
+    el.innerHTML = '<div style="padding:14px">' +
+      heading +
+      renderHonestDisclaimer(state.workerStatus) +
+      renderControls() +
+      // Section 1
+      '<h3 data-testid="dcro5-section-kpi" style="font-size:13px;margin:14px 0 4px;font-weight:700">Failure KPIs</h3>' +
+      renderKpiTiles(state.summary) +
+      // Section 2
+      '<h3 data-testid="dcro5-section-by-channel" style="font-size:13px;margin:14px 0 4px;font-weight:700">By channel x error class</h3>' +
+      renderByChannelGrid(state.summary) +
+      // Section 3
+      '<h3 data-testid="dcro5-section-top" style="font-size:13px;margin:14px 0 4px;font-weight:700">Top cohorts</h3>' +
+      renderTopErrorClasses(state.summary) +
+      // Section 4
+      '<h3 data-testid="dcro5-section-trend" style="font-size:13px;margin:14px 0 4px;font-weight:700">Weekly trend</h3>' +
+      renderTrendChart(state.summary) +
+      // Section 5
+      '<h3 data-testid="dcro5-section-list" style="font-size:13px;margin:14px 0 4px;font-weight:700">Failed dispatches</h3>' +
+      renderFailedListTable(state.failedList) +
+      '</div>';
+
+    if (typeof api.postDigestDeliveryFailureAuditEvent === 'function') {
+      api.postDigestDeliveryFailureAuditEvent({
+        event: 'view',
+        note: 'window_days=' + state.windowDays,
+      });
+    }
+  }
+
+  window._dcro5Refresh = function() { render(); };
+  window._dcro5SetWindow = function(v) {
+    state.windowDays = Number(v) || 90;
+    state.page = 1;
+    if (typeof api.postDigestDeliveryFailureAuditEvent === 'function') {
+      api.postDigestDeliveryFailureAuditEvent({
+        event: 'window_changed',
+        note: 'window_days=' + state.windowDays,
+      });
+    }
+    render();
+  };
+  window._dcro5SetPage = function(p) {
+    state.page = Number(p) || 1;
+    if (typeof api.postDigestDeliveryFailureAuditEvent === 'function') {
+      api.postDigestDeliveryFailureAuditEvent({
+        event: 'page_changed',
+        note: 'page=' + state.page,
+      });
+    }
+    render();
+  };
+  window._dcro5OpenMisconfig = function(channel) {
+    if (typeof api.postDigestDeliveryFailureAuditEvent === 'function') {
+      api.postDigestDeliveryFailureAuditEvent({
+        event: 'drill_through_clicked',
+        note: 'channel=' + (channel || ''),
+      });
+    }
+    // Navigate to the Channel Misconfig Detector route — the
+    // canonical alias accepted by app.js is 'channel-misconfig-detector'.
+    location.hash = '#/channel-misconfig-detector';
+  };
+
+  await render();
+}
+// ── end Coaching Digest Delivery Failure Drilldown (DCRO5) ──────────────
 
 // ── Local-only schedule (offline fallback / legacy view) ──────────────────
 async function _pgStaffSchedulingLocal(setTopbar) {

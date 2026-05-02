@@ -1,4 +1,10 @@
 import { api } from './api.js';
+// Demo migration of the typed API client (ROI #4). The legacy `api.health()`
+// call below is intentionally left untouched and remains the source of
+// truth; the typed client runs in a non-blocking shadow call so we can
+// validate parity in production logs without changing user-visible
+// behavior. See packages/api-client/README.md.
+import { apiClient as _typedApiClient } from '@deepsynaps/api-client';
 import { currentUser, setCurrentUser, updateUserBar, updatePatientBar, showApp, showPublic, showPatient, showLogin } from './auth.js';
 import { ROLE_ENTRY_PAGE } from './constants.js';
 import { t, setLocale, getLocale, LOCALES } from './i18n.js';
@@ -1452,6 +1458,44 @@ async function renderPage() {
       await m.pgResolverCoachingInbox(setTopbar);
       break;
     }
+    // Resolver Coaching Digest Audit Hub launch-audit (DCRO4, 2026-05-02).
+    // Admin-side cohort dashboard over the DCRO3 dispatched audit row
+    // stream + ResolverCoachingDigestPreference table. Read-only;
+    // clinician minimum. Closes the resolver-side coaching loop:
+    // DCRO1 measures → DCRO2 self-corrects → DCRO3 nudges → DCRO4
+    // admins audit. No companion worker.
+    case 'resolver-coaching-digest-audit-hub':
+    case 'coaching-digest-hub':
+    case 'dcro4-hub': {
+      const m = await loadKnowledge();
+      await m.pgResolverCoachingDigestAuditHub(setTopbar);
+      break;
+    }
+    // Coaching Digest Delivery Failure Drilldown launch-audit (DCRO5,
+    // 2026-05-02). Operational drill-down over the DCRO3 dispatched
+    // audit row stream filtered to delivery_status=failed and grouped
+    // by (channel, error_class). DCRO4 surfaces the failure rate;
+    // DCRO5 makes it actionable with click-through to the Channel
+    // Misconfig Detector when a matching channel_misconfigured_detected
+    // row exists in the same ISO week + clinic + channel. Read-only;
+    // clinic-scoped; clinician minimum.
+    case 'coaching-digest-delivery-failure-drilldown':
+    case 'digest-failure-drilldown':
+    case 'dcro5-drilldown': {
+      const m = await loadKnowledge();
+      await m.pgCoachingDigestDeliveryFailureDrilldown(setTopbar);
+      break;
+    }
+    // Channel Misconfig Detector route alias (for DCRO5 click-through).
+    // The actual UI lives inside the Care Team Coverage "Caregiver
+    // channels" tab (#389) — this alias keeps DCRO5's click-through
+    // anchor stable even if that tab moves.
+    case 'channel-misconfig-detector':
+    case 'channel-misconfiguration-detector': {
+      const m = await loadKnowledge();
+      await m.pgCareTeamCoverage(setTopbar);
+      break;
+    }
     // Clinician Adherence Hub launch-audit (2026-05-01). Bidirectional
     // counterpart to the patient-side Adherence Events page (#350).
     // Cross-patient triage of adherence reports, side-effects, and
@@ -2518,6 +2562,9 @@ async function checkBackendHealth() {
   try {
     await api.health();
     document.getElementById('backend-banner')?.remove();
+    // Shadow call via the typed client (additive demo migration). Errors
+    // are swallowed — banner state is still driven by the legacy call.
+    _typedApiClient.get('/health').catch(() => {});
   } catch {
     const existing = document.getElementById('backend-banner');
     if (existing) return;

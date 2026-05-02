@@ -300,7 +300,7 @@ test('Demo banner renders only when server is_demo=true', () => {
 test('pgPatientProfile must include the new care team contact card', () => {
   const here = path.dirname(url.fileURLToPath(import.meta.url));
   const pagePath = path.resolve(here, 'pages-patient.js');
-  const src = fs.readFileSync(pagePath, 'utf8');
+  const src = (fs.readFileSync(pagePath, 'utf8') + '\n' + fs.readFileSync(path.resolve(here, 'pages-patient', 'caregiver.js'), 'utf8') + '\n' + fs.readFileSync(path.resolve(here, 'pages-patient', 'digest.js'), 'utf8') + '\n' + fs.readFileSync(path.resolve(here, 'pages-patient', 'home-devices.js'), 'utf8') + '\n' + fs.readFileSync(path.resolve(here, 'pages-patient', 'adherence.js'), 'utf8') + '\n' + fs.readFileSync(path.resolve(here, 'pages-patient', 'intake.js'), 'utf8') + '\n' + fs.readFileSync(path.resolve(here, 'pages-patient', 'import-wizard.js'), 'utf8') + '\n' + fs.readFileSync(path.resolve(here, 'pages-patient', 'media.js'), 'utf8') + '\n' + fs.readFileSync(path.resolve(here, 'pages-patient', 'wearables.js'), 'utf8') + '\n' + fs.readFileSync(path.resolve(here, 'pages-patient', 'symptom-notifications.js'), 'utf8') + '\n' + fs.readFileSync(path.resolve(here, 'pages-patient', 'dashboard.js'), 'utf8') + '\n' + fs.readFileSync(path.resolve(here, 'pages-patient', 'sessions.js'), 'utf8'));
 
   const startMarker = 'export async function pgPatientProfile';
   const startIdx = src.indexOf(startMarker);
@@ -343,7 +343,7 @@ test('pgPatientProfile must include the new care team contact card', () => {
 test('pgPatientProfile care team contact block does NOT inline any clinician PHI', () => {
   const here = path.dirname(url.fileURLToPath(import.meta.url));
   const pagePath = path.resolve(here, 'pages-patient.js');
-  const src = fs.readFileSync(pagePath, 'utf8');
+  const src = (fs.readFileSync(pagePath, 'utf8') + '\n' + fs.readFileSync(path.resolve(here, 'pages-patient', 'caregiver.js'), 'utf8') + '\n' + fs.readFileSync(path.resolve(here, 'pages-patient', 'digest.js'), 'utf8') + '\n' + fs.readFileSync(path.resolve(here, 'pages-patient', 'home-devices.js'), 'utf8') + '\n' + fs.readFileSync(path.resolve(here, 'pages-patient', 'adherence.js'), 'utf8') + '\n' + fs.readFileSync(path.resolve(here, 'pages-patient', 'intake.js'), 'utf8') + '\n' + fs.readFileSync(path.resolve(here, 'pages-patient', 'import-wizard.js'), 'utf8') + '\n' + fs.readFileSync(path.resolve(here, 'pages-patient', 'media.js'), 'utf8') + '\n' + fs.readFileSync(path.resolve(here, 'pages-patient', 'wearables.js'), 'utf8') + '\n' + fs.readFileSync(path.resolve(here, 'pages-patient', 'symptom-notifications.js'), 'utf8') + '\n' + fs.readFileSync(path.resolve(here, 'pages-patient', 'dashboard.js'), 'utf8') + '\n' + fs.readFileSync(path.resolve(here, 'pages-patient', 'sessions.js'), 'utf8'));
 
   // Bound the new card region tightly via the data-pt-oncall-card marker
   // through to the end of the IIFE that fetches status.

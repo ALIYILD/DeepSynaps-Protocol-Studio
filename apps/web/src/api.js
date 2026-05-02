@@ -3662,6 +3662,154 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
+  // ── DCRO5 Delivery Failure Drilldown launch-audit ──
+  // (2026-05-02). Operational drill-down over the DCRO3 dispatched audit
+  // row stream filtered to delivery_status=failed and grouped by (channel,
+  // error_class). Three reads:
+  //   - summary: per-channel + per-error-class breakdown, top-5 leaderboard,
+  //     weekly-trend bucket series.
+  //   - list: paginated failed-dispatches with has_matching_misconfig_flag
+  //     (the click-through anchor for the Channel Misconfig Detector).
+  //   - audit-events: paginated, scoped audit-event list.
+  // Read-only — no companion worker. Helpers placed BEFORE DCRO4's section
+  // so the DCRO4 slice-boundary sentinel stays clean — DCRO5 uses its own
+  // unique header anchor + slice-boundary sentinel.
+  fetchDigestDeliveryFailureSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null) usp.set('window_days', String(params.window_days));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/coaching-digest-delivery-failure-drilldown/summary' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path);
+  },
+  fetchDigestDeliveryFailureList: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.channel) usp.set('channel', String(params.channel));
+    if (params && params.error_class) usp.set('error_class', String(params.error_class));
+    if (params && params.start) usp.set('start', String(params.start));
+    if (params && params.end) usp.set('end', String(params.end));
+    if (params && params.page != null) usp.set('page', String(params.page));
+    if (params && params.page_size != null) usp.set('page_size', String(params.page_size));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/coaching-digest-delivery-failure-drilldown/list' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path);
+  },
+  fetchDigestDeliveryFailureAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/coaching-digest-delivery-failure-drilldown/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  postDigestDeliveryFailureAuditEvent: (data) =>
+    apiFetch('/api/v1/coaching-digest-delivery-failure-drilldown/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  // end DCRO5 helpers
+  // ━━ DCRO5 SLICE BOUNDARY ━━ (do not remove; the launch-audit test
+  // for the DCRO5 section finds the header above then walks to this
+  // unique sentinel substring to bound the slice).
+  // ── DCRO4 Resolver Coaching Digest Audit Hub launch-audit ──
+  // (2026-05-02). Admin cohort dashboard over the DCRO3 dispatched audit
+  // row stream + ResolverCoachingDigestPreference table. Three reads:
+  //   - summary: opt-in / dispatch-by-channel / delivery / weekly trend
+  //   - resolver-trajectory: per opted-in resolver weekly wrong-call
+  //     backlog with shrinking/flat/growing classification
+  //   - audit-events: paginated, scoped audit-event list
+  // Read-only — no companion worker. Helpers placed BEFORE DCRO3's section
+  // so the DCRO3 slice-boundary sentinel below stays clean — DCRO4 uses
+  // its own unique header anchor + slice-boundary sentinel.
+  fetchCoachingDigestAuditHubSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null) usp.set('window_days', String(params.window_days));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/resolver-coaching-digest-audit-hub/summary' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path);
+  },
+  fetchResolverTrajectory: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null) usp.set('window_days', String(params.window_days));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/resolver-coaching-digest-audit-hub/resolver-trajectory' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path);
+  },
+  fetchCoachingDigestAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/resolver-coaching-digest-audit-hub/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  postCoachingDigestAuditHubAuditEvent: (data) =>
+    apiFetch('/api/v1/resolver-coaching-digest-audit-hub/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  // end DCRO4 helpers
+  // ━━ DCRO4 SLICE BOUNDARY ━━ (do not remove; the launch-audit test
+  // for the DCRO4 section finds the header above then walks to this
+  // unique sentinel substring to bound the slice).
+  // ── DCRO3 Resolver Coaching Digest launch-audit (2026-05-02) ────────────
+  // Weekly digest worker that bundles each resolver's un-self-reviewed
+  // wrong false_positive calls and dispatches via their preferred on-call
+  // channel (reusing EscalationPolicy + oncall_delivery adapters from
+  // #374). Per-resolver weekly cooldown. Honest opt-in default off.
+  // Closes the loop end-to-end: DCRO1 measures (#393) → DCRO2
+  // self-corrects (#397) → DCRO3 nudges. Helpers placed BEFORE DCRO2's
+  // section so the closing slice-boundary sentinel below stays clean —
+  // DCRO3 uses its own unique header anchor + slice-boundary sentinel.
+  fetchMyResolverDigestPreference: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.resolver_user_id) usp.set('resolver_user_id', String(params.resolver_user_id));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/resolver-coaching-self-review-digest/my-preference' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path);
+  },
+  updateMyResolverDigestPreference: (data) =>
+    apiFetch('/api/v1/resolver-coaching-self-review-digest/my-preference', {
+      method: 'PUT',
+      body: JSON.stringify(data || {}),
+    }),
+  fetchResolverDigestStatus: () =>
+    apiFetch('/api/v1/resolver-coaching-self-review-digest/status').catch(() => null),
+  tickResolverDigest: (data) =>
+    apiFetch('/api/v1/resolver-coaching-self-review-digest/tick', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  fetchResolverDigestAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/resolver-coaching-self-review-digest/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  // end DCRO3 helpers
+  // ━━ DCRO3 SLICE BOUNDARY ━━ (do not remove; the launch-audit test
+  // for the DCRO3 section finds the header above then walks to this
+  // unique sentinel substring to bound the slice).
   // ── Resolver Coaching Inbox launch-audit (DCRO2, 2026-05-02) ─────────────
   // Private, read-only inbox view per resolver showing THEIR OWN wrong
   // false_positive calls — i.e., resolutions where the resolver said
