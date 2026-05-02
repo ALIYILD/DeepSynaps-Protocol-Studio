@@ -9474,12 +9474,49 @@ body.light-theme .logo-wrap { border-bottom-color: rgba(0,0,0,0.08); }
 }
 
 /* ── Sidebar section color indicators ─────────────────────────────────────────── */
-/* Color dot per section in the nav */
+/* Color dot per section in the nav (legacy section ids — kept for any stale group) */
 [data-section="patient-care"] .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--blue); margin-right:7px; vertical-align:middle; opacity:0.8; }
 [data-section="protocols"]    .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--teal); margin-right:7px; vertical-align:middle; opacity:0.8; }
 [data-section="clinical-tools"].nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--amber); margin-right:7px; vertical-align:middle; opacity:0.8; }
 [data-section="registries"]   .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--violet); margin-right:7px; vertical-align:middle; opacity:0.8; }
 [data-section="clinic"]       .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--text-tertiary); margin-right:7px; vertical-align:middle; opacity:0.6; }
+
+/* ── Section-tinted nav icons (designer recommendation, follow-up to #429) ─────
+   Each top-level NAV section gets one accent hue applied to its idle icons so
+   the sidebar reads faster under fluorescent clinic lights. Tints reuse the
+   existing theme tokens so the palette stays in lockstep with the rest of the
+   product. The active-page treatment (teal bar + teal-ghost background, see
+   .nav-item.active) intentionally still wins the eye — section tint is a
+   recognition aid, not a status signal. Critical-meaning colors (red AE,
+   amber pending review) remain untouched in pills and badges.
+
+   Section → tint:
+     clinical   → blue   (--nav-section-clinical)
+     protocol   → amber  (--nav-section-protocol)
+     sessions   → rose   (--nav-section-sessions)
+     analyzers  → violet (--nav-section-analyzers)
+     admin      → slate  (--nav-section-admin)  — neutral on purpose
+*/
+:root {
+  --nav-section-clinical:  var(--blue);
+  --nav-section-protocol:  var(--amber);
+  --nav-section-sessions:  var(--rose);
+  --nav-section-analyzers: var(--violet);
+  --nav-section-admin:     var(--text-tertiary);
+}
+[data-section="clinical"]  .nav-item:not(.active) .nav-icon { color: var(--nav-section-clinical);  opacity: 0.85; }
+[data-section="protocol"]  .nav-item:not(.active) .nav-icon { color: var(--nav-section-protocol);  opacity: 0.85; }
+[data-section="sessions"]  .nav-item:not(.active) .nav-icon { color: var(--nav-section-sessions);  opacity: 0.85; }
+[data-section="analyzers"] .nav-item:not(.active) .nav-icon { color: var(--nav-section-analyzers); opacity: 0.85; }
+[data-section="admin"]     .nav-item:not(.active) .nav-icon { color: var(--nav-section-admin);     opacity: 0.7;  }
+/* Hover lifts saturation slightly without competing with the active state. */
+[data-section] .nav-item:not(.active):hover .nav-icon { opacity: 1; }
+/* Section header label dot — tint each visible section (same hues as icons). */
+[data-section="clinical"]  .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--nav-section-clinical);  margin-right:7px; vertical-align:middle; opacity:0.85; }
+[data-section="protocol"]  .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--nav-section-protocol);  margin-right:7px; vertical-align:middle; opacity:0.85; }
+[data-section="sessions"]  .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--nav-section-sessions);  margin-right:7px; vertical-align:middle; opacity:0.85; }
+[data-section="analyzers"] .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--nav-section-analyzers); margin-right:7px; vertical-align:middle; opacity:0.85; }
+[data-section="admin"]     .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--nav-section-admin);     margin-right:7px; vertical-align:middle; opacity:0.7;  }
 
 /* ── End Sidebar Redesign ─────────────────────────────────────────────────────── */
 
