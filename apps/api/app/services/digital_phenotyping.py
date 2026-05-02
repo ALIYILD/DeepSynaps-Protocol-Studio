@@ -164,6 +164,8 @@ def build_stub_analyzer_payload(patient_id: str, *, patient_name: str | None = N
             _link("assessments-v2", "Assessments", "Last GAD-7 within analysis window", "2026-04-28"),
             _link("wearables", "Biometrics", "Resting HR / sleep duration series", "2026-05-01"),
             _link("risk-analyzer", "Risk Analyzer", "Wellbeing + engagement categories", "2026-05-02"),
+            _link("live-session", "Virtual Care", "Scheduled or ad-hoc treatment sessions", "—"),
+            _link("protocol-studio", "Protocol Studio", "Active protocol context for this patient", "—"),
             _link("voice-analyzer", "Voice Analyzer", "Optional: correlate vocal fatigue flags", "—"),
             _link("video-assessments", "Video", "Session-based functional tasks", "—"),
             _link("text-analyzer", "Clinical Text", "Recent notes entity extraction", "—"),

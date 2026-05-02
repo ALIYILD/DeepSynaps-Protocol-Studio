@@ -517,6 +517,8 @@ function _digitalPhenotypingPayload(patientId) {
       { nav_page_id: 'assessments-v2', title: 'Assessments', relevance_note: 'Last GAD-7 within analysis window', last_updated: '2026-04-28' },
       { nav_page_id: 'wearables', title: 'Biometrics', relevance_note: 'Sleep + resting HR trends', last_updated: '2026-05-01' },
       { nav_page_id: 'risk-analyzer', title: 'Risk Analyzer', relevance_note: 'Wellbeing + engagement context', last_updated: '2026-05-02' },
+      { nav_page_id: 'live-session', title: 'Virtual Care', relevance_note: 'Treatment / virtual sessions', last_updated: '—' },
+      { nav_page_id: 'protocol-studio', title: 'Protocol Studio', relevance_note: 'Active protocol for this patient', last_updated: '—' },
       { nav_page_id: 'voice-analyzer', title: 'Voice Analyzer', relevance_note: 'Optional: acoustic fatigue markers', last_updated: '—' },
       { nav_page_id: 'video-assessments', title: 'Video', relevance_note: 'Session-based tasks', last_updated: '—' },
       { nav_page_id: 'text-analyzer', title: 'Clinical Text', relevance_note: 'Recent notes', last_updated: '—' },
