@@ -86,7 +86,6 @@ apps/api/app/routers/schedules_router.py
 apps/api/app/routers/sessions_router.py
 apps/api/app/routers/symptom_journal_router.py
 apps/api/app/routers/telegram_router.py
-apps/api/app/routers/treatment_courses_router.py
 apps/api/app/routers/virtual_care_router.py
 apps/api/app/routers/wearable_router.py
 apps/api/app/routers/wearables_workbench_router.py
