@@ -89,6 +89,7 @@ from app.routers.agent_skills_router import router as agent_skills_router
 from app.routers.annotations_router import router as annotations_router
 from app.routers.reminders_router import router as reminders_router
 from app.routers.irb_router import router as irb_router
+from app.routers.clinical_trials_router import router as clinical_trials_router
 from app.routers.irb_manager_router import router as irb_manager_router
 from app.routers.irb_amendment_workflow_router import (
     router as irb_amendment_workflow_router,
@@ -98,6 +99,15 @@ from app.routers.irb_amendment_reviewer_workload_router import (
 )
 from app.routers.irb_amendment_reviewer_workload_outcome_tracker_router import (
     router as irb_amendment_reviewer_workload_outcome_tracker_router,
+)
+from app.routers.reviewer_sla_calibration_threshold_tuning_router import (
+    router as reviewer_sla_calibration_threshold_tuning_router,
+)
+from app.routers.qeeg_report_annotations_router import (
+    router as qeeg_report_annotations_router,
+)
+from app.routers.qeeg_annotation_outcome_tracker_router import (
+    router as qeeg_annotation_outcome_tracker_router,
 )
 from app.routers.evidence_router import router as evidence_router
 from app.routers.literature_router import router as literature_router
@@ -182,6 +192,8 @@ from app.routers.team_router import router as team_router
 from app.routers.preferences_router import router as preferences_router
 from app.routers.data_privacy_router import router as data_privacy_router
 from app.routers.risk_stratification_router import router as risk_stratification_router
+from app.routers.digital_phenotyping_router import router as digital_phenotyping_router
+from app.routers.movement_analyzer_router import router as movement_analyzer_router
 from app.routers.qeeg_analysis_router import router as qeeg_analysis_router
 from app.routers.qeeg_live_router import router as qeeg_live_router
 from app.routers.qeeg_copilot_router import router as qeeg_copilot_router
@@ -459,10 +471,14 @@ app.include_router(agent_skills_router)
 app.include_router(annotations_router)
 app.include_router(reminders_router)
 app.include_router(irb_router)
+app.include_router(clinical_trials_router)
 app.include_router(irb_manager_router)
 app.include_router(irb_amendment_workflow_router)
 app.include_router(irb_amendment_reviewer_workload_router)
 app.include_router(irb_amendment_reviewer_workload_outcome_tracker_router)
+app.include_router(reviewer_sla_calibration_threshold_tuning_router)
+app.include_router(qeeg_report_annotations_router)
+app.include_router(qeeg_annotation_outcome_tracker_router)
 app.include_router(literature_router)
 app.include_router(literature_watch_router)
 app.include_router(evidence_router)
@@ -749,6 +765,8 @@ app.include_router(team_router)
 app.include_router(preferences_router)
 app.include_router(data_privacy_router)
 app.include_router(risk_stratification_router)
+app.include_router(digital_phenotyping_router)
+app.include_router(movement_analyzer_router)
 app.include_router(qeeg_analysis_router)
 app.include_router(qeeg_live_router)
 app.include_router(qeeg_copilot_router)

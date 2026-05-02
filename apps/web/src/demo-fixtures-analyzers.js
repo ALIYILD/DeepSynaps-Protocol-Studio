@@ -351,6 +351,221 @@ const _VIDEO = {
   notes: 'All 5 guided tasks captured cleanly. Clinician review complete.',
 };
 
+/** Digital Phenotyping Analyzer — mirrors apps/api stub payload shape (v1). */
+function _digitalPhenotypingPayload(patientId) {
+  const now = '2026-05-02T12:00:00Z';
+  const start = '2026-04-04T12:00:00Z';
+  const name =
+    DEMO_PATIENTS.find((p) => p.id === patientId)?.name || 'Patient';
+  return {
+    schema_version: '1.0.0',
+    clinical_disclaimer:
+      'Decision-support only. Passive phone data do not diagnose a disorder. '
+      + 'Signals are behavioral indicators that require clinical correlation.',
+    generated_at: now,
+    patient_id: patientId,
+    patient_display_name: name,
+    analysis_window: { start, end: now, timezone: 'UTC' },
+    provenance: {
+      source_system: 'demo_fixture',
+      ingest_batch_id: null,
+      feature_pipeline_version: '0.1.0-demo',
+      data_sources: ['stub_pipeline'],
+      mvp_manual_observations_14d: 0,
+      mvp_device_observations_14d: 0,
+      mvp_observation_kinds_14d: {},
+    },
+    audit_summary: {
+      last_computed_at: now,
+      recompute_job_id: null,
+      data_pipeline_version: '0.1.0-demo',
+    },
+    snapshot: {
+      computed_at: now,
+      mobility_stability: { value: 0.72, confidence: 0.78, completeness: 0.81, baseline_comparison: 'within', privacy_sensitivity_level: 'medium' },
+      routine_regularity: { value: 0.61, confidence: 0.65, completeness: 0.81, baseline_comparison: 'below', privacy_sensitivity_level: 'low' },
+      screen_time_pattern: { value: 1.12, confidence: 0.52, completeness: 0.81, baseline_comparison: 'above', privacy_sensitivity_level: 'medium' },
+      sleep_timing_proxy: { value: 0.88, confidence: 0.71, completeness: 0.81, baseline_comparison: 'within', privacy_sensitivity_level: 'medium' },
+      sociability_proxy: { value: 0.55, confidence: 0.60, completeness: 0.55, baseline_comparison: 'below', privacy_sensitivity_level: 'high' },
+      activity_level: { value: 0.70, confidence: 0.80, completeness: 0.81, baseline_comparison: 'within', privacy_sensitivity_level: 'low' },
+      anomaly_score: { value: 0.38, confidence: 0.55, completeness: 0.81, baseline_comparison: 'above', privacy_sensitivity_level: 'low' },
+      data_completeness: {
+        value: 0.81,
+        confidence: 0.95,
+        completeness: 1,
+        baseline_comparison: 'within',
+        privacy_sensitivity_level: 'low',
+        notes: ['No manual or device-sync observations in the last 14 days — add via the Data panel.'],
+      },
+    },
+    domains: [
+      {
+        signal_domain: 'screen_use',
+        collection_modalities: ['screen_events'],
+        source_types: ['passive'],
+        window_end: now,
+        completeness: 0.81,
+        summary_stats: { hours_daily_avg: 4.0, late_night_pct: 18 },
+        trend: 'unclear',
+        linked_analyzers_impacted: [],
+      },
+      {
+        signal_domain: 'location_mobility',
+        collection_modalities: ['gps'],
+        source_types: ['passive'],
+        window_end: now,
+        completeness: 0.74,
+        summary_stats: { radius_km_typical: 4.2, entropy_index: 0.68 },
+        trend: 'unclear',
+        linked_analyzers_impacted: [],
+      },
+      {
+        signal_domain: 'physical_activity',
+        collection_modalities: ['steps'],
+        source_types: ['passive'],
+        window_end: now,
+        completeness: 0.88,
+        summary_stats: { steps_daily_avg: 4980 },
+        trend: 'unclear',
+        linked_analyzers_impacted: [],
+      },
+      {
+        signal_domain: 'sleep_proxy',
+        collection_modalities: ['screen_off', 'motion'],
+        source_types: ['hybrid'],
+        window_end: now,
+        completeness: 0.79,
+        summary_stats: { bedtime_variability_min: 88 },
+        trend: 'unclear',
+        linked_analyzers_impacted: [],
+      },
+      {
+        signal_domain: 'social_communication',
+        collection_modalities: ['communication_meta'],
+        source_types: ['passive'],
+        window_end: now,
+        completeness: 0.45,
+        summary_stats: { note: 'Not enabled in demo consent profile' },
+        trend: 'unclear',
+        linked_analyzers_impacted: [],
+      },
+      {
+        signal_domain: 'device_engagement',
+        collection_modalities: ['unlock_count'],
+        source_types: ['passive'],
+        window_end: now,
+        completeness: 0.81,
+        summary_stats: { unlocks_daily_avg: 79 },
+        trend: 'unclear',
+        linked_analyzers_impacted: [],
+      },
+      {
+        signal_domain: 'ema_active',
+        collection_modalities: ['ema'],
+        source_types: ['active'],
+        window_end: now,
+        completeness: 0.72,
+        summary_stats: { ema_completion_pct: 72 },
+        trend: 'unclear',
+        linked_analyzers_impacted: [],
+      },
+    ],
+    baseline_profile: {
+      estimated_at: '2026-04-25T12:00:00Z',
+      valid_from: start,
+      baseline_window_days: 28,
+      method: 'robust_stats_demo',
+      confidence: 0.58,
+      feature_summaries: {
+        screen_hours_daily: { median: 3.6, iqr: 1.1 },
+        steps_daily: { median: 5400, iqr: 1200 },
+        routine_index: { median: 0.68, iqr: 0.12 },
+      },
+      weekday_weekend_delta: { screen_hours: 0.35, steps: -820 },
+    },
+    deviations: [
+      {
+        event_id: 'demo-dev-1',
+        detected_at: '2026-04-30T08:00:00Z',
+        window: { start: '2026-04-27T08:00:00Z', end: '2026-04-30T08:00:00Z' },
+        signal_domain: 'screen_use',
+        deviation_type: 'short_term_spike',
+        severity: 'medium',
+        urgency: 'soon',
+        confidence: 0.52,
+        summary: 'Late-night screen use increased vs personal baseline.',
+        linked_analyzers_impacted: ['risk:wellbeing', 'risk:engagement'],
+      },
+    ],
+    clinical_flags: [
+      {
+        flag_id: 'demo-cf-1',
+        raised_at: '2026-05-01T10:00:00Z',
+        category: 'sleep_disruption',
+        statement_type: 'behavioral_indicator',
+        severity: 'low',
+        urgency: 'routine',
+        confidence: 0.49,
+        label: 'Possible sleep timing instability (proxy)',
+        detail:
+          'Bedtime variability increased versus baseline. Interpret with sleep diary or wearable sleep staging when available.',
+        caveats: ['Sleep proxy only — not polysomnography.', 'Completeness 81% this window.'],
+        evidence_refs: ['sleep_timing_proxy_deviation', 'registry:sleep_circadian'],
+      },
+    ],
+    recommendations: [
+      {
+        id: 'demo-rec-1',
+        priority: 'P1',
+        title: 'Cross-check with Biometrics / Assessments',
+        detail: 'Compare passive sleep proxy with wearable sleep and recent PHQ/GAD scores.',
+        action_type: 'review_assessment',
+        targets: ['wearables', 'assessments-v2'],
+        confidence: 0.55,
+      },
+    ],
+    multimodal_links: [
+      { nav_page_id: 'research-evidence', title: 'Research Evidence', relevance_note: '87K+ papers — digital phenotyping / passive sensing', last_updated: '—' },
+      { nav_page_id: 'qeeg-analysis', title: 'qEEG Analyzer', relevance_note: 'Neurophysiology context', last_updated: '—' },
+      { nav_page_id: 'assessments-v2', title: 'Assessments', relevance_note: 'Last GAD-7 within analysis window', last_updated: '2026-04-28' },
+      { nav_page_id: 'wearables', title: 'Biometrics', relevance_note: 'Sleep + resting HR trends', last_updated: '2026-05-01' },
+      { nav_page_id: 'risk-analyzer', title: 'Risk Analyzer', relevance_note: 'Wellbeing + engagement context', last_updated: '2026-05-02' },
+      { nav_page_id: 'session-execution', title: 'Session execution', relevance_note: 'Treatment session capture', last_updated: '—' },
+      { nav_page_id: 'live-session', title: 'Virtual Care', relevance_note: 'Telehealth sessions', last_updated: '—' },
+      { nav_page_id: 'protocol-studio', title: 'Protocol Studio', relevance_note: 'Active protocol for this patient', last_updated: '—' },
+      { nav_page_id: 'deeptwin', title: 'DeepTwin', relevance_note: 'Multimodal 360° view', last_updated: '—' },
+      { nav_page_id: 'ai-agent-v2', title: 'AI Practice Agents', relevance_note: 'Agent-assisted workflows', last_updated: '—' },
+      { nav_page_id: 'voice-analyzer', title: 'Voice Analyzer', relevance_note: 'Optional: acoustic fatigue markers', last_updated: '—' },
+      { nav_page_id: 'video-assessments', title: 'Video', relevance_note: 'Session-based tasks', last_updated: '—' },
+      { nav_page_id: 'text-analyzer', title: 'Clinical Text', relevance_note: 'Recent notes', last_updated: '—' },
+    ],
+    consent_state: {
+      updated_at: '2026-04-02T12:00:00Z',
+      consent_scope_version: '2026.04',
+      domains_enabled: {
+        screen_use: true,
+        location_mobility: true,
+        physical_activity: true,
+        sleep_proxy: true,
+        social_communication: false,
+        device_engagement: true,
+        ema_active: true,
+      },
+      retention_summary_days: 365,
+      visibility_note: 'Clinic care team per organization policy (demo).',
+    },
+    audit_events: [
+      { event_id: 'demo-aud-1', timestamp: '2026-05-02T09:00:00Z', action: 'view', actor_role: 'clinician', summary: 'Page payload viewed (demo)' },
+    ],
+    mvp_observations: [],
+    mvp_observations_total: 0,
+  };
+}
+
+export function demoDigitalPhenotypingPayload(patientId) {
+  return _digitalPhenotypingPayload(patientId);
+}
+
 const _MED_PATIENT_REGIMENS = {
   'demo-pt-samantha-li': [
     { id: 'demo-med-sam-1', patient_id: 'demo-pt-samantha-li', name: 'Sertraline',  generic_name: 'sertraline',  dose: '100 mg', frequency: 'once daily',   route: 'PO', prescriber: 'Dr. A. Yildirim', started_at: '2025-11-04', active: true },
@@ -774,7 +989,7 @@ function _nutritionDemoPayload(patientId) {
     patient_id: pid,
     computation_id: `demo-nut-${pid.slice(-8)}`,
     data_as_of: asOf,
-    schema_version: '2',
+    schema_version: '1',
     clinical_disclaimer:
       'Decision-support only. Not a prescription or diet order. '
       + 'Clinician judgment and local policy govern all care decisions.',
@@ -813,58 +1028,9 @@ function _nutritionDemoPayload(patientId) {
         ],
     ),
     biomarker_links: Object.freeze([
-      Object.freeze({ label: 'DeepTwin (multimodal)', page_id: 'deeptwin', detail: 'Timeline & signals vs nutrition changes', confidence: 0.58 }),
-      Object.freeze({ label: 'Patient analytics', page_id: 'patient-analytics', detail: 'Cross-modality terminal + evidence strip', confidence: 0.55 }),
-      Object.freeze({ label: 'Treatment sessions', page_id: 'treatment-sessions-analyzer', detail: 'Course timing vs diet confounds', confidence: 0.52 }),
-      Object.freeze({ label: 'Biometrics (wearables)', page_id: 'wearables', detail: 'Sleep & activity vs intake', confidence: 0.48 }),
-      Object.freeze({ label: 'Medication safety', page_id: 'medication-analyzer', detail: 'Drug–supplement overlap (institutional DBs authoritative)', confidence: 0.42 }),
-      Object.freeze({ label: 'Research evidence', page_id: 'research-evidence', detail: 'Full ~87k corpus search when evidence.db is built', confidence: 0.62 }),
-      Object.freeze({ label: 'Risk stratification', page_id: 'risk-analyzer', detail: 'Cross-check adherence & safety', confidence: 0.48 }),
-    ]),
-    evidence_pack: Object.freeze({
-      corpus_paper_count: 87042,
-      corpus_note: 'Demo count — live API uses evidence.db row count. FTS-ranked excerpts are heuristic.',
-      items: Object.freeze([
-        Object.freeze({
-          id: 120441,
-          title: 'Diet quality indices and biomarker-related health: umbrella review',
-          year: 2023,
-          journal: 'Nutr Rev',
-          snippet: 'Umbrella review linking dietary patterns to cardiometabolic biomarkers — illustrative demo row.',
-          pmid: '37259102',
-          doi: '10.1093/nutrit/nuad041',
-          cited_by_count: 42,
-          is_oa: true,
-          source_type: 'literature_corpus',
-          strength: 'demo',
-          evidence_topic: 'diet quality patterns',
-          query_used: 'diet quality nutrient',
-        }),
-        Object.freeze({
-          id: 88402,
-          title: 'Omega-3 fatty acids for cardiovascular disease prevention',
-          year: 2022,
-          journal: 'JAMA',
-          snippet: 'Representative EPA/DHA supplementation literature — verify in primary source.',
-          pmid: '35157427',
-          cited_by_count: 310,
-          is_oa: false,
-          source_type: 'literature_corpus',
-          strength: 'demo',
-          evidence_topic: 'omega-3',
-          query_used: 'omega-3 EPA DHA cardiovascular',
-        }),
-      ]),
-    }),
-    ai_interpretation: Object.freeze([
-      Object.freeze({
-        title: 'Modality integration (demo)',
-        summary: 'Use DeepTwin timeline alongside this analyzer when intake changed near symptom or lab shifts.',
-        uncertainty: 'Not causal inference — hypothesis prompts only.',
-        linked_sections: ['deeptwin', 'treatment-sessions-analyzer'],
-        provenance: 'demo_script',
-        confidence: 0.5,
-      }),
+      Object.freeze({ label: 'Wearable biometrics', page_id: 'wearables', detail: 'Sleep & activity vs intake', confidence: 0.45 }),
+      Object.freeze({ label: 'Risk stratification', page_id: 'risk-analyzer', detail: 'Cross-check adherence & safety', confidence: 0.5 }),
+      Object.freeze({ label: 'Medication safety', page_id: 'medication-analyzer', detail: 'Drug–supplement overlap screen (future)', confidence: 0.35 }),
     ]),
     recommendations: Object.freeze([
       Object.freeze({
@@ -887,28 +1053,8 @@ function _nutritionDemoPayload(patientId) {
       last_event_at: '2026-05-01T14:22:00Z',
       last_event_type: 'review_note',
     }),
-    audit_trail_preview: Object.freeze([
-      Object.freeze({
-        id: 'demo-audit-1',
-        event_type: 'review_note',
-        message: 'Reviewed supplement stack; patient to confirm iron timing with PCP.',
-        created_at: '2026-05-01T14:22:00Z',
-        actor_id: 'clinician-demo',
-      }),
-      Object.freeze({
-        id: 'demo-audit-2',
-        event_type: 'recompute',
-        message: 'Recompute requested. computation_id=demo',
-        created_at: '2026-04-28T10:15:00Z',
-        actor_id: 'clinician-demo',
-      }),
-    ]),
   });
 }
-
-const _NUTRITION = {
-  payload: _nutritionDemoPayload,
-};
 
 const _PHENOTYPE = {
   catalog: _PHENOTYPE_CATALOG,
@@ -1177,6 +1323,497 @@ const _MOVEMENT = {
   patient_audit: _movementAuditFor,
 };
 
+const _LABS_PROFILES = {
+  'demo-pt-samantha-li': {
+    patient_id: 'demo-pt-samantha-li',
+    patient_name: 'Samantha Li',
+    captured_at: '2026-04-26T08:30:00Z',
+    panels: [
+      {
+        name: 'Complete Blood Count',
+        results: [
+          { analyte: 'Hemoglobin',  value: 13.4, unit: 'g/dL',   ref_low: 12.0, ref_high: 16.0, status: 'normal', captured_at: '2026-04-26T08:30:00Z' },
+          { analyte: 'WBC',         value: 6.1,  unit: '10^9/L', ref_low: 4.0,  ref_high: 11.0, status: 'normal', captured_at: '2026-04-26T08:30:00Z' },
+          { analyte: 'Platelets',   value: 248,  unit: '10^9/L', ref_low: 150,  ref_high: 400,  status: 'normal', captured_at: '2026-04-26T08:30:00Z' },
+        ],
+      },
+      {
+        name: 'Comprehensive Metabolic Panel',
+        results: [
+          { analyte: 'Sodium',     value: 140, unit: 'mmol/L', ref_low: 135, ref_high: 145, status: 'normal', captured_at: '2026-04-26T08:30:00Z' },
+          { analyte: 'Potassium',  value: 4.2, unit: 'mmol/L', ref_low: 3.5, ref_high: 5.0, status: 'normal', captured_at: '2026-04-26T08:30:00Z' },
+          { analyte: 'Creatinine', value: 0.8, unit: 'mg/dL',  ref_low: 0.6, ref_high: 1.1, status: 'normal', captured_at: '2026-04-26T08:30:00Z' },
+          { analyte: 'eGFR',       value: 96,  unit: 'mL/min', ref_low: 90,  ref_high: 120, status: 'normal', captured_at: '2026-04-26T08:30:00Z' },
+        ],
+      },
+      {
+        name: 'Endocrine',
+        results: [
+          { analyte: 'TSH',        value: 4.8,  unit: 'mIU/L', ref_low: 0.4, ref_high: 4.0,  status: 'high', captured_at: '2026-04-26T08:30:00Z', note: 'Sub-clinical hypothyroid pattern.' },
+          { analyte: 'Free T4',    value: 1.0,  unit: 'ng/dL', ref_low: 0.8, ref_high: 1.8,  status: 'normal', captured_at: '2026-04-26T08:30:00Z' },
+          { analyte: 'Vitamin D',  value: 18,   unit: 'ng/mL', ref_low: 30,  ref_high: 100,  status: 'low',  captured_at: '2026-04-26T08:30:00Z', note: 'Insufficient — supplementation indicated.' },
+        ],
+      },
+    ],
+    flags: [
+      {
+        analyte: 'TSH',
+        severity: 'major',
+        mechanism: 'Sub-clinical hypothyroidism (TSH 4.8 mIU/L) is a recognised contributor to depressive symptoms and treatment resistance, particularly in young women on SSRIs.',
+        recommendation: 'Consider endocrine referral; treat hypothyroidism before escalating sertraline or adding augmentation. Repeat TSH + anti-TPO in 6 weeks.',
+        references: [
+          { pmid: '19833552', title: 'Safety of TMS — consensus guideline (Rossi et al., 2009)', year: 2009, journal: 'Clinical Neurophysiology' },
+        ],
+      },
+      {
+        analyte: 'Vitamin D',
+        severity: 'monitor',
+        mechanism: 'Vitamin D insufficiency (18 ng/mL) co-occurs with low mood and may blunt antidepressant response.',
+        recommendation: 'Start cholecalciferol 2000 IU daily; recheck 25-OH-D at 12 weeks.',
+        references: [],
+      },
+    ],
+    prior_results: [
+      { captured_at: '2025-11-04T08:00:00Z', analyte: 'TSH', value: 3.2 },
+      { captured_at: '2026-01-12T08:00:00Z', analyte: 'TSH', value: 3.9 },
+      { captured_at: '2026-02-22T08:00:00Z', analyte: 'TSH', value: 4.3 },
+      { captured_at: '2026-03-30T08:00:00Z', analyte: 'TSH', value: 4.6 },
+      { captured_at: '2026-04-26T08:30:00Z', analyte: 'TSH', value: 4.8 },
+      { captured_at: '2025-11-04T08:00:00Z', analyte: 'Vitamin D', value: 26 },
+      { captured_at: '2026-01-12T08:00:00Z', analyte: 'Vitamin D', value: 22 },
+      { captured_at: '2026-03-30T08:00:00Z', analyte: 'Vitamin D', value: 19 },
+      { captured_at: '2026-04-26T08:30:00Z', analyte: 'Vitamin D', value: 18 },
+    ],
+  },
+  'demo-pt-marcus-chen': {
+    patient_id: 'demo-pt-marcus-chen',
+    patient_name: 'Marcus Chen',
+    captured_at: '2026-04-28T09:10:00Z',
+    panels: [
+      {
+        name: 'Complete Blood Count',
+        results: [
+          { analyte: 'Hemoglobin',  value: 14.8, unit: 'g/dL',   ref_low: 13.5, ref_high: 17.5, status: 'normal', captured_at: '2026-04-28T09:10:00Z' },
+          { analyte: 'WBC',         value: 6.6,  unit: '10^9/L', ref_low: 4.0,  ref_high: 11.0, status: 'normal', captured_at: '2026-04-28T09:10:00Z' },
+          { analyte: 'Platelets',   value: 271,  unit: '10^9/L', ref_low: 150,  ref_high: 400,  status: 'normal', captured_at: '2026-04-28T09:10:00Z' },
+        ],
+      },
+      {
+        name: 'Comprehensive Metabolic Panel',
+        results: [
+          { analyte: 'Sodium',     value: 139, unit: 'mmol/L', ref_low: 135, ref_high: 145, status: 'normal', captured_at: '2026-04-28T09:10:00Z' },
+          { analyte: 'Creatinine', value: 0.9, unit: 'mg/dL',  ref_low: 0.7, ref_high: 1.2, status: 'normal', captured_at: '2026-04-28T09:10:00Z' },
+          { analyte: 'eGFR',       value: 95,  unit: 'mL/min', ref_low: 90,  ref_high: 120, status: 'normal', captured_at: '2026-04-28T09:10:00Z' },
+          { analyte: 'ALT',        value: 28,  unit: 'U/L',    ref_low: 7,   ref_high: 56,  status: 'normal', captured_at: '2026-04-28T09:10:00Z' },
+        ],
+      },
+      {
+        name: 'Therapeutic Drug Monitoring',
+        results: [
+          { analyte: 'Lithium (trough)', value: 0.4, unit: 'mmol/L', ref_low: 0.6, ref_high: 1.0, status: 'low', captured_at: '2026-04-28T09:10:00Z', note: 'Sub-therapeutic — drawn 12 h post-dose.' },
+        ],
+      },
+    ],
+    flags: [
+      {
+        analyte: 'Lithium (trough)',
+        severity: 'major',
+        mechanism: 'Trough lithium 0.4 mmol/L sits below the 0.6–1.0 mmol/L therapeutic window. Concurrent rTMS course will not compensate for sub-therapeutic mood-stabiliser cover.',
+        recommendation: 'Review prescribing — confirm adherence and timing of last dose, consider dose increase to 600–900 mg or augmentation. Repeat trough in 5–7 days.',
+        references: [
+          { pmid: '19833552', title: 'Safety of TMS — consensus guideline (Rossi et al., 2009)', year: 2009, journal: 'Clinical Neurophysiology' },
+        ],
+      },
+    ],
+    prior_results: [
+      { captured_at: '2026-01-30T09:00:00Z', analyte: 'Lithium (trough)', value: 0.7 },
+      { captured_at: '2026-02-27T09:00:00Z', analyte: 'Lithium (trough)', value: 0.6 },
+      { captured_at: '2026-03-26T09:00:00Z', analyte: 'Lithium (trough)', value: 0.5 },
+      { captured_at: '2026-04-28T09:10:00Z', analyte: 'Lithium (trough)', value: 0.4 },
+      { captured_at: '2026-01-30T09:00:00Z', analyte: 'eGFR', value: 98 },
+      { captured_at: '2026-02-27T09:00:00Z', analyte: 'eGFR', value: 96 },
+      { captured_at: '2026-04-28T09:10:00Z', analyte: 'eGFR', value: 95 },
+    ],
+  },
+  'demo-pt-elena-vasquez': {
+    patient_id: 'demo-pt-elena-vasquez',
+    patient_name: 'Elena Vasquez',
+    captured_at: '2026-05-01T07:45:00Z',
+    panels: [
+      {
+        name: 'Coagulation',
+        results: [
+          { analyte: 'INR',        value: 3.8,  unit: 'ratio', ref_low: 2.0, ref_high: 3.0, status: 'critical', captured_at: '2026-05-01T07:45:00Z', note: 'Supratherapeutic — bleeding risk. Concurrent ibuprofen + ECT-day proximity.' },
+          { analyte: 'PT',         value: 38.2, unit: 's',     ref_low: 11,  ref_high: 14,  status: 'high',     captured_at: '2026-05-01T07:45:00Z' },
+        ],
+      },
+      {
+        name: 'Complete Blood Count',
+        results: [
+          { analyte: 'Hemoglobin',  value: 11.4, unit: 'g/dL',   ref_low: 12.0, ref_high: 16.0, status: 'low',    captured_at: '2026-05-01T07:45:00Z', note: 'Mild anemia — investigate for occult bleeding given supratherapeutic INR.' },
+          { analyte: 'WBC',         value: 7.0,  unit: '10^9/L', ref_low: 4.0,  ref_high: 11.0, status: 'normal', captured_at: '2026-05-01T07:45:00Z' },
+          { analyte: 'Platelets',   value: 232,  unit: '10^9/L', ref_low: 150,  ref_high: 400,  status: 'normal', captured_at: '2026-05-01T07:45:00Z' },
+        ],
+      },
+      {
+        name: 'Comprehensive Metabolic Panel',
+        results: [
+          { analyte: 'Sodium',     value: 141, unit: 'mmol/L', ref_low: 135, ref_high: 145, status: 'normal', captured_at: '2026-05-01T07:45:00Z' },
+          { analyte: 'Potassium',  value: 4.0, unit: 'mmol/L', ref_low: 3.5, ref_high: 5.0, status: 'normal', captured_at: '2026-05-01T07:45:00Z' },
+          { analyte: 'Creatinine', value: 1.0, unit: 'mg/dL',  ref_low: 0.6, ref_high: 1.1, status: 'normal', captured_at: '2026-05-01T07:45:00Z' },
+          { analyte: 'eGFR',       value: 71,  unit: 'mL/min', ref_low: 60,  ref_high: 120, status: 'normal', captured_at: '2026-05-01T07:45:00Z' },
+        ],
+      },
+    ],
+    flags: [
+      {
+        analyte: 'INR',
+        severity: 'critical',
+        mechanism: 'INR 3.8 with concurrent ibuprofen 400 mg TID and a scheduled ECT session creates a stacked bleeding risk: supratherapeutic warfarin, NSAID-induced platelet inhibition, plus airway/dental trauma exposure during ECT-related muscle relaxation.',
+        recommendation: 'Hold warfarin tonight; coordinate with hematology before next ECT session. Stop ibuprofen, switch analgesia to paracetamol. Recheck INR in 24 h before re-dosing.',
+        references: [
+          { pmid: '19833552', title: 'Safety of TMS — consensus guideline (Rossi et al., 2009)', year: 2009, journal: 'Clinical Neurophysiology' },
+        ],
+      },
+      {
+        analyte: 'Hemoglobin',
+        severity: 'monitor',
+        mechanism: 'Mild anemia (11.4 g/dL) in the setting of supratherapeutic anticoagulation suggests possible occult GI loss.',
+        recommendation: 'Order ferritin + reticulocytes; consider stool occult-blood testing if Hb continues to drift.',
+        references: [],
+      },
+    ],
+    prior_results: [
+      { captured_at: '2026-02-15T08:00:00Z', analyte: 'INR', value: 2.4 },
+      { captured_at: '2026-03-15T08:00:00Z', analyte: 'INR', value: 2.7 },
+      { captured_at: '2026-04-08T08:00:00Z', analyte: 'INR', value: 3.1 },
+      { captured_at: '2026-04-22T08:00:00Z', analyte: 'INR', value: 3.4 },
+      { captured_at: '2026-05-01T07:45:00Z', analyte: 'INR', value: 3.8 },
+      { captured_at: '2026-02-15T08:00:00Z', analyte: 'Hemoglobin', value: 12.6 },
+      { captured_at: '2026-03-15T08:00:00Z', analyte: 'Hemoglobin', value: 12.1 },
+      { captured_at: '2026-04-22T08:00:00Z', analyte: 'Hemoglobin', value: 11.7 },
+      { captured_at: '2026-05-01T07:45:00Z', analyte: 'Hemoglobin', value: 11.4 },
+    ],
+  },
+};
+
+const _LABS_AUDITS = {
+  'demo-pt-samantha-li': [
+    { id: 'lab-aud-sam-1', kind: 'recompute',   actor: 'system',          message: 'Lab profile recomputed after CMP/TSH panel uploaded.', created_at: '2026-04-26T08:32:00Z' },
+    { id: 'lab-aud-sam-2', kind: 'annotation',  actor: 'Dr. A. Yildirim', message: 'TSH trending up across 6 months — request anti-TPO and refer endocrine.', created_at: '2026-04-26T09:14:00Z' },
+    { id: 'lab-aud-sam-3', kind: 'review-note', actor: 'Dr. A. Yildirim', message: 'Reviewed and signed: hold sertraline dose escalation pending thyroid workup.', created_at: '2026-04-26T09:18:00Z' },
+    { id: 'lab-aud-sam-4', kind: 'result-add',  actor: 'Lab Corp (HL7)',  message: 'Added Vitamin D 25-OH result.', created_at: '2026-04-26T08:40:00Z' },
+  ],
+  'demo-pt-marcus-chen': [
+    { id: 'lab-aud-mar-1', kind: 'recompute',   actor: 'system',          message: 'Lab profile recomputed after lithium trough result.', created_at: '2026-04-28T09:12:00Z' },
+    { id: 'lab-aud-mar-2', kind: 'annotation',  actor: 'Dr. A. Yildirim', message: 'Trough 0.4 mmol/L — confirm timing of last dose with patient before dose change.', created_at: '2026-04-28T09:35:00Z' },
+    { id: 'lab-aud-mar-3', kind: 'review-note', actor: 'Dr. A. Yildirim', message: 'Sign-off: increase lithium to 600 mg nocte; repeat trough in 1 week.', created_at: '2026-04-28T10:02:00Z' },
+  ],
+  'demo-pt-elena-vasquez': [
+    { id: 'lab-aud-ele-1', kind: 'recompute',   actor: 'system',          message: 'Lab profile recomputed after coagulation panel.', created_at: '2026-05-01T07:48:00Z' },
+    { id: 'lab-aud-ele-2', kind: 'annotation',  actor: 'Dr. A. Yildirim', message: 'INR critical at 3.8 + concurrent ibuprofen — pause ECT session, brief hematology.', created_at: '2026-05-01T08:02:00Z' },
+    { id: 'lab-aud-ele-3', kind: 'review-note', actor: 'Dr. R. Patel',    message: 'Sign-off: hold warfarin tonight, recheck INR 24 h, reassess ECT slot.', created_at: '2026-05-01T08:18:00Z' },
+    { id: 'lab-aud-ele-4', kind: 'annotation',  actor: 'Dr. A. Yildirim', message: 'Mild anemia trending — order ferritin and reticulocytes.', created_at: '2026-05-01T08:25:00Z' },
+    { id: 'lab-aud-ele-5', kind: 'result-add',  actor: 'Lab Corp (HL7)',  message: 'Added INR 3.8 + PT 38.2 s.', created_at: '2026-05-01T07:46:00Z' },
+  ],
+};
+
+function _labsProfileFor(patientId) {
+  return _LABS_PROFILES[patientId] || null;
+}
+
+function _labsAuditFor(patientId) {
+  const items = _LABS_AUDITS[patientId] || [];
+  return { patient_id: patientId, items };
+}
+
+function _labsClinicSummary() {
+  return {
+    captured_at: '2026-05-02T07:30:00Z',
+    patients: Object.values(_LABS_PROFILES).map((p) => {
+      const allResults = (p.panels || []).flatMap((pn) => pn.results || []);
+      const abnormal = allResults.filter((r) => r.status && r.status !== 'normal');
+      const top = abnormal.find((r) => r.status === 'critical') || abnormal[0] || null;
+      const topLabel = top
+        ? `${top.analyte} ${top.value} ${top.unit || ''} — ${top.status}`
+        : '';
+      return {
+        patient_id: p.patient_id,
+        patient_name: p.patient_name,
+        captured_at: p.captured_at,
+        abnormal_count: abnormal.length,
+        critical_count: abnormal.filter((r) => r.status === 'critical').length,
+        top_flag_label: topLabel,
+        top_flag_status: top?.status || null,
+      };
+    }),
+  };
+}
+
+const _LABS = {
+  clinic_summary: _labsClinicSummary,
+  patient_profile: _labsProfileFor,
+  patient_audit: _labsAuditFor,
+};
+
+const _NUTRITION_PROFILES = {
+  'demo-pt-samantha-li': {
+    patient_id: 'demo-pt-samantha-li',
+    patient_name: 'Samantha Li',
+    captured_at: '2026-04-30T08:30:00Z',
+    macros: {
+      day: '2026-04-30',
+      calories: { intake: 1620, target: 2000, status: 'low' },
+      protein:  { intake: 64,   target: 75,   status: 'low',    unit: 'g' },
+      carbs:    { intake: 198,  target: 240,  status: 'normal', unit: 'g' },
+      fat:      { intake: 58,   target: 65,   status: 'normal', unit: 'g' },
+      fiber:    { intake: 12,   target: 28,   status: 'low',    unit: 'g' },
+      sodium:   { intake: 2400, target: 2300, status: 'normal', unit: 'mg' },
+    },
+    micronutrients: [
+      { key: 'vit_d',      label: 'Vitamin D',     intake: 600, unit: 'IU',  rdi: 2000, rdi_pct: 30,  status: 'low',
+        history: [620, 580, 640, 600, 590, 610, 600, 580, 610, 600, 590, 580, 600, 600] },
+      { key: 'vit_b12',    label: 'Vitamin B12',   intake: 4.1, unit: 'µg',  rdi: 2.4,  rdi_pct: 171, status: 'normal',
+        history: [3.8, 4.0, 4.2, 4.1, 4.0, 4.1, 4.2, 4.0, 4.1, 4.0, 4.2, 4.1, 4.1, 4.1] },
+      { key: 'folate',     label: 'Folate',        intake: 380, unit: 'µg',  rdi: 400,  rdi_pct: 95,  status: 'normal',
+        history: [350, 360, 370, 380, 390, 380, 370, 380, 390, 380, 370, 380, 380, 380] },
+      { key: 'iron',       label: 'Iron',          intake: 12,  unit: 'mg',  rdi: 18,   rdi_pct: 67,  status: 'low',
+        history: [11, 12, 13, 12, 11, 12, 12, 13, 12, 11, 12, 12, 13, 12] },
+      { key: 'magnesium',  label: 'Magnesium',     intake: 380, unit: 'mg',  rdi: 320,  rdi_pct: 119, status: 'normal',
+        history: [340, 360, 380, 390, 380, 360, 370, 380, 390, 380, 370, 380, 380, 380] },
+      { key: 'omega3',     label: 'Omega-3 (EPA+DHA)', intake: 220, unit: 'mg', rdi: 500, rdi_pct: 44, status: 'low',
+        history: [200, 210, 220, 230, 220, 210, 220, 230, 220, 210, 220, 220, 220, 220] },
+    ],
+    supplements: [
+      { id: 'sup-sam-1', name: 'Magnesium glycinate', dose: '400 mg', frequency: 'at bedtime', active: true, notes: 'For sleep onset; well-tolerated.' },
+      { id: 'sup-sam-2', name: 'Vitamin D3',          dose: '600 IU',  frequency: 'once daily',  active: true, notes: 'Sub-therapeutic — increase to 2000 IU.' },
+    ],
+    interactions: [
+      {
+        category: 'micronutrient_deficiency',
+        severity: 'major',
+        title: 'Vitamin D insufficiency overlapping with depressive presentation',
+        mechanism: 'Daily Vitamin D intake (~600 IU) is well below the 2000 IU/day target needed to correct the lab-confirmed 25-OH-D of 18 ng/mL. Insufficiency is associated with blunted SSRI response in MDD.',
+        recommendation: 'Increase cholecalciferol to 2000 IU daily; recheck 25-OH-D in 12 weeks. Coordinate with the Labs Analyzer flag (Vit D 18 ng/mL).',
+        references: [
+          { pmid: '19833552', title: 'Safety of TMS — consensus guideline (Rossi et al., 2009)', year: 2009, journal: 'Clinical Neurophysiology' },
+        ],
+      },
+      {
+        category: 'diet_drug',
+        severity: 'monitor',
+        title: 'Low fiber intake with serotonergic regimen',
+        mechanism: 'Fiber 12 g/day (target 28 g) increases risk of SSRI-related GI distress (sertraline + tramadol). Adequate fiber also moderates serum-tryptophan absorption rhythms.',
+        recommendation: 'Counsel on dietary fibre (vegetables, legumes, oats); consider psyllium 5 g daily if reflux/constipation reported.',
+        references: [],
+      },
+    ],
+    daily_log: [
+      { day: '2026-04-30', calories_kcal: 1620, protein_g: 64, carbs_g: 198, fat_g: 58, fiber_g: 12, sodium_mg: 2400 },
+      { day: '2026-04-29', calories_kcal: 1580, protein_g: 60, carbs_g: 190, fat_g: 56, fiber_g: 14, sodium_mg: 2350 },
+      { day: '2026-04-28', calories_kcal: 1700, protein_g: 68, carbs_g: 210, fat_g: 62, fiber_g: 13, sodium_mg: 2500 },
+    ],
+  },
+  'demo-pt-marcus-chen': {
+    patient_id: 'demo-pt-marcus-chen',
+    patient_name: 'Marcus Chen',
+    captured_at: '2026-04-29T09:15:00Z',
+    macros: {
+      day: '2026-04-29',
+      calories: { intake: 2350, target: 2400, status: 'normal' },
+      protein:  { intake: 95,   target: 90,   status: 'normal', unit: 'g' },
+      carbs:    { intake: 290,  target: 300,  status: 'normal', unit: 'g' },
+      fat:      { intake: 80,   target: 78,   status: 'normal', unit: 'g' },
+      fiber:    { intake: 22,   target: 30,   status: 'low',    unit: 'g' },
+      sodium:   { intake: 2900, target: 2300, status: 'high',   unit: 'mg' },
+    },
+    micronutrients: [
+      { key: 'vit_d',      label: 'Vitamin D',     intake: 1200, unit: 'IU',  rdi: 2000, rdi_pct: 60,  status: 'low',
+        history: [1100, 1150, 1200, 1180, 1200, 1220, 1200, 1180, 1200, 1180, 1200, 1220, 1200, 1200] },
+      { key: 'vit_b12',    label: 'Vitamin B12',   intake: 5.2,  unit: 'µg',  rdi: 2.4,  rdi_pct: 217, status: 'normal',
+        history: [5.0, 5.1, 5.2, 5.3, 5.2, 5.1, 5.2, 5.3, 5.2, 5.1, 5.2, 5.3, 5.2, 5.2] },
+      { key: 'folate',     label: 'Folate',        intake: 420,  unit: 'µg',  rdi: 400,  rdi_pct: 105, status: 'normal',
+        history: [410, 420, 430, 420, 410, 420, 430, 420, 410, 420, 430, 420, 420, 420] },
+      { key: 'iron',       label: 'Iron',          intake: 10,   unit: 'mg',  rdi: 8,    rdi_pct: 125, status: 'normal',
+        history: [9, 10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10, 10, 10] },
+      { key: 'magnesium',  label: 'Magnesium',     intake: 290,  unit: 'mg',  rdi: 420,  rdi_pct: 69,  status: 'low',
+        history: [280, 290, 300, 290, 280, 290, 300, 290, 280, 290, 300, 290, 290, 290] },
+      { key: 'omega3',     label: 'Omega-3 (EPA+DHA)', intake: 1000, unit: 'mg', rdi: 500, rdi_pct: 200, status: 'normal',
+        history: [950, 1000, 1050, 1000, 950, 1000, 1050, 1000, 950, 1000, 1050, 1000, 1000, 1000] },
+      { key: 'caffeine',   label: 'Caffeine',      intake: 500,  unit: 'mg',  rdi: 400,  rdi_pct: 125, status: 'high',
+        history: [480, 500, 520, 510, 500, 490, 500, 520, 510, 500, 490, 510, 500, 500] },
+    ],
+    supplements: [
+      { id: 'sup-mar-1', name: 'Fish oil (EPA/DHA)', dose: '1 g',   frequency: 'once daily',  active: true, notes: 'Adjunct for mood.' },
+      { id: 'sup-mar-2', name: 'L-theanine',         dose: '200 mg', frequency: 'twice daily', active: true, notes: 'For caffeine-related arousal.' },
+    ],
+    interactions: [
+      {
+        category: 'diet_drug',
+        severity: 'critical',
+        title: 'Caffeine + bupropion + rTMS — additive seizure-threshold concern',
+        mechanism: 'Habitual caffeine intake of ~500 mg/day (5 cups coffee equivalent) combined with bupropion 150 mg daily (dose-dependent seizure-threshold reduction) and an active rTMS course produces an additive cortical-excitability load. Recent withdrawal-rebound caffeine surges further destabilise the threshold on stim days.',
+        recommendation: 'Cap caffeine ≤200 mg/day, no caffeine within 4 h of an rTMS session. Confirm bupropion dose remains ≤300 mg/day. Brief patient on prodromes (tinnitus, twitching, tunnel vision).',
+        references: [
+          { pmid: '19833552', title: 'Safety of TMS — consensus guideline (Rossi et al., 2009)', year: 2009, journal: 'Clinical Neurophysiology' },
+        ],
+      },
+      {
+        category: 'micronutrient_deficiency',
+        severity: 'monitor',
+        title: 'Low magnesium intake on lithium augmentation',
+        mechanism: 'Magnesium 290 mg/day (target 420 mg) co-occurring with sub-therapeutic lithium trough (0.4 mmol/L per Labs Analyzer) may compound mood-stabiliser failure; magnesium adequacy supports lithium pharmacodynamics in some studies.',
+        recommendation: 'Encourage magnesium-rich foods (leafy greens, nuts, seeds) or trial magnesium glycinate 200 mg nocte. Coordinate with the lithium dose review.',
+        references: [],
+      },
+      {
+        category: 'hydration',
+        severity: 'monitor',
+        title: 'Low water intake on lithium',
+        mechanism: 'Self-report water intake ≈ 800 mL/day with high caffeine load; lithium toxicity risk rises with dehydration via reduced renal clearance.',
+        recommendation: 'Target 2.0–2.5 L water/day; counsel on dehydration warning signs (tremor, nausea, confusion).',
+        references: [],
+      },
+    ],
+    daily_log: [
+      { day: '2026-04-29', calories_kcal: 2350, protein_g: 95, carbs_g: 290, fat_g: 80, fiber_g: 22, sodium_mg: 2900 },
+      { day: '2026-04-28', calories_kcal: 2280, protein_g: 92, carbs_g: 280, fat_g: 78, fiber_g: 24, sodium_mg: 2750 },
+      { day: '2026-04-27', calories_kcal: 2400, protein_g: 98, carbs_g: 295, fat_g: 82, fiber_g: 21, sodium_mg: 3000 },
+    ],
+  },
+  'demo-pt-elena-vasquez': {
+    patient_id: 'demo-pt-elena-vasquez',
+    patient_name: 'Elena Vasquez',
+    captured_at: '2026-05-01T07:50:00Z',
+    macros: {
+      day: '2026-05-01',
+      calories: { intake: 1850, target: 1900, status: 'normal' },
+      protein:  { intake: 78,   target: 75,   status: 'normal', unit: 'g' },
+      carbs:    { intake: 230,  target: 220,  status: 'normal', unit: 'g' },
+      fat:      { intake: 64,   target: 65,   status: 'normal', unit: 'g' },
+      fiber:    { intake: 26,   target: 25,   status: 'normal', unit: 'g' },
+      sodium:   { intake: 2100, target: 2300, status: 'normal', unit: 'mg' },
+    },
+    micronutrients: [
+      { key: 'vit_d',      label: 'Vitamin D',     intake: 1500, unit: 'IU', rdi: 2000, rdi_pct: 75, status: 'normal',
+        history: [1450, 1500, 1550, 1500, 1450, 1500, 1550, 1500, 1450, 1500, 1550, 1500, 1500, 1500] },
+      { key: 'vit_b12',    label: 'Vitamin B12',   intake: 4.6,  unit: 'µg', rdi: 2.4,  rdi_pct: 192, status: 'normal',
+        history: [4.5, 4.6, 4.7, 4.6, 4.5, 4.6, 4.7, 4.6, 4.5, 4.6, 4.7, 4.6, 4.6, 4.6] },
+      { key: 'folate',     label: 'Folate',        intake: 480,  unit: 'µg', rdi: 400,  rdi_pct: 120, status: 'normal',
+        history: [470, 480, 490, 480, 470, 480, 490, 480, 470, 480, 490, 480, 480, 480] },
+      { key: 'iron',       label: 'Iron',          intake: 16,   unit: 'mg', rdi: 18,   rdi_pct: 89,  status: 'normal',
+        history: [15, 16, 17, 16, 15, 16, 17, 16, 15, 16, 17, 16, 16, 16] },
+      { key: 'magnesium',  label: 'Magnesium',     intake: 360,  unit: 'mg', rdi: 320,  rdi_pct: 113, status: 'normal',
+        history: [340, 350, 360, 370, 360, 350, 360, 370, 360, 350, 360, 370, 360, 360] },
+      { key: 'omega3',     label: 'Omega-3 (EPA+DHA)', intake: 350, unit: 'mg', rdi: 500, rdi_pct: 70, status: 'low',
+        history: [330, 340, 350, 360, 350, 340, 350, 360, 350, 340, 350, 360, 350, 350] },
+      { key: 'vit_k',      label: 'Vitamin K',     intake: 410,  unit: 'µg', rdi: 90,   rdi_pct: 456, status: 'high',
+        history: [380, 400, 420, 410, 390, 400, 420, 430, 410, 400, 420, 430, 410, 410] },
+    ],
+    supplements: [
+      { id: 'sup-ele-1', name: 'Turmeric (curcumin)', dose: '500 mg', frequency: 'twice daily', active: true, notes: 'Self-initiated for joint pain — antiplatelet effect.' },
+      { id: 'sup-ele-2', name: 'Multivitamin',        dose: '1 tab',  frequency: 'once daily',  active: true, notes: 'Generic OTC formulation.' },
+    ],
+    interactions: [
+      {
+        category: 'diet_drug',
+        severity: 'critical',
+        title: 'Vitamin K-rich diet destabilising warfarin (INR 3.8) — critical bleed risk',
+        mechanism: 'Daily large kale serving (~410 µg vitamin K, 4.5× RDI) drives erratic warfarin response and was followed by a paradoxical INR rise to 3.8 (per Labs Analyzer). The actual concern is week-to-week variability of vitamin K intake rather than absolute amount; intake swings shift effective warfarin dose. Concurrent ibuprofen 400 mg TID adds platelet inhibition; ECT day adds airway/dental trauma exposure.',
+        recommendation: 'Stabilise vitamin K intake (consistent leafy-green portion daily, avoid sudden boluses or eliminations). Coordinate with hematology before next ECT session. Stop ibuprofen, switch to paracetamol. Repeat INR in 24 h before re-dosing warfarin.',
+        references: [
+          { pmid: '19833552', title: 'Safety of TMS — consensus guideline (Rossi et al., 2009)', year: 2009, journal: 'Clinical Neurophysiology' },
+        ],
+      },
+      {
+        category: 'supplement_drug',
+        severity: 'critical',
+        title: 'Turmeric (curcumin) on warfarin + NSAID — additive bleeding risk',
+        mechanism: 'Curcumin inhibits platelet aggregation and CYP-mediated warfarin metabolism. Layered on supratherapeutic INR and ibuprofen, it stacks three independent bleeding mechanisms (anticoagulation, COX inhibition, platelet inhibition) — a recognised pre-procedural red flag for ECT.',
+        recommendation: 'Stop turmeric supplement until INR back in range and ECT course complete. Document as patient-initiated supplement on the Medication Analyzer. Re-introduce only with hematology sign-off.',
+        references: [
+          { pmid: '19833552', title: 'Safety of TMS — consensus guideline (Rossi et al., 2009)', year: 2009, journal: 'Clinical Neurophysiology' },
+        ],
+      },
+    ],
+    daily_log: [
+      { day: '2026-05-01', calories_kcal: 1850, protein_g: 78, carbs_g: 230, fat_g: 64, fiber_g: 26, sodium_mg: 2100 },
+      { day: '2026-04-30', calories_kcal: 1820, protein_g: 76, carbs_g: 225, fat_g: 62, fiber_g: 27, sodium_mg: 2050 },
+      { day: '2026-04-29', calories_kcal: 1900, protein_g: 80, carbs_g: 235, fat_g: 66, fiber_g: 25, sodium_mg: 2200 },
+    ],
+  },
+};
+
+const _NUTRITION_AUDITS = {
+  'demo-pt-samantha-li': [
+    { id: 'nut-aud-sam-1', kind: 'recompute',  actor: 'system',          message: 'Nutrition profile recomputed after diet log uploaded.', created_at: '2026-04-30T08:32:00Z' },
+    { id: 'nut-aud-sam-2', kind: 'diet-log',   actor: 'Patient (mobile app)', message: 'Logged 2026-04-30 intake (1620 kcal, fiber 12 g).',  created_at: '2026-04-30T08:30:00Z' },
+    { id: 'nut-aud-sam-3', kind: 'annotation', actor: 'Dr. A. Yildirim', message: 'Vit D intake 600 IU mirrors lab insufficiency (18 ng/mL) — increase to 2000 IU.', created_at: '2026-04-30T09:14:00Z' },
+    { id: 'nut-aud-sam-4', kind: 'supplement-add', actor: 'Patient',     message: 'Added supplement: Magnesium glycinate 400 mg qhs.', created_at: '2026-04-26T20:05:00Z' },
+  ],
+  'demo-pt-marcus-chen': [
+    { id: 'nut-aud-mar-1', kind: 'recompute',  actor: 'system',          message: 'Nutrition profile recomputed after caffeine flag triggered.', created_at: '2026-04-29T09:18:00Z' },
+    { id: 'nut-aud-mar-2', kind: 'diet-log',   actor: 'Patient (mobile app)', message: 'Logged 2026-04-29 intake — caffeine 500 mg.', created_at: '2026-04-29T09:15:00Z' },
+    { id: 'nut-aud-mar-3', kind: 'annotation', actor: 'Dr. A. Yildirim', message: 'Caffeine 500 mg + bupropion + rTMS — counsel patient to cap at 200 mg/day, not on stim mornings.', created_at: '2026-04-29T10:02:00Z' },
+    { id: 'nut-aud-mar-4', kind: 'supplement-add', actor: 'Dr. A. Yildirim', message: 'Started L-theanine 200 mg BID for arousal counterbalance.', created_at: '2026-04-22T11:14:00Z' },
+  ],
+  'demo-pt-elena-vasquez': [
+    { id: 'nut-aud-ele-1', kind: 'recompute',  actor: 'system',          message: 'Nutrition profile recomputed after vit-K bolus logged.', created_at: '2026-05-01T07:52:00Z' },
+    { id: 'nut-aud-ele-2', kind: 'diet-log',   actor: 'Patient (mobile app)', message: 'Logged 2026-05-01 intake — kale 200 g (vit K ≈ 410 µg).', created_at: '2026-05-01T07:50:00Z' },
+    { id: 'nut-aud-ele-3', kind: 'annotation', actor: 'Dr. A. Yildirim', message: 'Vit K bolus precedes INR rise to 3.8 — counsel on consistent leafy-green intake; halt turmeric until ECT done.', created_at: '2026-05-01T08:08:00Z' },
+    { id: 'nut-aud-ele-4', kind: 'supplement-add', actor: 'Patient',     message: 'Added supplement: Turmeric 500 mg BID (self-initiated).', created_at: '2026-04-15T13:22:00Z' },
+    { id: 'nut-aud-ele-5', kind: 'annotation', actor: 'Dr. R. Patel',    message: 'Sign-off: stop turmeric pending hematology review; warfarin held tonight.', created_at: '2026-05-01T08:30:00Z' },
+  ],
+};
+
+function _nutritionProfileFor(patientId) {
+  return _NUTRITION_PROFILES[patientId] || null;
+}
+
+function _nutritionAuditFor(patientId) {
+  const items = _NUTRITION_AUDITS[patientId] || [];
+  return { patient_id: patientId, items };
+}
+
+function _nutritionClinicSummary() {
+  return {
+    captured_at: '2026-05-02T07:30:00Z',
+    patients: Object.values(_NUTRITION_PROFILES).map((p) => {
+      const flags = [];
+      (p.micronutrients || []).forEach((m) => {
+        if (m.status === 'low')  flags.push({ label: `${m.label} low`,  status: 'low' });
+        if (m.status === 'high') flags.push({ label: `${m.label} high`, status: 'high' });
+      });
+      const macros = p.macros || {};
+      ['fiber', 'sodium'].forEach((k) => {
+        const v = macros[k];
+        if (v && v.status === 'low')  flags.push({ label: `${k} low`,  status: 'low' });
+        if (v && v.status === 'high') flags.push({ label: `${k} high`, status: 'high' });
+      });
+      const supplementCount = (p.supplements || []).length;
+      const log = Array.isArray(p.daily_log) ? p.daily_log : [];
+      const lastLogDay = log[0]?.day || null;
+      const adherencePct = log.length ? Math.min(100, Math.round((log.length / 3) * 100)) : 0;
+      const critical = (p.interactions || []).some((i) => i.severity === 'critical');
+      return {
+        patient_id: p.patient_id,
+        patient_name: p.patient_name,
+        last_log_day: lastLogDay,
+        flags: flags.slice(0, 4),
+        supplement_count: supplementCount,
+        adherence_pct: adherencePct,
+        worst_severity: critical ? 'critical' : (flags.length ? 'monitor' : 'green'),
+      };
+    }),
+  };
+}
+
+const _NUTRITION = {
+  clinic_summary: _nutritionClinicSummary,
+  patient_profile: _nutritionProfileFor,
+  patient_audit: _nutritionAuditFor,
+};
+
 export const ANALYZER_DEMO_FIXTURES = Object.freeze({
   patients: DEMO_PATIENTS,
   mri: _MRI,
@@ -1186,10 +1823,12 @@ export const ANALYZER_DEMO_FIXTURES = Object.freeze({
   risk: _RISK,
   biometrics: _BIOMETRICS,
   video: _VIDEO,
+  digitalPhenotyping: { payload: _digitalPhenotypingPayload },
   medication: _MEDICATION,
   treatmentSessions: _TREATMENT_SESSIONS,
   phenotype: _PHENOTYPE,
   movement: _MOVEMENT,
+  labs: _LABS,
   nutrition: _NUTRITION,
 });
 

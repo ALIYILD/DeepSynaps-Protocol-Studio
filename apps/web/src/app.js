@@ -173,6 +173,10 @@ let _modTextAnalyzer = null;
 async function loadTextAnalyzer() { return (_modTextAnalyzer ??= await import('./pages-text-analyzer.js')); }
 let _modRiskAnalyzer = null;
 async function loadRiskAnalyzer() { return (_modRiskAnalyzer ??= await import('./pages-risk-analyzer.js')); }
+let _modDigitalPhenotypingAnalyzer = null;
+async function loadDigitalPhenotypingAnalyzer() {
+  return (_modDigitalPhenotypingAnalyzer ??= await import('./pages-digital-phenotyping-analyzer.js'));
+}
 let _modMedicationAnalyzer = null;
 async function loadMedicationAnalyzer() { return (_modMedicationAnalyzer ??= await import('./pages-medication-analyzer.js')); }
 let _modTreatmentSessionsAnalyzer = null;
@@ -181,6 +185,8 @@ let _modPhenotypeAnalyzer = null;
 async function loadPhenotypeAnalyzer() { return (_modPhenotypeAnalyzer ??= await import('./pages-phenotype-analyzer.js')); }
 let _modMovementAnalyzer = null;
 async function loadMovementAnalyzer() { return (_modMovementAnalyzer ??= await import('./pages-movement-analyzer.js')); }
+let _modLabsAnalyzer = null;
+async function loadLabsAnalyzer() { return (_modLabsAnalyzer ??= await import('./pages-labs-analyzer.js')); }
 let _modNutritionAnalyzer = null;
 async function loadNutritionAnalyzer() { return (_modNutritionAnalyzer ??= await import('./pages-nutrition-analyzer.js')); }
 async function loadPractice()   { return (_modPractice  ??= await import('./pages-practice.js')); }
@@ -544,6 +550,9 @@ const NAV = [
   { id: 'treatment-sessions-analyzer', label: 'Sessions', icon: '🗓️' },
   { id: 'phenotype-analyzer', label: 'Phenotype', icon: '🧬', ai: true },
   { id: 'movement-analyzer', label: 'Movement', icon: '🏃', ai: true },
+  { id: 'labs-analyzer',     label: 'Labs',      icon: '🧪', ai: true },
+  { id: 'nutrition-analyzer', label: 'Nutrition', icon: '🥗', ai: true },
+  { id: 'digital-phenotyping-analyzer', label: 'Phenotyping', icon: '📱', ai: true },
 
   // ── PROTOCOL — design / review treatment plans ───────────────────────────────
   { section: 'Protocol', sectionId: 'protocol', collapsed: false },
@@ -647,6 +656,9 @@ NAV_ICONS['medication-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke=
 NAV_ICONS['treatment-sessions-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="9 15 11 17 15 13"/></svg>`;
 NAV_ICONS['phenotype-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3c4 4 10 4 14 0"/><path d="M5 21c4-4 10-4 14 0"/><path d="M5 3c0 4 0 14 0 18"/><path d="M19 3c0 4 0 14 0 18"/><line x1="7" y1="7" x2="17" y2="7"/><line x1="9" y1="11" x2="15" y2="11"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="7" y1="17" x2="17" y2="17"/></svg>`;
 NAV_ICONS['movement-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="13" cy="4" r="2"/><path d="M4 22l4-7 3 2 4-5 4 4"/><path d="M11 8l-2 4 3 2 2-3 3 1"/><path d="M9 22l1-5"/></svg>`;
+NAV_ICONS['labs-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h6"/><path d="M10 2v13.5a3.5 3.5 0 0 0 7 0V2"/><path d="M10 11h7"/><circle cx="12.5" cy="14.5" r="0.6" fill="currentColor"/><circle cx="15" cy="13" r="0.6" fill="currentColor"/><circle cx="13.5" cy="17" r="0.6" fill="currentColor"/></svg>`;
+NAV_ICONS['nutrition-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4c-1.2-2-4-2.5-5.5-1S5 7 7 8.5"/><path d="M12 4c1.2-2 4-2.5 5.5-1S19 7 17 8.5"/><path d="M12 6c-3 0-6 2-6 6 0 4 3 9 6 9s6-5 6-9c0-4-3-6-6-6z"/><path d="M12 4v3"/></svg>`;
+NAV_ICONS['digital-phenotyping-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2" width="10" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/><path d="M9 6h6"/><path d="M9 9h3"/></svg>`;
 NAV_ICONS['academy']         = `<svg viewBox="0 0 24 24"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>`;
 NAV_ICONS['marketplace']     = `<svg viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" x2="21" y1="6" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>`;
 
@@ -1712,7 +1724,6 @@ async function renderPage() {
       break;
     }
     case 'agent-onboarding': { const { pgAgentOnboarding } = await loadOnboarding(); await pgAgentOnboarding(setTopbar); break; }
-    case 'billing': { const { pgBilling } = await import('./pages-billing.js'); await pgBilling(setTopbar); break; }
     case 'webhooks': { const { pgWebhooks } = await import('./pages-webhooks.js'); await pgWebhooks(setTopbar); break; }
     case 'marketplace-landing': { const { pgMarketplaceLanding } = await import('./pages-marketplace.js'); await pgMarketplaceLanding(setTopbar, navigate); break; }
     case 'adverse-events': {
@@ -1853,6 +1864,13 @@ async function renderPage() {
     case 'treatment-sessions-analyzer': { const m = await loadTreatmentSessionsAnalyzer(); await m.pgTreatmentSessionsAnalyzer(setTopbar, navigate); break; }
     case 'phenotype-analyzer': { const m = await loadPhenotypeAnalyzer(); await m.pgPhenotypeAnalyzer(setTopbar, navigate); break; }
     case 'movement-analyzer':  { const m = await loadMovementAnalyzer(); await m.pgMovementAnalyzer(setTopbar, navigate); break; }
+    case 'labs-analyzer':      { const m = await loadLabsAnalyzer(); await m.pgLabsAnalyzer(setTopbar, navigate); break; }
+    case 'nutrition-analyzer': { const m = await loadNutritionAnalyzer(); await m.pgNutritionAnalyzer(setTopbar, navigate); break; }
+    case 'digital-phenotyping-analyzer': {
+      const m = await loadDigitalPhenotypingAnalyzer();
+      await m.pgDigitalPhenotypingAnalyzer(setTopbar, navigate);
+      break;
+    }
     case 'fusion-workbench':   { const m = await loadFusionWorkbench(); await m.pgFusionWorkbench(setTopbar, navigate); break; }
     case 'patient-timeline':   { const m = await loadPatientTimeline(); await m.pgPatientTimeline(setTopbar, navigate); break; }
     case 'biomarkers':         { const m = await loadKnowledge(); await m.pgQEEGMaps(setTopbar); break; }
@@ -3066,6 +3084,13 @@ window.addEventListener('popstate', (e) => {
     { type: 'nav', icon: '🏃', title: 'Movement Analyzer', page: 'movement-analyzer' },
     { type: 'nav', icon: '🏃', title: 'Motor Side-Effects', page: 'movement-analyzer' },
     { type: 'nav', icon: '🏃', title: 'Tremor / Bradykinesia / Gait', page: 'movement-analyzer' },
+    { type: 'nav', icon: '🧪', title: 'Labs Analyzer', page: 'labs-analyzer' },
+    { type: 'nav', icon: '🧪', title: 'Blood Biomarkers', page: 'labs-analyzer' },
+    { type: 'nav', icon: '🧪', title: 'Lithium / INR / TSH / eGFR', page: 'labs-analyzer' },
+    { type: 'nav', icon: '🥗', title: 'Nutrition Analyzer', page: 'nutrition-analyzer' },
+    { type: 'nav', icon: '🥗', title: 'Diet & Supplements', page: 'nutrition-analyzer' },
+    { type: 'nav', icon: '🥗', title: 'Diet-Drug Interactions', page: 'nutrition-analyzer' },
+    { type: 'nav', icon: '📱', title: 'Digital Phenotyping Analyzer', page: 'digital-phenotyping-analyzer' },
   );
 
   // Fuzzy match: returns score (higher = better), or 0 if no match
