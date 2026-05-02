@@ -79,6 +79,7 @@ apps/api/app/routers/population_analytics_router.py
 apps/api/app/routers/protocols_saved_router.py
 apps/api/app/routers/qeeg_ai_router.py
 apps/api/app/routers/qeeg_analysis_router.py
+apps/api/app/routers/qeeg_annotation_outcome_tracker_router.py
 apps/api/app/routers/qeeg_copilot_router.py
 apps/api/app/routers/qeeg_raw_router.py
 apps/api/app/routers/qeeg_records_router.py

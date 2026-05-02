@@ -614,6 +614,15 @@ KNOWN_SURFACES = {
     # Flag types that surface FDA-questioned findings:
     # ``evidence_gap`` per ``deepsynaps-qeeg-evidence-gaps`` memory.
     "qeeg_report_annotations",
+    # qEEG Annotation Resolution Outcome Tracker (QEEG-ANN2,
+    # 2026-05-02). Pairs each QEEGReportAnnotation row's created_at
+    # with its resolved_at (or absence) and classifies the outcome
+    # (resolved_within_sla / resolved_late / still_open_overdue /
+    # still_open_grace). Surfaces per-clinician resolution latency,
+    # evidence-gap dwell time, and the "created but never resolved
+    # within 30d" backlog. Pure read-only — no schema change. Mirrors
+    # IRB-AMD3 (#451) outcome-pairing precedent.
+    "qeeg_annotation_outcome_tracker",
 }
 
 
