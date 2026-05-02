@@ -78,6 +78,7 @@ from app.routers.marketplace_seller_router import router as marketplace_seller_r
 from app.routers.virtual_care_router import router as virtual_care_router
 from app.routers.forms_router import router as forms_router
 from app.routers.medications_router import router as medications_router
+from app.routers.bio_router import router as bio_router
 from app.routers.consent_management_router import router as consent_management_router
 from app.routers.home_program_tasks_router import router as home_program_tasks_router
 from app.routers.patient_home_program_tasks_router import (
@@ -440,6 +441,7 @@ app.include_router(marketplace_seller_router)
 app.include_router(virtual_care_router)
 app.include_router(forms_router)
 app.include_router(medications_router)
+app.include_router(bio_router)
 app.include_router(consent_management_router)
 # Patient Home Program Tasks (Homework) launch-audit (2026-05-01).
 # Mounted BEFORE the clinician-side ``home_program_tasks_router`` so the
