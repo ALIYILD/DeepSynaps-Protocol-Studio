@@ -12,9 +12,11 @@
 # Site ID: 13baea11-07e8-4ab3-9c25-af1f045c845b
 
 [build]
-  base    = "apps/web"
-  command = "npm install --no-audit --no-fund && npx vite build"
-  publish = "dist"
+  # Build from repo root so npm workspaces (apps/web + packages/api-client)
+  # resolve correctly. Output still publishes from apps/web/dist.
+  base    = "."
+  command = "npm install --no-audit --no-fund && npm run build:web"
+  publish = "apps/web/dist"
 
 [build.environment]
   NODE_VERSION        = "20"
