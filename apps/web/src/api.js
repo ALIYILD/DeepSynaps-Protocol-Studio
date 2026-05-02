@@ -1,4 +1,5 @@
 import { parseHomeProgramTaskMutationResponse } from './home-program-task-sync.js';
+import { demoDigitalPhenotypingPayload } from './demo-fixtures-analyzers.js';
 
 const API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 const TOKEN_KEY = 'ds_access_token';
@@ -96,6 +97,32 @@ function _demoSyntheticResponse(path, method) {
       decodeURIComponent(compare[1]),
       decodeURIComponent(compare[2]),
     );
+  }
+  const dpObsList = path.match(
+    /^\/api\/v1\/digital-phenotyping\/analyzer\/patient\/([^/?]+)\/observations$/,
+  );
+  if (dpObsList && (!method || method === 'GET')) {
+    const pid = decodeURIComponent(dpObsList[1]);
+    return { patient_id: pid, items: [], total: 0 };
+  }
+  const dpObsPost = path.match(
+    /^\/api\/v1\/digital-phenotyping\/analyzer\/patient\/([^/?]+)\/observations(\/manual)?$/,
+  );
+  if (dpObsPost && method && method !== 'GET') {
+    const pid = decodeURIComponent(dpObsPost[1]);
+    return { ok: true, demo: true, id: 'demo-' + Date.now(), patient_id: pid };
+  }
+  const dp = path.match(
+    /^\/api\/v1\/digital-phenotyping\/analyzer\/patient\/([^/?]+)(\/audit)?$/,
+  );
+  if (dp && (!method || method === 'GET')) {
+    const pid = decodeURIComponent(dp[1]);
+    const payload = demoDigitalPhenotypingPayload(pid);
+    if (dp[2] === '/audit') {
+      const ev = payload.audit_events || [];
+      return { patient_id: pid, events: ev, total: ev.length };
+    }
+    return payload;
   }
   // Mutations: pretend success (return a minimal accepted-shape object).
   if (method && method !== 'GET') return { ok: true, demo: true, id: 'demo-' + Date.now() };
@@ -3024,6 +3051,45 @@ export const api = {
     apiFetch(`/api/v1/risk/patient/${encodeURIComponent(patientId)}/recompute`, { method: 'POST' }),
   getRiskAudit: (patientId) =>
     apiFetch(`/api/v1/risk/patient/${encodeURIComponent(patientId)}/audit`),
+
+  // ── Digital Phenotyping Analyzer (passive behavioral signals) ────────────
+  getDigitalPhenotypingAnalyzer: (patientId) =>
+    apiFetch(`/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}`),
+  getDigitalPhenotypingAudit: (patientId) =>
+    apiFetch(`/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
+  recomputeDigitalPhenotyping: (patientId, body) =>
+    apiFetch(`/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/recompute`, {
+      method: 'POST',
+      body: body != null ? JSON.stringify(body) : '{}',
+    }),
+  updateDigitalPhenotypingConsent: (patientId, body) =>
+    apiFetch(`/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/consent`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  updateDigitalPhenotypingSettings: (patientId, body) =>
+    apiFetch(`/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/settings`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  listDigitalPhenotypingObservations: (patientId, params = {}) => {
+    const q = new URLSearchParams();
+    if (params.limit != null) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return apiFetch(
+      `/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/observations${qs ? '?' + qs : ''}`,
+    );
+  },
+  addDigitalPhenotypingManualObservation: (patientId, body) =>
+    apiFetch(
+      `/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/observations/manual`,
+      { method: 'POST', body: JSON.stringify(body || {}) },
+    ),
+  createDigitalPhenotypingObservation: (patientId, body) =>
+    apiFetch(
+      `/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/observations`,
+      { method: 'POST', body: JSON.stringify(body || {}) },
+    ),
 
   // ── Movement Analyzer (motor side-effects of psychiatric treatment) ───────
   getMovementProfile: (patientId) =>
