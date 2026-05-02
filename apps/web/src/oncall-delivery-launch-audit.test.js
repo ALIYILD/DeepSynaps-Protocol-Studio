@@ -227,7 +227,7 @@ test('oncall_delivery service module exists with three adapters', () => {
 
 
 test('OncallPage model has external_id + delivery_note columns', () => {
-  const modelPath = path.resolve(__dirname, '../../api/app/persistence/models.py');
+  const modelPath = path.resolve(__dirname, '../../api/app/persistence/models/ops.py');
   const src = fs.readFileSync(modelPath, 'utf-8');
   // Locate the OncallPage class block.
   const idx = src.indexOf('class OncallPage(');
