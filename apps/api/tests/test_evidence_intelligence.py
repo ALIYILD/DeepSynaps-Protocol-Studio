@@ -62,6 +62,14 @@ def test_study_type_tagging_is_deterministic():
     assert classify_study_type(["Case Reports"]) == "case series"
 
 
+def test_remote_motor_exam_concept_bundle():
+    q = build_default_query("pat-1", "remote_motor_exam", "biomarker")
+    c = resolve_concepts(q)
+    assert c["target"] == "remote_motor_exam"
+    assert "telemedicine" in c["concepts"]
+    assert "gait" in c["concepts"]
+
+
 def test_applicability_scoring_reflects_patient_context():
     query = EvidenceQuery(
         patient_id="pat-1",

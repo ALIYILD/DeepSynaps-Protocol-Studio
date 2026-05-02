@@ -28969,6 +28969,33 @@ body[data-sr-open="1"] { overflow:hidden; }
   color: var(--teal);
   margin-bottom: 10px;
 }
+.va-evidence-summary {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+.va-evidence-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.va-evidence-li {
+  margin-bottom: 8px;
+}
+.va-evidence-title {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.va-evidence-meta {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+.va-evidence-meta a {
+  color: var(--teal);
+}
 .va-mode-toggle { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
 .va-grid {
   display: grid;

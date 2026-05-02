@@ -67,6 +67,105 @@ var _vaClinicianStreamUrl = null;
 var _vaPageLayout = 'both';
 /** @type {Array<{id:string,patient_id?:string,overall_status?:string,review_completion_percent?:number}>} */
 var _vaSessionListItems = [];
+/** Evidence intelligence (indexed corpus) — last fetch for current session */
+var _vaEvidenceLoading = false;
+var _vaEvidenceError = '';
+/** @type {object|null} */
+var _vaEvidenceResult = null;
+var _vaEvidenceFetchedForId = '';
+
+function _effectivePatientIdForEvidence(session) {
+  const s = session || _ensureSession();
+  const pid = s && s.patient_id;
+  if (pid && String(pid) !== 'local') return String(pid);
+  if (currentUser?.patient_id) return String(currentUser.patient_id);
+  if (currentUser?.id) return String(currentUser.id);
+  return 'unknown';
+}
+
+function _buildVideoAssessmentFeatureSummary(session) {
+  const out = [];
+  const imp = session.summary && session.summary.clinician_impression;
+  if (imp && String(imp).trim()) {
+    out.push({
+      name: 'clinician_impression',
+      value: String(imp).trim().slice(0, 600),
+      modality: 'video_assessment',
+    });
+  }
+  for (const t of session.tasks || []) {
+    const tr = t.clinician_review;
+    if (!tr) continue;
+    const parts = [];
+    if (tr.task_completed) parts.push(`task_completed:${tr.task_completed}`);
+    if (tr.video_quality) parts.push(`video_quality:${tr.video_quality}`);
+    if (tr.patient_compliance) parts.push(`compliance:${tr.patient_compliance}`);
+    const ss = tr.structured_scores && typeof tr.structured_scores === 'object' ? tr.structured_scores : {};
+    for (const [k, v] of Object.entries(ss)) {
+      if (v != null && String(v).trim()) parts.push(`${k}:${String(v).trim()}`);
+    }
+    if (tr.comment && String(tr.comment).trim()) parts.push(`comment:${String(tr.comment).trim().slice(0, 200)}`);
+    if (parts.length) {
+      out.push({
+        name: `task:${t.task_id}`,
+        value: parts.join('; ').slice(0, 500),
+        modality: 'video_assessment',
+      });
+    }
+  }
+  return out.slice(0, 32);
+}
+
+function _renderEvidenceBlock() {
+  const show =
+    (_isClinicianUser() || currentUser?.role === 'admin') && getToken() && _vaSession && !String(_vaSession.id || '').startsWith('vas_');
+  if (!show) return '';
+
+  if (_vaEvidenceLoading) {
+    return `<div class="va-evidence-block" role="region" aria-label="Evidence"><p class="va-muted" style="font-size:12px">Searching literature index\u2026</p></div>`;
+  }
+  if (_vaEvidenceError) {
+    return `<div class="va-evidence-block" role="region" aria-label="Evidence"><p class="va-muted" style="font-size:12px;color:var(--danger,#c44)">${esc(_vaEvidenceError)}</p><button type="button" class="btn btn-sm btn-secondary" id="va-evidence-retry">Retry</button></div>`;
+  }
+  if (!_vaEvidenceResult) {
+    return `<div class="va-evidence-block" role="region" aria-label="Evidence">
+      <p class="va-muted" style="font-size:12px;line-height:1.5;margin-bottom:10px">
+        Pull related publications from the DeepSynaps evidence index (PubMed/OpenAlex pipeline). Uses your structured reviews and impression as retrieval context — complementary to clinical judgment.
+      </p>
+      <button type="button" class="btn btn-sm btn-secondary" id="va-load-evidence">Load related citations</button>
+    </div>`;
+  }
+
+  const r = _vaEvidenceResult;
+  const papers = Array.isArray(r.supporting_papers) ? r.supporting_papers : [];
+  const citeLines = papers
+    .slice(0, 8)
+    .map((p) => {
+      const title = esc(p.title || 'Untitled');
+      const metaParts = [];
+      if (p.journal) metaParts.push(esc(p.journal));
+      if (p.year != null) metaParts.push(String(p.year));
+      const metaTxt = metaParts.join(' · ');
+      const url = p.url || (p.pmid ? `https://pubmed.ncbi.nlm.nih.gov/${encodeURIComponent(String(p.pmid))}/` : '');
+      const link = url
+        ? ` · <a href="${esc(url)}" target="_blank" rel="noopener noreferrer">View source</a>`
+        : '';
+      return `<li class="va-evidence-li"><div class="va-evidence-title">${title}</div><div class="va-evidence-meta">${metaTxt}${link}</div></li>`;
+    })
+    .join('');
+
+  const summary = r.literature_summary ? `<p class="va-evidence-summary">${esc(r.literature_summary)}</p>` : '';
+  const caution = r.recommended_caution
+    ? `<p class="va-muted" style="font-size:11px;margin-top:8px">${esc(r.recommended_caution)}</p>`
+    : '';
+
+  return `<div class="va-evidence-block" role="region" aria-label="Evidence">
+    ${summary}
+    <ul class="va-evidence-list">${citeLines || '<li class="va-muted">No ranked papers returned — try again after adding review fields.</li>'}</ul>
+    ${caution}
+    <button type="button" class="btn btn-sm btn-secondary" id="va-evidence-refresh" style="margin-top:10px">Refresh citations</button>
+  </div>`;
+}
 
 function _sessionNeedsConsent(session) {
   if (!session) return true;
@@ -686,6 +785,53 @@ function _renderClinicianColumn() {
   </div>`;
 }
 
+async function _fetchEvidenceForSession() {
+  const session = _ensureSession();
+  if (!session.id || String(session.id).startsWith('vas_')) {
+    showToast('Save the session on the server before loading citations.');
+    return;
+  }
+  if (!( _isClinicianUser() || currentUser?.role === 'admin')) return;
+  if (!getToken()) return;
+  _vaEvidenceLoading = true;
+  _vaEvidenceError = '';
+  _render();
+  try {
+    const body = {
+      patient_id: _effectivePatientIdForEvidence(session),
+      context_type: 'biomarker',
+      target_name: 'remote_motor_exam',
+      diagnosis: 'movement disorder',
+      modality: 'telemedicine',
+      phenotype_tags: [
+        'telemedicine',
+        'remote motor examination',
+        'Parkinson disease',
+        'video assessment',
+        'bradykinesia',
+        'gait',
+      ],
+      feature_summary: _buildVideoAssessmentFeatureSummary(session),
+      max_results: 10,
+    };
+    _vaEvidenceResult = await api.evidenceByFinding(body);
+    _vaEvidenceFetchedForId = String(session.id);
+  } catch (e) {
+    _vaEvidenceError = (e && e.message) || 'Evidence request failed';
+    _vaEvidenceResult = null;
+  } finally {
+    _vaEvidenceLoading = false;
+    _render();
+  }
+}
+
+function _resetEvidenceState() {
+  _vaEvidenceLoading = false;
+  _vaEvidenceError = '';
+  _vaEvidenceResult = null;
+  _vaEvidenceFetchedForId = '';
+}
+
 function _renderSummaryPanel() {
   const session = _ensureSession();
   _applySummary();
@@ -721,7 +867,14 @@ function _renderSummaryPanel() {
     <div class="form-group"><label class="form-label">Recommended follow-up</label>
       <textarea id="va-summary-followup" class="form-control" rows="2" placeholder="Optional" ${fin ? 'disabled' : ''}>${esc(session.summary.recommended_followup || '')}</textarea></div>
     ${fin ? '<p class="va-finalized-note">This session is finalized on the server — edits and uploads are locked.</p>' : ''}
-    <div style="display:flex;gap:10px;flex-wrap:wrap">
+    <div class="va-evidence-card ds-card" style="margin-top:14px;border:1px solid rgba(0,212,188,0.15)">
+      <div class="ds-card__header"><h3 style="margin:0;font-size:14px">Related literature (evidence index)</h3></div>
+      <div class="ds-card__body" style="padding-top:8px">
+        <p class="va-muted" style="font-size:11px;margin-bottom:10px;line-height:1.45">Ranked from the ingested evidence database (not live internet search). Save task reviews first for richer retrieval context.</p>
+        ${_renderEvidenceBlock()}
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
       ${exportBtn}
       <button type="button" class="btn btn-primary" id="va-save-summary">Save draft summary</button>
       ${finalizeBtn}
@@ -867,6 +1020,7 @@ function _wire() {
     try {
       const doc = await api.videoAssessmentGetSession(id);
       _vaSession = mergeServerDocument(doc);
+      _resetEvidenceState();
       try {
         sessionStorage.setItem(_apiSessionKey(), id);
       } catch (_) {}
@@ -1114,6 +1268,16 @@ function _wire() {
       showToast('Export failed: ' + (e && e.message));
     }
   });
+
+  document.getElementById('va-load-evidence')?.addEventListener('click', () => {
+    void _fetchEvidenceForSession();
+  });
+  document.getElementById('va-evidence-retry')?.addEventListener('click', () => {
+    void _fetchEvidenceForSession();
+  });
+  document.getElementById('va-evidence-refresh')?.addEventListener('click', () => {
+    void _fetchEvidenceForSession();
+  });
 }
 
 
@@ -1162,6 +1326,7 @@ export async function pgVideoAssessments(setTopbar, navigate, opts = {}) {
   _vaSession = null;
   _vaApiBootstrapDone = false;
   _vaApiBanner = '';
+  _resetEvidenceState();
   _revokeClinicianStreamUrl();
   await _bootstrapApiSession();
   if (!_vaSession) {

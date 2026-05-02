@@ -5964,6 +5964,10 @@ export async function pgAssessmentsHub(setTopbar) {
         '<div class="ah2-kpi"><span class="ah2-kpi-val">' + k.completed + '</span><span class="ah2-kpi-lbl">Completed</span></div>' +
         '<div class="ah2-kpi"><span class="ah2-kpi-val">' + k.total + '</span><span class="ah2-kpi-lbl">Total Assigned</span></div>' +
       '</div>' +
+      '<div class="ah2-va-launch" style="margin:0 0 12px;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:rgba(0,212,188,0.06);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">' +
+        '<div><div style="font-weight:600;font-size:13px">Video motor assessments</div><div style="font-size:11.5px;color:var(--text-secondary);margin-top:4px;max-width:520px">Remote guided movement tasks with API-backed sessions and evidence-linked literature in the review summary.</div></div>' +
+        '<button type="button" class="ah2-btn ah2-btn-sm" onclick="window._nav(\'video-assessments\')">Open Video Assessments</button>' +
+      '</div>' +
       '<div class="ah2-tabs">' +
         ['templates','dashboard','scheduled','results','conditions','scales'].map(t =>
           '<button class="ah2-tab' + (activeTab===t?' ah2-tab-active':'') + '" onclick="window._ah2Tab(\'' + t + '\')">' +
@@ -5986,6 +5990,8 @@ export async function pgAssessmentsHub(setTopbar) {
 
   // ── Assessment Template Library ───────────────────────────────────────────
   const ASSESS_TEMPLATES = [
+    { id:'VIDEO-ASSESS', title:'Video Motor Assessment (Virtual Care)', cat:'Virtual Care', catKey:'virtual_care', conditions:['Neurology','Movement','Telehealth'], time:'~25 min', fill:'In-Platform',
+      desc:'Guided camera-based motor protocol (tremor, bradykinesia, gait, balance, speech sample). Recordings upload for clinician review; summary can list literature from the evidence database.' },
     { id:'PHQ-9',  title:'PHQ-9', cat:'Validated Scale', catKey:'validated', conditions:['Depression','MDD'], time:'3 min', fill:'In-Platform',
       desc:'Patient Health Questionnaire-9. Gold-standard depression screening and severity measure, 9 items scored 0–27.' },
     { id:'GAD-7',  title:'GAD-7', cat:'Validated Scale', catKey:'validated', conditions:['Anxiety'], time:'3 min', fill:'In-Platform',
@@ -6019,8 +6025,8 @@ export async function pgAssessmentsHub(setTopbar) {
   ];
   // "Caregiver" chip removed — no template carries a caregiver catKey, so it
   // always rendered zero results. Remove, not disable.
-  const ASSESS_FILTER_CHIPS = ['All','Validated Scales','Structured Forms','Condition Bundles','Side Effects'];
-  const ASSESS_CAT_MAP = { 'Validated Scales':'validated', 'Structured Forms':'form', 'Condition Bundles':'bundle' };
+  const ASSESS_FILTER_CHIPS = ['All','Virtual Care','Validated Scales','Structured Forms','Condition Bundles','Side Effects'];
+  const ASSESS_CAT_MAP = { 'Virtual Care':'virtual_care', 'Validated Scales':'validated', 'Structured Forms':'form', 'Condition Bundles':'bundle' };
 
   function renderTemplateLibrary() {
     const q = tlibSearch.toLowerCase();
