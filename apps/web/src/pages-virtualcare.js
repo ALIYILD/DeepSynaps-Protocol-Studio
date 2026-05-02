@@ -6,6 +6,7 @@
 import { CONDITION_HOME_TEMPLATES } from './home-program-condition-templates.js';
 import { EVIDENCE_TOTAL_PAPERS } from './evidence-dataset.js';
 import { loadResearchBundleOverview } from './research-bundle-overview.js';
+import { api } from './api.js';
 
 const _e = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const _fmtTime = iso => { try { return new Date(iso).toLocaleString('en-GB',{hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'}); } catch { return iso; } };
@@ -58,6 +59,10 @@ const _EXPRESSION_W = [0.25, 0.50, 0.10, 0.10, 0.05];
 const _MOOD_POOL = ['calm','tense','engaged','withdrawn','hopeful','reflective','cooperative'];
 const _EXPRESSION_EMOJI = { happy:'\uD83D\uDE0A', neutral:'\uD83D\uDE10', sad:'\uD83D\uDE1E', anxious:'\uD83D\uDE1F', frustrated:'\uD83D\uDE23' };
 const VIDEO_ANALYZER_DISCLAIMER = 'Video Analyzer outputs are decision-support observations for clinician review only; they are not diagnoses, validated rating-scale scores, or autonomous safety alerts.';
+const VOICE_BIOMARKER_DISCLAIMER = (
+  'Voice biomarker outputs are clinical decision-support signals for review alongside history and examination; '
+  + 'they are not diagnoses or substitutes for standardized speech–language assessment.'
+);
 
 function _weightedPick(items, weights) {
   const r = Math.random();
@@ -847,7 +852,6 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
   // ── Parallel API fetch ────────────────────────────────────────────────────
-  const api = window._api || {};
   const today = new Date().toISOString().slice(0, 10);
   const weekStart = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
 
@@ -1797,7 +1801,6 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
   _vc.compose = false;
 
   // Load patients
-  const api = window._api || {};
   let apiPatients = [];
   try { const r = await api.listPatients?.(); apiPatients = r?.items || (Array.isArray(r) ? r : []); } catch {}
   await _vcHydrateLiveData(apiPatients);
@@ -1891,6 +1894,7 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
             <div id="vc-analysis-panel" class="vc-analysis-panel" style="${_vc.analysisPanelVisible ? '' : 'display:none'}">
               <div class="vc-analysis-section">
                 <div class="vc-analysis-hdr"><span class="vc-pulse-dot"></span> Voice Analysis <span style="font-size:9px;color:var(--text-tertiary);font-weight:400">(simulated)</span></div>
+                <div style="font-size:10px;color:var(--amber);line-height:1.35;margin-bottom:8px;padding:6px 8px;border:1px solid rgba(246,178,60,.25);border-radius:8px;background:rgba(246,178,60,.08)">${VOICE_BIOMARKER_DISCLAIMER} Full acoustic reports run when you capture a voice note — literature links attach automatically.</div>
                 <div style="margin-bottom:6px"><span style="font-size:10px;color:var(--text-tertiary)">Sentiment</span> <span id="vc-va-sentiment" class="vc-pill vc-pill--neutral">--</span></div>
                 <div class="vc-gauge-row"><span class="vc-gauge-label">Stress</span><div class="vc-gauge-track"><div id="vc-va-stress-fill" class="vc-gauge-fill" style="width:0%;background:#4ade80"></div></div><span id="vc-va-stress-val" class="vc-gauge-val">--</span></div>
                 <div class="vc-gauge-row"><span class="vc-gauge-label">Energy</span><div class="vc-gauge-track"><div id="vc-va-energy-fill" class="vc-gauge-fill" style="width:0%;background:#00d4bc"></div></div><span id="vc-va-energy-val" class="vc-gauge-val">--</span></div>
@@ -2780,6 +2784,37 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
         _vc.recorder = new MediaRecorder(stream);
         _vc.chunks = [];
         _vc.recorder.ondataavailable = e => { if (e.data.size > 0) _vc.chunks.push(e.data); };
+        _vc.recorder.onstop = async () => {
+          try {
+            const chunks = _vc.chunks || [];
+            if (!chunks.length) return;
+            const typ = _vc.recorder?.mimeType || 'audio/webm';
+            const blob = new Blob(chunks, { type: typ });
+            const ext = typ.includes('mp4') ? 'm4a' : typ.includes('ogg') ? 'ogg' : 'webm';
+            const file = new File([blob], `vc-note-capture.${ext}`, { type: typ });
+            const sessionId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now());
+            const pid = _vc.recording?.patientId || null;
+            const res = await api.audioAnalyzeUpload?.(file, {
+              sessionId,
+              patientId: pid,
+              taskProtocol: 'reading_passage',
+              transcript: (_vc.recording?.transcription || '').trim() || null,
+            });
+            if (res?.ok && res.analysis_id) {
+              window._showNotifToast?.({
+                title: 'Acoustic voice report saved',
+                body: 'DeepSynaps Voice Analyzer — open Reports or patient analytics for details.',
+                severity: 'success',
+              });
+            }
+          } catch (e) {
+            window._showNotifToast?.({
+              title: 'Voice biomarker upload skipped',
+              body: (e?.message || 'Worker may lack voice analyzer dependencies.'),
+              severity: 'warning',
+            });
+          }
+        };
         _vc.recorder.start();
       } catch {
         // No mic access — simulate recording

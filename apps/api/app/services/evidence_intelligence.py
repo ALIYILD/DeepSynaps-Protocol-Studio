@@ -289,6 +289,18 @@ TARGET_CONCEPTS: dict[str, dict[str, Any]] = {
         "diagnoses": ["depression", "anxiety"],
         "modalities": ["voice"],
     },
+    "parkinson_voice": {
+        "claim": "Decision-support evidence links hypokinetic dysarthria, vocal tremor, and acoustic perturbation markers to Parkinson disease monitoring contexts.",
+        "concepts": ["Parkinson disease", "hypokinetic dysarthria", "jitter", "shimmer", "HNR", "voice", "speech"],
+        "diagnoses": ["parkinson disease", "parkinsonism"],
+        "modalities": ["voice", "speech"],
+    },
+    "respiratory_screening": {
+        "claim": "Decision-support evidence links cough acoustics and breath-sound features to respiratory screening and monitoring discussions.",
+        "concepts": ["cough", "respiratory", "breath sounds", "COPD", "acoustic biomarkers"],
+        "diagnoses": ["copd", "respiratory disease"],
+        "modalities": ["voice", "audio"],
+    },
     "video_affect": {
         "claim": "Decision-support evidence links facial affect and video-derived engagement markers to mood and anxiety monitoring.",
         "concepts": ["facial affect", "video", "emotion recognition", "depression", "anxiety"],
@@ -330,6 +342,8 @@ def normalize_target_name(target_name: str) -> str:
         "voice": "voice_affect",
         "video": "video_affect",
         "text": "text_sentiment",
+        "parkinson": "parkinson_voice",
+        "respiratory": "respiratory_screening",
     }
     return aliases.get(value, value)
 

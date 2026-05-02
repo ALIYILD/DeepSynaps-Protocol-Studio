@@ -55,7 +55,7 @@ const DOMAIN_NAV = {
   qeeg:               'qeeg-analysis',
   mri:                'mri-analysis',
   video:              null,
-  voice:              null,
+  voice:              'voice-analyzer',
   text:               null,
   biometrics:         'patient-home-devices',
   wearables:          'patient-home-devices',

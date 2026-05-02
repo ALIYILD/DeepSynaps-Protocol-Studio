@@ -761,6 +761,32 @@ export const api = {
     return URL.createObjectURL(blob);
   },
 
+  // ── Voice / Audio biomarker analyzer (deepsynaps-audio pipeline) ───────
+  audioAnalyzeUpload: (file, { sessionId, patientId, taskProtocol, transcript } = {}) => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('session_id', sessionId || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Date.now())));
+    if (patientId) form.append('patient_id', patientId);
+    if (taskProtocol) form.append('task_protocol', taskProtocol);
+    if (transcript) form.append('transcript', transcript);
+    return apiFetch('/api/v1/audio/analyze-upload', { method: 'POST', body: form });
+  },
+  audioAnalyzeRecording: (recordingId, { sessionId, patientId, taskProtocol, transcript } = {}) => {
+    const q = new URLSearchParams();
+    q.set('session_id', sessionId || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Date.now())));
+    if (patientId) q.set('patient_id', patientId);
+    if (taskProtocol) q.set('task_protocol', taskProtocol);
+    if (transcript) q.set('transcript', transcript);
+    return apiFetch(
+      `/api/v1/audio/analyze-recording/${encodeURIComponent(recordingId)}?${q.toString()}`,
+      { method: 'POST' },
+    );
+  },
+  audioGetReport: (analysisId) =>
+    apiFetch(`/api/v1/audio/report/${encodeURIComponent(analysisId)}`),
+  audioListPatientAnalyses: (patientId, limit = 30) =>
+    apiFetch(`/api/v1/audio/patients/${encodeURIComponent(patientId)}/analyses?limit=${limit}`),
+
   // Custom document templates (clinician-authored, distinct from the bundled
   // DOCUMENT_TEMPLATES read-only set in apps/web/src/documents-templates.js).
   // Backed by /api/v1/documents/templates* in documents_router.py.

@@ -53,3 +53,20 @@ def persist_voice_analysis(
 
 def load_voice_analysis(db: Session, analysis_id: str) -> Optional[AudioAnalysis]:
     return db.get(AudioAnalysis, analysis_id)
+
+
+def list_voice_analyses_for_patient(
+    db: Session,
+    patient_id: str,
+    *,
+    limit: int = 50,
+) -> list[AudioAnalysis]:
+    """Return recent voice pipeline rows for dashboard / DeepTwin linking."""
+
+    return (
+        db.query(AudioAnalysis)
+        .filter(AudioAnalysis.patient_id == patient_id)
+        .order_by(AudioAnalysis.created_at.desc())
+        .limit(min(max(limit, 1), 200))
+        .all()
+    )

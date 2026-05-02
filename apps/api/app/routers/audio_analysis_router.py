@@ -19,7 +19,12 @@ from app.persistence.models import SessionRecording
 from app.routers.recordings_router import _scope_recordings_query_to_clinic
 from app.services import media_storage
 from app.services import audio_pipeline as audio_facade
-from app.services.audio_voice_persistence import load_voice_analysis, persist_voice_analysis
+from app.services.audio_voice_evidence import VOICE_DECISION_SUPPORT_DISCLAIMER, build_voice_evidence_pack
+from app.services.audio_voice_persistence import (
+    list_voice_analyses_for_patient,
+    load_voice_analysis,
+    persist_voice_analysis,
+)
 from app.settings import get_settings
 
 _log = logging.getLogger(__name__)
@@ -57,6 +62,7 @@ def _run_and_persist(
     transcript: Optional[str],
     db: Session,
     input_recording_ref: Optional[str] = None,
+    attach_evidence: bool = True,
 ) -> dict[str, Any]:
     fn = getattr(audio_facade, "run_voice_pipeline_from_paths")
     try:
@@ -72,8 +78,19 @@ def _run_and_persist(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     ctx = run.context
-    report = ctx.get("voice_report_payload") or {}
+    report = dict(ctx.get("voice_report_payload") or {})
     analysis_id = str(uuid.uuid4())
+
+    ev_pid = patient_id or session_id or "anonymous"
+    if attach_evidence:
+        try:
+            report["decision_support"] = build_voice_evidence_pack(report, patient_id=ev_pid, db=db)
+        except Exception as exc:
+            _log.warning("voice evidence attachment failed: %s", exc)
+            report["decision_support"] = {
+                "disclaimer": VOICE_DECISION_SUPPORT_DISCLAIMER,
+                "error": str(exc),
+            }
 
     pv = report.get("provenance") or {}
     persist_voice_analysis(
@@ -97,6 +114,9 @@ def _run_and_persist(
         "run_id": run.run_id,
         "status": run.status,
         "voice_report": report,
+        "clinical_disclaimer": (
+            "Clinical decision-support only — not a diagnosis. Interpret with full clinical context."
+        ),
     }
 
 
@@ -258,4 +278,35 @@ def get_voice_report(
         vr = json.loads(row.voice_report_json or "{}")
     except json.JSONDecodeError:
         vr = {}
-    return {"analysis_id": analysis_id, "voice_report": vr, "status": row.status}
+    return {
+        "analysis_id": analysis_id,
+        "voice_report": vr,
+        "status": row.status,
+        "clinical_disclaimer": "Clinical decision-support only — not a diagnosis.",
+    }
+
+
+@router.get("/patients/{patient_id}/analyses")
+def list_patient_voice_analyses(
+    patient_id: str,
+    limit: int = 30,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    """List stored voice biomarker runs for a patient (DeepTwin / analytics linking)."""
+
+    require_minimum_role(actor, "clinician")
+    rows = list_voice_analyses_for_patient(db, patient_id, limit=limit)
+    return {
+        "items": [
+            {
+                "analysis_id": r.analysis_id,
+                "session_id": r.session_id,
+                "run_id": r.run_id,
+                "status": r.status,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "pipeline_version": r.pipeline_version,
+            }
+            for r in rows
+        ],
+    }

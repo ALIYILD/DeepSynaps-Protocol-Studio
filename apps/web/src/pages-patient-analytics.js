@@ -548,8 +548,16 @@ function widgetVoice(_tel, patientId) {
   return `<div class="ds-evidence-card-head">${evidenceChipHtml(patientId, 'voice_affect', 'multimodal_summary', 'Voice evidence', 14, 'moderate', [
       { name: 'Pause ratio', value: '0.18', modality: 'Voice', direction: 'down', contribution: 0.18 },
     ])}</div>
+    <div style="margin-bottom:8px;padding:7px 9px;border:1px solid rgba(139,125,255,.22);border-radius:9px;background:rgba(139,125,255,.06);font-size:10px;line-height:1.4;color:var(--text-secondary)">
+      <strong style="color:var(--text-primary)">Decision-support:</strong> Run the Voice Analyzer to generate acoustic biomarker reports with DeepSynaps literature retrieval (${EVIDENCE_TOTAL_PAPERS.toLocaleString()} papers) — adjunct signals only, not diagnoses.
+    </div>
     <svg width="100%" height="36" viewBox="0 0 200 36" preserveAspectRatio="none">${bars}</svg>
-    <div class="pa-voice-list">${rows}</div>`;
+    <div class="pa-voice-list">${rows}</div>
+    <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn btn-ghost btn-xs" data-pa-action="open-voice-analyzer">Voice Analyzer</button>
+      <button class="btn btn-ghost btn-xs" data-pa-action="open-voice-evidence">87k research library</button>
+      <button class="btn btn-ghost btn-xs" data-pa-action="open-deeptwin-voice">DeepTwin voice</button>
+    </div>`;
 }
 
 function widgetVideo(_tel, patientId) {
@@ -980,6 +988,27 @@ export async function pgPatientAnalyticsDetail(setTopbar, patientId) {
     b.addEventListener('click', () => {
       try { window._resEvidenceTab = 'search'; } catch {}
       window._nav('research-evidence');
+    }));
+  el.querySelectorAll('[data-pa-action="open-voice-analyzer"]').forEach(b =>
+    b.addEventListener('click', () => {
+      try { window._deeptwinPatientId = id; } catch {}
+      window._nav('voice-analyzer');
+    }));
+  el.querySelectorAll('[data-pa-action="open-voice-evidence"]').forEach(b =>
+    b.addEventListener('click', () => {
+      openEvidenceDrawer({
+        patientId: id,
+        target: 'voice_affect',
+        featureSummary: [
+          { name: 'Voice Analyzer', value: 'acoustic biomarker context', modality: 'voice', direction: 'decision_support' },
+        ],
+      });
+    }));
+  el.querySelectorAll('[data-pa-action="open-deeptwin-voice"]').forEach(b =>
+    b.addEventListener('click', () => {
+      window._selectedPatientId = id;
+      window._deeptwinDomainHint = 'voice';
+      window._nav('deeptwin');
     }));
   el.querySelectorAll('[data-pa-tab]').forEach(t => t.addEventListener('click', () => {
     const which = t.getAttribute('data-pa-tab');
