@@ -46,7 +46,7 @@ function readSrc(name) {
 
 
 test('pgPatientCaregiver reads latest_landed_channel from the last-ack lookup', () => {
-  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js'));
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js'));
   assert.ok(
     src.includes('latest_landed_channel'),
     'page must read latest_landed_channel from the last-acknowledgement lookup',
@@ -55,7 +55,7 @@ test('pgPatientCaregiver reads latest_landed_channel from the last-ack lookup', 
 
 
 test('pgPatientCaregiver renders an "via {channel}" chip on the Recent landed digests row', () => {
-  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js'));
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js'));
   // Anchor on the unique channel-chip testid we added.
   const idx = src.indexOf('data-testid="pt-cg-channel-chip"');
   assert.notEqual(
@@ -72,7 +72,7 @@ test('pgPatientCaregiver renders an "via {channel}" chip on the Recent landed di
 
 
 test('pgPatientCaregiver helper copy mentions channels beyond SendGrid', () => {
-  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js'));
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js'));
   // The Recent landed digests subsection's helper text was updated to
   // mention sms / Slack / inbox so the caregiver knows the chip is
   // cross-channel.
@@ -96,7 +96,7 @@ test('pgPatientCaregiver helper copy mentions channels beyond SendGrid', () => {
 
 
 test('pgPatientCaregiver preserves channel chip on ack click re-render', () => {
-  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js'));
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js'));
   // After a successful ack POST, the in-memory grantAckMap entry must
   // carry latest_landed_channel forward so the re-render still shows
   // the chip. Anchor on the assignment after the ack call.
@@ -114,7 +114,7 @@ test('pgPatientCaregiver preserves channel chip on ack click re-render', () => {
 
 
 test('pgPatientDigest reads last_delivered_channel on each caregiver row', () => {
-  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js'));
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js'));
   assert.ok(
     src.includes('last_delivered_channel'),
     'page must read last_delivered_channel from the caregiver-delivery summary',
@@ -123,7 +123,7 @@ test('pgPatientDigest reads last_delivered_channel on each caregiver row', () =>
 
 
 test('pgPatientDigest renders "via {channel}" chip per caregiver row', () => {
-  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js'));
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js'));
   const idx = src.indexOf('data-testid="pd-cg-channel-chip"');
   assert.notEqual(
     idx, -1,
@@ -138,7 +138,7 @@ test('pgPatientDigest renders "via {channel}" chip per caregiver row', () => {
 
 
 test('pgPatientDigest channel chip lives next to caregiver name (channel-agnostic stamp untouched)', () => {
-  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js'));
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js'));
   // The channel chip variable is interpolated alongside the caregiver
   // name template literal: `${name}${channelHtml}`. Verify both that
   // the chip is defined and that it's interpolated next to the name.
@@ -160,7 +160,7 @@ test('pgPatientDigest channel chip lives next to caregiver name (channel-agnosti
 
 
 test('Caregiver delivery confirmations Last-confirmed stamp does not gate on channel', () => {
-  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js'));
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js'));
   // The patient-side "Last confirmed:" stamp logic must read the ack
   // timestamp regardless of channel. Find the testid + verify the
   // surrounding markup uses last_acknowledged_at, not channel.
@@ -185,7 +185,7 @@ test('Caregiver delivery confirmations Last-confirmed stamp does not gate on cha
 
 
 test('Channel chip render does not introduce caregiver email or full-name binding', () => {
-  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js'));
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js'));
   const idx = src.indexOf('data-testid="pd-cg-channel-chip"');
   assert.notEqual(idx, -1);
   const slice = src.slice(idx - 200, idx + 800);
@@ -201,7 +201,7 @@ test('Channel chip render does not introduce caregiver email or full-name bindin
 
 
 test('Caregiver Portal channel chip render does not introduce caregiver email binding', () => {
-  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js'));
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js'));
   const idx = src.indexOf('data-testid="pt-cg-channel-chip"');
   assert.notEqual(idx, -1);
   const slice = src.slice(idx - 200, idx + 600);
@@ -236,7 +236,7 @@ test('Channel chip rendering uses the channel value from the API verbatim (no cl
   // client must NOT maintain a parallel mapping — it just renders the
   // value the API returns. This test asserts the absence of a
   // client-side adapter→channel switch.
-  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js'));
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js'));
   // No client-side ternary turning adapter ('sendgrid' / 'twilio')
   // into a chip. Anchor on the chip render and verify the immediate
   // context has no adapter literal.

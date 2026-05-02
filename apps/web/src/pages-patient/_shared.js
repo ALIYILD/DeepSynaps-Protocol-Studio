@@ -76,6 +76,19 @@ export function daysUntil(d) {
 }
 
 /**
+ * Traffic-light dot. status: 'green' | 'amber' | 'red' | 'grey'.
+ * Mirrored verbatim from the original definition in pages-patient.js.
+ */
+export function _vizTrafficLight(status, label) {
+  var cfg = { green: '#22c55e', amber: '#f59e0b', red: '#ef4444', grey: '#64748b' };
+  var color = cfg[status] || cfg.grey;
+  return '<span class="pviz-tl">' +
+    '<span class="pviz-tl-dot' + (status === 'red' ? ' pviz-tl-pulse' : '') + '" style="background:' + color + '"></span>' +
+    (label ? '<span class="pviz-tl-lbl">' + label + '</span>' : '') +
+    '</span>';
+}
+
+/**
  * 7-day pattern strip — small inline-SVG showing day-by-day status.
  * Visualizes adherence / wellness logging at a glance. Mirrored verbatim
  * from the original definition in pages-patient.js.
