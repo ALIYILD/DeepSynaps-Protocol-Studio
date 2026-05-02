@@ -19,6 +19,12 @@
  */
 
 import { api } from './api.js';
+import { isDemoSession } from './demo-session.js';
+import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
+
+function _isEmptyClinicSummary(s) {
+  return !s || !Array.isArray(s.patients) || s.patients.length === 0;
+}
 
 function esc(s) {
   return String(s ?? '')
@@ -286,9 +292,11 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
   let sortKey = 'worst';
   let activePatientId = null;
   let activePatientName = '';
+  let usingFixtures = false;
 
   el.innerHTML = `
     <div class="ds-risk-analyzer-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px">
+      <div id="ra-demo-banner"></div>
       <div style="padding:12px 14px;border-radius:12px;border:1px solid rgba(155,127,255,0.28);background:rgba(155,127,255,0.06);margin-bottom:14px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
         <strong style="color:var(--text-primary)">Clinical decision-support.</strong>
         Traffic lights are model outputs. Clinician review is required before acting; every override is audited.
@@ -296,6 +304,12 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
       <div id="ra-breadcrumb" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:12px"></div>
       <div id="ra-body"></div>
     </div>`;
+
+  function _syncDemoBanner() {
+    const slot = $('ra-demo-banner');
+    if (!slot) return;
+    slot.innerHTML = usingFixtures && isDemoSession() ? DEMO_FIXTURE_BANNER_HTML : '';
+  }
 
   const $ = (id) => document.getElementById(id);
 
@@ -320,12 +334,24 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
     </div>`;
     try {
       summaryCache = await api.getClinicRiskSummary();
+      if (_isEmptyClinicSummary(summaryCache) && isDemoSession()) {
+        summaryCache = ANALYZER_DEMO_FIXTURES.risk.clinic_summary;
+        usingFixtures = true;
+      } else {
+        usingFixtures = false;
+      }
     } catch (e) {
-      const msg = (e && e.message) || String(e);
-      body.innerHTML = _errorCard(msg);
-      body.querySelector('[data-action="retry"]')?.addEventListener('click', loadClinic);
-      return;
+      if (isDemoSession()) {
+        summaryCache = ANALYZER_DEMO_FIXTURES.risk.clinic_summary;
+        usingFixtures = true;
+      } else {
+        const msg = (e && e.message) || String(e);
+        body.innerHTML = _errorCard(msg);
+        body.querySelector('[data-action="retry"]')?.addEventListener('click', loadClinic);
+        return;
+      }
     }
+    _syncDemoBanner();
     body.innerHTML = _renderClinicTable(summaryCache, sortKey);
     body.querySelector('#ra-go-patients')?.addEventListener('click', () => {
       try { navigate?.('patients-v2'); } catch {}
@@ -381,13 +407,28 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
       ${_skeletonChips(8)}
     </div>`;
     try {
-      const [profile, audit] = await Promise.all([
+      let [profile, audit] = await Promise.all([
         api.getPatientRiskProfile(activePatientId),
         api.getRiskAudit(activePatientId).catch(() => ({ items: [] })),
       ]);
+      if ((!profile || !Array.isArray(profile.categories) || profile.categories.length === 0) && isDemoSession()) {
+        profile = ANALYZER_DEMO_FIXTURES.risk.patient_profile(activePatientId);
+        audit = ANALYZER_DEMO_FIXTURES.risk.patient_audit(activePatientId);
+        usingFixtures = true;
+      }
+      _syncDemoBanner();
       body.innerHTML = _renderPatientDetail(profile, audit);
       wirePatientDetail(profile);
     } catch (e) {
+      if (isDemoSession()) {
+        const profile = ANALYZER_DEMO_FIXTURES.risk.patient_profile(activePatientId);
+        const audit = ANALYZER_DEMO_FIXTURES.risk.patient_audit(activePatientId);
+        usingFixtures = true;
+        _syncDemoBanner();
+        body.innerHTML = _renderPatientDetail(profile, audit);
+        wirePatientDetail(profile);
+        return;
+      }
       const msg = (e && e.message) || String(e);
       body.innerHTML = _errorCard(msg);
       body.querySelector('[data-action="retry"]')?.addEventListener('click', loadPatient);

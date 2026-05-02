@@ -12,6 +12,8 @@
  */
 
 import { api } from './api.js';
+import { isDemoSession } from './demo-session.js';
+import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 
 function esc(s) {
   return String(s ?? '')
@@ -235,6 +237,25 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
       return _renderResultBlock('De-identified text', body);
     },
   ));
+
+  if (isDemoSession()) {
+    const demo = ANALYZER_DEMO_FIXTURES.text;
+    const ta = $('ta-text');
+    if (ta && !ta.value) ta.value = demo.source_text;
+    const r = resultEl();
+    if (r && !r.innerHTML) {
+      const ents = demo.analyze.entities;
+      const pii = demo.pii.pii_spans;
+      r.innerHTML = DEMO_FIXTURE_BANNER_HTML
+        + _renderResultBlock(`Entities (${ents.length})`, _renderEntities(ents))
+        + _renderResultBlock(`PII spans (${pii.length})`, _renderEntities(pii))
+        + _renderResultBlock(
+          'De-identified text',
+          `<pre style="margin:0;padding:10px;border-radius:8px;background:rgba(0,0,0,.2);font-size:12px;white-space:pre-wrap;line-height:1.5">${esc(demo.deidentify.deidentified_text)}</pre>`,
+        );
+      status('Showing demo output for ' + demo.patient.name + '.');
+    }
+  }
 }
 
 export default { pgTextAnalyzer };
