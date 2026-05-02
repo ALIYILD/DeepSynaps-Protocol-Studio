@@ -164,21 +164,25 @@ function _renderExternalContext(ctx) {
   </div>`;
 }
 
-function _renderEvidenceBrief(ev, abnormalChips) {
-  if (!ev) {
-    return '<div style="font-size:12px;color:var(--text-tertiary)">Evidence excerpt unavailable (offline or corpus not mounted).</div>';
-  }
-  const pmids = Array.isArray(ev.top_pmids) ? ev.top_pmids : [];
+function _renderEvidenceBrief(ev, abnormalChips, researchPrefill) {
+  const pmids = ev && Array.isArray(ev.top_pmids) ? ev.top_pmids : [];
   const chips = (abnormalChips || []).slice(0, 6).map((t) => esc(String(t))).join(' ');
   const pmLinks = pmids.map((p) =>
     `<button type="button" class="pill lab-ev-pmid" data-pmid="${esc(p)}" style="cursor:pointer;font-size:10.5px;margin:2px 6px 2px 0;padding:2px 8px;background:rgba(155,127,255,0.10);border:1px solid rgba(155,127,255,0.28);color:var(--violet,#9b7fff)">PMID ${esc(p)} · 87k</button>`
   ).join('');
+  const excerpt = ev && ev.literature_summary
+    ? `<div style="font-size:12px;color:var(--text-secondary);line-height:1.5;margin-bottom:8px">${esc(String(ev.literature_summary).slice(0, 1200))}</div>
+       <div style="font-size:11px;color:var(--text-tertiary)">Confidence score: ${esc(String(ev.confidence_score ?? '—'))}</div>`
+    : '<div style="font-size:12px;color:var(--text-tertiary)">No ranked excerpt in this response — use Research Evidence search or PMID buttons when online.</div>';
+  const openBtn = `<button type="button" class="btn btn-ghost btn-sm" id="la-open-research" style="min-height:40px;margin-top:8px">Open Research Evidence (corpus search)</button>
+    <div style="font-size:10px;color:var(--text-tertiary);margin-top:4px">Prefills the Evidence Search tab with abnormal markers, meds, and condition context.</div>`;
   return `<div style="padding:12px;border:1px solid var(--border);border-radius:12px;background:rgba(155,127,255,0.04)">
-    <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:6px">Literature excerpt (evidence intelligence · ranked corpus)</div>
-    <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;margin-bottom:8px">${esc(ev.literature_summary || '').slice(0, 1200)}</div>
-    <div style="font-size:11px;color:var(--text-tertiary)">Confidence score: ${esc(String(ev.confidence_score ?? '—'))}</div>
+    <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:6px">Literature & research (evidence intelligence + 87k corpus)</div>
+    ${excerpt}
+    ${openBtn}
     ${pmLinks ? `<div style="margin-top:8px;display:flex;flex-wrap:wrap;align-items:center">${pmLinks}</div>` : ''}
-    ${chips ? `<div style="margin-top:8px;font-size:11px;color:var(--text-tertiary)">Suggested search terms: ${chips}</div>` : ''}
+    ${chips ? `<div style="margin-top:8px;font-size:11px;color:var(--text-tertiary)">Suggested terms: ${chips}</div>` : ''}
+    ${researchPrefill ? `<div style="margin-top:6px;font-size:10px;color:var(--text-tertiary);word-break:break-word">Query hint: ${esc(String(researchPrefill).slice(0, 280))}${String(researchPrefill).length > 280 ? '…' : ''}</div>` : ''}
   </div>`;
 }
 
@@ -253,9 +257,14 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
     <div class="ds-labs-analyzer-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px">
       <div id="la-demo-banner"></div>
       <div style="padding:12px 14px;border-radius:12px;border:1px solid rgba(155,127,255,0.28);background:rgba(155,127,255,0.06);margin-bottom:14px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
-        <strong style="color:var(--text-primary)">Clinical decision-support only.</strong>
-        This workspace does not diagnose. Abnormal flags, trends, and “possible contributor” lines are hypotheses — clinician judgment and local protocols prevail.
+        <strong style="color:var(--text-primary)">Clinical decision-support.</strong>
+        Not a medical device; does not diagnose. Flags and narratives support clinician review only — verify against local protocols and critical-value procedures.
+        <strong style="color:var(--text-primary)"> Research use:</strong> literature excerpts and corpus search support continuing education and hypothesis generation, not standalone clinical decisions.
       </div>
+      <details id="la-disclaimer-details" style="margin-bottom:14px;font-size:11px;color:var(--text-secondary);line-height:1.5;border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:rgba(255,255,255,.02)">
+        <summary style="cursor:pointer;font-weight:600;color:var(--text-primary)">Full clinical &amp; research disclaimer</summary>
+        <p style="margin:8px 0 0 0" id="la-disclaimer-long">Loading…</p>
+      </details>
       <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px">
         <label style="font-size:11px;color:var(--text-tertiary);display:flex;flex-direction:column;gap:4px">Patient
           <select id="la-patient-select" class="form-control" style="min-width:220px;min-height:44px"></select>
@@ -358,7 +367,7 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
       <div style="font-weight:600;font-size:13px;margin:14px 0 8px">Patient context (from chart)</div>
       ${_renderExternalContext(payload.external_context)}
       <div style="font-weight:600;font-size:13px;margin:14px 0 8px">Evidence (87k corpus)</div>
-      ${_renderEvidenceBrief(payload.evidence_brief, chipTerms)}
+      ${_renderEvidenceBrief(payload.evidence_brief, chipTerms, payload.research_evidence_prefill)}
       <div style="font-weight:600;font-size:13px;margin:14px 0 8px">Domains</div>
       ${_renderDomains(payload.domain_summaries)}
       <div style="font-weight:600;font-size:13px;margin:14px 0 8px">Critical alerts</div>
@@ -396,6 +405,19 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
     _syncDemoBanner();
     wireMultimodalTable();
     wireEvidencePmids();
+    const dlong = $('la-disclaimer-long');
+    if (dlong) {
+      dlong.textContent = payload.clinical_disclaimer_long
+        || 'Decision-support only. Qualified clinician review required.';
+    }
+    $('la-open-research')?.addEventListener('click', () => {
+      const prefill = payload.research_evidence_prefill || chipTerms.join(' ') || 'blood biomarker laboratory';
+      try {
+        window._reEvidencePrefill = prefill;
+        window._resEvidenceTab = 'search';
+      } catch (_) {}
+      try { navigate?.('research-evidence'); } catch (_) {}
+    });
 
     $('la-save-note')?.addEventListener('click', async () => {
       const ta = $('la-note');

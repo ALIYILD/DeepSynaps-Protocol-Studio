@@ -681,6 +681,10 @@ const _LABS = {
           top_pmids: ['38000001', '38000002'],
         },
         ai_clinical_narrative: null,
+        research_evidence_prefill:
+          'blood biomarker monitoring longitudinal laboratory Major Depressive Disorder Hemoglobin Vitamin B12 Sertraline',
+        clinical_disclaimer_long:
+          'Demo: clinical decision-support and research literacy only — not a diagnosis.',
       };
     }
     return {
@@ -732,6 +736,9 @@ const _LABS = {
       },
       evidence_brief: null,
       ai_clinical_narrative: null,
+      research_evidence_prefill: 'blood biomarker laboratory monitoring sodium electrolyte',
+      clinical_disclaimer_long:
+        'Demo: clinical decision-support and research literacy only — not a diagnosis.',
     };
   },
   audit: (patientId) => ({

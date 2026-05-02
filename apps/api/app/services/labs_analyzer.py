@@ -39,6 +39,35 @@ _LOG = logging.getLogger(__name__)
 
 _ANALYZER_VERSION = "labs-analyzer-0.2.0"
 
+_CLINICAL_DISCLAIMER_LONG = (
+    "This workspace supports structured laboratory review for clinical decision-support and "
+    "research literacy only. It does not provide a diagnosis or replace licensed laboratory "
+    "medicine, institutional critical-value policies, or specialist judgment. "
+    "Abnormal flags derive from reference intervals and deterministic rules; interpret cautiously "
+    "when panels are incomplete or drawn from different sources. "
+    "Literature excerpts support hypothesis generation and continuing education—they are not "
+    "standalone prescribing or testing directives."
+)
+
+
+def _research_evidence_prefill(
+    *,
+    primary_condition: str | None,
+    abnormal_markers: list[str],
+    medications: list[dict[str, Any]],
+) -> str:
+    parts = ["blood biomarker monitoring longitudinal laboratory"]
+    if primary_condition:
+        parts.append(primary_condition)
+    for m in abnormal_markers[:6]:
+        if m:
+            parts.append(str(m))
+    for med in medications[:5]:
+        n = med.get("generic_name") or med.get("name")
+        if n:
+            parts.append(str(n))
+    return " ".join(parts).strip()[:420]
+
 
 def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -172,6 +201,12 @@ def build_labs_analyzer_payload(
         llm_narrative_model="optional_llm" if ai_text and "LLM unavailable" not in (ai_text or "") else None,
     )
 
+    research_prefill = _research_evidence_prefill(
+        primary_condition=primary_condition,
+        abnormal_markers=list(snapshot.key_abnormal_markers or []),
+        medications=ext.active_medications,
+    )
+
     return LabsAnalyzerPagePayload(
         generated_at=_iso_now(),
         patient_id=patient_id,
@@ -197,6 +232,8 @@ def build_labs_analyzer_payload(
         external_context=ext,
         evidence_brief=evidence_brief,
         ai_clinical_narrative=ai_text,
+        research_evidence_prefill=research_prefill,
+        clinical_disclaimer_long=_CLINICAL_DISCLAIMER_LONG,
     )
 
 

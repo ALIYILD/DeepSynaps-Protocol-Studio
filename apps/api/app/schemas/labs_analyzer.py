@@ -222,6 +222,8 @@ class LabsAnalyzerPagePayload(BaseModel):
     ai_narrative_disclaimer: str = (
         "Optional AI narrative — rules + literature excerpts below are authoritative when they conflict."
     )
+    research_evidence_prefill: str = ""
+    clinical_disclaimer_long: str = ""
 
 
 class LabsAuditResponse(BaseModel):
