@@ -440,3 +440,68 @@ class RotationPolicyAdvisorThreshold(Base):
     )
     created_at: Mapped[str] = mapped_column(String(64), nullable=False)
     updated_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class ReviewerSLACalibrationThreshold(Base):
+    """Adopted reviewer-SLA calibration_score floor for the IRB-AMD3
+    Reviewer SLA Outcome Tracker (IRB-AMD4, 2026-05-02).
+
+    Closes the section I rec from the IRB-AMD3 outcome tracker (#451).
+    IRB-AMD3 measures per-reviewer ``calibration_score = (within_sla -
+    still_pending) / max(total - pending, 1)``; THIS row carries the
+    durable cutoff below which the IRB-AMD2 SLA worker (or an admin
+    auto-reassign job) should auto-reassign pending amendments away
+    from the under-performing reviewer. Mirrors the CSAHP6 Rotation
+    Policy Advisor Threshold Tuning row (``rotation_policy_advisor_thresholds``)
+    but on the reviewer-SLA axis instead of the auth-drift axis.
+
+    One row per ``(clinic_id, threshold_key)`` — the threshold_key
+    namespaces future floors (today only ``calibration_floor`` is
+    used; a future ``mean_days_to_next_decision_ceiling`` could be
+    added without a schema change). A missing row falls back to the
+    "no auto-reassign" baseline so behavior is unchanged until the
+    clinic adopts a value.
+
+    ``auto_reassign_enabled``  When True, the (future) auto-reassign
+        worker uses ``threshold_value`` as a hard cutoff to reassign
+        pending amendments away from a reviewer whose calibration
+        score falls below it. When False, the row is captured as a
+        recommendation only; the UI shows the recommendation but no
+        background action fires.
+    ``threshold_value``  Numeric ``calibration_score`` floor in the
+        natural [-1.0, 1.0] range (Float because the underlying
+        score is a float). Validated in router-level ``AdoptIn``.
+    ``adopted_by_user_id``  Soft FK to ``users.id`` for audit
+        provenance.
+
+    Soft FK to ``users.id`` / ``clinics.id`` so deleting a user/clinic
+    does not cascade-clear historic threshold rows (audit hygiene —
+    matches the CSAHP6 / DCRO3 convention).
+    """
+
+    __tablename__ = "reviewer_sla_calibration_thresholds"
+    __table_args__ = (
+        UniqueConstraint(
+            "clinic_id",
+            "threshold_key",
+            name="uq_reviewer_sla_calibration_thresholds_clinic_key",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    clinic_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, index=True
+    )
+    threshold_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    threshold_value: Mapped[float] = mapped_column(Float(), nullable=False)
+    auto_reassign_enabled: Mapped[bool] = mapped_column(
+        Boolean(), nullable=False, default=False
+    )
+    adopted_by_user_id: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True
+    )
+    justification: Mapped[Optional[str]] = mapped_column(
+        Text(), nullable=True
+    )
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(64), nullable=False)
