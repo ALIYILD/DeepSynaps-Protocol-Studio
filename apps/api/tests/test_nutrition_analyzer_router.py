@@ -115,3 +115,13 @@ def test_clinician_get_payload_shape(client: TestClient, nutrition_setup: dict[s
         "audit_events",
     ):
         assert key in data
+
+
+def test_clinician_get_audit_list(client: TestClient, nutrition_setup: dict[str, Any]) -> None:
+    pid = nutrition_setup["patient_id"]
+    hdr = {"Authorization": f"Bearer {nutrition_setup['token_a']}"}
+    resp = client.get(f"/api/v1/nutrition/analyzer/patient/{pid}/audit", headers=hdr)
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert "items" in data and "total" in data
+    assert data["items"] == []

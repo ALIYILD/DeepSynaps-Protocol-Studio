@@ -93,7 +93,16 @@ function _paperHref(it) {
   return null;
 }
 
-function renderPage(payload, patientLabel, navigate, patientId) {
+/**
+ * @param {object} opts
+ * @param {Array} [opts.auditEntries] — from GET .../audit
+ * @param {object|null} [opts.evidenceLiveStatus] — from api.evidenceStatus()
+ * @param {boolean} [opts.auditFetchFailed]
+ */
+function renderPage(payload, patientLabel, navigate, patientId, opts = {}) {
+  const auditEntries = Array.isArray(opts.auditEntries) ? opts.auditEntries : [];
+  const evLive = opts.evidenceLiveStatus;
+  const auditFetchFailed = !!opts.auditFetchFailed;
   const snap = Array.isArray(payload.snapshot) ? payload.snapshot : [];
   const cards = snap
     .map(
@@ -198,6 +207,7 @@ function renderPage(payload, patientLabel, navigate, patientId) {
     { id: 'treatment-sessions-analyzer', label: 'Sessions' },
     { id: 'wearables', label: 'Biometrics' },
     { id: 'medication-analyzer', label: 'Medications' },
+    { id: 'risk-analyzer', label: 'Risk' },
     { id: 'research-evidence', label: 'Research Evidence' },
   ]
     .map(
@@ -223,16 +233,40 @@ function renderPage(payload, patientLabel, navigate, patientId) {
     : `<div style="font-size:12px;color:var(--text-secondary)">No heuristic recommendations returned.</div>`;
 
   const audit = payload.audit_events || {};
-  const auditStub = `<div style="font-size:12px;color:var(--text-secondary);line-height:1.5">
-      <strong style="color:var(--text-primary)">Audit (summary)</strong><br/>
-      Total events: <strong>${esc(String(audit.total_events ?? '—'))}</strong><br/>
-      Last: ${esc(audit.last_event_at || '—')} (${esc(audit.last_event_type || '—')})<br/>
-      <span style="font-size:11px;color:var(--text-tertiary)">Full event list will appear when the audit API is wired in the UI.</span>
-    </div>`;
+  const previewTrail = Array.isArray(payload.audit_trail_preview) ? payload.audit_trail_preview : [];
+  const rowsForTable = auditEntries.length ? auditEntries : previewTrail;
+  const auditRows = rowsForTable.length
+    ? rowsForTable
+      .slice(0, 50)
+      .map(
+        (ev) => `<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:8px 6px;font-size:11px;color:var(--text-tertiary);white-space:nowrap;vertical-align:top">${esc(ev.created_at || '')}</td>
+        <td style="padding:8px 6px;font-size:11px;vertical-align:top"><span class="pill pill-inactive">${esc(ev.event_type || '')}</span></td>
+        <td style="padding:8px 6px;font-size:12px;color:var(--text-secondary);line-height:1.4">${esc(ev.message || '')}${ev.actor_id ? ` <span style="color:var(--text-tertiary)">(${esc(ev.actor_id)})</span>` : ''}</td>
+      </tr>`,
+      )
+      .join('')
+    : '';
+
+  const livePapers = evLive && typeof evLive.total_papers === 'number' ? evLive.total_papers : null;
+  const corpusBanner = livePapers != null
+    ? `<div role="status" style="padding:10px 12px;margin-bottom:14px;border-radius:10px;border:1px solid rgba(46,196,182,0.28);background:rgba(46,196,182,0.08);font-size:12px;line-height:1.45;color:var(--text-secondary)">
+        <strong style="color:var(--text-primary)">Live evidence corpus:</strong>
+        ${livePapers.toLocaleString()} papers indexed${evLive.last_updated ? ` · updated ${esc(String(evLive.last_updated))}` : ''}.
+        Literature excerpts below use the same database as Research Evidence when deployed.
+      </div>`
+    : '';
 
   return `
     <div class="ds-nutrition-analyzer-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px">
       <div id="na-demo-banner"></div>
+      ${corpusBanner}
+      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px">
+        <button type="button" class="btn btn-primary btn-sm" data-na-recompute style="min-height:44px">
+          Recompute snapshot
+        </button>
+        <span style="font-size:11px;color:var(--text-tertiary)">Re-runs aggregation + literature picks; writes an audit event.</span>
+      </div>
       <div style="padding:12px 14px;border-radius:12px;border:1px solid rgba(155,127,255,0.28);background:rgba(155,127,255,0.06);margin-bottom:14px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
         <strong style="color:var(--text-primary)">Clinical decision-support only.</strong>
         This view does not prescribe diets, doses, or supplements. All outputs require clinician interpretation and local formulary/policy checks.
@@ -298,8 +332,24 @@ function renderPage(payload, patientLabel, navigate, patientId) {
         ${evHtml}
       </div>
 
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:22px">
+        <div style="font-weight:600;margin-bottom:8px">Clinician review note</div>
+        <textarea id="na-review-note" data-na-review-note rows="3" aria-label="Clinician review note" placeholder="Document clinical judgment, follow-ups, or overrides (saved to audit trail)…" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text-primary);font-size:13px;resize:vertical;box-sizing:border-box;margin-bottom:8px"></textarea>
+        <button type="button" class="btn btn-secondary btn-sm" data-na-save-note style="min-height:44px">Save review note</button>
+      </div>
+
       <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px">
-        ${auditStub}
+        <div style="font-weight:600;margin-bottom:10px">Audit trail</div>
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;margin-bottom:10px">
+          Summary: <strong>${esc(String(audit.total_events ?? '—'))}</strong> events · last <strong>${esc(audit.last_event_at || '—')}</strong>
+          (${esc(audit.last_event_type || '—')})
+          ${auditFetchFailed ? ' · <span style="color:var(--amber)">Could not load full list — check network.</span>' : ''}
+        </div>
+        ${
+  auditRows
+    ? `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">${auditRows}</table></div>`
+    : `<div style="font-size:12px;color:var(--text-secondary)">No audit events yet. Recompute or save a review note to populate.</div>`
+}
       </div>
     </div>`;
 }
@@ -353,10 +403,25 @@ export async function pgNutritionAnalyzer(setTopbar, navigate) {
     }
 
     const token = api.getToken?.() || null;
+    let auditEntries = [];
+    let auditFetchFailed = false;
+    let evidenceLiveStatus = null;
+
     if (patientId && token && !isDemoSession()) {
       try {
         payload = await api.getNutritionAnalyzerPayload(patientId);
         usingFixtures = false;
+        try {
+          const aud = await api.getNutritionAnalyzerAudit(patientId);
+          auditEntries = Array.isArray(aud?.items) ? aud.items : [];
+        } catch {
+          auditFetchFailed = true;
+        }
+        try {
+          evidenceLiveStatus = await api.evidenceStatus();
+        } catch {
+          evidenceLiveStatus = null;
+        }
       } catch (e) {
         const msg = (e && e.message) || String(e);
         if (isDemoSession()) {
@@ -371,6 +436,11 @@ export async function pgNutritionAnalyzer(setTopbar, navigate) {
     } else {
       payload = ANALYZER_DEMO_FIXTURES.nutrition.payload(patientId);
       usingFixtures = true;
+      try {
+        evidenceLiveStatus = await api.evidenceStatus();
+      } catch {
+        evidenceLiveStatus = null;
+      }
     }
 
     if (!payload) {
@@ -378,7 +448,11 @@ export async function pgNutritionAnalyzer(setTopbar, navigate) {
       return;
     }
 
-    slot.innerHTML = renderPage(payload, label, navigate, patientId);
+    slot.innerHTML = renderPage(payload, label, navigate, patientId, {
+      auditEntries,
+      evidenceLiveStatus,
+      auditFetchFailed,
+    });
     const ban = slot.querySelector('#na-demo-banner');
     if (ban) {
       ban.innerHTML = usingFixtures && isDemoSession() ? DEMO_FIXTURE_BANNER_HTML : '';
@@ -405,6 +479,56 @@ export async function pgNutritionAnalyzer(setTopbar, navigate) {
         _navWithPatient(navigate, 'research-evidence', patientId);
       });
     });
+
+    const noteTa = slot.querySelector('[data-na-review-note]');
+    const saveBtn = slot.querySelector('[data-na-save-note]');
+    const recBtn = slot.querySelector('[data-na-recompute]');
+
+    if (saveBtn && patientId && token && !isDemoSession()) {
+      saveBtn.addEventListener('click', async () => {
+        const text = (noteTa && noteTa.value) ? String(noteTa.value).trim() : '';
+        if (!text) {
+          try { noteTa && noteTa.focus(); } catch {}
+          return;
+        }
+        saveBtn.disabled = true;
+        try {
+          await api.postNutritionReviewNote(patientId, { note: text });
+          if (noteTa) noteTa.value = '';
+          await load();
+        } catch (err) {
+          const msg = (err && err.message) || String(err);
+          window.alert?.(`Could not save note: ${msg}`);
+        } finally {
+          saveBtn.disabled = false;
+        }
+      });
+    } else if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.title = 'Sign in as a clinician with a patient selected to save notes.';
+    }
+
+    if (recBtn && patientId && token && !isDemoSession()) {
+      recBtn.addEventListener('click', async () => {
+        recBtn.disabled = true;
+        const prev = recBtn.textContent;
+        recBtn.textContent = 'Refreshing…';
+        try {
+          await api.recomputeNutritionAnalyzer(patientId);
+          await load();
+        } catch (err) {
+          const msg = (err && err.message) || String(err);
+          window.alert?.(`Recompute failed: ${msg}`);
+          await load();
+        } finally {
+          recBtn.disabled = false;
+          recBtn.textContent = prev || 'Recompute snapshot';
+        }
+      });
+    } else if (recBtn) {
+      recBtn.disabled = true;
+      recBtn.title = 'Available when authenticated with a patient context.';
+    }
   }
 
   await load();

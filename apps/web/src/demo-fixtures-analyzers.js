@@ -887,6 +887,22 @@ function _nutritionDemoPayload(patientId) {
       last_event_at: '2026-05-01T14:22:00Z',
       last_event_type: 'review_note',
     }),
+    audit_trail_preview: Object.freeze([
+      Object.freeze({
+        id: 'demo-audit-1',
+        event_type: 'review_note',
+        message: 'Reviewed supplement stack; patient to confirm iron timing with PCP.',
+        created_at: '2026-05-01T14:22:00Z',
+        actor_id: 'clinician-demo',
+      }),
+      Object.freeze({
+        id: 'demo-audit-2',
+        event_type: 'recompute',
+        message: 'Recompute requested. computation_id=demo',
+        created_at: '2026-04-28T10:15:00Z',
+        actor_id: 'clinician-demo',
+      }),
+    ]),
   });
 }
 
