@@ -124,6 +124,9 @@ from app.routers.caregiver_delivery_concern_aggregator_router import (
 from app.routers.caregiver_delivery_concern_resolution_router import (
     router as caregiver_delivery_concern_resolution_router,
 )
+from app.routers.caregiver_delivery_concern_resolution_audit_hub_router import (
+    router as caregiver_delivery_concern_resolution_audit_hub_router,
+)
 from app.routers.audit_trail_router import router as audit_trail_router
 # Settings API routers (foundation scaffolded by backend subagent #1; endpoints
 # fleshed out by backend subagents #3–#6). See apps/api/SETTINGS_API_DESIGN.md.
@@ -459,6 +462,14 @@ app.include_router(caregiver_delivery_concern_aggregator_router)
 # worker consults so resolved caregivers are not re-flagged inside the
 # cooldown window. Pure CRUD/action router; no companion worker.
 app.include_router(caregiver_delivery_concern_resolution_router)
+# Caregiver Delivery Concern Resolution Audit Hub (DCR2, 2026-05-02). Cohort
+# dashboard built on the DCR1 audit trail — distribution of resolution reasons
+# (concerns_addressed / false_positive / caregiver_replaced / other) over time
+# so admins can calibrate the DCA threshold (high false_positive → raise) and
+# invest in delivery infrastructure when caregiver_replaced spikes. Read-only,
+# clinician minimum, no companion worker. Source data is the existing
+# caregiver_portal.delivery_concern_resolved audit rows emitted by DCR1.
+app.include_router(caregiver_delivery_concern_resolution_audit_hub_router)
 # Escalation Policy Editor (2026-05-01) — admin-only configurable
 # dispatch order + per-surface override matrix + per-user contact mapping.
 # Replaces the hard-coded DEFAULT_ADAPTER_ORDER and contact_handle path
