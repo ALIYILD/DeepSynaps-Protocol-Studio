@@ -16,4 +16,6 @@ test('pgMedicationAnalyzer renders disclaimer and test id', async () => {
   assert.ok(html.includes('data-testid="medication-analyzer-page"'));
   assert.ok(html.includes('Clinical decision-support'));
   assert.ok(html.includes('Does not prescribe'));
+  assert.ok(html.includes('Save note'));
+  assert.ok(html.includes('Add timeline annotation'));
 });

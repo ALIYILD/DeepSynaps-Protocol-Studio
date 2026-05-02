@@ -84,6 +84,8 @@ def test_analyzer_payload_contains_schema_and_research_disclosures(
     rd = data.get("regulatory_disclosures") or {}
     assert "limitations" in rd
     assert rd.get("not_intended_for")
+    assert "persisted_review_notes" in data
+    assert isinstance(data["persisted_review_notes"], list)
 
 
 def test_analyzer_review_note_persisted(
@@ -98,6 +100,11 @@ def test_analyzer_review_note_persisted(
     assert note.status_code == 200, note.text
     body = note.json()
     assert body.get("note_id")
+    fp = body.get("full_payload")
+    assert fp is not None
+    assert any(
+        "chart verified" in (n.get("note_text") or "") for n in (fp.get("persisted_review_notes") or [])
+    )
 
     aud = client.get(
         f"/api/v1/medications/analyzer/patient/{pid}/audit",

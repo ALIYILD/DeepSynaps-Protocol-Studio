@@ -163,6 +163,7 @@ function _medicationAnalyzerDemoPayload(patientId) {
     ],
     evidence_links: [],
     audit_ref: 'demo-med-analyzer',
+    persisted_review_notes: [],
     regulatory_disclosures: {
       intended_use: 'Clinical decision-support for structured regimen review and confound prompts (demo).',
       not_intended_for: ['Autonomous prescribing', 'Replacement for pharmacy systems'],
@@ -220,6 +221,61 @@ function _demoSyntheticResponse(path, method) {
       demo: true,
       entries: [],
       review_notes: [],
+    };
+  }
+  const medAzTimeline = path.match(
+    /^\/api\/v1\/medications\/analyzer\/patient\/([^/?]+)\/timeline-event$/,
+  );
+  if (medAzTimeline && method === 'POST') {
+    const pid = decodeURIComponent(medAzTimeline[1]);
+    const base = _medicationAnalyzerDemoPayload(pid);
+    const evId = 'demo-ev-' + Date.now();
+    base.timeline = (base.timeline || []).concat([
+      {
+        id: evId,
+        patient_id: pid,
+        event_type: 'clinician_annotation',
+        occurred_at: new Date().toISOString(),
+        medication_id: null,
+        payload: { demo: true },
+        source: {
+          origin: 'demo_session',
+          recorded_at: new Date().toISOString(),
+          confidence: 1,
+        },
+        confidence: 1,
+      },
+    ]);
+    return {
+      ok: true,
+      demo: true,
+      event: base.timeline[base.timeline.length - 1],
+      full_payload: base,
+    };
+  }
+  const medAzNote = path.match(
+    /^\/api\/v1\/medications\/analyzer\/patient\/([^/?]+)\/review-note$/,
+  );
+  if (medAzNote && method === 'POST') {
+    const pid = decodeURIComponent(medAzNote[1]);
+    const base = _medicationAnalyzerDemoPayload(pid);
+    const nid = 'demo-note-' + Date.now();
+    const created = new Date().toISOString();
+    base.persisted_review_notes = (base.persisted_review_notes || []).concat([
+      {
+        note_id: nid,
+        patient_id: pid,
+        actor_id: 'demo',
+        created_at: created,
+        note_text: '(Demo session — saved locally only in preview.)',
+        linked_recommendation_ids: [],
+      },
+    ]);
+    return {
+      note_id: nid,
+      created_at: created,
+      demo: true,
+      full_payload: base,
     };
   }
   // Mutations: pretend success (return a minimal accepted-shape object).
@@ -2278,6 +2334,11 @@ export const api = {
     }),
   medicationAnalyzerReviewNote: (patientId, body) =>
     apiFetch(`/api/v1/medications/analyzer/patient/${encodeURIComponent(patientId)}/review-note`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  medicationAnalyzerTimelineEvent: (patientId, body) =>
+    apiFetch(`/api/v1/medications/analyzer/patient/${encodeURIComponent(patientId)}/timeline-event`, {
       method: 'POST',
       body: JSON.stringify(body),
     }),

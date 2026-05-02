@@ -97,6 +97,38 @@ def _med_rows_for_patient(
     return rows
 
 
+def _review_notes_from_db(db: Session, patient_id: str) -> list[dict[str, Any]]:
+    rows = (
+        db.execute(
+            select(MedicationAnalyzerReviewNote)
+            .where(MedicationAnalyzerReviewNote.patient_id == patient_id)
+            .order_by(MedicationAnalyzerReviewNote.created_at.desc())
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        {
+            "note_id": r.id,
+            "patient_id": r.patient_id,
+            "actor_id": r.actor_id,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "note_text": r.note_text,
+            "linked_recommendation_ids": json.loads(r.linked_recommendation_ids_json or "[]"),
+        }
+        for r in rows
+    ]
+
+
+def _assemble_payload(db: Session, patient_id: str, actor: AuthenticatedActor) -> dict[str, Any]:
+    """Full analyzer JSON including persisted review notes (no audit side-effects)."""
+    rows = _med_rows_for_patient(db, patient_id, actor)
+    extra_tl = _timeline_rows_from_db(db, patient_id)
+    payload = build_page_payload(patient_id, rows, extra_timeline_events=extra_tl)
+    payload["persisted_review_notes"] = _review_notes_from_db(db, patient_id)
+    return payload
+
+
 def _timeline_rows_from_db(db: Session, patient_id: str) -> list[dict[str, Any]]:
     q = (
         select(MedicationAnalyzerTimelineEvent)
@@ -231,6 +263,7 @@ class TimelineEventInput(BaseModel):
 class TimelineEventResponse(BaseModel):
     ok: bool = True
     event: dict[str, Any]
+    full_payload: Optional[dict[str, Any]] = None
 
 
 class ReviewNoteBody(BaseModel):
@@ -241,6 +274,7 @@ class ReviewNoteBody(BaseModel):
 class ReviewNoteResponse(BaseModel):
     note_id: str
     created_at: str
+    full_payload: Optional[dict[str, Any]] = None
 
 
 class AuditListResponse(BaseModel):
@@ -258,9 +292,7 @@ def get_medication_analyzer_payload(
     require_minimum_role(actor, "clinician")
     _gate_patient_access(actor, patient_id, db)
 
-    rows = _med_rows_for_patient(db, patient_id, actor)
-    extra_tl = _timeline_rows_from_db(db, patient_id)
-    payload = build_page_payload(patient_id, rows, extra_timeline_events=extra_tl)
+    payload = _assemble_payload(db, patient_id, actor)
 
     _persist_analyzer_audit(
         db,
@@ -285,9 +317,7 @@ def recompute_medication_analyzer(
     require_minimum_role(actor, "clinician")
     _gate_patient_access(actor, patient_id, db)
 
-    rows = _med_rows_for_patient(db, patient_id, actor)
-    extra_tl = _timeline_rows_from_db(db, patient_id)
-    payload = build_page_payload(patient_id, rows, extra_timeline_events=extra_tl)
+    payload = _assemble_payload(db, patient_id, actor)
 
     _persist_analyzer_audit(
         db,
@@ -381,7 +411,8 @@ def add_timeline_event(
         detail={"event_id": eid},
     )
     _umbrella_audit(db, actor, event="timeline_event_create", patient_id=patient_id, note=eid)
-    return TimelineEventResponse(ok=True, event=ev)
+    full = _assemble_payload(db, patient_id, actor)
+    return TimelineEventResponse(ok=True, event=ev, full_payload=full)
 
 
 @router.post("/patient/{patient_id}/review-note", response_model=ReviewNoteResponse)
@@ -423,7 +454,8 @@ def add_review_note(
         patient_id=patient_id,
         note=f"id={nid}",
     )
-    return ReviewNoteResponse(note_id=nid, created_at=created)
+    full = _assemble_payload(db, patient_id, actor)
+    return ReviewNoteResponse(note_id=nid, created_at=created, full_payload=full)
 
 
 @router.get("/patient/{patient_id}/audit", response_model=AuditListResponse)

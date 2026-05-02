@@ -55,7 +55,7 @@ function _renderRegulatoryDisclosures(rd) {
 
 function _renderTimeline(events) {
   if (!events || !events.length) {
-    return '<div style="color:var(--text-tertiary);font-size:12px">No timeline events (add annotations via API or future UI).</div>';
+    return '<div style="color:var(--text-tertiary);font-size:12px">No timeline events yet — add one below or enter meds on the patient chart.</div>';
   }
   const rows = events.slice(-40).map((e) => {
     const t = esc(e.event_type || 'event');
@@ -66,6 +66,21 @@ function _renderTimeline(events) {
     </div>`;
   });
   return `<div>${rows.join('')}</div>`;
+}
+
+function _renderReviewNotes(notes) {
+  const list = Array.isArray(notes) ? notes : [];
+  if (!list.length) {
+    return '<div style="color:var(--text-tertiary);font-size:12px">No saved notes yet.</div>';
+  }
+  return `<div style="font-size:12px;line-height:1.5">${list.map((n) => {
+    const when = esc(n.created_at || '');
+    const txt = esc(n.note_text || '');
+    return `<div style="margin-bottom:12px;padding:10px;border-radius:10px;border:1px solid var(--border);background:rgba(255,255,255,.02)">
+      <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:4px">${when}</div>
+      <div style="color:var(--text-secondary);white-space:pre-wrap">${txt}</div>
+    </div>`;
+  }).join('')}</div>`;
 }
 
 function _listSection(title, items, render) {
@@ -116,13 +131,44 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
           <div id="ma-research" style="padding:0 14px 14px"></div>
         </details>
         <h2 style="font-size:15px;font-weight:700;margin:0 0 12px">Medication timeline (derived + saved annotations)</h2>
-        <div id="ma-timeline" style="margin-bottom:20px"></div>
+        <div id="ma-timeline" style="margin-bottom:16px"></div>
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:20px">
+          <div style="font-weight:600;margin-bottom:10px;font-size:13px">Add timeline annotation</div>
+          <div style="display:grid;gap:10px;grid-template-columns:1fr 1fr">
+            <div>
+              <label style="display:block;font-size:11px;color:var(--text-tertiary);margin-bottom:4px">Event type</label>
+              <select id="ma-te-type" class="form-control">
+                <option value="side_effect_report">Side-effect report</option>
+                <option value="missed_dose">Missed dose</option>
+                <option value="dose_change_external">Dose change (external/EHR)</option>
+                <option value="symptom_change">Symptom change</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div>
+              <label style="display:block;font-size:11px;color:var(--text-tertiary);margin-bottom:4px">Occurred at (ISO)</label>
+              <input id="ma-te-when" class="form-control" placeholder="2026-05-01T14:00:00Z" />
+            </div>
+          </div>
+          <label style="display:block;font-size:11px;color:var(--text-tertiary);margin:10px 0 4px">Detail (optional)</label>
+          <textarea id="ma-te-detail" class="form-control" rows="2" placeholder="Brief note — persisted for research audit"></textarea>
+          <button type="button" class="btn btn-primary btn-sm" id="ma-te-save" style="margin-top:10px">Save annotation</button>
+          <span id="ma-te-status" style="margin-left:10px;font-size:12px;color:var(--text-tertiary)"></span>
+        </div>
         <h2 style="font-size:15px;font-weight:700;margin:0 0 12px">Safety & interactions</h2>
         <div id="ma-safety"></div>
         <h2 style="font-size:15px;font-weight:700;margin:16px 0 12px">Possible confounds (biomarker / symptom context)</h2>
         <div id="ma-confounds"></div>
         <h2 style="font-size:15px;font-weight:700;margin:16px 0 12px">Recommended review actions</h2>
         <div id="ma-recs"></div>
+        <h2 style="font-size:15px;font-weight:700;margin:20px 0 12px">Clinician review notes (persisted)</h2>
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:16px">
+          <label style="display:block;font-size:11px;color:var(--text-tertiary);margin-bottom:4px">New note</label>
+          <textarea id="ma-note-text" class="form-control" rows="3" placeholder="Documentation for chart review, IRB, or handoff — not a prescription"></textarea>
+          <button type="button" class="btn btn-primary btn-sm" id="ma-note-save" style="margin-top:10px">Save note</button>
+          <span id="ma-note-status" style="margin-left:10px;font-size:12px;color:var(--text-tertiary)"></span>
+        </div>
+        <div id="ma-notes-list" style="margin-bottom:20px"></div>
         <details style="margin-top:12px;border:1px solid var(--border);border-radius:12px;background:var(--bg-card)">
           <summary style="cursor:pointer;padding:12px 14px;font-weight:600">Persisted review notes & audit (server)</summary>
           <div id="ma-audit-strip" style="padding:0 14px 14px;font-size:12px;color:var(--text-secondary)"></div>
@@ -136,10 +182,17 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
   const statusEl = () => document.getElementById('ma-status');
   const bodyEl = () => document.getElementById('ma-body');
 
+  async function applyPayload(data) {
+    renderPayload(data);
+    await loadAuditStrip(document.getElementById('ma-patient-id')?.value?.trim());
+  }
+
   function renderPayload(data) {
+    document.getElementById('ma-snapshot').innerHTML = _renderSnapshot(data.snapshot);
     document.getElementById('ma-research').innerHTML = _renderRegulatoryDisclosures(data.regulatory_disclosures);
     document.getElementById('ma-timeline').innerHTML = _renderTimeline(data.timeline || []);
-    document.getElementById('ma-snapshot').innerHTML = _renderSnapshot(data.snapshot);
+    const nl = document.getElementById('ma-notes-list');
+    if (nl) nl.innerHTML = _renderReviewNotes(data.persisted_review_notes);
     document.getElementById('ma-safety').innerHTML = _listSection(
       'Alerts',
       data.safety_alerts || [],
@@ -172,13 +225,19 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
 
   async function loadAuditStrip(pid) {
     const strip = document.getElementById('ma-audit-strip');
-    if (!strip) return;
+    if (!strip || !pid) return;
     strip.textContent = 'Loading audit…';
     try {
       const j = await api.medicationAnalyzerAudit(pid);
       const nNotes = (j.review_notes || []).length;
       const nAud = (j.entries || []).length;
-      strip.innerHTML = `<div>${esc(String(nNotes))} saved review note(s) · ${esc(String(nAud))} analyzer audit row(s) on server.</div>`;
+      const recent = (j.entries || []).slice(0, 6).map((e) => {
+        const act = esc(e.action || '');
+        const at = esc(e.at || '');
+        return `<div style="padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--text-tertiary)">${at}</span> · ${act}</div>`;
+      }).join('');
+      strip.innerHTML = `<div style="margin-bottom:10px">${esc(String(nNotes))} saved review note(s) · ${esc(String(nAud))} analyzer audit row(s)</div>`
+        + (recent ? `<div style="max-height:160px;overflow:auto">${recent}</div>` : '');
     } catch (e) {
       strip.textContent = esc(e.message || String(e));
     }
@@ -203,6 +262,64 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
   }
 
   document.getElementById('ma-load')?.addEventListener('click', load);
+  document.getElementById('ma-note-save')?.addEventListener('click', async () => {
+    const pid = document.getElementById('ma-patient-id')?.value?.trim();
+    const txt = document.getElementById('ma-note-text')?.value?.trim();
+    const st = document.getElementById('ma-note-status');
+    if (!pid) { if (st) st.textContent = 'Enter patient id.'; return; }
+    if (!txt) { if (st) st.textContent = 'Enter note text.'; return; }
+    if (st) st.textContent = 'Saving…';
+    try {
+      const res = await api.medicationAnalyzerReviewNote(pid, {
+        note_text: txt,
+        linked_recommendation_ids: [],
+      });
+      document.getElementById('ma-note-text').value = '';
+      if (res.full_payload) {
+        await applyPayload(res.full_payload);
+      } else {
+        await load();
+      }
+      if (st) st.textContent = 'Saved.';
+    } catch (e) {
+      if (st) st.textContent = esc(e.message || String(e));
+    }
+  });
+
+  document.getElementById('ma-te-save')?.addEventListener('click', async () => {
+    const pid = document.getElementById('ma-patient-id')?.value?.trim();
+    const type = document.getElementById('ma-te-type')?.value || 'other';
+    let when = document.getElementById('ma-te-when')?.value?.trim();
+    const detail = document.getElementById('ma-te-detail')?.value?.trim();
+    const st = document.getElementById('ma-te-status');
+    if (!pid) { if (st) st.textContent = 'Load patient first.'; return; }
+    if (!when) {
+      try {
+        when = new Date().toISOString();
+        document.getElementById('ma-te-when').value = when;
+      } catch {
+        when = '';
+      }
+    }
+    if (st) st.textContent = 'Saving…';
+    try {
+      const res = await api.medicationAnalyzerTimelineEvent(pid, {
+        event_type: type,
+        occurred_at: when,
+        payload: detail ? { detail } : {},
+      });
+      document.getElementById('ma-te-detail').value = '';
+      if (res.full_payload) {
+        await applyPayload(res.full_payload);
+      } else {
+        await load();
+      }
+      if (st) st.textContent = 'Saved.';
+    } catch (e) {
+      if (st) st.textContent = esc(e.message || String(e));
+    }
+  });
+
   document.getElementById('ma-recompute')?.addEventListener('click', async () => {
     const pid = document.getElementById('ma-patient-id')?.value?.trim();
     if (!pid) {
