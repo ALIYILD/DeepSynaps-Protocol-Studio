@@ -231,6 +231,7 @@ except ImportError as _qa_imp_err:
     )
 from app.routers.qeeg_raw_router import router as qeeg_raw_router
 from app.routers.qeeg_ai_router import router as qeeg_ai_router
+from app.routers.ai_health_router import router as ai_health_router
 from app.sentry_setup import init_sentry
 from app.settings import get_settings
 from app.services.brain_regions import list_brain_regions
@@ -428,6 +429,7 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title=settings.api_title, version=settings.api_version, lifespan=lifespan)
+app.include_router(ai_health_router)
 app.include_router(auth_router)
 app.include_router(payments_router)
 app.include_router(agent_billing_router)
