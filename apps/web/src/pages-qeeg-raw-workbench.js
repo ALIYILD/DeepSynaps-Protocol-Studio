@@ -1578,7 +1578,8 @@ function toolBar(state) {
   return `
   <div class="qwb-toolbar">
     <div class="qwb-tb-group">
-      <button class="qwb-tb-btn" id="qwb-back" data-testid="qwb-back-analyzer">← Back</button>
+      <button class="qwb-tb-btn" id="qwb-back" data-testid="qwb-back-analyzer">← Back to qEEG Analyzer</button>
+      <button class="qwb-tb-btn" id="qwb-back-patient" data-testid="qwb-back-patient" title="Back to patient summary">← Patient</button>
     </div>
     <div class="qwb-tb-group">
       <span class="qwb-tb-label">Speed</span>${num('qwb-speed', state.speed, 'mm/s')}
@@ -1598,14 +1599,17 @@ function toolBar(state) {
       <span class="qwb-tb-label">Window</span>${sel('qwb-timebase', TIMEBASES.map(t=>`${t}s`), `${state.timebase}s`)}
     </div>
     <div class="qwb-tb-group">
-      <button class="qwb-tb-btn" id="qwb-event-prev" data-testid="qwb-event-prev" title="Jump to previous event">◀ Ev</button>
+      <button class="qwb-tb-btn" id="qwb-event-prev" data-testid="qwb-event-prev" title="Jump to previous event">◀ Prev</button>
       <button class="qwb-tb-btn" id="qwb-prev-window" data-testid="qwb-prev-window" title="Previous window">◀</button>
       <button class="qwb-tb-btn" id="qwb-play" data-testid="qwb-play" title="Play / pause">▶</button>
       <button class="qwb-tb-btn" id="qwb-next-window" data-testid="qwb-next-window" title="Next window">▶</button>
-      <button class="qwb-tb-btn" id="qwb-event-next" data-testid="qwb-event-next" title="Jump to next event">Ev ▶</button>
+      <button class="qwb-tb-btn" id="qwb-event-next" data-testid="qwb-event-next" title="Jump to next event">Next ▶</button>
     </div>
     <div class="qwb-tb-group">
       <button class="qwb-tb-btn" id="qwb-quick-snapshot" data-testid="qwb-quick-snapshot" title="Snapshot PNG">⤓</button>
+      <button class="qwb-tb-btn" id="qwb-quick-export" data-testid="qwb-quick-export" title="Quick export">⇪</button>
+      <button class="qwb-tb-btn" id="qwb-quick-save" data-testid="qwb-quick-save" title="Quick save">💾</button>
+      <button class="qwb-tb-btn" id="qwb-quick-rerun" data-testid="qwb-quick-rerun" title="Quick reprocess">↻</button>
       <button class="qwb-tb-btn" id="qwb-quick-spectral" data-testid="qwb-quick-spectral" title="Spectral view">∿</button>
       <button class="qwb-tb-btn" id="qwb-compare" title="Raw vs Cleaned">⇄</button>
     </div>
@@ -1614,8 +1618,9 @@ function toolBar(state) {
     </div>
     <div class="qwb-tb-group" style="border-right:0">
       <button class="qwb-tb-btn" id="qwb-export" data-testid="qwb-export">Export…</button>
-      <button class="qwb-tb-btn primary" id="qwb-save" data-testid="qwb-save">Save</button>
-      <button class="qwb-tb-btn ai" id="qwb-rerun" data-testid="qwb-rerun">✦ Re-run</button>
+      <button class="qwb-tb-btn primary" id="qwb-save" data-testid="qwb-save">Save Cleaning Version</button>
+      <button class="qwb-tb-btn ai" id="qwb-rerun" data-testid="qwb-rerun">✦ Re-run qEEG</button>
+      <button class="qwb-tb-btn" id="qwb-return-report" data-testid="qwb-return-report" title="Return to clinical report">Return to Report</button>
       <button class="qwb-tb-btn help-circle" id="qwb-shortcuts" data-testid="qwb-help" title="Keyboard shortcuts (?)">?</button>
     </div>
   </div>`;
@@ -5261,6 +5266,8 @@ var SPECTRAL_BANDS = [
   { label: 'Gamma', lo: 30, hi: 50, color: '#7a4ea3' },
 ];
 
+// Spectral view coming in v0.3 — windowed FFT (Welch-style) per channel with
+// per-band power bars. Surfaced from the toolbar quick-action #qwb-quick-spectral.
 function openSpectralView(state) {
   try {
   // Compute FFT from current window signals
