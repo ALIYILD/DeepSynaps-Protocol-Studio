@@ -19,6 +19,13 @@ jobs:
           cache-dependency-path: package-lock.json
       - name: Install dependencies
         run: npm ci
+      - name: api-client — drift check
+        # Fails if packages/api-client/openapi.json was updated without
+        # regenerating src/openapi-types.ts (or vice versa). See
+        # packages/api-client/README.md for the regeneration command.
+        run: npm run api-client:check-drift
+      - name: api-client — typecheck
+        run: npm run typecheck --workspace @deepsynaps/api-client
       - name: Web unit tests (registries)
         run: npm run test:unit --workspace @deepsynaps/web
       - name: Build
