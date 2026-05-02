@@ -176,6 +176,22 @@ function _isDemoMode() {
   } catch (_) { return false; }
 }
 
+// Banner when preview/dev loads the canned DEMO_MRI_REPORT (matches qEEG Analyzer UX).
+function _mriDemoBanner() {
+  return '<div data-demo="true" data-testid="mri-demo-banner" role="note" style="background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.2);border-radius:8px;padding:8px 14px;margin:0 0 12px;font-size:12px;color:var(--amber);display:flex;align-items:flex-start;gap:8px;line-height:1.5">'
+    + '<span aria-hidden="true">&#x1F4CB;</span><span><strong>Sample MRI analysis — clinician review required.</strong> '
+    + 'Targets, QC, and literature below reflect <code>DEMO</code> data from <code>sample_mri_report.json</code> — not for clinical use. '
+    + 'Upload a real DICOM zip or NIfTI and run analysis for live pipeline output.</span></div>';
+}
+
+function _shouldShowMRIDemoBanner() {
+  if (!_isDemoMode()) return false;
+  if (_uploadId === 'demo') return true;
+  if (_mriAnalysisId === DEMO_MRI_REPORT.analysis_id) return true;
+  if (_report && _report.analysis_id === DEMO_MRI_REPORT.analysis_id) return true;
+  return false;
+}
+
 // ── XSS helper ──────────────────────────────────────────────────────────────
 function esc(v) {
   if (v == null) return '';
@@ -2379,6 +2395,7 @@ export function renderFullView(state) {
   state = state || {};
   var report = state.report || null;
   var status = state.status || null;
+  var showDemoBanner = !!state.showDemoBanner || _shouldShowMRIDemoBanner();
 
   var left = renderUploader()
     + renderPatientMetaForm()
@@ -2414,6 +2431,7 @@ export function renderFullView(state) {
 
   return '<div class="ch-shell ds-mri-shell">'
     + renderDemoLiveBanner()
+    + (showDemoBanner ? _mriDemoBanner() : '')
     + renderHero(state.patientAnalyses)
     + '<div class="ds-mri-layout">'
     + '<div class="ds-mri-col ds-mri-col--left">' + left + '</div>'
