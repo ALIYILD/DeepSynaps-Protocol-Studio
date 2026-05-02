@@ -1,8 +1,4 @@
 import { isDemoSession } from './demo-session.js';
-import {
-  buildMovementAnalyzerDemoPayload,
-  movementDemoAudit,
-} from './demo-fixtures-movement-analyzer.js';
 
 const DEMO_PATIENTS = Object.freeze([
   Object.freeze({
@@ -1035,11 +1031,6 @@ const _MOVEMENT = {
   clinic_summary: _movementClinicSummary,
   patient_profile: _movementProfileFor,
   patient_audit: _movementAuditFor,
-  /** Multimodal workspace demo (GET payload shape) — used by Movement Analyzer workspace UI */
-  workspace: {
-    patient: buildMovementAnalyzerDemoPayload,
-    audit: movementDemoAudit,
-  },
 };
 
 export const ANALYZER_DEMO_FIXTURES = Object.freeze({
@@ -1053,8 +1044,8 @@ export const ANALYZER_DEMO_FIXTURES = Object.freeze({
   video: _VIDEO,
   medication: _MEDICATION,
   treatmentSessions: _TREATMENT_SESSIONS,
-  movement: _MOVEMENT,
   phenotype: _PHENOTYPE,
+  movement: _MOVEMENT,
 });
 
 export function isFixtureFallbackActive() {
@@ -1067,4 +1058,3 @@ export const DEMO_FIXTURE_BANNER_HTML =
   + '</div>';
 
 export default ANALYZER_DEMO_FIXTURES;
-export { buildMovementAnalyzerDemoPayload } from './demo-fixtures-movement-analyzer.js';

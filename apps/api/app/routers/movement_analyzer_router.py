@@ -27,12 +27,18 @@ from app.services.movement_analyzer import (
 router = APIRouter(prefix="/api/v1/movement/analyzer", tags=["Movement Analyzer"])
 
 
+# core-schema-exempt: minimal router-local request body; not reused outside this router
 class RecomputeRequest(BaseModel):
     reason: Optional[str] = None
 
 
+# core-schema-exempt: minimal router-local request body; accepts {message} (frontend) or {note} (legacy); not reused outside this router
 class AnnotationRequest(BaseModel):
-    note: str = Field(..., min_length=1, max_length=8000)
+    note: Optional[str] = Field(default=None, max_length=8000)
+    message: Optional[str] = Field(default=None, max_length=8000)
+
+    def text(self) -> str:
+        return (self.message or self.note or "").strip()
 
 
 def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session) -> None:
@@ -113,11 +119,20 @@ def annotate_movement_analyzer(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> dict[str, Any]:
-    """Append clinician note to Movement Analyzer audit trail."""
+    """Append clinician note to Movement Analyzer audit trail.
+
+    Accepts either ``{message: str}`` (frontend contract from PR #452) or the
+    legacy ``{note: str}`` field. At least one must be non-empty.
+    """
     require_minimum_role(actor, "clinician")
     _gate_patient_access(actor, patient_id, db)
 
-    append_audit(patient_id, "annotate", actor.actor_id, {"note": body.note}, db)
+    text = body.text()
+    if not text:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail="annotation message required")
+
+    append_audit(patient_id, "annotate", actor.actor_id, {"note": text, "message": text}, db)
     return {"ok": True, "patient_id": patient_id}
 
 

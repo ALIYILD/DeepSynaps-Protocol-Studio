@@ -106,6 +106,85 @@ def _mood_stress_axis_label(
     return "; ".join(parts[:4])
 
 
+# ── PR #452 frontend contract adapter ────────────────────────────────────────
+# The Movement Analyzer page (apps/web/src/pages-movement-analyzer.js) was
+# shipped in PR #452 and reads a flatter shape than this service emits natively.
+# We expose BOTH shapes so the rich workspace data is preserved AND the page
+# renders without falling back to the demo-only branch.
+#
+# Frontend reads (per PR #452):
+#   patient_id, patient_name, captured_at,
+#   modalities: { bradykinesia|tremor|gait|posture|monitoring:
+#       { score:0-100, severity:'green'|'amber'|'red',
+#         confidence:0-1, contributing_factors:string[] } },
+#   source_video?: { recording_id, captured_at, duration_seconds },
+#   prior_scores?: [{ captured_at, modality, score }]
+
+_AXIS_TO_MODALITY = {
+    "bradykinesia": "bradykinesia",
+    "tremor": "tremor",
+    "gait": "gait",
+    "posture_balance": "posture",
+    "activity": "monitoring",
+}
+
+
+def _severity_from_axis_level(level: Optional[str]) -> str:
+    """Map cursor's axis 'level' vocabulary onto PR #452's severity colours."""
+    if not level:
+        return "amber"
+    lv = str(level).lower()
+    if lv in ("within_expected", "active", "available"):
+        return "green"
+    if lv in ("notable_concern", "low", "worsening"):
+        return "red"
+    # `not_assessed`, `indirect`, `sparse`, `mild_limitation`, `moderate`, `unknown` → amber
+    return "amber"
+
+
+def _score_from_severity_and_completeness(severity: str, completeness: float) -> int:
+    """Coarse 0–100 score used by the PR #452 modality cards.
+
+    Decision-support only; this is a UI heuristic so the page can render a
+    progress bar consistent with the severity colour. The richer numeric
+    detail lives in the full ``snapshot`` and ``domains`` blocks.
+    """
+    base = {"green": 25, "amber": 55, "red": 80}.get(severity, 50)
+    # Nudge by inverse completeness so very-sparse inputs show a slightly
+    # softened bar even when severity defaults to amber.
+    nudge = int((1.0 - max(0.0, min(1.0, completeness))) * 8)
+    return max(0, min(100, base + (nudge if severity != "green" else -nudge)))
+
+
+def _build_modalities_block(snapshot_axes: dict[str, dict[str, Any]], by_domain: dict[str, float]) -> dict[str, dict[str, Any]]:
+    """Project cursor's per-axis snapshot into the PR #452 modality shape."""
+    out: dict[str, dict[str, Any]] = {}
+    for axis_key, modality_key in _AXIS_TO_MODALITY.items():
+        axis = snapshot_axes.get(axis_key) or {}
+        severity = _severity_from_axis_level(axis.get("level"))
+        completeness = float(by_domain.get(axis_key, by_domain.get(modality_key, 0.3)) or 0.3)
+        confidence = float(axis.get("confidence") or 0.3)
+        label = axis.get("label") or ""
+        contributing: list[str] = []
+        if label:
+            contributing.append(str(label))
+        out[modality_key] = {
+            "score": _score_from_severity_and_completeness(severity, completeness),
+            "severity": severity,
+            "confidence": _clamp01(confidence),
+            "contributing_factors": contributing,
+        }
+    # Always include all five modality keys the frontend renders, even if axis missing.
+    for k in ("bradykinesia", "tremor", "gait", "posture", "monitoring"):
+        out.setdefault(k, {
+            "score": 50,
+            "severity": "amber",
+            "confidence": 0.3,
+            "contributing_factors": ["No structured signal available yet."],
+        })
+    return out
+
+
 def _safe_json_summary(blob: Optional[str], max_len: int = 240) -> str:
     if not blob:
         return ""
@@ -129,6 +208,19 @@ def build_movement_workspace_payload(patient_id: str, db: Session) -> dict[str, 
     """Build serialisable Movement Analyzer page payload from DB signals."""
     now = datetime.now(timezone.utc)
     generated_at = _iso(now)
+
+    # ── Patient name for PR #452 frontend contract ────────────────────────────
+    from app.persistence.models import Patient as _Patient
+
+    patient_name: Optional[str] = None
+    pat_row = db.execute(
+        select(_Patient.first_name, _Patient.last_name).where(_Patient.id == patient_id)
+    ).first()
+    if pat_row:
+        first = (pat_row[0] or "").strip()
+        last = (pat_row[1] or "").strip()
+        joined = f"{first} {last}".strip()
+        patient_name = joined or None
 
     # ── Video analysis aggregates ─────────────────────────────────────────────
     vid_rows = db.execute(
@@ -803,8 +895,25 @@ def build_movement_workspace_payload(patient_id: str, db: Session) -> dict[str, 
             "caveat": "Patient-reported data may be incomplete; wellness entries require patient sharing.",
         })
 
+    # ── PR #452 frontend contract projections (additive — coexist with rich blocks) ──
+    pr452_modalities = _build_modalities_block(snapshot_axes, by_domain)
+    pr452_source_video: Optional[dict[str, Any]] = None
+    if vid_rows:
+        pr452_source_video = {
+            "recording_id": None,  # VideoAnalysis row IDs are not user-facing recording IDs
+            "captured_at": last_video_at,
+            "duration_seconds": None,  # not modelled on VideoAnalysis
+        }
+
     payload: dict[str, Any] = {
+        # ── PR #452 frontend contract (flatter, decision-support page) ────────
         "patient_id": patient_id,
+        "patient_name": patient_name or patient_id,
+        "captured_at": last_video_at or generated_at,
+        "modalities": pr452_modalities,
+        "source_video": pr452_source_video,
+        "prior_scores": [],
+        # ── Rich workspace payload (cursor v0.2 — multimodal review) ──────────
         "generated_at": generated_at,
         "schema_version": SCHEMA_VERSION,
         "pipeline_version": PIPELINE_VERSION,
@@ -924,11 +1033,27 @@ def list_audit_events(patient_id: str, db: Session, limit: int = 50) -> list[dic
                 detail = json.loads(r.detail_json)
             except json.JSONDecodeError:
                 detail = {"raw": r.detail_json}
+        # Map cursor's internal action names to the frontend's `kind` vocabulary
+        # (PR #452 expects `recompute` | `annotation`).
+        action = r.action or ""
+        kind = "annotation" if action == "annotate" else action
+        # Compose a human-readable `message` for the frontend audit panel.
+        message = ""
+        if isinstance(detail, dict):
+            message = str(detail.get("message") or detail.get("note") or detail.get("reason") or "").strip()
+        if not message:
+            if kind == "recompute":
+                message = "Profile recomputed."
+            elif kind == "annotation":
+                message = "Clinician annotation."
         out.append({
             "id": r.id,
             "patient_id": r.patient_id,
-            "action": r.action,
+            "action": action,
+            "kind": kind,
             "actor_id": r.actor_id,
+            "actor": r.actor_id or "system",
+            "message": message,
             "created_at": _iso(r.created_at),
             "detail": detail,
         })
