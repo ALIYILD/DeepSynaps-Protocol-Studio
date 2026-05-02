@@ -3090,6 +3090,29 @@ export const api = {
       `/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/observations`,
       { method: 'POST', body: JSON.stringify(body || {}) },
     ),
+  getDigitalPhenotypingProfile: (patientId) =>
+    apiFetch(`/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}`),
+  addPhenotypingObservation: (patientId, body) =>
+    apiFetch(
+      `/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/observations`,
+      { method: 'POST', body: JSON.stringify(body || {}) },
+    ),
+  addPhenotypingAnnotation: (patientId, body) => {
+    const note = (body && (body.note || body.message)) || '';
+    return apiFetch(
+      `/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/observations/manual`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          kind: 'clinician_annotation',
+          notes: note,
+          ...(body && body.recorded_at ? { recorded_at: body.recorded_at } : {}),
+        }),
+      },
+    );
+  },
+  getPhenotypingAudit: (patientId) =>
+    apiFetch(`/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
 
   // ── Movement Analyzer (motor side-effects of psychiatric treatment) ───────
   getMovementProfile: (patientId) =>

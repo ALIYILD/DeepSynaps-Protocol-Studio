@@ -566,6 +566,302 @@ export function demoDigitalPhenotypingPayload(patientId) {
   return _digitalPhenotypingPayload(patientId);
 }
 
+const _DP_PROFILES = {
+  'demo-pt-samantha-li': {
+    patient_id: 'demo-pt-samantha-li',
+    patient_name: 'Samantha Li',
+    captured_at: '2026-05-01T22:30:00Z',
+    signals: {
+      sleep: {
+        score: 5.2, unit: 'h/night', severity: 'red',
+        baseline_label: 'baseline 7.4 h',
+        contributing_factors: [
+          'Average 5.2 h over 14 nights — 30% below baseline',
+          'Bedtime drift +110 min vs baseline midpoint',
+        ],
+        history: [7.1, 6.8, 6.4, 6.0, 5.9, 5.6, 5.4, 5.5, 5.2, 5.1, 5.0, 5.3, 5.2, 5.2],
+      },
+      mobility: {
+        score: 3120, unit: 'steps/day', severity: 'amber',
+        baseline_label: 'baseline 6.4k',
+        contributing_factors: [
+          'Daily steps fell from 6.4k to 3.1k over 10 days',
+          'Time-at-home increased from 56% to 81%',
+        ],
+        history: [6400, 6100, 5800, 5300, 5000, 4600, 4200, 3900, 3500, 3300, 3100, 3050, 3120, 3120],
+      },
+      social: {
+        score: -50, unit: '% vs baseline', severity: 'red',
+        baseline_label: 'baseline 24 contacts/wk',
+        contributing_factors: [
+          'Outbound text/call count down 50% versus 28-day baseline',
+          'Reply latency rose from 14 min to 4.2 h median',
+        ],
+        history: [100, 98, 92, 88, 80, 72, 66, 60, 56, 54, 52, 50, 50, 50],
+      },
+      typing_cadence: {
+        score: -25, unit: '% vs baseline', severity: 'amber',
+        baseline_label: 'baseline 38 wpm',
+        contributing_factors: [
+          'Inter-key intervals lengthened by 25% across composer apps',
+          'Backspace rate up 18% — possible rumination / distractibility',
+        ],
+        history: [100, 99, 96, 94, 91, 88, 85, 82, 80, 78, 76, 75, 75, 75],
+      },
+      screen_time: {
+        score: 40, unit: '% over baseline', severity: 'amber',
+        baseline_label: 'baseline 3.6 h/day',
+        contributing_factors: [
+          'Screen time up 40% versus baseline; late-night sessions doubled',
+          'Late-night unlock pattern (00:00–04:00) on 8 of 14 nights',
+        ],
+        history: [100, 105, 112, 118, 122, 128, 132, 136, 138, 140, 140, 142, 140, 140],
+      },
+      voice_diary: {
+        score: -15, unit: '% vs baseline', severity: 'amber',
+        baseline_label: '4 entries/wk baseline',
+        contributing_factors: [
+          'Voice diary submissions down 15% — 3.4 → 2.9 per week',
+          'Mean entry length shortened by 20 s',
+        ],
+        history: [100, 100, 98, 96, 94, 92, 90, 88, 87, 86, 85, 85, 85, 85],
+      },
+    },
+    cross_modal: [
+      {
+        signal: 'sleep',
+        message: 'Sleep loss + social withdrawal align with rising risk score on Risk Analyzer; correlate with last PHQ-9 (=18, worsened from 12).',
+        linked_pages: ['risk-analyzer', 'qeeg-analysis', 'assessments-v2'],
+      },
+      {
+        signal: 'social',
+        message: 'Outbound contact drop overlaps with frontal-asymmetry shift on qEEG — composite signal of an active depressive episode acceleration.',
+        linked_pages: ['qeeg-analysis', 'risk-analyzer'],
+      },
+      {
+        signal: 'screen_time',
+        message: 'Late-night unlock pattern fits the sleep-loss → screen-loop cycle; flag for sleep hygiene intervention.',
+        linked_pages: ['live-session', 'protocol-studio'],
+      },
+    ],
+  },
+  'demo-pt-marcus-chen': {
+    patient_id: 'demo-pt-marcus-chen',
+    patient_name: 'Marcus Chen',
+    captured_at: '2026-05-01T20:10:00Z',
+    signals: {
+      sleep: {
+        score: 4.8, unit: 'h/night', severity: 'red',
+        baseline_label: 'baseline 6.9 h',
+        contributing_factors: [
+          'Average 4.8 h over 14 nights — flat 30% deficit',
+          'Wake-after-sleep-onset doubled from 22 to 47 min',
+        ],
+        history: [6.5, 6.0, 5.6, 5.2, 5.1, 5.0, 4.9, 4.8, 4.8, 4.7, 4.8, 4.9, 4.8, 4.8],
+      },
+      mobility: {
+        score: 4500, unit: 'steps/day', severity: 'amber',
+        baseline_label: 'baseline 5.0k',
+        contributing_factors: [
+          'Steps flat at 4.5k/day — no recovery despite rest',
+          'Walking cadence dropped 10% vs baseline',
+        ],
+        history: [5000, 4900, 4700, 4600, 4500, 4500, 4500, 4500, 4500, 4500, 4500, 4500, 4500, 4500],
+      },
+      social: {
+        score: -8, unit: '% vs baseline', severity: 'green',
+        baseline_label: 'baseline 18 contacts/wk',
+        contributing_factors: [
+          'Outbound contact within 1 SD of baseline',
+          'Reply latency unchanged',
+        ],
+        history: [100, 100, 99, 98, 96, 96, 95, 94, 93, 93, 92, 92, 92, 92],
+      },
+      typing_cadence: {
+        score: -22, unit: '% vs baseline', severity: 'amber',
+        baseline_label: 'baseline 32 wpm',
+        contributing_factors: [
+          'Erratic inter-key intervals; SD widened from 65 ms to 140 ms',
+          'Pause-between-words doubled — psychomotor slowing proxy',
+        ],
+        history: [100, 98, 96, 94, 92, 90, 88, 86, 84, 82, 80, 79, 78, 78],
+      },
+      screen_time: {
+        score: 5, unit: '% over baseline', severity: 'green',
+        baseline_label: 'baseline 4.1 h/day',
+        contributing_factors: [
+          'Total screen time within normal range',
+          'Late-night sessions did not increase',
+        ],
+        history: [100, 100, 102, 103, 104, 105, 105, 105, 105, 106, 105, 105, 105, 105],
+      },
+      voice_diary: {
+        score: -30, unit: '% vs baseline', severity: 'amber',
+        baseline_label: '3 entries/wk baseline',
+        contributing_factors: [
+          'Voice diary cadence down 30% — 3.0 → 2.1 per week',
+          'Mean speech rate dropped 14% (slower articulation)',
+        ],
+        history: [100, 98, 95, 92, 88, 84, 80, 78, 75, 72, 70, 70, 70, 70],
+      },
+    },
+    cross_modal: [
+      {
+        signal: 'typing_cadence',
+        message: 'Typing cadence -22% with widened pause-between-words plus Movement Analyzer "psychomotor slowing" flag — joint psychomotor signal supports depression severity over fatigue.',
+        linked_pages: ['movement-analyzer', 'assessments-v2'],
+      },
+      {
+        signal: 'voice_diary',
+        message: 'Voice diary slowed articulation aligns with bradyphrenia hypothesis from Movement Analyzer; cross-check Voice Analyzer prosody trend.',
+        linked_pages: ['voice-analyzer', 'movement-analyzer'],
+      },
+      {
+        signal: 'sleep',
+        message: 'Persistent 4.8 h/night with no rebound — review bupropion timing; loop in sleep hygiene homework.',
+        linked_pages: ['medication-analyzer', 'home-tasks-v2'],
+      },
+    ],
+  },
+  'demo-pt-elena-vasquez': {
+    patient_id: 'demo-pt-elena-vasquez',
+    patient_name: 'Elena Vasquez',
+    captured_at: '2026-05-01T19:45:00Z',
+    signals: {
+      sleep: {
+        score: 7.5, unit: 'h/night', severity: 'green',
+        baseline_label: 'baseline 7.0 h',
+        contributing_factors: [
+          'Sleep restored to 7.5 h since session 4 of acute course',
+          'Bedtime variability reduced from 92 to 38 min',
+        ],
+        history: [6.4, 6.6, 6.8, 7.0, 7.1, 7.2, 7.3, 7.4, 7.4, 7.5, 7.5, 7.5, 7.5, 7.5],
+      },
+      mobility: {
+        score: 6800, unit: 'steps/day', severity: 'green',
+        baseline_label: 'baseline 5.5k',
+        contributing_factors: [
+          'Daily steps recovered from 4.1k to 6.8k over 14 days',
+          'Outdoor time-share rose from 12% to 28%',
+        ],
+        history: [4100, 4400, 4700, 5000, 5300, 5600, 5900, 6100, 6300, 6500, 6600, 6700, 6800, 6800],
+      },
+      social: {
+        score: 15, unit: '% vs baseline', severity: 'green',
+        baseline_label: 'baseline 20 contacts/wk',
+        contributing_factors: [
+          'Outbound contact +15% versus pre-treatment baseline',
+          'Reply latency dropped from 2.1 h to 36 min',
+        ],
+        history: [80, 84, 88, 92, 96, 100, 104, 108, 110, 112, 113, 114, 115, 115],
+      },
+      typing_cadence: {
+        score: 2, unit: '% vs baseline', severity: 'green',
+        baseline_label: 'baseline 41 wpm',
+        contributing_factors: [
+          'Typing cadence stable, near pre-treatment baseline',
+          'Backspace rate normalised',
+        ],
+        history: [88, 90, 92, 94, 96, 98, 99, 100, 101, 101, 102, 102, 102, 102],
+      },
+      screen_time: {
+        score: -10, unit: '% over baseline', severity: 'green',
+        baseline_label: 'baseline 3.2 h/day',
+        contributing_factors: [
+          'Screen use 10% below baseline — replaced by outdoor activity',
+          'No late-night unlock pattern',
+        ],
+        history: [115, 112, 108, 104, 100, 98, 96, 94, 92, 91, 90, 90, 90, 90],
+      },
+      voice_diary: {
+        score: 20, unit: '% vs baseline', severity: 'green',
+        baseline_label: '3 entries/wk baseline',
+        contributing_factors: [
+          'Voice diary cadence +20% — 3.0 → 3.6 per week',
+          'Self-rated affect improving in transcript sentiment',
+        ],
+        history: [85, 88, 92, 95, 100, 105, 108, 112, 115, 117, 119, 120, 120, 120],
+      },
+    },
+    cross_modal: [
+      {
+        signal: 'sleep',
+        message: 'Digital signals (sleep, mobility, social, voice) all improving in lockstep while ECT proceeds — encouraging composite trend across modalities.',
+        linked_pages: ['treatment-sessions-analyzer', 'assessments-v2'],
+      },
+      {
+        signal: 'social',
+        message: 'Reduced reply latency and increased outbound contact match the AIMS / motor-recovery curve from Movement Analyzer.',
+        linked_pages: ['movement-analyzer'],
+      },
+    ],
+  },
+};
+
+const _DP_AUDITS = {
+  'demo-pt-samantha-li': [
+    { id: 'dp-aud-sam-1', kind: 'recompute', actor: 'system', message: 'Phenotype recomputed from passive stream window 2026-04-18 → 2026-05-01.', created_at: '2026-05-01T22:31:00Z' },
+    { id: 'dp-aud-sam-2', kind: 'annotation', actor: 'Dr. A. Yildirim', message: 'Sleep + social drop fits depressive acceleration; book within-week review.', created_at: '2026-05-01T22:42:00Z' },
+    { id: 'dp-aud-sam-3', kind: 'observation', actor: 'Patient (EMA)', message: 'EMA mood 3/10, anxiety 7/10, sleep 5 h.', created_at: '2026-04-30T08:05:00Z' },
+    { id: 'dp-aud-sam-4', kind: 'recompute', actor: 'system', message: 'Phenotype recomputed (weekly schedule).', created_at: '2026-04-25T03:00:00Z' },
+  ],
+  'demo-pt-marcus-chen': [
+    { id: 'dp-aud-mar-1', kind: 'recompute', actor: 'system', message: 'Phenotype recomputed; typing-cadence variability flagged.', created_at: '2026-05-01T20:11:00Z' },
+    { id: 'dp-aud-mar-2', kind: 'annotation', actor: 'Dr. A. Yildirim', message: 'Joint psychomotor flag with Movement Analyzer — discuss medication review.', created_at: '2026-05-01T20:20:00Z' },
+    { id: 'dp-aud-mar-3', kind: 'observation', actor: 'Patient (EMA)', message: 'EMA mood 4/10, anxiety 5/10, sleep 4.8 h.', created_at: '2026-04-29T09:10:00Z' },
+    { id: 'dp-aud-mar-4', kind: 'recompute', actor: 'system', message: 'Phenotype recomputed (weekly schedule).', created_at: '2026-04-24T03:00:00Z' },
+  ],
+  'demo-pt-elena-vasquez': [
+    { id: 'dp-aud-ele-1', kind: 'recompute', actor: 'system', message: 'Phenotype recomputed; recovery trajectory continuing.', created_at: '2026-05-01T19:46:00Z' },
+    { id: 'dp-aud-ele-2', kind: 'annotation', actor: 'Dr. A. Yildirim', message: 'Digital signals improving in line with ECT course — continue current schedule.', created_at: '2026-05-01T19:55:00Z' },
+    { id: 'dp-aud-ele-3', kind: 'observation', actor: 'Patient (EMA)', message: 'EMA mood 7/10, anxiety 3/10, sleep 7.5 h.', created_at: '2026-04-30T07:50:00Z' },
+    { id: 'dp-aud-ele-4', kind: 'recompute', actor: 'system', message: 'Phenotype recomputed (weekly schedule).', created_at: '2026-04-23T03:00:00Z' },
+  ],
+};
+
+function _digitalPhenotypingProfileFor(patientId) {
+  return _DP_PROFILES[patientId] || null;
+}
+
+function _digitalPhenotypingAuditFor(patientId) {
+  const items = _DP_AUDITS[patientId] || [];
+  return { patient_id: patientId, items };
+}
+
+function _digitalPhenotypingClinicSummary() {
+  const SIGNAL_KEYS = ['sleep', 'mobility', 'social', 'typing_cadence', 'screen_time', 'voice_diary'];
+  const sevRank = (s) => (s === 'red' ? 3 : s === 'amber' ? 2 : s === 'green' ? 1 : 0);
+  return {
+    captured_at: '2026-05-02T07:30:00Z',
+    patients: Object.values(_DP_PROFILES).map((p) => {
+      const flags = SIGNAL_KEYS.map((k) => ({
+        key: k,
+        label: k.replace('_', ' '),
+        severity: p.signals[k]?.severity || null,
+      })).filter((f) => f.severity);
+      const worst = flags.reduce((acc, f) => Math.max(acc, sevRank(f.severity)), 0);
+      const reds = flags.filter((f) => f.severity === 'red').length;
+      const greens = flags.filter((f) => f.severity === 'green').length;
+      const trend = greens > reds ? 'improving' : reds > greens ? 'worsening' : 'stable';
+      return {
+        patient_id: p.patient_id,
+        patient_name: p.patient_name,
+        captured_at: p.captured_at,
+        flags,
+        worst_severity: worst === 3 ? 'red' : worst === 2 ? 'amber' : 'green',
+        trend,
+      };
+    }),
+  };
+}
+
+const _DIGITAL_PHENOTYPING_VIEWS = {
+  clinic_summary: _digitalPhenotypingClinicSummary,
+  patient_profile: _digitalPhenotypingProfileFor,
+  patient_audit: _digitalPhenotypingAuditFor,
+  payload: _digitalPhenotypingPayload,
+};
+
 const _MED_PATIENT_REGIMENS = {
   'demo-pt-samantha-li': [
     { id: 'demo-med-sam-1', patient_id: 'demo-pt-samantha-li', name: 'Sertraline',  generic_name: 'sertraline',  dose: '100 mg', frequency: 'once daily',   route: 'PO', prescriber: 'Dr. A. Yildirim', started_at: '2025-11-04', active: true },
@@ -1823,7 +2119,7 @@ export const ANALYZER_DEMO_FIXTURES = Object.freeze({
   risk: _RISK,
   biometrics: _BIOMETRICS,
   video: _VIDEO,
-  digitalPhenotyping: { payload: _digitalPhenotypingPayload },
+  digitalPhenotyping: _DIGITAL_PHENOTYPING_VIEWS,
   medication: _MEDICATION,
   treatmentSessions: _TREATMENT_SESSIONS,
   phenotype: _PHENOTYPE,
