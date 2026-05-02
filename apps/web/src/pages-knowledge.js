@@ -11020,7 +11020,9 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
   //   csahp3-section-funnel csahp3-section-methods csahp3-section-by-channel
   //   csahp3-section-top-rotators csahp3-section-trend csahp3-empty
   //   csahp4-section-advice csahp5-section-accuracy csahp6-section-tuning
+  //   csahp7-section-outcomes
   //   csahp3-err csahp3-window state.err state.windowDays = Number(v)
+  //   state.advice = resp.advice
   //   window._csahp3SetWindow = window.[30, 90, 180]
   //   "No auth drift detections in this window."
   setTopbar('Auth drift resolution audit hub', `
@@ -11042,6 +11044,13 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
     proposedThresholds: {},
     lastReplay: null,
     adoptionHistory: null,
+    // CSAHP7 — threshold adoption outcome state. Pairs each
+    // threshold_adopted audit row with the (advice_code,
+    // threshold_key)'s measured predictive accuracy at T+30d versus
+    // the baseline at T. Holds the cohort summary + adopter
+    // calibration table.
+    adoptionOutcomeSummary: null,
+    adopterCalibration: null,
     err: null,
   };
 
@@ -11088,6 +11097,21 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
       if (typeof api.fetchThresholdAdoptionHistory === 'function') {
         resp.adoptionHistory = await api.fetchThresholdAdoptionHistory({
           limit: 10,
+        });
+      }
+      // CSAHP7 — fetch the threshold adoption outcome summary +
+      // adopter calibration so the "Adoption outcomes" section
+      // renders beneath the CSAHP6 threshold tuning console.
+      if (typeof api.fetchThresholdAdoptionOutcomeSummary === 'function') {
+        resp.adoptionOutcomeSummary = await api.fetchThresholdAdoptionOutcomeSummary({
+          window_days: 180,
+          pair_lookahead_days: 30,
+        });
+      }
+      if (typeof api.fetchAdopterCalibration === 'function') {
+        resp.adopterCalibration = await api.fetchAdopterCalibration({
+          window_days: 180,
+          min_adoptions: 2,
         });
       }
     } catch (e) {
@@ -11719,6 +11743,213 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
       '</div>';
   }
 
+  // CSAHP7 — Adoption outcomes section. Pairs each threshold_adopted
+  // audit row at time T with the same (advice_code, threshold_key)'s
+  // measured predictive accuracy at T+30d versus the baseline at T.
+  // KPI tiles + per-advice-code mini-cards + outcome distribution bar
+  // + adopter calibration table. Closes the meta-loop on the meta-loop.
+  function _csahp7CalibrationColor(score) {
+    var n = Number(score);
+    if (!isFinite(n)) return { bg: '#e5e7eb', fg: '#374151', cls: 'csahp7-calibration-grey' };
+    if (n >= 0.3) return { bg: '#dcfce7', fg: '#166534', cls: 'csahp7-calibration-green' };
+    if (n < 0) return { bg: '#fee2e2', fg: '#991b1b', cls: 'csahp7-calibration-red' };
+    return { bg: '#fef3c7', fg: '#854d0e', cls: 'csahp7-calibration-yellow' };
+  }
+
+  function renderCsahp7KpiTiles(s) {
+    if (!s) {
+      return '<div data-testid="csahp7-kpis-empty" style="padding:10px;font-size:11px;color:var(--text-muted)">' +
+        'Awaiting adoption history.</div>';
+    }
+    var total = Number(s.total_adoptions) || 0;
+    var pct = s.outcome_pct || {};
+    var counts = s.outcome_counts || {};
+    var improvedPct = pct.improved == null ? '—' : Number(pct.improved).toFixed(1) + '%';
+    var regressedPct = pct.regressed == null ? '—' : Number(pct.regressed).toFixed(1) + '%';
+    var medDelta = s.median_accuracy_delta;
+    var medStr = medDelta == null ? '—'
+      : (medDelta > 0 ? '+' : '') + Number(medDelta).toFixed(1) + 'pp';
+    return '<div data-testid="csahp7-kpis" style="display:grid;' +
+      'grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;' +
+      'margin-top:6px">' +
+      '<div data-testid="csahp7-kpi-total" class="card" style="padding:12px">' +
+      '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Total adoptions</div>' +
+      '<div style="font-size:22px;font-weight:700">' + _esc(String(total)) + '</div></div>' +
+      '<div data-testid="csahp7-kpi-improved" class="card" style="padding:12px">' +
+      '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">% improved</div>' +
+      '<div style="font-size:22px;font-weight:700;color:#166534">' + _esc(improvedPct) + '</div>' +
+      '<div style="font-size:11px;color:var(--text-muted)">' + _esc(String(counts.improved || 0)) + ' rows</div></div>' +
+      '<div data-testid="csahp7-kpi-regressed" class="card" style="padding:12px">' +
+      '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">% regressed</div>' +
+      '<div style="font-size:22px;font-weight:700;color:#991b1b">' + _esc(regressedPct) + '</div>' +
+      '<div style="font-size:11px;color:var(--text-muted)">' + _esc(String(counts.regressed || 0)) + ' rows</div></div>' +
+      '<div data-testid="csahp7-kpi-median" class="card" style="padding:12px">' +
+      '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Median Δ accuracy</div>' +
+      '<div style="font-size:22px;font-weight:700">' + _esc(medStr) + '</div>' +
+      '<div style="font-size:11px;color:var(--text-muted)">percentage points</div></div>' +
+      '</div>';
+  }
+
+  function renderCsahp7CodeCards(s) {
+    if (!s || !s.by_advice_code) return '';
+    var byCode = s.by_advice_code;
+    var codes = ['REFLAG_HIGH', 'MANUAL_REFLAG', 'AUTH_DOMINANT'];
+    var cards = codes.map(function(code) {
+      var slot = byCode[code] || {};
+      var total = Number(slot.total_adoptions) || 0;
+      var imp = Number(slot.improved_count) || 0;
+      var reg = Number(slot.regressed_count) || 0;
+      var flat = Number(slot.flat_count) || 0;
+      var meanDelta = slot.mean_accuracy_delta;
+      var meanStr = meanDelta == null ? '—'
+        : (meanDelta > 0 ? '+' : '') + Number(meanDelta).toFixed(1) + 'pp';
+      return '<div data-testid="csahp7-code-card" data-code="' + _esc(code) + '" ' +
+        'class="card" style="padding:10px">' +
+        '<div style="font-size:12px;font-weight:700;margin-bottom:4px">' + _esc(code) + '</div>' +
+        '<div style="font-size:11px;color:var(--text-muted)">' +
+        _esc(String(total)) + ' adoptions</div>' +
+        '<div style="margin-top:4px;display:flex;gap:8px;flex-wrap:wrap;font-size:11px">' +
+        '<span style="color:#166534">↑ ' + _esc(String(imp)) + ' improved</span>' +
+        '<span style="color:#991b1b">↓ ' + _esc(String(reg)) + ' regressed</span>' +
+        '<span style="color:#854d0e">• ' + _esc(String(flat)) + ' flat</span>' +
+        '</div>' +
+        '<div style="margin-top:4px;font-size:11px;color:var(--text-muted)">' +
+        'Mean Δ: <strong>' + _esc(meanStr) + '</strong></div>' +
+        '</div>';
+    }).join('');
+    return '<div data-testid="csahp7-code-cards" style="display:grid;' +
+      'grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin-top:8px">' +
+      cards + '</div>';
+  }
+
+  function renderCsahp7DistributionBar(s) {
+    if (!s || !s.outcome_counts) return '';
+    var c = s.outcome_counts;
+    var imp = Number(c.improved) || 0;
+    var reg = Number(c.regressed) || 0;
+    var flat = Number(c.flat) || 0;
+    var pend = Number(c.pending) || 0;
+    var insuf = Number(c.insufficient_data) || 0;
+    var total = imp + reg + flat + pend + insuf;
+    if (total === 0) {
+      return '<div data-testid="csahp7-distribution-empty" style="padding:8px;' +
+        'font-size:11px;color:var(--text-muted)">No outcomes to display yet.</div>';
+    }
+    function pct(n) { return (n / total * 100).toFixed(1); }
+    return '<div data-testid="csahp7-distribution" style="margin-top:10px">' +
+      '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Outcome distribution</div>' +
+      '<div style="display:flex;height:18px;border-radius:4px;overflow:hidden;border:1px solid var(--border)">' +
+      '<div data-testid="csahp7-bar-improved" style="width:' + pct(imp) + '%;background:#16a34a" ' +
+      'title="' + _esc(String(imp)) + ' improved"></div>' +
+      '<div data-testid="csahp7-bar-regressed" style="width:' + pct(reg) + '%;background:#dc2626" ' +
+      'title="' + _esc(String(reg)) + ' regressed"></div>' +
+      '<div data-testid="csahp7-bar-flat" style="width:' + pct(flat) + '%;background:#facc15" ' +
+      'title="' + _esc(String(flat)) + ' flat"></div>' +
+      '<div data-testid="csahp7-bar-pending" style="width:' + pct(pend) + '%;background:#9ca3af" ' +
+      'title="' + _esc(String(pend)) + ' pending"></div>' +
+      '<div data-testid="csahp7-bar-insufficient" style="width:' + pct(insuf) + '%;background:#d1d5db" ' +
+      'title="' + _esc(String(insuf)) + ' insufficient"></div>' +
+      '</div>' +
+      '<div style="font-size:10px;color:var(--text-muted);margin-top:4px;display:flex;gap:10px;flex-wrap:wrap">' +
+      '<span><span style="display:inline-block;width:10px;height:10px;background:#16a34a;border-radius:2px;margin-right:3px"></span>Improved</span>' +
+      '<span><span style="display:inline-block;width:10px;height:10px;background:#dc2626;border-radius:2px;margin-right:3px"></span>Regressed</span>' +
+      '<span><span style="display:inline-block;width:10px;height:10px;background:#facc15;border-radius:2px;margin-right:3px"></span>Flat</span>' +
+      '<span><span style="display:inline-block;width:10px;height:10px;background:#9ca3af;border-radius:2px;margin-right:3px"></span>Pending</span>' +
+      '<span><span style="display:inline-block;width:10px;height:10px;background:#d1d5db;border-radius:2px;margin-right:3px"></span>Insufficient</span>' +
+      '</div>' +
+      '</div>';
+  }
+
+  function renderCsahp7AdopterCalibration(cal) {
+    if (!cal || !Array.isArray(cal.items) || cal.items.length === 0) {
+      return '<div data-testid="csahp7-calibration-empty" class="card" ' +
+        'style="padding:10px;margin-top:8px;font-size:11px;color:var(--text-muted)">' +
+        'No adopter calibration data yet (need at least 2 adoptions per adopter).</div>';
+    }
+    var rows = cal.items.map(function(it) {
+      var score = Number(it.calibration_score);
+      var swatch = _csahp7CalibrationColor(score);
+      var prefix = score > 0 ? '+' : '';
+      return '<tr data-testid="csahp7-calibration-row" data-adopter="' + _esc(it.adopter_user_id) + '">' +
+        '<td style="padding:4px 8px;font-size:11px">' + _esc(it.adopter_user_id) + '</td>' +
+        '<td style="padding:4px 8px;font-size:11px;font-variant-numeric:tabular-nums">' +
+        _esc(String(it.total_adoptions)) + '</td>' +
+        '<td style="padding:4px 8px;font-size:11px;color:#166534">' +
+        _esc(String(it.improved_count)) + '</td>' +
+        '<td style="padding:4px 8px;font-size:11px;color:#991b1b">' +
+        _esc(String(it.regressed_count)) + '</td>' +
+        '<td style="padding:4px 8px;font-size:11px"><span class="' + swatch.cls + '" ' +
+        'style="background:' + swatch.bg + ';color:' + swatch.fg + ';padding:2px 6px;border-radius:3px;' +
+        'font-variant-numeric:tabular-nums">' +
+        _esc(prefix + (isFinite(score) ? score.toFixed(2) : '0.00')) + '</span></td>' +
+        '</tr>';
+    }).join('');
+    return '<div data-testid="csahp7-calibration" class="card" ' +
+      'style="padding:10px;margin-top:8px;overflow-x:auto">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Adopter calibration</div>' +
+      '<table class="data-table" style="width:100%;font-size:11px"><thead><tr>' +
+      '<th style="padding:4px 8px;text-align:left">Adopter</th>' +
+      '<th style="padding:4px 8px;text-align:left">Adoptions</th>' +
+      '<th style="padding:4px 8px;text-align:left">Improved</th>' +
+      '<th style="padding:4px 8px;text-align:left">Regressed</th>' +
+      '<th style="padding:4px 8px;text-align:left">Calibration score</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table>' +
+      '<div style="font-size:10px;color:var(--text-muted);margin-top:6px">' +
+      'Score = (improved − regressed) / total. Range -1 to 1. ' +
+      '<span style="color:#166534">≥0.3 green</span>, ' +
+      '<span style="color:#854d0e">0–0.29 yellow</span>, ' +
+      '<span style="color:#991b1b">&lt;0 red</span>.' +
+      '</div>' +
+      '</div>';
+  }
+
+  function renderCsahp7PendingNote(s) {
+    if (!s || !s.outcome_counts) return '';
+    var pending = Number(s.outcome_counts.pending) || 0;
+    if (pending === 0) return '';
+    return '<div data-testid="csahp7-pending-note" ' +
+      'style="padding:6px 10px;font-size:11px;color:var(--text-muted);margin-top:6px">' +
+      _esc(String(pending)) + ' adoptions still within 30-day evaluation window.' +
+      '</div>';
+  }
+
+  function renderCsahp7Section() {
+    var s = state.adoptionOutcomeSummary;
+    var cal = state.adopterCalibration;
+    var heading = '<h3 data-testid="csahp7-section-heading" style="font-size:13px;' +
+      'margin:14px 0 4px;font-weight:700">Adoption outcomes</h3>';
+    var disclaimer =
+      '<div data-testid="csahp7-disclaimer" class="notice notice-info" ' +
+      'style="padding:8px 12px;font-size:11px;margin-top:6px">' +
+      'Pairs each threshold adoption at T with the advice-code accuracy ' +
+      'at T+30d vs the baseline at T. Outcomes need ≥3 paired cards in ' +
+      'each window to classify; otherwise marked as insufficient_data. ' +
+      'Adoptions less than 30 days old are pending.</div>';
+
+    if (!s || Number(s.total_adoptions) === 0) {
+      return '<div data-testid="csahp7-section-outcomes" style="margin-top:8px">' +
+        heading +
+        '<div data-testid="csahp7-empty" class="card" style="padding:14px;' +
+        'font-size:12px;color:var(--text-muted)">' +
+        'No threshold adoptions to evaluate yet. After admins adopt new ' +
+        'thresholds via the console above, this section will report ' +
+        'whether the adoption actually improved the advice-code\'s ' +
+        'predictive accuracy 30 days later.</div>' +
+        disclaimer +
+        '</div>';
+    }
+
+    return '<div data-testid="csahp7-section-outcomes" style="margin-top:8px">' +
+      heading +
+      renderCsahp7KpiTiles(s) +
+      renderCsahp7CodeCards(s) +
+      renderCsahp7DistributionBar(s) +
+      renderCsahp7AdopterCalibration(cal) +
+      renderCsahp7PendingNote(s) +
+      disclaimer +
+      '</div>';
+  }
+
   async function render() {
     var el = document.getElementById('content');
     if (!el) return;
@@ -11730,6 +11961,8 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
     state.advisorOutcome = resp.advisorOutcome;
     state.thresholds = resp.thresholds;
     state.adoptionHistory = resp.adoptionHistory;
+    state.adoptionOutcomeSummary = resp.adoptionOutcomeSummary;
+    state.adopterCalibration = resp.adopterCalibration;
     state.err = resp.err;
 
     if (state.err) {
@@ -11751,6 +11984,7 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
         renderRotationPolicyAdvice(state.advice) +
         renderCsahp5Section(state.advisorOutcome) +
         renderCsahp6Section() +
+        renderCsahp7Section() +
         '<div data-testid="csahp3-empty" class="card" style="padding:14px;margin-top:10px;font-size:12px;color:var(--text-muted)">No auth drift detections in this window.</div>' +
         '</div>';
       if (typeof api.postAuthDriftResolutionAuditHubAuditEvent === 'function') {
@@ -11774,6 +12008,8 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
       renderCsahp5Section(state.advisorOutcome) +
       // CSAHP6 — Threshold tuning console.
       renderCsahp6Section() +
+      // CSAHP7 — Adoption outcomes (post-30d accuracy delta).
+      renderCsahp7Section() +
       // Section 1: rotation funnel
       '<h3 data-testid="csahp3-section-funnel" style="font-size:13px;margin:14px 0 4px;font-weight:700">Rotation funnel</h3>' +
       renderFunnelKpis(s) +

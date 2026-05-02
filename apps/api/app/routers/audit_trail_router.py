@@ -477,6 +477,15 @@ KNOWN_SURFACES = {
     # the next CSAHP4 ``/advice`` call. Page-level events: view,
     # threshold_changed, replay_clicked, adopt_clicked, history_viewed.
     "rotation_policy_advisor_threshold_tuning",
+    # Rotation Policy Advisor Threshold Adoption Outcome Tracker
+    # launch-audit (CSAHP7, 2026-05-02). Closes the meta-loop on the
+    # meta-loop: pair each ``threshold_adopted`` audit row at time T
+    # with the advice-code's measured predictive accuracy at T+30d
+    # (post-adoption) vs the baseline at T (pre-adoption). Outcome
+    # classes: improved / regressed / flat / pending / insufficient_data.
+    # Per-adopter calibration_score = (improved - regressed) / total.
+    # Page-level events: view, window_changed, list_filter_changed.
+    "rotation_policy_advisor_threshold_adoption_outcome_tracker",
     # Caregiver Delivery Concern Aggregator launch-audit (2026-05-01).
     # Closes section I rec from #389. Rolling-window worker groups every
     # delivery-concern audit row in the last N hours by (caregiver_user_id,
