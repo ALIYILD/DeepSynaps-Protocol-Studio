@@ -97,14 +97,14 @@ test('bulk-mark-read helper posts to /notifications/bulk-mark-read', () => {
 
 
 test('pgPatientCaregiver fires notifications_view audit ping on mount', () => {
-  const src = (fs.readFileSync(PAGES_PATIENT_PATH, 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'caregiver.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'digest.js'), 'utf8'));
+  const src = (fs.readFileSync(PAGES_PATIENT_PATH, 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'caregiver.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'digest.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'home-devices.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'adherence.js'), 'utf8'));
   const fn = src.split('export async function pgPatientCaregiver')[1] || '';
   assert.match(fn, /event:\s*['"]notifications_view['"]/);
 });
 
 
 test('pgPatientCaregiver renders unread badge using summary.unread', () => {
-  const src = (fs.readFileSync(PAGES_PATIENT_PATH, 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'caregiver.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'digest.js'), 'utf8'));
+  const src = (fs.readFileSync(PAGES_PATIENT_PATH, 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'caregiver.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'digest.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'home-devices.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'adherence.js'), 'utf8'));
   const fn = src.split('export async function pgPatientCaregiver')[1] || '';
   assert.match(fn, /pt-cg-notif-badge/);
   assert.match(fn, /notificationSummary\.unread/);
@@ -112,14 +112,14 @@ test('pgPatientCaregiver renders unread badge using summary.unread', () => {
 
 
 test('pgPatientCaregiver renders empty notification state with No notifications.', () => {
-  const src = (fs.readFileSync(PAGES_PATIENT_PATH, 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'caregiver.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'digest.js'), 'utf8'));
+  const src = (fs.readFileSync(PAGES_PATIENT_PATH, 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'caregiver.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'digest.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'home-devices.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'adherence.js'), 'utf8'));
   const fn = src.split('export async function pgPatientCaregiver')[1] || '';
   assert.match(fn, /No notifications\./);
 });
 
 
 test('pgPatientCaregiver renders Mark all read CTA', () => {
-  const src = (fs.readFileSync(PAGES_PATIENT_PATH, 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'caregiver.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'digest.js'), 'utf8'));
+  const src = (fs.readFileSync(PAGES_PATIENT_PATH, 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'caregiver.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'digest.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'home-devices.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'adherence.js'), 'utf8'));
   const fn = src.split('export async function pgPatientCaregiver')[1] || '';
   assert.match(fn, /pt-cg-notif-mark-all/);
   assert.match(fn, /Mark all read/);
@@ -127,35 +127,35 @@ test('pgPatientCaregiver renders Mark all read CTA', () => {
 
 
 test('pgPatientCaregiver wires per-row mark-read button', () => {
-  const src = (fs.readFileSync(PAGES_PATIENT_PATH, 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'caregiver.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'digest.js'), 'utf8'));
+  const src = (fs.readFileSync(PAGES_PATIENT_PATH, 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'caregiver.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'digest.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'home-devices.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'adherence.js'), 'utf8'));
   const fn = src.split('export async function pgPatientCaregiver')[1] || '';
   assert.match(fn, /data-cg-notif-mark/);
 });
 
 
 test('pgPatientCaregiver bulk-mark-read CTA calls caregiverNotificationsBulkMarkRead', () => {
-  const src = (fs.readFileSync(PAGES_PATIENT_PATH, 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'caregiver.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'digest.js'), 'utf8'));
+  const src = (fs.readFileSync(PAGES_PATIENT_PATH, 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'caregiver.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'digest.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'home-devices.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'adherence.js'), 'utf8'));
   const fn = src.split('export async function pgPatientCaregiver')[1] || '';
   assert.match(fn, /caregiverNotificationsBulkMarkRead/);
 });
 
 
 test('pgPatientCaregiver per-row mark-read CTA calls caregiverNotificationsMarkRead', () => {
-  const src = (fs.readFileSync(PAGES_PATIENT_PATH, 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'caregiver.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'digest.js'), 'utf8'));
+  const src = (fs.readFileSync(PAGES_PATIENT_PATH, 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'caregiver.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'digest.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'home-devices.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'adherence.js'), 'utf8'));
   const fn = src.split('export async function pgPatientCaregiver')[1] || '';
   assert.match(fn, /caregiverNotificationsMarkRead/);
 });
 
 
 test('pgPatientCaregiver drill-out highlights grant card via data-grant-id', () => {
-  const src = (fs.readFileSync(PAGES_PATIENT_PATH, 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'caregiver.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'digest.js'), 'utf8'));
+  const src = (fs.readFileSync(PAGES_PATIENT_PATH, 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'caregiver.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'digest.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'home-devices.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'adherence.js'), 'utf8'));
   const fn = src.split('export async function pgPatientCaregiver')[1] || '';
   assert.match(fn, /data-grant-id="\$\{grantId\}"/);
 });
 
 
 test('pgPatientCaregiver fetches feed + summary in parallel', () => {
-  const src = (fs.readFileSync(PAGES_PATIENT_PATH, 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'caregiver.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'digest.js'), 'utf8'));
+  const src = (fs.readFileSync(PAGES_PATIENT_PATH, 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'caregiver.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'digest.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'home-devices.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'adherence.js'), 'utf8'));
   const fn = src.split('export async function pgPatientCaregiver')[1] || '';
   assert.match(fn, /caregiverNotificationsList/);
   assert.match(fn, /caregiverNotificationsSummary/);
@@ -176,7 +176,7 @@ test('notification ids carry stable prefixes (rev-, ack-, aud-)', () => {
 
 
 test('Mark all read CTA is gated on unread > 0', () => {
-  const src = (fs.readFileSync(PAGES_PATIENT_PATH, 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'caregiver.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'digest.js'), 'utf8'));
+  const src = (fs.readFileSync(PAGES_PATIENT_PATH, 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'caregiver.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'digest.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'home-devices.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'pages-patient', 'adherence.js'), 'utf8'));
   const fn = src.split('export async function pgPatientCaregiver')[1] || '';
   assert.match(fn, /unreadIds\.length === 0/);
 });

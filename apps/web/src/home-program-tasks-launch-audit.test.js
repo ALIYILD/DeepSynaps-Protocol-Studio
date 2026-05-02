@@ -194,7 +194,7 @@ test('NDJSON export path is also documented + audited', () => {
 function _readPage() {
   const here = path.dirname(url.fileURLToPath(import.meta.url));
   const pagePath = path.resolve(here, 'pages-patient.js');
-  return fs.readFileSync(pagePath, 'utf8');
+  return (fs.readFileSync(pagePath, 'utf8') + '\n' + fs.readFileSync(path.resolve(here, 'pages-patient', 'caregiver.js'), 'utf8') + '\n' + fs.readFileSync(path.resolve(here, 'pages-patient', 'digest.js'), 'utf8') + '\n' + fs.readFileSync(path.resolve(here, 'pages-patient', 'home-devices.js'), 'utf8') + '\n' + fs.readFileSync(path.resolve(here, 'pages-patient', 'adherence.js'), 'utf8'));
 }
 
 
