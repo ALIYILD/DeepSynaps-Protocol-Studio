@@ -430,6 +430,15 @@ KNOWN_SURFACES = {
     # polling_tick, status_viewed, run_now_clicked, tick_clicked,
     # filter_changed, demo_banner_shown.
     "caregiver_delivery_concern_aggregator",
+    # Caregiver Delivery Concern Resolution launch-audit (2026-05-02).
+    # Closes the DCA loop opened by #390. Admin-side "Mark as resolved"
+    # surface inside the Care Team Coverage "Caregiver channels" tab.
+    # Emits ``caregiver_portal.delivery_concern_resolved`` audit rows
+    # that the DCA worker consults so resolved caregivers are not
+    # re-flagged inside the cooldown window. Page-level events recorded
+    # here: view, resolve_clicked, resolve_modal_opened, resolve_submitted,
+    # resolve_failed, list_filter_changed, demo_banner_shown.
+    "caregiver_delivery_concern_resolution",
 }
 
 
