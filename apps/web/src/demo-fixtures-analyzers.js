@@ -915,6 +915,267 @@ const _PHENOTYPE = {
   assignments_for: _phenotypeAssignmentsFor,
 };
 
+const _MOVEMENT_PROFILES = {
+  'demo-pt-samantha-li': {
+    patient_id: 'demo-pt-samantha-li',
+    patient_name: 'Samantha Li',
+    captured_at: '2026-04-29T14:18:00Z',
+    source_video: {
+      recording_id: 'demo-video-samantha-li-001',
+      captured_at: '2026-04-29T14:18:00Z',
+      duration_seconds: 312,
+    },
+    modalities: {
+      bradykinesia: {
+        score: 18, severity: 'green', confidence: 0.88,
+        contributing_factors: [
+          'Finger-tap rate within age-norm range (4.2 Hz)',
+          'No decrement across 10-second tap sequence',
+        ],
+      },
+      tremor: {
+        score: 46, severity: 'amber', confidence: 0.74,
+        contributing_factors: [
+          'Postural tremor 7.8 Hz, amplitude 0.9 cm — consistent with SSRI exposure',
+          'Tremor absent at rest; emerges with arms outstretched',
+        ],
+      },
+      gait: {
+        score: 22, severity: 'green', confidence: 0.81,
+        contributing_factors: [
+          'Step length 0.62 m, cadence 112 steps/min — within norms',
+          'No freezing or shuffling on 6-meter walk',
+        ],
+      },
+      posture: {
+        score: 19, severity: 'green', confidence: 0.84,
+        contributing_factors: [
+          'Sagittal tilt 2.1° — within norm',
+          'No retropulsion on pull-test simulation',
+        ],
+      },
+      monitoring: {
+        score: 24, severity: 'green', confidence: 0.79,
+        contributing_factors: [
+          'Movement variability index 0.42 — engaged, expressive',
+          'Spontaneous gestures retained across 5-min interview',
+        ],
+      },
+    },
+    prior_scores: [
+      { captured_at: '2026-02-04T10:00:00Z', modality: 'tremor', score: 22 },
+      { captured_at: '2026-02-22T10:00:00Z', modality: 'tremor', score: 28 },
+      { captured_at: '2026-03-08T10:00:00Z', modality: 'tremor', score: 33 },
+      { captured_at: '2026-03-22T10:00:00Z', modality: 'tremor', score: 38 },
+      { captured_at: '2026-04-08T10:00:00Z', modality: 'tremor', score: 42 },
+      { captured_at: '2026-04-22T10:00:00Z', modality: 'tremor', score: 45 },
+      { captured_at: '2026-04-29T14:18:00Z', modality: 'tremor', score: 46 },
+      { captured_at: '2026-02-04T10:00:00Z', modality: 'bradykinesia', score: 16 },
+      { captured_at: '2026-03-08T10:00:00Z', modality: 'bradykinesia', score: 17 },
+      { captured_at: '2026-04-08T10:00:00Z', modality: 'bradykinesia', score: 18 },
+      { captured_at: '2026-04-29T14:18:00Z', modality: 'bradykinesia', score: 18 },
+      { captured_at: '2026-02-04T10:00:00Z', modality: 'gait', score: 24 },
+      { captured_at: '2026-03-08T10:00:00Z', modality: 'gait', score: 23 },
+      { captured_at: '2026-04-08T10:00:00Z', modality: 'gait', score: 22 },
+      { captured_at: '2026-04-29T14:18:00Z', modality: 'gait', score: 22 },
+      { captured_at: '2026-02-04T10:00:00Z', modality: 'posture', score: 21 },
+      { captured_at: '2026-03-08T10:00:00Z', modality: 'posture', score: 20 },
+      { captured_at: '2026-04-29T14:18:00Z', modality: 'posture', score: 19 },
+      { captured_at: '2026-02-04T10:00:00Z', modality: 'monitoring', score: 26 },
+      { captured_at: '2026-03-08T10:00:00Z', modality: 'monitoring', score: 24 },
+      { captured_at: '2026-04-29T14:18:00Z', modality: 'monitoring', score: 24 },
+    ],
+  },
+  'demo-pt-marcus-chen': {
+    patient_id: 'demo-pt-marcus-chen',
+    patient_name: 'Marcus Chen',
+    captured_at: '2026-04-30T11:45:00Z',
+    source_video: {
+      recording_id: 'demo-video-marcus-chen-002',
+      captured_at: '2026-04-30T11:45:00Z',
+      duration_seconds: 287,
+    },
+    modalities: {
+      bradykinesia: {
+        score: 24, severity: 'green', confidence: 0.83,
+        contributing_factors: [
+          'Finger-tap rate 4.0 Hz — borderline-low but within age range',
+          'Slight slowing on rapid alternating movements',
+        ],
+      },
+      tremor: {
+        score: 14, severity: 'green', confidence: 0.91,
+        contributing_factors: [
+          'No rest, postural, or kinetic tremor detected',
+          'Hand steadiness within norm during sustained posture',
+        ],
+      },
+      gait: {
+        score: 28, severity: 'green', confidence: 0.78,
+        contributing_factors: [
+          'Step length 0.68 m, cadence 108 steps/min',
+          'Arm swing slightly reduced but symmetric',
+        ],
+      },
+      posture: {
+        score: 52, severity: 'amber', confidence: 0.71,
+        contributing_factors: [
+          'Sagittal forward lean 7.4° — above 5° clinical threshold',
+          'Persists across both standing and seated tasks',
+        ],
+      },
+      monitoring: {
+        score: 58, severity: 'amber', confidence: 0.69,
+        contributing_factors: [
+          'Movement variability index 0.18 — markedly reduced vs baseline',
+          'Possible psychomotor slowing; correlates with PHQ-9 trend',
+        ],
+      },
+    },
+    prior_scores: [
+      { captured_at: '2026-02-12T11:00:00Z', modality: 'monitoring', score: 28 },
+      { captured_at: '2026-02-26T11:00:00Z', modality: 'monitoring', score: 32 },
+      { captured_at: '2026-03-12T11:00:00Z', modality: 'monitoring', score: 38 },
+      { captured_at: '2026-03-26T11:00:00Z', modality: 'monitoring', score: 44 },
+      { captured_at: '2026-04-09T11:00:00Z', modality: 'monitoring', score: 50 },
+      { captured_at: '2026-04-23T11:00:00Z', modality: 'monitoring', score: 55 },
+      { captured_at: '2026-04-30T11:45:00Z', modality: 'monitoring', score: 58 },
+      { captured_at: '2026-02-12T11:00:00Z', modality: 'posture', score: 32 },
+      { captured_at: '2026-03-12T11:00:00Z', modality: 'posture', score: 41 },
+      { captured_at: '2026-04-09T11:00:00Z', modality: 'posture', score: 48 },
+      { captured_at: '2026-04-30T11:45:00Z', modality: 'posture', score: 52 },
+      { captured_at: '2026-02-12T11:00:00Z', modality: 'bradykinesia', score: 21 },
+      { captured_at: '2026-03-12T11:00:00Z', modality: 'bradykinesia', score: 22 },
+      { captured_at: '2026-04-30T11:45:00Z', modality: 'bradykinesia', score: 24 },
+      { captured_at: '2026-02-12T11:00:00Z', modality: 'tremor', score: 16 },
+      { captured_at: '2026-03-12T11:00:00Z', modality: 'tremor', score: 15 },
+      { captured_at: '2026-04-30T11:45:00Z', modality: 'tremor', score: 14 },
+      { captured_at: '2026-02-12T11:00:00Z', modality: 'gait', score: 27 },
+      { captured_at: '2026-03-12T11:00:00Z', modality: 'gait', score: 28 },
+      { captured_at: '2026-04-30T11:45:00Z', modality: 'gait', score: 28 },
+    ],
+  },
+  'demo-pt-elena-vasquez': {
+    patient_id: 'demo-pt-elena-vasquez',
+    patient_name: 'Elena Vasquez',
+    captured_at: '2026-05-01T09:22:00Z',
+    source_video: {
+      recording_id: 'demo-video-elena-vasquez-003',
+      captured_at: '2026-05-01T09:22:00Z',
+      duration_seconds: 348,
+    },
+    modalities: {
+      bradykinesia: {
+        score: 54, severity: 'amber', confidence: 0.72,
+        contributing_factors: [
+          'Finger-tap rate 3.1 Hz — slowed (post-ECT day 2)',
+          'Decrement of 18% across 10-second tap sequence',
+        ],
+      },
+      tremor: {
+        score: 21, severity: 'green', confidence: 0.86,
+        contributing_factors: [
+          'No measurable rest tremor',
+          'Sub-threshold postural tremor (4 mm amplitude)',
+        ],
+      },
+      gait: {
+        score: 49, severity: 'amber', confidence: 0.74,
+        contributing_factors: [
+          'Step length 0.41 m — reduced from 0.55 m baseline',
+          'Cadence 96 steps/min, mild en bloc turning',
+        ],
+      },
+      posture: {
+        score: 26, severity: 'green', confidence: 0.80,
+        contributing_factors: [
+          'Sagittal tilt 3.0° — within norm',
+          'No lateral lean or retropulsion',
+        ],
+      },
+      monitoring: {
+        score: 31, severity: 'green', confidence: 0.77,
+        contributing_factors: [
+          'Movement variability index 0.34 — preserved',
+          'Spontaneous facial expression intact',
+        ],
+      },
+    },
+    prior_scores: [
+      { captured_at: '2026-03-04T09:00:00Z', modality: 'bradykinesia', score: 22 },
+      { captured_at: '2026-03-25T09:00:00Z', modality: 'bradykinesia', score: 24 },
+      { captured_at: '2026-04-15T09:00:00Z', modality: 'bradykinesia', score: 28 },
+      { captured_at: '2026-04-22T09:00:00Z', modality: 'bradykinesia', score: 38 },
+      { captured_at: '2026-04-29T09:00:00Z', modality: 'bradykinesia', score: 47 },
+      { captured_at: '2026-05-01T09:22:00Z', modality: 'bradykinesia', score: 54 },
+      { captured_at: '2026-03-04T09:00:00Z', modality: 'gait', score: 26 },
+      { captured_at: '2026-04-15T09:00:00Z', modality: 'gait', score: 32 },
+      { captured_at: '2026-04-29T09:00:00Z', modality: 'gait', score: 44 },
+      { captured_at: '2026-05-01T09:22:00Z', modality: 'gait', score: 49 },
+      { captured_at: '2026-03-04T09:00:00Z', modality: 'tremor', score: 18 },
+      { captured_at: '2026-04-15T09:00:00Z', modality: 'tremor', score: 20 },
+      { captured_at: '2026-05-01T09:22:00Z', modality: 'tremor', score: 21 },
+      { captured_at: '2026-03-04T09:00:00Z', modality: 'posture', score: 24 },
+      { captured_at: '2026-04-15T09:00:00Z', modality: 'posture', score: 26 },
+      { captured_at: '2026-05-01T09:22:00Z', modality: 'posture', score: 26 },
+      { captured_at: '2026-03-04T09:00:00Z', modality: 'monitoring', score: 28 },
+      { captured_at: '2026-04-15T09:00:00Z', modality: 'monitoring', score: 30 },
+      { captured_at: '2026-05-01T09:22:00Z', modality: 'monitoring', score: 31 },
+    ],
+  },
+};
+
+const _MOVEMENT_AUDITS = {
+  'demo-pt-samantha-li': [
+    { id: 'mv-aud-sam-1', kind: 'recompute', actor: 'system', message: 'Profile recomputed from new video capture.', created_at: '2026-04-29T14:20:00Z' },
+    { id: 'mv-aud-sam-2', kind: 'annotation', actor: 'Dr. A. Yildirim', message: 'Postural tremor amplitude rising on sertraline 100 mg — consider dose review at next visit.', created_at: '2026-04-29T14:32:00Z' },
+    { id: 'mv-aud-sam-3', kind: 'recompute', actor: 'system', message: 'Profile recomputed from new video capture.', created_at: '2026-04-22T10:14:00Z' },
+    { id: 'mv-aud-sam-4', kind: 'annotation', actor: 'Dr. A. Yildirim', message: 'Tremor first noted; counsel patient on caffeine reduction.', created_at: '2026-04-08T10:30:00Z' },
+  ],
+  'demo-pt-marcus-chen': [
+    { id: 'mv-aud-mar-1', kind: 'recompute', actor: 'system', message: 'Profile recomputed from new video capture.', created_at: '2026-04-30T11:47:00Z' },
+    { id: 'mv-aud-mar-2', kind: 'annotation', actor: 'Dr. A. Yildirim', message: 'Movement variability dropping in line with PHQ-9 increase — psychomotor slowing component.', created_at: '2026-04-30T12:02:00Z' },
+    { id: 'mv-aud-mar-3', kind: 'annotation', actor: 'Dr. A. Yildirim', message: 'Forward postural lean noted; review ergonomics and bupropion timing.', created_at: '2026-04-23T10:10:00Z' },
+    { id: 'mv-aud-mar-4', kind: 'recompute', actor: 'system', message: 'Profile recomputed from new video capture.', created_at: '2026-04-09T11:00:00Z' },
+  ],
+  'demo-pt-elena-vasquez': [
+    { id: 'mv-aud-ele-1', kind: 'recompute', actor: 'system', message: 'Profile recomputed from new video capture.', created_at: '2026-05-01T09:24:00Z' },
+    { id: 'mv-aud-ele-2', kind: 'annotation', actor: 'Dr. A. Yildirim', message: 'Post-ECT day-2 motor slowing expected; reassess at 72 h before adjusting course.', created_at: '2026-05-01T09:40:00Z' },
+    { id: 'mv-aud-ele-3', kind: 'annotation', actor: 'Dr. R. Patel', message: 'Reduced step length on 6-m walk; flag fall-risk for nursing.', created_at: '2026-04-29T09:30:00Z' },
+    { id: 'mv-aud-ele-4', kind: 'recompute', actor: 'system', message: 'Profile recomputed from new video capture.', created_at: '2026-04-22T09:00:00Z' },
+    { id: 'mv-aud-ele-5', kind: 'annotation', actor: 'Dr. A. Yildirim', message: 'Pre-ECT baseline captured; motor exam grossly normal.', created_at: '2026-04-15T08:45:00Z' },
+  ],
+};
+
+function _movementProfileFor(patientId) {
+  return _MOVEMENT_PROFILES[patientId] || null;
+}
+
+function _movementAuditFor(patientId) {
+  const items = _MOVEMENT_AUDITS[patientId] || [];
+  return { patient_id: patientId, items };
+}
+
+function _movementClinicSummary() {
+  return {
+    captured_at: '2026-05-02T07:30:00Z',
+    patients: Object.values(_MOVEMENT_PROFILES).map((p) => ({
+      patient_id: p.patient_id,
+      patient_name: p.patient_name,
+      captured_at: p.captured_at,
+      modalities: Object.fromEntries(
+        Object.entries(p.modalities).map(([k, v]) => [k, { severity: v.severity, score: v.score }])
+      ),
+    })),
+  };
+}
+
+const _MOVEMENT = {
+  clinic_summary: _movementClinicSummary,
+  patient_profile: _movementProfileFor,
+  patient_audit: _movementAuditFor,
+};
+
 export const ANALYZER_DEMO_FIXTURES = Object.freeze({
   patients: DEMO_PATIENTS,
   mri: _MRI,
@@ -928,6 +1189,7 @@ export const ANALYZER_DEMO_FIXTURES = Object.freeze({
   treatmentSessions: _TREATMENT_SESSIONS,
   labs: _LABS,
   phenotype: _PHENOTYPE,
+  movement: _MOVEMENT,
 });
 
 export function isFixtureFallbackActive() {

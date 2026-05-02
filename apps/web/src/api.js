@@ -3046,6 +3046,16 @@ export const api = {
   getLabsAnalyzerAudit: (patientId) =>
     apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
 
+  // ── Movement Analyzer (motor side-effects of psychiatric treatment) ───────
+  getMovementProfile: (patientId) =>
+    apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}`),
+  recomputeMovement: (patientId) =>
+    apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/recompute`, { method: 'POST' }),
+  addMovementAnnotation: (patientId, body) =>
+    apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/annotation`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  getMovementAudit: (patientId) =>
+    apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
+
   // ── Device Sync (clinician-facing) ─────────────────────────────────────────
   deviceSyncProviders: () => apiFetchWithRetry('/api/v1/device-sync/providers'),
   deviceSyncAuthorize: (provider) =>
