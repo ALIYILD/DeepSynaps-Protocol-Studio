@@ -3183,11 +3183,16 @@ export const api = {
     apiFetch('/api/v1/auto-page-worker/stop', { method: 'POST' }),
   autoPageWorkerTickOnce: () =>
     apiFetch('/api/v1/auto-page-worker/tick-once', { method: 'POST' }),
-  autoPageWorkerTestAdapter: (body) =>
+  autoPageWorkerTestAdapter: (data) =>
     apiFetch('/api/v1/auto-page-worker/test-adapter', {
       method: 'POST',
-      body: JSON.stringify(body || {}),
+      body: JSON.stringify(data || {}),
     }),
+  postAutoPageWorkerAuditEvent: (data) =>
+    apiFetch('/api/v1/auto-page-worker/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
 
   // ── Escalation Policy (#374) ──────────────────────────────────────────────
   escalationPolicyDispatchOrder: () =>
@@ -3196,14 +3201,55 @@ export const api = {
     apiFetch('/api/v1/escalation-policy/surface-overrides').catch(() => null),
   escalationPolicyUserMappings: () =>
     apiFetch('/api/v1/escalation-policy/user-mappings').catch(() => null),
+  escalationPolicySetDispatchOrder: (body) =>
+    apiFetch('/api/v1/escalation-policy/dispatch-order', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  escalationPolicySetSurfaceOverrides: (body) =>
+    apiFetch('/api/v1/escalation-policy/surface-overrides', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  escalationPolicySetUserMappings: (body) =>
+    apiFetch('/api/v1/escalation-policy/user-mappings', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  escalationPolicyTest: (body) =>
+    apiFetch('/api/v1/escalation-policy/test', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  postEscalationPolicyAuditEvent: (data) =>
+    apiFetch('/api/v1/escalation-policy/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
 
-  // ── Patient Digest helpers (digest-page audit ingestion + caregiver
-  // delivery summaries that pgPatientDigest renders) ─────────────────────
+  // ── Patient Digest launch-audit (2026-05-01) ─────────────────────────────
+  // Patient-side daily/weekly digest. pgPatientDigest renders summary +
+  // sections pulled from /api/v1/patient-digest/*, plus the caregiver-
+  // delivery summary subsection (audit ingestion + per-row failure /
+  // concern endpoints). Audit pings flow through the page-level surface
+  // ``patient_digest``.
   postPatientDigestAuditEvent: (data) =>
     apiFetch('/api/v1/patient-digest/audit-events', {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }).catch(() => null),
+  patientDigestSummary: (range) =>
+    apiFetch('/api/v1/patient-digest/summary' + (range ? '?range=' + encodeURIComponent(range) : '')).catch(() => null),
+  patientDigestSections: (range) =>
+    apiFetch('/api/v1/patient-digest/sections' + (range ? '?range=' + encodeURIComponent(range) : '')).catch(() => null),
+  patientDigestSendEmail: (body) =>
+    apiFetch('/api/v1/patient-digest/send-email', { method: 'POST', body: JSON.stringify(body || {}) }),
+  patientDigestShareCaregiver: (body) =>
+    apiFetch('/api/v1/patient-digest/share-caregiver', { method: 'POST', body: JSON.stringify(body || {}) }),
+  patientDigestExportCsvUrl: (range) =>
+    `${API_BASE}/api/v1/patient-digest/export.csv` + (range ? '?range=' + encodeURIComponent(range) : ''),
+  patientDigestExportNdjsonUrl: (range) =>
+    `${API_BASE}/api/v1/patient-digest/export.ndjson` + (range ? '?range=' + encodeURIComponent(range) : ''),
   patientDigestCaregiverDeliverySummary: (range) =>
     apiFetch(
       '/api/v1/patient-digest/caregiver-delivery-summary' +
@@ -3220,29 +3266,81 @@ export const api = {
       body: JSON.stringify(body || {}),
     }),
 
-  // ── Caregiver Portal / Notifications / Consent helpers used by
-  // pgPatientCaregiver ───────────────────────────────────────────────────
+  // ── Caregiver Consent Grants launch-audit (2026-05-01) ──────────────────────
+  // Patient grants caregivers scoped read access to digest / messages /
+  // reports / wearables. pgPatientCareTeam consumes /grants for the list
+  // + /grants/<id> for detail, /grants for create, /grants/<id>/revoke for
+  // revoke. Audit pings flow through the page-level surface
+  // ``caregiver_consent``.
+  caregiverConsentListGrants: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.patient_id) usp.set('patient_id', params.patient_id);
+    const qs = usp.toString();
+    return apiFetch('/api/v1/caregiver-consent/grants' + (qs ? '?' + qs : '')).catch(() => null);
+  },
+  caregiverConsentGetGrant: (grantId) =>
+    apiFetch(`/api/v1/caregiver-consent/grants/${encodeURIComponent(grantId)}`).catch(() => null),
+  caregiverConsentCreateGrant: (body) =>
+    apiFetch('/api/v1/caregiver-consent/grants', { method: 'POST', body: JSON.stringify(body || {}) }),
+  caregiverConsentRevokeGrant: (grantId, body) =>
+    apiFetch(`/api/v1/caregiver-consent/grants/${encodeURIComponent(grantId)}/revoke`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  postCaregiverConsentAuditEvent: (data) =>
+    apiFetch('/api/v1/caregiver-consent/audit-events', { method: 'POST', body: JSON.stringify(data || {}) }).catch(() => null),
+
+  // ── Caregiver Portal launch-audit (2026-05-01) ──────────────────────────
+  // Caregiver-side viewer for granted access. pgPatientCaregiver renders
+  // the grants list, lets caregivers acknowledge revocations + log
+  // per-grant access (View digest / messages / reports), and for the
+  // delivery-ack loop confirms receipt of landed digests. All routes
+  // scoped to actor.user_id; cross-grant 404. Audit pings flow through
+  // the page-level surface ``caregiver_portal`` posted to
+  // /audit-events/portal.
   caregiverConsentListByCaregiver: () =>
     apiFetch('/api/v1/caregiver-consent/list-by-caregiver').catch(() => null),
   caregiverPortalAcknowledgeRevocation: (grantId) =>
     apiFetch(
-      `/api/v1/caregiver-consent/${encodeURIComponent(grantId)}/acknowledge-revocation`,
+      `/api/v1/caregiver-consent/grants/${encodeURIComponent(grantId)}/acknowledge-revocation`,
       { method: 'POST' },
     ),
+  caregiverPortalAccessLog: (grantId, body) =>
+    apiFetch(`/api/v1/caregiver-consent/grants/${encodeURIComponent(grantId)}/access-log`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  caregiverPortalAcknowledgeDelivery: (grantId, body) =>
+    apiFetch(`/api/v1/caregiver-consent/grants/${encodeURIComponent(grantId)}/acknowledge-delivery`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  caregiverPortalLastAcknowledgement: (grantId) =>
+    apiFetch(`/api/v1/caregiver-consent/grants/${encodeURIComponent(grantId)}/last-acknowledgement`).catch(() => null),
+  postCaregiverPortalAuditEvent: (data) =>
+    apiFetch('/api/v1/caregiver-consent/audit-events/portal', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
+  // ── Caregiver Notification Hub launch-audit (2026-05-01) ──────────────────
+  // Server-side notification feed for caregivers. pgPatientCaregiver
+  // consumes /notifications for the feed + /notifications/summary for
+  // the unread badge + /notifications/<id>/mark-read per row +
+  // /notifications/bulk-mark-read for the "Mark all read" CTA. All
+  // routes scoped under /api/v1/caregiver-consent/notifications.
+  // notification ids carry stable prefixes: notif-rev-<n>, notif-ack-<n>, notif-aud-<n> — e.g. target_id=notif-rev-123
+  caregiverNotificationsList: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.unread_only != null) usp.set('unread_only', String(!!params.unread_only));
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    return apiFetch('/api/v1/caregiver-consent/notifications' + (qs ? '?' + qs : '')).catch(() => null);
+  },
+  caregiverNotificationsSummary: () =>
+    apiFetch('/api/v1/caregiver-consent/notifications/summary').catch(() => null),
   caregiverNotificationsMarkRead: (notifId) =>
     apiFetch(
       `/api/v1/caregiver-consent/notifications/${encodeURIComponent(notifId)}/mark-read`,
       { method: 'POST' },
     ),
-  caregiverNotificationsBulkMarkRead: () =>
-    apiFetch('/api/v1/caregiver-consent/notifications/mark-all-read', {
+  caregiverNotificationsBulkMarkRead: (body) =>
+    apiFetch('/api/v1/caregiver-consent/notifications/bulk-mark-read', {
       method: 'POST',
+      body: JSON.stringify(body || {}),
     }),
-  postCaregiverPortalAuditEvent: (data) =>
-    apiFetch('/api/v1/caregiver-consent/audit-events', {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    }).catch(() => null),
 
   // ── Caregiver Email Digest launch-audit (2026-05-01) ──────────────────────
   // pgPatientCaregiver's "Daily digest delivery" sub-section calls these
@@ -3318,6 +3416,175 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }).catch(() => null),
+  // end channel-misconfig helpers — see launch-audit test slice boundary `};`
+
+  // ── Clinician Adherence Hub launch-audit (2026-05-01) ─────────────────────
+  // Cross-patient triage hub for adherence + side-effect events. The
+  // pgClinicianAdherenceHub block consumes /list + /summary for the
+  // table + KPI strip, /events/<id> for detail, and /events/<id>/<action>
+  // for acknowledge / escalate / resolve mutations. Bulk-acknowledge
+  // closes the inbox in batch. Export URLs return the documented server
+  // endpoints (no client-side blob assembly). All routes scoped to
+  // actor.clinic_id; cross-clinic 404. Audit pings flow through the
+  // page-level surface ``clinician_adherence``.
+  clinicianAdherenceList: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.severity) usp.set('severity', params.severity);
+    if (params && params.status) usp.set('status', params.status);
+    if (params && params.surface_chip) usp.set('surface_chip', params.surface_chip);
+    if (params && params.patient_id) usp.set('patient_id', params.patient_id);
+    if (params && params.q) usp.set('q', params.q);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    return apiFetch('/api/v1/clinician-adherence/events' + (qs ? '?' + qs : '')).catch(() => null);
+  },
+  clinicianAdherenceSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.patient_id) usp.set('patient_id', params.patient_id);
+    const qs = usp.toString();
+    return apiFetch('/api/v1/clinician-adherence/summary' + (qs ? '?' + qs : '')).catch(() => null);
+  },
+  clinicianAdherenceGetEvent: (eventId) =>
+    apiFetch(`/api/v1/clinician-adherence/events/${encodeURIComponent(eventId)}`).catch(() => null),
+  clinicianAdherenceAcknowledge: (eventId, body) =>
+    apiFetch(`/api/v1/clinician-adherence/events/${encodeURIComponent(eventId)}/acknowledge`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  clinicianAdherenceEscalate: (eventId, body) =>
+    apiFetch(`/api/v1/clinician-adherence/events/${encodeURIComponent(eventId)}/escalate`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  clinicianAdherenceResolve: (eventId, body) =>
+    apiFetch(`/api/v1/clinician-adherence/events/${encodeURIComponent(eventId)}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  clinicianAdherenceBulkAcknowledge: (body) =>
+    apiFetch('/api/v1/clinician-adherence/events/bulk-acknowledge', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  clinicianAdherenceExportCsvUrl: () =>
+    `${API_BASE}/api/v1/clinician-adherence/events/export.csv`,
+  clinicianAdherenceExportNdjsonUrl: () =>
+    `${API_BASE}/api/v1/clinician-adherence/events/export.ndjson`,
+  postClinicianAdherenceAuditEvent: (data) =>
+    apiFetch('/api/v1/clinician-adherence/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
+  // ── Clinician Digest launch-audit (2026-05-01) ──────────────────────────────
+  // Clinician-side daily digest. pgClinicianDailyDigest consumes
+  // /summary for the KPI strip, /sections for the per-surface counts,
+  // /events for per-row drill-out, /send-email for the queued email
+  // CTA, /share-colleague for the queued share CTA, and the export URLs
+  // for CSV / NDJSON downloads. Audit pings flow through the page-level
+  // surface ``clinician_digest``.
+  clinicianDigestSummary: (params) => {
+    const usp = new URLSearchParams(params || {});
+    const qs = usp.toString();
+    return apiFetch('/api/v1/clinician-digest/summary' + (qs ? '?' + qs : '')).catch(() => null);
+  },
+  clinicianDigestSections: (params) => {
+    const usp = new URLSearchParams(params || {});
+    const qs = usp.toString();
+    return apiFetch('/api/v1/clinician-digest/sections' + (qs ? '?' + qs : '')).catch(() => null);
+  },
+  clinicianDigestEvents: (params) => {
+    const usp = new URLSearchParams(params || {});
+    const qs = usp.toString();
+    return apiFetch('/api/v1/clinician-digest/events' + (qs ? '?' + qs : '')).catch(() => null);
+  },
+  clinicianDigestSendEmail: (body) =>
+    apiFetch('/api/v1/clinician-digest/send-email', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  clinicianDigestShareColleague: (body) =>
+    apiFetch('/api/v1/clinician-digest/share-colleague', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  clinicianDigestExportCsvUrl: (params) => {
+    const usp = new URLSearchParams(params || {});
+    const qs = usp.toString();
+    return `${API_BASE}/api/v1/clinician-digest/export.csv` + (qs ? '?' + qs : '');
+  },
+  clinicianDigestExportNdjsonUrl: (params) => {
+    const usp = new URLSearchParams(params || {});
+    const qs = usp.toString();
+    return `${API_BASE}/api/v1/clinician-digest/export.ndjson` + (qs ? '?' + qs : '');
+  },
+  postClinicianDigestAuditEvent: (data) =>
+    apiFetch('/api/v1/clinician-digest/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
+  // ── Clinician Wellness Hub launch-audit (2026-05-01) ──────────────────────
+  // Cross-patient triage hub for wellness check-ins. The
+  // pgClinicianWellnessHub block consumes /list + /summary for the
+  // table + KPI strip, /checkins/<id> for detail, and
+  // /checkins/<id>/<action> for acknowledge / escalate / resolve.
+  // Bulk-acknowledge closes the inbox in batch. Export URLs return the
+  // documented server endpoints (no client-side blob assembly). All
+  // routes scoped to actor.clinic_id; cross-clinic 404. Audit pings
+  // flow through the page-level surface ``clinician_wellness``.
+  clinicianWellnessList: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.severity_band) usp.set('severity_band', params.severity_band);
+    if (params && params.axis) usp.set('axis', params.axis);
+    if (params && params.surface_chip) usp.set('surface_chip', params.surface_chip);
+    if (params && params.clinician_status) usp.set('clinician_status', params.clinician_status);
+    if (params && params.patient_id) usp.set('patient_id', params.patient_id);
+    if (params && params.q) usp.set('q', params.q);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    return apiFetch('/api/v1/clinician-wellness/checkins' + (qs ? '?' + qs : '')).catch(() => null);
+  },
+  clinicianWellnessSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.patient_id) usp.set('patient_id', params.patient_id);
+    const qs = usp.toString();
+    return apiFetch('/api/v1/clinician-wellness/summary' + (qs ? '?' + qs : '')).catch(() => null);
+  },
+  clinicianWellnessGetCheckin: (checkinId) =>
+    apiFetch(`/api/v1/clinician-wellness/checkins/${encodeURIComponent(checkinId)}`).catch(() => null),
+  clinicianWellnessAcknowledge: (checkinId, body) =>
+    apiFetch(`/api/v1/clinician-wellness/checkins/${encodeURIComponent(checkinId)}/acknowledge`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  clinicianWellnessEscalate: (checkinId, body) =>
+    apiFetch(`/api/v1/clinician-wellness/checkins/${encodeURIComponent(checkinId)}/escalate`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  clinicianWellnessResolve: (checkinId, body) =>
+    apiFetch(`/api/v1/clinician-wellness/checkins/${encodeURIComponent(checkinId)}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  clinicianWellnessBulkAcknowledge: (body) =>
+    apiFetch('/api/v1/clinician-wellness/checkins/bulk-acknowledge', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  clinicianWellnessExportCsvUrl: () =>
+    `${API_BASE}/api/v1/clinician-wellness/checkins/export.csv`,
+  clinicianWellnessExportNdjsonUrl: () =>
+    `${API_BASE}/api/v1/clinician-wellness/checkins/export.ndjson`,
+  postClinicianWellnessAuditEvent: (data) =>
+    apiFetch('/api/v1/clinician-wellness/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+
   // ── Resolver Coaching Inbox launch-audit (DCRO2, 2026-05-02) ─────────────
   // Private, read-only inbox view per resolver showing THEIR OWN wrong
   // false_positive calls — i.e., resolutions where the resolver said

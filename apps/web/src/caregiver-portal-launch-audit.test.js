@@ -133,7 +133,10 @@ function _sliceCaregiverFn(src) {
   // CTA wiring. Bumped to 36000 in the Multi-Adapter Delivery Parity
   // launch-audit (2026-05-01) which adds the channel chip + cross-
   // channel helper copy on the Recent landed digests subsection.
-  return src.slice(start, start + 36000);
+  // Bumped to 50000 (2026-05-02) — function grew to ~43k chars; the
+  // caregiverPortalAccessLog click-handler block at the tail was
+  // falling outside the previous window.
+  return src.slice(start, start + 50000);
 }
 
 
