@@ -9580,10 +9580,14 @@ export async function pgResolverCoachingInbox(setTopbar) {
         if (u && u.role) state.role = String(u.role);
       } catch (_e) { /* role best-effort */ }
       if (isAdmin() && typeof api.fetchResolverAdminOverview === 'function') {
-        resp.adminOverview = await api.fetchResolverAdminOverview({
-          window_days: state.windowDays,
-          min_resolutions: 3,
-        });
+        try {
+          resp.adminOverview = await api.fetchResolverAdminOverview({
+            window_days: state.windowDays,
+            min_resolutions: 3,
+          });
+        } catch (_adminErr) {
+          resp.adminOverview = null;
+        }
       }
     } catch (e) {
       resp.err = String(e && e.message || e || 'unknown');

@@ -3335,7 +3335,7 @@ export const api = {
     const path =
       '/api/v1/resolver-coaching-inbox/my-coaching-inbox' +
       (qs ? '?' + qs : '');
-    return apiFetch(path).catch(() => null);
+    return apiFetch(path);
   },
   fileSelfReviewNote: (data) =>
     apiFetch('/api/v1/resolver-coaching-inbox/self-review-note', {
@@ -3361,7 +3361,7 @@ export const api = {
     const path =
       '/api/v1/resolver-coaching-inbox/admin-overview' +
       (qs ? '?' + qs : '');
-    return apiFetch(path).catch(() => null);
+    return apiFetch(path);
   },
   // end DCRO2 helpers
   // ━━ DCRO2 SLICE BOUNDARY ━━ (do not remove; the launch-audit test

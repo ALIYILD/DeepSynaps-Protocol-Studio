@@ -764,29 +764,22 @@ def list_audit_events(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> AuditEventsListOut:
-    """Paginated audit-event list scoped to ``actor.clinic_id`` + the
-    coaching-inbox surface."""
+    """Paginated audit-event list for the caller's own coaching rows.
+
+    Self-review notes are private resolver-led coaching artifacts. Even
+    admins do not use this endpoint to inspect another resolver's notes;
+    they use ``/admin-overview`` for aggregate counts only.
+    """
     _gate_read(actor)
-    cid = _scope_clinic(actor)
 
     s = (surface or SURFACE).strip().lower()
     if s != SURFACE:
         s = SURFACE
 
     base = db.query(AuditEventRecord).filter(
-        AuditEventRecord.target_type == s
+        AuditEventRecord.target_type == s,
+        AuditEventRecord.actor_id == actor.actor_id,
     )
-    if cid:
-        from sqlalchemy import or_  # noqa: PLC0415
-
-        base = base.filter(
-            or_(
-                AuditEventRecord.note.like(f"%clinic_id={cid}%"),
-                AuditEventRecord.actor_id == actor.actor_id,
-            )
-        )
-    else:
-        base = base.filter(AuditEventRecord.actor_id == actor.actor_id)
 
     total = base.count()
     rows = (

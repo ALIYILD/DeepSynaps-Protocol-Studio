@@ -982,3 +982,67 @@ class TestAuditEventsList:
         assert r.status_code == 200, r.text
         evs = [it["event_id"] for it in r.json()["items"]]
         assert "dcro2-otherclinic-row" not in evs
+
+    def test_audit_events_do_not_leak_other_resolvers_notes_same_clinic(
+        self, client: TestClient, auth_headers: dict
+    ) -> None:
+        db = SessionLocal()
+        try:
+            db.add(
+                AuditEventRecord(
+                    event_id="dcro2-foreign-note",
+                    target_id="resolved-foreign",
+                    target_type=SURFACE,
+                    action=SELF_REVIEW_NOTE_ACTION,
+                    role="reviewer",
+                    actor_id=RESOLVER_Y,
+                    note=(
+                        f"clinic_id={DEMO_CLINIC}; "
+                        f"resolver_user_id={RESOLVER_Y}; "
+                        "self_review_note=foreign resolver note"
+                    ),
+                    created_at=_dt.now(_tz.utc).isoformat(),
+                )
+            )
+            db.commit()
+        finally:
+            db.close()
+        r = client.get(
+            f"{INBOX_PATH}/audit-events?surface={SURFACE}&limit=50",
+            headers=auth_headers["clinician"],
+        )
+        assert r.status_code == 200, r.text
+        evs = [it["event_id"] for it in r.json()["items"]]
+        assert "dcro2-foreign-note" not in evs
+
+    def test_admin_audit_events_do_not_leak_other_resolvers_notes(
+        self, client: TestClient, auth_headers: dict
+    ) -> None:
+        db = SessionLocal()
+        try:
+            db.add(
+                AuditEventRecord(
+                    event_id="dcro2-admin-foreign-note",
+                    target_id="resolved-foreign-admin",
+                    target_type=SURFACE,
+                    action=SELF_REVIEW_NOTE_ACTION,
+                    role="reviewer",
+                    actor_id=RESOLVER_Y,
+                    note=(
+                        f"clinic_id={DEMO_CLINIC}; "
+                        f"resolver_user_id={RESOLVER_Y}; "
+                        "self_review_note=admin should not see this"
+                    ),
+                    created_at=_dt.now(_tz.utc).isoformat(),
+                )
+            )
+            db.commit()
+        finally:
+            db.close()
+        r = client.get(
+            f"{INBOX_PATH}/audit-events?surface={SURFACE}&limit=50",
+            headers=auth_headers["admin"],
+        )
+        assert r.status_code == 200, r.text
+        evs = [it["event_id"] for it in r.json()["items"]]
+        assert "dcro2-admin-foreign-note" not in evs
