@@ -2,26 +2,39 @@
 
 Decision-support only: numeric estimates are heuristic / rules-based unless backed by
 explicit model_version elsewhere. Does not prescribe or modify treatment.
+
+Enrichment layers (best-effort, never fail the endpoint):
+- Neuromodulation research CSV bundle (~87k-class ingestion via ai_ingestion dataset)
+- Live evidence SQLite corpus (same DB as /api/v1/evidence/*)
+- Patient evidence intelligence overview (clinician/admin only; same engine as /evidence/patient/.../overview)
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import os
+import re
+import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor
+from app.logging_setup import get_logger
 from app.persistence.models import (
     AdverseEvent,
     AssessmentRecord,
     ClinicalSession,
     MriAnalysis,
     OutcomeSeries,
+    Patient,
     QEEGAnalysis,
     TreatmentCourse,
 )
+
+_logger = get_logger(__name__)
 
 
 def _iso(dt: datetime | None) -> str | None:
@@ -78,6 +91,85 @@ def _response_label(course: TreatmentCourse | None) -> str:
     return "unclear"
 
 
+def _slug_hint(text: str | None) -> str | None:
+    if not text:
+        return None
+    t = re.sub(r"[^a-z0-9]+", "_", (text or "").lower()).strip("_")
+    return t[:80] if t else None
+
+
+def _evidence_db_counts() -> dict[str, Any]:
+    """Lightweight live corpus stats (same file as evidence_router)."""
+    override = os.environ.get("EVIDENCE_DB_PATH")
+    if override:
+        path = override
+    else:
+        here = Path(__file__).resolve()
+        repo_guess = here.parents[4] / "services" / "evidence-pipeline" / "evidence.db"
+        path = str(repo_guess) if repo_guess.exists() else "/app/evidence.db"
+    if not os.path.exists(path):
+        return {"available": False, "db_path": path, "counts": {}}
+    try:
+        conn = sqlite3.connect(path, timeout=5)
+        conn.execute("PRAGMA query_only = 1")
+        counts: dict[str, int] = {}
+        for t in ("papers", "trials", "devices", "indications"):
+            try:
+                counts[t] = conn.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
+            except sqlite3.OperationalError:
+                counts[t] = 0
+        conn.close()
+        return {"available": True, "db_path": path, "counts": counts}
+    except Exception as exc:
+        _logger.debug("evidence_db_counts failed: %s", exc)
+        return {"available": False, "db_path": path, "counts": {}, "error": str(exc)}
+
+
+def _research_bundle_summary(
+    indication_slug: str | None, modality_slug: str | None
+) -> dict[str, Any]:
+    """Neuromodulation CSV bundle stats for protocol intelligence panel."""
+    try:
+        from app.services.neuromodulation_research import (
+            bundle_exists,
+            build_research_summary,
+            bundle_root_or_none,
+        )
+
+        if not bundle_exists():
+            return {
+                "available": False,
+                "bundle_root": str(bundle_root_or_none() or ""),
+                "filters": {"indication": indication_slug, "modality": modality_slug},
+                "paper_count": 0,
+                "note": "Research bundle not installed — set DEEPSYNAPS_NEUROMODULATION_RESEARCH_BUNDLE_ROOT or add data/research/neuromodulation.",
+            }
+        summary = build_research_summary(
+            indication=indication_slug,
+            modality=modality_slug,
+            limit=5,
+        )
+        summary["available"] = True
+        summary["bundle_root"] = str(bundle_root_or_none() or "")
+        return summary
+    except Exception as exc:
+        _logger.debug("research_bundle_summary failed: %s", exc)
+        return {
+            "available": False,
+            "error": str(exc),
+            "filters": {"indication": indication_slug, "modality": modality_slug},
+        }
+
+
+def _serialize_evidence_overview(overview: Any) -> dict[str, Any]:
+    """Pydantic v2 compatible model_dump."""
+    if hasattr(overview, "model_dump"):
+        return overview.model_dump(mode="json")
+    if hasattr(overview, "dict"):
+        return overview.dict()
+    return dict(overview)
+
+
 def build_treatment_sessions_analyzer_payload(
     db: Session,
     patient_id: str,
@@ -98,10 +190,17 @@ def build_treatment_sessions_analyzer_payload(
     sessions: list[ClinicalSession] = sq.order_by(ClinicalSession.scheduled_at).all()
 
     primary_course = courses[0] if courses else None
+    patient_row = db.query(Patient).filter_by(id=patient_id).first()
     modality = (
         (primary_course.modality_slug if primary_course else None)
+        or (patient_row.primary_modality if patient_row else None)
         or "unknown"
     )
+    indication_slug = None
+    if primary_course and getattr(primary_course, "condition_slug", None):
+        indication_slug = (primary_course.condition_slug or "").strip() or None
+    if not indication_slug and patient_row and patient_row.primary_condition:
+        indication_slug = _slug_hint(patient_row.primary_condition)
 
     missed = _missed_from_sessions(sessions)
     completed = sum(
@@ -149,6 +248,31 @@ def build_treatment_sessions_analyzer_payload(
         "voice": [],
         "text": [],
         "biometrics": [],
+    }
+
+    # --- Evidence & research enrichment (live DB + CSV bundle + intelligence overview) ---
+    intelligence_overview: dict[str, Any] | None = None
+    if actor.role in ("admin", "clinician"):
+        try:
+            from app.services.evidence_intelligence import build_patient_overview
+
+            intelligence_overview = _serialize_evidence_overview(
+                build_patient_overview(patient_id, db)
+            )
+        except Exception as exc:
+            _logger.debug("treatment_sessions_analyzer intelligence overview skipped: %s", exc)
+
+    live_evidence_corpus = _evidence_db_counts()
+    research_bundle = _research_bundle_summary(indication_slug, modality if modality != "unknown" else None)
+
+    enrich_evidence: dict[str, Any] = {
+        "patient_evidence_overview": intelligence_overview,
+        "live_evidence_corpus": live_evidence_corpus,
+        "neuromodulation_research_bundle": research_bundle,
+        "filters_used": {
+            "indication_slug": indication_slug,
+            "modality_slug": modality if modality != "unknown" else None,
+        },
     }
 
     # --- Heuristic forecasts (deterministic given seed) ---
@@ -480,6 +604,85 @@ def build_treatment_sessions_analyzer_payload(
         }
     ]
 
+    # Merge corpus-backed rows into evidence_links for UI drawers (cap size).
+    tel_seq = 100
+    try:
+        rs_mod = research_bundle.get("filters") or {}
+        rs_mod_slug = (rs_mod.get("modality") or modality or "").strip()
+        rs_ind = (rs_mod.get("indication") or indication_slug or "").strip()
+        for row in (research_bundle.get("top_evidence_links") or [])[:5]:
+            tel_seq += 1
+            title = (row.get("title") or row.get("paper_key") or "Research graph edge")[:240]
+            snippet = (row.get("research_summary") or row.get("abstract") or "")[:320]
+            evidence_links.append(
+                {
+                    "id": f"tel_rs_graph_{tel_seq}",
+                    "created_at": generated_at,
+                    "provenance": {
+                        "source": "guideline",
+                        "source_ref": "neuromodulation_research_bundle/evidence_graph",
+                        "extracted_at": generated_at,
+                    },
+                    "evidence_type": "literature",
+                    "title": title,
+                    "snippet": snippet or "Neuromodulation research bundle edge (CSV corpus).",
+                    "strength": str(row.get("evidence_tier") or "moderate"),
+                    "confidence": 0.5,
+                    "uri": row.get("record_url") or "",
+                    "expand_behavior": "drawer_full_abstract",
+                    "related_domains": ["modality:" + rs_mod_slug, "indication:" + rs_ind],
+                }
+            )
+    except Exception as exc:
+        _logger.debug("evidence graph merge skipped: %s", exc)
+
+    if intelligence_overview and intelligence_overview.get("highlights"):
+        for idx, h in enumerate(intelligence_overview["highlights"][:5]):
+            hl = h if isinstance(h, dict) else {}
+            claim = (hl.get("claim") or hl.get("label") or "")[:400]
+            evidence_links.append(
+                {
+                    "id": f"tel_intel_{idx}",
+                    "created_at": generated_at,
+                    "provenance": {
+                        "source": "model_card",
+                        "source_ref": "evidence_intelligence/patient_overview",
+                        "extracted_at": generated_at,
+                    },
+                    "evidence_type": "literature",
+                    "title": hl.get("label") or "Evidence intelligence highlight",
+                    "snippet": claim,
+                    "strength": str(hl.get("evidence_level") or "moderate"),
+                    "confidence": float(hl.get("confidence_score") or 0.5),
+                    "uri": "",
+                    "expand_behavior": "drawer_full_abstract",
+                    "related_domains": [str(hl.get("context_type") or "clinical")],
+                }
+            )
+
+    if actor.role in ("admin", "clinician"):
+        recommendations.append(
+            {
+                "id": "trec_research_evidence",
+                "created_at": generated_at,
+                "provenance": {
+                    "source": "rule",
+                    "source_ref": "navigation/research-evidence",
+                    "extracted_at": generated_at,
+                },
+                "kind": "navigation",
+                "title": "Open Research Evidence for live corpus search",
+                "body": "Browse PubMed-scale ingestion, trials, and devices — same pipeline as Protocol Studio evidence helpers.",
+                "priority": "low",
+                "decision_support_only": True,
+                "clinician_review_required": False,
+                "structured": {"navigate_page": "research-evidence"},
+                "evidence_link_ids": [],
+                "confidence": 1.0,
+                "time_horizon": "n/a",
+            }
+        )
+
     audit_events: list[dict[str, Any]] = []
 
     session_records: list[dict[str, Any]] = []
@@ -658,7 +861,7 @@ def build_treatment_sessions_analyzer_payload(
     }
 
     return {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "generated_at": generated_at,
         "patient_id": patient_id,
         "provenance": {
@@ -679,6 +882,7 @@ def build_treatment_sessions_analyzer_payload(
         "evidence_links": evidence_links,
         "audit_events": audit_events,
         "data_gaps": data_gaps,
+        "enrich_evidence": enrich_evidence,
         "prediction_horizon": {
             "label": "acute_plus_12_weeks",
             "start": generated_at,
@@ -687,5 +891,6 @@ def build_treatment_sessions_analyzer_payload(
         "meta": {
             "rules_engine_version": "treatment_sessions_analyzer_v1",
             "forecast_note": "Response probability is a seeded heuristic for UX wiring — replace with calibrated model.",
+            "enrichment": "live_evidence_db + neuromodulation_research_bundle + evidence_intelligence overview (clinician)",
         },
     }

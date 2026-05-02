@@ -16,7 +16,7 @@ function esc(s) {
 function _demoPayload() {
   const t = new Date().toISOString();
   return {
-    schema_version: '1.0.0',
+    schema_version: '1.1.0',
     generated_at: t,
     patient_id: 'demo',
     provenance: { source: 'demo', source_ref: 'offline', extracted_at: t },
@@ -153,6 +153,23 @@ function _demoPayload() {
     evidence_links: [],
     audit_events: [],
     data_gaps: [{ domain: 'all', impact: 'demo_mode' }],
+    enrich_evidence: {
+      patient_evidence_overview: {
+        patient_id: 'demo',
+        highlights: [
+          {
+            label: 'Protocol ranking',
+            claim: 'Demo highlight — connect API for live evidence intelligence rows.',
+            evidence_level: 'moderate',
+            confidence_score: 0.5,
+            context_type: 'recommendation',
+          },
+        ],
+      },
+      live_evidence_corpus: { available: true, counts: { papers: 87000, trials: 1200, devices: 400 } },
+      neuromodulation_research_bundle: { available: true, paper_count: 87042, filters: { indication: 'mdd', modality: 'tms' } },
+      filters_used: { indication_slug: 'mdd', modality_slug: 'tms' },
+    },
     prediction_horizon: { label: 'demo', start: t, end: t },
     meta: { rules_engine_version: 'demo', forecast_note: 'Offline preview' },
   };
@@ -323,6 +340,64 @@ function _renderAudit(rows) {
   return r.map((a) => `<div style="font-size:12px;padding:6px 0;border-bottom:1px solid var(--border)">${esc(JSON.stringify(a))}</div>`).join('');
 }
 
+function _renderEvidenceIntegration(enrich, patientId) {
+  const e = enrich && typeof enrich === 'object' ? enrich : {};
+  const live = e.live_evidence_corpus || {};
+  const bundle = e.neuromodulation_research_bundle || {};
+  const overview = e.patient_evidence_overview;
+  const filters = e.filters_used || {};
+
+  const counts = live.counts || {};
+  const papers = counts.papers != null ? counts.papers : '—';
+  const trials = counts.trials != null ? counts.trials : '—';
+  const liveOk = live.available;
+  const bundleOk = bundle.available;
+  const paperCount = bundle.paper_count != null ? bundle.paper_count : '—';
+  const highlights = Array.isArray(overview?.highlights) ? overview.highlights.slice(0, 4) : [];
+
+  const hlBlock = highlights.length
+    ? `<ul style="margin:8px 0 0;padding-left:18px;font-size:12px;line-height:1.45;color:var(--text-secondary)">${highlights
+        .map((h) => `<li><strong>${esc(h.label || '')}</strong> — ${esc((h.claim || '').slice(0, 220))}</li>`)
+        .join('')}</ul>`
+    : '<p style="font-size:12px;color:var(--text-tertiary);margin:8px 0 0">No highlights returned (evidence DB may be offline or overview unavailable).</p>';
+
+  const filterNote = [
+    filters.indication_slug ? `indication: ${filters.indication_slug}` : null,
+    filters.modality_slug ? `modality: ${filters.modality_slug}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+  return `
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-bottom:14px">
+      <div style="border:1px solid var(--border);border-radius:10px;padding:12px;font-size:12px;background:rgba(255,255,255,.02)">
+        <div style="font-weight:600;margin-bottom:6px;color:var(--text-primary)">Live evidence corpus</div>
+        <div style="color:var(--text-secondary);line-height:1.45">
+          ${liveOk ? `<span class="pill pill-active" style="font-size:10px">Connected</span>` : `<span class="pill pill-pending" style="font-size:10px">Offline</span>`}
+          Papers <strong>${esc(papers)}</strong> · Trials <strong>${esc(trials)}</strong>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm tsa-nav-page" data-page="research-evidence" style="margin-top:10px;min-height:40px">Research Evidence →</button>
+      </div>
+      <div style="border:1px solid var(--border);border-radius:10px;padding:12px;font-size:12px;background:rgba(255,255,255,.02)">
+        <div style="font-weight:600;margin-bottom:6px;color:var(--text-primary)">Neuromodulation research bundle</div>
+        <div style="color:var(--text-secondary);line-height:1.45">
+          ${bundleOk ? `<span class="pill pill-active" style="font-size:10px">Bundle present</span>` : `<span class="pill pill-pending" style="font-size:10px">Not installed</span>`}
+          · Papers matched (filters): <strong>${esc(paperCount)}</strong>
+        </div>
+        ${filterNote ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">${esc(filterNote)}</div>` : ''}
+        <button type="button" class="btn btn-ghost btn-sm tsa-nav-page" data-page="research-evidence" style="margin-top:10px;min-height:40px">Browse corpus →</button>
+      </div>
+    </div>
+    <div style="border:1px solid var(--border);border-radius:10px;padding:12px;font-size:12px">
+      <div style="font-weight:600;margin-bottom:6px;color:var(--text-primary)">Evidence intelligence (patient)</div>
+      <p style="margin:0;color:var(--text-secondary);line-height:1.45;font-size:12px">
+        Same retrieval stack as <code>/api/v1/evidence/patient/…/overview</code> — ranked highlights from the live corpus + phenotype framing.
+      </p>
+      ${hlBlock}
+      ${patientId ? `<button type="button" class="btn btn-ghost btn-sm" id="tsa-evidence-overview-api" style="margin-top:10px;min-height:40px">Copy overview API path</button>` : ''}
+    </div>`;
+}
+
 export async function pgTreatmentSessionsAnalyzer(setTopbar, navigate) {
   try {
     setTopbar({
@@ -407,11 +482,18 @@ export async function pgTreatmentSessionsAnalyzer(setTopbar, navigate) {
       ${_section('Treatment course snapshot', _renderCourse(payload.course))}
       ${_section('Session timeline', _renderTimeline(payload.sessions))}
       ${_section('Multimodal contributors', _renderContributors(payload.multimodal_contributors))}
+      ${_section('Evidence & corpora (MRI / EEG context + assessments + 87k bundle + live DB)', _renderEvidenceIntegration(payload.enrich_evidence, patientId))}
       ${_section('Outcomes & response', _renderOutcomes(payload.outcome_trends))}
       ${_section('Side-effects & tolerability', _renderSideFx(payload.side_effect_events))}
       ${_section('Protocol optimization prompts', _renderOptimization(payload.optimization_prompts))}
       ${_section('Recommendations', `<ul style="margin:0;padding-left:18px;font-size:12px">${(payload.recommendations || [])
-        .map((r) => `<li style="margin-bottom:8px"><strong>${esc(r.title)}</strong> — ${esc(r.body)}</li>`)
+        .map((r) => {
+          const nav = r.structured?.navigate_page;
+          const btn = nav
+            ? ` <button type="button" class="btn btn-ghost btn-sm tsa-nav-page" data-page="${esc(nav)}" style="min-height:36px;margin-left:6px">Open</button>`
+            : '';
+          return `<li style="margin-bottom:8px;display:flex;flex-wrap:wrap;align-items:center;gap:4px"><strong>${esc(r.title)}</strong> — ${esc(r.body)}${btn}</li>`;
+        })
         .join('')}</ul>`)}
       ${_section('Audit / review', _renderAudit(payload.audit_events))}
       <div style="font-size:11px;color:var(--text-tertiary);margin-top:12px">
@@ -429,6 +511,23 @@ export async function pgTreatmentSessionsAnalyzer(setTopbar, navigate) {
           window.location.href = `/?page=${encodeURIComponent(page)}`;
         }
       });
+    });
+    body.querySelectorAll('.tsa-nav-page').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const page = (btn.getAttribute('data-page') || '').trim();
+        if (!page) return;
+        try {
+          navigate?.(page);
+        } catch {
+          window.location.href = `/?page=${encodeURIComponent(page)}`;
+        }
+      });
+    });
+    document.getElementById('tsa-evidence-overview-api')?.addEventListener('click', () => {
+      const path = `/api/v1/evidence/patient/${encodeURIComponent(patientId || '')}/overview`;
+      try {
+        void navigator.clipboard?.writeText(path);
+      } catch (_) {}
     });
   }
 

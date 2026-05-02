@@ -22,6 +22,8 @@ test('api.js exposes getTreatmentSessionsAnalyzer', () => {
 test('page exports pgTreatmentSessionsAnalyzer and disclaimer copy', () => {
   assert.ok(PAGE.includes('export async function pgTreatmentSessionsAnalyzer'), 'export');
   assert.ok(PAGE.includes('decision-support'), 'stance');
+  assert.ok(PAGE.includes('enrich_evidence'), 'payload field for evidence/bundle');
+  assert.ok(PAGE.includes('_renderEvidenceIntegration'), 'evidence panel');
 });
 
 test('guest role does not list Treatment Sessions Analyzer in sidebar', () => {

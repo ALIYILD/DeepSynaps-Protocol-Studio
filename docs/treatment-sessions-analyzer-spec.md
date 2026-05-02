@@ -7,6 +7,21 @@
 
 This document is the build contract for a new DeepSynaps Studio page. It complements existing analyzers (qEEG, MRI, assessments, video, voice, text, biometrics, risk, medications) by anchoring **when** neuromodulation occurred, **with what parameters**, and **how that context changes interpretation** of longitudinal biomarkers and outcomes.
 
+### Evidence & corpus wiring (v1 implementation)
+
+The analyzer payload includes **`enrich_evidence`** (schema ≥ `1.1.0`):
+
+| Field | Backend source | Purpose |
+|-------|------------------|---------|
+| `live_evidence_corpus` | SQLite counts from `EVIDENCE_DB_PATH` / `services/evidence-pipeline/evidence.db` | Same **live evidence** corpus as `/api/v1/evidence/*` (papers / trials / trials rollups). |
+| `neuromodulation_research_bundle` | `build_research_summary()` in `neuromodulation_research.py` | **CSV neuromodulation bundle** (large-scale / ~87k-class ai_ingestion ingestion when bundle installed). Filtered by patient **condition slug** + **modality**. |
+| `patient_evidence_overview` | `build_patient_overview()` in `evidence_intelligence.py` | **AI-ranked highlights** — same engine as `GET /api/v1/evidence/patient/{id}/overview` (clinician/admin only). |
+| `planning_snapshot` + `evidence_links` | Course + merged graph rows + intelligence highlights | Protocol suggestions cite **bundle edges** and **intelligence** claims when available. |
+
+Frontend: **Analyzers → Sessions** shows an **Evidence & corpora** panel with links to **Research Evidence**, corpus stats, and optional clipboard of the overview API path. Multimodal tiles already deep-link to **MRI**, **qEEG**, **Assessments**.
+
+---
+
 ### DR / pilot readiness (engineering)
 
 Use this before clinician design review or pilot demos:
