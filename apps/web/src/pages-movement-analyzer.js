@@ -67,6 +67,37 @@ function _snapCards(payload) {
     </div>`;
 }
 
+function _kvTable(obj, depth = 0) {
+  if (obj == null) return '<span style="color:var(--text-tertiary)">—</span>';
+  if (typeof obj !== 'object' || Array.isArray(obj)) {
+    return esc(typeof obj === 'object' ? JSON.stringify(obj) : String(obj));
+  }
+  const rows = Object.entries(obj)
+    .map(([k, v]) => {
+      const val =
+        v != null && typeof v === 'object' && !Array.isArray(v)
+          ? _kvTable(v, depth + 1)
+          : esc(v == null ? '—' : typeof v === 'object' ? JSON.stringify(v) : String(v));
+      return `<tr><td style="padding:4px 8px 4px 0;font-size:11px;color:var(--text-tertiary);vertical-align:top;white-space:nowrap">${esc(k)}</td><td style="padding:4px 0;font-size:12px;color:var(--text-secondary)">${val}</td></tr>`;
+    })
+    .join('');
+  return `<table style="border-collapse:collapse;width:100%">${rows}</table>`;
+}
+
+function _crossModalPanel(ctx) {
+  if (!ctx || typeof ctx !== 'object') {
+    return '<p style="font-size:12px;color:var(--text-tertiary)">No cross-modal context blocks returned.</p>';
+  }
+  const sections = Object.entries(ctx).map(([key, val]) => {
+    const title = esc(key.replace(/_/g, ' '));
+    return `<div style="padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--bg-card)">
+      <div style="font-size:11px;font-weight:600;text-transform:capitalize;margin-bottom:8px;color:var(--text-primary)">${title}</div>
+      ${_kvTable(val)}
+    </div>`;
+  }).join('');
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px">${sections}</div>`;
+}
+
 function _sourcesPanel(sources) {
   const rows = (Array.isArray(sources) ? sources : []).map((s) => {
     const mod = esc(s.source_modality || '—');
@@ -281,6 +312,14 @@ export async function pgMovementAnalyzer(setTopbar, navigate) {
       <section style="margin-bottom:20px">
         <h3 style="font-size:14px;font-weight:600;margin-bottom:10px">Signal sources</h3>
         ${_sourcesPanel(payload.signal_sources)}
+      </section>
+
+      <section style="margin-bottom:20px">
+        <h3 style="font-size:14px;font-weight:600;margin-bottom:10px">Cross-modal context</h3>
+        <p style="font-size:11px;color:var(--text-tertiary);margin:0 0 10px;line-height:1.45">
+          VC biometrics, wellness (patient-shared), symptom journal (shared), neuromod courses, clinic visits, and DeepTwin fusion — for interpretation alongside movement metrics.
+        </p>
+        ${_crossModalPanel(payload.cross_modal_context)}
       </section>
 
       <section style="margin-bottom:20px">

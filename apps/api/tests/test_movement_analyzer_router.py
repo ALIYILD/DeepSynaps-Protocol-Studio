@@ -100,6 +100,8 @@ def test_movement_analyzer_owner_gets_payload(client: TestClient, seeded: dict):
     assert "snapshot" in data
     assert "clinical_disclaimer" in data
     assert data.get("schema_version") == "1"
+    assert "cross_modal_context" in data
+    assert isinstance(data["cross_modal_context"], dict)
 
 
 def test_movement_analyzer_idor_other_clinic(client: TestClient, seeded: dict):

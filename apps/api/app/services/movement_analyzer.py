@@ -1,28 +1,40 @@
-"""Movement Analyzer — assemble multimodal movement workspace payload (v0.1).
+"""Movement Analyzer — assemble multimodal movement workspace payload (v0.2).
 
-Decision-support only. Uses posture/scores from video_analysis, step counts from
-wearable_daily_summaries, and medication context for correlation hints. Future:
-structured kinematics from clinical-task video pipeline and IMU adapters.
+Decision-support only. Fuses video_analysis, wearable_daily_summaries,
+biometrics_snapshots (VC stress/steps), voice_analysis (stress/energy during calls),
+wellness_checkins + symptom_journal_entries (mood/pain context), treatment_courses,
+clinical_sessions, DeepTwin runs, medications, and risk — for multimodal review.
 """
 from __future__ import annotations
 
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
+from statistics import mean
 from typing import Any, Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.persistence.models import (
+    ClinicalSession,
+    DeepTwinAnalysisRun,
     MovementAnalyzerAudit,
     MovementAnalyzerSnapshot,
     PatientMedication,
     RiskStratificationResult,
+    SymptomJournalEntry,
+    TreatmentCourse,
+    WellnessCheckin,
 )
-from app.persistence.models.devices import VideoAnalysis, WearableDailySummary
+from app.persistence.models.devices import (
+    BiometricsSnapshot,
+    VideoAnalysis,
+    VoiceAnalysis,
+    WearableDailySummary,
+)
 
-PIPELINE_VERSION = "0.1.0"
+PIPELINE_VERSION = "0.2.0"
 SCHEMA_VERSION = "1"
 
 
@@ -59,6 +71,58 @@ def _activity_from_steps(avg_steps: Optional[float]) -> tuple[str, float]:
     if avg_steps >= 3500:
         return "moderate", 0.55
     return "low", 0.5
+
+
+def _avg_nums(vals: list[Optional[float]]) -> Optional[float]:
+    xs = [float(v) for v in vals if v is not None]
+    if not xs:
+        return None
+    return float(mean(xs))
+
+
+def _mood_stress_axis_label(
+    avg_vc_stress: Optional[float],
+    vc_voice_stress: Optional[float],
+    mood: Optional[float],
+    anxiety: Optional[float],
+    pain: Optional[float],
+    symptom_sev: Optional[float],
+) -> str:
+    parts: list[str] = []
+    if mood is not None:
+        parts.append(f"shared mood ~{mood:.1f}/10")
+    if anxiety is not None and anxiety >= 5:
+        parts.append(f"anxiety ~{anxiety:.1f}/10")
+    if avg_vc_stress is not None:
+        parts.append(f"VC biometrics stress ~{avg_vc_stress:.0f}")
+    if vc_voice_stress is not None and vc_voice_stress >= 4:
+        parts.append(f"voice-call stress signal avg ~{vc_voice_stress:.1f}")
+    if pain is not None and pain >= 5:
+        parts.append(f"pain ~{pain:.1f}/10 (may limit activity)")
+    if symptom_sev is not None:
+        parts.append(f"shared symptom journal severity ~{symptom_sev:.1f}")
+    if not parts:
+        return "No shared wellness / VC biometrics in lookback — correlate mood & stress clinically."
+    return "; ".join(parts[:4])
+
+
+def _safe_json_summary(blob: Optional[str], max_len: int = 240) -> str:
+    if not blob:
+        return ""
+    try:
+        d = json.loads(blob)
+        if isinstance(d, dict):
+            for k in ("headline", "summary", "title", "message", "text"):
+                if k in d and d[k]:
+                    s = str(d[k]).strip()
+                    return s[:max_len] + ("…" if len(s) > max_len else "")
+            return (json.dumps(d, default=str))[:max_len] + "…"
+        if isinstance(d, list) and d:
+            return str(d[0])[:max_len]
+        return str(d)[:max_len]
+    except json.JSONDecodeError:
+        s = blob.strip()
+        return s[:max_len] + ("…" if len(s) > max_len else "")
 
 
 def build_movement_workspace_payload(patient_id: str, db: Session) -> dict[str, Any]:
@@ -121,11 +185,134 @@ def build_movement_workspace_payload(patient_id: str, db: Session) -> dict[str, 
     ).first()
     risk_level = risk_row[0] if risk_row else None
 
+    # ── Virtual-care biometrics (stress, steps during visits, sleep proxy) ─────
+    bio_since = now - timedelta(days=90)
+    bio_rows = db.execute(
+        select(
+            BiometricsSnapshot.stress_score,
+            BiometricsSnapshot.steps_today,
+            BiometricsSnapshot.sleep_hours_last_night,
+            BiometricsSnapshot.recorded_at,
+        )
+        .where(BiometricsSnapshot.patient_id == patient_id)
+        .where(BiometricsSnapshot.recorded_at >= bio_since)
+        .order_by(BiometricsSnapshot.recorded_at.desc())
+        .limit(40)
+    ).all()
+    stress_vals = [int(r[0]) for r in bio_rows if r[0] is not None]
+    bio_steps_vals = [int(r[1]) for r in bio_rows if r[1] is not None]
+    sleep_vals = [float(r[2]) for r in bio_rows if r[2] is not None]
+    avg_vc_stress = _avg_nums([float(x) for x in stress_vals]) if stress_vals else None
+    last_bio_at = _iso(bio_rows[0][3]) if bio_rows else None
+
+    # ── Voice analysis during VC (stress_level / energy proxy) ──────────────────
+    va_rows = db.execute(
+        select(VoiceAnalysis.stress_level, VoiceAnalysis.energy_level, VoiceAnalysis.created_at)
+        .where(VoiceAnalysis.patient_id == patient_id)
+        .order_by(VoiceAnalysis.created_at.desc())
+        .limit(20)
+    ).all()
+    vc_voice_stress_avg = _avg_nums([float(r[0]) for r in va_rows if r[0] is not None])
+    vc_voice_energy_avg = _avg_nums([float(r[1]) for r in va_rows if r[1] is not None])
+
+    # ── Wellness check-ins (patient-shared only — mood/anxiety/pain context) ───
+    wc_since = now - timedelta(days=30)
+    wc_rows = db.execute(
+        select(
+            WellnessCheckin.mood,
+            WellnessCheckin.anxiety,
+            WellnessCheckin.energy,
+            WellnessCheckin.pain,
+            WellnessCheckin.shared_at,
+            WellnessCheckin.created_at,
+        )
+        .where(WellnessCheckin.patient_id == patient_id)
+        .where(WellnessCheckin.deleted_at.is_(None))
+        .where(WellnessCheckin.shared_at.isnot(None))
+        .where(WellnessCheckin.created_at >= wc_since)
+        .order_by(WellnessCheckin.created_at.desc())
+        .limit(60)
+    ).all()
+    wc_mood_avg = _avg_nums([float(r[0]) for r in wc_rows if r[0] is not None])
+    wc_anx_avg = _avg_nums([float(r[1]) for r in wc_rows if r[1] is not None])
+    wc_energy_avg = _avg_nums([float(r[2]) for r in wc_rows if r[2] is not None])
+    wc_pain_avg = _avg_nums([float(r[3]) for r in wc_rows if r[3] is not None])
+    last_wellness_at = _iso(wc_rows[0][5]) if wc_rows else None
+
+    # ── Symptom journal (shared entries only — distress vs movement) ─────────
+    sj_since = now - timedelta(days=30)
+    sj_rows = db.execute(
+        select(SymptomJournalEntry.severity, SymptomJournalEntry.created_at)
+        .where(SymptomJournalEntry.patient_id == patient_id)
+        .where(SymptomJournalEntry.deleted_at.is_(None))
+        .where(SymptomJournalEntry.shared_at.isnot(None))
+        .where(SymptomJournalEntry.created_at >= sj_since)
+        .order_by(SymptomJournalEntry.created_at.desc())
+        .limit(40)
+    ).all()
+    sj_sev_avg = _avg_nums([float(r[0]) for r in sj_rows if r[0] is not None])
+    last_symptom_at = _iso(sj_rows[0][1]) if sj_rows else None
+
+    # ── Neuromod treatment courses & clinical sessions (therapy cadence) ─────
+    tc_rows = db.execute(
+        select(TreatmentCourse.modality_slug, TreatmentCourse.status, TreatmentCourse.sessions_delivered)
+        .where(TreatmentCourse.patient_id == patient_id)
+    ).all()
+    active_courses = sum(1 for r in tc_rows if str(r[1] or "").lower() not in ("completed", "cancelled"))
+    modalities = sorted({str(r[0]) for r in tc_rows if r[0]})
+
+    sess_cutoff = now - timedelta(days=90)
+    sess_completed_90d = db.scalar(
+        select(func.count())
+        .select_from(ClinicalSession)
+        .where(ClinicalSession.patient_id == patient_id)
+        .where(ClinicalSession.status == "completed")
+        .where(ClinicalSession.created_at >= sess_cutoff)
+    ) or 0
+
+    # ── DeepTwin — latest multimodal fusion output ─────────────────────────────
+    dt_row = db.execute(
+        select(
+            DeepTwinAnalysisRun.id,
+            DeepTwinAnalysisRun.analysis_type,
+            DeepTwinAnalysisRun.output_summary_json,
+            DeepTwinAnalysisRun.confidence,
+            DeepTwinAnalysisRun.created_at,
+        )
+        .where(DeepTwinAnalysisRun.patient_id == patient_id)
+        .order_by(DeepTwinAnalysisRun.created_at.desc())
+        .limit(1)
+    ).first()
+    deeptwin_preview = ""
+    deeptwin_id = None
+    dt_confidence = None
+    if dt_row:
+        deeptwin_id = dt_row[0]
+        deeptwin_preview = _safe_json_summary(dt_row[2])
+        dt_confidence = float(dt_row[3]) if dt_row[3] is not None else None
+
     # ── Completeness (heuristic) ──────────────────────────────────────────────
     has_video = bool(vid_rows)
     has_wearable = bool(step_vals)
     has_meds = bool(med_rows)
-    completeness = _clamp01(0.25 + (0.35 if has_video else 0) + (0.35 if has_wearable else 0) + (0.05 if has_meds else 0))
+    has_bio_vc = bool(bio_rows)
+    has_voice = bool(va_rows)
+    has_wellness_shared = bool(wc_rows)
+    has_symptom_shared = bool(sj_rows)
+    has_deeptwin = bool(dt_row)
+    has_treatment_course = bool(tc_rows)
+    completeness = _clamp01(
+        0.18
+        + (0.28 if has_video else 0)
+        + (0.28 if has_wearable else 0)
+        + (0.06 if has_meds else 0)
+        + (0.08 if has_bio_vc else 0)
+        + (0.05 if has_voice else 0)
+        + (0.06 if has_wellness_shared else 0)
+        + (0.04 if has_symptom_shared else 0)
+        + (0.05 if has_deeptwin else 0)
+        + (0.04 if has_treatment_course else 0)
+    )
     by_domain = {
         "gait": 0.45 if has_wearable else 0.2,
         "tremor": 0.25,
@@ -134,7 +321,8 @@ def build_movement_workspace_payload(patient_id: str, db: Session) -> dict[str, 
         "posture_balance": 0.55 if has_video else 0.2,
         "freezing_immobility": 0.2,
         "fine_motor": 0.2,
-        "activity_patterns": 0.6 if has_wearable else 0.25,
+        "activity_patterns": 0.62 if has_wearable else 0.28,
+        "psychophysiology_context": 0.55 if (has_bio_vc or has_voice or has_wellness_shared) else 0.2,
     }
 
     # ── Snapshot axes (honest defaults where no kinematic pipeline yet) ─────
@@ -169,6 +357,18 @@ def build_movement_workspace_payload(patient_id: str, db: Session) -> dict[str, 
             "label": f"Avg {int(avg_steps)} steps/day (14d)" if avg_steps else "No recent step data",
             "confidence": activity_conf if avg_steps else 0.35,
         },
+        "mood_stress_context": {
+            "level": "available" if (has_wellness_shared or has_bio_vc or has_voice or has_symptom_shared) else "sparse",
+            "label": _mood_stress_axis_label(
+                avg_vc_stress,
+                vc_voice_stress_avg,
+                wc_mood_avg,
+                wc_anx_avg,
+                wc_pain_avg,
+                sj_sev_avg,
+            ),
+            "confidence": 0.5 if (has_wellness_shared or has_bio_vc or has_voice) else 0.3,
+        },
     }
 
     overall = "unclear"
@@ -186,13 +386,30 @@ def build_movement_workspace_payload(patient_id: str, db: Session) -> dict[str, 
         phenotype_bits.append(f"Activity proxy: ~{int(avg_steps)} steps/day from wearable summaries.")
     if has_video:
         phenotype_bits.append("Posture/engagement signals available from analyzed video segments.")
+    if has_bio_vc and avg_vc_stress is not None:
+        phenotype_bits.append(
+            f"Virtual-care biometrics include stress proxy (avg ~{avg_vc_stress:.0f} over recent samples)."
+        )
+    if has_voice and vc_voice_stress_avg is not None:
+        phenotype_bits.append("Voice session features available (stress/energy proxies during telehealth).")
+    if has_wellness_shared and (wc_mood_avg is not None or wc_pain_avg is not None):
+        phenotype_bits.append("Patient-shared wellness check-ins provide mood/pain context for activity interpretation.")
+    if has_treatment_course:
+        mod_txt = ", ".join(modalities[:4]) if modalities else "—"
+        phenotype_bits.append(
+            f"Neuromod treatment courses on file: {len(tc_rows)} total ({active_courses} active); modalities: {mod_txt}."
+        )
+    if sess_completed_90d:
+        phenotype_bits.append(f"{int(sess_completed_90d)} completed clinical sessions in the last 90 days.")
+    if has_deeptwin and deeptwin_preview:
+        phenotype_bits.append("DeepTwin fusion output available for cross-signal review.")
     if motor_meds:
         phenotype_bits.append(
             "Medication list includes agents that may affect movement; interpret alongside exam."
         )
     if not phenotype_bits:
         phenotype_bits.append(
-            "Limited movement-linked signals — connect Video and Biometrics analyzers to populate this workspace."
+            "Limited movement-linked signals — connect Video, wearables, wellness sharing, and biometrics to populate this workspace."
         )
 
     signal_sources = [
@@ -229,7 +446,120 @@ def build_movement_workspace_payload(patient_id: str, db: Session) -> dict[str, 
             "upstream_analyzer": "patient_medications",
             "upstream_entity_ids": [],
         },
+        {
+            "source_id": "biometrics_vc",
+            "source_modality": "biometrics",
+            "passive_vs_elicited": "passive",
+            "last_received_at": last_bio_at,
+            "completeness_0_1": 0.65 if has_bio_vc else 0.0,
+            "qc_flags": [] if has_bio_vc else ["no_vc_biometrics_snapshots"],
+            "confidence": 0.52 if has_bio_vc else 0.25,
+            "upstream_analyzer": "biometrics_snapshots",
+            "upstream_entity_ids": [],
+        },
+        {
+            "source_id": "voice_vc",
+            "source_modality": "voice",
+            "passive_vs_elicited": "elicited",
+            "completeness_0_1": 0.55 if has_voice else 0.0,
+            "qc_flags": [] if has_voice else ["no_voice_analysis_rows"],
+            "confidence": 0.48 if has_voice else 0.22,
+            "upstream_analyzer": "voice_analysis",
+            "upstream_entity_ids": [],
+        },
+        {
+            "source_id": "wellness_shared",
+            "source_modality": "patient_reported",
+            "passive_vs_elicited": "passive",
+            "last_received_at": last_wellness_at,
+            "completeness_0_1": 0.7 if has_wellness_shared else 0.0,
+            "qc_flags": [] if has_wellness_shared else ["no_shared_wellness_checkins"],
+            "confidence": 0.55 if has_wellness_shared else 0.2,
+            "upstream_analyzer": "wellness_checkins",
+            "upstream_entity_ids": [],
+        },
+        {
+            "source_id": "symptom_journal_shared",
+            "source_modality": "patient_reported",
+            "passive_vs_elicited": "passive",
+            "last_received_at": last_symptom_at,
+            "completeness_0_1": 0.65 if has_symptom_shared else 0.0,
+            "qc_flags": [] if has_symptom_shared else ["no_shared_symptom_journal"],
+            "confidence": 0.5 if has_symptom_shared else 0.2,
+            "upstream_analyzer": "symptom_journal_entries",
+            "upstream_entity_ids": [],
+        },
+        {
+            "source_id": "treatment_courses",
+            "source_modality": "neuromod_session",
+            "passive_vs_elicited": "mixed",
+            "completeness_0_1": 0.75 if has_treatment_course else 0.0,
+            "qc_flags": [] if has_treatment_course else ["no_treatment_courses"],
+            "confidence": 0.65 if has_treatment_course else 0.2,
+            "upstream_analyzer": "treatment_courses",
+            "upstream_entity_ids": [],
+        },
+        {
+            "source_id": "clinical_sessions",
+            "source_modality": "scheduling",
+            "passive_vs_elicited": "passive",
+            "completeness_0_1": 0.55 if sess_completed_90d else 0.15,
+            "qc_flags": [] if sess_completed_90d else ["no_recent_completed_sessions"],
+            "confidence": 0.45,
+            "upstream_analyzer": "clinical_sessions",
+            "upstream_entity_ids": [],
+        },
+        {
+            "source_id": "deeptwin",
+            "source_modality": "fusion_model",
+            "passive_vs_elicited": "mixed",
+            "completeness_0_1": 0.75 if has_deeptwin else 0.0,
+            "qc_flags": [] if has_deeptwin else ["no_deeptwin_analysis_run"],
+            "confidence": float(dt_confidence) if dt_confidence is not None else (0.5 if has_deeptwin else 0.2),
+            "upstream_analyzer": "deeptwin_analysis_runs",
+            "upstream_entity_ids": [deeptwin_id] if deeptwin_id else [],
+        },
     ]
+
+    cross_modal_context = {
+        "virtual_care_biometrics": {
+            "stress_score_avg": round(avg_vc_stress, 1) if avg_vc_stress is not None else None,
+            "steps_during_visit_avg": round(mean(bio_steps_vals), 1) if bio_steps_vals else None,
+            "sleep_hours_last_night_avg": round(mean(sleep_vals), 2) if sleep_vals else None,
+            "last_sample_at": last_bio_at,
+            "n_samples": len(bio_rows),
+        },
+        "voice_during_calls": {
+            "stress_level_avg": round(vc_voice_stress_avg, 2) if vc_voice_stress_avg is not None else None,
+            "energy_level_avg": round(vc_voice_energy_avg, 2) if vc_voice_energy_avg is not None else None,
+            "n_segments": len(va_rows),
+        },
+        "wellness_shared_checkins_30d": {
+            "n_checkins": len(wc_rows),
+            "mood_avg_0_10": round(wc_mood_avg, 2) if wc_mood_avg is not None else None,
+            "anxiety_avg_0_10": round(wc_anx_avg, 2) if wc_anx_avg is not None else None,
+            "energy_avg_0_10": round(wc_energy_avg, 2) if wc_energy_avg is not None else None,
+            "pain_avg_0_10": round(wc_pain_avg, 2) if wc_pain_avg is not None else None,
+            "last_at": last_wellness_at,
+        },
+        "symptom_journal_shared_30d": {
+            "n_entries": len(sj_rows),
+            "severity_avg": round(sj_sev_avg, 2) if sj_sev_avg is not None else None,
+            "last_at": last_symptom_at,
+        },
+        "treatment_courses": {
+            "count": len(tc_rows),
+            "active_count": active_courses,
+            "modalities": modalities,
+        },
+        "clinical_sessions_completed_90d": int(sess_completed_90d),
+        "deeptwin": {
+            "latest_run_id": deeptwin_id,
+            "analysis_type": str(dt_row[1]) if dt_row else None,
+            "summary_preview": (deeptwin_preview or None) if has_deeptwin else None,
+            "confidence": dt_confidence,
+        },
+    }
 
     domains = {
         "gait": [
@@ -282,6 +612,40 @@ def build_movement_workspace_payload(patient_id: str, db: Session) -> dict[str, 
                 "timestamp": generated_at,
             }
         ],
+        "psychophysiology_context": [
+            {
+                "domain": "psychophysiology_context",
+                "metric_key": "vc_biometrics_stress_avg",
+                "value": round(avg_vc_stress, 1) if avg_vc_stress is not None else None,
+                "unit": "device_scale",
+                "severity_or_direction": "elevated" if avg_vc_stress is not None and avg_vc_stress >= 6.5 else "unknown",
+                "confidence": 0.48 if has_bio_vc else 0.25,
+                "completeness": by_domain["psychophysiology_context"],
+                "timestamp": generated_at,
+                "note": "From biometrics_snapshots during virtual care; not a clinical stress test.",
+            },
+            {
+                "domain": "psychophysiology_context",
+                "metric_key": "wellness_mood_avg_shared",
+                "value": round(wc_mood_avg, 2) if wc_mood_avg is not None else None,
+                "unit": "0_10",
+                "severity_or_direction": "low_mood" if wc_mood_avg is not None and wc_mood_avg < 4 else "unknown",
+                "confidence": 0.52 if has_wellness_shared else 0.22,
+                "completeness": by_domain["psychophysiology_context"],
+                "timestamp": generated_at,
+                "note": "Only patient-shared wellness check-ins (30d) are included.",
+            },
+            {
+                "domain": "psychophysiology_context",
+                "metric_key": "voice_stress_during_call_avg",
+                "value": round(vc_voice_stress_avg, 2) if vc_voice_stress_avg is not None else None,
+                "unit": "model_0_10",
+                "severity_or_direction": "unknown",
+                "confidence": 0.45 if has_voice else 0.2,
+                "completeness": by_domain["psychophysiology_context"],
+                "timestamp": generated_at,
+            },
+        ],
     }
 
     flags: list[dict[str, Any]] = []
@@ -310,6 +674,25 @@ def build_movement_workspace_payload(patient_id: str, db: Session) -> dict[str, 
             "source_modalities": ["clinician"],
             "evidence_link_ids": ["evidence-med-movement"],
             "linked_analyzers_impacted": ["medication-analyzer"],
+        })
+    if (
+        has_wellness_shared
+        and wc_pain_avg is not None
+        and wc_pain_avg >= 6
+        and avg_steps is not None
+        and avg_steps < 4200
+    ):
+        flags.append({
+            "flag_id": "mov-pain-activity",
+            "category": "multimodal_context",
+            "title": "Pain burden vs activity — review alongside movement",
+            "detail": "Shared wellness reports elevated pain while average steps are below typical mobility targets; consider interactions with fatigue and motor complaints.",
+            "confidence": 0.48,
+            "urgency": "monitor",
+            "movement_domain": "activity_patterns",
+            "source_modalities": ["patient_reported", "wearable"],
+            "evidence_link_ids": ["evidence-multimodal-context"],
+            "linked_analyzers_impacted": ["clinician-wellness", "wearables"],
         })
 
     recommendations = [
@@ -369,15 +752,29 @@ def build_movement_workspace_payload(patient_id: str, db: Session) -> dict[str, 
             "confidence": 0.5,
             "related_flag_ids": [],
         },
+        {
+            "id": "evidence-multimodal-context",
+            "source_type": "rule",
+            "title": "Interpret movement with mood, stress, and treatment context",
+            "snippet": "Motor performance covaries with pain, anxiety, sleep, and therapy cadence; multimodal review reduces single-stream misinterpretation.",
+            "strength": "moderate",
+            "confidence": 0.6,
+            "related_flag_ids": ["mov-pain-activity"] if (has_wellness_shared and wc_pain_avg is not None and wc_pain_avg >= 6 and avg_steps is not None and avg_steps < 4200) else [],
+        },
     ]
 
     risk_relation = "clinical_trajectory_context"
     if risk_level:
         risk_relation = f"clinical_deterioration_risk_{risk_level}"
     multimodal_links = [
+        {"analyzer_id": "deeptwin", "label": "DeepTwin", "relation": "multimodal_fusion_summary", "entity_ids": [deeptwin_id] if deeptwin_id else []},
         {"analyzer_id": "video-assessments", "label": "Video Analyzer", "relation": "feeds_posture_proxy", "entity_ids": []},
         {"analyzer_id": "wearables", "label": "Biometrics / wearables", "relation": "feeds_activity_proxy", "entity_ids": []},
+        {"analyzer_id": "live-session", "label": "Virtual Care", "relation": "vc_biometrics_voice_stress", "entity_ids": []},
+        {"analyzer_id": "voice-analyzer", "label": "Voice Analyzer", "relation": "telehealth_voice_features", "entity_ids": []},
+        {"analyzer_id": "clinician-wellness", "label": "Wellness Hub", "relation": "shared_checkins_mood_pain", "entity_ids": []},
         {"analyzer_id": "medication-analyzer", "label": "Medication Analyzer", "relation": "motor_relevant_meds", "entity_ids": []},
+        {"analyzer_id": "treatment-sessions-analyzer", "label": "Treatment Sessions", "relation": "neuromod_course_progress", "entity_ids": []},
         {"analyzer_id": "risk-analyzer", "label": "Risk Analyzer", "relation": risk_relation, "entity_ids": []},
         {"analyzer_id": "assessments-v2", "label": "Assessments", "relation": "timed_measures_and_scales", "entity_ids": []},
         {"analyzer_id": "mri-analysis", "label": "MRI Analyzer", "relation": "structural_context_when_movement_disorder", "entity_ids": []},
@@ -395,6 +792,16 @@ def build_movement_workspace_payload(patient_id: str, db: Session) -> dict[str, 
         ],
         "summary": " ".join(phenotype_bits),
     }
+    if has_wellness_shared or has_bio_vc or has_voice:
+        interpretation["hypotheses"].append({
+            "kind": "multimodal_context",
+            "statement": (
+                "Mood, stress proxies, and voice/biometric signals are contextual only — use them to triangulate "
+                "fatigue, anxiety, and pain as contributors to observed activity or posture patterns."
+            ),
+            "confidence": 0.62,
+            "caveat": "Patient-reported data may be incomplete; wellness entries require patient sharing.",
+        })
 
     payload: dict[str, Any] = {
         "patient_id": patient_id,
@@ -415,6 +822,7 @@ def build_movement_workspace_payload(patient_id: str, db: Session) -> dict[str, 
         },
         "signal_sources": signal_sources,
         "domains": domains,
+        "cross_modal_context": cross_modal_context,
         "baseline": None,
         "deviations": [],
         "flags": flags,
@@ -422,7 +830,17 @@ def build_movement_workspace_payload(patient_id: str, db: Session) -> dict[str, 
         "evidence_links": evidence_links,
         "multimodal_links": multimodal_links,
         "completeness": {"overall": round(completeness, 2), "by_domain": by_domain},
-        "linked_analyzers_impacted": ["video-assessments", "wearables", "medication-analyzer", "risk-analyzer"],
+        "linked_analyzers_impacted": [
+            "deeptwin",
+            "video-assessments",
+            "wearables",
+            "live-session",
+            "voice-analyzer",
+            "clinician-wellness",
+            "medication-analyzer",
+            "treatment-sessions-analyzer",
+            "risk-analyzer",
+        ],
         "clinical_interpretation": interpretation,
         "audit_tail": [],
     }
