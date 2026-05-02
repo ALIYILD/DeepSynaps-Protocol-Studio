@@ -3017,6 +3017,20 @@ export const api = {
   getMovementAudit: (patientId) =>
     apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
 
+  // ── Labs / Blood Biomarkers Analyzer (psych-med + neuromodulation safety) ─
+  getLabsProfile: (patientId) =>
+    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}`),
+  recomputeLabs: (patientId) =>
+    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/recompute`, { method: 'POST' }),
+  addLabResult: (patientId, body) =>
+    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/results`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  addLabsAnnotation: (patientId, body) =>
+    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/annotation`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  addLabsReviewNote: (patientId, body) =>
+    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/review-note`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  getLabsAudit: (patientId) =>
+    apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
+
   // ── Device Sync (clinician-facing) ─────────────────────────────────────────
   deviceSyncProviders: () => apiFetchWithRetry('/api/v1/device-sync/providers'),
   deviceSyncAuthorize: (provider) =>
