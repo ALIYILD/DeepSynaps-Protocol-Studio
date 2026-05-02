@@ -1,0 +1,91 @@
+{
+  "features": {
+    "spectral": {
+      "bands": {
+        "delta": {
+          "absolute_uv2": {"Fz": 4.21, "Cz": 3.10, "Pz": 2.55},
+          "relative":     {"Fz": 0.18, "Cz": 0.14, "Pz": 0.12}
+        },
+        "theta": {
+          "absolute_uv2": {"Fz": 6.40, "Cz": 4.91, "Pz": 3.42},
+          "relative":     {"Fz": 0.27, "Cz": 0.22, "Pz": 0.16}
+        },
+        "alpha": {
+          "absolute_uv2": {"Fz": 5.10, "Cz": 6.55, "Pz": 11.32},
+          "relative":     {"Fz": 0.21, "Cz": 0.29, "Pz": 0.52}
+        },
+        "beta": {
+          "absolute_uv2": {"Fz": 4.05, "Cz": 4.10, "Pz": 3.20},
+          "relative":     {"Fz": 0.17, "Cz": 0.18, "Pz": 0.15}
+        },
+        "gamma": {
+          "absolute_uv2": {"Fz": 1.10, "Cz": 1.05, "Pz": 0.95},
+          "relative":     {"Fz": 0.05, "Cz": 0.05, "Pz": 0.04}
+        }
+      },
+      "aperiodic": {
+        "slope":     {"Fz": 1.42, "Cz": 1.51, "Pz": 1.61},
+        "offset":    {"Fz": -3.10, "Cz": -3.05, "Pz": -2.92},
+        "r_squared": {"Fz": 0.92, "Cz": 0.94, "Pz": 0.95}
+      },
+      "peak_alpha_freq": {"Fz": 9.8, "Cz": 10.1, "Pz": 10.4}
+    },
+    "connectivity": {
+      "wpli":      {"alpha": [[0.0, 0.4, 0.3], [0.4, 0.0, 0.5], [0.3, 0.5, 0.0]]},
+      "coherence": {"alpha": [[1.0, 0.6, 0.5], [0.6, 1.0, 0.7], [0.5, 0.7, 1.0]]},
+      "channels":  ["Fz", "Cz", "Pz"]
+    },
+    "asymmetry": {
+      "frontal_alpha_F3_F4": 0.21,
+      "frontal_alpha_F7_F8": 0.18
+    },
+    "graph": {
+      "alpha": {"clustering_coef": 0.41, "char_path_length": 1.82, "small_worldness": 1.05},
+      "theta": {"clustering_coef": 0.39, "char_path_length": 2.01, "small_worldness": 0.98}
+    },
+    "source": {
+      "roi_band_power": {
+        "alpha": {"superiorfrontal_lh": 0.52, "superiorfrontal_rh": 0.61}
+      },
+      "method": "eLORETA"
+    }
+  },
+  "zscores": {
+    "spectral": {
+      "bands": {
+        "theta": {
+          "absolute_uv2": {"Fz": 2.81, "Cz": 1.10, "Pz": 0.42},
+          "relative":     {"Fz": 1.95, "Cz": 0.80, "Pz": 0.31}
+        },
+        "alpha": {
+          "absolute_uv2": {"Fz": -0.42, "Cz": 0.15, "Pz": 1.10},
+          "relative":     {"Fz": -0.55, "Cz": 0.12, "Pz": 0.91}
+        }
+      }
+    },
+    "aperiodic": {
+      "slope": {"Fz": -1.21, "Cz": -0.95, "Pz": -0.30}
+    },
+    "flagged": [
+      {"metric": "spectral.bands.theta.absolute_uv2", "channel": "Fz", "z": 2.81}
+    ],
+    "norm_db_version": "toy-0.1"
+  },
+  "flagged_conditions": ["adhd"],
+  "quality": {
+    "n_channels_input": 19,
+    "n_channels_rejected": 1,
+    "bad_channels": ["T7"],
+    "n_epochs_total": 60,
+    "n_epochs_retained": 52,
+    "ica_components_dropped": 3,
+    "ica_labels_dropped": {"eye": 2, "muscle": 1},
+    "sfreq_input": 500.0,
+    "sfreq_output": 250.0,
+    "bandpass": [1.0, 45.0],
+    "notch_hz": 50.0,
+    "pipeline_version": "0.1.0",
+    "norm_db_version": "toy-0.1",
+    "stage_errors": {}
+  }
+}
