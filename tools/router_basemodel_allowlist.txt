@@ -924,6 +924,16 @@ apps/api/app/routers/risk_stratification_router.py:ClinicRiskSummaryResponse
 apps/api/app/routers/risk_stratification_router.py:OverrideRequest
 apps/api/app/routers/risk_stratification_router.py:PatientRiskProfile
 apps/api/app/routers/risk_stratification_router.py:PatientRiskSummary
+apps/api/app/routers/rotation_policy_advisor_outcome_tracker_router.py:AuditEventOut
+apps/api/app/routers/rotation_policy_advisor_outcome_tracker_router.py:AuditEventsListOut
+apps/api/app/routers/rotation_policy_advisor_outcome_tracker_router.py:CodeAggregateOut
+apps/api/app/routers/rotation_policy_advisor_outcome_tracker_router.py:PageAuditIn
+apps/api/app/routers/rotation_policy_advisor_outcome_tracker_router.py:PageAuditOut
+apps/api/app/routers/rotation_policy_advisor_outcome_tracker_router.py:PairedListOut
+apps/api/app/routers/rotation_policy_advisor_outcome_tracker_router.py:PairedRecordOut
+apps/api/app/routers/rotation_policy_advisor_outcome_tracker_router.py:RunSnapshotNowOut
+apps/api/app/routers/rotation_policy_advisor_outcome_tracker_router.py:SummaryOut
+apps/api/app/routers/rotation_policy_advisor_outcome_tracker_router.py:TrendBucketOut
 apps/api/app/routers/schedules_router.py:ConflictCheckIn
 apps/api/app/routers/schedules_router.py:ConflictCheckOut
 apps/api/app/routers/schedules_router.py:ConflictOut
