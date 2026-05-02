@@ -96,6 +96,28 @@ function crisisStripHtml(region) {
   </div>`;
 }
 
+function renderCorpusBlock(cl) {
+  if (!cl || !cl.enabled) return '';
+  const r = cl.result;
+  const corpus = (r && r.provenance && r.provenance.corpus) || 'corpus';
+  if (cl.error) {
+    return `<div class="ra-corpus-box ra-corpus--warn">Literature retrieval unavailable (check evidence DB / EVIDENCE_DB_PATH).</div>`;
+  }
+  if (!r || !r.top_papers || !r.top_papers.length) {
+    return `<div class="ra-corpus-box" style="opacity:.85">No matching papers in local corpus for <code>${esc(cl.target_key || '')}</code> — see Research Evidence when online.</div>`;
+  }
+  const papers = r.top_papers.map((p) => {
+    const y = p.year != null ? ` (${p.year})` : '';
+    const sn = (p.abstract_snippet || '').slice(0, 140);
+    return `<li><strong>${esc(p.title || p.paper_id)}</strong>${y}${p.pmid ? ` · PMID ${esc(p.pmid)}` : ''}<br><span style="color:var(--text-tertiary);font-size:10.5px">${esc(sn)}${sn.length >= 140 ? '…' : ''}</span></li>`;
+  }).join('');
+  return `<div class="ra-corpus-box">
+    <div class="ra-corpus-hd">Corpus evidence <span class="ra-corpus-tag">${esc(corpus)}</span></div>
+    ${r.literature_summary ? `<p class="ra-corpus-sum">${esc(r.literature_summary)}</p>` : ''}
+    <ol class="ra-corpus-ol">${papers}</ol>
+  </div>`;
+}
+
 function renderSnapshotCard(c) {
   const lv = (c.level || 'green').toLowerCase();
   const pal = LEVEL_COLOR[lv] || LEVEL_COLOR.green;
@@ -105,6 +127,7 @@ function renderSnapshotCard(c) {
     <div class="ra-snap-sub">${esc(c.confidence || '')} · ${esc((c.computed_at || '').slice(0, 16))}</div>
     <p class="ra-snap-rationale">${esc((c.rationale || '').slice(0, 220))}${(c.rationale || '').length > 220 ? '…' : ''}</p>
     ${c.override_level ? `<div class="ra-override-tag">Override active</div>` : ''}
+    ${renderCorpusBlock(c.corpus_literature)}
   </div>`;
 }
 
@@ -124,6 +147,7 @@ function renderPredictionCard(p) {
     <p class="ra-pred-pop">${esc((p.confidence && p.confidence.target_population_note) || '')}</p>
     ${(p.contributing_factors || []).length ? `<ul class="ra-factor-list">${p.contributing_factors.slice(0, 6).map((f) =>
       `<li><strong>${esc(f.name)}</strong> — ${esc(f.detail || '')}</li>`).join('')}</ul>` : ''}
+    ${renderCorpusBlock(p.corpus_literature)}
   </div>`;
 }
 
@@ -200,7 +224,7 @@ ${pid ? `<button type="button" class="btn btn-sm btn-primary" onclick="window._s
     const ev = evidenceStrip;
     const evN = ev.totalPapers != null ? Number(ev.totalPapers).toLocaleString() : '—';
     const corpusNote = ev.live
-      ? `MedRAG / evidence corpus: <strong>${evN}</strong> papers indexed (same backend as Research Evidence). Stratification cross-references use condition packages + literature links — not a live RAG query per row.`
+      ? `Evidence intelligence corpus: <strong>${evN}</strong> papers indexed (same SQLite/evidence pipeline as Research Evidence). Each category below runs <strong>ranked retrieval</strong> against that corpus via the API — decision-support only.`
       : `Evidence corpus stats unavailable offline — open <button type="button" class="btn btn-ghost btn-sm" style="padding:0 4px;font-size:inherit;height:auto;vertical-align:baseline" onclick="window._nav('research-evidence')">Research Evidence</button> when online.`;
 
     root.innerHTML = `
@@ -243,6 +267,13 @@ ${pid ? `<button type="button" class="btn btn-sm btn-primary" onclick="window._s
   .ra-audit { font-size:11.5px;color:var(--text-secondary);border-bottom:1px solid var(--border);padding:8px 0; }
   .ra-err { background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#fecaca;padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:12px; }
   .ra-ev-corpus { font-size:11.5px;color:var(--text-secondary);background:rgba(139,92,246,0.06);border:1px solid rgba(139,92,246,0.22);border-radius:10px;padding:10px 14px;margin-bottom:14px;line-height:1.5; }
+  .ra-corpus-box { margin-top:10px;padding-top:10px;border-top:1px dashed rgba(255,255,255,0.12);font-size:11px;color:var(--text-secondary); }
+  .ra-corpus-box.ra-corpus--warn { color:var(--amber);border-top-color:rgba(245,158,11,0.25); }
+  .ra-corpus-hd { font-weight:700;color:var(--text-primary);margin-bottom:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap; }
+  .ra-corpus-tag { font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;background:rgba(139,92,246,0.12);color:#c4b5fd;padding:2px 7px;border-radius:4px; }
+  .ra-corpus-sum { margin:0 0 8px;line-height:1.45;font-size:10.5px; }
+  .ra-corpus-ol { margin:0;padding-left:18px; }
+  .ra-corpus-ol li { margin-bottom:8px; }
 </style>
 <div class="ra-wrap">
   <div class="ra-ev-corpus">${corpusNote}</div>

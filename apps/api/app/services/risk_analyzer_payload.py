@@ -2,10 +2,12 @@
 
 Operational stratification categories come from ``risk_stratification``.
 Prediction cards use transparent rule-based indices separate from traffic lights.
+Literature panels use ``evidence_intelligence.query_evidence`` against the evidence corpus (evidence.db).
 """
 from __future__ import annotations
 
 import json
+import logging
 import math
 import uuid
 from datetime import datetime, timezone
@@ -21,6 +23,7 @@ from app.persistence.models import (
 )
 from app.services.risk_clinical_scores import build_all_clinical_scores
 from app.services.risk_evidence_map import RISK_CATEGORY_LABELS
+from app.services.evidence_intelligence import EvidenceFeatureSummary, EvidenceQuery, EvidenceResult, query_evidence
 from app.services.risk_stratification import (
     PatientContext,
     assemble_patient_context,
@@ -28,8 +31,22 @@ from app.services.risk_stratification import (
 )
 
 
-SCHEMA_VERSION = "1.0.0"
-ASSEMBLER_VERSION = "risk_analyzer_v1"
+SCHEMA_VERSION = "1.1.0"
+ASSEMBLER_VERSION = "risk_analyzer_v2_medrag"
+
+log = logging.getLogger(__name__)
+
+# Risk category → evidence_intelligence TARGET_CONCEPTS key (corpus retrieval)
+RISK_LITERATURE_TARGETS: dict[str, str] = {
+    "suicide_risk": "suicide_self_harm_risk",
+    "self_harm": "self_harm_nssi_risk",
+    "mental_crisis": "mental_crisis_acute",
+    "harm_to_others": "harm_to_others_violence",
+    "seizure_risk": "seizure_stimulation_safety",
+    "implant_risk": "implant_device_safety",
+    "medication_interaction": "medication_interaction_safety",
+    "allergy": "allergy_medication_safety",
+}
 
 
 def _sigmoid(x: float) -> float:
@@ -67,6 +84,127 @@ def _get_items(assessment: Optional[dict]) -> dict:
         return json.loads(raw) if isinstance(raw, str) else dict(raw)
     except (json.JSONDecodeError, TypeError):
         return {}
+
+
+def _norm_cond(slug: Optional[str]) -> str:
+    if not slug:
+        return ""
+    return str(slug).lower().replace(" ", "-").replace("_", "-")
+
+
+def _build_literature_feature_summary(ctx: PatientContext) -> list[EvidenceFeatureSummary]:
+    """Narrow MedRAG-style query with patient course + condition when available."""
+    p = ctx.patient or {}
+    out: list[EvidenceFeatureSummary] = []
+    cond = (p.get("primary_condition") or p.get("primaryCondition") or "") or ""
+    if cond:
+        out.append(EvidenceFeatureSummary(name="primary_condition", value=cond, modality="patient", direction="context"))
+    mod = (p.get("primary_modality") or "") or ""
+    if mod:
+        out.append(EvidenceFeatureSummary(name="primary_modality", value=mod, modality="neuromodulation", direction="context"))
+    if ctx.active_modality:
+        out.append(EvidenceFeatureSummary(name="active_modality", value=ctx.active_modality, modality="neuromodulation", direction="context"))
+    return out
+
+
+def _evidence_result_to_corpus_block(result: EvidenceResult) -> dict:
+    """Serialize EvidenceResult to JSON-friendly dict (top papers + claim)."""
+    sp = []
+    for p in (getattr(result, "supporting_papers", None) or [])[:5]:
+        d = p.model_dump(mode="json") if hasattr(p, "model_dump") else dict(p)
+        # trim long fields for payload size
+        if d.get("abstract_snippet") and len(str(d["abstract_snippet"])) > 400:
+            d["abstract_snippet"] = str(d["abstract_snippet"])[:400] + "…"
+        sp.append(d)
+    prov = getattr(result, "provenance", None)
+    prov_d = prov.model_dump(mode="json") if prov is not None and hasattr(prov, "model_dump") else {}
+    return {
+        "finding_id": getattr(result, "finding_id", None),
+        "target_name": getattr(result, "target_name", None),
+        "claim": getattr(result, "claim", None),
+        "literature_summary": getattr(result, "literature_summary", None),
+        "recommended_caution": getattr(result, "recommended_caution", None),
+        "evidence_strength": getattr(result, "evidence_strength", None),
+        "confidence_score": getattr(result, "confidence_score", None),
+        "top_papers": sp,
+        "conflicting_count": len(getattr(result, "conflicting_papers", None) or []),
+        "provenance": prov_d,
+    }
+
+
+def _attach_prediction_corpus(
+    card: dict,
+    patient_id: str,
+    ctx: PatientContext,
+    db: Session,
+    target_key: str,
+) -> dict:
+    """Add MedRAG-style top papers to prediction support cards."""
+    out = {**card, "corpus_literature": {"enabled": True, "target_key": target_key, "error": None, "result": None}}
+    try:
+        feat = _build_literature_feature_summary(ctx)
+        cond_slug = _norm_cond((ctx.patient or {}).get("primary_condition"))
+        diagnosis_filters = [cond_slug] if cond_slug else []
+        q = EvidenceQuery(
+            patient_id=patient_id,
+            context_type="prediction",
+            target_name=target_key,
+            modality_filters=[(ctx.active_modality or "").lower()] if ctx.active_modality else [],
+            diagnosis_filters=diagnosis_filters[:3],
+            intervention_filters=[],
+            feature_summary=feat,
+            max_results=5,
+            include_counter_evidence=True,
+        )
+        ev_res = query_evidence(q, db)
+        out["corpus_literature"]["result"] = _evidence_result_to_corpus_block(ev_res)
+    except Exception as ex:
+        log.warning("Prediction corpus retrieval failed for %s: %s", target_key, ex)
+        out["corpus_literature"]["error"] = "literature_retrieval_failed"
+    return out
+
+
+def _enrich_snapshots_with_corpus(
+    snap_rows: list[dict],
+    patient_id: str,
+    ctx: PatientContext,
+    db: Session,
+) -> list[dict]:
+    feat = _build_literature_feature_summary(ctx)
+    cond_slug = _norm_cond((ctx.patient or {}).get("primary_condition"))
+    diagnosis_filters = [cond_slug] if cond_slug else []
+
+    enriched = []
+    for row in snap_rows:
+        cat = row.get("category") or ""
+        target_key = RISK_LITERATURE_TARGETS.get(cat)
+        corpus_block: dict[str, Any] = {
+            "enabled": bool(target_key),
+            "target_key": target_key,
+            "error": None,
+            "result": None,
+        }
+        if target_key:
+            try:
+                q = EvidenceQuery(
+                    patient_id=patient_id,
+                    context_type="risk_score",
+                    target_name=target_key,
+                    modality_filters=[(ctx.active_modality or "").lower()] if ctx.active_modality else [],
+                    diagnosis_filters=diagnosis_filters[:3],
+                    intervention_filters=[],
+                    feature_summary=feat,
+                    max_results=5,
+                    include_counter_evidence=True,
+                )
+                ev_res = query_evidence(q, db)
+                corpus_block["result"] = _evidence_result_to_corpus_block(ev_res)
+                corpus_block["corpus"] = (corpus_block["result"].get("provenance") or {}).get("corpus", "unknown")
+            except Exception as ex:
+                log.warning("Corpus retrieval failed for %s: %s", cat, ex)
+                corpus_block["error"] = "literature_retrieval_failed"
+        enriched.append({**row, "corpus_literature": corpus_block})
+    return enriched
 
 
 def _category_snapshot_rows(db: Session, patient_id: str) -> list[dict]:
@@ -584,7 +722,12 @@ def build_risk_analyzer_payload(
     if ensure_compute:
         compute_risk_profile(patient_id, db, clinician_id=actor_id)
 
-    snap_rows = _category_snapshot_rows(db, patient_id)
+    snap_rows = _enrich_snapshots_with_corpus(
+        _category_snapshot_rows(db, patient_id),
+        patient_id,
+        ctx,
+        db,
+    )
     strat_by_cat = {r["category"]: r for r in snap_rows}
 
     chronological_age: Optional[int] = None
@@ -605,10 +748,18 @@ def build_risk_analyzer_payload(
         response_target="depression",
     )
 
-    suicide_card = _predict_suicide_self_harm(ctx, strat_by_cat)
-    crisis_card = _predict_mental_crisis(ctx, strat_by_cat)
-    harm_card = _predict_harm_to_others(ctx, strat_by_cat)
-    rel_adh = _merge_relapse_adherence(scores)
+    suicide_card = _attach_prediction_corpus(
+        _predict_suicide_self_harm(ctx, strat_by_cat), patient_id, ctx, db, "suicide_self_harm_risk",
+    )
+    crisis_card = _attach_prediction_corpus(
+        _predict_mental_crisis(ctx, strat_by_cat), patient_id, ctx, db, "mental_crisis_acute",
+    )
+    harm_card = _attach_prediction_corpus(
+        _predict_harm_to_others(ctx, strat_by_cat), patient_id, ctx, db, "harm_to_others_violence",
+    )
+    rel_adh = _attach_prediction_corpus(
+        _merge_relapse_adherence(scores), patient_id, ctx, db, "relapse_adherence_neuromod",
+    )
 
     form_row = load_or_create_formulation_row(db, patient_id)
     try:

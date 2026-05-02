@@ -313,6 +313,61 @@ TARGET_CONCEPTS: dict[str, dict[str, Any]] = {
         "diagnoses": ["depression", "anxiety"],
         "modalities": ["text"],
     },
+    # ── Risk Analyzer workspace — corpus retrieval targets (evidence.db FTS + ranking) ──
+    "suicide_self_harm_risk": {
+        "claim": "Literature context for suicide risk screening, safety planning, PHQ-9/C-SSRS use, and acute psychiatric stabilization.",
+        "concepts": ["suicide", "suicidal ideation", "Columbia Suicide Severity Rating Scale", "PHQ-9", "self-harm", "safety planning", "crisis intervention", "psychiatric emergency"],
+        "diagnoses": ["depression", "major depressive disorder", "mood disorder"],
+        "modalities": ["assessment", "psychiatry"],
+    },
+    "self_harm_nssi_risk": {
+        "claim": "Literature context for non-suicidal self-injury, self-harm monitoring, and engagement in mental health care.",
+        "concepts": ["self-harm", "nonsuicidal self-injury", "NSSI", "cutting", "PHQ-9", "mood", "dialectical behavior therapy"],
+        "diagnoses": ["depression", "borderline personality", "mood disorder"],
+        "modalities": ["assessment", "behavioral health"],
+    },
+    "mental_crisis_acute": {
+        "claim": "Literature context for acute destabilization, agitation, crisis services, and rapid worsening of psychiatric status.",
+        "concepts": ["psychiatric emergency", "agitation", "acute psychosis", "crisis", "decompensation", "involuntary", "stabilization"],
+        "diagnoses": ["depression", "bipolar", "schizophrenia", "anxiety"],
+        "modalities": ["emergency", "psychiatry", "wearables"],
+    },
+    "harm_to_others_violence": {
+        "claim": "Literature context for violence risk assessment, harm to others, and conflict de-escalation in mental health care.",
+        "concepts": ["violence", "aggression", "homicide", "threat", "harm to others", "risk assessment", "forensic psychiatry"],
+        "diagnoses": ["personality disorder", "psychosis", "substance use"],
+        "modalities": ["psychiatry", "emergency"],
+    },
+    "seizure_stimulation_safety": {
+        "claim": "Literature context for seizure history, rTMS/tDCS safety, threshold-lowering drugs, and neuromodulation contraindications.",
+        "concepts": ["seizure", "epilepsy", "TMS", "rTMS", "neuromodulation", "seizure threshold", "anticonvulsant"],
+        "diagnoses": ["epilepsy", "mood disorder"],
+        "modalities": ["neuromodulation", "neurology"],
+    },
+    "implant_device_safety": {
+        "claim": "Literature context for MR-conditional devices, ferromagnetic implants, and screening before magnetic brain stimulation.",
+        "concepts": ["implant", "cochlear", "DBS", "MR-conditional", "ferromagnetic", "TMS", "safety screening"],
+        "diagnoses": ["parkinson disease", "hearing loss"],
+        "modalities": ["mri", "neuromodulation"],
+    },
+    "medication_interaction_safety": {
+        "claim": "Literature context for psychotropic and neuromodulation-relevant drug interactions, anticoagulation, and polypharmacy review.",
+        "concepts": ["drug interaction", "polypharmacy", "antidepressant", "lithium", "anticonvulsant", "bleeding", "TMS"],
+        "diagnoses": ["depression", "bipolar"],
+        "modalities": ["medication", "neuromodulation"],
+    },
+    "allergy_medication_safety": {
+        "claim": "Literature context for drug allergy documentation, cross-reactivity, and medication reconciliation in neuropsychiatric care.",
+        "concepts": ["drug allergy", "hypersensitivity", "medication reconciliation", "contraindication", "anaphylaxis"],
+        "diagnoses": ["depression", "anxiety"],
+        "modalities": ["medication"],
+    },
+    "relapse_adherence_neuromod": {
+        "claim": "Literature context for treatment adherence, dropout, relapse prevention, and neuromodulation course completion.",
+        "concepts": ["adherence", "relapse", "dropout", "depression", "rTMS", "tDCS", "continuation", "maintenance"],
+        "diagnoses": ["depression", "mdd"],
+        "modalities": ["neuromodulation", "wearables"],
+    },
 }
 
 
