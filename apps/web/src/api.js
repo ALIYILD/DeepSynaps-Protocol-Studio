@@ -3717,6 +3717,67 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
+  // ── IRB-AMD2 Reviewer Workload launch-audit ──
+  // (2026-05-02). Closes "workflow exists" → "workflow has SLA
+  // enforcement". The IRB-AMD1 amendment workflow shipped a
+  // regulator-credible lifecycle but no SLA enforcement. IRB-AMD2
+  // adds per-reviewer queue snapshots, an unassigned-amendments
+  // bucket, and a HIGH-priority queue_breach_detected audit row
+  // routed into the existing Clinician Inbox aggregator (#354) via
+  // the priority=high token. No new aggregation logic.
+  // Helpers placed BEFORE IRB-AMD1's section so IRB-AMD1's
+  // slice-boundary sentinel stays clean — IRB-AMD2 uses its own
+  // unique header anchor + slice-boundary sentinel.
+  irbAmd2Workload: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.clinic_id) usp.set('clinic_id', params.clinic_id);
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/irb-amendment-reviewer-workload/workload' + (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  irbAmd2Unassigned: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.clinic_id) usp.set('clinic_id', params.clinic_id);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/irb-amendment-reviewer-workload/unassigned-amendments' +
+        (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  irbAmd2SuggestReviewer: (amendmentId) => {
+    const qs = new URLSearchParams({ amendment_id: amendmentId }).toString();
+    return apiFetch(
+      '/api/v1/irb-amendment-reviewer-workload/suggest-reviewer?' + qs,
+    ).catch(() => null);
+  },
+  irbAmd2WorkerTick: () =>
+    apiFetch('/api/v1/irb-amendment-reviewer-workload/worker/tick', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }).catch(() => null),
+  irbAmd2WorkerStatus: () =>
+    apiFetch(
+      '/api/v1/irb-amendment-reviewer-workload/worker/status',
+    ).catch(() => null),
+  irbAmd2AuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null)
+      usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/irb-amendment-reviewer-workload/audit-events' +
+        (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  // end IRB-AMD2 helpers
+  // ━━ IRB-AMD2 SLICE BOUNDARY ━━ (do not remove; the launch-audit
+  // test for the IRB-AMD2 section finds the header above then walks
+  // to this unique sentinel substring to bound the slice).
+
   // ── IRB-AMD1 Amendment Workflow launch-audit ──
   // (2026-05-02). Real-world clinical trials hit amendment cycles every
   // 4-6 weeks; the existing IRB Manager amendments tab only logged a

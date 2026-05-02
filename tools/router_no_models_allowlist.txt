@@ -50,6 +50,7 @@ apps/api/app/routers/home_device_portal_router.py
 apps/api/app/routers/home_devices_patient_router.py
 apps/api/app/routers/home_devices_router.py
 apps/api/app/routers/home_task_templates_router.py
+apps/api/app/routers/irb_amendment_reviewer_workload_router.py
 apps/api/app/routers/irb_amendment_workflow_router.py
 apps/api/app/routers/irb_manager_router.py
 apps/api/app/routers/irb_router.py
