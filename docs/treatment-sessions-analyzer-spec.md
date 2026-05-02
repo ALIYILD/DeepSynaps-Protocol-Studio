@@ -7,6 +7,18 @@
 
 This document is the build contract for a new DeepSynaps Studio page. It complements existing analyzers (qEEG, MRI, assessments, video, voice, text, biometrics, risk, medications) by anchoring **when** neuromodulation occurred, **with what parameters**, and **how that context changes interpretation** of longitudinal biomarkers and outcomes.
 
+### DR / pilot readiness (engineering)
+
+Use this before clinician design review or pilot demos:
+
+| Gate | Expectation |
+|------|-------------|
+| API contract | `GET /api/v1/patients/{patient_id}/treatment-sessions-analyzer` returns `schema_version` + core panels; works when **no** `TreatmentCourse` exists (sessions-only chart). |
+| Auth | Clinician + patient self paths consistent with other `/patients/{id}/…` resources; guest denied. |
+| Tests | API: `pytest tests/test_treatment_sessions_analyzer.py`; Web: `treatment-sessions-analyzer-launch-audit.test.js` + full `apps/web` `test:unit` in CI. |
+| Honest limits | Response probability and session ranges are **heuristic** until `meta` lists a calibrated model version; multimodal “stubs” are explicit in UI. |
+| Staging smoke | Load a patient with course + sessions + at least one MRI or qEEG row; confirm contributors populate and no 500s. |
+
 ---
 
 ## PART 1 — PAGE PURPOSE
