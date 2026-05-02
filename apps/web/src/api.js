@@ -3725,6 +3725,84 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
+  // ── QEEG-ANN2 Annotation Outcome Tracker launch-audit ──
+  // (2026-05-02). Closes the loop on QEEG-ANN1 (#459): pairs each
+  // QEEGReportAnnotation row's created_at with its resolved_at (or
+  // absence) and classifies the outcome (resolved_within_sla |
+  // resolved_late | still_open_overdue | still_open_grace). Surfaces
+  // per-clinician resolution latency, evidence-gap dwell time, and
+  // the "created but never resolved within 30d" backlog.
+  // Helpers placed BEFORE QEEG-ANN1's section so QEEG-ANN1's
+  // slice-boundary sentinel stays clean — QEEG-ANN2 uses its own
+  // unique header anchor + slice-boundary sentinel.
+  fetchQeegAnnotationOutcomeSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.sla_days != null)
+      usp.set('sla_days', String(params.sla_days));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/qeeg-annotation-outcome-tracker/summary' + (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  fetchQeegAnnotationCreatorSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.min_created != null)
+      usp.set('min_created', String(params.min_created));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/qeeg-annotation-outcome-tracker/clinician-creator-summary' +
+        (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  fetchQeegAnnotationResolverLatencySummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.min_resolved != null)
+      usp.set('min_resolved', String(params.min_resolved));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/qeeg-annotation-outcome-tracker/resolver-latency-summary' +
+        (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  fetchQeegAnnotationBacklog: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.sla_days != null)
+      usp.set('sla_days', String(params.sla_days));
+    if (params && params.include_grace)
+      usp.set('include_grace', 'true');
+    if (params && params.page != null) usp.set('page', String(params.page));
+    if (params && params.page_size != null)
+      usp.set('page_size', String(params.page_size));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/qeeg-annotation-outcome-tracker/backlog' + (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  fetchQeegAnnotationOutcomeAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null)
+      usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/qeeg-annotation-outcome-tracker/audit-events' +
+        (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  // end QEEG-ANN2 helpers
+  // ━━ QEEG-ANN2 SLICE BOUNDARY ━━ (do not remove; the launch-audit
+  // test for the QEEG-ANN2 section finds the header above then walks
+  // to this unique sentinel substring to bound the slice).
+
   // ── QEEG-ANN1 Brain Map Annotations launch-audit ──
   // (2026-05-02). Sidecar annotation system for the qEEG Brain Map
   // report. Lets clinicians attach margin notes / region tags /
