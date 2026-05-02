@@ -16,6 +16,7 @@ import {
   wireEvidenceChips,
 } from './evidence-intelligence.js';
 import { emptyPatientEvidenceContext, loadPatientEvidenceContext } from './patient-evidence-context.js';
+import { EVIDENCE_TOTAL_PAPERS } from './evidence-dataset.js';
 
 function emptyAnalyticsEvidenceContext(patientId = '') {
   return emptyPatientEvidenceContext(patientId);
@@ -557,9 +558,21 @@ function widgetVideo(_tel, patientId) {
     { name: 'Engaged',  v: 18, c: '#5BB6FF' }, { name: 'Sad',     v:  9, c: '#8B7DFF' },
     { name: 'Anxious',  v:  7, c: '#F6B23C' },
   ];
-  return `<div class="ds-evidence-card-head">${evidenceChipHtml(patientId, 'video_affect', 'multimodal_summary', 'Affect evidence', 11, 'moderate', [
+  const gaitChip = evidenceChipHtml(patientId, 'video_gait_kinematics', 'biomarker', 'Gait kinematics · registry', 2835, 'moderate', [
+    { name: 'Cadence proxy', value: '82 steps/min', modality: 'Video pose', direction: 'within-camera', contribution: 0.22 },
+  ]);
+  const moveChip = evidenceChipHtml(patientId, 'video_bradykinesia_proxy', 'biomarker', 'Movement tasks · registry', 3161, 'moderate', [
+    { name: 'Bradykinesia proxy', value: 'finger tap rhythm CV', modality: 'Video pose', direction: 'review', contribution: 0.18 },
+  ]);
+  return `<div class="ds-evidence-card-head" style="flex-wrap:wrap;gap:6px">${evidenceChipHtml(patientId, 'video_affect', 'multimodal_summary', 'Affect evidence', 11, 'moderate', [
       { name: 'Facial affect', value: 'Calm/engaged 46%', modality: 'Video', direction: 'protective', contribution: 0.16 },
-    ])}</div>
+    ])}${gaitChip}${moveChip}</div>
+    <div style="margin-bottom:8px;padding:7px 9px;border:1px solid rgba(91,182,255,.22);border-radius:9px;background:rgba(91,182,255,.06);font-size:10px;line-height:1.4;color:var(--text-secondary)">
+      <strong style="color:var(--text-primary)">Why these numbers:</strong> pose landmarks → joint trajectories → task-specific kinematics (gait cycles, tap amplitude, tremor spectrum). Outputs attach to the ${EVIDENCE_TOTAL_PAPERS.toLocaleString()}-paper evidence registry by condition axis for literature context — not as proof this patient matches a trial cohort.
+    </div>
+    <div style="margin-bottom:8px;padding:7px 9px;border:1px solid rgba(246,178,60,.22);border-radius:9px;background:rgba(246,178,60,.07);font-size:10px;line-height:1.35;color:var(--text-secondary)">
+      Video metrics are decision-support signals for clinician review. They are not validated diagnostic scores and should be interpreted with camera quality, task protocol, and consent context.
+    </div>
     <div class="pa-video-frame">
       <svg width="100%" height="100%" viewBox="0 0 200 50">
         <ellipse cx="100" cy="25" rx="22" ry="18" fill="none" stroke="rgba(255,107,139,0.3)" stroke-width="0.6"/>
@@ -570,7 +583,13 @@ function widgetVideo(_tel, patientId) {
       </svg>
     </div>
     ${svgStackBar(emotions.map(e => ({ value: e.v, color: e.c })), 180, 6)}
-    <div class="pa-video-legend">${emotions.slice(0,4).map(e => `<span><span class="pa-dot" style="background:${e.c}"></span>${e.name} ${e.v}%</span>`).join('')}</div>`;
+    <div class="pa-video-legend">${emotions.slice(0,4).map(e => `<span><span class="pa-dot" style="background:${e.c}"></span>${e.name} ${e.v}%</span>`).join('')}</div>
+    <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn btn-ghost btn-xs" data-pa-action="report" data-pa-widget="video">Generate video report</button>
+      <button class="btn btn-ghost btn-xs" data-pa-action="open-deeptwin">Use in DeepTwin correlations</button>
+      <button class="btn btn-ghost btn-xs" data-pa-action="open-video-evidence">Open evidence drawer</button>
+      <button class="btn btn-ghost btn-xs" data-pa-action="open-research-evidence">87k research library</button>
+    </div>`;
 }
 
 function widgetText(_tel, patientId) {
@@ -946,6 +965,21 @@ export async function pgPatientAnalyticsDetail(setTopbar, patientId) {
       window._patientHubTab = 'reports';
       window._dsToast?.({ title: 'Reports Hub', body: 'Open the reports hub to generate or review patient reports.', severity: 'info' });
       window._nav('patients-hub');
+    }));
+  el.querySelectorAll('[data-pa-action="open-video-evidence"]').forEach(b =>
+    b.addEventListener('click', () => {
+      openEvidenceDrawer({
+        patientId: id,
+        target: 'video_gait_kinematics',
+        featureSummary: [
+          { name: 'Video Analyzer', value: 'kinematic report payload', modality: 'video', direction: 'decision_support' },
+        ],
+      });
+    }));
+  el.querySelectorAll('[data-pa-action="open-research-evidence"]').forEach(b =>
+    b.addEventListener('click', () => {
+      try { window._resEvidenceTab = 'search'; } catch {}
+      window._nav('research-evidence');
     }));
   el.querySelectorAll('[data-pa-tab]').forEach(t => t.addEventListener('click', () => {
     const which = t.getAttribute('data-pa-tab');
