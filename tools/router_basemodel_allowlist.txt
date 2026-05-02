@@ -760,8 +760,6 @@ apps/api/app/routers/profile_router.py:EmailChangeResponse
 apps/api/app/routers/profile_router.py:EmailVerifyRequest
 apps/api/app/routers/profile_router.py:ProfileResponse
 apps/api/app/routers/profile_router.py:ProfileUpdateRequest
-apps/api/app/routers/protocols_generate_router.py:BrainScanProtocolRequest
-apps/api/app/routers/protocols_generate_router.py:PersonalizedProtocolRequest
 apps/api/app/routers/protocols_saved_router.py:SavedProtocolCreate
 apps/api/app/routers/protocols_saved_router.py:SavedProtocolListResponse
 apps/api/app/routers/protocols_saved_router.py:SavedProtocolOut

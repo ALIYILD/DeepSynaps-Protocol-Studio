@@ -43,6 +43,12 @@ from .home_program_provenance import (
     parse_home_program_selection,
     patient_safe_home_program_selection,
 )
+from .protocols_generate import (
+    BrainScanProtocolRequest,
+    BrainScanProtocolResponse,
+    PersonalizedProtocolRequest,
+    PersonalizedProtocolResponse,
+)
 from .models import (
     ApprovalBadge,
     AssessmentPlan,
@@ -100,6 +106,11 @@ __all__ = [
     "confidence_tier_from_score",
     "parse_home_program_selection",
     "patient_safe_home_program_selection",
+    # protocols_generate exports
+    "BrainScanProtocolRequest",
+    "BrainScanProtocolResponse",
+    "PersonalizedProtocolRequest",
+    "PersonalizedProtocolResponse",
     # condition_package exports
     "AbsoluteContraindication",
     "AdherenceRules",
