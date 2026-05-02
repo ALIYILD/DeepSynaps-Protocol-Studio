@@ -423,6 +423,9 @@ apps/api/app/routers/evidence_router.py:PaperOut
 apps/api/app/routers/evidence_router.py:PaperStatsOut
 apps/api/app/routers/evidence_router.py:PromoteOut
 apps/api/app/routers/evidence_router.py:ResearchAdjunctEvidenceOut
+apps/api/app/routers/evidence_router.py:ResearchAdjunctReviewConditionOut
+apps/api/app/routers/evidence_router.py:ResearchAdjunctReviewRowOut
+apps/api/app/routers/evidence_router.py:ResearchAdjunctReviewTablesOut
 apps/api/app/routers/evidence_router.py:ResearchAdjunctSummaryOut
 apps/api/app/routers/evidence_router.py:ResearchConditionOut
 apps/api/app/routers/evidence_router.py:ResearchDatasetExportRequest
