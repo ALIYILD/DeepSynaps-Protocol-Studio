@@ -454,6 +454,9 @@ class ResearchAdjunctEvidenceOut(BaseModel):
     adjunct_terms: list[str] = Field(default_factory=list)
     condition_mentions_top: list[str] = Field(default_factory=list)
     relation_signal_tags: list[str] = Field(default_factory=list)
+    medication_risk_tier: Optional[str] = None
+    medication_risk_reason: Optional[str] = None
+    medication_risk_signal_tags: list[str] = Field(default_factory=list)
     ranking_mode: Optional[str] = None
 
 
@@ -465,6 +468,7 @@ class ResearchAdjunctSummaryOut(BaseModel):
     top_indications: list[ResearchFacetCount] = Field(default_factory=list)
     top_modalities: list[ResearchFacetCount] = Field(default_factory=list)
     top_relation_signal_tags: list[ResearchFacetCount] = Field(default_factory=list)
+    top_medication_risk_tiers: list[ResearchFacetCount] = Field(default_factory=list)
     top_papers: list[ResearchAdjunctEvidenceOut] = Field(default_factory=list)
 
 
@@ -1383,6 +1387,7 @@ def search_neuromodulation_research_adjunct_evidence(
     indication: Optional[str] = Query(None),
     modality: Optional[str] = Query(None),
     evidence_tier: Optional[str] = Query(None),
+    medication_risk_tier: Optional[str] = Query(None, pattern="^(high|moderate|low)$"),
     year_min: Optional[int] = Query(None),
     year_max: Optional[int] = Query(None),
     limit: int = Query(20, ge=1, le=100),
@@ -1396,6 +1401,7 @@ def search_neuromodulation_research_adjunct_evidence(
         indication=indication,
         modality=modality,
         evidence_tier=evidence_tier,
+        medication_risk_tier=medication_risk_tier,
         year_min=year_min,
         year_max=year_max,
         limit=limit,
@@ -1409,6 +1415,7 @@ def search_neuromodulation_research_adjunct_evidence(
         indication=indication,
         modality=modality,
         evidence_tier=evidence_tier,
+        medication_risk_tier=medication_risk_tier,
         result_count=len(rows),
     )
     return [ResearchAdjunctEvidenceOut(**row) for row in rows]

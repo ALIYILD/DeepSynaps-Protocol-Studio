@@ -699,11 +699,16 @@ async function renderNeuro(body, q, filt, sInput, pills) {
       ${(adjunctSummary.top_topics || []).slice(0, 6).map((row) => `<div style="padding:8px 0;border-bottom:1px solid var(--border)"><div style="font-size:12px;font-weight:600">${esc(row.key)}</div><div style="font-size:11px;color:var(--text-tertiary);margin-top:3px">${fmt(row.count)} linked papers</div></div>`).join('') || '<div style="font-size:12px;color:var(--text-tertiary)">No topic summaries available.</div>'}
     </div>`;
     html += `<div class="ch-card" style="padding:16px">
+      <div style="font-weight:600;font-size:14px;margin-bottom:10px">Medication Risk Tiers</div>
+      ${(adjunctSummary.top_medication_risk_tiers || []).slice(0, 3).map((row) => `<div style="display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)"><div style="font-size:12px;font-weight:600">${esc(_reNormalizeLabel(row.key))}</div><div style="font-size:11px;color:var(--text-tertiary)">${fmt(row.count)} papers</div></div>`).join('') || '<div style="font-size:12px;color:var(--text-tertiary)">No medication risk tiers in the current filtered slice.</div>'}
+    </div>`;
+    html += `<div class="ch-card" style="padding:16px">
       <div style="font-weight:600;font-size:14px;margin-bottom:10px">Example Papers</div>
       ${adjunctRows.length
         ? adjunctRows.map((row) => `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
             <div style="font-size:12px;font-weight:600">${esc(row.title || 'Untitled paper')}</div>
             <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">${esc((row.adjunct_topic_labels || []).slice(0, 3).join(' · ') || (row.adjunct_terms || []).slice(0, 3).join(' · ') || 'Adjunct evidence')}${row.year ? ' · ' + esc(row.year) : ''}</div>
+            ${row.medication_risk_tier ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px"><strong>Risk:</strong> ${esc(_reNormalizeLabel(row.medication_risk_tier))}${row.medication_risk_reason ? ' · ' + esc(row.medication_risk_reason) : ''}</div>` : ''}
           </div>`).join('')
         : '<div style="font-size:12px;color:var(--text-tertiary)">No adjunct papers matched the current search.</div>'}
     </div>`;
