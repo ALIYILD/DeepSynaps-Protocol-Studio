@@ -25,6 +25,7 @@
     "@cornerstonejs/core": "^2.0.0",
     "@cornerstonejs/nifti-volume-loader": "^1.0.0",
     "@cornerstonejs/tools": "^2.0.0",
+    "@deepsynaps/api-client": "*",
     "@icr/polyseg-wasm": "^0.4.0",
     "plotly.js-dist-min": "^2.35.2",
     "react": "^18.3.1",
