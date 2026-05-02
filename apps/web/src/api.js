@@ -3318,6 +3318,46 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }).catch(() => null),
+  // ── Caregiver Delivery Concern Resolution launch-audit (DCR1, 2026-05-02) ──
+  // Closes the loop opened by #390. Admins / reviewers mark a flagged
+  // caregiver as resolved with a structured reason + free-text note.
+  // The resolution row clears the DCA cooldown so the next aggregator
+  // tick re-evaluates the caregiver. Care Team Coverage "Caregiver
+  // channels" tab consumes /list for the open + recently-resolved
+  // subsections, /resolve for the modal submit, and /audit-events for
+  // the audit transcript. Helpers grouped BEFORE the DCA section so the
+  // DCA test's slice boundary stays clean.
+  caregiverDeliveryConcernResolutionList: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.status) usp.set('status', params.status);
+    const qs = usp.toString();
+    const path =
+      '/api/v1/caregiver-delivery-concern-resolution/list' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  caregiverDeliveryConcernResolutionResolve: (data) =>
+    apiFetch('/api/v1/caregiver-delivery-concern-resolution/resolve', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  caregiverDeliveryConcernResolutionAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/caregiver-delivery-concern-resolution/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  postCaregiverDeliveryConcernResolutionAuditEvent: (data) =>
+    apiFetch('/api/v1/caregiver-delivery-concern-resolution/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  // end DCR1 helpers — see launch-audit test slice boundary `};`
   // ── Caregiver Delivery Concern Aggregator launch-audit (2026-05-01) ─────
   // Closes section I rec from #389. Rolling-window worker that flags
   // caregivers with N+ delivery concerns (filed via Patient Digest) within
@@ -3349,44 +3389,6 @@ export const api = {
   },
   postCaregiverDeliveryConcernAggregatorAuditEvent: (data) =>
     apiFetch('/api/v1/caregiver-delivery-concern-aggregator/audit-events', {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    }).catch(() => null),
-  // ── Caregiver Delivery Concern Resolution launch-audit (DCR1, 2026-05-02) ──
-  // Closes the loop opened by #390. Admins / reviewers mark a flagged
-  // caregiver as resolved with a structured reason + free-text note.
-  // The resolution row clears the DCA cooldown so the next aggregator
-  // tick re-evaluates the caregiver. Care Team Coverage "Caregiver
-  // channels" tab consumes /list for the open + recently-resolved
-  // subsections, /resolve for the modal submit, and /audit-events for
-  // the audit transcript.
-  caregiverDeliveryConcernResolutionList: (params) => {
-    const usp = new URLSearchParams();
-    if (params && params.status) usp.set('status', params.status);
-    const qs = usp.toString();
-    const path =
-      '/api/v1/caregiver-delivery-concern-resolution/list' +
-      (qs ? '?' + qs : '');
-    return apiFetch(path).catch(() => null);
-  },
-  caregiverDeliveryConcernResolutionResolve: (data) =>
-    apiFetch('/api/v1/caregiver-delivery-concern-resolution/resolve', {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    }),
-  caregiverDeliveryConcernResolutionAuditEvents: (params) => {
-    const usp = new URLSearchParams();
-    if (params && params.surface) usp.set('surface', params.surface);
-    if (params && params.limit != null) usp.set('limit', String(params.limit));
-    if (params && params.offset != null) usp.set('offset', String(params.offset));
-    const qs = usp.toString();
-    const path =
-      '/api/v1/caregiver-delivery-concern-resolution/audit-events' +
-      (qs ? '?' + qs : '');
-    return apiFetch(path).catch(() => null);
-  },
-  postCaregiverDeliveryConcernResolutionAuditEvent: (data) =>
-    apiFetch('/api/v1/caregiver-delivery-concern-resolution/audit-events', {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }).catch(() => null),
