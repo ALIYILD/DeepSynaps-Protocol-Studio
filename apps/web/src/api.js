@@ -3683,6 +3683,92 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
+  // ── IRB-AMD1 Amendment Workflow launch-audit ──
+  // (2026-05-02). Real-world clinical trials hit amendment cycles every
+  // 4-6 weeks; the existing IRB Manager amendments tab only logged a
+  // single 3-state row. IRB-AMD1 introduces the regulator-credible
+  // lifecycle: draft → submitted → reviewer_assigned → under_review →
+  // approved | rejected | revisions_requested → effective. Plus a
+  // reg-binder ZIP export bundling protocol + amendments + audit trail.
+  // Helpers placed BEFORE CSAHP7's section so the CSAHP7 slice-boundary
+  // sentinel stays clean — IRB-AMD1 uses its own unique header anchor
+  // + slice-boundary sentinel.
+  irbAmdCreateDraft: (body) =>
+    apiFetch('/api/v1/irb-amendment-workflow/amendments', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  irbAmdSubmit: (id) =>
+    apiFetch(`/api/v1/irb-amendment-workflow/amendments/${encodeURIComponent(id)}/submit`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  irbAmdAssignReviewer: (id, body) =>
+    apiFetch(
+      `/api/v1/irb-amendment-workflow/amendments/${encodeURIComponent(id)}/assign-reviewer`,
+      { method: 'POST', body: JSON.stringify(body || {}) }
+    ),
+  irbAmdStartReview: (id) =>
+    apiFetch(
+      `/api/v1/irb-amendment-workflow/amendments/${encodeURIComponent(id)}/start-review`,
+      { method: 'POST', body: JSON.stringify({}) }
+    ),
+  irbAmdDecide: (id, body) =>
+    apiFetch(`/api/v1/irb-amendment-workflow/amendments/${encodeURIComponent(id)}/decide`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  irbAmdMarkEffective: (id) =>
+    apiFetch(
+      `/api/v1/irb-amendment-workflow/amendments/${encodeURIComponent(id)}/mark-effective`,
+      { method: 'POST', body: JSON.stringify({}) }
+    ),
+  irbAmdRevertToDraft: (id) =>
+    apiFetch(
+      `/api/v1/irb-amendment-workflow/amendments/${encodeURIComponent(id)}/revert-to-draft`,
+      { method: 'POST', body: JSON.stringify({}) }
+    ),
+  irbAmdList: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.protocol_id) usp.set('protocol_id', params.protocol_id);
+    if (params && params.status) usp.set('status', params.status);
+    if (params && params.page != null) usp.set('page', String(params.page));
+    if (params && params.page_size != null) usp.set('page_size', String(params.page_size));
+    const qs = usp.toString();
+    return apiFetch('/api/v1/irb-amendment-workflow/amendments' + (qs ? '?' + qs : '')).catch(
+      () => null,
+    );
+  },
+  irbAmdGetDetail: (id) =>
+    apiFetch(`/api/v1/irb-amendment-workflow/amendments/${encodeURIComponent(id)}`).catch(
+      () => null,
+    ),
+  irbAmdGetAuditTrail: (id) =>
+    apiFetch(
+      `/api/v1/irb-amendment-workflow/amendments/${encodeURIComponent(id)}/audit-trail`,
+    ).catch(() => null),
+  irbAmdRegBinderUrl: (protocolId) =>
+    `${API_BASE}/api/v1/irb-amendment-workflow/protocols/${encodeURIComponent(protocolId)}/reg-binder.zip`,
+  irbAmdAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    return apiFetch(
+      '/api/v1/irb-amendment-workflow/audit-events' + (qs ? '?' + qs : ''),
+    ).catch(() => null);
+  },
+  postIrbAmdAuditEvent: (data) =>
+    apiFetch('/api/v1/irb-amendment-workflow/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  // end IRB-AMD1 helpers
+  // ━━ IRB-AMD1 SLICE BOUNDARY ━━ (do not remove; the launch-audit
+  // test for the IRB-AMD1 section finds the header above then walks to
+  // this unique sentinel substring to bound the slice).
+
   // ── CSAHP7 Threshold Adoption Outcome launch-audit ──
   // (2026-05-02). Closes the meta-loop on the meta-loop opened by
   // CSAHP6 (#438). Pairs each threshold_adopted audit row at time T
