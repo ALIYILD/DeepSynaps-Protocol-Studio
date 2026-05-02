@@ -37,6 +37,18 @@ function _go(navigate, pageId) {
   } catch {}
 }
 
+/** Keep patient context for cross-analyzer pages that read globals */
+function _navWithPatient(navigate, pageId, patientId) {
+  if (patientId) {
+    try {
+      window._paPatientId = patientId;
+      window._selectedPatientId = patientId;
+      sessionStorage.setItem('ds_pat_selected_id', patientId);
+    } catch {}
+  }
+  _go(navigate, pageId);
+}
+
 function _skeletonCards() {
   const chip =
     '<span style="display:block;height:56px;border-radius:12px;background:linear-gradient(90deg,rgba(255,255,255,.04),rgba(255,255,255,.08),rgba(255,255,255,.04));background-size:200% 100%;animation:dh2AttnPulse 1.6s ease-in-out infinite"></span>';
@@ -73,7 +85,15 @@ function _priorityPill(p) {
   return '<span class="pill pill-active">Routine</span>';
 }
 
-function renderPage(payload, patientLabel, navigate) {
+function _paperHref(it) {
+  if (it.europe_pmc_url) return it.europe_pmc_url;
+  if (it.oa_url) return it.oa_url;
+  if (it.pmid) return `https://pubmed.ncbi.nlm.nih.gov/${String(it.pmid).replace(/[^0-9]/g, '')}/`;
+  if (it.doi) return `https://doi.org/${encodeURIComponent(String(it.doi))}`;
+  return null;
+}
+
+function renderPage(payload, patientLabel, navigate, patientId) {
   const snap = Array.isArray(payload.snapshot) ? payload.snapshot : [];
   const cards = snap
     .map(
@@ -125,6 +145,67 @@ function renderPage(payload, patientLabel, navigate) {
     )
     .join('');
 
+  const evPack = payload.evidence_pack || {};
+  const evItems = Array.isArray(evPack.items) ? evPack.items : [];
+  const corpusN = evPack.corpus_paper_count;
+  const corpusNote = evPack.corpus_note || '';
+  const evHtml = evItems.length
+    ? `<div style="display:flex;flex-direction:column;gap:10px">${evItems
+      .map((it) => {
+        const href = _paperHref(it);
+        const meta = [
+          it.year ? String(it.year) : '',
+          it.journal ? String(it.journal) : '',
+          it.cited_by_count != null ? `${it.cited_by_count} cites` : '',
+        ]
+          .filter(Boolean)
+          .join(' · ');
+        const linkRow = href
+          ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer" style="font-size:11px;color:var(--blue)">Open source ↗</a>`
+          : '';
+        const topic = String(it.evidence_topic || it.title || 'nutrition dietary');
+        return `<div style="padding:12px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.02)">
+          <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:4px">${esc(it.evidence_topic || 'Literature')}${it.strength ? ` · ${esc(it.strength)}` : ''}</div>
+          <div style="font-weight:600;font-size:13px;margin-bottom:4px">${esc(it.title || 'Untitled')}</div>
+          <div style="font-size:12px;color:var(--text-secondary);line-height:1.45;margin-bottom:6px">${esc(it.snippet || '')}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:11px;color:var(--text-tertiary)">
+            ${meta ? `<span>${esc(meta)}</span>` : ''}
+            ${linkRow}
+            <button type="button" class="btn btn-ghost btn-sm" data-na-re-search="${esc(topic)}" style="min-height:36px;padding:4px 10px;font-size:11px">Search in Research Evidence</button>
+          </div>
+        </div>`;
+      })
+      .join('')}</div>`
+    : `<div style="font-size:12px;color:var(--text-secondary)">No literature excerpts — build evidence.db (ingest pipeline) or check API connectivity.</div>`;
+
+  const aiBlocks = Array.isArray(payload.ai_interpretation) ? payload.ai_interpretation : [];
+  const aiHtml = aiBlocks.length
+    ? `<div style="display:flex;flex-direction:column;gap:10px">${aiBlocks
+      .map(
+        (b) => `<div style="padding:12px;border:1px solid rgba(155,127,255,0.22);border-radius:10px;background:rgba(155,127,255,0.04)">
+        <div style="font-weight:600;font-size:13px;margin-bottom:6px">${esc(b.title)}</div>
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.45">${esc(b.summary)}</div>
+        ${b.uncertainty ? `<div style="margin-top:8px;font-size:11px;color:var(--text-tertiary)"><strong>Uncertainty:</strong> ${esc(b.uncertainty)}</div>` : ''}
+        <div style="margin-top:6px;font-size:11px;color:var(--text-tertiary)">${esc(b.provenance || '')}${typeof b.confidence === 'number' ? ` · confidence ${esc(String(b.confidence))}` : ''}</div>
+      </div>`,
+      )
+      .join('')}</div>`
+    : '';
+
+  const quickLinks = [
+    { id: 'deeptwin', label: 'DeepTwin' },
+    { id: 'patient-analytics', label: 'Patient analytics' },
+    { id: 'treatment-sessions-analyzer', label: 'Sessions' },
+    { id: 'wearables', label: 'Biometrics' },
+    { id: 'medication-analyzer', label: 'Medications' },
+    { id: 'research-evidence', label: 'Research Evidence' },
+  ]
+    .map(
+      (x) =>
+        `<button type="button" class="btn btn-ghost btn-sm" data-qp-nav="${esc(x.id)}" style="min-height:40px">${esc(x.label)}</button>`,
+    )
+    .join('');
+
   const recs = Array.isArray(payload.recommendations) ? payload.recommendations : [];
   const recHtml = recs.length
     ? recs
@@ -162,6 +243,11 @@ function renderPage(payload, patientLabel, navigate) {
       </div>
       <div style="font-size:11px;color:var(--text-tertiary);margin:-6px 0 16px;line-height:1.4">${esc(payload.clinical_disclaimer || '')}</div>
 
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px;padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--bg-card)">
+        <span style="font-size:11px;color:var(--text-tertiary);width:100%;margin-bottom:2px">Open related analyzers (patient context preserved when selected)</span>
+        ${quickLinks}
+      </div>
+
       <div style="font-size:12px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;margin:10px 0 8px">Nutrition snapshot</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:22px">${cards}</div>
 
@@ -191,6 +277,25 @@ function renderPage(payload, patientLabel, navigate) {
       <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:22px">
         <div style="font-weight:600;margin-bottom:10px">Recommendations</div>
         <div style="display:flex;flex-direction:column;gap:10px">${recHtml}</div>
+      </div>
+
+      ${
+  aiHtml
+    ? `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:22px">
+        <div style="font-weight:600;margin-bottom:8px">Interpretation (decision-support)</div>
+        <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:10px;line-height:1.4">Rule-assembled summaries — not autonomous diagnosis or prescribing. Separate from raw intake totals.</div>
+        ${aiHtml}
+      </div>`
+    : ''
+}
+
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:22px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:8px;flex-wrap:wrap">
+          <div style="font-weight:600">Literature evidence (shared corpus)</div>
+          <div style="font-size:12px;color:var(--text-tertiary)">${corpusN != null ? `${Number(corpusN).toLocaleString()} papers indexed` : 'Corpus count unavailable'}</div>
+        </div>
+        <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:12px;line-height:1.45">${esc(corpusNote)} Full Explorer: Research Evidence — same underlying evidence.db as Protocol Studio when deployed.</div>
+        ${evHtml}
       </div>
 
       <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px">
@@ -273,15 +378,31 @@ export async function pgNutritionAnalyzer(setTopbar, navigate) {
       return;
     }
 
-    slot.innerHTML = renderPage(payload, label, navigate);
+    slot.innerHTML = renderPage(payload, label, navigate, patientId);
     const ban = slot.querySelector('#na-demo-banner');
     if (ban) {
       ban.innerHTML = usingFixtures && isDemoSession() ? DEMO_FIXTURE_BANNER_HTML : '';
     }
     slot.querySelectorAll('[data-nav-page]').forEach((b) => {
       b.addEventListener('click', () => {
-        const pid = b.getAttribute('data-nav-page');
-        if (pid) _go(navigate, pid);
+        const pidPage = b.getAttribute('data-nav-page');
+        if (pidPage) _navWithPatient(navigate, pidPage, patientId);
+      });
+    });
+    slot.querySelectorAll('[data-qp-nav]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const pidPage = b.getAttribute('data-qp-nav');
+        if (pidPage) _navWithPatient(navigate, pidPage, patientId);
+      });
+    });
+    slot.querySelectorAll('[data-na-re-search]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const q = b.getAttribute('data-na-re-search') || 'nutrition';
+        try {
+          window._reSearch = window._reSearch || {};
+          window._reSearch.papers = q;
+        } catch {}
+        _navWithPatient(navigate, 'research-evidence', patientId);
       });
     });
   }

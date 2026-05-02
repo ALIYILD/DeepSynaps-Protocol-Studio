@@ -110,6 +110,8 @@ def test_clinician_get_payload_shape(client: TestClient, nutrition_setup: dict[s
         "supplements",
         "biomarker_links",
         "recommendations",
+        "evidence_pack",
+        "ai_interpretation",
         "audit_events",
     ):
         assert key in data
