@@ -9553,6 +9553,15 @@ export async function pgResolverCoachingInbox(setTopbar) {
     modalResolvedId: null,
     modalNote: '',
     modalErr: null,
+    // DCRO3 — Resolver Coaching Self-Review Digest opt-in (2026-05-02).
+    // The card surfaces the resolver's preference + worker enabled flag
+    // so they can opt-in to a weekly nudge when they have un-reviewed
+    // wrong false_positive calls. Honest disclaimer when worker
+    // disabled at the system level.
+    digestPref: null,
+    digestStatus: null,
+    digestSaving: false,
+    digestErr: null,
   };
 
   function _esc(v) {
@@ -9567,7 +9576,7 @@ export async function pgResolverCoachingInbox(setTopbar) {
   }
 
   async function loadAll() {
-    var resp = { inbox: null, adminOverview: null, err: null };
+    var resp = { inbox: null, adminOverview: null, err: null, digestPref: null, digestStatus: null };
     try {
       if (typeof api.fetchMyCoachingInbox === 'function') {
         resp.inbox = await api.fetchMyCoachingInbox({ window_days: state.windowDays });
@@ -9589,10 +9598,84 @@ export async function pgResolverCoachingInbox(setTopbar) {
           resp.adminOverview = null;
         }
       }
+      // DCRO3 — fetch own digest preference + worker status (best-effort).
+      try {
+        if (typeof api.fetchMyResolverDigestPreference === 'function') {
+          resp.digestPref = await api.fetchMyResolverDigestPreference({});
+        }
+      } catch (_dpe) { resp.digestPref = null; }
+      try {
+        if (typeof api.fetchResolverDigestStatus === 'function') {
+          resp.digestStatus = await api.fetchResolverDigestStatus();
+        }
+      } catch (_dse) { resp.digestStatus = null; }
     } catch (e) {
       resp.err = String(e && e.message || e || 'unknown');
     }
     return resp;
+  }
+
+  // ── DCRO3 helpers ────────────────────────────────────────────────────────
+  function _digestChannelOptions() {
+    // 5 canonical channels + "auto" (= inherit clinic chain).
+    return ['auto', 'slack', 'twilio', 'sendgrid', 'pagerduty', 'email'];
+  }
+
+  function renderDigestCard() {
+    var pref = state.digestPref || {};
+    var status = state.digestStatus || {};
+    var optedIn = !!pref.opted_in;
+    var ch = pref.preferred_channel || 'auto';
+    var workerEnabled = !!(status && status.enabled);
+    var lastSent = pref.last_dispatched_at
+      ? '<div data-testid="rcsrd-last-sent" style="margin-top:6px;font-size:11.5px;color:var(--text-muted)">Last digest sent: ' + _esc(pref.last_dispatched_at) + '</div>'
+      : '<div data-testid="rcsrd-last-sent-empty" style="margin-top:6px;font-size:11.5px;color:var(--text-muted)">No digests sent yet.</div>';
+    var disclaimerBlock = !workerEnabled
+      ? '<div data-testid="rcsrd-honest-disclaimer" class="notice notice-warn" style="margin-top:8px;padding:8px 10px;font-size:11px">' +
+          'Worker is currently disabled at the system level. Your preference is saved but no digests will be sent until the system admin enables ' +
+          '<code>RESOLVER_COACHING_DIGEST_ENABLED</code>.' +
+        '</div>'
+      : '';
+    var errBlock = state.digestErr
+      ? '<div data-testid="rcsrd-err" class="notice notice-warn" style="margin-top:6px;font-size:11px">' + _esc(state.digestErr) + '</div>'
+      : '';
+    var saving = state.digestSaving;
+    var saveDisabled = saving ? ' disabled' : '';
+
+    var options = _digestChannelOptions().map(function(c) {
+      var sel = (c === ch) ? ' selected' : '';
+      var label = (c === 'auto') ? 'auto (use my EscalationPolicy)' : c;
+      return '<option value="' + _esc(c) + '"' + sel + '>' + _esc(label) + '</option>';
+    }).join('');
+
+    var adminTickBtn = isAdmin()
+      ? '<button data-testid="rcsrd-admin-tick-btn" class="btn-secondary" style="margin-left:8px;font-size:11.5px;padding:5px 10px" onclick="window._rcsrdAdminTick()">Admin: run tick now</button>'
+      : '';
+
+    return '<div data-testid="rcsrd-digest-card" class="card" style="margin-top:18px;padding:14px">' +
+      '<h3 style="font-size:13px;font-weight:700;margin:0 0 4px 0">Email/Slack me a weekly digest</h3>' +
+      '<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px">' +
+        'Send me a weekly digest of un-reviewed wrong <code>false_positive</code> calls. Routed via your preferred channel; ' +
+        'falls back to your clinic\'s EscalationPolicy chain when set to "auto".' +
+      '</div>' +
+      '<label style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:8px">' +
+        '<input data-testid="rcsrd-opt-in-toggle" type="checkbox"' + (optedIn ? ' checked' : '') + ' onchange="window._rcsrdOnToggle(event)"> ' +
+        'Send me a weekly digest of un-reviewed wrong calls' +
+      '</label>' +
+      '<div style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:6px">' +
+        '<label for="rcsrd-channel-dropdown" style="font-size:11.5px;color:var(--text-muted)">Preferred channel:</label>' +
+        '<select data-testid="rcsrd-channel-dropdown" id="rcsrd-channel-dropdown" onchange="window._rcsrdOnChannelChange(event)" style="padding:4px 8px;font-size:12px">' +
+        options +
+        '</select>' +
+        '<button data-testid="rcsrd-save-btn" class="btn"' + saveDisabled + ' onclick="window._rcsrdSave()" style="font-size:11.5px;padding:5px 12px">' +
+        (saving ? 'Saving…' : 'Save') +
+        '</button>' +
+        adminTickBtn +
+      '</div>' +
+      lastSent +
+      disclaimerBlock +
+      errBlock +
+      '</div>';
   }
 
   function calibrationClass(pct) {
@@ -9713,6 +9796,8 @@ export async function pgResolverCoachingInbox(setTopbar) {
     state.inbox = resp.inbox;
     state.adminOverview = resp.adminOverview;
     state.err = resp.err;
+    state.digestPref = resp.digestPref;
+    state.digestStatus = resp.digestStatus;
     if (state.err) {
       el.innerHTML = '<div data-testid="rci-err" class="notice notice-warn" style="padding:14px;font-size:12px">Failed to load coaching inbox: ' + _esc(state.err) + '</div>';
       return;
@@ -9751,6 +9836,7 @@ export async function pgResolverCoachingInbox(setTopbar) {
       renderBottomQuartileCallout(!!inbox.in_bottom_quartile) +
       summaryLine +
       cards +
+      renderDigestCard() +
       renderAdminOverviewTable(state.adminOverview) +
       renderNoteModal() +
       '</div>';
@@ -9760,6 +9846,48 @@ export async function pgResolverCoachingInbox(setTopbar) {
       // GET; no need to double-emit from the client.
     }
   }
+
+  // ── DCRO3 — opt-in card window handlers ──────────────────────────────────
+  window._rcsrdOnToggle = function(ev) {
+    if (!state.digestPref) state.digestPref = { opted_in: false, preferred_channel: null };
+    state.digestPref.opted_in = !!(ev && ev.target && ev.target.checked);
+  };
+  window._rcsrdOnChannelChange = function(ev) {
+    if (!state.digestPref) state.digestPref = { opted_in: false, preferred_channel: null };
+    var v = (ev && ev.target && ev.target.value) || 'auto';
+    state.digestPref.preferred_channel = (v === 'auto') ? null : v;
+  };
+  window._rcsrdSave = async function() {
+    if (!state.digestPref) return;
+    state.digestSaving = true;
+    state.digestErr = null;
+    try {
+      if (typeof api.updateMyResolverDigestPreference === 'function') {
+        var saved = await api.updateMyResolverDigestPreference({
+          opted_in: !!state.digestPref.opted_in,
+          preferred_channel: state.digestPref.preferred_channel || null,
+        });
+        if (saved) state.digestPref = saved;
+      }
+    } catch (e) {
+      state.digestErr = String((e && e.message) || e || 'Failed to save digest preference.');
+    } finally {
+      state.digestSaving = false;
+    }
+    render();
+  };
+  window._rcsrdAdminTick = async function() {
+    state.digestErr = null;
+    try {
+      if (typeof api.tickResolverDigest === 'function') {
+        await api.tickResolverDigest({});
+      }
+    } catch (e) {
+      state.digestErr = String((e && e.message) || e || 'Failed to tick digest worker.');
+    }
+    // Refresh after tick so last_dispatched_at updates.
+    await render();
+  };
 
   window._rciOpenNoteModal = function(rid) {
     state.modalOpen = true;

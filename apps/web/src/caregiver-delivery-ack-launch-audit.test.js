@@ -100,7 +100,7 @@ test('caregiverPortalLastAcknowledgement GETs the last-acknowledgement endpoint'
 
 
 test('pgPatientCaregiver fetches per-grant last-acknowledgement on mount', () => {
-  const src = readSrc('pages-patient.js');
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js') + '\n' + readSrc('pages-patient/symptom-notifications.js'));
   assert.ok(
     src.includes('caregiverPortalLastAcknowledgement'),
     'pgPatientCaregiver must read last-acknowledgement per grant',
@@ -109,7 +109,7 @@ test('pgPatientCaregiver fetches per-grant last-acknowledgement on mount', () =>
 
 
 test('pgPatientCaregiver exposes a "Recent landed digests" subsection per active digest grant', () => {
-  const src = readSrc('pages-patient.js');
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js') + '\n' + readSrc('pages-patient/symptom-notifications.js'));
   assert.ok(
     src.includes('Recent landed digests'),
     'page must include the recent-landed-digests subsection title',
@@ -126,7 +126,7 @@ test('pgPatientCaregiver exposes a "Recent landed digests" subsection per active
 
 
 test('pgPatientCaregiver wires the ack CTA to caregiverPortalAcknowledgeDelivery', () => {
-  const src = readSrc('pages-patient.js');
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js') + '\n' + readSrc('pages-patient/symptom-notifications.js'));
   assert.ok(
     src.includes('api.caregiverPortalAcknowledgeDelivery'),
     'the click handler must call api.caregiverPortalAcknowledgeDelivery',
@@ -139,7 +139,7 @@ test('pgPatientCaregiver wires the ack CTA to caregiverPortalAcknowledgeDelivery
 
 
 test('pgPatientCaregiver renders "Awaiting confirmation" when no ack on record', () => {
-  const src = readSrc('pages-patient.js');
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js') + '\n' + readSrc('pages-patient/symptom-notifications.js'));
   // Anchor on the subsection MARKUP (not the comment that mentions the
   // subsection name). The data-testid is unique to the subsection.
   const idx = src.indexOf('data-testid="pt-cg-recent-digests"');
@@ -160,7 +160,7 @@ test('pgPatientCaregiver renders "Awaiting confirmation" when no ack on record',
 
 
 test('pgPatientDigest reads last_acknowledged_at on each caregiver row', () => {
-  const src = readSrc('pages-patient.js');
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js') + '\n' + readSrc('pages-patient/symptom-notifications.js'));
   // The summary row schema gained `last_acknowledged_at`. The page
   // binds it under the existing "Caregiver delivery confirmations"
   // subsection — never re-renders a parallel banner.
@@ -176,7 +176,7 @@ test('pgPatientDigest reads last_acknowledged_at on each caregiver row', () => {
 
 
 test('pgPatientDigest renders the relative-time helper output', () => {
-  const src = readSrc('pages-patient.js');
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js') + '\n' + readSrc('pages-patient/symptom-notifications.js'));
   assert.ok(
     src.includes('_pdRelativeTime'),
     'page must use the new _pdRelativeTime helper',
@@ -199,7 +199,7 @@ test('pgPatientDigest renders the relative-time helper output', () => {
 
 
 test('_pdRelativeTime helper exists and handles null inputs', () => {
-  const src = readSrc('pages-patient.js');
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js') + '\n' + readSrc('pages-patient/symptom-notifications.js'));
   // Defensive: the helper must short-circuit on null/undefined, never
   // throw on a missing last_acknowledged_at.
   const idx = src.indexOf('function _pdRelativeTime');
@@ -218,7 +218,7 @@ test('_pdRelativeTime helper exists and handles null inputs', () => {
 test('pgPatientDigest mount ping count stays at 1 with the new last-confirmed stamp', () => {
   // The mount ping in #376 fires once on render. Adding the
   // last-confirmed stamp must NOT introduce a parallel mount ping.
-  const src = readSrc('pages-patient.js');
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js') + '\n' + readSrc('pages-patient/symptom-notifications.js'));
   const mounts = src.match(/postPatientDigestAuditEvent\(\{ event: 'view'/g) || [];
   assert.equal(
     mounts.length, 1,
@@ -231,7 +231,7 @@ test('pgPatientDigest mount ping count stays at 1 with the new last-confirmed st
 
 
 test('Recent landed digests subsection binds first name only, never email', () => {
-  const src = readSrc('pages-patient.js');
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js') + '\n' + readSrc('pages-patient/symptom-notifications.js'));
   const idx = src.indexOf('Recent landed digests');
   assert.notEqual(idx, -1);
   const slice = src.slice(idx, idx + 1200);
@@ -247,7 +247,7 @@ test('Recent landed digests subsection binds first name only, never email', () =
 
 
 test('Caregiver delivery confirmations subsection binds first name only, never email', () => {
-  const src = readSrc('pages-patient.js');
+  const src = (readSrc('pages-patient.js') + '\n' + readSrc('pages-patient/caregiver.js') + '\n' + readSrc('pages-patient/digest.js') + '\n' + readSrc('pages-patient/home-devices.js') + '\n' + readSrc('pages-patient/adherence.js') + '\n' + readSrc('pages-patient/intake.js') + '\n' + readSrc('pages-patient/import-wizard.js') + '\n' + readSrc('pages-patient/media.js') + '\n' + readSrc('pages-patient/wearables.js') + '\n' + readSrc('pages-patient/symptom-notifications.js'));
   const idx = src.indexOf('Caregiver delivery confirmations');
   assert.notEqual(idx, -1);
   // Slice is intentionally large so we cover the full row template

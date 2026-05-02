@@ -317,3 +317,64 @@ class EscalationPolicy(Base):
     updated_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     created_at: Mapped[str] = mapped_column(String(64), nullable=False)
     updated_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class ResolverCoachingDigestPreference(Base):
+    """Resolver Coaching Self-Review Digest preference row (DCRO3, 2026-05-02).
+
+    Closes section I rec from the Resolver Coaching Inbox (DCRO2, #397).
+    DCRO1 (#393) measures resolver calibration accuracy; DCRO2 (#397)
+    gives each resolver a private inbox + self-review-note flow so they
+    self-correct without admin intervention; THIS row carries the
+    durable preference the weekly-digest worker reads to decide whether
+    to nudge a resolver via their preferred on-call channel (Slack DM /
+    Twilio SMS / SendGrid email / PagerDuty) when they have un-self-
+    reviewed wrong false_positive calls. Closes the loop end-to-end:
+    DCRO1 measures → DCRO2 self-corrects → DCRO3 nudges.
+
+    One row per (resolver_user_id, clinic_id) pair (unique). A missing
+    row is treated as ``opted_in=False`` so the worker defaults to
+    silence until the resolver opts in (honest opt-in default).
+    ``last_dispatched_at`` is stamped by the worker after a successful
+    dispatch and used to enforce the per-resolver weekly cooldown
+    (default 144h = 6 days, prevents weekly-overlap dispatch).
+
+    ``preferred_channel`` values come from
+    :data:`app.services.oncall_delivery.ADAPTER_CHANNEL` — currently
+    ``email`` / ``sms`` / ``slack`` / ``pagerduty`` — plus the canonical
+    adapter names (``slack`` / ``twilio`` / ``sendgrid`` / ``pagerduty``).
+    NULL means "no resolver-level override; use the clinic
+    EscalationPolicy dispatch chain (#374), falling back to email when
+    the policy has no dispatch order".
+
+    Soft FK to ``users.id`` / ``clinics.id`` so deleting a user/clinic
+    does not cascade-clear the historic preference row (audit hygiene).
+    """
+
+    __tablename__ = "resolver_coaching_digest_preferences"
+    __table_args__ = (
+        UniqueConstraint(
+            "resolver_user_id",
+            "clinic_id",
+            name="uq_resolver_coaching_digest_pref_resolver_clinic",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    resolver_user_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, index=True
+    )
+    clinic_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, index=True
+    )
+    opted_in: Mapped[bool] = mapped_column(
+        Boolean(), nullable=False, default=False
+    )
+    preferred_channel: Mapped[Optional[str]] = mapped_column(
+        String(32), nullable=True
+    )
+    last_dispatched_at: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True
+    )
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(64), nullable=False)
