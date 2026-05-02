@@ -1,4 +1,4 @@
-"""MedRAG citation resolver — bridges into the shared 87k-paper Postgres DB."""
+"""MedRAG citation stub — returns empty until Postgres bridge is wired."""
 
 from __future__ import annotations
 
@@ -13,16 +13,7 @@ def medrag_evidence(
     *,
     top_k: int = 5,
 ) -> list[Citation]:
-    """Resolve top-k cited findings for a flagged condition + its drivers.
+    """Placeholder: wire to shared evidence DB in production."""
 
-    TODO: implement in PR #4 — re-use the MedRAG retrieval path
-    already wired in ``packages/qeeg-pipeline`` /
-    ``packages/mri-pipeline``. v1 ships with a curated starter list of
-    ~30 PD / dysarthria / neuromodulation-voice papers; v2 widens to
-    cognitive + respiratory.
-    """
-
-    raise NotImplementedError(
-        "reporting.rag.medrag_evidence: implement in PR #4 "
-        "(see AUDIO_ANALYZER_STACK.md §9)."
-    )
+    _ = (condition, drivers, top_k)
+    return []

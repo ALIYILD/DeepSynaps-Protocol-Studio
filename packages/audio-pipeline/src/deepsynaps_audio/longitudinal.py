@@ -1,4 +1,4 @@
-"""Patient-as-own-baseline deltas + minimum-detectable-change flags + timelines."""
+"""Patient-as-own-baseline deltas and simple timelines."""
 
 from __future__ import annotations
 
@@ -15,17 +15,22 @@ def delta_vs_baseline(
     *,
     sd_baseline: float | None = None,
 ) -> Delta:
-    """Compute raw / pct delta + Cohen's-d effect size + MDC flag.
+    """Cohen's d style effect size; MDC flag when small relative change."""
 
-    TODO: implement in PR #4 (see ``AUDIO_ANALYZER_STACK.md §9`` task
-    4). MDC is computed against the per-feature SD of the patient's
-    own baseline window when ``sd_baseline`` is supplied; otherwise
-    fall back to the normative-bin SD.
-    """
+    raw_delta = current - baseline
+    pct_delta = float(raw_delta / max(abs(baseline), 1e-12))
+    sd = sd_baseline if sd_baseline is not None else abs(baseline) * 0.1 + 1e-12
+    effect_size = float(raw_delta / sd)
+    mdc = abs(effect_size) < 0.2
 
-    raise NotImplementedError(
-        "longitudinal.delta_vs_baseline: implement in PR #4 "
-        "(see AUDIO_ANALYZER_STACK.md §9)."
+    return Delta(
+        feature=feature,
+        current=current,
+        baseline=baseline,
+        raw_delta=raw_delta,
+        pct_delta=pct_delta,
+        effect_size=effect_size,
+        minimum_detectable_change_flag=mdc,
     )
 
 
@@ -33,12 +38,12 @@ def timeline(
     patient_id: UUID,
     sessions: Mapping[UUID, Mapping[str, float]],
 ) -> Timeline:
-    """Aggregate session features into a longitudinal timeline.
+    """Merge session feature dicts into parallel lists."""
 
-    TODO: implement in PR #4. Emits ``{feature -> [value_per_session]}``.
-    """
-
-    raise NotImplementedError(
-        "longitudinal.timeline: implement in PR #4 "
-        "(see AUDIO_ANALYZER_STACK.md §9)."
-    )
+    key_features: dict[str, list[float]] = {}
+    session_order = list(sessions.keys())
+    for sid in session_order:
+        feats = sessions[sid]
+        for k, v in feats.items():
+            key_features.setdefault(k, []).append(float(v))
+    return Timeline(patient_id=patient_id, sessions=list(session_order), key_features=key_features)

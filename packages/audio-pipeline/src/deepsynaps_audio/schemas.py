@@ -25,6 +25,10 @@ class Recording(BaseModel):
     duration_s: float
     n_samples: int
     channels: int = 1
+    waveform: Optional[list[float]] = Field(
+        default=None,
+        description="Mono samples as list[float]; omit in API responses when large.",
+    )
     file_hash: Optional[str] = None
     source_path: Optional[str] = None
     recorder_fingerprint: Optional[str] = None

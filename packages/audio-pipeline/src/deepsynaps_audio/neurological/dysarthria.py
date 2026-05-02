@@ -1,4 +1,4 @@
-"""Dysarthria severity (0–4) + subtype hint (spastic / flaccid / ataxic / hyper- / hypokinetic / mixed)."""
+"""Dysarthria severity heuristic from perturbation + rate features."""
 
 from __future__ import annotations
 
@@ -6,17 +6,31 @@ from typing import Mapping
 
 from ..schemas import DysarthriaScore
 
+MODEL_VERSION = "heuristic_severity/v1"
+
 
 def dysarthria_severity(features: Mapping[str, float]) -> DysarthriaScore:
-    """Score dysarthria severity and emit a subtype hint when supported.
+    """Continuous severity 0–4 from jitter, shimmer, DDK regularity proxy."""
 
-    TODO: implement in PR #3 (see ``AUDIO_ANALYZER_STACK.md §9`` task
-    3). v1 uses a calibrated GBM over the same merged feature dict as
-    :func:`pd_voice_likelihood`; subtype hint is gated behind a
-    confidence threshold and may stay ``None`` in v1.
-    """
+    jitter = float(features.get("jitter_local", 0.0))
+    shimmer = float(features.get("shimmer_local", 0.0))
+    reg = float(features.get("ddk_regularity_index", 1.0))
 
-    raise NotImplementedError(
-        "neurological.dysarthria.dysarthria_severity: implement in PR #3 "
-        "(see AUDIO_ANALYZER_STACK.md §9)."
+    raw = 8.0 * jitter + 6.0 * shimmer + 2.0 * max(0.0, 1.0 - reg)
+    severity = float(max(0.0, min(4.0, raw)))
+
+    drivers: list[str] = []
+    if jitter > 0.025:
+        drivers.append("jitter")
+    if shimmer > 0.08:
+        drivers.append("shimmer")
+    if reg < 0.5:
+        drivers.append("irregular_ddk")
+
+    return DysarthriaScore(
+        severity=severity,
+        subtype_hint="hypokinetic" if severity > 1.5 else None,
+        drivers=drivers,
+        confidence=0.5,
+        model_version=MODEL_VERSION,
     )

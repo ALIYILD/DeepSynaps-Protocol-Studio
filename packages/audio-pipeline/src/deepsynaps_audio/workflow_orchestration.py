@@ -226,6 +226,25 @@ def clear_run_store_for_tests() -> None:
     _RUN_STORE.clear()
 
 
+def execute_voice_pipeline(
+    pipeline_definition: AudioPipelineDefinition | Mapping[str, Any],
+    input_audio_ref: Mapping[str, Any],
+    *,
+    run_id: str | None = None,
+) -> AudioPipelineRun:
+    """Run a pipeline using real audio handlers (ingestion → QC → … → reporting).
+
+    Merges :data:`DEFAULT_STEP_HANDLERS` with :data:`voice_step_handlers.VOICE_PIPELINE_HANDLERS`
+    so stages not overridden keep demo behaviour.
+    """
+
+    from .voice_step_handlers import VOICE_PIPELINE_HANDLERS
+
+    merged: dict[str, OrchestratorHandler] = dict(DEFAULT_STEP_HANDLERS)
+    merged.update(dict(VOICE_PIPELINE_HANDLERS))
+    return execute_audio_pipeline(pipeline_definition, input_audio_ref, handlers=merged, run_id=run_id)
+
+
 # --- definition coercion / validation ------------------------------------
 
 
