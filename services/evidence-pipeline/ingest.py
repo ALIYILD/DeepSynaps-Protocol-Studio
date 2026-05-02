@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import db
-from sources import ctgov, crossref, openalex, openfda, pubmed, semantic_scholar, unpaywall
+from sources import core, ctgov, crossref, openalex, openfda, pubmed, semantic_scholar, unpaywall
 from indications_seed import SEED, MODALITY_PRODUCT_CODES
 
 
@@ -27,6 +27,7 @@ def ingest_indication(
     n_events: int,
     *,
     use_crossref: bool = False,
+    use_core: bool = False,
     use_semantic_scholar: bool = False,
 ) -> dict:
     ind_id = db.upsert_indication(
@@ -46,6 +47,10 @@ def ingest_indication(
     if use_crossref:
         cr = crossref.search(entry["broad_q"], max_records=n_papers)
         summary["crossref_new"] = crossref.upsert_papers(conn, cr, ind_id)
+
+    if use_core:
+        core_rows = core.search(entry["broad_q"], max_records=n_papers)
+        summary["core_new"] = core.upsert_papers(conn, core_rows, ind_id)
 
     if use_semantic_scholar:
         ss = semantic_scholar.search(entry["broad_q"], max_records=n_papers)
@@ -91,6 +96,8 @@ def main():
                     help="After ingestion, resolve OA status for all papers with a DOI.")
     ap.add_argument("--crossref", action="store_true",
                     help="Supplement paper ingest with Crossref metadata (official public REST API).")
+    ap.add_argument("--core", action="store_true",
+                    help="Supplement paper ingest with CORE open-access metadata/full-text links.")
     ap.add_argument("--semantic-scholar", action="store_true",
                     help="Supplement paper ingest with Semantic Scholar Academic Graph results.")
     args = ap.parse_args()
@@ -124,6 +131,7 @@ def main():
                 args.fda,
                 args.events,
                 use_crossref=args.crossref,
+                use_core=args.core,
                 use_semantic_scholar=args.semantic_scholar,
             )
             print(f"    {s}", flush=True)

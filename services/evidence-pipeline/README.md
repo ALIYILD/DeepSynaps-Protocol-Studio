@@ -1,7 +1,7 @@
 # DeepSynaps Studio — Evidence Pipeline
 
 Local, self-hosted evidence database for an evidence-based protocol generator.
-Pulls from PubMed, OpenAlex, Crossref, Semantic Scholar, ClinicalTrials.gov v2, openFDA, and Unpaywall.
+Pulls from PubMed, OpenAlex, Crossref, CORE, Semantic Scholar, ClinicalTrials.gov v2, openFDA, and Unpaywall.
 No paid services. Targets local SQLite with FTS5 full-text search.
 
 ## Layout
@@ -17,6 +17,7 @@ evidence-pipeline/
     pubmed.py              NCBI E-utilities (esearch + efetch → records)
     openalex.py            OpenAlex /works (citations, OA flag, IDs)
     crossref.py            Crossref REST API (DOI-first metadata enrichment)
+    core.py                CORE API (OA metadata + full-text/download links)
     semantic_scholar.py    Semantic Scholar Academic Graph (optional search + citations)
     ctgov.py               ClinicalTrials.gov v2 (preserves stim params in interventions)
     openfda.py             PMA, 510(k), HDE, and MAUDE adverse events
@@ -31,6 +32,7 @@ export NCBI_API_KEY=...          # PubMed 3→10 req/s
 export UNPAYWALL_EMAIL=you@x.com # Unpaywall "key" is your email
 export OPENFDA_API_KEY=...       # openFDA rate limits (optional but recommended)
 export CROSSREF_MAILTO=you@x.com # optional; falls back to UNPAYWALL_EMAIL
+export CORE_API_KEY=...
 export SEMANTIC_SCHOLAR_API_KEY=...
 ```
 
@@ -52,7 +54,7 @@ python3 ingest.py --slug rtms_mdd --papers 100 --trials 50
 python3 ingest.py --all --papers 200 --trials 100 --fda 200 --unpaywall
 
 # 4. Enrich paper coverage with official free scholarly APIs
-python3 ingest.py --slug rtms_mdd --papers 150 --crossref --semantic-scholar
+python3 ingest.py --slug rtms_mdd --papers 150 --crossref --core --semantic-scholar
 
 # 5. Search
 python3 query.py --slug rtms_mdd --limit 10
@@ -94,6 +96,7 @@ is data.
 For this SaaS, prefer official/open scholarly APIs over Google Scholar scraping:
 - PubMed + OpenAlex remain the default core.
 - Crossref is the safest DOI/journal metadata backfill.
+- CORE is the best OA/full-text-access backfill.
 - Semantic Scholar is the best optional citation/reference expansion layer.
 - Google Scholar should stay manual or exploratory, not a production dependency.
 

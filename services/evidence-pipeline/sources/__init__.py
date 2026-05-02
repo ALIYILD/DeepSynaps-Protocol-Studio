@@ -1,3 +1,3 @@
 """Evidence source adapters."""
 
-from . import crossref, semantic_scholar  # noqa: F401
+from . import core, crossref, semantic_scholar  # noqa: F401

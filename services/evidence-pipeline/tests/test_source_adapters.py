@@ -10,7 +10,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import db  # noqa: E402
-from sources import crossref, semantic_scholar  # noqa: E402
+from sources import core, crossref, semantic_scholar  # noqa: E402
 
 
 def _temp_conn(tmp_path):
@@ -81,5 +81,37 @@ def test_semantic_scholar_upsert_merges_into_existing_doi_row(tmp_path) -> None:
         assert row["oa_url"] == "https://example.org/paper.pdf"
         assert row["is_oa"] == 1
         assert json.loads(row["sources_json"]) == ["pubmed", "semantic_scholar"]
+    finally:
+        conn.close()
+
+
+def test_core_upsert_marks_oa_and_tags_source(tmp_path) -> None:
+    conn = _temp_conn(tmp_path)
+    try:
+        count = core.upsert_papers(
+            conn,
+            [
+                {
+                    "identifiers": ["doi:10.1000/example-core"],
+                    "title": "CORE metadata row",
+                    "abstract": "Open access abstract",
+                    "yearPublished": 2023,
+                    "publisher": "Repository Journal",
+                    "authors": [{"name": "Katherine Johnson"}],
+                    "citationCount": 9,
+                    "documentType": "research",
+                    "downloadUrl": "https://example.org/core.pdf",
+                }
+            ],
+        )
+        assert count == 1
+        row = conn.execute(
+            "SELECT doi, title, oa_url, is_oa, sources_json FROM papers WHERE doi=?",
+            ("10.1000/example-core",),
+        ).fetchone()
+        assert row["title"] == "CORE metadata row"
+        assert row["oa_url"] == "https://example.org/core.pdf"
+        assert row["is_oa"] == 1
+        assert json.loads(row["sources_json"]) == ["core"]
     finally:
         conn.close()
