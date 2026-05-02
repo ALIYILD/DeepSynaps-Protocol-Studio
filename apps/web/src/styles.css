@@ -29024,6 +29024,16 @@ body[data-sr-open="1"] { overflow:hidden; }
   font-size: 14px;
   margin-top: 2px;
 }
+.va-motion-hints {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+.va-clinical-card {
+  margin-bottom: 16px;
+}
 .va-mode-toggle { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
 .va-grid {
   display: grid;

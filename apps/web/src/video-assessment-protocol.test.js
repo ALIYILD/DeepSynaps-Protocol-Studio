@@ -6,6 +6,7 @@ import {
   mergeServerDocument,
   summarizeSession,
 } from './video-assessment-protocol.js';
+import { normalizeClinicalContext, VA_DEFAULT_PRESET_ID } from './video-assessment-clinical-presets.js';
 
 test('MVP task library has 16 ordered tasks', () => {
   assert.equal(VIDEO_ASSESSMENT_TASKS.length, 16);
@@ -28,6 +29,13 @@ test('mergeServerDocument fills instructions from definitions', () => {
     tasks: [{ task_id: 'rest_tremor', recording_status: 'pending' }],
   });
   assert.ok(doc.tasks[0].instructions.script);
+  assert.equal(doc.clinical_context.preset_id, VA_DEFAULT_PRESET_ID);
+});
+
+test('normalizeClinicalContext merges preset defaults', () => {
+  const n = normalizeClinicalContext({ preset_id: 'essential_tremor', custom_indication: 'test' });
+  assert.equal(n.preset_id, 'essential_tremor');
+  assert.ok(n.set_at);
 });
 
 test('summarizeSession counts skipped and completed', () => {

@@ -189,6 +189,12 @@ def _new_session_document(
         "overall_status": "in_progress",
         "safety_flags": [],
         "patient_consent": consent_block,
+        "clinical_context": {
+            "preset_id": "parkinsonism_followup",
+            "condition_label": "",
+            "custom_indication": "",
+            "set_at": now,
+        },
         "tasks": default_tasks_payload(),
         "summary": default_summary(),
         "future_ai_metrics_placeholder": default_future_ai_placeholder(),
@@ -248,6 +254,8 @@ class PatientConsentIn(BaseModel):
 class CreateSessionRequest(BaseModel):
     encounter_id: Optional[str] = Field(None, max_length=64)
     consent: Optional[PatientConsentIn] = None
+    # Virtual-care motor: condition preset (UI sends structured dict)
+    clinical_context: Optional[dict[str, Any]] = None
 
 
 class PatchSessionRequest(BaseModel):
@@ -260,6 +268,7 @@ class PatchSessionRequest(BaseModel):
     tasks: Optional[list[dict[str, Any]]] = None
     future_ai_metrics_placeholder: Optional[dict[str, Any]] = None
     patient_consent: Optional[dict[str, Any]] = None
+    clinical_context: Optional[dict[str, Any]] = None
 
 
 class SessionListItem(BaseModel):
@@ -360,6 +369,9 @@ def create_session(
         encounter_id=body.encounter_id,
         consent=consent_payload,
     )
+    if body.clinical_context is not None:
+        merged_cc = {**(doc.get("clinical_context") or {}), **body.clinical_context}
+        doc["clinical_context"] = merged_cc
     sid = doc["id"]
     row = VideoAssessmentSession(
         id=sid,
@@ -430,6 +442,8 @@ def patch_session(
         )
     if body.patient_consent is not None:
         doc["patient_consent"] = {**(doc.get("patient_consent") or {}), **body.patient_consent}
+    if body.clinical_context is not None:
+        doc["clinical_context"] = {**(doc.get("clinical_context") or {}), **body.clinical_context}
     if body.mode is not None:
         doc["mode"] = body.mode
     if body.overall_status is not None:

@@ -48,6 +48,25 @@ def test_patient_create_and_patch_session(client: TestClient, auth_headers: dict
     sid = doc["id"]
     assert doc["protocol_name"]
     assert len(doc["tasks"]) == 16
+    assert doc.get("clinical_context", {}).get("preset_id") == "parkinsonism_followup"
+
+
+def test_patient_create_with_clinical_context(client: TestClient, auth_headers: dict, demo_patient_va: str) -> None:
+    del demo_patient_va
+    r = client.post(
+        "/api/v1/video-assessments/sessions",
+        headers=auth_headers["patient"],
+        json={
+            "clinical_context": {
+                "preset_id": "essential_tremor",
+                "custom_indication": "ET follow-up",
+            }
+        },
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["clinical_context"]["preset_id"] == "essential_tremor"
+    assert "ET" in body["clinical_context"].get("custom_indication", "")
 
     r2 = client.patch(
         f"/api/v1/video-assessments/sessions/{sid}",

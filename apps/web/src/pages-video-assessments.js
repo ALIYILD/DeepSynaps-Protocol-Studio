@@ -10,6 +10,12 @@ import {
   summarizeSession,
 } from './video-assessment-protocol.js';
 import { analyzeVideoBlobMotion, MOTION_ENGINE_ID } from './video-assessment-motion.js';
+import {
+  VA_CONDITION_PRESETS,
+  VA_DEFAULT_PRESET_ID,
+  getVaPreset,
+  normalizeClinicalContext,
+} from './video-assessment-clinical-presets.js';
 import { api, downloadBlob, getToken } from './api.js';
 import { currentUser } from './auth.js';
 import { showToast } from './helpers.js';
@@ -77,6 +83,32 @@ var _vaEvidenceFetchedForId = '';
 var _vaMotionRunId = 0;
 var _vaMotionLoading = false;
 
+const _VA_PRESET_STORAGE_KEY = 'ds_va_clinical_preset_id';
+
+function _storedPresetId() {
+  try {
+    const v = sessionStorage.getItem(_VA_PRESET_STORAGE_KEY);
+    if (v && getVaPreset(v)) return v;
+  } catch (_) {}
+  return VA_DEFAULT_PRESET_ID;
+}
+
+function _setStoredPresetId(id) {
+  try {
+    sessionStorage.setItem(_VA_PRESET_STORAGE_KEY, id);
+  } catch (_) {}
+}
+
+/** Ensure session has merged clinical_context after load/create */
+function _ensureClinicalContext() {
+  const s = _ensureSession();
+  const raw = s.clinical_context && typeof s.clinical_context === 'object' ? s.clinical_context : {};
+  const merged = normalizeClinicalContext(raw);
+  if (!_vaSession) return merged;
+  _vaSession.clinical_context = merged;
+  return merged;
+}
+
 function _effectivePatientIdForEvidence(session) {
   const s = session || _ensureSession();
   const pid = s && s.patient_id;
@@ -88,6 +120,16 @@ function _effectivePatientIdForEvidence(session) {
 
 function _buildVideoAssessmentFeatureSummary(session) {
   const out = [];
+  const cc = session.clinical_context || {};
+  const pid = cc.preset_id || VA_DEFAULT_PRESET_ID;
+  const pr = getVaPreset(pid);
+  if (pr) {
+    out.push({
+      name: 'clinical_preset',
+      value: `${pr.label}${cc.custom_indication ? '; ' + String(cc.custom_indication).slice(0, 120) : ''}`,
+      modality: 'video_assessment',
+    });
+  }
   const imp = session.summary && session.summary.clinician_impression;
   if (imp && String(imp).trim()) {
     out.push({
@@ -178,6 +220,63 @@ function _sessionNeedsConsent(session) {
   if (!session) return true;
   const c = session.patient_consent || {};
   return !c.recording_consent || !c.research_use_acknowledged;
+}
+
+function _renderClinicalContextCard() {
+  _ensureClinicalContext();
+  const s = _ensureSession();
+  const cc = s.clinical_context || normalizeClinicalContext({});
+  const pid = cc.preset_id || VA_DEFAULT_PRESET_ID;
+  const preset = getVaPreset(pid);
+  const fin = String(s.overall_status || '') === 'finalized';
+  const hasServer = !!(s.id && !String(s.id).startsWith('vas_'));
+  const canEdit =
+    !fin &&
+    getToken() &&
+    (_isPatientUser() || _isClinicianUser() || currentUser?.role === 'admin');
+
+  if (!canEdit && preset) {
+    return `<div class="ds-card va-clinical-card" role="region" aria-label="Clinical context">
+      <div class="ds-card__header"><h3 style="margin:0;font-size:14px">Session clinical context</h3></div>
+      <div class="ds-card__body" style="padding-top:8px">
+        <p style="font-size:13px;margin:0 0 8px"><strong>${esc(preset.label)}</strong></p>
+        ${cc.custom_indication ? `<p class="va-muted" style="font-size:12px;margin:0 0 8px">Note: ${esc(cc.custom_indication)}</p>` : ''}
+        <p class="va-muted" style="font-size:11px;line-height:1.45;margin:0">Reviewer: ${esc(preset.reviewer_focus)}</p>
+        ${fin ? '<p class="va-finalized-note" style="margin-top:8px">Context is read-only (session finalized).</p>' : ''}
+      </div>
+    </div>`;
+  }
+
+  if (!canEdit) return '';
+
+  const opts = VA_CONDITION_PRESETS.map(
+    (p) => `<option value="${esc(p.id)}" ${p.id === pid ? 'selected' : ''}>${esc(p.label)}</option>`,
+  ).join('');
+  return `<div class="ds-card va-clinical-card" role="region" aria-label="Clinical context">
+    <div class="ds-card__header"><h3 style="margin:0;font-size:14px">Condition focus (this session)</h3></div>
+    <div class="ds-card__body" style="padding-top:8px">
+      <p class="va-muted" style="font-size:12px;line-height:1.5;margin:0 0 10px">
+        Choose the use case that best matches this visit. This steers evidence retrieval and on-screen motion hints — it does <em>not</em> set a diagnosis.
+      </p>
+      <div class="form-group" style="margin-bottom:10px">
+        <label class="form-label" for="va-preset-select">Use case</label>
+        <select id="va-preset-select" class="form-control">
+          ${opts}
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:10px">
+        <label class="form-label" for="va-custom-indication">Short clinical note (optional)</label>
+        <input type="text" id="va-custom-indication" class="form-control" placeholder="e.g. DBS follow-up, med change" value="${esc(cc.custom_indication || '')}" maxlength="240" />
+      </div>
+      ${preset ? `<p class="va-muted" style="font-size:11px;line-height:1.45;margin:0 0 8px"><strong>Patient tip:</strong> ${esc(preset.patient_hint)}</p>` : ''}
+      <button type="button" class="btn btn-sm btn-primary" id="va-clinical-save">Save context</button>
+      ${
+        !hasServer
+          ? '<p class="va-muted" style="font-size:11px;margin-top:10px;line-height:1.45">Your choice is stored in this browser until the session is created on the server (after consent).</p>'
+          : ''
+      }
+    </div>
+  </div>`;
 }
 
 function _renderConsentGate() {
@@ -305,6 +404,40 @@ async function _patchSessionToApi(tasksPatch) {
   }
 }
 
+function _applyClinicalContextFromDom() {
+  const sel = document.getElementById('va-preset-select');
+  const ind = document.getElementById('va-custom-indication');
+  const presetId = sel?.value || VA_DEFAULT_PRESET_ID;
+  const pr = getVaPreset(presetId);
+  _setStoredPresetId(presetId);
+  const s = _ensureSession();
+  s.clinical_context = normalizeClinicalContext({
+    preset_id: presetId,
+    condition_label: pr?.label || '',
+    custom_indication: ind?.value?.trim() || '',
+    set_at: new Date().toISOString(),
+  });
+  _persistSession();
+}
+
+async function _saveClinicalContextToServer() {
+  _applyClinicalContextFromDom();
+  if (!_vaSession?.id || String(_vaSession.id).startsWith('vas_')) return;
+  if (String(_vaSession.overall_status || '') === 'finalized') return;
+  try {
+    const doc = await api.videoAssessmentPatchSession(_vaSession.id, {
+      clinical_context: _vaSession.clinical_context,
+    });
+    _vaSession = mergeServerDocument(doc);
+    _ensureClinicalContext();
+    showToast('Clinical context saved');
+    _resetEvidenceState();
+    _render();
+  } catch (e) {
+    showToast('Could not save context: ' + (e && e.message));
+  }
+}
+
 /** After local blob changes, push task row to API (best-effort). */
 function _queueSyncTask(task) {
   if (!task) return;
@@ -334,12 +467,15 @@ function _updateFutureAiAggregatePlaceholder() {
       ? Math.round(scores.reduce((a, b) => a + Number(b), 0) / scores.length)
       : null;
   const prev = s.future_ai_metrics_placeholder || {};
+  const cctx = s.clinical_context || {};
+  const cPreset = cctx.preset_id || '';
   s.future_ai_metrics_placeholder = {
     pose_metrics: prev.pose_metrics ?? null,
     movement_counts: ok.length
       ? {
           tasks_with_motion_proxy: ok.length,
           engine: MOTION_ENGINE_ID,
+          clinical_preset_id: cPreset || undefined,
         }
       : prev.movement_counts ?? null,
     speed_metrics:
@@ -348,6 +484,7 @@ function _updateFutureAiAggregatePlaceholder() {
             motion_activity_score_mean_0_100: meanAct,
             sample_tasks: scores.length,
             engine: MOTION_ENGINE_ID,
+            clinical_preset_id: cPreset || undefined,
             note: 'Heuristic mean of per-clip motion-activity scores (frame differencing).',
           }
         : prev.speed_metrics ?? null,
@@ -377,7 +514,12 @@ async function _runMotionForTask(task, blob) {
   _vaMotionLoading = true;
   _render();
   try {
-    const metrics = await analyzeVideoBlobMotion(blob, { task_id: task.task_id });
+    const presetId = (_vaSession.clinical_context && _vaSession.clinical_context.preset_id) || VA_DEFAULT_PRESET_ID;
+    const metrics = await analyzeVideoBlobMotion(blob, {
+      task_id: task.task_id,
+      task_group: task.task_group,
+      preset_id: presetId,
+    });
     if (run !== _vaMotionRunId) return;
     task.ai_automated_metrics = metrics;
     task.ai_analysis_status = metrics.status === 'failed' ? 'failed' : 'complete';
@@ -529,7 +671,15 @@ async function _refreshSessionListAndMaybeLoad(idToLoad) {
 function _ensureSession() {
   if (!_vaSession) {
     const persisted = _loadPersistedSession();
-    _vaSession = persisted || createEmptySession({ patient_id: _isDemoMode() ? 'demo-patient' : 'local' });
+    if (persisted) {
+      _vaSession = mergeServerDocument(persisted);
+    } else {
+      const sp = _storedPresetId();
+      _vaSession = createEmptySession({
+        patient_id: _isDemoMode() ? 'demo-patient' : 'local',
+        clinical_context: normalizeClinicalContext({ preset_id: sp, set_at: new Date().toISOString() }),
+      });
+    }
     _applySummary();
   }
   return _vaSession;
@@ -845,6 +995,13 @@ function _renderClinicianForm(task, locked) {
   const am = task.ai_automated_metrics;
   let motionBlock = '';
   if (am && !am.status) {
+    const hints = Array.isArray(am.interpretation_hints) ? am.interpretation_hints : [];
+    const hintHtml = hints.length
+      ? `<ul class="va-motion-hints">${hints.map((h) => `<li>${esc(h)}</li>`).join('')}</ul>`
+      : '';
+    const interpNote = am.interpretation_note
+      ? `<p class="va-muted" style="font-size:11px;margin:8px 0 0;line-height:1.45">${esc(am.interpretation_note)}</p>`
+      : '';
     motionBlock = `<div class="va-motion-panel">
       <div class="va-motion-title">Automated motion proxy <span class="va-muted" style="font-size:11px">(${esc(MOTION_ENGINE_ID)})</span></div>
       <div class="va-motion-grid">
@@ -853,6 +1010,7 @@ function _renderClinicianForm(task, locked) {
         <div><span class="va-muted">Variability (SD)</span><strong>${esc(String(am.std_motion_0_255 ?? '—'))}</strong></div>
         <div><span class="va-muted">Peaks (rough)</span><strong>${esc(String(am.repetitive_motion_peak_count ?? '—'))}</strong></div>
       </div>
+      ${hintHtml}${interpNote}
       <p class="va-muted" style="font-size:10px;margin:8px 0 0;line-height:1.45">${esc(am.disclaimer || '')}</p>
     </div>`;
   } else if (am && am.status === 'failed') {
@@ -930,6 +1088,7 @@ function _renderClinicianColumn() {
 
 async function _fetchEvidenceForSession() {
   const session = _ensureSession();
+  _ensureClinicalContext();
   if (!session.id || String(session.id).startsWith('vas_')) {
     showToast('Save the session on the server before loading citations.');
     return;
@@ -940,20 +1099,19 @@ async function _fetchEvidenceForSession() {
   _vaEvidenceError = '';
   _render();
   try {
+    const cc = session.clinical_context || {};
+    const pid = cc.preset_id || VA_DEFAULT_PRESET_ID;
+    const preset = getVaPreset(pid) || getVaPreset(VA_DEFAULT_PRESET_ID);
+    const tags = [...(preset?.phenotype_tags || [])];
+    if (cc.custom_indication) tags.push(String(cc.custom_indication).slice(0, 80));
+    tags.push('telemedicine', 'video assessment', 'remote motor examination');
     const body = {
       patient_id: _effectivePatientIdForEvidence(session),
       context_type: 'biomarker',
-      target_name: 'remote_motor_exam',
-      diagnosis: 'movement disorder',
+      target_name: preset?.evidence_target || 'remote_motor_exam',
+      diagnosis: preset?.evidence_diagnosis || 'movement disorder',
       modality: 'telemedicine',
-      phenotype_tags: [
-        'telemedicine',
-        'remote motor examination',
-        'Parkinson disease',
-        'video assessment',
-        'bradykinesia',
-        'gait',
-      ],
+      phenotype_tags: [...new Set(tags)].slice(0, 24),
       feature_summary: _buildVideoAssessmentFeatureSummary(session),
       max_results: 10,
     };
@@ -1063,6 +1221,8 @@ function _render() {
   <div class="va-emergency-banner" role="alert">${esc(EMERGENCY_BOX)}</div>
 
   ${_renderConsentGate()}
+
+  ${_renderClinicalContextCard()}
 
   ${_renderModeToggle()}
   ${_renderClinicianSessionPicker()}
@@ -1179,6 +1339,10 @@ function _wire() {
     _refreshSessionListAndMaybeLoad(null)
   );
 
+  document.getElementById('va-clinical-save')?.addEventListener('click', () => {
+    void _saveClinicalContextToServer();
+  });
+
   document.getElementById('va-consent-save')?.addEventListener('click', async () => {
     const cr = document.getElementById('va-consent-record');
     const rs = document.getElementById('va-consent-research');
@@ -1197,15 +1361,21 @@ function _wire() {
     try {
       const sid = _vaSession && _vaSession.id && !String(_vaSession.id).startsWith('vas_') ? _vaSession.id : null;
       if (sid) {
-        const doc = await api.videoAssessmentPatchSession(sid, { patient_consent: consentBody });
+        _ensureClinicalContext();
+        const doc = await api.videoAssessmentPatchSession(sid, {
+          patient_consent: consentBody,
+          clinical_context: _vaSession.clinical_context,
+        });
         _vaSession = mergeServerDocument(doc);
       } else {
+        _ensureClinicalContext();
         const created = await api.videoAssessmentCreateSession({
           consent: {
             recording_consent: true,
             research_use_acknowledged: true,
             consent_version: 'video_assessment_mvp_v1',
           },
+          clinical_context: _vaSession.clinical_context,
         });
         _vaSession = mergeServerDocument(created);
         try {
@@ -1499,8 +1669,17 @@ export async function pgVideoAssessments(setTopbar, navigate, opts = {}) {
   await _bootstrapApiSession();
   if (!_vaSession) {
     const persisted = _loadPersistedSession();
-    _vaSession = persisted || createEmptySession({ patient_id: _isDemoMode() ? 'demo-patient' : 'local' });
+    if (persisted) {
+      _vaSession = mergeServerDocument(persisted);
+    } else {
+      const sp = _storedPresetId();
+      _vaSession = createEmptySession({
+        patient_id: _isDemoMode() ? 'demo-patient' : 'local',
+        clinical_context: normalizeClinicalContext({ preset_id: sp, set_at: new Date().toISOString() }),
+      });
+    }
   }
+  _ensureClinicalContext();
   _applySummary();
   _updateFutureAiAggregatePlaceholder();
 

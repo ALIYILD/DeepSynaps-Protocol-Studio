@@ -3,15 +3,25 @@
 // Frame-difference statistics — exploratory / QA only; not a validated score.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { getVaPreset } from './video-assessment-clinical-presets.js';
+
 export const MOTION_ENGINE_ID = 'frame_diff_web_v1';
 
 /**
  * @param {Blob} blob
- * @param {{ task_id?: string, maxFrames?: number, targetWidth?: number }} [opts]
+ * @param {{
+ *   task_id?: string,
+ *   task_group?: string,
+ *   preset_id?: string,
+ *   maxFrames?: number,
+ *   targetWidth?: number,
+ * }} [opts]
  * @returns {Promise<object>}
  */
 export async function analyzeVideoBlobMotion(blob, opts = {}) {
   const taskId = opts.task_id || '';
+  const taskGroup = opts.task_group || '';
+  const presetId = opts.preset_id || '';
   const maxFrames = Math.min(48, Math.max(8, opts.maxFrames ?? 24));
   const targetWidth = Math.min(320, Math.max(160, opts.targetWidth ?? 240));
 
@@ -99,10 +109,22 @@ export async function analyzeVideoBlobMotion(blob, opts = {}) {
       ),
     );
 
+    const interp = _interpretMotionHints({
+      preset_id: presetId,
+      task_group: taskGroup,
+      task_id: taskId,
+      mean,
+      std,
+      peaks,
+      proxyScore,
+    });
+
     return {
       engine: MOTION_ENGINE_ID,
       engine_version: '1',
       task_id: taskId,
+      task_group: taskGroup || undefined,
+      clinical_preset_id: presetId || undefined,
       analyzed_at: new Date().toISOString(),
       duration_ms: durMs,
       frames_sampled: motionSeries.length + 1,
@@ -110,6 +132,8 @@ export async function analyzeVideoBlobMotion(blob, opts = {}) {
       std_motion_0_255: Math.round(std * 1000) / 1000,
       repetitive_motion_peak_count: peaks,
       motion_activity_score_0_100: proxyScore,
+      interpretation_hints: interp.hints,
+      interpretation_note: interp.note,
       disclaimer:
         'Heuristic motion proxy from pixel differences — not pose estimation and not validated for diagnosis or severity.',
     };
@@ -162,4 +186,47 @@ function _countPeaks(arr, ratio) {
     if (arr[i] > arr[i - 1] && arr[i] >= arr[i + 1] && arr[i] > thresh) peaks++;
   }
   return peaks;
+}
+
+/**
+ * Non-diagnostic cues for common virtual-care presets — adjunct to clinician scoring.
+ */
+function _interpretMotionHints({ preset_id, task_group, task_id, mean, std, peaks, proxyScore }) {
+  const preset = getVaPreset(preset_id);
+  const hints = [];
+  let note =
+    'Compare with your structured clinical scores; automated metrics do not measure tremor frequency, tap rate, or stance stability.';
+
+  const isRepetitive =
+    task_group === 'upper_limb' ||
+    task_group === 'lower_limb' ||
+    /finger_tap|hand_open|pronation|foot_tap/.test(String(task_id));
+  const isStaticHold =
+    String(task_id).includes('rest_tremor') ||
+    String(task_id).includes('postural_tremor') ||
+    String(task_id).includes('standing_balance');
+  const isGait =
+    task_group === 'balance_gait' ||
+    /gait_|turn_in_place|sit_to_stand/.test(String(task_id));
+
+  if (preset_id === 'essential_tremor' && isStaticHold && peaks <= 2 && proxyScore < 45) {
+    hints.push('Low repetitive peaks on a posture/rest clip — may fit action-predominant tremor (clinical correlation required).');
+  }
+  if (preset_id === 'parkinsonism_followup' && isRepetitive && peaks >= 6 && proxyScore >= 55) {
+    hints.push('Elevated motion variability on a repetitive task — consider bradykinesia / irregular rhythm in your structured review.');
+  }
+  if (preset_id === 'dystonia' && isRepetitive && std < 5 && proxyScore < 40) {
+    hints.push('Low frame-to-frame variability during a repetitive task — sustained postures can suppress oscillatory peaks on this proxy.');
+  }
+  if (preset_id === 'ataxia_balance' && isGait && std > 12) {
+    hints.push('Higher motion variability on gait/balance-related sampling — may reflect unstable framing or body sway (camera-dependent).');
+  }
+  if (preset_id === 'stroke_rehab_hemiparesis' && isRepetitive && mean < 8 && proxyScore < 35) {
+    hints.push('Very low motion energy on a limb task — verify limb visibility and task attempt (proxy cannot detect weakness alone).');
+  }
+  if (preset?.label) {
+    note = `${preset.label}: ${note}`;
+  }
+
+  return { hints: hints.slice(0, 4), note };
 }

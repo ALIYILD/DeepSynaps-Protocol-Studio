@@ -447,6 +447,12 @@ export function createEmptySession(overrides = {}) {
       consent_version: 'video_assessment_mvp_v1',
       consent_recorded_at: null,
     },
+    clinical_context: {
+      preset_id: 'parkinsonism_followup',
+      condition_label: '',
+      custom_indication: '',
+      set_at: null,
+    },
     ...overrides,
   };
 }
@@ -487,6 +493,20 @@ export function mergeServerDocument(serverDoc) {
       research_use_acknowledged: false,
       consent_version: 'video_assessment_mvp_v1',
       consent_recorded_at: null,
+    };
+  }
+  if (!out.clinical_context || typeof out.clinical_context !== 'object') {
+    out.clinical_context = {
+      preset_id: 'parkinsonism_followup',
+      condition_label: '',
+      custom_indication: '',
+      set_at: null,
+    };
+  } else {
+    const pid = out.clinical_context.preset_id || 'parkinsonism_followup';
+    out.clinical_context = {
+      ...out.clinical_context,
+      preset_id: pid,
     };
   }
   return out;
