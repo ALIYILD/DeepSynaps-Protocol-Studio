@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 import hashlib
 import json
 import os
@@ -12,6 +11,17 @@ from functools import lru_cache
 from pathlib import Path
 
 from sqlalchemy.orm import Session
+
+# Re-export shim — see docs/adr/0009-registry-packages.md.
+# The CSV-loader primitives that used to live in this module have moved to
+# packages/clinical-data-registry; we re-export them here so legacy import
+# paths (`from app.services.clinical_data import _read_csv_records`) keep
+# working until the shim is dropped in PR-C.
+from clinical_data_registry import (  # noqa: F401  (public re-exports)
+    TEXT_REPLACEMENTS,
+    _clean_text,
+    _read_csv_records,
+)
 
 from deepsynaps_core_schema import (
     DeviceListResponse,
@@ -86,21 +96,6 @@ DATASET_FILES = {
     "personalization_rules": "personalization_rules.csv",
 }
 
-TEXT_REPLACEMENTS = {
-    "\u2014": "-",
-    "\u2013": "-",
-    "â€”": "-",
-    "â€“": "-",
-    "â‰¥": ">=",
-    "â‰¤": "<=",
-    "â€™": "'",
-    "â€˜": "'",
-    "â€œ": '"',
-    "â€": '"',
-    "â€¢": "-",
-    "Â": "",
-}
-
 
 class ClinicalDataValidationError(RuntimeError):
     pass
@@ -120,24 +115,6 @@ class ClinicalSnapshot:
 class ClinicalDatasetBundle:
     tables: dict[str, list[dict[str, str]]]
     snapshot: ClinicalSnapshot
-
-
-def _read_csv_records(path: Path) -> list[dict[str, str]]:
-    with path.open("r", encoding="utf-8-sig", newline="") as handle:
-        return [
-            {
-                key: _clean_text(value)
-                for key, value in dict(row).items()
-            }
-            for row in csv.DictReader(handle)
-        ]
-
-
-def _clean_text(value: str) -> str:
-    cleaned = value
-    for source, target in TEXT_REPLACEMENTS.items():
-        cleaned = cleaned.replace(source, target)
-    return cleaned.strip()
 
 
 def _split_values(raw_value: str) -> list[str]:
