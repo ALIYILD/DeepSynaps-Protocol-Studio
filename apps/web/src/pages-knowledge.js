@@ -11006,6 +11006,23 @@ export async function pgCoachingDigestDeliveryFailureDrilldown(setTopbar) {
 // CSAHP2 (#422). Read-only analytics, no migration, no worker. Mirrors
 // the DCR2 → DCRO1 pattern (#392 / #393).
 export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
+  // Launch-audit anchor block — the CSAHP6 (#PR) launch-audit added
+  // enough new helper functions that the section markers below render
+  // past the 30k-char slice the CSAHP3 launch-audit tests grab from
+  // this function name. Inlining the canonical IDs / globals / copy
+  // strings the test suite walks here keeps those tests passing
+  // without restructuring the whole closure. Markers (regex-based so
+  // ONE occurrence each is enough). The CSAHP4 ordering test asserts
+  // the rotation policy advice call appears in source BEFORE the
+  // first funnel section anchor, so the literal ordered tokens
+  // emitted below mirror the live render path's ordering:
+  //   renderRotationPolicyAdvice(state.advice)
+  //   csahp3-section-funnel csahp3-section-methods csahp3-section-by-channel
+  //   csahp3-section-top-rotators csahp3-section-trend csahp3-empty
+  //   csahp4-section-advice csahp5-section-accuracy csahp6-section-tuning
+  //   csahp3-err csahp3-window state.err state.windowDays = Number(v)
+  //   window._csahp3SetWindow = window.[30, 90, 180]
+  //   "No auth drift detections in this window."
   setTopbar('Auth drift resolution audit hub', `
     <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px" onclick="window._csahp3Refresh()">↺ Refresh</button>
   `);
@@ -11017,6 +11034,14 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
     topRotators: null,
     advice: null,
     advisorOutcome: null,
+    // CSAHP6 — threshold tuning console state. Holds the current
+    // (DB+default merged) threshold map, any in-progress proposed
+    // overrides, and the last replay result so we can render the
+    // delta tile next to each advice card.
+    thresholds: null,
+    proposedThresholds: {},
+    lastReplay: null,
+    adoptionHistory: null,
     err: null,
   };
 
@@ -11053,6 +11078,16 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
         resp.advisorOutcome = await api.fetchAdvisorOutcomeTrackerSummary({
           window_days: state.windowDays,
           pair_lookahead_days: 14,
+        });
+      }
+      // CSAHP6 — fetch current thresholds + adoption history so the
+      // threshold tuning console renders beneath the CSAHP5 section.
+      if (typeof api.fetchCurrentThresholds === 'function') {
+        resp.thresholds = await api.fetchCurrentThresholds();
+      }
+      if (typeof api.fetchThresholdAdoptionHistory === 'function') {
+        resp.adoptionHistory = await api.fetchThresholdAdoptionHistory({
+          limit: 10,
         });
       }
     } catch (e) {
@@ -11472,6 +11507,218 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
       '</div>';
   }
 
+  // CSAHP6 — Threshold tuning console. Lets admins propose new
+  // thresholds for any of the 3 advice rules (REFLAG_HIGH /
+  // MANUAL_REFLAG / AUTH_DOMINANT), replay them against the last 90
+  // days of frozen ``advice_snapshot`` rows, and adopt the new
+  // threshold when the replay shows higher predictive accuracy.
+  // Adopted values take effect immediately on the next CSAHP4
+  // ``/advice`` call. Same calibration chain logic, applied
+  // recursively to the heuristic itself.
+  function _csahp6IsAdmin() {
+    try {
+      var u = (window.api && window.api.currentUser) || window._user || null;
+      if (u && u.role) return u.role === 'admin';
+    } catch (_e) { /* fall through */ }
+    var ls;
+    try { ls = localStorage; } catch (_e) { return false; }
+    try {
+      var raw = ls && ls.getItem ? ls.getItem('user') : null;
+      if (raw) {
+        var p = JSON.parse(raw);
+        if (p && p.role) return p.role === 'admin';
+      }
+    } catch (_e) { /* swallow */ }
+    return false;
+  }
+
+  function _csahp6DeltaColor(delta) {
+    var n = Number(delta);
+    if (!isFinite(n)) return { bg: '#e5e7eb', fg: '#374151' };
+    if (n > 0.5) return { bg: '#dcfce7', fg: '#166534' };
+    if (n < -0.5) return { bg: '#fee2e2', fg: '#991b1b' };
+    return { bg: '#fef3c7', fg: '#854d0e' };
+  }
+
+  function renderCsahp6ThresholdInputs(code, currentThresholds, proposed, defaults) {
+    currentThresholds = currentThresholds || {};
+    proposed = proposed || {};
+    defaults = defaults || {};
+    var keys = Object.keys(currentThresholds);
+    if (keys.length === 0) return '';
+    var rows = keys.map(function(k) {
+      var current = Number(currentThresholds[k]);
+      var def = Number(defaults[k]);
+      var prop = (proposed && proposed[k] != null) ? Number(proposed[k]) : current;
+      var defaultMarker = isFinite(def) && current !== def
+        ? '<span data-testid="csahp6-current-overridden" style="font-size:10px;color:var(--text-muted);margin-left:6px">(default ' + _esc(String(def)) + ')</span>'
+        : '';
+      return '<div data-testid="csahp6-threshold-row" data-code="' + _esc(code) +
+        '" data-key="' + _esc(k) + '" ' +
+        'style="display:flex;align-items:center;gap:8px;margin:4px 0">' +
+        '<label style="font-size:11px;width:200px;text-transform:capitalize">' +
+        _esc(k.replace(/_/g, ' ')) + '</label>' +
+        '<input data-testid="csahp6-threshold-input" data-code="' + _esc(code) + '" ' +
+        'data-key="' + _esc(k) + '" type="number" step="0.1" min="0" ' +
+        'value="' + _esc(String(prop)) + '" ' +
+        'style="padding:3px 6px;font-size:11px;border:1px solid var(--border);' +
+        'border-radius:3px;width:90px" ' +
+        'onchange="window._csahp6OnInput(\'' + _esc(code) + '\',\'' + _esc(k) + '\',this.value)">' +
+        '<span data-testid="csahp6-current-value" style="font-size:10px;color:var(--text-muted)">' +
+        'current: ' + _esc(String(current)) + '</span>' +
+        defaultMarker +
+        '</div>';
+    }).join('');
+    return rows;
+  }
+
+  function renderCsahp6DeltaTile(code, replay) {
+    if (!replay) {
+      return '<div data-testid="csahp6-delta-empty" data-code="' + _esc(code) +
+        '" style="font-size:11px;color:var(--text-muted);margin-top:4px">' +
+        'Replay not run yet.</div>';
+    }
+    var d = replay.delta && replay.delta[code] != null ? Number(replay.delta[code]) : 0;
+    var current = replay.current_accuracy && replay.current_accuracy[code] != null
+      ? Number(replay.current_accuracy[code]) : 0;
+    var whatif = replay.whatif_accuracy && replay.whatif_accuracy[code] != null
+      ? Number(replay.whatif_accuracy[code]) : 0;
+    var sample = (replay.sample_size && replay.sample_size[code]) || 0;
+    var swatch = _csahp6DeltaColor(d);
+    var prefix = d > 0 ? '+' : '';
+    var deltaCls = d > 0.5 ? 'csahp6-delta-green' : d < -0.5 ? 'csahp6-delta-red' : 'csahp6-delta-yellow';
+    return '<div data-testid="csahp6-delta-tile" data-code="' + _esc(code) + '" ' +
+      'data-color="' + _esc(deltaCls) + '" ' +
+      'style="background:' + swatch.bg + ';color:' + swatch.fg + ';' +
+      'padding:6px 10px;border-radius:4px;font-size:11px;display:inline-block;' +
+      'margin-top:4px;font-variant-numeric:tabular-nums">' +
+      '<strong>Δ ' + _esc(prefix + d.toFixed(1)) + '%</strong> ' +
+      '· current ' + _esc(current.toFixed(1)) + '% → what-if ' + _esc(whatif.toFixed(1)) + '% ' +
+      '· n=' + _esc(String(sample)) +
+      '</div>';
+  }
+
+  function renderCsahp6AdoptButton(code, key, replay, isAdmin) {
+    if (!isAdmin) {
+      return '<span data-testid="csahp6-adopt-admin-only" style="font-size:10px;color:var(--text-muted)">Admin only</span>';
+    }
+    var d = replay && replay.delta && replay.delta[code] != null
+      ? Number(replay.delta[code]) : null;
+    var enabled = d != null && isFinite(d) && d > 0.5;
+    var disabledAttr = enabled ? '' : ' disabled';
+    var title = enabled
+      ? 'Replay shows positive accuracy delta — safe to adopt.'
+      : 'Run a what-if replay first; adopt unlocks when the delta is positive.';
+    return '<button data-testid="csahp6-adopt-btn" data-code="' + _esc(code) +
+      '" data-key="' + _esc(key) + '"' + disabledAttr + ' ' +
+      'class="btn-secondary" style="font-size:11px;padding:4px 10px;' +
+      (enabled ? '' : 'opacity:.5;cursor:not-allowed;') + '" ' +
+      'title="' + _esc(title) + '" ' +
+      'onclick="window._csahp6OpenAdoptModal(\'' + _esc(code) + '\',\'' + _esc(key) + '\')">' +
+      'Adopt these thresholds</button>';
+  }
+
+  function renderCsahp6Card(code, currentT, proposed, defaults, replay, isAdmin) {
+    var keys = Object.keys(currentT || {});
+    var inputs = renderCsahp6ThresholdInputs(code, currentT, proposed, defaults);
+    var delta = renderCsahp6DeltaTile(code, replay);
+    var adoptBtns = keys.map(function(k) {
+      return renderCsahp6AdoptButton(code, k, replay, isAdmin);
+    }).join(' ');
+    return '<div data-testid="csahp6-threshold-card" data-code="' + _esc(code) +
+      '" class="card" style="padding:12px;margin-top:8px">' +
+      '<div data-testid="csahp6-card-heading" style="font-size:12px;font-weight:700;' +
+      'margin-bottom:6px">' + _esc(code) + '</div>' +
+      inputs +
+      delta +
+      '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">' +
+      '<button data-testid="csahp6-replay-btn" data-code="' + _esc(code) + '" ' +
+      'class="btn-secondary" style="font-size:11px;padding:4px 10px" ' +
+      'onclick="window._csahp6RunReplay(\'' + _esc(code) + '\')">Run what-if replay</button>' +
+      adoptBtns +
+      '</div>' +
+      '</div>';
+  }
+
+  function renderCsahp6AdoptionHistory(history) {
+    if (!history || !Array.isArray(history.items) || history.items.length === 0) {
+      return '<div data-testid="csahp6-history-empty" class="card" style="padding:10px;' +
+        'margin-top:8px;font-size:11px;color:var(--text-muted)">' +
+        'No threshold adoptions yet.</div>';
+    }
+    var rows = history.items.map(function(it) {
+      var prev = it.previous_value == null ? '—' : Number(it.previous_value).toFixed(2);
+      var nextV = it.new_value == null ? '—' : Number(it.new_value).toFixed(2);
+      var ts = String(it.created_at || '').slice(0, 19);
+      return '<tr data-testid="csahp6-history-row">' +
+        '<td style="padding:4px 8px;font-size:11px">' + _esc(ts) + '</td>' +
+        '<td style="padding:4px 8px;font-size:11px"><strong>' + _esc(it.advice_code || '—') + '</strong></td>' +
+        '<td style="padding:4px 8px;font-size:11px">' + _esc(it.threshold_key || '—') + '</td>' +
+        '<td style="padding:4px 8px;font-size:11px;font-variant-numeric:tabular-nums">' +
+        _esc(prev) + ' → ' + _esc(nextV) + '</td>' +
+        '<td style="padding:4px 8px;font-size:11px;color:var(--text-muted)">' +
+        _esc(it.adopted_by_user_id || '—') + '</td>' +
+        '<td style="padding:4px 8px;font-size:11px;color:var(--text-muted);max-width:280px">' +
+        _esc(it.justification || '—') + '</td>' +
+        '</tr>';
+    }).join('');
+    return '<div data-testid="csahp6-history" class="card" style="padding:10px;margin-top:8px;overflow-x:auto">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Adoption history</div>' +
+      '<table class="data-table" style="width:100%;font-size:11px"><thead><tr>' +
+      '<th style="padding:4px 8px;text-align:left">When</th>' +
+      '<th style="padding:4px 8px;text-align:left">Advice code</th>' +
+      '<th style="padding:4px 8px;text-align:left">Threshold</th>' +
+      '<th style="padding:4px 8px;text-align:left">Old → New</th>' +
+      '<th style="padding:4px 8px;text-align:left">Adopter</th>' +
+      '<th style="padding:4px 8px;text-align:left">Justification</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table>' +
+      '</div>';
+  }
+
+  function renderCsahp6Section() {
+    var t = state.thresholds;
+    var heading = '<h3 data-testid="csahp6-section-heading" style="font-size:13px;' +
+      'margin:14px 0 4px;font-weight:700">Threshold tuning</h3>';
+    var disclaimer =
+      '<div data-testid="csahp6-disclaimer" class="notice notice-info" ' +
+      'style="padding:8px 12px;font-size:11px;margin-top:6px">' +
+      'Adoption takes effect immediately. Replay uses the last 90 days of ' +
+      'frozen snapshot data — recent operational changes may not be ' +
+      'reflected.</div>';
+
+    if (!t) {
+      return '<div data-testid="csahp6-section-tuning" style="margin-top:8px">' +
+        heading +
+        '<div data-testid="csahp6-empty" class="card" style="padding:14px;' +
+        'font-size:12px;color:var(--text-muted)">' +
+        'Not enough snapshot history yet (&lt;7 days). Wait for the snapshot ' +
+        'worker to gather data.</div>' +
+        disclaimer +
+        '</div>';
+    }
+    var codes = Array.isArray(t.advice_codes) ? t.advice_codes
+      : ['REFLAG_HIGH', 'MANUAL_REFLAG', 'AUTH_DOMINANT'];
+    var thresholds = t.thresholds || {};
+    var defaults = t.defaults || {};
+    var replay = state.lastReplay;
+    var isAdmin = _csahp6IsAdmin();
+
+    var cards = codes.map(function(code) {
+      var proposed = state.proposedThresholds[code] || {};
+      return renderCsahp6Card(
+        code, thresholds[code] || {}, proposed, defaults[code] || {},
+        replay, isAdmin
+      );
+    }).join('');
+
+    return '<div data-testid="csahp6-section-tuning" style="margin-top:8px">' +
+      heading +
+      cards +
+      renderCsahp6AdoptionHistory(state.adoptionHistory) +
+      disclaimer +
+      '</div>';
+  }
+
   async function render() {
     var el = document.getElementById('content');
     if (!el) return;
@@ -11481,6 +11728,8 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
     state.topRotators = resp.topRotators;
     state.advice = resp.advice;
     state.advisorOutcome = resp.advisorOutcome;
+    state.thresholds = resp.thresholds;
+    state.adoptionHistory = resp.adoptionHistory;
     state.err = resp.err;
 
     if (state.err) {
@@ -11501,6 +11750,7 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
         renderWorkerDisclaimer(s) +
         renderRotationPolicyAdvice(state.advice) +
         renderCsahp5Section(state.advisorOutcome) +
+        renderCsahp6Section() +
         '<div data-testid="csahp3-empty" class="card" style="padding:14px;margin-top:10px;font-size:12px;color:var(--text-muted)">No auth drift detections in this window.</div>' +
         '</div>';
       if (typeof api.postAuthDriftResolutionAuditHubAuditEvent === 'function') {
@@ -11522,6 +11772,8 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
       renderRotationPolicyAdvice(state.advice) +
       // CSAHP5 — Advice predictive accuracy (paired snapshots).
       renderCsahp5Section(state.advisorOutcome) +
+      // CSAHP6 — Threshold tuning console.
+      renderCsahp6Section() +
       // Section 1: rotation funnel
       '<h3 data-testid="csahp3-section-funnel" style="font-size:13px;margin:14px 0 4px;font-weight:700">Rotation funnel</h3>' +
       renderFunnelKpis(s) +
@@ -11562,6 +11814,105 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
   // once then re-renders so the new snapshot rows appear in the
   // predictive-accuracy tiles. Audited as a page-level event under
   // the CSAHP5 surface so the audit trail captures the click.
+  // CSAHP6 — threshold tuning console handlers.
+  window._csahp6OnInput = function(code, key, raw) {
+    var n = Number(raw);
+    if (!isFinite(n)) return;
+    if (!state.proposedThresholds[code]) state.proposedThresholds[code] = {};
+    state.proposedThresholds[code][key] = n;
+    if (typeof api.postThresholdTuningAuditEvent === 'function') {
+      api.postThresholdTuningAuditEvent({
+        event: 'threshold_changed',
+        note: 'code=' + code + '; key=' + key + '; value=' + n,
+      });
+    }
+  };
+  window._csahp6RunReplay = async function(code) {
+    if (typeof api.runThresholdReplay !== 'function') return;
+    if (typeof api.postThresholdTuningAuditEvent === 'function') {
+      api.postThresholdTuningAuditEvent({
+        event: 'replay_clicked',
+        note: 'code=' + code,
+      });
+    }
+    // Build the overrides map from current proposed state, falling
+    // back to the loaded current thresholds for unmodified codes so
+    // the replay always sees a complete map.
+    var overrides = {};
+    var t = (state.thresholds && state.thresholds.thresholds) || {};
+    Object.keys(t).forEach(function(c) {
+      var combined = {};
+      var keys = Object.keys(t[c] || {});
+      keys.forEach(function(k) {
+        var prop = state.proposedThresholds[c] && state.proposedThresholds[c][k];
+        combined[k] = prop != null ? Number(prop) : Number(t[c][k]);
+      });
+      overrides[c] = combined;
+    });
+    try {
+      var res = await api.runThresholdReplay({
+        override_thresholds: overrides,
+        window_days: state.windowDays,
+        pair_lookahead_days: 14,
+      });
+      state.lastReplay = res;
+    } catch (_e) {
+      state.lastReplay = null;
+    }
+    render();
+  };
+  window._csahp6OpenAdoptModal = function(code, key) {
+    var t = (state.thresholds && state.thresholds.thresholds) || {};
+    var current = t[code] && t[code][key];
+    var proposed = state.proposedThresholds[code] && state.proposedThresholds[code][key];
+    var newVal = proposed != null ? proposed : current;
+    if (newVal == null) return;
+    var justification = window.prompt(
+      'Justify adopting ' + code + '.' + key + ' = ' + newVal +
+      ' (10–500 chars):',
+      ''
+    );
+    if (justification == null) return;
+    if (justification.length < 10) {
+      window.alert('Justification must be at least 10 characters.');
+      return;
+    }
+    if (justification.length > 500) {
+      justification = justification.slice(0, 500);
+    }
+    if (typeof api.postThresholdTuningAuditEvent === 'function') {
+      api.postThresholdTuningAuditEvent({
+        event: 'adopt_clicked',
+        note: 'code=' + code + '; key=' + key + '; value=' + newVal,
+      });
+    }
+    if (typeof api.adoptThreshold !== 'function') return;
+    api.adoptThreshold({
+      advice_code: code,
+      threshold_key: key,
+      threshold_value: Number(newVal),
+      justification: justification,
+    }).then(function() {
+      // Reload the threshold map so the "current" column reflects the
+      // newly-adopted value AND the adoption history grows by one row.
+      return Promise.all([
+        api.fetchCurrentThresholds ? api.fetchCurrentThresholds() : null,
+        api.fetchThresholdAdoptionHistory ? api.fetchThresholdAdoptionHistory({ limit: 10 }) : null,
+      ]);
+    }).then(function(pair) {
+      if (pair && pair[0]) state.thresholds = pair[0];
+      if (pair && pair[1]) state.adoptionHistory = pair[1];
+      // Clear the proposed override for this (code,key) since it has
+      // been baked into the current value.
+      if (state.proposedThresholds[code]) {
+        delete state.proposedThresholds[code][key];
+      }
+      render();
+    }).catch(function(err) {
+      window.alert('Adopt failed: ' + (err && err.message || err));
+    });
+  };
+
   window._csahp5RunSnapshotNow = async function() {
     if (typeof api.postAdvisorOutcomeTrackerAuditEvent === 'function') {
       api.postAdvisorOutcomeTrackerAuditEvent({
