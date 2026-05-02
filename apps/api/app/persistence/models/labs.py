@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, String
 
-from ._base import Mapped, mapped_column, Optional, uuid
+from ._base import Base, Mapped, mapped_column, Optional, uuid
 
 
 class PatientLabResult(Base):
