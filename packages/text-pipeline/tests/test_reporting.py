@@ -19,6 +19,8 @@ def test_generate_clinical_text_report_payload_minimal() -> None:
     doc = normalize_note_format(doc)
     p = generate_clinical_text_report_payload(doc)
     assert p.document_id == doc.id
+    assert p.content_sha256 and len(p.content_sha256) == 64
+    assert p.package_version
     assert p.channel == "note"
     assert p.patient_ref == "pat-x"
     assert p.encounter_ref == "enc-y"

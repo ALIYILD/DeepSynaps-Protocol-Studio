@@ -6,6 +6,8 @@ from collections import Counter
 from datetime import datetime, timezone
 from typing import Sequence
 
+from deepsynaps_text.pipeline_hashes import canonical_clinical_body, sha256_hex
+from deepsynaps_text.pipeline_versions import package_version
 from deepsynaps_text.schemas import (
     ActionItem,
     ClinicalEntityExtractionResult,
@@ -36,6 +38,8 @@ def generate_clinical_text_report_payload(
     message_urgency: MessageUrgencyLabel | None = None,
     action_items: list[ActionItem] | None = None,
     pipeline_run_id: str | None = None,
+    content_sha256: str | None = None,
+    package_version_label: str | None = None,
 ) -> ClinicalTextReportPayload:
     """
     Merge pipeline outputs into a single payload for Studio UI / downstream APIs.
@@ -67,8 +71,13 @@ def generate_clinical_text_report_payload(
             action_items=list(action_items or []),
         )
 
+    body = canonical_clinical_body(doc)
+    ch = content_sha256 if content_sha256 is not None else sha256_hex(body)
+    pkg = package_version_label if package_version_label is not None else package_version()
     return ClinicalTextReportPayload(
         document_id=doc.id,
+        content_sha256=ch,
+        package_version=pkg,
         channel=meta.channel,
         patient_ref=meta.patient_ref,
         encounter_ref=meta.encounter_ref,

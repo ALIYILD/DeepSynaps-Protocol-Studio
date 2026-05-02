@@ -1,7 +1,8 @@
 """
 Clinical text pipeline orchestration: linear stages, artefacts, provenance.
 
-Runs are stored in-process for tests and lightweight deployments; swap for Redis/DB later.
+Runs are persisted via :mod:`deepsynaps_text.run_store` (memory by default; JSON
+files when ``DEEPSYNAPS_TEXT_PERSIST_RUNS`` and ``DEEPSYNAPS_TEXT_RUN_STORE_DIR`` are set).
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from deepsynaps_text.core_nlp import (
     detect_temporal_context,
     extract_clinical_entities,
 )
+from deepsynaps_text.feature_flags import load_text_pipeline_feature_flags
 from deepsynaps_text.ingestion import deidentify_text, normalize_note_format
 from deepsynaps_text.message_analyzers import (
     classify_message_intent,
@@ -28,7 +30,21 @@ from deepsynaps_text.neuromodulation_phenotyper import (
     extract_neuromodulation_risks_and_contraindications,
     extract_stimulation_parameters,
 )
+from deepsynaps_text.pipeline_hashes import (
+    canonical_clinical_body,
+    hash_json_object,
+    hash_pipeline_definition,
+    sha256_hex,
+)
+from deepsynaps_text.pipeline_versions import (
+    DEID_RULES_VERSION,
+    MESSAGE_RULES_VERSION,
+    RULE_PACK_VERSION,
+    TERMINOLOGY_STUB_VERSION,
+    package_version,
+)
 from deepsynaps_text.reporting import generate_clinical_text_report_payload
+from deepsynaps_text.run_store import ensure_run_store_configured, get_run_store
 from deepsynaps_text.schemas import (
     ClinicalEntityExtractionResult,
     ClinicalTextDocument,
@@ -42,8 +58,6 @@ from deepsynaps_text.schemas import (
     TextPipelineNode,
     TextPipelineRun,
 )
-
-_RUN_STORE: dict[str, TextPipelineRun] = {}
 
 MESSAGE_CHANNELS = frozenset({"message", "email", "chat"})
 
@@ -75,6 +89,16 @@ def _message_source_text(doc: ClinicalTextDocument) -> str:
     return doc.raw_text
 
 
+def _detail(**extra: Any) -> dict[str, Any]:
+    """Merge audit versions into every artefact detail."""
+    base = {
+        "package_version": package_version(),
+        "rule_pack_version": RULE_PACK_VERSION,
+    }
+    base.update(extra)
+    return base
+
+
 def execute_text_pipeline(
     pipeline_definition: TextPipelineDefinition,
     input_doc: ClinicalTextDocument,
@@ -90,12 +114,28 @@ def execute_text_pipeline(
     Uses ``rule`` entity extraction and ``biosyn`` stub terminology linking by default
     for deterministic offline runs.
     """
+    ensure_run_store_configured()
+    flags = load_text_pipeline_feature_flags()
+    effective_backend = "rule" if flags.force_rules_entity_backend else entity_backend
+
     run_id = reuse_run_id or str(uuid.uuid4())
     started = datetime.now(timezone.utc)
+    input_body = canonical_clinical_body(input_doc)
+    input_hash = sha256_hex(input_body)
+    def_hash = hash_pipeline_definition(pipeline_definition)
+
     run = TextPipelineRun(
         run_id=run_id,
         pipeline_id=pipeline_definition.pipeline_id,
         document_id=input_doc.id,
+        package_version=package_version(),
+        input_content_sha256=input_hash,
+        definition_content_sha256=def_hash,
+        feature_flags={
+            "rules_only_nlp": flags.force_rules_entity_backend,
+            "llm_disabled": flags.disable_llm_tasks,
+            "persist_runs": flags.persist_runs_to_disk,
+        },
         input_document=input_doc.model_copy(deep=True),
         definition=pipeline_definition.model_copy(deep=True),
         status="running",
@@ -119,6 +159,7 @@ def execute_text_pipeline(
         status: str = "ok",
         detail: dict[str, Any] | None = None,
     ) -> None:
+        merged = _detail(**(detail or {}))
         run.artifacts.append(
             TextArtifactRecord(
                 run_id=run_id,
@@ -126,7 +167,7 @@ def execute_text_pipeline(
                 step=step,
                 status=status,  # type: ignore[arg-type]
                 duration_ms=ms,
-                detail=detail or {},
+                detail=merged,
             )
         )
 
@@ -144,63 +185,77 @@ def execute_text_pipeline(
 
             if step == "deidentify":
                 working = deidentify_text(working, strategy=deid_strategy)  # type: ignore[arg-type]
-                detail = {"strategy": deid_strategy}
+                detail = {"strategy": deid_strategy, "deid_rules_version": DEID_RULES_VERSION}
             elif step == "normalize_note":
                 working = normalize_note_format(working)
                 detail = {"sections_count": len(working.sections)}
             elif step == "extract_entities":
-                entities = extract_clinical_entities(working, backend=entity_backend)
-                detail = {"backend": entity_backend, "entity_count": len(entities.entities)}
+                entities = extract_clinical_entities(working, backend=effective_backend)
+                detail = {
+                    "entity_backend": effective_backend,
+                    "entity_count": len(entities.entities),
+                    "rule_pack_version": RULE_PACK_VERSION,
+                }
             elif step == "annotate_entities":
                 if entities is None:
-                    entities = extract_clinical_entities(working, backend=entity_backend)
+                    entities = extract_clinical_entities(working, backend=effective_backend)
                 entities = detect_temporal_context(detect_negation_and_assertion(entities))
                 detail = {"entity_count": len(entities.entities)}
             elif step == "link_terminology":
                 if entities is None:
-                    entities = extract_clinical_entities(working, backend=entity_backend)
+                    entities = extract_clinical_entities(working, backend=effective_backend)
                     entities = detect_temporal_context(detect_negation_and_assertion(entities))
                 coded = link_entities_to_terminology(entities, backend=terminology_backend)
                 auto = auto_code_note(coded)
                 detail = {
                     "terminology_backend": terminology_backend,
+                    "terminology_ruleset": TERMINOLOGY_STUB_VERSION,
                     "coded_entities": len(coded.entities),
                     "auto_code_suggestions": len(auto.suggestions),
                 }
             elif step == "neuromodulation_history":
                 src = coded if coded is not None else entities
                 if src is None:
-                    src = extract_clinical_entities(working, backend=entity_backend)
+                    src = extract_clinical_entities(working, backend=effective_backend)
                     src = detect_temporal_context(detect_negation_and_assertion(src))
                 nm_hist = extract_neuromodulation_history(src)
                 detail = {"modalities": len(nm_hist.modalities_seen)}
             elif step == "neuromodulation_parameters":
                 src = coded if coded is not None else entities
                 if src is None:
-                    src = extract_clinical_entities(working, backend=entity_backend)
+                    src = extract_clinical_entities(working, backend=effective_backend)
                 nm_params = extract_stimulation_parameters(src)
                 detail = {"has_session_count": nm_params.session_count is not None}
             elif step == "neuromodulation_risks":
                 src = coded if coded is not None else entities
                 if src is None:
-                    src = extract_clinical_entities(working, backend=entity_backend)
+                    src = extract_clinical_entities(working, backend=effective_backend)
                 nm_risks = extract_neuromodulation_risks_and_contraindications(src)
                 detail = {"risk_notes": len(nm_risks.notes)}
             elif step == "message_intent":
                 txt = _message_source_text(working)
                 intent = classify_message_intent(txt)
                 msg_ctx["intent"] = intent
-                detail = {"intent": intent.intent}
+                detail = {
+                    "intent": intent.intent,
+                    "message_rules_version": MESSAGE_RULES_VERSION,
+                }
             elif step == "message_urgency":
                 txt = _message_source_text(working)
                 urg = classify_message_urgency(txt)
                 msg_ctx["urgency"] = urg
-                detail = {"level": urg.level}
+                detail = {
+                    "level": urg.level,
+                    "message_rules_version": MESSAGE_RULES_VERSION,
+                }
             elif step == "message_actions":
                 txt = _message_source_text(working)
                 acts = extract_action_items_from_message(txt)
                 msg_ctx["actions"] = acts
-                detail = {"action_count": len(acts)}
+                detail = {
+                    "action_count": len(acts),
+                    "message_rules_version": MESSAGE_RULES_VERSION,
+                }
             elif step == "assemble_report":
                 intent = msg_ctx.get("intent")
                 urgency = msg_ctx.get("urgency")
@@ -209,6 +264,8 @@ def execute_text_pipeline(
                     intent = None
                     urgency = None
                     actions = None
+                final_body = canonical_clinical_body(working)
+                report_hash = sha256_hex(final_body)
                 report = generate_clinical_text_report_payload(
                     working,
                     entities=entities,
@@ -220,8 +277,11 @@ def execute_text_pipeline(
                     message_urgency=urgency,
                     action_items=actions,
                     pipeline_run_id=run_id,
+                    content_sha256=report_hash,
+                    package_version_label=package_version(),
                 )
                 run.report = report
+                run.output_report_sha256 = hash_json_object(report.model_dump(mode="json"))
                 detail = {"schema_version": report.schema_version}
             else:
                 raise ValueError(f"Unknown pipeline step: {step}")
@@ -237,8 +297,9 @@ def execute_text_pipeline(
         run.failed_at_node_id = current_node_id or None
         run.completed_at = datetime.now(timezone.utc)
 
-    _RUN_STORE[run.run_id] = run.model_copy(deep=True)
-    return run
+    final = run.model_copy(deep=True)
+    get_run_store().save(final)
+    return final
 
 
 def resume_text_pipeline(run_id: str) -> TextPipelineRun:
@@ -247,7 +308,8 @@ def resume_text_pipeline(run_id: str) -> TextPipelineRun:
 
     For MVP the entire pipeline is executed again with the same inputs.
     """
-    prev = _RUN_STORE.get(run_id)
+    ensure_run_store_configured()
+    prev = get_run_store().get(run_id)
     if prev is None:
         raise KeyError(f"No pipeline run found for run_id={run_id!r}.")
     if prev.input_document is None or prev.definition is None:
@@ -261,7 +323,14 @@ def resume_text_pipeline(run_id: str) -> TextPipelineRun:
 
 def collect_text_provenance(run_id: str) -> Sequence[dict[str, Any]]:
     """Return artefact rows as plain dicts for logging / export."""
-    run = _RUN_STORE.get(run_id)
+    ensure_run_store_configured()
+    run = get_run_store().get(run_id)
     if run is None:
         raise KeyError(f"No pipeline run found for run_id={run_id!r}.")
     return [a.model_dump(mode="json") for a in run.artifacts]
+
+
+def get_text_pipeline_run(run_id: str) -> TextPipelineRun | None:
+    """Load a full run including report (from active store)."""
+    ensure_run_store_configured()
+    return get_run_store().get(run_id)

@@ -533,6 +533,14 @@ class ClinicalTextReportPayload(BaseModel):
     """UI-ready bundle for the Clinical Text Analyzer (one document)."""
 
     schema_version: str = Field(default="1.0")
+    content_sha256: str | None = Field(
+        default=None,
+        description="SHA-256 (hex) of canonical clinical body used for analysis (audit).",
+    )
+    package_version: str | None = Field(
+        default=None,
+        description="deepsynaps-text package version when the payload was built.",
+    )
     document_id: str
     channel: ClinicalChannel
     patient_ref: str | None = None
@@ -619,6 +627,22 @@ class TextPipelineRun(BaseModel):
     run_id: str
     pipeline_id: str
     document_id: str
+    package_version: str = Field(
+        default="",
+        description="deepsynaps-text wheel version for reproducibility.",
+    )
+    input_content_sha256: str = Field(
+        default="",
+        description="SHA-256 of canonical clinical text body at pipeline start.",
+    )
+    definition_content_sha256: str = Field(
+        default="",
+        description="SHA-256 of JSON-serialized pipeline definition.",
+    )
+    feature_flags: dict[str, bool] = Field(
+        default_factory=dict,
+        description="Snapshot of env-driven toggles (e.g. rules_only_nlp).",
+    )
     input_document: ClinicalTextDocument | None = Field(
         default=None,
         description="Snapshot of input for resume / audit (no external PHI logging).",
@@ -633,6 +657,10 @@ class TextPipelineRun(BaseModel):
     error_message: str | None = None
     failed_at_node_id: str | None = None
     report: ClinicalTextReportPayload | None = None
+    output_report_sha256: str | None = Field(
+        default=None,
+        description="SHA-256 of canonical JSON of report payload when completed.",
+    )
     artifacts: list[TextArtifactRecord] = Field(default_factory=list)
 
     model_config = {"frozen": False}

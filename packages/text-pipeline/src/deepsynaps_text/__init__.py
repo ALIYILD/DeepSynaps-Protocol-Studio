@@ -28,6 +28,7 @@ from deepsynaps_text.workflow_orchestration import (
     collect_text_provenance,
     default_text_pipeline_definition,
     execute_text_pipeline,
+    get_text_pipeline_run,
     resume_text_pipeline,
 )
 from deepsynaps_text.ingestion import (
@@ -136,6 +137,7 @@ __all__ = [
     "TextPipelineRun",
     "benchmark_llm_extractors",
     "collect_text_provenance",
+    "get_text_pipeline_run",
     "auto_code_note",
     "build_note_sections_from_text",
     "deidentify_text",
