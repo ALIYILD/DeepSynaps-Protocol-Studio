@@ -445,3 +445,151 @@ class ReportBundle(BaseModel):
     norm_db_version: str
     model_versions: dict[str, str] = Field(default_factory=dict)
     flagged_conditions: list[str] = Field(default_factory=list)
+
+
+# --- voice biomarker reporting & longitudinal (JSON API payloads) -------
+
+
+class VoiceQualityIndices(BaseModel):
+    """Composite voice-quality indices for reporting (AVQI / DSI–like).
+
+    Units are dimensionless index scores unless noted.
+    """
+
+    avqi: Optional[float] = Field(
+        default=None,
+        description="Acoustic Voice Quality Index (dimensionless).",
+        json_schema_extra={"unit": "1", "label": "AVQI"},
+    )
+    dsi: Optional[float] = Field(
+        default=None,
+        description="Dysphonia Severity Index–like composite (dimensionless).",
+        json_schema_extra={"unit": "1", "label": "DSI-like"},
+    )
+    severity_band: Optional[VoiceQualityBand] = Field(
+        default=None,
+        description="Mapped severity band when derivable from indices.",
+    )
+    notes: list[str] = Field(default_factory=list)
+
+
+class PDVoiceRiskScore(BaseModel):
+    """Parkinson's-voice screening-style score for session reports (research/wellness)."""
+
+    score: float = Field(ge=0.0, le=1.0, json_schema_extra={"unit": "1", "label": "PD voice risk"})
+    model_name: str
+    model_version: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    drivers: list[str] = Field(default_factory=list)
+    percentile: Optional[float] = Field(
+        default=None,
+        json_schema_extra={"unit": "1", "label": "Percentile vs norms"},
+    )
+
+
+class DysarthriaSeverityScore(BaseModel):
+    """Dysarthria severity envelope for session reports."""
+
+    severity: float = Field(ge=0.0, le=4.0, json_schema_extra={"unit": "1", "label": "Dysarthria severity"})
+    model_name: str
+    model_version: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    subtype_hint: Optional[
+        Literal["spastic", "flaccid", "ataxic", "hyperkinetic", "hypokinetic", "mixed"]
+    ] = None
+    drivers: list[str] = Field(default_factory=list)
+
+
+class AudioQualityResult(BaseModel):
+    """QC summary suitable for JSON reports (no raw audio)."""
+
+    verdict: QCVerdict
+    loudness_lufs: Optional[float] = Field(
+        default=None,
+        json_schema_extra={"unit": "LUFS", "label": "Integrated loudness"},
+    )
+    snr_db: Optional[float] = Field(default=None, json_schema_extra={"unit": "dB", "label": "Estimated SNR"})
+    clip_fraction: Optional[float] = Field(
+        default=None,
+        json_schema_extra={"unit": "1", "label": "Fraction of clipped samples"},
+    )
+    speech_ratio: Optional[float] = Field(
+        default=None,
+        json_schema_extra={"unit": "1", "label": "Voiced / detected-speech ratio"},
+    )
+    reasons: list[str] = Field(default_factory=list)
+    qc_engine_version: str = "1.0.0"
+
+
+class VoiceSegmentRef(BaseModel):
+    """Pointer to an audio segment — never includes waveform samples."""
+
+    task_key: str = Field(description="Task slug, e.g. sustained_vowel_a.")
+    snippet_id: Optional[str] = Field(default=None, description="Stable storage id for the clip.")
+    parent_recording_id: Optional[str] = Field(default=None, description="Parent Recording UUID as string.")
+    start_s: float = Field(json_schema_extra={"unit": "s", "label": "Segment start time"})
+    end_s: float = Field(json_schema_extra={"unit": "s", "label": "Segment end time"})
+    duration_s: float = Field(json_schema_extra={"unit": "s", "label": "Segment duration"})
+    sample_rate_hz: int = Field(json_schema_extra={"unit": "Hz", "label": "Sample rate"})
+
+
+class VoiceReportProvenance(BaseModel):
+    """Pipeline and model provenance stamped on every voice report payload."""
+
+    pipeline_version: str
+    norm_db_version: str
+    schema_version: str = "voice_session_report/v1"
+    feature_sets_used: list[str] = Field(
+        default_factory=list,
+        description="Logical feature bundles present in this payload, e.g. acoustic_light, avqi.",
+    )
+    models_used: dict[str, str] = Field(
+        default_factory=dict,
+        description="Component name → model or extractor version string.",
+    )
+
+
+class VoiceSessionReportPayload(BaseModel):
+    """JSON-serializable session bundle for neuromodulation / neurology dashboards."""
+
+    session_id: str
+    patient_id: Optional[str] = None
+    generated_at: datetime
+    provenance: VoiceReportProvenance
+    qc: Optional[AudioQualityResult] = None
+    acoustic_features: Optional[AcousticFeatureSet] = None
+    voice_quality: Optional[VoiceQualityIndices] = None
+    pd_voice: Optional[PDVoiceRiskScore] = None
+    dysarthria: Optional[DysarthriaSeverityScore] = None
+    cognitive_speech: Optional[CognitiveSpeechRiskScore] = None
+    respiratory: Optional[RespiratoryRiskScore] = None
+    task_segment_refs: dict[str, VoiceSegmentRef] = Field(
+        default_factory=dict,
+        description="Task-key → segment metadata (no raw audio).",
+    )
+
+
+class TrendSeries(BaseModel):
+    """One biomarker track across sessions."""
+
+    feature_key: str
+    label: str
+    unit: str
+    session_ids: list[str]
+    values: list[Optional[float]]
+    generated_at: list[datetime]
+
+
+class LongitudinalVoiceSummaryPayload(BaseModel):
+    """Aggregated trends for a patient across voice sessions."""
+
+    patient_id: str
+    generated_at: datetime
+    n_sessions: int
+    session_order: list[str] = Field(description="session_id values sorted chronologically")
+    trends: dict[str, TrendSeries] = Field(default_factory=dict)
+    delta_first_last: dict[str, Optional[float]] = Field(
+        default_factory=dict,
+        description="Simple last-minus-first delta per trend key when both endpoints exist.",
+    )
+    provenance: VoiceReportProvenance
