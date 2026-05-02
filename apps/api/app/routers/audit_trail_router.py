@@ -448,6 +448,14 @@ KNOWN_SURFACES = {
     # Page-level events: view, window_changed, top_rotators_view,
     # audit_hub_link_clicked, demo_banner_shown.
     "channel_auth_drift_resolution_audit_hub",
+    # Auth Drift Rotation Policy Advisor launch-audit (CSAHP4,
+    # 2026-05-02). Read-only advisor surface that consumes CSAHP3's
+    # per-channel re-flag-rate signals and emits heuristic
+    # recommendation cards (REFLAG_HIGH / MANUAL_REFLAG /
+    # AUTH_DOMINANT). No new schema, no worker — pure presentation.
+    # Page-level events: view, window_changed, advice_card_clicked,
+    # demo_banner_shown.
+    "auth_drift_rotation_policy_advisor",
     # Caregiver Delivery Concern Aggregator launch-audit (2026-05-01).
     # Closes section I rec from #389. Rolling-window worker groups every
     # delivery-concern audit row in the last N hours by (caregiver_user_id,

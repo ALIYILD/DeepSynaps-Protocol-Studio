@@ -127,6 +127,9 @@ from app.routers.channel_auth_drift_resolution_router import (
 from app.routers.channel_auth_drift_resolution_audit_hub_router import (
     router as channel_auth_drift_resolution_audit_hub_router,
 )
+from app.routers.auth_drift_rotation_policy_advisor_router import (
+    router as auth_drift_rotation_policy_advisor_router,
+)
 from app.routers.caregiver_delivery_concern_aggregator_router import (
     router as caregiver_delivery_concern_aggregator_router,
 )
@@ -525,6 +528,13 @@ app.include_router(channel_auth_drift_resolution_router)
 # scoping. Page-level events: view, window_changed, top_rotators_view,
 # audit_hub_link_clicked.
 app.include_router(channel_auth_drift_resolution_audit_hub_router)
+# Auth Drift Rotation Policy Advisor (CSAHP4, 2026-05-02). Read-only
+# advisor surface that consumes CSAHP3's per-channel re-flag-rate /
+# manual-rotation-share / auth-error-class signals and emits heuristic
+# recommendation cards. No new audit rows, no schema, no worker —
+# pure presentation building on the leading-indicator signals CSAHP3
+# already exposes. Mirrors the DCRO5 / CSAHP3 read-only advisor pattern.
+app.include_router(auth_drift_rotation_policy_advisor_router)
 # Caregiver Delivery Concern Aggregator launch-audit (2026-05-01). Closes
 # section I rec from the Channel Misconfiguration Detector (#389).
 # Rolling-window scan that flags caregivers with N+ delivery concerns
