@@ -11015,6 +11015,8 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
     minRotations: 2,
     summary: null,
     topRotators: null,
+    advice: null,
+    advisorOutcome: null,
     err: null,
   };
 
@@ -11026,7 +11028,7 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
   }
 
   async function loadAll() {
-    var resp = { summary: null, topRotators: null, advice: null, err: null };
+    var resp = { summary: null, topRotators: null, advice: null, advisorOutcome: null, err: null };
     try {
       if (typeof api.fetchAuthDriftResolutionAuditHubSummary === 'function') {
         resp.summary = await api.fetchAuthDriftResolutionAuditHubSummary({
@@ -11042,6 +11044,15 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
       if (typeof api.fetchRotationPolicyAdvice === 'function') {
         resp.advice = await api.fetchRotationPolicyAdvice({
           window_days: state.windowDays,
+        });
+      }
+      // CSAHP5 — fetch the advisor outcome tracker summary so the
+      // "Advice predictive accuracy" section renders alongside the
+      // CSAHP4 advice cards.
+      if (typeof api.fetchAdvisorOutcomeTrackerSummary === 'function') {
+        resp.advisorOutcome = await api.fetchAdvisorOutcomeTrackerSummary({
+          window_days: state.windowDays,
+          pair_lookahead_days: 14,
         });
       }
     } catch (e) {
@@ -11304,6 +11315,163 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
       '</div>';
   }
 
+  // CSAHP5 — Advice predictive accuracy section. Pairs each advice
+  // card snapshot at time T (emitted by the CSAHP5 background snapshot
+  // worker) with the same-key snapshot at T+14d (±2d tolerance) and
+  // shows per-advice-code predictive accuracy
+  // (card_disappeared_pct = how often the card stopped appearing 14
+  // days after the clinic acted on it). Renders under the CSAHP4
+  // "Rotation policy advice" section.
+  function _csahp5AccuracyColor(pct) {
+    if (pct == null) return 'csahp5-acc-grey';
+    var n = Number(pct);
+    if (!isFinite(n)) return 'csahp5-acc-grey';
+    if (n >= 60) return 'csahp5-acc-green';
+    if (n >= 30) return 'csahp5-acc-yellow';
+    return 'csahp5-acc-red';
+  }
+
+  function _csahp5AccuracyBgFg(cls) {
+    // Map color class to {bg, fg} pair.
+    if (cls === 'csahp5-acc-green') return { bg: '#dcfce7', fg: '#166534' };
+    if (cls === 'csahp5-acc-yellow') return { bg: '#fef3c7', fg: '#854d0e' };
+    if (cls === 'csahp5-acc-red') return { bg: '#fee2e2', fg: '#991b1b' };
+    return { bg: '#e5e7eb', fg: '#374151' };
+  }
+
+  function renderCsahp5Tile(code, agg) {
+    agg = agg || {};
+    var total = Number(agg.total_cards) || 0;
+    var pct = total > 0 ? Number(agg.predictive_accuracy_pct) : null;
+    var deltaRaw = Number(agg.mean_re_flag_rate_delta);
+    var delta = isFinite(deltaRaw) ? deltaRaw : 0;
+    var pctRendered = pct == null ? '—' : pct.toFixed(1) + '%';
+    var deltaRendered = (delta > 0 ? '+' : '') + delta.toFixed(1) + '%';
+    var cls = _csahp5AccuracyColor(pct);
+    var swatch = _csahp5AccuracyBgFg(cls);
+    return '<div data-testid="csahp5-kpi-tile" data-code="' + _esc(code) + '" ' +
+      'class="card" style="padding:12px;display:flex;flex-direction:column;gap:4px">' +
+      '<div data-testid="csahp5-kpi-label" style="font-size:11px;color:var(--text-muted);' +
+      'text-transform:uppercase;letter-spacing:.04em">' + _esc(code) + '</div>' +
+      '<div data-testid="csahp5-kpi-pct" data-color="' + _esc(cls) + '" ' +
+      'style="background:' + swatch.bg + ';color:' + swatch.fg + ';' +
+      'padding:4px 10px;border-radius:4px;font-size:22px;font-weight:700;' +
+      'font-variant-numeric:tabular-nums;display:inline-block;width:fit-content">' +
+      _esc(pctRendered) + '</div>' +
+      '<div data-testid="csahp5-kpi-totals" style="font-size:11px;color:var(--text-muted)">' +
+      'Total cards: ' + _esc(String(total)) + ' · Δ re-flag rate: ' +
+      _esc(deltaRendered) +
+      '</div>' +
+      '</div>';
+  }
+
+  function renderCsahp5TrendChart(trendBuckets) {
+    if (!Array.isArray(trendBuckets) || trendBuckets.length === 0) {
+      return '<div data-testid="csahp5-trend-empty" class="card" ' +
+        'style="padding:12px;margin-top:8px;font-size:12px;color:var(--text-muted)">' +
+        'No weekly trend data yet.</div>';
+    }
+    var maxEmitted = trendBuckets.reduce(function(m, b) {
+      return Math.max(m, Number(b.cards_emitted) || 0);
+    }, 1);
+    var rows = trendBuckets.map(function(b) {
+      var emitted = Number(b.cards_emitted) || 0;
+      var resolved = Number(b.cards_resolved) || 0;
+      var emittedPct = Math.min(100, Math.round((emitted / maxEmitted) * 100));
+      var resolvedPct = emitted > 0
+        ? Math.round((resolved / emitted) * 100)
+        : 0;
+      return '<div data-testid="csahp5-trend-row" ' +
+        'data-week="' + _esc(b.week_start || '') + '" ' +
+        'style="display:flex;align-items:center;gap:8px;margin:4px 0;font-size:11px;' +
+        'font-variant-numeric:tabular-nums">' +
+        '<span style="width:90px">' + _esc(b.week_start || '') + '</span>' +
+        '<div style="flex:1;background:var(--surface-muted);height:14px;border-radius:4px;' +
+        'overflow:hidden;position:relative">' +
+        '<div style="background:var(--accent);height:100%;width:' + emittedPct + '%"></div>' +
+        '<div style="background:#16a34a;height:100%;width:' + Math.round((resolved / maxEmitted) * 100) +
+        '%;position:absolute;top:0;left:0;opacity:.6"></div>' +
+        '</div>' +
+        '<span style="width:60px;text-align:right">' + emitted + ' / ' + resolved +
+        '</span></div>';
+    }).join('');
+    return '<div data-testid="csahp5-trend" class="card" style="padding:12px;margin-top:8px">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:6px">' +
+      'Weekly cards emitted vs resolved' +
+      '</div>' + rows + '</div>';
+  }
+
+  function renderCsahp5Section(advisorOutcome) {
+    var data = advisorOutcome || {};
+    var totalPaired = Number(data.total_paired_cards) || 0;
+    var totalPending = Number(data.total_pending_cards) || 0;
+    var workerEnabled = data.worker_enabled === true;
+    var workerStatus = workerEnabled ? 'enabled' : 'disabled';
+    var heading =
+      '<h3 data-testid="csahp5-section-heading" style="font-size:13px;' +
+      'margin:14px 0 4px;font-weight:700">Advice predictive accuracy</h3>';
+    var runBtn =
+      '<button data-testid="csahp5-run-snapshot-btn" class="btn-secondary" ' +
+      'style="font-size:.78rem;padding:4px 10px;margin-left:8px" ' +
+      'onclick="window._csahp5RunSnapshotNow()">Run snapshot now</button>';
+    var workerDisclaimer =
+      '<div data-testid="csahp5-worker-disclaimer" class="notice notice-info" ' +
+      'style="padding:8px 12px;font-size:11px;margin-top:8px">' +
+      'Snapshot worker is currently <strong>' + _esc(workerStatus) + '</strong>. ' +
+      'Need at least 14 days of snapshot history before predictive accuracy ' +
+      'is meaningful.' +
+      '</div>';
+    var pendingNote =
+      '<div data-testid="csahp5-pending" style="font-size:11px;color:var(--text-muted);' +
+      'margin-top:6px">' + _esc(String(totalPending)) +
+      ' cards still within 14-day evaluation window.</div>';
+
+    if (totalPaired === 0 && totalPending === 0) {
+      return '<div data-testid="csahp5-section-accuracy" style="margin-top:8px">' +
+        heading +
+        '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">' +
+        runBtn +
+        '</div>' +
+        '<div data-testid="csahp5-empty" class="card" style="padding:14px;' +
+        'font-size:12px;color:var(--text-muted)">' +
+        'No advice snapshots yet. Run the snapshot worker once to seed data.' +
+        '</div>' +
+        workerDisclaimer +
+        '</div>';
+    }
+
+    // Sample-size disclaimer when we only have pending data (no paired
+    // outcomes yet).
+    var sampleDisclaimer = totalPaired === 0 && totalPending > 0
+      ? '<div data-testid="csahp5-sample-size-disclaimer" class="notice notice-info" ' +
+        'style="padding:8px 12px;font-size:11px;margin-top:6px">' +
+        '&lt;14 days history — predictive accuracy not yet meaningful.' +
+        '</div>'
+      : '';
+
+    var byCode = data.by_advice_code || {};
+    var codes = ['REFLAG_HIGH', 'MANUAL_REFLAG', 'AUTH_DOMINANT'];
+    var tiles = codes.map(function(code) {
+      return renderCsahp5Tile(code, byCode[code] || {});
+    }).join('');
+    var trend = renderCsahp5TrendChart(data.trend_buckets || []);
+
+    return '<div data-testid="csahp5-section-accuracy" style="margin-top:8px">' +
+      heading +
+      '<div style="display:flex;align-items:center;gap:8px;font-size:11px;' +
+      'color:var(--text-muted);margin-bottom:4px">' +
+      runBtn +
+      '</div>' +
+      '<div data-testid="csahp5-tiles" style="display:grid;' +
+      'grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;' +
+      'margin-top:6px">' + tiles + '</div>' +
+      pendingNote +
+      sampleDisclaimer +
+      trend +
+      workerDisclaimer +
+      '</div>';
+  }
+
   async function render() {
     var el = document.getElementById('content');
     if (!el) return;
@@ -11312,6 +11480,7 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
     state.summary = resp.summary;
     state.topRotators = resp.topRotators;
     state.advice = resp.advice;
+    state.advisorOutcome = resp.advisorOutcome;
     state.err = resp.err;
 
     if (state.err) {
@@ -11331,6 +11500,7 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
         renderControls() +
         renderWorkerDisclaimer(s) +
         renderRotationPolicyAdvice(state.advice) +
+        renderCsahp5Section(state.advisorOutcome) +
         '<div data-testid="csahp3-empty" class="card" style="padding:14px;margin-top:10px;font-size:12px;color:var(--text-muted)">No auth drift detections in this window.</div>' +
         '</div>';
       if (typeof api.postAuthDriftResolutionAuditHubAuditEvent === 'function') {
@@ -11350,6 +11520,8 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
       // CSAHP4 — Rotation policy advice (heuristic cards) above the
       // rotation funnel so the most actionable signal is at the top.
       renderRotationPolicyAdvice(state.advice) +
+      // CSAHP5 — Advice predictive accuracy (paired snapshots).
+      renderCsahp5Section(state.advisorOutcome) +
       // Section 1: rotation funnel
       '<h3 data-testid="csahp3-section-funnel" style="font-size:13px;margin:14px 0 4px;font-weight:700">Rotation funnel</h3>' +
       renderFunnelKpis(s) +
@@ -11383,6 +11555,24 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
         event: 'window_changed',
         note: 'window_days=' + state.windowDays,
       });
+    }
+    render();
+  };
+  // CSAHP5 — admin "Run snapshot now" button. Calls the worker tick
+  // once then re-renders so the new snapshot rows appear in the
+  // predictive-accuracy tiles. Audited as a page-level event under
+  // the CSAHP5 surface so the audit trail captures the click.
+  window._csahp5RunSnapshotNow = async function() {
+    if (typeof api.postAdvisorOutcomeTrackerAuditEvent === 'function') {
+      api.postAdvisorOutcomeTrackerAuditEvent({
+        event: 'run_snapshot_now_clicked',
+        note: 'window_days=' + state.windowDays,
+      });
+    }
+    if (typeof api.runAdvisorSnapshotNow === 'function') {
+      try {
+        await api.runAdvisorSnapshotNow();
+      } catch (_e) { /* swallow — re-render either way */ }
     }
     render();
   };
