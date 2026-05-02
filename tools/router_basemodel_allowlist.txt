@@ -75,6 +75,12 @@ apps/api/app/routers/audio_analysis_router.py:AnalyzeVoiceRequest
 apps/api/app/routers/audit_trail_router.py:AuditEventOut
 apps/api/app/routers/audit_trail_router.py:AuditTrailListResponse
 apps/api/app/routers/audit_trail_router.py:AuditTrailSummaryResponse
+apps/api/app/routers/auth_drift_rotation_policy_advisor_router.py:AdviceCardOut
+apps/api/app/routers/auth_drift_rotation_policy_advisor_router.py:AdviceListOut
+apps/api/app/routers/auth_drift_rotation_policy_advisor_router.py:AuditEventOut
+apps/api/app/routers/auth_drift_rotation_policy_advisor_router.py:AuditEventsListOut
+apps/api/app/routers/auth_drift_rotation_policy_advisor_router.py:PageAuditIn
+apps/api/app/routers/auth_drift_rotation_policy_advisor_router.py:PageAuditOut
 apps/api/app/routers/auto_page_worker_router.py:AdapterAttempt
 apps/api/app/routers/auto_page_worker_router.py:AdapterHealthOut
 apps/api/app/routers/auto_page_worker_router.py:AdapterHealthRow

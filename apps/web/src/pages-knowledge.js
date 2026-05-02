@@ -11026,7 +11026,7 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
   }
 
   async function loadAll() {
-    var resp = { summary: null, topRotators: null, err: null };
+    var resp = { summary: null, topRotators: null, advice: null, err: null };
     try {
       if (typeof api.fetchAuthDriftResolutionAuditHubSummary === 'function') {
         resp.summary = await api.fetchAuthDriftResolutionAuditHubSummary({
@@ -11037,6 +11037,11 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
         resp.topRotators = await api.fetchAuthDriftTopRotators({
           window_days: state.windowDays,
           min_rotations: state.minRotations,
+        });
+      }
+      if (typeof api.fetchRotationPolicyAdvice === 'function') {
+        resp.advice = await api.fetchRotationPolicyAdvice({
+          window_days: state.windowDays,
         });
       }
     } catch (e) {
@@ -11189,6 +11194,107 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
       '</div>';
   }
 
+  function _csahp4SeverityChip(sev) {
+    // CSAHP4 advice card severity chip — high=red, medium=yellow.
+    var s = (sev == null ? '' : String(sev)).toLowerCase();
+    var bg = s === 'high'
+      ? '#fee2e2' : s === 'medium' ? '#fef3c7' : '#e5e7eb';
+    var fg = s === 'high'
+      ? '#991b1b' : s === 'medium' ? '#854d0e' : '#374151';
+    return '<span data-testid="csahp4-severity-chip" data-severity="' + _esc(s) + '" ' +
+      'style="background:' + bg + ';color:' + fg + ';' +
+      'padding:2px 8px;border-radius:9999px;font-size:10px;' +
+      'font-weight:700;text-transform:uppercase;letter-spacing:.04em">' +
+      _esc(s.toUpperCase()) + '</span>';
+  }
+
+  function _csahp4MetricBadges(metrics) {
+    if (!metrics || typeof metrics !== 'object') return '';
+    var badges = [];
+    function _push(label, val, suffix) {
+      if (val == null) return;
+      var n = Number(val);
+      if (!isFinite(n)) return;
+      var rendered = suffix === '%' ? n.toFixed(1) + '%' : String(Math.round(n));
+      badges.push(
+        '<span data-testid="csahp4-metric-badge" ' +
+        'style="display:inline-block;background:var(--surface-muted);' +
+        'padding:2px 8px;border-radius:4px;font-size:11px;margin-right:4px;' +
+        'margin-top:2px;color:var(--text);font-variant-numeric:tabular-nums">' +
+        _esc(label) + ': ' + _esc(rendered) +
+        '</span>'
+      );
+    }
+    _push('Re-flag rate', metrics.re_flag_rate_pct, '%');
+    _push('Confirmed', metrics.confirmed_count, '');
+    _push('Manual share', metrics.manual_rotation_share_pct, '%');
+    _push('Auth-class share', metrics.auth_error_class_share_pct, '%');
+    _push('Total drifts', metrics.total_drifts, '');
+    return badges.join('');
+  }
+
+  function renderRotationPolicyAdvice(adviceResp) {
+    // CSAHP4 — Rotation policy advice section. Appears ABOVE the
+    // rotation funnel section per spec. Empty state renders inside
+    // the section so the disclaimer + heading still appear.
+    var cards = (adviceResp && Array.isArray(adviceResp.advice_cards))
+      ? adviceResp.advice_cards : [];
+    var total = (adviceResp && Number(adviceResp.total_advice_cards)) || cards.length;
+    var disclaimer =
+      '<div data-testid="csahp4-disclaimer" class="notice notice-info" ' +
+      'style="padding:8px 12px;font-size:11px;margin-top:8px">' +
+      'Advice is heuristic and based on the last 90 days of audit-trail ' +
+      'data. Investigate before acting.' +
+      '</div>';
+    if (total === 0) {
+      return '<div data-testid="csahp4-section-advice" style="margin-top:8px">' +
+        '<h3 data-testid="csahp4-section-heading" style="font-size:13px;' +
+        'margin:14px 0 4px;font-weight:700">Rotation policy advice</h3>' +
+        '<div data-testid="csahp4-empty" class="card" style="padding:14px;' +
+        'font-size:12px;color:var(--text-muted)">' +
+        'No rotation policy advice for this window — keep it up.' +
+        '</div>' +
+        disclaimer +
+        '</div>';
+    }
+    var rows = cards.map(function(c) {
+      var sev = (c && c.severity) || '';
+      var ch = (c && c.channel) || '';
+      var code = (c && c.advice_code) || '';
+      var title = (c && c.title) || '';
+      var body = (c && c.body) || '';
+      var metrics = (c && c.supporting_metrics) || {};
+      return '<div data-testid="csahp4-advice-card" ' +
+        'data-severity="' + _esc(sev) + '" data-channel="' + _esc(ch) + '" ' +
+        'data-code="' + _esc(code) + '" ' +
+        'class="card" style="padding:12px;margin-top:8px;' +
+        'border-left:4px solid ' + (sev === 'high' ? '#ef4444' :
+          sev === 'medium' ? '#f59e0b' : '#9ca3af') + '">' +
+        '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+        _csahp4SeverityChip(sev) +
+        '<span data-testid="csahp4-channel-chip" ' +
+        'style="background:var(--surface-muted);padding:2px 8px;' +
+        'border-radius:9999px;font-size:10px;font-weight:600;' +
+        'text-transform:capitalize">' + _esc(ch) + '</span>' +
+        '<span data-testid="csahp4-advice-title" ' +
+        'style="font-size:13px;font-weight:700">' + _esc(title) + '</span>' +
+        '</div>' +
+        '<div data-testid="csahp4-advice-body" ' +
+        'style="font-size:12px;color:var(--text);margin-top:6px">' +
+        _esc(body) +
+        '</div>' +
+        '<div data-testid="csahp4-advice-metrics" ' +
+        'style="margin-top:6px">' + _csahp4MetricBadges(metrics) + '</div>' +
+        '</div>';
+    }).join('');
+    return '<div data-testid="csahp4-section-advice" style="margin-top:8px">' +
+      '<h3 data-testid="csahp4-section-heading" style="font-size:13px;' +
+      'margin:14px 0 4px;font-weight:700">Rotation policy advice</h3>' +
+      '<div data-testid="csahp4-cards">' + rows + '</div>' +
+      disclaimer +
+      '</div>';
+  }
+
   function renderWorkerDisclaimer(s) {
     var enabled = s && s.worker_enabled === true;
     var status = enabled ? 'enabled' : 'disabled';
@@ -11205,6 +11311,7 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
     var resp = await loadAll();
     state.summary = resp.summary;
     state.topRotators = resp.topRotators;
+    state.advice = resp.advice;
     state.err = resp.err;
 
     if (state.err) {
@@ -11223,6 +11330,7 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
         '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Cohort dashboard built on the CSAHP1 / CSAHP2 audit trail.</div>' +
         renderControls() +
         renderWorkerDisclaimer(s) +
+        renderRotationPolicyAdvice(state.advice) +
         '<div data-testid="csahp3-empty" class="card" style="padding:14px;margin-top:10px;font-size:12px;color:var(--text-muted)">No auth drift detections in this window.</div>' +
         '</div>';
       if (typeof api.postAuthDriftResolutionAuditHubAuditEvent === 'function') {
@@ -11239,6 +11347,9 @@ export async function pgChannelAuthDriftResolutionAuditHub(setTopbar) {
       '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Cohort dashboard built on the CSAHP1 / CSAHP2 audit trail.</div>' +
       renderControls() +
       renderWorkerDisclaimer(s) +
+      // CSAHP4 — Rotation policy advice (heuristic cards) above the
+      // rotation funnel so the most actionable signal is at the top.
+      renderRotationPolicyAdvice(state.advice) +
       // Section 1: rotation funnel
       '<h3 data-testid="csahp3-section-funnel" style="font-size:13px;margin:14px 0 4px;font-weight:700">Rotation funnel</h3>' +
       renderFunnelKpis(s) +
