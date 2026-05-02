@@ -422,6 +422,8 @@ apps/api/app/routers/evidence_router.py:IndicationOut
 apps/api/app/routers/evidence_router.py:PaperOut
 apps/api/app/routers/evidence_router.py:PaperStatsOut
 apps/api/app/routers/evidence_router.py:PromoteOut
+apps/api/app/routers/evidence_router.py:ResearchAdjunctEvidenceOut
+apps/api/app/routers/evidence_router.py:ResearchAdjunctSummaryOut
 apps/api/app/routers/evidence_router.py:ResearchConditionOut
 apps/api/app/routers/evidence_router.py:ResearchDatasetExportRequest
 apps/api/app/routers/evidence_router.py:ResearchDatasetOut
