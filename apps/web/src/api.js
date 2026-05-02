@@ -3662,6 +3662,64 @@ export const api = {
       body: JSON.stringify(data || {}),
     }).catch(() => null),
 
+  // ── CSAHP3 Auth Drift Resolution Audit Hub launch-audit ──
+  // (2026-05-02). Cohort dashboard built on the audit trail emitted by
+  // CSAHP1 (#417) and CSAHP2 (#422). Mirrors the DCR2 → DCRO1 pattern
+  // (#392 / #393): pure read-side analytics, no migration, no worker.
+  // Surfaces:
+  //   - rotation_funnel: detected → marked → confirmed → re-flagged
+  //   - rotation_funnel_pct: marked_pct / confirmed_pct / re_flag_pct
+  //   - rotation_method_distribution: manual / automated_rotation /
+  //     key_revoked / other
+  //   - by_channel: per-channel mean / median time-to-rotate +
+  //     time-to-confirm + re-flag rate
+  //   - top-rotators: leaderboard of rotators by count + median TTR
+  // Helpers placed BEFORE CSAHP2's section so the CSAHP2 slice-boundary
+  // sentinel stays clean — CSAHP3 uses its own unique header anchor +
+  // slice-boundary sentinel.
+  fetchAuthDriftResolutionAuditHubSummary: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/channel-auth-drift-resolution-audit-hub/summary' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  fetchAuthDriftTopRotators: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.window_days != null)
+      usp.set('window_days', String(params.window_days));
+    if (params && params.min_rotations != null)
+      usp.set('min_rotations', String(params.min_rotations));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/channel-auth-drift-resolution-audit-hub/top-rotators' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  fetchAuthDriftResolutionAuditHubAuditEvents: (params) => {
+    const usp = new URLSearchParams();
+    if (params && params.surface) usp.set('surface', params.surface);
+    if (params && params.limit != null) usp.set('limit', String(params.limit));
+    if (params && params.offset != null) usp.set('offset', String(params.offset));
+    const qs = usp.toString();
+    const path =
+      '/api/v1/channel-auth-drift-resolution-audit-hub/audit-events' +
+      (qs ? '?' + qs : '');
+    return apiFetch(path).catch(() => null);
+  },
+  postAuthDriftResolutionAuditHubAuditEvent: (data) =>
+    apiFetch('/api/v1/channel-auth-drift-resolution-audit-hub/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }).catch(() => null),
+  // end CSAHP3 helpers
+  // ━━ CSAHP3 SLICE BOUNDARY ━━ (do not remove; the launch-audit test
+  // for the CSAHP3 section finds the header above then walks to this
+  // unique sentinel substring to bound the slice).
+
   // ── CSAHP2 Auth Drift Resolution launch-audit ──
   // (2026-05-02). Closes the proactive-credential-monitoring loop opened
   // by CSAHP1 (#417). Admin marks an auth_drift_detected row as rotated

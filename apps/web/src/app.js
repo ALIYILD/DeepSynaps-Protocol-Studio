@@ -1490,6 +1490,22 @@ async function renderPage() {
       await m.pgCoachingDigestDeliveryFailureDrilldown(setTopbar);
       break;
     }
+    // Channel Auth Drift Resolution Audit Hub (CSAHP3, 2026-05-02).
+    // Cohort dashboard built on the CSAHP1 (#417) and CSAHP2 (#422)
+    // audit trail. Mirrors the DCR2 → DCRO1 pattern (#392 / #393):
+    // pure read-side analytics, no migration, no worker. Surfaces the
+    // drift → mark → confirm → re-flagged rotation funnel +
+    // rotation-method distribution + per-channel time-to-rotate /
+    // time-to-confirm + re-flag-within-30d rate (leading indicator of
+    // credential storage / policy issues) + top rotators leaderboard.
+    // Read-only; clinic-scoped; clinician minimum.
+    case 'auth-drift-audit-hub':
+    case 'csahp-audit-hub':
+    case 'csahp3-audit-hub': {
+      const m = await loadKnowledge();
+      await m.pgChannelAuthDriftResolutionAuditHub(setTopbar);
+      break;
+    }
     // Channel Misconfig Detector route alias (for DCRO5 click-through).
     // The actual UI lives inside the Care Team Coverage "Caregiver
     // channels" tab (#389) — this alias keeps DCRO5's click-through
