@@ -254,3 +254,103 @@ class AutoCodingResult(BaseModel):
     )
 
     model_config = {"frozen": False}
+
+
+# --- Neuromodulation phenotyping --------------------------------------------
+
+ModalityName = Literal[
+    "rTMS",
+    "TMS",
+    "tDCS",
+    "tACS",
+    "TPS",
+    "DBS",
+    "VNS",
+    "SNS",
+    "ECT",
+    "other",
+]
+
+ResponseCategory = Literal["improved", "partial", "none", "unknown"]
+
+
+class NeuromodulationTherapyLine(BaseModel):
+    """One inferred therapy line from text (rule-based MVP)."""
+
+    modality: ModalityName | str = Field(
+        description="Stimulation or device modality (normalized where possible).",
+    )
+    targets: list[str] = Field(
+        default_factory=list,
+        description="Anatomical or functional targets (e.g. left DLPFC, STN).",
+    )
+    session_count: int | None = None
+    start_date: str | None = Field(
+        default=None,
+        description="Raw or ISO-like date string if detected.",
+    )
+    stop_date: str | None = None
+    response: ResponseCategory = "unknown"
+    source_snippet: str | None = Field(
+        default=None,
+        description="Short excerpt supporting this line (not for PHI logging).",
+    )
+
+
+class NeuromodulationHistory(BaseModel):
+    """Neuromodulation treatment history derived from note text and entities."""
+
+    document_id: str
+    therapies: list[NeuromodulationTherapyLine] = Field(default_factory=list)
+    modalities_seen: list[str] = Field(
+        default_factory=list,
+        description="Distinct modalities mentioned anywhere in the note.",
+    )
+    targets_seen: list[str] = Field(
+        default_factory=list,
+        description="Distinct anatomical/functional targets mentioned.",
+    )
+
+
+class NeuromodulationParameters(BaseModel):
+    """Structured stimulation / device parameters when stated in the note."""
+
+    document_id: str
+    intensity_percent_mt: float | None = Field(
+        default=None,
+        description="Motor threshold relative intensity, e.g. 120 for 120% MT.",
+    )
+    frequency_hz: float | None = None
+    train_length_ms: float | None = Field(
+        default=None,
+        description="Pulse train duration when extractable.",
+    )
+    coil_or_lead_location: str | None = Field(
+        default=None,
+        description="Coil placement or implanted lead / target site.",
+    )
+    session_count: int | None = None
+
+
+class NeuromodulationRiskProfile(BaseModel):
+    """Rule-based risk and contraindication flags (assistive, not screening)."""
+
+    document_id: str
+    seizure_history: bool | None = Field(
+        default=None,
+        description="True if seizures/epilepsy suggested, False if explicitly negated.",
+    )
+    metallic_implants: bool | None = Field(
+        default=None,
+        description="True if metallic implant / MRI incompatibility suggested.",
+    )
+    pregnancy: bool | None = None
+    suicidality: bool | None = None
+    unstable_medical_condition: bool | None = Field(
+        default=None,
+        description="e.g. unstable angina, acute instability.",
+    )
+    notes: list[str] = Field(
+        default_factory=list,
+        description="Short machine-readable cue labels (no PHI).",
+    )
