@@ -467,6 +467,16 @@ KNOWN_SURFACES = {
     # events: view, window_changed, run_snapshot_now_clicked,
     # demo_banner_shown.
     "rotation_policy_advisor_outcome_tracker",
+    # Rotation Policy Advisor Threshold Tuning Console (CSAHP6,
+    # 2026-05-02). Closes the recursion loop opened by CSAHP5 (#434):
+    # admins propose new thresholds for the 3 advice rules
+    # (REFLAG_HIGH / MANUAL_REFLAG / AUTH_DOMINANT), replay them
+    # against the last 90 days of frozen ``advice_snapshot`` rows,
+    # and adopt the new threshold when the replay shows higher
+    # predictive accuracy. Adopted values take effect immediately on
+    # the next CSAHP4 ``/advice`` call. Page-level events: view,
+    # threshold_changed, replay_clicked, adopt_clicked, history_viewed.
+    "rotation_policy_advisor_threshold_tuning",
     # Caregiver Delivery Concern Aggregator launch-audit (2026-05-01).
     # Closes section I rec from #389. Rolling-window worker groups every
     # delivery-concern audit row in the last N hours by (caregiver_user_id,

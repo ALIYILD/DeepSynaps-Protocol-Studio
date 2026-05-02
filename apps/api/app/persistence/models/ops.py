@@ -378,3 +378,65 @@ class ResolverCoachingDigestPreference(Base):
     )
     created_at: Mapped[str] = mapped_column(String(64), nullable=False)
     updated_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class RotationPolicyAdvisorThreshold(Base):
+    """Adopted threshold override for the CSAHP4 Rotation Policy
+    Advisor heuristic (CSAHP6, 2026-05-02).
+
+    Closes section I rec from the Rotation Policy Advisor Outcome
+    Tracker (CSAHP5, #434). CSAHP5 measures per-advice-code
+    ``predictive_accuracy_pct`` (e.g., AUTH_DOMINANT scoring 28%
+    because the threshold is too aggressive); CSAHP6 lets admins
+    propose new threshold values, replay them against the last 90
+    days of frozen ``advice_snapshot`` rows, and adopt the new
+    threshold when the replay shows higher predictive accuracy.
+
+    One row per ``(clinic_id, advice_code, threshold_key)``. A
+    missing row falls back to the hardcoded default in
+    :mod:`app.services.rotation_policy_advisor`. The CSAHP4 service
+    reads these rows on each call so adopted values take effect
+    immediately on the next ``GET /advice`` request.
+
+    ``advice_code``  one of ``REFLAG_HIGH`` / ``MANUAL_REFLAG`` /
+        ``AUTH_DOMINANT`` (free-form so a future heuristic can add
+        codes without a schema change).
+    ``threshold_key``  e.g. ``re_flag_rate_pct_min``,
+        ``confirmed_count_min``, ``manual_share_pct_min``,
+        ``auth_share_pct_min``, ``total_drifts_min``.
+    ``threshold_value``  numeric (Float so we cover both percent and
+        count thresholds without a second column).
+    ``adopted_by_user_id``  soft FK to ``users.id`` for audit
+        provenance — null only on legacy rows or when the adoption
+        flow seeds defaults.
+
+    Soft FK to ``users.id`` / ``clinics.id`` so deleting a user/clinic
+    does not cascade-clear historic threshold rows (audit hygiene —
+    matches the CSAHP4 / DCRO3 convention).
+    """
+
+    __tablename__ = "rotation_policy_advisor_thresholds"
+    __table_args__ = (
+        UniqueConstraint(
+            "clinic_id",
+            "advice_code",
+            "threshold_key",
+            name="uq_rotation_policy_advisor_thresholds_clinic_code_key",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    clinic_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, index=True
+    )
+    advice_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    threshold_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    threshold_value: Mapped[float] = mapped_column(Float(), nullable=False)
+    adopted_by_user_id: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True
+    )
+    justification: Mapped[Optional[str]] = mapped_column(
+        Text(), nullable=True
+    )
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(64), nullable=False)

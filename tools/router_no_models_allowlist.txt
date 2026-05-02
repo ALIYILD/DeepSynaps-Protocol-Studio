@@ -89,6 +89,7 @@ apps/api/app/routers/resolver_coaching_inbox_router.py
 apps/api/app/routers/resolver_coaching_self_review_digest_router.py
 apps/api/app/routers/risk_stratification_router.py
 apps/api/app/routers/rotation_policy_advisor_outcome_tracker_router.py
+apps/api/app/routers/rotation_policy_advisor_threshold_tuning_router.py
 
 apps/api/app/routers/schedules_router.py
 apps/api/app/routers/sessions_router.py
