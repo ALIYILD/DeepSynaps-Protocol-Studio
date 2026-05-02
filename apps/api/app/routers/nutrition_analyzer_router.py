@@ -20,12 +20,7 @@ from sqlalchemy.orm import Session
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role, require_patient_owner
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.repositories.nutrition import (
-    append_audit,
-    insert_diet_log,
-    insert_supplement,
-    list_audit_rows,
-)
+from app.repositories import nutrition as nutrition_repo
 from app.repositories.patients import resolve_patient_clinic_id
 from app.schemas.nutrition_analyzer import NutritionAnalyzerPayload
 from app.services.nutrition_analyzer import build_patient_nutrition_payload, new_computation_id
@@ -39,7 +34,7 @@ def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session
         require_patient_owner(actor, clinic_id)
 
 
-# core-schema-exempt: minimal router-local request body; not reused outside this router
+# core-schema-exempt: minimal router-local diet log request body; not reused outside this router
 class DietLogCreate(BaseModel):
     log_day: str
     calories_kcal: float | None = None
@@ -51,7 +46,7 @@ class DietLogCreate(BaseModel):
     notes: str | None = None
 
 
-# core-schema-exempt: minimal router-local request body; not reused outside this router
+# core-schema-exempt: minimal router-local supplement request body; not reused outside this router
 class SupplementCreate(BaseModel):
     name: str
     dose: str | None = None
@@ -61,17 +56,17 @@ class SupplementCreate(BaseModel):
     started_at: str | None = None
 
 
-# core-schema-exempt: minimal router-local request body; not reused outside this router
+# core-schema-exempt: minimal router-local review-note request body; not reused outside this router
 class ReviewNoteCreate(BaseModel):
     note: str
 
 
-# core-schema-exempt: minimal router-local response wrapper; not reused outside this router
+# core-schema-exempt: trivial ack envelope; identical to other analyzer routers' local Ack
 class AckResponse(BaseModel):
     ok: bool = True
 
 
-# core-schema-exempt: minimal router-local audit response shape; not reused outside this router
+# core-schema-exempt: router-local audit row projection; mirrors NutritionAnalyzerAudit columns and is not reused
 class NutritionAuditEntry(BaseModel):
     id: str
     patient_id: str
@@ -81,7 +76,7 @@ class NutritionAuditEntry(BaseModel):
     created_at: str
 
 
-# core-schema-exempt: minimal router-local audit list response wrapper; not reused outside this router
+# core-schema-exempt: router-local list envelope for the audit endpoint; not reused
 class NutritionAuditListResponse(BaseModel):
     items: list[NutritionAuditEntry]
     total: int
@@ -112,7 +107,7 @@ def recompute_nutrition_analyzer(
     require_minimum_role(actor, "clinician")
     _gate_patient_access(actor, patient_id, db)
     comp = new_computation_id()
-    append_audit(
+    nutrition_repo.append_audit(
         db,
         patient_id=patient_id,
         clinician_id=actor.actor_id,
@@ -141,7 +136,7 @@ def append_diet_log(
     day = body.log_day.strip()
     if not day:
         raise ApiServiceError(code="invalid_request", message="log_day is required.", status_code=422)
-    insert_diet_log(
+    nutrition_repo.insert_diet_log(
         db,
         patient_id=patient_id,
         clinician_id=actor.actor_id,
@@ -154,7 +149,7 @@ def append_diet_log(
         fiber_g=body.fiber_g,
         notes=body.notes,
     )
-    append_audit(
+    nutrition_repo.append_audit(
         db,
         patient_id=patient_id,
         clinician_id=actor.actor_id,
@@ -177,7 +172,7 @@ def append_supplement(
     name = body.name.strip()
     if not name:
         raise ApiServiceError(code="invalid_request", message="name is required.", status_code=422)
-    insert_supplement(
+    nutrition_repo.insert_supplement(
         db,
         patient_id=patient_id,
         clinician_id=actor.actor_id,
@@ -188,7 +183,7 @@ def append_supplement(
         notes=body.notes,
         started_at=body.started_at,
     )
-    append_audit(
+    nutrition_repo.append_audit(
         db,
         patient_id=patient_id,
         clinician_id=actor.actor_id,
@@ -211,7 +206,7 @@ def append_review_note(
     note = (body.note or "").strip()
     if not note:
         raise ApiServiceError(code="invalid_request", message="note is required.", status_code=422)
-    append_audit(
+    nutrition_repo.append_audit(
         db,
         patient_id=patient_id,
         clinician_id=actor.actor_id,
@@ -230,7 +225,7 @@ def list_nutrition_audit(
 ) -> NutritionAuditListResponse:
     require_minimum_role(actor, "clinician")
     _gate_patient_access(actor, patient_id, db)
-    rows = list_audit_rows(
+    rows = nutrition_repo.list_audit_rows(
         db,
         patient_id=patient_id,
         actor_id=actor.actor_id,

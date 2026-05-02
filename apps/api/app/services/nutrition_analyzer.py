@@ -13,11 +13,16 @@ from app.persistence.models import (
     PatientNutritionDietLog,
     PatientSupplement,
 )
+from app.services.nutrition_evidence_bridge import collect_nutrition_evidence_items
+
 from app.schemas.nutrition_analyzer import (
     AuditEventSummary,
     BiomarkerLink,
     DietIntakeSummary,
+    NutritionAiBlock,
     NutritionAnalyzerPayload,
+    NutritionEvidenceItem,
+    NutritionEvidencePack,
     NutritionRecommendation,
     NutritionSnapshotCard,
     SupplementItem,
@@ -149,9 +154,54 @@ def build_patient_nutrition_payload(
     ]
 
     biomarker_links = [
-        BiomarkerLink(label="Wearable biometrics", page_id="wearables", detail="Trends vs intake (stub)", confidence=0.45),
-        BiomarkerLink(label="Risk stratification", page_id="risk-analyzer", detail="Safety / adherence context", confidence=0.5),
-        BiomarkerLink(label="Wellness Hub", page_id="clinician-wellness", detail="Holistic wellbeing signals", confidence=0.4),
+        BiomarkerLink(
+            label="DeepTwin (multimodal summary)",
+            page_id="deeptwin",
+            detail="Correlate diet & supplement changes with signals, predictions, and time alignment.",
+            confidence=0.55,
+        ),
+        BiomarkerLink(
+            label="Patient analytics",
+            page_id="patient-analytics",
+            detail="Cross-modality terminal — set patient, then open evidence strip and cohort context.",
+            confidence=0.55,
+        ),
+        BiomarkerLink(
+            label="Treatment sessions",
+            page_id="treatment-sessions-analyzer",
+            detail="Adherence and course timing vs nutrition confounds.",
+            confidence=0.5,
+        ),
+        BiomarkerLink(
+            label="Biometrics (wearables)",
+            page_id="wearables",
+            detail="Sleep, activity, HRV vs intake patterns.",
+            confidence=0.48,
+        ),
+        BiomarkerLink(
+            label="Medication safety",
+            page_id="medication-analyzer",
+            detail="Drug–supplement interaction screening (institutional tools remain authoritative).",
+            confidence=0.52,
+        ),
+        BiomarkerLink(
+            label="Risk stratification",
+            page_id="risk-analyzer",
+            detail="Safety and adherence risk overlays.",
+            confidence=0.48,
+        ),
+        BiomarkerLink(
+            label="Research evidence corpora",
+            page_id="research-evidence",
+            detail="Full literature explorer (~87k papers when evidence.db is built).",
+            confidence=0.6,
+        ),
+        BiomarkerLink(
+            label="Wellness Hub",
+            page_id="clinician-wellness",
+            detail="Holistic wellbeing and PRO context.",
+            confidence=0.4,
+        ),
     ]
 
     recommendations: list[NutritionRecommendation] = []
@@ -163,6 +213,7 @@ def build_patient_nutrition_payload(
                 priority="follow_up",
                 confidence=0.55,
                 provenance="heuristic_gap_fill",
+                evidence_refs=["literature:diet_assessment_self_report"],
             )
         )
     if diet_summary.avg_fiber_g is not None and diet_summary.avg_fiber_g < 20:
@@ -173,6 +224,7 @@ def build_patient_nutrition_payload(
                 priority="routine",
                 confidence=0.48,
                 provenance="heuristic_threshold",
+                evidence_refs=["guideline:adequate_fiber_adults"],
             )
         )
     if any(s.active and "vitamin d" in (s.name or "").lower() for s in supplements):
@@ -183,8 +235,65 @@ def build_patient_nutrition_payload(
                 priority="routine",
                 confidence=0.52,
                 provenance="keyword_screen",
+                evidence_refs=["literature:vitamin_d_monitoring"],
             )
         )
+
+    ev = collect_nutrition_evidence_items(
+        supplement_names=[s.name for s in supplements if s.active],
+        recommendation_titles=[r.title for r in recommendations],
+    )
+    ev_items = [
+        NutritionEvidenceItem(
+            id=int(x["id"]),
+            title=x.get("title"),
+            year=x.get("year"),
+            journal=x.get("journal"),
+            snippet=x.get("snippet") or "",
+            pmid=x.get("pmid"),
+            doi=x.get("doi"),
+            cited_by_count=x.get("cited_by_count"),
+            is_oa=bool(x.get("is_oa")),
+            oa_url=x.get("oa_url"),
+            europe_pmc_url=x.get("europe_pmc_url"),
+            source_type=x.get("source_type", "literature_corpus"),
+            strength=x.get("strength", "fts_ranked"),
+            evidence_topic=x.get("evidence_topic", ""),
+            query_used=x.get("query_used", ""),
+        )
+        for x in ev.items
+    ]
+    evidence_pack = NutritionEvidencePack(
+        corpus_paper_count=ev.total_papers,
+        items=ev_items,
+    )
+
+    confound_note = "Low" if diet_confidence > 0.5 else "Moderate"
+    if distinct_days < 3:
+        confound_note = "High (sparse logging)"
+    ai_interpretation: list[NutritionAiBlock] = [
+        NutritionAiBlock(
+            title="Modality integration",
+            summary=(
+                "Treat nutrition and supplements as ongoing exposures that can confound labs, wearables, "
+                "and treatment-response interpretation. Cross-check timing of changes against DeepTwin timeline "
+                "and treatment sessions."
+            ),
+            uncertainty="Causal chains are not inferred; links are hypothesis prompts for clinician review.",
+            linked_sections=["deeptwin", "treatment-sessions-analyzer", "patient-analytics"],
+            confidence=0.5,
+        ),
+        NutritionAiBlock(
+            title="Logging uncertainty",
+            summary=(
+                f"Diet signal confidence is {diet_confidence:.0%} based on coverage. "
+                f"Confound risk for other analyzers: {confound_note}."
+            ),
+            uncertainty="Self-reported intake is incomplete; combine with objective data when available.",
+            linked_sections=["diet", "biomarker_links"],
+            confidence=0.42,
+        ),
+    ]
 
     payload = NutritionAnalyzerPayload(
         patient_id=patient_id,
@@ -195,6 +304,8 @@ def build_patient_nutrition_payload(
         supplements=supplements,
         biomarker_links=biomarker_links,
         recommendations=recommendations,
+        evidence_pack=evidence_pack,
+        ai_interpretation=ai_interpretation,
         audit_events=AuditEventSummary(
             total_events=total_audit,
             last_event_at=last_audit.created_at.isoformat().replace("+00:00", "Z") if last_audit else None,
@@ -206,6 +317,27 @@ def build_patient_nutrition_payload(
 
 def build_stub_payload(patient_id: str) -> NutritionAnalyzerPayload:
     """Deterministic empty scaffold when DB is skipped (tests / docs)."""
+    ev = collect_nutrition_evidence_items(supplement_names=[], recommendation_titles=["Await structured inputs"])
+    ev_items = [
+        NutritionEvidenceItem(
+            id=int(x["id"]),
+            title=x.get("title"),
+            year=x.get("year"),
+            journal=x.get("journal"),
+            snippet=x.get("snippet") or "",
+            pmid=x.get("pmid"),
+            doi=x.get("doi"),
+            cited_by_count=x.get("cited_by_count"),
+            is_oa=bool(x.get("is_oa")),
+            oa_url=x.get("oa_url"),
+            europe_pmc_url=x.get("europe_pmc_url"),
+            source_type=x.get("source_type", "literature_corpus"),
+            strength=x.get("strength", "fts_ranked"),
+            evidence_topic=x.get("evidence_topic", ""),
+            query_used=x.get("query_used", ""),
+        )
+        for x in ev.items[:3]
+    ]
     return NutritionAnalyzerPayload(
         patient_id=patient_id,
         computation_id=f"nut-stub-{patient_id[:8]}",
@@ -221,7 +353,8 @@ def build_stub_payload(patient_id: str) -> NutritionAnalyzerPayload:
             notes="No rows ingested yet.",
         ),
         biomarker_links=[
-            BiomarkerLink(label="Wearable biometrics", page_id="wearables", detail="Stub link", confidence=0.3),
+            BiomarkerLink(label="DeepTwin", page_id="deeptwin", detail="Stub", confidence=0.3),
+            BiomarkerLink(label="Patient analytics", page_id="patient-analytics", detail="Stub", confidence=0.3),
         ],
         recommendations=[
             NutritionRecommendation(
@@ -229,6 +362,16 @@ def build_stub_payload(patient_id: str) -> NutritionAnalyzerPayload:
                 detail="Populate diet logs and supplements to refine this panel.",
                 priority="routine",
                 provenance="stub",
+            )
+        ],
+        evidence_pack=NutritionEvidencePack(corpus_paper_count=ev.total_papers, items=ev_items),
+        ai_interpretation=[
+            NutritionAiBlock(
+                title="Stub interpretation",
+                summary="Evidence corpus wired when literature DB is available.",
+                uncertainty="No patient-specific inference without data.",
+                provenance="stub",
+                confidence=0.2,
             )
         ],
     )
