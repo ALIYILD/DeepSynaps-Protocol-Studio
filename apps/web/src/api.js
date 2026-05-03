@@ -1,5 +1,5 @@
 import { parseHomeProgramTaskMutationResponse } from './home-program-task-sync.js';
-import { demoDigitalPhenotypingPayload } from './demo-fixtures-analyzers.js';
+import { demoDigitalPhenotypingPayload, demoNutritionApiPayload } from './demo-fixtures-analyzers.js';
 
 const API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 const TOKEN_KEY = 'ds_access_token';
@@ -197,6 +197,51 @@ function _demoSyntheticResponse(path, method) {
       return { patient_id: pid, events: ev, total: ev.length };
     }
     return payload;
+  }
+  // ── Nutrition analyzer (GET payload + GET audit) — API-shaped JSON for Netlify demo sessions
+  const nutGet = path.match(
+    /^\/api\/v1\/nutrition\/analyzer\/patient\/([^/?]+)(\/audit)?\/?$/,
+  );
+  if (nutGet && (!method || method === 'GET')) {
+    const pid = decodeURIComponent(nutGet[1]);
+    if (nutGet[2] === '/audit') {
+      return { items: [], total: 0, demo: true, note: 'Use demo fixture path for narrative audit; persisted audit requires clinician API.' };
+    }
+    return { ...demoNutritionApiPayload(pid), is_demo_synthetic: true };
+  }
+  if (path.match(/^\/api\/v1\/nutrition\/analyzer\/patient\/[^/]+\/recompute$/) && method === 'POST') {
+    return { ok: true, demo: true, id: 'demo-recompute-' + Date.now() };
+  }
+  if (path.match(/^\/api\/v1\/patients\/?$/) && (!method || method === 'GET')) {
+    return {
+      items: _DEMO_PT_NAMES
+        ? Object.keys(_DEMO_PT_NAMES).map((id) => ({
+          id,
+          clinician_id: 'demo-clinician',
+          first_name: (_DEMO_PT_NAMES[id] || 'Demo').split(' ')[0] || 'Demo',
+          last_name: (_DEMO_PT_NAMES[id] || 'Patient').split(' ').slice(1).join(' ') || 'Patient',
+          dob: null,
+          email: null,
+          phone: null,
+          gender: null,
+          primary_condition: 'Demo',
+          secondary_conditions: [],
+          primary_modality: null,
+          referring_clinician: null,
+          insurance_provider: null,
+          insurance_number: null,
+          consent_signed: true,
+          consent_date: null,
+          status: 'active',
+          notes: 'Demo roster — not a real patient',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          demo_seed: true,
+        }))
+        : [],
+      total: Object.keys(_DEMO_PT_NAMES || {}).length,
+      is_demo_synthetic: true,
+    };
   }
   // Mutations: pretend success (return a minimal accepted-shape object).
   if (method && method !== 'GET') return { ok: true, demo: true, id: 'demo-' + Date.now() };
