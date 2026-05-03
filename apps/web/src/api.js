@@ -61,6 +61,12 @@ function _isDemoSession() {
   } catch { return false; }
 }
 
+// Clinician Digest: `_demoSyntheticResponse` supplies digest JSON only when
+// `_isDemoSession()` is true (demo flag ON + `*-demo-token`). Production
+// builds without `VITE_ENABLE_DEMO` never take this path — real sessions always
+// hit the Fly API (or show failure/empty states), so demo digest cannot appear
+// for normal clinician JWTs.
+
 // ── Demo inbox items (shared between inbox + digest shims) ──────────────────
 const _DEMO_INBOX_ITEMS = [
   { event_id: 'demo-inbox-1', surface: 'adherence_events', event_type: 'adherence.missed_session', note: 'Patient missed 3rd consecutive NFB session. Protocol requires escalation after 2 consecutive misses.', actor_id: 'system', patient_id: 'demo-pt-samantha-li', created_at: new Date(Date.now() - 3600000).toISOString(), is_acknowledged: false, is_demo: true },
@@ -131,7 +137,8 @@ function _demoSyntheticResponse(path, method) {
       is_demo_view: true,
     };
   }
-  // ── Clinician Daily Digest demo data ────────────────────────────────────────
+  // ── Clinician Daily Digest demo data (offline demo-token sessions only) ─────
+  // Surfaces must match apps/api `clinician_digest_router.DIGEST_SURFACES`.
   if (path.match(/^\/api\/v1\/clinician-digest\/summary/) && (!method || method === 'GET')) {
     const now = new Date();
     const shiftStart = new Date(now); shiftStart.setHours(now.getHours() - 8);
@@ -139,28 +146,49 @@ function _demoSyntheticResponse(path, method) {
       handled: 14, escalated: 2, paged: 1, open: 3, sla_breached: 1,
       since: shiftStart.toISOString(), until: now.toISOString(),
       is_demo_view: true,
+      by_surface: {
+        clinician_inbox: { handled: 6, escalated: 1, paged: 1, open: 1 },
+        wearables_workbench: { handled: 2, escalated: 1, paged: 0, open: 0 },
+        clinician_adherence_hub: { handled: 3, escalated: 0, paged: 0, open: 1 },
+        clinician_wellness_hub: { handled: 2, escalated: 0, paged: 0, open: 1 },
+        adverse_events_hub: { handled: 1, escalated: 0, paged: 0, open: 0 },
+      },
     };
   }
   if (path.match(/^\/api\/v1\/clinician-digest\/sections/) && (!method || method === 'GET')) {
     return {
       sections: [
-        { surface: 'clinician_inbox', handled: 6, escalated: 1, paged: 0, open: 1, sla_breached: 0, top_patients: [{ patient_id: 'demo-pt-samantha-li', patient_name: 'Samantha Li', event_count: 3 }, { patient_id: 'demo-pt-marcus-chen', patient_name: 'Marcus Chen', event_count: 2 }] },
-        { surface: 'adherence_events', handled: 3, escalated: 0, paged: 0, open: 1, sla_breached: 0, top_patients: [{ patient_id: 'demo-pt-marcus-chen', patient_name: 'Marcus Chen', event_count: 2 }] },
-        { surface: 'wearables_workbench', handled: 2, escalated: 1, paged: 1, open: 0, sla_breached: 1, top_patients: [{ patient_id: 'demo-pt-elena-vasquez', patient_name: 'Elena Vasquez', event_count: 2 }] },
-        { surface: 'adverse_events_hub', handled: 3, escalated: 0, paged: 0, open: 1, sla_breached: 0, top_patients: [{ patient_id: 'demo-pt-elena-vasquez', patient_name: 'Elena Vasquez', event_count: 1 }] },
+        { surface: 'clinician_inbox', handled: 6, escalated: 1, paged: 0, open: 1, top_patients: [{ patient_id: 'demo-pt-samantha-li', patient_name: 'Samantha Li', event_count: 3 }, { patient_id: 'demo-pt-marcus-chen', patient_name: 'Marcus Chen', event_count: 2 }] },
+        { surface: 'wearables_workbench', handled: 2, escalated: 1, paged: 1, open: 0, top_patients: [{ patient_id: 'demo-pt-elena-vasquez', patient_name: 'Elena Vasquez', event_count: 2 }] },
+        { surface: 'clinician_adherence_hub', handled: 3, escalated: 0, paged: 0, open: 1, top_patients: [{ patient_id: 'demo-pt-marcus-chen', patient_name: 'Marcus Chen', event_count: 2 }] },
+        { surface: 'clinician_wellness_hub', handled: 2, escalated: 0, paged: 0, open: 1, top_patients: [{ patient_id: 'demo-pt-samantha-li', patient_name: 'Samantha Li', event_count: 1 }] },
+        { surface: 'adverse_events_hub', handled: 1, escalated: 0, paged: 0, open: 1, top_patients: [{ patient_id: 'demo-pt-elena-vasquez', patient_name: 'Elena Vasquez', event_count: 1 }] },
       ],
       is_demo_view: true,
     };
   }
   if (path.match(/^\/api\/v1\/clinician-digest\/events/) && (!method || method === 'GET')) {
+    const drill = (page, pid) =>
+      (pid ? `?page=${page}&patient_id=${encodeURIComponent(pid)}` : `?page=${page}`);
     return {
       items: [
-        { event_id: 'cdg-1', surface: 'clinician_inbox', event_type: 'inbox.acknowledged', note: 'Acknowledged urgent wearable alert for Samantha Li — HRV anomaly reviewed, no intervention needed.', actor_id: 'clinician-2', patient_id: 'demo-pt-samantha-li', created_at: new Date(Date.now() - 3600000).toISOString() },
-        { event_id: 'cdg-2', surface: 'adverse_events_hub', event_type: 'ae.escalated', note: 'Escalated Grade 1 AE (persistent headache post-rTMS) for Elena Vasquez — forwarded to attending.', actor_id: 'clinician-2', patient_id: 'demo-pt-elena-vasquez', created_at: new Date(Date.now() - 7200000).toISOString() },
-        { event_id: 'cdg-3', surface: 'wearables_workbench', event_type: 'wearable.paged', note: 'On-call paged for cortisol proxy breach (1.8 SD) combined with sleep disruption — Elena Vasquez.', actor_id: 'system', patient_id: 'demo-pt-elena-vasquez', created_at: new Date(Date.now() - 10800000).toISOString() },
-        { event_id: 'cdg-4', surface: 'adherence_events', event_type: 'adherence.resolved', note: 'Marcus Chen resumed home program tasks after missed-session escalation. 3-day gap resolved.', actor_id: 'clinician-2', patient_id: 'demo-pt-marcus-chen', created_at: new Date(Date.now() - 14400000).toISOString() },
-        { event_id: 'cdg-5', surface: 'clinician_inbox', event_type: 'inbox.bulk_acknowledged', note: 'Bulk-acknowledged 4 routine wearable data-sync confirmations.', actor_id: 'clinician-2', patient_id: null, created_at: new Date(Date.now() - 18000000).toISOString() },
+        { event_id: 'cdg-1', surface: 'clinician_inbox', event_type: 'inbox.acknowledged', is_handled: true, is_escalated: false, is_paged: false, is_demo: true,
+          drill_out_url: drill('clinician-inbox', 'demo-pt-samantha-li'),
+          note: 'Acknowledged inbox item (demo) — HRV-related queue entry reviewed; requires clinician judgment.', actor_id: 'clinician-2', patient_id: 'demo-pt-samantha-li', patient_name: 'Samantha Li', created_at: new Date(Date.now() - 3600000).toISOString() },
+        { event_id: 'cdg-2', surface: 'adverse_events_hub', event_type: 'ae.draft_reported', is_handled: false, is_escalated: true, is_paged: false, is_demo: true,
+          drill_out_url: drill('adverse-events-hub', 'demo-pt-elena-vasquez'),
+          note: 'Adverse event draft logged (demo) — AI-assisted triage is not a diagnosis; attending review required.', actor_id: 'clinician-2', patient_id: 'demo-pt-elena-vasquez', patient_name: 'Elena Vasquez', created_at: new Date(Date.now() - 7200000).toISOString() },
+        { event_id: 'cdg-3', surface: 'wearables_workbench', event_type: 'wearable.alert', is_handled: false, is_escalated: false, is_paged: true, is_demo: true,
+          drill_out_url: drill('monitor', 'demo-pt-elena-vasquez'),
+          note: 'Wearables workbench: on-call paging event (demo scenario).', actor_id: 'system', patient_id: 'demo-pt-elena-vasquez', patient_name: 'Elena Vasquez', created_at: new Date(Date.now() - 10800000).toISOString() },
+        { event_id: 'cdg-4', surface: 'clinician_adherence_hub', event_type: 'adherence.resolved', is_handled: true, is_escalated: false, is_paged: false, is_demo: true,
+          drill_out_url: drill('clinician-adherence', 'demo-pt-marcus-chen'),
+          note: 'Home adherence follow-up marked resolved (demo).', actor_id: 'clinician-2', patient_id: 'demo-pt-marcus-chen', patient_name: 'Marcus Chen', created_at: new Date(Date.now() - 14400000).toISOString() },
+        { event_id: 'cdg-5', surface: 'clinician_inbox', event_type: 'inbox.bulk_acknowledged', is_handled: true, is_escalated: false, is_paged: false, is_demo: true,
+          drill_out_url: drill('clinician-inbox', null),
+          note: 'Bulk-acknowledged routine queue items (demo).', actor_id: 'clinician-2', patient_id: null, created_at: new Date(Date.now() - 18000000).toISOString() },
       ],
+      total: 5,
       is_demo_view: true,
     };
   }
@@ -3855,17 +3883,17 @@ export const api = {
   clinicianDigestSummary: (params) => {
     const usp = new URLSearchParams(params || {});
     const qs = usp.toString();
-    return apiFetch('/api/v1/clinician-digest/summary' + (qs ? '?' + qs : '')).catch(() => null);
+    return apiFetch('/api/v1/clinician-digest/summary' + (qs ? '?' + qs : ''));
   },
   clinicianDigestSections: (params) => {
     const usp = new URLSearchParams(params || {});
     const qs = usp.toString();
-    return apiFetch('/api/v1/clinician-digest/sections' + (qs ? '?' + qs : '')).catch(() => null);
+    return apiFetch('/api/v1/clinician-digest/sections' + (qs ? '?' + qs : ''));
   },
   clinicianDigestEvents: (params) => {
     const usp = new URLSearchParams(params || {});
     const qs = usp.toString();
-    return apiFetch('/api/v1/clinician-digest/events' + (qs ? '?' + qs : '')).catch(() => null);
+    return apiFetch('/api/v1/clinician-digest/events' + (qs ? '?' + qs : ''));
   },
   clinicianDigestSendEmail: (body) =>
     apiFetch('/api/v1/clinician-digest/send-email', {
