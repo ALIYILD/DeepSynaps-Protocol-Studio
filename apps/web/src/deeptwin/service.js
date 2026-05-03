@@ -8,22 +8,48 @@
 import { api } from '../api.js';
 import {
   demoSummary, demoSignals, demoTimeline, demoCorrelations,
-  demoHypotheses, demoPrediction, demoSimulation, getDemoPatientHeader,
+  demoPrediction, demoSimulation, getDemoPatientHeader,
 } from './mockData.js';
 
 const DEMO_FORCED = (import.meta?.env?.VITE_ENABLE_DEMO === '1');
 
+function _readAccessToken() {
+  try {
+    return globalThis.localStorage?.getItem?.('ds_access_token') ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** True when the session uses the offline demo-token shim (api.js short-circuits fetches). */
+export function isDeepTwinDemoTokenSession() {
+  const t = _readAccessToken();
+  return !!(t && String(t).endsWith('-demo-token'));
+}
+
 async function withFallback(fn, fallback) {
+  // Demo-token sessions always hit the client shim first — never substitute stale fixtures on HTTP errors.
+  if (isDeepTwinDemoTokenSession()) {
+    try {
+      return await fn();
+    } catch {
+      return fallback();
+    }
+  }
+  // Preview builds without a live API: allow seeded fixtures when the roster is empty or offline.
   if (DEMO_FORCED) {
     try {
       const v = await fn();
-      // some shapes may be empty even on success; trust if non-empty
       return (v && (Array.isArray(v) ? v.length : Object.keys(v).length)) ? v : fallback();
     } catch {
       return fallback();
     }
   }
-  try { return await fn(); } catch { return fallback(); }
+  try {
+    return await fn();
+  } catch {
+    return fallback();
+  }
 }
 
 export async function getTwinSummary(patientId) {

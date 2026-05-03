@@ -394,27 +394,105 @@ function _wireHandoffButtons() {
 
 function _setTopbar(setTopbar) {
   const id = STATE.patientId;
+  const bindPatient = () => {
+    if (!id) return;
+    window._selectedPatientId = id;
+    window._profilePatientId = id;
+    try { sessionStorage.setItem('ds_pat_selected_id', id); } catch {}
+  };
   setTopbar?.({
     title: 'DeepTwin',
     subtitle: id ? `Patient: ${_resolvePatientLabel(id)}` : 'Select a patient to load their twin',
     actions: [
+      { label: 'Refresh view', onClick: async () => {
+          const tab = STATE.activeTab || 'overview';
+          if (!STATE.patientId) {
+            window._showToast?.('Select a patient first.', 'warning');
+            return;
+          }
+          if (tab === 'overview') {
+            try {
+              await _loadAll(STATE.patientId);
+              _renderAll();
+              window._showToast?.('DeepTwin data refreshed', 'success');
+            } catch (e) {
+              window._showToast?.('Refresh failed: ' + (e.message || e), 'warning');
+            }
+          } else {
+            await _renderActiveTab(_setTopbarRef);
+            window._showToast?.('Tab refreshed', 'success');
+          }
+        } },
       { label: 'Patients', onClick: () => window._nav('patients-hub') },
       { label: 'Patient profile', onClick: () => {
-          if (id) { window._selectedPatientId = id; window._profilePatientId = id; window._nav('patient-profile'); }
+          if (!id) return;
+          bindPatient();
+          window._nav('patient-profile');
+        } },
+      { label: '360 Dashboard', onClick: () => {
+          if (!id) {
+            window._showToast?.('Select a patient first.', 'warning');
+            return;
+          }
+          STATE.activeTab = '360';
+          try { sessionStorage.setItem('ds_dt_active_tab', '360'); } catch {}
+          _renderActiveTab(_setTopbarRef);
+        } },
+      { label: 'Schedule', onClick: () => window._nav('schedule-v2') },
+      { label: 'Inbox', onClick: () => window._nav('clinician-inbox') },
+      { label: 'Protocol Studio', onClick: () => {
+          if (id) bindPatient();
+          window._nav('protocol-studio');
+        } },
+      { label: 'Brain Map', onClick: () => {
+          if (id) bindPatient();
+          window._nav('brainmap-v2');
+        } },
+      { label: 'Documents', onClick: () => window._nav('documents-v2') },
+      { label: 'Research evidence', onClick: () => window._nav('research-evidence') },
+      { label: 'Biomarkers', onClick: () => {
+          if (id) bindPatient();
+          window._nav('biomarkers');
+        } },
+      { label: 'MRI', onClick: () => {
+          if (id) bindPatient();
+          window._nav('mri-analysis');
+        } },
+      { label: 'qEEG', onClick: () => {
+          if (id) bindPatient();
+          window._nav('qeeg-analysis');
+        } },
+      { label: 'Video', onClick: () => {
+          if (id) bindPatient();
+          window._nav('video-assessments');
+        } },
+      { label: 'Voice', onClick: () => {
+          if (id) bindPatient();
+          window._nav('voice-analyzer');
+        } },
+      { label: 'Text', onClick: () => {
+          if (id) bindPatient();
+          window._nav('text-analyzer');
+        } },
+      { label: 'Clinical notes', onClick: () => {
+          if (id) bindPatient();
+          window._nav('clinical-notes');
+        } },
+      { label: 'Wearables', onClick: () => {
+          if (id) bindPatient();
+          window._nav('wearables');
         } },
       { label: 'Risk Analyzer', onClick: () => {
-          if (id) {
-            window._selectedPatientId = id;
-            window._profilePatientId = id;
-            try { sessionStorage.setItem('ds_pat_selected_id', id); } catch {}
+          if (!id) {
+            window._showToast?.('Select a patient first.', 'warning');
+            return;
           }
+          bindPatient();
           window._nav('risk-analyzer');
         } },
-      { label: 'qEEG analyzer', onClick: () => {
-          if (id) { window._selectedPatientId = id; window._nav('qeeg-analysis'); }
-        } },
       { label: 'Fusion Workbench', onClick: () => {
-          if (id) { window._selectedPatientId = id; window._nav('fusion-workbench'); }
+          if (id) bindPatient();
+          window._nav('fusion-workbench');
         } },
     ],
   });
@@ -485,26 +563,61 @@ async function _renderActiveTab(setTopbar) {
     return;
   }
   if (active === 'notes' || active === 'review' || active === 'simulations') {
-    const titles = {
-      notes: 'Clinician notes',
-      review: 'Clinician review',
-      simulations: 'Simulations (use the Simulation Lab below)',
-    };
+    if (active === 'notes') {
+      await _loadAll(patientId);
+      const html = `
+        <div class="dt-page">
+          ${_renderTabStrip('notes')}
+          ${decisionSupportBanner()}
+          ${renderClinicianNotesPanel({ notes: STATE.clinicianNotes })}
+          ${renderSafetyFooter()}
+        </div>`;
+      _setMain(html);
+      _wireTabStrip(setTopbar);
+      _wireClinicianNoteForm();
+      return;
+    }
+    if (active === 'review') {
+      await _loadAll(patientId);
+      const html = `
+        <div class="dt-page">
+          ${_renderTabStrip('review')}
+          ${decisionSupportBanner()}
+          ${renderHistoryPanel({ analysisRuns: STATE.analysisRuns, simulationRuns: STATE.simulationRuns })}
+          <section class="card dt-section" role="region" aria-label="Audit trail">
+            <header class="dt-section-h"><h3>Audit trail (this browser)</h3>
+              <span class="dt-section-sub">Recent agent handoffs from this workstation — server audit lives in the API when authenticated.</span>
+            </header>
+            <p class="dt-muted" style="margin:0;font-size:12px">Open AI Agents after a handoff to continue review. Full enterprise audit requires a signed-in clinician session.</p>
+          </section>
+          ${renderSafetyFooter()}
+        </div>`;
+      _setMain(html);
+      _wireTabStrip(setTopbar);
+      _wireHistoryReviewButtons();
+      return;
+    }
     _setMain(`
       <div class="dt-page">
-        ${_renderTabStrip(active)}
+        ${_renderTabStrip('simulations')}
+        ${decisionSupportBanner()}
         <section class="card dt-section">
-          <h3 style="margin:0 0 8px">${titles[active]}</h3>
-          <p style="margin:0;color:var(--text-tertiary)">
-            ${active === 'simulations'
-              ? 'Switch to Overview to use the full Simulation Lab and Compare Protocols panel.'
-              : 'This tab will surface dedicated UI in a future PR. Decision-support only — clinician review required.'}
+          <h3 style="margin:0 0 8px">Simulation workspace</h3>
+          <p style="margin:0 0 12px;color:var(--text-secondary);font-size:13px;line-height:1.5">
+            Candidate-protocol simulation runs on the <strong>Overview</strong> tab (Simulation lab, Compare protocols, Simulation Room).
+            Every run is exploratory — not approval of a protocol for treatment or device delivery.
           </p>
+          <button type="button" class="btn btn-primary btn-sm" data-dt-goto-overview>Open Overview · Simulation lab</button>
         </section>
         ${renderSafetyFooter()}
       </div>
     `);
-    _wireTabStrip();
+    document.querySelector('[data-dt-goto-overview]')?.addEventListener('click', () => {
+      STATE.activeTab = 'overview';
+      try { sessionStorage.setItem('ds_dt_active_tab', 'overview'); } catch {}
+      _renderActiveTab(setTopbar);
+    });
+    _wireTabStrip(setTopbar);
     return;
   }
   // overview (default) — original full layout

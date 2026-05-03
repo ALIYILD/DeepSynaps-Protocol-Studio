@@ -1,5 +1,14 @@
 import { parseHomeProgramTaskMutationResponse } from './home-program-task-sync.js';
 import { demoDigitalPhenotypingPayload } from './demo-fixtures-analyzers.js';
+import { buildDemoDashboard360Payload } from './deeptwin/demo-dashboard-payload.js';
+import {
+  demoSummary,
+  demoSignals,
+  demoTimeline,
+  demoCorrelations,
+  demoPrediction,
+  demoSimulation,
+} from './deeptwin/mockData.js';
 
 const API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 const TOKEN_KEY = 'ds_access_token';
@@ -112,7 +121,186 @@ function _mriDemoLongitudinalCompare(baselineId, followupId) {
   };
 }
 
-function _demoSyntheticResponse(path, method) {
+function _deeptwinDemoParseBody(body) {
+  if (body == null || body === '') return null;
+  if (typeof body === 'string') {
+    try { return JSON.parse(body); } catch { return null; }
+  }
+  return body;
+}
+
+/** Demo-token short-circuit: return API-shaped DeepTwin payloads (matches FastAPI). */
+function _deeptwinDemoSyntheticResponse(path, method, bodyRaw) {
+  const methodU = (method || 'GET').toUpperCase();
+  const body = _deeptwinDemoParseBody(bodyRaw);
+
+  const dash = path.match(/^\/api\/v1\/deeptwin\/patients\/([^/]+)\/dashboard$/);
+  if (dash && methodU === 'GET') {
+    return buildDemoDashboard360Payload(decodeURIComponent(dash[1]));
+  }
+
+  const summaryPath = path.match(/^\/api\/v1\/deeptwin\/patients\/([^/]+)\/summary$/);
+  if (summaryPath && methodU === 'GET') {
+    return demoSummary(decodeURIComponent(summaryPath[1]));
+  }
+
+  const tlPath = path.match(/^\/api\/v1\/deeptwin\/patients\/([^/]+)\/timeline\?(.*)$/);
+  if (tlPath && methodU === 'GET') {
+    const pid = decodeURIComponent(tlPath[1]);
+    const q = new URLSearchParams(tlPath[2]);
+    const days = Math.min(365, Math.max(7, parseInt(q.get('days') || '90', 10) || 90));
+    return demoTimeline(pid, days);
+  }
+
+  const sigPath = path.match(/^\/api\/v1\/deeptwin\/patients\/([^/]+)\/signals$/);
+  if (sigPath && methodU === 'GET') {
+    return demoSignals(decodeURIComponent(sigPath[1]));
+  }
+
+  const corrPath = path.match(/^\/api\/v1\/deeptwin\/patients\/([^/]+)\/correlations$/);
+  if (corrPath && methodU === 'GET') {
+    return demoCorrelations(decodeURIComponent(corrPath[1]));
+  }
+
+  const predPath = path.match(/^\/api\/v1\/deeptwin\/patients\/([^/]+)\/predictions\?(.*)$/);
+  if (predPath && methodU === 'GET') {
+    const pid = decodeURIComponent(predPath[1]);
+    const q = new URLSearchParams(predPath[2]);
+    const horizon = q.get('horizon') || '6w';
+    return demoPrediction(pid, horizon);
+  }
+
+  const simPath = path.match(/^\/api\/v1\/deeptwin\/patients\/([^/]+)\/simulations$/);
+  if (simPath && methodU === 'POST') {
+    const pid = decodeURIComponent(simPath[1]);
+    const payload = body && typeof body === 'object' ? body : {};
+    return demoSimulation(pid, payload);
+  }
+
+  const reportPath = path.match(/^\/api\/v1\/deeptwin\/patients\/([^/]+)\/reports$/);
+  if (reportPath && methodU === 'POST') {
+    const pid = decodeURIComponent(reportPath[1]);
+    const kind = (body && body.kind) || 'clinician_deep';
+    const now = new Date().toISOString();
+    return {
+      patient_id: pid,
+      kind,
+      title: `DeepTwin report (${kind})`,
+      generated_at: now,
+      data_sources_used: ['demo_session'],
+      date_range_days: 90,
+      audit_refs: [`demo:deeptwin_report:${kind}`],
+      limitations: [
+        'Demo session — report not persisted server-side.',
+        'Outputs are model-estimated hypotheses for clinician review, not prescriptions.',
+      ],
+      review_points: ['Verify source data freshness before clinical use.'],
+      evidence_grade: 'low',
+      body: { kind, demo: true, patient_id: pid },
+    };
+  }
+
+  const handoffPath = path.match(/^\/api\/v1\/deeptwin\/patients\/([^/]+)\/agent-handoff$/);
+  if (handoffPath && methodU === 'POST') {
+    const pid = decodeURIComponent(handoffPath[1]);
+    const kind = (body && body.kind) || 'send_summary';
+    return {
+      patient_id: pid,
+      kind,
+      note: body?.note ?? null,
+      submitted_at: new Date().toISOString(),
+      audit_ref: `demo:twin_handoff:${kind}`,
+      summary_markdown:
+        `# DeepTwin handoff (demo)\n- patient_id: \`${pid}\`\n- kind: ${kind}\n\n`
+        + '_Decision-support only. Clinician review required._',
+      approval_required: true,
+      disclaimer: 'Agent handoff is decision-support context only.',
+    };
+  }
+
+  const dsPath = path.match(/^\/api\/v1\/deeptwin\/patients\/([^/]+)\/data-sources$/);
+  if (dsPath && methodU === 'GET') {
+    const pid = decodeURIComponent(dsPath[1]);
+    const empty = { available: false, count: 0, last_updated: null };
+    return {
+      patient_id: pid,
+      completeness_score: 0,
+      sources: {
+        assessments: { ...empty },
+        qeeg: { ...empty },
+        mri: { ...empty },
+        sessions: { ...empty },
+        wearables: { ...empty },
+        outcomes: { ...empty },
+      },
+      is_demo_view: true,
+    };
+  }
+
+  const arList = path.match(/^\/api\/v1\/deeptwin\/patients\/([^/]+)\/analysis-runs$/);
+  if (arList && methodU === 'GET') {
+    return [];
+  }
+  const srList = path.match(/^\/api\/v1\/deeptwin\/patients\/([^/]+)\/simulation-runs$/);
+  if (srList && methodU === 'GET') {
+    return [];
+  }
+  const notesPath = path.match(/^\/api\/v1\/deeptwin\/patients\/([^/]+)\/clinician-notes$/);
+  if (notesPath && methodU === 'GET') {
+    return [];
+  }
+
+  const cmpPath = path === '/api/v1/deeptwin/compare-protocols';
+  if (cmpPath && methodU === 'POST' && body?.patient_id) {
+    const protos = Array.isArray(body.protocols) ? body.protocols : [];
+    const ranking = protos.slice(0, 3).map((p, i) => ({
+      protocol_id: p.protocol_id || String(i),
+      label: p.label || p.protocol_id || `Protocol ${i + 1}`,
+      rank: i + 1,
+      score: 0.7 - i * 0.04,
+      rationale:
+        'Demo ranking from offline shim — connect a clinician API session for patient-specific TRIBE simulation.',
+    }));
+    const winner = ranking[0]?.protocol_id ?? null;
+    const confidence_gap = ranking.length > 1 ? (ranking[0].score - ranking[1].score) : 0;
+    const candidates = protos.map((p, i) => ({
+      protocol: { protocol_id: p.protocol_id, label: p.label },
+      heads: {
+        response_probability: 0.55 - i * 0.05,
+        response_confidence: 'low',
+      },
+      explanation: {
+        evidence_grade: 'low',
+        top_drivers: [{ modality: String(p.modality || '—'), feature: 'availability', direction: 'neutral' }],
+      },
+    }));
+    return {
+      patient_id: body.patient_id,
+      horizon_weeks: body.horizon_weeks || 6,
+      comparison: {
+        winner,
+        confidence_gap,
+        ranking,
+        candidates,
+      },
+      engine_info: {
+        name: 'demo-shim',
+        version: '0',
+        real_ai: false,
+        notice: 'Offline demo — use authenticated API for audited comparison.',
+      },
+      disclaimer:
+        'Ranking is exploratory simulation only; not a treatment recommendation. Clinician judgement is required.',
+    };
+  }
+
+  return null;
+}
+
+function _demoSyntheticResponse(path, method, body) {
+  const dt = _deeptwinDemoSyntheticResponse(path, method, body);
+  if (dt !== null) return dt;
+
   // ── Clinician Inbox demo data ───────────────────────────────────────────────
   if (path.match(/^\/api\/v1\/clinician-inbox\/items/) && (!method || method === 'GET')) {
     return {
@@ -221,7 +409,11 @@ async function apiFetch(path, opts = {}) {
   const fetchFn = fetchOverride || globalThis.fetch;
   // Demo-mode shim — short-circuit before any network call. See helper above.
   if (_isDemoSession() && !_DEMO_PASSTHROUGH.test(path)) {
-    const data = _demoSyntheticResponse(path, (requestOpts.method || 'GET').toUpperCase());
+    const data = _demoSyntheticResponse(
+      path,
+      (requestOpts.method || 'GET').toUpperCase(),
+      requestOpts.body,
+    );
     if (transportExtractor) return { data, transport: undefined };
     return data;
   }

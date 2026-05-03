@@ -25,10 +25,17 @@ const DOMAIN_LABEL = {
   sessions: 'Treatment sessions',
   tasks_adherence: 'Tasks · adherence',
   notes_text: 'Notes · text · video',
+  wearables: 'Wearables',
+  outcomes: 'Outcomes',
 };
 
 // 1. Twin status header --------------------------------------------------
 export function renderHeader({ patientLabel, condition, summary, dataSources }) {
+  const demoRibbon = (summary?.is_demo_view || dataSources?.is_demo_view)
+    ? `<div class="dt-notice dt-notice-amber" role="status" style="margin-bottom:12px">
+        <strong>Demo / offline session.</strong> Twin metrics below are seeded for UI review — connect a clinician API session for patient-linked aggregation.
+      </div>`
+    : '';
   const compl = dataSources?.completeness_score != null
     ? Math.round(dataSources.completeness_score * 100)
     : (summary?.completeness_pct ?? 0);
@@ -41,6 +48,7 @@ export function renderHeader({ patientLabel, condition, summary, dataSources }) 
   const updated = summary?.last_updated ? new Date(summary.last_updated).toLocaleString() : '—';
   return `
     <section class="dt-header card">
+      ${demoRibbon}
       <div class="dt-header-left">
         <div class="dt-avatar">${escHtml((patientLabel || '?').slice(0, 2).toUpperCase())}</div>
         <div>
@@ -68,23 +76,25 @@ export function renderDataSources({ summary, dataSources }) {
   // Prefer real data-sources map (migration 063); fall back to summary shape.
   if (dataSources?.sources) {
     const entries = Object.entries(dataSources.sources);
-    const cells = entries.filter(([, s]) => s.available).map(([key, s]) => `
-      <div class="dt-src dt-src-on">
+    const cells = entries.filter(([, s]) => s.available).map(([key, s]) => {
+      const stale = s.last_updated && (Date.now() - new Date(s.last_updated).getTime() > 90 * 86400000);
+      return `
+      <div class="dt-src dt-src-on ${stale ? 'dt-src-stale' : ''}">
         <div class="dt-src-label">${escHtml(DOMAIN_LABEL[key] || key)}</div>
-        <div class="dt-src-meta">${s.count} records · updated ${s.last_updated ? new Date(s.last_updated).toLocaleDateString() : '—'}</div>
-      </div>
-    `).join('');
+        <div class="dt-src-meta">${s.count} records · updated ${s.last_updated ? new Date(s.last_updated).toLocaleDateString() : '—'}${stale ? ' · stale' : ''}</div>
+      </div>`;
+    }).join('');
     const off = entries.filter(([, s]) => !s.available).map(([key]) => `
       <div class="dt-src dt-src-off">
         <div class="dt-src-label">${escHtml(DOMAIN_LABEL[key] || key)}</div>
-        <div class="dt-src-meta">no data</div>
+        <div class="dt-src-meta">not connected / no records</div>
       </div>
     `).join('');
     const score = Math.round((dataSources.completeness_score || 0) * 100);
     return `
       <section class="card dt-section">
         <header class="dt-section-h"><h3>Data sources</h3>
-          <span class="dt-section-sub">Real availability · ${score}% complete</span>
+          <span class="dt-section-sub">Clinic-ingested availability · ${score}% complete</span>
         </header>
         <div class="dt-src-grid">${cells}${off}</div>
         ${off ? dataCompletenessWarning(off.split('dt-src-off').length - 1 + ' sources missing') : ''}
@@ -184,7 +194,13 @@ export function mountTimeline(hostId, events, overlays) {
 
 // 5. Correlation map -----------------------------------------------------
 export function renderCorrelations({ correlations }, hostId) {
-  const cards = (correlations?.cards || []).map(c => `
+  const cardList = correlations?.cards || [];
+  const minN = cardList.length ? Math.min(...cardList.map(c => Number(c.n_observations) || 0)) : 0;
+  const smallSample = minN > 0 && minN < 20;
+  const smallBanner = smallSample
+    ? `<div class="dt-notice dt-notice-amber" role="note">Small within-patient sample (n as low as ${minN}). Treat as exploratory; correlation does not imply causation.</div>`
+    : '';
+  const cards = cardList.map(c => `
     <div class="dt-corr-card">
       <div class="dt-corr-pair">${escHtml(c.a)} <span class="dt-arrow">↔</span> ${escHtml(c.b)}</div>
       <div class="dt-corr-meta">
@@ -199,8 +215,9 @@ export function renderCorrelations({ correlations }, hostId) {
   return `
     <section class="card dt-section">
       <header class="dt-section-h"><h3>Correlation map</h3>
-        <span class="dt-section-sub">Top within-patient relationships. ${escHtml(correlations?.method || 'pearson')}.</span>
+        <span class="dt-section-sub">Top within-patient relationships (${escHtml(correlations?.method || 'pearson')}). Exploratory — not causal inference.</span>
       </header>
+      ${smallBanner}
       ${correlationVsCausationNotice()}
       <div class="dt-corr-grid">${cards}</div>
       <div id="${hostId}" class="dt-chart-host" style="margin-top:14px"></div>
@@ -237,8 +254,8 @@ export function renderCausal({ correlations }) {
   }).join('');
   return `
     <section class="card dt-section">
-      <header class="dt-section-h"><h3>Causal hypotheses</h3>
-        <span class="dt-section-sub">Possible drivers — evidence-graded and not causal claims.</span>
+      <header class="dt-section-h"><h3>Causal hypotheses (exploratory)</h3>
+        <span class="dt-section-sub">Hypothesis candidates from observational signals — not proof of causation. Requires clinician/statistical review.</span>
       </header>
       ${items || '<div class="dt-muted">No hypotheses yet.</div>'}
     </section>
@@ -263,8 +280,8 @@ export function renderPrediction({ prediction }, hostId) {
     : '';
   return `
     <section class="card dt-section">
-      <header class="dt-section-h"><h3>Prediction engine</h3>
-        <span class="dt-section-sub">Trajectory with uncertainty bands. ${modelEstimatedStamp()} ${approvalRequiredBadge()} ${tierChip} ${evChip}</span>
+      <header class="dt-section-h"><h3>Prediction analytics</h3>
+        <span class="dt-section-sub">Model-estimated trajectories with uncertainty bands — not prognostic facts. ${modelEstimatedStamp()} ${approvalRequiredBadge()} ${tierChip} ${evChip}</span>
       </header>
       <div class="dt-tabs">${buttons}</div>
       <div id="${hostId}" class="dt-chart-host"></div>
@@ -482,11 +499,15 @@ export function emptyPatientBlock() {
   try {
     isDemo = !!(import.meta.env && (import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1'));
   } catch (_e) { isDemo = false; }
+  const demoRibbon = isDemo
+    ? `<div class="dt-notice dt-notice-amber" role="status" style="margin-bottom:12px"><strong>Demo build.</strong> Patient roster below uses seeded fixtures — labels appear as “demo” on multimodal outputs.</div>`
+    : '';
   const demoBtn = isDemo
     ? `<button class="btn btn-primary btn-sm" onclick="window._selectedPatientId='sarah-johnson';window._profilePatientId='sarah-johnson';window._nav('deeptwin')">Open DeepTwin (demo data)</button>`
     : '';
   return `
     <section class="card dt-section dt-empty" role="region" aria-label="DeepTwin patient picker">
+      ${demoRibbon}
       <h3>Pick a patient to load their DeepTwin</h3>
       <p class="dt-muted">DeepTwin is patient-scoped — it composes 11 sections (signals, timeline, correlations, predictions, simulation lab, report center, doctor handoff) for one patient at a time. Pick a patient below or open the demo to see the full surface.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">

@@ -73,6 +73,7 @@ export function demoSummary(patientId) {
     warnings: missing.filter(m => m.key === 'qeeg_features' || m.key === 'assessments')
       .map(m => `Missing baseline for ${m.label} weakens predictions in this domain.`),
     disclaimer: 'Decision-support only. Twin estimates are model-derived hypotheses, not prescriptions. All outputs require clinician review.',
+    is_demo_view: true,
   };
 }
 
@@ -244,8 +245,19 @@ export function demoPrediction(patientId, horizon = '6w') {
       'No new contraindications introduced.',
       'Wearable sampling continuous.',
     ],
-    evidence_grade: 'moderate', uncertainty_widens_with_horizon: true,
-    disclaimer: 'Predictions are model-estimated. Confidence band is illustrative — clinician must review.',
+    evidence_grade: 'moderate',
+    evidence_status: 'pending',
+    confidence_tier: 'low',
+    uncertainty_widens_with_horizon: true,
+    rationale:
+      'Exploratory trajectory from deterministic demo math — not a validated prognostic model. Requires clinician review.',
+    calibration: {
+      status: 'uncalibrated',
+      note: 'No external calibration dataset applied in demo.',
+    },
+    disclaimer:
+      'Predictions are simulation-only model estimates, not forecasts of individual outcomes. Confidence bands are illustrative — clinician must review.',
+    is_demo_view: true,
   };
 }
 
@@ -302,11 +314,25 @@ export function demoSimulation(patientId, params = {}) {
       'Track adherence weekly; escalate if <60%.',
       'Capture adverse events at every visit.',
     ],
-    evidence_support: ['Within-patient baseline + cohort literature.', 'See Evidence panel for cited papers.'],
+    evidence_support: [
+      {
+        claim: 'Exploratory trajectory aligned with cohort literature (pending linkage for this patient).',
+        evidence_status: 'pending',
+        caveat: 'Demo session — no PMID or evidence grade is asserted.',
+      },
+    ],
+    evidence_status: 'pending',
     evidence_grade: 'moderate',
     approval_required: true,
     labels: { simulation_only: true, not_a_prescription: true, model_estimated: true },
-    disclaimer: 'Simulation only. Predicted trajectory is model-estimated, not a guaranteed effect. Clinician must approve before this becomes a treatment decision.',
+    disclaimer:
+      'Simulation only. Predicted trajectory is a deterministic exploratory estimate, not a validated clinical outcome. Clinician must review before any treatment decision.',
+    provenance: {
+      model_id: 'deeptwin-demo-shim',
+      schema_version: 'demo',
+      notice: 'Offline demo session — connect API for audited engine provenance.',
+    },
+    is_demo_view: true,
   };
 }
 

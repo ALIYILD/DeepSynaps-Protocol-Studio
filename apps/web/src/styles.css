@@ -27991,6 +27991,7 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
 .dt-src-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
 .dt-src { padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,.02); }
 .dt-src-on { border-color: rgba(0,212,188,.22); }
+.dt-src-stale { border-color: rgba(246,178,60,.35) !important; background: rgba(246,178,60,.06); }
 .dt-src-off { border-color: rgba(255,179,71,.22); background: rgba(255,179,71,.04); }
 .dt-src-label { font-weight: 650; font-size: 13px; color: var(--text); }
 .dt-src-meta { font-size: 11px; color: var(--text-tertiary); margin-top: 4px; }
