@@ -292,7 +292,24 @@ function _renderSourceVideoPanel(profile, navigate) {
       <div style="font-size:11px;color:var(--text-secondary);margin-top:2px">${esc(when)} · duration ${esc(dur)}</div>
       ${metaNote}
     </div>
-    <div>${linkHtml}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">${linkHtml}
+      <button type="button" class="btn btn-ghost btn-sm" data-action="go-video-assessments" style="min-height:44px" title="Upload or record tasks in Video Assessments">Video Assessments</button>
+    </div>
+  </div>`;
+}
+
+function _renderWorkflowNav(patientId, usingFixtures) {
+  const pid = patientId || '';
+  const dis = !pid ? 'disabled' : '';
+  const titleWear = usingFixtures ? 'Demo — use live API for device sync' : 'Biometrics / wearables summaries';
+  return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px">
+    <h3 style="margin:0 0 8px;font-size:13px;font-weight:600">Capture &amp; import</h3>
+    <p style="margin:0 0 10px;font-size:11px;color:var(--text-secondary)">Uploads and device sync use existing clinic modules — this page aggregates signals for review only.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+      <button type="button" class="btn btn-ghost btn-sm" data-action="go-video-assessments" style="min-height:44px">Upload / record video</button>
+      <button type="button" class="btn btn-ghost btn-sm" data-action="go-wearables" ${dis} style="min-height:44px;${!pid ? 'opacity:.55' : ''}" title="${esc(titleWear)}">Wearables / IMU</button>
+      <button type="button" class="btn btn-ghost btn-sm" data-action="go-documents" ${dis} style="min-height:44px;${!pid ? 'opacity:.55' : ''}" title="Patient documents">Documents</button>
+    </div>
   </div>`;
 }
 
@@ -466,9 +483,16 @@ function _renderAuditPanel(audit, demoLabel) {
   const rows = sorted.map((it) => {
     const when = it.created_at ? new Date(it.created_at).toLocaleString() : '—';
     const kind = String(it.kind || 'event').toLowerCase();
-    const tag = kind === 'recompute'
-      ? '<span class="pill pill-inactive" style="font-size:10px;padding:2px 8px">Recompute</span>'
-      : '<span class="pill pill-active" style="font-size:10px;padding:2px 8px">Annotation</span>';
+    let tag = '<span class="pill pill-active" style="font-size:10px;padding:2px 8px">Event</span>';
+    if (kind === 'recompute') {
+      tag = '<span class="pill pill-inactive" style="font-size:10px;padding:2px 8px">Recompute</span>';
+    } else if (kind === 'annotation' || kind === 'annotate') {
+      tag = '<span class="pill pill-active" style="font-size:10px;padding:2px 8px">Note</span>';
+    } else if (kind === 'review_ack') {
+      tag = '<span class="pill" style="font-size:10px;padding:2px 8px;background:rgba(155,127,255,0.12);border:1px solid rgba(155,127,255,0.25)">Review ack</span>';
+    } else if (kind === 'export_download') {
+      tag = '<span class="pill pill-inactive" style="font-size:10px;padding:2px 8px">Export</span>';
+    }
     const actor = it.actor && String(it.actor).length < 40 ? it.actor : (it.actor_id || '—');
     return `<li style="padding:8px 10px;border-bottom:1px solid var(--border);font-size:12px;display:flex;flex-direction:column;gap:2px">
       <div style="display:flex;gap:8px;align-items:center;justify-content:space-between">
@@ -495,7 +519,9 @@ function _renderPatientDetail(profile, audit, navigate, opts) {
   const recomputeBtn = optsSafe.usingFixtures
     ? `<button type="button" class="btn btn-ghost btn-sm" data-action="recompute" disabled title="Demo sample — recomputation is not persisted" style="min-height:44px;opacity:.7">Recompute (disabled in demo)</button>`
     : `<button type="button" class="btn btn-ghost btn-sm" data-action="recompute" style="min-height:44px">Recompute workspace</button>`;
-  const exportBtn = `<button type="button" class="btn btn-ghost btn-sm" data-action="export-placeholder" disabled title="Server export for Movement Analyzer is not configured — use clinic reporting tools" style="min-height:44px;opacity:.65">Export summary</button>`;
+  const exportBtn = optsSafe.usingFixtures
+    ? `<button type="button" class="btn btn-ghost btn-sm" data-action="export-json" disabled title="Export requires a live API session" style="min-height:44px;opacity:.65">Export JSON</button>`
+    : `<button type="button" class="btn btn-ghost btn-sm" data-action="export-json" style="min-height:44px" title="Download workspace JSON (audit logged)">Export JSON</button>`;
 
   return `<section aria-label="Patient movement workspace">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin:12px 0 14px;flex-wrap:wrap">
@@ -511,6 +537,7 @@ function _renderPatientDetail(profile, audit, navigate, opts) {
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;margin-bottom:14px">${cards}</div>
     <div style="display:grid;grid-template-columns:1fr;gap:14px">
+      ${_renderWorkflowNav(optsSafe.patientId, !!optsSafe.usingFixtures)}
       ${_renderAiSummary(profile)}
       ${_renderDataAvailability(profile)}
       ${_renderFlags(profile)}
@@ -518,6 +545,17 @@ function _renderPatientDetail(profile, audit, navigate, opts) {
       ${_renderRecommendations(profile)}
       ${_renderGovernance(profile)}
       ${_renderLinkedModules(profile, optsSafe.patientId)}
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px">
+        <h3 style="margin:0 0 8px;font-size:13px;font-weight:600">Clinician review acknowledgment</h3>
+        <p style="margin:0 0 10px;font-size:11px;color:var(--text-secondary)">Records that you reviewed this workspace (audit only — not a legal sign-off). Requires a short note.</p>
+        <form data-review-ack-form style="display:flex;flex-direction:column;gap:10px">
+          <textarea name="review_note" class="form-control" rows="2" placeholder="e.g. Reviewed cues with patient; correlate with exam." style="min-height:56px;width:100%" aria-label="Review acknowledgment note"></textarea>
+          <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap">
+            <span data-review-form-error style="color:var(--red);font-size:11px;margin-right:auto"></span>
+            <button type="submit" class="btn btn-secondary btn-sm" data-action="review-submit" style="min-height:44px">Mark workspace reviewed</button>
+          </div>
+        </form>
+      </div>
       ${_renderAnnotationForm(!!optsSafe.demoAnnotationLocal)}
       ${_renderAuditPanel(audit, optsSafe.auditDemoLabel)}
     </div>
@@ -802,6 +840,120 @@ export async function pgMovementAnalyzer(setTopbar, navigate) {
   function wirePatientDetail() {
     const body = $('mv-body');
     if (!body) return;
+
+    function goWithPatient(pageId) {
+      if (!activePatientId) return;
+      try {
+        window._profilePatientId = activePatientId;
+        window._selectedPatientId = activePatientId;
+        navigate?.(pageId);
+      } catch {}
+    }
+
+    body.querySelectorAll('[data-action="go-video-assessments"]').forEach((btn) => {
+      btn.addEventListener('click', () => goWithPatient('video-assessments'));
+    });
+    body.querySelectorAll('[data-action="go-wearables"]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (btn.disabled || !activePatientId) return;
+        goWithPatient('wearables');
+      });
+    });
+    body.querySelectorAll('[data-action="go-documents"]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (btn.disabled || !activePatientId) return;
+        goWithPatient('documents-v2');
+      });
+    });
+
+    body.querySelector('[data-action="export-json"]')?.addEventListener('click', async (ev) => {
+      const btn = ev.currentTarget;
+      if (btn.disabled || usingFixtures) return;
+      const old = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Preparing…';
+      try {
+        const { blob, filename } = await api.exportMovementWorkspace(activePatientId);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename || `movement-workspace-${activePatientId.slice(0, 8)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        const fresh = await api.getMovementAudit(activePatientId).catch(() => null);
+        if (fresh && Array.isArray(fresh.items)) {
+          auditCache = fresh;
+          body.innerHTML = _renderPatientDetail(profileCache, auditCache, navigate, {
+            usingFixtures,
+            patientId: activePatientId,
+            demoAnnotationLocal,
+            auditDemoLabel: usingFixtures && isDemoSession() ? 'Sample audit events for offline demo — not a real patient record.' : '',
+          });
+          wirePatientDetail();
+        }
+      } catch (e) {
+        body.insertAdjacentHTML('afterbegin', _errorCard((e && e.message) || String(e)));
+      } finally {
+        if (btn.isConnected) {
+          btn.disabled = false;
+          btn.textContent = old;
+        }
+      }
+    });
+
+    body.querySelector('[data-review-ack-form]')?.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const form = ev.currentTarget;
+      const err = form.querySelector('[data-review-form-error]');
+      if (err) err.textContent = '';
+      const note = String(new FormData(form).get('review_note') || '').trim();
+      if (!note) {
+        if (err) err.textContent = 'Enter a short review note.';
+        form.querySelector('textarea')?.focus();
+        return;
+      }
+      const submit = form.querySelector('[data-action="review-submit"]');
+      if (submit) {
+        submit.disabled = true;
+        submit.textContent = 'Saving…';
+      }
+      try {
+        if (usingFixtures && demoAnnotationLocal) {
+          const added = {
+            id: `demo-mv-rev-${Date.now()}`,
+            kind: 'review_ack',
+            actor: 'Demo clinician (sample)',
+            message: note,
+            created_at: new Date().toISOString(),
+          };
+          const items = Array.isArray(auditCache?.items) ? auditCache.items.slice() : [];
+          items.unshift(added);
+          auditCache = { ...(auditCache || {}), items };
+        } else {
+          await api.ackMovementReview(activePatientId, { note });
+          const freshAudit = await api.getMovementAudit(activePatientId).catch(() => null);
+          auditCache = freshAudit && Array.isArray(freshAudit.items)
+            ? freshAudit
+            : { patient_id: activePatientId, items: [] };
+        }
+        form.reset();
+        body.innerHTML = _renderPatientDetail(profileCache, auditCache, navigate, {
+          usingFixtures,
+          patientId: activePatientId,
+          demoAnnotationLocal,
+          auditDemoLabel: usingFixtures && isDemoSession() ? 'Sample audit events for offline demo — not a real patient record.' : '',
+        });
+        wirePatientDetail();
+      } catch (e) {
+        if (err) err.textContent = (e && e.message) || String(e);
+      } finally {
+        const sub = form.querySelector('[data-action="review-submit"]');
+        if (sub && sub.isConnected) {
+          sub.disabled = false;
+          sub.textContent = 'Mark workspace reviewed';
+        }
+      }
+    });
 
     body.querySelectorAll('[data-action="nav-module"]').forEach((btn) => {
       btn.addEventListener('click', () => {
