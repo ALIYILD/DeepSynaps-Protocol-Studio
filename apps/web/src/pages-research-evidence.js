@@ -362,9 +362,11 @@ function renderOverview(body, liveEvidence = null) {
     '<div class="ch-card" style="padding:16px;margin-bottom:16px;border-left:3px solid var(--teal)">' +
     '<div style="font-weight:600;margin-bottom:8px">Wearables &amp; passive sensing</div>' +
     '<p style="font-size:13px;color:var(--text-secondary);margin:0 0 10px;line-height:1.5">' +
-    'Patient <strong>Devices &amp; Wearables</strong> can surface ranked citations via the evidence-intelligence layer when the corpus is mounted ' +
-    '(aggregate scale depends on ingest — see <strong>Evidence Search</strong> for live query). ' +
-    'Biometric <em>correlation</em> readouts are associational; use verified literature for mechanistic context, not autonomous diagnosis.' +
+    'Patient <strong>Devices &amp; Wearables</strong> can surface ranked citations via the same evidence-intelligence layer as this dashboard ' +
+    '(deterministic retrieval over the indexed corpus — typically on the order of <strong>' +
+    fmt(EVIDENCE_TOTAL_PAPERS) +
+    '</strong> works when the evidence database is mounted). ' +
+    'Biometric <em>correlation</em> readouts are associational; use the papers below for mechanistic and clinical context, not autonomous diagnosis.' +
     '</p>' +
     (currentUser && currentUser.role === 'patient'
       ? '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'patient-wearables\')">Open Devices &amp; Wearables</button>'

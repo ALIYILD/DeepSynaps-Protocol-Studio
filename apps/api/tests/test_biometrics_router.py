@@ -118,13 +118,13 @@ class TestBiometricsData:
         finally:
             db.close()
 
-        s = client.get(f"/api/biometrics/summary?patient_id={pid}&days=365", headers=headers)
+        s = client.get(f"/api/biometrics/summary?patient_id={pid}&days=400", headers=headers)
         assert s.status_code == 200
         body = s.json()
         assert body["patient_id"] == pid
         assert body["daily_summary_rows"] >= 2
 
-        c = client.get(f"/api/biometrics/correlations?patient_id={pid}&days=365", headers=headers)
+        c = client.get(f"/api/biometrics/correlations?patient_id={pid}&days=400", headers=headers)
         assert c.status_code == 200
         cj = c.json()
         assert "matrix" in cj
