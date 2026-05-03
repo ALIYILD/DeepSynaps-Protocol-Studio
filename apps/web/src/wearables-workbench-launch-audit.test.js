@@ -184,6 +184,7 @@ test('Source contract: pages-monitor wires the wearables-workbench tab', () => {
 test('Source contract: empty-state copy is honest (no AI happy-talk)', () => {
   const src = pagesMonitorSrc();
   assert.ok(src.includes('No alert flags pending review.'));
+  assert.ok(src.includes('Empty queue does not mean clinically cleared'));
   // We must NOT have invented "your clinic is doing great" style copy
   // anywhere in the workbench surface.
   assert.equal(/your clinic is doing great/i.test(src), false);
