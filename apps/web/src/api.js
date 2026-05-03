@@ -67,6 +67,11 @@ function _isDemoSession() {
 // hit the Fly API (or show failure/empty states), so demo digest cannot appear
 // for normal clinician JWTs.
 
+/** True when the preview/demo-login synthetic token is active (Netlify + VITE_ENABLE_DEMO). */
+export function isDemoSession() {
+  return _isDemoSession();
+}
+
 // ── Demo inbox items (shared between inbox + digest shims) ──────────────────
 const _DEMO_INBOX_ITEMS = [
   { event_id: 'demo-inbox-1', surface: 'adherence_events', event_type: 'adherence.missed_session', note: 'Patient missed 3rd consecutive NFB session. Protocol requires escalation after 2 consecutive misses.', actor_id: 'system', patient_id: 'demo-pt-samantha-li', created_at: new Date(Date.now() - 3600000).toISOString(), is_acknowledged: false, is_demo: true },
@@ -433,6 +438,13 @@ async function apiFetchBinary(path, opts = {}) {
         + '</body></html>';
       const blob = new Blob([stub], { type: 'text/html;charset=utf-8' });
       return { blob, contentType: 'text/html;charset=utf-8', filename: 'mri_demo_preview.html' };
+    }
+    if (path === '/api/v1/clinician-inbox/export.csv' && (!opts.method || opts.method === 'GET')) {
+      const csv =
+        'event_id,surface,is_demo,note\n'
+        + 'demo-export-placeholder,preview,1,"DEMO synthetic export — use a live clinician API session for regulator-ready CSV."\n';
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      return { blob, contentType: 'text/csv;charset=utf-8', filename: 'DEMO-clinician-inbox.csv' };
     }
   }
   const token = getToken();
@@ -3482,14 +3494,17 @@ export const api = {
   // Events #350, Home Program Tasks #351, Patient Wearables #352, Wearables
   // Workbench #353). Reads the audit_events table only — no new schema.
   // Acknowledgements are stored as their own audit rows so the regulator
-  // audit transcript stays single-sourced. All helpers return null on
-  // offline / 404 so the page can render an honest empty state.
+  // audit transcript stays single-sourced.
+  // List/summary reject on network/auth failure (pages-inbox handles Retry).
+  // Demo preview (`*-demo-token` + VITE_ENABLE_DEMO): apiFetch short-circuits to
+  // `_demoSyntheticResponse` before network — never mixed with real clinician data.
+  /** Same as {@link isDemoSession} — exposed on `api` for pages that import the bundle object only. */
+  isDemoSession: () => _isDemoSession(),
   clinicianInboxListItems: (params = {}) => {
     const q = new URLSearchParams(params).toString();
-    return apiFetch(`/api/v1/clinician-inbox/items${q ? '?' + q : ''}`).catch(() => null);
+    return apiFetch(`/api/v1/clinician-inbox/items${q ? '?' + q : ''}`);
   },
-  clinicianInboxSummary: () =>
-    apiFetch('/api/v1/clinician-inbox/summary').catch(() => null),
+  clinicianInboxSummary: () => apiFetch('/api/v1/clinician-inbox/summary'),
   clinicianInboxGetItem: (eventId) =>
     apiFetch(`/api/v1/clinician-inbox/items/${encodeURIComponent(eventId)}`).catch(() => null),
   clinicianInboxAcknowledge: (eventId, note) =>
@@ -3504,6 +3519,9 @@ export const api = {
     }),
   clinicianInboxExportCsvUrl: () =>
     `${API_BASE}/api/v1/clinician-inbox/export.csv`,
+  /** Same-origin CSV download with Authorization header (use instead of raw href to API origin). */
+  clinicianInboxExportCsvBlob: () =>
+    apiFetchBinary('/api/v1/clinician-inbox/export.csv', { method: 'GET' }),
   postClinicianInboxAuditEvent: (data) =>
     apiFetch('/api/v1/clinician-inbox/audit-events', {
       method: 'POST',
