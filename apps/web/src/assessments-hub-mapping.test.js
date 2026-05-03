@@ -4,7 +4,12 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { assessmentDetailIdFromRow, mapApiAssessmentToQueueRow } from './assessments-hub-mapping.js';
+import {
+  assessmentDetailIdFromRow,
+  assessmentsSampleQueueAllowed,
+  DEMO_ASSESSMENTS_BANNER_MARK,
+  mapApiAssessmentToQueueRow,
+} from './assessments-hub-mapping.js';
 
 const REG = [{ id: 'PHQ-9', abbr: 'PHQ-9', max: 27 }];
 
@@ -57,4 +62,32 @@ test('mapApiAssessmentToQueueRow: draft status → Continue', () => {
 test('assessmentDetailIdFromRow: strips be- prefix', () => {
   assert.equal(assessmentDetailIdFromRow({ id: 'be-uuid-1', backendId: 'uuid-1' }), 'uuid-1');
   assert.equal(assessmentDetailIdFromRow({ id: 'as-3' }), 'as-3');
+});
+
+test('assessmentsSampleQueueAllowed: VITE demo build without token allows sample queue (dev/preview UI)', () => {
+  const r = assessmentsSampleQueueAllowed({ DEV: true, VITE_ENABLE_DEMO: '0' }, null);
+  assert.equal(r.allowed, true);
+  assert.equal(r.mode, 'vite_demo_build');
+});
+
+test('assessmentsSampleQueueAllowed: demo token always allows (with or without build flag)', () => {
+  const r = assessmentsSampleQueueAllowed({ DEV: false, VITE_ENABLE_DEMO: '0' }, 'abc-demo-token');
+  assert.equal(r.allowed, true);
+  assert.equal(r.mode, 'demo_token');
+});
+
+test('assessmentsSampleQueueAllowed: production build + real JWT disallows mock queue', () => {
+  const r = assessmentsSampleQueueAllowed(
+    { DEV: false, VITE_ENABLE_DEMO: '0' },
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyIn0.sig',
+  );
+  assert.equal(r.allowed, false);
+  assert.equal(r.mode, null);
+});
+
+test('DEMO_ASSESSMENTS_BANNER_MARK: fixed copy for UI labelling', () => {
+  assert.equal(
+    DEMO_ASSESSMENTS_BANNER_MARK,
+    'Demo assessment data — not real patient data',
+  );
 });

@@ -3,6 +3,31 @@
  * Extracted for unit tests and stable clinical/deterministic mapping.
  */
 
+/** Shown when MOCK_QUEUE / sample rows are active — must accompany fictional rows. */
+export const DEMO_ASSESSMENTS_BANNER_MARK =
+  'Demo assessment data — not real patient data';
+
+/**
+ * Whether fictional MOCK_QUEUE rows may load (empty API / error fallback).
+ * Allowed when: Vite dev or VITE_ENABLE_DEMO=1, OR auth token is clearly demo (*-demo-token).
+ * Real production builds without demo flag and non-demo JWT → never allow mock queue.
+ *
+ * @param {ImportMeta['env'] | Record<string, unknown>} env - import.meta.env
+ * @param {string | null | undefined} token - access token from api.getToken()
+ * @returns {{ allowed: boolean, mode: 'vite_demo_build' | 'demo_token' | null }}
+ */
+export function assessmentsSampleQueueAllowed(env, token) {
+  const demoBuild = env?.DEV === true || env?.VITE_ENABLE_DEMO === '1';
+  const tok = token == null ? '' : String(token);
+  if (tok.endsWith('-demo-token')) {
+    return { allowed: true, mode: 'demo_token' };
+  }
+  if (demoBuild) {
+    return { allowed: true, mode: 'vite_demo_build' };
+  }
+  return { allowed: false, mode: null };
+}
+
 /** @param {unknown} v */
 function _num(v) {
   if (v == null || v === '') return null;

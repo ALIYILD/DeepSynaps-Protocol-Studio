@@ -2,7 +2,7 @@
 // pages-clinical-hubs.js — Hub/container pages (code-split)
 // Patient Hub · Clinical Hub · Protocol Hub · Scheduling Hub · etc.
 // ─────────────────────────────────────────────────────────────────────────────
-import { api, isAssessmentsDemoPreviewSession } from './api.js';
+import { api } from './api.js';
 import { tag, spinner, emptyState } from './helpers.js';
 import { currentUser } from './auth.js';
 import { renderBrainMap10_20 } from './brain-map-svg.js';
@@ -25,7 +25,12 @@ import { EVIDENCE_SUMMARY, CONDITION_EVIDENCE, getConditionEvidence } from './ev
 import { PROTOCOL_LIBRARY, CONDITIONS as PROTO_CONDITIONS, DEVICES as PROTO_DEVICES, getProtocolsByCondition } from './protocols-data.js';
 import { DEMO_PATIENT_ROSTER } from './patient-dashboard-helpers.js';
 import { VOICE_DECISION_SUPPORT_SHORT, voiceApiErrorToast } from './voice-decision-support.js';
-import { assessmentDetailIdFromRow, mapApiAssessmentToQueueRow } from './assessments-hub-mapping.js';
+import {
+  assessmentDetailIdFromRow,
+  assessmentsSampleQueueAllowed,
+  DEMO_ASSESSMENTS_BANNER_MARK,
+  mapApiAssessmentToQueueRow,
+} from './assessments-hub-mapping.js';
 
 function shortMrn(p) {
   if (p?.mrn) return String(p.mrn);
@@ -10228,6 +10233,9 @@ export async function pgFinanceHub(setTopbar, navigate) {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // pgAssessmentsHub — Screen 05 · Queue / Cohort / Library / Individual
+// (Assessments v2 route: ?page=assessments-v2)
+// TODO: remove legacy duplicate `pgAssessmentsHub` in pages-clinical-tools.js (unused
+// by this route; confuses maintainers). Tracked for a follow-up PR, not this file’s scope.
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgAssessmentsHub(setTopbar, navigate) {
   const tab = window._assessHubTab || 'queue';
@@ -10242,7 +10250,7 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
     const syncLbl = c.lastSync ? ' · synced ' + new Date(c.lastSync).toLocaleTimeString() : '';
     setTopbar(
       'Assessments',
-      '<span id="dv2a-demo-chip" style="display:none;font-size:10px;font-weight:700;color:var(--amber,#ffb547);background:rgba(255,181,71,0.14);border:1px solid rgba(255,181,71,0.35);padding:2px 8px;border-radius:999px;margin-right:8px;letter-spacing:0.04em">SAMPLE DATA · preview only</span>' +
+      '<span id="dv2a-demo-chip" style="display:none;font-size:10px;font-weight:700;color:var(--amber,#ffb547);background:rgba(255,181,71,0.14);border:1px solid rgba(255,181,71,0.35);padding:2px 8px;border-radius:999px;margin-right:8px;letter-spacing:0.04em">Demo · not real patients</span>' +
       '<span id="dv2a-counts" style="font-size:11px;color:var(--text-tertiary);margin-right:10px">' +
         c.instruments + ' instruments · ' +
         '<strong style="color:var(--rose)">' + c.redFlags + ' red flag' + (c.redFlags===1?'':'s') + '</strong> · ' +
@@ -10416,6 +10424,18 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
 
 .dv2a-footer-actions { display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--border); background:var(--bg-panel,#0d1b22); flex-shrink:0; }
 
+.dv2a-demo-page-banner {
+  margin: 0 18px 10px;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--amber, #ffb547);
+  background: rgba(255, 181, 71, 0.1);
+  border: 1px solid rgba(255, 181, 71, 0.35);
+  border-radius: 8px;
+  line-height: 1.45;
+}
+
 /* Crisis modal */
 .dv2a-crisis-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); backdrop-filter:blur(4px); z-index:9999; display:flex; align-items:center; justify-content:center; }
 .dv2a-crisis-modal { width:min(480px,92vw); background:var(--bg-panel,#0d1b22); border:1px solid rgba(255,107,157,0.45); border-radius:12px; padding:22px; box-shadow:0 20px 60px rgba(0,0,0,0.5); }
@@ -10503,13 +10523,16 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   // ids so Submit/Approve/Score later can round-trip.
   let queueRows = [];
   let usingDemoData = false;
-  /** True when MOCK_QUEUE is shown (Netlify preview demo-token only). Not used for real JWT sessions. */
+  /** True when MOCK_QUEUE is shown — only if assessmentsSampleQueueAllowed (demo build or demo token). */
   let usingSampleQueue = false;
   let assessmentsListFetchFailed = false;
-  const allowSampleQueueFallback = isAssessmentsDemoPreviewSession();
+  /** True when listAssessments returned successfully with zero items (not an error). */
+  let assessmentsListEmptyOk = false;
+  const allowSampleQueueFallback = assessmentsSampleQueueAllowed(import.meta.env, api.getToken?.()).allowed;
   try {
     const apiRes = await (api.listAssessments?.() || Promise.reject());
     const items = Array.isArray(apiRes) ? apiRes : ((apiRes && apiRes.items) || []);
+    assessmentsListEmptyOk = items.length === 0;
     if (items.length) {
       const merged = items
         .slice(0, 80)
@@ -10524,6 +10547,7 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
     }
   } catch {
     assessmentsListFetchFailed = true;
+    assessmentsListEmptyOk = false;
     if (allowSampleQueueFallback) {
       queueRows = MOCK_QUEUE;
       usingDemoData = true;
@@ -11234,7 +11258,13 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       '</div>'
     ).join('') + '</div>';
 
-    const chipHtml = '<div class="dv2a-filter-bar">' +
+    const chipHtml =
+      (usingSampleQueue
+        ? '<div role="note" style="margin:0 0 10px;padding:8px 12px;font-size:11px;font-weight:600;color:var(--amber,#ffb547);background:rgba(255,181,71,0.1);border:1px solid rgba(255,181,71,0.35);border-radius:8px">' +
+          esc(DEMO_ASSESSMENTS_BANNER_MARK) +
+          '</div>'
+        : '') +
+      '<div class="dv2a-filter-bar">' +
       '<button class="dv2a-chip'+(activeFilter==='all'?' active':'')+'" onclick="window._assessSetFilter(\'all\')">All instruments · '+queueRows.length+'</button>' +
       INSTRUMENTS.map(code => {
         const n = queueRows.filter(r => (r.inst || '').includes(code)).length;
@@ -11262,15 +11292,20 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
     const emptyBanner =
       queueRows.length === 0
         ? '<div role="status" style="padding:28px 20px;text-align:center;border-bottom:1px solid var(--border)">' +
-          '<div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:8px">No assessments in queue</div>' +
+          '<div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:8px">' +
+          (assessmentsListFetchFailed ? 'Could not load assessments' : 'No assessments found') +
+          '</div>' +
           '<div style="font-size:11.5px;color:var(--text-tertiary);line-height:1.55;max-width:520px;margin:0 auto">' +
           (assessmentsListFetchFailed
-            ? 'Could not load assessments from the server. Check your connection and API configuration (<code style="font-size:10px">VITE_API_BASE_URL</code>), then use Refresh.'
-            : 'There are no assessment assignments yet for your clinic, or none match the current filters. Use <strong>+ New assessment</strong> or the <strong>Library</strong> tab to assign an instrument.') +
+            ? 'The assessment list could not be loaded. Check your connection and API configuration (<code style="font-size:10px">VITE_API_BASE_URL</code>).'
+            : 'No assessments found for this clinic or current filter. An empty list does not imply low clinical risk, completed workflows, or absence of outstanding items elsewhere.') +
           '</div>' +
           '<div style="margin-top:14px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">' +
-          '<button type="button" class="btn btn-primary btn-sm" onclick="window._assessNew()">Open library</button>' +
-          '<button type="button" class="btn btn-ghost btn-sm" onclick="window._ahRefresh()">Refresh</button>' +
+          (assessmentsListFetchFailed
+            ? '<button type="button" class="btn btn-primary btn-sm" onclick="window._ahRefresh()">Retry</button>' +
+              '<button type="button" class="btn btn-ghost btn-sm" onclick="window._assessNew()">Open library</button>'
+            : '<button type="button" class="btn btn-primary btn-sm" onclick="window._assessNew()">Open library</button>' +
+              '<button type="button" class="btn btn-ghost btn-sm" onclick="window._ahRefresh()">Refresh</button>') +
           '</div>' +
           '</div>'
         : '';
@@ -11290,9 +11325,12 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         : '<button class="dv2a-send-btn" onclick="event.stopPropagation();window._assessSelect(\''+esc(r.id)+'\')">'+esc(r.sendLabel||'Open')+' →</button>';
       const modeStyle = r.modeStyle === 'teal' ? 'background:rgba(0,212,188,0.14);color:var(--teal,#00d4bc)' : (r.modeStyle === 'rose' ? 'background:rgba(255,107,157,0.14);color:var(--rose,#ff6b9d)' : '');
 
+      const demoRowNote = usingSampleQueue
+        ? '<div style="font-size:9px;color:var(--amber,#ffb547);font-weight:700;margin-top:2px;letter-spacing:0.03em">Demo row · not real patient data</div>'
+        : '';
       return '<div class="'+rowCls+'" onclick="window._assessSelect(\''+esc(r.id)+'\')">' +
         '<div>'+flagHtml+'</div>' +
-        '<div class="dv2a-pt"><div class="dv2a-pt-av '+(r.avCls||'a')+'">'+esc(r.avInit)+'</div><div style="min-width:0"><div class="dv2a-pt-name">'+esc(r.patient)+'</div><div class="dv2a-pt-sub">'+esc(r.dx)+' · MRN '+esc(r.mrn)+'</div></div></div>' +
+        '<div class="dv2a-pt"><div class="dv2a-pt-av '+(r.avCls||'a')+'">'+esc(r.avInit)+'</div><div style="min-width:0"><div class="dv2a-pt-name">'+esc(r.patient)+'</div><div class="dv2a-pt-sub">'+esc(r.dx)+' · MRN '+esc(r.mrn)+'</div>'+demoRowNote+'</div></div>' +
         '<div><div class="dv2a-inst-name">'+esc(r.inst)+'</div><div class="dv2a-inst-sub">'+esc(r.instSub||'')+'</div></div>' +
         '<div>'+scoreHtml+sevBar(r.sev)+'<div style="font-size:10px;color:'+scoreColor+';margin-top:3px;font-weight:500">'+esc(r.sevLabel||'')+'</div></div>' +
         '<div><span class="dv2a-trend '+r.trendCls+'">'+(r.trendCls==='up'?'▲ ':r.trendCls==='down'?'▼ ':'◆ ')+esc(r.trend||'')+'</span>'+sparkSvg(r.sparkline, Math.max(...(r.sparkline||[1]),1), r.trendCls==='up'?'#ff6b9d':'#00d4bc')+'</div>' +
@@ -11302,10 +11340,16 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       '</div>';
     }).join('');
 
+    const filterEmptyMsg =
+      queueRows.length > 0 && filtered.length === 0
+        ? '<div style="padding:18px 14px;text-align:center;font-size:11.5px;color:var(--text-tertiary);border-bottom:1px solid var(--border)">No assessments match the current instrument filter. Choose <strong>All instruments</strong> or another filter.</div>'
+        : '';
+
     return kpiHtml + chipHtml +
       '<div class="dv2a-card">' +
         emptyBanner +
         '<div class="dv2a-queue-head"><div></div><div>Patient</div><div>Instrument</div><div>Last score · severity</div><div>Trend (course)</div><div>Due</div><div>Send via</div><div></div></div>' +
+        filterEmptyMsg +
         rowHtml +
         '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;font-size:11px;color:var(--text-tertiary);border-top:1px solid var(--border)">'+
           '<span>Showing '+filtered.length+' of '+queueRows.length+' · sorted by risk & due date</span>'+
@@ -11483,8 +11527,15 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         '<div style="font-size:11px;color:var(--text-tertiary);line-height:1.5">Item-level responses are not loaded for this row. Use <strong>Continue / Score now</strong> to capture answers, or <strong>Refresh</strong> after sync.</div>';
     }
 
+    const demoDetailBanner = usingSampleQueue
+      ? '<div role="note" style="margin:0 0 12px;padding:8px 10px;font-size:10.5px;font-weight:600;color:var(--amber,#ffb547);background:rgba(255,181,71,0.12);border:1px solid rgba(255,181,71,0.35);border-radius:6px;line-height:1.45">' +
+        esc(DEMO_ASSESSMENTS_BANNER_MARK) +
+        '</div>'
+      : '';
+
     return (
       '<div class="dv2a-side" style="position:relative">' +
+      demoDetailBanner +
       '<div class="dv2a-side-head">' +
       '<button class="dv2a-side-close" onclick="window._assessCloseSide()" aria-label="Close panel">✕</button>' +
       '<div style="display:flex;gap:10px;align-items:center;padding-right:30px">' +
@@ -11516,7 +11567,7 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       (row.max != null ? '/' + esc(String(row.max)) : '') +
       '</span>' +
       (row.redflag ? '<span class="dv2a-chip-sm rose">Safety review · flagged</span>' : '') +
-      (usingSampleQueue ? '<span class="dv2a-chip-sm amber">Sample queue · preview</span>' : '') +
+      (usingSampleQueue ? '<span class="dv2a-chip-sm amber">' + esc(DEMO_ASSESSMENTS_BANNER_MARK) + '</span>' : '') +
       '</div>' +
       '</div>' +
       '<div class="dv2a-side-body">' +
@@ -11572,18 +11623,31 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       { id:'adhd-peds',label:'Peds ADHD', n:15, inst:'Vanderbilt' },
       { id:'migraine', label:'Migraine prevention', n:19, inst:'MIDAS' },
     ];
+    let cohortsFromApi = false;
     try {
       const cRes = await (api.listCohorts?.() || Promise.reject());
       if (cRes && Array.isArray(cRes.items) && cRes.items.length) {
+        cohortsFromApi = true;
         COHORTS.splice(0, COHORTS.length, ...cRes.items.map(c => ({ id:c.id, label:c.label, n:c.n||0, inst:c.instruments||'' })));
       }
     } catch {}
 
+    const cohortPlaceholder = !cohortsFromApi && !allowSampleQueueFallback;
+    const cohortDemoSizing = !cohortsFromApi && allowSampleQueueFallback;
+    const cohortSizeLabel = (n) => {
+      if (cohortPlaceholder) return '—';
+      return String(n);
+    };
+
     const active = COHORTS.find(c => c.id === cohortSel) || COHORTS[0];
+    const cohortBatchCap = () => {
+      if (cohortPlaceholder) return Math.min(queueRows.filter((r) => r.patientId).length, 12) || 0;
+      return active.n;
+    };
     const cohortListHtml = COHORTS.map(c =>
       '<div class="dv2a-cohort-card'+(c.id===active.id?' active':'')+'" onclick="window._assessPickCohort(\''+esc(c.id)+'\')">' +
         '<div style="font-size:12.5px;font-weight:600;color:var(--text-primary)">'+esc(c.label)+'</div>' +
-        '<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:4px">'+c.n+' patients · '+esc(c.inst)+'</div>' +
+        '<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:4px">'+(cohortPlaceholder ? '<span style="color:var(--amber,#ffb547);font-weight:600">Placeholder · </span>' : '')+(cohortDemoSizing ? '<span style="color:var(--amber,#ffb547);font-weight:600">Demo sizing · </span>' : '')+cohortSizeLabel(c.n)+' patients · '+esc(c.inst)+'</div>' +
       '</div>'
     ).join('');
 
@@ -11637,6 +11701,10 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         window._dsToast?.({ title:'Bulk assign failed', body:(err && err.message) || 'Network error. Saved locally.', severity:'error' });
       }
     };
+    const batchN = cohortBatchCap();
+    const batchBtnLabel = cohortPlaceholder
+      ? 'Batch send (from queue) →'
+      : ('Batch send to '+active.n+' →');
     // Cohort filter chips — wired to local state (instrument, time window).
     const cohortFilterInst = window._assessCohortInst || 'any';
     const cohortFilterWin  = window._assessCohortWin  || '30d';
@@ -11644,16 +11712,22 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
     window._assessCohortSetWin  = (v) => { window._assessCohortWin  = v; window._nav('assessments-v2'); };
     const cohortInstrumentOpts = ['any', ...cohortInst.length ? [cohortInst[0]] : []];
     const cohortWinOpts = ['7d', '30d', '90d', 'all'];
-    return '<div class="dv2a-filter-bar">' +
+    return (cohortPlaceholder
+      ? '<div role="note" style="margin:0 0 10px;padding:10px 14px;font-size:11.5px;color:var(--text-secondary);background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.3);border-radius:8px;line-height:1.5"><strong style="color:var(--amber,#ffb547)">Cohort sizes:</strong> Live cohort registry is unavailable — patient counts shown as placeholders only, not clinic census.</div>'
+      : '') +
+      (cohortDemoSizing && !cohortPlaceholder
+      ? '<div role="note" style="margin:0 0 10px;padding:10px 14px;font-size:11.5px;color:var(--text-secondary);background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.3);border-radius:8px;line-height:1.5"><strong style="color:var(--amber,#ffb547)">Demo cohort sizing:</strong> Patient counts are illustrative until <code style="font-size:10px">listCohorts</code> returns live data.</div>'
+      : '') +
+      '<div class="dv2a-filter-bar">' +
         cohortInstrumentOpts.map(v => '<button class="dv2a-chip'+(cohortFilterInst===v?' active':'')+'" onclick="window._assessCohortSetInst(\''+esc(v)+'\')">Instrument: '+esc(v)+'</button>').join('') +
         cohortWinOpts.map(v => '<button class="dv2a-chip'+(cohortFilterWin===v?' active':'')+'" onclick="window._assessCohortSetWin(\''+esc(v)+'\')">Window: '+esc(v)+'</button>').join('') +
-        '<div style="margin-left:auto"><button class="btn btn-primary btn-sm" onclick="window._ahBulkAssign(\''+esc(active.id)+'\',\''+esc(active.label)+'\','+active.n+',\''+esc(active.inst)+'\')">Batch send to '+active.n+' →</button></div>' +
+        '<div style="margin-left:auto"><button class="btn btn-primary btn-sm" onclick="window._ahBulkAssign(\''+esc(active.id)+'\',\''+esc(active.label)+'\','+batchN+',\''+esc(active.inst)+'\')">'+esc(batchBtnLabel)+'</button></div>' +
       '</div>' +
       '<div style="font-size:10.5px;color:var(--text-tertiary);margin:6px 2px 4px;line-height:1.5"><strong style="color:var(--amber,#ffb547)">Note:</strong> Batch send creates assignments and audit entries. SMS/email delivery requires a configured messaging integration; otherwise patients see assignments via the patient portal only.</div>' +
       '<div class="dv2a-cohort-grid">' +
         '<div style="display:flex;flex-direction:column;gap:8px">' + cohortListHtml + '</div>' +
         '<div class="dv2a-card">' +
-          '<div style="padding:12px 14px;border-bottom:1px solid var(--border)"><div style="font-size:13px;font-weight:600;color:var(--text-primary)">'+esc(active.label)+'</div><div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">'+active.n+' patients · '+esc(active.inst)+' · response status below</div></div>' +
+          '<div style="padding:12px 14px;border-bottom:1px solid var(--border)"><div style="font-size:13px;font-weight:600;color:var(--text-primary)">'+esc(active.label)+'</div><div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">'+(cohortPlaceholder ? '— patients · ' : active.n+' patients · ')+esc(active.inst)+' · response status below</div></div>' +
           '<table style="width:100%;border-collapse:collapse"><thead><tr style="background:rgba(255,255,255,0.02)"><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Patient</th><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Instrument</th><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Score</th><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Status</th><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Δ</th></tr></thead><tbody>' + tableRows + '</tbody></table>' +
         '</div>' +
       '</div>';
@@ -11695,7 +11769,12 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         '</div>' +
       '</div>';
     }).join('');
-    return '<div style="font-size:12px;color:var(--text-tertiary);margin-bottom:6px">Validated instruments across depression, anxiety, OCD, trauma, sleep, mania, pain, language, and QoL. <strong>Click a card to open its fillable form and compute the score on-platform.</strong></div>' +
+    return (usingSampleQueue
+      ? '<div role="note" style="margin-bottom:12px;padding:8px 12px;font-size:11px;font-weight:600;color:var(--amber,#ffb547);background:rgba(255,181,71,0.1);border:1px solid rgba(255,181,71,0.35);border-radius:8px">' +
+        esc(DEMO_ASSESSMENTS_BANNER_MARK) +
+        '</div>'
+      : '') +
+      '<div style="font-size:12px;color:var(--text-tertiary);margin-bottom:6px">Validated instruments across depression, anxiety, OCD, trauma, sleep, mania, pain, language, and QoL. <strong>Click a card to open its fillable form and compute the score on-platform.</strong></div>' +
       catBar +
       '<div class="dv2a-lib-grid">'+cards+'</div>';
   }
@@ -11764,6 +11843,10 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   }
 
   // ── Compose page ─────────────────────────────────────────────────────────────
+  const demoPageBanner = usingSampleQueue
+    ? '<div class="dv2a-demo-page-banner" role="banner">' + esc(DEMO_ASSESSMENTS_BANNER_MARK) + '</div>'
+    : '';
+
   let mainContent = '';
   let sideContent = '';
   if (tab === 'queue') {
@@ -11790,6 +11873,7 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
 
   el.innerHTML =
     '<div class="dv2a-shell">' +
+      demoPageBanner +
       '<div class="dv2a-tabs" role="tablist">' + tabBar() + '</div>' +
       '<div class="dv2a-body">' +
         '<div class="dv2a-main">' + mainContent + '</div>' +
@@ -11809,6 +11893,7 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       using_demo_data: usingDemoData,
       using_sample_queue: usingSampleQueue,
       assessments_list_fetch_failed: assessmentsListFetchFailed,
+      assessments_list_empty_ok: assessmentsListEmptyOk,
       ts: new Date().toISOString(),
     });
   } catch {}
