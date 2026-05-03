@@ -46,6 +46,7 @@ import {
 import { EVIDENCE_SUMMARY, CONDITION_EVIDENCE, getTopConditionsByPaperCount } from './evidence-dataset.js';
 import { PROTOCOL_LIBRARY, CONDITIONS as PROTO_CONDITIONS, DEVICES as PROTO_DEVICES } from './protocols-data.js';
 import { getEvidenceUiStats } from './evidence-ui-live.js';
+import { resolveRiskTrafficPatientName } from './clinical-dashboard-helpers.js';
 import {
   DEMO_PATIENT,
   DEMO_CLINICIAN_DASHBOARD,
@@ -1237,6 +1238,15 @@ export async function pgDash(setTopbar, navigate) {
   background:linear-gradient(90deg,rgba(155,127,255,0.12),rgba(74,158,255,0.08));
   border:1px solid rgba(155,127,255,0.28); border-radius:10px;
   font-size:12px; color:var(--text-secondary); }
+.dh2-safety-strip { padding:10px 14px; margin-bottom:14px; border-radius:10px;
+  border:1px solid rgba(0,212,188,0.22); background:rgba(0,212,188,0.06);
+  font-size:12px; color:var(--text-secondary); line-height:1.45; }
+.dh2-safety-strip strong { color:var(--text-primary); font-weight:600; }
+.dh2-safety-demo { color:var(--violet); font-weight:600; margin-left:6px; }
+.demo-badge,.studio-badge { display:inline-block; font-size:10px; font-weight:700; letter-spacing:0.5px; padding:2px 7px; border-radius:4px; }
+.studio-badge--live { background:rgba(0,212,188,0.12); color:var(--teal); }
+.studio-badge--offline { background:rgba(255,255,255,0.06); color:var(--text-secondary); border:1px solid var(--border); }
+.studio-badge--demo { background:rgba(155,127,255,0.22); color:var(--violet); }
 .dh2-demo-pill { font-size:10px; font-weight:800; letter-spacing:0.8px; text-transform:uppercase;
   background:rgba(155,127,255,0.22); color:var(--violet); padding:2px 8px; border-radius:4px; }
 .dh2-fail-banner { padding:8px 14px; margin-bottom:12px; background:rgba(245,158,11,0.08);
@@ -1423,7 +1433,7 @@ export async function pgDash(setTopbar, navigate) {
   const _greetWord = _hr < 12 ? 'Good morning' : _hr < 18 ? 'Good afternoon' : 'Good evening';
   const _userName = (currentUser?.display_name || currentUser?.email || 'Clinician').split(/[\s@]/)[0];
   const _todaySessions = activeCourses.length;
-  const _greetSub = `<strong style="color:var(--teal)">${_todaySessions} session${_todaySessions!==1?'s':''}</strong> in your active caseload · `
+  const _greetSub = `<strong style="color:var(--teal)">${_todaySessions} active course${_todaySessions!==1?'s':''}</strong> in your caseload · `
     + (pendingQueue.length > 0
         ? `<strong style="color:var(--amber)">${pendingQueue.length} item${pendingQueue.length!==1?'s':''}</strong> pending review`
         : `queue is clear`);
@@ -1435,6 +1445,15 @@ export async function pgDash(setTopbar, navigate) {
     <button class="dh2-launch-btn" style="margin-left:auto" onclick="window._nav('patients')">Add Patient →</button>
   </div>` : '';
   const _failBanner = _apiFailCount > 0 ? `<div class="dh2-fail-banner">&#9888; Some live data could not be loaded. Showing what we have.</div>` : '';
+  const _offlineBanner = (typeof navigator !== 'undefined' && navigator.onLine === false)
+    ? `<div class="dh2-fail-banner" role="status">&#9888; You appear offline. Clinic data may be stale until connection returns.</div>`
+    : '';
+
+  const _safetyStrip = `<div class="dh2-safety-strip" role="note">
+    <strong>Clinical decision support.</strong> Not for autonomous diagnosis or prescribing.
+    Outputs require clinician review and professional judgement.
+    ${_isDemo ? '<span class="dh2-safety-demo"> Sample patients only.</span>' : ''}
+  </div>`;
 
   // ── Page head: greeting + week tab + export ───────────────────────────────────
   const _pageHead = `<div class="dh2-page-head">
@@ -1443,13 +1462,13 @@ export async function pgDash(setTopbar, navigate) {
       <div class="dh2-greet-sub">${_greetSub}</div>
     </div>
     <div class="dh2-head-actions">
-      <div class="dh2-tabrow" role="tablist" aria-label="Time range">
-        <button role="tab" onclick="window._nav('clinic-day')">Day</button>
-        <button role="tab" class="dh2-active" aria-selected="true">Week</button>
-        <button role="tab" onclick="window._nav('reports-hub')">Month</button>
-        <button role="tab" onclick="window._nav('reports-hub')">Quarter</button>
+      <div class="dh2-tabrow" role="tablist" aria-label="Dashboard views">
+        <button type="button" role="tab" aria-selected="false" title="Open clinic day board (today&apos;s list)" onclick="window._nav('clinic-day')">Day board</button>
+        <button type="button" role="tab" class="dh2-active" aria-selected="true" title="This screen shows your operational week view">Week view</button>
+        <button type="button" role="tab" aria-selected="false" title="Open cohort reports (month)" onclick="window._nav('reports-hub')">Month reports</button>
+        <button type="button" role="tab" aria-selected="false" title="Open cohort reports (quarter)" onclick="window._nav('reports-hub')">Quarter reports</button>
       </div>
-      <button class="dh2-launch-btn" onclick="window._nav('reports-hub')">Export</button>
+      <button type="button" class="dh2-launch-btn" onclick="window._nav('reports-hub')">Export data</button>
     </div>
   </div>`;
 
@@ -1792,9 +1811,9 @@ export async function pgDash(setTopbar, navigate) {
         ${_riskPatSorted.slice(0, 8).map(p => {
           const catMap = {};
           (p.categories || []).forEach(c => { catMap[c.category] = c; });
-          const ptName = p.patient_name || patientMap[p.patient_id] ? ((patientMap[p.patient_id]?.first_name || '') + ' ' + (patientMap[p.patient_id]?.last_name || '')).trim() : p.patient_id;
+          const ptLabel = resolveRiskTrafficPatientName(p, patientMap);
           return `<div class="risk-traffic-row" onclick="window.openPatient('${_esc(p.patient_id)}')">
-            <div class="risk-traffic-name">${_esc(p.patient_name || ptName)}</div>
+            <div class="risk-traffic-name">${_esc(ptLabel)}</div>
             ${_riskCatOrder.map(cat => {
               const entry = catMap[cat] || { level: 'grey', confidence: 'no_data' };
               const lev = entry.override_level || entry.level;
@@ -1933,6 +1952,12 @@ export async function pgDash(setTopbar, navigate) {
   const _totalPapers = liveEvidence.totalPapers;
   const _totalTrials = liveEvidence.totalTrials;
   const _totalMeta   = liveEvidence.totalMetaAnalyses;
+  const _researchApiLive = liveEvidence.live === true;
+  const _studioBadge = _isDemo
+    ? { cls: 'studio-badge studio-badge--demo', txt: 'DEMO DATA' }
+    : (!_researchApiLive
+      ? { cls: 'studio-badge studio-badge--offline', txt: 'REGISTRY' }
+      : { cls: 'studio-badge studio-badge--live', txt: 'CONNECTED' });
   const _topCondByPapers = getTopConditionsByPaperCount ? getTopConditionsByPaperCount(6) : [];
   const _evGradeDist = Object.keys(liveEvidence.gradeDistribution || {}).length ? liveEvidence.gradeDistribution : (EVIDENCE_SUMMARY?.gradeDistribution || {});
   const _modDist = Object.keys(liveEvidence.modalityDistribution || {}).length ? liveEvidence.modalityDistribution : (EVIDENCE_SUMMARY?.modalityDistribution || {});
@@ -1951,9 +1976,9 @@ export async function pgDash(setTopbar, navigate) {
     <div class="dh2-card-hd">
       <div>
         <div class="dh2-card-title" style="display:flex;align-items:center;gap:8px">Protocol Studio
-          <span style="font-size:10px;font-weight:700;letter-spacing:0.5px;padding:2px 7px;border-radius:4px;background:rgba(0,212,188,0.12);color:var(--teal)">CONNECTED</span>
+          <span class="${_studioBadge.cls}">${_studioBadge.txt}</span>
         </div>
-        <div class="dh2-card-sub">${_totalPapers.toLocaleString()} evidence-backed research papers &middot; ${_protoCount} ${_liveTemplateRows.length ? 'live templates' : 'protocols'} &middot; ${_condCount} conditions</div>
+        <div class="dh2-card-sub">${_totalPapers.toLocaleString()} indexed papers &middot; ${_protoCount} protocol${_protoCount!==1?'s':''} &middot; ${_condCount} condition${_condCount!==1?'s':''}${!_researchApiLive && !_isDemo ? ' · bundled evidence index (research API unavailable)' : ''}</div>
       </div>
       <div class="dh2-card-actions">
         <button class="dh2-launch-btn primary" onclick="window._nav('protocol-hub')">Open Studio &rarr;</button>
@@ -2065,7 +2090,9 @@ export async function pgDash(setTopbar, navigate) {
   if (_abortCtrl.signal.aborted) { window.removeEventListener('hashchange', _onLeave); return; }
   el.innerHTML = `<div class="dh2-wrap">`
     + _demoBanner
+    + _offlineBanner
     + _failBanner
+    + _safetyStrip
     + _pageHead
     + _attentionStrip
     + _alertStrip
