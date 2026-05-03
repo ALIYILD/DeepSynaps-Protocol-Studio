@@ -211,3 +211,94 @@ def test_random_session_id_not_exposed(client: TestClient, auth_headers) -> None
     resp = _post_batch(client, auth_headers["clinician"], session_ids=[fake])
     assert resp.status_code == 200
     assert resp.json()["items"] == []
+
+
+def test_other_clinicians_course_omitted(client: TestClient, auth_headers) -> None:
+    """Clinician token cannot batch SIGN rows for a course owned by another clinician_id."""
+    h = auth_headers["clinician"]
+    patient_id = _create_patient(client, h)
+    session_id = str(uuid.uuid4())
+    course_id = f"course-{uuid.uuid4().hex[:8]}"
+    db = SessionLocal()
+    try:
+        _create_session_row(db, patient_id, session_id)
+        _create_course_and_log(
+            db,
+            patient_id,
+            course_id,
+            session_id,
+            clinician_id="other-clinician-not-demo",
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    resp = _post_batch(client, h, course_ids=[course_id], session_ids=[session_id])
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["items"] == []
+
+
+def test_admin_can_read_course_owned_by_peer(client: TestClient, auth_headers) -> None:
+    """Admin may request batch for another clinician's course (same as course list admin rule)."""
+    h = auth_headers["clinician"]
+    patient_id = _create_patient(client, h)
+    session_id = str(uuid.uuid4())
+    course_id = f"course-{uuid.uuid4().hex[:8]}"
+    db = SessionLocal()
+    try:
+        _create_session_row(db, patient_id, session_id)
+        _create_course_and_log(
+            db,
+            patient_id,
+            course_id,
+            session_id,
+            clinician_id="other-clinician-not-demo",
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    resp = _post_batch(client, auth_headers["admin"], course_ids=[course_id])
+    assert resp.status_code == 200, resp.text
+    assert len(resp.json()["items"]) == 1
+    assert resp.json()["items"][0]["sign_status"] == "pending"
+
+
+def test_review_event_sets_review_status(client: TestClient, auth_headers) -> None:
+    h = auth_headers["clinician"]
+    patient_id = _create_patient(client, h)
+    session_id = str(uuid.uuid4())
+    course_id = f"course-{uuid.uuid4().hex[:8]}"
+    db = SessionLocal()
+    try:
+        _create_session_row(db, patient_id, session_id)
+        _create_course_and_log(db, patient_id, course_id, session_id)
+        db.add(
+            ClinicalSessionEvent(
+                session_id=session_id,
+                clinician_id="actor-clinician-demo",
+                actor_id="actor-clinician-demo",
+                event_type="SIGN",
+                note="Signed",
+                payload_json="{}",
+            )
+        )
+        db.add(
+            ClinicalSessionEvent(
+                session_id=session_id,
+                clinician_id="actor-clinician-demo",
+                actor_id="actor-clinician-demo",
+                event_type="REVIEW",
+                note="Chart reviewed",
+                payload_json=json.dumps({"reviewed_by": "actor-clinician-demo"}),
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    resp = _post_batch(client, h, course_ids=[course_id])
+    assert resp.status_code == 200, resp.text
+    item = resp.json()["items"][0]
+    assert item["sign_status"] == "signed"
+    assert item["review_status"] == "reviewed"

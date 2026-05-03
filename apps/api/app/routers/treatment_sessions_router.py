@@ -23,6 +23,7 @@ from app.errors import ApiServiceError
 from app.persistence.models import ClinicalSession, ClinicalSessionEvent, DeliveredSessionParameters, TreatmentCourse
 from app.repositories.patients import resolve_patient_clinic_id
 from app.repositories.treatment_courses import get_treatment_course
+
 router = APIRouter(prefix="/api/v1/treatment-sessions", tags=["Treatment Sessions"])
 
 MAX_COURSE_IDS = 100
