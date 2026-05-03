@@ -61,6 +61,22 @@ function _isDemoSession() {
   } catch { return false; }
 }
 
+/**
+ * Assessments v2 sample queue (MOCK_QUEUE) may load only in preview/demo sessions:
+ * build flag VITE_ENABLE_DEMO=1 (or Vite dev) **and** a *-demo-token session.
+ * Production clinic deployments (demo flag off, or real JWT) never use fictitious rows.
+ */
+export function isAssessmentsDemoPreviewSession() {
+  try {
+    const demoBuild = import.meta.env?.DEV === true || import.meta.env?.VITE_ENABLE_DEMO === '1';
+    if (!demoBuild) return false;
+    const t = getToken();
+    return !!(t && String(t).endsWith('-demo-token'));
+  } catch {
+    return false;
+  }
+}
+
 // ── Demo inbox items (shared between inbox + digest shims) ──────────────────
 const _DEMO_INBOX_ITEMS = [
   { event_id: 'demo-inbox-1', surface: 'adherence_events', event_type: 'adherence.missed_session', note: 'Patient missed 3rd consecutive NFB session. Protocol requires escalation after 2 consecutive misses.', actor_id: 'system', patient_id: 'demo-pt-samantha-li', created_at: new Date(Date.now() - 3600000).toISOString(), is_acknowledged: false, is_demo: true },

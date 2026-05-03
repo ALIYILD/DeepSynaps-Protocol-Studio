@@ -2,7 +2,7 @@
 // pages-clinical-hubs.js — Hub/container pages (code-split)
 // Patient Hub · Clinical Hub · Protocol Hub · Scheduling Hub · etc.
 // ─────────────────────────────────────────────────────────────────────────────
-import { api } from './api.js';
+import { api, isAssessmentsDemoPreviewSession } from './api.js';
 import { tag, spinner, emptyState } from './helpers.js';
 import { currentUser } from './auth.js';
 import { renderBrainMap10_20 } from './brain-map-svg.js';
@@ -10242,7 +10242,7 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
     const syncLbl = c.lastSync ? ' · synced ' + new Date(c.lastSync).toLocaleTimeString() : '';
     setTopbar(
       'Assessments',
-      '<span id="dv2a-demo-chip" style="display:none;font-size:10px;font-weight:700;color:var(--amber,#ffb547);background:rgba(255,181,71,0.14);border:1px solid rgba(255,181,71,0.35);padding:2px 8px;border-radius:999px;margin-right:8px;letter-spacing:0.04em">DEMO DATA</span>' +
+      '<span id="dv2a-demo-chip" style="display:none;font-size:10px;font-weight:700;color:var(--amber,#ffb547);background:rgba(255,181,71,0.14);border:1px solid rgba(255,181,71,0.35);padding:2px 8px;border-radius:999px;margin-right:8px;letter-spacing:0.04em">SAMPLE DATA · preview only</span>' +
       '<span id="dv2a-counts" style="font-size:11px;color:var(--text-tertiary);margin-right:10px">' +
         c.instruments + ' instruments · ' +
         '<strong style="color:var(--rose)">' + c.redFlags + ' red flag' + (c.redFlags===1?'':'s') + '</strong> · ' +
@@ -10501,8 +10501,12 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   // Hydrate queue from backend, transforming records into the Queue row shape.
   // Port of the legacy `hydrate()` in pages-clinical-tools.js — preserves backend
   // ids so Submit/Approve/Score later can round-trip.
-  let queueRows = MOCK_QUEUE;
-  let usingDemoData = true;
+  let queueRows = [];
+  let usingDemoData = false;
+  /** True when MOCK_QUEUE is shown (Netlify preview demo-token only). Not used for real JWT sessions. */
+  let usingSampleQueue = false;
+  let assessmentsListFetchFailed = false;
+  const allowSampleQueueFallback = isAssessmentsDemoPreviewSession();
   try {
     const apiRes = await (api.listAssessments?.() || Promise.reject());
     const items = Array.isArray(apiRes) ? apiRes : ((apiRes && apiRes.items) || []);
@@ -10512,10 +10516,20 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         .map((a, i) => mapApiAssessmentToQueueRow(a, i, scoringEngine, ASSESS_REGISTRY));
       if (merged.length) {
         queueRows = merged;
-        usingDemoData = false;
       }
+    } else if (allowSampleQueueFallback) {
+      queueRows = MOCK_QUEUE;
+      usingDemoData = true;
+      usingSampleQueue = true;
     }
-  } catch {}
+  } catch {
+    assessmentsListFetchFailed = true;
+    if (allowSampleQueueFallback) {
+      queueRows = MOCK_QUEUE;
+      usingDemoData = true;
+      usingSampleQueue = true;
+    }
+  }
 
   // Compute real counts from hydrated rows and update the topbar.
   const _ahCounts = () => {
@@ -10527,10 +10541,10 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   window._ahLastSync = window._ahLastSync || new Date().toISOString();
   _setAssessTopbar(_ahCounts());
 
-  // Reveal DEMO chip now that load has settled.
+  // Reveal sample-data chip only when MOCK_QUEUE is active (demo preview session).
   setTimeout(() => {
     const chip = document.getElementById('dv2a-demo-chip');
-    if (chip) chip.style.display = usingDemoData ? 'inline-block' : 'none';
+    if (chip) chip.style.display = usingSampleQueue ? 'inline-block' : 'none';
   }, 0);
 
   // Selected row: keep prior selection when valid; otherwise first queue row (no fake default).
@@ -11245,6 +11259,22 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       window._assessCycleSort = () => { const cur = window._assessSort || 'due-asc'; const next = _SORTS[(_SORTS.indexOf(cur)+1) % _SORTS.length]; window._assessSort = next; window._nav('assessments-v2'); };
     }
 
+    const emptyBanner =
+      queueRows.length === 0
+        ? '<div role="status" style="padding:28px 20px;text-align:center;border-bottom:1px solid var(--border)">' +
+          '<div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:8px">No assessments in queue</div>' +
+          '<div style="font-size:11.5px;color:var(--text-tertiary);line-height:1.55;max-width:520px;margin:0 auto">' +
+          (assessmentsListFetchFailed
+            ? 'Could not load assessments from the server. Check your connection and API configuration (<code style="font-size:10px">VITE_API_BASE_URL</code>), then use Refresh.'
+            : 'There are no assessment assignments yet for your clinic, or none match the current filters. Use <strong>+ New assessment</strong> or the <strong>Library</strong> tab to assign an instrument.') +
+          '</div>' +
+          '<div style="margin-top:14px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">' +
+          '<button type="button" class="btn btn-primary btn-sm" onclick="window._assessNew()">Open library</button>' +
+          '<button type="button" class="btn btn-ghost btn-sm" onclick="window._ahRefresh()">Refresh</button>' +
+          '</div>' +
+          '</div>'
+        : '';
+
     const rowHtml = filtered.map(r => {
       const selected = r.id === selectedId;
       const rowCls = 'dv2a-queue-row'+(r.redflag?' redflag':'')+(r.overdue?' overdue':'')+(selected?' selected':'');
@@ -11274,6 +11304,7 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
 
     return kpiHtml + chipHtml +
       '<div class="dv2a-card">' +
+        emptyBanner +
         '<div class="dv2a-queue-head"><div></div><div>Patient</div><div>Instrument</div><div>Last score · severity</div><div>Trend (course)</div><div>Due</div><div>Send via</div><div></div></div>' +
         rowHtml +
         '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;font-size:11px;color:var(--text-tertiary);border-top:1px solid var(--border)">'+
@@ -11485,7 +11516,7 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       (row.max != null ? '/' + esc(String(row.max)) : '') +
       '</span>' +
       (row.redflag ? '<span class="dv2a-chip-sm rose">Safety review · flagged</span>' : '') +
-      (usingDemoData ? '<span class="dv2a-chip-sm amber">Demo queue</span>' : '') +
+      (usingSampleQueue ? '<span class="dv2a-chip-sm amber">Sample queue · preview</span>' : '') +
       '</div>' +
       '</div>' +
       '<div class="dv2a-side-body">' +
@@ -11776,6 +11807,8 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       tab,
       counts: _ahCounts(),
       using_demo_data: usingDemoData,
+      using_sample_queue: usingSampleQueue,
+      assessments_list_fetch_failed: assessmentsListFetchFailed,
       ts: new Date().toISOString(),
     });
   } catch {}
