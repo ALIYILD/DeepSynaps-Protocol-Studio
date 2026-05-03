@@ -25,6 +25,7 @@ import { ASSESS_REGISTRY } from './registries/assess-instruments-registry.js';
 import { EVIDENCE_SUMMARY, CONDITION_EVIDENCE, getConditionEvidence } from './evidence-dataset.js';
 import { PROTOCOL_LIBRARY, CONDITIONS as PROTO_CONDITIONS, DEVICES as PROTO_DEVICES, getProtocolsByCondition } from './protocols-data.js';
 import { DEMO_PATIENT_ROSTER } from './patient-dashboard-helpers.js';
+import { canAccessPatientRegistry } from './patient-registry-access.js';
 import { VOICE_DECISION_SUPPORT_SHORT, voiceApiErrorToast } from './voice-decision-support.js';
 import {
   assessmentDetailIdFromRow,
@@ -296,8 +297,25 @@ export async function pgPatientHub(setTopbar, navigate) {
   // count comes from the API. No client-side slicing of a pre-fetched full
   // cohort, no fake aggregates, no placeholder onClicks.
   if (tab === 'patients') {
+    if (!canAccessPatientRegistry(currentUser)) {
+      setTopbar('Patients', '');
+      el.innerHTML = `
+      <div class="ch-shell">
+        <div class="ch-tab-bar">${tabBar()}</div>
+        <div class="ch-card" style="max-width:560px;margin:24px auto;padding:28px;text-align:center;border:1px solid var(--border);border-radius:14px;background:var(--bg-card)">
+          <div style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Patient registry requires a clinical account</div>
+          <p style="font-size:13px;line-height:1.5;color:var(--text-secondary);margin:0 0 18px">
+            This area lists identifiable clinic patients and is restricted to licensed clinical staff.
+            Sign in with a clinician or administrator account to continue.
+          </p>
+          <button type="button" class="btn btn-primary btn-sm" onclick="typeof window.showLogin==='function'&&window.showLogin()">Sign in</button>
+        </div>
+      </div>`;
+      return;
+    }
+
     const canAdd = ['clinician','admin','clinic-admin','supervisor'].includes(currentUser?.role);
-    const _twinBtn = '<button class="btn btn-sm btn-ghost" onclick="window._nav(\'deeptwin\')" title="Open the patient intelligence hub" style="margin-right:6px">🧠 DeepTwin</button>';
+    const _twinBtn = '<button class="btn btn-sm btn-ghost" onclick="window._nav(\'deeptwin\')" title="AI-assisted patient intelligence (decision support — requires clinician review)" style="margin-right:6px">🧠 DeepTwin</button>';
     setTopbar('Patients',
       _twinBtn + (canAdd
         ? '<button class="btn btn-primary btn-sm" onclick="window.showAddPatient()">+ Add patient</button>' +
@@ -424,14 +442,16 @@ export async function pgPatientHub(setTopbar, navigate) {
       const pid = esc(p?.id || '');
       const stop = 'event.stopPropagation();';
       return '<div class="ds-pt-actions" role="group" aria-label="Patient quick actions">' +
-        '<button type="button" class="ds-pt-action" data-action="start-session" title="Start session" aria-label="Start session" ' +
+        '<button type="button" class="ds-pt-action" data-action="open-chart" title="Open patient profile" aria-label="Open patient profile" ' +
+          'onclick="' + stop + 'window._phOpenChart(\'' + pid + '\')">📂</button>' +
+        '<button type="button" class="ds-pt-action" data-action="analytics" title="Patient analytics (decision support)" aria-label="Open analytics" ' +
+          'onclick="' + stop + 'window._phOpenAnalytics(\'' + pid + '\')">▤</button>' +
+        '<button type="button" class="ds-pt-action" data-action="start-session" title="Start or schedule session" aria-label="Start session" ' +
           'onclick="' + stop + 'window._phStartSession(\'' + pid + '\')">▶</button>' +
         '<button type="button" class="ds-pt-action" data-action="quick-note" title="Quick note" aria-label="Quick note" ' +
           'onclick="' + stop + 'window._phQuickNote(\'' + pid + '\')">✎</button>' +
-        '<button type="button" class="ds-pt-action" data-action="message" title="Message" aria-label="Message" ' +
+        '<button type="button" class="ds-pt-action" data-action="message" title="Message patient" aria-label="Message" ' +
           'onclick="' + stop + 'window._phMessage(\'' + pid + '\')">✉</button>' +
-        '<button type="button" class="ds-pt-action" data-action="open-chart" title="Open chart" aria-label="Open chart" ' +
-          'onclick="' + stop + 'window._phOpenChart(\'' + pid + '\')">📂</button>' +
       '</div>';
     }
 
@@ -652,11 +672,20 @@ export async function pgPatientHub(setTopbar, navigate) {
     // Current server response state (re-populated on every fetch).
     let _currentSummary = null;
     let _currentList = { items: [], total: 0 };
+    let _registrySummaryFailed = false;
+    let _registryListFailed = false;
+    let _registryUsingDemoData = false;
+
+    function _registryDemoMode() {
+      return import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
+    }
 
     async function fetchSummary() {
+      _registrySummaryFailed = false;
       try {
         _currentSummary = await api.getPatientsCohortSummary();
       } catch (err) {
+        _registrySummaryFailed = true;
         // Cohort summary is additive; if it 404s on older servers, fall back
         // to zeroed counts so the layout still renders.
         _currentSummary = {
@@ -673,8 +702,9 @@ export async function pgPatientHub(setTopbar, navigate) {
           },
         };
       }
-      // Demo mode: seed summary with plausible demo KPIs when API returns empty
-      const _demoOk = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
+      // Demo / preview: seed summary with sample KPIs only when the API
+      // returns empty and demo mode is on (not a substitute for real metrics).
+      const _demoOk = _registryDemoMode();
       if (_demoOk && _currentSummary && (_currentSummary.total === 0 || !_currentSummary.total)) {
         const n = DEMO_PATIENT_ROSTER.length;
         const activeN = DEMO_PATIENT_ROSTER.filter(p => p.status === 'active').length;
@@ -703,14 +733,17 @@ export async function pgPatientHub(setTopbar, navigate) {
         limit: PAGE_SIZE,
         offset: Math.max(0, (s.page - 1) * PAGE_SIZE),
       };
+      _registryListFailed = false;
       try {
         _currentList = await api.listPatients(params);
       } catch (err) {
+        _registryListFailed = true;
         _currentList = { items: [], total: 0 };
       }
-      // Demo mode: seed with demo roster when API returns empty
-      const _demoOk = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
-      if (_demoOk && (!_currentList?.items?.length)) {
+      // Demo / preview: show labelled sample patients only when the API fails or returns empty.
+      const _demoOk = _registryDemoMode();
+      const empty = !(_currentList?.items?.length);
+      if (_demoOk && empty) {
         _currentList = { items: [...DEMO_PATIENT_ROSTER], total: DEMO_PATIENT_ROSTER.length };
       }
     }
@@ -728,27 +761,78 @@ export async function pgPatientHub(setTopbar, navigate) {
       const activeCount = k.active_courses || 0;
       const delta7 = k.active_courses_delta_7d || 0;
       const responderPct = k.responder_rate_pct;
+      const demoHint = _registryUsingDemoData
+        ? '<div class="d2p7-kpi-demo-hint">Sample metrics — connect API for clinic data</div>'
+        : '';
       return (
         '<div class="d2p7-kpi"><div class="d2p7-kpi-lbl"><span class="dot"></span>Active course</div>' +
           '<div class="d2p7-kpi-num">' + activeCount + '</div>' +
           '<div class="d2p7-kpi-delta ' + (delta7>0?'up':'') + '">' +
             (delta7>0 ? ('↑ ' + delta7 + ' this week') : (activeCount ? (activeCount + ' active') : 'No active courses')) +
-          '</div></div>' +
+          '</div>' + demoHint + '</div>' +
         '<div class="d2p7-kpi"><div class="d2p7-kpi-lbl blue"><span class="dot"></span>Avg response (PHQ-9 Δ)</div>' +
           '<div class="d2p7-kpi-num">' + phqSigned + '<span class="unit">pts</span></div>' +
           '<div class="d2p7-kpi-delta ' + (phqVal && Number(phqVal)<0 ? 'up' : '') + '">' +
             (responderPct != null ? ('Responder rate ' + Math.round(responderPct) + '%')
                                   : (phqN ? (phqN + ' scored') : 'No data')) +
-          '</div></div>' +
+          '</div>' + demoHint + '</div>' +
         '<div class="d2p7-kpi"><div class="d2p7-kpi-lbl violet"><span class="dot"></span>Homework adherence</div>' +
           '<div class="d2p7-kpi-num">' + (adh != null ? Math.round(adh) : '—') + (adh != null ? '<span class="unit">%</span>' : '') + '</div>' +
-          '<div class="d2p7-kpi-delta">' + (adhN ? ('across ' + adhN + ' patients') : 'No data') + '</div></div>' +
+          '<div class="d2p7-kpi-delta">' + (adhN ? ('across ' + adhN + ' patients') : 'No data') + '</div>' + demoHint + '</div>' +
         '<div class="d2p7-kpi"><div class="d2p7-kpi-lbl amber"><span class="dot"></span>Needs follow-up</div>' +
           '<div class="d2p7-kpi-num">' + follow + '</div>' +
           '<div class="d2p7-kpi-delta ' + (followOver ? 'down' : '') + '">' +
-            (followOver ? (followOver + ' overdue >7d') : (follow ? 'On track' : 'All on track')) +
-          '</div></div>'
+            (followOver ? (followOver + ' overdue >7d') : (follow ? 'On track' : (_registryUsingDemoData ? 'No overdue (sample)' : 'None flagged'))) +
+          '</div>' + demoHint + '</div>'
       );
+    }
+
+    function renderRegistryAlertBanner() {
+      const host = document.getElementById('ds-pt-registry-banner');
+      if (!host) return;
+      if (_registryListFailed && _registrySummaryFailed && !_registryDemoMode()) {
+        host.innerHTML = '<div class="ds-pt-alert ds-pt-alert--error" role="alert">Could not load patient data. Check your connection and sign-in, then retry.</div>';
+        host.style.display = 'block';
+        return;
+      }
+      if (_registryUsingDemoData && _registryDemoMode()) {
+        host.innerHTML = '<div class="ds-pt-alert ds-pt-alert--demo" role="status">' +
+          '<strong>Preview data</strong> — roster and KPIs may be sample values. Sign in to the API for your clinic cohort. ' +
+          'This registry is for clinician review and navigation; it does not diagnose or approve treatment.</div>';
+        host.style.display = 'block';
+        return;
+      }
+      host.innerHTML = '';
+      host.style.display = 'none';
+    }
+
+    function patientUsesDemoContext(pid) {
+      const p = (_currentList?.items || []).find(x => x.id === pid);
+      return !!(_registryUsingDemoData || (p && isDemoSeed(p)));
+    }
+
+    function modLinksHtml(p) {
+      const pid = esc(p?.id || '');
+      const stop = 'event.stopPropagation();';
+      const hint = (_registryUsingDemoData || isDemoSeed(p)) ? ' — demo preview, clinician review required' : '';
+      function mk(page, label, audit) {
+        return '<button type="button" class="ds-pt-modlink" title="' + esc(label + hint) + '" ' +
+          'onclick="' + stop + 'window._phNavigatePatientModule(\'' + pid + '\',\'' + page + '\',\'' + audit + '\')">' +
+          esc(label) + '</button>';
+      }
+      return '<div class="ds-pt-modstrip" role="toolbar" aria-label="Linked modules">' +
+        mk('qeeg-analysis', 'qEEG', 'registry_open_qeeg') +
+        mk('mri-analysis', 'MRI', 'registry_open_mri') +
+        mk('video-assessments', 'Video', 'registry_open_video') +
+        mk('wearables', 'Bio', 'registry_open_wearables') +
+        mk('text-analyzer', 'Text', 'registry_open_text') +
+        mk('deeptwin', 'Twin', 'registry_open_deeptwin') +
+        mk('documents-v2', 'Docs', 'registry_open_documents') +
+        mk('schedule-v2', 'Sched', 'registry_open_schedule') +
+        mk('clinician-inbox', 'Inbox', 'registry_open_inbox') +
+        mk('protocol-studio', 'Protocol', 'registry_open_protocol') +
+        mk('assessments-v2', 'Assess', 'registry_open_assessments') +
+      '</div>';
     }
 
     function renderBreadcrumb() {
@@ -812,6 +896,7 @@ export async function pgPatientHub(setTopbar, navigate) {
       const density = window._phState.density === 'comfortable' ? 'comfortable' : 'compact';
       out.classList.toggle('ds-density-compact', density === 'compact');
       out.classList.toggle('ds-density-comfortable', density === 'comfortable');
+      renderRegistryAlertBanner();
       if (!items.length) {
         out.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary)">' +
           (window._phState.q || window._phState.status !== 'all' || window._phState.activeQuickFilter !== 'all'
@@ -834,9 +919,12 @@ export async function pgPatientHub(setTopbar, navigate) {
           // Inline action icons (4-icon strip) replace the previous open buttons,
           // but the 📂 icon still navigates to the original chart route — no
           // existing function lost. Demo patients render with seeded telemetry.
-          return '<div class="queue-row pt-row ds-pt-row' + (isFocused ? ' ds-pt-row--focus' : '') + '" data-row-idx="' + idx + '" data-pid="' + esc(p.id) + '" ' +
-            'style="grid-template-columns:1.8fr 1.1fr 1fr 1fr 1fr 160px" ' +
-            'onclick="window._phState.selectedRowIndex=' + idx + ';window._paPatientId=\'' + esc(p.id) + '\';window._selectedPatientId=\'' + esc(p.id) + '\';try{sessionStorage.setItem(\'ds_pat_selected_id\',\'' + esc(p.id) + '\')}catch(e){}window._nav(\'patient-analytics\')">' +
+          const highRisk = hasAdverseEvent(p) || p?.off_label_flag || p?.adverse_event_flag;
+          const rowExtra = (highRisk ? ' ds-pt-row--risk' : '') + (patientUsesDemoContext(p.id) ? ' ds-pt-row--democontext' : '');
+          return '<div class="ds-pt-patient-block' + (highRisk ? ' ds-pt-patient-block--risk' : '') + '">' +
+            '<div class="queue-row pt-row ds-pt-row' + rowExtra + (isFocused ? ' ds-pt-row--focus' : '') + '" data-row-idx="' + idx + '" data-pid="' + esc(p.id) + '" ' +
+            'style="grid-template-columns:1.8fr 1.1fr 1fr 1fr 1fr 200px" ' +
+            'onclick="window._phState.selectedRowIndex=' + idx + ';window._phState.selectedPatientId=\'' + esc(p.id) + '\';window._phOpenChart(\'' + esc(p.id) + '\')">' +
               '<div class="queue-pt"><div class="pt-av ' + av + '">' + esc(ini) + '</div>' +
                 '<div><div class="queue-pt-name">' + esc(name) + demoChip + (p.is_responder ? ' <span class="pl-responder-chip">Responder</span>' : '') + '</div>' +
                   '<div class="queue-pt-cond">' + statusPill(p) + '</div></div></div>' +
@@ -846,7 +934,9 @@ export async function pgPatientHub(setTopbar, navigate) {
               '<div>' + outcomeCell(p) + '</div>' +
               '<div>' + nextStepChip(p) + '</div>' +
               actionIcons(p) +
-            '</div>';
+            '</div>' +
+            '<div class="ds-pt-row-modules">' + modLinksHtml(p) + '</div>' +
+          '</div>';
         }).join('');
       }
 
@@ -877,6 +967,7 @@ export async function pgPatientHub(setTopbar, navigate) {
       const fr = document.getElementById('d2p7-filter-row');
       if (fr) fr.innerHTML = renderFilterRow();
       window._phRenderQuickFilters();
+      renderRegistryAlertBanner();
     }
 
     // Right-panel renderer: Today's Queue when nothing selected, otherwise a
@@ -899,12 +990,22 @@ export async function pgPatientHub(setTopbar, navigate) {
 
     async function refreshAll() {
       await Promise.all([fetchSummary(), fetchList()]);
+      _recomputeRegistryDemoFlag();
       renderHeader();
       renderList();
     }
 
+    function _recomputeRegistryDemoFlag() {
+      const items = _currentList?.items || [];
+      _registryUsingDemoData = _registryDemoMode() && (
+        _registryListFailed || _registrySummaryFailed ||
+        (items.length > 0 && items.every(p => isDemoSeed(p)))
+      );
+    }
+
     async function refreshListOnly() {
       await fetchList();
+      _recomputeRegistryDemoFlag();
       renderList();
     }
 
@@ -1089,11 +1190,50 @@ export async function pgPatientHub(setTopbar, navigate) {
       window._selectedPatientId = pid;
       window._profilePatientId = pid;
       try { sessionStorage.setItem('ds_pat_selected_id', pid); } catch {}
+      if (typeof api?.recordPatientProfileAuditEvent === 'function') {
+        api.recordPatientProfileAuditEvent(pid, {
+          event: 'registry_open_profile',
+          note: 'patients-v2',
+          using_demo_data: patientUsesDemoContext(pid),
+        }).catch(() => {});
+      }
       if (typeof window._nav === 'function') {
         window._nav('patient-profile');
       } else {
         _phToast('Chart unavailable (demo)', 'info');
       }
+    };
+
+    window._phOpenAnalytics = (pid) => {
+      window._paPatientId = pid;
+      window._selectedPatientId = pid;
+      window._profilePatientId = pid;
+      try { sessionStorage.setItem('ds_pat_selected_id', pid); } catch {}
+      if (typeof api?.recordPatientProfileAuditEvent === 'function') {
+        api.recordPatientProfileAuditEvent(pid, {
+          event: 'registry_open_analytics',
+          note: 'patients-v2',
+          using_demo_data: patientUsesDemoContext(pid),
+        }).catch(() => {});
+      }
+      if (typeof window._nav === 'function') window._nav('patient-analytics');
+      else _phToast('Analytics unavailable', 'warn');
+    };
+
+    window._phNavigatePatientModule = (pid, page, auditEvent) => {
+      window._selectedPatientId = pid;
+      window._profilePatientId = pid;
+      try { sessionStorage.setItem('ds_pat_selected_id', pid); } catch {}
+      const ev = auditEvent || 'registry_drill_out';
+      if (typeof api?.recordPatientProfileAuditEvent === 'function') {
+        api.recordPatientProfileAuditEvent(pid, {
+          event: ev,
+          note: 'patients-v2 → ' + String(page || ''),
+          using_demo_data: patientUsesDemoContext(pid),
+        }).catch(() => {});
+      }
+      if (typeof window._nav === 'function') window._nav(page);
+      else _phToast('Navigation unavailable', 'warn');
     };
 
     // ── Shortcuts overlay ──────────────────────────────────────────────────
@@ -1247,6 +1387,18 @@ export async function pgPatientHub(setTopbar, navigate) {
         .d2p7-kpi-delta { font-size:11px; color:var(--text-tertiary); margin-top:8px; display:inline-flex; align-items:center; gap:4px; padding:2px 6px; border-radius:4px; background:rgba(255,255,255,0.04); }
         .d2p7-kpi-delta.up   { color:var(--green);  background:rgba(74,222,128,0.10); }
         .d2p7-kpi-delta.down { color:var(--amber);  background:rgba(255,181,71,0.10); }
+        .d2p7-kpi-demo-hint { font-size:10px; color:var(--text-tertiary); margin-top:8px; line-height:1.35; }
+
+        /* Registry alerts + patient blocks */
+        .ds-pt-alert { padding:10px 14px; border-radius:10px; font-size:12.5px; line-height:1.45; color:var(--text-secondary); }
+        .ds-pt-alert--demo { background:rgba(255,181,71,0.10); border:1px solid rgba(255,181,71,0.35); }
+        .ds-pt-alert--error { background:rgba(176,52,52,0.10); border:1px solid rgba(176,52,52,0.35); color:var(--text-primary); }
+        .ds-pt-patient-block { margin-bottom:10px; border:1px solid var(--border); border-radius:12px; overflow:hidden; background:var(--bg-surface); }
+        .ds-pt-patient-block--risk { border-color:rgba(224,72,128,0.45); }
+        .ds-pt-row-modules { padding:8px 10px 10px; border-top:1px solid var(--border); background:rgba(255,255,255,0.02); }
+        .ds-pt-modstrip { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+        .ds-pt-modlink { font-size:10.5px; padding:4px 8px; border-radius:6px; border:1px solid var(--border); background:transparent; color:var(--text-secondary); cursor:pointer; font-family:inherit; line-height:1.2; }
+        .ds-pt-modlink:hover { border-color:var(--teal); color:var(--text-primary); }
 
         /* Table card */
         .d2p7-card { background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:8px 16px 16px; }
@@ -1392,6 +1544,8 @@ export async function pgPatientHub(setTopbar, navigate) {
         <!-- Quick-filter chip row (above the cohort tabs / facets / search). -->
         <div id="ds-pt-quickfilters">${quickFilterChipsHtml()}</div>
 
+        <div id="ds-pt-registry-banner" style="display:none;margin-bottom:12px" aria-live="polite"></div>
+
         <!-- Status tabs + facet filters + density toggle + ? -->
         <div style="display:flex;gap:12px;margin-bottom:18px;align-items:center;flex-wrap:wrap">
           <div id="d2p7-tabrow" class="d2p7-tabrow"></div>
@@ -1410,7 +1564,7 @@ export async function pgPatientHub(setTopbar, navigate) {
         <div class="ds-pt-shell">
           <div class="d2p7-card">
             <div style="overflow-x:auto">
-              <div style="min-width:860px">
+              <div style="min-width:920px">
                 <div class="queue-row head" style="grid-template-columns:1.8fr 1.1fr 1fr 1fr 1fr 160px">
                   <div>Patient</div><div>Protocol</div><div>Progress</div><div>Last outcome</div><div>Next step</div><div></div>
                 </div>
