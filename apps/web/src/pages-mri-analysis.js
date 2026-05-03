@@ -386,8 +386,10 @@ function _demoFusionSummary(patientId) {
     patient_id: patientId || 'demo-patient',
     qeeg_analysis_id: null,
     mri_analysis_id: DEMO_MRI_REPORT.analysis_id,
-    recommendations: ['MRI targeting is available. Add qEEG biomarkers to create a higher-confidence dual-modality plan.'],
-    summary: 'Partial fusion available from one modality only. Add qEEG data to strengthen target confidence.',
+    recommendations: [
+      'Demo fusion summary only. When qEEG is available in this workspace, dual-modality context can strengthen planning review — not treatment eligibility.',
+    ],
+    summary: 'Demo preview: single-modality context. Connect live qEEG analysis data for combined-modality decision support (requires clinician review).',
     confidence: 0.4,
     confidence_disclaimer: 'Confidence score is algorithmic heuristic and not evidence-graded clinical validation. Always review recommendations against patient-specific context.',
     confidence_grade: 'heuristic',
@@ -460,8 +462,13 @@ export function renderFusionSummaryCard(fusion, patientId) {
     ? '<div style="margin-top:10px;font-size:11px;color:var(--text-tertiary);line-height:1.5;border-left:2px solid var(--amber);padding-left:8px">'
         + esc(fusion.confidence_disclaimer) + '</div>'
     : '';
-  var workbenchLink = patientId
-    ? '<div style="margin-top:10px;"><a href="/fusion-workbench?patient_id=' + encodeURIComponent(patientId) + '" style="font-size:12px;color:var(--teal);text-decoration:none;">Open Fusion Workbench &rarr;</a></div>'
+  var workbenchBtn = patientId
+    ? '<div style="margin-top:10px">'
+      + '<button type="button" class="btn btn-sm btn-outline ds-mri-open-fusion-wb" data-patient-id="' + esc(patientId) + '">'
+      + 'Open Fusion Workbench</button>'
+      + '<span style="display:block;font-size:11px;color:var(--text-tertiary);margin-top:6px;line-height:1.45">'
+      + 'Draft multimodal review — not protocol approval or stimulation authorization.</span>'
+      + '</div>'
     : '';
   return card('Fusion summary',
     '<div style="font-size:13px;color:var(--text-primary);line-height:1.55">' + esc(fusion.summary || '') + '</div>'
@@ -474,7 +481,7 @@ export function renderFusionSummaryCard(fusion, patientId) {
         + '</ul>'
       : '')
     + disclaimerHtml
-    + workbenchLink
+    + workbenchBtn
   );
 }
 
@@ -1337,13 +1344,102 @@ function renderHero(patientAnalyses) {
   var compareBtn = renderCompareButton(patientAnalyses);
   return '<div class="qeeg-hero" style="background:linear-gradient(135deg,rgba(37,99,235,0.08),rgba(74,158,255,0.04));border-color:rgba(37,99,235,0.18)">'
     + '<div class="qeeg-hero__icon" style="background:rgba(37,99,235,0.14);color:#60a5fa">&#x1F9E0;</div>'
-    + '<div style="flex:1"><div class="qeeg-hero__title">MRI Analyzer</div>'
-    + '<div class="qeeg-hero__sub">Structural &middot; fMRI &middot; DTI &middot; MNI stim-target engine</div></div>'
+    + '<div style="flex:1"><div class="qeeg-hero__title">MRI analysis workspace</div>'
+    + '<div class="qeeg-hero__sub">Clinician-reviewed neuroimaging decision support &middot; structural / functional imaging context &middot; literature-linked planning aids</div></div>'
     + '<div>'
     + '<button class="btn btn-primary btn-sm" id="ds-mri-new-analysis">+ New analysis</button>'
     + compareBtn
     + '</div>'
     + '</div>';
+}
+
+/** Linked modules: SPA navigation only; handoffs are draft/review — never approval. */
+function renderMRILinkedModules(opts) {
+  opts = opts || {};
+  var pid = opts.patientId ? String(opts.patientId).trim() : '';
+  var report = opts.report || null;
+  var hasAnalysis = !!report;
+  var isDemoReport = hasAnalysis && report.analysis_id === DEMO_MRI_REPORT.analysis_id;
+
+  function mkBtn(page, label, req, extraTitle) {
+    var disabled = false;
+    var title = extraTitle || '';
+    if (req === 'patient' && !pid) {
+      disabled = true;
+      title = title || 'Enter a patient ID under Patient meta first';
+    } else if (req === 'analysis' && !hasAnalysis) {
+      disabled = true;
+      title = title || 'Run or load an MRI analysis before opening this handoff';
+    } else if (req === 'both') {
+      if (!pid) {
+        disabled = true;
+        title = title || 'Enter a patient ID under Patient meta first';
+      } else if (!hasAnalysis) {
+        disabled = true;
+        title = title || 'Run or load an MRI analysis before opening this handoff';
+      }
+    }
+    var attrs = 'type="button" class="btn btn-sm btn-outline ds-mri-link-nav"'
+      + ' data-page="' + esc(page) + '"';
+    if (pid) attrs += ' data-patient-id="' + esc(pid) + '"';
+    if (disabled) attrs += ' disabled';
+    if (title) attrs += ' title="' + esc(title) + '"';
+    return '<button ' + attrs + '>' + esc(label) + '</button>';
+  }
+
+  var note = '<p class="ds-mri-linked__intro">Jump to related clinic tools. Opens are for <strong>review and drafting</strong> only — not autonomous diagnosis, protocol approval, or stimulation authorization.'
+    + (isDemoReport && _isDemoMode()
+      ? ' <span class="ds-mri-linked__demo-label">Sample MRI report loaded (demo).</span>'
+      : '')
+    + '</p>';
+
+  var grid = '<div class="ds-mri-linked__grid" role="group" aria-label="Linked clinical modules">'
+    + '<div class="ds-mri-linked__cluster"><span class="ds-mri-linked__cluster-label">Patient &amp; record</span>'
+    + '<div class="ds-mri-linked__btns">'
+    + mkBtn('patient-profile', 'Patient profile', 'patient')
+    + mkBtn('documents-v2', 'Documents', 'patient')
+    + mkBtn('patient-timeline', 'Audit timeline', 'patient')
+    + '</div></div>'
+    + '<div class="ds-mri-linked__cluster"><span class="ds-mri-linked__cluster-label">Multimodal context</span>'
+    + '<div class="ds-mri-linked__btns">'
+    + mkBtn('qeeg-analysis', 'qEEG', 'patient')
+    + mkBtn('biomarkers', 'Biomarkers hub', 'patient')
+    + mkBtn('video-assessments', 'Video analysis', 'patient')
+    + mkBtn('voice-analyzer', 'Voice analysis', 'patient')
+    + mkBtn('text-analyzer', 'Text analysis', 'patient')
+    + mkBtn('wearables', 'Wearables / biometrics', 'patient')
+    + '</div></div>'
+    + '<div class="ds-mri-linked__cluster"><span class="ds-mri-linked__cluster-label">Planning handoffs (draft)</span>'
+    + '<div class="ds-mri-linked__btns">'
+    + mkBtn('brainmap-v2', 'Brain Map Planner', 'both')
+    + mkBtn('protocol-studio', 'Protocol Studio', 'both')
+    + mkBtn('deeptwin', 'DeepTwin', 'patient')
+    + mkBtn('fusion-workbench', 'Fusion workbench', 'patient')
+    + '</div></div>'
+    + '<div class="ds-mri-linked__cluster"><span class="ds-mri-linked__cluster-label">Operations</span>'
+    + '<div class="ds-mri-linked__btns">'
+    + mkBtn('clinician-inbox', 'Inbox', 'patient')
+    + mkBtn('schedule-v2', 'Schedule', 'patient')
+    + mkBtn('handbooks-v2', 'Handbooks', 'patient')
+    + mkBtn('live-session', 'Virtual care / live session', 'patient')
+    + '</div></div>'
+    + '</div>';
+
+  return card('Linked modules',
+    note + grid,
+    '',
+    'ds-mri-section-linked');
+}
+
+function _syncSelectedPatientFromMriForm() {
+  try {
+    var el = document.getElementById('ds-mri-pid');
+    var v = el && el.value ? String(el.value).trim() : '';
+    if (v) {
+      window._selectedPatientId = v;
+      window._profilePatientId = v;
+    }
+  } catch (_) { /* noop */ }
 }
 
 // ── Left column: session uploader ───────────────────────────────────────────
@@ -1768,11 +1864,12 @@ export function renderGlassBrain(report) {
     + '</div>';
 
   var caption = '<div class="ds-mri-glass-caption">'
-    + 'Real T1 slice with stim targets overlaid. Switch plane, scroll or use +/&minus; to zoom, drag to pan.'
+    + '<strong>MNI152 template slices</strong> with literature-derived target coordinates projected for orientation — '
+    + 'not the patient\'s own MRI volume. Switch plane, scroll or use +/&minus; to zoom, drag to pan.'
     + '</div>';
 
   return card(
-    'MRI target view',
+    'Atlas orientation (template)',
     '<div class="ds-mri-glass-wrap">' + planeTabs + toolbar + stage + caption + '</div>'
   );
 }
@@ -2566,6 +2663,7 @@ export function renderFullView(state) {
   return '<div class="ch-shell ds-mri-shell">'
     + renderDemoLiveBanner()
     + (showDemoBanner ? _mriDemoBanner() : '')
+    + renderMRILinkedModules({ patientId: state.patientId || null, report: report })
     + renderHero(state.patientAnalyses)
     + '<div class="ds-mri-layout">'
     + '<div class="ds-mri-col ds-mri-col--left">' + left + '</div>'
@@ -3079,8 +3177,62 @@ function _wireRightColumn(navigate) {
   var supportBtn = document.getElementById('ds-mri-support-btn');
   if (supportBtn) {
     supportBtn.addEventListener('click', function () {
-      console.log('Support contact initiated for MRI analysis failure');
+      if (typeof window._nav === 'function') {
+        window._nav('tickets');
+      } else {
+        showToast('Open Support / Tickets from the main navigation to log an issue.', 'info');
+      }
     });
+  }
+
+  document.querySelectorAll('.ds-mri-link-nav').forEach(function (btn) {
+    if (btn.dataset.mriLinkBound === '1') return;
+    btn.dataset.mriLinkBound = '1';
+    btn.addEventListener('click', function () {
+      if (btn.disabled) return;
+      var page = btn.getAttribute('data-page');
+      if (!page) return;
+      _syncSelectedPatientFromMriForm();
+      var extraPid = btn.getAttribute('data-patient-id');
+      if (extraPid && typeof window !== 'undefined') {
+        window._selectedPatientId = extraPid;
+        window._profilePatientId = extraPid;
+      }
+      if (typeof window._nav === 'function') {
+        window._nav(page);
+      } else {
+        showToast('Navigation unavailable in this context.', 'warning');
+      }
+    });
+  });
+
+  document.querySelectorAll('.ds-mri-open-fusion-wb').forEach(function (btn) {
+    if (btn.dataset.fusionWbBound === '1') return;
+    btn.dataset.fusionWbBound = '1';
+    btn.addEventListener('click', function () {
+      _syncSelectedPatientFromMriForm();
+      var pid = btn.getAttribute('data-patient-id');
+      if (pid && typeof window !== 'undefined') {
+        window._selectedPatientId = pid;
+        window._profilePatientId = pid;
+      }
+      if (typeof window._nav === 'function') {
+        window._nav('fusion-workbench');
+      } else {
+        showToast('Fusion Workbench navigation unavailable.', 'warning');
+      }
+    });
+  });
+
+  var pidInput = document.getElementById('ds-mri-pid');
+  if (pidInput && pidInput.dataset.patientSyncBound !== '1') {
+    pidInput.dataset.patientSyncBound = '1';
+    var syncPid = function () {
+      _syncSelectedPatientFromMriForm();
+      navigate('mri-analysis');
+    };
+    pidInput.addEventListener('change', syncPid);
+    pidInput.addEventListener('blur', syncPid);
   }
 
   // ── Brain Atlas Viewer toolbar buttons ──────────────────────────────────
@@ -3323,7 +3475,7 @@ function _openViewerPayloadModal(aid, payload) {
 // Main page entrypoint
 // ─────────────────────────────────────────────────────────────────────────────
 export async function pgMRIAnalysis(setTopbar, navigate) {
-  if (typeof setTopbar === 'function') setTopbar('MRI Analyzer', '');
+  if (typeof setTopbar === 'function') setTopbar('MRI analysis workspace', '');
   _registerPageCleanup();
 
   var flagOn = _mriFeatureFlagEnabled();
@@ -3333,7 +3485,7 @@ export async function pgMRIAnalysis(setTopbar, navigate) {
     if (el) {
       el.innerHTML = '<div class="ch-shell ds-mri-shell">'
         + '<div class="qeeg-hero"><div class="qeeg-hero__icon">&#x1F9E0;</div>'
-        + '<div><div class="qeeg-hero__title">MRI Analyzer</div>'
+        + '<div><div class="qeeg-hero__title">MRI analysis workspace</div>'
         + '<div class="qeeg-hero__sub">Disabled by feature flag.</div></div></div>'
         + renderRegulatoryFooter() + '</div>';
     }
@@ -3477,6 +3629,7 @@ export var _INTERNALS = {
   MODALITY_CLASS:    MODALITY_CLASS,
   MODALITY_DOT_COLOR: MODALITY_DOT_COLOR,
   synthesiseMedRAG:  _synthesiseMedRAGFromReport,
+  renderMRILinkedModules: renderMRILinkedModules,
   isDemoMode:        _isDemoMode,
   featureFlag:       _mriFeatureFlagEnabled,
   setReport:         function (r) { _report = r; },

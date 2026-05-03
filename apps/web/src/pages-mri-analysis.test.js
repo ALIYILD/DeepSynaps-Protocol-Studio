@@ -54,6 +54,7 @@ const {
   renderMRIPatientReport,
   renderMRIRegistrationQA,
   renderMRIPhiAudit,
+  renderMRILinkedModules,
 } = mod;
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
@@ -155,6 +156,36 @@ test('renderMedRAGPanel handles empty + non-empty inputs', () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
+// Linked modules strip — SPA handoffs, gated without patient / analysis
+// ═════════════════════════════════════════════════════════════════════════════
+test('renderMRILinkedModules disables Brain Map / Protocol without patient and analysis', () => {
+  const missingBoth = renderMRILinkedModules({ patientId: '', report: null });
+  assert.match(missingBoth, /Linked modules/);
+  assert.match(missingBoth, /data-page="brainmap-v2"/);
+  assert.match(missingBoth, /<button[^>]*data-page="brainmap-v2"[^>]*disabled/);
+  assert.match(missingBoth, /<button[^>]*data-page="protocol-studio"[^>]*disabled/);
+
+  const withPatientOnly = renderMRILinkedModules({ patientId: 'P-1', report: null });
+  assert.match(withPatientOnly, /data-page="qeeg-analysis"/);
+  assert.ok(!/data-page="qeeg-analysis"[^>]*\bdisabled\b/.test(withPatientOnly),
+    'qEEG link should be enabled once patient id is set');
+  assert.match(withPatientOnly, /data-page="brainmap-v2"[^>]*\bdisabled\b/,
+    'Brain Map stays disabled until an analysis report exists');
+
+  const full = renderMRILinkedModules({ patientId: 'P-1', report: DEMO_MRI_REPORT });
+  assert.ok(!/data-page="brainmap-v2"[^>]*\bdisabled\b/.test(full),
+    'Brain Map enables when patient + analysis exist');
+  assert.ok(!/data-page="protocol-studio"[^>]*\bdisabled\b/.test(full));
+});
+
+test('renderGlassBrain uses template / MNI labelling, not patient slice claim', () => {
+  const html = renderGlassBrain(DEMO_MRI_REPORT);
+  assert.match(html, /MNI152 template/);
+  assert.match(html, /Atlas orientation/);
+  assert.ok(!/Real T1 slice/i.test(html));
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
 // Regulatory footer appears on every view
 // ═════════════════════════════════════════════════════════════════════════════
 test('regulatory footer appears in every rendered view', () => {
@@ -168,6 +199,7 @@ test('regulatory footer appears in every rendered view', () => {
   assert.match(emptyView, /ds-mri-footer-regulatory/);
   assert.match(emptyView, /Decision-support tool\. Not a medical device\./);
   assert.match(emptyView, /What appears after run/);
+  assert.match(emptyView, /Linked modules/);
 
   // 3. Full view with demo report
   const loadedView = renderFullView({ report: DEMO_MRI_REPORT });
