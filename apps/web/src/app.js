@@ -563,7 +563,7 @@ const NAV = [
 
   // ── MARKETPLACE — devices, agents, apps & learning ──────────────────────────
   { section: 'Marketplace', sectionId: 'marketplace-section', collapsed: false },
-  { id: 'monitor',            label: 'Devices',           icon: '🔌' },
+  { id: 'monitor',            label: 'Monitor',           icon: '⌚' },
   { id: 'ai-agent-v2',        label: 'AI Agents',         icon: '🤖', ai: true },
   { id: 'marketplace',        label: 'Marketplace',       icon: '🛒' },
   { id: 'academy',            label: 'Academy',           icon: '🎓' },
@@ -1000,7 +1000,7 @@ function loadingDone() {
 
 // ── Page id → human-readable title map (for screen-reader announcements) ──────
 const PAGE_TITLES = {
-  dashboard: 'Dashboard', patients: 'Patients', profile: 'Profile', monitor: 'Devices',
+  dashboard: 'Dashboard', patients: 'Patients', profile: 'Profile', monitor: 'Monitor',
   courses: 'Treatment Courses', 'course-detail': 'Course Detail',
   'session-execution': 'Session Execution', 'review-queue': 'Clinical Review & Approvals',
   'protocol-wizard': 'Protocol Intelligence', 'protocols-registry': 'Protocol Registry',
@@ -1682,7 +1682,7 @@ async function renderPage() {
     }
     case 'telehealth-recorder': { const m = await loadPractice(); await m.pgTelehealthRecorder(setTopbar); break; }
     case 'monitoring': { window._devicesPresetTab = 'live'; navigate('monitor'); break; }
-    case 'wearables':  { window._devicesPresetTab = 'control-center'; window._devicesPresetCategory = 'wearable'; navigate('monitor'); break; }
+    case 'wearables':  { window._devicesPresetTab = 'biometrics'; navigate('monitor'); break; }
     case 'library-hub':    { window._resEvidenceTab = 'search'; window._nav('research-evidence'); break; }
     case 'monitor-hub':    { const { pgMonitorHub }    = await loadClinicalHubs(); await pgMonitorHub(setTopbar, navigate);    break; }
     case 'virtual-care-hub':{ const { pgVirtualCareHub } = await loadClinicalHubs(); await pgVirtualCareHub(setTopbar, navigate); break; }

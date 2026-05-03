@@ -165,7 +165,8 @@ function pagesMonitorSrc() {
 
 test('Source contract: pages-monitor wires the wearables-workbench tab', () => {
   const src = pagesMonitorSrc();
-  // The new tab id must be in the validTabs set.
+  // The workbench tab id must be registered in VALID_TABS.
+  assert.ok(src.includes('VALID_TABS'));
   assert.ok(src.includes("'wearables-workbench'"));
   // Render path must invoke the workbench renderer.
   assert.ok(src.includes('renderWorkbench'));
