@@ -4011,7 +4011,7 @@ export async function pgProtocolHub(setTopbar, navigate) {
       window._psLastGenPayload = {
         kind: 'personalized',
         condition: payload.condition,
-        modality: (devEl && devEl.value.trim()) ? devEl.value.trim() : 'tDCS',
+        modality: 'tDCS',
         device: (devEl && devEl.value.trim()) || '',
         evidence_threshold: 'Systematic Review',
         off_label: false,
