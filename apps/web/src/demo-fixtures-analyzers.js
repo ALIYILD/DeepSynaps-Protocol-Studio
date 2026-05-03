@@ -3,21 +3,21 @@ import { isDemoSession } from './demo-session.js';
 const DEMO_PATIENTS = Object.freeze([
   Object.freeze({
     id: 'demo-pt-samantha-li',
-    name: 'Samantha Li',
+    name: 'Demo Patient A (synthetic)',
     age: 33,
     sex: 'F',
     presenting: 'Major Depressive Disorder · 6mo persistent low mood, anhedonia',
   }),
   Object.freeze({
     id: 'demo-pt-marcus-chen',
-    name: 'Marcus Chen',
+    name: 'Demo Patient B (synthetic)',
     age: 40,
     sex: 'M',
     presenting: 'Generalized Anxiety Disorder · sleep-onset insomnia, somatic tension',
   }),
   Object.freeze({
     id: 'demo-pt-elena-vasquez',
-    name: 'Elena Vasquez',
+    name: 'Demo Patient C (synthetic)',
     age: 47,
     sex: 'F',
     presenting: 'Chronic pain (Fibromyalgia) · refractory to first-line pharmacology',
@@ -29,7 +29,7 @@ export const DEMO_PATIENT_PERSONAS = DEMO_PATIENTS;
 const _MRI = {
   ok: true,
   analysis_id: 'demo-mri-samantha-li',
-  patient: { patient_id: 'demo-pt-samantha-li', name: 'Samantha Li', age: 33, sex: 'F' },
+  patient: { patient_id: 'demo-pt-samantha-li', name: 'Demo Patient A (synthetic)', age: 33, sex: 'F' },
   acquired_at: '2026-04-22T09:14:00Z',
   modality: 'T1w + T2 FLAIR',
   scanner: 'Siemens Prisma 3T',
@@ -62,7 +62,7 @@ const _MRI = {
 const _QEEG = {
   id: 'demo-qeeg-marcus-chen',
   analysis_status: 'completed',
-  patient: { patient_id: 'demo-pt-marcus-chen', name: 'Marcus Chen', age: 40, sex: 'M' },
+  patient: { patient_id: 'demo-pt-marcus-chen', name: 'Demo Patient B (synthetic)', age: 40, sex: 'M' },
   original_filename: 'demo_marcus-chen_eyes-closed.edf',
   channels_used: 19,
   channel_count: 19,
@@ -100,7 +100,7 @@ const _VOICE = {
   analysis_id: 'demo-voice-elena-vasquez',
   clinical_disclaimer: 'Acoustic outputs are decision-support signals. Confirm clinically.',
   voice_report: {
-    patient: { patient_id: 'demo-pt-elena-vasquez', name: 'Elena Vasquez' },
+    patient: { patient_id: 'demo-pt-elena-vasquez', name: 'Demo Patient C (synthetic)' },
     qc: { snr_db: 28.6, clipping_pct: 0.4, voiced_ratio: 0.71, usable: true },
     pd_voice: {
       jitter_local_pct: 1.42,
@@ -141,58 +141,48 @@ const _VOICE = {
   },
 };
 
-const _TEXT_NOTE = `Patient Marcus Chen, 40 y/o male (DOB 1985-07-22, MRN 998211), seen on 2026-04-30 in the Oxford clinic by Dr. Ali Yildirim.
+const _TEXT_NOTE = `Synthetic demo clinical note — Demo Patient B (40 y/o male), sample encounter 2026-04-30.
 
-Hx: GAD x4 years, sleep-onset insomnia, somatic tension. Currently on sertraline 100 mg PO daily and melatonin 3 mg qhs. BP 128/82, HR 78.
+Hx: GAD x4 years, sleep-onset insomnia, somatic tension. Sertraline 100 mg PO daily and melatonin 3 mg qhs. BP 128/82, HR 78.
 
-Plan: trial neurofeedback (SMR uptraining at Cz) x10 sessions; repeat GAD-7 in 4 weeks. Patient consented to research data sharing.
+Plan: trial neurofeedback (SMR uptraining at Cz) x10 sessions; repeat GAD-7 in 4 weeks.
 
-Contact: marcus.chen@example.com / +44 7700 900456.`;
+Contact (fictional): demo-clinic-patient-b@example.invalid`;
 
 const _TEXT = {
   source_text: _TEXT_NOTE,
-  patient: { patient_id: 'demo-pt-marcus-chen', name: 'Marcus Chen' },
+  patient: { patient_id: 'demo-pt-marcus-chen', name: 'Demo Patient B (synthetic)' },
   analyze: {
     entities: [
-      { text: 'Marcus Chen',                label: 'PERSON',       score: 0.99, start: 8,   end: 19 },
-      { text: '40 y/o male',                label: 'DEMOGRAPHIC',  score: 0.94, start: 21,  end: 32 },
-      { text: 'GAD',                        label: 'CONDITION',    score: 0.97, start: 173, end: 176 },
-      { text: 'sleep-onset insomnia',       label: 'SYMPTOM',      score: 0.92, start: 188, end: 208 },
-      { text: 'somatic tension',            label: 'SYMPTOM',      score: 0.88, start: 210, end: 225 },
-      { text: 'sertraline 100 mg PO daily', label: 'MEDICATION',   score: 0.96, start: 250, end: 277 },
-      { text: 'melatonin 3 mg qhs',         label: 'MEDICATION',   score: 0.95, start: 282, end: 300 },
-      { text: 'BP 128/82',                  label: 'VITAL',        score: 0.91, start: 302, end: 311 },
-      { text: 'HR 78',                      label: 'VITAL',        score: 0.93, start: 313, end: 318 },
-      { text: 'neurofeedback',              label: 'INTERVENTION', score: 0.89, start: 343, end: 356 },
-      { text: 'SMR uptraining at Cz',       label: 'INTERVENTION', score: 0.90, start: 358, end: 379 },
-      { text: 'GAD-7',                      label: 'ASSESSMENT',   score: 0.96, start: 405, end: 410 },
+      { text: 'Demo Patient B', label: 'PERSON', score: 0.99, start: 39, end: 53 },
+      { text: 'GAD', label: 'CONDITION', score: 0.97, start: 112, end: 115 },
+      { text: 'sleep-onset insomnia', label: 'SYMPTOM', score: 0.92, start: 127, end: 147 },
+      { text: 'sertraline 100 mg PO daily', label: 'MEDICATION', score: 0.96, start: 179, end: 206 },
+      { text: 'melatonin 3 mg qhs', label: 'MEDICATION', score: 0.95, start: 211, end: 229 },
+      { text: 'neurofeedback', label: 'INTERVENTION', score: 0.89, start: 278, end: 291 },
+      { text: 'GAD-7', label: 'ASSESSMENT', score: 0.96, start: 334, end: 339 },
     ],
   },
   pii: {
     pii_spans: [
-      { text: 'Marcus Chen',           label: 'NAME',     score: 0.99 },
-      { text: '1985-07-22',            label: 'DOB',      score: 0.99 },
-      { text: '998211',                label: 'MRN',      score: 0.98 },
-      { text: 'Dr. Ali Yildirim',      label: 'CLINICIAN', score: 0.95 },
-      { text: 'marcus.chen@example.com', label: 'EMAIL',  score: 0.99 },
-      { text: '+44 7700 900456',       label: 'PHONE',    score: 0.99 },
+      { text: 'demo-clinic-patient-b@example.invalid', label: 'EMAIL', score: 0.99 },
     ],
   },
   deidentify: {
-    deidentified_text: `Patient [NAME], 40 y/o male (DOB [DATE], MRN [ID]), seen on [DATE] in the Oxford clinic by [CLINICIAN].
+    deidentified_text: `Synthetic demo clinical note — [NAME] (40 y/o male), sample encounter 2026-04-30.
 
-Hx: GAD x4 years, sleep-onset insomnia, somatic tension. Currently on sertraline 100 mg PO daily and melatonin 3 mg qhs. BP 128/82, HR 78.
+Hx: GAD x4 years, sleep-onset insomnia, somatic tension. Sertraline 100 mg PO daily and melatonin 3 mg qhs. BP 128/82, HR 78.
 
-Plan: trial neurofeedback (SMR uptraining at Cz) x10 sessions; repeat GAD-7 in 4 weeks. Patient consented to research data sharing.
+Plan: trial neurofeedback (SMR uptraining at Cz) x10 sessions; repeat GAD-7 in 4 weeks.
 
-Contact: [EMAIL] / [PHONE].`,
+Contact (fictional): [EMAIL]`,
   },
 };
 
 const _RISK_PATIENTS = [
   {
     patient_id: 'demo-pt-samantha-li',
-    patient_name: 'Samantha Li',
+    patient_name: 'Demo Patient A (synthetic)',
     worst_level: 'amber',
     categories: [
       { category: 'safety',                 level: 'green', confidence: 0.82 },
@@ -207,7 +197,7 @@ const _RISK_PATIENTS = [
   },
   {
     patient_id: 'demo-pt-marcus-chen',
-    patient_name: 'Marcus Chen',
+    patient_name: 'Demo Patient B (synthetic)',
     worst_level: 'red',
     categories: [
       { category: 'safety',                 level: 'red',   confidence: 0.61 },
@@ -222,7 +212,7 @@ const _RISK_PATIENTS = [
   },
   {
     patient_id: 'demo-pt-elena-vasquez',
-    patient_name: 'Elena Vasquez',
+    patient_name: 'Demo Patient C (synthetic)',
     worst_level: 'green',
     categories: [
       { category: 'safety',                 level: 'green', confidence: 0.91 },
@@ -245,13 +235,17 @@ function _riskCategoryDetails(patient) {
       computed_level: c.level,
       confidence: c.confidence,
       override_level: null,
-      data_sources: ['demo_fixture'],
+      data_sources: ['studio_demo_sample'],
       evidence_refs: [],
       rationale: '',
     };
     if (c.category === 'safety' && c.level === 'red') {
-      base.evidence_refs = ['PHQ-9 item 9 endorsed (passive ideation)', 'No active plan documented'];
-      base.rationale = 'PHQ-9 item 9 endorsed at last self-report. Triage and same-day clinician contact recommended.';
+      base.evidence_refs = [
+        'Demo scenario: PHQ-9 item 9 field shows endorsement in sample record',
+        'Demo scenario: collaborative safety plan status not documented in sample chart',
+      ];
+      base.rationale =
+        'Demo sample only — PHQ-9 item 9 warrants clinician review per clinic protocol; this workspace does not perform emergency triage or dispatch notifications.';
     } else if (c.category === 'wellbeing' && c.level === 'amber') {
       base.evidence_refs = ['Sleep diary <6h x5 nights', 'Self-reported fatigue 7/10'];
       base.rationale = 'Sub-threshold sleep duration with elevated fatigue ratings.';
@@ -316,7 +310,7 @@ const _RISK = {
 };
 
 const _BIOMETRICS = {
-  patient: { patient_id: 'demo-pt-elena-vasquez', name: 'Elena Vasquez' },
+  patient: { patient_id: 'demo-pt-elena-vasquez', name: 'Demo Patient C (synthetic)' },
   window_days: 7,
   generated_at: '2026-05-02T06:00:00Z',
   summary: {
@@ -340,7 +334,7 @@ const _BIOMETRICS = {
 };
 
 const _VIDEO = {
-  patient: { patient_id: 'demo-pt-samantha-li', name: 'Samantha Li' },
+  patient: { patient_id: 'demo-pt-samantha-li', name: 'Demo Patient A (synthetic)' },
   session_id: 'demo-video-samantha-li-001',
   captured_at: '2026-04-29T14:18:00Z',
   tasks_completed: 5,
@@ -569,7 +563,7 @@ export function demoDigitalPhenotypingPayload(patientId) {
 const _DP_PROFILES = {
   'demo-pt-samantha-li': {
     patient_id: 'demo-pt-samantha-li',
-    patient_name: 'Samantha Li',
+    patient_name: 'Demo Patient A (synthetic)',
     captured_at: '2026-05-01T22:30:00Z',
     signals: {
       sleep: {
@@ -647,7 +641,7 @@ const _DP_PROFILES = {
   },
   'demo-pt-marcus-chen': {
     patient_id: 'demo-pt-marcus-chen',
-    patient_name: 'Marcus Chen',
+    patient_name: 'Demo Patient B (synthetic)',
     captured_at: '2026-05-01T20:10:00Z',
     signals: {
       sleep: {
@@ -725,7 +719,7 @@ const _DP_PROFILES = {
   },
   'demo-pt-elena-vasquez': {
     patient_id: 'demo-pt-elena-vasquez',
-    patient_name: 'Elena Vasquez',
+    patient_name: 'Demo Patient C (synthetic)',
     captured_at: '2026-05-01T19:45:00Z',
     signals: {
       sleep: {
@@ -923,7 +917,7 @@ const _MED_INTERACTION_LOG = [
   {
     id: 'demo-med-log-1',
     patient_id: 'demo-pt-elena-vasquez',
-    patient_name: 'Elena Vasquez',
+    patient_name: 'Demo Patient C (synthetic)',
     medications_checked: ['Warfarin', 'Ibuprofen', 'Amitriptyline', 'Pregabalin'],
     interactions_found: _MED_INTERACTION_RESULTS['demo-pt-elena-vasquez'].interactions,
     severity_summary: 'severe',
@@ -932,7 +926,7 @@ const _MED_INTERACTION_LOG = [
   {
     id: 'demo-med-log-2',
     patient_id: 'demo-pt-samantha-li',
-    patient_name: 'Samantha Li',
+    patient_name: 'Demo Patient A (synthetic)',
     medications_checked: ['Sertraline', 'Tramadol', 'Melatonin'],
     interactions_found: _MED_INTERACTION_RESULTS['demo-pt-samantha-li'].interactions,
     severity_summary: 'moderate',
@@ -941,7 +935,7 @@ const _MED_INTERACTION_LOG = [
   {
     id: 'demo-med-log-3',
     patient_id: 'demo-pt-marcus-chen',
-    patient_name: 'Marcus Chen',
+    patient_name: 'Demo Patient B (synthetic)',
     medications_checked: ['Sertraline', 'Melatonin'],
     interactions_found: [],
     severity_summary: 'none',
@@ -1055,7 +1049,7 @@ const _TS_DETAIL = {
     });
     return {
       course: {
-        id: 'demo-course-sam-tdcs', patient_id: 'demo-pt-samantha-li', patient_name: 'Samantha Li',
+        id: 'demo-course-sam-tdcs', patient_id: 'demo-pt-samantha-li', patient_name: 'Demo Patient A (synthetic)',
         protocol_name: 'Anodal tDCS · L-DLPFC for MDD', modality: 'tDCS', target_site: 'L-DLPFC (F3)',
         total_sessions: 24, completed_sessions: 18, adherence_pct: 92,
         current_week: 9, total_weeks: 12, started_at: '2026-02-05T09:30:00Z',
@@ -1074,7 +1068,7 @@ const _TS_DETAIL = {
     });
     return {
       course: {
-        id: 'demo-course-mar-rtms', patient_id: 'demo-pt-marcus-chen', patient_name: 'Marcus Chen',
+        id: 'demo-course-mar-rtms', patient_id: 'demo-pt-marcus-chen', patient_name: 'Demo Patient B (synthetic)',
         protocol_name: '10 Hz rTMS · L-DLPFC', modality: 'rTMS', target_site: 'L-DLPFC (BA46)',
         total_sessions: 30, completed_sessions: 8, adherence_pct: 75,
         current_week: 4, total_weeks: 6, started_at: '2026-04-05T10:00:00Z',
@@ -1093,7 +1087,7 @@ const _TS_DETAIL = {
     });
     return {
       course: {
-        id: 'demo-course-ele-ect', patient_id: 'demo-pt-elena-vasquez', patient_name: 'Elena Vasquez',
+        id: 'demo-course-ele-ect', patient_id: 'demo-pt-elena-vasquez', patient_name: 'Demo Patient C (synthetic)',
         protocol_name: 'Bilateral ECT · refractory depression in chronic pain', modality: 'ECT', target_site: 'Bifrontal',
         total_sessions: 12, completed_sessions: 6, adherence_pct: 100,
         current_week: 3, total_weeks: 4, started_at: '2026-04-15T08:00:00Z',
@@ -1361,7 +1355,7 @@ const _PHENOTYPE = {
 const _MOVEMENT_PROFILES = {
   'demo-pt-samantha-li': {
     patient_id: 'demo-pt-samantha-li',
-    patient_name: 'Samantha Li',
+    patient_name: 'Demo Patient A (synthetic)',
     captured_at: '2026-04-29T14:18:00Z',
     source_video: {
       recording_id: 'demo-video-samantha-li-001',
@@ -1431,7 +1425,7 @@ const _MOVEMENT_PROFILES = {
   },
   'demo-pt-marcus-chen': {
     patient_id: 'demo-pt-marcus-chen',
-    patient_name: 'Marcus Chen',
+    patient_name: 'Demo Patient B (synthetic)',
     captured_at: '2026-04-30T11:45:00Z',
     source_video: {
       recording_id: 'demo-video-marcus-chen-002',
@@ -1500,7 +1494,7 @@ const _MOVEMENT_PROFILES = {
   },
   'demo-pt-elena-vasquez': {
     patient_id: 'demo-pt-elena-vasquez',
-    patient_name: 'Elena Vasquez',
+    patient_name: 'Demo Patient C (synthetic)',
     captured_at: '2026-05-01T09:22:00Z',
     source_video: {
       recording_id: 'demo-video-elena-vasquez-003',
@@ -1622,7 +1616,7 @@ const _MOVEMENT = {
 const _LABS_PROFILES = {
   'demo-pt-samantha-li': {
     patient_id: 'demo-pt-samantha-li',
-    patient_name: 'Samantha Li',
+    patient_name: 'Demo Patient A (synthetic)',
     captured_at: '2026-04-26T08:30:00Z',
     panels: [
       {
@@ -1683,7 +1677,7 @@ const _LABS_PROFILES = {
   },
   'demo-pt-marcus-chen': {
     patient_id: 'demo-pt-marcus-chen',
-    patient_name: 'Marcus Chen',
+    patient_name: 'Demo Patient B (synthetic)',
     captured_at: '2026-04-28T09:10:00Z',
     panels: [
       {
@@ -1733,7 +1727,7 @@ const _LABS_PROFILES = {
   },
   'demo-pt-elena-vasquez': {
     patient_id: 'demo-pt-elena-vasquez',
-    patient_name: 'Elena Vasquez',
+    patient_name: 'Demo Patient C (synthetic)',
     captured_at: '2026-05-01T07:45:00Z',
     panels: [
       {
@@ -1855,7 +1849,7 @@ const _LABS = {
 const _NUTRITION_PROFILES = {
   'demo-pt-samantha-li': {
     patient_id: 'demo-pt-samantha-li',
-    patient_name: 'Samantha Li',
+    patient_name: 'Demo Patient A (synthetic)',
     captured_at: '2026-04-30T08:30:00Z',
     macros: {
       day: '2026-04-30',
@@ -1912,7 +1906,7 @@ const _NUTRITION_PROFILES = {
   },
   'demo-pt-marcus-chen': {
     patient_id: 'demo-pt-marcus-chen',
-    patient_name: 'Marcus Chen',
+    patient_name: 'Demo Patient B (synthetic)',
     captured_at: '2026-04-29T09:15:00Z',
     macros: {
       day: '2026-04-29',
@@ -1979,7 +1973,7 @@ const _NUTRITION_PROFILES = {
   },
   'demo-pt-elena-vasquez': {
     patient_id: 'demo-pt-elena-vasquez',
-    patient_name: 'Elena Vasquez',
+    patient_name: 'Demo Patient C (synthetic)',
     captured_at: '2026-05-01T07:50:00Z',
     macros: {
       day: '2026-05-01',

@@ -70,7 +70,11 @@ const _DEMO_INBOX_ITEMS = [
   { event_id: 'demo-inbox-5', surface: 'home_program_tasks', event_type: 'task.overdue', note: 'Home program task "Daily mindfulness breathing (10 min)" overdue by 3 days. Adherence trend declining.', actor_id: 'system', patient_id: 'demo-pt-marcus-chen', created_at: new Date(Date.now() - 21600000).toISOString(), is_acknowledged: true, is_demo: true },
   { event_id: 'demo-inbox-6', surface: 'wearables_workbench', event_type: 'wearable.threshold_breach', note: 'Cortisol proxy elevated 1.8 SD above 30-day rolling mean. Combined with sleep disruption — flag for clinical review.', actor_id: 'system', patient_id: 'demo-pt-elena-vasquez', created_at: new Date(Date.now() - 28800000).toISOString(), is_acknowledged: true, is_demo: true },
 ];
-const _DEMO_PT_NAMES = { 'demo-pt-samantha-li': 'Samantha Li', 'demo-pt-marcus-chen': 'Marcus Chen', 'demo-pt-elena-vasquez': 'Elena Vasquez' };
+const _DEMO_PT_NAMES = {
+  'demo-pt-samantha-li': 'Demo Patient A (synthetic)',
+  'demo-pt-marcus-chen': 'Demo Patient B (synthetic)',
+  'demo-pt-elena-vasquez': 'Demo Patient C (synthetic)',
+};
 function _buildDemoInboxGroups() {
   const grouped = {};
   _DEMO_INBOX_ITEMS.forEach(item => {

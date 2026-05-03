@@ -642,12 +642,24 @@ def _recommended_actions(
         })
 
     if strat_by_cat.get("suicide_risk", {}).get("level") == "red" or strat_by_cat.get("self_harm", {}).get("level") == "red":
-        add("immediate", "escalation", "Activate crisis protocol per clinic policy", "Follow suicide-safety workflow; face-to-face risk assessment if acute indicators.", ["stratification"])
+        add(
+            "immediate",
+            "escalation",
+            "Safety indicators elevated — follow clinic protocol",
+            "Use your organization's suicide-safety workflow; this software does not dispatch crisis services or replace assessment.",
+            ["stratification"],
+        )
     elif strat_by_cat.get("suicide_risk", {}).get("level") == "amber":
         add("same_day", "review", "Same-day clinician review of suicide/self-harm indicators", "Review PHQ-9 item 9 and C-SSRS; document collaborative assessment.", ["stratification"])
 
     if strat_by_cat.get("mental_crisis", {}).get("level") in ("red", "amber"):
-        add("immediate", "escalation", "Address acute destabilization signals", "Review wearable alerts, critical assessments, and unresolved adverse events per operational rules.", ["stratification", "prediction"])
+        add(
+            "immediate",
+            "escalation",
+            "Review acute destabilization signals",
+            "Correlate wearable alerts, assessments, and adverse events with clinical judgment — not automatic escalation.",
+            ["stratification", "prediction"],
+        )
 
     if strat_by_cat.get("harm_to_others", {}).get("level") in ("red", "amber"):
         add("immediate", "escalation", "Harm-to-others concern — structured review", "Security/safety pathway per local policy; do not rely on scores alone.", ["stratification"])
@@ -754,6 +766,12 @@ def build_risk_analyzer_payload(
     if not ctx.patient:
         return {"error": "patient_not_found", "patient_id": patient_id}
 
+    p = ctx.patient or {}
+    patient_display_name = (
+        f"{(p.get('first_name') or '').strip()} {(p.get('last_name') or '').strip()}".strip()
+        or None
+    )
+
     if ensure_compute:
         compute_risk_profile(patient_id, db, clinician_id=actor_id)
 
@@ -823,6 +841,7 @@ def build_risk_analyzer_payload(
     return {
         "schema_version": SCHEMA_VERSION,
         "patient_id": patient_id,
+        "patient_display_name": patient_display_name,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "provenance": {"assembler_version": ASSEMBLER_VERSION, "sources": ["risk_stratification", "risk_clinical_scores", "patient_risk_formulation"]},
         "disclaimer_acknowledged_session": False,
