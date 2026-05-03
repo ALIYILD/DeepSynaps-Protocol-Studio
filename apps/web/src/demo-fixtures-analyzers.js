@@ -1386,15 +1386,15 @@ const _MOVEMENT_PROFILES = {
       bradykinesia: {
         score: 18, severity: 'green', confidence: 0.88,
         contributing_factors: [
-          'Finger-tap rate within age-norm range (4.2 Hz)',
-          'No decrement across 10-second tap sequence',
+          '[Sample] Finger-tap rate within demo scenario range — requires clinician review.',
+          '[Sample] Model narrative only — not confirmed kinematics.',
         ],
       },
       tremor: {
         score: 46, severity: 'amber', confidence: 0.74,
         contributing_factors: [
-          'Postural tremor 7.8 Hz, amplitude 0.9 cm — consistent with SSRI exposure',
-          'Tremor absent at rest; emerges with arms outstretched',
+          '[Sample] Tremor-frequency narrative — movement-analysis cue; correlate with meds/clinical exam.',
+          '[Sample] Model-assisted description — not a tremor diagnosis.',
         ],
       },
       gait: {
@@ -1456,36 +1456,36 @@ const _MOVEMENT_PROFILES = {
       bradykinesia: {
         score: 24, severity: 'green', confidence: 0.83,
         contributing_factors: [
-          'Finger-tap rate 4.0 Hz — borderline-low but within age range',
-          'Slight slowing on rapid alternating movements',
+          '[Sample] Bradykinesia narrative for training UI — not confirmed kinematics.',
+          '[Sample] Model-assisted timing description — requires clinician review.',
         ],
       },
       tremor: {
         score: 14, severity: 'green', confidence: 0.91,
         contributing_factors: [
-          'No rest, postural, or kinetic tremor detected',
-          'Hand steadiness within norm during sustained posture',
+          '[Sample] Tremor cue low in demo scenario — does not exclude clinical tremor.',
+          '[Sample] Posture-hold proxy only.',
         ],
       },
       gait: {
         score: 28, severity: 'green', confidence: 0.78,
         contributing_factors: [
-          'Step length 0.68 m, cadence 108 steps/min',
-          'Arm swing slightly reduced but symmetric',
+          '[Sample] Gait metrics are illustrative — not instrumented lab gait.',
+          '[Sample] Review alongside exam and wearable context.',
         ],
       },
       posture: {
         score: 52, severity: 'amber', confidence: 0.71,
         contributing_factors: [
-          'Sagittal forward lean 7.4° — above 5° clinical threshold',
-          'Persists across both standing and seated tasks',
+          '[Sample] Forward-lean narrative — movement-analysis cue for review.',
+          '[Sample] Video proxy may differ from in-person exam.',
         ],
       },
       monitoring: {
         score: 58, severity: 'amber', confidence: 0.69,
         contributing_factors: [
-          'Movement variability index 0.18 — markedly reduced vs baseline',
-          'Possible psychomotor slowing; correlates with PHQ-9 trend',
+          '[Sample] Variability index — exploratory marker only.',
+          '[Sample] Correlate with mood scales separately — not causal inference.',
         ],
       },
     },
@@ -1525,36 +1525,36 @@ const _MOVEMENT_PROFILES = {
       bradykinesia: {
         score: 54, severity: 'amber', confidence: 0.72,
         contributing_factors: [
-          'Finger-tap rate 3.1 Hz — slowed (post-ECT day 2)',
-          'Decrement of 18% across 10-second tap sequence',
+          '[Sample] Slowed tap narrative — contextual cue after procedure day (scenario).',
+          '[Sample] Requires in-person motor exam — not a diagnosis.',
         ],
       },
       tremor: {
         score: 21, severity: 'green', confidence: 0.86,
         contributing_factors: [
-          'No measurable rest tremor',
-          'Sub-threshold postural tremor (4 mm amplitude)',
+          '[Sample] Rest-tremor cue low in demo clip — not clinical exclusion.',
+          '[Sample] Small postural oscillation — interpret with exam.',
         ],
       },
       gait: {
         score: 49, severity: 'amber', confidence: 0.74,
         contributing_factors: [
-          'Step length 0.41 m — reduced from 0.55 m baseline',
-          'Cadence 96 steps/min, mild en bloc turning',
+          '[Sample] Reduced step-length narrative — movement-analysis cue for review.',
+          '[Sample] Not a fall-risk determination.',
         ],
       },
       posture: {
         score: 26, severity: 'green', confidence: 0.80,
         contributing_factors: [
-          'Sagittal tilt 3.0° — within norm',
-          'No lateral lean or retropulsion',
+          '[Sample] Posture proxy from video — may miss clinical pull-test.',
+          '[Sample] Labelled demo metrics only.',
         ],
       },
       monitoring: {
         score: 31, severity: 'green', confidence: 0.77,
         contributing_factors: [
-          'Movement variability index 0.34 — preserved',
-          'Spontaneous facial expression intact',
+          '[Sample] Variability marker within demo scenario.',
+          '[Sample] Does not assess facial affect clinically.',
         ],
       },
     },
@@ -1598,7 +1598,7 @@ const _MOVEMENT_AUDITS = {
   'demo-pt-elena-vasquez': [
     { id: 'mv-aud-ele-1', kind: 'recompute', actor: 'system', message: 'Profile recomputed from new video capture.', created_at: '2026-05-01T09:24:00Z' },
     { id: 'mv-aud-ele-2', kind: 'annotation', actor: 'Dr. A. Yildirim', message: 'Post-ECT day-2 motor slowing expected; reassess at 72 h before adjusting course.', created_at: '2026-05-01T09:40:00Z' },
-    { id: 'mv-aud-ele-3', kind: 'annotation', actor: 'Dr. R. Patel', message: 'Reduced step length on 6-m walk; flag fall-risk for nursing.', created_at: '2026-04-29T09:30:00Z' },
+    { id: 'mv-aud-ele-3', kind: 'annotation', actor: 'Dr. R. Patel', message: 'Reduced step length on sample 6-m walk task — movement-analysis cue for clinician safety review (not a fall-risk determination).', created_at: '2026-04-29T09:30:00Z' },
     { id: 'mv-aud-ele-4', kind: 'recompute', actor: 'system', message: 'Profile recomputed from new video capture.', created_at: '2026-04-22T09:00:00Z' },
     { id: 'mv-aud-ele-5', kind: 'annotation', actor: 'Dr. A. Yildirim', message: 'Pre-ECT baseline captured; motor exam grossly normal.', created_at: '2026-04-15T08:45:00Z' },
   ],

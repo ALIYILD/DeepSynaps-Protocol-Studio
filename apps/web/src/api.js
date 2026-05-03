@@ -3589,6 +3589,15 @@ export const api = {
     apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/annotation`, { method: 'POST', body: JSON.stringify(body || {}) }),
   getMovementAudit: (patientId) =>
     apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
+  /** Clinician review acknowledgment (audit only; requires non-empty note). */
+  ackMovementReview: (patientId, body) =>
+    apiFetch(
+      `/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/review`,
+      { method: 'POST', body: JSON.stringify(body || {}) },
+    ),
+  /** JSON download of movement workspace (triggers server audit event). */
+  exportMovementWorkspace: (patientId) =>
+    apiFetchBinary(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/export.json`),
 
   // ── Nutrition, Supplements & Diet Analyzer ───────────────────────────────
   getNutritionAnalyzerPayload: (patientId) =>

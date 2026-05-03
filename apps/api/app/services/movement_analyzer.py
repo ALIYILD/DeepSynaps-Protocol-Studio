@@ -1034,9 +1034,16 @@ def list_audit_events(patient_id: str, db: Session, limit: int = 50) -> list[dic
             except json.JSONDecodeError:
                 detail = {"raw": r.detail_json}
         # Map cursor's internal action names to the frontend's `kind` vocabulary
-        # (PR #452 expects `recompute` | `annotation`).
+        # (PR #452 expects `recompute` | `annotation`; extended for review/export).
         action = r.action or ""
-        kind = "annotation" if action == "annotate" else action
+        if action == "annotate":
+            kind = "annotation"
+        elif action == "review_ack":
+            kind = "review_ack"
+        elif action == "export_download":
+            kind = "export_download"
+        else:
+            kind = action
         # Compose a human-readable `message` for the frontend audit panel.
         message = ""
         if isinstance(detail, dict):
@@ -1046,6 +1053,10 @@ def list_audit_events(patient_id: str, db: Session, limit: int = 50) -> list[dic
                 message = "Profile recomputed."
             elif kind == "annotation":
                 message = "Clinician annotation."
+            elif kind == "review_ack":
+                message = "Clinician review acknowledgment."
+            elif kind == "export_download":
+                message = "Workspace summary exported."
         out.append({
             "id": r.id,
             "patient_id": r.patient_id,
