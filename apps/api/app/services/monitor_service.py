@@ -132,7 +132,7 @@ def build_live_snapshot(actor: AuthenticatedActor, db: Session) -> dict:
                 risk_score = max(risk_score, 0.64)
                 drivers.append(alert.flag_type)
         if not drivers:
-            drivers.append('stable')
+            drivers.append('no_derived_review_flags')
         counts[risk_tier] += 1
         rows.append({
             'patient_id': patient.id,

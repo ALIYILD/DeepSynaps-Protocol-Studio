@@ -1664,7 +1664,7 @@ async function renderPage() {
     }
     case 'telehealth-recorder': { const m = await loadPractice(); await m.pgTelehealthRecorder(setTopbar); break; }
     case 'monitoring': { window._devicesPresetTab = 'live'; navigate('monitor'); break; }
-    case 'wearables':  { window._devicesPresetTab = 'control-center'; window._devicesPresetCategory = 'wearable'; navigate('monitor'); break; }
+    case 'wearables':  { window._devicesPresetTab = 'biometrics-analyzer'; navigate('monitor'); break; }
     case 'library-hub':    { window._resEvidenceTab = 'search'; window._nav('research-evidence'); break; }
     case 'monitor-hub':    { const { pgMonitorHub }    = await loadClinicalHubs(); await pgMonitorHub(setTopbar, navigate);    break; }
     case 'virtual-care-hub':{ const { pgVirtualCareHub } = await loadClinicalHubs(); await pgVirtualCareHub(setTopbar, navigate); break; }
@@ -1808,7 +1808,7 @@ async function renderPage() {
     case 'condition-packages':   { window._resEvidenceTab = 'conditions'; window._nav('research-evidence'); break; }
     case 'condition-package':   { const { pgConditionPackage }     = await loadKnowledge(); await pgConditionPackage(setTopbar, navigate);  break; }
     case 'notes-dictation': { window._monitorHubTab = 'notes'; window._nav('monitor-hub'); break; }
-    case 'wearable-integration': { window._devicesPresetTab = 'control-center'; window._devicesPresetCategory = 'wearable'; navigate('monitor'); break; }
+    case 'wearable-integration': { window._devicesPresetTab = 'biometrics-analyzer'; window._devicesPresetCategory = 'wearable'; navigate('monitor'); break; }
     // ── Registries ─────────────────────────────────────────────────────────
     case 'reg-conditions':     { window._resEvidenceTab = 'conditions'; window._nav('research-evidence'); break; }
     case 'reg-assessments':    { window._clinicalHubTab = 'registry'; window._nav('assessments'); break; }
