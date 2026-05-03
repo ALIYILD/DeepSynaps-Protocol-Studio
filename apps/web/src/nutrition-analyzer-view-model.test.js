@@ -8,6 +8,7 @@ import {
   normalizeNutritionProfile,
   normalizeNutritionAudit,
   summarizeNutritionForClinic,
+  extractNutritionRelevantLabRows,
 } from './nutrition-analyzer-view-model.js';
 
 test('mapNutritionApiPayloadToViewModel exposes macros without prescribing targets', () => {
@@ -66,6 +67,31 @@ test('summarizeNutritionForClinic does not imply green safety when no flags', ()
     _diet_summary: { logging_coverage_pct: 0 },
   });
   assert.equal(row.worst_severity, 'none');
+});
+
+test('extractNutritionRelevantLabRows picks glucose and vitamin D', () => {
+  const out = extractNutritionRelevantLabRows({
+    captured_at: '2026-01-01',
+    panels: [
+      {
+        name: 'Metabolic',
+        results: [
+          { analyte: 'Glucose', value: 99, unit: 'mg/dL', ref_low: 70, ref_high: 99, status: 'normal', captured_at: '2026-01-01' },
+          { analyte: 'Obscure Marker X', value: 1, unit: 'U', status: 'normal', captured_at: '2026-01-01' },
+        ],
+      },
+      {
+        name: 'Vitamins',
+        results: [
+          { analyte: 'Vitamin D', value: 22, unit: 'ng/mL', ref_low: 30, ref_high: 100, status: 'low', captured_at: '2026-01-02' },
+        ],
+      },
+    ],
+  });
+  const names = out.rows.map((r) => r.analyte);
+  assert.ok(names.includes('Glucose'));
+  assert.ok(names.includes('Vitamin D'));
+  assert.ok(!names.includes('Obscure Marker X'));
 });
 
 test('normalizeNutritionProfile maps API payload shape', () => {

@@ -1663,7 +1663,7 @@ const _LABS_PROFILES = {
         results: [
           { analyte: 'TSH',        value: 4.8,  unit: 'mIU/L', ref_low: 0.4, ref_high: 4.0,  status: 'high', captured_at: '2026-04-26T08:30:00Z', note: 'Sub-clinical hypothyroid pattern.' },
           { analyte: 'Free T4',    value: 1.0,  unit: 'ng/dL', ref_low: 0.8, ref_high: 1.8,  status: 'normal', captured_at: '2026-04-26T08:30:00Z' },
-          { analyte: 'Vitamin D',  value: 18,   unit: 'ng/mL', ref_low: 30,  ref_high: 100,  status: 'low',  captured_at: '2026-04-26T08:30:00Z', note: 'Insufficient — supplementation indicated.' },
+          { analyte: 'Vitamin D',  value: 18,   unit: 'ng/mL', ref_low: 30,  ref_high: 100,  status: 'low',  captured_at: '2026-04-26T08:30:00Z', note: 'Below common lab reference — correlate with intake and clinic policy; requires clinician/dietitian review.' },
         ],
       },
     ],
@@ -1867,6 +1867,11 @@ const _LABS = {
   patient_profile: _labsProfileFor,
   patient_audit: _labsAuditFor,
 };
+
+/** Exposed for nutrition page cross-check (demo roster only). */
+export function labsPatientProfileFor(patientId) {
+  return _LABS_PROFILES[patientId] || null;
+}
 
 const _NUTRITION_PROFILES = {
   'demo-pt-samantha-li': {

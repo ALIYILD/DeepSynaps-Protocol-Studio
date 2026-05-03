@@ -1,10 +1,11 @@
 import { api } from './api.js';
 import { isDemoSession } from './demo-session.js';
-import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
+import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML, labsPatientProfileFor } from './demo-fixtures-analyzers.js';
 import {
   normalizeNutritionProfile,
   normalizeNutritionAudit,
   summarizeNutritionForClinic,
+  extractNutritionRelevantLabRows,
 } from './nutrition-analyzer-view-model.js';
 
 /** Extra navigation targets not always present in biomarker_links */
@@ -589,6 +590,68 @@ function _renderGovernanceNote() {
   </div>`;
 }
 
+function _refRangeTxt(r) {
+  const lo = r.ref_low != null ? String(r.ref_low) : '';
+  const hi = r.ref_high != null ? String(r.ref_high) : '';
+  if (!lo && !hi) return '—';
+  return `${lo}–${hi}`;
+}
+
+function _statusBadgeLab(status) {
+  const s = String(status || '').toLowerCase();
+  if (s === 'critical') return '<span class="pill" style="background:rgba(255,107,107,0.14);color:var(--red);font-size:10px;padding:2px 6px">Critical</span>';
+  if (s === 'high' || s === 'low') return '<span class="pill pill-pending" style="font-size:10px;padding:2px 6px">' + esc(status) + '</span>';
+  if (s === 'normal') return '<span class="pill pill-active" style="font-size:10px;padding:2px 6px">In range</span>';
+  return '<span class="pill pill-inactive" style="font-size:10px;padding:2px 6px">—</span>';
+}
+
+function _renderNutritionLinkedLabs(ctx) {
+  if (!ctx || typeof ctx !== 'object') return '';
+  const src = String(ctx.source || 'unknown');
+  const srcLabel = src === 'demo' ? 'Demo / sample (not a real patient record)' : src === 'api' ? 'Labs analyzer (clinic system)' : 'Unavailable';
+  const when = ctx.captured_at ? new Date(ctx.captured_at).toLocaleString() : '—';
+  const err = ctx.error ? `<div role="alert" style="font-size:12px;color:var(--amber);margin-bottom:8px">${esc(ctx.error)}</div>` : '';
+  const rows = Array.isArray(ctx.rows) ? ctx.rows : [];
+  if (!rows.length && !err) {
+    return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px">
+      <div style="font-weight:600;font-size:13px;margin-bottom:6px">Nutrition-linked labs &amp; biomarkers</div>
+      <div style="font-size:12px;color:var(--text-tertiary);line-height:1.5">
+        No matching analytes in the current Labs profile (or labs not on file). Missing lab context does not mean normal nutrition-metabolic status — use Labs Analyzer for the full set and source documents.
+      </div>
+      <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px">Source: ${esc(srcLabel)} · Last panel: ${esc(when)}</div>
+      <button type="button" class="btn btn-ghost btn-sm" data-action="refresh-labs" style="margin-top:10px;min-height:40px">Refresh linked labs</button>
+    </div>`;
+  }
+  const head = `<tr>
+    <th style="text-align:left;padding:8px;font-size:10px;color:var(--text-tertiary);border-bottom:1px solid var(--border)">Analyte</th>
+    <th style="text-align:left;padding:8px;font-size:10px;color:var(--text-tertiary);border-bottom:1px solid var(--border)">Panel</th>
+    <th style="text-align:right;padding:8px;font-size:10px;color:var(--text-tertiary);border-bottom:1px solid var(--border)">Value</th>
+    <th style="text-align:left;padding:8px;font-size:10px;color:var(--text-tertiary);border-bottom:1px solid var(--border)">Unit</th>
+    <th style="text-align:left;padding:8px;font-size:10px;color:var(--text-tertiary);border-bottom:1px solid var(--border)">Ref (lab)</th>
+    <th style="text-align:right;padding:8px;font-size:10px;color:var(--text-tertiary);border-bottom:1px solid var(--border)">Status</th>
+  </tr>`;
+  const body = rows.map((r) => `<tr>
+    <td style="padding:8px;border-bottom:1px solid var(--border);font-size:12px">${esc(r.analyte || '—')}</td>
+    <td style="padding:8px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-tertiary)">${esc(r._panel_name || '—')}</td>
+    <td style="padding:8px;border-bottom:1px solid var(--border);font-size:12px;text-align:right;font-variant-numeric:tabular-nums">${r.value != null ? esc(String(r.value)) : '—'}</td>
+    <td style="padding:8px;border-bottom:1px solid var(--border);font-size:11px">${esc(r.unit || '—')}</td>
+    <td style="padding:8px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-secondary)">${esc(_refRangeTxt(r))}</td>
+    <td style="padding:8px;border-bottom:1px solid var(--border);text-align:right">${_statusBadgeLab(r.status)}</td>
+  </tr>`).join('');
+  return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px;overflow:auto">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+      <div>
+        <div style="font-weight:600;font-size:13px">Nutrition-linked labs &amp; biomarkers (cross-check)</div>
+        <div style="font-size:10px;color:var(--text-tertiary);margin-top:4px;line-height:1.45">Filtered subset for diet / metabolic / safety context. Reference intervals are as reported by the source panel — verify in Labs Analyzer and against local policy. Not a diagnosis.</div>
+      </div>
+      <button type="button" class="btn btn-ghost btn-sm" data-action="refresh-labs" style="min-height:40px">Refresh linked labs</button>
+    </div>
+    ${err}
+    <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:8px">Source: ${esc(srcLabel)} · Last panel: ${esc(when)}</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:640px"><thead>${head}</thead><tbody>${body}</tbody></table>
+  </div>`;
+}
+
 function _renderIntakeForm(opts = {}) {
   const disabled = !!opts.disabled;
   const today = new Date().toISOString().slice(0, 10);
@@ -680,7 +743,7 @@ function _renderAuditPanel(audit) {
   </div>`;
 }
 
-function _renderPatientDetail(profile, audit, expandedKey, usingFixtures) {
+function _renderPatientDetail(profile, audit, expandedKey, usingFixtures, labsContext) {
   const captured = profile?.captured_at ? new Date(profile.captured_at).toLocaleString() : '—';
   const isApi = profile?._data_source === 'api';
   const macros = _renderMacrosPanel(profile?.macros, { showPctAgainstTarget: !isApi });
@@ -688,6 +751,7 @@ function _renderPatientDetail(profile, audit, expandedKey, usingFixtures) {
   const supplements = _renderSupplementsPanel(profile?.supplements, profile?.patient_id);
   const interactions = _renderInteractionsPanel(profile?.interactions);
   const pid = profile?.patient_id || '';
+  const labsPanel = _renderNutritionLinkedLabs(labsContext);
   return `${_renderSafetyStrip()}
     ${_renderPatientContextCard(profile)}
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:14px 0;flex-wrap:wrap">
@@ -700,6 +764,7 @@ function _renderPatientDetail(profile, audit, expandedKey, usingFixtures) {
     ${_renderAuditSummaryStrip(profile)}
     <div style="display:grid;grid-template-columns:1fr;gap:14px">
       ${_renderDataAvailability(profile)}
+      ${labsPanel}
       ${_renderSnapshotGrid(profile)}
       ${_renderReviewCuesPanel(profile)}
       ${_renderDailyLogTable(profile?.daily_log)}
@@ -715,8 +780,8 @@ function _renderPatientDetail(profile, audit, expandedKey, usingFixtures) {
       ${_renderGovernanceNote()}
     </div>
     <div style="margin-top:18px;display:grid;grid-template-columns:1fr;gap:14px">
-      ${_renderIntakeForm({ disabled: isApi && !usingFixtures })}
-      ${_renderAnnotationForm({ disabled: isApi && !usingFixtures })}
+      ${_renderIntakeForm()}
+      ${_renderAnnotationForm()}
       ${_renderAuditPanel(audit)}
     </div>`;
 }
@@ -782,10 +847,49 @@ export async function pgNutritionAnalyzer(setTopbar, navigate) {
   let activePatientName = '';
   let profileCache = null;
   let auditCache = null;
+  let labsCache = null;
   let sortKey = 'flags';
   let sortDir = 'desc';
   let usingFixtures = false;
   let expandedKey = '';
+
+  async function buildLabsContext(patientId, usingDemoFixtureProfile) {
+    const pid = patientId || activePatientId;
+    if (!pid) return { rows: [], captured_at: null, source: 'none', error: null };
+    try {
+      if (usingDemoFixtureProfile) {
+        const lp = labsPatientProfileFor(pid);
+        if (lp && Array.isArray(lp.panels)) {
+          const ex = extractNutritionRelevantLabRows(lp);
+          return { ...ex, source: 'demo', error: null };
+        }
+        return {
+          rows: [],
+          captured_at: null,
+          source: 'demo',
+          error: 'No demo labs panel on file for this persona.',
+        };
+      }
+      const lp = await api.getLabsProfile(pid).catch(() => null);
+      if (lp && Array.isArray(lp.panels)) {
+        const ex = extractNutritionRelevantLabRows(lp);
+        return { ...ex, source: 'api', error: null };
+      }
+      return {
+        rows: [],
+        captured_at: null,
+        source: 'unavailable',
+        error: 'Labs analyzer did not return panels for this patient (permissions, empty record, or offline). Open Labs Analyzer for the full view.',
+      };
+    } catch (e) {
+      return {
+        rows: [],
+        captured_at: null,
+        source: 'error',
+        error: (e && e.message) || String(e),
+      };
+    }
+  }
 
   el.innerHTML = `
     <div class="ds-nutrition-analyzer-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px">
@@ -946,6 +1050,7 @@ export async function pgNutritionAnalyzer(setTopbar, navigate) {
       profileCache = normalizeNutritionProfile(prof, { patientDisplayName: displayName });
       auditCache = normalizeNutritionAudit(aud);
       if (profileCache && !profileCache.patient_name) profileCache.patient_name = displayName;
+      labsCache = await buildLabsContext(activePatientId, usingFixtures);
     } catch (e) {
       if (isDemoSession() && ANALYZER_DEMO_FIXTURES?.nutrition) {
         const prof = ANALYZER_DEMO_FIXTURES.nutrition.patient_profile(activePatientId);
@@ -954,6 +1059,7 @@ export async function pgNutritionAnalyzer(setTopbar, navigate) {
         const displayName = activePatientName || String(activePatientId);
         profileCache = normalizeNutritionProfile(prof, { patientDisplayName: displayName });
         auditCache = normalizeNutritionAudit(aud);
+        labsCache = await buildLabsContext(activePatientId, true);
       } else {
         const msg = (e && e.message) || String(e);
         body.innerHTML = _errorCard(msg);
@@ -962,14 +1068,14 @@ export async function pgNutritionAnalyzer(setTopbar, navigate) {
       }
     }
     _syncDemoBanner();
-    body.innerHTML = _renderPatientDetail(profileCache, auditCache, expandedKey, usingFixtures);
+    body.innerHTML = _renderPatientDetail(profileCache, auditCache, expandedKey, usingFixtures, labsCache);
     wirePatientDetail();
   }
 
   function _rerenderPatient() {
     const body = $('nu-body');
     if (!body) return;
-    body.innerHTML = _renderPatientDetail(profileCache, auditCache, expandedKey, usingFixtures);
+    body.innerHTML = _renderPatientDetail(profileCache, auditCache, expandedKey, usingFixtures, labsCache);
     wirePatientDetail();
   }
 
@@ -1005,6 +1111,10 @@ export async function pgNutritionAnalyzer(setTopbar, navigate) {
       if (!pid) return;
       try { window._selectedPatientId = pid; } catch {}
       try { navigate?.('patient-profile'); } catch {}
+    });
+
+    body.querySelectorAll('[data-action="refresh-labs"]').forEach((btn) => {
+      btn.addEventListener('click', () => { loadPatient(); });
     });
 
     body.querySelector('[data-action="open-evidence-corpus"]')?.addEventListener('click', () => {

@@ -127,9 +127,48 @@ export function normalizeNutritionProfile(raw, opts = {}) {
   return raw;
 }
 
+/** Nutrition/labs-adjacent keywords — surface for dietitian review, not autonomous interpretation. */
+const _NUTRITION_LAB_KEYWORDS = [
+  'glucose', 'hba1c', 'hemoglobin a1c', 'a1c', 'lipid', 'cholesterol',
+  'ldl', 'hdl', 'triglyceride', 'triglycerides', 'apob',
+  'b12', 'cobalamin', 'folate', 'vitamin d', '25-hydroxy', '25-oh',
+  'ferritin', 'iron', 'tibc', 'tsat', 'thyroid', 'tsh', 'free t4',
+  'alt', 'ast', 'bilirubin', 'albumin', 'creatinine', 'egfr', 'gfr',
+  'sodium', 'potassium', 'inr', 'pt', 'platelet', 'hemoglobin',
+];
+
+function _analyteMatchesNutritionContext(analyte) {
+  const a = String(analyte || '').toLowerCase();
+  return _NUTRITION_LAB_KEYWORDS.some((k) => a.includes(k));
+}
+
 /**
- * Maps audit API rows to the UI shape (`kind`, `actor`, `message`, `created_at`).
+ * Pull nutrition-adjacent analytes from Labs Analyzer profile for cross-check (units + refs require clinician review).
  */
+export function extractNutritionRelevantLabRows(labsProfile) {
+  const panels = Array.isArray(labsProfile?.panels) ? labsProfile.panels : [];
+  const flat = [];
+  panels.forEach((pn) => {
+    const name = String(pn?.name || '');
+    (Array.isArray(pn.results) ? pn.results : []).forEach((r) => {
+      if (_analyteMatchesNutritionContext(r?.analyte)) flat.push({ ...r, _panel_name: name });
+    });
+  });
+  const byKey = new Map();
+  for (const r of flat) {
+    const key = String(r.analyte || '').trim().toLowerCase();
+    if (!key) continue;
+    const prev = byKey.get(key);
+    const t = String(r.captured_at || '');
+    if (!prev || String(prev.captured_at || '') < t) byKey.set(key, r);
+  }
+  const rows = [...byKey.values()].sort((a, b) => String(a.analyte).localeCompare(String(b.analyte)));
+  return {
+    rows: rows.slice(0, 36),
+    labs_captured_at: labsProfile?.captured_at || null,
+  };
+}
+
 /**
  * One row for the clinic summary table (sortable columns).
  */
