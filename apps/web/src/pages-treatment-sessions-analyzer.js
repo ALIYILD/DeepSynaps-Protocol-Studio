@@ -52,7 +52,10 @@ function _trendArrow(trend) {
   return '<span style="color:var(--text-tertiary)">·</span>';
 }
 
-function _signoffPill(signed, unsigned) {
+function _signoffPill(signed, unsigned, opts = {}) {
+  if (opts.unknown) {
+    return '<span class="pill pill-inactive" title="Open patient row for SIGN events — not loaded in clinic summary">—</span>';
+  }
   const u = Number(unsigned) || 0;
   if (u === 0) return '<span class="pill pill-active">All reviewed</span>';
   return `<span class="pill" style="background:rgba(245,158,11,0.12);color:var(--amber);border:1px solid rgba(245,158,11,0.30)">${u} pending</span>`;
@@ -63,7 +66,10 @@ function _aeDot(hasAE) {
   return '<span title="Course-linked adverse-event records exist — requires clinician review per clinic protocol" aria-label="Adverse-event flag" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--red);margin-left:6px;vertical-align:middle"></span>';
 }
 
-function _signedIcon(signed) {
+function _signedIcon(signed, unknown) {
+  if (unknown) {
+    return '<span title="Sign-off not loaded (expand session after load)" aria-label="Sign-off unknown" style="color:var(--text-tertiary);font-weight:600">?</span>';
+  }
   if (signed) {
     return '<span title="Sign-off event recorded" aria-label="Signed off" style="color:var(--green);font-weight:600">✓</span>';
   }
@@ -113,21 +119,43 @@ function _emptySessionsCard() {
   </div>`;
 }
 
-function _parsePrimaryOutcome(outcomesResp) {
+/**
+ * Parse course outcome summary into per-scale series (multiple instruments supported).
+ */
+function _parseOutcomeSummaries(outcomesResp) {
   const summaries = Array.isArray(outcomesResp?.summaries) ? outcomesResp.summaries : [];
-  const first = summaries[0];
-  const measurements = first?.measurements || [];
-  const scores = measurements
-    .map((m) => (m.score_numeric != null ? Number(m.score_numeric) : NaN))
-    .filter((n) => Number.isFinite(n));
-  const scale = first?.template_title || first?.template_id || '—';
+  const allSeries = summaries.map((s) => {
+    const measurements = Array.isArray(s.measurements) ? s.measurements : [];
+    const scores = measurements
+      .map((m) => (m.score_numeric != null ? Number(m.score_numeric) : NaN))
+      .filter((n) => Number.isFinite(n));
+    return {
+      template_id: s.template_id || '',
+      template_title: s.template_title || s.template_id || '—',
+      scores,
+    };
+  });
   const ruleNote = 'Outcome trajectory uses recorded outcome series for this course (backend rule-based deltas). Not a diagnosis or treatment-response label. Requires clinician interpretation.';
+  const pickSeries = (templateId) => {
+    let ser = templateId ? allSeries.find((x) => x.template_id === templateId) : null;
+    if (!ser) ser = allSeries.find((x) => x.scores.length >= 2) || allSeries[0];
+    if (!ser) {
+      return { scale: '—', scores: [], template_id: '', ruleNote, summariesCount: summaries.length };
+    }
+    return {
+      scale: ser.template_title,
+      scores: ser.scores,
+      template_id: ser.template_id,
+      ruleNote,
+      summariesCount: summaries.length,
+    };
+  };
+  const primary = pickSeries(null);
   return {
-    scale,
-    scores,
-    ruleNote,
+    ...primary,
+    all_series: allSeries,
     responderFlag: outcomesResp?.responder,
-    summariesCount: summaries.length,
+    pickSeries,
   };
 }
 
@@ -153,7 +181,24 @@ async function _sessionSignedMap(sessionIds) {
   return out;
 }
 
-async function _hydrateCourseDetail(course, patientId, patientNameFromCaller = '') {
+async function _mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let idx = 0;
+  async function worker() {
+    while (idx < items.length) {
+      const i = idx;
+      idx += 1;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  const n = Math.min(Math.max(1, limit), Math.max(1, items.length));
+  await Promise.all(Array.from({ length: n }, () => worker()));
+  return results;
+}
+
+/** @param {{ lite?: boolean }} opts — lite skips per-session GET/events (clinic table performance). */
+async function _hydrateCourseDetail(course, patientId, patientNameFromCaller = '', opts = {}) {
+  const lite = !!opts.lite;
   const courseId = course.id;
   const [
     courseSessions,
@@ -166,7 +211,9 @@ async function _hydrateCourseDetail(course, patientId, patientNameFromCaller = '
     api.courseOutcomeSummary(courseId).catch(() => null),
     api.getCourseSessionsSummary(courseId).catch(() => null),
     api.getCourseAdverseEventsSummary(courseId).catch(() => null),
-    api.listCourseAuditEvents(courseId, { limit: 40 }).catch(() => ({ items: [] })),
+    lite
+      ? Promise.resolve({ items: [] })
+      : api.listCourseAuditEvents(courseId, { limit: 40 }).catch(() => ({ items: [] })),
   ]);
 
   const logs = Array.isArray(courseSessions?.items)
@@ -175,18 +222,33 @@ async function _hydrateCourseDetail(course, patientId, patientNameFromCaller = '
   if (!logs.length) return null;
 
   const sessionIds = logs.map((l) => l.session_id).filter(Boolean);
-  const signedMap = await _sessionSignedMap(sessionIds);
+  let signedMap = new Map();
+  if (!lite) {
+    signedMap = await _sessionSignedMap(sessionIds);
+  }
 
-  const clinicalRows = await Promise.all(sessionIds.map(async (sid) => {
-    try {
-      return await api.getSession(sid);
-    } catch {
-      return null;
-    }
-  }));
-  const clinicalById = new Map(sessionIds.map((id, i) => [id, clinicalRows[i]]));
+  let clinicalById = new Map();
+  if (!lite) {
+    const clinicalRows = await _mapWithConcurrency(sessionIds, 5, async (sid) => {
+      try {
+        return await api.getSession(sid);
+      } catch {
+        return null;
+      }
+    });
+    clinicalById = new Map(sessionIds.map((id, i) => [id, clinicalRows[i]]));
+  }
 
-  const outcomeParsed = outcomesResp ? _parsePrimaryOutcome(outcomesResp) : { scale: '—', scores: [], ruleNote: '', responderFlag: null, summariesCount: 0 };
+  const outcomeParsed = outcomesResp ? _parseOutcomeSummaries(outcomesResp) : {
+    scale: '—',
+    scores: [],
+    template_id: '',
+    ruleNote: '',
+    responderFlag: null,
+    summariesCount: 0,
+    all_series: [],
+    pickSeries: () => ({ scale: '—', scores: [], template_id: '', ruleNote: '', summariesCount: 0 }),
+  };
 
   const sessions = logs.map((s, i) => {
     const clin = clinicalById.get(s.session_id);
@@ -196,6 +258,10 @@ async function _hydrateCourseDetail(course, patientId, patientNameFromCaller = '
     const comfortFromTol = s.tolerance_rating
       ? ({ well_tolerated: '8', moderate: '5', poor: '3' }[String(s.tolerance_rating).toLowerCase()] || '')
       : '';
+    let signed = false;
+    if (!lite) {
+      signed = !!signedMap.get(s.session_id);
+    }
     return {
       id: s.session_id,
       log_id: s.id,
@@ -204,7 +270,8 @@ async function _hydrateCourseDetail(course, patientId, patientNameFromCaller = '
       intensity_label: intensityLabel,
       duration_minutes: s.duration_minutes ?? clin?.duration_minutes ?? null,
       comfort_score: comfortFromTol ? Number(comfortFromTol) : null,
-      signed: !!signedMap.get(s.session_id),
+      signed,
+      signoff_unknown: lite,
       has_ae: !!(clin?.adverse_events && String(clin.adverse_events).trim()),
       modality: clin?.modality || course.modality_slug || '',
       telemetry_summary: s.interruptions ? `Interruption recorded${s.interruption_reason ? `: ${s.interruption_reason}` : ''}` : '—',
@@ -256,9 +323,12 @@ async function _hydrateCourseDetail(course, patientId, patientNameFromCaller = '
     outcomes: {
       scale: outcomeParsed.scale,
       scores: outcomeParsed.scores,
+      outcome_template_id: outcomeParsed.template_id || '',
       rule_note: outcomeParsed.ruleNote,
       responder_backend_flag: outcomeParsed.responderFlag,
       has_summaries: outcomeParsed.summariesCount > 0,
+      all_summaries: outcomeParsed.all_series || [],
+      pick_series: outcomeParsed.pickSeries,
     },
     ae_summary: aeSummary,
     audit_items: Array.isArray(auditResp?.items) ? auditResp.items : [],
@@ -266,6 +336,7 @@ async function _hydrateCourseDetail(course, patientId, patientNameFromCaller = '
     meta: {
       last_session_at: sessSummary?.last_session_at || null,
       is_demo: !!sessSummary?.is_demo,
+      lite,
     },
   };
 }
@@ -312,7 +383,7 @@ async function _loadClinicRowsFromApi(patientItemsForNames = null) {
   const rows = [];
   for (const c of byPatient.values()) {
     const pname = nameById.get(c.patient_id) || '';
-    const detail = await _hydrateCourseDetail(c, c.patient_id, pname).catch(() => null);
+    const detail = await _hydrateCourseDetail(c, c.patient_id, pname, { lite: true }).catch(() => null);
     if (detail) rows.push(_buildClinicRow(detail));
   }
   return rows;
@@ -350,7 +421,7 @@ function _renderClinicTable(rows, sortKey, sortDir) {
       <td style="padding:10px;text-align:center;border-bottom:1px solid var(--border);color:${adhColor};font-weight:600">${esc(adh)}</td>
       <td style="padding:10px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-tertiary);white-space:nowrap">${esc(_fmtDate(r.last_session_at))}</td>
       <td style="padding:10px;text-align:center;border-bottom:1px solid var(--border)">${_trendArrow(r.outcome_trend)}</td>
-      <td style="padding:10px;text-align:center;border-bottom:1px solid var(--border)">${_signoffPill(r.signed_count, r.unsigned_count)}</td>
+      <td style="padding:10px;text-align:center;border-bottom:1px solid var(--border)">${_signoffPill(r.signed_count, r.unsigned_count, { unknown: r.signoff_unknown })}</td>
     </tr>`;
   }).join('');
 
@@ -506,7 +577,7 @@ function _renderSparkline(scores, scaleName, ruleNote) {
 
 function _renderSessionRow(s, expanded) {
   const aeDot = _aeDot(s.has_ae);
-  const signed = _signedIcon(s.signed);
+  const signed = _signedIcon(s.signed, s.signoff_unknown);
   const view = expanded ? 'Hide' : 'View';
   const inline = expanded ? `<div style="margin-top:8px;padding:10px 12px;background:rgba(255,255,255,.02);border-radius:10px;font-size:12px;color:var(--text-secondary);line-height:1.5">
       <div><strong style="color:var(--text-primary)">Delivered parameters</strong>: ${esc(s.intensity_label || '—')} · ${esc(s.duration_minutes ?? '—')} min · ${esc(s.modality || '—')}</div>
@@ -581,6 +652,9 @@ function _renderLinkedBar(patientId, courseId, navigate) {
       <button type="button" class="btn btn-ghost btn-sm" data-nav="mri-analysis" style="min-height:40px">MRI</button>
       <button type="button" class="btn btn-ghost btn-sm" data-nav="biomarkers" style="min-height:40px">Biomarkers</button>
       <button type="button" class="btn btn-ghost btn-sm" data-nav="documents-hub" style="min-height:40px">Documents</button>
+      <button type="button" class="btn btn-ghost btn-sm" data-nav="voice-analyzer" style="min-height:40px">Voice</button>
+      <button type="button" class="btn btn-ghost btn-sm" data-nav="video-assessments" style="min-height:40px">Video</button>
+      <button type="button" class="btn btn-ghost btn-sm" data-nav="text-analyzer" style="min-height:40px">Text</button>
       <button type="button" class="btn btn-ghost btn-sm" data-nav="deeptwin" style="min-height:40px">DeepTwin</button>
       <button type="button" class="btn btn-ghost btn-sm" data-nav="brain-map-planner" style="min-height:40px">Brain Map Planner</button>
       <button type="button" class="btn btn-ghost btn-sm" data-nav="risk-analyzer" style="min-height:40px">Risk Analyzer</button>
@@ -605,6 +679,9 @@ function _wireLinkedBar(body, patientId, courseId, navigate) {
     'mri-analysis': () => { window._selectedPatientId = patientId; navigate('mri-analysis', { id: patientId }); },
     'biomarkers': () => { window._selectedPatientId = patientId; navigate('biomarkers', { id: patientId }); },
     'documents-hub': () => { window._selectedPatientId = patientId; navigate('documents-hub', { id: patientId }); },
+    'voice-analyzer': () => { window._selectedPatientId = patientId; navigate('voice-analyzer', { id: patientId }); },
+    'video-assessments': () => { window._selectedPatientId = patientId; navigate('video-assessments', { id: patientId }); },
+    'text-analyzer': () => { window._selectedPatientId = patientId; navigate('text-analyzer', { id: patientId }); },
     'deeptwin': () => { window._selectedPatientId = patientId; navigate('deeptwin', { id: patientId }); },
     'brain-map-planner': () => { window._selectedPatientId = patientId; navigate('brain-map-planner', { id: patientId }); },
     'risk-analyzer': () => { window._selectedPatientId = patientId; navigate('risk-analyzer', { id: patientId }); },
@@ -632,8 +709,17 @@ function _summarizeOutcomeScores(scores) {
   return 'flat';
 }
 
+function _outcomeScoresForTrend(detail) {
+  const all = detail?.outcomes?.all_summaries;
+  if (Array.isArray(all) && all.length) {
+    const withData = all.find((x) => Array.isArray(x.scores) && x.scores.length >= 2);
+    if (withData) return withData.scores;
+  }
+  return detail?.outcomes?.scores;
+}
+
 function _outcomeTrendForClinic(detail) {
-  const scores = detail?.outcomes?.scores;
+  const scores = _outcomeScoresForTrend(detail);
   const dir = _summarizeOutcomeScores(scores);
   if (dir === 'down') return 'up';
   if (dir === 'up') return 'down';
@@ -643,6 +729,7 @@ function _outcomeTrendForClinic(detail) {
 function _buildClinicRow(detail) {
   const course = detail.course || {};
   const sessions = detail.sessions || [];
+  const lite = !!detail.meta?.lite;
   const signed = sessions.filter((s) => s.signed).length;
   const unsigned = sessions.length - signed;
   const last = sessions.length ? sessions[sessions.length - 1].scheduled_at : null;
@@ -656,8 +743,9 @@ function _buildClinicRow(detail) {
     adherence_pct: course.adherence_pct,
     last_session_at: last,
     outcome_trend: _outcomeTrendForClinic(detail),
-    signed_count: signed,
-    unsigned_count: unsigned,
+    signed_count: lite ? null : signed,
+    unsigned_count: lite ? null : unsigned,
+    signoff_unknown: lite,
   };
 }
 
@@ -684,6 +772,8 @@ export async function pgTreatmentSessionsAnalyzer(setTopbar, navigate) {
   let usingFixtures = false;
   let expandedSessionId = null;
   let actorRole = null;
+  /** @type {string|null} template_id for outcome sparkline when multiple scales exist */
+  let selectedOutcomeTemplateId = null;
 
   el.innerHTML = `
     <div class="ds-treatment-sessions-analyzer-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px">
@@ -866,13 +956,36 @@ export async function pgTreatmentSessionsAnalyzer(setTopbar, navigate) {
     });
   }
 
+  function _renderOutcomePicker(outcomes) {
+    const list = Array.isArray(outcomes.all_summaries) ? outcomes.all_summaries : [];
+    const choices = list.filter((x) => x.scores?.length >= 2);
+    if (choices.length <= 1) return '';
+    const cur = selectedOutcomeTemplateId || outcomes.outcome_template_id || choices[0].template_id;
+    const opts = choices.map((c) =>
+      `<option value="${esc(c.template_id)}" ${c.template_id === cur ? 'selected' : ''}>${esc(c.template_title)} (${c.scores.length} points)</option>`,
+    ).join('');
+    return `<div style="margin-top:10px;display:flex;flex-wrap:wrap;align-items:center;gap:8px">
+      <label for="ts-outcome-scale" style="font-size:12px;color:var(--text-secondary)">Outcome scale</label>
+      <select id="ts-outcome-scale" class="btn btn-ghost btn-sm" style="min-height:40px;max-width:360px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;background:var(--bg-card)">
+        ${opts}
+      </select>
+      <span style="font-size:11px;color:var(--text-tertiary)">Switching only changes the plot — does not recompute data.</span>
+    </div>`;
+  }
+
   function _renderPatientDetail(detail, expandedId) {
     const course = detail.course || {};
     const sessions = detail.sessions || [];
     const summary = detail.summary || { signed_count: 0, delivered_count: sessions.length };
-    const unsigned = sessions.filter((s) => !s.signed);
+    const unsigned = sessions.filter((s) => !s.signed && !s.signoff_unknown);
     const deviations = detail.deviations || [];
     const outcomes = detail.outcomes || { scale: '—', scores: [], rule_note: '' };
+    const pick = typeof outcomes.pick_series === 'function'
+      ? outcomes.pick_series(selectedOutcomeTemplateId)
+      : { scale: outcomes.scale, scores: outcomes.scores, ruleNote: outcomes.rule_note };
+    const sparkScores = pick.scores || outcomes.scores || [];
+    const sparkScale = pick.scale || outcomes.scale;
+    const sparkRule = pick.ruleNote || outcomes.rule_note;
     const ae = detail.ae_summary;
     const auditItems = detail.audit_items || [];
     const dm = detail.meta || {};
@@ -892,7 +1005,8 @@ export async function pgTreatmentSessionsAnalyzer(setTopbar, navigate) {
     ${_renderSignoffQueue(unsigned)}
     ${_renderTimeline(sessions, expandedId)}
     ${_renderDeviationPanel(deviations, detail.deviations_count, detail.interrupted_count)}
-    ${_renderSparkline(outcomes.scores, outcomes.scale, outcomes.rule_note)}
+    ${_renderOutcomePicker(outcomes)}
+    ${_renderSparkline(sparkScores, sparkScale, sparkRule)}
     ${outcomes.responder_backend_flag != null ? `<div style="margin-top:8px;font-size:11px;color:var(--text-tertiary)">Backend responder heuristic flag (rule-based, not clinical fact): ${outcomes.responder_backend_flag ? 'true' : 'false'} — requires clinician interpretation.</div>` : ''}
     ${governance}
     ${_renderAuditTeaser(auditItems, !!course._demo_fixture)}
@@ -935,6 +1049,10 @@ export async function pgTreatmentSessionsAnalyzer(setTopbar, navigate) {
     }
     detailCache = detail;
     activePatientName = detail.course?.patient_name || activePatientName;
+    selectedOutcomeTemplateId = null;
+    const alls = detail.outcomes?.all_summaries || [];
+    const defaultPick = alls.find((x) => x.scores?.length >= 2) || alls[0];
+    if (defaultPick?.template_id) selectedOutcomeTemplateId = defaultPick.template_id;
     _syncDemoBanner();
     body.innerHTML = _renderPatientDetail(detail, expandedSessionId);
     wirePatientDetail();
@@ -945,6 +1063,12 @@ export async function pgTreatmentSessionsAnalyzer(setTopbar, navigate) {
     if (!body) return;
 
     _wireLinkedBar(body, detailCache?.course?.patient_id, detailCache?.course?.id, navigate);
+
+    body.querySelector('#ts-outcome-scale')?.addEventListener('change', (ev) => {
+      selectedOutcomeTemplateId = ev.target.value || null;
+      body.innerHTML = _renderPatientDetail(detailCache, expandedSessionId);
+      wirePatientDetail();
+    });
 
     body.querySelectorAll('[data-action="toggle-session"]').forEach((b) => {
       b.addEventListener('click', (ev) => {
@@ -1007,4 +1131,4 @@ export async function pgTreatmentSessionsAnalyzer(setTopbar, navigate) {
 export default { pgTreatmentSessionsAnalyzer };
 
 /** @internal exported for unit tests */
-export { _parsePrimaryOutcome, _summarizeOutcomeScores, _completionPct };
+export { _parseOutcomeSummaries, _summarizeOutcomeScores, _completionPct };

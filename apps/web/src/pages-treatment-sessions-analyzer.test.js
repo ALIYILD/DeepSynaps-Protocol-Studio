@@ -4,9 +4,9 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { _parsePrimaryOutcome, _summarizeOutcomeScores, _completionPct } from './pages-treatment-sessions-analyzer.js';
+import { _parseOutcomeSummaries, _summarizeOutcomeScores, _completionPct } from './pages-treatment-sessions-analyzer.js';
 
-test('_parsePrimaryOutcome reads summaries[].measurements', () => {
+test('_parseOutcomeSummaries reads first scale and pickSeries', () => {
   const resp = {
     course_id: 'c1',
     summaries: [
@@ -21,14 +21,37 @@ test('_parsePrimaryOutcome reads summaries[].measurements', () => {
     ],
     responder: true,
   };
-  const o = _parsePrimaryOutcome(resp);
+  const o = _parseOutcomeSummaries(resp);
   assert.deepEqual(o.scores, [18, 14]);
   assert.equal(o.scale, 'PHQ-9');
   assert.ok(o.ruleNote.includes('Requires clinician'));
+  const g = o.pickSeries('PHQ-9');
+  assert.deepEqual(g.scores, [18, 14]);
 });
 
-test('_parsePrimaryOutcome handles empty summaries', () => {
-  const o = _parsePrimaryOutcome({ summaries: [] });
+test('_parseOutcomeSummaries pickSeries switches between instruments', () => {
+  const resp = {
+    summaries: [
+      {
+        template_id: 'PHQ-9',
+        template_title: 'PHQ-9',
+        measurements: [{ score_numeric: 10 }, { score_numeric: 9 }],
+      },
+      {
+        template_id: 'GAD-7',
+        template_title: 'GAD-7',
+        measurements: [{ score_numeric: 12 }, { score_numeric: 8 }],
+      },
+    ],
+  };
+  const o = _parseOutcomeSummaries(resp);
+  assert.equal(o.all_series.length, 2);
+  assert.deepEqual(o.pickSeries('GAD-7').scores, [12, 8]);
+  assert.deepEqual(o.pickSeries('PHQ-9').scores, [10, 9]);
+});
+
+test('_parseOutcomeSummaries handles empty summaries', () => {
+  const o = _parseOutcomeSummaries({ summaries: [] });
   assert.deepEqual(o.scores, []);
   assert.equal(o.summariesCount, 0);
 });
