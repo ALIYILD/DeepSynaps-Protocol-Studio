@@ -19,6 +19,7 @@ import {
   getAssessmentConfig,
 } from './assessment-forms.js';
 import { DOCUMENT_TEMPLATES, renderTemplate } from './documents-templates.js';
+import { documentsWorkspaceRouteFromSearch } from './documents-v2-route.js';
 import { SCALE_REGISTRY } from './registries/scale-assessment-registry.js';
 import { ASSESS_REGISTRY } from './registries/assess-instruments-registry.js';
 import { EVIDENCE_SUMMARY, CONDITION_EVIDENCE, getConditionEvidence } from './evidence-dataset.js';
@@ -7560,7 +7561,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
   // Drill-in coverage from upstream surfaces (Documents Hub launch-audit
   // 2026-04-30 re-audit). Read source_target_type / source_target_id from
   // the URL once on mount and keep them on `window` so re-renders of the
-  // page (window._nav('documents-hub') after a sign / supersede) preserve
+  // page (window._refreshDocumentsWorkspace after a sign / supersede) preserve
   // the filter context. Whitelist matches the backend KNOWN_DRILL_IN_-
   // SURFACES — anything else is dropped silently here and the API will
   // 422 if a hand-crafted URL bypasses the UI.
@@ -7626,7 +7627,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       url.searchParams.delete('source_target_id');
       window.history.replaceState({}, '', url.toString());
     } catch (_) {}
-    window._nav('documents-hub');
+    window._refreshDocumentsWorkspace();
   };
   // Drill BACK to the upstream surface that pointed here.
   window._docsDrillBack = () => {
@@ -7652,10 +7653,18 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
     }
   };
   const el = document.getElementById('content');
+  // Keep `?page=documents-v2` stable: both v2 and legacy `documents-hub` routes
+  // render this module; internal refreshes must not rewrite the URL to the legacy id.
+  const _documentsWorkspaceRoute = () =>
+    documentsWorkspaceRouteFromSearch(
+      (typeof window !== 'undefined' && window.location && window.location.search) ? window.location.search : ''
+    );
+  window._refreshDocumentsWorkspace = () => { window._nav(_documentsWorkspaceRoute()); };
+
   function tabBar() {
     return Object.entries(TAB_META).map(([id,m]) =>
       '<button class="ch-tab'+(tab===id?' ch-tab--active':'')+'"'+(tab===id?' style="--tab-color:'+m.color+'"':'')+
-      ' onclick="window._docsHubTab=\''+id+'\';window._nav(\'documents-hub\')">'+ m.label +'</button>'
+      ' onclick="window._docsHubTab=\''+id+'\';window._refreshDocumentsWorkspace()">'+ m.label +'</button>'
     ).join('');
   }
   setTopbar('Documents', '<button class="btn btn-primary btn-sm" onclick="window._docsUpload()">+ Upload</button>');
@@ -7705,17 +7714,45 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       listParams.source_target_id   = drillInId;
     }
     const r = await api.listDocuments(listParams);
-    backendDocs = (r?.items || []).map(d => ({
-      id: d.id, name: d.title, type: d.doc_type, patient: d.patient_id || '—',
-      date: (d.updated_at||'').slice(0,10), status: d.status,
-      size: d.file_ref ? 'file' : '—',
-      template_id: d.template_id, notes: d.notes, file_ref: d.file_ref,
-      signed_by: d.signed_by, signed_at: d.signed_at,
-      supersedes: d.supersedes, superseded_by: d.superseded_by,
-      revision: d.revision || 1, is_demo: !!d.is_demo,
-      source_target_type: d.source_target_type || null,
-      source_target_id:   d.source_target_id   || null,
-    }));
+    const rawItems = r?.items || [];
+    let patientNameById = {};
+    if (rawItems.length) {
+      try {
+        const pr = await api.listPatients().catch(() => ({ items: [] }));
+        (pr?.items || []).forEach((p) => {
+          const nm = ((p.first_name || '') + ' ' + (p.last_name || '')).trim();
+          if (p.id) patientNameById[p.id] = nm || 'Patient';
+        });
+      } catch (_) { /* roster optional */ }
+    }
+    backendDocs = rawItems.map((d) => {
+      const pid = d.patient_id || null;
+      let patientLabel = '—';
+      if (pid) {
+        patientLabel = patientNameById[pid] || ('Patient ' + String(pid).slice(0, 8) + '…');
+      }
+      return {
+        id: d.id,
+        name: d.title,
+        type: d.doc_type,
+        patient: patientLabel,
+        patient_id: pid,
+        date: (d.updated_at || '').slice(0, 10),
+        status: d.status,
+        size: d.file_ref ? 'Attachment' : '—',
+        template_id: d.template_id,
+        notes: d.notes,
+        file_ref: d.file_ref,
+        signed_by: d.signed_by,
+        signed_at: d.signed_at,
+        supersedes: d.supersedes,
+        superseded_by: d.superseded_by,
+        revision: d.revision || 1,
+        is_demo: !!d.is_demo,
+        source_target_type: d.source_target_type || null,
+        source_target_id: d.source_target_id || null,
+      };
+    });
     saveDocs(backendDocs);
   } catch (err) {
     backendError = err?.message || 'Documents API unreachable.';
@@ -7843,7 +7880,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       window._dsToast?.({title:'Template saved',body:name+' is now available.',severity:'success'});
       document.getElementById('docs-template-builder-modal')?.remove();
       window._docsHubTab = 'templates';
-      window._nav('documents-hub');  // refresh — re-fetches templates list
+      window._refreshDocumentsWorkspace();  // refresh — re-fetches templates list
     } catch (err) {
       const msg = (err && (err.message || err.detail)) || 'Failed to save template.';
       window._dsToast?.({title:'Save failed',body:String(msg),severity:'error'});
@@ -7858,7 +7895,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
     try {
       await api.deleteDocumentTemplate(id);
       window._dsToast?.({title:'Template deleted',body:tpl.name+' removed.',severity:'success'});
-      window._nav('documents-hub');
+      window._refreshDocumentsWorkspace();
     } catch (err) {
       const msg = (err && (err.message || err.detail)) || 'Failed to delete template.';
       window._dsToast?.({title:'Delete failed',body:String(msg),severity:'error'});
@@ -7906,7 +7943,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
           '<pre style="white-space:pre-wrap;font-family:inherit;font-size:12.5px;line-height:1.55;max-height:60vh;overflow-y:auto">'+esc(rendered)+'</pre>'+
           '<div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">'+
             '<button class="btn" onclick="document.getElementById(\'docs-preview-modal\')?.remove()">Close</button>'+
-            '<button class="btn btn-primary" onclick="document.getElementById(\'docs-preview-modal\')?.remove();window._docsSendTemplate(\''+safeTplId+'\')">Send to Patient</button>'+
+            '<button class="btn btn-primary" onclick="document.getElementById(\'docs-preview-modal\')?.remove();window._docsSendTemplate(\''+safeTplId+'\')">Assign (pending review)</button>'+
           '</div>'+
         '</div>'+
       '</div>';
@@ -7928,7 +7965,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
         notes: 'Sent from Documents Hub template',
       });
       window._dsToast?.({title:'Sent',body:tpl.name+' — pending signature.',severity:'success'});
-      window._nav('documents-hub');
+      window._refreshDocumentsWorkspace();
     } catch {
       window._dsToast?.({title:'Failed',body:'Could not save document.',severity:'error'});
     }
@@ -7992,20 +8029,101 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       return;
     }
     try {
+      const prefix = '[AI-assisted draft — requires clinician review]\n\n';
       await api.createDocument({
-        title: title || (kind === 'letter' ? 'Patient Letter' : 'Clinical Document'),
+        title: title || (kind === 'letter' ? 'Patient Letter (AI-assisted draft)' : 'Clinical document (AI-assisted draft)'),
         doc_type: 'generated',
         patient_id: patientId || null,
         template_id: templateId || null,
-        status: 'completed',
-        notes: content,
+        status: 'pending',
+        notes: prefix + content,
       });
-      window._dsToast?.({title:'Saved',body:(kind==='letter'?'Letter':'Document')+' saved to records.',severity:'success'});
-      window._nav('documents-hub');
+      window._dsToast?.({title:'Saved as draft',body:'AI-assisted draft stored — review and sign off before release.',severity:'success'});
+      window._refreshDocumentsWorkspace();
     } catch {
       window._dsToast?.({title:'Failed',body:'Could not save document.',severity:'error'});
     }
   };
+
+  window._docsOpenPatient = (patientId) => {
+    if (!patientId) return;
+    window._profilePatientId = patientId;
+    window._selectedPatientId = patientId;
+    window._currentPatientId = patientId;
+    window._nav('patients-v2');
+  };
+
+  window._docsPreviewNotes = async (docId) => {
+    if (!docId) return;
+    try {
+      const d = await api.getDocument(docId);
+      const body = (d && (d.notes || '')) || '';
+      document.getElementById('docs-notes-preview-modal')?.remove();
+      const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const overlay = document.createElement('div');
+      overlay.id = 'docs-notes-preview-modal';
+      overlay.className = 'ch-modal-overlay';
+      overlay.innerHTML =
+        '<div class="ch-modal" style="width:min(720px,95vw)">'+
+          '<div class="ch-modal-hd"><span>'+esc(d.title || 'Document')+'</span>'+
+            '<button type="button" class="ch-modal-close" onclick="document.getElementById(\'docs-notes-preview-modal\')?.remove()" aria-label="Close">✕</button>'+
+          '</div>'+
+          '<div class="ch-modal-body">'+
+            '<p style="font-size:11.5px;color:var(--text-tertiary);margin:0 0 10px">Text preview — verify content before sign-off. Not a substitute for source imaging or raw data.</p>'+
+            '<pre style="white-space:pre-wrap;font-family:inherit;font-size:12.5px;line-height:1.55;max-height:55vh;overflow-y:auto;margin:0">'+esc(body)+'</pre>'+
+            '<div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">'+
+              '<button type="button" class="btn" onclick="document.getElementById(\'docs-notes-preview-modal\')?.remove()">Close</button>'+
+            '</div>'+
+          '</div>'+
+        '</div>';
+      document.body.appendChild(overlay);
+    } catch (err) {
+      const msg = err?.message || 'Could not load document.';
+      window._dsToast?.({ title: 'Preview failed', body: String(msg), severity: 'error' });
+    }
+  };
+
+  /** Single-purpose links to analyzers / modules (decision-support context only). */
+  window._docsOpenSourceModule = (hint) => {
+    const h = (hint || '').toLowerCase();
+    const map = {
+      qeeg: 'qeeg-analysis',
+      mri: 'mri-analysis',
+      video: 'video-assessments',
+      biometrics: 'wearables',
+      text: 'text-analyzer',
+      deeptwin: 'deeptwin',
+      protocol: 'protocol-studio',
+      assessments: 'assessments-v2',
+      inbox: 'clinician-inbox',
+      schedule: 'schedule-v2',
+    };
+    const page = map[h];
+    if (page) window._nav(page);
+    else window._dsToast?.({ title: 'Open module', body: 'Choose a module from the sidebar.', severity: 'info' });
+  };
+
+  function _dv2ReviewBadge(d) {
+    const t = (d.type || '').toLowerCase();
+    const st = (d.status || '').toLowerCase();
+    const aiDraft = t === 'generated' || (d.notes && /^\[AI-assisted draft/i.test(String(d.notes)));
+    if (st === 'signed' || st === 'completed') {
+      return '<span class="book-status-badge" style="color:var(--green);background:rgba(34,197,94,0.12);font-size:10px">Reviewed</span>';
+    }
+    if (st === 'superseded') {
+      return '<span class="book-status-badge" style="color:var(--text-tertiary);background:rgba(148,163,184,0.12);font-size:10px">Archived</span>';
+    }
+    if (aiDraft || (st === 'pending' && t === 'generated')) {
+      return '<span class="book-status-badge" style="color:var(--amber);background:rgba(245,158,11,0.14);font-size:10px">Needs review</span>';
+    }
+    if (st === 'pending') {
+      return '<span class="book-status-badge" style="color:var(--violet);background:rgba(139,92,246,0.12);font-size:10px">Draft</span>';
+    }
+    if (st === 'uploaded') {
+      return '<span class="book-status-badge" style="color:var(--teal);background:rgba(46,196,182,0.12);font-size:10px">Attachment</span>';
+    }
+    return '';
+  }
 
   function docRows(list) {
     if (!list.length) {
@@ -8013,7 +8131,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       // from "no rows linked to this drill-in upstream".
       if (backendError) {
         return '<div class="ch-empty">Documents service unreachable. Showing local cache (' + data.docs.length + ' rows). ' +
-          '<button class="ch-btn-sm" style="margin-left:8px" onclick="window._nav(\'documents-hub\')">Retry</button></div>';
+          '<button class="ch-btn-sm" style="margin-left:8px" onclick="window._refreshDocumentsWorkspace()">Retry</button></div>';
       }
       if (drillInType && drillInId) {
         const surfaceLabel = DRILL_IN_LABELS[drillInType] || drillInType;
@@ -8039,11 +8157,13 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
     const esc = s => String(s==null?'':s).replace(/'/g,"\\'");
     return list.map(d => {
       const hasFile = !!(d.file_ref || d.status === 'uploaded');
+      const hasNotes = !!(d.notes && String(d.notes).trim());
       // Downloadable records key on document id; template previews key on template_id.
       const downloadArg = hasFile ? "'"+esc(d.id)+"'" : (d.template_id ? "'"+esc(d.template_id)+"'" : 'null');
       const nameArg = "'"+esc(d.name)+"'";
       const hasFileArg = hasFile ? 'true' : 'false';
       const idArg = "'"+esc(d.id)+"'";
+      const pidArg = d.patient_id ? "'"+esc(d.patient_id)+"'" : 'null';
       const isBackend = !d.id || /^[0-9a-fA-F-]{8,}$/.test(String(d.id));
       const signed = d.status === 'signed' || d.status === 'completed' || d.status === 'final';
       const superseded = d.status === 'superseded';
@@ -8051,23 +8171,34 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       // Local-cache rows show download only — pre-fix the "Sign" button
       // would call api.signDocument with a synthetic id and throw.
       const signBtn = (isBackend && !signed && !superseded)
-        ? '<button class="ch-btn-sm ch-btn-teal" title="Sign-off" onclick="window._docsSign('+idArg+')">Sign</button>'
+        ? '<button type="button" class="ch-btn-sm ch-btn-teal" title="Clinician sign-off (finalizes record)" onclick="window._docsSign('+idArg+')">Sign off</button>'
         : '';
       const supersedeBtn = (isBackend && !superseded)
-        ? '<button class="ch-btn-sm" title="Create new revision" onclick="window._docsSupersede('+idArg+','+nameArg+')">Revise</button>'
+        ? '<button type="button" class="ch-btn-sm" title="Create new revision" onclick="window._docsSupersede('+idArg+','+nameArg+')">Revise</button>'
         : '';
       const deleteBtn = (isBackend && !signed)
-        ? '<button class="ch-btn-sm" title="Delete" onclick="window._docsDelete('+idArg+','+nameArg+')">Delete</button>'
+        ? '<button type="button" class="ch-btn-sm" title="Delete" onclick="window._docsDelete('+idArg+','+nameArg+')">Delete</button>'
         : '';
       const demoBadge = d.is_demo ? '<span class="book-status-badge" style="color:var(--amber);background:rgba(245,158,11,0.12);margin-right:4px">DEMO</span>' : '';
       const revLabel = d.revision && d.revision > 1 ? ' · v' + d.revision : '';
-      return '<div class="book-row">'+
+      const reviewBadges = _dv2ReviewBadge(d);
+      const previewBtn = (isBackend && hasNotes)
+        ? '<button type="button" class="ch-btn-sm" title="Preview text content (requires sign-in)" onclick="window._docsPreviewNotes('+idArg+')">Preview</button>'
+        : '';
+      const patientBtn = (isBackend && d.patient_id)
+        ? '<button type="button" class="ch-btn-sm" title="Open patient profile" onclick="window._docsOpenPatient('+pidArg+')">Patient</button>'
+        : '';
+      const dlTitle = hasFile ? 'Download file (authenticated)' : 'Download rendered text';
+      return '<div class="book-row dv2-doc-row">'+
         '<div class="book-datetime"><div class="book-date">'+(d.date||'—')+'</div><div class="book-time">'+(d.size||'—')+'</div></div>'+
-        '<div class="book-info"><div class="book-patient">'+d.name+revLabel+'</div><div class="book-clinician">'+d.patient+' · '+d.type+'</div></div>'+
-        '<div class="book-status-col">'+demoBadge+'<span class="book-status-badge" style="color:'+(stC[d.status]||'var(--text-tertiary)')+';background:'+(stC[d.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+d.status+'</span></div>'+
-        '<div class="book-actions" style="display:flex;gap:4px;flex-wrap:wrap">'+
-          '<button class="ch-btn-sm" title="Download" onclick="window._docsDownload('+downloadArg+','+nameArg+','+hasFileArg+')">↓</button>'+
-          signBtn + supersedeBtn + deleteBtn +
+        '<div class="book-info"><div class="book-patient">'+d.name+revLabel+'</div><div class="book-clinician">'+d.patient+' · <span style="text-transform:capitalize">'+(d.type||'')+'</span></div></div>'+
+        '<div class="book-status-col" style="display:flex;flex-direction:column;align-items:flex-start;gap:4px">'+demoBadge+
+          '<span class="book-status-badge" style="color:'+(stC[d.status]||'var(--text-tertiary)')+';background:'+(stC[d.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+d.status+'</span>'+
+          reviewBadges+
+        '</div>'+
+        '<div class="book-actions" style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">'+
+          '<button type="button" class="ch-btn-sm" title="'+dlTitle+'" onclick="window._docsDownload('+downloadArg+','+nameArg+','+hasFileArg+')">Download</button>'+
+          previewBtn + patientBtn + signBtn + supersedeBtn + deleteBtn +
         '</div>'+
       '</div>';
     }).join('');
@@ -8084,7 +8215,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       await api.signDocument(docId, note || null);
       window._dsToast?.({title:'Signed',body:'Document marked signed and immutable.',severity:'success'});
       api.logDocumentsAudit?.({event:'signed', document_id: docId, note: 'ui sign-off'}).catch(()=>{});
-      window._nav('documents-hub');
+      window._refreshDocumentsWorkspace();
     } catch (err) {
       const msg = err?.message || 'Sign failed.';
       window._dsToast?.({title:'Sign failed',body:String(msg),severity:'error'});
@@ -8101,7 +8232,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       const out = await api.supersedeDocument(docId, { reason: reason.trim(), new_title: newTitle });
       window._dsToast?.({title:'Revision created',body:'New revision v'+(out?.revision||2)+' created. Original marked superseded.',severity:'success'});
       api.logDocumentsAudit?.({event:'superseded', document_id: docId, note: 'ui supersede: ' + reason.slice(0,200)}).catch(()=>{});
-      window._nav('documents-hub');
+      window._refreshDocumentsWorkspace();
     } catch (err) {
       const msg = err?.message || 'Supersede failed.';
       window._dsToast?.({title:'Revise failed',body:String(msg),severity:'error'});
@@ -8113,7 +8244,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       await api.deleteDocument(docId);
       window._dsToast?.({title:'Deleted',body:'Document removed.',severity:'success'});
       api.logDocumentsAudit?.({event:'deleted', document_id: docId, note: 'ui delete'}).catch(()=>{});
-      window._nav('documents-hub');
+      window._refreshDocumentsWorkspace();
     } catch (err) {
       const msg = err?.message || 'Delete failed.';
       window._dsToast?.({title:'Delete failed',body:String(msg),severity:'error'});
@@ -8166,7 +8297,39 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
     const q = (window._docsSearch||'').toLowerCase();
     const filt = window._docsFilter||'All';
     const types = ['All',...new Set(data.docs.map(d=>d.type))];
-    const rows = data.docs.filter(d=>(filt==='All'||d.type===filt)&&(!q||(d.name+d.patient).toLowerCase().includes(q)));
+    const rows = data.docs.filter(d=>(filt==='All'||d.type===filt)&&(!q||(d.name+d.patient+(d.patient_id||'')).toLowerCase().includes(q)));
+    const pendingReview = rows.filter(d => {
+      const st = (d.status||'').toLowerCase();
+      const ty = (d.type||'').toLowerCase();
+      return st === 'pending' || ty === 'generated' || (d.notes && /^\[AI-assisted draft/i.test(String(d.notes)));
+    });
+    const archived = rows.filter(d => (d.status||'').toLowerCase() === 'superseded');
+    const activeRows = rows.filter(d => (d.status||'').toLowerCase() !== 'superseded');
+    const recent = rows.slice(0, 10);
+
+    function section(title, subtitle, list, limit) {
+      const slice = typeof limit === 'number' ? list.slice(0, limit) : list;
+      if (!slice.length) return '';
+      return '<div style="margin-bottom:18px">'+
+        '<div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;margin-bottom:8px">'+
+          '<h3 style="margin:0;font-size:14px;font-weight:600;color:var(--text-primary)">'+title+'</h3>'+
+          '<span style="font-size:11.5px;color:var(--text-tertiary)">'+subtitle+'</span>'+
+        '</div>'+
+        docRows(slice)+
+      '</div>';
+    }
+
+    const moduleLinks = (
+      '<div class="dv2-module-links" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px">'+
+        '<span style="font-size:11px;color:var(--text-tertiary);width:100%;margin-bottom:2px">Open source modules (decision support — review outputs here)</span>'+
+        ['qeeg:qEEG','mri:MRI','video:Video','biometrics:Biometrics','text:Text','deeptwin:DeepTwin','protocol:Protocols','assessments:Assessments','inbox:Inbox','schedule:Schedule']
+          .map(s => {
+            const [k, lab] = s.split(':');
+            return '<button type="button" class="ch-btn-sm" onclick="window._docsOpenSourceModule(\''+k+'\')">'+lab+'</button>';
+          }).join('')+
+      '</div>'
+    );
+
     // Top KPIs come from the server-side /summary so they are honest
     // about empty cases. The fallback (`summaryCounts || …`) above keeps
     // the UI working when the API is down.
@@ -8174,29 +8337,42 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
     const signedK  = summaryCounts.signed     ?? rows.filter(d=>d.status==='signed'||d.status==='completed').length;
     const draftK   = summaryCounts.draft      ?? rows.filter(d=>d.status==='pending').length;
     const supersK  = summaryCounts.superseded ?? rows.filter(d=>d.status==='superseded').length;
+    const demoK    = (typeof summaryCounts.demo === 'number') ? summaryCounts.demo : rows.filter(d => d.is_demo).length;
     const errBanner = backendError
-      ? '<div style="padding:8px 12px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:8px;color:var(--red);font-size:12px;margin-bottom:12px">Documents API unreachable — '+ String(backendError).replace(/[<>]/g,'') +'. Counts are local-cache only. <button class="ch-btn-sm" style="margin-left:8px" onclick="window._nav(\'documents-hub\')">Retry</button></div>'
+      ? '<div style="padding:8px 12px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:8px;color:var(--red);font-size:12px;margin-bottom:12px">Documents API unreachable — '+ String(backendError).replace(/[<>]/g,'') +'. Counts are local-cache only. <button class="ch-btn-sm" style="margin-left:8px" onclick="window._refreshDocumentsWorkspace()">Retry</button></div>'
       : '';
     main = errBanner + `
-      <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+      <div class="dv2-scope-note" style="font-size:11.5px;color:var(--text-tertiary);line-height:1.5;margin-bottom:10px">
+        Clinical document workspace — not autonomous documentation or diagnosis. AI-assisted items stay in <strong>draft</strong> until you sign off.
+      </div>
+      <div class="ch-kpi-strip dv2-kpi-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:10px;margin-bottom:16px">
         <div class="ch-kpi-card dv2-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val dv2-kpi-val">${totalK}</div><div class="ch-kpi-label dv2-kpi-label">Total</div></div>
         <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${signedK}</div><div class="ch-kpi-label">Signed</div></div>
         <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${draftK}</div><div class="ch-kpi-label">Drafts</div></div>
         <div class="ch-kpi-card" style="--kpi-color:var(--text-tertiary)"><div class="ch-kpi-val">${supersK}</div><div class="ch-kpi-label">Superseded</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${demoK}</div><div class="ch-kpi-label">Demo rows</div></div>
       </div>
+      ${moduleLinks}
       <div class="ch-card">
-        <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px">
-          <span class="ch-card-title">All Documents</span>
-          <div style="position:relative;flex:1;max-width:260px">
-            <input type="text" placeholder="Search…" class="ph-search-input" value="${window._docsSearch||''}" oninput="window._docsSearch=this.value;window._nav('documents-hub')">
-            <svg viewBox="0 0 24 24" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;stroke:var(--text-tertiary);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px;align-items:center">
+          <span class="ch-card-title">Documents</span>
+          <div style="position:relative;flex:1;min-width:160px;max-width:280px">
+            <label class="sr-only" for="dv2-docs-search">Search documents</label>
+            <input id="dv2-docs-search" type="search" autocomplete="off" placeholder="Search title, patient…" class="ph-search-input" style="padding-left:28px" value="${window._docsSearch||''}" oninput="window._docsSearch=this.value;window._refreshDocumentsWorkspace()">
+            <svg viewBox="0 0 24 24" aria-hidden="true" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;stroke:var(--text-tertiary);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           </div>
-          <button class="ch-btn-sm" title="Download filtered ZIP (manifest.csv + uploaded blobs)" onclick="window._docsExport()">⤓ Export ZIP</button>
+          <button type="button" class="ch-btn-sm" title="Download filtered ZIP (manifest.csv + uploaded blobs)" onclick="window._docsExport()">Export ZIP</button>
         </div>
         <div style="padding:10px 16px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border)">
-          ${types.map(t=>'<button class="reg-domain-pill'+(t===filt?' active':'')+'" onclick="window._docsFilter=\''+t+'\';window._docsLogFilter(\'kind\','+JSON.stringify(t)+');window._nav(\'documents-hub\')">'+t+'</button>').join('')}
+          ${types.map(t=>'<button type="button" class="reg-domain-pill'+(t===filt?' active':'')+'" onclick="window._docsFilter=\''+t+'\';window._docsLogFilter(\'kind\','+JSON.stringify(t)+');window._refreshDocumentsWorkspace()">'+t+'</button>').join('')}
         </div>
-        ${docRows(rows)}
+        <div style="padding:12px 16px 20px">
+          ${section('Awaiting clinician review', 'pending drafts and AI-assisted drafts', pendingReview, 40)}
+          ${rows.length > 12 ? section('Recent', 'newest matches (quick scan)', recent, 10) : ''}
+          ${section('All matching records', 'scroll or narrow filters', activeRows, undefined)}
+          ${archived.length ? section('Archived', 'superseded revisions retained for audit', archived, 80) : ''}
+          ${!rows.length ? docRows([]) : ''}
+        </div>
       </div>`;
   }
   else if (tab === 'templates') {
@@ -8211,7 +8387,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
           <button class="ch-btn-sm ch-btn-teal" onclick="window._docOpenTemplateBuilder?.()">+ New Template</button>
         </div>
         <div style="padding:10px 16px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border)">
-          ${cats.map(c=>'<button class="reg-domain-pill'+(c===filt?' active':'')+'" onclick="window._tplFilter=\''+c+'\';window._nav(\'documents-hub\')">'+c+'</button>').join('')}
+          ${cats.map(c=>'<button class="reg-domain-pill'+(c===filt?' active':'')+'" onclick="window._tplFilter=\''+c+'\';window._refreshDocumentsWorkspace()">'+c+'</button>').join('')}
         </div>
         ${rows.map(t=>{
           const safeId = String(t.id).replace(/'/g,"\\'");
@@ -8239,39 +8415,51 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
   else if (tab === 'letters') {
     let patients = [];
     try { const r = await api.listPatients().catch(()=>({items:[]})); patients=r?.items||[]; } catch {}
-    const patOpts = patients.map(p=>'<option value="'+p.id+'">'+ ((p.first_name||'')+' '+(p.last_name||'')).trim() +'</option>').join('') || '<option>Demo Patient A</option>';
+    const patOpts = patients.length
+      ? patients.map(p=>'<option value="'+p.id+'">'+ ((p.first_name||'')+' '+(p.last_name||'')).trim() +'</option>').join('')
+      : '<option value="" disabled selected>No patients in roster — add a patient first</option>';
     const letterTpls = TEMPLATES.filter(t=>t.cat==='Letter');
+    const letterDocs = data.docs.filter(d => (d.type||'').toLowerCase() === 'letter' || (d.type||'').toLowerCase() === 'clinical');
     main = `
       <div class="ch-two-col">
         <div class="ch-card">
-          <div class="ch-card-hd"><span class="ch-card-title">Generate Letter</span><span class="ph-ai-badge">AI</span></div>
+          <div class="ch-card-hd"><span class="ch-card-title">AI-assisted letter draft</span><span class="ph-ai-badge" title="Decision support only">AI</span></div>
+          <p style="padding:0 16px 0;margin:0;font-size:12px;color:var(--text-tertiary);line-height:1.5">Generates a <strong>draft</strong> for clinician review — not a final medical letter or diagnosis.</p>
           <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
-            <div class="ch-form-group"><label class="ch-label">Patient</label><select id="letter-patient" class="ch-select ch-select--full">${patOpts}</select></div>
+            <div class="ch-form-group"><label class="ch-label">Patient</label><select id="letter-patient" class="ch-select ch-select--full" ${patients.length ? '' : 'disabled'}>${patOpts}</select></div>
             <div class="ch-form-group"><label class="ch-label">Template</label>
-              <select id="letter-template" class="ch-select ch-select--full">
-                ${letterTpls.map(t=>'<option value="'+t.id+'">'+t.name+'</option>').join('')}
+              <select id="letter-template" class="ch-select ch-select--full" ${letterTpls.length ? '' : 'disabled'}>
+                ${letterTpls.length ? letterTpls.map(t=>'<option value="'+t.id+'">'+t.name+'</option>').join('') : '<option value="">No letter templates bundled</option>'}
               </select>
             </div>
             <div class="ch-form-group"><label class="ch-label">Recipient</label><input id="letter-recipient" class="ch-select ch-select--full" placeholder="GP name, insurer, patient…"></div>
             <div class="ch-form-group"><label class="ch-label">Additional Notes</label><textarea id="letter-notes" class="ch-textarea" rows="3" placeholder="Any specific points to include…"></textarea></div>
-            <button class="btn btn-primary" onclick="window._genLetter()">✦ Generate Letter</button>
+            <button type="button" class="btn btn-primary" onclick="window._genLetter()" ${patients.length && letterTpls.length ? '' : 'disabled'} title="${patients.length && letterTpls.length ? '' : (!patients.length ? 'Add at least one patient' : 'No letter templates available')}">Generate draft</button>
           </div>
           <div id="letter-output" style="display:none;padding:0 16px 16px">
-            <div class="ch-card-hd" style="padding:0 0 8px"><span class="ch-card-title">Generated Letter</span></div>
+            <div class="ch-card-hd" style="padding:0 0 8px"><span class="ch-card-title">Draft output</span></div>
             <div id="letter-content" class="ch-textarea" style="min-height:120px;padding:12px;font-size:12.5px;line-height:1.7;white-space:pre-wrap"></div>
-            <div style="display:flex;gap:8px;margin-top:10px">
-              <button class="ch-btn-sm ch-btn-teal" onclick="window._docsSaveGenerated('letter', document.getElementById('letter-template')?.options[document.getElementById('letter-template')?.selectedIndex]?.text, document.getElementById('letter-content')?.textContent || '', document.getElementById('letter-patient')?.value, document.getElementById('letter-template')?.value)">Save</button>
-              <button class="ch-btn-sm" onclick="window.print()">Print</button>
+            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+              <button type="button" class="ch-btn-sm ch-btn-teal" onclick="window._docsSaveGenerated('letter', document.getElementById('letter-template')?.options[document.getElementById('letter-template')?.selectedIndex]?.text, document.getElementById('letter-content')?.textContent || '', document.getElementById('letter-patient')?.value, document.getElementById('letter-template')?.value)">Save draft to documents</button>
+              <button type="button" class="ch-btn-sm" onclick="window.print()">Print</button>
             </div>
           </div>
         </div>
         <div class="ch-card">
-          <div class="ch-card-hd"><span class="ch-card-title">Sent Letters</span></div>
-          ${docRows(data.docs.filter(d=>d.type==='Letter'))}
+          <div class="ch-card-hd"><span class="ch-card-title">Letter records</span></div>
+          ${docRows(letterDocs)}
         </div>
       </div>`;
 
     window._genLetter = async () => {
+      if (!patients.length) {
+        window._dsToast?.({ title: 'No patients', body: 'Add a patient in the roster before generating a letter draft.', severity: 'info' });
+        return;
+      }
+      if (!letterTpls.length) {
+        window._dsToast?.({ title: 'No templates', body: 'No letter templates are available in this build.', severity: 'info' });
+        return;
+      }
       const patEl = document.getElementById('letter-patient');
       const tplEl = document.getElementById('letter-template');
       const recip = document.getElementById('letter-recipient')?.value||'Referring Clinician';
@@ -8281,12 +8469,12 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       const out = document.getElementById('letter-output');
       const content = document.getElementById('letter-content');
       if (out) out.style.display='';
-      if (content) content.textContent='✦ Generating…';
+      if (content) content.textContent='Generating draft…';
       try {
-        const res = await api.chatClinician([{role:'user',content:'Write a professional '+tplName+' for patient '+patName+' addressed to '+recip+'. Include: patient name, treatment summary, current status, recommendations. Formal medical letter format. Additional notes: '+notes}],{});
-        if (content) content.textContent = res?.message||res?.content||'Dear '+recip+',\n\nRe: '+patName+'\n\nI am writing regarding the above-named patient who has been receiving neuromodulation therapy at our clinic. Treatment is progressing well with measurable improvement in symptom scores.\n\nKind regards,\nDr. [Clinician Name]';
+        const res = await api.chatClinician([{role:'user',content:'Write a professional '+tplName+' for patient '+patName+' addressed to '+recip+'. Include: patient name, treatment summary, current status, recommendations. Formal medical letter format. Emphasize this is administrative correspondence requiring clinician review — no diagnosis or prescribing language. Additional notes: '+notes}],{});
+        if (content) content.textContent = res?.message||res?.content||('[Draft placeholder — replace with clinic-approved content]\n\nDear '+recip+',\n\nRe: '+patName+'\n\n…\n\nKind regards,\n[Clinician name]');
       } catch {
-        if (content) content.textContent = 'Dear '+recip+',\n\nRe: '+patName+'\n\nI am writing to provide an update on the above patient\'s neuromodulation treatment.\n\nTreatment is progressing satisfactorily.\n\nKind regards,\nDr. [Clinician Name]';
+        if (content) content.textContent = '[Draft placeholder — review offline template]\n\nDear '+recip+',\n\nRe: '+patName+'\n\n…\n\nKind regards,\n[Clinician name]';
       }
     };
   }
@@ -8318,7 +8506,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
           '<div class="book-row"><div class="book-info"><div class="book-patient">'+f.name+'</div><div class="book-clinician">'+(f.size>1024*1024?(f.size/1024/1024).toFixed(1)+' MB':(f.size/1024).toFixed(0)+' KB')+'</div></div><div class="book-status-col"><span class="book-status-badge" style="color:var(--amber);background:rgba(245,158,11,0.1)">Uploading…</span></div><div class="book-actions"></div></div>'
         ).join('');
       }
-      await window._docsUploadFiles(files, () => { window._nav('documents-hub'); });
+      await window._docsUploadFiles(files, () => { window._refreshDocumentsWorkspace(); });
     };
     window._docsUpload = () => document.getElementById('docs-file-input')?.click();
   }
@@ -8402,7 +8590,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
         </div>
         <input type="file" id="docs-modal-file" multiple accept=".pdf,.docx,.doc,.jpg,.jpeg,.png,.webp,.txt" style="display:none" onchange="var h=document.getElementById('docs-modal-file-hint');if(h)h.textContent=this.files.length+' file(s) selected'">
         <div style="display:flex;gap:8px">
-          <button class="btn btn-primary" id="docs-modal-upload-btn" onclick="(async()=>{const inp=document.getElementById('docs-modal-file');if(!inp||!inp.files||!inp.files.length){window._dsToast?.({title:'No files',body:'Select one or more files first.',severity:'info'});return;}const btn=document.getElementById('docs-modal-upload-btn');if(btn){btn.disabled=true;btn.textContent='Uploading…';}await window._docsUploadFiles(inp.files,()=>{document.getElementById('docs-upload-modal')?.classList.add('ch-hidden');window._nav('documents-hub');});if(btn){btn.disabled=false;btn.textContent='Upload';}})()">Upload</button>
+          <button class="btn btn-primary" id="docs-modal-upload-btn" onclick="(async()=>{const inp=document.getElementById('docs-modal-file');if(!inp||!inp.files||!inp.files.length){window._dsToast?.({title:'No files',body:'Select one or more files first.',severity:'info'});return;}const btn=document.getElementById('docs-modal-upload-btn');if(btn){btn.disabled=true;btn.textContent='Uploading…';}await window._docsUploadFiles(inp.files,()=>{document.getElementById('docs-upload-modal')?.classList.add('ch-hidden');window._refreshDocumentsWorkspace();});if(btn){btn.disabled=false;btn.textContent='Upload';}})()">Upload</button>
           <button class="btn" onclick="document.getElementById('docs-upload-modal').classList.add('ch-hidden')">Cancel</button>
         </div>
       </div>
