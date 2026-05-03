@@ -25,6 +25,12 @@ import { EVIDENCE_SUMMARY, CONDITION_EVIDENCE, getConditionEvidence } from './ev
 import { PROTOCOL_LIBRARY, CONDITIONS as PROTO_CONDITIONS, DEVICES as PROTO_DEVICES, getProtocolsByCondition } from './protocols-data.js';
 import { DEMO_PATIENT_ROSTER } from './patient-dashboard-helpers.js';
 import { VOICE_DECISION_SUPPORT_SHORT, voiceApiErrorToast } from './voice-decision-support.js';
+import {
+  assessmentDetailIdFromRow,
+  assessmentsSampleQueueAllowed,
+  DEMO_ASSESSMENTS_BANNER_MARK,
+  mapApiAssessmentToQueueRow,
+} from './assessments-hub-mapping.js';
 
 function shortMrn(p) {
   if (p?.mrn) return String(p.mrn);
@@ -10241,12 +10247,13 @@ export async function pgFinanceHub(setTopbar, navigate) {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // pgAssessmentsHub — Screen 05 · Queue / Cohort / Library / Individual
+// (Assessments v2 route: ?page=assessments-v2)
+// TODO: remove legacy duplicate `pgAssessmentsHub` in pages-clinical-tools.js (unused
+// by this route; confuses maintainers). Tracked for a follow-up PR, not this file’s scope.
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgAssessmentsHub(setTopbar, navigate) {
   const tab = window._assessHubTab || 'queue';
   window._assessHubTab = tab;
-  const selectedId = window._assessSelectedId || 'as-3';
-  window._assessSelectedId = selectedId;
 
   const el = document.getElementById('content');
   if (!el) return;
@@ -10257,7 +10264,7 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
     const syncLbl = c.lastSync ? ' · synced ' + new Date(c.lastSync).toLocaleTimeString() : '';
     setTopbar(
       'Assessments',
-      '<span id="dv2a-demo-chip" style="display:none;font-size:10px;font-weight:700;color:var(--amber,#ffb547);background:rgba(255,181,71,0.14);border:1px solid rgba(255,181,71,0.35);padding:2px 8px;border-radius:999px;margin-right:8px;letter-spacing:0.04em">DEMO DATA</span>' +
+      '<span id="dv2a-demo-chip" style="display:none;font-size:10px;font-weight:700;color:var(--amber,#ffb547);background:rgba(255,181,71,0.14);border:1px solid rgba(255,181,71,0.35);padding:2px 8px;border-radius:999px;margin-right:8px;letter-spacing:0.04em">Demo · not real patients</span>' +
       '<span id="dv2a-counts" style="font-size:11px;color:var(--text-tertiary);margin-right:10px">' +
         c.instruments + ' instruments · ' +
         '<strong style="color:var(--rose)">' + c.redFlags + ' red flag' + (c.redFlags===1?'':'s') + '</strong> · ' +
@@ -10431,6 +10438,18 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
 
 .dv2a-footer-actions { display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--border); background:var(--bg-panel,#0d1b22); flex-shrink:0; }
 
+.dv2a-demo-page-banner {
+  margin: 0 18px 10px;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--amber, #ffb547);
+  background: rgba(255, 181, 71, 0.1);
+  border: 1px solid rgba(255, 181, 71, 0.35);
+  border-radius: 8px;
+  line-height: 1.45;
+}
+
 /* Crisis modal */
 .dv2a-crisis-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); backdrop-filter:blur(4px); z-index:9999; display:flex; align-items:center; justify-content:center; }
 .dv2a-crisis-modal { width:min(480px,92vw); background:var(--bg-panel,#0d1b22); border:1px solid rgba(255,107,157,0.45); border-radius:12px; padding:22px; box-shadow:0 20px 60px rgba(0,0,0,0.5); }
@@ -10516,66 +10535,39 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   // Hydrate queue from backend, transforming records into the Queue row shape.
   // Port of the legacy `hydrate()` in pages-clinical-tools.js — preserves backend
   // ids so Submit/Approve/Score later can round-trip.
-  let queueRows = MOCK_QUEUE;
-  let usingDemoData = true;
+  let queueRows = [];
+  let usingDemoData = false;
+  /** True when MOCK_QUEUE is shown — only if assessmentsSampleQueueAllowed (demo build or demo token). */
+  let usingSampleQueue = false;
+  let assessmentsListFetchFailed = false;
+  /** True when listAssessments returned successfully with zero items (not an error). */
+  let assessmentsListEmptyOk = false;
+  const allowSampleQueueFallback = assessmentsSampleQueueAllowed(import.meta.env, api.getToken?.()).allowed;
   try {
     const apiRes = await (api.listAssessments?.() || Promise.reject());
     const items = Array.isArray(apiRes) ? apiRes : ((apiRes && apiRes.items) || []);
+    assessmentsListEmptyOk = items.length === 0;
     if (items.length) {
-      const merged = items.slice(0, 40).map((a, i) => {
-        const sid = a.scale_id || a.scale || a.instrument || a.template_id || 'PHQ-9';
-        const score = (a.score == null ? (a.data && a.data.score) : a.score);
-        const itemsArr = (a.data && a.data.items) || a.items || null;
-        const item9 = (Array.isArray(itemsArr) && itemsArr.length >= 9) ? Number(itemsArr[8]) || 0 : (a.item9 ?? 0);
-        const max = a.max_score ?? (ASSESS_REGISTRY.find(x => x.id === sid || x.abbr === sid)?.max ?? 27);
-        // Severity band
-        let sev = 'mod', sevLabel = a.severity_label || '—';
-        if (score != null && scoringEngine?.interpretScore) {
-          const interp = scoringEngine.interpretScore(sid, Number(score));
-          if (interp) {
-            sev = ({ minimal:'mild', mild:'mild', moderate:'mod', severe:'mods', critical:'sev' })[interp.severity] || 'mod';
-            sevLabel = interp.label;
-          }
-        }
-        const overdue = !!a.overdue || (a.due_date && new Date(a.due_date) < new Date());
-        const patientName = a.patient_name || a.patient_id || 'Patient';
-        return {
-          id: 'be-' + (a.id || i),
-          backendId: a.id,
-          patientId: a.patient_id || a.patientId || '',
-          scaleId: sid,
-          patient: patientName,
-          mrn: a.mrn || (a.patient_id ? String(a.patient_id).slice(0, 8) : '—'),
-          avInit: patientName.split(' ').map(x => x[0]).slice(0,2).join('').toUpperCase() || 'PT',
-          avCls: ['a','b','c','d','e'][i % 5],
-          dx: a.diagnosis || a.condition_name || '—',
-          inst: sid,
-          instSub: a.cadence || a.phase || '',
-          score: (score == null ? null : Number(score)),
-          max,
-          item9,
-          sev,
-          sevLabel,
-          trend: a.trend_label || (a.status === 'completed' ? 'Completed' : 'Pending'),
-          trendCls: overdue ? 'up' : 'flat',
-          sparkline: a.sparkline || [],
-          due: a.due_label || (a.due_date ? new Date(a.due_date).toLocaleDateString() : '—'),
-          dueCls: overdue ? 'overdue' : (a.due_today ? 'today' : 'soon'),
-          overdue,
-          mode: a.delivery_mode || (a.respondent_type === 'patient' ? 'TABLET' : 'ASYNC'),
-          modeSub: a.delivery_sub || (a.respondent_type || ''),
-          redflag: item9 >= 1,
-          flagLabel: overdue ? 'OVERDUE' : null,
-          flagCls: overdue ? 'amber' : null,
-          sendLabel: (a.status === 'completed' && !a.reviewed) ? 'Review' : (overdue ? 'Resend' : 'Open'),
-          status: a.status,
-          reviewed: !!a.reviewed,
-          items: Array.isArray(itemsArr) ? itemsArr.map(Number) : null,
-        };
-      });
-      if (merged.length) { queueRows = merged; usingDemoData = false; }
+      const merged = items
+        .slice(0, 80)
+        .map((a, i) => mapApiAssessmentToQueueRow(a, i, scoringEngine, ASSESS_REGISTRY));
+      if (merged.length) {
+        queueRows = merged;
+      }
+    } else if (allowSampleQueueFallback) {
+      queueRows = MOCK_QUEUE;
+      usingDemoData = true;
+      usingSampleQueue = true;
     }
-  } catch {}
+  } catch {
+    assessmentsListFetchFailed = true;
+    assessmentsListEmptyOk = false;
+    if (allowSampleQueueFallback) {
+      queueRows = MOCK_QUEUE;
+      usingDemoData = true;
+      usingSampleQueue = true;
+    }
+  }
 
   // Compute real counts from hydrated rows and update the topbar.
   const _ahCounts = () => {
@@ -10587,16 +10579,77 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   window._ahLastSync = window._ahLastSync || new Date().toISOString();
   _setAssessTopbar(_ahCounts());
 
-  // Reveal DEMO chip now that load has settled.
+  // Reveal sample-data chip only when MOCK_QUEUE is active (demo preview session).
   setTimeout(() => {
     const chip = document.getElementById('dv2a-demo-chip');
-    if (chip) chip.style.display = usingDemoData ? 'inline-block' : 'none';
+    if (chip) chip.style.display = usingSampleQueue ? 'inline-block' : 'none';
   }, 0);
+
+  // Selected row: keep prior selection when valid; otherwise first queue row (no fake default).
+  let selectedId = window._assessSelectedId || null;
+  if (!selectedId || !queueRows.some((r) => r.id === selectedId)) {
+    selectedId = queueRows[0]?.id || null;
+    window._assessSelectedId = selectedId;
+  } else {
+    window._assessSelectedId = selectedId;
+  }
 
   // ── State & handlers ─────────────────────────────────────────────────────────
   window._assessSelect = (id) => { window._assessSelectedId = id; window._nav('assessments-v2'); };
   window._assessTab = (t) => { window._assessHubTab = t; window._nav('assessments-v2'); };
   window._assessCloseSide = () => { window._assessSelectedId = null; window._nav('assessments-v2'); };
+  window._assessOpenPatient = (rowId) => {
+    const row = queueRows.find((r) => r.id === rowId);
+    const pid = row?.patientId;
+    if (!pid) {
+      window._dsToast?.({ title: 'No patient link', body: 'Select a patient-linked assessment or open Patients to choose a record.', severity: 'warn' });
+      return;
+    }
+    window._selectedPatientId = pid;
+    window._profilePatientId = pid;
+    if (row?.patient) window._profilePatientName = row.patient;
+    try { sessionStorage.setItem('ds_pat_selected_id', pid); } catch {}
+    if (typeof navigate === 'function') navigate('patient-profile');
+    else window._nav('patient-profile');
+  };
+  window._assessOpenTimeline = (rowId) => {
+    const row = queueRows.find((r) => r.id === rowId);
+    const pid = row?.patientId;
+    if (!pid) {
+      window._dsToast?.({ title: 'No patient link', body: 'Link this assessment to a patient to open the timeline.', severity: 'warn' });
+      return;
+    }
+    window._selectedPatientId = pid;
+    if (typeof navigate === 'function') navigate('patient-timeline');
+    else window._nav('patient-timeline');
+  };
+  window._assessOpenProtocol = () => {
+    if (typeof navigate === 'function') navigate('protocol-studio');
+    else window._nav('protocol-studio');
+  };
+  window._assessOpenDeeptwin = (rowId) => {
+    const row = queueRows.find((r) => r.id === rowId);
+    const pid = row?.patientId;
+    if (!pid) {
+      window._dsToast?.({ title: 'No patient link', body: 'Link this assessment to a patient before opening DeepTwin.', severity: 'warn' });
+      return;
+    }
+    window._selectedPatientId = pid;
+    window._profilePatientId = pid;
+    if (typeof navigate === 'function') navigate('deeptwin');
+    else window._nav('deeptwin');
+  };
+  window._assessOpenModality = (pageId, rowId) => {
+    const row = queueRows.find((r) => r.id === rowId);
+    const pid = row?.patientId;
+    if (!pid) {
+      window._dsToast?.({ title: 'No patient link', body: 'Link this assessment to a patient to open analyzer modules.', severity: 'warn' });
+      return;
+    }
+    window._selectedPatientId = pid;
+    if (typeof navigate === 'function') navigate(pageId);
+    else window._nav(pageId);
+  };
   // Batch send → jump to Cohort tab where the real _ahBulkAssign flow lives.
   window._assessBatch = () => { window._assessHubTab = 'cohort'; window._nav('assessments-v2'); };
   // New assessment → jump to Library tab (clinician picks the instrument then Submit/Assign).
@@ -10726,19 +10779,20 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   };
 
   // ── Crisis escalation (real behavior) ────────────────────────────────────────
-  window._assessCrisis = (patientId, patientName) => {
+  window._assessCrisis = (patientId, patientName, contextNote) => {
     const existing = document.getElementById('dv2a-crisis-modal');
     if (existing) existing.remove();
+    const note = contextNote || 'A safety-related response or red-flag trigger was recorded. Follow your clinic safety protocol; this app does not perform emergency triage.';
     const overlay = document.createElement('div');
     overlay.id = 'dv2a-crisis-modal';
     overlay.className = 'dv2a-crisis-overlay';
     overlay.innerHTML =
       '<div class="dv2a-crisis-modal" role="alertdialog" aria-labelledby="dv2a-crisis-title">'+
-        '<div class="dv2a-crisis-title" id="dv2a-crisis-title">⚠ Crisis protocol</div>'+
-        '<div class="dv2a-crisis-body"><strong>'+esc(patientName || 'Patient')+'</strong> indicated thoughts of self-harm on PHQ-9 item 9. Follow clinic crisis protocol?</div>'+
+        '<div class="dv2a-crisis-title" id="dv2a-crisis-title">Safety review required</div>'+
+        '<div class="dv2a-crisis-body"><strong>'+esc(patientName || 'Patient')+'</strong> — '+esc(note)+' This workspace does not replace your clinic\'s crisis or emergency procedures.</div>'+
         '<div class="dv2a-crisis-actions">'+
-          '<button class="btn btn-ghost btn-sm" onclick="document.getElementById(\'dv2a-crisis-modal\')?.remove()">Cancel</button>'+
-          '<button class="btn btn-primary btn-sm" style="background:var(--rose,#ff6b9d);color:#04121c;border-color:var(--rose,#ff6b9d)" onclick="window._assessCrisisConfirm(\''+esc(patientId)+'\',\''+esc(patientName || '')+'\')">Confirm escalation →</button>'+
+          '<button class="btn btn-ghost btn-sm" onclick="document.getElementById(\'dv2a-crisis-modal\')?.remove()">Close</button>'+
+          (patientId ? '<button class="btn btn-primary btn-sm" style="background:var(--rose,#ff6b9d);color:#04121c;border-color:var(--rose,#ff6b9d)" onclick="window._assessCrisisConfirm(\''+esc(patientId)+'\',\''+esc(patientName || '')+'\')">Log follow-up &amp; dismiss →</button>' : '') +
         '</div>'+
       '</div>';
     document.body.appendChild(overlay);
@@ -10746,20 +10800,22 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   };
   window._assessCrisisConfirm = async (patientId, patientName) => {
     const ts = new Date().toISOString();
-    const event = { ts, patient_id:patientId, patient_name:patientName, reason:'PHQ-9 item 9 positive', user:(currentUser?.email || 'clinician') };
+    const event = { ts, patient_id: patientId, patient_name: patientName, reason: 'safety_review_follow_up', user:(currentUser?.email || 'clinician'), source: 'assessments-v2' };
     try {
       const raw = localStorage.getItem('ds_crisis_audit');
       const arr = raw ? JSON.parse(raw) : [];
       arr.push(event);
       localStorage.setItem('ds_crisis_audit', JSON.stringify(arr));
     } catch {}
-    try {
-      await (api.escalateCrisis?.(patientId) || Promise.reject());
-    } catch {
-      // backend missing — audit already saved locally above
+    if (patientId) {
+      try {
+        await (api.escalateCrisis?.(patientId) || Promise.reject());
+      } catch {
+        // backend optional — local audit above
+      }
     }
     document.getElementById('dv2a-crisis-modal')?.remove();
-    window._dsToast?.({ title:'Crisis escalated', body:'Supervisor notified · audit logged', severity:'error' });
+    window._dsToast?.({ title: 'Follow-up logged', body: 'Local safety audit entry saved. Continue per clinic protocol.', severity: 'warn' });
   };
 
   // ── Scoring helper (uses scoring-engine.js when available, else sum) ─────────
@@ -11216,7 +11272,13 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       '</div>'
     ).join('') + '</div>';
 
-    const chipHtml = '<div class="dv2a-filter-bar">' +
+    const chipHtml =
+      (usingSampleQueue
+        ? '<div role="note" style="margin:0 0 10px;padding:8px 12px;font-size:11px;font-weight:600;color:var(--amber,#ffb547);background:rgba(255,181,71,0.1);border:1px solid rgba(255,181,71,0.35);border-radius:8px">' +
+          esc(DEMO_ASSESSMENTS_BANNER_MARK) +
+          '</div>'
+        : '') +
+      '<div class="dv2a-filter-bar">' +
       '<button class="dv2a-chip'+(activeFilter==='all'?' active':'')+'" onclick="window._assessSetFilter(\'all\')">All instruments · '+queueRows.length+'</button>' +
       INSTRUMENTS.map(code => {
         const n = queueRows.filter(r => (r.inst || '').includes(code)).length;
@@ -11241,6 +11303,27 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       window._assessCycleSort = () => { const cur = window._assessSort || 'due-asc'; const next = _SORTS[(_SORTS.indexOf(cur)+1) % _SORTS.length]; window._assessSort = next; window._nav('assessments-v2'); };
     }
 
+    const emptyBanner =
+      queueRows.length === 0
+        ? '<div role="status" style="padding:28px 20px;text-align:center;border-bottom:1px solid var(--border)">' +
+          '<div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:8px">' +
+          (assessmentsListFetchFailed ? 'Could not load assessments' : 'No assessments found') +
+          '</div>' +
+          '<div style="font-size:11.5px;color:var(--text-tertiary);line-height:1.55;max-width:520px;margin:0 auto">' +
+          (assessmentsListFetchFailed
+            ? 'The assessment list could not be loaded. Check your connection and API configuration (<code style="font-size:10px">VITE_API_BASE_URL</code>).'
+            : 'No assessments found for this clinic or current filter. An empty list does not imply low clinical risk, completed workflows, or absence of outstanding items elsewhere.') +
+          '</div>' +
+          '<div style="margin-top:14px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">' +
+          (assessmentsListFetchFailed
+            ? '<button type="button" class="btn btn-primary btn-sm" onclick="window._ahRefresh()">Retry</button>' +
+              '<button type="button" class="btn btn-ghost btn-sm" onclick="window._assessNew()">Open library</button>'
+            : '<button type="button" class="btn btn-primary btn-sm" onclick="window._assessNew()">Open library</button>' +
+              '<button type="button" class="btn btn-ghost btn-sm" onclick="window._ahRefresh()">Refresh</button>') +
+          '</div>' +
+          '</div>'
+        : '';
+
     const rowHtml = filtered.map(r => {
       const selected = r.id === selectedId;
       const rowCls = 'dv2a-queue-row'+(r.redflag?' redflag':'')+(r.overdue?' overdue':'')+(selected?' selected':'');
@@ -11252,13 +11335,16 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         ? '<div class="dv2a-score" style="color:var(--text-tertiary)">—</div>'
         : '<div class="dv2a-score" style="color:'+scoreColor+'">'+r.score+(r.scoreUnit?' <span class="max">'+esc(r.scoreUnit)+'</span>':(r.max?' <span class="max">/'+r.max+'</span>':''))+'</div>';
       const sendBtn = r.redflag
-        ? '<button class="dv2a-send-btn danger" onclick="event.stopPropagation();window._assessCrisis(\''+esc(r.id)+'\',\''+esc(r.patient)+'\')">Escalate →</button>'
+        ? '<button class="dv2a-send-btn danger" onclick="event.stopPropagation();window._assessCrisis(\''+esc(r.patientId||'')+'\',\''+esc(r.patient)+'\',\'PHQ-9 item 9 or safety item ≥1 — requires clinician review per local policy\')">Review safety →</button>'
         : '<button class="dv2a-send-btn" onclick="event.stopPropagation();window._assessSelect(\''+esc(r.id)+'\')">'+esc(r.sendLabel||'Open')+' →</button>';
       const modeStyle = r.modeStyle === 'teal' ? 'background:rgba(0,212,188,0.14);color:var(--teal,#00d4bc)' : (r.modeStyle === 'rose' ? 'background:rgba(255,107,157,0.14);color:var(--rose,#ff6b9d)' : '');
 
+      const demoRowNote = usingSampleQueue
+        ? '<div style="font-size:9px;color:var(--amber,#ffb547);font-weight:700;margin-top:2px;letter-spacing:0.03em">Demo row · not real patient data</div>'
+        : '';
       return '<div class="'+rowCls+'" onclick="window._assessSelect(\''+esc(r.id)+'\')">' +
         '<div>'+flagHtml+'</div>' +
-        '<div class="dv2a-pt"><div class="dv2a-pt-av '+(r.avCls||'a')+'">'+esc(r.avInit)+'</div><div style="min-width:0"><div class="dv2a-pt-name">'+esc(r.patient)+'</div><div class="dv2a-pt-sub">'+esc(r.dx)+' · MRN '+esc(r.mrn)+'</div></div></div>' +
+        '<div class="dv2a-pt"><div class="dv2a-pt-av '+(r.avCls||'a')+'">'+esc(r.avInit)+'</div><div style="min-width:0"><div class="dv2a-pt-name">'+esc(r.patient)+'</div><div class="dv2a-pt-sub">'+esc(r.dx)+' · MRN '+esc(r.mrn)+'</div>'+demoRowNote+'</div></div>' +
         '<div><div class="dv2a-inst-name">'+esc(r.inst)+'</div><div class="dv2a-inst-sub">'+esc(r.instSub||'')+'</div></div>' +
         '<div>'+scoreHtml+sevBar(r.sev)+'<div style="font-size:10px;color:'+scoreColor+';margin-top:3px;font-weight:500">'+esc(r.sevLabel||'')+'</div></div>' +
         '<div><span class="dv2a-trend '+r.trendCls+'">'+(r.trendCls==='up'?'▲ ':r.trendCls==='down'?'▼ ':'◆ ')+esc(r.trend||'')+'</span>'+sparkSvg(r.sparkline, Math.max(...(r.sparkline||[1]),1), r.trendCls==='up'?'#ff6b9d':'#00d4bc')+'</div>' +
@@ -11268,9 +11354,16 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       '</div>';
     }).join('');
 
+    const filterEmptyMsg =
+      queueRows.length > 0 && filtered.length === 0
+        ? '<div style="padding:18px 14px;text-align:center;font-size:11.5px;color:var(--text-tertiary);border-bottom:1px solid var(--border)">No assessments match the current instrument filter. Choose <strong>All instruments</strong> or another filter.</div>'
+        : '';
+
     return kpiHtml + chipHtml +
       '<div class="dv2a-card">' +
+        emptyBanner +
         '<div class="dv2a-queue-head"><div></div><div>Patient</div><div>Instrument</div><div>Last score · severity</div><div>Trend (course)</div><div>Due</div><div>Send via</div><div></div></div>' +
+        filterEmptyMsg +
         rowHtml +
         '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;font-size:11px;color:var(--text-tertiary);border-top:1px solid var(--border)">'+
           '<span>Showing '+filtered.length+' of '+queueRows.length+' · sorted by risk & due date</span>'+
@@ -11281,131 +11374,255 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
 
   // ── Side panel ───────────────────────────────────────────────────────────────
   async function renderSidePanel() {
-    const row = queueRows.find(r => r.id === selectedId) || queueRows[2];
+    const row = queueRows.find((r) => r.id === selectedId);
     if (!row) {
-      return '<div class="dv2a-side"><div class="dv2a-side-body" style="text-align:center;color:var(--text-tertiary);padding:40px 20px">Select a row to view details.</div></div>';
+      return '<div class="dv2a-side"><div class="dv2a-side-body" style="text-align:center;color:var(--text-tertiary);padding:40px 20px">Select a row in the queue to open the detail panel.</div></div>';
     }
 
+    const detailId = assessmentDetailIdFromRow(row);
+    let detail = null;
+    try {
+      detail = await (api.getAssessmentDetail?.(detailId) || Promise.reject());
+    } catch {}
+
+    const st = String((detail && detail.status) || row.status || '').toLowerCase();
+    const reviewed = !!(detail?.reviewed_at || row.reviewed);
+    const fromData = detail?.data && Array.isArray(detail.data.items) ? detail.data.items : null;
+    const fromItemsTop =
+      detail?.items && typeof detail.items === 'object' && !Array.isArray(detail.items)
+        ? Object.keys(detail.items)
+            .sort((a, b) => Number(a) - Number(b))
+            .map((k) => detail.items[k])
+        : Array.isArray(detail?.items)
+          ? detail.items
+          : null;
+    const itemsArr = fromData || fromItemsTop || (Array.isArray(row.items) ? row.items : null);
+
     let aiSummary = null;
-    try { const r = await (api.generateAssessmentSummary?.(row.id) || Promise.reject()); aiSummary = r?.summary_md || r?.summary || null; } catch {}
-    try { if (!aiSummary) { const d = await (api.getAssessmentDetail?.(row.id) || Promise.reject()); aiSummary = d?.ai_summary || null; } } catch {}
+    let aiModel = row.aiModel || null;
+    let aiConf = row.aiConfidence;
+    if (detail) {
+      if (detail.ai_summary) aiSummary = detail.ai_summary;
+      if (detail.ai_model) aiModel = detail.ai_model;
+      if (detail.ai_confidence != null) aiConf = detail.ai_confidence;
+    }
     if (!aiSummary) {
-      aiSummary = row.inst.includes('PHQ-9')
-        ? (row.id === 'as-3'
-          ? '<strong>'+esc(row.patient)+'</strong> has sustained a <strong>responder-level Δ of −8 PHQ-9 points</strong> from baseline (17 → 9) across 12 tDCS sessions targeting DLPFC-L. Item-level recovery is strongest on <strong>anhedonia</strong> and <strong>concentration</strong>, with residual sleep disturbance (Q3 = 2). Trajectory suggests <strong>remission likely by session 16</strong>. No red-flag items.'
-          : '<strong>'+esc(row.patient)+'</strong> · PHQ-9 '+row.score+'/'+row.max+'. '+esc(row.sevLabel||'')+'. Recommend clinician review.')
-        : '<strong>'+esc(row.patient)+'</strong> · '+esc(row.inst)+' '+(row.score||'—')+'/'+(row.max||'—')+'. '+esc(row.sevLabel||'')+'.';
+      try {
+        const gen = await (api.generateAssessmentSummary?.(detailId) || Promise.reject());
+        aiSummary = gen?.summary_md || gen?.summary || null;
+        if (gen?.model) aiModel = gen.model;
+      } catch {}
+    }
+
+    if (!aiSummary) {
+      const parts = [];
+      parts.push('<p><strong>' + esc(row.patient) + '</strong> · <strong>' + esc(row.inst) + '</strong></p>');
+      parts.push('<p>Status: <strong>' + esc(st || '—') + '</strong>. Labels shown here are <strong>scale or screening results</strong> from the instrument — not a standalone diagnosis. Interpretation requires a qualified clinician.</p>');
+      if (row.score != null && row.max != null) {
+        parts.push('<p>Recorded total: <strong>' + esc(String(row.score)) + '</strong> / ' + esc(String(row.max)) + ' · ' + esc(row.sevLabel || 'band per instrument') + '.</p>');
+      } else {
+        parts.push('<p>No scored total on file for this row yet, or scoring is pending / unavailable.</p>');
+      }
+      if (row.redflag) {
+        parts.push('<p style="color:var(--rose,#ff6b9d)"><strong>Safety flag:</strong> review per clinic protocol. This application does not route emergencies or replace crisis services.</p>');
+      }
+      parts.push('<p style="font-size:10.5px;color:var(--text-tertiary)">When the API is available, an <strong>AI-assisted summary</strong> can be generated from the stored record. None is shown without that service or stored summary.</p>');
+      aiSummary = parts.join('');
     }
 
     const scoreColor = severityColor(row.sev);
+    const confStr =
+      aiConf != null && !Number.isNaN(Number(aiConf))
+        ? Number(aiConf) <= 1
+          ? Math.round(Number(aiConf) * 100) + '%'
+          : String(aiConf)
+        : '';
 
-    const aiHtml = '<div class="dv2a-ai-card">' +
-      '<div class="dv2a-ai-badge">AI · Haiku 4.5</div>' +
-      '<div class="dv2a-ai-meta">✧ Draft summary · clinician to co-sign</div>' +
-      '<div class="dv2a-ai-body">'+aiSummary+'</div>' +
-    '</div>';
-
-    const trendHtml = '<div style="height:120px;position:relative">' +
-      '<svg width="100%" height="120" viewBox="0 0 300 120" preserveAspectRatio="none">' +
-        '<rect x="0" y="0" width="300" height="20" fill="rgba(255,107,157,0.06)"/>' +
-        '<rect x="0" y="20" width="300" height="24" fill="rgba(255,139,71,0.06)"/>' +
-        '<rect x="0" y="44" width="300" height="24" fill="rgba(255,181,71,0.06)"/>' +
-        '<rect x="0" y="68" width="300" height="26" fill="rgba(0,212,188,0.06)"/>' +
-        '<rect x="0" y="94" width="300" height="26" fill="rgba(74,222,128,0.04)"/>' +
-        '<text x="4" y="12" font-size="7" fill="rgba(255,107,157,0.5)" font-family="ui-monospace,monospace">Severe 20+</text>' +
-        '<text x="4" y="112" font-size="7" fill="rgba(74,222,128,0.55)" font-family="ui-monospace,monospace">None 0-4</text>' +
-        '<line x1="50" y1="0" x2="50" y2="120" stroke="rgba(74,158,255,0.35)" stroke-width="1" stroke-dasharray="2,2"/>' +
-        '<text x="52" y="10" font-size="7" fill="#4a9eff" font-family="ui-monospace,monospace">S4 rev</text>' +
-        '<line x1="150" y1="0" x2="150" y2="120" stroke="rgba(74,158,255,0.35)" stroke-width="1" stroke-dasharray="2,2"/>' +
-        '<text x="152" y="10" font-size="7" fill="#4a9eff" font-family="ui-monospace,monospace">S10 review</text>' +
-        '<line x1="250" y1="0" x2="250" y2="120" stroke="rgba(0,212,188,0.35)" stroke-width="1" stroke-dasharray="2,2"/>' +
-        '<text x="252" y="10" font-size="7" fill="var(--teal,#00d4bc)" font-family="ui-monospace,monospace">Target</text>' +
-        '<polyline points="0,22 25,26 50,34 75,44 100,52 125,60 150,68 175,76 200,82 225,86 250,92 275,96" fill="none" stroke="#00d4bc" stroke-width="2" stroke-linecap="round"/>' +
-        '<g fill="#00d4bc">' +
-          '<circle cx="0" cy="22" r="2.5"/><circle cx="25" cy="26" r="2.5"/><circle cx="50" cy="34" r="2.5"/>' +
-          '<circle cx="75" cy="44" r="2.5"/><circle cx="100" cy="52" r="2.5"/><circle cx="125" cy="60" r="2.5"/>' +
-          '<circle cx="150" cy="68" r="2.5"/><circle cx="175" cy="76" r="2.5"/><circle cx="200" cy="82" r="2.5"/>' +
-          '<circle cx="225" cy="86" r="2.5"/><circle cx="250" cy="92" r="3.5" stroke="#fff" stroke-width="1.5"/>' +
-        '</g>' +
-        '<line x1="0" y1="60" x2="300" y2="60" stroke="rgba(74,158,255,0.4)" stroke-width="1" stroke-dasharray="4,3"/>' +
-        '<text x="245" y="57" font-size="7" fill="#4a9eff" font-family="ui-monospace,monospace">50% Δ</text>' +
-      '</svg></div>' +
-      '<div style="display:flex;justify-content:space-between;margin-top:4px;font-size:9.5px;color:var(--text-tertiary);font-family:var(--font-mono,ui-monospace,monospace)">' +
-        '<span>Baseline · 17</span><span>Session 12 · '+(row.score??9)+'</span><span>Target · ≤5</span>' +
-      '</div>';
-
-    const bmHtml =
-      '<div class="dv2a-bm-link"><div><div class="dv2a-bm-sym">Anhedonia</div><div class="dv2a-bm-cluster">items 1, 3 · −4 pts</div></div><div class="dv2a-bm-target">F3 · DLPFC-L ● anode</div></div>' +
-      '<div class="dv2a-bm-link"><div><div class="dv2a-bm-sym">Concentration</div><div class="dv2a-bm-cluster">items 7, 8 · −2 pts</div></div><div class="dv2a-bm-target">FP2 · mPFC ○ cathode</div></div>' +
-      '<div class="dv2a-bm-link"><div><div class="dv2a-bm-sym">Sleep · residual</div><div class="dv2a-bm-cluster">item 3 · Q=2</div></div><div class="dv2a-bm-target" style="color:var(--amber,#ffb547)">Consider +F4 next</div></div>';
-
-    const normHtml = '<div style="font-size:10.5px;color:var(--text-tertiary);line-height:1.5">At session 12, your clinic\'s MDD cohort averages <strong style="color:var(--teal,#00d4bc)">7.2</strong>, published tDCS MDD Δ-course average is <strong style="color:var(--text-primary)">10.4</strong> (Fregni 2021). '+esc(row.patient)+' is <strong style="color:var(--teal,#00d4bc)">ahead of both.</strong></div>' +
-      '<div class="dv2a-norm-bar">' +
-        '<div class="dv2a-norm-mark clinic" style="left:27%" title="Clinic avg 7.2"></div>' +
-        '<div class="dv2a-norm-mark pub" style="left:39%" title="Published 10.4"></div>' +
-        '<div class="dv2a-norm-mark pt" style="left:34%" title="Patient"></div>' +
+    const aiHtml =
+      '<div class="dv2a-ai-card">' +
+      '<div class="dv2a-ai-badge">AI-assisted summary</div>' +
+      '<div class="dv2a-ai-meta">Decision support only · requires clinician review · ' +
+      esc(aiModel || 'model n/a') +
+      (confStr ? ' · confidence ' + esc(confStr) : '') +
       '</div>' +
-      '<div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text-tertiary);font-family:var(--font-mono,ui-monospace,monospace);margin-top:3px"><span>0</span><span>5</span><span>10</span><span>15</span><span>20+</span></div>' +
-      '<div style="display:flex;gap:10px;margin-top:8px;font-size:10px;color:var(--text-tertiary)">' +
-        '<span style="display:inline-flex;align-items:center;gap:4px"><span style="width:4px;height:10px;background:var(--teal,#00d4bc);display:inline-block;border-radius:1px"></span>Patient</span>' +
-        '<span style="display:inline-flex;align-items:center;gap:4px"><span style="width:4px;height:10px;background:var(--blue,#4a9eff);display:inline-block;border-radius:1px"></span>Clinic</span>' +
-        '<span style="display:inline-flex;align-items:center;gap:4px"><span style="width:4px;height:10px;background:var(--violet,#9b7fff);display:inline-block;border-radius:1px"></span>Published</span>' +
+      '<div class="dv2a-ai-body">' +
+      aiSummary +
+      '</div>' +
       '</div>';
 
-    const phq9 = ASSESS_REGISTRY.find(x => x.id === 'PHQ-9');
-    const sampleAnswers = [1,1,2,1,0,0,1,2,0]; // responses for PHQ-9 in the demo
-    const phqItems = (phq9?.questions || [
-      'Little interest or pleasure in doing things',
-      'Feeling down, depressed, or hopeless',
-      'Trouble falling or staying asleep',
-      'Feeling tired or having little energy',
-      'Poor appetite or overeating',
-      'Feeling bad about yourself',
-      'Trouble concentrating',
-      'Moving slowly or restlessly',
-      'Thoughts that you would be better off dead — <strong style="color:var(--text-primary)">monitored</strong>',
-    ]).slice(0, 9);
+    const reviewHtml =
+      '<div style="font-size:11.5px;color:var(--text-secondary);line-height:1.55">' +
+      '<p><strong>Workflow status:</strong> ' +
+      esc(st || '—') +
+      '</p>' +
+      '<p><strong>Clinician review:</strong> ' +
+      (reviewed
+        ? 'Recorded' + (detail?.reviewed_at ? ' · ' + esc(String(detail.reviewed_at)) : '')
+        : '<span style="color:var(--amber,#ffb547)">Pending review</span>') +
+      '</p>' +
+      '<p><strong>Completed / updated:</strong> ' +
+      esc(String(row.completedAt || detail?.completed_at || '—')) +
+      '</p>' +
+      '<p style="font-size:10.5px;color:var(--text-tertiary)">Longitudinal trajectories and cohort norms are not inferred in this panel; use linked visits and analyzers when available.</p>' +
+      '</div>';
 
-    const formHtml = phqItems.map((q, i) => {
-      const sel = sampleAnswers[i] ?? 0;
-      const opts = [0,1,2,3].map(v => {
-        const cls = v === sel ? (v >= 2 ? (i === 8 ? 'sel rose' : 'sel amb') : 'sel') : '';
-        return '<div'+(cls?' class="'+cls+'"':'')+'>'+v+'</div>';
+    const rid = esc(row.id);
+    const linksHtml =
+      '<div style="font-size:10.5px;color:var(--text-tertiary);line-height:1.45;margin-bottom:8px">Jump to patient context and modalities (requires a patient ID on the assessment).</div>' +
+      '<div class="dv2a-ds-links" style="display:flex;flex-wrap:wrap;gap:8px">' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="font-size:11px" onclick="window._assessOpenPatient(\'' +
+      rid +
+      '\')">Patient profile</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="font-size:11px" onclick="window._assessOpenTimeline(\'' +
+      rid +
+      '\')">Timeline</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="font-size:11px" onclick="window._assessOpenProtocol()">Protocol Studio</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="font-size:11px" onclick="window._assessOpenDeeptwin(\'' +
+      rid +
+      '\')">DeepTwin</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="font-size:11px" onclick="window._assessOpenModality(\'qeeg-analysis\',\'' +
+      rid +
+      '\')">qEEG</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="font-size:11px" onclick="window._assessOpenModality(\'mri-analysis\',\'' +
+      rid +
+      '\')">MRI</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="font-size:11px" onclick="window._assessOpenModality(\'video-assessments\',\'' +
+      rid +
+      '\')">Video</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="font-size:11px" onclick="window._assessOpenModality(\'wearables\',\'' +
+      rid +
+      '\')">Biometrics</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="font-size:11px" onclick="window._assessOpenModality(\'text-analyzer\',\'' +
+      rid +
+      '\')">Text</button>' +
+      '</div>';
+
+    const scaleKey = row.scaleId || row.inst;
+    const instMeta = ASSESS_REGISTRY.find((x) => x.id === scaleKey || x.abbr === scaleKey);
+    let missingHint = '';
+    let formHtml = '';
+    if (itemsArr && itemsArr.length && instMeta && Array.isArray(instMeta.questions)) {
+      const miss = [];
+      itemsArr.forEach((v, i) => {
+        if (v == null || v === '') miss.push(i + 1);
+      });
+      if (miss.length) missingHint = '<div style="font-size:10.5px;color:var(--amber,#ffb547);margin-bottom:8px">Missing responses · items ' + esc(miss.join(', ')) + '</div>';
+      formHtml = instMeta.questions.slice(0, itemsArr.length).map((q, i) => {
+        const v = itemsArr[i];
+        const disp = v == null || v === '' ? '—' : String(v);
+        const rose = instMeta.id === 'PHQ-9' && i === 8 && Number(v) >= 1;
+        return (
+          '<div class="dv2a-form-row"><span class="dv2a-form-q">' +
+          (i + 1) +
+          '. ' +
+          esc(q) +
+          '</span><span style="font-family:var(--font-mono,ui-monospace,monospace);color:' +
+          (rose ? 'var(--rose,#ff6b9d)' : 'var(--teal,#00d4bc)') +
+          '">' +
+          esc(disp) +
+          '</span></div>'
+        );
       }).join('');
-      return '<div class="dv2a-form-row"><span class="dv2a-form-q">'+(i+1)+'. '+q+'</span><div class="dv2a-form-ans">'+opts+'</div></div>';
-    }).join('');
+    } else if (itemsArr && itemsArr.length) {
+      formHtml = itemsArr
+        .map((v, i) => {
+          const disp = v == null || v === '' ? '—' : String(v);
+          return (
+            '<div class="dv2a-form-row"><span class="dv2a-form-q">Item ' +
+            (i + 1) +
+            '</span><span style="font-family:var(--font-mono,ui-monospace,monospace)">' +
+            esc(disp) +
+            '</span></div>'
+          );
+        })
+        .join('');
+    } else {
+      formHtml =
+        '<div style="font-size:11px;color:var(--text-tertiary);line-height:1.5">Item-level responses are not loaded for this row. Use <strong>Continue / Score now</strong> to capture answers, or <strong>Refresh</strong> after sync.</div>';
+    }
 
-    return '<div class="dv2a-side" style="position:relative">' +
+    const demoDetailBanner = usingSampleQueue
+      ? '<div role="note" style="margin:0 0 12px;padding:8px 10px;font-size:10.5px;font-weight:600;color:var(--amber,#ffb547);background:rgba(255,181,71,0.12);border:1px solid rgba(255,181,71,0.35);border-radius:6px;line-height:1.45">' +
+        esc(DEMO_ASSESSMENTS_BANNER_MARK) +
+        '</div>'
+      : '';
+
+    return (
+      '<div class="dv2a-side" style="position:relative">' +
+      demoDetailBanner +
       '<div class="dv2a-side-head">' +
-        '<button class="dv2a-side-close" onclick="window._assessCloseSide()" aria-label="Close panel">✕</button>' +
-        '<div style="display:flex;gap:10px;align-items:center;padding-right:30px">' +
-          '<div class="dv2a-pt-av '+(row.avCls||'a')+'" style="width:40px;height:40px;font-size:13px;border-radius:8px">'+esc(row.avInit)+'</div>' +
-          '<div style="flex:1;min-width:0">' +
-            '<div style="font-size:14px;font-weight:600;font-family:var(--font-display,inherit)">'+esc(row.patient)+' · '+esc(row.inst)+'</div>' +
-            '<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">Due '+esc(row.due||'')+' · '+esc(row.dx)+'</div>' +
-          '</div>' +
-        '</div>' +
-        '<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">' +
-          '<span class="dv2a-chip-sm '+(row.sev==='sev'?'rose':row.sev==='mods'?'amber':'teal')+'">'+esc(row.sevLabel||'')+' · '+(row.score||'—')+(row.max?'/'+row.max:'')+'</span>' +
-          (row.trendCls==='down' && row.score!=null ? '<span class="dv2a-chip-sm teal">Responder</span>' : '') +
-          (row.redflag ? '<span class="dv2a-chip-sm rose">⚠ Red flag · item 9</span>' : '') +
-        '</div>' +
+      '<button class="dv2a-side-close" onclick="window._assessCloseSide()" aria-label="Close panel">✕</button>' +
+      '<div style="display:flex;gap:10px;align-items:center;padding-right:30px">' +
+      '<div class="dv2a-pt-av ' +
+      (row.avCls || 'a') +
+      '" style="width:40px;height:40px;font-size:13px;border-radius:8px">' +
+      esc(row.avInit) +
+      '</div>' +
+      '<div style="flex:1;min-width:0">' +
+      '<div style="font-size:14px;font-weight:600;font-family:var(--font-display,inherit)">' +
+      esc(row.patient) +
+      ' · ' +
+      esc(row.inst) +
+      '</div>' +
+      '<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">Due ' +
+      esc(row.due || '') +
+      ' · ' +
+      esc(row.dx) +
+      '</div>' +
+      '</div>' +
+      '</div>' +
+      '<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">' +
+      '<span class="dv2a-chip-sm ' +
+      (row.sev === 'sev' ? 'rose' : row.sev === 'mods' ? 'amber' : 'teal') +
+      '">' +
+      esc(row.sevLabel || '') +
+      ' · ' +
+      (row.score != null ? esc(String(row.score)) : '—') +
+      (row.max != null ? '/' + esc(String(row.max)) : '') +
+      '</span>' +
+      (row.redflag ? '<span class="dv2a-chip-sm rose">Safety review · flagged</span>' : '') +
+      (usingSampleQueue ? '<span class="dv2a-chip-sm amber">' + esc(DEMO_ASSESSMENTS_BANNER_MARK) + '</span>' : '') +
+      '</div>' +
       '</div>' +
       '<div class="dv2a-side-body">' +
-        '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">01</span>AI clinical summary</div>'+aiHtml+'</div>' +
-        '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">02</span>Trend across course</div>'+trendHtml+'</div>' +
-        '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">03</span>Brain-map linkage</div><div style="font-size:10.5px;color:var(--text-tertiary);margin-bottom:6px;line-height:1.4">Item-level response mapped to active stimulation targets.</div>'+bmHtml+'</div>' +
-        '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">04</span>Comparative norms · '+esc(row.inst)+'</div>'+normHtml+'</div>' +
-        '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">05</span>Last completed · form preview</div>'+formHtml+
-          '<div style="display:flex;justify-content:space-between;margin-top:8px;font-size:10.5px;color:var(--text-tertiary);padding-top:8px;border-top:1px solid rgba(255,255,255,0.06)"><span>Total · items 1–9</span><span style="font-family:var(--font-mono,ui-monospace,monospace);color:'+scoreColor+';font-weight:600">'+(row.score??'—')+'</span></div>' +
-        '</div>' +
+      '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">01</span>AI-assisted narrative</div>' +
+      aiHtml +
+      '</div>' +
+      '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">02</span>Scoring &amp; review status</div>' +
+      reviewHtml +
+      '</div>' +
+      '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">03</span>Linked tools</div>' +
+      linksHtml +
+      '</div>' +
+      '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">04</span>Responses on file</div>' +
+      missingHint +
+      formHtml +
+      '<div style="display:flex;justify-content:space-between;margin-top:8px;font-size:10.5px;color:var(--text-tertiary);padding-top:8px;border-top:1px solid rgba(255,255,255,0.06)"><span>Total (recorded)</span><span style="font-family:var(--font-mono,ui-monospace,monospace);color:' +
+      scoreColor +
+      ';font-weight:600">' +
+      (row.score != null ? esc(String(row.score)) : '—') +
+      '</span></div>' +
+      '</div>' +
       '</div>' +
       '<div class="dv2a-footer-actions">' +
-        '<button class="btn btn-ghost btn-sm" style="flex:1" onclick="window._assessReschedule(\''+esc(row.id)+'\')">Reschedule</button>' +
-        '<button class="btn btn-ghost btn-sm" style="flex:1" onclick="window._ahOpenForm(\''+esc(row.scaleId || row.inst || 'PHQ-9')+'\',\''+esc(row.patientId||'')+'\',\''+esc(row.backendId||'')+'\')">Score now</button>' +
-        '<button class="btn btn-primary btn-sm" style="flex:1.3" onclick="window._assessCosign(\''+esc(row.id)+'\')">Co-sign →</button>' +
+      '<button class="btn btn-ghost btn-sm" style="flex:1" onclick="window._assessReschedule(\'' +
+      esc(row.id) +
+      '\')">Reschedule</button>' +
+      '<button class="btn btn-ghost btn-sm" style="flex:1" onclick="window._ahOpenForm(\'' +
+      esc(row.scaleId || row.inst || 'PHQ-9') +
+      '\',\'' +
+      esc(row.patientId || '') +
+      '\',\'' +
+      esc(row.backendId || '') +
+      '\')">' +
+      (st === 'draft' || st === 'in_progress' || st === 'assigned' ? 'Continue' : 'Score / update') +
+      '</button>' +
+      '<button class="btn btn-primary btn-sm" style="flex:1.3" onclick="window._assessCosign(\'' +
+      esc(row.id) +
+      '\')">Mark reviewed →</button>' +
       '</div>' +
-    '</div>';
+      '</div>'
+    );
   }
 
   // ── Cohort tab ───────────────────────────────────────────────────────────────
@@ -11420,18 +11637,31 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       { id:'adhd-peds',label:'Peds ADHD', n:15, inst:'Vanderbilt' },
       { id:'migraine', label:'Migraine prevention', n:19, inst:'MIDAS' },
     ];
+    let cohortsFromApi = false;
     try {
       const cRes = await (api.listCohorts?.() || Promise.reject());
       if (cRes && Array.isArray(cRes.items) && cRes.items.length) {
+        cohortsFromApi = true;
         COHORTS.splice(0, COHORTS.length, ...cRes.items.map(c => ({ id:c.id, label:c.label, n:c.n||0, inst:c.instruments||'' })));
       }
     } catch {}
 
+    const cohortPlaceholder = !cohortsFromApi && !allowSampleQueueFallback;
+    const cohortDemoSizing = !cohortsFromApi && allowSampleQueueFallback;
+    const cohortSizeLabel = (n) => {
+      if (cohortPlaceholder) return '—';
+      return String(n);
+    };
+
     const active = COHORTS.find(c => c.id === cohortSel) || COHORTS[0];
+    const cohortBatchCap = () => {
+      if (cohortPlaceholder) return Math.min(queueRows.filter((r) => r.patientId).length, 12) || 0;
+      return active.n;
+    };
     const cohortListHtml = COHORTS.map(c =>
       '<div class="dv2a-cohort-card'+(c.id===active.id?' active':'')+'" onclick="window._assessPickCohort(\''+esc(c.id)+'\')">' +
         '<div style="font-size:12.5px;font-weight:600;color:var(--text-primary)">'+esc(c.label)+'</div>' +
-        '<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:4px">'+c.n+' patients · '+esc(c.inst)+'</div>' +
+        '<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:4px">'+(cohortPlaceholder ? '<span style="color:var(--amber,#ffb547);font-weight:600">Placeholder · </span>' : '')+(cohortDemoSizing ? '<span style="color:var(--amber,#ffb547);font-weight:600">Demo sizing · </span>' : '')+cohortSizeLabel(c.n)+' patients · '+esc(c.inst)+'</div>' +
       '</div>'
     ).join('');
 
@@ -11485,6 +11715,10 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         window._dsToast?.({ title:'Bulk assign failed', body:(err && err.message) || 'Network error. Saved locally.', severity:'error' });
       }
     };
+    const batchN = cohortBatchCap();
+    const batchBtnLabel = cohortPlaceholder
+      ? 'Batch send (from queue) →'
+      : ('Batch send to '+active.n+' →');
     // Cohort filter chips — wired to local state (instrument, time window).
     const cohortFilterInst = window._assessCohortInst || 'any';
     const cohortFilterWin  = window._assessCohortWin  || '30d';
@@ -11492,16 +11726,22 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
     window._assessCohortSetWin  = (v) => { window._assessCohortWin  = v; window._nav('assessments-v2'); };
     const cohortInstrumentOpts = ['any', ...cohortInst.length ? [cohortInst[0]] : []];
     const cohortWinOpts = ['7d', '30d', '90d', 'all'];
-    return '<div class="dv2a-filter-bar">' +
+    return (cohortPlaceholder
+      ? '<div role="note" style="margin:0 0 10px;padding:10px 14px;font-size:11.5px;color:var(--text-secondary);background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.3);border-radius:8px;line-height:1.5"><strong style="color:var(--amber,#ffb547)">Cohort sizes:</strong> Live cohort registry is unavailable — patient counts shown as placeholders only, not clinic census.</div>'
+      : '') +
+      (cohortDemoSizing && !cohortPlaceholder
+      ? '<div role="note" style="margin:0 0 10px;padding:10px 14px;font-size:11.5px;color:var(--text-secondary);background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.3);border-radius:8px;line-height:1.5"><strong style="color:var(--amber,#ffb547)">Demo cohort sizing:</strong> Patient counts are illustrative until <code style="font-size:10px">listCohorts</code> returns live data.</div>'
+      : '') +
+      '<div class="dv2a-filter-bar">' +
         cohortInstrumentOpts.map(v => '<button class="dv2a-chip'+(cohortFilterInst===v?' active':'')+'" onclick="window._assessCohortSetInst(\''+esc(v)+'\')">Instrument: '+esc(v)+'</button>').join('') +
         cohortWinOpts.map(v => '<button class="dv2a-chip'+(cohortFilterWin===v?' active':'')+'" onclick="window._assessCohortSetWin(\''+esc(v)+'\')">Window: '+esc(v)+'</button>').join('') +
-        '<div style="margin-left:auto"><button class="btn btn-primary btn-sm" onclick="window._ahBulkAssign(\''+esc(active.id)+'\',\''+esc(active.label)+'\','+active.n+',\''+esc(active.inst)+'\')">Batch send to '+active.n+' →</button></div>' +
+        '<div style="margin-left:auto"><button class="btn btn-primary btn-sm" onclick="window._ahBulkAssign(\''+esc(active.id)+'\',\''+esc(active.label)+'\','+batchN+',\''+esc(active.inst)+'\')">'+esc(batchBtnLabel)+'</button></div>' +
       '</div>' +
       '<div style="font-size:10.5px;color:var(--text-tertiary);margin:6px 2px 4px;line-height:1.5"><strong style="color:var(--amber,#ffb547)">Note:</strong> Batch send creates assignments and audit entries. SMS/email delivery requires a configured messaging integration; otherwise patients see assignments via the patient portal only.</div>' +
       '<div class="dv2a-cohort-grid">' +
         '<div style="display:flex;flex-direction:column;gap:8px">' + cohortListHtml + '</div>' +
         '<div class="dv2a-card">' +
-          '<div style="padding:12px 14px;border-bottom:1px solid var(--border)"><div style="font-size:13px;font-weight:600;color:var(--text-primary)">'+esc(active.label)+'</div><div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">'+active.n+' patients · '+esc(active.inst)+' · response status below</div></div>' +
+          '<div style="padding:12px 14px;border-bottom:1px solid var(--border)"><div style="font-size:13px;font-weight:600;color:var(--text-primary)">'+esc(active.label)+'</div><div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">'+(cohortPlaceholder ? '— patients · ' : active.n+' patients · ')+esc(active.inst)+' · response status below</div></div>' +
           '<table style="width:100%;border-collapse:collapse"><thead><tr style="background:rgba(255,255,255,0.02)"><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Patient</th><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Instrument</th><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Score</th><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Status</th><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Δ</th></tr></thead><tbody>' + tableRows + '</tbody></table>' +
         '</div>' +
       '</div>';
@@ -11543,7 +11783,12 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         '</div>' +
       '</div>';
     }).join('');
-    return '<div style="font-size:12px;color:var(--text-tertiary);margin-bottom:6px">Validated instruments across depression, anxiety, OCD, trauma, sleep, mania, pain, language, and QoL. <strong>Click a card to open its fillable form and compute the score on-platform.</strong></div>' +
+    return (usingSampleQueue
+      ? '<div role="note" style="margin-bottom:12px;padding:8px 12px;font-size:11px;font-weight:600;color:var(--amber,#ffb547);background:rgba(255,181,71,0.1);border:1px solid rgba(255,181,71,0.35);border-radius:8px">' +
+        esc(DEMO_ASSESSMENTS_BANNER_MARK) +
+        '</div>'
+      : '') +
+      '<div style="font-size:12px;color:var(--text-tertiary);margin-bottom:6px">Validated instruments across depression, anxiety, OCD, trauma, sleep, mania, pain, language, and QoL. <strong>Click a card to open its fillable form and compute the score on-platform.</strong></div>' +
       catBar +
       '<div class="dv2a-lib-grid">'+cards+'</div>';
   }
@@ -11612,6 +11857,10 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   }
 
   // ── Compose page ─────────────────────────────────────────────────────────────
+  const demoPageBanner = usingSampleQueue
+    ? '<div class="dv2a-demo-page-banner" role="banner">' + esc(DEMO_ASSESSMENTS_BANNER_MARK) + '</div>'
+    : '';
+
   let mainContent = '';
   let sideContent = '';
   if (tab === 'queue') {
@@ -11638,6 +11887,7 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
 
   el.innerHTML =
     '<div class="dv2a-shell">' +
+      demoPageBanner +
       '<div class="dv2a-tabs" role="tablist">' + tabBar() + '</div>' +
       '<div class="dv2a-body">' +
         '<div class="dv2a-main">' + mainContent + '</div>' +
@@ -11655,6 +11905,9 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       tab,
       counts: _ahCounts(),
       using_demo_data: usingDemoData,
+      using_sample_queue: usingSampleQueue,
+      assessments_list_fetch_failed: assessmentsListFetchFailed,
+      assessments_list_empty_ok: assessmentsListEmptyOk,
       ts: new Date().toISOString(),
     });
   } catch {}
