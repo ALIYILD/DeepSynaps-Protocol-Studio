@@ -61,6 +61,12 @@ function _isDemoSession() {
   } catch { return false; }
 }
 
+// Clinician Digest: `_demoSyntheticResponse` supplies digest JSON only when
+// `_isDemoSession()` is true (demo flag ON + `*-demo-token`). Production
+// builds without `VITE_ENABLE_DEMO` never take this path — real sessions always
+// hit the Fly API (or show failure/empty states), so demo digest cannot appear
+// for normal clinician JWTs.
+
 // ── Demo inbox items (shared between inbox + digest shims) ──────────────────
 const _DEMO_INBOX_ITEMS = [
   { event_id: 'demo-inbox-1', surface: 'adherence_events', event_type: 'adherence.missed_session', note: 'Patient missed 3rd consecutive NFB session. Protocol requires escalation after 2 consecutive misses.', actor_id: 'system', patient_id: 'demo-pt-samantha-li', created_at: new Date(Date.now() - 3600000).toISOString(), is_acknowledged: false, is_demo: true },

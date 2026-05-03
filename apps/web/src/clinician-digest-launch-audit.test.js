@@ -320,6 +320,16 @@ test('Source contract: digest renders DEMO banner + queued copy (not fabricated)
   assert.ok(src.includes('SMTP wire-up'));
 });
 
+test('Source contract: scope note + shortcut table (no fake module counts)', () => {
+  const src = pagesCoursesSrc();
+  assert.ok(src.includes('DIGEST_LIVE_READINESS'));
+  assert.ok(/not autonomous diagnosis, prescribing, emergency triage, or treatment approval/i.test(src));
+  assert.ok(src.includes('cdg-scope-note'));
+  assert.ok(src.includes('Not yet aggregated into digest'));
+  assert.ok(src.includes('Open module'));
+  assert.ok(/navigation only/i.test(src));
+});
+
 
 function apiSrc() {
   const here = path.dirname(url.fileURLToPath(import.meta.url));

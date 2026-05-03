@@ -13429,8 +13429,26 @@ function _cwhBindRowHandlers(navigate) {
 
 
 // ── pgClinicianDailyDigest — Clinician briefing / end-of-shift digest ─────────
-// Decision-support summary across clinician hubs (Inbox, Wearables Workbench,
-// Adherence, Wellness, AE Hub). Not autonomous diagnosis or prescribing.
+//
+// DIGEST_LIVE_READINESS (merge checklist)
+// ----------------------------------------
+// Routes: `?page=clinician-digest` and alias `?page=daily-digest` (app.js).
+// Page: this file — `pgClinicianDailyDigest`.
+// API client: api.js — clinicianDigestSummary/Sections/Events, SendEmail,
+//   ShareColleague, ExportCsv/Ndjson URLs, postClinicianDigestAuditEvent.
+// Backend: apps/api/app/routers/clinician_digest_router.py.
+// Data source: audit_events + existing hub tables (no separate digest table).
+// Surfaces in digest totals: Clinician Inbox, Wearables Workbench, Adherence Hub,
+//   Wellness Hub, Adverse Events Hub.
+// Demo: api.js `_demoSyntheticResponse` only if VITE_ENABLE_DEMO/DEV + *-demo-token;
+//   labelled banner; never mixed with real JWT when demo flag is off in prod.
+// Known gaps (not this page): first-class protocol-draft / MRI / qEEG / video /
+//   biometrics job counts; AI-generated daily clinical summary; evidence governance
+//   feed rows — shortcuts are navigation-only unless backend adds aggregation.
+// Production: real clinician auth + Fly API + CORS + VITE_API_BASE_URL.
+//
+// Decision-support summary across clinician hubs. Not autonomous diagnosis,
+// prescribing, emergency triage, or treatment approval.
 // Real API aggregates audit-backed activity; offline demo-token sessions use
 // labelled demo payloads from api.js. SMTP for email share is queued until wired.
 const _cdgEsc = (s) => String(s ?? '')
@@ -13552,7 +13570,7 @@ export async function pgClinicianDailyDigest(setTopbar, navigate) {
   if (typeof setTopbar === 'function') {
     setTopbar(
       'Clinician Digest',
-      'Clinical briefing: queue activity, safety signals, and workload — decision support only; clinician review required.',
+      'Audit/hub briefing — decision support only; not diagnosis, prescribing, emergency triage, or treatment approval.',
     );
   }
 
@@ -13576,12 +13594,13 @@ export async function pgClinicianDailyDigest(setTopbar, navigate) {
 
   el.innerHTML = `
     <div id="cdg-root" style="max-width:1180px;margin:0 auto;padding:18px 24px" role="main" aria-labelledby="cdg-page-title">
-      <header style="margin-bottom:18px">
+      <header style="margin-bottom:14px">
         <h1 id="cdg-page-title" style="margin:0 0 6px;font-size:1.35rem;font-weight:700;letter-spacing:-0.02em">Clinical briefing</h1>
         <p style="margin:0;font-size:0.88rem;color:var(--text-secondary);line-height:1.45;max-width:820px">
-          AI-assisted summaries elsewhere in the product require your review. This digest aggregates <strong>audit-backed</strong> inbox and hub activity — it does not diagnose or prescribe.
+          This page summarizes <strong>audit- and hub-backed activity</strong> for the selected period. It is <strong>decision support only</strong> — not autonomous diagnosis, prescribing, emergency triage, or treatment approval. AI-assisted outputs elsewhere still require clinician review.
         </p>
       </header>
+      <div id="cdg-scope-note"></div>
       <div id="cdg-controls"></div>
       <div id="cdg-banner"></div>
       <div id="cdg-summary"></div>
@@ -13595,6 +13614,9 @@ export async function pgClinicianDailyDigest(setTopbar, navigate) {
   _cdgState.loadError = null;
   _cdgState.loading = true;
   _cdgRenderLoadingPlaceholders();
+
+  const scopeEl = document.getElementById('cdg-scope-note');
+  if (scopeEl) scopeEl.innerHTML = _cdgRenderScopeNote();
 
   await _cdgLoadData();
   _cdgBindControls(navigate);
@@ -13687,6 +13709,13 @@ function _cdgPaintDigestDom() {
   if (moreEl) moreEl.innerHTML = _cdgRenderMoreActions(!!_cdgState.loadError);
 }
 
+function _cdgRenderScopeNote() {
+  return `
+    <div class="notice notice-info" role="region" aria-label="Digest scope" style="margin-bottom:14px;font-size:12.5px;line-height:1.55">
+      <strong>Scope.</strong> KPIs and timelines below reflect <strong>Inbox, Wearables Workbench, Adherence, Wellness, and Adverse Events hub</strong> activity aggregated by the digest API. MRI, qEEG, video, biometrics, text analysis, protocol drafts, assessments, documents, and evidence governance <strong>are not counted here</strong> unless the backend adds them — they appear as <strong>shortcuts to open the source module</strong> (not yet aggregated into digest).
+    </div>`;
+}
+
 function _cdgRenderControls(state) {
   const presetOpts = _CDG_PRESETS.map(([v, l]) =>
     `<option value="${_cdgEsc(v)}"${v === state.preset ? ' selected' : ''}>${_cdgEsc(l)}</option>`).join('');
@@ -13721,7 +13750,7 @@ function _cdgRenderControls(state) {
       <span id="cdg-preset-hint" class="sr-only">Changing period updates the digest window.</span>
       <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-left:auto">
         <button type="button" id="cdg-email-btn" class="btn btn-primary" aria-describedby="cdg-email-hint">Email digest</button>
-        <span id="cdg-email-hint" class="sr-only">Queues an email to your account; delivery may be queued until SMTP is configured.</span>
+        <span id="cdg-email-hint" class="sr-only">Requests digest email; delivery may be queued until SMTP is configured — not proof of delivery.</span>
         <button type="button" id="cdg-share-btn" class="btn btn-secondary">Share with colleague</button>
         <a id="cdg-csv-btn" class="btn btn-link" href="${_cdgEsc(csvHref)}" target="_blank" rel="noopener noreferrer">Export CSV</a>
         <a id="cdg-ndjson-btn" class="btn btn-link" href="${_cdgEsc(ndjsonHref)}" target="_blank" rel="noopener noreferrer">Export NDJSON</a>
@@ -13783,8 +13812,8 @@ function _cdgRenderWorkloadRow(s) {
   const tone = breached > 0 ? 'notice-warning' : 'notice-info';
   return `
     <div class="notice ${tone}" role="status" style="margin-bottom:14px;font-size:12.5px;line-height:1.5">
-      <strong>Clinic workload snapshot.</strong>
-      ${open} item(s) still open across hubs${breached > 0 ? `; ${breached} past SLA (review priority).` : '; no SLA breaches in the current aggregate.'}
+      <strong>Queue snapshot (digest surfaces only).</strong>
+      ${open} item(s) still open in the aggregated hubs${breached > 0 ? `; ${breached} past SLA in this aggregate (review priority).` : '; no SLA breaches in this aggregate for the window.'} This is not a full clinic census or “all clear” for patient care.
     </div>`;
 }
 
@@ -13831,24 +13860,50 @@ function _cdgRenderPriorityStrip(events) {
     </section>`;
 }
 
+function _cdgShortcutRows() {
+  const rows = [
+    { route: 'mri-analysis', label: 'MRI', line: 'Not yet aggregated into digest — open module to review.' },
+    { route: 'qeeg-analysis', label: 'qEEG', line: 'Not yet aggregated into digest — open module to review.' },
+    { route: 'video-assessments', label: 'Video', line: 'Not yet aggregated into digest — open module to review.' },
+    { route: 'wearables', label: 'Biometrics', line: 'Not yet aggregated into digest — open module to review.' },
+    { route: 'text-analyzer', label: 'Text analysis', line: 'Not yet aggregated into digest — open module to review.' },
+    { route: 'protocol-studio', label: 'Protocol Studio', line: 'Protocol drafts not roll-up counted here — review in source module.' },
+    { route: 'assessments-v2', label: 'Assessments', line: 'Not yet aggregated into digest — review in source module.' },
+    { route: 'research-evidence', label: 'Research / evidence', line: 'Evidence governance not in digest totals — review in source module.' },
+    { route: 'audittrail', label: 'Audit trail', line: 'Full audit history — open to verify actions and compliance events.' },
+    { route: 'documents-v2', label: 'Documents', line: 'Uploaded documents — review in source module (not digest roll-up).' },
+  ];
+  return rows.map((r) => `
+    <tr style="border-bottom:1px solid var(--border-color)">
+      <td style="padding:10px 12px 10px 0;vertical-align:top;font-size:12.5px;font-weight:600;color:var(--text-primary);white-space:nowrap">${_cdgEsc(r.label)}</td>
+      <td style="padding:10px 12px 10px 0;vertical-align:top;font-size:11.5px;color:var(--text-secondary);line-height:1.45">${_cdgEsc(r.line)}</td>
+      <td style="padding:10px 0;vertical-align:top;text-align:right;white-space:nowrap">
+        <button type="button" class="btn btn-sm btn-secondary cdg-nav-extra" data-route="${_cdgEsc(r.route)}">Open module</button>
+      </td>
+    </tr>`).join('');
+}
+
 function _cdgRenderMoreActions(hasError) {
   if (hasError) return '';
   return `
     <section aria-labelledby="cdg-more-heading" style="margin-top:8px;margin-bottom:24px">
-      <h2 id="cdg-more-heading" style="margin:0 0 10px;font-size:0.95rem;font-weight:600">Evidence, audit, and analyzers</h2>
-      <div style="display:flex;flex-wrap:wrap;gap:8px">
-        <button type="button" class="btn btn-secondary cdg-nav-extra" data-route="audittrail">Audit trail</button>
-        <button type="button" class="btn btn-secondary cdg-nav-extra" data-route="research-evidence">Research evidence</button>
-        <button type="button" class="btn btn-secondary cdg-nav-extra" data-route="protocol-studio">Protocol Studio</button>
-        <button type="button" class="btn btn-secondary cdg-nav-extra" data-route="assessments-v2">Assessments</button>
-        <button type="button" class="btn btn-secondary cdg-nav-extra" data-route="documents-v2">Documents</button>
-        <button type="button" class="btn btn-secondary cdg-nav-extra" data-route="mri-analysis">MRI</button>
-        <button type="button" class="btn btn-secondary cdg-nav-extra" data-route="qeeg-analysis">qEEG</button>
-        <button type="button" class="btn btn-secondary cdg-nav-extra" data-route="video-assessments">Video</button>
-        <button type="button" class="btn btn-secondary cdg-nav-extra" data-route="wearables">Biometrics</button>
-        <button type="button" class="btn btn-secondary cdg-nav-extra" data-route="text-analyzer">Text reports</button>
+      <h2 id="cdg-more-heading" style="margin:0 0 8px;font-size:0.95rem;font-weight:600">Other modules (shortcuts)</h2>
+      <p style="margin:0 0 12px;font-size:11.5px;color:var(--text-tertiary);line-height:1.5">
+        These rows are <strong>navigation only</strong>. Counts above do not include MRI, analyzers, protocols, assessments, or evidence unless the digest API is extended — use <strong>Open module</strong> to review in the source workflow.
+      </p>
+      <div class="card" style="padding:0;overflow:hidden">
+        <table style="width:100%;border-collapse:collapse;margin:0" role="presentation">
+          <thead>
+            <tr style="background:var(--bg-tertiary);font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-tertiary)">
+              <th scope="col" style="text-align:left;padding:8px 12px;font-weight:600">Area</th>
+              <th scope="col" style="text-align:left;padding:8px 12px;font-weight:600">In digest?</th>
+              <th scope="col" style="text-align:right;padding:8px 12px;font-weight:600">Action</th>
+            </tr>
+          </thead>
+          <tbody>${_cdgShortcutRows()}</tbody>
+        </table>
       </div>
-      <p style="margin:10px 0 0;font-size:11px;color:var(--text-tertiary)">Analyzers open in context for clinician review; outputs are decision-support, not standalone clinical conclusions.</p>
+      <p style="margin:12px 0 0;font-size:11px;color:var(--text-tertiary)">Review in source module for clinical findings; this digest does not replace modality-specific review.</p>
     </section>`;
 }
 
@@ -13877,7 +13932,7 @@ function _cdgRenderEmptyState() {
       <div style="font-size:2rem;margin-bottom:12px" aria-hidden="true">∅</div>
       <div style="font-size:1.05rem;font-weight:600;margin-bottom:6px">No events to summarise for this shift.</div>
       <div style="font-size:0.85rem;color:var(--text-tertiary);max-width:520px;margin:0 auto;line-height:1.5">
-        Counts are audit-backed aggregates from Inbox, Wearables Workbench, Adherence Hub, Wellness Hub, and Adverse Events drafts. An empty window means no matching acknowledgements, escalations, paging, or SLA breaches — not a clinical “all clear.”
+        Counts are audit-backed aggregates from Inbox, Wearables Workbench, Adherence Hub, Wellness Hub, and Adverse Events drafts. An empty window only means <strong>no matching hub activity in this period</strong> — it does not mean patients are stable, risk-free, or that other workflows (MRI, protocols, etc.) have nothing pending. Use module shortcuts below as needed.
       </div>
     </div>`;
 }
