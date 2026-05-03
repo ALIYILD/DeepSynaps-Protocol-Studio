@@ -21,8 +21,10 @@ test('empty clinic state does not imply no clinical concern', () => {
   assert.match(SRC, /does\s+<strong>not<\/strong>\s+mean[\s\S]*no clinical concern/i);
 });
 
-test('page documents backend scope (assignments router)', () => {
+test('page documents backend scope (assignments + audit)', () => {
   assert.match(SRC, /phenotype-assignments/);
+  assert.match(SRC, /postPhenotypeAuditEvent/);
+  assert.match(SRC, /listPhenotypeAuditEvents/);
 });
 
 test('registry panel reframes modality lists as non-prescriptive', () => {

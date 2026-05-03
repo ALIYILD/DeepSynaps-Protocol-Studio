@@ -1642,6 +1642,15 @@ export const api = {
   },
   deletePhenotypeAssignment: (id) =>
     apiFetch(`/api/v1/phenotype-assignments/${id}`, { method: 'DELETE' }),
+  listPhenotypeAuditEvents: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/phenotype-assignments/audit-events${q ? '?' + q : ''}`);
+  },
+  postPhenotypeAuditEvent: (body) =>
+    apiFetch('/api/v1/phenotype-assignments/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
 
   // ── Consent records ───────────────────────────────────────────────────────
   createConsent: (data) =>

@@ -262,7 +262,7 @@ function _renderDataMatrix(matrix) {
       <td style="padding:8px 10px;border-bottom:1px solid var(--border)">${_statusPill(m.status)}</td>
       <td style="padding:8px 10px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-secondary)">${esc(m.detail || '—')}</td>
       <td style="padding:8px 10px;border-bottom:1px solid var(--border);text-align:right">
-        <button type="button" class="btn btn-ghost btn-sm" data-nav-page="${esc(r.page)}" style="min-height:36px">Open</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-nav-page="${esc(r.page)}" data-nav-label="${esc(r.label)}" style="min-height:36px">Open</button>
       </td>
     </tr>`;
   }).join('');
@@ -304,7 +304,7 @@ function _renderQuickLinks() {
     { page: 'live-session', label: 'Virtual Care / live session' },
   ];
   const btns = links.map((l) =>
-    `<button type="button" class="btn btn-ghost btn-sm" data-nav-page="${esc(l.page)}" style="min-height:40px;margin:4px 6px 4px 0">${esc(l.label)}</button>`
+    `<button type="button" class="btn btn-ghost btn-sm" data-nav-page="${esc(l.page)}" data-nav-label="${esc(l.label)}" style="min-height:40px;margin:4px 6px 4px 0">${esc(l.label)}</button>`
   ).join('');
   return `<div style="margin-top:18px;padding:14px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,.02)">
     <div style="font-size:12px;font-weight:600;margin-bottom:6px">Linked modules</div>
@@ -330,21 +330,33 @@ function _renderGovernancePanel(usingFixtures) {
   </div>`;
 }
 
-function _renderAuditPlaceholder(assignments) {
-  const rows = (assignments || []).slice(0, 12).map((a) => {
-    const when = a.assigned_at ? new Date(a.assigned_at).toLocaleString() : '—';
-    return `<li style="margin-bottom:6px"><span style="color:var(--text-tertiary)">${esc(when)}</span> — <strong>${esc(a.phenotype_name || a.phenotype_id)}</strong> recorded${a.confidence ? ` (${esc(a.confidence)} confidence)` : ''}${a.clinician_id ? ` · clinician ${esc(a.clinician_id)}` : ''}</li>`;
+function _renderCombinedAudit(assignments, auditItems, auditNote) {
+  const auditRows = (auditItems || []).slice(0, 40).map((ev) => {
+    const when = ev.created_at ? new Date(ev.created_at).toLocaleString() : '—';
+    const act = esc(ev.action || 'event');
+    const aid = esc(ev.actor_id || '');
+    const pid = esc(ev.patient_id || '');
+    return `<li style="margin-bottom:8px;line-height:1.45"><span style="color:var(--text-tertiary);white-space:nowrap">${esc(when)}</span> · <code style="font-size:11px">${act}</code>${aid ? ` · ${aid}` : ''}${pid ? ` · patient ${pid}` : ''}</li>`;
   }).join('');
+  const assignRows = (assignments || []).slice(0, 12).map((a) => {
+    const when = a.assigned_at ? new Date(a.assigned_at).toLocaleString() : '—';
+    return `<li style="margin-bottom:6px"><span style="color:var(--text-tertiary)">${esc(when)}</span> — <strong>${esc(a.phenotype_name || a.phenotype_id)}</strong> (hypothesis label)${a.confidence ? ` · ${esc(a.confidence)} confidence` : ''}${a.clinician_id ? ` · ${esc(a.clinician_id)}` : ''}</li>`;
+  }).join('');
+  const auditIntro = auditNote
+    ? `<div style="font-size:11px;color:var(--amber);margin-bottom:8px">${esc(auditNote)}</div>`
+    : `<div style="font-size:11px;color:var(--text-tertiary);margin-bottom:8px">
+      Server-side audit includes workspace navigation/export signals when logged in to the API. Demo preview sessions may skip the network.
+    </div>`;
   return `<div style="margin-top:18px;padding:14px;border:1px solid var(--border);border-radius:12px;background:var(--bg-card)">
-    <div style="font-size:12px;font-weight:600;margin-bottom:6px">Review trail (assignment timestamps)</div>
-    <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:8px">
-      Full audit streaming for phenotype edits is not exposed as a separate feed in this build; each assignment stores clinician id and timestamps server-side. Below is the visible history from loaded assignments.
-    </div>
-    <ul style="list-style:none;margin:0;padding:0;font-size:12px;color:var(--text-secondary);max-height:220px;overflow:auto">${rows || '<li style="color:var(--text-tertiary)">No assignments yet.</li>'}</ul>
+    <div style="font-size:12px;font-weight:600;margin-bottom:6px">Workflow audit (API)</div>
+    ${auditIntro}
+    <ul style="list-style:none;margin:0 0 14px 0;padding:0;font-size:12px;color:var(--text-secondary);max-height:200px;overflow:auto" data-audit-server-list>${auditRows || '<li style="color:var(--text-tertiary)">No server audit events loaded.</li>'}</ul>
+    <div style="font-size:12px;font-weight:600;margin-bottom:6px">Registry assignment history (this load)</div>
+    <ul style="list-style:none;margin:0;padding:0;font-size:12px;color:var(--text-secondary);max-height:200px;overflow:auto">${assignRows || '<li style="color:var(--text-tertiary)">No hypothesis labels recorded for this patient in this view.</li>'}</ul>
   </div>`;
 }
 
-function _renderPatientDetail(patientName, assignments, registry, selectedPhenotypeId, dataMatrixHtml, usingFixtures) {
+function _renderPatientDetail(patientName, assignments, registry, selectedPhenotypeId, dataMatrixHtml, usingFixtures, auditHtml) {
   const def = selectedPhenotypeId ? (registry || []).find((r) => r.id === selectedPhenotypeId) : null;
   const roleNote = String(currentUser?.role || '').toLowerCase() === 'patient' ? _patientRestrictedBanner() : '';
   return `${roleNote}
@@ -365,7 +377,7 @@ function _renderPatientDetail(patientName, assignments, registry, selectedPhenot
     ${dataMatrixHtml}
     ${_renderQuickLinks()}
     ${_renderGovernancePanel(usingFixtures)}
-    ${_renderAuditPlaceholder(assignments)}`;
+    ${auditHtml}`;
 }
 
 function _confidenceSummary(assignments) {
@@ -518,12 +530,29 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
     slot.innerHTML = usingFixtures && isDemoSession() ? DEMO_FIXTURE_BANNER_HTML : '';
   }
 
+  async function _emitPageAudit(event, note = '') {
+    try {
+      if (!api.getToken?.()) return;
+      if (usingFixtures && isDemoSession()) return;
+      await api.postPhenotypeAuditEvent({
+        event,
+        patient_id: activePatientId || undefined,
+        note: note || undefined,
+        using_demo_data: false,
+      });
+    } catch {
+      /* non-blocking */
+    }
+  }
+
   function _wireNavigate(container) {
     if (!container) return;
     container.querySelectorAll('[data-nav-page]').forEach((b) => {
       b.addEventListener('click', () => {
         const page = b.getAttribute('data-nav-page');
+        const label = b.getAttribute('data-nav-label') || page || '';
         if (!page) return;
+        void _emitPageAudit('open_linked_module', `page=${page}; label=${String(label).slice(0, 120)}`);
         try {
           if (activePatientId) {
             window._profilePatientId = activePatientId;
@@ -540,6 +569,7 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
   function _wireOpenPatientChart(container) {
     container?.querySelector('[data-action="open-chart"]')?.addEventListener('click', () => {
       if (!activePatientId) return;
+      void _emitPageAudit('open_patient_chart', 'toolbar');
       try {
         window.openPatient?.(activePatientId);
         navigate?.('patient-profile', { id: activePatientId });
@@ -749,7 +779,30 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
     }
     dataMatrixHtml = _renderDataMatrix(matrix);
 
-    body.innerHTML = _renderPatientDetail(activePatientName, patientAssignmentsCache, registryCache, selectedPhenotypeId, dataMatrixHtml, usingFixtures);
+    let auditItems = [];
+    let auditNote = '';
+    if (!usingFixtures && api.getToken?.()) {
+      try {
+        const ar = await api.listPhenotypeAuditEvents({ patient_id: activePatientId, limit: 40 });
+        auditItems = Array.isArray(ar?.items) ? ar.items : [];
+      } catch {
+        auditNote = 'Could not load server audit trail — check API session.';
+      }
+    } else if (usingFixtures && isDemoSession()) {
+      auditNote = 'Demo fixture session — phenotype audit API calls are skipped in offline preview.';
+    }
+    const auditHtml = _renderCombinedAudit(patientAssignmentsCache, auditItems, auditNote);
+
+    body.innerHTML = _renderPatientDetail(
+      activePatientName,
+      patientAssignmentsCache,
+      registryCache,
+      selectedPhenotypeId,
+      dataMatrixHtml,
+      usingFixtures,
+      auditHtml,
+    );
+    void _emitPageAudit('workspace_view', 'patient_workspace_loaded');
     _wireNavigate(body);
     wirePatientDetail();
   }
@@ -803,7 +856,11 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
           }
           patientAssignmentsCache = patientAssignmentsCache.filter((a) => a.id !== aid);
           allAssignmentsCache = allAssignmentsCache.filter((a) => a.id !== aid);
-          _refreshAssignmentsInPlace();
+          if (!usingFixtures) {
+            loadPatient();
+          } else {
+            _refreshAssignmentsInPlace();
+          }
         } catch (e) {
           b.disabled = false;
           b.textContent = old;
@@ -826,6 +883,7 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
 
     body.querySelector('[data-action="export-summary"]')?.addEventListener('click', () => {
       try {
+        void _emitPageAudit('export_summary', 'json_download');
         const payload = {
           exported_at: new Date().toISOString(),
           patient_id: activePatientId,
