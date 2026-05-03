@@ -46,7 +46,7 @@ import {
 import { EVIDENCE_SUMMARY, CONDITION_EVIDENCE, getTopConditionsByPaperCount } from './evidence-dataset.js';
 import { PROTOCOL_LIBRARY, CONDITIONS as PROTO_CONDITIONS, DEVICES as PROTO_DEVICES } from './protocols-data.js';
 import { getEvidenceUiStats } from './evidence-ui-live.js';
-import { resolveRiskTrafficPatientName } from './clinical-dashboard-helpers.js';
+import { resolveRiskTrafficPatientName, shouldSeedDashboardDemo } from './clinical-dashboard-helpers.js';
 import {
   DEMO_PATIENT,
   DEMO_CLINICIAN_DASHBOARD,
@@ -781,6 +781,14 @@ export async function pgDash(setTopbar, navigate) {
     try { return !!(import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1'); }
     catch (_) { return false; }
   })();
+  const _viteEnableDemo = (() => {
+    try { return import.meta.env.VITE_ENABLE_DEMO === '1'; }
+    catch (_) { return false; }
+  })();
+  const _isDev = (() => {
+    try { return !!import.meta.env.DEV; }
+    catch (_) { return false; }
+  })();
   if (_coreLoadFailed && !_demoModeBuild) {
     if (_abortCtrl.signal.aborted) { window.removeEventListener('hashchange', _onLeave); return; }
     el.innerHTML = `<div style="padding:48px 24px;text-align:center;max-width:420px;margin:0 auto">
@@ -798,7 +806,14 @@ export async function pgDash(setTopbar, navigate) {
     allPatients = [];
     allCourses = [];
   }
-  if (allPatients.length === 0 && allCourses.length === 0) {
+  const _emptyClinic = allPatients.length === 0 && allCourses.length === 0;
+  const _shouldSeedDemo = shouldSeedDashboardDemo({
+    emptyClinic: _emptyClinic,
+    coreLoadFailed: _coreLoadFailed,
+    viteEnableDemo: _viteEnableDemo,
+    isDev: _isDev,
+  });
+  if (_shouldSeedDemo) {
     _isDemo = true;
     allPatients = [
       { id: 'P-DEMO-1', first_name: 'Samantha', last_name: 'Li',       dob: '1985-03-12' },
@@ -845,6 +860,25 @@ export async function pgDash(setTopbar, navigate) {
       ]},
     ];
     _apiFailCount = 0; // suppress fail banner — demo is intentional
+  } else if (_emptyClinic) {
+    // Production / non-demo: honest empty clinic — no P-DEMO-* seeding
+    if (_abortCtrl.signal.aborted) { window.removeEventListener('hashchange', _onLeave); return; }
+    el.innerHTML = `<div style="padding:48px 24px;max-width:560px;margin:0 auto">
+      <div class="dh2-wrap" style="padding:0">
+        <div class="dh2-safety-strip" role="note" style="margin-bottom:16px">
+          <strong>Clinical decision support.</strong> Not for autonomous diagnosis or prescribing.
+        </div>
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:16px;padding:28px 24px;text-align:center">
+          <div style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Your clinic has no patients or courses yet</div>
+          <div style="font-size:12.5px;color:var(--text-tertiary);margin-bottom:20px;line-height:1.55">Add a patient and create a course to populate this dashboard with live data.</div>
+          <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+            <button type="button" class="btn btn-primary" onclick="window._nav('patients')">Add patient</button>
+            <button type="button" class="btn btn-sm btn-ghost" onclick="window._nav('protocol-wizard')">New course</button>
+          </div>
+        </div>
+      </div>`;
+    window.removeEventListener('hashchange', _onLeave);
+    return;
   } else if (_apiFailCount >= 8) {
     if (_abortCtrl.signal.aborted) { window.removeEventListener('hashchange', _onLeave); return; }
     el.innerHTML = `<div style="padding:48px 24px;text-align:center;max-width:420px;margin:0 auto">
@@ -1238,6 +1272,7 @@ export async function pgDash(setTopbar, navigate) {
   background:linear-gradient(90deg,rgba(155,127,255,0.12),rgba(74,158,255,0.08));
   border:1px solid rgba(155,127,255,0.28); border-radius:10px;
   font-size:12px; color:var(--text-secondary); }
+.dh2-demo-banner--slim { flex-wrap:wrap; margin-bottom:12px; }
 .dh2-safety-strip { padding:10px 14px; margin-bottom:14px; border-radius:10px;
   border:1px solid rgba(0,212,188,0.22); background:rgba(0,212,188,0.06);
   font-size:12px; color:var(--text-secondary); line-height:1.45; }
@@ -1439,10 +1474,17 @@ export async function pgDash(setTopbar, navigate) {
         : `queue is clear`);
 
   // ── Demo banner ───────────────────────────────────────────────────────────────
-  const _demoBanner = _isDemo ? `<div class="dh2-demo-banner">
-    <span class="dh2-demo-pill">DEMO</span>
-    <span>Showing sample data so you can explore the dashboard. Add a patient or course to see your own data here.</span>
-    <button class="dh2-launch-btn" style="margin-left:auto" onclick="window._nav('patients')">Add Patient →</button>
+  const _demoBannerCopy = _viteEnableDemo
+    ? '<strong>Demo data — not real patient data.</strong> Names and IDs such as <code style="background:rgba(0,0,0,0.15);padding:1px 5px;border-radius:4px;font-size:11px">P-DEMO-*</code> are synthetic samples only.'
+    : 'Showing sample data so you can explore the dashboard. Add a patient or course to see your own data here.';
+  const _demoBanner = _isDemo ? `<div class="dh2-demo-banner" role="alert">
+    <span class="dh2-demo-pill">${_viteEnableDemo ? 'PREVIEW DEMO' : 'DEMO'}</span>
+    <span>${_demoBannerCopy}</span>
+    <button type="button" class="dh2-launch-btn" style="margin-left:auto" onclick="window._nav('patients')">Add Patient →</button>
+  </div>` : '';
+  const _demoBuildBanner = (_viteEnableDemo && !_isDemo) ? `<div class="dh2-demo-banner dh2-demo-banner--slim" role="status">
+    <span class="dh2-demo-pill">DEMO BUILD</span>
+    <span><strong>Preview mode:</strong> This build may suppress backend-unreachable toasts and enable offline demo flows. Do not use for real PHI.</span>
   </div>` : '';
   const _failBanner = _apiFailCount > 0 ? `<div class="dh2-fail-banner">&#9888; Some live data could not be loaded. Showing what we have.</div>` : '';
   const _offlineBanner = (typeof navigator !== 'undefined' && navigator.onLine === false)
@@ -1452,7 +1494,7 @@ export async function pgDash(setTopbar, navigate) {
   const _safetyStrip = `<div class="dh2-safety-strip" role="note">
     <strong>Clinical decision support.</strong> Not for autonomous diagnosis or prescribing.
     Outputs require clinician review and professional judgement.
-    ${_isDemo ? '<span class="dh2-safety-demo"> Sample patients only.</span>' : ''}
+    ${(_isDemo || _viteEnableDemo) ? '<span class="dh2-safety-demo"> Demo data / not real patient data.</span>' : ''}
   </div>`;
 
   // ── Page head: greeting + week tab + export ───────────────────────────────────
@@ -2090,6 +2132,7 @@ export async function pgDash(setTopbar, navigate) {
   if (_abortCtrl.signal.aborted) { window.removeEventListener('hashchange', _onLeave); return; }
   el.innerHTML = `<div class="dh2-wrap">`
     + _demoBanner
+    + _demoBuildBanner
     + _offlineBanner
     + _failBanner
     + _safetyStrip
