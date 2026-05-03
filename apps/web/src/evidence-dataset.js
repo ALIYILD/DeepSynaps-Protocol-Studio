@@ -792,6 +792,13 @@ export const CONDITION_EVIDENCE = [
 },
 ];
 
+// Strip illustrative “recent paper” rows bundled with early demos — they were not
+// verified citations and must not appear as primary literature on the Research
+// Evidence workspace (use live corpus search or curated library instead).
+for (const row of CONDITION_EVIDENCE) {
+  if (Array.isArray(row.recentHighImpact)) row.recentHighImpact.length = 0;
+}
+
 // ── Aggregate computed stats ─────────────────────────────────────────────────
 export const EVIDENCE_SUMMARY = {
   totalPapers: EVIDENCE_TOTAL_PAPERS,
@@ -832,18 +839,9 @@ export const EVIDENCE_SUMMARY = {
     '2025': 12200,
     'pre-2020': 8400,
   },
-  topPublishingJournals: [
-    { name: 'Brain Stimulation', papers: 8420, impactFactor: 8.9 },
-    { name: 'JAMA Psychiatry', papers: 3180, impactFactor: 25.8 },
-    { name: 'Lancet Psychiatry', papers: 2640, impactFactor: 64.3 },
-    { name: 'Biological Psychiatry', papers: 2480, impactFactor: 12.8 },
-    { name: 'American Journal of Psychiatry', papers: 2180, impactFactor: 18.2 },
-    { name: 'Neurology', papers: 2020, impactFactor: 11.8 },
-    { name: 'Pain', papers: 1840, impactFactor: 7.4 },
-    { name: 'Lancet Neurology', papers: 1680, impactFactor: 48.1 },
-    { name: 'Movement Disorders', papers: 1420, impactFactor: 10.3 },
-    { name: 'Sleep', papers: 1240, impactFactor: 6.3 },
-  ],
+  // Journal leaderboard omitted — requires live corpus aggregation; do not show
+  // static placeholders as factual rankings.
+  topPublishingJournals: [],
 };
 
 // ── Helper: get evidence data for a specific condition ───────────────────────
