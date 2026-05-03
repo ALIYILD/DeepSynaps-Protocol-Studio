@@ -110,54 +110,67 @@ def build_live_snapshot(actor: AuthenticatedActor, db: Session) -> dict:
         summary = summaries.get(patient.id)
         patient_alerts = alerts.get(patient.id, [])
         outcome = outcomes.get(patient.id)
-        risk_tier = 'green'
-        risk_score = 0.18
+        # Ordinal review tier for triage — NOT a diagnosis, emergency score, or treatment eligibility.
+        review_tier = 'green'
+        review_priority = 0.18
         drivers = []
         if summary is None or (_now() - _aware(summary.synced_at)).total_seconds() >= 48 * 3600:
-            risk_tier = 'orange'
-            risk_score = 0.58
+            review_tier = 'orange'
+            review_priority = 0.58
             drivers.append('wearable_stale')
         if summary and summary.readiness_score is not None and summary.readiness_score < 20:
-            risk_tier = 'red'
-            risk_score = max(risk_score, 0.78)
-            drivers.append('low_readiness')
+            review_tier = 'red'
+            review_priority = max(review_priority, 0.78)
+            drivers.append('low_vendor_readiness')
         for alert in patient_alerts:
             if alert.severity == 'urgent':
-                risk_tier = 'red'
-                risk_score = max(risk_score, 0.86)
+                review_tier = 'red'
+                review_priority = max(review_priority, 0.86)
                 drivers.append(alert.flag_type)
                 break
-            if alert.severity in ('warning', 'warn') and risk_tier != 'red':
-                risk_tier = 'orange'
-                risk_score = max(risk_score, 0.64)
+            if alert.severity in ('warning', 'warn') and review_tier != 'red':
+                review_tier = 'orange'
+                review_priority = max(review_priority, 0.64)
                 drivers.append(alert.flag_type)
         if not drivers:
-            drivers.append('stable')
-        counts[risk_tier] += 1
+            drivers.append('no_flags_in_window')
+        counts[review_tier] += 1
+        readiness = summary.readiness_score if summary else None
         rows.append({
             'patient_id': patient.id,
             'display_name': f'{patient.first_name} {patient.last_name}'.strip(),
-            'risk_tier': risk_tier,
-            'risk_score': round(risk_score, 2),
+            'review_tier': review_tier,
+            'review_priority': round(review_priority, 2),
+            'review_drivers': drivers[:4],
+            # Back-compat aliases (deprecated — prefer review_* fields)
+            'risk_tier': review_tier,
+            'risk_score': round(review_priority, 2),
             'risk_drivers': drivers[:4],
             'hrv_last': summary.hrv_ms if summary else None,
             'sleep_last': summary.sleep_duration_h if summary else None,
             'prom_delta': None,
-            'adherence_pct': summary.readiness_score if summary else None,
+            'readiness_score': readiness,
+            'adherence_pct': None,
             'last_feature_at': summary.synced_at.isoformat() if summary else None,
             'wearable_stale': summary is None or (_now() - _aware(summary.synced_at)).total_seconds() >= 48 * 3600,
             'last_device_seen_at': summary.synced_at.isoformat() if summary else None,
             'last_contact_at': outcome.recorded_at.isoformat() if outcome else None,
         })
-    rows.sort(key=lambda item: ({'red': 0, 'orange': 1, 'yellow': 2, 'green': 3}.get(item['risk_tier'], 4), -item['risk_score'], item['display_name']))
-    crises = [{
+    rows.sort(key=lambda item: (
+        {'red': 0, 'orange': 1, 'yellow': 2, 'green': 3}.get(item['review_tier'], 4),
+        -item['review_priority'],
+        item['display_name'],
+    ))
+    priority_queue = [{
         'patient_id': row['patient_id'],
         'display_name': row['display_name'],
-        'tier': row['risk_tier'],
-        'score': row['risk_score'],
-        'top_driver': row['risk_drivers'][0],
-        'reason_text': ', '.join(row['risk_drivers'][:2]),
-    } for row in rows if row['risk_tier'] == 'red']
+        'tier': row['review_tier'],
+        'priority': row['review_priority'],
+        'top_driver': row['review_drivers'][0],
+        'reason_text': ', '.join(row['review_drivers'][:2]),
+    } for row in rows if row['review_tier'] == 'red']
+    # Legacy key — same list as priority_queue (was mislabeled "crises")
+    crises = priority_queue
     active_rows = len(rows) or 1
     return {
         'clinic_id': _clinic_id(actor),
@@ -167,10 +180,14 @@ def build_live_snapshot(actor: AuthenticatedActor, db: Session) -> dict:
             'orange': counts['orange'],
             'yellow': counts['yellow'],
             'green': counts['green'],
-            'open_crises': len(crises),
+            'open_priority_review': len(priority_queue),
+            'open_crises': len(priority_queue),
+            'wearable_data_recency_pct': round((len([r for r in rows if not r['wearable_stale']]) / active_rows) * 100, 1),
             'wearable_uptime_pct': round((len([r for r in rows if not r['wearable_stale']]) / active_rows) * 100, 1),
+            'outcome_contact_pct': round((len([r for r in rows if r['last_contact_at']]) / active_rows) * 100, 1),
             'prom_compliance_pct': round((len([r for r in rows if r['last_contact_at']]) / active_rows) * 100, 1),
         },
+        'priority_review_queue': priority_queue,
         'crises': crises,
         'caseload': rows,
     }
