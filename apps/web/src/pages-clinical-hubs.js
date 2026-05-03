@@ -3364,9 +3364,58 @@ export async function pgProtocolHub(setTopbar, navigate) {
       '.ps-state-approved{background:rgba(0,212,188,0.14);color:var(--dv2-teal,var(--teal))}' +
       '.ps-empty{padding:40px 20px;text-align:center;color:var(--text-tertiary);font-size:13px}' +
       '.ps-spin{display:inline-block;width:18px;height:18px;border:2px solid rgba(0,212,188,0.2);border-top-color:var(--dv2-teal,var(--teal));border-radius:50%;animation:ps-spin 0.7s linear infinite;vertical-align:middle;margin-right:6px}' +
-      '@keyframes ps-spin{to{transform:rotate(360deg)}}';
+      '@keyframes ps-spin{to{transform:rotate(360deg)}}' +
+      '.ps-hero{border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:16px;background:linear-gradient(135deg,rgba(0,212,188,0.06),rgba(14,22,40,0.35))}' +
+      '.ps-hero-title{font-family:var(--font-display,"Outfit",system-ui,sans-serif);font-size:17px;font-weight:600;margin:0 0 6px;letter-spacing:-0.02em;color:var(--text-primary)}' +
+      '.ps-hero-sub{font-size:12px;color:var(--text-secondary);line-height:1.55;margin:0;max-width:920px}' +
+      '.ps-quick-links{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}' +
+      '.ps-quick-links a,.ps-quick-links button{font-size:11.5px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-surface);color:var(--text-primary);cursor:pointer;font-family:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:4px}' +
+      '.ps-quick-links a:hover,.ps-quick-links button:hover{border-color:var(--dv2-teal,var(--teal));color:var(--dv2-teal,var(--teal))}' +
+      '.ps-patient-banner{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;padding:12px 14px;border-radius:10px;margin-bottom:14px;border:1px solid var(--border);background:rgba(245,158,11,0.06)}' +
+      '.ps-patient-banner.ps-patient-ok{background:rgba(0,212,188,0.06);border-color:rgba(0,212,188,0.22)}' +
+      '.ps-patient-banner strong{font-size:12px;display:block;margin-bottom:4px;color:var(--text-primary)}' +
+      '.ps-patient-banner span{font-size:11.5px;color:var(--text-secondary);line-height:1.45}' +
+      '.ps-role-banner{padding:10px 14px;border-radius:10px;margin-bottom:14px;font-size:12px;line-height:1.5;border:1px solid var(--border);background:rgba(74,158,255,0.06)}' +
+      '.ps-section-label{font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-tertiary);margin:14px 0 8px}' +
+      '.ps-checklist{font-size:11.5px;color:var(--text-secondary);line-height:1.65;margin:8px 0 0;padding-left:18px}' +
+      '.ps-checklist li{margin-bottom:4px}';
     document.head.appendChild(_st);
   }
+
+  // ── Access: authoring workspace is clinician/admin only (not patients) ───
+  const _role = currentUser?.role;
+  if (_role === 'patient') {
+    setTopbar('Protocol Studio', '');
+    el.innerHTML =
+      '<div class="ps-shell"><div class="ps-body">' +
+        '<div class="ps-hero"><h1 class="ps-hero-title">Clinician workspace</h1>' +
+        '<p class="ps-hero-sub">Protocol Studio is for licensed clinicians and clinic staff to draft and review neuromodulation protocols. Patient-facing programs are available under Virtual Care and your home portal.</p>' +
+        '<div class="ps-quick-links">' +
+          '<button type="button" onclick="window._nav(\'live-session\')">Virtual Care</button>' +
+          '<button type="button" onclick="window._nav(\'home\')">Dashboard</button>' +
+        '</div></div></div></div>';
+    return;
+  }
+
+  const _psCanAuthor = () => {
+    const r = currentUser?.role;
+    return r === 'clinician' || r === 'admin' || r === 'technician';
+  };
+
+  const _psContextPatientId = () =>
+    window._builderPatientId || window._selectedPatientId || window._profilePatientId || null;
+
+  const _psRecordStudioAudit = (event, note) => {
+    const pid = _psContextPatientId();
+    if (!pid || !api?.recordPatientProfileAuditEvent) return;
+    try {
+      api.recordPatientProfileAuditEvent(pid, {
+        event,
+        note: (note || '').slice(0, 480),
+        using_demo_data: !!(currentUser?.email && String(currentUser.email).toLowerCase().includes('demo')),
+      }).catch(() => {});
+    } catch { /* soft-fail */ }
+  };
 
   // ── State shared across wizard panels ──────────────────────────────────────
   window._psWizard = window._psWizard || { mode: null, result: null, saving: false, error: null };
@@ -3389,35 +3438,116 @@ export async function pgProtocolHub(setTopbar, navigate) {
   // ── Render result card from a ProtocolDraftResponse ───────────────────────
   function _renderResultCard(draft, extraHtml) {
     const contra = (draft.contraindications || []).filter(Boolean);
-    return '<div class="ps-result-card">' +
+    const mon = (draft.monitoring_plan || []).filter(Boolean);
+    const offLabel = !!draft.off_label_review_required;
+    const aiDraftNote = '<div class="ps-result-section" style="border-left:3px solid rgba(245,158,11,0.6);padding-left:10px;margin-top:10px">' +
+      '<strong>Status: </strong>AI-assisted draft — not treatment approval. Requires clinician review and sign-off before clinical use. Not diagnosis or autonomous prescribing.' +
+      (offLabel ? ' <strong>Off-label review required.</strong>' : '') +
+    '</div>';
+    const missingChecklist = (
+      '<div class="ps-section-label">Missing data checklist</div>' +
+      '<ul class="ps-checklist" aria-label="Missing clinical inputs">' +
+        '<li>Patient-specific imaging / qEEG (if brain-guided workflow)</li>' +
+        '<li>Current medications and seizure risk review</li>' +
+        '<li>Standardized assessments (PHQ-9, GAD-7, etc.) when applicable</li>' +
+        '<li>Implants / metal workup for magnetic modalities</li>' +
+      '</ul>'
+    );
+    const auditHint = '<div class="ps-result-section" style="font-size:11px;color:var(--text-tertiary);margin-top:8px">Governance events (save, review, export) are recorded in the clinic audit trail when you use a signed-in API session.</div>';
+    return '<div class="ps-result-card" role="region" aria-label="AI-assisted protocol draft">' +
       '<div class="ps-result-header">' +
-        '<span class="ps-result-title">Generated Protocol</span>' +
-        '<div style="display:flex;gap:6px">' +
+        '<span class="ps-result-title">AI-assisted draft (registry-backed)</span>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
           _gradeBadge(draft.evidence_grade) +
           _approvalBadge(draft.approval_status_badge) +
         '</div>' +
       '</div>' +
+      aiDraftNote +
       '<div class="ps-result-section"><strong>Rationale: </strong>' + esc(draft.rationale) + '</div>' +
-      '<div class="ps-result-section"><strong>Target Region: </strong>' + esc(draft.target_region) + '</div>' +
-      '<div class="ps-result-section"><strong>Session Frequency: </strong>' + esc(draft.session_frequency) + '</div>' +
+      '<div class="ps-result-section"><strong>Target region: </strong>' + esc(draft.target_region) + '</div>' +
+      '<div class="ps-result-section"><strong>Session frequency: </strong>' + esc(draft.session_frequency) + '</div>' +
       '<div class="ps-result-section"><strong>Duration: </strong>' + esc(draft.duration) + '</div>' +
-      (contra.length ? '<div class="ps-result-section"><strong>Contraindications: </strong>' + contra.map(c => esc(c)).join('; ') + '</div>' : '') +
+      (mon.length ? '<div class="ps-result-section"><strong>Safety / monitoring: </strong>' + mon.map(c => esc(c)).join('; ') + '</div>' : '') +
+      (contra.length ? '<div class="ps-result-section" style="color:#f59e0b"><strong>Contraindications / cautions: </strong>' + contra.map(c => esc(c)).join('; ') + '</div>' : '<div class="ps-result-section"><strong>Contraindications: </strong>None listed by rules — clinical review still required.</div>') +
       (extraHtml || '') +
+      missingChecklist +
       '<div class="ps-disclaimer">' +
-        esc((draft.disclaimers && draft.disclaimers.general_disclaimer) || 'For use by licensed clinicians only. Not a substitute for clinical judgment.') +
+        esc((draft.disclaimers && draft.disclaimers.general_disclaimer) || 'Decision-support draft only. Licensed clinician review required before any treatment planning.') +
       '</div>' +
+      auditHint +
       '<div class="ps-result-actions">' +
-        '<button class="ps-save-btn" id="ps-save-draft-btn" onclick="window._psSaveDraft()">Save as Draft</button>' +
-        '<button class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border)" onclick="window._nav(\'protocol-builder\')">Open in Builder</button>' +
+        '<button type="button" class="ps-save-btn" id="ps-save-draft-btn" onclick="window._psSaveDraft()"' + (_psCanAuthor() ? '' : ' disabled title="Clinician sign-in required"') + '>Save as draft</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border)" onclick="window._nav(\'protocol-builder\')"' + (_psCanAuthor() ? '' : ' disabled title="Clinician sign-in required"') + '>Open in builder</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border)" onclick="window._psExportProtocolDocx()" title="Requires clinician auth and render engine on API"' + (_psCanAuthor() ? '' : ' disabled title="Clinician sign-in required"') + '>Export protocol (.docx)</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border)" onclick="window._psExportHandbookDocx()" title="Requires clinician auth"' + (_psCanAuthor() ? '' : ' disabled title="Clinician sign-in required"') + '>Export handbook (.docx)</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border)" onclick="window._psExportPatientGuideDocx()" title="Requires clinician auth"' + (_psCanAuthor() ? '' : ' disabled title="Clinician sign-in required"') + '>Export patient guide (.docx)</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border)" onclick="window._psMarkReviewed()">Clinician review &amp; sign-off…</button>' +
       '</div>' +
     '</div>';
+  }
+
+  function _renderPatientBanner() {
+    const pid = _psContextPatientId();
+    if (!pid) {
+      return '<div class="ps-patient-banner" role="status">' +
+        '<div><strong>No patient in context</strong>' +
+        '<span>Select a patient from Patients or search in the sidebar to link drafts, exports, and audit events to a record.</span></div>' +
+        '<button type="button" class="ps-save-btn" style="font-size:11px;padding:5px 12px" onclick="window._nav(\'patients-v2\')">Open patients</button>' +
+      '</div>';
+    }
+    const nm = ((window._profilePatientName || '') + '').trim() || 'Patient';
+    const pidJs = JSON.stringify(pid);
+    return '<div class="ps-patient-banner ps-patient-ok" role="status">' +
+      '<div><strong>Patient context</strong>' +
+      '<span>' + esc(nm) + ' · ID <code style="font-size:10px">' + esc(pid) + '</code></span></div>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-left:auto">' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._selectedPatientId=' + pidJs + ';window._profilePatientId=' + pidJs + ';try{sessionStorage.setItem(\'ds_pat_selected_id\',' + pidJs + ')}catch(e){};window._nav(\'patient-profile\')">Profile</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._selectedPatientId=' + pidJs + ';window._nav(\'assessments-v2\')">Assessments</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._selectedPatientId=' + pidJs + ';window._nav(\'documents-v2\')">Documents</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._selectedPatientId=' + pidJs + ';window._nav(\'qeeg-analysis\')">qEEG</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._selectedPatientId=' + pidJs + ';window._nav(\'mri-analysis\')">MRI</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._selectedPatientId=' + pidJs + ';window._nav(\'video-assessments\')">Video</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._selectedPatientId=' + pidJs + ';window._nav(\'wearables\')">Biometrics</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._selectedPatientId=' + pidJs + ';window._nav(\'text-analyzer\')">Text</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._selectedPatientId=' + pidJs + ';window._nav(\'deeptwin\')">DeepTwin</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._nav(\'schedule-v2\')">Schedule</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._nav(\'clinician-inbox\')">Inbox</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._nav(\'audittrail\')">Audit trail</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function _renderClinicalShell(innerHtml) {
+    const hero =
+      '<div class="ps-hero">' +
+        '<h1 class="ps-hero-title">Protocol Studio</h1>' +
+        '<p class="ps-hero-sub">Clinician-reviewed protocol drafting and governance workspace. Use this surface to align indications, modalities, and evidence with clinic policy — not for autonomous diagnosis, prescribing, treatment approval, device control, or emergency triage. All AI-assisted output remains draft until your review and sign-off in your clinic workflow.</p>' +
+        '<div class="ps-quick-links" role="navigation" aria-label="Protocol Studio shortcuts">' +
+          '<a href="#" onclick="event.preventDefault();window._nav(\'research-evidence\')">Research evidence</a>' +
+          '<a href="#" onclick="event.preventDefault();window._nav(\'handbooks-v2\')">Handbooks</a>' +
+          '<a href="#" onclick="event.preventDefault();window._nav(\'protocol-builder-full\')">5-step wizard</a>' +
+        '</div>' +
+      '</div>';
+    const guestNote = (_role === 'guest')
+      ? '<div class="ps-role-banner" role="note">Signed in as guest — browse conditions and library patterns. Connect with a clinician account to generate drafts, save to the backend, and export documents.</div>'
+      : '';
+    return hero + guestNote + _renderPatientBanner() + innerHtml;
+  }
+
+  function _renderReadOnlyShell() {
+    return _renderClinicalShell(
+      '<div class="ps-empty" style="text-align:left;max-width:720px;margin:0 auto">' +
+        '<strong style="color:var(--text-primary);display:block;margin-bottom:8px">Browse-only mode</strong>' +
+        'Open <strong>Conditions</strong> or <strong>Browse Protocols</strong> to explore registry-backed entries. Sign in as a clinician to run AI-assisted drafts, save to My Drafts, and export documents.' +
+      '</div>'
+    );
   }
 
   // ── Tab 1: Conditions ──────────────────────────────────────────────────────
   async function _renderConditions() {
     const host = document.getElementById('ps-tab-content');
     if (!host) return;
-    host.innerHTML = '<div class="ps-empty"><span class="ps-spin"></span>Loading conditions...</div>';
+    host.innerHTML = _renderClinicalShell('<div class="ps-empty"><span class="ps-spin"></span>Loading conditions…</div>');
 
     let conditions = [];
     let errMsg = null;
@@ -3458,10 +3588,12 @@ export async function pgProtocolHub(setTopbar, navigate) {
         });
         errMsg = null;
       } else {
-        host.innerHTML = '<div class="ps-empty">' +
-          (errMsg ? ('Library unavailable: ' + esc(errMsg) + '<br>') : 'No conditions in registry.<br>') +
-          '<button class="ps-save-btn" style="margin-top:12px" onclick="window._nav(\'research-evidence\')">Open Research Evidence</button>' +
-        '</div>';
+        host.innerHTML = _renderClinicalShell(
+          '<div class="ps-empty">' +
+            (errMsg ? ('Library unavailable: ' + esc(errMsg) + '<br>') : 'No conditions in registry.<br>') +
+            '<button type="button" class="ps-save-btn" style="margin-top:12px" onclick="window._nav(\'research-evidence\')">Open Research Evidence</button>' +
+          '</div>'
+        );
         return;
       }
     }
@@ -3500,8 +3632,8 @@ export async function pgProtocolHub(setTopbar, navigate) {
       };
       const eligBadge = (c) => {
         const elig = c.neuromod_eligible;
-        if (elig === true || elig === 1) return '<span class="ps-result-badge ps-badge-approved">Ready</span>';
-        return '<span class="ps-result-badge ps-badge-c">Needs Evidence</span>';
+        if (elig === true || elig === 1) return '<span class="ps-result-badge ps-badge-a">Registry evidence</span>';
+        return '<span class="ps-result-badge ps-badge-c">Limited / verify</span>';
       };
       return '<div class="ps-cond-grid">' +
         (rows.length ? rows.map(c => {
@@ -3523,8 +3655,8 @@ export async function pgProtocolHub(setTopbar, navigate) {
               (c.compatible_device_count ? '&#9679; ' + c.compatible_device_count + ' device' + (c.compatible_device_count !== 1 ? 's' : '') + '<br>' : '') +
             '</div>' +
             '<div class="ps-cond-actions">' +
-              '<button class="ps-save-btn" onclick="window._psCondToGenerate(\'' + esc(c.id) + '\',\'' + esc(c.name).replace(/'/g,'\\'+'\'') + '\')">Generate Protocol &#8594;</button>' +
-              ((c.reviewed_protocol_count || 0) > 0 ? '<button class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border)" onclick="window._psCondToBrowse(\'' + esc(c.id) + '\')">Browse &#8594;</button>' : '') +
+              '<button type="button" class="ps-save-btn" onclick="window._psCondToGenerate(\'' + esc(c.id) + '\',\'' + esc(c.name).replace(/'/g,'\\'+'\'') + '\')">' + (_psCanAuthor() ? 'Open AI draft wizard →' : 'Open generator (view) →') + '</button>' +
+              ((c.reviewed_protocol_count || 0) > 0 ? '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border)" onclick="window._psCondToBrowse(\'' + esc(c.id) + '\')">Browse protocols →</button>' : '') +
             '</div>' +
           '</article>';
         }).join('') : '<div class="ps-empty" style="grid-column:1/-1">No conditions match.</div>') +
@@ -3535,15 +3667,16 @@ export async function pgProtocolHub(setTopbar, navigate) {
     const _totalEvPapers = EVIDENCE_SUMMARY?.totalPapers || 87000;
     const _totalEvTrials = EVIDENCE_SUMMARY?.totalTrials || 0;
 
-    host.innerHTML =
-      '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">' +
+    const kpiAndGrid =
+      '<p class="ps-hero-sub" style="margin:0 0 12px;font-size:11.5px">Curated library roll-up (registry + local evidence index). Not a patient-specific treatment recommendation.</p>' +
+      '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px" role="group" aria-label="Evidence library summary">' +
         '<div style="text-align:center;padding:10px 6px;border-radius:10px;background:rgba(0,212,188,0.06);border:1px solid rgba(0,212,188,0.12)">' +
           '<div style="font-family:var(--font-display);font-size:18px;font-weight:600;color:var(--dv2-teal,var(--teal));letter-spacing:-0.4px">' + (_totalEvPapers/1000).toFixed(0) + 'K</div>' +
-          '<div style="font-size:9.5px;color:var(--text-tertiary);text-transform:uppercase;font-weight:600;letter-spacing:0.4px;margin-top:2px">Papers</div>' +
+          '<div style="font-size:9.5px;color:var(--text-tertiary);text-transform:uppercase;font-weight:600;letter-spacing:0.4px;margin-top:2px">Papers (index)</div>' +
         '</div>' +
         '<div style="text-align:center;padding:10px 6px;border-radius:10px;background:rgba(74,158,255,0.06);border:1px solid rgba(74,158,255,0.12)">' +
           '<div style="font-family:var(--font-display);font-size:18px;font-weight:600;color:var(--blue);letter-spacing:-0.4px">' + _totalProtos + '</div>' +
-          '<div style="font-size:9.5px;color:var(--text-tertiary);text-transform:uppercase;font-weight:600;letter-spacing:0.4px;margin-top:2px">Protocols</div>' +
+          '<div style="font-size:9.5px;color:var(--text-tertiary);text-transform:uppercase;font-weight:600;letter-spacing:0.4px;margin-top:2px">Protocol patterns</div>' +
         '</div>' +
         '<div style="text-align:center;padding:10px 6px;border-radius:10px;background:rgba(155,127,255,0.06);border:1px solid rgba(155,127,255,0.12)">' +
           '<div style="font-family:var(--font-display);font-size:18px;font-weight:600;color:var(--violet);letter-spacing:-0.4px">' + conditions.length + '</div>' +
@@ -3551,18 +3684,19 @@ export async function pgProtocolHub(setTopbar, navigate) {
         '</div>' +
         '<div style="text-align:center;padding:10px 6px;border-radius:10px;background:rgba(255,181,71,0.06);border:1px solid rgba(255,181,71,0.12)">' +
           '<div style="font-family:var(--font-display);font-size:18px;font-weight:600;color:var(--amber);letter-spacing:-0.4px">' + _totalEvTrials.toLocaleString() + '</div>' +
-          '<div style="font-size:9.5px;color:var(--text-tertiary);text-transform:uppercase;font-weight:600;letter-spacing:0.4px;margin-top:2px">Trials</div>' +
+          '<div style="font-size:9.5px;color:var(--text-tertiary);text-transform:uppercase;font-weight:600;letter-spacing:0.4px;margin-top:2px">Trials (index)</div>' +
         '</div>' +
       '</div>' +
       '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">' +
         '<div style="position:relative;flex:1;min-width:180px;max-width:300px">' +
-          '<input type="search" placeholder="Search conditions..." class="ps-form-input" style="width:100%;box-sizing:border-box" id="ps-cond-search" value="' + esc(_q) + '" oninput="window._psCatSearch(this.value)">' +
+          '<input type="search" placeholder="Search conditions..." class="ps-form-input" style="width:100%;box-sizing:border-box" id="ps-cond-search" value="' + esc(_q) + '" aria-label="Search conditions" oninput="window._psCatSearch(this.value)">' +
         '</div>' +
-        '<div style="display:flex;gap:4px;flex-wrap:wrap">' + cats.map(cat =>
-          '<button class="reg-domain-pill' + (cat === _catFilt ? ' active' : '') + '" onclick="window._psCatFilter(\'' + esc(cat) + '\')">' + esc(cat) + '</button>'
+        '<div style="display:flex;gap:4px;flex-wrap:wrap" role="group" aria-label="Filter by category">' + cats.map(cat =>
+          '<button type="button" class="reg-domain-pill' + (cat === _catFilt ? ' active' : '') + '" onclick="window._psCatFilter(\'' + esc(cat) + '\')">' + esc(cat) + '</button>'
         ).join('') + '</div>' +
       '</div>' +
       '<div id="ps-cond-grid">' + _renderGrid() + '</div>';
+    host.innerHTML = _renderClinicalShell(kpiAndGrid);
 
     window._psCatFilter = (cat) => {
       _catFilt = cat;
@@ -3585,26 +3719,32 @@ export async function pgProtocolHub(setTopbar, navigate) {
     const host = document.getElementById('ps-tab-content');
     if (!host) return;
 
+    if (!_psCanAuthor()) {
+      host.innerHTML = _renderReadOnlyShell();
+      return;
+    }
+
     const prefill = _prefillCondition ? _prefillCondition.name : '';
     const prefillId = _prefillCondition ? _prefillCondition.id : '';
+    const defaultPat = _psContextPatientId() || '';
 
     // Card A = Evidence-Based AI
     const cardA = '<div class="ps-gen-card' + (W.mode === 'evidence' ? ' ps-gen-card--active' : '') + '" onclick="window._psOpenMode(\'evidence\')">' +
       '<div class="ps-gen-card-icon">&#129504;</div>' +
       '<div class="ps-gen-card-title">Evidence-Based AI</div>' +
-      '<div class="ps-gen-card-sub">Condition + modality + device + evidence threshold. Calls POST /api/v1/protocols/generate-draft.</div>' +
+      '<div class="ps-gen-card-sub">Registry-aligned AI-assisted draft from indication + modality + evidence tier (POST /api/v1/protocols/generate-draft). Not a treatment order.</div>' +
     '</div>';
     // Card B = Brain Scan Guided
     const cardB = '<div class="ps-gen-card' + (W.mode === 'brainscan' ? ' ps-gen-card--active' : '') + '" onclick="window._psOpenMode(\'brainscan\')">' +
       '<div class="ps-gen-card-icon">&#129504;</div>' +
       '<div class="ps-gen-card-title">Brain Scan Guided</div>' +
-      '<div class="ps-gen-card-sub">qEEG / fMRI / NIRS data drives montage selection. Calls POST /api/v1/protocols/generate-brain-scan.</div>' +
+      '<div class="ps-gen-card-sub">Structured draft using imaging modality hints — link real scans under patient analyzers (POST /api/v1/protocols/generate-brain-scan).</div>' +
     '</div>';
     // Card C = Personalized
     const cardC = '<div class="ps-gen-card' + (W.mode === 'personalized' ? ' ps-gen-card--active' : '') + '" onclick="window._psOpenMode(\'personalized\')">' +
       '<div class="ps-gen-card-icon">&#129300;</div>' +
       '<div class="ps-gen-card-title">Personalized Protocol</div>' +
-      '<div class="ps-gen-card-sub">PHQ-9, GAD-7, MoCA, chronotype. Calls POST /api/v1/protocols/generate-personalized.</div>' +
+      '<div class="ps-gen-card-sub">Scores adjust narrative emphasis only — still draft until clinician review (POST /api/v1/protocols/generate-personalized).</div>' +
     '</div>';
 
     let wizardPanel = '';
@@ -3648,8 +3788,8 @@ export async function pgProtocolHub(setTopbar, navigate) {
         '</div>' +
         (W.error ? '<div style="color:#ef4444;font-size:12px;margin-bottom:10px">' + esc(W.error) + '</div>' : '') +
         (W.mode === 'evidence' && W.result ? _renderResultCard(W.result, '') : '') +
-        '<button class="ps-save-btn" id="ps-ev-generate-btn" onclick="window._psGenerateEvidence()">' +
-          (W.saving ? '<span class="ps-spin"></span>Generating...' : 'Generate Protocol') +
+        '<button type="button" class="ps-save-btn" id="ps-ev-generate-btn" onclick="window._psGenerateEvidence()">' +
+          (W.saving ? '<span class="ps-spin"></span>Drafting...' : 'Generate AI-assisted draft') +
         '</button>' +
       '</div>';
     } else if (W.mode === 'brainscan') {
@@ -3695,8 +3835,8 @@ export async function pgProtocolHub(setTopbar, navigate) {
           '<div class="ps-result-section"><strong>Scan Guidance: </strong>' + esc(W.result.scan_guidance || '') + '</div>' +
           '<div class="ps-result-section"><strong>Marker Adjustment: </strong>' + esc(W.result.marker_adjustment || '') + '</div>'
         ) : '') +
-        '<button class="ps-save-btn" id="ps-bs-generate-btn" onclick="window._psGenerateBrainScan()">' +
-          (W.saving ? '<span class="ps-spin"></span>Generating...' : 'Generate Protocol') +
+        '<button type="button" class="ps-save-btn" id="ps-bs-generate-btn" onclick="window._psGenerateBrainScan()">' +
+          (W.saving ? '<span class="ps-spin"></span>Drafting...' : 'Generate AI-assisted draft') +
         '</button>' +
       '</div>';
     } else if (W.mode === 'personalized') {
@@ -3709,7 +3849,7 @@ export async function pgProtocolHub(setTopbar, navigate) {
           '</div>' +
           '<div class="ps-form-group">' +
             '<label class="ps-form-label">Patient ID</label>' +
-            '<input class="ps-form-input" id="ps-pe-patient" type="text" placeholder="Patient ID or &quot;Demo Patient&quot;" value="demo">' +
+            '<input class="ps-form-input" id="ps-pe-patient" type="text" placeholder="Patient UUID from roster" value="' + esc(defaultPat || '') + '">' +
           '</div>' +
         '</div>' +
         '<div class="ps-form-row">' +
@@ -3755,36 +3895,41 @@ export async function pgProtocolHub(setTopbar, navigate) {
         (W.mode === 'personalized' && W.result ? _renderResultCard(W.result,
           '<div class="ps-result-section"><strong>Personalization Rationale: </strong>' + esc(W.result.personalization_rationale || '') + '</div>'
         ) : '') +
-        '<button class="ps-save-btn" id="ps-pe-generate-btn" onclick="window._psGeneratePersonalized()">' +
-          (W.saving ? '<span class="ps-spin"></span>Generating...' : 'Generate Protocol') +
+        '<button type="button" class="ps-save-btn" id="ps-pe-generate-btn" onclick="window._psGeneratePersonalized()">' +
+          (W.saving ? '<span class="ps-spin"></span>Drafting...' : 'Generate AI-assisted draft') +
         '</button>' +
       '</div>';
     }
 
-    host.innerHTML =
-      '<div style="margin-bottom:6px;font-size:12px;color:var(--text-tertiary)">Choose a generation mode to open the wizard:</div>' +
-      '<div class="ps-gen-cards">' + cardA + cardB + cardC + '</div>' +
+    const cardsAndWizard =
+      '<div style="margin-bottom:6px;font-size:12px;color:var(--text-tertiary)">Choose a generator — outputs are <strong>drafts</strong> for clinician review, not prescriptions or device approvals.</div>' +
+      '<div class="ps-gen-cards" role="group" aria-label="Protocol draft generators">' + cardA + cardB + cardC + '</div>' +
       wizardPanel;
+    host.innerHTML = _renderClinicalShell(cardsAndWizard);
   }
 
   // ── Tab 3: Browse ──────────────────────────────────────────────────────────
   async function _renderBrowse() {
     const host = document.getElementById('ps-tab-content');
     if (!host) return;
-    host.innerHTML = '<div class="ps-empty"><span class="ps-spin"></span>Loading protocol library...</div>';
-    // Lazy-import pgProtocolSearch and run it in a sub-container
+    host.innerHTML = _renderClinicalShell(
+      '<div id="ps-prot-browse-mount"><div class="ps-empty"><span class="ps-spin"></span>Loading protocol library…</div></div>'
+    );
+    const mountEl = document.getElementById('ps-prot-browse-mount');
+    if (!mountEl) return;
     try {
       const m = await import('./pages-protocols.js');
       if (typeof m.pgProtocolSearch === 'function') {
         await m.pgProtocolSearch(
           () => {},  // suppress topbar changes from inner call
           navigate,
+          { mountEl },
         );
       } else {
-        host.innerHTML = '<div class="ps-empty">Protocol search module unavailable.</div>';
+        host.innerHTML = _renderClinicalShell('<div class="ps-empty">Protocol search module unavailable.</div>');
       }
     } catch (e) {
-      host.innerHTML = '<div class="ps-empty">Could not load protocol browser: ' + esc(e?.message || 'error') + '</div>';
+      host.innerHTML = _renderClinicalShell('<div class="ps-empty">Could not load protocol browser: ' + esc(e?.message || 'error') + '</div>');
     }
   }
 
@@ -3792,7 +3937,11 @@ export async function pgProtocolHub(setTopbar, navigate) {
   async function _renderDrafts() {
     const host = document.getElementById('ps-tab-content');
     if (!host) return;
-    host.innerHTML = '<div class="ps-empty"><span class="ps-spin"></span>Loading drafts...</div>';
+    if (!_psCanAuthor()) {
+      host.innerHTML = _renderReadOnlyShell();
+      return;
+    }
+    host.innerHTML = _renderClinicalShell('<div class="ps-empty"><span class="ps-spin"></span>Loading drafts…</div>');
     let items = [];
     let err = null;
     try {
@@ -3801,32 +3950,46 @@ export async function pgProtocolHub(setTopbar, navigate) {
     } catch (e) { err = e?.message || 'endpoint error'; }
 
     if (err) {
-      host.innerHTML = '<div class="ps-empty">Could not load drafts: ' + esc(err) + '<br><button class="ps-save-btn" style="margin-top:10px" onclick="window._psRenderCurrentTab()">Retry</button></div>';
+      host.innerHTML = _renderClinicalShell(
+        '<div class="ps-empty">Could not load drafts: ' + esc(err) + '<br><button type="button" class="ps-save-btn" style="margin-top:10px" onclick="window._psRenderCurrentTab()">Retry</button></div>'
+      );
       return;
     }
     if (!items.length) {
-      host.innerHTML = '<div class="ps-empty">No saved protocol drafts yet.<br>Generate a protocol and click "Save as Draft" to see it here.</div>';
+      host.innerHTML = _renderClinicalShell(
+        '<div class="ps-empty">No saved protocol drafts yet.<br>Generate an AI-assisted draft, save it while a patient is in context, or open the builder.</div>'
+      );
       return;
     }
 
-    const _stateClass = (s) => s === 'approved' ? 'ps-state-approved' : s === 'submitted' ? 'ps-state-submitted' : 'ps-state-draft';
-    host.innerHTML =
-      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">' +
+    const _govLabel = (s) => {
+      const x = String(s || 'draft').toLowerCase();
+      if (x === 'approved') return 'Signed / final (workspace)';
+      if (x === 'submitted') return 'Submitted for review';
+      if (x === 'rejected') return 'Rejected';
+      return 'Draft';
+    };
+    const listHtml =
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">' +
         '<span style="font-size:13px;font-weight:600">' + items.length + ' saved draft' + (items.length !== 1 ? 's' : '') + '</span>' +
-        '<button class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:4px 10px" onclick="window._psRenderCurrentTab()">&#8635; Refresh</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:4px 10px" onclick="window._psRenderCurrentTab()">Refresh</button>' +
       '</div>' +
+      '<p class="ps-hero-sub" style="margin:0 0 12px;font-size:11.5px">Governance states mirror saved protocol metadata — formal sign-off follows your clinic policy.</p>' +
       '<div class="ps-drafts-list">' + items.map(d => {
         const proto = d.parameters_json || {};
         const date = d.created_at ? new Date(d.created_at).toLocaleDateString() : '';
+        const aiTag = proto.ai_assisted ? '<span class="ps-result-badge ps-badge-draft">AI-assisted</span>' : '';
         return '<div class="ps-draft-row">' +
           '<div style="flex:1;min-width:0">' +
             '<div class="ps-draft-name">' + esc(d.name || d.condition || 'Draft') + '</div>' +
             '<div class="ps-draft-meta">' + esc(d.condition || '') + (d.device_slug ? ' \u00B7 ' + esc(d.device_slug) : '') + (date ? ' \u00B7 ' + date : '') + '</div>' +
           '</div>' +
-          _stateBadge(d.governance_state) +
-          '<button class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:4px 10px;flex-shrink:0" onclick="window._psOpenInBuilder(\'' + esc(d.id) + '\')">Open in Builder</button>' +
+          aiTag +
+          '<span class="ps-state-badge ' + (d.governance_state === 'approved' ? 'ps-state-approved' : d.governance_state === 'submitted' ? 'ps-state-submitted' : 'ps-state-draft') + '">' + esc(_govLabel(d.governance_state)) + '</span>' +
+          '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:4px 10px;flex-shrink:0" onclick="window._psOpenInBuilder(\'' + esc(d.id) + '\')">Open in builder</button>' +
         '</div>';
       }).join('') + '</div>';
+    host.innerHTML = _renderClinicalShell(listHtml);
   }
 
   // ── Tab switcher ───────────────────────────────────────────────────────────
@@ -3923,6 +4086,14 @@ export async function pgProtocolHub(setTopbar, navigate) {
       };
       W.result = await api.generateProtocol(payload);
       W.error = null;
+      window._psLastGenPayload = {
+        kind: 'evidence',
+        condition: payload.condition,
+        modality: modality,
+        device: payload.device || '',
+        evidence_threshold: payload.evidence_threshold,
+        off_label: payload.off_label,
+      };
     } catch (e) { W.error = e?.message || 'Generation failed.'; }
     W.saving = false;
     _renderGenerate();
@@ -3951,6 +4122,19 @@ export async function pgProtocolHub(setTopbar, navigate) {
       };
       W.result = await api.generateBrainScanProtocol(payload);
       W.error = null;
+      const scanMod = (
+        { qEEG: 'tDCS', EEG: 'tDCS', fMRI: 'rTMS', NIRS: 'tDCS' }[payload.scan_type] || 'tDCS'
+      );
+      window._psLastGenPayload = {
+        kind: 'brainscan',
+        condition: payload.condition,
+        modality: scanMod,
+        device: payload.device || '',
+        evidence_threshold: 'Systematic Review',
+        off_label: false,
+        scan_type: payload.scan_type,
+        primary_target: payload.primary_target,
+      };
     } catch (e) { W.error = e?.message || 'Generation failed.'; }
     W.saving = false;
     _renderGenerate();
@@ -3985,41 +4169,172 @@ export async function pgProtocolHub(setTopbar, navigate) {
       };
       W.result = await api.generatePersonalizedProtocol(payload);
       W.error = null;
+      window._psLastGenPayload = {
+        kind: 'personalized',
+        condition: payload.condition,
+        modality: 'tDCS',
+        device: (devEl && devEl.value.trim()) || '',
+        evidence_threshold: 'Systematic Review',
+        off_label: false,
+        patient_id: payload.patient_id,
+      };
     } catch (e) { W.error = e?.message || 'Generation failed.'; }
     W.saving = false;
     _renderGenerate();
   };
 
-  window._psSaveDraft = async () => {
-    if (!W.result) return;
-    const btn = document.getElementById('ps-save-draft-btn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
-    const condition = (W.result.rationale || '').split('/')[0]?.trim() || 'unknown';
-    const patientId = window._builderPatientId || null;
-    if (!patientId) {
-      if (btn) { btn.disabled = false; btn.textContent = 'Save as Draft'; }
-      window._showNotifToast?.({ title: 'No Patient Selected', body: 'Attach a patient context to save to backend. Use the 5-step wizard for patient-linked saves.', severity: 'warn' });
+  const _psNormModality = (m) => {
+    const s = String(m || 'tDCS').trim();
+    const map = { tDCS: 'tdcs', 'tDCS': 'tdcs', rTMS: 'rtms', 'rTMS': 'rtms', tACS: 'tacs', Neurofeedback: 'neurofeedback', neurofeedback: 'neurofeedback' };
+    return map[s] || s.toLowerCase().replace(/\s+/g, '_');
+  };
+
+  window._psDownloadBlob = (blob, filename) => {
+    try {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename || 'download.bin';
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      try { window._showNotifToast?.({ title: 'Download failed', body: e?.message || 'browser error', severity: 'error' }); } catch (_) {}
+    }
+  };
+
+  window._psExportProtocolDocx = async () => {
+    if (!_psCanAuthor()) {
+      window._showNotifToast?.({ title: 'Clinician sign-in required', body: 'Export uses authenticated API.', severity: 'warn' });
+      return;
+    }
+    const p = window._psLastGenPayload;
+    if (!p?.condition) {
+      window._showNotifToast?.({ title: 'Nothing to export', body: 'Generate an AI-assisted draft first.', severity: 'warn' });
       return;
     }
     try {
+      const blob = await api.exportProtocolDocx({
+        condition_name: p.condition,
+        modality_name: p.modality || 'tDCS',
+        device_name: p.device || '',
+        setting: 'Clinic',
+        evidence_threshold: p.evidence_threshold || 'Systematic Review',
+        off_label: !!p.off_label,
+        symptom_cluster: 'General',
+      });
+      window._psDownloadBlob(blob, 'protocol_draft.docx');
+      _psRecordStudioAudit('protocol_export_docx', 'protocol-docx from Protocol Studio');
+      window._showNotifToast?.({ title: 'Export started', body: 'Draft DOCX — label as unreviewed in your records.', severity: 'success' });
+    } catch (e) {
+      window._showNotifToast?.({ title: 'Export failed', body: e?.message || 'API or render engine unavailable.', severity: 'error' });
+    }
+  };
+
+  window._psExportHandbookDocx = async () => {
+    if (!_psCanAuthor()) {
+      window._showNotifToast?.({ title: 'Clinician sign-in required', body: 'Export uses authenticated API.', severity: 'warn' });
+      return;
+    }
+    const p = window._psLastGenPayload;
+    if (!p?.condition) {
+      window._showNotifToast?.({ title: 'Nothing to export', body: 'Generate an AI-assisted draft first.', severity: 'warn' });
+      return;
+    }
+    try {
+      const blob = await api.exportHandbookDocx({
+        condition_name: p.condition,
+        modality_name: p.modality || 'tDCS',
+        device_name: p.device || '',
+      });
+      window._psDownloadBlob(blob, 'handbook_draft.docx');
+      _psRecordStudioAudit('protocol_export_handbook', 'handbook-docx from Protocol Studio');
+      window._showNotifToast?.({ title: 'Export started', body: 'Handbook draft — review before clinic use.', severity: 'success' });
+    } catch (e) {
+      window._showNotifToast?.({ title: 'Export failed', body: e?.message || 'API or render engine unavailable.', severity: 'error' });
+    }
+  };
+
+  window._psExportPatientGuideDocx = async () => {
+    if (!_psCanAuthor()) {
+      window._showNotifToast?.({ title: 'Clinician sign-in required', body: 'Export uses authenticated API.', severity: 'warn' });
+      return;
+    }
+    const p = window._psLastGenPayload;
+    if (!p?.condition) {
+      window._showNotifToast?.({ title: 'Nothing to export', body: 'Generate an AI-assisted draft first.', severity: 'warn' });
+      return;
+    }
+    try {
+      const blob = await api.exportPatientGuideDocx({
+        condition_name: p.condition,
+        modality_name: p.modality || 'tDCS',
+      });
+      window._psDownloadBlob(blob, 'patient_guide_draft.docx');
+      _psRecordStudioAudit('protocol_export_patient_guide', 'patient-guide-docx from Protocol Studio');
+      window._showNotifToast?.({ title: 'Export started', body: 'Patient-facing draft — clinician review required.', severity: 'success' });
+    } catch (e) {
+      window._showNotifToast?.({ title: 'Export failed', body: e?.message || 'API or render engine unavailable.', severity: 'error' });
+    }
+  };
+
+  window._psSaveDraft = async () => {
+    if (!_psCanAuthor()) {
+      window._showNotifToast?.({ title: 'Clinician sign-in required', body: 'Saving drafts requires a clinician session.', severity: 'warn' });
+      return;
+    }
+    if (!W.result) return;
+    const btn = document.getElementById('ps-save-draft-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+    const payload = window._psLastGenPayload || {};
+    const condition = String(payload.condition || (W.result.rationale || '').split('/')[0]?.trim() || 'unknown').slice(0, 200);
+    const patientId = _psContextPatientId() || window._builderPatientId || null;
+    if (!patientId) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Save as draft'; }
+      window._showNotifToast?.({ title: 'No patient in context', body: 'Select a patient from the roster or profile so this draft can be scoped and audited.', severity: 'warn' });
+      return;
+    }
+    const modalitySlug = _psNormModality(payload.modality);
+    try {
       await api.saveProtocol({
         patient_id: patientId,
-        name: 'Generated: ' + condition,
+        name: 'AI-assisted draft: ' + condition.slice(0, 80),
         condition,
-        modality: 'tDCS',
+        modality: modalitySlug,
+        device_slug: (payload.device || '').slice(0, 120) || null,
         governance_state: 'draft',
         parameters_json: {
+          generator: payload.kind || 'evidence',
           target_region: W.result.target_region,
           session_frequency: W.result.session_frequency,
           duration: W.result.duration,
+          evidence_grade: W.result.evidence_grade,
+          ai_assisted: true,
+          registry_threshold: payload.evidence_threshold || null,
+          off_label: !!payload.off_label,
         },
         evidence_refs: [],
       });
-      window._showNotifToast?.({ title: 'Saved', body: 'Protocol draft saved.', severity: 'success' });
+      _psRecordStudioAudit('protocol_draft_saved', 'generate tab save; modality=' + modalitySlug);
+      window._showNotifToast?.({ title: 'Saved', body: 'Draft stored — review before any clinical use.', severity: 'success' });
     } catch (e) {
-      window._showNotifToast?.({ title: 'Save Failed', body: e?.message || 'endpoint error', severity: 'error' });
+      window._showNotifToast?.({ title: 'Save failed', body: e?.message || 'endpoint error', severity: 'error' });
     }
-    if (btn) { btn.disabled = false; btn.textContent = 'Save as Draft'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Save as draft'; }
+  };
+
+  window._psMarkReviewed = async () => {
+    if (!_psCanAuthor()) {
+      window._showNotifToast?.({ title: 'Clinician sign-in required', body: 'Governance actions require a clinician session.', severity: 'warn' });
+      return;
+    }
+    window._showNotifToast?.({
+      title: 'Use saved drafts or builder',
+      body: 'Open My Drafts → Open in Builder, or use the protocol builder to mark clinician-reviewed when your clinic workflow supports it.',
+      severity: 'info',
+    });
   };
 
   window._psOpenInBuilder = (draftId) => {
