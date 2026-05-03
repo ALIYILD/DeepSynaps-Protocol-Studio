@@ -1,5 +1,5 @@
 import { parseHomeProgramTaskMutationResponse } from './home-program-task-sync.js';
-import { demoDigitalPhenotypingPayload } from './demo-fixtures-analyzers.js';
+import { demoDigitalPhenotypingPayload, ANALYZER_DEMO_FIXTURES } from './demo-fixtures-analyzers.js';
 import { mapSessionsListQuery } from './beta-readiness-utils.js';
 
 const API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
@@ -231,6 +231,97 @@ function _demoSyntheticResponse(path, method) {
       return { patient_id: pid, events: ev, total: ev.length };
     }
     return payload;
+  }
+  // biomarkers workspace / labs analyzer — demo fixtures (reads only)
+  const pathNoQuery = path.split('?')[0];
+  const labsProfilePath = pathNoQuery.match(/^\/api\/v1\/labs\/analyzer\/patient\/([^/]+)$/);
+  if (labsProfilePath && (!method || method === 'GET')) {
+    const pid = decodeURIComponent(labsProfilePath[1]);
+    const profile = ANALYZER_DEMO_FIXTURES?.labs?.patient_profile?.(pid);
+    if (profile) return profile;
+    return {
+      patient_id: pid,
+      patient_name: pid,
+      captured_at: null,
+      panels: [],
+      flags: [],
+      prior_results: [],
+      demo_empty: true,
+    };
+  }
+  const labsAuditPath = pathNoQuery.match(/^\/api\/v1\/labs\/analyzer\/patient\/([^/]+)\/audit$/);
+  if (labsAuditPath && (!method || method === 'GET')) {
+    const pid = decodeURIComponent(labsAuditPath[1]);
+    const audit = ANALYZER_DEMO_FIXTURES?.labs?.patient_audit?.(pid);
+    return audit || { patient_id: pid, items: [], demo_empty: true };
+  }
+  const qeegListPath = pathNoQuery.match(/^\/api\/v1\/qeeg-analysis\/patient\/([^/]+)$/);
+  if (qeegListPath && (!method || method === 'GET')) {
+    const pid = decodeURIComponent(qeegListPath[1]);
+    const q = ANALYZER_DEMO_FIXTURES?.qeeg;
+    if (pid === 'demo-pt-marcus-chen' && q && q.id) {
+      return {
+        items: [{
+          id: q.id,
+          analysis_status: q.analysis_status || 'completed',
+          patient_id: pid,
+          original_filename: q.original_filename || 'demo.edf',
+          created_at: q.recording_date || new Date().toISOString(),
+        }],
+        total: 1,
+        demo: true,
+      };
+    }
+    return { items: [], total: 0, demo: true };
+  }
+  const mriListPath = pathNoQuery.match(/^\/api\/v1\/mri\/patients\/([^/]+)\/analyses$/);
+  if (mriListPath && (!method || method === 'GET')) {
+    const pid = decodeURIComponent(mriListPath[1]);
+    const m = ANALYZER_DEMO_FIXTURES?.mri;
+    if (pid === 'demo-pt-samantha-li' && m && m.analysis_id) {
+      return {
+        items: [{
+          id: m.analysis_id,
+          patient_id: pid,
+          status: 'completed',
+          modality: m.modality || 'MRI',
+          acquired_at: m.acquired_at || new Date().toISOString(),
+        }],
+        total: 1,
+        demo: true,
+      };
+    }
+    return { items: [], total: 0, demo: true };
+  }
+  const wearSummaryPath = pathNoQuery.match(/^\/api\/v1\/wearables\/patients\/([^/]+)\/summary$/);
+  if (wearSummaryPath && (!method || method === 'GET')) {
+    const pid = decodeURIComponent(wearSummaryPath[1]);
+    const day = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
+    return {
+      patient_id: pid,
+      connections: [],
+      summaries: [{
+        id: `demo-wear-${pid}`,
+        patient_id: pid,
+        source: 'demo',
+        date: day,
+        rhr_bpm: 72,
+        hrv_ms: 42,
+        sleep_duration_h: 6.5,
+        sleep_consistency_score: null,
+        steps: 5100,
+        spo2_pct: null,
+        skin_temp_delta: null,
+        readiness_score: 0.71,
+        mood_score: null,
+        pain_score: null,
+        anxiety_score: null,
+        synced_at: new Date().toISOString(),
+      }],
+      recent_alerts: [],
+      readiness: { score: 0.71, coverage_days: 1, demo: true },
+      demo: true,
+    };
   }
   // Mutations: pretend success (return a minimal accepted-shape object).
   if (method && method !== 'GET') return { ok: true, demo: true, id: 'demo-' + Date.now() };
