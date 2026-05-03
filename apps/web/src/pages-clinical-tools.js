@@ -6750,18 +6750,34 @@ export async function pgAssessmentsHub(setTopbar) {
   render();          // swaps in real assignments
 }
 
-export async function pgBrainMapPlanner(setTopbar) {
+export async function pgBrainMapPlanner(setTopbar, navigate) {
   setTopbar('Brain Map Planner', `
     <button class="btn btn-sm" onclick="window._bmpImportFromProtocol()">Import from protocol &#x2193;</button>
-    <button class="btn btn-sm" style="border-color:var(--teal);color:var(--teal)" onclick="window._bmpSaveToProtocol()">Save plan</button>
+    <button class="btn btn-sm" style="border-color:var(--teal);color:var(--teal)" onclick="window._bmpSaveToProtocol()">Save draft plan</button>
     <button class="btn btn-sm" onclick="window._bmpExportPlanJSON()">Export JSON</button>
     <button class="btn btn-sm" onclick="window._bmpExportPlanPDF()">Export PDF</button>
     <button class="btn btn-sm" style="border-color:var(--violet);color:var(--violet)" onclick="window._bmpSendToSession()">Send to session &#x2192;</button>
-    <button class="btn btn-sm" onclick="window._nav('protocol-wizard')">Protocol Search</button>
+    <button class="btn btn-sm" onclick="window._nav('protocol-studio')">Protocol Studio</button>
+    <button class="btn btn-sm" onclick="window._nav('deeptwin')">DeepTwin</button>
+    <button class="btn btn-sm" onclick="window._nav('protocol-wizard')">Protocol search</button>
     <button class="btn btn-sm" onclick="window._nav('prescriptions')">Prescriptions</button>
   `);
   const el = document.getElementById('content');
   if (!el) return;
+
+  const navTo = typeof navigate === 'function' ? navigate : null;
+  function _bmpGo(page, params) {
+    if (navTo) navTo(page, params || {});
+    else window._nav(page, params || {});
+  }
+  function _bmpPatientLabelFromId(pid) {
+    if (!pid) return '';
+    const roster = window._patientRoster || [];
+    const p = roster.find(function(x) { return x && String(x.id) === String(pid); });
+    if (!p) return '';
+    const name = ((p.first_name || '') + ' ' + (p.last_name || '')).trim();
+    return name || String(pid).slice(0, 8);
+  }
 
   // ── Audit logger (mirrors `_qeegAudit` in pages-qeeg-analysis.js) ───────
   // Best-effort POST to /api/v1/qeeg-analysis/audit-events with surface =
@@ -7088,6 +7104,14 @@ export async function pgBrainMapPlanner(setTopbar) {
       };
     }
   } catch (_) {}
+
+  (function _bmpInitLinkedPatient() {
+    const sid = window._selectedPatientId || window._profilePatientId || '';
+    if (sid && typeof sid === 'string' && sid !== 'demo') {
+      window._bmpPatientId = sid;
+      if (!bmpState.patientId) bmpState.patientId = sid;
+    }
+  })();
 
   function _persist() {
     try {
@@ -7560,9 +7584,9 @@ export async function pgBrainMapPlanner(setTopbar) {
       + 'font-size:11.5px;display:flex;gap:10px;align-items:flex-start;line-height:1.45">'
       + '<span aria-hidden="true">⚠</span>'
       + '<div>'
-      + '<strong>Sample patient — clinician review required.</strong> No real patient or qEEG analysis is loaded. '
-      + 'Demo targets are pre-populated for orientation only. <em>Save plan</em> and <em>Export</em> will produce demo-stamped artifacts; '
-      + '<em>Send to session</em> is disabled until a real patient is attached.'
+      + '<strong>Sample / unlinked context — clinician review required.</strong> No verified patient or qEEG analysis is loaded. '
+      + 'Visuals are for orientation only. <em>Save draft plan</em> and <em>Export</em> produce demo-stamped artifacts; '
+      + '<em>Send to session</em> requires a linked patient ID.'
       + '</div></div>';
   }
 
@@ -7581,6 +7605,84 @@ export async function pgBrainMapPlanner(setTopbar) {
       + '<li>Patient consent and contraindication screening are required <strong>before any stimulation</strong>.</li>'
       + '<li>qEEG-derived suggestions are <strong>decision-support, not prescriptive</strong>; off-label use must be flagged and discussed.</li>'
       + '</ul></div>';
+  }
+
+  // Row of workspace shortcuts — each navigates to the canonical analyzer/hub page.
+  function _buildQuickNavBar() {
+    const pid = bmpState.patientId || window._bmpPatientId || '';
+    const hasPatient = !!(pid && String(pid).trim());
+    const dis = 'opacity:0.45;cursor:not-allowed;pointer-events:none';
+    const btn = function(label, page, needsPatient) {
+      const off = needsPatient && !hasPatient;
+      return '<button type="button" class="btn btn-sm bmp-quick-nav-btn" data-bmp-nav="' + _esc(page) + '"'
+        + (off ? ' disabled title="Link a patient first"' : '')
+        + ' style="font-size:10.5px;padding:4px 10px;white-space:nowrap;'
+        + (off ? dis : '') + '">' + _esc(label) + '</button>';
+    };
+    let h = '<div class="bmp-quick-nav" data-testid="bmp-quick-nav" role="navigation" aria-label="Clinical workspace shortcuts"'
+      + ' style="margin:0 16px 10px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;'
+      + 'background:rgba(255,255,255,0.02);display:flex;flex-wrap:wrap;gap:6px;align-items:center">';
+    h += '<span style="font-size:10px;font-weight:700;letter-spacing:0.06em;color:var(--text-tertiary);margin-right:6px">OPEN</span>';
+    h += btn('Patient profile', 'patient-profile', true);
+    h += btn('qEEG Analyzer', 'qeeg-analysis', false);
+    h += btn('MRI Analyzer', 'mri-analysis', false);
+    h += btn('Protocol Studio', 'protocol-studio', false);
+    h += btn('DeepTwin', 'deeptwin', false);
+    h += btn('Documents', 'documents-v2', true);
+    h += btn('Virtual Care', 'live-session', true);
+    h += btn('Biometrics', 'wearables', false);
+    h += btn('Text', 'text-analyzer', false);
+    h += btn('Video', 'video-assessments', false);
+    h += btn('Assessments', 'assessments-v2', true);
+    h += '</div>';
+    return h;
+  }
+
+  function _wireQuickNav() {
+    el.querySelectorAll('.bmp-quick-nav-btn[data-bmp-nav]').forEach(function(b) {
+      b.addEventListener('click', function() {
+        if (b.disabled) return;
+        const page = b.getAttribute('data-bmp-nav');
+        const pid = bmpState.patientId || window._bmpPatientId || '';
+        const needsPt = ['patient-profile', 'documents-v2', 'live-session', 'assessments-v2'].indexOf(page) !== -1;
+        if (needsPt && !pid) return;
+        _bmpAudit('quick_nav', { note: page });
+        if (needsPt && pid) _bmpGo(page, { id: pid });
+        else _bmpGo(page);
+      });
+    });
+  }
+
+  function _buildDataChecklist() {
+    const patientLinked = !!(bmpState.patientId && bmpState.patientId.trim());
+    const rosterMatch = patientLinked && window._patientRoster && window._patientRoster.some(function(p) {
+      return p && String(p.id) === String(bmpState.patientId);
+    });
+    const qeegLinked = !!(_bmpQEEGAnalysisId && _bmpQEEGPatientId);
+    const row = function(ok, label, detail) {
+      const icon = ok ? '<span style="color:var(--teal)">\u2713</span>' : '<span style="color:var(--amber)" aria-hidden="true">\u25d0</span>';
+      return '<div style="display:flex;gap:10px;align-items:flex-start;font-size:11.5px;line-height:1.45">'
+        + icon + '<div><strong style="color:var(--text-primary)">' + _esc(label) + '</strong>'
+        + (detail ? '<div style="color:var(--text-tertiary);margin-top:2px">' + _esc(detail) + '</div>' : '')
+        + '</div></div>';
+    };
+    let h = '<div class="bmp-data-checklist" data-testid="bmp-data-checklist" style="margin:0 16px 12px;padding:12px 14px;'
+      + 'border:1px solid var(--border);border-radius:10px;background:rgba(74,158,255,0.04)">';
+    h += '<div style="font-size:10.5px;font-weight:700;letter-spacing:0.06em;color:var(--blue);text-transform:uppercase;margin-bottom:10px">'
+      + 'Data availability &amp; missing inputs</div>';
+    h += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px 16px">';
+    h += row(patientLinked, 'Patient context',
+      patientLinked
+        ? (rosterMatch ? 'Patient ID linked (' + _bmpPatientLabelFromId(bmpState.patientId) + ').' : 'Patient ID entered — verify against roster / EHR.')
+        : 'No patient linked — add an ID in the field above or select a patient elsewhere.');
+    h += row(qeegLinked, 'qEEG protocol-fit',
+      qeegLinked ? 'Loaded from Analyzer for this analysis.' : 'Open qEEG Analyzer and select an analysis to enable graded suggestions.');
+    h += row(false, 'Patient-specific MRI / neuronavigation',
+      'Not loaded in this workspace — open MRI Analyzer for imaging-linked targets. The MRI overlay below uses a population template only.');
+    h += row(!!bmpState.protoId, 'Protocol draft selected',
+      bmpState.protoId ? 'Catalog entry loaded — parameters are illustrative until clinician-reviewed.' : 'Choose a protocol or place targets manually.');
+    h += '</div></div>';
+    return h;
   }
 
   function _siteRole(site) {
@@ -7822,7 +7924,7 @@ export async function pgBrainMapPlanner(setTopbar) {
     h += '<div class="bmp-detail-site-name">' + _esc(site) + '</div>';
     h += '<div class="bmp-detail-region">' + _esc(anat) + '</div>';
     h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">';
-    if (mni !== '\u2014') h += '<span style="font-size:11px;padding:2px 8px;border-radius:6px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-secondary)">MNI: ' + _esc(mni) + '</span>';
+    if (mni !== '\u2014') h += '<span style="font-size:11px;padding:2px 8px;border-radius:6px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-secondary)">MNI (reference atlas): ' + _esc(mni) + '</span>';
     if (ba  !== '\u2014') h += '<span style="font-size:11px;padding:2px 8px;border-radius:6px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-secondary)">' + _esc(ba) + '</span>';
     h += '</div>';
     if (condsHtml) {
@@ -8100,15 +8202,17 @@ export async function pgBrainMapPlanner(setTopbar) {
 
     let h = '<div class="bm-right-head">'
       + '<div style="display:flex;gap:10px;align-items:center">'
-      + '<div class="bm-metric" style="flex:1;margin:0;padding:8px 10px">'
-      + '<div class="bm-metric-lbl">Peak E-field</div>'
-      + '<div class="bm-metric-num">' + _esc(peakE) + '<span class="unit">V/m</span></div>'
+      + '<div class="bm-metric" style="flex:1;margin:0;padding:8px 10px" title="Illustrative relative metric — not patient-specific simulation">'
+      + '<div class="bm-metric-lbl">E-field index <span style="opacity:0.65;font-weight:400;font-size:9px">(relative)</span></div>'
+      + '<div class="bm-metric-num">' + _esc(peakE) + '<span class="unit">arb.</span></div>'
       + '</div>'
-      + '<div class="bm-metric" style="flex:1;margin:0;padding:8px 10px">'
-      + '<div class="bm-metric-lbl">Focality</div>'
-      + '<div class="bm-metric-num">' + _esc(focal) + '<span class="unit">/1.0</span></div>'
+      + '<div class="bm-metric" style="flex:1;margin:0;padding:8px 10px" title="Illustrative relative focality — not derived from patient MRI">'
+      + '<div class="bm-metric-lbl">Focality index <span style="opacity:0.65;font-weight:400;font-size:9px">(relative)</span></div>'
+      + '<div class="bm-metric-num">' + _esc(focal) + '<span class="unit">arb.</span></div>'
       + '</div>'
-      + '</div></div>';
+      + '</div>'
+      + '<div style="font-size:10px;color:var(--text-tertiary);margin-top:6px;line-height:1.45;padding:0 2px">'
+      + 'Relative visualization cues only — not individualized TMS/tDCS modelling or neuronavigation.</div></div>';
 
     h += '<div class="bm-right-body" id="bm-right-body">';
 
@@ -8184,8 +8288,9 @@ export async function pgBrainMapPlanner(setTopbar) {
       if (dStatus === 'ok') {
         h += '<div class="bm-warn ok">'
           + '<span class="bm-warn-ico">\u2713</span>'
-          + '<div><div class="bm-warn-title">Within safety envelope</div>'
-          + '<div class="bm-warn-body">Current density ' + _esc(densityText) + ' \u00b7 below 0.08 mA/cm\u00b2 limit \u00b7 NIBS guidelines Antal 2017.</div></div>'
+          + '<div><div class="bm-warn-title">Below illustrative density threshold</div>'
+          + '<div class="bm-warn-body">Computed density ' + _esc(densityText) + ' vs literature thresholds (Antal 2017) — illustrative only; '
+          + 'not validation for stimulation.</div></div>'
           + '</div>';
       } else if (dStatus === 'amber') {
         h += '<div class="bm-warn amb">'
@@ -8249,7 +8354,7 @@ export async function pgBrainMapPlanner(setTopbar) {
       + '<div id="bmp-detail-panel" class="bm-site-detail">' + _buildDetailPanel(bmpState.selectedSite || '') + '</div>'
       + '<div style="margin-top:8px;display:flex;flex-direction:column;gap:6px">'
       + '<button class="btn btn-sm" style="font-size:11px" onclick="window._bmpViewDetail()">View Protocol Detail</button>'
-      + '<button class="btn btn-sm" style="font-size:11px;border-color:var(--teal);color:var(--teal)" onclick="window._bmpPrescribeProto(window._bmpState && window._bmpState.protoId)">Prescribe This Protocol</button>'
+      + '<button class="btn btn-sm" style="font-size:11px;border-color:var(--teal);color:var(--teal)" onclick="window._bmpPrescribeProto(window._bmpState && window._bmpState.protoId)">Open in prescriptions</button>'
       + '</div>'
       + '</div>';
 
@@ -8322,9 +8427,9 @@ export async function pgBrainMapPlanner(setTopbar) {
       + '<label class="bm-toggle-row" data-toggle="labels">'
       + '<span class="bm-toggle-pill ' + (bmpState.labelMode !== 'minimal' ? 'on' : '') + '"><span></span></span>'
       + 'Atlas labels</label>'
-      + '<label class="bm-toggle-row" data-toggle="mri-overlay" title="Show matched-protocol targets on a real T1 slice">'
+      + '<label class="bm-toggle-row" data-toggle="mri-overlay" title="Population T1 template — not patient MRI">'
       + '<span class="bm-toggle-pill ' + (bmpState.mriOverlay ? 'on' : '') + '"><span></span></span>'
-      + 'MRI overlay</label>'
+      + 'Atlas MRI overlay</label>'
       + '<div class="bm-map-ctrl" style="margin-left:8px">'
       + '<span class="bmp-map-ctrl-lbl">Find</span>'
       + '<input id="bmp-site-search" class="bmp-map-search" placeholder="F3, Cz, Pz" />'
@@ -8448,7 +8553,7 @@ export async function pgBrainMapPlanner(setTopbar) {
 
     const captionTxt = dots.count
       ? dots.count + ' matched-protocol target' + (dots.count === 1 ? '' : 's')
-        + ' projected to MNI atlas. Switch plane, scroll or use +/&minus; to zoom, drag to pan.'
+        + ' projected onto template MNI space (reference — confirm at chair). Switch plane, scroll or use +/&minus; to zoom, drag to pan.'
       : 'No matched protocols carry MNI coordinates yet — adjust filters or pick a protocol with a 10-20 anode.';
     const caption = '<div class="ds-mri-glass-caption">' + captionTxt + '</div>';
 
@@ -8457,7 +8562,9 @@ export async function pgBrainMapPlanner(setTopbar) {
       + '</div>';
 
     return '<div class="ds-card" id="bmp-mri-card">'
-      + '<div class="ds-card__header"><h3>MRI target view</h3></div>'
+      + '<div class="ds-card__header"><h3>Population atlas · protocol targets</h3>'
+      + '<p style="margin:6px 0 0;font-size:11px;font-weight:400;color:var(--text-tertiary);line-height:1.45">'
+      + 'Standard T1 template slices — not patient-specific MRI. Dots show catalog MNI anchors for filtered protocols.</p></div>'
       + '<div class="ds-card__body">' + body + '</div>'
       + '</div>';
   }
@@ -8653,9 +8760,11 @@ export async function pgBrainMapPlanner(setTopbar) {
     });
     h += '<div style="margin-left:auto;display:flex;gap:8px;align-items:center;padding-right:4px">'
       + '<span style="font-size:10.5px;color:var(--text-tertiary);font-family:var(--font-mono)">Patient</span>'
-      + '<input id="bm-patient-inp" class="form-input" placeholder="Demo patient"'
+      + '<input id="bm-patient-inp" class="form-input" placeholder="Patient ID (from roster)"'
       + ' value="' + _esc(bmpState.patientId) + '"'
-      + ' style="font-size:11px;padding:3px 8px;width:150px" />'
+      + ' aria-label="Patient identifier for plan linkage"'
+      + ' autocomplete="off"'
+      + ' style="font-size:11px;padding:3px 8px;min-width:140px;max-width:220px" />'
       + '</div></div>';
     return h;
   }
@@ -8664,6 +8773,8 @@ export async function pgBrainMapPlanner(setTopbar) {
 
   el.innerHTML =
     _buildDemoBanner()
+    + _buildQuickNavBar()
+    + _buildDataChecklist()
     + _buildTabStrip()
     + '<div class="bm-shell bm-shell-v2' + (hideAtlas ? ' bm-no-left' : '') + '">'
     + (hideAtlas ? '' : ('<aside class="bm-left" id="bm-left">' + _buildAtlasRail() + '</aside>'))
@@ -8866,6 +8977,9 @@ export async function pgBrainMapPlanner(setTopbar) {
     if (pInp) {
       pInp.addEventListener('input', function() {
         bmpState.patientId = String(pInp.value || '').slice(0, 80);
+        try {
+          window._bmpPatientId = bmpState.patientId.trim() ? bmpState.patientId.trim() : null;
+        } catch (_) {}
         _persist();
         const lbl = el.querySelector('.bm-panel-label');
         if (lbl) {
@@ -8911,6 +9025,7 @@ export async function pgBrainMapPlanner(setTopbar) {
   // _updateRight), so wire them once here.
   _wireAtlas();
   _wireTabs();
+  _wireQuickNav();
   _wireCanvasToolbar();
   // MRI focus viewer — only wire when the toggle is on (host was rendered
   // with the viewer's HTML). When off, host is empty and wiring is a no-op.
@@ -8966,8 +9081,8 @@ export async function pgBrainMapPlanner(setTopbar) {
         try { localStorage.setItem('ds_bmp_saved_id', String(res.id)); } catch (_) {}
       }
       window._showNotifToast?.({
-        title:'Saved to backend',
-        body:'Planner state round-trip saved for patient ' + patientId + '.',
+        title:'Draft saved',
+        body:'Planner draft saved as governed protocol record for patient ' + patientId + ' — clinician review still required.',
         severity:'success',
       });
     } catch (e) {
