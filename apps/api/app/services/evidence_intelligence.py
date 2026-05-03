@@ -320,6 +320,12 @@ TARGET_CONCEPTS: dict[str, dict[str, Any]] = {
         "diagnoses": ["depression", "anxiety"],
         "modalities": ["video"],
     },
+    "remote_motor_exam": {
+        "claim": "Decision-support evidence links telemedicine video exams and structured remote motor tasks to observational neurology follow-up and motor symptom monitoring.",
+        "concepts": ["telemedicine", "remote motor exam", "video assessment", "movement disorder", "neurology", "gait", "bradykinesia"],
+        "diagnoses": ["parkinson disease", "parkinsonism", "movement disorder"],
+        "modalities": ["video", "virtual care"],
+    },
     "text_sentiment": {
         "claim": "Decision-support evidence links journal sentiment and language markers to longitudinal depression, anxiety, and stress monitoring.",
         "concepts": ["text sentiment", "language markers", "journal", "depression", "anxiety", "stress"],
@@ -445,6 +451,8 @@ def normalize_target_name(target_name: str) -> str:
         "sleep_wearable": "wearable_sleep_circadian",
         "wearable_activity": "wearable_activity_monitoring",
         "activity_wearable": "wearable_activity_monitoring",
+        "tele_neurology_motor": "remote_motor_exam",
+        "virtual_motor_assessment": "remote_motor_exam",
     }
     return aliases.get(value, value)
 

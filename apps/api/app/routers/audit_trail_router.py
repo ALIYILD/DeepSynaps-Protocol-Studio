@@ -627,6 +627,11 @@ KNOWN_SURFACES = {
     # within 30d" backlog. Pure read-only — no schema change. Mirrors
     # IRB-AMD3 (#451) outcome-pairing precedent.
     "qeeg_annotation_outcome_tracker",
+    # Video Assessments — guided motor capture + clinician review (MVP).
+    # Events emitted by video_assessment_router: session_created,
+    # session_read, session_patched, task_video_uploaded, task_video_viewed,
+    # session_finalized. Notes are PHI-safe (ids, counts, no raw video).
+    "video_assessment",
 }
 
 

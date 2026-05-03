@@ -1617,6 +1617,20 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
     </div>
   </div>
 
+  <div class="vc-db-card vc-db-card--video-assess" style="border-color:rgba(0,212,188,.22)">
+    <div class="vc-db-card-hd">
+      <div>
+        <div class="vc-db-card-title">Video motor assessments</div>
+        <div class="vc-db-card-meta">Guided camera tasks for remote review · clinician scoring · literature-linked summaries</div>
+      </div>
+      <button type="button" class="vc-db-launch-btn" onclick="window._nav('video-assessments')" title="Open guided video assessments">Open Video Assessments &#8594;</button>
+    </div>
+    <div class="vc-db-card-body" style="padding-top:0;font-size:12.5px;color:rgba(255,255,255,.55);line-height:1.45">
+      Patients capture standardized movements from home; reviewers finalize structured findings and can pull related citations from the evidence corpus (${String(evidencePaperCount).replace(/\B(?=(\d{3})+(?!\d))/g, ',')} papers indexed when the DB is available).
+      <span style="display:block;margin-top:8px;font-size:11px;color:rgba(255,255,255,.35)">Not a substitute for in-person examination when clinically indicated.</span>
+    </div>
+  </div>
+
   <!-- Ward Biometrics -->
   <div class="vc-db-card" id="vc-db-wb-card"${wardBioIsDemo ? ' style="border:1px dashed rgba(155,127,255,.18)"' : ''}>
     <div class="vc-db-card-hd">
