@@ -29,7 +29,7 @@
 // revisit (probably move to SSE or a single per-clinic broadcast tick).
 // Documented in PR section F.
 
-import { api } from './api.js';
+import { api, downloadBlob, isDemoSession } from './api.js';
 import { showToast } from './helpers.js';
 
 const esc = s => (s == null ? '' : String(s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -88,8 +88,12 @@ let _inboxState = {
   filterStatus: 'unread',
   selectedIds: new Set(),
   pollHandle: null,
+  pollMountGen: 0,
   loaded: false,
   error: null,
+  /** @type {'all'|'messages'|'adherence'|'wearables'|'safety'|'protocol'|'intake'|'other'} */
+  activeCategory: 'all',
+  searchQuery: '',
 };
 
 // Surfaces accepted by the filter dropdown — must be in lockstep with the
@@ -133,6 +137,64 @@ const SURFACE_DRILL_OUT_PAGE = {
   course_detail: 'course-detail',
   patient_profile: 'patient-profile',
 };
+
+/** High-level queue buckets for clinician triage (subset of backend surfaces). */
+const INBOX_CATEGORY_KEYS = /** @type {const} */ ([
+  'all',
+  'messages',
+  'adherence',
+  'wearables',
+  'safety',
+  'protocol',
+  'intake',
+  'other',
+]);
+
+const CATEGORY_META = {
+  all: { label: 'All items', hint: 'Every high-priority queue item for your clinic.' },
+  messages: { label: 'Messages & requests', hint: 'Patient messages and urgent requests routed to clinicians.' },
+  adherence: { label: 'Adherence & tasks', hint: 'Missed sessions, home-program tasks, and adherence escalations.' },
+  wearables: { label: 'Wearables & monitoring', hint: 'Device-sync alerts and workbench thresholds.' },
+  safety: { label: 'Safety & adverse events', hint: 'Reported adverse events and safety escalations.' },
+  protocol: { label: 'Courses & QA', hint: 'Course/review surfaces and quality-assurance signals.' },
+  intake: { label: 'Patient profile', hint: 'Profile and intake-related HIGH-priority audit mirrors.' },
+  other: { label: 'Other', hint: 'Surfaces not in the groups above.' },
+};
+
+/** Maps backend `surface` → UI category key (must stay aligned with INBOX_SURFACE_CATEGORIES). */
+export function inboxSurfaceCategory(surface) {
+  const s = (surface || '').trim();
+  if (s === 'patient_messages') return 'messages';
+  if (s === 'adherence_events' || s === 'home_program_tasks') return 'adherence';
+  if (s === 'wearables' || s === 'wearables_workbench') return 'wearables';
+  if (s === 'adverse_events_hub') return 'safety';
+  if (s === 'course_detail' || s === 'quality_assurance') return 'protocol';
+  if (s === 'patient_profile') return 'intake';
+  return 'other';
+}
+
+export function inboxItemMatchesCategory(item, category) {
+  if (!category || category === 'all') return true;
+  return inboxSurfaceCategory(item?.surface) === category;
+}
+
+export function inboxItemMatchesSearch(item, rawQuery) {
+  const q = String(rawQuery || '').trim().toLowerCase();
+  if (!q) return true;
+  const hay = [
+    item?.note,
+    item?.event_type,
+    item?.surface,
+    SURFACE_LABEL[item?.surface],
+    item?.patient_id,
+    item?.patient_name,
+    item?.actor_id,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return hay.includes(q);
+}
 
 
 // ── Pure helpers — exported as module-level functions for the test ──────────
@@ -186,10 +248,10 @@ export function inboxDrillOutPageFor(surface) {
 export function inboxBuildDrillOutUrl(item) {
   const page = inboxDrillOutPageFor(item?.surface);
   if (!page) return null;
-  if (item?.patient_id) {
-    return `?page=${page}&patient_id=${encodeURIComponent(item.patient_id)}`;
-  }
-  return `?page=${page}`;
+  const q = new URLSearchParams();
+  q.set('page', page);
+  if (item?.patient_id) q.set('patient_id', item.patient_id);
+  return `?${q.toString()}`;
 }
 
 export function inboxExportCsvPath() {
@@ -197,18 +259,72 @@ export function inboxExportCsvPath() {
 }
 
 
+/** Regroup flat inbox items by patient for display (client-side filters). */
+export function groupInboxItemsByPatient(items) {
+  const grouped = {};
+  (items || []).forEach(item => {
+    const pid = item.patient_id || '_unassigned';
+    if (!grouped[pid]) {
+      grouped[pid] = {
+        patient_id: item.patient_id || null,
+        patient_name: item.patient_name || null,
+        items: [],
+        item_count: 0,
+        unread_count: 0,
+        is_demo: false,
+      };
+    }
+    const g = grouped[pid];
+    g.items.push(item);
+    g.item_count++;
+    if (!item.is_acknowledged) g.unread_count++;
+    if (item.is_demo) g.is_demo = true;
+    if (!g.patient_name && item.patient_name) g.patient_name = item.patient_name;
+  });
+  return Object.values(grouped).sort((a, b) => {
+    if (b.unread_count !== a.unread_count) return b.unread_count - a.unread_count;
+    return String(a.patient_name || a.patient_id || '').localeCompare(String(b.patient_name || b.patient_id || ''));
+  });
+}
+
+function _categoryCounts(items) {
+  const counts = { all: (items || []).length };
+  INBOX_CATEGORY_KEYS.forEach(k => { if (k !== 'all') counts[k] = 0; });
+  (items || []).forEach(it => {
+    const c = inboxSurfaceCategory(it.surface);
+    counts[c] = (counts[c] || 0) + 1;
+  });
+  return counts;
+}
+
+function _applyClientFilters(items) {
+  return (items || []).filter(
+    it => inboxItemMatchesCategory(it, _inboxState.activeCategory) && inboxItemMatchesSearch(it, _inboxState.searchQuery),
+  );
+}
+
+
 // ── Renderer ────────────────────────────────────────────────────────────────
 
 
+function renderSafetyDisclaimer() {
+  return `
+    <div style="margin:0 0 14px;padding:12px 14px;border-radius:10px;background:rgba(59,130,246,0.06);border:1px solid var(--border);font-size:12px;line-height:1.55;color:var(--text-secondary)">
+      <strong style="color:var(--text-primary)">Clinician-in-the-loop decision support.</strong>
+      This queue surfaces HIGH-priority audit signals for review; it does not diagnose, prescribe, or automate clinical decisions.
+      AI-assisted outputs elsewhere in the product remain drafts until you document review.
+    </div>`;
+}
+
 function renderEmptyState() {
   return `
-    <div style="text-align:center;padding:64px 24px;color:var(--text-tertiary);background:var(--surface-1);border:1px solid var(--border);border-radius:12px">
-      <div style="font-size:36px;margin-bottom:8px">📭</div>
-      <div style="font-size:14px;font-weight:600;color:var(--text-secondary);margin-bottom:6px">
-        Inbox clear — no high-priority items pending. Nice work.
+    <div role="status" style="text-align:center;padding:64px 24px;color:var(--text-tertiary);background:var(--surface-1);border:1px solid var(--border);border-radius:12px">
+      <div style="font-size:36px;margin-bottom:8px" aria-hidden="true">📭</div>
+      <div style="font-size:15px;font-weight:600;color:var(--text-secondary);margin-bottom:8px">
+        Inbox clear — no matching HIGH-priority items
       </div>
-      <div style="font-size:12px;color:var(--text-tertiary)">
-        New patient-side urgent flags / side-effect escalations / wearable anomalies will appear here.
+      <div style="font-size:12px;color:var(--text-tertiary);max-width:520px;margin:0 auto;line-height:1.5">
+        When patients trigger urgent mirrors (messages, adherence, wearables, adverse events), they appear here for triage. Adjust filters or search if you expected to see work.
       </div>
     </div>`;
 }
@@ -216,25 +332,58 @@ function renderEmptyState() {
 function renderDemoBanner() {
   return `
     <div style="margin:12px 0;padding:10px 14px;border-radius:10px;background:rgba(245, 158, 11, 0.1);border:1px solid var(--amber);color:var(--amber);font-size:12.5px">
-      <strong>DEMO data on this page.</strong> Some items reference demo patients.
-      Exports will be DEMO-prefixed; not regulator-submittable.
+      <strong>DEMO sample data.</strong> Labels reference synthetic patients. Exports are DEMO-prefixed and are not regulator-submittable.
+    </div>`;
+}
+
+function renderConnectionBanner(isDemoPreview, loadError) {
+  if (!loadError) return '';
+  const offline = /network|failed to fetch/i.test(loadError);
+  return `
+    <div role="alert" style="margin:12px 0;padding:10px 14px;border-radius:10px;background:rgba(239,68,68,0.08);border:1px solid var(--red);color:var(--text-secondary);font-size:12.5px;line-height:1.45">
+      <strong style="color:var(--red)">${offline ? 'Offline or unreachable API.' : 'Could not refresh inbox.'}</strong>
+      ${esc(loadError)}
+      ${isDemoPreview ? '<div style="margin-top:6px;font-size:11px;color:var(--text-tertiary)">Demo preview: showing labelled sample items below. Live clinicians should use a signed-in session with API connectivity.</div>' : ''}
     </div>`;
 }
 
 function renderSummaryStrip(summary) {
   const s = summary || {};
   const stat = (label, val, color = 'var(--text-primary)') => `
-    <div style="padding:12px 16px;background:var(--surface-1);border:1px solid var(--border);border-radius:10px;flex:1;min-width:140px">
+    <div role="region" aria-label="${esc(label)}" style="padding:12px 16px;background:var(--surface-1);border:1px solid var(--border);border-radius:10px;flex:1;min-width:120px">
       <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em">${esc(label)}</div>
       <div style="font-size:22px;font-weight:600;color:${color};margin-top:2px">${esc(val)}</div>
     </div>`;
   const unread = inboxSummaryHonestUnreadCount(summary);
+  const surfKeys = Object.keys(s.by_surface || {});
   return `
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin:12px 0">
-      ${stat('HIGH-priority unread', unread, unread > 0 ? 'var(--red)' : 'var(--teal)')}
-      ${stat('Last 24h', s.last_24h ?? 0)}
-      ${stat('Last 7d', s.last_7d ?? 0)}
-      ${stat('Surfaces touched', Object.keys(s.by_surface || {}).length)}
+      ${stat('Unread HIGH-priority', unread, unread > 0 ? 'var(--red)' : 'var(--teal)')}
+      ${stat('Last 24 hours', s.last_24h ?? 0)}
+      ${stat('Last 7 days', s.last_7d ?? 0)}
+      ${stat('Surfaces with traffic', surfKeys.length)}
+    </div>`;
+}
+
+function renderCategoryTabs(state, counts) {
+  const tabs = INBOX_CATEGORY_KEYS.map(key => {
+    const meta = CATEGORY_META[key] || { label: key, hint: '' };
+    const n = counts[key] ?? 0;
+    const active = state.activeCategory === key;
+    return `
+      <button type="button" class="inbox-cat-btn" data-cat="${esc(key)}"
+        title="${esc(meta.hint)}"
+        aria-pressed="${active ? 'true' : 'false'}"
+        style="padding:8px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid ${active ? 'var(--teal)' : 'var(--border)'};background:${active ? 'rgba(20,184,166,0.12)' : 'var(--surface-1)'};color:var(--text-primary);white-space:nowrap">
+        ${esc(meta.label)} <span style="opacity:0.75;font-weight:500">(${n})</span>
+      </button>`;
+  }).join('');
+  const hint = CATEGORY_META[state.activeCategory]?.hint || '';
+  return `
+    <div style="margin:14px 0 8px">
+      <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Queue lenses</div>
+      <div role="tablist" aria-label="Inbox categories" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${tabs}</div>
+      <div style="font-size:11px;color:var(--text-tertiary);margin-top:8px;line-height:1.4">${esc(hint)}</div>
     </div>`;
 }
 
@@ -246,57 +395,77 @@ function renderFilterStrip(state) {
     .join('');
   const statusOpts = [
     ['unread', 'Unread (default)'],
-    ['acknowledged', 'Acknowledged'],
+    ['acknowledged', 'Reviewed / acknowledged'],
     ['', 'All statuses'],
   ].map(([v, l]) =>
     `<option value="${v}" ${state.filterStatus === v ? 'selected' : ''}>${esc(l)}</option>`,
   ).join('');
+  const qVal = esc(state.searchQuery || '');
   return `
-    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:12px 0">
-      <label style="font-size:12px;color:var(--text-secondary)">Surface:
-        <select id="inbox-filter-surface" style="margin-left:6px;padding:6px 10px;border-radius:6px;background:var(--surface-1);border:1px solid var(--border);color:var(--text-primary)">${surfaceOpts}</select>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin:12px 0">
+      <label style="font-size:12px;color:var(--text-secondary);flex:1;min-width:200px">Search
+        <input id="inbox-search" type="search" autocomplete="off" placeholder="Patient, note text, surface…" value="${qVal}"
+          aria-label="Search inbox items"
+          style="display:block;margin-top:4px;width:100%;padding:8px 10px;border-radius:6px;background:var(--surface-1);border:1px solid var(--border);color:var(--text-primary);font-size:13px" />
       </label>
-      <label style="font-size:12px;color:var(--text-secondary)">Status:
-        <select id="inbox-filter-status" style="margin-left:6px;padding:6px 10px;border-radius:6px;background:var(--surface-1);border:1px solid var(--border);color:var(--text-primary)">${statusOpts}</select>
+      <label style="font-size:12px;color:var(--text-secondary)">Surface
+        <select id="inbox-filter-surface" aria-label="Filter by surface"
+          style="display:block;margin-top:4px;padding:8px 10px;border-radius:6px;background:var(--surface-1);border:1px solid var(--border);color:var(--text-primary);min-width:160px">${surfaceOpts}</select>
       </label>
-      <button id="inbox-bulk-ack-btn" style="padding:7px 14px;border-radius:6px;background:var(--teal);border:none;color:white;font-weight:600;cursor:pointer;font-size:12px;margin-left:auto">
-        Acknowledge selected
-      </button>
-      <a id="inbox-export-csv-btn" href="${esc(api.clinicianInboxExportCsvUrl())}" download style="padding:7px 14px;border-radius:6px;background:var(--surface-1);border:1px solid var(--border);color:var(--text-primary);text-decoration:none;font-size:12px">
-        Export CSV
-      </a>
+      <label style="font-size:12px;color:var(--text-secondary)">Status
+        <select id="inbox-filter-status" aria-label="Filter by read status"
+          style="display:block;margin-top:4px;padding:8px 10px;border-radius:6px;background:var(--surface-1);border:1px solid var(--border);color:var(--text-primary);min-width:170px">${statusOpts}</select>
+      </label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-left:auto">
+        <button type="button" id="inbox-bulk-ack-btn" style="padding:8px 14px;border-radius:6px;background:var(--teal);border:none;color:white;font-weight:600;cursor:pointer;font-size:12px">
+          Acknowledge selected
+        </button>
+        <button type="button" id="inbox-export-csv-btn" style="padding:8px 14px;border-radius:6px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-primary);font-size:12px;font-weight:600;cursor:pointer">
+          Export CSV
+        </button>
+      </div>
     </div>`;
 }
 
 function renderItemRow(item) {
-  const sev = item.is_acknowledged ? 'var(--text-tertiary)' : 'var(--red)';
+  const urgent = !item.is_acknowledged;
+  const sev = urgent ? 'var(--red)' : 'var(--text-tertiary)';
   const ack = item.is_acknowledged
-    ? `<span style="color:var(--teal);font-weight:600;font-size:11px">Acknowledged</span>`
-    : `<button class="inbox-ack-btn" data-event-id="${esc(item.event_id)}" style="padding:5px 12px;border-radius:5px;background:var(--teal);border:none;color:white;font-size:11px;font-weight:600;cursor:pointer">Acknowledge</button>`;
+    ? `<span style="color:var(--teal);font-weight:600;font-size:11px">Reviewed</span>`
+    : `<button type="button" class="inbox-ack-btn" data-event-id="${esc(item.event_id)}" aria-label="Acknowledge with note"
+        style="padding:6px 12px;border-radius:6px;background:var(--teal);border:none;color:white;font-size:11px;font-weight:600;cursor:pointer">Acknowledge…</button>`;
   const drillOutPage = inboxDrillOutPageFor(item.surface);
+  const drillLabel = item.surface === 'wearables_workbench' ? 'Open workbench' : 'Open source';
   const drillOut = drillOutPage
-    ? `<button class="inbox-drillout-btn" data-event-id="${esc(item.event_id)}" data-surface="${esc(item.surface)}" data-patient="${esc(item.patient_id || '')}" style="padding:5px 12px;border-radius:5px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-primary);font-size:11px;cursor:pointer">Open ↗</button>`
-    : '';
+    ? `<button type="button" class="inbox-drillout-btn" data-event-id="${esc(item.event_id)}" data-surface="${esc(item.surface)}" data-patient="${esc(item.patient_id || '')}"
+        aria-label="${esc(drillLabel)}"
+        style="padding:6px 12px;border-radius:6px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-primary);font-size:11px;font-weight:600;cursor:pointer">${esc(drillLabel)}</button>`
+    : `<span style="font-size:11px;color:var(--text-tertiary)" title="No drill-out route">—</span>`;
+  const cat = inboxSurfaceCategory(item.surface);
+  const catLabel = (CATEGORY_META[cat] && CATEGORY_META[cat].label) || 'Other';
   return `
-    <div style="display:flex;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);align-items:center">
-      <input type="checkbox" class="inbox-item-checkbox" data-event-id="${esc(item.event_id)}" ${_inboxState.selectedIds.has(item.event_id) ? 'checked' : ''}>
-      <div style="flex:0 0 4px;height:32px;background:${sev};border-radius:2px"></div>
+    <div class="inbox-item-row" role="listitem" style="display:flex;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border);align-items:flex-start">
+      <input type="checkbox" class="inbox-item-checkbox" data-event-id="${esc(item.event_id)}" aria-label="Select for bulk acknowledge" ${_inboxState.selectedIds.has(item.event_id) ? 'checked' : ''}>
+      <div style="flex:0 0 4px;min-height:40px;background:${sev};border-radius:2px;margin-top:2px" aria-hidden="true" title="${urgent ? 'Awaiting review' : 'Reviewed'}"></div>
       <div style="flex:1;min-width:0">
-        <div style="display:flex;gap:8px;align-items:center;margin-bottom:3px">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px;flex-wrap:wrap">
           <span style="padding:2px 8px;border-radius:4px;background:var(--surface-2);border:1px solid var(--border);font-size:10.5px;color:var(--text-secondary)">
             ${esc(SURFACE_LABEL[item.surface] || item.surface)}
           </span>
+          <span style="padding:2px 8px;border-radius:4px;background:rgba(100,116,139,0.12);font-size:10px;color:var(--text-tertiary)">${esc(catLabel)}</span>
           <span style="font-size:11px;color:var(--text-tertiary)">${esc(item.event_type)}</span>
           ${item.is_demo ? `<span style="padding:2px 6px;border-radius:4px;background:var(--amber);color:white;font-size:10px;font-weight:600">DEMO</span>` : ''}
+          ${urgent ? `<span style="padding:2px 6px;border-radius:4px;background:rgba(239,68,68,0.15);color:var(--red);font-size:10px;font-weight:700">ACTION</span>` : ''}
         </div>
-        <div style="font-size:12.5px;color:var(--text-primary);font-weight:500">
-          ${esc(item.note || '(no note)').slice(0, 220)}
+        <div style="font-size:13px;color:var(--text-primary);font-weight:500;line-height:1.45">
+          ${esc(item.note || '(no note)').slice(0, 280)}
         </div>
-        <div style="font-size:11px;color:var(--text-tertiary);margin-top:3px">
-          ${esc(item.created_at)} · actor=${esc(item.actor_id)}
+        <div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">
+          <time datetime="${esc(item.created_at)}">${esc(item.created_at)}</time>
+          · source=${esc(item.actor_id || '—')}
         </div>
       </div>
-      <div style="display:flex;gap:6px;flex-shrink:0">
+      <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;align-items:stretch">
         ${ack}
         ${drillOut}
       </div>
@@ -307,18 +476,20 @@ function renderPatientGroup(group) {
   const headerColor = group.unread_count > 0 ? 'var(--red)' : 'var(--text-secondary)';
   const label = group.patient_name || group.patient_id || 'Unassigned';
   return `
-    <div style="margin:14px 0;background:var(--surface-1);border:1px solid var(--border);border-radius:10px;overflow:hidden">
-      <div style="padding:10px 14px;background:var(--surface-2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
-        <div style="font-size:13px;font-weight:600;color:${headerColor}">
+    <section style="margin:16px 0;background:var(--surface-1);border:1px solid var(--border);border-radius:12px;overflow:hidden">
+      <header style="padding:12px 14px;background:var(--surface-2);border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;align-items:center;gap:10px">
+        <h2 style="margin:0;font-size:14px;font-weight:700;color:${headerColor}">
           ${esc(label)}
-        </div>
+        </h2>
         <div style="font-size:11px;color:var(--text-tertiary)">
-          ${group.unread_count} unread / ${group.item_count} total
+          ${group.unread_count} awaiting review · ${group.item_count} total
           ${group.is_demo ? ' · <span style="color:var(--amber);font-weight:600">DEMO</span>' : ''}
         </div>
-      </div>
+      </header>
+      <div role="list">
       ${(group.items || []).map(renderItemRow).join('')}
-    </div>`;
+      </div>
+    </section>`;
 }
 
 
@@ -330,93 +501,158 @@ export async function pgClinicianInbox(setTopbar, navigate) {
   if (!el) return;
 
   if (typeof setTopbar === 'function') {
-    setTopbar('Clinician Inbox', 'HIGH-priority signals from every patient-facing surface, in priority order.');
+    setTopbar(
+      'Clinician Inbox',
+      'HIGH-priority patient signals and escalations — review, acknowledge, and drill out to source surfaces.',
+    );
   }
 
-  // Mount-time audit ping. Best-effort.
+  _inboxState.pollMountGen = (_inboxState.pollMountGen || 0) + 1;
+  const pollGen = _inboxState.pollMountGen;
+
+  if (_inboxState.pollHandle != null && typeof window !== 'undefined') {
+    window.clearInterval(_inboxState.pollHandle);
+    _inboxState.pollHandle = null;
+  }
+
   try {
     api.postClinicianInboxAuditEvent(buildInboxAuditPayload('view', { note: 'inbox page mounted' }));
   } catch (_) { /* ignore */ }
 
-  // Render skeleton — never invent rows; show a cheap loading shell while
-  // the API responds.
   el.innerHTML = `
-    <div id="inbox-root" style="max-width:1100px;margin:0 auto;padding:18px 24px">
+    <div id="inbox-root" style="max-width:1120px;margin:0 auto;padding:18px 20px 48px">
+      <div id="inbox-disclaimer"></div>
       <div id="inbox-summary"></div>
+      <div id="inbox-categories"></div>
       <div id="inbox-filters"></div>
       <div id="inbox-banner"></div>
+      <div id="inbox-connection"></div>
       <div id="inbox-content">
-        <div style="text-align:center;padding:40px;color:var(--text-tertiary);font-size:12px">Loading inbox…</div>
+        <div role="status" style="text-align:center;padding:48px 24px;color:var(--text-tertiary);font-size:13px">Loading clinician inbox…</div>
       </div>
     </div>`;
 
+  const discEl = document.getElementById('inbox-disclaimer');
+  if (discEl) discEl.innerHTML = renderSafetyDisclaimer();
+
   await loadInboxData();
 
-  // Bind events.
   bindFilterHandlers(navigate);
   bindRowHandlers(navigate);
 
-  // Set up the polling loop. Bail if already running.
-  if (_inboxState.pollHandle == null && typeof window !== 'undefined') {
+  if (typeof window !== 'undefined') {
     _inboxState.pollHandle = window.setInterval(() => {
+      if (_inboxState.pollMountGen !== pollGen) return;
       try {
         api.postClinicianInboxAuditEvent(buildInboxAuditPayload('polling_tick'));
       } catch (_) { /* ignore */ }
       loadInboxData().then(() => {
         bindFilterHandlers(navigate);
         bindRowHandlers(navigate);
-      }).catch(() => { /* polling failures must not corrupt UI */ });
+      }).catch(() => { /* keep prior UI */ });
     }, 30_000);
-
-    // Tear down on subsequent navigation. We use a best-effort hook: if
-    // the next render replaces `#inbox-root`, our interval keeps firing
-    // but its loadInboxData() short-circuits because the mount points
-    // disappear. Defensive cleanup attempt below.
-    if (window.addEventListener) {
-      const stopPoll = () => {
-        if (_inboxState.pollHandle != null) {
-          window.clearInterval(_inboxState.pollHandle);
-          _inboxState.pollHandle = null;
-        }
-        window.removeEventListener('hashchange', stopPoll);
-        window.removeEventListener('popstate', stopPoll);
-      };
-      window.addEventListener('hashchange', stopPoll);
-      window.addEventListener('popstate', stopPoll);
-    }
   }
 }
 
 async function loadInboxData() {
   const root = document.getElementById('inbox-root');
-  if (!root) return; // navigated away; skip silently
+  if (!root) return;
+
   const params = buildInboxFilterParams({
     surface: _inboxState.filterSurface,
     status: _inboxState.filterStatus,
   });
-  const [list, summary] = await Promise.all([
-    api.clinicianInboxListItems(params),
-    api.clinicianInboxSummary(),
-  ]);
-  // Use demo fallback when API is offline (both calls returned null).
-  const effectiveList = list || _buildDemoInboxResponse();
-  const effectiveSummary = summary || _buildDemoInboxSummary();
+
+  let list = null;
+  let summary = null;
+  let fetchErr = null;
+
+  try {
+    [list, summary] = await Promise.all([
+      api.clinicianInboxListItems(params),
+      api.clinicianInboxSummary(),
+    ]);
+  } catch (e) {
+    fetchErr = e?.message || String(e);
+  }
+
+  const demoSession = typeof isDemoSession === 'function' && isDemoSession();
+  const useDemoFallback = demoSession && (!list || !summary);
+
+  if (useDemoFallback) {
+    list = list || _buildDemoInboxResponse();
+    summary = summary || _buildDemoInboxSummary();
+    fetchErr = null;
+  }
+
+  if (fetchErr && !useDemoFallback) {
+    _inboxState.error = fetchErr;
+    _inboxState.items = [];
+    _inboxState.grouped = [];
+    _inboxState.total = 0;
+    _inboxState.summary = null;
+    _inboxState.isDemoView = false;
+    _inboxState.loaded = true;
+
+    const summaryEl = document.getElementById('inbox-summary');
+    if (summaryEl) summaryEl.innerHTML = '';
+    const catEl = document.getElementById('inbox-categories');
+    if (catEl) catEl.innerHTML = '';
+    const filtersEl = document.getElementById('inbox-filters');
+    if (filtersEl) filtersEl.innerHTML = renderFilterStrip(_inboxState);
+    const bannerEl = document.getElementById('inbox-banner');
+    if (bannerEl) bannerEl.innerHTML = '';
+    const connEl = document.getElementById('inbox-connection');
+    if (connEl) connEl.innerHTML = renderConnectionBanner(demoSession, fetchErr);
+    const contentEl = document.getElementById('inbox-content');
+    if (contentEl) {
+      contentEl.innerHTML = `
+        <div role="alert" style="text-align:center;padding:56px 24px;background:var(--surface-1);border:1px solid var(--border);border-radius:12px;max-width:560px;margin:0 auto">
+          <div style="font-size:40px;margin-bottom:12px" aria-hidden="true">⚠️</div>
+          <div style="font-size:16px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Inbox unavailable</div>
+          <div style="font-size:13px;color:var(--text-secondary);line-height:1.55;margin-bottom:20px">${esc(fetchErr)}</div>
+          <button type="button" id="inbox-retry-btn" class="btn-primary" style="padding:10px 18px;border-radius:8px;font-weight:600;cursor:pointer">Retry</button>
+        </div>`;
+    }
+    return;
+  }
+
+  _inboxState.error = null;
+  const effectiveList = list;
+  const effectiveSummary = summary;
+
   _inboxState.items = (effectiveList && Array.isArray(effectiveList.items)) ? effectiveList.items : [];
-  _inboxState.grouped = (effectiveList && Array.isArray(effectiveList.grouped)) ? effectiveList.grouped : [];
-  _inboxState.total = (effectiveList && Number(effectiveList.total)) || 0;
+  _inboxState.total = (effectiveList && Number(effectiveList.total)) || _inboxState.items.length;
   _inboxState.isDemoView = !!(effectiveList && effectiveList.is_demo_view);
   _inboxState.summary = effectiveSummary;
   _inboxState.loaded = true;
 
+  const filteredItems = _applyClientFilters(_inboxState.items);
+  _inboxState.grouped = groupInboxItemsByPatient(filteredItems);
+
+  const counts = _categoryCounts(_inboxState.items);
+
   const summaryEl = document.getElementById('inbox-summary');
   if (summaryEl) summaryEl.innerHTML = renderSummaryStrip(_inboxState.summary);
+
+  const catEl = document.getElementById('inbox-categories');
+  if (catEl) catEl.innerHTML = renderCategoryTabs(_inboxState, counts);
+
   const filtersEl = document.getElementById('inbox-filters');
   if (filtersEl) filtersEl.innerHTML = renderFilterStrip(_inboxState);
+
   const bannerEl = document.getElementById('inbox-banner');
-  if (bannerEl) bannerEl.innerHTML = shouldShowInboxDemoBanner(effectiveList) ? renderDemoBanner() : '';
+  if (bannerEl) {
+    bannerEl.innerHTML = shouldShowInboxDemoBanner(effectiveList) ? renderDemoBanner() : '';
+  }
+
+  const connEl = document.getElementById('inbox-connection');
+  if (connEl) connEl.innerHTML = renderConnectionBanner(demoSession, fetchErr);
+
   const contentEl = document.getElementById('inbox-content');
   if (contentEl) {
-    if (shouldShowInboxEmptyState(effectiveList)) {
+    const emptySource = { ...effectiveList, items: filteredItems };
+    if (shouldShowInboxEmptyState(emptySource)) {
       contentEl.innerHTML = renderEmptyState();
     } else {
       contentEl.innerHTML = (_inboxState.grouped || []).map(renderPatientGroup).join('');
@@ -425,6 +661,33 @@ async function loadInboxData() {
 }
 
 function bindFilterHandlers(navigate) {
+  const retryBtn = document.getElementById('inbox-retry-btn');
+  if (retryBtn && !retryBtn._bound) {
+    retryBtn._bound = true;
+    retryBtn.onclick = () => {
+      loadInboxData().then(() => {
+        bindFilterHandlers(navigate);
+        bindRowHandlers(navigate);
+      });
+    };
+  }
+
+  const searchInp = document.getElementById('inbox-search');
+  if (searchInp && !searchInp._bound) {
+    searchInp._bound = true;
+    let t = null;
+    searchInp.addEventListener('input', () => {
+      _inboxState.searchQuery = searchInp.value || '';
+      if (t) window.clearTimeout(t);
+      t = window.setTimeout(() => {
+        loadInboxData().then(() => {
+          bindFilterHandlers(navigate);
+          bindRowHandlers(navigate);
+        });
+      }, 180);
+    });
+  }
+
   const surfaceSel = document.getElementById('inbox-filter-surface');
   if (surfaceSel && !surfaceSel._bound) {
     surfaceSel._bound = true;
@@ -443,6 +706,18 @@ function bindFilterHandlers(navigate) {
       loadInboxData().then(() => { bindFilterHandlers(navigate); bindRowHandlers(navigate); });
     };
   }
+
+  document.querySelectorAll('.inbox-cat-btn').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = () => {
+      const cat = btn.getAttribute('data-cat') || 'all';
+      _inboxState.activeCategory = cat;
+      try { api.postClinicianInboxAuditEvent(buildInboxAuditPayload('filter_changed', { note: 'category=' + cat })); } catch (_) {}
+      loadInboxData().then(() => { bindFilterHandlers(navigate); bindRowHandlers(navigate); });
+    };
+  });
+
   const bulkBtn = document.getElementById('inbox-bulk-ack-btn');
   if (bulkBtn && !bulkBtn._bound) {
     bulkBtn._bound = true;
@@ -451,7 +726,7 @@ function bindFilterHandlers(navigate) {
         showToast('Select at least one item to acknowledge.', 'warn');
         return;
       }
-      const note = (typeof window !== 'undefined' ? window.prompt('Acknowledge note (required):', '') : '');
+      const note = (typeof window !== 'undefined' ? window.prompt('Acknowledgement note (required):', '') : '');
       if (!inboxNoteRequiredValid(note)) {
         showToast('Acknowledgement note is required.', 'warn');
         return;
@@ -469,17 +744,27 @@ function bindFilterHandlers(navigate) {
         await loadInboxData();
         bindFilterHandlers(navigate);
         bindRowHandlers(navigate);
-      } catch (_) {
-        showToast('Bulk acknowledge failed.', 'error');
+      } catch (e) {
+        const msg = e?.message || 'Bulk acknowledge failed.';
+        showToast(msg, 'error');
       }
     };
   }
+
   const exportBtn = document.getElementById('inbox-export-csv-btn');
   if (exportBtn && !exportBtn._bound) {
     exportBtn._bound = true;
-    exportBtn.addEventListener('click', () => {
+    exportBtn.onclick = async () => {
       try { api.postClinicianInboxAuditEvent(buildInboxAuditPayload('export', { note: 'format=csv' })); } catch (_) {}
-    });
+      try {
+        const out = await api.clinicianInboxExportCsvBlob();
+        const name = out.filename || 'clinician-inbox.csv';
+        downloadBlob(out.blob, name);
+        showToast('Export started.', 'success');
+      } catch (e) {
+        showToast(e?.message || 'CSV export failed.', 'error');
+      }
+    };
   }
 }
 
@@ -501,7 +786,7 @@ function bindRowHandlers(navigate) {
     btn._bound = true;
     btn.onclick = async () => {
       const eventId = btn.getAttribute('data-event-id');
-      const note = (typeof window !== 'undefined' ? window.prompt('Acknowledge note (required):', '') : '');
+      const note = (typeof window !== 'undefined' ? window.prompt('Acknowledgement note (required):', '') : '');
       if (!inboxNoteRequiredValid(note)) {
         showToast('Acknowledgement note is required.', 'warn');
         return;
@@ -510,13 +795,13 @@ function bindRowHandlers(navigate) {
         const r = await api.clinicianInboxAcknowledge(eventId, note);
         try { api.postClinicianInboxAuditEvent(buildInboxAuditPayload('item_acknowledged_via_modal', { item_event_id: eventId })); } catch (_) {}
         if (r && r.accepted) {
-          showToast('Item acknowledged.', 'success');
+          showToast('Recorded acknowledgement.', 'success');
         }
         await loadInboxData();
         bindFilterHandlers(navigate);
         bindRowHandlers(navigate);
-      } catch (_) {
-        showToast('Acknowledge failed.', 'error');
+      } catch (e) {
+        showToast(e?.message || 'Acknowledge failed.', 'error');
       }
     };
   });
@@ -535,6 +820,9 @@ function bindRowHandlers(navigate) {
         return;
       }
       try { api.postClinicianInboxAuditEvent(buildInboxAuditPayload('item_drilled_out', { item_event_id: eventId, note: 'surface=' + surface })); } catch (_) {}
+      if (surface === 'wearables_workbench') {
+        try { window.localStorage.setItem('monitor_tab', 'wearables-workbench'); } catch (_) {}
+      }
       if (patient) window._patientId = patient;
       if (typeof navigate === 'function') navigate(page);
       else if (typeof window !== 'undefined' && window._nav) window._nav(page);

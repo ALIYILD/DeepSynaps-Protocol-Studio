@@ -95,10 +95,10 @@ function inboxDrillOutPageFor(surface) {
 function inboxBuildDrillOutUrl(item) {
   const page = inboxDrillOutPageFor(item?.surface);
   if (!page) return null;
-  if (item?.patient_id) {
-    return `?page=${page}&patient_id=${encodeURIComponent(item.patient_id)}`;
-  }
-  return `?page=${page}`;
+  const q = new URLSearchParams();
+  q.set('page', page);
+  if (item?.patient_id) q.set('patient_id', item.patient_id);
+  return `?${q.toString()}`;
 }
 
 function inboxExportCsvPath() {
@@ -228,6 +228,17 @@ test('Drill-out URL: omits patient_id when absent', () => {
   assert.equal(u.includes('patient_id'), false);
 });
 
+test('Category mapping: surfaces bucket into clinician queue lenses', () => {
+  const pagesSrc = readSrc('pages-inbox.js');
+  assert.ok(pagesSrc.includes('export function inboxSurfaceCategory'));
+  assert.ok(pagesSrc.includes("inboxSurfaceCategory(item?.surface) === category"));
+});
+
+test('Group by patient: exports groupInboxItemsByPatient in pages-inbox', () => {
+  const src = readSrc('pages-inbox.js');
+  assert.ok(src.includes('export function groupInboxItemsByPatient'));
+});
+
 
 // ── Export URL ─────────────────────────────────────────────────────────────
 
@@ -288,7 +299,9 @@ test('Source contract: api.js exposes the inbox helpers', () => {
   assert.ok(src.includes('clinicianInboxAcknowledge'));
   assert.ok(src.includes('clinicianInboxBulkAcknowledge'));
   assert.ok(src.includes('clinicianInboxExportCsvUrl'));
+  assert.ok(src.includes('clinicianInboxExportCsvBlob'));
   assert.ok(src.includes('postClinicianInboxAuditEvent'));
+  assert.ok(src.includes('export function isDemoSession'));
 });
 
 test('Source contract: app.js registers clinician-inbox and inbox routes', () => {
