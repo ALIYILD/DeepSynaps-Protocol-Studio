@@ -519,7 +519,7 @@ const NAV = [
   { section: 'Today', sectionId: 'clinical', collapsed: false },
   { id: 'home',                label: 'Dashboard',     icon: '🏠' },
   { id: 'clinician-inbox',     label: 'Inbox',         icon: '📬' },
-  { id: 'clinician-digest',    label: 'Daily Digest',  icon: '📰' },
+  { id: 'clinician-digest',    label: 'Clinician Digest',  icon: '📰' },
   { id: 'schedule-v2',         label: 'Schedule',      icon: '🗓️' },
 
   // ── PATIENTS — roster + per-patient surfaces ─────────────────────────────────

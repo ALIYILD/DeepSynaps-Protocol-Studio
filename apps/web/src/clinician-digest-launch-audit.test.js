@@ -107,6 +107,11 @@ function presetWindow(preset) {
     since.setUTCDate(since.getUTCDate() - 7);
     return { since: since.toISOString(), until: now.toISOString() };
   }
+  if (preset === '30d') {
+    const since = new Date(now);
+    since.setUTCDate(since.getUTCDate() - 30);
+    return { since: since.toISOString(), until: now.toISOString() };
+  }
   if (preset === 'today') {
     const since = new Date(now);
     since.setUTCHours(0, 0, 0, 0);
@@ -256,6 +261,14 @@ test('Date-range preset: 7d window spans seven days', () => {
   assert.ok(diffH >= 168 - 0.1 && diffH <= 168 + 0.1);
 });
 
+test('Date-range preset: 30d window spans thirty days', () => {
+  const w = presetWindow('30d');
+  const sinceDt = new Date(w.since);
+  const untilDt = new Date(w.until);
+  const diffH = (untilDt - sinceDt) / (1000 * 60 * 60);
+  assert.ok(diffH >= 720 - 0.2 && diffH <= 720 + 0.2);
+});
+
 test('Date-range preset: default (12h) returns null+null to honour API default', () => {
   const w = presetWindow('12h');
   assert.equal(w.since, null);
@@ -300,7 +313,7 @@ test('Source contract: empty-state copy is honest (no AI happy-talk)', () => {
 
 test('Source contract: digest renders DEMO banner + queued copy (not fabricated)', () => {
   const src = pagesCoursesSrc();
-  assert.ok(src.includes('Demo data.'));
+  assert.ok(src.includes('Demo session.'));
   assert.ok(src.includes('not regulator-submittable'));
   // Honest about queued vs delivered status.
   assert.ok(src.includes('Email queued'));
@@ -341,8 +354,8 @@ test('Source contract: app.js wires clinician-digest + daily-digest routes', () 
 });
 
 
-test('Source contract: app.js NAV registers Daily Digest sidebar entry', () => {
+test('Source contract: app.js NAV registers Clinician Digest sidebar entry', () => {
   const src = appJsSrc();
   assert.ok(src.includes("id: 'clinician-digest'"));
-  assert.ok(src.includes("'Daily Digest'"));
+  assert.ok(src.includes("'Clinician Digest'"));
 });

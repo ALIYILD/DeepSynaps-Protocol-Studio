@@ -13428,14 +13428,19 @@ function _cwhBindRowHandlers(navigate) {
 }
 
 
-// ── pgClinicianDailyDigest — Notifications Pulse / End-of-shift summary ─────
-// Launch-audit 2026-05-01. Top-of-loop telemetry the Care Team Coverage SLA
-// chain (#357) currently lacks. End-of-shift summary across the four
-// clinician hubs (Inbox #354, Wearables Workbench #353, Adherence Hub #361,
-// Wellness Hub #365) plus AE Hub #342 escalations. Read-only aggregator
-// + email/colleague-share audit rows; SMTP wire-up tracked in PR section F.
+// ── pgClinicianDailyDigest — Clinician briefing / end-of-shift digest ─────────
+// Decision-support summary across clinician hubs (Inbox, Wearables Workbench,
+// Adherence, Wellness, AE Hub). Not autonomous diagnosis or prescribing.
+// Real API aggregates audit-backed activity; offline demo-token sessions use
+// labelled demo payloads from api.js. SMTP for email share is queued until wired.
 const _cdgEsc = (s) => String(s ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+/** Mirrors backend `clinician_digest_router._gate_role` (clinician+). */
+function _cdgCanAccessDigest() {
+  const r = (currentUser && currentUser.role) || '';
+  return ['clinician', 'admin', 'supervisor', 'reviewer', 'regulator', 'clinic-admin'].includes(r);
+}
 
 function _cdgNoteRequiredValid(note) {
   if (note == null) return false;
@@ -13486,6 +13491,11 @@ function _cdgPresetWindow(preset) {
     since.setUTCDate(since.getUTCDate() - 7);
     return { since: since.toISOString(), until: now.toISOString() };
   }
+  if (preset === '30d') {
+    const since = new Date(now);
+    since.setUTCDate(since.getUTCDate() - 30);
+    return { since: since.toISOString(), until: now.toISOString() };
+  }
   if (preset === 'today') {
     const since = new Date(now);
     since.setUTCHours(0, 0, 0, 0);
@@ -13513,9 +13523,10 @@ const _CDG_SURFACE_ROUTE = {
 
 const _CDG_PRESETS = [
   ['12h', 'Last 12h (default)'],
-  ['today', 'Today (00:00 → now)'],
-  ['yesterday', 'Yesterday (00:00 → 24:00)'],
+  ['today', 'Today'],
+  ['yesterday', 'Yesterday'],
   ['7d', 'Last 7 days'],
+  ['30d', 'Last 30 days'],
 ];
 
 const _cdgState = {
@@ -13529,6 +13540,8 @@ const _cdgState = {
   sections: [],
   events: [],
   loaded: false,
+  loading: false,
+  loadError: null,
   isDemoView: false,
 };
 
@@ -13538,41 +13551,107 @@ export async function pgClinicianDailyDigest(setTopbar, navigate) {
 
   if (typeof setTopbar === 'function') {
     setTopbar(
-      'Clinician Daily Digest',
-      'End-of-shift summary across Inbox, Wearables Workbench, Adherence, Wellness, and AE drafts.',
+      'Clinician Digest',
+      'Clinical briefing: queue activity, safety signals, and workload — decision support only; clinician review required.',
     );
   }
 
-  // Mount-time audit ping. Best-effort.
+  if (!_cdgCanAccessDigest()) {
+    el.innerHTML = `
+      <div class="card" style="max-width:640px;margin:24px auto;padding:28px 24px;text-align:center">
+        <h2 style="margin:0 0 10px;font-size:1.15rem">Restricted</h2>
+        <p style="color:var(--text-secondary);font-size:0.9rem;line-height:1.5;margin:0">
+          The clinician digest is for clinical staff accounts. Sign in with a clinician or admin role, or contact your clinic administrator.
+        </p>
+      </div>`;
+    return;
+  }
+
+  // Mount-time audit ping. Best-effort (skipped if API unreachable).
   try {
     api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('view', {
-      note: 'daily digest page mounted',
+      note: 'clinician digest page mounted',
     }));
   } catch (_) { /* ignore */ }
 
   el.innerHTML = `
-    <div id="cdg-root" style="max-width:1180px;margin:0 auto;padding:18px 24px">
+    <div id="cdg-root" style="max-width:1180px;margin:0 auto;padding:18px 24px" role="main" aria-labelledby="cdg-page-title">
+      <header style="margin-bottom:18px">
+        <h1 id="cdg-page-title" style="margin:0 0 6px;font-size:1.35rem;font-weight:700;letter-spacing:-0.02em">Clinical briefing</h1>
+        <p style="margin:0;font-size:0.88rem;color:var(--text-secondary);line-height:1.45;max-width:820px">
+          AI-assisted summaries elsewhere in the product require your review. This digest aggregates <strong>audit-backed</strong> inbox and hub activity — it does not diagnose or prescribe.
+        </p>
+      </header>
       <div id="cdg-controls"></div>
       <div id="cdg-banner"></div>
       <div id="cdg-summary"></div>
+      <div id="cdg-workload"></div>
+      <div id="cdg-priority"></div>
       <div id="cdg-sections"></div>
       <div id="cdg-events"></div>
+      <div id="cdg-more"></div>
     </div>`;
+
+  _cdgState.loadError = null;
+  _cdgState.loading = true;
+  _cdgRenderLoadingPlaceholders();
 
   await _cdgLoadData();
   _cdgBindControls(navigate);
+  _cdgBindRetryAndExtras(navigate);
   _cdgBindSectionDrillOuts(navigate);
+}
+
+function _cdgRenderLoadingPlaceholders() {
+  const sk = `
+    <div class="card" style="padding:14px;margin-bottom:14px;animation:pulse 1.2s ease-in-out infinite">
+      <div style="height:14px;width:40%;background:var(--bg-tertiary);border-radius:4px;margin-bottom:10px"></div>
+      <div style="height:36px;width:100%;background:var(--bg-tertiary);border-radius:6px"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px">
+      ${[1, 2, 3, 4, 5].map(() => '<div class="card" style="padding:14px;height:72px;background:var(--bg-tertiary);border-radius:8px"></div>').join('')}
+    </div>`;
+  const sum = document.getElementById('cdg-summary');
+  if (sum) sum.innerHTML = sk;
+  const wl = document.getElementById('cdg-workload');
+  if (wl) wl.innerHTML = '';
+  const pr = document.getElementById('cdg-priority');
+  if (pr) pr.innerHTML = '';
+  const sec = document.getElementById('cdg-sections');
+  if (sec) sec.innerHTML = '<div class="card" style="padding:24px;color:var(--text-secondary);font-size:0.9rem">Loading digest…</div>';
+  const ev = document.getElementById('cdg-events');
+  if (ev) ev.innerHTML = '';
+  const mo = document.getElementById('cdg-more');
+  if (mo) mo.innerHTML = '';
 }
 
 async function _cdgLoadData() {
   const root = document.getElementById('cdg-root');
   if (!root) return; // navigated away
   const params = _cdgBuildFilterParams(_cdgState);
-  const [summary, sections, events] = await Promise.all([
-    api.clinicianDigestSummary(params),
-    api.clinicianDigestSections({ since: params.since || '', until: params.until || '' }),
-    api.clinicianDigestEvents(params),
-  ]);
+  _cdgState.loading = true;
+  _cdgState.loadError = null;
+
+  let summary = null;
+  let sections = null;
+  let events = null;
+  try {
+    [summary, sections, events] = await Promise.all([
+      api.clinicianDigestSummary(params),
+      api.clinicianDigestSections({ since: params.since || '', until: params.until || '' }),
+      api.clinicianDigestEvents(params),
+    ]);
+  } catch (e) {
+    _cdgState.loadError = e;
+    _cdgState.summary = _cdgEmptySummary();
+    _cdgState.sections = [];
+    _cdgState.events = [];
+    _cdgState.isDemoView = false;
+    _cdgState.loaded = true;
+    _cdgState.loading = false;
+    _cdgPaintDigestDom();
+    return;
+  }
 
   _cdgState.summary = summary || _cdgEmptySummary();
   _cdgState.sections = (sections && Array.isArray(sections.sections)) ? sections.sections : [];
@@ -13581,17 +13660,31 @@ async function _cdgLoadData() {
     || (sections && sections.is_demo_view)
     || (events && events.is_demo_view));
   _cdgState.loaded = true;
+  _cdgState.loading = false;
+  _cdgPaintDigestDom();
+}
 
+function _cdgPaintDigestDom() {
   const controlsEl = document.getElementById('cdg-controls');
   if (controlsEl) controlsEl.innerHTML = _cdgRenderControls(_cdgState);
   const bannerEl = document.getElementById('cdg-banner');
-  if (bannerEl) bannerEl.innerHTML = _cdgShouldShowDemoBanner({ is_demo_view: _cdgState.isDemoView }) ? _cdgRenderDemoBanner() : '';
+  if (bannerEl) {
+    bannerEl.innerHTML = ''
+      + (_cdgShouldShowDemoBanner({ is_demo_view: _cdgState.isDemoView }) ? _cdgRenderDemoBanner() : '')
+      + (_cdgState.loadError ? _cdgRenderErrorBanner(_cdgState.loadError) : '');
+  }
   const summaryEl = document.getElementById('cdg-summary');
-  if (summaryEl) summaryEl.innerHTML = _cdgRenderSummaryStrip(_cdgState.summary);
+  if (summaryEl) summaryEl.innerHTML = _cdgState.loadError ? '' : _cdgRenderSummaryStrip(_cdgState.summary);
+  const workloadEl = document.getElementById('cdg-workload');
+  if (workloadEl) workloadEl.innerHTML = _cdgState.loadError ? '' : _cdgRenderWorkloadRow(_cdgState.summary);
+  const priorityEl = document.getElementById('cdg-priority');
+  if (priorityEl) priorityEl.innerHTML = _cdgState.loadError ? '' : _cdgRenderPriorityStrip(_cdgState.events);
   const sectionsEl = document.getElementById('cdg-sections');
-  if (sectionsEl) sectionsEl.innerHTML = _cdgRenderSections(_cdgState.sections);
+  if (sectionsEl) sectionsEl.innerHTML = _cdgRenderSections(_cdgState.sections, !!_cdgState.loadError);
   const eventsEl = document.getElementById('cdg-events');
-  if (eventsEl) eventsEl.innerHTML = _cdgRenderEvents(_cdgState.events);
+  if (eventsEl) eventsEl.innerHTML = _cdgRenderEvents(_cdgState.events, !!_cdgState.loadError);
+  const moreEl = document.getElementById('cdg-more');
+  if (moreEl) moreEl.innerHTML = _cdgRenderMoreActions(!!_cdgState.loadError);
 }
 
 function _cdgRenderControls(state) {
@@ -13604,29 +13697,66 @@ function _cdgRenderControls(state) {
   const csvHref = api.clinicianDigestExportCsvUrl(_cdgBuildFilterParams(state));
   const ndjsonHref = api.clinicianDigestExportNdjsonUrl(_cdgBuildFilterParams(state));
   return `
-    <div class="card" style="padding:12px 14px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
-      <select id="cdg-preset" class="form-control" style="max-width:220px">${presetOpts}</select>
-      <input id="cdg-since" class="form-control" style="max-width:200px" placeholder="since (ISO, optional)" value="${_cdgEsc(state.since || '')}">
-      <input id="cdg-until" class="form-control" style="max-width:200px" placeholder="until (ISO, optional)" value="${_cdgEsc(state.until || '')}">
-      <select id="cdg-surface" class="form-control" style="max-width:200px">${surfaceOpts}</select>
-      <input id="cdg-patient" class="form-control" style="max-width:180px" placeholder="patient_id filter" value="${_cdgEsc(state.patientId || '')}">
-      <button id="cdg-email-btn" class="btn btn-primary">Email me the digest</button>
-      <button id="cdg-share-btn" class="btn btn-secondary">Share with colleague…</button>
-      <a id="cdg-csv-btn" class="btn btn-link" href="${_cdgEsc(csvHref)}" target="_blank">Export CSV</a>
-      <a id="cdg-ndjson-btn" class="btn btn-link" href="${_cdgEsc(ndjsonHref)}" target="_blank">Export NDJSON</a>
+    <div class="card" style="padding:14px 16px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+      <div>
+        <label for="cdg-preset" style="display:block;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-tertiary);margin-bottom:4px">Period</label>
+        <select id="cdg-preset" class="form-control" style="min-width:200px" aria-describedby="cdg-preset-hint">${presetOpts}</select>
+      </div>
+      <div>
+        <label for="cdg-since" style="display:block;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-tertiary);margin-bottom:4px">Since (ISO)</label>
+        <input id="cdg-since" class="form-control" style="min-width:188px" placeholder="optional override" value="${_cdgEsc(state.since || '')}" autocomplete="off">
+      </div>
+      <div>
+        <label for="cdg-until" style="display:block;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-tertiary);margin-bottom:4px">Until (ISO)</label>
+        <input id="cdg-until" class="form-control" style="min-width:188px" placeholder="optional override" value="${_cdgEsc(state.until || '')}" autocomplete="off">
+      </div>
+      <div>
+        <label for="cdg-surface" style="display:block;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-tertiary);margin-bottom:4px">Surface</label>
+        <select id="cdg-surface" class="form-control" style="min-width:200px">${surfaceOpts}</select>
+      </div>
+      <div>
+        <label for="cdg-patient" style="display:block;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-tertiary);margin-bottom:4px">Patient ID</label>
+        <input id="cdg-patient" class="form-control" style="min-width:160px" placeholder="filter" value="${_cdgEsc(state.patientId || '')}" autocomplete="off">
+      </div>
+      <span id="cdg-preset-hint" class="sr-only">Changing period updates the digest window.</span>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-left:auto">
+        <button type="button" id="cdg-email-btn" class="btn btn-primary" aria-describedby="cdg-email-hint">Email digest</button>
+        <span id="cdg-email-hint" class="sr-only">Queues an email to your account; delivery may be queued until SMTP is configured.</span>
+        <button type="button" id="cdg-share-btn" class="btn btn-secondary">Share with colleague</button>
+        <a id="cdg-csv-btn" class="btn btn-link" href="${_cdgEsc(csvHref)}" target="_blank" rel="noopener noreferrer">Export CSV</a>
+        <a id="cdg-ndjson-btn" class="btn btn-link" href="${_cdgEsc(ndjsonHref)}" target="_blank" rel="noopener noreferrer">Export NDJSON</a>
+      </div>
     </div>`;
 }
 
 function _cdgRenderDemoBanner() {
   return `
-    <div class="notice notice-warning" style="margin-bottom:14px;font-size:12.5px;line-height:1.55">
-      <strong>Demo data.</strong> Some events shown are from demo patients. Exports will be DEMO-prefixed; not regulator-submittable.
+    <div class="notice notice-warning" role="status" style="margin-bottom:14px;font-size:12.5px;line-height:1.55">
+      <strong>Demo session.</strong> Sample patient labels and counts are for product review only. Exports are DEMO-prefixed and are not regulator-submittable.
+    </div>`;
+}
+
+function _cdgHumanApiError(err) {
+  const st = err && err.status;
+  const code = err && err.code;
+  if (st === 403 || code === 'forbidden') return 'You do not have permission to load the digest for this account.';
+  if (st === 401 || code === 'demo_session') return 'Sign in with a live clinician session to load real digest data, or continue in demo mode with labelled sample data.';
+  if (st === 0 || (err && err.message === 'Network error')) return 'Network unavailable. Check your connection or try again when the API is reachable.';
+  return (err && err.message) ? String(err.message) : 'Could not load digest.';
+}
+
+function _cdgRenderErrorBanner(err) {
+  const msg = _cdgHumanApiError(err);
+  return `
+    <div class="notice notice-warning" role="alert" style="margin-bottom:14px;font-size:12.5px;line-height:1.55">
+      <strong>Digest unavailable.</strong> ${_cdgEsc(msg)}
+      <button type="button" id="cdg-retry-btn" class="btn btn-secondary" style="margin-left:10px;margin-top:6px">Retry</button>
     </div>`;
 }
 
 function _cdgRenderSummaryStrip(s) {
-  const card = (label, value, sub) => `
-    <div class="card" style="padding:14px;text-align:center">
+  const card = (label, value, sub, accent) => `
+    <div class="card" style="padding:14px;text-align:center;border-left:3px solid ${accent || 'transparent'}">
       <div style="font-size:22px;font-weight:700;color:var(--text-primary)">${_cdgEsc(String(value ?? 0))}</div>
       <div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin-top:4px">${_cdgEsc(label)}</div>
       ${sub ? `<div style="font-size:10px;color:var(--text-tertiary);margin-top:2px">${_cdgEsc(sub)}</div>` : ''}
@@ -13634,39 +13764,120 @@ function _cdgRenderSummaryStrip(s) {
   const since = s.since ? new Date(s.since).toLocaleString() : '—';
   const until = s.until ? new Date(s.until).toLocaleString() : '—';
   return `
-    <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:8px">Window: ${_cdgEsc(since)} → ${_cdgEsc(until)} (UTC)</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px">
-      ${card('Handled', s.handled ?? 0, 'this shift')}
-      ${card('Escalated', s.escalated ?? 0, 'AE drafts created')}
-      ${card('Paged', s.paged ?? 0, 'on-call notifications')}
-      ${card('Open', s.open ?? 0, 'still on the queue')}
-      ${card('SLA breached', s.sla_breached ?? 0, 'past per-surface SLA')}
+    <section aria-labelledby="cdg-kpi-heading">
+      <h2 id="cdg-kpi-heading" class="sr-only">Summary counts for selected period</h2>
+      <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:8px">Reporting window: ${_cdgEsc(since)} → ${_cdgEsc(until)} (browser local time)</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:10px;margin-bottom:16px">
+        ${card('Handled', s.handled ?? 0, 'Queue actions in window', 'var(--teal,#14b8a6)')}
+        ${card('Escalated', s.escalated ?? 0, 'Escalation paths (e.g. AE)', '#ff6b6b')}
+        ${card('Paged', s.paged ?? 0, 'On-call / paging', '#f59e0b')}
+        ${card('Open', s.open ?? 0, 'Still awaiting action', '#3b82f6')}
+        ${card('SLA breached', s.sla_breached ?? 0, 'Past per-surface SLA', '#ef4444')}
+      </div>
+    </section>`;
+}
+
+function _cdgRenderWorkloadRow(s) {
+  const open = Number(s.open ?? 0);
+  const breached = Number(s.sla_breached ?? 0);
+  const tone = breached > 0 ? 'notice-warning' : 'notice-info';
+  return `
+    <div class="notice ${tone}" role="status" style="margin-bottom:14px;font-size:12.5px;line-height:1.5">
+      <strong>Clinic workload snapshot.</strong>
+      ${open} item(s) still open across hubs${breached > 0 ? `; ${breached} past SLA (review priority).` : '; no SLA breaches in the current aggregate.'}
     </div>`;
 }
 
-function _cdgRenderSections(sections) {
+function _cdgRenderPriorityStrip(events) {
+  if (!Array.isArray(events) || events.length === 0) {
+    return `
+      <section aria-labelledby="cdg-priority-heading" style="margin-bottom:14px">
+        <h2 id="cdg-priority-heading" style="margin:0 0 8px;font-size:0.95rem;font-weight:600">Today's clinical priorities</h2>
+        <p style="margin:0;font-size:0.85rem;color:var(--text-tertiary)">No line items in this window — expand the period or open a hub below when you have live queue data.</p>
+      </section>`;
+  }
+  const prios = [];
+  for (let i = 0; i < events.length && prios.length < 5; i++) {
+    const it = events[i];
+    if (it.is_handled) continue;
+    const surface = _CDG_SURFACE_LABEL[it.surface] || it.surface || '—';
+    const sev = it.is_paged ? 'Paging / on-call' : it.is_escalated ? 'Escalated — review' : 'Open — review';
+    const pid = it.patient_name || it.patient_id || 'Unassigned';
+    prios.push({ it, surface, sev, pid });
+  }
+  if (prios.length === 0) {
+    return `
+      <section aria-labelledby="cdg-priority-heading" style="margin-bottom:14px">
+        <h2 id="cdg-priority-heading" style="margin:0 0 8px;font-size:0.95rem;font-weight:600">Today's clinical priorities</h2>
+        <p style="margin:0;font-size:0.85rem;color:var(--text-tertiary)">No open items in the loaded slice — recent activity below may be already handled.</p>
+      </section>`;
+  }
+  const rows = prios.map((p, idx) => `
+    <li style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border-color);font-size:12.5px">
+      <span style="flex-shrink:0;width:22px;height:22px;border-radius:999px;background:var(--bg-tertiary);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700">${idx + 1}</span>
+      <div style="flex:1">
+        <div><strong>${_cdgEsc(p.surface)}</strong> · ${_cdgEsc(p.sev)}</div>
+        <div style="color:var(--text-secondary);font-size:11px;margin-top:2px">${_cdgEsc(p.pid)}</div>
+      </div>
+      ${p.it.drill_out_url ? `<button type="button" class="cdg-drill-event-btn btn btn-sm btn-secondary" data-url="${_cdgEsc(p.it.drill_out_url)}" data-patient="${_cdgEsc(p.it.patient_id || '')}" data-surface="${_cdgEsc(p.it.surface || '')}">Open</button>` : ''}
+    </li>`).join('');
+  return `
+    <section aria-labelledby="cdg-priority-heading" style="margin-bottom:18px">
+      <h2 id="cdg-priority-heading" style="margin:0 0 10px;font-size:0.95rem;font-weight:600">Today's clinical priorities</h2>
+      <div class="card" style="padding:6px 14px 2px">
+        <ol style="margin:0;padding:0;list-style:none">${rows}</ol>
+      </div>
+      <p style="margin:8px 0 0;font-size:11px;color:var(--text-tertiary)">Priorities are derived from open / escalated / paged rows in the event feed — not an autonomous diagnosis.</p>
+    </section>`;
+}
+
+function _cdgRenderMoreActions(hasError) {
+  if (hasError) return '';
+  return `
+    <section aria-labelledby="cdg-more-heading" style="margin-top:8px;margin-bottom:24px">
+      <h2 id="cdg-more-heading" style="margin:0 0 10px;font-size:0.95rem;font-weight:600">Evidence, audit, and analyzers</h2>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        <button type="button" class="btn btn-secondary cdg-nav-extra" data-route="audittrail">Audit trail</button>
+        <button type="button" class="btn btn-secondary cdg-nav-extra" data-route="research-evidence">Research evidence</button>
+        <button type="button" class="btn btn-secondary cdg-nav-extra" data-route="protocol-studio">Protocol Studio</button>
+        <button type="button" class="btn btn-secondary cdg-nav-extra" data-route="assessments-v2">Assessments</button>
+        <button type="button" class="btn btn-secondary cdg-nav-extra" data-route="documents-v2">Documents</button>
+        <button type="button" class="btn btn-secondary cdg-nav-extra" data-route="mri-analysis">MRI</button>
+        <button type="button" class="btn btn-secondary cdg-nav-extra" data-route="qeeg-analysis">qEEG</button>
+        <button type="button" class="btn btn-secondary cdg-nav-extra" data-route="video-assessments">Video</button>
+        <button type="button" class="btn btn-secondary cdg-nav-extra" data-route="wearables">Biometrics</button>
+        <button type="button" class="btn btn-secondary cdg-nav-extra" data-route="text-analyzer">Text reports</button>
+      </div>
+      <p style="margin:10px 0 0;font-size:11px;color:var(--text-tertiary)">Analyzers open in context for clinician review; outputs are decision-support, not standalone clinical conclusions.</p>
+    </section>`;
+}
+
+function _cdgRenderSections(sections, hasError) {
+  if (hasError) return '';
   if (!Array.isArray(sections) || sections.length === 0) {
     return _cdgRenderEmptyState();
   }
-  // If every section is empty (no events), surface the honest empty state.
   const totalActivity = sections.reduce((acc, sx) =>
     acc + (sx.handled || 0) + (sx.escalated || 0) + (sx.paged || 0) + (sx.open || 0), 0);
   if (totalActivity === 0) {
     return _cdgRenderEmptyState();
   }
   return `
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-bottom:18px">
-      ${sections.map(_cdgRenderSectionCard).join('')}
-    </div>`;
+    <section aria-labelledby="cdg-hubs-heading" style="margin-bottom:18px">
+      <h2 id="cdg-hubs-heading" style="margin:0 0 12px;font-size:0.95rem;font-weight:600">Hub activity by surface</h2>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
+        ${sections.map(_cdgRenderSectionCard).join('')}
+      </div>
+    </section>`;
 }
 
 function _cdgRenderEmptyState() {
   return `
     <div class="card" style="padding:36px 24px;text-align:center;color:var(--text-secondary);margin-bottom:18px">
-      <div style="font-size:2.4rem;margin-bottom:14px">∅</div>
+      <div style="font-size:2rem;margin-bottom:12px" aria-hidden="true">∅</div>
       <div style="font-size:1.05rem;font-weight:600;margin-bottom:6px">No events to summarise for this shift.</div>
-      <div style="font-size:0.85rem;color:var(--text-tertiary);max-width:480px;margin:0 auto">
-        Counts are real audit-table aggregates across Inbox, Wearables Workbench, Adherence, Wellness and AE drafts. Nothing to display means: nothing was acknowledged, escalated, paged, or aged past its SLA in the current window. This is not AI-fabricated.
+      <div style="font-size:0.85rem;color:var(--text-tertiary);max-width:520px;margin:0 auto;line-height:1.5">
+        Counts are audit-backed aggregates from Inbox, Wearables Workbench, Adherence Hub, Wellness Hub, and Adverse Events drafts. An empty window means no matching acknowledgements, escalations, paging, or SLA breaches — not a clinical “all clear.”
       </div>
     </div>`;
 }
@@ -13676,14 +13887,14 @@ function _cdgRenderSectionCard(sx) {
   const top = (sx.top_patients || []).slice(0, 3);
   const topHtml = top.length
     ? `<div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">Top activity:
-        ${top.map(p => `<button class="cdg-drill-patient-btn" data-patient="${_cdgEsc(p.patient_id)}" data-surface="${_cdgEsc(sx.surface)}" style="background:none;border:none;color:var(--accent,#3b82f6);text-decoration:underline;cursor:pointer;padding:0;font-size:11px">${_cdgEsc(p.patient_name)}</button> · ${_cdgEsc(String(p.event_count))}`).join('<br>')}
+        ${top.map(p => `<button type="button" class="cdg-drill-patient-btn" data-patient="${_cdgEsc(p.patient_id)}" data-surface="${_cdgEsc(sx.surface)}" style="background:none;border:none;color:var(--accent,#3b82f6);text-decoration:underline;cursor:pointer;padding:0;font-size:11px">${_cdgEsc(p.patient_name)}</button> · ${_cdgEsc(String(p.event_count))}`).join('<br>')}
       </div>`
     : `<div style="margin-top:8px;font-size:11px;color:var(--text-tertiary)">No per-patient activity in this window.</div>`;
   return `
     <div class="card" style="padding:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
         <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${_cdgEsc(label)}</div>
-        <button class="cdg-drill-section-btn btn btn-link" data-surface="${_cdgEsc(sx.surface)}" style="padding:0;font-size:11px">Open hub →</button>
+        <button type="button" class="cdg-drill-section-btn btn btn-link" data-surface="${_cdgEsc(sx.surface)}" style="padding:0;font-size:11px">Open hub</button>
       </div>
       <div style="margin-top:10px;display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:11px">
         <div><div style="font-weight:700;color:var(--text-primary);font-size:14px">${_cdgEsc(String(sx.handled ?? 0))}</div><div style="color:var(--text-tertiary)">handled</div></div>
@@ -13695,27 +13906,39 @@ function _cdgRenderSectionCard(sx) {
     </div>`;
 }
 
-function _cdgRenderEvents(events) {
-  if (!Array.isArray(events) || events.length === 0) return '';
+function _cdgRenderEvents(events, hasError) {
+  if (hasError) return '';
+  if (!Array.isArray(events) || events.length === 0) {
+    return `
+      <section aria-labelledby="cdg-feed-heading" style="margin-bottom:14px">
+        <h2 id="cdg-feed-heading" style="margin:0 0 8px;font-size:0.95rem;font-weight:600">Activity timeline</h2>
+        <p style="margin:0;font-size:0.85rem;color:var(--text-tertiary)">No line-level events in this window.</p>
+      </section>`;
+  }
   const rows = events.slice(0, 50).map(_cdgRenderEventRow).join('');
   return `
-    <div class="card" style="padding:0;margin-bottom:14px;overflow:hidden">
-      <div style="padding:10px 14px;border-bottom:1px solid var(--border-color);font-size:12px;font-weight:600;color:var(--text-secondary)">Recent events (${_cdgEsc(String(events.length))} total)</div>
-      ${rows}
-    </div>`;
+    <section aria-labelledby="cdg-feed-heading">
+      <h2 id="cdg-feed-heading" style="margin:0 0 10px;font-size:0.95rem;font-weight:600">Activity timeline</h2>
+      <div class="card" style="padding:0;margin-bottom:14px;overflow:hidden">
+        <div style="padding:10px 14px;border-bottom:1px solid var(--border-color);font-size:12px;font-weight:600;color:var(--text-secondary)">${_cdgEsc(String(events.length))} event(s) in view</div>
+        ${rows}
+      </div>
+    </section>`;
 }
 
 function _cdgRenderEventRow(it) {
+  const openNeedsReview = !it.is_handled && !it.is_escalated && !it.is_paged;
   const flag = it.is_paged ? `<span style="color:#f59e0b;font-size:10px;background:var(--bg-tertiary);padding:1px 5px;border-radius:3px;margin-right:6px">PAGED</span>`
     : it.is_escalated ? `<span style="color:#ff6b6b;font-size:10px;background:var(--bg-tertiary);padding:1px 5px;border-radius:3px;margin-right:6px">ESCALATED</span>`
     : it.is_handled ? `<span style="color:#14b8a6;font-size:10px;background:var(--bg-tertiary);padding:1px 5px;border-radius:3px;margin-right:6px">HANDLED</span>`
+    : openNeedsReview ? `<span style="color:#3b82f6;font-size:10px;background:var(--bg-tertiary);padding:1px 5px;border-radius:3px;margin-right:6px">OPEN</span>`
     : '';
   const demo = it.is_demo ? `<span style="color:var(--text-tertiary);font-size:10px;background:var(--bg-tertiary);padding:1px 5px;border-radius:3px;margin-right:6px">DEMO</span>` : '';
   const surface = _CDG_SURFACE_LABEL[it.surface] || it.surface || '—';
   const ts = it.created_at ? new Date(it.created_at).toLocaleString() : '—';
   const drillHtml = it.drill_out_url
-    ? `<button class="cdg-drill-event-btn btn btn-link" data-url="${_cdgEsc(it.drill_out_url)}" data-patient="${_cdgEsc(it.patient_id || '')}" data-surface="${_cdgEsc(it.surface || '')}" style="font-size:11px;padding:0">Drill out →</button>`
-    : '';
+    ? `<button type="button" class="cdg-drill-event-btn btn btn-link" data-url="${_cdgEsc(it.drill_out_url)}" data-patient="${_cdgEsc(it.patient_id || '')}" data-surface="${_cdgEsc(it.surface || '')}" style="font-size:11px;padding:0" aria-label="Open linked hub for this row">Open</button>`
+    : `<span style="font-size:11px;color:var(--text-tertiary)">—</span>`;
   return `
     <div style="padding:8px 14px;border-bottom:1px solid var(--border-color);display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;font-size:12px">
       <div style="flex:1;min-width:240px">
@@ -13726,6 +13949,32 @@ function _cdgRenderEventRow(it) {
       </div>
       <div>${drillHtml}</div>
     </div>`;
+}
+
+function _cdgBindRetryAndExtras(navigate) {
+  const retry = document.getElementById('cdg-retry-btn');
+  if (retry && !retry._bound) {
+    retry._bound = true;
+    retry.onclick = async () => {
+      await _cdgLoadData();
+      _cdgBindControls(navigate);
+      _cdgBindRetryAndExtras(navigate);
+      _cdgBindSectionDrillOuts(navigate);
+    };
+  }
+  document.querySelectorAll('.cdg-nav-extra').forEach(btn => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.onclick = () => {
+      const route = btn.getAttribute('data-route');
+      if (!route) return;
+      try {
+        api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('navigation', { note: 'extra_nav=' + route }));
+      } catch (_) {}
+      if (typeof navigate === 'function') navigate(route);
+      else if (typeof window !== 'undefined' && window._nav) window._nav(route);
+    };
+  });
 }
 
 function _cdgBindControls(navigate) {
@@ -13740,6 +13989,7 @@ function _cdgBindControls(navigate) {
       try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('date_range_changed', { note: 'preset=' + _cdgState.preset })); } catch (_) {}
       await _cdgLoadData();
       _cdgBindControls(navigate);
+      _cdgBindRetryAndExtras(navigate);
       _cdgBindSectionDrillOuts(navigate);
     };
   }
@@ -13751,6 +14001,7 @@ function _cdgBindControls(navigate) {
       try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('filter_changed', { note: 'since=' + (_cdgState.since || '') })); } catch (_) {}
       await _cdgLoadData();
       _cdgBindControls(navigate);
+      _cdgBindRetryAndExtras(navigate);
       _cdgBindSectionDrillOuts(navigate);
     };
   }
@@ -13762,6 +14013,7 @@ function _cdgBindControls(navigate) {
       try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('filter_changed', { note: 'until=' + (_cdgState.until || '') })); } catch (_) {}
       await _cdgLoadData();
       _cdgBindControls(navigate);
+      _cdgBindRetryAndExtras(navigate);
       _cdgBindSectionDrillOuts(navigate);
     };
   }
@@ -13773,6 +14025,7 @@ function _cdgBindControls(navigate) {
       try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('filter_changed', { note: 'surface=' + (_cdgState.surface || 'all') })); } catch (_) {}
       await _cdgLoadData();
       _cdgBindControls(navigate);
+      _cdgBindRetryAndExtras(navigate);
       _cdgBindSectionDrillOuts(navigate);
     };
   }
@@ -13784,6 +14037,7 @@ function _cdgBindControls(navigate) {
       try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('filter_changed', { note: 'patient_id=' + (_cdgState.patientId || 'all') })); } catch (_) {}
       await _cdgLoadData();
       _cdgBindControls(navigate);
+      _cdgBindRetryAndExtras(navigate);
       _cdgBindSectionDrillOuts(navigate);
     };
   }
@@ -13838,12 +14092,16 @@ function _cdgBindControls(navigate) {
         : '';
       try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('colleague_share_initiated', { note: 'recipient=' + recipient.slice(0, 60) })); } catch (_) {}
       try {
-        const r = await api.clinicianDigestShareColleague(recipient, reason, {
-          since: _cdgState.since, until: _cdgState.until,
+        const r = await api.clinicianDigestShareColleague({
+          recipient_user_id: recipient.trim(),
+          reason: reason || undefined,
+          since: _cdgState.since,
+          until: _cdgState.until,
         });
-        if (r && r.recipient_email) {
+        if (r) {
+          const who = r.recipient_email || r.recipient_user_id || recipient.trim();
           if (window.showToast) window.showToast(
-            `Digest queued for ${r.recipient_email} (${r.delivery_status}). Audit recorded.`,
+            `Digest queued for ${who} (${r.delivery_status}). Audit recorded.`,
             'info',
           );
         }
