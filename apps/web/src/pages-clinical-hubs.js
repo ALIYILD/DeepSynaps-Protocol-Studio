@@ -8423,8 +8423,18 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
 // pgReportsHubNew — Generate · Recent · Analytics · Export
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgReportsHubNew(setTopbar, navigate) {
+  // Consume focus set by per-widget Report buttons on the patient-analytics page.
+  const _focus = window._reportsHubFocus || null;
+  if (_focus) { window._reportsHubFocus = null; window._reportsHubTab = 'generate'; }
   const tab = window._reportsHubTab || 'generate';
   window._reportsHubTab = tab;
+  const FOCUS_TYPE_TO_REPORT_ID = {
+    'wearables-summary':  'R16',
+    'outcome-summary':    'R4',
+    'medication-history': 'R18',
+    'adherence-summary':  'R9',
+    'digital-phenotype':  'R11',
+  };
   const TAB_META = {
     generate:   { label: 'Generate',         color: 'var(--teal)'   },
     combined:   { label: 'Combined Report',  color: 'var(--green)'  },
@@ -8460,6 +8470,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     { id:'R15',name:'Protocol Efficacy Report',        cat:'Health',       auto:false, fields:22, desc:'Per-protocol responder rates, mean outcome deltas, session tolerance, and evidence alignment.', sources:['protocols','outcomes','courses','sessions'] },
     { id:'R16',name:'Wearable Health Summary',         cat:'Health',       auto:true,  fields:14, desc:'Wearable-derived health metrics: sleep, HRV, activity, and correlation with clinical outcomes.', sources:['wearables','outcomes','patients'] },
     { id:'R17',name:'Comprehensive Combined Report',   cat:'Combined',     auto:false, fields:40, desc:'Full cross-domain report combining clinical, financial, and operational data with AI insights.', sources:['patients','courses','outcomes','sessions','finance','protocols','assessments','wearables'] },
+    { id:'R18',name:'Medication History Report',        cat:'Health',       auto:true,  fields:16, desc:'Per-patient medication history with prescriptions, changes, adherence, and drug interactions.', sources:['patients','courses','assessments'] },
   ];
 
   // ── Data source registry — each dashboard page's data accessor ──
@@ -8665,11 +8676,14 @@ export async function pgReportsHubNew(setTopbar, navigate) {
       ]);
       patients=pR?.items||[]; courses=cR?.items||[];
     } catch {}
-    const patOpts = '<option value="all">All Patients (Clinic-wide)</option>' + patients.map(p=>'<option value="'+p.id+'">'+ ((p.first_name||'')+' '+(p.last_name||'')).trim() +'</option>').join('');
+    const focusReportId = _focus ? (FOCUS_TYPE_TO_REPORT_ID[_focus.type] || null) : null;
+    const focusPatientId = _focus?.patientId || null;
+    const patOpts = '<option value="all"' + (focusPatientId ? '' : ' selected') + '>All Patients (Clinic-wide)</option>' +
+      patients.map(p => '<option value="' + p.id + '"' + (focusPatientId && String(p.id) === String(focusPatientId) ? ' selected' : '') + '>' + ((p.first_name||'')+' '+(p.last_name||'')).trim() + '</option>').join('');
     const cats = ['All',...new Set(REPORT_TYPES.map(r=>r.cat))];
-    const filtCat = window._repGenCat||'All';
+    const filtCat = focusReportId ? 'All' : (window._repGenCat||'All');
     const filtTypes = REPORT_TYPES.filter(r=>filtCat==='All'||r.cat===filtCat);
-    const selType = filtTypes[0] || REPORT_TYPES[0];
+    const selType = (focusReportId && REPORT_TYPES.find(r => r.id === focusReportId)) || filtTypes[0] || REPORT_TYPES[0];
 
     main = `
       <div class="ch-two-col">
@@ -8682,7 +8696,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
                 ${cats.map(c=>'<button class="reg-domain-pill'+(c===filtCat?' active':'')+'" onclick="window._repGenCat=\''+c+'\';window._nav(\'reports-hub\')">'+c+'</button>').join('')}
               </div>
               <select id="rep-type" class="ch-select ch-select--full" onchange="window._repUpdateDesc()">
-                ${filtTypes.map(r=>'<option value="'+r.id+'">'+r.name+'</option>').join('')}
+                ${filtTypes.map(r=>'<option value="'+r.id+'"'+(r.id===selType.id?' selected':'')+'>'+r.name+'</option>').join('')}
               </select>
             </div>
             <div id="rep-desc" style="font-size:11.5px;color:var(--text-tertiary);line-height:1.5;padding:8px;background:rgba(255,255,255,0.03);border-radius:6px">${selType.desc}</div>

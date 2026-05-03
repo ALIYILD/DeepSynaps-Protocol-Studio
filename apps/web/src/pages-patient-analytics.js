@@ -18,6 +18,7 @@ import {
 import { emptyPatientEvidenceContext, loadPatientEvidenceContext } from './patient-evidence-context.js';
 import { EVIDENCE_TOTAL_PAPERS } from './evidence-dataset.js';
 import { VOICE_DECISION_SUPPORT_SHORT } from './voice-decision-support.js';
+import { buildReport, reportToJSONString, downloadBlob } from './deeptwin/reports.js';
 
 function emptyAnalyticsEvidenceContext(patientId = '') {
   return emptyPatientEvidenceContext(patientId);
@@ -970,10 +971,66 @@ export async function pgPatientAnalyticsDetail(setTopbar, patientId) {
   el.querySelectorAll('[data-pa-action="reports"]').forEach(b =>
     b.addEventListener('click', () => { window._patientHubTab = 'reports'; window._nav('patients-hub'); }));
   el.querySelectorAll('[data-pa-action="report"]').forEach(b =>
-    b.addEventListener('click', () => {
-      window._patientHubTab = 'reports';
-      window._dsToast?.({ title: 'Reports Hub', body: 'Open the reports hub to generate or review patient reports.', severity: 'info' });
-      window._nav('patients-hub');
+    b.addEventListener('click', async () => {
+      const widget = b.dataset.paWidget;
+      try {
+        switch (widget) {
+          case 'predictions':
+            downloadBlob(`deeptwin_prediction_${id}.json`,
+              reportToJSONString(await buildReport(id, 'prediction', { horizon: 4 })),
+              'application/json');
+            break;
+          case 'qeeg':
+            downloadBlob(`deeptwin_qeeg_${id}.json`,
+              reportToJSONString(await buildReport(id, 'qeeg', {})),
+              'application/json');
+            break;
+          case 'mri':
+            downloadBlob(`deeptwin_mri_${id}.json`,
+              reportToJSONString(await buildReport(id, 'mri', {})),
+              'application/json');
+            break;
+          case 'correlation':
+            downloadBlob(`deeptwin_correlation_${id}.json`,
+              reportToJSONString(await buildReport(id, 'correlation', {})),
+              'application/json');
+            break;
+          case 'biometrics':
+            window._reportsHubFocus = { type: 'wearables-summary', patientId: id };
+            window._nav('reports-v2');
+            break;
+          case 'assessments':
+            window._reportsHubFocus = { type: 'outcome-summary', patientId: id };
+            window._nav('reports-v2');
+            break;
+          case 'medications':
+            window._reportsHubFocus = { type: 'medication-history', patientId: id };
+            window._nav('reports-v2');
+            break;
+          case 'therapy':
+            window._reportsHubFocus = { type: 'adherence-summary', patientId: id };
+            window._nav('reports-v2');
+            break;
+          case 'screen':
+          case 'voice':
+          case 'video':
+          case 'text':
+          case 'location':
+            window._reportsHubFocus = { type: 'digital-phenotype', patientId: id };
+            window._nav('reports-v2');
+            break;
+          case 'ehr':
+            window._selectedPatientId = id;
+            window._profilePatientId = id;
+            try { sessionStorage.setItem('ds_pat_selected_id', id); } catch {}
+            window._nav('documents-v2');
+            break;
+          default:
+            window._dsToast?.({ title: 'Report', body: 'Per-widget report generation queued.', severity: 'info' });
+        }
+      } catch (e) {
+        window._dsToast?.({ title: 'Report failed', body: e?.message || String(e), severity: 'error' });
+      }
     }));
   el.querySelectorAll('[data-pa-action="open-video-evidence"]').forEach(b =>
     b.addEventListener('click', () => {
