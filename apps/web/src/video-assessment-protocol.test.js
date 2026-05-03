@@ -32,3 +32,10 @@ test('summarizeSession counts skipped and completed', () => {
   assert.equal(sum.tasks_skipped, 1);
   assert.ok(sum.safety_task_ids.includes(s.tasks[1].task_id));
 });
+
+test('summarizeSession counts pending_review as completed capture', () => {
+  const s = createEmptySession();
+  s.tasks[0].recording_status = 'pending_review';
+  const sum = summarizeSession(s);
+  assert.equal(sum.tasks_completed, 1);
+});
