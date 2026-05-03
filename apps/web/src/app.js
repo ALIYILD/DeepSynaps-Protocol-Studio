@@ -506,7 +506,7 @@ let currentPage = 'dashboard';
 const ROLE_NAV_HIDE = {
   technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'risk-analyzer', 'population-analytics', 'brain-map-planner', 'handbook-generator', 'notes-dictation', 'assessments-hub', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
   reviewer:   ['session-execution', 'protocol-wizard', 'billing', 'pricing', 'population-analytics', 'brain-map-planner'],
-  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'risk-analyzer', 'audittrail', 'billing', 'population-analytics', 'brain-map-planner', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-handbooks', 'reg-virtual-care', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
+  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'risk-analyzer', 'audittrail', 'billing', 'population-analytics', 'brain-map-planner', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-handbooks', 'reg-virtual-care', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report', 'tickets'],
   clinician:  ['population-analytics'],
 };
 
@@ -1339,6 +1339,23 @@ async function renderPage() {
       </div>
     `;
     return;
+  }
+
+  // Tickets: clinic/staff operational workspace — block patient/guest roles at route level.
+  if (currentPage === 'tickets') {
+    const tr = window.currentUser?.role;
+    if (tr === 'patient' || tr === 'guest') {
+      el.innerHTML = `
+        <div style="max-width:560px;margin:48px auto;padding:24px;text-align:center;border:1px solid var(--border);border-radius:12px;background:var(--surface)">
+          <div style="font-size:40px;margin-bottom:12px" aria-hidden="true">🔒</div>
+          <h2 style="font-size:18px;color:var(--text-primary);margin:0 0 8px">Tickets unavailable</h2>
+          <p style="font-size:13px;color:var(--text-secondary);line-height:1.55;margin:0 0 16px">
+            Operational tickets are for clinic staff. Use <strong>Support</strong> in the patient portal for patient-facing requests.
+          </p>
+          <button class="btn btn-primary btn-sm" onclick="window._nav('home')">Back to Dashboard</button>
+        </div>`;
+      return;
+    }
   }
 
   switch (currentPage) {
