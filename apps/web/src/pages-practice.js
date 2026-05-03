@@ -1,6 +1,13 @@
 import { cardWrap, fr, pillSt, tag, initials, spinner } from './helpers.js';
 import { api } from './api.js';
 import { LOCALES, setLocale, getLocale } from './i18n.js';
+import {
+  ACADEMY_GOVERNANCE_DISCLAIMER,
+  ACADEMY_CLINIC_LINKED_MODULES,
+  academySectionCardMeta,
+} from './academy-clinic-constants.js';
+
+export { ACADEMY_GOVERNANCE_DISCLAIMER, ACADEMY_CLINIC_LINKED_MODULES } from './academy-clinic-constants.js';
 
 // ── Scheduling ────────────────────────────────────────────────────────────────
 // Full-view Schedule page. This is the simple "month + today list" view — the
@@ -11705,22 +11712,25 @@ function _wireClinicianAccount() {
 }
 
 // ── Academy (clinic portal) ──────────────────────────────────────────────────
+// Shared HTML escaper for Academy markup + marketplace modals (must be in
+// module scope so _acEduListNew / _acEduMyCourses closures always work).
+function _academyEsc(v) {
+  if (v == null) return '';
+  return String(v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
+}
+
 // Curated hub of research, publications, seminars, workshops, short courses
-// and certification programmes relevant to neuromodulation clinics. External
-// links are opened in a new tab with rel=noopener noreferrer; they are
-// third-party resources the DeepSynaps team considers reputable, not
-// endorsements. ac-* CSS scope.
+// and external credential pathways relevant to neuromodulation clinics.
+// External links open in a new tab with rel=noopener noreferrer; they are
+// third-party resources, not DeepSynaps endorsements. ac-* CSS scope.
 export async function pgClinicAcademy(setTopbar, _currentUser) {
   setTopbar('Academy', '');
   const el = document.getElementById('content');
   if (!el) return;
 
-  const esc = (v) => {
-    if (v == null) return '';
-    return String(v)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
-  };
+  const esc = _academyEsc;
 
   const SECTIONS = [
     {
@@ -11753,7 +11763,7 @@ export async function pgClinicAcademy(setTopbar, _currentUser) {
       sub: 'Live talks, grand rounds, and webinar series — most stream free to clinicians.',
       items: [
         { name: 'International Neuromodulation Society Webinars', org: 'INS', desc: 'Monthly webinar series covering SCS, DBS, peripheral and sacral neuromodulation.', href: 'https://www.neuromodulation.com/webinars', tag: 'Monthly' },
-        { name: 'NANS Educational Webinars',  org: 'North American Neuromodulation Society', desc: 'CME-eligible webinars on evidence, technique, and billing for US clinicians.', href: 'https://www.neuromodulation.org/education', tag: 'CME' },
+        { name: 'NANS Educational Webinars',  org: 'North American Neuromodulation Society', desc: 'Educational webinars on evidence, technique, and billing — verify continuing-education eligibility with the provider.', href: 'https://www.neuromodulation.org/education', tag: 'External · edu' },
         { name: 'Clinical TMS Society Webinars', org: 'Clinical TMS Society', desc: 'Seminars focused on repetitive TMS for depression, OCD, and emerging indications.', href: 'https://www.clinicaltmssociety.org/education', tag: 'rTMS' },
         { name: 'IFCN Educational Programs',  org: 'International Federation of Clinical Neurophysiology', desc: 'Global webinars on EEG, EMG, evoked potentials, and stimulation safety.', href: 'https://www.ifcn.info/education', tag: 'Global' },
         { name: 'ISNR Conferences & Webinars',org: 'International Society for Neurofeedback & Research', desc: 'Quarterly webinars and annual conference on neurofeedback science and practice.', href: 'https://isnr.org/', tag: 'Neurofeedback' },
@@ -11791,8 +11801,8 @@ export async function pgClinicAcademy(setTopbar, _currentUser) {
       ],
     },
     {
-      id: 'certifications', label: 'Certification Programs', icon: '🏅', tone: 'pink',
-      sub: 'Accredited credentialing pathways — verify expertise and meet payor requirements.',
+      id: 'certifications', label: 'External certification paths', icon: '🏅', tone: 'pink',
+      sub: 'Third-party credentialing and board pathways — always confirm requirements, scope, and recognition with the issuing body and your local governance. DeepSynaps does not issue or record these credentials here.',
       items: [
         { name: 'BCIA Board Certification in Neurofeedback (BCN)', org: 'Biofeedback Certification International Alliance', desc: 'Industry-standard neurofeedback credential. Requires 36 h didactic, mentorship, case studies, and exam.', href: 'https://www.bcia.org/neurofeedback-certification', tag: 'BCN' },
         { name: 'BCIA Biofeedback Certification (BCB)',            org: 'BCIA',                                             desc: 'Biofeedback credential covering HRV, EMG, thermal and respiratory modalities.', href: 'https://www.bcia.org/biofeedback-certification', tag: 'BCB' },
@@ -11809,35 +11819,53 @@ export async function pgClinicAcademy(setTopbar, _currentUser) {
 
   /* ── Community education items (loaded async after render) ──────────── */
   let communityItems = [];
+  let communityLoadError = false;
   try {
     const resp = await api.marketplaceEducationBrowse();
     communityItems = (resp && resp.items) || [];
-  } catch (_) { /* API offline / demo mode — gracefully degrade */ }
+  } catch (_) {
+    communityLoadError = true;
+  }
   const communityCount = communityItems.length;
 
-  const itemCard = (it) => `
+  const itemCard = (it, sectionId) => {
+    const m = academySectionCardMeta(sectionId);
+    return `
     <a class="ac-card" href="${esc(it.href)}" target="_blank" rel="noopener noreferrer">
       <div class="ac-card-body">
         <div class="ac-card-head">
           <h4 class="ac-card-name">${esc(it.name)}</h4>
           ${it.tag ? `<span class="ac-card-tag">${esc(it.tag)}</span>` : ''}
         </div>
+        <div class="ac-card-meta" aria-label="Resource metadata">
+          <span><strong>Audience:</strong> ${esc(m.audience)}</span>
+          <span><strong>Type:</strong> ${esc(m.ctype)}</span>
+          <span><strong>Source:</strong> ${esc(m.src)}</span>
+        </div>
         <div class="ac-card-org">${esc(it.org)}</div>
         <p class="ac-card-desc">${esc(it.desc)}</p>
       </div>
       <div class="ac-card-chev" aria-hidden="true">↗</div>
     </a>`;
+  };
 
   const communityCard = (it) => {
     const priceStr = it.price ? (it.price_unit || 'GBP') + ' ' + Number(it.price).toFixed(2) : 'Free';
     const kindLabel = it.kind === 'course' ? 'Course' : 'Education';
     const kindColor = it.kind === 'course' ? '#8b5cf6' : '#10b981';
+    const updated = it.created_at ? String(it.created_at).slice(0, 10) : null;
     return `
     <a class="ac-card ac-edu-card" href="${esc(it.external_url || '#')}" target="_blank" rel="noopener noreferrer">
       <div class="ac-card-body">
         <div class="ac-card-head">
           <span class="ac-edu-badge" style="background:${kindColor}22;color:${kindColor};border:1px solid ${kindColor}44">${kindLabel}</span>
           <h4 class="ac-card-name">${esc(it.name)}</h4>
+        </div>
+        <div class="ac-card-meta" aria-label="Listing metadata">
+          <span><strong>Audience:</strong> Clinician, staff (community listing)</span>
+          <span><strong>Type:</strong> Marketplace listing</span>
+          <span><strong>Source:</strong> Live API (seller-listed)</span>
+          ${updated ? `<span><strong>Listed:</strong> ${esc(updated)}</span>` : ''}
         </div>
         <div class="ac-card-org">by ${esc(it.provider || 'Unknown')}</div>
         <p class="ac-card-desc">${esc(it.description || '')}</p>
@@ -11858,16 +11886,22 @@ export async function pgClinicAcademy(setTopbar, _currentUser) {
           <p class="ac-section-sub">${esc(s.sub)}</p>
         </div>
       </div>
-      <div class="ac-grid">${s.items.map(itemCard).join('')}</div>
+      <div class="ac-grid">${s.items.map((it) => itemCard(it, s.id)).join('')}</div>
     </section>`;
+
 
   el.innerHTML = `
     <div class="ac-wrap">
+      <aside class="ac-governance-banner" role="note">
+        <strong>Governance &amp; safety.</strong>
+        ${esc(ACADEMY_GOVERNANCE_DISCLAIMER)}
+      </aside>
+
       <header class="ac-hero">
         <div class="ac-hero-body">
-          <div class="ac-hero-eyebrow">Academy</div>
-          <h2 class="ac-hero-title">Research, education, and credentials — in one place</h2>
-          <p class="ac-hero-desc">A curated hub of reputable resources the DeepSynaps clinical team uses to stay current in neuromodulation, neurofeedback, and clinical neurophysiology. External links open in a new tab — DeepSynaps does not endorse any single provider.</p>
+          <div class="ac-hero-eyebrow">Academy <span class="ac-pill ac-pill--audience">Clinician &amp; staff workspace</span></div>
+          <h2 class="ac-hero-title">Research, training links, and external credentials — in one place</h2>
+          <p class="ac-hero-desc">Curated third-party resources for staying current in neuromodulation, neurofeedback, and clinical neurophysiology. This page does not host in-app lessons or track course completion; it is a link library plus optional community listings from the marketplace API. External sites open in a new tab — links are not endorsements.</p>
         </div>
         <div class="ac-hero-stats">
           ${SECTIONS.map(s => `
@@ -11881,6 +11915,25 @@ export async function pgClinicAcademy(setTopbar, _currentUser) {
           </button>
         </div>
       </header>
+
+      <section class="ac-linked-strip" aria-label="Linked clinic modules">
+        <div class="ac-linked-strip-head">
+          <span class="ac-linked-strip-title">Open a module</span>
+          <span class="ac-linked-strip-hint">In-app tools — same role gates as the sidebar.</span>
+        </div>
+        <div class="ac-linked-strip-scroll">
+          ${ACADEMY_CLINIC_LINKED_MODULES.map((m) => `
+            <button type="button" class="ac-linked-chip" onclick="window._nav && window._nav('${esc(m.page)}')">${esc(m.label)}</button>`).join('')}
+        </div>
+      </section>
+
+      <section class="ac-progress-panel" aria-labelledby="ac-progress-heading">
+        <h3 id="ac-progress-heading" class="ac-progress-title">Progress &amp; certificates</h3>
+        <p class="ac-progress-body">
+          In-app training completion, quizzes, and certificates are not implemented on this Academy page. Patient-facing learning with local-only completion lives under the patient portal (<strong>page=pt-academy</strong>), not here.
+          Community listings are persisted when sellers save via the marketplace API; browse uses public read (<code class="ac-code-inline">GET /api/v1/marketplace/seller/browse</code>).
+        </p>
+      </section>
 
       <nav class="ac-filter" role="tablist" aria-label="Filter academy by type">
         <button class="ac-filter-chip active" data-ac-filter="all"            role="tab" aria-selected="true">All <span class="ac-filter-count">${totalItems + communityCount}</span></button>
@@ -11896,27 +11949,30 @@ export async function pgClinicAcademy(setTopbar, _currentUser) {
           <span class="pt-page-tile pt-nav-tile--green ac-section-ico" aria-hidden="true">🛒</span>
           <div>
             <h3 class="ac-section-title">Community Courses <span class="ac-section-count">${communityCount}</span></h3>
-            <p class="ac-section-sub">Courses, workshops, and education content created and sold by clinicians in the DeepSynaps community.</p>
+            <p class="ac-section-sub">Seller-listed education on the marketplace (live API when available). Audience: clinician/staff browsing — not a substitute for local competency sign-off.</p>
           </div>
         </div>
+        ${communityLoadError ? `<div class="ac-api-banner ac-api-banner--warn" role="status">Community listings could not be loaded (offline or API unreachable). Curated sections below still work.</div>` : ''}
         <div class="ac-edu-cta">
           <div class="ac-edu-cta-text">
-            <strong>Share your expertise</strong>
-            <span>Create and sell courses, workshops, or educational resources to the community.</span>
+            <strong>List education on the marketplace</strong>
+            <span>Creates or updates a seller listing (requires sign-in). This is not an in-app certificate or CME record.</span>
           </div>
           <div class="ac-edu-cta-btns">
-            <button class="ac-edu-btn ac-edu-btn--primary" onclick="window._acEduListNew()">+ Create Course</button>
-            <button class="ac-edu-btn ac-edu-btn--secondary" onclick="window._acEduMyCourses()">My Courses</button>
+            <button class="ac-edu-btn ac-edu-btn--primary" onclick="window._acEduListNew()">+ Create listing</button>
+            <button class="ac-edu-btn ac-edu-btn--secondary" onclick="window._acEduMyCourses()">My listings</button>
           </div>
         </div>
         ${communityItems.length
           ? '<div class="ac-grid">' + communityItems.map(communityCard).join('') + '</div>'
-          : '<div class="ac-edu-empty"><div class="ac-edu-empty-icon">🎓</div><h4>No community courses yet</h4><p>Be the first to share your expertise! Create a course or education resource and sell it to the DeepSynaps community.</p><button class="ac-edu-btn ac-edu-btn--primary" onclick="window._acEduListNew()">Create Your First Course</button></div>'
+          : (communityLoadError
+            ? '<div class="ac-edu-empty"><div class="ac-edu-empty-icon">📡</div><h4>Community listings unavailable</h4><p>Try again when you have API connectivity. Curated external links in other sections remain available.</p></div>'
+            : '<div class="ac-edu-empty"><div class="ac-edu-empty-icon">🎓</div><h4>No community listings yet</h4><p>When sellers publish education courses, they appear here. You can still use the curated link library above.</p><button class="ac-edu-btn ac-edu-btn--primary" onclick="window._acEduListNew()">Create a listing</button></div>')
         }
       </section>
 
       <div class="ac-footnote">
-        Know a resource that belongs here? Tell your DeepSynaps account manager — the library is reviewed and updated quarterly. Or <a href="#" onclick="event.preventDefault();window._acEduListNew()" style="color:var(--teal);text-decoration:underline">list your own course</a> in the Community section above.
+        Suggest a curated resource to your DeepSynaps account manager — the bundled library is reviewed periodically. To publish a listing, use <a href="#" onclick="event.preventDefault();window._acEduListNew()" style="color:var(--teal);text-decoration:underline">marketplace seller tools</a> (authenticated).
       </div>
     </div>
   `;
@@ -11975,22 +12031,22 @@ window._acEduListNew = (editItem) => {
       </div>
       <form id="ac-edu-form" style="padding:8px 24px 24px;display:flex;flex-direction:column;gap:12px">
         <select name="kind" style="${iS}">${kindOptions}</select>
-        <input type="text" name="name" placeholder="Course / Resource Title" required maxlength="255" value="${isEdit ? esc(editItem.name) : ''}" style="${iS}">
-        <input type="text" name="provider" placeholder="Instructor / Clinic Name" required maxlength="255" value="${isEdit ? esc(editItem.provider) : ''}" style="${iS}">
-        <textarea name="description" placeholder="Description — what will students learn?" rows="3" maxlength="5000" style="${iS};resize:vertical">${isEdit ? esc(editItem.description || '') : ''}</textarea>
+        <input type="text" name="name" placeholder="Course / Resource Title" required maxlength="255" value="${isEdit ? _academyEsc(editItem.name) : ''}" style="${iS}">
+        <input type="text" name="provider" placeholder="Instructor / Clinic Name" required maxlength="255" value="${isEdit ? _academyEsc(editItem.provider) : ''}" style="${iS}">
+        <textarea name="description" placeholder="Description — what will students learn?" rows="3" maxlength="5000" style="${iS};resize:vertical">${isEdit ? _academyEsc(editItem.description || '') : ''}</textarea>
         <div style="display:flex;gap:8px">
           <input type="number" name="price" placeholder="Price (0 = Free)" step="0.01" min="0" value="${isEdit && editItem.price != null ? editItem.price : ''}" style="flex:1;${iS}">
           <select name="price_unit" style="width:90px;${iS}">${currencyOptions}</select>
         </div>
-        <input type="url" name="external_url" placeholder="Course URL (your website, platform link, etc.)" required maxlength="512" value="${isEdit ? esc(editItem.external_url || '') : ''}" style="${iS}">
+        <input type="url" name="external_url" placeholder="Course URL (your website, platform link, etc.)" required maxlength="512" value="${isEdit ? _academyEsc(editItem.external_url || '') : ''}" style="${iS}">
         <div style="font-size:11px;color:var(--text-tertiary)">Where students can enroll, purchase, or access the content.</div>
-        <input type="text" name="tags" placeholder="Tags (comma separated, e.g. TMS, Neurofeedback, CBT)" maxlength="300" value="${isEdit && editItem.tags ? esc(editItem.tags.join(', ')) : ''}" style="${iS}">
+        <input type="text" name="tags" placeholder="Tags (comma separated, e.g. TMS, Neurofeedback, CBT)" maxlength="300" value="${isEdit && editItem.tags ? _academyEsc(editItem.tags.join(', ')) : ''}" style="${iS}">
         <div style="display:flex;gap:8px">
-          <input type="text" name="icon" placeholder="Icon emoji (e.g. &#127891;)" maxlength="10" value="${isEdit ? esc(editItem.icon || '') : ''}" style="width:120px;${iS}">
+          <input type="text" name="icon" placeholder="Icon emoji (e.g. &#127891;)" maxlength="10" value="${isEdit ? _academyEsc(editItem.icon || '') : ''}" style="width:120px;${iS}">
           <select name="tone" style="flex:1;${iS}">${toneOptions}</select>
         </div>
         <button type="submit" style="padding:10px 16px;background:#10b981;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin-top:4px">${isEdit ? 'Update Listing' : 'Save Listing'}</button>
-        <div style="font-size:11px;color:var(--text-tertiary);line-height:1.5">Your listing will be saved to your Academy catalog. Community visibility depends on listing status and active state.</div>
+        <div style="font-size:11px;color:var(--text-tertiary);line-height:1.5">Saved via marketplace seller API (authenticated). Not a DeepSynaps training completion record. Visibility depends on listing status.</div>
       </form>
     </div>`;
   document.body.appendChild(modal);
@@ -12018,7 +12074,7 @@ window._acEduListNew = (editItem) => {
       } else {
         await api.marketplaceSellerCreateItem(payload);
       }
-      modal.innerHTML = '<div style="background:var(--navy-850,#0f172a);border:1px solid var(--border);border-radius:16px;max-width:420px;width:100%;padding:40px 32px;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.5)"><div style="font-size:2.5rem;margin-bottom:12px">&#10003;</div><h3 style="color:var(--text-primary);margin:0 0 8px">' + (isEdit ? 'Listing Updated' : 'Listing Saved') + '</h3><p style="color:var(--text-secondary);font-size:13px;margin:0 0 20px;line-height:1.5">Your ' + esc(payload.kind) + ' <strong>' + esc(payload.name) + '</strong> was saved to your Academy catalog. Community visibility depends on listing status and active state.</p><div style="display:flex;gap:8px;justify-content:center"><button onclick="window._acEduMyCourses();document.getElementById(\'ac-edu-modal\').remove()" style="padding:8px 20px;background:rgba(16,185,129,.15);color:#10b981;border:1px solid rgba(16,185,129,.25);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">View My Courses</button><button onclick="document.getElementById(\'ac-edu-modal\').remove();location.reload()" style="padding:8px 20px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer">Close</button></div></div>';
+      modal.innerHTML = '<div style="background:var(--navy-850,#0f172a);border:1px solid var(--border);border-radius:16px;max-width:420px;width:100%;padding:40px 32px;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.5)"><div style="font-size:2.5rem;margin-bottom:12px">&#10003;</div><h3 style="color:var(--text-primary);margin:0 0 8px">' + (isEdit ? 'Listing Updated' : 'Listing Saved') + '</h3><p style="color:var(--text-secondary);font-size:13px;margin:0 0 20px;line-height:1.5">Your ' + _academyEsc(payload.kind) + ' <strong>' + _academyEsc(payload.name) + '</strong> was saved to the marketplace (seller listing). This is not a certificate or governed competency record.</p><div style="display:flex;gap:8px;justify-content:center"><button onclick="window._acEduMyCourses();document.getElementById(\'ac-edu-modal\').remove()" style="padding:8px 20px;background:rgba(16,185,129,.15);color:#10b981;border:1px solid rgba(16,185,129,.25);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">View My Listings</button><button onclick="document.getElementById(\'ac-edu-modal\').remove();location.reload()" style="padding:8px 20px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer">Close</button></div></div>';
     } catch (err) {
       btn.disabled = false; btn.textContent = isEdit ? 'Update Listing' : 'Save Listing';
       window._showToast?.('Failed to ' + (isEdit ? 'update' : 'save') + ': ' + (err.message || 'Please make sure you are logged in.'), 'error');
@@ -12036,7 +12092,7 @@ window._acEduMyCourses = async () => {
   modal.innerHTML = `
     <div style="background:var(--navy-850,#0f172a);border:1px solid var(--border);border-radius:16px;max-width:620px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 16px 48px rgba(0,0,0,.5)">
       <div style="padding:20px 24px 12px;display:flex;align-items:center;justify-content:space-between">
-        <h3 style="margin:0;font-size:17px;font-weight:600;color:var(--text-primary)">My Courses &amp; Education</h3>
+        <h3 style="margin:0;font-size:17px;font-weight:600;color:var(--text-primary)">My marketplace listings</h3>
         <div style="display:flex;gap:8px;align-items:center">
           <button onclick="window._acEduListNew();document.getElementById('ac-edu-modal').remove()" style="padding:6px 14px;background:#10b981;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">+ New Course</button>
           <button onclick="document.getElementById('ac-edu-modal').remove()" style="background:none;border:none;cursor:pointer;color:var(--text-secondary);font-size:20px;line-height:1">x</button>
@@ -12049,7 +12105,7 @@ window._acEduMyCourses = async () => {
 
   const kindBadge = (k) => {
     const colors = { education: '#10b981', course: '#8b5cf6' };
-    return '<span style="display:inline-block;background:' + (colors[k] || '#888') + '22;color:' + (colors[k] || '#888') + ';padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;text-transform:uppercase">' + esc(k) + '</span>';
+    return '<span style="display:inline-block;background:' + (colors[k] || '#888') + '22;color:' + (colors[k] || '#888') + ';padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;text-transform:uppercase">' + _academyEsc(k) + '</span>';
   };
 
   try {
@@ -12066,15 +12122,15 @@ window._acEduMyCourses = async () => {
       return '<div style="padding:12px 24px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:space-between;gap:12px">' +
         '<div style="min-width:0;flex:1">' +
           '<div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">' +
-            '<span style="font-weight:500;color:var(--text-primary);font-size:13px">' + esc(it.name) + '</span>' +
+            '<span style="font-weight:500;color:var(--text-primary);font-size:13px">' + _academyEsc(it.name) + '</span>' +
             kindBadge(it.kind) +
           '</div>' +
-          '<div style="font-size:12px;color:var(--text-secondary)">' + esc(it.provider) + ' &middot; ' + priceStr + ' &middot; ' + (it.active ? '<span style="color:#34d399">Active</span>' : '<span style="color:#fb7185">Paused</span>') + '</div>' +
+          '<div style="font-size:12px;color:var(--text-secondary)">' + _academyEsc(it.provider) + ' &middot; ' + priceStr + ' &middot; ' + (it.active ? '<span style="color:#34d399">Active</span>' : '<span style="color:#fb7185">Paused</span>') + '</div>' +
         '</div>' +
         '<div style="display:flex;gap:6px;flex-shrink:0">' +
-          '<button class="ac-edu-ml-edit" data-idx="' + esc(it.id) + '" style="padding:4px 10px;font-size:12px;background:rgba(16,185,129,.12);color:#10b981;border:1px solid rgba(16,185,129,.2);border-radius:6px;cursor:pointer">Edit</button>' +
-          '<button class="ac-edu-ml-toggle" data-idx="' + esc(it.id) + '" data-active="' + (it.active ? '1' : '0') + '" style="padding:4px 10px;font-size:12px;background:rgba(255,255,255,.06);color:var(--text-secondary);border:1px solid var(--border);border-radius:6px;cursor:pointer">' + (it.active ? 'Pause' : 'Resume') + '</button>' +
-          '<button class="ac-edu-ml-delete" data-idx="' + esc(it.id) + '" style="padding:4px 10px;font-size:12px;background:rgba(251,113,133,.1);color:#fb7185;border:1px solid rgba(251,113,133,.2);border-radius:6px;cursor:pointer">Delete</button>' +
+          '<button class="ac-edu-ml-edit" data-idx="' + _academyEsc(it.id) + '" style="padding:4px 10px;font-size:12px;background:rgba(16,185,129,.12);color:#10b981;border:1px solid rgba(16,185,129,.2);border-radius:6px;cursor:pointer">Edit</button>' +
+          '<button class="ac-edu-ml-toggle" data-idx="' + _academyEsc(it.id) + '" data-active="' + (it.active ? '1' : '0') + '" style="padding:4px 10px;font-size:12px;background:rgba(255,255,255,.06);color:var(--text-secondary);border:1px solid var(--border);border-radius:6px;cursor:pointer">' + (it.active ? 'Pause' : 'Resume') + '</button>' +
+          '<button class="ac-edu-ml-delete" data-idx="' + _academyEsc(it.id) + '" style="padding:4px 10px;font-size:12px;background:rgba(251,113,133,.1);color:#fb7185;border:1px solid rgba(251,113,133,.2);border-radius:6px;cursor:pointer">Delete</button>' +
         '</div>' +
       '</div>';
     }).join('');
