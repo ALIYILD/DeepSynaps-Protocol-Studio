@@ -77,9 +77,13 @@ test('NAV: guest cannot see tickets in sidebar', () => {
 });
 
 test('pgTickets: linked module strip includes core routes', () => {
-  for (const id of ['clinician-inbox', 'schedule-v2', 'mri-analysis', 'protocol-studio', 'finance-v2', 'ai-agent-v2']) {
+  for (const id of ['clinician-inbox', 'clinician-digest', 'schedule-v2', 'mri-analysis', 'protocol-studio', 'data-export', 'finance-v2', 'ai-agent-v2']) {
     assert.ok(src.includes(`'${id}'`), `MODULE_LINKS should include ${id}`);
   }
+});
+
+test('app.js: sessionStorage records last page for ticket context', () => {
+  assert.match(appSrc, /ds_last_app_page/);
 });
 
 test('pgTickets: attachment / escalation are disabled with explanation', () => {

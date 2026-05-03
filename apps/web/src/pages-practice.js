@@ -10928,6 +10928,7 @@ export async function pgTickets(setTopbar, navigate) {
   const MODULE_LINKS = [
     { page: 'home', label: 'Dashboard' },
     { page: 'clinician-inbox', label: 'Inbox' },
+    { page: 'clinician-digest', label: 'Daily Digest' },
     { page: 'schedule-v2', label: 'Schedule' },
     { page: 'live-session', label: 'Virtual Care' },
     { page: 'documents-v2', label: 'Documents' },
@@ -10946,10 +10947,45 @@ export async function pgTickets(setTopbar, navigate) {
     { page: 'protocol-studio', label: 'Protocol Studio' },
     { page: 'marketplace', label: 'Marketplace' },
     { page: 'finance-v2', label: 'Finance' },
+    { page: 'data-export', label: 'Data export' },
     { page: 'ai-agent-v2', label: 'AI Agent' },
   ];
 
+  /** Optional URL hints (`?patient_id=`, `?context_page=`) — stored only as ticket metadata. */
+  let patientIdUrlHint = null;
+  let contextPageUrlHint = null;
+  try {
+    const sp = new URLSearchParams(window.location.search || '');
+    const pid = (sp.get('patient_id') || '').trim();
+    if (pid) patientIdUrlHint = pid.slice(0, 64);
+    const cp = (sp.get('context_page') || '').trim();
+    if (cp) contextPageUrlHint = cp.slice(0, 64);
+  } catch (_) {}
+
   const _actor = () => window.currentUser?.display_name || window.currentUser?.email?.split('@')[0] || 'You';
+
+  const PHI_CATEGORY_HINT = new Set(['data_issue', 'clinical_workflow', 'patient_safety_concern', 'adverse_event']);
+
+  const _lastActivityTs = (t) => {
+    let max = t.updated ? Date.parse(t.updated) : 0;
+    const c0 = t.created ? Date.parse(t.created) : 0;
+    if (c0 > max) max = c0;
+    for (const m of t.messages || []) {
+      const x = m.ts ? Date.parse(m.ts) : 0;
+      if (x > max) max = x;
+    }
+    for (const a of t.audit || []) {
+      const x = a.ts ? Date.parse(a.ts) : 0;
+      if (x > max) max = x;
+    }
+    return max ? new Date(max).toISOString() : (t.updated || t.created || '');
+  };
+
+  const _lastActivityLabel = (t) => {
+    const la = _lastActivityTs(t);
+    return la ? `Updated ${new Date(la).toLocaleString()}` : '';
+  };
+
 
   const _loadTickets = () => {
     try {
@@ -11085,7 +11121,7 @@ export async function pgTickets(setTopbar, navigate) {
 
   function _renderDetail(t) {
     if (!t) return '';
-    const closedLike = t.status === 'resolved' || t.status === 'closed';
+    const notesLocked = t.status === 'resolved' || t.status === 'closed';
     const msgs = (t.messages || []).map((m) => `
       <div style="display:flex;gap:10px;padding:12px 0;border-bottom:1px solid var(--border)">
         <div style="width:32px;height:32px;border-radius:50%;background:var(--surface-elev-1);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--text-secondary);flex-shrink:0;font-weight:600">${(m.from || 'U').charAt(0).toUpperCase()}
@@ -11131,15 +11167,23 @@ export async function pgTickets(setTopbar, navigate) {
           <div style="font-size:11px;color:var(--text-tertiary)">${_esc(CAT_LABEL[t.category] || t.category)}
             &middot; Created ${new Date(t.created).toLocaleString()}
             ${t.updated ? ` &middot; Updated ${new Date(t.updated).toLocaleString()}` : ''}
+            ${t.created_by ? ` &middot; Opened by ${_esc(t.created_by)}` : ''}
           </div>
+          ${t.patient_ref ? `
+          <div style="margin-top:10px;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface-elev-1);font-size:12px;line-height:1.45;color:var(--text-secondary)">
+            <strong style="color:var(--text-primary)">Patient context (metadata — local only):</strong>
+            ${_esc(t.patient_ref)}
+            ${/^[\w.-]+$/.test(String(t.patient_ref)) ? ` <button type="button" class="btn btn-sm btn-ghost" onclick="window._tkNavPatient('${_esc(t.patient_ref)}')">Open patient chart</button>` : ''}
+            <div style="font-size:10px;color:var(--text-tertiary);margin-top:6px">Does not verify access — follow roster permissions. Minimize identifiers in stored tickets.</div>
+          </div>` : ''}
+          ${t.captured_page_context ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:8px">Captured from page: <code style="font-size:10px">${_esc(t.captured_page_context)}</code></div>` : ''}
         </div>
-        ${!closedLike ? `
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           <select id="tk-status-change" class="form-control" style="font-size:11px;padding:4px 8px;width:auto;max-width:180px">
             ${STATUS_OPTIONS.map((s) => `<option value="${s}" ${t.status === s ? 'selected' : ''}>${_esc(s)}</option>`).join('')}
           </select>
           <button class="btn btn-sm btn-ghost" onclick="window._tkChangeStatus()">Update status</button>
-        </div>` : `<span style="font-size:12px;color:var(--text-tertiary)">Read-only (resolved/closed)</span>`}
+        </div>
       </div>
 
       <div style="display:flex;gap:8px;margin-bottom:14px;border-bottom:1px solid var(--border);padding-bottom:8px">
@@ -11152,13 +11196,14 @@ export async function pgTickets(setTopbar, navigate) {
         <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Conversation</div>
         ${msgs || '<div style="font-size:13px;color:var(--text-tertiary)">No messages yet.</div>'}
       </div>
-      ${!closedLike ? `
+      ${!notesLocked ? `
       <div style="border:1px solid var(--border);border-radius:var(--radius, 8px);overflow:hidden;margin-bottom:20px">
         <textarea id="tk-reply" rows="3" placeholder="Add an internal note (stored in this browser only until the ticket API exists)…" style="width:100%;border:none;background:var(--surface-elev-1);color:var(--text-primary);padding:12px;font-size:13px;resize:vertical;font-family:inherit"></textarea>
         <div style="display:flex;justify-content:flex-end;padding:8px 12px;background:var(--surface-elev-1);border-top:1px solid var(--border)">
           <button class="btn btn-sm btn-primary" onclick="window._tkReply('${_esc(t.id)}')">Save note locally</button>
         </div>
-      </div>` : ''}` : `
+      </div>` : `<p style="font-size:12px;color:var(--text-tertiary);margin:0 0 16px">Notes are locked while status is resolved/closed — change status (e.g. to reopened) to add follow-up.</p>`}
+      ` : `
       <div style="margin-bottom:16px">
         ${auditRows || '<div style="font-size:13px;color:var(--text-tertiary)">No activity entries. Events append when you create or update tickets locally. Server-side audit requires the ticket API.</div>'}
       </div>`}
@@ -11201,7 +11246,7 @@ export async function pgTickets(setTopbar, navigate) {
             ${t.demo_example ? '<span style="font-size:9px;padding:1px 6px;border-radius:8px;background:rgba(155,127,255,0.15);color:var(--violet);font-weight:600">DEMO</span>' : '<span style="font-size:9px;padding:1px 6px;border-radius:8px;background:rgba(148,163,184,0.12);color:var(--text-tertiary);font-weight:600">LOCAL</span>'}
           </div>
           <div style="font-size:13px;font-weight:500;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(t.title)}</div>
-          <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${CAT_LABEL[t.category] || t.category} &middot; ${(t.messages || []).length} note(s)</div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${CAT_LABEL[t.category] || t.category}${t.patient_ref ? ' · Pt ref' : ''}${_lastActivityLabel(t) ? ` · ${_lastActivityLabel(t)}` : ''}</div>
         </div>
         <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:${statusColor[t.status] || 'var(--border)'}22;color:${statusColor[t.status] || 'var(--text-tertiary)'};font-weight:600">${_esc(t.status)}</span>
         <span style="width:8px;height:8px;border-radius:50%;background:${prioDot[t.priority] || prioDot.p4_informational};flex-shrink:0" title="priority"></span>
@@ -11252,6 +11297,15 @@ export async function pgTickets(setTopbar, navigate) {
 
   window._tkNav = (pageId) => {
     if (typeof navigate === 'function') navigate(pageId);
+  };
+  window._tkNavPatient = (patientId) => {
+    const id = String(patientId || '').trim();
+    if (!id) return;
+    try {
+      window._selectedPatientId = id;
+      window._profilePatientId = id;
+    } catch (_) {}
+    if (typeof navigate === 'function') navigate('patient-profile', { id });
   };
   window._tkFilter = (s) => {
     filterStatus = s;
@@ -11328,6 +11382,9 @@ export async function pgTickets(setTopbar, navigate) {
           Saved only in this browser. Required: title, category, description.
         </p>
         <div id="tk-modal-safety" style="display:none;margin-bottom:14px;padding:12px;border-radius:10px;border:1px solid rgba(239,68,68,0.35);background:rgba(239,68,68,0.08);font-size:12px;line-height:1.5;color:var(--text-secondary)"></div>
+        <div id="tk-modal-phi" style="display:none;margin-bottom:14px;padding:12px;border-radius:10px;border:1px solid rgba(255,181,71,0.35);background:rgba(255,181,71,0.08);font-size:12px;line-height:1.45;color:var(--text-secondary)">
+          <strong style="color:var(--text-primary)">PHI caution:</strong> this category often touches identifiable patient information. Prefer patient IDs or initials only when necessary; full narratives may belong in the chart or AE workflow instead.
+        </div>
         <div class="form-group">
           <label class="form-label">Title</label>
           <input id="tk-new-title" class="form-control" placeholder="Short summary (no patient names if avoidable)">
@@ -11357,6 +11414,11 @@ export async function pgTickets(setTopbar, navigate) {
           </select>
         </div>
         <div class="form-group" style="margin-top:12px">
+          <label class="form-label">Patient reference (optional)</label>
+          <input id="tk-new-patient" class="form-control" placeholder="Internal patient ID — avoid names when possible" value="${_esc(patientIdUrlHint || '')}">
+          <p style="font-size:10px;color:var(--text-tertiary);margin:6px 0 0">Stored only in this browser with the ticket. Does not prove roster access.</p>
+        </div>
+        <div class="form-group" style="margin-top:12px">
           <label class="form-label">Description</label>
           <textarea id="tk-new-desc" class="form-control" rows="5" placeholder="Steps, expected vs actual, timestamps, environment…"></textarea>
         </div>
@@ -11375,6 +11437,7 @@ export async function pgTickets(setTopbar, navigate) {
     window._tkModalCat = () => {
       const cat = document.getElementById('tk-new-cat')?.value;
       const box = document.getElementById('tk-modal-safety');
+      const phi = document.getElementById('tk-modal-phi');
       if (!box) return;
       if (cat === 'patient_safety_concern' || cat === 'adverse_event') {
         box.style.display = 'block';
@@ -11385,7 +11448,11 @@ export async function pgTickets(setTopbar, navigate) {
         box.style.display = 'none';
         box.innerHTML = '';
       }
+      if (phi) {
+        phi.style.display = PHI_CATEGORY_HINT.has(cat) ? 'block' : 'none';
+      }
     };
+    window._tkModalCat();
   };
 
   window._tkCreate = () => {
@@ -11394,6 +11461,8 @@ export async function pgTickets(setTopbar, navigate) {
     const cat = document.getElementById('tk-new-cat')?.value || 'other';
     const prio = document.getElementById('tk-new-prio')?.value || 'p3_medium';
     const mod = document.getElementById('tk-new-mod')?.value || '';
+    let patientRef = (document.getElementById('tk-new-patient')?.value || '').trim().slice(0, 128);
+    if (!patientRef && patientIdUrlHint) patientRef = patientIdUrlHint;
 
     if (!title || !desc) {
       window._dsToast?.({ title: 'Required fields', body: 'Enter title and description.', severity: 'warn' });
@@ -11402,6 +11471,12 @@ export async function pgTickets(setTopbar, navigate) {
 
     const nextId = _nextId(tickets);
     const ts = new Date().toISOString();
+    let capPage = contextPageUrlHint;
+    if (!capPage) {
+      try {
+        capPage = sessionStorage.getItem('ds_last_app_page') || '';
+      } catch (_) {}
+    }
     const newTicket = {
       ...TK_META,
       id: nextId,
@@ -11412,6 +11487,9 @@ export async function pgTickets(setTopbar, navigate) {
       created: ts,
       updated: ts,
       linked_module: mod,
+      patient_ref: patientRef || undefined,
+      captured_page_context: capPage ? capPage.slice(0, 64) : undefined,
+      created_by: _actor(),
       demo_example: false,
       messages: [{ from: _actor(), text: desc, ts }],
       audit: [{

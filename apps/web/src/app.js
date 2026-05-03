@@ -1095,6 +1095,9 @@ async function navigate(id, params = {}) {
     window._recentPages = window._recentPages.slice(0, 5);
   }
   currentPage = id;
+  try {
+    if (id && id !== 'tickets') sessionStorage.setItem('ds_last_app_page', id);
+  } catch (_) {}
   // Track recent pages for search (localStorage-backed, richer metadata)
   const _rp = JSON.parse(localStorage.getItem('ds_recent_pages') || '[]');
   const _navEntry = NAV.find(n => n.id === id);
