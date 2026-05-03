@@ -53,6 +53,7 @@ jobs:
             -e packages/condition-registry \
             -e packages/modality-registry \
             -e packages/device-registry \
+            -e packages/clinical-data-registry \
             -e packages/qa \
             -e packages/safety-engine \
             -e packages/generation-engine \
@@ -60,27 +61,27 @@ jobs:
             -e packages/biometrics-pipeline \
             -e apps/api
 
-      - name: Start FastAPI backend on :8001
-        # vite.config.ts proxies /api and /health to 127.0.0.1:8001, so the
+      - name: Start FastAPI backend on :8000
+        # vite.config.ts proxies /api and /health to 127.0.0.1:8000, so the
         # backend MUST be listening on that port before Playwright drives the
         # frontend. Run uvicorn in the background and wait for /health.
         working-directory: apps/api
         env:
           DEEPSYNAPS_APP_ENV: test
           DEEPSYNAPS_API_HOST: 127.0.0.1
-          DEEPSYNAPS_API_PORT: '8001'
+          DEEPSYNAPS_API_PORT: '8000'
           DEEPSYNAPS_LOG_LEVEL: INFO
           JWT_SECRET_KEY: e2e-ci-test-secret-not-for-production-use-only
         run: |
           nohup python -m uvicorn app.main:app \
-            --host 127.0.0.1 --port 8001 \
+            --host 127.0.0.1 --port 8000 \
             > "${GITHUB_WORKSPACE}/uvicorn.log" 2>&1 &
           echo $! > "${GITHUB_WORKSPACE}/uvicorn.pid"
 
       - name: Wait for backend /health
         run: |
           for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:8001/health > /dev/null; then
+            if curl -fsS http://127.0.0.1:8000/health > /dev/null; then
               echo "Backend healthy after ${i}s"
               exit 0
             fi

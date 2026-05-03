@@ -1328,6 +1328,10 @@ async function renderPage() {
   const el = document.getElementById('content');
   if (!el) return;
   el.scrollTop = 0;
+  // Immediately mark content non-empty so waitForSelector('#content:not(:empty)')
+  // resolves as soon as rendering starts rather than after the async module load.
+  // navigate() does the same; this covers the bootApp() path that skips navigate().
+  el.innerHTML = '<div class="page-loading">Loading…</div>';
 
   // ── Auth guard (synchronous — runs before any async data fetch) ───────────
   if (!_PUBLIC_ROUTES.includes(currentPage) && !window._isAuthenticated?.()) {
