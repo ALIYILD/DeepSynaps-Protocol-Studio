@@ -649,6 +649,8 @@ export const api = {
       body: JSON.stringify({ impedance_kohm }),
     }),
   createSession: (data) => apiFetch('/api/v1/sessions', { method: 'POST', body: JSON.stringify(data) }),
+  /** Single clinical session by id (scheduled appointment / treatment session record). */
+  getSession: (id) => apiFetch(`/api/v1/sessions/${encodeURIComponent(id)}`),
   updateSession: (id, data) => apiFetch(`/api/v1/sessions/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteSession: (id) => apiFetch(`/api/v1/sessions/${id}`, { method: 'DELETE' }),
 
