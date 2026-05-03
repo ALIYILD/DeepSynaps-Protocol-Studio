@@ -665,14 +665,11 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
           throw new Error('Patient not found');
         }
         workspace = normalizeRiskWorkspace(workspace);
+        // Server merges stratification + analyzer audits into audit_events — do not double-fetch getRiskAudit.
         auditBundle = {
           audit_events: workspace.audit_events || [],
           items: [],
         };
-        const stratAudit = await api.getRiskAudit(activePatientId).catch(() => ({ items: [] }));
-        if (Array.isArray(stratAudit?.items) && stratAudit.items.length) {
-          auditBundle.items = stratAudit.items;
-        }
       } catch (primaryErr) {
         const strat = await api.getPatientRiskProfile(activePatientId).catch(() => null);
         if (strat && Array.isArray(strat.categories)) {
