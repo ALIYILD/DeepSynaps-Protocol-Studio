@@ -179,6 +179,18 @@ function statusDot(status) {
   return `<span style="width:6px;height:6px;border-radius:50%;background:${c};flex-shrink:0;display:inline-block"></span>`;
 }
 
+/** In-app editorial / template status — not a legal sign-off. */
+export function curatedHandbookStatus(entry) {
+  if (!entry) return { label: '—', color: T.text3, blurb: '' };
+  if (entry.kind === 'train' && String(entry.version || '').toLowerCase() === 'draft') {
+    return { label: 'Draft training note', color: T.amber, blurb: 'In-app template only — not a released training pack.' };
+  }
+  if (entry.kind === 'ops' || entry.kind === 'train') {
+    return { label: 'SOP / ops template', color: T.blue, blurb: 'Use your clinic’s signed policy; this is a working copy for alignment.' };
+  }
+  return { label: 'Curated clinical reference', color: T.teal, blurb: 'Editorial content in this workspace — verify against current evidence and local policy.' };
+}
+
 // ── Page-level state ─────────────────────────────────────────────────────────
 const HANDBOOK_FAVS_KEY = 'ds_handbook_favs';
 
@@ -222,12 +234,14 @@ let _favOnly   = false;       // show favourites only
 // ── Build collections from data ──────────────────────────────────────────────
 // Combine real HANDBOOK_DATA-backed entries (conditions + protocols) with the
 // canonical Safety/Ops + Training documents from the prototype's left rail.
-function buildEntries() {
+export function buildEntries() {
   const out = [];
   // Condition handbooks
   for (const c of CONDITION_REGISTRY) {
     const hb = HANDBOOK_DATA[c.id];
     if (!hb) continue;
+    const modalities = [...new Set((c.modalities || []).filter(Boolean))];
+    const protocolIds = PROTOCOL_REGISTRY.filter(pp => pp.condition === c.id).map(pp => pp.id);
     out.push({
       id: c.id,
       kind: 'condition',
@@ -236,6 +250,8 @@ function buildEntries() {
       collection: c.cat || 'Other',
       data: hb,
       reg: c,
+      modalities,
+      protocolIds,
     });
   }
   // Protocol handbooks
@@ -243,6 +259,7 @@ function buildEntries() {
     const hb = HANDBOOK_DATA[p.id];
     if (!hb) continue;
     const cond = CONDITION_REGISTRY.find(cc => cc.id === p.condition);
+    const modalities = [...new Set([p.modality, ...(cond?.modalities || [])].filter(Boolean))];
     out.push({
       id: p.id,
       kind: 'protocol',
@@ -251,6 +268,8 @@ function buildEntries() {
       collection: cond?.cat || 'Protocols',
       data: hb,
       reg: p,
+      modalities,
+      protocolIds: [p.id],
     });
   }
   // Pseudo collections from prototype: Safety & Ops + Training
@@ -267,8 +286,8 @@ function buildEntries() {
     { id: 'train-1020',    title: '10-20 placement primer',  version: 'v1.4' },
     { id: 'train-app',     title: 'Patient app walkthrough', version: 'draft' },
   ];
-  for (const o of ops) out.push({ id: o.id, kind: 'ops',     title: o.title, subtitle: o.version, collection: 'Safety & Ops', version: o.version });
-  for (const t of train) out.push({ id: t.id, kind: 'train',  title: t.title, subtitle: t.version, collection: 'Training',     version: t.version });
+  for (const o of ops) out.push({ id: o.id, kind: 'ops',     title: o.title, subtitle: o.version, collection: 'Safety & Ops', version: o.version, modalities: [], protocolIds: [] });
+  for (const t of train) out.push({ id: t.id, kind: 'train',  title: t.title, subtitle: t.version, collection: 'Training',     version: t.version, modalities: [], protocolIds: [] });
   return out;
 }
 
@@ -280,7 +299,7 @@ function buildEntries() {
 function aiHandbookSection(cond) {
   return {
     id: 'ai-handbook',
-    title: 'AI handbook (generated from evidence)',
+    title: 'AI-assisted draft (requires clinician review)',
     render: () => {
       const sel = _aiSelFor(cond);
       const protos = PROTOCOL_REGISTRY.filter(p => p.condition === cond.id);
@@ -324,14 +343,14 @@ function aiHandbookSection(cond) {
 
       const button = `
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-          <button id="hb-ai-gen" onclick="window._hbAiGenerate()" ${allowed ? '' : 'disabled'}
+          <button id="hb-ai-gen" onclick="window._hbAiGenerate()" ${allowed ? '' : 'disabled'} aria-label="${gen ? 'Regenerate AI-assisted draft' : 'Generate AI-assisted draft'}"
             style="padding:7px 16px;border-radius:${T.rsm};font-size:12px;font-weight:700;background:${allowed ? T.teal : T.surface};color:${allowed ? '#04121c' : T.text3};border:none;cursor:${allowed ? 'pointer' : 'not-allowed'};font-family:inherit">
-            ${gen ? '↻ Regenerate from evidence' : '✦ Generate handbook'}
+            ${gen ? '↻ Regenerate AI-assisted draft' : '✦ Generate AI-assisted draft'}
           </button>
           <span id="hb-ai-status" style="font-size:11px;color:${T.text3};font-family:${T.fmono}">${
             !allowed
-              ? 'Generation requires a clinician or admin role.'
-              : (gen ? 'Generated · cached for this session.' : 'Backend draws from imported clinical dataset.')
+              ? 'AI-assisted drafting requires clinician or admin sign-in.'
+              : (gen ? 'Draft cached for this session · not signed or final.' : 'Server builds from the imported clinical dataset · output stays draft until reviewed.')
           }</span>
         </div>`;
 
@@ -345,7 +364,7 @@ function aiHandbookSection(cond) {
           </div>`
         : '';
 
-      const intro = `<p style="margin:0 0 14px;color:${T.text2}">Pick a modality + (optional) protocol and device, then generate a structured handbook from the imported clinical dataset.</p>`;
+      const intro = `<p style="margin:0 0 14px;color:${T.text2}">Choose modality and optional protocol/device, then request an <strong style="color:${T.text1}">AI-assisted structured draft</strong> from the imported clinical dataset. This is decision-support only — review, edit, and apply clinic governance before any patient-facing or signed use.</p>`;
 
       if (!gen) {
         return `${intro}${selRow}${button}${coverageHint}`;
@@ -366,9 +385,8 @@ function aiHandbookSection(cond) {
       if ((cond.assessments || []).includes('drs')) dischargeNotes.push('Run Discharge Readiness Screen (DRS) before final session.');
       if ((cond.assessments || []).includes('wpc')) dischargeNotes.push('Compare final scores with weekly progress check (WPC) trajectory.');
       dischargeNotes.push('Schedule follow-up at 4 and 12 weeks post-course; document remission/response status.');
-      const hb = entry => entry; // placeholder; we use cond directly below
       const escTrigger = HANDBOOK_DATA[cond.id]?.escalation;
-      if (escTrigger) dischargeNotes.push('Re-screen against escalation triggers: ' + escTrigger);
+      if (escTrigger) dischargeNotes.push('Re-screen against escalation triggers documented in the curated handbook below (' + escTrigger + ').');
 
       const docChecklist = [
         'Document baseline assessment scores (' + ((cond.assessments||[]).map(a => a.toUpperCase()).join(', ') || 'per condition standard') + ').',
@@ -380,11 +398,13 @@ function aiHandbookSection(cond) {
 
       return `
         ${intro}${selRow}${button}${coverageHint}
-        <div style="margin-top:18px;padding:18px 18px 4px;border-radius:${T.rmd};background:${T.bg};border:1px solid rgba(0,212,188,0.32)">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;font-family:${T.fmono};font-size:10px;color:${T.teal};text-transform:uppercase;letter-spacing:0.06em;font-weight:700">
-            AI · ${esc(d.document_type || sel.kind)} · ${esc(sel.modality)}${proto ? ' · ' + esc(proto.name) : ''}${device ? ' · ' + esc(device.name) : ''}
+        <div role="region" aria-label="AI-assisted handbook draft" style="margin-top:18px;padding:18px 18px 4px;border-radius:${T.rmd};background:${T.bg};border:1px solid rgba(255,181,71,0.35)">
+          <div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+            <span style="padding:4px 10px;border-radius:999px;background:rgba(255,181,71,0.15);border:1px solid rgba(255,181,71,0.45);font-family:${T.fmono};font-size:10px;font-weight:700;color:${T.amber};text-transform:uppercase;letter-spacing:0.06em">Draft · review required</span>
+            <span style="font-family:${T.fmono};font-size:10px;color:${T.text3};text-transform:uppercase;letter-spacing:0.06em;font-weight:600">AI-assisted · ${esc(d.document_type || sel.kind)} · ${esc(sel.modality)}${proto ? ' · ' + esc(proto.name) : ''}${device ? ' · ' + esc(device.name) : ''}</span>
           </div>
-          <h3 style="font-family:${T.fdisp};font-size:18px;font-weight:600;margin:0 0 8px;color:${T.text1}">${esc(d.title || 'Generated handbook')}</h3>
+          <p style="margin:0 0 12px;font-size:12px;color:${T.amber};line-height:1.55;border-left:3px solid ${T.amber};padding-left:12px">Not a diagnosis, prescription, treatment approval, or substitute for clinician judgement. Final patient instructions and signatures occur outside this generator.</p>
+          <h3 style="font-family:${T.fdisp};font-size:18px;font-weight:600;margin:0 0 8px;color:${T.text1}">${esc(d.title || 'AI-assisted handbook draft')}</h3>
           ${d.overview ? `<p style="margin:0 0 6px;color:${T.text2}">${esc(d.overview)}</p>` : ''}
           ${sub('Patient selection / eligibility', list(d.eligibility))}
           ${proto ? sub('Protocol parameters', paramTable([
@@ -408,9 +428,10 @@ function aiHandbookSection(cond) {
           ${sub('Escalation pathways', list(d.escalation))}
           ${sub('Documentation checklist', list(docChecklist))}
           ${sub('Outcomes review & discharge', list(dischargeNotes))}
-          ${Array.isArray(d.references) && d.references.length ? sub('References', `
+          ${Array.isArray(d.references) && d.references.length ? sub('Source pointers from generator', `
+            <p style="font-size:12px;color:${T.text3};margin:0 0 8px">These are strings returned by the generator (often dataset or documentation paths). They are not verified citations — verify primary literature and clinic policy independently.</p>
             <ul style="margin:8px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:6px">
-              ${d.references.map(r => `<li><a href="${esc(r)}" target="_blank" rel="noopener" style="color:${T.teal};word-break:break-all">${esc(r)}</a></li>`).join('')}
+              ${d.references.map(r => `<li><a href="${esc(r)}" target="_blank" rel="noopener noreferrer" style="color:${T.teal};word-break:break-all">${esc(r)}</a></li>`).join('')}
             </ul>`) : ''}
           ${(gen.disclaimers && (gen.disclaimers.protocol || gen.disclaimers.governance || gen.disclaimers.off_label)) ? `
             <div style="margin:14px 0 14px;padding:10px 12px;background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.32);border-radius:${T.rsm};font-size:11.5px;color:${T.amber};line-height:1.55">
@@ -735,18 +756,36 @@ function checklistBlock(entryId, items) {
 }
 
 function evidenceCards(entry, grade, summary) {
+  const primaryBody = summary
+    ? String(summary).slice(0, 360) + (String(summary).length > 360 ? '…' : '')
+    : 'No narrative summary on file for this handbook entry.';
   const cards = [
-    { grade, title: `${entry.title} — primary evidence`, body: summary || 'See clinic governance ledger for the full citation list.', cite: `${entry.kind === 'protocol' ? 'Clinic SOP-' + slug(entry.id).toUpperCase() : 'Handbook ' + entry.id} · primary source.` },
-    { grade: gradeStep(grade, 1), title: 'Supporting meta-analysis', body: 'Pooled clinical outcomes across DeepSynaps clinic network. Updated quarterly.', cite: 'Internal meta-analysis · Q1 2026.' },
-    { grade: gradeStep(grade, 2), title: 'Real-world clinic outcomes', body: 'Clinic-level outcome registry for this indication.', cite: 'Outcomes registry · live.' },
+    {
+      grade,
+      title: 'Registry evidence grade (this handbook)',
+      body: primaryBody + ' The letter grade reflects internal registry tagging for workflow prioritisation, not a systematic literature review.',
+      cite: `Evidence posture · Grade ${(grade || 'C').toUpperCase()} · scope=${entry.kind === 'protocol' ? 'protocol ' + entry.id : 'condition ' + entry.id}. Live citation retrieval is not connected here — use Research Evidence and primary literature via your clinic workflow.`,
+    },
+    {
+      grade: gradeStep(grade, 1),
+      title: 'Literature & trials',
+      body: 'Peer-reviewed citations are not listed automatically on this page. Open Research Evidence or attach references through your clinic governance process.',
+      cite: 'No automated PMID/DOI list · manual verification required.',
+    },
+    {
+      grade: gradeStep(grade, 2),
+      title: 'Outcomes & operational data',
+      body: 'Network-wide outcome aggregates are not surfaced here. Use Population Analytics / clinic QA workflows where your role permits.',
+      cite: 'Operational outcomes · not shown as citations.',
+    },
   ];
   return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin:8px 0 0">
     ${cards.map((c,i)=>`
-      <div data-ev-cite="${esc(c.cite)}" data-ev-title="${esc(c.title)}" onclick="window._hbCite(this)"
-           style="padding:14px 16px;background:${T.panel};border:1px solid ${T.border};border-radius:${T.rmd};cursor:pointer;display:flex;flex-direction:column;gap:8px">
+      <div data-ev-cite="${esc(c.cite)}" data-ev-title="${esc(c.title)}" onclick="window._hbCite(this)" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window._hbCite(this)}"
+           style="padding:14px 16px;background:${T.panel};border:1px solid ${T.border};border-radius:${T.rmd};cursor:pointer;display:flex;flex-direction:column;gap:8px;text-align:left;font:inherit;color:inherit">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
           ${gradeBadge(c.grade)}
-          <span style="font-family:${T.fmono};font-size:10px;color:${T.text3}">SRC #${i+1}</span>
+          <span style="font-family:${T.fmono};font-size:10px;color:${T.text3}">${i === 0 ? 'PRIMARY' : i === 1 ? 'LIT' : 'OPS'}</span>
         </div>
         <div style="font-family:${T.fdisp};font-size:14px;font-weight:600;color:${T.text1};line-height:1.3">${esc(c.title)}</div>
         <div style="font-size:12px;color:${T.text2};line-height:1.5">${esc(c.body)}</div>
@@ -757,6 +796,33 @@ function gradeStep(g, n) {
   const order = ['A','B','C','D'];
   const idx = Math.min(order.length - 1, Math.max(0, order.indexOf((g||'C').toUpperCase()) + n));
   return order[idx];
+}
+
+/** Compact navigation targets — opens existing app routes (same pattern as sidebar). */
+function handbookQuickLinksHtml() {
+  const btn = `padding:7px 10px;border-radius:${T.rsm};font-size:11px;color:${T.text2};background:${T.surface};border:1px solid ${T.border};cursor:pointer;font-family:inherit;text-align:left;width:100%`;
+  const links = [
+    ['Patients', 'patients-v2'],
+    ['Assessments', 'assessments-v2'],
+    ['Documents', 'documents-v2'],
+    ['Protocol Studio', 'protocol-studio'],
+    ['Brain Map Planner', 'brainmap-v2'],
+    ['Research Evidence', 'research-evidence'],
+    ['DeepTwin', 'deeptwin'],
+    ['MRI Analyzer', 'mri-analysis'],
+    ['qEEG', 'qeeg-analysis'],
+    ['Voice', 'voice-analyzer'],
+    ['Video', 'video-assessments'],
+    ['Text', 'text-analyzer'],
+    ['Biometrics', 'wearables'],
+    ['Clinician inbox', 'clinician-inbox'],
+    ['Schedule', 'schedule-v2'],
+    ['Audit trail', 'audittrail'],
+  ];
+  return `<div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
+    ${links.map(([label, page]) => `
+      <button type="button" onclick="window._nav('${esc(page)}')" style="${btn}">${esc(label)}</button>`).join('')}
+  </div>`;
 }
 
 function relatedCards(entry) {
@@ -949,19 +1015,21 @@ function renderCenterV2(entry, sections) {
     return `<section style="border:1px solid ${T.border};border-radius:${T.rmd};background:${T.panel};padding:42px clamp(20px, 4vw, 56px);min-height:calc(100vh - 180px);overflow-y:auto;max-height:calc(100vh - 120px)">
       <div style="max-width:900px;margin:0 auto">
         <div style="padding:24px;border:1px solid ${T.border};border-radius:${T.rmd};background:radial-gradient(circle at top left, rgba(0,212,188,0.16), transparent 30%), linear-gradient(135deg, rgba(255,255,255,0.03), rgba(74,158,255,0.05) 58%, rgba(255,181,71,0.04));margin-bottom:18px">
-          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:${T.teal};font-family:${T.fmono};font-weight:600;margin-bottom:8px">Editorial handbooks library</div>
-          <h1 style="font-family:${T.fdisp};font-size:34px;font-weight:600;letter-spacing:-0.025em;line-height:1.05;margin:0 0 10px;color:${T.text1}">Clinical playbooks, protocols, and operating notes in one reading room.</h1>
-          <p style="font-size:14.5px;color:${T.text2};line-height:1.65;margin:0 0 16px;max-width:670px">Browse condition guides, protocol handbooks, safety SOPs, and training references with the same interface clinicians use during review. Open a document from the rail, generate an evidence-backed draft, or export the active handbook to DOCX.</p>
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:${T.teal};font-family:${T.fmono};font-weight:600;margin-bottom:8px">Handbook workspace (v2)</div>
+          <h1 style="font-family:${T.fdisp};font-size:34px;font-weight:600;letter-spacing:-0.025em;line-height:1.05;margin:0 0 10px;color:${T.text1}">Clinician-reviewed handbook and document drafting</h1>
+          <p style="font-size:14.5px;color:${T.text2};line-height:1.65;margin:0 0 16px;max-width:670px">Create and review <strong style="color:${T.text1}">AI-assisted drafts</strong> and curated condition/protocol references. This surface is for <strong style="color:${T.text1}">decision support and documentation preparation</strong> — it does not diagnose, prescribe, approve treatment, perform triage, or replace your clinic&apos;s formal sign-off process.</p>
           <div style="display:flex;gap:10px;flex-wrap:wrap">
-            <div style="padding:9px 12px;border-radius:999px;border:1px solid ${T.border};background:rgba(255,255,255,0.04);font-family:${T.fmono};font-size:11px;color:${T.text2}">${total} documents live</div>
-            <div style="padding:9px 12px;border-radius:999px;border:1px solid ${T.border};background:rgba(255,255,255,0.04);font-family:${T.fmono};font-size:11px;color:${T.text2}">${collections} collections</div>
-            <div style="padding:9px 12px;border-radius:999px;border:1px solid ${T.border};background:rgba(255,255,255,0.04);font-family:${T.fmono};font-size:11px;color:${T.text2}">Search, favourite, export</div>
+            <div style="padding:9px 12px;border-radius:999px;border:1px solid ${T.border};background:rgba(255,255,255,0.04);font-family:${T.fmono};font-size:11px;color:${T.text2}">${total} items in library</div>
+            <div style="padding:9px 12px;border-radius:999px;border:1px solid ${T.border};background:rgba(255,255,255,0.04);font-family:${T.fmono};font-size:11px;color:${T.text2}">${collections} groupings</div>
+            <div style="padding:9px 12px;border-radius:999px;border:1px solid ${T.border};background:rgba(255,255,255,0.04);font-family:${T.fmono};font-size:11px;color:${T.text2}">Filter · favourite · export</div>
           </div>
         </div>
+        <p style="font-size:12.5px;color:${T.text3};line-height:1.6;margin:0 0 20px;max-width:720px">Per-patient narrative handbooks, server-side version history, and e-sign are <strong style="color:${T.text2}">not yet persisted</strong> in this build — use patient chart, Documents, and your governance queue for signed artefacts. Use the <strong style="color:${T.text2}">Quick links</strong> in the right rail to open related clinic tools.</p>
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin:0 0 28px">
-          <button onclick="document.getElementById('hb-filter')?.focus()" style="padding:8px 14px;border-radius:${T.rsm};font-size:12px;font-weight:600;color:${T.teal};background:rgba(0,212,188,0.08);border:1px solid rgba(0,212,188,0.32);cursor:pointer;font-family:inherit">Search the library</button>
-          <button onclick="window._hbOpen('${esc(featured?.id || 'mdd')}')" style="padding:8px 14px;border-radius:${T.rsm};font-size:12px;color:${T.text2};background:${T.surface};border:1px solid ${T.border};cursor:pointer;font-family:inherit">Open featured handbook</button>
+          <button type="button" onclick="document.getElementById('hb-filter')?.focus()" style="padding:8px 14px;border-radius:${T.rsm};font-size:12px;font-weight:600;color:${T.teal};background:rgba(0,212,188,0.08);border:1px solid rgba(0,212,188,0.32);cursor:pointer;font-family:inherit">Search the library</button>
+          <button type="button" onclick="window._hbOpen('${esc(featured?.id || 'mdd')}')" style="padding:8px 14px;border-radius:${T.rsm};font-size:12px;color:${T.text2};background:${T.surface};border:1px solid ${T.border};cursor:pointer;font-family:inherit">Open a sample handbook</button>
         </div>
+        <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-family:${T.fmono};font-weight:600;margin:0 0 10px">Start from a collection</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(220px, 1fr));gap:12px">${cards}</div>
       </div>
     </section>`;
@@ -969,11 +1037,12 @@ function renderCenterV2(entry, sections) {
 
   const version = entry.version || 'v1.0';
   const minutes = readTime(JSON.stringify(entry.data || {}));
-  const tldr = (entry.data?.responseData || entry.data?.expectedResponse || entry.data?.patientExplain || `Canonical clinic handbook for ${entry.title}.`);
+  const tldr = (entry.data?.responseData || entry.data?.expectedResponse || entry.data?.patientExplain || `Working summary for ${entry.title} — confirm against source assessments and policy.`);
   const heroTag = entry.kind === 'protocol' ? 'Protocol handbook' : entry.kind === 'condition' ? 'Condition handbook' : entry.kind === 'train' ? 'Training handbook' : 'Operations handbook';
   const sopNum = `SOP-${(entry.id||'').toUpperCase().slice(0,8)}`;
   const isFav = _isFav(entry.id);
   const docxDisabled = entry.kind !== 'condition' && entry.kind !== 'protocol';
+  const st = curatedHandbookStatus(entry);
 
   return `<section style="border:1px solid ${T.border};border-radius:${T.rmd};background:${T.panel};display:flex;flex-direction:column;overflow:hidden;min-width:0">
     <header style="padding:10px 22px;border-bottom:1px solid ${T.border};background:${T.bg};display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -982,13 +1051,19 @@ function renderCenterV2(entry, sections) {
         <span>${esc(entry.collection || 'Reference')}</span><span style="opacity:.4">/</span>
         <strong style="color:${T.text1};font-weight:600">${esc(entry.title)}</strong>
       </div>
-      <div style="margin-left:auto;display:flex;gap:6px">
-        <button onclick="window._hbToggleFav('${esc(entry.id)}')" title="${isFav ? 'Remove from favourites' : 'Add to favourites'}"
+      <div style="margin-left:auto;display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end">
+        <span style="padding:4px 9px;border-radius:999px;font-size:10px;font-weight:600;font-family:${T.fmono};border:1px solid ${st.color};color:${st.color};background:rgba(255,255,255,0.03)" title="${esc(st.blurb)}">${esc(st.label)}</span>
+        <button type="button" onclick="window._hbToggleFav('${esc(entry.id)}')" title="${isFav ? 'Remove from favourites' : 'Add to favourites'}"
           style="padding:5px 11px;border-radius:5px;font-size:11px;color:${isFav ? T.amber : T.text2};background:transparent;border:1px solid ${isFav ? T.amber : T.border};cursor:pointer;font-family:inherit">${isFav ? 'Saved' : 'Save'}</button>
-        <button id="hb-export-docx-btn" onclick="window._hbExportDocx('${esc(entry.id)}')" ${docxDisabled ? 'disabled' : ''}
+        <button type="button" id="hb-export-patient-guide-btn" onclick="window._hbExportPatientGuide('${esc(entry.id)}')" ${docxDisabled ? 'disabled' : ''}
+          title="${docxDisabled ? 'Patient guide DOCX uses condition + modality mapping — open a condition or protocol handbook first.' : 'Export patient-facing guide DOCX (AI-assisted / generic instructions — review before sharing).'}"
+          style="padding:5px 11px;border-radius:5px;font-size:11px;color:${docxDisabled ? T.text3 : T.text2};background:transparent;border:1px solid ${T.border};cursor:${docxDisabled ? 'not-allowed' : 'pointer'};font-family:inherit">Patient guide</button>
+        <button type="button" id="hb-export-docx-btn" onclick="window._hbExportDocx('${esc(entry.id)}')" ${docxDisabled ? 'disabled' : ''}
           style="padding:5px 11px;border-radius:5px;font-size:11px;color:${docxDisabled ? T.text3 : T.text2};background:transparent;border:1px solid ${T.border};cursor:${docxDisabled ? 'not-allowed' : 'pointer'};font-family:inherit"
-          title="${docxDisabled ? 'DOCX export is only available for condition and protocol handbooks.' : 'Export as Word document'}">DOCX</button>
-        <button onclick="window._hbPrint()" style="padding:5px 11px;border-radius:5px;font-size:11px;color:${T.text2};background:transparent;border:1px solid ${T.border};cursor:pointer;font-family:inherit">Print</button>
+          title="${docxDisabled ? 'DOCX export is only available for condition and protocol handbooks.' : 'Download DOCX (server-rendered; adds a draft watermark in-document where configured).'}">DOCX</button>
+        <button type="button" disabled title="PDF export is not implemented for handbooks in this build."
+          style="padding:5px 11px;border-radius:5px;font-size:11px;color:${T.text3};background:transparent;border:1px solid ${T.border};cursor:not-allowed;font-family:inherit">PDF</button>
+        <button type="button" onclick="window._hbPrint()" style="padding:5px 11px;border-radius:5px;font-size:11px;color:${T.text2};background:transparent;border:1px solid ${T.border};cursor:pointer;font-family:inherit">Print</button>
       </div>
     </header>
     <div id="hb-reading-pane" style="flex:1;overflow-y:auto;padding:0;max-height:calc(100vh - 180px)">
@@ -998,13 +1073,14 @@ function renderCenterV2(entry, sections) {
         </div>
         <h1 style="font-family:${T.fdisp};font-size:38px;font-weight:600;letter-spacing:-0.025em;line-height:1.1;margin:14px 0 10px;color:${T.text1};text-wrap:balance">${esc(entry.title)}</h1>
         <p style="font-size:16px;color:${T.text2};line-height:1.55;max-width:620px;margin:0">${esc(entry.subtitle)}</p>
+        <p style="margin:14px 0 0;font-size:12.5px;line-height:1.55;color:${T.text3};max-width:720px;border-left:3px solid ${st.color};padding-left:12px"><strong style="color:${T.text1}">In-app status:</strong> ${esc(st.label)}. ${esc(st.blurb)}</p>
         <div style="margin-top:18px;padding:18px;border:1px solid ${T.border};border-radius:${T.rmd};background:linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01))">
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
-            <span style="padding:7px 10px;border-radius:999px;background:${T.surface};border:1px solid ${T.border};font-size:11px;color:${T.text2};font-family:${T.fmono}">Version <strong style="color:${T.text1}">${esc(version)}</strong></span>
-            <span style="padding:7px 10px;border-radius:999px;background:${T.surface};border:1px solid ${T.border};font-size:11px;color:${T.text2};font-family:${T.fmono}">${esc(String(minutes))} min read</span>
+            <span style="padding:7px 10px;border-radius:999px;background:${T.surface};border:1px solid ${T.border};font-size:11px;color:${T.text2};font-family:${T.fmono}">Template / rail version <strong style="color:${T.text1}">${esc(version)}</strong> <span style="color:${T.text3};font-weight:400">(not a legal document version)</span></span>
+            <span style="padding:7px 10px;border-radius:999px;background:${T.surface};border:1px solid ${T.border};font-size:11px;color:${T.text2};font-family:${T.fmono}">~${esc(String(minutes))} min read</span>
             <span style="padding:7px 10px;border-radius:999px;background:${T.surface};border:1px solid ${T.border};font-size:11px;color:${T.text2};font-family:${T.fmono}">${esc(entry.collection || 'Reference')}</span>
           </div>
-          <p style="margin:0;font-size:13.5px;line-height:1.65;color:${T.text2};max-width:700px">This page is structured as a working handbook rather than a static article: start with the snapshot below, move section by section through workflow and safeguards, and use the right rail for orientation while you read.</p>
+          <p style="margin:0;font-size:13.5px;line-height:1.65;color:${T.text2};max-width:700px">Use the sections below for workflow, safety, and evidence context. Contraindications and patient-specific factors must be confirmed in the chart — this view does not know implant status, pregnancy, or current medications unless you link them through the rest of the platform.</p>
         </div>
 
         <div style="margin-top:28px">
@@ -1127,22 +1203,35 @@ function renderCenter(entry, sections) {
 
 // ── Right rail: TOC + meta + history + contributors + back-refs ──────────────
 function renderRightRailV2(entry, sections) {
+  const asideBase = `border:1px solid ${T.border};border-radius:${T.rmd};background:${T.panel};display:flex;flex-direction:column;overflow:hidden;position:sticky;top:0;align-self:start;max-height:calc(100vh - 120px)`;
+
   if (!entry) {
-    return `<aside style="border:1px solid ${T.border};border-radius:${T.rmd};background:${T.panel};padding:18px;color:${T.text3};font-size:12px;position:sticky;top:0;align-self:start">No handbook open.</aside>`;
+    return `<aside style="${asideBase}">
+      <div style="flex:1;overflow-y:auto">
+        <div style="padding:16px;border-bottom:1px solid ${T.border}">
+          <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:8px;font-family:${T.fmono}">Quick links</div>
+          <p style="margin:0 0 8px;font-size:11px;color:${T.text3};line-height:1.45">Jump to clinic tools used alongside handbook drafting. Signing in as a clinician is required for clinical routes.</p>
+          ${handbookQuickLinksHtml()}
+        </div>
+        <div style="padding:16px;font-size:11px;color:${T.text3};line-height:1.5">Select a handbook in the left rail to show section navigation and editorial context.</div>
+      </div>
+    </aside>`;
   }
 
   const version = entry.version || 'v1.0';
-  const reviewStatus = 'Queued';
-  const reviewColor = T.amber;
+  const st = curatedHandbookStatus(entry);
   const protocolRefCount = entry.kind === 'condition'
     ? PROTOCOL_REGISTRY.filter(p => p.condition === entry.id).length
     : 0;
+  const linkedProtos = entry.kind === 'condition'
+    ? PROTOCOL_REGISTRY.filter(p => p.condition === entry.id).slice(0, 6)
+    : [];
 
-  return `<aside style="border:1px solid ${T.border};border-radius:${T.rmd};background:${T.panel};display:flex;flex-direction:column;overflow:hidden;position:sticky;top:0;align-self:start;max-height:calc(100vh - 120px)">
+  return `<aside style="${asideBase}">
     <div style="flex:1;overflow-y:auto">
       <div style="padding:16px;border-bottom:1px solid ${T.border};background:linear-gradient(180deg, rgba(255,255,255,0.02), transparent)">
         <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:10px;font-family:${T.fmono}">On this page</div>
-        <nav id="hb-toc" style="display:flex;flex-direction:column">
+        <nav id="hb-toc" aria-label="Handbook sections" style="display:flex;flex-direction:column">
           ${sections.map(s => `
             <a href="#hb-${esc(s.id)}" data-toc="${esc(s.id)}" onclick="window._hbScroll(event,'${esc(s.id)}')"
                style="padding:5px 0 5px 10px;border-left:2px solid transparent;font-size:11.5px;color:${_section===s.id?T.text1:T.text3};text-decoration:none;line-height:1.4;font-weight:${_section===s.id?'600':'400'};border-left-color:${_section===s.id?T.teal:'transparent'}">
@@ -1153,38 +1242,44 @@ function renderRightRailV2(entry, sections) {
 
       <div style="padding:16px;border-bottom:1px solid ${T.border}">
         <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:10px;font-family:${T.fmono};display:flex;align-items:center;justify-content:space-between">
-          Editorial status
-          <span style="font-family:${T.fmono};font-size:9.5px;color:${reviewColor};border:1px solid ${reviewColor};padding:1px 7px;border-radius:999px">o ${esc(reviewStatus)}</span>
+          Editorial / template status
+          <span style="font-family:${T.fmono};font-size:9.5px;color:${st.color};border:1px solid ${st.color};padding:1px 7px;border-radius:999px">${esc(st.label)}</span>
         </div>
         <div style="font-size:11px;color:${T.text3};line-height:1.5">
-          Review workflow will surface owner, reviewer, and due date once the governance queue is connected. The handbook content below is still readable and exportable today.
+          ${esc(st.blurb)} Server-side sign-off, assignee queue, and version locking are <strong style="color:${T.text2}">not implemented</strong> for handbooks in this build — treat exports as drafts until your governance process records a signature.
         </div>
       </div>
 
       <div style="padding:16px;border-bottom:1px solid ${T.border}">
         <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:10px;font-family:${T.fmono};display:flex;align-items:center;justify-content:space-between">
-          Release track <span style="color:${T.text3};font-weight:500">${esc(version)}</span>
+          Template rail version <span style="color:${T.text3};font-weight:500">${esc(version)}</span>
         </div>
         <div style="font-size:11px;color:${T.text3};line-height:1.5">
-          Detailed revision notes are not wired yet. For now, the active version label reflects the current handbook snapshot in the app.
+          Label reflects the in-app handbook snapshot (Safety/Ops version tags where present). It is <strong style="color:${T.text2}">not</strong> a legal document control number.
         </div>
       </div>
 
       <div style="padding:16px;border-bottom:1px solid ${T.border}">
-        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:10px;font-family:${T.fmono}">Desk notes</div>
-        <div style="font-size:11px;color:${T.text3};line-height:1.5">Use favourites to build a personal short-list in the left rail while the contributor and sign-off services are still offline.</div>
+        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:10px;font-family:${T.fmono}">Quick links</div>
+        <p style="margin:0 0 8px;font-size:11px;color:${T.text3};line-height:1.45">Open linked workspaces (patient-scoped tools require an active patient selection elsewhere).</p>
+        ${handbookQuickLinksHtml()}
+      </div>
+
+      <div style="padding:16px;border-bottom:1px solid ${T.border}">
+        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:10px;font-family:${T.fmono};display:flex;align-items:center;justify-content:space-between">
+          Protocol registry <span style="color:${T.text3};font-weight:500">${protocolRefCount}</span>
+        </div>
+        ${protocolRefCount > 0
+          ? `<div style="font-size:11px;color:${T.text3};line-height:1.5;margin-bottom:8px">${entry.kind === 'condition' ? `${protocolRefCount} protocol row(s) reference this condition in the in-app registry.` : 'Protocol linkage is indirect for this entry.'}</div>
+            ${linkedProtos.length ? `<ul style="margin:0;padding-left:18px;font-size:11px;color:${T.text2};line-height:1.45">${linkedProtos.map(p => `<li>${esc(p.name)} <span style="color:${T.text3};font-family:${T.fmono}">(${esc(p.modality || '')})</span></li>`).join('')}</ul>` : ''}
+            <button type="button" onclick="window._nav('protocol-hub')" style="width:100%;margin-top:10px;padding:8px 10px;border-radius:6px;font-size:11.5px;color:${T.teal};background:rgba(0,212,188,0.08);border:1px solid rgba(0,212,188,0.28);cursor:pointer;font-family:inherit">Open Protocol Studio</button>`
+          : `<div style="font-size:11px;color:${T.text3};line-height:1.5">No protocol rows reference this entry in the registry — open Protocol Studio to draft or attach one.</div>
+            <button type="button" onclick="window._nav('protocol-hub')" style="width:100%;margin-top:10px;padding:8px 10px;border-radius:6px;font-size:11.5px;color:${T.text2};background:${T.surface};border:1px solid ${T.border};cursor:pointer;font-family:inherit">Protocol Studio</button>`}
       </div>
 
       <div style="padding:16px">
-        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:10px;font-family:${T.fmono};display:flex;align-items:center;justify-content:space-between">
-          Linked records <span style="color:${T.text3};font-weight:500">${protocolRefCount}</span>
-        </div>
-        ${protocolRefCount > 0
-          ? `<button onclick="window._hbToast('Linked records','${protocolRefCount} linked record${protocolRefCount===1?'':'s'} in the protocol registry.')"
-              style="width:100%;padding:8px 10px;border-radius:6px;font-size:11.5px;color:${T.text2};background:${T.surface};border:1px solid ${T.border};cursor:pointer;font-family:inherit;text-align:left">
-              -> ${protocolRefCount} linked ${entry.kind==='condition' ? 'protocol' + (protocolRefCount===1?'':'s') : 'record' + (protocolRefCount===1?'':'s')} in the registry
-            </button>`
-          : `<div style="font-size:11px;color:${T.text3};line-height:1.5">No linked registry records for this handbook yet.</div>`}
+        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:10px;font-family:${T.fmono}">Audit</div>
+        <div style="font-size:11px;color:${T.text3};line-height:1.5">DOCX export and AI draft generation log best-effort events for authenticated clinicians. Open <strong style="color:${T.text2}">Audit trail</strong> above to review activity — nothing here constitutes clinical sign-off.</div>
       </div>
     </div>
   </aside>`;
@@ -1261,11 +1356,6 @@ function renderRightRail(entry, sections) {
 function render() {
   if (!_el) return;
   const entries = buildEntries();
-  // First render: pick the first available entry (or 'mdd')
-  if (!_id) {
-    const initial = entries.find(e => e.id === 'mdd') || entries[0];
-    _id = initial?.id || null;
-  }
   const entry = entries.find(e => e.id === _id) || null;
   const sections = entry ? sectionsFor(entry) : [];
   if (entry && sections.length && !_section) _section = sections[0].id;
@@ -1306,11 +1396,22 @@ function render() {
 
 // ── Public entry point ───────────────────────────────────────────────────────
 export async function pgHandbooks(setTopbar /*, navigate */) {
+  const entryCount = buildEntries().length;
   if (typeof setTopbar === 'function') {
-    setTopbar('Handbooks', `<span style="font-size:0.8rem;color:${T.text2};align-self:center">Editorial knowledge base · 65 documents</span>`);
+    setTopbar('Handbooks', `<span style="font-size:0.8rem;color:${T.text2};align-self:center">Handbook workspace · ${entryCount} references</span>`);
   }
   _el = document.getElementById('content');
   if (!_el) return;
+
+  if (currentUser?.role === 'patient') {
+    _el.innerHTML = `
+      <div style="padding:48px 24px;max-width:520px;margin:0 auto;font-family:${T.fbody};color:${T.text2}">
+        <h1 style="font-family:${T.fdisp};font-size:22px;color:${T.text1};margin:0 0 12px">Handbook authoring</h1>
+        <p style="line-height:1.6;margin:0 0 16px">Protocol and clinician handbook drafting is limited to clinical staff. For materials intended for you, use <strong style="color:${T.text1}">Documents</strong> or ask your care team.</p>
+        <button type="button" class="btn btn-primary" onclick="window._navPatient('patient-portal')">Back to portal</button>
+      </div>`;
+    return;
+  }
 
   _id = null;
   _query = '';
@@ -1321,7 +1422,11 @@ export async function pgHandbooks(setTopbar /*, navigate */) {
   _favOnly   = false;
 
   // Window-scoped handlers (string event handlers are the page convention)
-  window._hbOpen = (id) => { _id = id; _section = null; render(); };
+  window._hbOpen = (id) => {
+    _id = id; _section = null;
+    api.logAudit({ event: 'handbook_open', surface: 'handbooks', note: `entry=${id}` }).catch(() => null);
+    render();
+  };
   const _repaintRail = () => {
     const entries = buildEntries();
     const left = _el.querySelector(':scope > div > div > aside:first-of-type');
@@ -1391,6 +1496,10 @@ export async function pgHandbooks(setTopbar /*, navigate */) {
   };
   window._hbPrint = () => { try { window.print(); } catch (_) { /* noop */ } };
 
+  const _hbLog = (event, note) => {
+    api.logAudit({ event, surface: 'handbooks', note: String(note || '').slice(0, 500) }).catch(() => null);
+  };
+
   // ── DOCX export — posts current handbook to /api/v1/export/handbook-docx ────
   // Works with or without an AI-generated cache. When the entry has been
   // generated in-session (via the AI handbook section), the generated
@@ -1428,11 +1537,51 @@ export async function pgHandbooks(setTopbar /*, navigate */) {
       a.download = 'handbook-' + String(entryId).toLowerCase() + '.docx';
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(url), 2000);
-      window._dsToast?.({ title: 'Exported', body: mapped.name + ' · handbook.docx', severity: 'info' });
+      window._dsToast?.({ title: 'Exported', body: mapped.name + ' · handbook.docx (draft render — verify before distribution)', severity: 'info' });
+      _hbLog('handbook_export_docx', `entry=${entryId};condition=${String(mapped.name).slice(0, 80)}`);
     } catch (e) {
       window._dsToast?.({ title: 'Export failed', body: (e?.body?.message || e?.message || 'Backend error'), severity: 'error' });
     }
     if (btn) { btn.disabled = false; btn.textContent = '⬇ DOCX'; }
+  };
+
+  window._hbExportPatientGuide = async (entryId) => {
+    if (!entryId) return;
+    const btn = document.getElementById('hb-export-patient-guide-btn');
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
+    const cond = (CONDITION_REGISTRY || []).find(c => c.id === entryId);
+    const prot = (PROTOCOL_REGISTRY || []).find(p => p.id === entryId);
+    const parentCond = prot ? (CONDITION_REGISTRY || []).find(c => c.id === prot.condition) : null;
+    if (!cond && !parentCond) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Patient guide'; }
+      window._dsToast?.({ title: 'Export unavailable', body: 'Patient guide DOCX applies to condition/protocol handbook rows only.', severity: 'warn' });
+      return;
+    }
+    const mapped = cond ? _backendConditionFor(cond) : _backendConditionFor(parentCond);
+    const sel = _aiSel[entryId] || {};
+    const modalityRaw = sel.modality || prot?.modality || (cond?.modalities || [])[0] || 'TMS/rTMS';
+    const modality = _modalityForBackend(modalityRaw);
+    try {
+      const blob = await api.exportPatientGuideDocx({
+        condition_name: mapped.name,
+        modality_name: modality,
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'patient-guide-' + String(entryId).toLowerCase() + '.docx';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      window._dsToast?.({ title: 'Patient guide exported', body: 'Review before sharing — generic instructions unless chart-linked.', severity: 'info' });
+      api.logAudit({
+        event: 'patient_guide_export_docx',
+        surface: 'handbooks',
+        note: `entry=${entryId};condition=${String(mapped.name).slice(0, 80)}`,
+      }).catch(() => null);
+    } catch (e) {
+      window._dsToast?.({ title: 'Export failed', body: (e?.body?.message || e?.message || 'Backend error'), severity: 'error' });
+    }
+    if (btn) { btn.disabled = false; btn.textContent = 'Patient guide'; }
   };
 
   // ── Keyboard shortcuts — /, Esc, j, k, ? ───────────────────────────────────
@@ -1540,7 +1689,12 @@ export async function pgHandbooks(setTopbar /*, navigate */) {
         kind: sel.kind,
         ts: Date.now(),
       };
-      window._dsToast?.({ title: 'Handbook generated', body: cond.name + ' · ' + sel.modality, severity: 'ok' });
+      api.logAudit({
+        event: 'handbook_ai_draft_generate',
+        surface: 'handbooks',
+        note: `condition=${cond.id};modality=${sel.modality};kind=${sel.kind}`,
+      }).catch(() => null);
+      window._dsToast?.({ title: 'AI-assisted draft ready', body: cond.name + ' · ' + sel.modality + ' — review before use.', severity: 'ok' });
     } catch (e) {
       const msg = e?.body?.message || e?.message || 'Backend error';
       if (stat) stat.textContent = 'Failed: ' + msg;

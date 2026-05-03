@@ -69,6 +69,7 @@ router = APIRouter(prefix="/api/v1/audit-trail", tags=["Audit Trail"])
 # before this whitelist existed (e.g. legacy ``evidence`` / ``upload``)
 # are still listed truthfully — we never silently rewrite history.
 KNOWN_SURFACES = {
+    "handbooks",
     "qeeg",
     "brain_map_planner",
     "session_runner",
