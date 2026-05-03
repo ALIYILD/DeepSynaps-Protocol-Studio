@@ -148,12 +148,14 @@ export function buildReportFallbackContent({
 export function mergeSavedReports(backendItems, localItems) {
   const backend = (backendItems || []).map((r) => ({
     id: r.id,
+    patient_id: r.patient_id || null,
     name: r.title || `${r.type || 'clinician'} report`,
     patient: r.patient_id || 'All Patients',
     type: r.type || 'clinician',
     date: String(r.date || r.created_at || '').slice(0, 10),
     status: r.status || 'generated',
     content: r.content || '',
+    is_demo: Boolean(r.is_demo),
     _source: 'backend',
   }));
   const local = (localItems || []).map((r) => ({ ...r, _source: r._source || 'local' }));
@@ -165,4 +167,60 @@ export function mergeSavedReports(backendItems, localItems) {
   const merged = Array.from(byId.values());
   merged.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
   return merged;
+}
+
+/** Stable page id for Reports hub in-app navigation (preserves ?page=reports-v2 vs reports-hub). */
+export function getReportsHubRoutePage() {
+  let rr = 'reports-v2';
+  try {
+    const q = new URLSearchParams(
+      typeof window !== 'undefined' && window.location && window.location.search
+        ? window.location.search
+        : '',
+    ).get('page');
+    if (q === 'reports-hub' || q === 'reports-v2') rr = q;
+    else if (typeof window !== 'undefined' && window._reportsRoutePage) {
+      const w = window._reportsRoutePage;
+      if (w === 'reports-hub' || w === 'reports-v2') rr = w;
+    }
+  } catch (_) {}
+  if (typeof window !== 'undefined') window._reportsRoutePage = rr;
+  return rr;
+}
+
+const CLINICAL_REPORT_ROLES = new Set(['clinician', 'admin', 'clinic-admin', 'supervisor', 'technician', 'reviewer']);
+
+export function canAccessClinicalReportsWorkspace(role) {
+  return CLINICAL_REPORT_ROLES.has(String(role || ''));
+}
+
+/**
+ * User-facing status for the Reports workspace (maps raw DB/local status).
+ * Does not claim "signed" or "clinician-reviewed" unless backend state supports it.
+ */
+export function reportStatusDisplayLabel(row) {
+  const st = String(row?.status || 'generated').toLowerCase();
+  if (row?.is_demo) {
+    return { label: 'Demo / sample', short: 'Demo', tone: 'demo' };
+  }
+  const local = row?._source === 'local' || st === 'local-only';
+  if (local) {
+    return { label: 'Local draft (this browser)', short: 'Local', tone: 'local' };
+  }
+  if (st === 'signed' || st === 'final') {
+    return { label: 'Signed / final', short: 'Signed', tone: 'final' };
+  }
+  if (st === 'superseded') {
+    return { label: 'Superseded', short: 'Superseded', tone: 'superseded' };
+  }
+  if (st === 'archived') {
+    return { label: 'Archived', short: 'Archived', tone: 'archived' };
+  }
+  if (st === 'failed' || st === 'error') {
+    return { label: 'Failed', short: 'Failed', tone: 'error' };
+  }
+  if (st === 'generated' || st === 'draft') {
+    return { label: 'AI-assisted draft', short: 'AI draft', tone: 'draft' };
+  }
+  return { label: st || 'Unknown', short: st || '—', tone: 'other' };
 }

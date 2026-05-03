@@ -41,6 +41,7 @@ def test_create_report_round_trip(client: TestClient, auth_headers: dict):
     assert out["date"] == body["report_date"]
     assert out["source"] == body["source"]
     assert out["status"] == "generated"
+    assert out.get("is_demo") is False
     assert "T" in out["created_at"]
 
 

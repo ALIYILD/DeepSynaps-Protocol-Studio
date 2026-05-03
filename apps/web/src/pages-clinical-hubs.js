@@ -9,9 +9,12 @@ import { renderBrainMap10_20 } from './brain-map-svg.js';
 import {
   buildReportFallbackContent,
   buildSchedulingSessionPayload,
+  canAccessClinicalReportsWorkspace,
+  getReportsHubRoutePage,
   getScheduleTypeSubmission,
   mergeSavedReports,
   parsePatientNameForCreate,
+  reportStatusDisplayLabel,
 } from './beta-readiness-utils.js';
 import {
   SUPPORTED_FORMS as ASSESSMENT_SUPPORTED_FORMS,
@@ -8421,10 +8424,31 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // pgReportsHubNew — Generate · Recent · Analytics · Export
+// (Renders both ?page=reports-hub and design-v2 ?page=reports-v2 — same workspace.)
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgReportsHubNew(setTopbar, navigate) {
   const tab = window._reportsHubTab || 'generate';
   window._reportsHubTab = tab;
+  const repPage = getReportsHubRoutePage();
+  const repNavLit = '\'' + String(repPage).replace(/\\/g, '\\\\').replace(/'/g, '\\\'') + '\'';
+  const role = currentUser?.role || 'guest';
+  const el = document.getElementById('content');
+
+  if (!canAccessClinicalReportsWorkspace(role)) {
+    setTopbar('Reports', '');
+    el.innerHTML = `
+      <div class="dv2-hub-shell" style="padding:24px;max-width:560px;margin:0 auto">
+        <div class="ch-card" style="padding:22px">
+          <div style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Clinical reports workspace</div>
+          <p style="font-size:12.5px;color:var(--text-secondary);line-height:1.6;margin:0 0 14px">
+            Sign in as a clinician or authorized staff member to view and manage clinical reports. Patient and guest accounts cannot access this area.
+          </p>
+          <button type="button" class="btn btn-primary btn-sm" onclick="window._nav('home')">Back to dashboard</button>
+        </div>
+      </div>`;
+    return;
+  }
+
   const TAB_META = {
     generate:   { label: 'Generate',         color: 'var(--teal)'   },
     combined:   { label: 'Combined Report',  color: 'var(--green)'  },
@@ -8433,14 +8457,52 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     analytics:  { label: 'Analytics',        color: 'var(--violet)' },
     export:     { label: 'Export',           color: 'var(--amber)'  },
   };
-  const el = document.getElementById('content');
   function tabBar() {
     return Object.entries(TAB_META).map(([id,m]) =>
       '<button class="ch-tab'+(tab===id?' ch-tab--active':'')+'"'+(tab===id?' style="--tab-color:'+m.color+'"':'')+
-      ' onclick="window._reportsHubTab=\''+id+'\';window._nav(\'reports-hub\')">'+ m.label +'</button>'
+      ' onclick="window._reportsHubTab=\''+id+'\';window._nav('+repNavLit+')">'+ m.label +'</button>'
     ).join('');
   }
-  setTopbar('Reports', '<span class="ph-ai-badge">AI</span>');
+  setTopbar('Reports', '<span class="ph-ai-badge">AI-assisted drafts</span>');
+
+  const REPORTS_V2_SAFETY_HTML =
+    '<div class="reports-v2-safety-banner" style="padding:12px 14px;border-radius:10px;border:1px solid rgba(94,234,212,0.2);background:rgba(94,234,212,0.06);color:var(--text-secondary);font-size:11.5px;line-height:1.55;margin-bottom:12px">' +
+    '<div style="font-weight:600;color:var(--text-primary);margin-bottom:4px">Clinical decision-support only</div>' +
+    '<div>Reports may contain AI-assisted or source-derived drafts. They require clinician review and do not diagnose, prescribe, approve treatment, or replace clinical judgement. Final status requires a real governed sign-off workflow.</div>' +
+    '<div style="margin-top:8px;font-size:11px;color:var(--text-tertiary)">Exports use authenticated API routes only (no public report URLs). Audit events are recorded when the API supports them; browser-only data is labelled.</div>' +
+    '</div>';
+
+  const MODULE_LINK_STRIP = [
+    { label: 'qEEG', page: 'qeeg-analysis' },
+    { label: 'MRI', page: 'mri-analysis' },
+    { label: 'Labs', page: 'labs-analyzer' },
+    { label: 'Biomarkers', page: 'biomarkers' },
+    { label: 'Voice', page: 'voice-analyzer' },
+    { label: 'Video', page: 'video-assessments' },
+    { label: 'Text', page: 'text-analyzer' },
+    { label: 'Monitor', page: 'monitor' },
+    { label: 'Risk', page: 'risk-analyzer' },
+    { label: 'Medication', page: 'medication-analyzer' },
+    { label: 'Sessions', page: 'treatment-sessions-analyzer' },
+    { label: 'Phenotype', page: 'phenotype-analyzer' },
+    { label: 'Movement', page: 'movement-analyzer' },
+    { label: 'Nutrition', page: 'nutrition-analyzer' },
+    { label: 'DeepTwin', page: 'deeptwin' },
+    { label: 'Protocol Studio', page: 'protocol-studio' },
+    { label: 'Brainmap', page: 'brainmap-v2' },
+    { label: 'Handbooks', page: 'handbooks-v2' },
+    { label: 'Documents', page: 'documents-v2' },
+    { label: 'Schedule', page: 'schedule-v2' },
+    { label: 'Inbox', page: 'clinician-inbox' },
+    { label: 'Live Session', page: 'live-session' },
+  ];
+  const MODULE_STRIP_HTML =
+    '<div class="reports-v2-module-strip" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:12px">' +
+    '<span style="font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-right:4px">Source modules</span>' +
+    MODULE_LINK_STRIP.map((m) =>
+      '<button type="button" class="ch-btn-sm" onclick="window._nav(\'' + m.page + '\')">' + m.label + '</button>',
+    ).join('') +
+    '</div>';
 
   const REPORT_TYPES = [
     { id:'R1', name:'Initial Assessment Report',       cat:'Intake',       auto:true,  fields:18, desc:'Full intake assessment including clinical history, contraindications, baseline scores.', sources:['patients','assessments'] },
@@ -8474,7 +8536,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     wearables:   { label: 'Wearable Data',      icon: '\u231A',       page: 'monitor',           fetch: () => (api.getClinicAlertSummary?api.getClinicAlertSummary():Promise.resolve(null)).catch(()=>null) },
     qeeg:        { label: 'qEEG Records',       icon: '\uD83C\uDF0A', page: 'qeeg-analysis',    fetch: () => (api.listQEEGRecords?api.listQEEGRecords():Promise.resolve({items:[]})).catch(()=>({items:[]})) },
     fusion:      { label: 'Fusion Cases',       icon: '\u2696\uFE0F',  page: 'fusion-workbench', fetch: () => (api.listFusionCases?api.listFusionCases():Promise.resolve([])).catch(()=>[]) },
-    aggregate:   { label: 'Outcome Aggregates', icon: '\uD83D\uDCC8', page: 'reports-hub',      fetch: () => (api.aggregateOutcomes?api.aggregateOutcomes():Promise.resolve({})).catch(()=>({})) },
+    aggregate:   { label: 'Outcome Aggregates', icon: '\uD83D\uDCC8', page: repPage,      fetch: () => (api.aggregateOutcomes?api.aggregateOutcomes():Promise.resolve({})).catch(()=>({})) },
   };
 
   // Helper: fetch data from multiple sources
@@ -8613,6 +8675,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     const today = new Date().toISOString().slice(0,10);
     const local = {
       id: 'RPT-' + Date.now(),
+      patient_id: patientId || null,
       name: report.type + ' — ' + report.patient,
       patient: report.patient,
       type: report.type,
@@ -8639,6 +8702,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
       console.warn('[reports-hub] createReport failed (local cache only):', err?.message || err);
       local.status = 'local-only';
       local._source = 'local';
+      local.is_demo = false;
     }
     const rpts = loadReports();
     rpts.unshift(local);
@@ -8651,8 +8715,35 @@ export async function pgReportsHubNew(setTopbar, navigate) {
       body: persisted ? fallbackSuccessBody : 'The report is stored in this browser only because the server save failed.',
       severity: persisted ? 'success' : 'warn',
     });
-    window._reportsHubTab='recent'; window._nav('reports-hub');
+    window._reportsHubTab='recent'; window._nav(repPage);
   }
+
+  const stBadge = (r) => {
+    const d = reportStatusDisplayLabel(r);
+    const map = {
+      draft: 'var(--amber)',
+      final: 'var(--green)',
+      superseded: 'var(--text-tertiary)',
+      local: 'var(--amber)',
+      demo: 'var(--violet)',
+      error: 'var(--red)',
+      archived: 'var(--text-tertiary)',
+      other: 'var(--teal)',
+    };
+    const c = map[d.tone] || 'var(--teal)';
+    const title = String(d.label).replace(/"/g, '&quot;');
+    return '<span class="book-status-badge reports-v2-status" data-status-tone="' + d.tone + '" title="' + title + '" style="color:' + c + ';background:' + c + '22;max-width:168px;white-space:normal;text-align:left;line-height:1.25;font-size:10.5px">' + d.short + '</span>';
+  };
+  const provLine = (r) => {
+    const src = r && r._source === 'backend' ? 'Server record' : 'Local cache (this browser)';
+    const demo = r && r.is_demo ? ' · Demo/sample' : '';
+    const pid = r && r.patient_id;
+    const link = pid && String(pid).length
+      ? ' <button type="button" class="ch-btn-sm" style="margin-left:4px;padding:2px 7px;font-size:10.5px" onclick="window._nav(\'patients-v2\',{id:\'' + String(pid).replace(/'/g, '') + '\'})">Open patient</button>'
+      : '';
+    const typeEsc = String(r.type || '—').replace(/</g, '&lt;');
+    return 'Context: ' + String(r.patient || '—') + ' · Type: ' + typeEsc + ' · ' + src + demo + link;
+  };
 
   let main = '';
 
@@ -8679,7 +8770,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
             <div class="ch-form-group"><label class="ch-label">Patient / Scope</label><select id="rep-patient" class="ch-select ch-select--full">${patOpts}</select></div>
             <div class="ch-form-group"><label class="ch-label">Report Type</label>
               <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
-                ${cats.map(c=>'<button class="reg-domain-pill'+(c===filtCat?' active':'')+'" onclick="window._repGenCat=\''+c+'\';window._nav(\'reports-hub\')">'+c+'</button>').join('')}
+                ${cats.map(c=>'<button class="reg-domain-pill'+(c===filtCat?' active':'')+'" onclick="window._repGenCat=\''+c+'\';window._nav('+repNavLit+')">'+c+'</button>').join('')}
               </div>
               <select id="rep-type" class="ch-select ch-select--full" onchange="window._repUpdateDesc()">
                 ${filtTypes.map(r=>'<option value="'+r.id+'">'+r.name+'</option>').join('')}
@@ -8771,7 +8862,8 @@ export async function pgReportsHubNew(setTopbar, navigate) {
       const prompt = 'Generate a professional ' + typeName + ' for ' + scope + '. Use standard medical/clinical report format with clear sections, headers, and structured data presentation. ' + typeData.desc +
         (dataContext ? '\n\nHere is the LIVE DATA from the dashboard to base this report on:\n\n' + dataContext : '') +
         (context ? '\n\nAdditional context from clinician: ' + context : '') +
-        '\n\nIMPORTANT: Structure the report with clear section headers. Include data-driven observations. If health data is provided, note any correlations between metrics (e.g., outcome scores vs session count, assessment trends). If financial data is provided, include business performance metrics. Always end with recommendations and next steps.';
+        '\n\nIMPORTANT: Structure the report with clear section headers. Include data-driven observations. If health data is provided, note any correlations between metrics (e.g., outcome scores vs session count, assessment trends). If financial data is provided, include business performance metrics. Always end with recommendations and next steps.' +
+        '\n\nCLINICAL SAFETY: This text is an AI-assisted draft for clinician review only. It must not state or imply a definitive diagnosis, autonomous clinical sign-off, prescription, treatment approval, emergency triage, or autonomous medical decision.';
 
       try {
         const res = await api.chatClinician([{role:'user',content:prompt}],{});
@@ -9184,8 +9276,8 @@ export async function pgReportsHubNew(setTopbar, navigate) {
 
     const STATUS_FILTS = [
       { id: '',           label: 'All' },
-      { id: 'generated',  label: 'Draft' },
-      { id: 'signed',     label: 'Signed' },
+      { id: 'generated',  label: 'AI-assisted draft' },
+      { id: 'signed',     label: 'Signed / final' },
       { id: 'superseded', label: 'Superseded' },
       { id: 'local-only', label: 'Local only' },
     ];
@@ -9198,25 +9290,20 @@ export async function pgReportsHubNew(setTopbar, navigate) {
       '<div class="ch-kpi-card" style="--kpi-color:var(--text-tertiary)"><div class="ch-kpi-val">' + (summaryCounts.superseded ?? 0) + '</div><div class="ch-kpi-label">Superseded</div></div>' +
       '</div>';
 
-    const disclaimerBanner =
-      '<div style="padding:10px 14px;border-radius:8px;border:1px solid rgba(94,234,212,0.18);background:rgba(94,234,212,0.05);color:var(--text-secondary);font-size:11.5px;line-height:1.5;margin-bottom:12px">' +
-      '<div style="font-weight:600;color:var(--text-primary);margin-bottom:2px">Clinical safety</div>' +
-      '<div>Reports are clinical records and require clinician sign-off. Signed reports are immutable; supersede creates a new revision with audit trail. AI summaries are decision-support only.</div>' +
-      '</div>';
-
-    main = summaryStrip + disclaimerBanner + `
+    main = summaryStrip + `
       <div class="ch-card">
         <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px">
           <span class="ch-card-title">Recent Reports</span>
           <div style="display:flex;gap:4px;flex-wrap:wrap">
-            ${STATUS_FILTS.map(f=>'<button class="ch-btn-sm'+(f.id===statusFilt?' ch-btn-teal':'')+'" onclick="window._repStatusFilter=\''+f.id+'\';window._reportsHubAudit(\'filter_changed\',\'status=\'+'+JSON.stringify(f.id)+');window._nav(\'reports-hub\')">'+f.label+'</button>').join('')}
+            ${STATUS_FILTS.map(f=>'<button class="ch-btn-sm'+(f.id===statusFilt?' ch-btn-teal':'')+'" onclick="window._repStatusFilter=\''+f.id+'\';window._reportsHubAudit(\'filter_changed\',\'status=\'+'+JSON.stringify(f.id)+');window._nav('+repNavLit+')">'+f.label+'</button>').join('')}
           </div>
-          <input type="text" placeholder="Filter by kind…" class="ph-search-input" style="max-width:160px" value="${(kindFilt||'').replace(/"/g,'&quot;')}" oninput="window._repKindFilter=this.value" onchange="window._reportsHubAudit('filter_changed','kind='+this.value);window._nav('reports-hub')">
+          <input type="text" placeholder="Filter by kind…" class="ph-search-input" style="max-width:160px" value="${(kindFilt||'').replace(/"/g,'&quot;')}" oninput="window._repKindFilter=this.value" onchange="window._reportsHubAudit('filter_changed','kind='+this.value);window._nav(${repNavLit})">
           <div style="position:relative;flex:1;max-width:260px">
-            <input type="text" placeholder="Search reports…" class="ph-search-input" value="${window._repSearch||''}" oninput="window._repSearch=this.value" onchange="window._reportsHubAudit('filter_changed','q='+this.value);window._nav('reports-hub')">
+            <input type="text" placeholder="Search reports…" class="ph-search-input" value="${window._repSearch||''}" oninput="window._repSearch=this.value" onchange="window._reportsHubAudit('filter_changed','q='+this.value);window._nav(${repNavLit})">
             <svg viewBox="0 0 24 24" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;stroke:var(--text-tertiary);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           </div>
-          <button class="ch-btn-sm ch-btn-teal" onclick="window._reportsHubTab='generate';window._nav('reports-hub')">+ New Report</button>
+          <button type="button" class="ch-btn-sm" onclick="window._nav(\'audittrail\')" title="Clinic audit trail (authenticated)">Audit log</button>
+          <button class="ch-btn-sm ch-btn-teal" onclick="window._reportsHubTab='generate';window._nav(${repNavLit})">+ New Report</button>
         </div>
         ${rows.length ? rows.map(r=>
           (() => {
@@ -9228,6 +9315,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
               ? '<button class="ch-btn-sm" onclick="window._repOpenRenderedHtml(\''+r.id+'\')">HTML</button>'
                 + '<button class="ch-btn-sm" onclick="window._repDownloadPdf(\''+r.id+'\')">PDF</button>'
                 + '<button class="ch-btn-sm" onclick="window._repDownloadCsv(\''+r.id+'\')">CSV</button>'
+                + '<button type="button" class="ch-btn-sm" title="Uses authenticated export route; may be unavailable on this deployment" onclick="window._repDownloadDocx(\''+r.id+'\')">DOCX</button>'
               : '<span style="font-size:10.5px;color:var(--amber);padding:0 6px">'+reportPersistenceLabel(r)+'</span>';
             const signBtn = isBackend && !isSigned && !isSuperseded
               ? '<button class="ch-btn-sm ch-btn-teal" onclick="window._repSign(\''+r.id+'\')">Sign</button>' : '';
@@ -9236,8 +9324,8 @@ export async function pgReportsHubNew(setTopbar, navigate) {
             return (
           '<div class="book-row">'+
             '<div class="book-datetime"><div class="book-date">'+r.date+'</div><div class="book-time">'+r.type+'</div></div>'+
-            '<div class="book-info"><div class="book-patient">'+r.name+'</div><div class="book-clinician">'+r.patient+' · '+reportPersistenceLabel(r)+'</div></div>'+
-            '<div class="book-status-col"><span class="book-status-badge" style="color:'+(stC[r.status]||'var(--teal)')+';background:'+(stC[r.status]||'var(--teal)')+'22">'+r.status+'</span></div>'+
+            '<div class="book-info"><div class="book-patient">'+r.name+'</div><div class="book-clinician">'+provLine(r)+' · '+reportPersistenceLabel(r)+'</div></div>'+
+            '<div class="book-status-col">'+stBadge(r)+'</div>'+
             '<div class="book-actions">'+
               '<button class="ch-btn-sm" onclick="window._repViewSaved(\''+r.id+'\')">View</button>'+
               '<button class="ch-btn-sm" onclick="window._repPrintSaved(\''+r.id+'\')">Print</button>'+
@@ -9246,12 +9334,44 @@ export async function pgReportsHubNew(setTopbar, navigate) {
           '</div>'
             );
           })()
-        ).join('') : '<div class="ch-empty">No reports yet. Generate the first one. <a onclick="window._reportsHubTab=\'generate\';window._nav(\'reports-hub\')" style="color:var(--teal);cursor:pointer">Open Generate →</a></div>'}
+        ).join('') : '<div class="ch-empty">No reports are listed yet — this does not mean workflows are complete. <a onclick="window._reportsHubTab=\'generate\';window._nav('+repNavLit+')" style="color:var(--teal);cursor:pointer">Generate a draft →</a></div>'}
       </div>`;
 
     // Audit ingestion helper used by filter handlers above. Best-effort, fire-and-forget.
     window._reportsHubAudit = (event, note) => {
       try { api.logReportsAudit?.({ event, note: String(note || '').slice(0, 500) }); } catch (_) {}
+    };
+
+    window._repDownloadDocx = async (id) => {
+      const r = findSavedReportRecord(id);
+      if (!r) {
+        window._dsToast?.({ title: 'Not found', body: 'Report record is no longer available.', severity: 'warn' });
+        return;
+      }
+      if (!canRenderSavedReport(r)) {
+        window._dsToast?.({ title: 'DOCX unavailable', body: 'Only server-saved reports can export DOCX.', severity: 'warn' });
+        return;
+      }
+      if (!api.exportReportDocx) {
+        window._dsToast?.({ title: 'DOCX unavailable', body: 'API client has no export helper.', severity: 'warn' });
+        return;
+      }
+      try {
+        const file = await api.exportReportDocx(id);
+        if (!file?.blob) throw new Error('DOCX export returned no file.');
+        const url = URL.createObjectURL(file.blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = file.filename || ('report-' + id + '.docx');
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        api.logReportsAudit?.({ event: 'exported', report_id: id, note: 'format=docx' });
+        window._dsToast?.({ title: 'DOCX ready', body: (file.filename || 'report.docx') + ' downloaded.', severity: 'success' });
+      } catch (err) {
+        window._dsToast?.({ title: 'DOCX export unavailable', body: err?.message || 'Server may not have a DOCX renderer (expect HTTP 503).', severity: 'warn' });
+      }
     };
 
     window._repDownloadCsv = async (id) => {
@@ -9287,7 +9407,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
         const out = await api.signReport(id, note || null);
         api.logReportsAudit?.({ event: 'signed', report_id: id, note: 'signed_by=' + (out?.signed_by || '?') });
         window._dsToast?.({ title: 'Signed', body: 'Report signed and made immutable.', severity: 'success' });
-        window._nav('reports-hub');
+        window._nav(repPage);
       } catch (err) {
         const msg = err?.message || 'Network error';
         window._dsToast?.({ title: 'Sign failed', body: msg, severity: 'critical' });
@@ -9308,7 +9428,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
         const out = await api.supersedeReport(id, { reason });
         api.logReportsAudit?.({ event: 'superseded', report_id: id, note: 'new_revision=' + (out?.id || '?') });
         window._dsToast?.({ title: 'Superseded', body: 'New revision created. Original is now read-only.', severity: 'success' });
-        window._nav('reports-hub');
+        window._nav(repPage);
       } catch (err) {
         const msg = err?.message || 'Network error';
         window._dsToast?.({ title: 'Supersede failed', body: msg, severity: 'critical' });
@@ -9568,7 +9688,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
                   <div class="lib-card-top"><span style="font-size:18px">📊</span><span class="lib-card-name">CSV Data Export</span></div>
                   <div style="font-size:11.5px;color:var(--text-tertiary)">Raw rows for analysis in Excel, R, or SPSS. Downloads immediately.</div>
                 </div>
-                <div class="lib-card" style="cursor:pointer" onclick="window._reportsHubTab='recent';window._nav('reports-hub')">
+                <div class="lib-card" style="cursor:pointer" onclick="window._reportsHubTab='recent';window._nav(${repNavLit})">
                   <div class="lib-card-top"><span style="font-size:18px">📄</span><span class="lib-card-name">Per-report PDF</span><span style="margin-left:auto;font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(94,234,212,0.12);color:var(--teal);border:1px solid rgba(94,234,212,0.3)">Available</span></div>
                   <div style="font-size:11.5px;color:var(--text-tertiary)">Use the PDF button on each report in the Recent tab. Bulk PDF is not supported on this deployment.</div>
                 </div>
@@ -9665,7 +9785,15 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     };
   }
 
-  el.innerHTML = `<div class="dv2-hub-shell" style="padding:20px;display:flex;flex-direction:column;gap:16px"><div class="ch-shell"><div class="ch-tab-bar">${tabBar()}</div><div class="ch-body">${main}</div></div></div>`;
+  el.innerHTML =
+    '<div class="dv2-hub-shell reports-v2-workspace" style="padding:20px;display:flex;flex-direction:column;gap:12px">' +
+    MODULE_STRIP_HTML +
+    REPORTS_V2_SAFETY_HTML +
+    '<div class="ch-shell"><div class="ch-tab-bar">' +
+    tabBar() +
+    '</div><div class="ch-body">' +
+    main +
+    '</div></div></div>';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
