@@ -582,10 +582,11 @@ function _renderLinkedBar(patientId, courseId, navigate) {
       <button type="button" class="btn btn-ghost btn-sm" data-nav="biomarkers" style="min-height:40px">Biomarkers</button>
       <button type="button" class="btn btn-ghost btn-sm" data-nav="documents-hub" style="min-height:40px">Documents</button>
       <button type="button" class="btn btn-ghost btn-sm" data-nav="deeptwin" style="min-height:40px">DeepTwin</button>
-      <button type="button" class="btn btn-ghost btn-sm" data-nav="brainmap" style="min-height:40px">Brainmap</button>
+      <button type="button" class="btn btn-ghost btn-sm" data-nav="brain-map-planner" style="min-height:40px">Brain Map Planner</button>
       <button type="button" class="btn btn-ghost btn-sm" data-nav="risk-analyzer" style="min-height:40px">Risk Analyzer</button>
       <button type="button" class="btn btn-ghost btn-sm" data-nav="medication-analyzer" style="min-height:40px">Medication Analyzer</button>
       <button type="button" class="btn btn-ghost btn-sm" data-nav="protocol-studio" style="min-height:40px">Protocol Studio</button>
+      <button type="button" class="btn btn-ghost btn-sm" data-nav="handbooks" style="min-height:40px">Handbooks</button>
       <button type="button" class="btn btn-ghost btn-sm" data-nav="scheduling-hub" style="min-height:40px">Schedule</button>
       <button type="button" class="btn btn-ghost btn-sm" data-nav="clinician-inbox" style="min-height:40px">Inbox</button>
       <button type="button" class="btn btn-ghost btn-sm" data-nav="session-execution" style="min-height:40px">Live session</button>
@@ -605,10 +606,11 @@ function _wireLinkedBar(body, patientId, courseId, navigate) {
     'biomarkers': () => { window._selectedPatientId = patientId; navigate('biomarkers', { id: patientId }); },
     'documents-hub': () => { window._selectedPatientId = patientId; navigate('documents-hub', { id: patientId }); },
     'deeptwin': () => { window._selectedPatientId = patientId; navigate('deeptwin', { id: patientId }); },
-    'brainmap': () => { window._selectedPatientId = patientId; navigate('brainmap', { id: patientId }); },
+    'brain-map-planner': () => { window._selectedPatientId = patientId; navigate('brain-map-planner', { id: patientId }); },
     'risk-analyzer': () => { window._selectedPatientId = patientId; navigate('risk-analyzer', { id: patientId }); },
     'medication-analyzer': () => { window._selectedPatientId = patientId; navigate('medication-analyzer', { id: patientId }); },
     'protocol-studio': () => navigate('protocol-studio'),
+    'handbooks': () => { window._selectedPatientId = patientId; navigate('handbooks', { id: patientId }); },
     'scheduling-hub': () => { window._selectedPatientId = patientId; navigate('scheduling-hub', { id: patientId }); },
     'clinician-inbox': () => navigate('clinician-inbox'),
     'session-execution': () => { window._selectedPatientId = patientId; window._selectedCourseId = courseId; navigate('session-execution'); },
