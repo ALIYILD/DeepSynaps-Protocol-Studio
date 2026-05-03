@@ -4,6 +4,10 @@
 export const ACADEMY_GOVERNANCE_DISCLAIMER =
   'Academy content is training and reference material. It does not diagnose, prescribe, approve treatment, certify clinical competence, or replace local governance, supervision, and clinician judgement.';
 
+/** Patient portal — completion ticks are localStorage-only (honest labeling). */
+export const ACADEMY_PATIENT_LOCAL_PROGRESS_NOTE =
+  'Progress shown here is saved only on this browser (local storage). It is not sent to your clinic as a training record, certificate, CME/CPD credit, or competency sign-off unless your organisation enables that separately.';
+
 /** In-app module shortcuts on the clinic Academy page (nav targets match sidebar). */
 export const ACADEMY_CLINIC_LINKED_MODULES = [
   { page: 'dashboard', label: 'Dashboard' },

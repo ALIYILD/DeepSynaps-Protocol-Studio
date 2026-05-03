@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   ACADEMY_GOVERNANCE_DISCLAIMER,
+  ACADEMY_PATIENT_LOCAL_PROGRESS_NOTE,
   ACADEMY_CLINIC_LINKED_MODULES,
   academySectionCardMeta,
 } from './academy-clinic-constants.js';
@@ -45,4 +46,9 @@ test('wording: no in-app CME or certificate claims in progress panel text', () =
     'GET /api/v1/marketplace/seller/browse',
   ].join(' ');
   assert.doesNotMatch(panel, /CME|CPD|certificate of completion|board certified by DeepSynaps/i);
+});
+
+test('patient portal progress note documents local-only storage', () => {
+  assert.match(ACADEMY_PATIENT_LOCAL_PROGRESS_NOTE, /local storage/i);
+  assert.match(ACADEMY_PATIENT_LOCAL_PROGRESS_NOTE, /not sent to your clinic/i);
 });
