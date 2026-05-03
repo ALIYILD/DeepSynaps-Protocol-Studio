@@ -7658,7 +7658,7 @@ export async function pgBrainMapPlanner(setTopbar, navigate) {
     const rosterMatch = patientLinked && window._patientRoster && window._patientRoster.some(function(p) {
       return p && String(p.id) === String(bmpState.patientId);
     });
-    const qeegLinked = !!(_bmpQEEGAnalysisId && _bmpQEEGPatientId);
+    const qeegLinked = !!(_bmpQEEGAnalysisId || _bmpQEEGPatientId);
     const row = function(ok, label, detail) {
       const icon = ok ? '<span style="color:var(--teal)">\u2713</span>' : '<span style="color:var(--amber)" aria-hidden="true">\u25d0</span>';
       return '<div style="display:flex;gap:10px;align-items:flex-start;font-size:11.5px;line-height:1.45">'
