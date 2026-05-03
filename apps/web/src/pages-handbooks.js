@@ -1403,6 +1403,16 @@ export async function pgHandbooks(setTopbar /*, navigate */) {
   _el = document.getElementById('content');
   if (!_el) return;
 
+  if (currentUser?.role === 'patient') {
+    _el.innerHTML = `
+      <div style="padding:48px 24px;max-width:520px;margin:0 auto;font-family:${T.fbody};color:${T.text2}">
+        <h1 style="font-family:${T.fdisp};font-size:22px;color:${T.text1};margin:0 0 12px">Handbook authoring</h1>
+        <p style="line-height:1.6;margin:0 0 16px">Protocol and clinician handbook drafting is limited to clinical staff. For materials intended for you, use <strong style="color:${T.text1}">Documents</strong> or ask your care team.</p>
+        <button type="button" class="btn btn-primary" onclick="window._navPatient('patient-portal')">Back to portal</button>
+      </div>`;
+    return;
+  }
+
   _id = null;
   _query = '';
   _section = null;
