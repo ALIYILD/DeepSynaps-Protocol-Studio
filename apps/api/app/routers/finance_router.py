@@ -26,6 +26,37 @@ from ..repositories import finance as finance_repo
 
 router = APIRouter(prefix="/api/v1/finance", tags=["finance"])
 
+_FINANCE_READ_ROLES = frozenset(
+    {
+        "clinician",
+        "admin",
+        "clinic-admin",
+        "supervisor",
+        "reviewer",
+        "technician",
+    }
+)
+_FINANCE_WRITE_ROLES = frozenset({"admin", "clinic-admin"})
+
+
+def _require_finance_read(actor: AuthenticatedActor) -> None:
+    """Block guests, anonymous viewers, and patient accounts from finance APIs."""
+    if actor.role in ("guest", "patient") or actor.role not in _FINANCE_READ_ROLES:
+        raise HTTPException(
+            status_code=403,
+            detail="Finance endpoints require a clinical or administrator account.",
+        )
+
+
+def _require_finance_write(actor: AuthenticatedActor) -> None:
+    """Mutations (invoice CRUD, payments, claims) are administrator-only."""
+    _require_finance_read(actor)
+    if actor.role not in _FINANCE_WRITE_ROLES:
+        raise HTTPException(
+            status_code=403,
+            detail="Finance management requires an administrator or clinic administrator role.",
+        )
+
 
 # ── Schemas ─────────────────────────────────────────────────────────────────
 
@@ -245,6 +276,7 @@ def list_invoices_endpoint(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> InvoiceListResponse:
+    _require_finance_read(actor)
     rows = finance_repo.list_invoices(
         session, actor.actor_id, status=status, search=search
     )
@@ -257,6 +289,7 @@ def create_invoice_endpoint(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> InvoiceOut:
+    _require_finance_write(actor)
     invoice = finance_repo.create_invoice(
         session, actor.actor_id, **body.model_dump()
     )
@@ -269,6 +302,7 @@ def get_invoice_endpoint(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> InvoiceOut:
+    _require_finance_read(actor)
     invoice = finance_repo.get_invoice(session, actor.actor_id, invoice_id)
     if invoice is None:
         raise HTTPException(status_code=404, detail="Invoice not found")
@@ -282,6 +316,7 @@ def update_invoice_endpoint(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> InvoiceOut:
+    _require_finance_write(actor)
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     invoice = finance_repo.update_invoice(
         session, actor.actor_id, invoice_id, **updates
@@ -297,6 +332,7 @@ def delete_invoice_endpoint(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> None:
+    _require_finance_write(actor)
     ok = finance_repo.delete_invoice(session, actor.actor_id, invoice_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Invoice not found")
@@ -309,6 +345,7 @@ def mark_invoice_paid_endpoint(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> InvoiceOut:
+    _require_finance_write(actor)
     invoice = finance_repo.mark_invoice_paid(
         session,
         actor.actor_id,
@@ -329,6 +366,7 @@ def list_payments_endpoint(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> PaymentListResponse:
+    _require_finance_read(actor)
     rows = finance_repo.list_payments(session, actor.actor_id)
     return PaymentListResponse(items=[PaymentOut.from_record(r) for r in rows])
 
@@ -339,6 +377,7 @@ def create_payment_endpoint(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> PaymentOut:
+    _require_finance_write(actor)
     payload = body.model_dump()
     invoice_id = payload.pop("invoice_id", None)
     payment = finance_repo.create_payment(
@@ -356,6 +395,7 @@ def list_claims_endpoint(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> ClaimListResponse:
+    _require_finance_read(actor)
     rows = finance_repo.list_claims(session, actor.actor_id, status=status)
     return ClaimListResponse(items=[ClaimOut.from_record(r) for r in rows])
 
@@ -366,6 +406,7 @@ def create_claim_endpoint(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> ClaimOut:
+    _require_finance_write(actor)
     claim = finance_repo.create_claim(session, actor.actor_id, **body.model_dump())
     return ClaimOut.from_record(claim)
 
@@ -376,6 +417,7 @@ def get_claim_endpoint(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> ClaimOut:
+    _require_finance_read(actor)
     claim = finance_repo.get_claim(session, actor.actor_id, claim_id)
     if claim is None:
         raise HTTPException(status_code=404, detail="Claim not found")
@@ -389,6 +431,7 @@ def update_claim_endpoint(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> ClaimOut:
+    _require_finance_write(actor)
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     claim = finance_repo.update_claim(session, actor.actor_id, claim_id, **updates)
     if claim is None:
@@ -402,6 +445,7 @@ def delete_claim_endpoint(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> None:
+    _require_finance_write(actor)
     ok = finance_repo.delete_claim(session, actor.actor_id, claim_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Claim not found")
@@ -415,6 +459,7 @@ def finance_summary_endpoint(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> SummaryResponse:
+    _require_finance_read(actor)
     data = finance_repo.finance_summary(session, actor.actor_id)
     return SummaryResponse(**data)
 
@@ -425,6 +470,7 @@ def finance_monthly_endpoint(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> MonthlyRevenueResponse:
+    _require_finance_read(actor)
     rows = finance_repo.monthly_revenue(session, actor.actor_id, months=months)
     return MonthlyRevenueResponse(
         items=[MonthlyRevenueRow(**row) for row in rows]

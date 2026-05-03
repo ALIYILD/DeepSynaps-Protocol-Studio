@@ -14,6 +14,9 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from app.database import SessionLocal
+from app.repositories import finance as finance_repo
+
 
 def _clinician(auth_headers: dict) -> dict:
     return auth_headers["clinician"]
@@ -21,6 +24,10 @@ def _clinician(auth_headers: dict) -> dict:
 
 def _admin(auth_headers: dict) -> dict:
     return auth_headers["admin"]
+
+
+def _patient(auth_headers: dict) -> dict:
+    return auth_headers["patient"]
 
 
 def _create_invoice(
@@ -42,6 +49,26 @@ def _create_invoice(
     resp = client.post("/api/v1/finance/invoices", json=body, headers=headers)
     assert resp.status_code == 201, resp.text
     return resp.json()
+
+
+def _seed_invoice_as_clinician(clinician_actor_id: str = "actor-clinician-demo", **overrides) -> None:
+    """Insert a clinician-scoped invoice directly (clinicians cannot POST invoices)."""
+    body = {
+        "patient_name": "Scoped Patient",
+        "service": "TMS Course",
+        "amount": 100.0,
+        "vat_rate": 0.20,
+        "issue_date": "2026-03-15",
+        "due_date": "2026-04-15",
+        "status": "sent",
+        "currency": "GBP",
+    }
+    body.update(overrides)
+    db = SessionLocal()
+    try:
+        finance_repo.create_invoice(db, clinician_actor_id, **body)
+    finally:
+        db.close()
 
 
 class TestFinanceEmptyState:
@@ -92,7 +119,7 @@ class TestInvoiceLifecycle:
     def test_create_invoice_computes_totals(
         self, client: TestClient, auth_headers: dict
     ) -> None:
-        inv = _create_invoice(client, _clinician(auth_headers), amount=100.0, vat_rate=0.20)
+        inv = _create_invoice(client, _admin(auth_headers), amount=100.0, vat_rate=0.20)
         assert inv["amount"] == 100.0
         assert inv["vat"] == 20.0
         assert inv["total"] == 120.0
@@ -104,13 +131,13 @@ class TestInvoiceLifecycle:
     def test_mark_paid_increments_revenue_and_payments(
         self, client: TestClient, auth_headers: dict
     ) -> None:
-        inv = _create_invoice(client, _clinician(auth_headers))
+        inv = _create_invoice(client, _admin(auth_headers))
         iid = inv["id"]
 
         resp = client.post(
             f"/api/v1/finance/invoices/{iid}/mark-paid",
             json={"method": "manual"},
-            headers=_clinician(auth_headers),
+            headers=_admin(auth_headers),
         )
         assert resp.status_code == 200
         paid = resp.json()
@@ -119,7 +146,7 @@ class TestInvoiceLifecycle:
 
         # The invoice auto-generated a payment for the outstanding balance.
         payments = client.get(
-            "/api/v1/finance/payments", headers=_clinician(auth_headers)
+            "/api/v1/finance/payments", headers=_admin(auth_headers)
         ).json()["items"]
         assert len(payments) == 1
         assert payments[0]["amount"] == 120.0
@@ -128,7 +155,7 @@ class TestInvoiceLifecycle:
 
         # Summary reflects real paid revenue.
         summary = client.get(
-            "/api/v1/finance/summary", headers=_clinician(auth_headers)
+            "/api/v1/finance/summary", headers=_admin(auth_headers)
         ).json()
         assert summary["revenue_paid"] == 120.0
         assert summary["outstanding"] == 0.0
@@ -137,7 +164,7 @@ class TestInvoiceLifecycle:
     def test_partial_payment_updates_status_and_outstanding(
         self, client: TestClient, auth_headers: dict
     ) -> None:
-        inv = _create_invoice(client, _clinician(auth_headers))
+        inv = _create_invoice(client, _admin(auth_headers))
         iid = inv["id"]
         resp = client.post(
             "/api/v1/finance/payments",
@@ -148,18 +175,18 @@ class TestInvoiceLifecycle:
                 "method": "card",
                 "payment_date": "2026-03-20",
             },
-            headers=_clinician(auth_headers),
+            headers=_admin(auth_headers),
         )
         assert resp.status_code == 201
 
         summary = client.get(
-            "/api/v1/finance/summary", headers=_clinician(auth_headers)
+            "/api/v1/finance/summary", headers=_admin(auth_headers)
         ).json()
         assert summary["revenue_paid"] == 30.0
         assert summary["outstanding"] == 90.0
 
         refreshed = client.get(
-            f"/api/v1/finance/invoices/{iid}", headers=_clinician(auth_headers)
+            f"/api/v1/finance/invoices/{iid}", headers=_admin(auth_headers)
         ).json()
         assert refreshed["status"] == "partial"
         assert refreshed["paid"] == 30.0
@@ -170,13 +197,13 @@ class TestInvoiceLifecycle:
         # Issue date and due date both in the past
         _create_invoice(
             client,
-            _clinician(auth_headers),
+            _admin(auth_headers),
             issue_date="2020-01-01",
             due_date="2020-02-01",
             status="sent",
         )
         summary = client.get(
-            "/api/v1/finance/summary", headers=_clinician(auth_headers)
+            "/api/v1/finance/summary", headers=_admin(auth_headers)
         ).json()
         assert summary["outstanding"] == 120.0
         assert summary["overdue"] == 120.0
@@ -195,7 +222,7 @@ class TestClaimLifecycle:
             "status": "submitted",
         }
         resp = client.post(
-            "/api/v1/finance/claims", json=body, headers=_clinician(auth_headers)
+            "/api/v1/finance/claims", json=body, headers=_admin(auth_headers)
         )
         assert resp.status_code == 201
         claim = resp.json()
@@ -215,13 +242,13 @@ class TestClaimLifecycle:
             "status": "pending",
         }
         resp = client.post(
-            "/api/v1/finance/claims", json=body, headers=_clinician(auth_headers)
+            "/api/v1/finance/claims", json=body, headers=_admin(auth_headers)
         )
         assert resp.status_code == 201
         claim_id = resp.json()["id"]
 
         summary = client.get(
-            "/api/v1/finance/summary", headers=_clinician(auth_headers)
+            "/api/v1/finance/summary", headers=_admin(auth_headers)
         ).json()
         assert summary["claims_pending"] == 1
         assert summary["claims_approved"] == 0
@@ -229,39 +256,68 @@ class TestClaimLifecycle:
         resp = client.patch(
             f"/api/v1/finance/claims/{claim_id}",
             json={"status": "approved"},
-            headers=_clinician(auth_headers),
+            headers=_admin(auth_headers),
         )
         assert resp.status_code == 200
         assert resp.json()["status"] == "approved"
         assert resp.json()["decision_date"] is not None
 
         summary = client.get(
-            "/api/v1/finance/summary", headers=_clinician(auth_headers)
+            "/api/v1/finance/summary", headers=_admin(auth_headers)
         ).json()
         assert summary["claims_pending"] == 0
         assert summary["claims_approved"] == 1
 
 
 class TestScopeIsolation:
-    """Clinician A must never see clinician B's invoices / payments / claims."""
+    """Finance rows are scoped per authenticated actor (clinician_id); no cross-leak."""
 
     def test_invoice_scope_isolation(
         self, client: TestClient, auth_headers: dict
     ) -> None:
-        # Clinician creates an invoice; admin (different actor) must not see it.
-        _create_invoice(client, _clinician(auth_headers), patient_name="Private Patient")
+        # Clinician-owned invoice; admin (different actor_id) must not see it.
+        _seed_invoice_as_clinician(patient_name="Private Patient")
 
         admin_list = client.get(
             "/api/v1/finance/invoices", headers=_admin(auth_headers)
         ).json()["items"]
         assert admin_list == []
 
+    def test_clinician_cannot_create_invoice(
+        self, client: TestClient, auth_headers: dict
+    ) -> None:
+        body = {
+            "patient_name": "No Create",
+            "service": "Test",
+            "amount": 10.0,
+            "vat_rate": 0.20,
+            "issue_date": "2026-03-15",
+            "due_date": "2026-04-15",
+            "status": "draft",
+            "currency": "GBP",
+        }
+        resp = client.post(
+            "/api/v1/finance/invoices", json=body, headers=_clinician(auth_headers)
+        )
+        assert resp.status_code == 403
+
+    def test_patient_denied_finance_read(
+        self, client: TestClient, auth_headers: dict
+    ) -> None:
+        resp = client.get("/api/v1/finance/summary", headers=_patient(auth_headers))
+        assert resp.status_code == 403
+
     def test_admin_cannot_fetch_clinician_invoice_by_id(
         self, client: TestClient, auth_headers: dict
     ) -> None:
-        inv = _create_invoice(client, _clinician(auth_headers))
+        _seed_invoice_as_clinician()
+        clin_list = client.get(
+            "/api/v1/finance/invoices", headers=_clinician(auth_headers)
+        ).json()["items"]
+        assert len(clin_list) >= 1
+        iid = clin_list[0]["id"]
         resp = client.get(
-            f"/api/v1/finance/invoices/{inv['id']}", headers=_admin(auth_headers)
+            f"/api/v1/finance/invoices/{iid}", headers=_admin(auth_headers)
         )
         assert resp.status_code == 404
 
@@ -296,11 +352,7 @@ class TestRouteAndSchemaShape:
             assert "items" in resp.json()
             assert isinstance(resp.json()["items"], list)
 
-    def test_anonymous_sees_empty(self, client: TestClient, auth_headers: dict) -> None:
-        # Anonymous actor (no Authorization header) resolves to a distinct
-        # actor_id server-side. It must not leak invoices created by a real
-        # clinician — even if the endpoint itself is reachable.
-        _create_invoice(client, _clinician(auth_headers), patient_name="Scoped")
+    def test_anonymous_denied_finance_list(self, client: TestClient, auth_headers: dict) -> None:
+        _seed_invoice_as_clinician(patient_name="Scoped")
         resp = client.get("/api/v1/finance/invoices")
-        assert resp.status_code == 200
-        assert resp.json() == {"items": []}
+        assert resp.status_code == 403
