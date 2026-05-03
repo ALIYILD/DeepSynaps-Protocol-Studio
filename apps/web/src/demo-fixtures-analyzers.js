@@ -1645,9 +1645,9 @@ const _LABS_PROFILES = {
       {
         name: 'Endocrine',
         results: [
-          { analyte: 'TSH',        value: 4.8,  unit: 'mIU/L', ref_low: 0.4, ref_high: 4.0,  status: 'high', captured_at: '2026-04-26T08:30:00Z', note: 'Sub-clinical hypothyroid pattern.' },
+          { analyte: 'TSH',        value: 4.8,  unit: 'mIU/L', ref_low: 0.4, ref_high: 4.0,  status: 'high', captured_at: '2026-04-26T08:30:00Z', note: 'Demo sample: above local demo reference band — requires clinician review; not a diagnosis.' },
           { analyte: 'Free T4',    value: 1.0,  unit: 'ng/dL', ref_low: 0.8, ref_high: 1.8,  status: 'normal', captured_at: '2026-04-26T08:30:00Z' },
-          { analyte: 'Vitamin D',  value: 18,   unit: 'ng/mL', ref_low: 30,  ref_high: 100,  status: 'low',  captured_at: '2026-04-26T08:30:00Z', note: 'Insufficient — supplementation indicated.' },
+          { analyte: 'Vitamin D',  value: 18,   unit: 'ng/mL', ref_low: 30,  ref_high: 100,  status: 'low',  captured_at: '2026-04-26T08:30:00Z', note: 'Demo sample: below demo reference band — requires clinician review per clinic lab-review protocol.' },
         ],
       },
     ],
@@ -1655,8 +1655,8 @@ const _LABS_PROFILES = {
       {
         analyte: 'TSH',
         severity: 'major',
-        mechanism: 'Sub-clinical hypothyroidism (TSH 4.8 mIU/L) is a recognised contributor to depressive symptoms and treatment resistance, particularly in young women on SSRIs.',
-        recommendation: 'Consider endocrine referral; treat hypothyroidism before escalating sertraline or adding augmentation. Repeat TSH + anti-TPO in 6 weeks.',
+        mechanism: 'Demo educational note (literature context): elevated TSH can associate with mood symptoms in some populations — correlation is not causation; interpretation requires clinical correlation.',
+        recommendation: 'Requires clinician review / follow clinic lab-review protocol. Consider correlation with symptoms, medications, and repeat testing per institutional policy — not autonomous treatment guidance.',
         references: [
           { pmid: '19833552', title: 'Safety of TMS — consensus guideline (Rossi et al., 2009)', year: 2009, journal: 'Clinical Neurophysiology' },
         ],
@@ -1664,8 +1664,8 @@ const _LABS_PROFILES = {
       {
         analyte: 'Vitamin D',
         severity: 'monitor',
-        mechanism: 'Vitamin D insufficiency (18 ng/mL) co-occurs with low mood and may blunt antidepressant response.',
-        recommendation: 'Start cholecalciferol 2000 IU daily; recheck 25-OH-D at 12 weeks.',
+        mechanism: 'Demo sample: value below the demo reference band shown — clinical significance depends on assay, units, and patient context.',
+        recommendation: 'Requires clinician review per clinic governance. This workspace does not recommend supplements or doses.',
         references: [],
       },
     ],
@@ -1706,7 +1706,7 @@ const _LABS_PROFILES = {
       {
         name: 'Therapeutic Drug Monitoring',
         results: [
-          { analyte: 'Lithium (trough)', value: 0.4, unit: 'mmol/L', ref_low: 0.6, ref_high: 1.0, status: 'low', captured_at: '2026-04-28T09:10:00Z', note: 'Sub-therapeutic — drawn 12 h post-dose.' },
+          { analyte: 'Lithium (trough)', value: 0.4, unit: 'mmol/L', ref_low: 0.6, ref_high: 1.0, status: 'low', captured_at: '2026-04-28T09:10:00Z', note: 'Demo sample: below demo trough band — timing/dose correlation requires clinician review; not dosing advice.' },
         ],
       },
     ],
@@ -1714,8 +1714,8 @@ const _LABS_PROFILES = {
       {
         analyte: 'Lithium (trough)',
         severity: 'major',
-        mechanism: 'Trough lithium 0.4 mmol/L sits below the 0.6–1.0 mmol/L therapeutic window. Concurrent rTMS course will not compensate for sub-therapeutic mood-stabiliser cover.',
-        recommendation: 'Review prescribing — confirm adherence and timing of last dose, consider dose increase to 600–900 mg or augmentation. Repeat trough in 5–7 days.',
+        mechanism: 'Demo educational note: trough below the demo reference band may warrant correlation with timing, adherence, and renal function — requires clinician interpretation.',
+        recommendation: 'Requires clinician review / medication monitoring protocol. Do not change lithium dosing based on this demo workspace alone.',
         references: [
           { pmid: '19833552', title: 'Safety of TMS — consensus guideline (Rossi et al., 2009)', year: 2009, journal: 'Clinical Neurophysiology' },
         ],
@@ -1739,14 +1739,14 @@ const _LABS_PROFILES = {
       {
         name: 'Coagulation',
         results: [
-          { analyte: 'INR',        value: 3.8,  unit: 'ratio', ref_low: 2.0, ref_high: 3.0, status: 'critical', captured_at: '2026-05-01T07:45:00Z', note: 'Supratherapeutic — bleeding risk. Concurrent ibuprofen + ECT-day proximity.' },
+          { analyte: 'INR',        value: 3.8,  unit: 'ratio', ref_low: 2.0, ref_high: 3.0, status: 'critical', captured_at: '2026-05-01T07:45:00Z', note: 'Demo sample: outside demo warfarin target band — requires clinician review; not emergency triage.' },
           { analyte: 'PT',         value: 38.2, unit: 's',     ref_low: 11,  ref_high: 14,  status: 'high',     captured_at: '2026-05-01T07:45:00Z' },
         ],
       },
       {
         name: 'Complete Blood Count',
         results: [
-          { analyte: 'Hemoglobin',  value: 11.4, unit: 'g/dL',   ref_low: 12.0, ref_high: 16.0, status: 'low',    captured_at: '2026-05-01T07:45:00Z', note: 'Mild anemia — investigate for occult bleeding given supratherapeutic INR.' },
+          { analyte: 'Hemoglobin',  value: 11.4, unit: 'g/dL',   ref_low: 12.0, ref_high: 16.0, status: 'low',    captured_at: '2026-05-01T07:45:00Z', note: 'Demo sample: below demo reference band — interpret with clinical context and source lab.' },
           { analyte: 'WBC',         value: 7.0,  unit: '10^9/L', ref_low: 4.0,  ref_high: 11.0, status: 'normal', captured_at: '2026-05-01T07:45:00Z' },
           { analyte: 'Platelets',   value: 232,  unit: '10^9/L', ref_low: 150,  ref_high: 400,  status: 'normal', captured_at: '2026-05-01T07:45:00Z' },
         ],
@@ -1765,8 +1765,8 @@ const _LABS_PROFILES = {
       {
         analyte: 'INR',
         severity: 'critical',
-        mechanism: 'INR 3.8 with concurrent ibuprofen 400 mg TID and a scheduled ECT session creates a stacked bleeding risk: supratherapeutic warfarin, NSAID-induced platelet inhibition, plus airway/dental trauma exposure during ECT-related muscle relaxation.',
-        recommendation: 'Hold warfarin tonight; coordinate with hematology before next ECT session. Stop ibuprofen, switch analgesia to paracetamol. Recheck INR in 24 h before re-dosing.',
+        mechanism: 'Demo educational note: elevated INR with anticoagulation and other factors may increase bleeding risk — requires in-person clinician assessment per institutional policy.',
+        recommendation: 'Requires clinician review / follow clinic lab-review protocol. This workspace does not direct medication holds, procedures, or emergency actions.',
         references: [
           { pmid: '19833552', title: 'Safety of TMS — consensus guideline (Rossi et al., 2009)', year: 2009, journal: 'Clinical Neurophysiology' },
         ],
@@ -1774,8 +1774,8 @@ const _LABS_PROFILES = {
       {
         analyte: 'Hemoglobin',
         severity: 'monitor',
-        mechanism: 'Mild anemia (11.4 g/dL) in the setting of supratherapeutic anticoagulation suggests possible occult GI loss.',
-        recommendation: 'Order ferritin + reticulocytes; consider stool occult-blood testing if Hb continues to drift.',
+        mechanism: 'Demo sample: hemoglobin below demo band — clinical significance requires correlation with symptoms, trends, and source laboratory.',
+        recommendation: 'Requires clinician review. Further testing is at clinician discretion — not directed by this tool.',
         references: [],
       },
     ],
@@ -1795,22 +1795,22 @@ const _LABS_PROFILES = {
 
 const _LABS_AUDITS = {
   'demo-pt-samantha-li': [
-    { id: 'lab-aud-sam-1', kind: 'recompute',   actor: 'system',          message: 'Lab profile recomputed after CMP/TSH panel uploaded.', created_at: '2026-04-26T08:32:00Z' },
-    { id: 'lab-aud-sam-2', kind: 'annotation',  actor: 'Dr. A. Yildirim', message: 'TSH trending up across 6 months — request anti-TPO and refer endocrine.', created_at: '2026-04-26T09:14:00Z' },
-    { id: 'lab-aud-sam-3', kind: 'review-note', actor: 'Dr. A. Yildirim', message: 'Reviewed and signed: hold sertraline dose escalation pending thyroid workup.', created_at: '2026-04-26T09:18:00Z' },
-    { id: 'lab-aud-sam-4', kind: 'result-add',  actor: 'Lab Corp (HL7)',  message: 'Added Vitamin D 25-OH result.', created_at: '2026-04-26T08:40:00Z' },
+    { id: 'lab-aud-sam-1', kind: 'recompute',   actor: 'system',          message: '[Demo audit] Lab summary recomputed after synthetic panel ingest (not a real HL7 feed).', created_at: '2026-04-26T08:32:00Z' },
+    { id: 'lab-aud-sam-2', kind: 'annotation',  actor: 'Demo clinician', message: '[Demo audit] Annotation example: trend review documented — follow live clinic lab-review protocol.', created_at: '2026-04-26T09:14:00Z' },
+    { id: 'lab-aud-sam-3', kind: 'review-note', actor: 'Demo clinician', message: '[Demo audit] Review note example: clinical plan documented outside this workspace.', created_at: '2026-04-26T09:18:00Z' },
+    { id: 'lab-aud-sam-4', kind: 'result-add',  actor: 'Demo lab ingest', message: '[Demo audit] Synthetic result row added for UI exercise.', created_at: '2026-04-26T08:40:00Z' },
   ],
   'demo-pt-marcus-chen': [
-    { id: 'lab-aud-mar-1', kind: 'recompute',   actor: 'system',          message: 'Lab profile recomputed after lithium trough result.', created_at: '2026-04-28T09:12:00Z' },
-    { id: 'lab-aud-mar-2', kind: 'annotation',  actor: 'Dr. A. Yildirim', message: 'Trough 0.4 mmol/L — confirm timing of last dose with patient before dose change.', created_at: '2026-04-28T09:35:00Z' },
-    { id: 'lab-aud-mar-3', kind: 'review-note', actor: 'Dr. A. Yildirim', message: 'Sign-off: increase lithium to 600 mg nocte; repeat trough in 1 week.', created_at: '2026-04-28T10:02:00Z' },
+    { id: 'lab-aud-mar-1', kind: 'recompute',   actor: 'system',          message: '[Demo audit] Lab summary recomputed after synthetic trough value.', created_at: '2026-04-28T09:12:00Z' },
+    { id: 'lab-aud-mar-2', kind: 'annotation',  actor: 'Demo clinician', message: '[Demo audit] Annotation example: verify draw timing with patient before any med change (real workflows only).', created_at: '2026-04-28T09:35:00Z' },
+    { id: 'lab-aud-mar-3', kind: 'review-note', actor: 'Demo clinician', message: '[Demo audit] Review note example — not a persisted order or prescription.', created_at: '2026-04-28T10:02:00Z' },
   ],
   'demo-pt-elena-vasquez': [
-    { id: 'lab-aud-ele-1', kind: 'recompute',   actor: 'system',          message: 'Lab profile recomputed after coagulation panel.', created_at: '2026-05-01T07:48:00Z' },
-    { id: 'lab-aud-ele-2', kind: 'annotation',  actor: 'Dr. A. Yildirim', message: 'INR critical at 3.8 + concurrent ibuprofen — pause ECT session, brief hematology.', created_at: '2026-05-01T08:02:00Z' },
-    { id: 'lab-aud-ele-3', kind: 'review-note', actor: 'Dr. R. Patel',    message: 'Sign-off: hold warfarin tonight, recheck INR 24 h, reassess ECT slot.', created_at: '2026-05-01T08:18:00Z' },
-    { id: 'lab-aud-ele-4', kind: 'annotation',  actor: 'Dr. A. Yildirim', message: 'Mild anemia trending — order ferritin and reticulocytes.', created_at: '2026-05-01T08:25:00Z' },
-    { id: 'lab-aud-ele-5', kind: 'result-add',  actor: 'Lab Corp (HL7)',  message: 'Added INR 3.8 + PT 38.2 s.', created_at: '2026-05-01T07:46:00Z' },
+    { id: 'lab-aud-ele-1', kind: 'recompute',   actor: 'system',          message: '[Demo audit] Lab summary recomputed after synthetic coagulation panel.', created_at: '2026-05-01T07:48:00Z' },
+    { id: 'lab-aud-ele-2', kind: 'annotation',  actor: 'Demo clinician', message: '[Demo audit] Annotation example: elevated INR requires clinician follow-up per policy — not autonomous triage.', created_at: '2026-05-01T08:02:00Z' },
+    { id: 'lab-aud-ele-3', kind: 'review-note', actor: 'Demo clinician', message: '[Demo audit] Review note example — procedure/medication decisions occur in the chart.', created_at: '2026-05-01T08:18:00Z' },
+    { id: 'lab-aud-ele-4', kind: 'annotation',  actor: 'Demo clinician', message: '[Demo audit] Annotation example: correlate Hb trend with clinical context.', created_at: '2026-05-01T08:25:00Z' },
+    { id: 'lab-aud-ele-5', kind: 'result-add',  actor: 'Demo lab ingest', message: '[Demo audit] Synthetic INR/PT rows for UI exercise.', created_at: '2026-05-01T07:46:00Z' },
   ],
 };
 
