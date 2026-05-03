@@ -1014,6 +1014,7 @@ function _medCheckInteractions(patientId, names) {
       medications_checked: names && names.length ? names : seeded.medications_checked,
       interactions: seeded.interactions,
       severity_summary: seeded.severity_summary,
+      ..._MED_INTERACTION_DEMO_META,
     };
   }
   return {

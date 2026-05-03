@@ -199,7 +199,7 @@ function _renderNeuromodSection(state, usingFixtures) {
     Protocol context: <strong style="color:var(--text-primary)">${esc(proto.protocol_name || modality)}</strong> · <span style="color:var(--violet,#9b7fff);font-weight:600">${esc(modality)}</span>${proto.target_region ? ` · ${esc(proto.target_region)}` : ''}
   </div>
   <div style="font-size:11px;color:var(--text-tertiary);line-height:1.45;margin-top:6px">
-    Literature-based rule screen only (see references). <strong>Requires clinician/pharmacist review</strong> — not dosage advice or autonomous protocol changes.
+    Literature-based rule screen only (see references). <strong>Requires clinician/pharmacist review</strong> — not dosage advice; does not modify protocols without clinician action.
   </div>`;
   const matches = Array.isArray(state.matches) ? state.matches : [];
   if (!matches.length) {
@@ -210,7 +210,7 @@ function _renderNeuromodSection(state, usingFixtures) {
     const drug = rule.drug_label || rule.matched_med_name || 'Medication';
     const mod = _modLabel(rule.matched_modality);
     const rec = rule.recommendation
-      ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:6px;padding:8px;border-radius:8px;background:rgba(255,255,255,.03)"><strong style="color:var(--text-secondary)">Literature considerations (not autonomous guidance):</strong> ${esc(rule.recommendation)}</div>`
+      ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:6px;padding:8px;border-radius:8px;background:rgba(255,255,255,.03)"><strong style="color:var(--text-secondary)">Literature considerations (context only):</strong> ${esc(rule.recommendation)}</div>`
       : '';
     return `<div style="padding:14px;border:1px solid ${color};background:rgba(255,255,255,.02);border-radius:12px;display:flex;flex-direction:column;gap:6px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
@@ -459,7 +459,7 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
       <div id="ma-demo-banner"></div>
       <header style="padding:12px 14px;border-radius:12px;border:1px solid rgba(155,127,255,0.28);background:rgba(155,127,255,0.06);margin-bottom:14px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
         <strong style="color:var(--text-primary)">Medication review decision-support.</strong>
-        For clinician/pharmacist use — not autonomous prescribing, dosing, or final drug-interaction authority.
+        For clinician/pharmacist use — does not issue prescriptions or dosing instructions; not final drug-interaction authority.
         Outputs require verification against source records and local formulary; follow clinic medication safety protocols for risks including interactions, adherence uncertainty, pregnancy, controlled substances, and self-harm context.
       </header>
       <div id="ma-breadcrumb" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:12px;flex-wrap:wrap"></div>
