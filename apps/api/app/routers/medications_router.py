@@ -39,44 +39,51 @@ router = APIRouter(prefix="/api/v1/medications", tags=["Medication Safety"])
 
 # ── Known interaction rules (V1 in-memory; replace with external API in V2) ────
 
+# Curated in-repo rules for development / decision-support only — not a verified drug–drug database.
 _INTERACTION_RULES: list[dict] = [
     {
         "drugs": ["sertraline", "tramadol"],
         "severity": "severe",
-        "description": "Risk of serotonin syndrome. Avoid concurrent use.",
-        "recommendation": "Use an alternative analgesic.",
+        "description": "Possible additive serotonergic activity (serotonin syndrome is a recognised concern with SSRI + tramadol combinations).",
+        "recommendation": "Requires clinician/pharmacist review and monitoring per your clinic medication safety protocol; this screen does not replace formulary or pharmacist review.",
     },
     {
         "drugs": ["warfarin", "aspirin"],
         "severity": "moderate",
-        "description": "Increased bleeding risk due to additive anticoagulation.",
-        "recommendation": "Monitor INR closely. Consider dose adjustment.",
+        "description": "Possible increased bleeding risk due to additive antiplatelet/anticoagulant effects.",
+        "recommendation": "Requires clinician/pharmacist review; bleeding-risk monitoring per local protocol — not a dosing directive from this tool.",
     },
     {
         "drugs": ["ssri", "maoi"],
         "severity": "severe",
-        "description": "Risk of serotonin syndrome; potentially life-threatening.",
-        "recommendation": "Contraindicated. Allow washout period.",
+        "description": "High-risk serotonergic combination in many references; washout and sequencing decisions require specialist review.",
+        "recommendation": "Requires clinician/pharmacist review before any regimen change; follow clinic policy — this tool does not determine washout or substitution.",
     },
     {
         "drugs": ["lithium", "ibuprofen"],
         "severity": "moderate",
-        "description": "NSAIDs may increase lithium levels.",
-        "recommendation": "Monitor lithium levels. Consider paracetamol instead.",
+        "description": "NSAIDs can alter lithium clearance in some patients.",
+        "recommendation": "Requires clinician/pharmacist review with lithium level monitoring per local protocol if clinically indicated.",
     },
     {
         "drugs": ["tms", "tricyclics"],
         "severity": "mild",
-        "description": "Tricyclic antidepressants may lower seizure threshold during TMS.",
-        "recommendation": "Use lower TMS intensity; screen for seizure risk.",
+        "description": "Tricyclic antidepressants may lower seizure threshold; relevance depends on dose and TMS protocol.",
+        "recommendation": "Requires clinician review with neuromodulation prescriber per seizure-precaution protocols — not an instruction to change medication here.",
     },
     {
         "drugs": ["tdcs", "stimulants"],
         "severity": "mild",
-        "description": "Stimulants may potentiate tDCS excitability effects.",
-        "recommendation": "Monitor for side-effects; consider dosage timing.",
+        "description": "Stimulants can alter cortical excitability; interaction with tDCS response is context-dependent.",
+        "recommendation": "Requires clinician review when interpreting neuromodulation tolerability/response — no autonomous medication timing advice.",
     },
 ]
+
+INTERACTION_ENGINE_ID = "ds_med_rules_v1"
+INTERACTION_ENGINE_DETAIL = (
+    "Rule-based substring match against a small in-repository curated list. "
+    "Not a commercial drug–drug interaction database; possible false negatives/positives."
+)
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
@@ -178,6 +185,9 @@ class InteractionCheckResponse(BaseModel):
     medications_checked: list[str]
     interactions: list[InteractionResult]
     severity_summary: str  # none, mild, moderate, severe
+    engine_id: str = INTERACTION_ENGINE_ID
+    engine_detail: str = INTERACTION_ENGINE_DETAIL
+    requires_clinician_review: bool = True
 
 
 class InteractionLogOut(BaseModel):
@@ -296,6 +306,9 @@ def check_interactions(
         medications_checked=body.medications,
         interactions=interactions,
         severity_summary=severity_summary,
+        engine_id=INTERACTION_ENGINE_ID,
+        engine_detail=INTERACTION_ENGINE_DETAIL,
+        requires_clinician_review=True,
     )
 
 
