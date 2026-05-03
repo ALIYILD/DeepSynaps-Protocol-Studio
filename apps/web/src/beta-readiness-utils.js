@@ -43,16 +43,44 @@ export function buildSchedulingSessionPayload({
   const mapped = getScheduleTypeSubmission(type);
   const payload = {
     patient_id: patientId,
-    clinician_id: clinicianId,
     appointment_type: mapped.appointment_type,
     scheduled_at: scheduledAt,
     duration_minutes: durationMinutes,
   };
+  // Calendar assignment (FastAPI SessionCreate.clinician_id)
+  if (clinicianId) payload.clinician_id = clinicianId;
   if (mapped.modality) payload.modality = mapped.modality;
   if (notes) payload.session_notes = notes;
   if (roomId) payload.room_id = roomId;
   if (deviceId) payload.device_id = deviceId;
   return payload;
+}
+
+/** Next calendar day (exclusive upper bound for GET /sessions end_date filter). */
+export function exclusiveEndDateIso(fromIsoDate) {
+  const d = new Date(String(fromIsoDate || '').slice(0, 10) + 'T12:00:00');
+  if (Number.isNaN(d.getTime())) return null;
+  d.setDate(d.getDate() + 1);
+  const pad = (n) => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+}
+
+/**
+ * Map frontend scheduling params to FastAPI session list query names.
+ * Backend expects start_date / end_date (not from / to).
+ */
+export function mapSessionsListQuery(params = {}) {
+  const out = { ...params };
+  if (out.from != null && out.start_date == null) {
+    out.start_date = String(out.from).slice(0, 10);
+    delete out.from;
+  }
+  if (out.to != null && out.end_date == null) {
+    const ex = exclusiveEndDateIso(out.to);
+    out.end_date = ex || String(out.to).slice(0, 10);
+    delete out.to;
+  }
+  return out;
 }
 
 export function parsePatientNameForCreate(name) {

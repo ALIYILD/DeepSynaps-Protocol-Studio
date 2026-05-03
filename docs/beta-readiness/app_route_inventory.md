@@ -118,7 +118,7 @@ Driven by a separate `navigatePublic()` switch:
 | Route id | Module | Status |
 |---|---|---|
 | `clinical-hub` / `assessments` / `assessments-v2` | `pages-clinical-hubs.js` `pgClinicalHub` | WORKING |
-| `scheduling` / `scheduling-hub` / `schedule-v2` | `pages-clinical-hubs.js` `pgSchedulingHub` | WORKING (demo banner when `/api/v1/sessions` errors) |
+| `scheduling` / `scheduling-hub` / `schedule-v2` | `pages-clinical-hubs.js` `pgSchedulingHub` | WORKING — merge gate: [schedule_v2_merge_gate.md](./schedule_v2_merge_gate.md) |
 | `monitor-hub` | `pages-clinical-hubs.js` `pgMonitorHub` | WORKING |
 | `virtual-care-hub` | `pages-clinical-hubs.js` `pgVirtualCareHub` | WORKING |
 | `documents-hub` / `documents-v2` / `documents` | `pages-clinical-hubs.js` `pgDocumentsHubNew` | WORKING (download wired to API) |

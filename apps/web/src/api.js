@@ -1,5 +1,6 @@
 import { parseHomeProgramTaskMutationResponse } from './home-program-task-sync.js';
 import { demoDigitalPhenotypingPayload } from './demo-fixtures-analyzers.js';
+import { mapSessionsListQuery } from './beta-readiness-utils.js';
 
 const API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 const TOKEN_KEY = 'ds_access_token';
@@ -637,7 +638,8 @@ export const api = {
     }
     if (params.limit == null) params.limit = 100;
     if (params.offset == null) params.offset = 0;
-    const entries = Object.entries(params).filter(([_, v]) => v != null && v !== '');
+    const mapped = mapSessionsListQuery(params);
+    const entries = Object.entries(mapped).filter(([_, v]) => v != null && v !== '');
     const qs = entries.length ? '?' + new URLSearchParams(entries.map(([k, v]) => [k, String(v)])).toString() : '';
     return apiFetchWithRetry(`/api/v1/sessions${qs}`);
   },
@@ -3122,10 +3124,7 @@ export const api = {
   // endpoint. This preserves history (DELETE is also available but destructive).
   cancelSession: (id, data = {}) => {
     const body = { status: 'cancelled' };
-    if (data && data.reason) {
-      body.cancel_reason = String(data.reason);
-      body.session_notes = '[Cancelled] ' + String(data.reason);
-    }
+    if (data && data.reason) body.cancel_reason = String(data.reason);
     return apiFetch(`/api/v1/sessions/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
   },
   // Booking alias — backend uses POST /api/v1/sessions (createSession).
@@ -3139,11 +3138,51 @@ export const api = {
     api.listTeam().then((res) => ({
       items: (res?.items || []).filter((member) => ['admin', 'clinician', 'technician'].includes(String(member?.role || '').toLowerCase())),
     })),
-  listRooms: () => Promise.reject(new Error('not_implemented')),
+  listRooms: () =>
+    apiFetch('/api/v1/schedule/rooms').then((rows) => ({
+      items: Array.isArray(rows) ? rows : [],
+    })),
   listReferrals: () => api.listLeads(),
   listStaffSchedule: (_params) => Promise.reject(new Error('not_implemented')),
   createStaffShift: (_data) => Promise.reject(new Error('not_implemented')),
-  checkSlotConflicts: (_slot) => Promise.reject(new Error('not_implemented')),
+  checkSlotConflicts: (slot) => {
+    if (!slot || !slot.clinician_id || !slot.start) {
+      return Promise.reject(new Error('invalid_slot'));
+    }
+    const start = slot.start;
+    let durationMinutes = slot.duration_minutes;
+    if (durationMinutes == null && slot.end) {
+      try {
+        const ms = new Date(slot.end).getTime() - new Date(start).getTime();
+        durationMinutes = Math.max(15, Math.round(ms / 60000));
+      } catch {
+        durationMinutes = 60;
+      }
+    }
+    if (durationMinutes == null) durationMinutes = 60;
+    const body = {
+      clinician_id: slot.clinician_id,
+      scheduled_at: start,
+      duration_minutes: durationMinutes,
+      room_id: slot.room_id || null,
+      device_id: slot.device_id || null,
+      exclude_appointment_id: slot.exclude_appointment_id || slot.exclude_id || null,
+    };
+    return apiFetch('/api/v1/schedule/conflicts', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }).then((out) => ({
+      has_conflicts: !!out?.has_conflicts,
+      conflicts: (out?.conflicts || []).map((c) => ({
+        id: c.appointment_id,
+        appointment_id: c.appointment_id,
+        patient_id: c.patient_id,
+        scheduled_at: c.scheduled_at,
+        type: c.type,
+        resource_name: c.resource_name,
+      })),
+    }));
+  },
   triageReferral: (_id, _data) => Promise.reject(new Error('not_implemented')),
   dismissReferral: (_id) => Promise.reject(new Error('not_implemented')),
 

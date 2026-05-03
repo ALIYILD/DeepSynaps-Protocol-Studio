@@ -6,6 +6,7 @@ import {
   buildSchedulingSessionPayload,
   getReferralNextStage,
   getScheduleTypeSubmission,
+  mapSessionsListQuery,
   mergeSavedReports,
   normalizeReferralLead,
   parsePatientNameForCreate,
@@ -50,6 +51,13 @@ test('buildSchedulingSessionPayload emits backend-native session fields only', (
   });
   assert.equal('patient_name' in payload, false);
   assert.equal('course_id' in payload, false);
+});
+
+test('mapSessionsListQuery maps from/to to start_date/end_date', () => {
+  assert.deepEqual(
+    mapSessionsListQuery({ from: '2026-05-01', to: '2026-05-07', limit: 50 }),
+    { start_date: '2026-05-01', end_date: '2026-05-08', limit: 50 },
+  );
 });
 
 test('parsePatientNameForCreate requires first and last name', () => {
