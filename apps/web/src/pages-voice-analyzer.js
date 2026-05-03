@@ -80,7 +80,7 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
     try { window._resEvidenceTab = 'search'; } catch {}
     navigate('research-evidence');
   });
-  document.getElementById('va-open-biomarkers')?.addEventListener('click', () => navigate('biomarkers'));
+  document.getElementById('va-open-biomarkers')?.addEventListener('click', () => window._nav('biomarkers-ref'));
   document.getElementById('va-open-deeptwin')?.addEventListener('click', () => {
     try { window._deeptwinPatientId = document.getElementById('va-patient-id')?.value?.trim() || window._deeptwinPatientId; } catch {}
     navigate('deeptwin');

@@ -168,6 +168,8 @@ async function loadInbox()         { return (_modInbox         ??= await import(
 async function loadDeeptwin()   { return (_modDeeptwin  ??= await import('./pages-deeptwin.js')); }
 async function loadBrainTwin()  { return (_modBrainTwin ??= await import('./pages-brain-twin.js')); }
 async function loadKnowledge()  { return (_modKnowledge ??= await import('./pages-knowledge.js')); }
+let _modBiomarkers = null;
+async function loadBiomarkers() { return (_modBiomarkers ??= await import('./pages-biomarkers.js')); }
 async function loadVoiceAnalyzer() { return (_modVoiceAnalyzer ??= await import('./pages-voice-analyzer.js')); }
 let _modTextAnalyzer = null;
 async function loadTextAnalyzer() { return (_modTextAnalyzer ??= await import('./pages-text-analyzer.js')); }
@@ -1877,7 +1879,7 @@ async function renderPage() {
     }
     case 'fusion-workbench':   { const m = await loadFusionWorkbench(); await m.pgFusionWorkbench(setTopbar, navigate); break; }
     case 'patient-timeline':   { const m = await loadPatientTimeline(); await m.pgPatientTimeline(setTopbar, navigate); break; }
-    case 'biomarkers':         { const m = await loadKnowledge(); await m.pgQEEGMaps(setTopbar); break; }
+    case 'biomarkers':         { const m = await loadBiomarkers(); await m.pgBiomarkersWorkspace(setTopbar, navigate); break; }
     case 'handbooks-v2':       { const m = await loadHandbooks(); await m.pgHandbooks(setTopbar); break; }
     case 'library-v2':         { window._resEvidenceTab = 'search'; window._nav('research-evidence'); break; }
     case 'live-session':       { window._vcUnifiedDefaultTab = 'dashboard'; const m = await loadVirtualCare(); await m.pgVirtualCare(setTopbar, navigate); break; }
