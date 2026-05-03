@@ -419,6 +419,7 @@ class TestReflagHigh:
         from app.services.rotation_policy_advisor import (
             _ChannelStats,
             _eval_rules_for_channel,
+            _resolve_thresholds,
         )
 
         stats = _ChannelStats(
@@ -431,7 +432,7 @@ class TestReflagHigh:
             re_flagged=2,  # 20% — below 30%
         )
         cards = _eval_rules_for_channel(
-            stats, generated_at=_dt.now(_tz.utc)
+            stats, generated_at=_dt.now(_tz.utc), thresholds=_resolve_thresholds(None)
         )
         codes = {c.advice_code for c in cards}
         assert "REFLAG_HIGH" not in codes
@@ -488,6 +489,7 @@ class TestManualReflag:
         from app.services.rotation_policy_advisor import (
             _ChannelStats,
             _eval_rules_for_channel,
+            _resolve_thresholds,
         )
 
         stats = _ChannelStats(
@@ -500,7 +502,7 @@ class TestManualReflag:
             re_flagged=1,  # 10% — below 15%
         )
         cards = _eval_rules_for_channel(
-            stats, generated_at=_dt.now(_tz.utc)
+            stats, generated_at=_dt.now(_tz.utc), thresholds=_resolve_thresholds(None)
         )
         codes = {c.advice_code for c in cards}
         assert "MANUAL_REFLAG" not in codes
@@ -755,6 +757,7 @@ def test_supporting_metrics_carry_actual_numeric_values(
     from app.services.rotation_policy_advisor import (
         _ChannelStats,
         _eval_rules_for_channel,
+        _resolve_thresholds,
     )
 
     stats = _ChannelStats(
@@ -767,7 +770,7 @@ def test_supporting_metrics_carry_actual_numeric_values(
         re_flagged=4,  # 40% re-flag rate
     )
     cards = _eval_rules_for_channel(
-        stats, generated_at=_dt.now(_tz.utc)
+        stats, generated_at=_dt.now(_tz.utc), thresholds=_resolve_thresholds(None)
     )
     high_cards = [c for c in cards if c.advice_code == "REFLAG_HIGH"]
     assert len(high_cards) == 1
@@ -930,6 +933,7 @@ def test_reflag_high_strictly_greater_than_30() -> None:
     from app.services.rotation_policy_advisor import (
         _ChannelStats,
         _eval_rules_for_channel,
+        _resolve_thresholds,
     )
 
     stats = _ChannelStats(
@@ -942,7 +946,7 @@ def test_reflag_high_strictly_greater_than_30() -> None:
         re_flagged=3,  # exactly 30%
     )
     cards = _eval_rules_for_channel(
-        stats, generated_at=_dt.now(_tz.utc)
+        stats, generated_at=_dt.now(_tz.utc), thresholds=_resolve_thresholds(None)
     )
     codes = {c.advice_code for c in cards}
     assert "REFLAG_HIGH" not in codes
