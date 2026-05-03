@@ -4319,13 +4319,12 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   let events = [];
   let eventsIsDemo = false;
   // Honest empty-state rule:
-  //   - sessions === null  → backend call errored → OK to show demo data so the
-  //                          UI layout doesn't collapse (banner explains it).
-  //   - sessions === []    → backend returned zero results for the week → in
-  //                          demo mode, seed a representative set so reviewers
-  //                          can exercise the calendar; in production builds
-  //                          we still render the honest "no appointments"
-  //                          state.
+  //   - sessions === null → backend call errored → no demo seed (empty calendar +
+  //                          error banner). Fake appointments must not appear when
+  //                          the API fails.
+  //   - sessions === []   → empty week; demo seed only if _schedDemoEnabled()
+  //                         (VITE_ENABLE_DEMO / dev). Production builds without
+  //                         demo flag show an honest empty week.
   events = Array.isArray(sessions) ? sessions.map(sessionToEvent).filter(Boolean) : [];
   eventsIsDemo = false;
 
