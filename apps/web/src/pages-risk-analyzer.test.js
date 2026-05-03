@@ -55,3 +55,30 @@ test('flattenAuditForUi maps legacy stratification items', () => {
   assert.equal(merged.length, 1);
   assert.equal(merged[0].category, 'wellbeing');
 });
+
+test('flattenAuditForUi merges audit_events and items, newest first', () => {
+  const merged = flattenAuditForUi({
+    audit_events: [
+      {
+        event_type: 'recompute',
+        category: null,
+        previous_level: null,
+        new_level: '—',
+        occurred_at: '2026-01-03T12:00:00Z',
+        source: 'risk_analyzer',
+        payload_summary: 'Full recompute',
+      },
+    ],
+    items: [
+      {
+        category: 'safety',
+        previous_level: 'amber',
+        new_level: 'red',
+        trigger: 'phq9',
+        created_at: '2026-01-01T12:00:00Z',
+      },
+    ],
+  });
+  assert.equal(merged.length, 2);
+  assert.equal(merged[0].trigger, 'recompute');
+});

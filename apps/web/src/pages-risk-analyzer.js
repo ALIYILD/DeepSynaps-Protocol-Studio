@@ -266,9 +266,23 @@ function _renderOverrideForm(cat) {
 
 /** Normalize audit entries from stratification list or analyzer merged events */
 export function flattenAuditForUi(input) {
-  const raw = input?.audit_events ?? input?.items ?? input?.events ?? [];
-  if (!Array.isArray(raw)) return [];
+  const chunks = [];
+  if (Array.isArray(input?.audit_events) && input.audit_events.length) chunks.push(...input.audit_events);
+  if (Array.isArray(input?.items) && input.items.length) chunks.push(...input.items);
+  if (Array.isArray(input?.events) && input.events.length) chunks.push(...input.events);
+  const raw = chunks.length ? chunks : (Array.isArray(input) ? input : []);
   return raw.map((it) => {
+    if (it.created_at && it.category && it.trigger !== undefined) {
+      return {
+        category: it.category,
+        previous_level: it.previous_level,
+        new_level: it.new_level,
+        trigger: it.trigger || 'change',
+        occurred_at: it.created_at,
+        source: 'risk_stratification_audit',
+        summary: null,
+      };
+    }
     if (it.created_at && it.category) {
       return {
         category: it.category,
@@ -281,7 +295,7 @@ export function flattenAuditForUi(input) {
       };
     }
     return {
-      category: it.category || '—',
+      category: it.category || 'workspace event',
       previous_level: it.previous_level,
       new_level: it.new_level || '—',
       trigger: it.event_type || it.trigger || 'event',
@@ -289,6 +303,10 @@ export function flattenAuditForUi(input) {
       source: it.source || 'risk_analyzer',
       summary: it.payload_summary,
     };
+  }).sort((a, b) => {
+    const ta = new Date(a.occurred_at || 0).getTime();
+    const tb = new Date(b.occurred_at || 0).getTime();
+    return tb - ta;
   });
 }
 
@@ -411,7 +429,7 @@ function _renderLinkedToolbar(patientId) {
     ['Inbox', `window._nav('clinician-inbox')`, 'Clinician inbox'],
     ['Schedule', `window._nav('scheduling-hub')`, 'Scheduling hub'],
     ['Live session', `window._selectedPatientId='${pid}';window._nav('live-session')`, 'Virtual care / live session'],
-    ['DeepTwin', `window._nav('deeptwin')`, 'DeepTwin workspace'],
+    ['DeepTwin', `window._selectedPatientId='${pid}';window._profilePatientId='${pid}';window._nav('deeptwin')`, 'DeepTwin workspace'],
     ['Biomarkers', `window._nav('biomarkers')`, 'Biomarker maps'],
     ['qEEG', `window._selectedPatientId='${pid}';window._nav('qeeg-analysis')`, 'qEEG analysis'],
     ['MRI', `window._selectedPatientId='${pid}';window._nav('mri-analysis')`, 'MRI analysis'],
@@ -468,8 +486,8 @@ function _renderPatientDetail(workspace, auditBundle, demoMode, patientId) {
     </div>`;
 }
 
-/** Match FastAPI `require_minimum_role(..., "clinician")` on risk endpoints */
-const CLINICAL_RISK_ROLES = new Set(['clinician', 'admin', 'clinic-admin', 'supervisor', 'reviewer']);
+/** Match FastAPI `require_minimum_role(..., "clinician")` on risk endpoints (technician ≥ clinician in ROLE_ORDER). */
+const CLINICAL_RISK_ROLES = new Set(['clinician', 'admin', 'clinic-admin', 'supervisor', 'reviewer', 'technician']);
 
 export async function pgRiskAnalyzer(setTopbar, navigate) {
   try {
@@ -651,6 +669,10 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
           audit_events: workspace.audit_events || [],
           items: [],
         };
+        const stratAudit = await api.getRiskAudit(activePatientId).catch(() => ({ items: [] }));
+        if (Array.isArray(stratAudit?.items) && stratAudit.items.length) {
+          auditBundle.items = stratAudit.items;
+        }
       } catch (primaryErr) {
         const strat = await api.getPatientRiskProfile(activePatientId).catch(() => null);
         if (strat && Array.isArray(strat.categories)) {
