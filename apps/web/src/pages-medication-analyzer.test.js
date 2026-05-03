@@ -31,6 +31,22 @@ test('medication analyzer page: requires review and honest empty-state language'
   assert.ok(pageSrc.includes('Demo persona') || pageSrc.includes('sample vignette'), 'demo relabelling');
 });
 
+test('medication analyzer page: persists review workflow affordances', () => {
+  const required = [
+    'data-testid="medication-analyzer-page"',
+    'Clinical decision-support.',
+    'Does not prescribe',
+    'Save note',
+    'Add timeline annotation',
+    'Export IRB JSON',
+    'Patient profile',
+    'Research / algorithm disclosure',
+  ];
+  for (const text of required) {
+    assert.ok(pageSrc.includes(text), `missing UI affordance: ${text}`);
+  }
+});
+
 test('demo interaction fixture: labels sample and omits prescriptive med orders', () => {
   const r = ANALYZER_DEMO_FIXTURES.medication.check_interactions('demo-pt-elena-vasquez', [
     'Warfarin', 'Ibuprofen', 'Amitriptyline', 'Pregabalin',

@@ -201,6 +201,7 @@ from app.routers.qeeg_analysis_router import router as qeeg_analysis_router
 from app.routers.qeeg_live_router import router as qeeg_live_router
 from app.routers.qeeg_copilot_router import router as qeeg_copilot_router
 from app.routers.qeeg_viz_router import router as qeeg_viz_router
+from app.routers.medication_analyzer_router import router as medication_analyzer_router
 from app.routers.mri_analysis_router import router as mri_analysis_router
 from app.routers.audio_analysis_router import router as audio_analysis_router
 from app.routers.fusion_router import router as fusion_router
@@ -779,6 +780,7 @@ app.include_router(qeeg_analysis_router)
 app.include_router(qeeg_live_router)
 app.include_router(qeeg_copilot_router)
 app.include_router(qeeg_viz_router)
+app.include_router(medication_analyzer_router)
 app.include_router(mri_analysis_router)
 app.include_router(audio_analysis_router)
 app.include_router(fusion_router)

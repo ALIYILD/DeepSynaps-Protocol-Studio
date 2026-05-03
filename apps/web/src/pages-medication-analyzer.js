@@ -325,6 +325,95 @@ function _renderGovernancePanel() {
   </section>`;
 }
 
+function _renderMedicationAnalyzerSupport(payload) {
+  const data = payload || {};
+  const notes = Array.isArray(data.persisted_review_notes) ? data.persisted_review_notes : [];
+  const timeline = Array.isArray(data.timeline) ? data.timeline : [];
+  const disclosures = data.regulatory_disclosures || null;
+  const timelineRows = timeline.length
+    ? timeline.slice().reverse().slice(0, 8).map((ev) => {
+      const detail = ev?.payload && Object.keys(ev.payload).length
+        ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">${esc(JSON.stringify(ev.payload))}</div>`
+        : '';
+      return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+        <div style="font-size:12px;color:var(--text-secondary)"><strong style="color:var(--text-primary)">${esc(ev.event_type || 'event')}</strong> · ${esc(ev.occurred_at || '—')}</div>
+        ${detail}
+      </div>`;
+    }).join('')
+    : '<div style="font-size:12px;color:var(--text-tertiary)">No saved timeline annotations yet.</div>';
+  const noteRows = notes.length
+    ? notes.slice(0, 8).map((note) => `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+        <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:4px">${esc(note.created_at || '—')}</div>
+        <div style="font-size:12px;color:var(--text-secondary);white-space:pre-wrap">${esc(note.note_text || '')}</div>
+      </div>`).join('')
+    : '<div style="font-size:12px;color:var(--text-tertiary)">No saved review notes yet.</div>';
+  const disclosureBlock = disclosures
+    ? `<div style="font-size:12px;color:var(--text-secondary);line-height:1.55">
+        <div><strong style="color:var(--text-primary)">Intended use:</strong> ${esc(disclosures.intended_use || '—')}</div>
+        <div style="margin-top:6px"><strong style="color:var(--text-primary)">Not intended for:</strong> ${esc((disclosures.not_intended_for || []).join(' · ') || '—')}</div>
+        <div style="margin-top:6px"><strong style="color:var(--text-primary)">Evidence basis:</strong> ${esc(disclosures.evidence_basis || '—')}</div>
+      </div>`
+    : '<div style="font-size:12px;color:var(--text-tertiary)">Medication Analyzer payload not available yet. The medication workspace still works without this research block.</div>';
+  return `<section style="margin-top:16px;padding:14px;border:1px solid var(--border);border-radius:12px;background:var(--bg-card)" aria-label="Medication analyzer support">
+    <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap">
+      <h2 style="font-size:15px;font-weight:600;margin:0">Medication Analyzer support</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" class="btn btn-ghost btn-sm" id="ma-refresh-analyzer" style="min-height:40px">Refresh analyzer payload</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="ma-export-irb" style="min-height:40px">Export IRB JSON</button>
+      </div>
+    </div>
+    <div style="margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,.02)">
+      <div style="font-weight:600;font-size:13px;margin-bottom:8px">Research / algorithm disclosure</div>
+      ${disclosureBlock}
+      ${data.audit_ref ? `<div style="margin-top:8px;font-size:11px;color:var(--text-tertiary)">Audit ref: ${esc(data.audit_ref)}</div>` : ''}
+    </div>
+    <div style="margin-top:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
+      <div style="padding:12px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,.02)">
+        <div style="font-weight:600;font-size:13px;margin-bottom:8px">Add timeline annotation</div>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--text-tertiary)">
+          Event type
+          <select class="form-control" name="timeline-event-type" style="min-height:44px">
+            <option value="side_effect_report">Side-effect report</option>
+            <option value="missed_dose">Missed dose</option>
+            <option value="dose_change_external">Dose change (external/EHR)</option>
+            <option value="symptom_change">Symptom change</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--text-tertiary);margin-top:10px">
+          Occurred at (ISO)
+          <input class="form-control" name="timeline-occurred-at" placeholder="2026-05-01T14:00:00Z" style="min-height:44px">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--text-tertiary);margin-top:10px">
+          Detail
+          <textarea class="form-control" name="timeline-detail" rows="2" placeholder="Brief note for review / audit"></textarea>
+        </label>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px">
+          <button type="button" class="btn btn-primary btn-sm" data-action="save-timeline-event" style="min-height:40px">Add timeline annotation</button>
+          <span data-med-timeline-status style="font-size:12px;color:var(--text-tertiary)"></span>
+        </div>
+        <div style="margin-top:10px">${timelineRows}</div>
+      </div>
+      <div style="padding:12px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,.02)">
+        <div style="font-weight:600;font-size:13px;margin-bottom:8px">Clinician review notes (persisted)</div>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--text-tertiary)">
+          New note
+          <textarea class="form-control" name="review-note-text" rows="3" placeholder="Documentation for chart review, IRB, or handoff — not a prescription"></textarea>
+        </label>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px">
+          <button type="button" class="btn btn-primary btn-sm" data-action="save-review-note" style="min-height:40px">Save note</button>
+          <span data-med-note-status style="font-size:12px;color:var(--text-tertiary)"></span>
+        </div>
+        <div style="margin-top:10px">${noteRows}</div>
+      </div>
+    </div>
+    <details style="margin-top:14px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,.02)">
+      <summary style="cursor:pointer;padding:12px 14px;font-weight:600">Persisted review notes & audit (server)</summary>
+      <div data-med-audit-strip style="padding:0 14px 14px;font-size:12px;color:var(--text-secondary)">Loading…</div>
+    </details>
+  </section>`;
+}
+
 function _renderLinkedActions() {
   return `<section style="margin-top:14px;padding:14px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,.02)" aria-label="Linked modules">
     <div style="font-weight:600;font-size:13px;margin-bottom:10px">Linked workflows</div>
@@ -451,15 +540,16 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
   let medsCache = [];
   let lastInteractionResult = null;
   let riskProfileCache = null;
+  let analyzerPayload = null;
   let usingFixtures = false;
   let neuromodState = { status: 'loading', protocol: null, matches: [] };
 
   el.innerHTML = `
-    <div class="ds-medication-analyzer-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px">
+    <div class="ds-medication-analyzer-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px" data-testid="medication-analyzer-page">
       <div id="ma-demo-banner"></div>
       <header style="padding:12px 14px;border-radius:12px;border:1px solid rgba(155,127,255,0.28);background:rgba(155,127,255,0.06);margin-bottom:14px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
-        <strong style="color:var(--text-primary)">Medication review decision-support.</strong>
-        For clinician/pharmacist use — does not issue prescriptions or dosing instructions; not final drug-interaction authority.
+        <strong style="color:var(--text-primary)">Clinical decision-support.</strong>
+        Does not prescribe, dose, or replace pharmacist review. For clinician/pharmacist use only; not final drug-interaction authority.
         Outputs require verification against source records and local formulary; follow clinic medication safety protocols for risks including interactions, adherence uncertainty, pregnancy, controlled substances, and self-harm context.
       </header>
       <div id="ma-breadcrumb" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:12px;flex-wrap:wrap"></div>
@@ -726,6 +816,11 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
     } catch {
       riskProfileCache = null;
     }
+    try {
+      analyzerPayload = await api.medicationAnalyzerPayload(activePatientId);
+    } catch {
+      analyzerPayload = null;
+    }
 
     _syncDemoBanner();
     const dataAvail = usingFixtures && isDemoSession()
@@ -758,6 +853,7 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
         <div data-interaction-results style="margin-top:14px">${_renderInteractionResults(lastInteractionResult, usingFixtures)}</div>
         <div data-neuromod-results>${_renderNeuromodSection(neuromodState, usingFixtures)}</div>
       </section>
+      ${_renderMedicationAnalyzerSupport(analyzerPayload)}
       ${_renderGovernancePanel()}
       ${_renderLinkedActions()}
     `;
@@ -789,6 +885,7 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
         last_interaction_result: lastInteractionResult,
         neuromod_state: neuromodState,
         risk_profile: riskProfileCache,
+        analyzer_payload: analyzerPayload,
       };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
@@ -807,6 +904,7 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
 
     wirePatientDetail();
     loadNeuromodForPatient();
+    loadAnalyzerAuditStrip();
   }
 
   function _refreshMedListInPlace() {
@@ -930,6 +1028,105 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
       const slot = body.querySelector('[data-interaction-results]');
       if (slot) slot.innerHTML = _renderInteractionResults(lastInteractionResult, usingFixtures);
     });
+
+    body.querySelector('#ma-refresh-analyzer')?.addEventListener('click', () => {
+      loadPatient();
+    });
+    body.querySelector('#ma-export-irb')?.addEventListener('click', () => {
+      if (!analyzerPayload) {
+        alert('Medication Analyzer payload is not available for this patient yet.');
+        return;
+      }
+      const bundle = {
+        export_kind: 'medication_analyzer_irb_appendix',
+        exported_at: new Date().toISOString(),
+        patient_id: analyzerPayload.patient_id || activePatientId,
+        audit_ref: analyzerPayload.audit_ref || null,
+        schema_version: analyzerPayload.schema_version || null,
+        generated_at: analyzerPayload.generated_at || null,
+        regulatory_disclosures: analyzerPayload.regulatory_disclosures || null,
+        provenance: analyzerPayload.provenance || null,
+        snapshot: analyzerPayload.snapshot || null,
+        timeline: analyzerPayload.timeline || [],
+        adherence: analyzerPayload.adherence || null,
+        safety_alerts: analyzerPayload.safety_alerts || [],
+        confounds: analyzerPayload.confounds || [],
+        recommendations: analyzerPayload.recommendations || [],
+        persisted_review_notes: analyzerPayload.persisted_review_notes || [],
+      };
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      const safeId = String(activePatientId || 'patient').replace(/[^a-z0-9_-]/gi, '_').slice(0, 36);
+      a.href = URL.createObjectURL(blob);
+      a.download = `medication-analyzer-irb-${safeId}-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
+    body.querySelector('[data-action="save-review-note"]')?.addEventListener('click', async () => {
+      const textarea = body.querySelector('textarea[name="review-note-text"]');
+      const status = body.querySelector('[data-med-note-status]');
+      const noteText = String(textarea?.value || '').trim();
+      if (!noteText) {
+        textarea?.focus();
+        if (status) status.textContent = 'Enter note text.';
+        return;
+      }
+      if (status) status.textContent = 'Saving…';
+      try {
+        const res = await api.medicationAnalyzerReviewNote(activePatientId, {
+          note_text: noteText,
+          linked_recommendation_ids: [],
+        });
+        analyzerPayload = res?.full_payload || analyzerPayload;
+        await loadPatient();
+      } catch (e) {
+        if (status) status.textContent = (e && e.message) || String(e);
+      }
+    });
+    body.querySelector('[data-action="save-timeline-event"]')?.addEventListener('click', async () => {
+      const type = body.querySelector('select[name="timeline-event-type"]')?.value || 'other';
+      const whenInput = body.querySelector('input[name="timeline-occurred-at"]');
+      const detailInput = body.querySelector('textarea[name="timeline-detail"]');
+      const status = body.querySelector('[data-med-timeline-status]');
+      let occurredAt = String(whenInput?.value || '').trim();
+      if (!occurredAt) {
+        occurredAt = new Date().toISOString();
+        if (whenInput) whenInput.value = occurredAt;
+      }
+      if (status) status.textContent = 'Saving…';
+      try {
+        const res = await api.medicationAnalyzerTimelineEvent(activePatientId, {
+          event_type: type,
+          occurred_at: occurredAt,
+          payload: detailInput?.value?.trim() ? { detail: detailInput.value.trim() } : {},
+        });
+        analyzerPayload = res?.full_payload || analyzerPayload;
+        await loadPatient();
+      } catch (e) {
+        if (status) status.textContent = (e && e.message) || String(e);
+      }
+    });
+  }
+
+  async function loadAnalyzerAuditStrip() {
+    const body = $('ma-body');
+    const slot = body?.querySelector('[data-med-audit-strip]');
+    if (!slot || !activePatientId) return;
+    slot.textContent = 'Loading…';
+    try {
+      const j = await api.medicationAnalyzerAudit(activePatientId);
+      const notes = Array.isArray(j?.review_notes) ? j.review_notes : [];
+      const entries = Array.isArray(j?.entries) ? j.entries : [];
+      const recent = entries.slice(0, 6).map((e) => {
+        const act = esc(e.action || '');
+        const at = esc(e.at || '');
+        return `<div style="padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--text-tertiary)">${at}</span> · ${act}</div>`;
+      }).join('');
+      slot.innerHTML = `<div style="margin-bottom:10px">${esc(String(notes.length))} saved review note(s) · ${esc(String(entries.length))} analyzer audit row(s)</div>`
+        + (recent ? `<div style="max-height:160px;overflow:auto">${recent}</div>` : '');
+    } catch (e) {
+      slot.textContent = (e && e.message) || String(e);
+    }
   }
 
   function render() {

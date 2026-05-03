@@ -118,6 +118,9 @@ KNOWN_SURFACES = {
     # checkin_shared_to_clinician (clinician-visible), export_csv,
     # export_ndjson, summary_viewed, cross_link_journal_clicked.
     "wellness_hub",
+    # Medication Analyzer (2026-05) — clinician CDS surface; audit via
+    # create_audit_event with target_type medication_analyzer.
+    "medication_analyzer",
     # Patient Reports view-side launch-audit (2026-05-01). Third patient-facing
     # surface. Distinct from the clinician-side ``reports`` surface (which
     # tracks generation / sign / supersede / export). The patient_reports

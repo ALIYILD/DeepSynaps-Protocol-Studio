@@ -109,6 +109,121 @@ function _buildDemoInboxGroups() {
   });
   return Object.values(grouped);
 }
+
+function _medicationAnalyzerDemoPayload(patientId) {
+  return {
+    demo: true,
+    schema_version: '1.0',
+    generated_at: new Date().toISOString(),
+    patient_id: patientId,
+    provenance: {
+      source_systems: ['demo_fixture'],
+      computed_by: 'demo',
+      ruleset_versions: { 'med-analyzer-rules-v1': '1' },
+      model_versions: {},
+    },
+    snapshot: {
+      active_medications: [
+        {
+          id: 'demo-med-1',
+          drug_name: 'Sertraline',
+          medication_class: 'ssri',
+          dose: { value: 50, unit: 'mg' },
+          route: 'oral',
+          frequency: { code: 'custom', times_per_day: 1, free_text: 'daily' },
+          indication: 'MDD',
+          status: 'active',
+          start_date: '2025-06-01',
+          end_date: null,
+          source: { origin: 'demo', recorded_at: new Date().toISOString(), confidence: 0.5 },
+        },
+      ],
+      recent_change_count_30d: 0,
+      polypharmacy: { active_count: 2, risk_band: 'elevated' },
+      high_risk_med_count: 0,
+      adherence: {
+        as_of: new Date().toISOString(),
+        window_days: 30,
+        estimate_type: 'proportion',
+        value: 0.78,
+        trend: 'stable',
+        evidence_sources: [{ type: 'clinician_entry', weight: 0.5, coverage: 0.4 }],
+        confidence: 0.55,
+        limitations: ['Demo preview — not patient-specific.'],
+      },
+      interaction_flag_count: 1,
+      neuromodulation_flag_count: 0,
+      interaction_severity_summary: 'mild',
+    },
+    timeline: [],
+    adherence: {
+      as_of: new Date().toISOString(),
+      window_days: 30,
+      estimate_type: 'proportion',
+      value: 0.78,
+      trend: 'stable',
+      evidence_sources: [],
+      confidence: 0.55,
+      limitations: ['Demo preview.'],
+    },
+    safety_alerts: [
+      {
+        id: 'demo-ia-1',
+        category: 'drug_drug',
+        severity: 'moderate',
+        urgency: 'routine',
+        title: 'Demo interaction flag',
+        detail: 'This is static demo text. Connect to the API for patient-specific rules.',
+        medications_involved: [],
+        conditions_involved: [],
+        detected_at: new Date().toISOString(),
+        ruleset_id: 'demo',
+        ruleset_version: 'med-analyzer-rules-v1',
+        confidence: 1,
+        management_hints: ['Verify against EHR and pharmacy data.'],
+      },
+    ],
+    confounds: [
+      {
+        id: 'demo-cf-1',
+        domain: 'mood',
+        hypothesis: 'possible confound',
+        linked_medications: ['demo-med-1'],
+        temporal_alignment: 'unclear',
+        strength: 'possible',
+        confidence: 0.45,
+        explanation: 'SSRIs may overlap with mood reporting on assessments and symptom scales.',
+        counterevidence: [],
+        generated_at: new Date().toISOString(),
+        source: 'rules',
+      },
+    ],
+    recommendations: [
+      {
+        id: 'demo-rec-1',
+        type: 'interpretation_caution',
+        priority: 'medium',
+        title: 'Interpret biomarkers conservatively',
+        rationale: 'Demo recommendation — load a real patient id when authenticated.',
+        due_by: null,
+        linked_alert_ids: [],
+        linked_confound_ids: ['demo-cf-1'],
+        created_at: new Date().toISOString(),
+        status: 'open',
+      },
+    ],
+    evidence_links: [],
+    audit_ref: 'demo-med-analyzer',
+    persisted_review_notes: [],
+    regulatory_disclosures: {
+      intended_use: 'Clinical decision-support for structured regimen review and confound prompts (demo).',
+      not_intended_for: ['Autonomous prescribing', 'Replacement for pharmacy systems'],
+      evidence_basis: 'Deterministic demo rules — connect API for versioned rulesets.',
+      limitations: ['Not exhaustive DDI screening', 'Hypothesis-level confounds only'],
+    },
+  };
+}
+
 function _mriDemoLongitudinalCompare(baselineId, followupId) {
   return {
     demo: true,
@@ -426,8 +541,75 @@ function _demoSyntheticResponse(path, method, body) {
     }
     return payload;
   }
-  // biomarkers workspace / labs analyzer — demo fixtures (reads only)
   const pathNoQuery = path.split('?')[0];
+  const medAz = pathNoQuery.match(/^\/api\/v1\/medications\/analyzer\/patient\/([^/?]+)$/);
+  if (medAz && (!method || method === 'GET')) {
+    return _medicationAnalyzerDemoPayload(decodeURIComponent(medAz[1]));
+  }
+  const medAzAudit = pathNoQuery.match(/^\/api\/v1\/medications\/analyzer\/patient\/([^/?]+)\/audit$/);
+  if (medAzAudit && (!method || method === 'GET')) {
+    return {
+      demo: true,
+      entries: [],
+      review_notes: [],
+    };
+  }
+  const medAzTimeline = pathNoQuery.match(
+    /^\/api\/v1\/medications\/analyzer\/patient\/([^/?]+)\/timeline-event$/,
+  );
+  if (medAzTimeline && method === 'POST') {
+    const pid = decodeURIComponent(medAzTimeline[1]);
+    const base = _medicationAnalyzerDemoPayload(pid);
+    const evId = 'demo-ev-' + Date.now();
+    base.timeline = (base.timeline || []).concat([
+      {
+        id: evId,
+        patient_id: pid,
+        event_type: 'clinician_annotation',
+        occurred_at: new Date().toISOString(),
+        medication_id: null,
+        payload: { demo: true },
+        source: {
+          origin: 'demo_session',
+          recorded_at: new Date().toISOString(),
+          confidence: 1,
+        },
+        confidence: 1,
+      },
+    ]);
+    return {
+      ok: true,
+      demo: true,
+      event: base.timeline[base.timeline.length - 1],
+      full_payload: base,
+    };
+  }
+  const medAzNote = pathNoQuery.match(
+    /^\/api\/v1\/medications\/analyzer\/patient\/([^/?]+)\/review-note$/,
+  );
+  if (medAzNote && method === 'POST') {
+    const pid = decodeURIComponent(medAzNote[1]);
+    const base = _medicationAnalyzerDemoPayload(pid);
+    const nid = 'demo-note-' + Date.now();
+    const created = new Date().toISOString();
+    base.persisted_review_notes = (base.persisted_review_notes || []).concat([
+      {
+        note_id: nid,
+        patient_id: pid,
+        actor_id: 'demo',
+        created_at: created,
+        note_text: '(Demo session — saved locally only in preview.)',
+        linked_recommendation_ids: [],
+      },
+    ]);
+    return {
+      note_id: nid,
+      created_at: created,
+      demo: true,
+      full_payload: base,
+    };
+  }
+  // biomarkers workspace / labs analyzer — demo fixtures (reads only)
   const labsProfilePath = pathNoQuery.match(/^\/api\/v1\/labs\/analyzer\/patient\/([^/]+)$/);
   if (labsProfilePath && (!method || method === 'GET')) {
     const pid = decodeURIComponent(labsProfilePath[1]);
@@ -2622,6 +2804,30 @@ export const api = {
     const q = new URLSearchParams(params).toString();
     return apiFetchWithRetry(`/api/v1/medications/interaction-log${q ? '?' + q : ''}`);
   },
+  medicationAnalyzerPayload: (patientId) =>
+    apiFetch(`/api/v1/medications/analyzer/patient/${encodeURIComponent(patientId)}`),
+  medicationAnalyzerRecompute: (patientId, body = {}) =>
+    apiFetch(`/api/v1/medications/analyzer/patient/${encodeURIComponent(patientId)}/recompute`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  medicationAnalyzerAdherence: (patientId, body = {}) =>
+    apiFetch(`/api/v1/medications/analyzer/patient/${encodeURIComponent(patientId)}/adherence`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  medicationAnalyzerReviewNote: (patientId, body) =>
+    apiFetch(`/api/v1/medications/analyzer/patient/${encodeURIComponent(patientId)}/review-note`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  medicationAnalyzerTimelineEvent: (patientId, body) =>
+    apiFetch(`/api/v1/medications/analyzer/patient/${encodeURIComponent(patientId)}/timeline-event`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  medicationAnalyzerAudit: (patientId) =>
+    apiFetch(`/api/v1/medications/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
 
   // ── Consent Management ────────────────────────────────────────────────────
   getConsentRecords: (params = {}) => {
