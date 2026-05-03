@@ -81,6 +81,9 @@ function _lsRenderEmptyVirtualCare(mount, setTopbar, navigate) {
       <div class="dv2-card" style="padding:28px;border:1px solid var(--border);border-radius:12px">
         <div style="font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--text-tertiary);margin-bottom:10px">Live Session workspace</div>
         <h1 style="font-size:20px;font-weight:600;margin:0 0 12px;font-family:var(--dv2-font-display,var(--font-display))">No active or upcoming session</h1>
+        <p style="font-size:13px;line-height:1.55;color:var(--text-secondary);margin:0 0 12px">
+          There is no appointment loaded from the clinic schedule — you will not see a session timer, video room, or patient context panel here until a session exists.
+        </p>
         <p style="font-size:13px;line-height:1.55;color:var(--text-secondary);margin:0 0 20px">
           This area prepares and documents <strong>remote visits</strong> and reviews patient context. It does not deliver stimulation, prescribe, or replace clinical judgement.
           Open the clinic schedule or select a patient to begin.
@@ -3077,6 +3080,11 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
 // =============================================================================
 // pgLiveSession — Screen 10 · Unified Live Session
 // Merges: session runtime + Virtual Care (telehealth) + Monitor Hub telemetry.
+//
+// Clinician Live Session does not call patient-scoped virtual-care session APIs
+// (api.virtualCareCreateSession / Start / End / Submit*) — those require patient auth.
+// Video uses POST /api/v1/sessions/{id}/video/start (clinician). Session notes are
+// browser-local unless a future clinician notes endpoint exists.
 // =============================================================================
 let _lsState = null;
 
@@ -3403,7 +3411,7 @@ function _lsRender() {
   const anode = (session.montage || '').split(/\s*[\u2192\->]+\s*/)[0]?.trim() || 'F3';
   const cathode = (session.montage || '').split(/\s*[\u2192\->]+\s*/)[1]?.trim() || 'Fp2';
   const demoBanner = session._demo_fixture
-    ? `<div style="margin-bottom:12px;padding:10px 12px;border-radius:8px;border:1px dashed rgba(124,134,153,0.45);background:rgba(124,134,153,0.08);font-size:12px;color:var(--text-secondary)"><strong>DEMO</strong> — Offline preview session. Not a real patient or live appointment.</div>`
+    ? `<div style="margin-bottom:12px;padding:10px 12px;border-radius:8px;border:1px dashed rgba(124,134,153,0.45);background:rgba(124,134,153,0.08);font-size:12px;color:var(--text-secondary)"><strong>Demo session — not real patient data.</strong> Offline preview only; timers and panels are for UI rehearsal, not clinical truth.</div>`
     : '';
   const consentSev = consentSummary?.severity || 'warn';
   const consentBg = consentSev === 'high' ? 'rgba(239,68,68,0.08)' : consentSev === 'ok' ? 'rgba(34,197,94,0.06)' : 'rgba(245,158,11,0.08)';
@@ -3460,20 +3468,21 @@ function _lsRender() {
     <div class="dv2-card" style="padding:14px;margin-bottom:12px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
         <div>
-          <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:14px;font-weight:600">Video consult</div>
-          <div style="font-size:11px;color:var(--text-tertiary)">Jitsi Meet \u00B7 clinic-managed room \u00B7 verify identity before discussing PHI</div>
+          <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:14px;font-weight:600">Clinic-managed video room</div>
+          <div style="font-size:11px;color:var(--text-tertiary);line-height:1.45;margin-top:4px">Third-party meeting (Jitsi Meet) — not a private medical-grade telehealth appliance. Video room link generated for this session via the clinic API. Do not embed identifiable patient information in room names or URLs.</div>
         </div>
         <span class="chip ${s.videoActive ? 'teal' : ''}" style="${s.videoActive ? '' : 'color:var(--text-tertiary)'}">${s.videoActive ? '\u25CF Preview Active' : 'Idle'}</span>
       </div>
+      <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:10px;font-family:var(--dv2-font-mono,var(--font-mono));word-break:break-all">Room: ${_e(videoRoom)}</div>
       <div style="aspect-ratio:16/9;border-radius:8px;overflow:hidden;background:rgba(0,0,0,0.35);border:1px solid var(--border);display:flex;align-items:center;justify-content:center">
         ${s.videoActive
           ? `<iframe id="ls-video-iframe" src="https://meet.jit.si/${_e(videoRoom)}" title="Video consult" allow="camera;microphone;autoplay;fullscreen" style="width:100%;height:100%;border:none"></iframe>`
-          : `<div style="text-align:center;color:var(--text-tertiary);font-size:12px"><div style="font-size:28px;margin-bottom:6px">\uD83D\uDCF9</div>Preview not started</div>`}
+          : `<div style="text-align:center;color:var(--text-tertiary);font-size:12px;padding:16px"><div style="font-size:28px;margin-bottom:6px" aria-hidden="true">\uD83D\uDCF9</div>No video room loaded — start video to open the clinic-generated room (third-party service).</div>`}
       </div>
       <div style="display:flex;gap:6px;margin-top:10px">
         ${s.videoActive
-          ? `<button class="btn btn-sm" onclick="window._lsEndVideo()" style="flex:1">End call</button>`
-          : `<button class="btn btn-primary btn-sm" onclick="window._lsStartVideo()" style="flex:1">Start video</button>`}
+          ? `<button type="button" class="btn btn-sm" onclick="window._lsEndVideo()" style="flex:1">End call</button>`
+          : `<button type="button" class="btn btn-primary btn-sm" onclick="window._lsStartVideo()" style="flex:1">Start video</button>`}
       </div>
     </div>${s.videoActive ? `
     <div class="dv2-card" style="padding:14px;margin-bottom:12px">
@@ -3638,7 +3647,7 @@ function _lsRender() {
             <button type="button" class="btn btn-sm" onclick="window._lsExportNotes()">Export .txt</button>
             <span id="ls-notes-saved" style="font-size:11px;color:var(--text-tertiary)">${notesSavedAt ? 'Saved ' + _e(notesSavedAt) : 'Notes stay in this browser until saved'}</span>
           </div>
-          <p style="font-size:10px;color:var(--text-tertiary);margin:10px 0 0;line-height:1.4">Session notes are stored locally in your browser for this workspace preview. For authoritative documentation, use your EHR or clinic-approved documentation workflow.</p>
+          <p style="font-size:10px;color:var(--text-tertiary);margin:10px 0 0;line-height:1.45"><strong>Session notes are local/export-only until saved to the clinical record/EHR.</strong> This page does not persist notes to a server-backed clinical note endpoint.</p>
         </div>` : ''}
         <div class="ls-timer-card">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
@@ -4236,12 +4245,6 @@ function _lsStartBioPolling() {
     const spo2 = Math.max(94, Math.min(100, Math.round(98 + (Math.random() - 0.5) * 1.5)));
     const stress = Math.max(0, Math.min(100, Math.round(30 + Math.sin(Date.now() * 0.0005) * 15 + (Math.random() - 0.5) * 8)));
     _lsUpdateBioDisplay(hr, hrv, spo2, stress);
-    // Submit snapshot to backend if session exists.
-    if (s.vcSessionId) {
-      api.virtualCareSubmitBiometrics(s.vcSessionId, {
-        source: 'simulated', heart_rate_bpm: hr, hrv_ms: hrv, spo2_pct: spo2, stress_score: stress,
-      }).catch(() => {});
-    }
   }, 5000);
 }
 
