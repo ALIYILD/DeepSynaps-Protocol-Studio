@@ -1,6 +1,10 @@
 import { api } from './api.js';
+import { currentUser } from './auth.js';
 import { isDemoSession } from './demo-session.js';
-import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
+import {
+  ANALYZER_DEMO_VIEWS,
+  DEMO_MODE_BANNER_HTML,
+} from './demo-fixtures-analyzers.js';
 
 function esc(s) {
   return String(s ?? '')
@@ -22,12 +26,18 @@ const SIGNAL_LABELS = {
 };
 
 const SIGNAL_TIPS = {
-  sleep:          'Average sleep hours from device-derived sleep proxy.',
-  mobility:       'Steps/day and time-out-of-home derived from passive motion + GPS.',
-  social:         'Outbound communication count vs personal baseline (metadata only).',
-  typing_cadence: 'Inter-key interval and word-pause distribution — psychomotor proxy.',
-  screen_time:    'Total daily screen-time share vs personal baseline.',
-  voice_diary:    'Voluntary voice diary submission cadence + speech rate.',
+  sleep:
+    'Exploratory sleep-timing cue from connected sources when available — requires clinician review; not diagnostic.',
+  mobility:
+    'Activity / mobility cue from connected motion or step summaries when available — source-backed only.',
+  social:
+    'Communication-pattern cue vs personal baseline when consented and sourced — metadata minimization applies.',
+  typing_cadence:
+    'Typing-pattern cue (psychomotor proxy) when keyboard telemetry is authorized — exploratory.',
+  screen_time:
+    'Screen-use pattern cue vs personal baseline when sourced — not surveillance.',
+  voice_diary:
+    'Voice-diary cadence cue when sessions exist — does not infer emotion or diagnosis.',
 };
 
 function _sevKey(s) {
@@ -37,15 +47,15 @@ function _sevKey(s) {
 function _pillFor(level) {
   const lvl = _sevKey(level);
   if (lvl === 'red') {
-    return '<span class="pill" style="background:rgba(255,107,107,0.12);color:var(--red);border:1px solid rgba(255,107,107,0.25)">Critical</span>';
+    return '<span class="pill" style="background:rgba(255,107,107,0.12);color:var(--red);border:1px solid rgba(255,107,107,0.25)">Clinician review suggested</span>';
   }
   if (lvl === 'amber') {
-    return '<span class="pill pill-pending">Elevated</span>';
+    return '<span class="pill pill-pending">Elevated cue</span>';
   }
   if (lvl === 'green') {
-    return '<span class="pill pill-active">Within range</span>';
+    return '<span class="pill pill-active">Near baseline</span>';
   }
-  return '<span class="pill pill-inactive">Unknown</span>';
+  return '<span class="pill pill-inactive">Insufficient data / unknown</span>';
 }
 
 function _miniDot(level) {
@@ -54,7 +64,7 @@ function _miniDot(level) {
     : lvl === 'amber' ? 'var(--amber)'
     : lvl === 'green' ? 'var(--green)'
     : 'var(--text-tertiary)';
-  const title = lvl === 'red' ? 'Critical' : lvl === 'amber' ? 'Elevated' : lvl === 'green' ? 'Within range' : 'Unknown';
+  const title = lvl === 'red' ? 'Clinician review suggested' : lvl === 'amber' ? 'Elevated cue' : lvl === 'green' ? 'Near baseline' : 'Insufficient data';
   return `<span title="${title}" aria-label="${title}" style="display:inline-block;width:14px;height:14px;border-radius:50%;background:${bg};opacity:${lvl ? 1 : 0.35}"></span>`;
 }
 
@@ -80,11 +90,14 @@ function _errorCard(message) {
   </div>`;
 }
 
+const GOVERNANCE_REQUIRED_COPY =
+  'Digital phenotype outputs are exploratory decision-support cues. They require clinician review and do not diagnose, monitor continuously, or approve treatment.';
+
 function _emptyClinicCard() {
   return `<div style="max-width:560px;margin:48px auto;padding:24px;border:1px solid var(--border);border-radius:14px;background:var(--bg-card);text-align:center">
-    <div style="font-size:15px;font-weight:600;margin-bottom:8px">No digital phenotyping signals captured yet.</div>
+    <div style="font-size:15px;font-weight:600;margin-bottom:8px">No analyzable digital phenotype cues for this roster yet.</div>
     <div style="font-size:12px;color:var(--text-secondary);line-height:1.5">
-      Patients log via the mobile companion or a paired wearable. Once consent is granted and a 14-day window is collected, signals appear here.
+      This does not mean “no concern” — it may reflect insufficient linked data, connectivity, or consent. Connect authorized wearables or apps, complete assessments, or add source-backed observations where your workflow allows.
     </div>
   </div>`;
 }
@@ -155,7 +168,7 @@ function _renderClinicTable(rows, sortKey, sortDir) {
     const flags = Array.isArray(p.flags) ? p.flags : [];
     const flagsHtml = flags.length
       ? flags.map((f) => _flagPill(f.label, f.severity)).join(' ')
-      : '<span style="color:var(--text-tertiary);font-size:11px">No signal data</span>';
+      : '<span style="color:var(--text-tertiary);font-size:11px">No flagged cues</span>';
     const sevTint = p.worst_severity === 'red'
       ? 'border-left:3px solid var(--red)'
       : p.worst_severity === 'amber'
@@ -192,14 +205,26 @@ function _formatScore(signal) {
   return `${sign}${num}`;
 }
 
+function _pctOrDash(v) {
+  if (v == null || v === '') return '—';
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '—';
+  return `${Math.round(n * 100)}%`;
+}
+
 function _renderSignalCard(key, signal, navigate) {
   const factors = Array.isArray(signal?.contributing_factors) ? signal.contributing_factors.slice(0, 2) : [];
   const factorsHtml = factors.length
     ? factors.map((f) => `<li style="margin-bottom:4px">${esc(f)}</li>`).join('')
-    : '<li style="color:var(--text-tertiary)">No contributing factors recorded.</li>';
+    : '<li style="color:var(--text-tertiary)">No source-backed contributing notes for this cue.</li>';
   const score = _formatScore(signal);
   const unit = signal?.unit || '';
   const baseline = signal?.baseline_label || '';
+  const conf = signal?.confidence != null ? _pctOrDash(signal.confidence) : null;
+  const comp = signal?.completeness != null ? _pctOrDash(signal.completeness) : null;
+  const uncert = [conf && `Model/data confidence (exploratory): ${conf}`, comp && `Window completeness: ${comp}`]
+    .filter(Boolean)
+    .join(' · ') || 'Confidence / completeness: unavailable or not computed for this cue.';
   return `<div data-signal="${esc(key)}" style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;min-height:220px">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
       <div>
@@ -208,11 +233,12 @@ function _renderSignalCard(key, signal, navigate) {
       </div>
       <div>${_pillFor(signal?.severity)}</div>
     </div>
+    <div style="font-size:10.5px;color:var(--text-tertiary);line-height:1.45">${esc(uncert)}</div>
     <div style="display:flex;align-items:baseline;gap:10px">
       <div style="font-size:22px;font-weight:600;font-variant-numeric:tabular-nums">${esc(score)}</div>
       <div style="font-size:11px;color:var(--text-tertiary)">${esc(unit)}${baseline ? ' · ' + esc(baseline) : ''}</div>
     </div>
-    <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px">Top contributing factors</div>
+    <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px">Source-backed notes (exploratory)</div>
     <ul style="margin:0;padding-left:16px;font-size:12px;line-height:1.5;color:var(--text-secondary)">${factorsHtml}</ul>
     <div style="margin-top:auto">${_sparkline(signal?.history)}</div>
   </div>`;
@@ -223,7 +249,7 @@ function _renderCrossModalCallouts(crossModal) {
   if (!list.length) {
     return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px">
       <div style="font-weight:600;font-size:13px;margin-bottom:8px">Cross-modal context</div>
-      <div style="font-size:12px;color:var(--text-tertiary)">No cross-modal correlations flagged for this window.</div>
+      <div style="font-size:12px;color:var(--text-tertiary)">No cross-module exploratory links surfaced for this window — insufficient or uncorrelated data, or sources unavailable.</div>
     </div>`;
   }
   const cards = list.map((c) => {
@@ -284,7 +310,7 @@ function _renderAuditPanel(audit) {
   if (!items.length) {
     return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px">
       <div style="font-weight:600;font-size:13px;margin-bottom:8px">Audit trail</div>
-      <div style="font-size:12px;color:var(--text-tertiary)">No recomputes, observations, or annotations recorded yet.</div>
+      <div style="font-size:12px;color:var(--text-tertiary)">No recomputes, observations, or annotations in view — empty audit does not imply absence of risk or “all clear.”</div>
     </div>`;
   }
   const sorted = items.slice().sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
@@ -311,11 +337,162 @@ function _renderAuditPanel(audit) {
   </div>`;
 }
 
-function _renderPatientDetail(profile, audit, navigate) {
-  const captured = profile?.captured_at ? new Date(profile.captured_at).toLocaleString() : 'No observation recorded.';
+function _pipelineSummaryLine(raw) {
+  const prov = raw?.provenance || {};
+  const pipe = prov.feature_pipeline_version || '—';
+  const src = String(prov.source_system || '—');
+  const stubLike = src === 'stub' || src === 'demo_sample';
+  const base = stubLike
+    ? `Exploratory aggregation (${pipe}) — passive streams are not production-ingested; cues are not standalone clinical endpoints.`
+    : `Pipeline ${pipe} · upstream label: ${src}`;
+  const srcList = Array.isArray(prov.data_sources) && prov.data_sources.length
+    ? prov.data_sources.join(', ')
+    : null;
+  return srcList ? `${base} · Data sources attribute: ${srcList}` : base;
+}
+
+function _consentSummaryLine(raw) {
+  const cs = raw?.consent_state || {};
+  const domains = cs.domains_enabled;
+  let nOn = 0;
+  let nTot = 0;
+  if (domains && typeof domains === 'object') {
+    const vals = Object.values(domains);
+    nTot = vals.length;
+    nOn = vals.filter(Boolean).length;
+  }
+  const updated = cs.updated_at ? new Date(cs.updated_at).toLocaleString() : null;
+  const scope = cs.consent_scope_version || '—';
+  const vis = cs.visibility_note ? String(cs.visibility_note) : null;
+  return [
+    nTot ? `${nOn}/${nTot} consent domains enabled · scope ${scope}` : `Consent scope ${scope}`,
+    updated ? `last updated ${updated}` : null,
+    vis ? `visibility: ${vis}` : null,
+  ].filter(Boolean).join(' · ');
+}
+
+function _renderGovernancePanel() {
+  return `<div style="padding:14px;border-radius:12px;border:1px solid var(--border);background:rgba(0,0,0,.12);margin-bottom:14px;font-size:12px;line-height:1.5;color:var(--text-secondary)">
+    <div style="font-weight:600;color:var(--text-primary);margin-bottom:6px">Governance</div>
+    <div>${esc(GOVERNANCE_REQUIRED_COPY)}</div>
+    <div style="margin-top:10px;font-size:11px;color:var(--text-tertiary)">Device or app identifiers are not shown here unless your deployment maps them through authorized integrations.</div>
+  </div>`;
+}
+
+function _renderSourceAvailabilityMatrix(raw) {
+  const domains = Array.isArray(raw?.domains) ? raw.domains : [];
+  if (!domains.length) {
+    return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:14px">
+      <div style="font-weight:600;font-size:13px;margin-bottom:8px">Source availability & consent</div>
+      <div style="font-size:12px;color:var(--text-tertiary)">No domain-level breakdown in API response — treat source/consent as unavailable or insufficient data until wired.</div>
+    </div>`;
+  }
+  const consentMap = raw?.consent_state?.domains_enabled || {};
+  const rows = domains.map((d) => {
+    const domain = esc(d.signal_domain || '—');
+    const modalities = Array.isArray(d.collection_modalities) ? d.collection_modalities.join(', ') : '—';
+    const types = Array.isArray(d.source_types) ? d.source_types.join(', ') : '—';
+    const comp = d.completeness != null ? `${Math.round(Number(d.completeness) * 100)}%` : '—';
+    const trend = esc(d.trend || '—');
+    const end = d.window_end ? new Date(d.window_end).toLocaleString() : '—';
+    const en = consentMap[d.signal_domain];
+    const consentCell = en === false
+      ? '<span class="pill pill-inactive" style="font-size:10px">Off / withheld</span>'
+      : en === true
+        ? '<span class="pill pill-active" style="font-size:10px">On file</span>'
+        : '<span class="pill pill-inactive" style="font-size:10px">Unavailable</span>';
+    return `<tr>
+      <td style="padding:8px;border-bottom:1px solid var(--border);font-size:11px">${domain}</td>
+      <td style="padding:8px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-secondary)">${esc(modalities)}</td>
+      <td style="padding:8px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-secondary)">${esc(types)}</td>
+      <td style="padding:8px;border-bottom:1px solid var(--border);font-size:11px;text-align:center">${consentCell}</td>
+      <td style="padding:8px;border-bottom:1px solid var(--border);font-size:11px;text-align:center">${esc(comp)}</td>
+      <td style="padding:8px;border-bottom:1px solid var(--border);font-size:11px">${esc(end)}</td>
+      <td style="padding:8px;border-bottom:1px solid var(--border);font-size:11px">${trend}</td>
+    </tr>`;
+  }).join('');
+  return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:14px;overflow:auto">
+    <div style="font-weight:600;font-size:13px;margin-bottom:8px">Data availability & consent matrix</div>
+    <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:10px">Domains describe intended signal families — availability depends on integration, consent, recency, and quality. Missing or stale rows do not imply “normal” or “no concern.”</div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:720px">
+      <thead><tr>
+        <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--text-tertiary)">Domain</th>
+        <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--text-tertiary)">Modalities</th>
+        <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--text-tertiary)">Source type</th>
+        <th style="text-align:center;padding:6px;border-bottom:1px solid var(--border);color:var(--text-tertiary)">Consent</th>
+        <th style="text-align:center;padding:6px;border-bottom:1px solid var(--border);color:var(--text-tertiary)">Completeness</th>
+        <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--text-tertiary)">Window end</th>
+        <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);color:var(--text-tertiary)">Trend</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
+function _renderLinkedModuleStrip(raw) {
+  const MODULES = [
+    ['patients-v2', 'Patient'],
+    ['wearables', 'Biometrics'],
+    ['voice-analyzer', 'Voice'],
+    ['video-assessments', 'Video'],
+    ['text-analyzer', 'Text'],
+    ['labs-analyzer', 'Labs'],
+    ['assessments-v2', 'Assessments'],
+    ['qeeg-analysis', 'qEEG'],
+    ['mri-analysis', 'MRI'],
+    ['documents-v2', 'Documents'],
+    ['deeptwin', 'DeepTwin'],
+    ['phenotype-analyzer', 'Phenotype'],
+    ['movement-analyzer', 'Movement'],
+    ['risk-analyzer', 'Risk'],
+    ['medication-analyzer', 'Medication'],
+    ['treatment-sessions-analyzer', 'Sessions'],
+    ['nutrition-analyzer', 'Nutrition'],
+    ['protocol-studio', 'Protocol Studio'],
+    ['session-execution', 'Session execution'],
+    ['schedule-v2', 'Schedule'],
+    ['clinician-inbox', 'Inbox'],
+    ['handbooks-v2', 'Handbooks'],
+    ['live-session', 'Live session'],
+  ];
+  const seen = new Set(MODULES.map((m) => m[0]));
+  const extra = [];
+  for (const l of Array.isArray(raw?.multimodal_links) ? raw.multimodal_links : []) {
+    const id = l.nav_page_id;
+    if (id && !seen.has(id)) {
+      seen.add(id);
+      extra.push([id, l.title || id]);
+    }
+  }
+  const all = [...MODULES, ...extra];
+  const btns = all.map(([id, label]) =>
+    `<button type="button" class="btn btn-ghost btn-sm" data-nav-page="${esc(id)}" style="min-height:36px;font-size:11px;white-space:nowrap">${esc(label)} →</button>`
+  ).join('');
+  return `<div style="margin-bottom:14px">
+    <div style="font-weight:600;font-size:12px;margin-bottom:8px;color:var(--text-secondary)">Linked modules</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${btns}</div>
+    <div style="font-size:10px;color:var(--text-tertiary);margin-top:6px">Navigation only — does not approve care, select protocols, or replace clinician judgement.</div>
+  </div>`;
+}
+
+function _renderPatientDetail(profile, audit, navigate, rawPayload) {
+  const captured = profile?.captured_at ? new Date(profile.captured_at).toLocaleString() : 'No observation timestamp — data may be missing or stale.';
   const cards = SIGNAL_ORDER.map((k) => _renderSignalCard(k, profile?.signals?.[k], navigate)).join('');
-  return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:12px 0 14px">
-      <div style="font-size:12px;color:var(--text-tertiary)">Last observation: ${esc(captured)}</div>
+  const displayName = profile?.patient_name || rawPayload?.patient_display_name || rawPayload?.patient_id || 'Patient';
+  const pid = profile?.patient_id || rawPayload?.patient_id || '';
+  const pipeLine = rawPayload ? esc(_pipelineSummaryLine(rawPayload)) : 'Pipeline / provenance unavailable.';
+  const consentLine = rawPayload ? esc(_consentSummaryLine(rawPayload)) : 'Consent summary unavailable.';
+  return `${_renderGovernancePanel()}
+    <div style="margin-bottom:14px">
+      <div style="font-size:15px;font-weight:600;color:var(--text-primary)">${esc(displayName)}</div>
+      <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">Patient ID: ${esc(pid || '—')}</div>
+      <div style="font-size:11px;color:var(--text-tertiary);margin-top:8px;line-height:1.45">${pipeLine}</div>
+      <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px;line-height:1.45">${consentLine}</div>
+    </div>
+    ${_renderLinkedModuleStrip(rawPayload || {})}
+    ${_renderSourceAvailabilityMatrix(rawPayload || {})}
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:12px 0 14px">
+      <div style="font-size:12px;color:var(--text-tertiary)">Last observation / generation: ${esc(captured)}</div>
       <button type="button" class="btn btn-ghost btn-sm" data-action="recompute" style="min-height:44px">Recompute</button>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">${cards}</div>
@@ -328,7 +505,7 @@ function _renderPatientDetail(profile, audit, navigate) {
 }
 
 function _enrichPatientName(p) {
-  const personas = ANALYZER_DEMO_FIXTURES?.patients || [];
+  const personas = ANALYZER_DEMO_VIEWS?.patients || [];
   if (p.patient_name) return p;
   const match = personas.find((x) => x.id === p.patient_id);
   return { ...p, patient_name: match ? match.name : p.patient_id };
@@ -344,49 +521,40 @@ function _projectFromBackendPayload(raw) {
     if (c === 'within') return 'green';
     return null;
   };
+  const _m = (x, factors) => (x && typeof x === 'object' && 'value' in x && x.value != null
+    ? {
+        score: x.value,
+        unit: 'index',
+        confidence: x.confidence,
+        completeness: x.completeness,
+        severity: sevFromCmp(x.baseline_comparison),
+        baseline_label: 'baseline window',
+        contributing_factors: factors,
+        history: [],
+      }
+    : null);
+
   const signals = {
-    sleep: snap.sleep_timing_proxy ? {
-      score: snap.sleep_timing_proxy.value, unit: 'index',
-      severity: sevFromCmp(snap.sleep_timing_proxy.baseline_comparison),
-      baseline_label: 'baseline window',
-      contributing_factors: snap.sleep_timing_proxy.notes || ['Derived from sleep timing proxy.'],
-      history: [],
-    } : null,
-    mobility: snap.mobility_stability ? {
-      score: snap.mobility_stability.value, unit: 'index',
-      severity: sevFromCmp(snap.mobility_stability.baseline_comparison),
-      baseline_label: 'baseline window',
-      contributing_factors: ['Mobility stability index from passive GPS / motion.'],
-      history: [],
-    } : null,
-    social: snap.sociability_proxy ? {
-      score: snap.sociability_proxy.value, unit: 'index',
-      severity: sevFromCmp(snap.sociability_proxy.baseline_comparison),
-      baseline_label: 'baseline window',
-      contributing_factors: ['Communication metadata-derived sociability proxy.'],
-      history: [],
-    } : null,
-    typing_cadence: snap.activity_level ? {
-      score: snap.activity_level.value, unit: 'index',
-      severity: sevFromCmp(snap.activity_level.baseline_comparison),
-      baseline_label: 'baseline window',
-      contributing_factors: ['Activity-level proxy (typing cadence not yet ingested).'],
-      history: [],
-    } : null,
-    screen_time: snap.screen_time_pattern ? {
-      score: snap.screen_time_pattern.value, unit: '× baseline',
+    sleep: _m(
+      snap.sleep_timing_proxy,
+      Array.isArray(snap.sleep_timing_proxy?.notes) && snap.sleep_timing_proxy.notes.length
+        ? snap.sleep_timing_proxy.notes
+        : ['Sleep-timing cue from ingested summary when available — exploratory.'],
+    ),
+    mobility: _m(snap.mobility_stability, ['Mobility / activity stability cue when motion or step data is connected — source-backed only.']),
+    social: _m(snap.sociability_proxy, ['Social-communication pattern cue when consented metadata exists — not surveillance.']),
+    typing_cadence: _m(snap.activity_level, ['General activity / engagement proxy until dedicated typing telemetry is connected — incomplete label.']),
+    screen_time: snap.screen_time_pattern && snap.screen_time_pattern.value != null ? {
+      score: snap.screen_time_pattern.value,
+      unit: '× baseline',
+      confidence: snap.screen_time_pattern.confidence,
+      completeness: snap.screen_time_pattern.completeness,
       severity: sevFromCmp(snap.screen_time_pattern.baseline_comparison),
       baseline_label: 'baseline window',
-      contributing_factors: ['Screen-time pattern vs baseline.'],
+      contributing_factors: ['Screen-use pattern cue vs baseline when sourced — not diagnostic.'],
       history: [],
     } : null,
-    voice_diary: snap.routine_regularity ? {
-      score: snap.routine_regularity.value, unit: 'index',
-      severity: sevFromCmp(snap.routine_regularity.baseline_comparison),
-      baseline_label: 'baseline window',
-      contributing_factors: ['Routine regularity index (voice diary cadence proxy).'],
-      history: [],
-    } : null,
+    voice_diary: _m(snap.routine_regularity, ['Routine / voice-diary cadence cue when submissions exist — requires clinician review.']),
   };
   return {
     patient_id: raw.patient_id,
@@ -398,7 +566,7 @@ function _projectFromBackendPayload(raw) {
 }
 
 async function _loadClinicSummary() {
-  const personas = ANALYZER_DEMO_FIXTURES?.patients || [];
+  const personas = ANALYZER_DEMO_VIEWS?.patients || [];
   const ids = personas.map((p) => p.id);
   const results = await Promise.all(
     ids.map((pid) => api.getDigitalPhenotypingProfile(pid).then((r) => r).catch(() => null))
@@ -436,20 +604,34 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
   try {
     setTopbar({
       title: 'Digital Phenotyping Analyzer',
-      subtitle: 'Passive smartphone & wearable behavioral signals',
+      subtitle: 'Exploratory digital phenotype cues — clinician review required',
     });
   } catch {
-    try { setTopbar('Digital Phenotyping Analyzer', 'Passive behavioral signals'); } catch {}
+    try { setTopbar('Digital Phenotyping Analyzer', 'Exploratory cues — clinician review'); } catch {}
   }
 
   const el = document.getElementById('content');
   if (!el) return;
+
+  const role = currentUser?.role || 'guest';
+  if (role !== 'clinician' && role !== 'admin') {
+    el.innerHTML = `
+      <div class="ds-dp-analyzer-shell" style="max-width:560px;margin:48px auto;padding:24px;border:1px solid var(--border);border-radius:14px;background:var(--bg-card)">
+        <div style="font-weight:600;margin-bottom:8px;color:var(--text-primary)">Clinician or administrator access required</div>
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;margin-bottom:14px">
+          The Digital Phenotyping Analyzer combines patient-linked digital signals for clinician-reviewed decision support only. Sign in with an authorized clinical account to load patient-linked data.
+        </div>
+        <div style="font-size:11px;color:var(--text-tertiary);line-height:1.45">${esc(GOVERNANCE_REQUIRED_COPY)}</div>
+      </div>`;
+    return;
+  }
 
   let view = 'clinic';
   let summaryCache = null;
   let activePatientId = null;
   let activePatientName = '';
   let profileCache = null;
+  let rawProfileCache = null;
   let auditCache = null;
   let sortKey = 'worst';
   let sortDir = 'desc';
@@ -459,8 +641,9 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
     <div class="ds-dp-analyzer-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px">
       <div id="dp-demo-banner"></div>
       <div style="padding:12px 14px;border-radius:12px;border:1px solid rgba(155,127,255,0.28);background:rgba(155,127,255,0.06);margin-bottom:14px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
-        <strong style="color:var(--text-primary)">Clinical decision-support.</strong>
-        Passive smartphone and wearable signals (sleep, mobility, social engagement, typing cadence, screen time, voice diary cadence) act as objective behavioral health markers. They do not diagnose — interpret alongside interview, assessments, and other modalities.
+        <strong style="color:var(--text-primary)">Exploratory decision-support.</strong>
+        ${esc(GOVERNANCE_REQUIRED_COPY)}
+        <span style="display:block;margin-top:8px;font-size:11px;color:var(--text-tertiary)">Combine interview, assessments, biometrics, and other modalities — digital cues alone are not diagnostic and may reflect missing or stale data.</span>
       </div>
       <div id="dp-breadcrumb" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:12px"></div>
       <div id="dp-body"></div>
@@ -471,7 +654,7 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
   function _syncDemoBanner() {
     const slot = $('dp-demo-banner');
     if (!slot) return;
-    slot.innerHTML = usingFixtures && isDemoSession() ? DEMO_FIXTURE_BANNER_HTML : '';
+    slot.innerHTML = usingFixtures && isDemoSession() ? DEMO_MODE_BANNER_HTML : '';
   }
 
   function setBreadcrumb() {
@@ -496,15 +679,15 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
     body.innerHTML = `<div style="padding:18px;background:var(--bg-card);border:1px solid var(--border);border-radius:14px">${_skeletonChips(5)}</div>`;
     try {
       summaryCache = await _loadClinicSummary();
-      if ((!summaryCache || !summaryCache.patients?.length) && isDemoSession() && ANALYZER_DEMO_FIXTURES?.digitalPhenotyping?.clinic_summary) {
-        summaryCache = ANALYZER_DEMO_FIXTURES.digitalPhenotyping.clinic_summary();
+      if ((!summaryCache || !summaryCache.patients?.length) && isDemoSession() && ANALYZER_DEMO_VIEWS?.digitalPhenotyping?.clinic_summary) {
+        summaryCache = ANALYZER_DEMO_VIEWS.digitalPhenotyping.clinic_summary();
         usingFixtures = true;
       } else if (summaryCache && summaryCache.patients?.length) {
         usingFixtures = false;
       }
     } catch (e) {
-      if (isDemoSession() && ANALYZER_DEMO_FIXTURES?.digitalPhenotyping?.clinic_summary) {
-        summaryCache = ANALYZER_DEMO_FIXTURES.digitalPhenotyping.clinic_summary();
+      if (isDemoSession() && ANALYZER_DEMO_VIEWS?.digitalPhenotyping?.clinic_summary) {
+        summaryCache = ANALYZER_DEMO_VIEWS.digitalPhenotyping.clinic_summary();
         usingFixtures = true;
       } else {
         const msg = (e && e.message) || String(e);
@@ -568,6 +751,7 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
         api.getDigitalPhenotypingProfile(activePatientId),
         api.getPhenotypingAudit(activePatientId).catch(() => ({ items: [] })),
       ]);
+      rawProfileCache = rawProfile && typeof rawProfile === 'object' ? rawProfile : null;
       const projected = _projectFromBackendPayload(rawProfile);
       profileCache = projected;
       auditCache = audit && Array.isArray(audit.items)
@@ -576,17 +760,23 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
           ? { items: audit.events.map((e) => ({ id: e.event_id, kind: e.action, actor: e.actor_role, message: e.summary, created_at: e.timestamp })) }
           : { items: [] };
       const thin = !projected || !projected.signals || !Object.values(projected.signals).some(Boolean);
-      if (thin && isDemoSession() && ANALYZER_DEMO_FIXTURES?.digitalPhenotyping?.patient_profile) {
-        profileCache = ANALYZER_DEMO_FIXTURES.digitalPhenotyping.patient_profile(activePatientId);
-        auditCache = ANALYZER_DEMO_FIXTURES.digitalPhenotyping.patient_audit(activePatientId);
+      if (thin && isDemoSession() && ANALYZER_DEMO_VIEWS?.digitalPhenotyping?.patient_profile) {
+        profileCache = ANALYZER_DEMO_VIEWS.digitalPhenotyping.patient_profile(activePatientId);
+        auditCache = ANALYZER_DEMO_VIEWS.digitalPhenotyping.patient_audit(activePatientId);
+        if (typeof ANALYZER_DEMO_VIEWS.digitalPhenotyping.payload === 'function') {
+          rawProfileCache = ANALYZER_DEMO_VIEWS.digitalPhenotyping.payload(activePatientId);
+        }
         usingFixtures = true;
       } else if (profileCache) {
         usingFixtures = false;
       }
     } catch (e) {
-      if (isDemoSession() && ANALYZER_DEMO_FIXTURES?.digitalPhenotyping?.patient_profile) {
-        profileCache = ANALYZER_DEMO_FIXTURES.digitalPhenotyping.patient_profile(activePatientId);
-        auditCache = ANALYZER_DEMO_FIXTURES.digitalPhenotyping.patient_audit(activePatientId);
+      if (isDemoSession() && ANALYZER_DEMO_VIEWS?.digitalPhenotyping?.patient_profile) {
+        profileCache = ANALYZER_DEMO_VIEWS.digitalPhenotyping.patient_profile(activePatientId);
+        auditCache = ANALYZER_DEMO_VIEWS.digitalPhenotyping.patient_audit(activePatientId);
+        if (typeof ANALYZER_DEMO_VIEWS.digitalPhenotyping.payload === 'function') {
+          rawProfileCache = ANALYZER_DEMO_VIEWS.digitalPhenotyping.payload(activePatientId);
+        }
         usingFixtures = true;
       } else {
         const msg = (e && e.message) || String(e);
@@ -596,14 +786,14 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
       }
     }
     _syncDemoBanner();
-    body.innerHTML = _renderPatientDetail(profileCache, auditCache, navigate);
+    body.innerHTML = _renderPatientDetail(profileCache, auditCache, navigate, rawProfileCache);
     wirePatientDetail();
   }
 
   function _rerenderPatient() {
     const body = $('dp-body');
     if (!body) return;
-    body.innerHTML = _renderPatientDetail(profileCache, auditCache, navigate);
+    body.innerHTML = _renderPatientDetail(profileCache, auditCache, navigate, rawProfileCache);
     wirePatientDetail();
   }
 
@@ -626,6 +816,11 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
       try {
         if (!usingFixtures) {
           await api.recomputeDigitalPhenotyping(activePatientId);
+        } else {
+          body.insertAdjacentHTML(
+            'afterbegin',
+            `<div role="status" style="max-width:560px;margin:0 auto 12px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.04);font-size:11px;color:var(--text-tertiary)">Demo/sample mode: recompute is simulated locally — production recomputation requires the API pipeline when passive ingest is enabled.</div>`,
+          );
         }
         await loadPatient();
       } catch (e) {
