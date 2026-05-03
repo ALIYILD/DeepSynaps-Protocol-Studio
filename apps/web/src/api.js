@@ -62,6 +62,8 @@ function _on401() {
 // returning a synthetic empty response WITHOUT firing the network call.
 // Auth endpoints still pass through so demo-login / refresh / me work.
 const _DEMO_PASSTHROUGH = /^\/api\/v1\/auth\/(demo-login|refresh|me|login|logout|register|activate-patient|forgot-password|reset-password)\b/;
+/** Demo sessions short-circuit most API calls; clinical-text NLP must hit the real API when preview points at Fly. */
+const _DEMO_CLINICAL_TEXT_NETWORK = /^\/api\/v1\/clinical-text\//;
 function _isDemoSession() {
   try {
     const flag = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
@@ -537,7 +539,7 @@ async function apiFetch(path, opts = {}) {
   const { _fetch: fetchOverride, _transportExtractor: transportExtractor, ...requestOpts } = opts;
   const fetchFn = fetchOverride || globalThis.fetch;
   // Demo-mode shim — short-circuit before any network call. See helper above.
-  if (_isDemoSession() && !_DEMO_PASSTHROUGH.test(path)) {
+  if (_isDemoSession() && !_DEMO_PASSTHROUGH.test(path) && !_DEMO_CLINICAL_TEXT_NETWORK.test(path)) {
     const data = _demoSyntheticResponse(
       path,
       (requestOpts.method || 'GET').toUpperCase(),
