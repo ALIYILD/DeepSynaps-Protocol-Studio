@@ -506,9 +506,9 @@ let currentPage = 'dashboard';
 
 // ── Role-based nav visibility ─────────────────────────────────────────────────
 const ROLE_NAV_HIDE = {
-  technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'risk-analyzer', 'population-analytics', 'brain-map-planner', 'handbook-generator', 'notes-dictation', 'assessments-hub', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
-  reviewer:   ['session-execution', 'protocol-wizard', 'billing', 'pricing', 'population-analytics', 'brain-map-planner'],
-  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'risk-analyzer', 'audittrail', 'billing', 'population-analytics', 'brain-map-planner', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-handbooks', 'reg-virtual-care', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
+  technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'risk-analyzer', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'handbook-generator', 'notes-dictation', 'assessments-hub', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
+  reviewer:   ['session-execution', 'protocol-wizard', 'billing', 'pricing', 'population-analytics', 'brain-map-planner', 'brainmap-v2'],
+  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'risk-analyzer', 'audittrail', 'billing', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-handbooks', 'reg-virtual-care', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
   clinician:  ['population-analytics'],
 };
 
@@ -1347,6 +1347,18 @@ async function renderPage() {
     return;
   }
 
+  // Brain Map Planner is clinician/staff decision-support — not exposed to patient portal accounts.
+  if ((currentPage === 'brainmap-v2' || currentPage === 'brain-map-planner')
+      && currentUser?.role === 'patient') {
+    el.innerHTML = `
+      <div class="auth-required-notice" role="alert">
+        <div class="auth-required-icon">🧠</div>
+        <div class="auth-required-text">Brain Map Planner is available to clinical staff only. This workspace is not part of the patient portal.</div>
+        <button class="btn btn-primary" onclick="window._nav('dashboard')">Back to dashboard</button>
+      </div>`;
+    return;
+  }
+
   switch (currentPage) {
     // ── Clinical ─────────────────────────────────────────────────────────
     case 'today':
@@ -1412,7 +1424,7 @@ async function renderPage() {
     case 'protocols':       { window._protocolHubTab = 'browse';   window._nav('protocol-hub'); break; }
     case 'brain-map-planner':
     case 'brain-map-full':
-    case 'reg-protocols':   { const { pgBrainMapPlanner } = await loadClinicalTools(); await pgBrainMapPlanner(setTopbar); break; }
+    case 'reg-protocols':   { const { pgBrainMapPlanner } = await loadClinicalTools(); await pgBrainMapPlanner(setTopbar, navigate); break; }
     // protocols-registry routes to the real protocol search/registry browser,
     // not the brain-map planner. Previously this alias pointed at
     // pgBrainMapPlanner which mislabelled the surface.
