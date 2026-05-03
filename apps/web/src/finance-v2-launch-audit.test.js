@@ -15,6 +15,12 @@ test('app.js registers finance-v2 and routes to pgFinanceHub', () => {
   assert.match(app, /case 'finance-v2'[^]*?pgFinanceHub/);
 });
 
+test('app.js: guest and patient nav hide includes finance-v2', () => {
+  const app = read('app.js');
+  assert.match(app, /guest:\s*\[[^\]]*'finance-v2'/);
+  assert.match(app, /patient:\s*\[\s*'finance-v2'\s*\]/);
+});
+
 test('pages-clinical-hubs: Finance disclaimer copy present', () => {
   const hubs = read('pages-clinical-hubs.js');
   assert.match(
