@@ -11,8 +11,95 @@ import {
   VOICE_DECISION_SUPPORT_INLINE,
   voiceApiErrorToast,
 } from './voice-decision-support.js';
+import { isDemoSession } from './demo-session.js';
 
 const _e = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+/** Demo-only fixture when VITE_ENABLE_DEMO + demo token and API has no current session. */
+function _lsDemoVcSessionFixture() {
+  return {
+    id: 'demo-vc-fixture',
+    patient_id: 'demo-patient',
+    patient_name: 'Demo Patient',
+    modality: null,
+    montage: null,
+    target_region: null,
+    intensity_mA: null,
+    duration_min: 30,
+    session_no: null,
+    session_total: null,
+    session_type: 'consultation',
+    phase: 'prep',
+    impedance_kohm: null,
+    started_at: new Date().toISOString(),
+    status: 'scheduled',
+    _demo_fixture: true,
+  };
+}
+
+async function _lsFetchConsentSummary(patientId) {
+  if (!patientId || !api.getConsentRecords) return { ok: false, label: 'Consent status unavailable' };
+  try {
+    const rows = await api.getConsentRecords({ patient_id: patientId, limit: 20 });
+    const list = rows?.items || rows?.records || (Array.isArray(rows) ? rows : []);
+    if (!list.length) return { ok: true, label: 'No consent records on file', severity: 'warn' };
+    const tele = list.find(r => String(r.consent_type || r.template_id || '').toLowerCase().includes('telehealth'))
+      || list.find(r => String(r.title || '').toLowerCase().includes('telehealth'));
+    const active = list.filter(r => (r.status || 'active') === 'active');
+    if (tele && (tele.status || 'active') === 'active') {
+      return { ok: true, label: 'Telehealth consent on file (active)', severity: 'ok', detail: tele.title || tele.consent_type };
+    }
+    if (active.length) return { ok: true, label: `${active.length} active consent record(s); verify telehealth coverage`, severity: 'warn' };
+    return { ok: true, label: 'Review consent status — no active telehealth match found', severity: 'high' };
+  } catch {
+    return { ok: false, label: 'Could not load consent records', severity: 'warn' };
+  }
+}
+
+function _lsPostVcAudit(event, note, usingDemo) {
+  try {
+    api.postClinicianInboxAuditEvent?.({
+      event: String(event || 'virtual_care.action').slice(0, 64),
+      note: `virtual_care; ${note || ''}`.slice(0, 512),
+      using_demo_data: !!usingDemo,
+    });
+  } catch { /* best-effort */ }
+}
+
+function _lsRenderEmptyVirtualCare(mount, setTopbar, navigate) {
+  try {
+    setTopbar({
+      title: 'Virtual Care',
+      subtitle: 'Live Session — no appointment loaded',
+      right: '',
+    });
+  } catch {
+    try { setTopbar('Virtual Care', 'Live Session'); } catch {}
+  }
+  mount.innerHTML = `
+    <div class="vc-ls-empty" style="max-width:720px;margin:32px auto;padding:0 20px">
+      <div class="dv2-card" style="padding:28px;border:1px solid var(--border);border-radius:12px">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--text-tertiary);margin-bottom:10px">Live Session workspace</div>
+        <h1 style="font-size:20px;font-weight:600;margin:0 0 12px;font-family:var(--dv2-font-display,var(--font-display))">No active or upcoming session</h1>
+        <p style="font-size:13px;line-height:1.55;color:var(--text-secondary);margin:0 0 12px">
+          There is no appointment loaded from the clinic schedule — you will not see a session timer, video room, or patient context panel here until a session exists.
+        </p>
+        <p style="font-size:13px;line-height:1.55;color:var(--text-secondary);margin:0 0 20px">
+          This area prepares and documents <strong>remote visits</strong> and reviews patient context. It does not deliver stimulation, prescribe, or replace clinical judgement.
+          Open the clinic schedule or select a patient to begin.
+        </p>
+        <div style="display:flex;flex-wrap:wrap;gap:10px">
+          <button type="button" class="btn btn-primary btn-sm" onclick="window._nav('schedule-v2')">Schedule</button>
+          <button type="button" class="btn btn-sm" onclick="window._nav('clinician-inbox')">Inbox</button>
+          <button type="button" class="btn btn-sm" onclick="window._nav('patients-v2')">Patients</button>
+          <button type="button" class="btn btn-sm" onclick="window._vcSwitchTab('dashboard')">Virtual Care dashboard</button>
+        </div>
+        <p style="font-size:11px;color:var(--text-tertiary);margin:20px 0 0;line-height:1.45">
+          Emergency or crisis situations require local clinic protocols — not this workspace.
+        </p>
+      </div>
+    </div>`;
+}
 const _fmtTime = iso => { try { return new Date(iso).toLocaleString('en-GB',{hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'}); } catch { return iso; } };
 const _ago = iso => { try { const diff = Date.now()-new Date(iso).getTime(); const m=Math.floor(diff/60000); if(m<60) return m+'m ago'; const h=Math.floor(m/60); if(h<24) return h+'h ago'; return Math.floor(h/24)+'d ago'; } catch { return ''; } };
 
@@ -2993,6 +3080,11 @@ async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
 // =============================================================================
 // pgLiveSession — Screen 10 · Unified Live Session
 // Merges: session runtime + Virtual Care (telehealth) + Monitor Hub telemetry.
+//
+// Clinician Live Session does not call patient-scoped virtual-care session APIs
+// (api.virtualCareCreateSession / Start / End / Submit*) — those require patient auth.
+// Video uses POST /api/v1/sessions/{id}/video/start (clinician). Session notes are
+// browser-local unless a future clinician notes endpoint exists.
 // =============================================================================
 let _lsState = null;
 
@@ -3005,37 +3097,71 @@ export async function pgLiveSession(setTopbar, navigate, targetEl) {
   let session = null;
   let patient = null;
   let events = [];
-  try { session = await (api.getCurrentSession?.() ?? Promise.resolve(null)); } catch {}
+  let sessionLoadError = null;
+  try {
+    session = await (api.getCurrentSession?.() ?? Promise.resolve(null));
+  } catch (e) {
+    sessionLoadError = e;
+  }
+  const allowDemoFixture = isDemoSession() && !session;
+  if (!session && allowDemoFixture) {
+    session = _lsDemoVcSessionFixture();
+  }
   if (!session) {
-    session = {
-      id: 'sess-' + Date.now(),
-      patient_id: 'p001',
-      patient_name: 'Samantha Li',
-      modality: 'tDCS',
-      montage: 'F3 \u2192 Fp2',
-      target_region: 'DLPFC-L',
-      intensity_mA: 2.0,
-      duration_min: 20,
-      session_no: 12,
-      session_total: 20,
-      session_type: 'in-person',
-      phase: 'stimulation',
-      impedance_kohm: 4.8,
-      started_at: new Date(Date.now() - 6 * 60 * 1000).toISOString(),
+    _lsRenderEmptyVirtualCare(mount, setTopbar, navigate);
+    return;
+  }
+
+  try {
+    if (session.patient_id && api.getPatient) patient = await api.getPatient(session.patient_id);
+  } catch {}
+  if (!patient) {
+    patient = {
+      id: session.patient_id,
+      display_name: session.patient_name || 'Patient',
+      initials: _lsInitials(session.patient_name || 'P'),
+      condition: '',
+      age: null,
+      sex: '',
     };
   }
-  try { if (session.patient_id && api.getPatient) patient = await api.getPatient(session.patient_id); } catch {}
-  if (!patient) {
-    patient = { id: session.patient_id, display_name: session.patient_name || 'Patient', initials: _lsInitials(session.patient_name || 'P'), condition: 'MDD', age: 34, sex: 'F' };
-  }
-  try { const r = await (api.listSessionEvents?.(session.id) ?? Promise.resolve(null)); events = r?.items || (Array.isArray(r) ? r : []); } catch {}
-  if (!events.length) {
+
+  try {
+    const r = await (api.listSessionEvents?.(session.id) ?? Promise.resolve(null));
+    const raw = r?.items || (Array.isArray(r) ? r : []);
+    events = raw.map(ev => ({
+      ts: ev.created_at || ev.ts || new Date().toISOString(),
+      type: ev.type || 'INFO',
+      note: ev.note || ev.message || '',
+    }));
+  } catch {}
+  if (!events.length && session._demo_fixture) {
     events = _lsSeedEvents();
   }
 
-  const durationSec = (session.duration_min || 20) * 60;
-  const elapsedSec = Math.min(durationSec, Math.max(0, Math.floor((Date.now() - new Date(session.started_at).getTime()) / 1000)) || 378);
-  const isTelehealth = (session.session_type || session.type || '').toLowerCase() === 'telehealth';
+  const st = String(session.session_type || session.type || '').toLowerCase();
+  const isVirtualCareType = st === 'telehealth' || st === 'consultation' || st === 'phone' || st === 'follow_up'
+    || st === 'assessment' || st === 'new_patient';
+  const isDeviceSession = !isVirtualCareType && (session.modality || session.intensity_mA != null);
+
+  const durationMin = session.duration_min || (isVirtualCareType ? 30 : 20);
+  const durationSec = durationMin * 60;
+  let elapsedSec = 0;
+  try {
+    if (session.started_at) {
+      elapsedSec = Math.min(durationSec, Math.max(0, Math.floor((Date.now() - new Date(session.started_at).getTime()) / 1000)));
+    }
+  } catch {}
+  if (!session.started_at && session._demo_fixture) elapsedSec = Math.min(durationSec, 378);
+
+  let consentSummary = { ok: false, label: 'Loading consent\u2026', severity: 'warn' };
+  try {
+    consentSummary = await _lsFetchConsentSummary(session.patient_id);
+  } catch {
+    consentSummary = { ok: false, label: 'Consent status unavailable', severity: 'warn' };
+  }
+
+  _lsPostVcAudit('virtual_care.live_session_opened', `session_id=${session.id}; patient_id=${session.patient_id || ''}; demo=${session._demo_fixture ? 1 : 0}`, !!session._demo_fixture);
 
   _lsState = {
     mount,
@@ -3045,13 +3171,22 @@ export async function pgLiveSession(setTopbar, navigate, targetEl) {
     durationSec,
     elapsedSec,
     paused: false,
-    isTelehealth,
+    sessionLoadError,
+    consentSummary,
+    isVirtualCareType,
+    isDeviceSession,
+    telemetryDemo: true,
+    lsRoomName: null,
+    sessionNotes: '',
+    notesSavedAt: null,
+    notesDirty: false,
+    isTelehealth: isVirtualCareType,
     videoActive: false,
-    currentMA: session.intensity_mA || 2.0,
-    impedanceKohm: session.impedance_kohm || 4.8,
-    trace: _lsInitTrace(session.intensity_mA || 2.0),
-    phase: session.phase || 'stimulation',
-    checklist: _lsInitChecklist(),
+    currentMA: session.intensity_mA != null ? session.intensity_mA : 2.0,
+    impedanceKohm: session.impedance_kohm != null ? session.impedance_kohm : 4.8,
+    trace: _lsInitTrace(session.intensity_mA != null ? session.intensity_mA : 2.0),
+    phase: isVirtualCareType ? 'prep' : (session.phase || 'stimulation'),
+    checklist: isVirtualCareType ? _lsInitVirtualCareChecklist() : _lsInitChecklist(),
     sideEffects: { tingling: 2, itching: 1, headache: 0, discomfort: 0, mood: 4 },
     timerInt: null,
     traceInt: null,
@@ -3080,17 +3215,29 @@ export async function pgLiveSession(setTopbar, navigate, targetEl) {
 
   if (!_vcUnifiedState.shellMounted) {
     try {
+      const subParts = [
+        patient.display_name || session.patient_name || '',
+        session.session_type || session.modality || '',
+        session.status || '',
+      ].filter(Boolean);
       setTopbar({
         title: 'Live Session',
-        subtitle: `${_e(patient.display_name || session.patient_name || '')} \u00B7 ${_e(session.modality || '')} ${session.intensity_mA || ''} mA ${_e(session.montage || '')} \u00B7 Session ${session.session_no || 1}/${session.session_total || 20}`,
-        right: `<button class="btn btn-ghost btn-sm" onclick="window._lsPauseResume()" id="ls-pause-btn">${_lsState.paused ? 'Resume' : 'Pause'}</button><button class="btn btn-sm" style="color:#ff6b6b;border:1px solid rgba(255,107,107,0.3);background:transparent;margin-left:6px" onclick="window._lsEndSession()">End Session</button>`,
+        subtitle: subParts.join(' \u00B7 ') + (session.session_no ? ` \u00B7 #${session.session_no}` : ''),
+        right: `<button type="button" class="btn btn-ghost btn-sm" onclick="window._lsPauseResume()" id="ls-pause-btn">${_lsState.paused ? 'Resume' : 'Pause'}</button><button type="button" class="btn btn-sm" style="color:#ff6b6b;border:1px solid rgba(255,107,107,0.3);background:transparent;margin-left:6px" onclick="window._lsEndSession()">End visit</button>`,
       });
     } catch {
       try { setTopbar('Live Session', `<button class="btn btn-sm" onclick="window._lsPauseResume()" id="ls-pause-btn">Pause</button> <button class="btn btn-sm" style="color:#ff6b6b" onclick="window._lsEndSession()">End Session</button>`); } catch {}
     }
   }
 
+  try {
+    const k = 'ds_vc_ls_notes_' + session.id;
+    const prev = localStorage.getItem(k);
+    if (prev && !_lsState.sessionNotes) _lsState.sessionNotes = prev;
+  } catch {}
   _lsRender();
+  _lsHydrateSessionTelemetry();
+  _lsWireNotes();
   _lsStartTimers();
   _lsBindKeys();
   _lsBindNavCleanup();
@@ -3116,6 +3263,8 @@ export async function pgLiveSession(setTopbar, navigate, targetEl) {
   window._lsCloseModal = _lsCloseModal;
   window._lsSubmitAssign = _lsSubmitAssign;
   window._lsSubmitEdit = _lsSubmitEdit;
+  window._lsSaveNotes = _lsSaveNotes;
+  window._lsExportNotes = _lsExportNotes;
   window._lsSetTaskFilter = _lsSetTaskFilter;
   window._lsPickTemplate = _lsPickTemplate;
   window._lsPickPatient = _lsPickPatient;
@@ -3146,6 +3295,16 @@ function _lsInitChecklist() {
   ];
 }
 
+function _lsInitVirtualCareChecklist() {
+  return [
+    { id:'vc_identity', label:'Patient identity verified (clinic policy)', done:false },
+    { id:'vc_consent', label:'Applicable consent / telehealth agreements reviewed', done:false },
+    { id:'vc_ctx', label:'Relevant records and protocol context reviewed', done:false },
+    { id:'vc_escalation', label:'Safety escalation path understood', done:false },
+    { id:'vc_notes', label:'Visit notes captured or in progress', done:false },
+  ];
+}
+
 function _lsSeedEvents() {
   const now = Date.now();
   const mk = (ago, type, msg) => ({ ts: new Date(now - ago * 1000).toISOString(), type, note: msg });
@@ -3171,9 +3330,77 @@ function _lsFmtTs(iso) {
   try { const d = new Date(iso); return d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', second:'2-digit' }); } catch { return ''; }
 }
 
+async function _lsHydrateSessionTelemetry() {
+  const s = _lsState;
+  if (!s || !api.getSessionTelemetry) return;
+  try {
+    const t = await api.getSessionTelemetry(s.session.id);
+    if (t?.impedance_kohm != null) s.impedanceKohm = Number(t.impedance_kohm);
+    if (!s.isVirtualCareType && t && !t.is_demo && t.intensity_pct_rmt != null) {
+      const v = Number(t.intensity_pct_rmt);
+      s.currentMA = v;
+      if (s.trace?.length) s.trace = s.trace.map(() => v);
+    }
+    if (t) s.telemetryDemo = !!t.is_demo;
+    _lsRender();
+  } catch { /* optional */ }
+}
+
+function _lsWireNotes() {
+  const ta = document.getElementById('ls-session-notes');
+  if (!ta || !_lsState) return;
+  ta.addEventListener('input', () => {
+    if (!_lsState) return;
+    _lsState.sessionNotes = ta.value;
+    _lsState.notesDirty = true;
+  });
+}
+
+function _lsSaveNotes() {
+  const s = _lsState;
+  if (!s) return;
+  const ta = document.getElementById('ls-session-notes');
+  const text = ta ? ta.value : (s.sessionNotes || '');
+  s.sessionNotes = text;
+  try {
+    localStorage.setItem('ds_vc_ls_notes_' + s.session.id, text);
+  } catch {}
+  const stamp = new Date().toLocaleString();
+  s.notesSavedAt = stamp;
+  s.notesDirty = false;
+  const el = document.getElementById('ls-notes-saved');
+  if (el) el.textContent = 'Saved locally · ' + stamp;
+  _lsLogEvent('OPER', 'Session notes saved locally (browser storage)', { storage: 'localStorage' });
+  _lsPostVcAudit('virtual_care.session_notes_saved', `session_id=${s.session.id}`, !!s.session._demo_fixture);
+}
+
+function _lsExportNotes() {
+  const s = _lsState;
+  if (!s) return;
+  const ta = document.getElementById('ls-session-notes');
+  const text = ta ? ta.value : (s.sessionNotes || '');
+  try {
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `visit-notes-${s.session.id}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    _lsLogEvent('OPER', 'Session notes exported as text file', {});
+  } catch {
+    try { window._showNotifToast?.({ title: 'Export failed', body: 'Could not export notes.', severity: 'warning' }); } catch {}
+  }
+}
+
 function _lsRender() {
   const s = _lsState; if (!s) return;
-  const { mount, session, patient, events, durationSec, elapsedSec, paused, isTelehealth, impedanceKohm, currentMA, phase, checklist, sideEffects } = s;
+  const {
+    mount, session, patient, events, durationSec, elapsedSec, paused,
+    isTelehealth, impedanceKohm, currentMA, phase, checklist, sideEffects,
+    consentSummary, isVirtualCareType: isVc, telemetryDemo: telDemo,
+    sessionNotes, notesSavedAt,
+  } = s;
   if (!mount) return;
   const remaining = Math.max(0, durationSec - elapsedSec);
   const frac = durationSec > 0 ? Math.min(1, elapsedSec / durationSec) : 0;
@@ -3183,6 +3410,14 @@ function _lsRender() {
   const impColor = impedanceKohm < 10 ? 'var(--green,#4ade80)' : impedanceKohm < 15 ? 'var(--amber,#f59e0b)' : '#ff6b6b';
   const anode = (session.montage || '').split(/\s*[\u2192\->]+\s*/)[0]?.trim() || 'F3';
   const cathode = (session.montage || '').split(/\s*[\u2192\->]+\s*/)[1]?.trim() || 'Fp2';
+  const demoBanner = session._demo_fixture
+    ? `<div style="margin-bottom:12px;padding:10px 12px;border-radius:8px;border:1px dashed rgba(124,134,153,0.45);background:rgba(124,134,153,0.08);font-size:12px;color:var(--text-secondary)"><strong>Demo session — not real patient data.</strong> Offline preview only; timers and panels are for UI rehearsal, not clinical truth.</div>`
+    : '';
+  const consentSev = consentSummary?.severity || 'warn';
+  const consentBg = consentSev === 'high' ? 'rgba(239,68,68,0.08)' : consentSev === 'ok' ? 'rgba(34,197,94,0.06)' : 'rgba(245,158,11,0.08)';
+  const consentBd = consentSev === 'high' ? 'rgba(239,68,68,0.35)' : consentSev === 'ok' ? 'rgba(34,197,94,0.3)' : 'rgba(245,158,11,0.28)';
+  const targetMa = session.intensity_mA != null ? session.intensity_mA : 2;
+  const traceTarget = isVc ? 1 : targetMa;
 
   let brainMapSvg = '';
   try {
@@ -3195,14 +3430,20 @@ function _lsRender() {
     brainMapSvg = _lsBrainMapFallback(anode, cathode);
   }
 
-  const phaseDef = [
-    { id:'setup',  label:'Setup',        target:120 },
-    { id:'ramp_up',label:'Ramp \u2191',  target:30 },
-    { id:'stim',   label:'Stimulation',  target:durationSec },
-    { id:'ramp_dn',label:'Ramp \u2193',  target:30 },
-  ];
+  const phaseDef = isVc
+    ? [
+        { id:'prep',  label:'Prep',       target:600 },
+        { id:'visit', label:'Visit',      target:durationSec },
+        { id:'wrap',  label:'Wrap-up',    target:300 },
+      ]
+    : [
+        { id:'setup',  label:'Setup',        target:120 },
+        { id:'ramp_up',label:'Ramp \u2191',  target:30 },
+        { id:'stim',   label:'Stimulation',  target:durationSec },
+        { id:'ramp_dn',label:'Ramp \u2193',  target:30 },
+      ];
   const phaseHtml = phaseDef.map(p => {
-    const st = p.id === phase ? 'active' : (_lsPhaseDoneBefore(phase, p.id) ? 'done' : '');
+    const st = p.id === phase ? 'active' : (_lsPhaseDoneBefore(phase, p.id, isVc) ? 'done' : '');
     const mins = Math.floor(p.target / 60), secs = p.target % 60;
     return `<div class="ls-phase-cell ${st}" onclick="window._lsPhase?.('${p.id}')"><span>${p.label}</span><em>${mins}:${String(secs).padStart(2,'0')}</em></div>`;
   }).join('');
@@ -3220,26 +3461,28 @@ function _lsRender() {
     return `<div class="ls-log-row"><span class="ls-log-ts">${_lsFmtTs(ev.ts)}</span><span class="ls-log-type" style="color:${col}">${_e(type)}</span><span class="ls-log-msg">${_e(ev.note || ev.message || '')}</span></div>`;
   }).join('');
 
-  const tracePathD = _lsTraceD(s.trace, 500, 160, 2.0);
+  const tracePathD = _lsTraceD(s.trace, 500, 160, traceTarget);
 
+  const videoRoom = (s.lsRoomName || ('ds-live-' + session.id)).replace(/[^a-zA-Z0-9_-]/g, '');
   const videoPanel = isTelehealth ? `
     <div class="dv2-card" style="padding:14px;margin-bottom:12px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
         <div>
-          <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:14px;font-weight:600">Video consult</div>
-          <div style="font-size:11px;color:var(--text-tertiary)">Telehealth preview \u00B7 remote connection not verified from this panel</div>
+          <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:14px;font-weight:600">Clinic-managed video room</div>
+          <div style="font-size:11px;color:var(--text-tertiary);line-height:1.45;margin-top:4px">Third-party meeting (Jitsi Meet) — not a private medical-grade telehealth appliance. Video room link generated for this session via the clinic API. Do not embed identifiable patient information in room names or URLs.</div>
         </div>
         <span class="chip ${s.videoActive ? 'teal' : ''}" style="${s.videoActive ? '' : 'color:var(--text-tertiary)'}">${s.videoActive ? '\u25CF Preview Active' : 'Idle'}</span>
       </div>
+      <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:10px;font-family:var(--dv2-font-mono,var(--font-mono));word-break:break-all">Room: ${_e(videoRoom)}</div>
       <div style="aspect-ratio:16/9;border-radius:8px;overflow:hidden;background:rgba(0,0,0,0.35);border:1px solid var(--border);display:flex;align-items:center;justify-content:center">
         ${s.videoActive
-          ? `<iframe id="ls-video-iframe" src="https://meet.jit.si/ds-live-${_e(session.id)}" allow="camera;microphone;autoplay" style="width:100%;height:100%;border:none"></iframe>`
-          : `<div style="text-align:center;color:var(--text-tertiary);font-size:12px"><div style="font-size:28px;margin-bottom:6px">\uD83D\uDCF9</div>Preview not started</div>`}
+          ? `<iframe id="ls-video-iframe" src="https://meet.jit.si/${_e(videoRoom)}" title="Video consult" allow="camera;microphone;autoplay;fullscreen" style="width:100%;height:100%;border:none"></iframe>`
+          : `<div style="text-align:center;color:var(--text-tertiary);font-size:12px;padding:16px"><div style="font-size:28px;margin-bottom:6px" aria-hidden="true">\uD83D\uDCF9</div>No video room loaded — start video to open the clinic-generated room (third-party service).</div>`}
       </div>
       <div style="display:flex;gap:6px;margin-top:10px">
         ${s.videoActive
-          ? `<button class="btn btn-sm" onclick="window._lsEndVideo()" style="flex:1">End call</button>`
-          : `<button class="btn btn-primary btn-sm" onclick="window._lsStartVideo()" style="flex:1">Start video</button>`}
+          ? `<button type="button" class="btn btn-sm" onclick="window._lsEndVideo()" style="flex:1">End call</button>`
+          : `<button type="button" class="btn btn-primary btn-sm" onclick="window._lsStartVideo()" style="flex:1">Start video</button>`}
       </div>
     </div>${s.videoActive ? `
     <div class="dv2-card" style="padding:14px;margin-bottom:12px">
@@ -3267,12 +3510,13 @@ function _lsRender() {
 
   const monitorWidget = `
     <div class="dv2-card" style="padding:14px;margin-top:12px">
+      ${telDemo ? `<div style="font-size:11px;color:var(--amber,#f59e0b);margin-bottom:10px;padding:8px 10px;border-radius:6px;border:1px solid rgba(245,158,11,0.35);background:rgba(245,158,11,0.08)">Demo / rehearsal telemetry — verify all readings against source devices and clinic protocols.</div>` : ''}
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
         <div>
           <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:13px;font-weight:600">Remote telemetry</div>
           <div style="font-size:11px;color:var(--text-tertiary)">HRV \u00B7 impedance \u00B7 adherence beacons</div>
         </div>
-        <button class="btn btn-sm" onclick="window._lsSnapMonitor()">Snapshot</button>
+        <button type="button" class="btn btn-sm" onclick="window._lsSnapMonitor()">Snapshot</button>
       </div>
       <div id="ls-monitor-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:11px">
         <div><div style="color:var(--text-tertiary);font-size:10px;letter-spacing:0.8px;text-transform:uppercase">HRV</div><div style="font-family:var(--dv2-font-mono,var(--font-mono));font-size:16px;font-weight:600">58<span style="font-size:10px;color:var(--text-tertiary);margin-left:3px">ms</span></div></div>
@@ -3288,7 +3532,7 @@ function _lsRender() {
       <button class="dv2l-ht-tabbtn${activeTab==='log'?' on':''}"     data-ls-tab="log"     onclick="window._lsSetTab('log')">Event Log</button>
       <button class="dv2l-ht-tabbtn"                                  data-ls-tab="htm"     onclick="window._lsSetTab('htm')" title="Assign tasks to patients, track adherence">🏠 Home Task Manager</button>
       <span class="dv2l-ht-tabspacer"></span>
-      <span class="dv2l-ht-tabctx">${_e(patient.display_name || '')} &middot; ${_e(session.modality || '')} &middot; Session ${session.session_no || 1}/${session.session_total || 20}</span>
+      <span class="dv2l-ht-tabctx">${_e(patient.display_name || '')} &middot; ${_e(session.session_type || session.modality || '')} &middot; ${_e(session.status || '')}${session.session_no ? ` \u00B7 ${session.session_no}/${session.session_total || '\u2014'}` : ''}</span>
     </div>`;
 
   mount.innerHTML = `
@@ -3371,13 +3615,47 @@ function _lsRender() {
 
     <div class="ls-root">
       <div class="ls-col-left">
+        ${demoBanner}
+        ${isVc ? `
+        <div class="dv2-card" style="padding:16px;margin-bottom:12px;border:1px solid ${consentBd};background:${consentBg}">
+          <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-tertiary);margin-bottom:8px">Governance</div>
+          <div style="font-size:13px;font-weight:600;margin-bottom:6px;color:var(--text-primary)">${_e(consentSummary?.label || 'Consent')}</div>
+          <div style="font-size:11px;line-height:1.45;color:var(--text-secondary)">Identity must be verified per clinic policy. This workspace provides <strong>decision support</strong> only — not diagnosis, prescribing, device delivery, or emergency triage.</div>
+        </div>
+        <div class="dv2-card" style="padding:16px;margin-bottom:12px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:10px;font-family:var(--dv2-font-display,var(--font-display))">Patient context &amp; records</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
+            <button type="button" class="btn btn-sm" onclick="window.openPatient('${_e(session.patient_id)}');window._nav('patient-profile')">Patient profile</button>
+            <button type="button" class="btn btn-sm" onclick="window.openPatient('${_e(session.patient_id)}');window._nav('documents-v2')">Documents</button>
+            <button type="button" class="btn btn-sm" onclick="window.openPatient('${_e(session.patient_id)}');window._nav('assessments-v2')">Assessments</button>
+            <button type="button" class="btn btn-sm" onclick="window._nav('qeeg-analysis')">qEEG</button>
+            <button type="button" class="btn btn-sm" onclick="window._nav('mri-analysis')">MRI</button>
+            <button type="button" class="btn btn-sm" onclick="window._nav('video-assessments')">Video</button>
+            <button type="button" class="btn btn-sm" onclick="window._nav('wearables')">Biometrics</button>
+            <button type="button" class="btn btn-sm" onclick="window._nav('text-analyzer')">Text</button>
+            <button type="button" class="btn btn-sm" onclick="window._nav('deeptwin')">DeepTwin</button>
+            <button type="button" class="btn btn-sm" onclick="window._nav('protocol-studio')">Protocol Studio</button>
+            <button type="button" class="btn btn-sm" onclick="window._nav('schedule-v2')">Schedule</button>
+            <button type="button" class="btn btn-sm" onclick="window._nav('clinician-inbox')">Inbox</button>
+          </div>
+        </div>
+        <div class="dv2-card" style="padding:16px;margin-bottom:12px">
+          <label for="ls-session-notes" style="font-size:13px;font-weight:600;display:block;margin-bottom:8px;font-family:var(--dv2-font-display,var(--font-display))">Live session notes</label>
+          <textarea id="ls-session-notes" class="dv2l-ht-textarea" rows="6" style="min-height:140px" spellcheck="true" aria-label="Live session notes">${_e(sessionNotes || '')}</textarea>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap">
+            <button type="button" class="btn btn-primary btn-sm" onclick="window._lsSaveNotes()">Save notes (local)</button>
+            <button type="button" class="btn btn-sm" onclick="window._lsExportNotes()">Export .txt</button>
+            <span id="ls-notes-saved" style="font-size:11px;color:var(--text-tertiary)">${notesSavedAt ? 'Saved ' + _e(notesSavedAt) : 'Notes stay in this browser until saved'}</span>
+          </div>
+          <p style="font-size:10px;color:var(--text-tertiary);margin:10px 0 0;line-height:1.45"><strong>Session notes are local/export-only until saved to the clinical record/EHR.</strong> This page does not persist notes to a server-backed clinical note endpoint.</p>
+        </div>` : ''}
         <div class="ls-timer-card">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
             <div>
-              <div style="font-family:var(--dv2-font-mono,var(--font-mono));font-size:10px;color:var(--teal,#00d4bc);letter-spacing:1.4px;text-transform:uppercase;margin-bottom:4px">${paused ? 'Paused' : 'Session timer'}</div>
-              <div style="font-size:12px;color:var(--text-secondary)">${_e((phase || 'stimulation').replace(/_/g,' '))} phase</div>
+              <div style="font-family:var(--dv2-font-mono,var(--font-mono));font-size:10px;color:var(--teal,#00d4bc);letter-spacing:1.4px;text-transform:uppercase;margin-bottom:4px">${paused ? 'Paused' : (isVc ? 'Visit timer' : 'Session timer')}</div>
+              <div style="font-size:12px;color:var(--text-secondary)">${_e((phase || (isVc ? 'prep' : 'stimulation')).replace(/_/g,' '))} ${isVc ? 'stage' : 'phase'}</div>
             </div>
-            <div style="display:flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;background:${paused?'rgba(255,181,71,0.12)':'rgba(74,222,128,0.12)'};border:1px solid ${paused?'rgba(255,181,71,0.3)':'rgba(74,222,128,0.3)'};font-size:11px;color:${paused?'var(--amber,#f59e0b)':'var(--green,#4ade80)'};font-weight:600"><span style="width:6px;height:6px;border-radius:50%;background:currentColor"></span>${paused ? 'Paused' : 'Device nominal'}</div>
+            <div style="display:flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;background:${paused?'rgba(255,181,71,0.12)':'rgba(74,222,128,0.12)'};border:1px solid ${paused?'rgba(255,181,71,0.3)':'rgba(74,222,128,0.3)'};font-size:11px;color:${paused?'var(--amber,#f59e0b)':'var(--green,#4ade80)'};font-weight:600"><span style="width:6px;height:6px;border-radius:50%;background:currentColor"></span>${paused ? 'Paused' : (isVc ? 'Active' : 'Device nominal')}</div>
           </div>
 
           <div style="display:flex;align-items:center;gap:28px;flex-wrap:wrap">
@@ -3394,28 +3672,39 @@ function _lsRender() {
             </div>
 
             <div style="flex:1;min-width:220px;display:flex;flex-direction:column;gap:14px">
+              ${isVc ? `
+              <div>
+                <div style="font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--text-tertiary);font-weight:600;margin-bottom:4px">Visit mode</div>
+                <div style="font-size:15px;font-weight:600;color:var(--text-primary)">Remote / virtual care</div>
+                <div style="font-size:11px;color:var(--text-tertiary);margin-top:6px;line-height:1.45">No neuromodulation output is shown here. For in-room device sessions use the device workflow or open Monitor.</div>
+              </div>
+              <div>
+                <div style="font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--text-tertiary);font-weight:600;margin-bottom:4px">Appointment</div>
+                <div style="font-size:13px;color:var(--text-secondary)">${_e(session.session_type || 'consultation')} \u00B7 ${_e(session.status || '')}</div>
+              </div>` : `
               <div>
                 <div style="font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--text-tertiary);font-weight:600;margin-bottom:4px">Current output</div>
                 <div id="ls-ma-readout" style="font-family:var(--dv2-font-display,var(--font-display));font-size:42px;font-weight:600;letter-spacing:-1.2px;line-height:1;color:var(--teal,#00d4bc)">${currentMA.toFixed(2)}<span style="font-size:18px;color:var(--text-tertiary);font-weight:500;margin-left:6px">mA</span></div>
-                <div id="ls-ma-meta" style="font-size:11px;color:var(--text-tertiary);margin-top:4px;font-family:var(--dv2-font-mono,var(--font-mono))">target ${(session.intensity_mA || 2).toFixed(2)} \u00B7 \u0394 \u00B10.02</div>
+                <div id="ls-ma-meta" style="font-size:11px;color:var(--text-tertiary);margin-top:4px;font-family:var(--dv2-font-mono,var(--font-mono))">target ${targetMa.toFixed(2)} \u00B7 \u0394 \u00B10.02</div>
               </div>
               <div>
                 <div style="font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--text-tertiary);font-weight:600;margin-bottom:4px">Impedance</div>
                 <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:26px;font-weight:600;letter-spacing:-0.6px;line-height:1" id="ls-imp-readout">${impedanceKohm.toFixed(1)}<span style="font-size:14px;color:var(--text-tertiary);font-weight:500;margin-left:3px">k\u03A9</span></div>
                 <div style="height:6px;border-radius:3px;background:rgba(255,255,255,0.05);overflow:hidden;margin-top:6px;width:200px"><div id="ls-imp-bar" style="height:100%;width:${impedancePct.toFixed(0)}%;background:${impColor};border-radius:3px;transition:width .3s"></div></div>
                 <div style="font-size:10px;color:var(--text-tertiary);margin-top:4px">${impedanceKohm < 10 ? 'good' : impedanceKohm < 15 ? 'elevated' : 'high'} \u00B7 limit 20 k\u03A9</div>
-              </div>
+              </div>`}
             </div>
           </div>
 
-          <div style="margin-top:18px;display:grid;grid-template-columns:repeat(4,1fr);gap:4px">${phaseHtml}</div>
+          <div style="margin-top:18px;display:grid;grid-template-columns:repeat(${isVc ? 3 : 4},1fr);gap:4px">${phaseHtml}</div>
         </div>
 
+        ${isVc ? '' : `
         <div class="dv2-card" style="padding:16px;margin-bottom:12px">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
             <div>
               <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:14px;font-weight:600">Current trace \u00B7 last 60s</div>
-              <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">Target ${(session.intensity_mA || 2).toFixed(1)} mA \u00B7 drift-corrected</div>
+              <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">Target ${targetMa.toFixed(1)} mA \u00B7 drift-corrected</div>
             </div>
             <span class="chip teal">${paused ? 'Paused' : 'Live'}</span>
           </div>
@@ -3423,23 +3712,23 @@ function _lsRender() {
             <defs><linearGradient id="ls-wf-g" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#00d4bc" stop-opacity="0.35"/><stop offset="100%" stop-color="#00d4bc" stop-opacity="0"/></linearGradient></defs>
             <g stroke="rgba(255,255,255,0.05)"><line x1="0" y1="40" x2="500" y2="40"/><line x1="0" y1="80" x2="500" y2="80"/><line x1="0" y1="120" x2="500" y2="120"/></g>
             <line x1="0" y1="80" x2="500" y2="80" stroke="rgba(0,212,188,0.35)" stroke-width="1" stroke-dasharray="3,3"/>
-            <text x="8" y="36" font-size="9" fill="#7c8699" font-family="var(--dv2-font-mono,monospace)">${((session.intensity_mA||2)+0.2).toFixed(1)} mA</text>
-            <text x="8" y="84" font-size="9" fill="#00d4bc" font-family="var(--dv2-font-mono,monospace)">${(session.intensity_mA||2).toFixed(1)} mA</text>
-            <text x="8" y="124" font-size="9" fill="#7c8699" font-family="var(--dv2-font-mono,monospace)">${((session.intensity_mA||2)-0.2).toFixed(1)} mA</text>
+            <text x="8" y="36" font-size="9" fill="#7c8699" font-family="var(--dv2-font-mono,monospace)">${(targetMa + 0.2).toFixed(1)} mA</text>
+            <text x="8" y="84" font-size="9" fill="#00d4bc" font-family="var(--dv2-font-mono,monospace)">${targetMa.toFixed(1)} mA</text>
+            <text x="8" y="124" font-size="9" fill="#7c8699" font-family="var(--dv2-font-mono,monospace)">${(targetMa - 0.2).toFixed(1)} mA</text>
             <path id="ls-trace-fill" d="${tracePathD.fill}" fill="url(#ls-wf-g)"/>
             <path id="ls-trace-line" d="${tracePathD.line}" stroke="#00d4bc" stroke-width="1.8" fill="none"/>
             <circle id="ls-trace-dot" cx="500" cy="${tracePathD.lastY.toFixed(1)}" r="4" fill="#00d4bc"/>
           </svg>
           <div style="display:flex;justify-content:space-between;font-family:var(--dv2-font-mono,var(--font-mono));font-size:10px;color:var(--text-tertiary);margin-top:2px"><span>\u221260s</span><span>\u221230s</span><span>now</span></div>
-        </div>
+        </div>`}
 
-        ${monitorWidget}
+        ${isVc ? '' : monitorWidget}
 
         <div class="dv2-card" style="padding:16px;margin-top:12px">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
             <div>
-              <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:14px;font-weight:600">Operator checklist</div>
-              <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">Click to mark done \u00B7 logged to event record</div>
+              <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:14px;font-weight:600">${isVc ? 'Clinical readiness checklist' : 'Operator checklist'}</div>
+              <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">Click to mark done \u00B7 logged to session event record where API is available</div>
             </div>
             <span class="chip teal" id="ls-check-count">${checklist.filter(c=>c.done).length}/${checklist.length}</span>
           </div>
@@ -3456,7 +3745,7 @@ function _lsRender() {
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
               <div>
                 <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:13px;font-weight:600">Patient biometrics</div>
-                <div style="font-size:11px;color:var(--text-tertiary)">Simulated telemetry (demo)</div>
+                <div style="font-size:11px;color:var(--text-tertiary)">${isVc ? 'Wearable summary when available; otherwise rehearsal/demo values' : 'Simulated telemetry (demo)'}</div>
               </div>
               <span class="chip ${s.videoActive ? 'teal' : ''}" style="${s.videoActive ? '' : 'color:var(--text-tertiary)'}" id="ls-bio-status">${s.videoActive ? '● Preview Active' : 'Idle'}</span>
             </div>
@@ -3493,8 +3782,8 @@ function _lsRender() {
           <div class="dv2-card" style="padding:14px;margin-bottom:12px" id="ls-ai-panel">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
               <div>
-                <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:13px;font-weight:600">AI session analysis <span style="font-size:9px;color:var(--text-tertiary);font-weight:400">(simulated)</span></div>
-                <div style="font-size:11px;color:var(--text-tertiary)">Simulated voice sentiment & video engagement</div>
+                <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:13px;font-weight:600">AI-assisted session signals <span style="font-size:9px;color:var(--text-tertiary);font-weight:400">(simulated when video active)</span></div>
+                <div style="font-size:11px;color:var(--text-tertiary)">Decision-support only \u00B7 requires clinician review \u00B7 not diagnostic</div>
               </div>
               <span class="chip" style="color:var(--text-tertiary)" id="ls-ai-status">Waiting</span>
             </div>
@@ -3540,6 +3829,7 @@ function _lsRender() {
             </div>
           </div>
 
+          ${isVc ? '' : `
           <div class="dv2-card" style="padding:16px">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
               <div>
@@ -3549,7 +3839,7 @@ function _lsRender() {
               <span class="chip teal">${_e(anode)} / ${_e(cathode)}</span>
             </div>
             <div style="aspect-ratio:1/1;display:flex;align-items:center;justify-content:center" id="ls-brain-mount">${brainMapSvg}</div>
-          </div>
+          </div>`}
         </div>
 
         <div class="dv2-card" style="padding:16px;display:flex;flex-direction:column;min-height:280px">
@@ -3604,9 +3894,14 @@ async function _lsLoadBrainMapLazy() {
   } catch {}
 }
 
-function _lsPhaseDoneBefore(current, candidate) {
-  const order = ['setup','ramp_up','stim','ramp_dn','done'];
-  return order.indexOf(candidate) < order.indexOf(current);
+function _lsPhaseDoneBefore(current, candidate, isVc) {
+  const order = isVc
+    ? ['prep', 'visit', 'wrap', 'done']
+    : ['setup', 'ramp_up', 'stim', 'ramp_dn', 'done'];
+  const ic = order.indexOf(current);
+  const ix = order.indexOf(candidate);
+  if (ic < 0 || ix < 0) return false;
+  return ix < ic;
 }
 
 function _lsTraceD(arr, w, h, target) {
@@ -3644,26 +3939,33 @@ function _lsStartTimers() {
     if (badge) { badge.style.display = remaining > 0 ? 'inline' : 'none'; badge.textContent = remaining > 0 ? '\u23f1 ' + _lsFmtClock(remaining) : ''; }
     if (remaining === 0 && _lsState.phase !== 'done') {
       _lsState.phase = 'done';
-      _lsLogEvent('STIM', 'Session complete \u00B7 auto-transition to post-stim');
+      _lsLogEvent(
+        'STIM',
+        _lsState.isVirtualCareType
+          ? 'Visit timer ended — complete wrap-up and documentation per clinic policy'
+          : 'Session complete \u00B7 auto-transition to post-stim',
+      );
     }
   }, 1000);
 
-  s.traceInt = setInterval(() => {
-    if (!_lsState) return;
-    if (_lsState.paused) return;
-    const target = _lsState.session.intensity_mA || 2.0;
-    const drift = (Math.random() - 0.5) * 0.05;
-    const next = target + drift;
-    _lsState.currentMA = next;
-    _lsState.trace.push(next);
-    if (_lsState.trace.length > 60) _lsState.trace.shift();
-    const { line, fill, lastY } = _lsTraceD(_lsState.trace, 500, 160, target);
-    const l = document.getElementById('ls-trace-line'); if (l) l.setAttribute('d', line);
-    const f = document.getElementById('ls-trace-fill'); if (f) f.setAttribute('d', fill);
-    const d = document.getElementById('ls-trace-dot'); if (d) d.setAttribute('cy', lastY.toFixed(1));
-    const r = document.getElementById('ls-ma-readout');
-    if (r) r.innerHTML = `${next.toFixed(2)}<span style="font-size:18px;color:var(--text-tertiary);font-weight:500;margin-left:6px">mA</span>`;
-  }, 1000);
+  if (!s.isVirtualCareType) {
+    s.traceInt = setInterval(() => {
+      if (!_lsState) return;
+      if (_lsState.paused) return;
+      const target = _lsState.session.intensity_mA || 2.0;
+      const drift = (Math.random() - 0.5) * 0.05;
+      const next = target + drift;
+      _lsState.currentMA = next;
+      _lsState.trace.push(next);
+      if (_lsState.trace.length > 60) _lsState.trace.shift();
+      const { line, fill, lastY } = _lsTraceD(_lsState.trace, 500, 160, target);
+      const l = document.getElementById('ls-trace-line'); if (l) l.setAttribute('d', line);
+      const f = document.getElementById('ls-trace-fill'); if (f) f.setAttribute('d', fill);
+      const d = document.getElementById('ls-trace-dot'); if (d) d.setAttribute('cy', lastY.toFixed(1));
+      const r = document.getElementById('ls-ma-readout');
+      if (r) r.innerHTML = `${next.toFixed(2)}<span style="font-size:18px;color:var(--text-tertiary);font-weight:500;margin-left:6px">mA</span>`;
+    }, 1000);
+  }
 }
 
 function _lsBindKeys() {
@@ -3785,18 +4087,24 @@ function _lsPauseResume() {
 
 function _lsEndSession() {
   const s = _lsState; if (!s) return;
-  if (!window.confirm('End this session? This will stop stimulation and finalise the record.')) return;
-  _lsLogEvent('OPER', 'Session ended by operator', { action: 'end' });
+  const msg = s.isVirtualCareType
+    ? 'End this visit? Confirm wrap-up and documentation are complete per clinic policy.'
+    : 'End this session? This will stop stimulation and finalise the record.';
+  if (!window.confirm(msg)) return;
+  _lsLogEvent('OPER', s.isVirtualCareType ? 'Visit ended by clinician' : 'Session ended by operator', { action: 'end' });
+  _lsPostVcAudit('virtual_care.visit_ended', `session_id=${s.session.id}`, !!s.session._demo_fixture);
   try { api.sessionPhaseTransition?.(s.session.id, 'ended'); } catch {}
   _lsTeardown();
-  try { window._nav?.('courses') || window._nav?.('dashboard'); } catch {}
+  try { window._nav?.('schedule-v2') || window._nav?.('home'); } catch {}
 }
 
 function _lsPhase(id) {
   const s = _lsState; if (!s) return;
   s.phase = id;
   _lsLogEvent('STIM', `Phase transition \u2192 ${id}`, { phase: id });
-  try { api.sessionPhaseTransition?.(s.session.id, id); } catch {}
+  if (!s.isVirtualCareType) {
+    try { api.sessionPhaseTransition?.(s.session.id, id); } catch {}
+  }
   _lsRender();
   _lsStartTimers();
 }
@@ -3833,7 +4141,6 @@ function _lsAnalysisTick() {
   // Direct DOM update for live session analysis widget
   _lsUpdateAnalysisDOM(voice, video);
 
-  // Persist to backend
   if (s.lsAnalysisSessionId) {
     api.virtualCareSubmitVoiceAnalysis?.(s.lsAnalysisSessionId, voice).catch(() => {});
     api.virtualCareSubmitVideoAnalysis?.(s.lsAnalysisSessionId, video).catch(() => {});
@@ -3847,16 +4154,8 @@ async function _lsStartAnalysis() {
   s.lsLatestVoice = null;
   s.lsLatestVideo = null;
   s.lsAnalysisBaselines = { stress: 30, energy: 65, engagement: 70, eyeContact: 75, posture: 80 };
-
-  if (s.vcSessionId) {
-    s.lsAnalysisSessionId = s.vcSessionId;
-  } else {
-    try {
-      const res = await api.virtualCareCreateSession?.({ session_type: 'video', room_name: 'ds-live-' + (s.session?.id || '') });
-      s.lsAnalysisSessionId = res?.session?.id || null;
-      if (s.lsAnalysisSessionId) api.virtualCareStartSession?.(s.lsAnalysisSessionId).catch(() => {});
-    } catch { s.lsAnalysisSessionId = null; }
-  }
+  // Clinician live session: virtual-care write APIs are patient-scoped; keep analysis local only.
+  s.lsAnalysisSessionId = null;
 
   _lsAnalysisTick();
   s.lsAnalysisInterval = setInterval(_lsAnalysisTick, 12000);
@@ -3898,14 +4197,12 @@ function _lsUpdateAnalysisDOM(voice, video) {
 async function _lsStartVideo() {
   const s = _lsState; if (!s) return;
   s.videoActive = true;
-  try { await (api.startVideoConsult?.(s.session.id)); } catch {}
-  // Create virtual care session for biometrics + AI tracking.
   try {
-    const vc = await api.virtualCareCreateSession({ session_type: 'video', appointment_id: s.session.id });
-    s.vcSessionId = vc?.session?.id || null;
-    if (s.vcSessionId) await api.virtualCareStartSession(s.vcSessionId);
-  } catch (_e) {}
+    const out = await (api.startVideoConsult?.(s.session.id));
+    if (out?.room_name) s.lsRoomName = out.room_name;
+  } catch {}
   _lsLogEvent('OPER', 'Video consult started');
+  _lsPostVcAudit('virtual_care.video_started', `session_id=${s.session.id}`, !!s.session._demo_fixture);
   _lsRender();
   _lsStartTimers();
   _lsStartAnalysis();
@@ -3918,10 +4215,7 @@ async function _lsEndVideo() {
   _lsStopAnalysis();
   s.videoActive = false;
   try { await (api.endVideoConsult?.(s.session.id)); } catch {}
-  if (s.vcSessionId) {
-    try { await api.virtualCareEndSession(s.vcSessionId); } catch (_e) {}
-    s.vcSessionId = null;
-  }
+  _lsPostVcAudit('virtual_care.video_ended', `session_id=${s.session.id}`, !!s.session._demo_fixture);
   _lsStopBioPolling();
   _lsStopAiPolling();
   _lsLogEvent('OPER', 'Video consult ended');
@@ -3951,12 +4245,6 @@ function _lsStartBioPolling() {
     const spo2 = Math.max(94, Math.min(100, Math.round(98 + (Math.random() - 0.5) * 1.5)));
     const stress = Math.max(0, Math.min(100, Math.round(30 + Math.sin(Date.now() * 0.0005) * 15 + (Math.random() - 0.5) * 8)));
     _lsUpdateBioDisplay(hr, hrv, spo2, stress);
-    // Submit snapshot to backend if session exists.
-    if (s.vcSessionId) {
-      api.virtualCareSubmitBiometrics(s.vcSessionId, {
-        source: 'simulated', heart_rate_bpm: hr, hrv_ms: hrv, spo2_pct: spo2, stress_score: stress,
-      }).catch(() => {});
-    }
   }, 5000);
 }
 
@@ -4035,7 +4323,7 @@ function _lsStopAiPolling() {
 async function _lsSnapMonitor() {
   const s = _lsState; if (!s) return;
   let snap = null;
-  try { snap = await (api.remoteMonitorSnapshot?.(s.session.patient_id || s.session.id)); } catch {}
+  try { snap = await (api.remoteMonitorSnapshot?.(s.session.id)); } catch {}
   if (!snap) snap = { hrv: Math.round(50 + Math.random() * 20), impedance: s.impedanceKohm, adherence: 'OK' };
   const grid = document.getElementById('ls-monitor-grid');
   if (grid) {

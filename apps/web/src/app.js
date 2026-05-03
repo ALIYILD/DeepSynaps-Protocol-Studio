@@ -1884,7 +1884,7 @@ async function renderPage() {
     case 'biomarkers':         { const m = await loadKnowledge(); await m.pgQEEGMaps(setTopbar); break; }
     case 'handbooks-v2':       { const m = await loadHandbooks(); await m.pgHandbooks(setTopbar); break; }
     case 'library-v2':         { window._resEvidenceTab = 'search'; window._nav('research-evidence'); break; }
-    case 'live-session':       { window._vcUnifiedDefaultTab = 'dashboard'; const m = await loadVirtualCare(); await m.pgVirtualCare(setTopbar, navigate); break; }
+    case 'live-session':       { window._vcUnifiedDefaultTab = 'livesession'; const m = await loadVirtualCare(); await m.pgVirtualCare(setTopbar, navigate); break; }
     case 'live-session-monitor': { window._vcUnifiedDefaultTab = 'livesession'; const m = await loadVirtualCare(); await m.pgVirtualCare(setTopbar, navigate); break; }
     case 'home-tasks-v2':      { const m = await loadClinicalTools(); await m.pgHomePrograms(setTopbar, navigate); break; }
     case 'documents-v2':       { const m = await loadClinicalHubs(); await m.pgDocumentsHubNew(setTopbar, navigate); break; }
