@@ -174,6 +174,14 @@ async function _readPgSrc() {
   return readFileSync(path.join(here, 'pages-clinical-hubs.js'), 'utf8');
 }
 
+test('Patients tab gates registry by clinical role (canAccessPatientRegistry)', async () => {
+  const src = await _readPgSrc();
+  assert.ok(src.includes("from './patient-registry-access.js'"),
+    'pgPatientHub must import patient-registry-access');
+  assert.ok(/canAccessPatientRegistry\(currentUser\)/.test(src),
+    'Patients tab must gate with canAccessPatientRegistry(currentUser)');
+});
+
 test('density toggle renders with testid and persists via localStorage', async () => {
   const src = await _readPgSrc();
   assert.ok(src.includes('data-testid="ds-patients-density-toggle"'), 'density toggle testid must exist');
@@ -185,13 +193,13 @@ test('density toggle renders with testid and persists via localStorage', async (
   assert.ok(src.includes("'comfortable'"), 'comfortable density value must exist');
 });
 
-test('row renders 4 inline action icons with the spec data-actions', async () => {
+test('row renders inline action icons with the spec data-actions', async () => {
   const src = await _readPgSrc();
-  for (const a of ['start-session','quick-note','message','open-chart']) {
+  for (const a of ['start-session','quick-note','message','open-chart','analytics']) {
     assert.ok(src.includes('data-action="' + a + '"'), 'row must include action icon ' + a);
   }
   // Each action icon wires a real handler (no silent buttons).
-  for (const fn of ['_phStartSession','_phQuickNote','_phMessage','_phOpenChart']) {
+  for (const fn of ['_phStartSession','_phQuickNote','_phMessage','_phOpenChart','_phOpenAnalytics']) {
     assert.ok(src.includes('window.' + fn), 'handler ' + fn + ' must be wired');
   }
 });
