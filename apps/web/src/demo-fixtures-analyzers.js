@@ -881,6 +881,13 @@ const _MED_PATIENT_REGIMENS = {
   ],
 };
 
+const _MED_INTERACTION_DEMO_META = {
+  engine_id: 'demo_fixture_rules_v1',
+  engine_detail:
+    'Synthetic demo interaction pairs for UI review only. Not verified against a drug database; does not represent a real patient or pharmacy record.',
+  requires_clinician_review: true,
+};
+
 const _MED_INTERACTION_RESULTS = {
   'demo-pt-samantha-li': {
     medications_checked: ['Sertraline', 'Tramadol', 'Melatonin'],
@@ -888,16 +895,19 @@ const _MED_INTERACTION_RESULTS = {
       {
         drugs: ['sertraline', 'tramadol'],
         severity: 'moderate',
-        description: 'Co-administration of an SSRI with tramadol increases the risk of serotonin syndrome via additive serotonergic activity.',
-        recommendation: 'Monitor for tremor, hyperreflexia, agitation, hyperthermia. Consider non-opioid analgesia or reduce tramadol dose; counsel patient on warning signs.',
+        description: 'Possible additive serotonergic activity (serotonin syndrome is a recognised concern with some SSRI + tramadol combinations).',
+        recommendation:
+          'Demo sample only — requires clinician/pharmacist review and monitoring per your clinic medication safety protocol; not a directive to change therapy.',
       },
     ],
     severity_summary: 'moderate',
+    ..._MED_INTERACTION_DEMO_META,
   },
   'demo-pt-marcus-chen': {
     medications_checked: ['Sertraline', 'Melatonin'],
     interactions: [],
     severity_summary: 'none',
+    ..._MED_INTERACTION_DEMO_META,
   },
   'demo-pt-elena-vasquez': {
     medications_checked: ['Warfarin', 'Ibuprofen', 'Amitriptyline', 'Pregabalin'],
@@ -905,17 +915,20 @@ const _MED_INTERACTION_RESULTS = {
       {
         drugs: ['warfarin', 'ibuprofen'],
         severity: 'severe',
-        description: 'NSAIDs displace warfarin from plasma protein binding and inhibit platelet aggregation, substantially increasing major-bleed risk (GI and intracranial).',
-        recommendation: 'Stop ibuprofen. Switch to paracetamol or topical NSAID. If continued use is unavoidable, add gastroprotection and re-check INR within 3–5 days.',
+        description: 'Possible increased bleeding risk when anticoagulants/antiplatelets overlap with NSAIDs (patient-specific; depends on renal function, indication, and monitoring).',
+        recommendation:
+          'Demo sample only — bleeding-risk decisions require clinician/pharmacist review per local protocol; this workspace does not instruct stopping or switching medication.',
       },
       {
         drugs: ['amitriptyline', 'pregabalin'],
         severity: 'mild',
-        description: 'Additive CNS depression and anticholinergic load; modest increase in sedation, dizziness, and falls risk in older adults.',
-        recommendation: 'Counsel on driving / fall risk. Review necessity of both agents for chronic pain; consider tapering one if symptom control allows.',
+        description: 'Possible additive CNS depression / sedation burden when multiple CNS-active agents are combined (context-dependent).',
+        recommendation:
+          'Demo sample only — falls/sedation risk requires clinician review; not an instruction to taper or discontinue.',
       },
     ],
     severity_summary: 'severe',
+    ..._MED_INTERACTION_DEMO_META,
   },
 };
 
@@ -1001,6 +1014,7 @@ function _medCheckInteractions(patientId, names) {
       medications_checked: names && names.length ? names : seeded.medications_checked,
       interactions: seeded.interactions,
       severity_summary: seeded.severity_summary,
+      ..._MED_INTERACTION_DEMO_META,
     };
   }
   return {
