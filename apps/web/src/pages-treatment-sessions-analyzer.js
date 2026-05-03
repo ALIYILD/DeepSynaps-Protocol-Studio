@@ -53,12 +53,23 @@ function _trendArrow(trend) {
 }
 
 function _signoffPill(signed, unsigned, opts = {}) {
+  if (opts.loading) {
+    return '<span class="pill pill-inactive" title="Loading sign-off status">Loading…</span>';
+  }
+  if (opts.unavailable) {
+    return '<span class="pill pill-inactive" title="Sign-off status unavailable (API error or offline)">—</span>';
+  }
   if (opts.unknown) {
     return '<span class="pill pill-inactive" title="Open patient row for SIGN events — not loaded in clinic summary">—</span>';
   }
   const u = Number(unsigned) || 0;
-  if (u === 0) return '<span class="pill pill-active">All reviewed</span>';
-  return `<span class="pill" style="background:rgba(245,158,11,0.12);color:var(--amber);border:1px solid rgba(245,158,11,0.30)">${u} pending</span>`;
+  const partialHint = opts.partial
+    ? ' Sign-off counts reflect delivered sessions returned by batch API only — may not include every planned session.'
+    : '';
+  if (u === 0) {
+    return `<span class="pill pill-active" title="All returned sessions have SIGN events recorded.${partialHint}">All signed</span>`;
+  }
+  return `<span class="pill" style="background:rgba(245,158,11,0.12);color:var(--amber);border:1px solid rgba(245,158,11,0.30)" title="Sessions without SIGN event among batch-visible rows.${partialHint}">${u} pending</span>`;
 }
 
 function _aeDot(hasAE) {
@@ -381,12 +392,63 @@ async function _loadClinicRowsFromApi(patientItemsForNames = null) {
   const nameById = new Map(pItems.map((p) => [p.id, `${p.first_name || ''} ${p.last_name || ''}`.trim()]));
 
   const rows = [];
+  const courseIds = [];
   for (const c of byPatient.values()) {
+    courseIds.push(c.id);
     const pname = nameById.get(c.patient_id) || '';
     const detail = await _hydrateCourseDetail(c, c.patient_id, pname, { lite: true }).catch(() => null);
     if (detail) rows.push(_buildClinicRow(detail));
   }
-  return rows;
+  return { rows, courseIds };
+}
+
+/** Merge batch SIGN status into clinic rows (one API call, no per-session N+1). */
+function _mergeBatchSignIntoRows(rows, batchResp) {
+  const items = Array.isArray(batchResp?.items) ? batchResp.items : [];
+  const byCourse = new Map();
+  for (const it of items) {
+    const cid = it.course_id;
+    if (!cid) continue;
+    if (!byCourse.has(cid)) {
+      byCourse.set(cid, { signed: 0, pending: 0, unknown: 0, total: 0 });
+    }
+    const agg = byCourse.get(cid);
+    agg.total += 1;
+    const ss = String(it.sign_status || '').toLowerCase();
+    if (ss === 'signed') agg.signed += 1;
+    else if (ss === 'pending') agg.pending += 1;
+    else agg.unknown += 1;
+  }
+  return rows.map((r) => {
+    const agg = byCourse.get(r.course_id);
+    if (!agg) {
+      return {
+        ...r,
+        signoff_unknown: true,
+        sign_batch_unavailable: false,
+        sign_batch_partial: false,
+      };
+    }
+    const sessionTotal = Number(r.completed) || agg.total;
+    const partial = agg.total < sessionTotal;
+    return {
+      ...r,
+      signed_count: agg.signed,
+      unsigned_count: agg.pending + agg.unknown,
+      signoff_unknown: false,
+      sign_batch_unavailable: false,
+      sign_batch_partial: partial,
+    };
+  });
+}
+
+function _mergeBatchUnavailable(rows) {
+  return rows.map((r) => ({
+    ...r,
+    signoff_unknown: true,
+    sign_batch_unavailable: true,
+    sign_batch_partial: false,
+  }));
 }
 
 function _renderClinicTable(rows, sortKey, sortDir) {
@@ -421,7 +483,12 @@ function _renderClinicTable(rows, sortKey, sortDir) {
       <td style="padding:10px;text-align:center;border-bottom:1px solid var(--border);color:${adhColor};font-weight:600">${esc(adh)}</td>
       <td style="padding:10px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-tertiary);white-space:nowrap">${esc(_fmtDate(r.last_session_at))}</td>
       <td style="padding:10px;text-align:center;border-bottom:1px solid var(--border)">${_trendArrow(r.outcome_trend)}</td>
-      <td style="padding:10px;text-align:center;border-bottom:1px solid var(--border)">${_signoffPill(r.signed_count, r.unsigned_count, { unknown: r.signoff_unknown })}</td>
+      <td style="padding:10px;text-align:center;border-bottom:1px solid var(--border)">${_signoffPill(r.signed_count, r.unsigned_count, {
+    loading: r.sign_loading,
+    unknown: r.signoff_unknown,
+    unavailable: r.sign_batch_unavailable,
+    partial: r.sign_batch_partial,
+  })}</td>
     </tr>`;
   }).join('');
 
@@ -746,6 +813,9 @@ function _buildClinicRow(detail) {
     signed_count: lite ? null : signed,
     unsigned_count: lite ? null : unsigned,
     signoff_unknown: lite,
+    sign_batch_unavailable: false,
+    sign_batch_partial: false,
+    sign_loading: false,
   };
 }
 
@@ -871,6 +941,43 @@ export async function pgTreatmentSessionsAnalyzer(setTopbar, navigate) {
     return d;
   }
 
+  function _paintClinicTable(patients, loadingSign) {
+    const body = $('ts-body');
+    if (!body) return;
+    let rows = (clinicCache || []).map((r) => ({ ...r, sign_loading: !!loadingSign }));
+    clinicCache = rows;
+    body.innerHTML = `
+      <div style="margin-bottom:12px;font-size:11px;color:var(--text-tertiary);line-height:1.45">
+        <strong style="color:var(--text-primary)">Data availability.</strong> Rows aggregate delivered session logs per active/paused course. “Plan completion” compares logged deliveries to planned totals when present — not adherence from wearables unless separately integrated.
+        Sign-off column uses batch SIGN events when available — not inferred from schedule alone.
+      </div>
+      <div style="margin-bottom:10px;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+        <button type="button" class="btn btn-ghost btn-sm" id="ts-refresh-sign" style="min-height:40px">Refresh sign-off status</button>
+        <span style="font-size:11px;color:var(--text-tertiary)">Reloads delivered-session sign status from the API without per-session round trips.</span>
+      </div>
+      ${_renderClinicTable(clinicCache, sortKey, sortDir)}`;
+    _renderToolbarPatientSelect(patients);
+    body.querySelector('#ts-refresh-sign')?.addEventListener('click', () => { loadClinic(); });
+    body.querySelectorAll('[data-sort-key]').forEach((th) => {
+      th.addEventListener('click', () => {
+        const k = th.getAttribute('data-sort-key');
+        if (k === sortKey) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+        else { sortKey = k; sortDir = 'desc'; }
+        body.innerHTML = `
+          <div style="margin-bottom:12px;font-size:11px;color:var(--text-tertiary);line-height:1.45">
+            <strong style="color:var(--text-primary)">Data availability.</strong> Rows aggregate delivered session logs per active/paused course.
+          </div>
+          <div style="margin-bottom:10px;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+            <button type="button" class="btn btn-ghost btn-sm" id="ts-refresh-sign" style="min-height:40px">Refresh sign-off status</button>
+          </div>
+          ${_renderClinicTable(clinicCache, sortKey, sortDir)}`;
+        body.querySelector('#ts-refresh-sign')?.addEventListener('click', () => { loadClinic(); });
+        wireClinicTable();
+      });
+    });
+    wireClinicTable();
+  }
+
   async function loadClinic() {
     const body = $('ts-body');
     if (!body) return;
@@ -887,18 +994,22 @@ export async function pgTreatmentSessionsAnalyzer(setTopbar, navigate) {
       patients = pr?.items || (Array.isArray(pr) ? pr : []);
     } catch { patients = []; }
 
-    let rows = null;
+    let clinicRows = [];
+    let courseIdsForBatch = [];
     try {
-      rows = await _loadClinicRowsFromApi(patients);
-      if (!rows.length && isDemoSession()) {
-        rows = _useFixtureClinic();
+      const loaded = await _loadClinicRowsFromApi(patients);
+      clinicRows = loaded.rows || [];
+      courseIdsForBatch = loaded.courseIds || [];
+      if (!clinicRows.length && isDemoSession()) {
+        clinicRows = _useFixtureClinic();
         usingFixtures = true;
       } else {
         usingFixtures = false;
       }
     } catch (e) {
       if (isDemoSession()) {
-        rows = _useFixtureClinic();
+        clinicRows = _useFixtureClinic();
+        courseIdsForBatch = [];
         usingFixtures = true;
       } else {
         const msg = (e && e.message) || String(e);
@@ -907,28 +1018,20 @@ export async function pgTreatmentSessionsAnalyzer(setTopbar, navigate) {
         return;
       }
     }
-    clinicCache = rows;
+
+    clinicCache = clinicRows.map((r) => ({ ...r, sign_loading: !usingFixtures && clinicRows.length > 0 }));
     _syncDemoBanner();
-    body.innerHTML = `
-      <div style="margin-bottom:12px;font-size:11px;color:var(--text-tertiary);line-height:1.45">
-        <strong style="color:var(--text-primary)">Data availability.</strong> Rows aggregate delivered session logs per active/paused course. “Plan completion” compares logged deliveries to planned totals when present — not adherence from wearables unless separately integrated.
-      </div>
-      ${_renderClinicTable(clinicCache, sortKey, sortDir)}`;
-    _renderToolbarPatientSelect(patients);
-    body.querySelectorAll('[data-sort-key]').forEach((th) => {
-      th.addEventListener('click', () => {
-        const k = th.getAttribute('data-sort-key');
-        if (k === sortKey) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
-        else { sortKey = k; sortDir = 'desc'; }
-        body.innerHTML = `
-          <div style="margin-bottom:12px;font-size:11px;color:var(--text-tertiary);line-height:1.45">
-            <strong style="color:var(--text-primary)">Data availability.</strong> Rows aggregate delivered session logs per active/paused course.
-          </div>
-          ${_renderClinicTable(clinicCache, sortKey, sortDir)}`;
-        wireClinicTable();
-      });
-    });
-    wireClinicTable();
+    _paintClinicTable(patients, !usingFixtures && clinicRows.length > 0);
+
+    if (!usingFixtures && courseIdsForBatch.length) {
+      try {
+        const batch = await api.getTreatmentSessionSignStatusBatch({ course_ids: courseIdsForBatch });
+        clinicCache = _mergeBatchSignIntoRows(clinicRows, batch).map((r) => ({ ...r, sign_loading: false }));
+      } catch {
+        clinicCache = _mergeBatchUnavailable(clinicRows).map((r) => ({ ...r, sign_loading: false }));
+      }
+      _paintClinicTable(patients, false);
+    }
   }
 
   function wireClinicTable() {
@@ -1131,4 +1234,10 @@ export async function pgTreatmentSessionsAnalyzer(setTopbar, navigate) {
 export default { pgTreatmentSessionsAnalyzer };
 
 /** @internal exported for unit tests */
-export { _parseOutcomeSummaries, _summarizeOutcomeScores, _completionPct };
+export {
+  _parseOutcomeSummaries,
+  _summarizeOutcomeScores,
+  _completionPct,
+  _mergeBatchSignIntoRows,
+  _mergeBatchUnavailable,
+};

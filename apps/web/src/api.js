@@ -1371,6 +1371,16 @@ export const api = {
   logSession: (courseId, data) =>
     apiFetch(`/api/v1/treatment-courses/${courseId}/sessions`, { method: 'POST', body: JSON.stringify(data) }),
   listCourseSessions: (courseId) => apiFetch(`/api/v1/treatment-courses/${courseId}/sessions`),
+  /** Batch SIGN/REVIEW status from clinical_session_events — Treatment Sessions Analyzer clinic table. */
+  getTreatmentSessionSignStatusBatch: (payload = {}) =>
+    apiFetch('/api/v1/treatment-sessions/sign-status/batch', {
+      method: 'POST',
+      body: JSON.stringify({
+        course_ids: payload.course_ids || [],
+        session_ids: payload.session_ids || [],
+        include_events: !!payload.include_events,
+      }),
+    }),
 
   /** List persisted home program tasks (optional patient filter: `patient_id` or `patientId`). */
   listHomeProgramTasks: (params = {}) => {

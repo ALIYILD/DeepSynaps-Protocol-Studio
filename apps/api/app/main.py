@@ -56,6 +56,7 @@ from app.routers.agent_billing_router import router as agent_billing_router
 from app.routers.finance_router import router as finance_router
 from app.routers.sessions_router import router as sessions_router
 from app.routers.treatment_courses_router import router as treatment_courses_router
+from app.routers.treatment_sessions_router import router as treatment_sessions_router
 from app.routers.treatment_courses_router import review_router as review_queue_router
 from app.routers.adverse_events_router import router as adverse_events_router
 from app.routers.population_analytics_router import router as population_analytics_router
@@ -442,6 +443,7 @@ app.include_router(telegram_router)
 app.include_router(chat_router)
 app.include_router(registries_router)
 app.include_router(treatment_courses_router)
+app.include_router(treatment_sessions_router)
 app.include_router(review_queue_router)
 app.include_router(adverse_events_router)
 app.include_router(population_analytics_router)
