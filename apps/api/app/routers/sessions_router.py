@@ -81,6 +81,8 @@ class SessionCreate(BaseModel):
     room_id: Optional[str] = None
     device_id: Optional[str] = None
     recurrence_group: Optional[str] = None
+    # Calendar assignment — must be a clinician in the actor's clinic (validated server-side).
+    clinician_id: Optional[str] = None
 
 
 class SessionUpdate(BaseModel):
@@ -101,6 +103,7 @@ class SessionUpdate(BaseModel):
     device_id: Optional[str] = None
     cancel_reason: Optional[str] = None
     recurrence_group: Optional[str] = None
+    clinician_id: Optional[str] = None
 
 
 class SessionOut(BaseModel):
@@ -754,11 +757,23 @@ def create_session_endpoint(
             status_code=400,
         )
 
-    # Conflict detection still scopes to the patient's owning clinician —
-    # that's the calendar an overlap matters on. Two clinicians at the
-    # same clinic legitimately have separate calendars and shouldn't
-    # collide on each other's bookings.
-    booking_clinician_id = patient.clinician_id
+    # Calendar assignment: optional explicit clinician (same clinic). When
+    # omitted, sessions attach to the patient's owning clinician so conflict
+    # detection matches the calendar where overlaps matter.
+    member_ids = _clinic_member_ids(session, actor)
+    create_data = body.model_dump()
+    requested_clinician = create_data.pop("clinician_id", None)
+    if requested_clinician:
+        if requested_clinician not in member_ids:
+            raise ApiServiceError(
+                code="invalid_clinician",
+                message="Clinician is not in your clinic.",
+                status_code=400,
+            )
+        booking_clinician_id = requested_clinician
+    else:
+        booking_clinician_id = patient.clinician_id
+
     conflicts = check_conflicts(
         session,
         clinician_id=booking_clinician_id,
@@ -776,7 +791,7 @@ def create_session_endpoint(
             details={"conflicting_session_ids": conflict_ids},
         )
 
-    record = create_session(session, clinician_id=booking_clinician_id, **body.model_dump())
+    record = create_session(session, clinician_id=booking_clinician_id, **create_data)
     return SessionOut.from_record(record)
 
 
@@ -1175,15 +1190,25 @@ def update_session_endpoint(
         elif new_status == "cancelled":
             updates.setdefault("cancelled_at", now_iso)
 
-    # Conflict detection scopes to the session's owning clinician — same
-    # rationale as the create path. Two clinicians at the same clinic
-    # legitimately have separate calendars.
+    if "clinician_id" in updates:
+        new_cid = updates["clinician_id"]
+        member_ids = _clinic_member_ids(session, actor)
+        if new_cid not in member_ids:
+            raise ApiServiceError(
+                code="invalid_clinician",
+                message="Clinician is not in your clinic.",
+                status_code=400,
+            )
+
+    # Conflict detection scopes to the assigned clinician's calendar (after reassignment).
     time_changed = "scheduled_at" in updates or "duration_minutes" in updates
     resource_changed = "room_id" in updates or "device_id" in updates
-    if time_changed or resource_changed:
+    clinician_changed = "clinician_id" in updates
+    if time_changed or resource_changed or clinician_changed:
+        effective_clinician = updates.get("clinician_id", record.clinician_id)
         conflicts = check_conflicts(
             session,
-            clinician_id=record.clinician_id,
+            clinician_id=effective_clinician,
             scheduled_at=updates.get("scheduled_at", record.scheduled_at),
             duration_minutes=updates.get("duration_minutes", record.duration_minutes),
             room_id=updates.get("room_id", record.room_id),

@@ -31,7 +31,7 @@ test('cancelSession sends backend-native cancellation fields', async () => {
   const body = JSON.parse(request?.opts?.body || '{}');
   assert.equal(body.status, 'cancelled');
   assert.equal(body.cancel_reason, 'Patient requested reschedule');
-  assert.equal(body.session_notes, '[Cancelled] Patient requested reschedule');
+  assert.equal('session_notes' in body, false);
 });
 
 test('listClinicians reuses team members with clinician-capable roles', async () => {
@@ -51,6 +51,24 @@ test('listClinicians reuses team members with clinician-capable roles', async ()
   } finally {
     api.listTeam = orig;
   }
+});
+
+test('listSessions maps from/to query params to backend start_date/end_date', async () => {
+  installLocalStorageStub();
+  let requestUrl = null;
+  globalThis.fetch = async (url) => {
+    requestUrl = url;
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ items: [], total: 0 }),
+    };
+  };
+  const { api } = await import('./api.js');
+  await api.listSessions({ from: '2026-05-01', to: '2026-05-07', limit: 100, offset: 0 });
+  assert.ok(String(requestUrl).includes('start_date=2026-05-01'));
+  assert.ok(String(requestUrl).includes('end_date=2026-05-08'));
 });
 
 test('listReferrals delegates to the real leads endpoint', async () => {
