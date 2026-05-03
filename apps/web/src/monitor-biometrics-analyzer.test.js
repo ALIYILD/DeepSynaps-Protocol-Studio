@@ -67,3 +67,21 @@ test('Linked module navigation handler exists', () => {
   const src = pagesMonitorSrc();
   assert.ok(src.includes('_monitorNavigateModule'));
 });
+
+test('Patient dropdown uses first + last name (API has no display_name)', () => {
+  const src = pagesMonitorSrc();
+  assert.equal(/p\.display_name/.test(src), false);
+  assert.ok(src.includes('[p.first_name, p.last_name]'));
+});
+
+test('Heavy monitor data is lazy until Control Center / Live / DQ tab', () => {
+  const src = pagesMonitorSrc();
+  assert.ok(src.includes('ensureMonitorHeavyLoaded'));
+  assert.ok(src.includes('MONITOR_HEAVY_TABS'));
+});
+
+test('Wearable alert flags panel references summary endpoint', () => {
+  const src = pagesMonitorSrc();
+  assert.ok(src.includes('renderPatientWearableAlerts'));
+  assert.ok(src.includes('GET /wearables/patients/{id}/summary'));
+});

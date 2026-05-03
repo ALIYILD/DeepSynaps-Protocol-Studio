@@ -27603,6 +27603,7 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
 .monitor-issue + .monitor-issue { margin-top:10px; }
 .monitor-issue--red { border-color:rgba(201,59,59,.28); }
 .monitor-issue--orange { border-color:rgba(229,138,44,.28); }
+.monitor-issue--yellow { border-color:rgba(227,197,74,.28); }
 .monitor-issue-head { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:8px; }
 .monitor-issue-fix { margin-top:8px; color:var(--text-secondary); font-size:12px; line-height:1.55; }
 

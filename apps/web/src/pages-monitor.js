@@ -8,6 +8,8 @@ const RETRY_MS = [1000, 2000, 4000, 8000, 16000, 30000];
 const STALE_SYNC_HOURS = 48;
 const GOVERNANCE_COPY =
   'Biometrics are clinician-reviewed decision-support signals. This page is not emergency monitoring, diagnosis, treatment approval, or protocol recommendation.';
+/** Tabs that load clinic roster + integration catalog (lazy until opened). */
+const MONITOR_HEAVY_TABS = new Set(['control-center', 'live', 'dq']);
 
 /* ── Demo mode detection ──────────────────────────────────────────────────── */
 function _isDemoMode() {
@@ -96,7 +98,19 @@ function demoWearableSummary(patientId, days) {
         synced_at: syncedAt,
       },
     ],
-    recent_alerts: [],
+    recent_alerts: isStalePatient ? [] : [
+      {
+        id: 'demo-flag-1',
+        patient_id: patientId,
+        course_id: null,
+        flag_type: 'rule_hrv_decline',
+        severity: 'warning',
+        detail: 'HRV dropped versus 7-day baseline (deterministic threshold).',
+        triggered_at: new Date(now - 4 * 3600000).toISOString(),
+        reviewed_at: null,
+        dismissed: false,
+      },
+    ],
     readiness: isStalePatient
       ? { score: null, factors: [], color: 'var(--text-tertiary)', label: 'No data' }
       : { score: 68, factors: [], color: 'var(--green)', label: 'Good' },
@@ -354,6 +368,7 @@ function state() {
       workbenchFlags: null,
       workbenchSummary: null,
       workbenchFilters: { status: 'open', severity: '' },
+      monitorHeavyLoaded: false,
     };
   }
   return window[STATE_KEY];
@@ -385,7 +400,7 @@ function renderBiometricsAnalyzer(s) {
         <option value="">${esc(pid ? 'Change patient\u2026' : 'Select a patient\u2026')}</option>
         ${patientOpts.map((p) => {
           const id = p.id || p.patient_id;
-          const nm = (p.display_name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || id);
+          const nm = [p.first_name, p.last_name].filter(Boolean).join(' ').trim() || id;
           return `<option value="${esc(id)}"${String(id) === String(pid) ? ' selected' : ''}>${esc(nm)}</option>`;
         }).join('')}
       </select></label>`
@@ -441,6 +456,8 @@ function renderBiometricsAnalyzer(s) {
     metricsHtml = renderMetricCards(summary, last, daySel, revReq);
   }
 
+  const alertsHtml = renderPatientWearableAlerts(summary, pid);
+
   const matrixHtml = renderSourceMatrix(summary, s.fleet, pid);
   const trendsHtml = `<section class="monitor-panel"><div class="monitor-panel-head"><h3>Trends</h3><span>Time series</span></div>
     <div class="monitor-empty-inline">Trend endpoint not connected on this page yet.</div></section>`;
@@ -462,6 +479,7 @@ function renderBiometricsAnalyzer(s) {
         ${patientBar}
       </section>`
     + metricsHtml
+    + alertsHtml
     + matrixHtml
     + trendsHtml
     + aiHtml
@@ -475,6 +493,31 @@ function sourceConnectionStatus(conn) {
   if (st === 'degraded' || st === 'warning') return { label: 'Degraded', cls: 'orange' };
   if (st === 'disconnected' || st === 'error') return { label: 'Disconnected', cls: 'red' };
   return { label: 'Unknown', cls: 'orange' };
+}
+
+function renderPatientWearableAlerts(summary, patientId) {
+  if (!patientId || !summary) {
+    return '';
+  }
+  const flags = Array.isArray(summary.recent_alerts) ? summary.recent_alerts : [];
+  if (!flags.length) {
+    return `<section class="monitor-panel"><div class="monitor-panel-head"><h3>Wearable alert flags</h3><span>0</span></div>
+      <div class="monitor-empty-inline">No active wearable alert flags returned for this patient in the API snapshot.</div></section>`;
+  }
+  const rows = flags.slice(0, 15).map(function (a) {
+    const sev = String(a.severity || 'info').toLowerCase();
+    const badge = sev === 'urgent' ? 'red' : (sev === 'warning' || sev === 'warn' ? 'orange' : 'yellow');
+    const panelTone = sev === 'urgent' ? 'red' : (sev === 'warning' || sev === 'warn' ? 'orange' : 'yellow');
+    const detail = a.detail ? `<div class="monitor-muted">${esc(a.detail)}</div>` : '';
+    return `<div class="monitor-issue monitor-issue--${panelTone}">
+      <div class="monitor-issue-head"><strong>${esc(a.flag_type || 'flag')}</strong>
+        <span class="monitor-badge monitor-badge--${badge}">${esc(sev)}</span></div>
+      ${detail}
+      <div class="monitor-muted">Triggered ${esc(fmtAgo(a.triggered_at))} · source-backed rule · clinician review required</div>
+    </div>`;
+  }).join('');
+  return `<section class="monitor-panel"><div class="monitor-panel-head"><h3>Wearable alert flags</h3><span>${flags.length} active</span></div>
+    <p class="monitor-muted">From GET /wearables/patients/{id}/summary (rule-based flags). Not emergency alerts.</p>${rows}</section>`;
 }
 
 function renderSourceMatrix(summary, fleetPayload, patientId) {
@@ -550,8 +593,11 @@ function renderMetricCards(summary, last, windowDays, reviewLine) {
   card('Sleep duration', last && last.sleep_duration_h != null ? fmtNum(last.sleep_duration_h) : null, 'h', srcLabel, !last || last.sleep_duration_h == null);
   card('Steps', last && last.steps != null ? fmtNum(last.steps) : null, 'count', srcLabel, !last || last.steps == null);
   card('Skin temp \u0394', last && last.skin_temp_delta != null ? fmtNum(last.skin_temp_delta) : null, '\u00B0 vs baseline', srcLabel, !last || last.skin_temp_delta == null);
-  card('Hydration', null, '\u2014', '\u2014', true);
-  card('Stress proxy', null, '\u2014', '\u2014', true);
+  card('Mood (PRO)', last && last.mood_score != null ? fmtNum(last.mood_score) : null, '/5 self-report', srcLabel, !last || last.mood_score == null);
+  card('Pain (PRO)', last && last.pain_score != null ? fmtNum(last.pain_score) : null, '/10 self-report', srcLabel, !last || last.pain_score == null);
+  card('Anxiety (PRO)', last && last.anxiety_score != null ? fmtNum(last.anxiety_score) : null, '/10 self-report', srcLabel, !last || last.anxiety_score == null);
+  card('Hydration', null, '\u2014', 'Not mapped from daily summary API', true);
+  card('Stress autonomic proxy', null, '\u2014', 'No dedicated field in summary', true);
   const read = summary && summary.readiness ? summary.readiness : {};
   const rs = read.score;
   card('Recovery / readiness', rs != null ? String(rs) : null, '0\u2013100 (informational)', srcLabel, rs == null);
@@ -972,6 +1018,14 @@ async function loadDq() {
   render();
 }
 
+/** Loads integrations + roster snapshot — deferred until user opens those tabs (avoids PHI-heavy calls on Biometrics-only landing). */
+async function ensureMonitorHeavyLoaded() {
+  const s = state();
+  if (s.monitorHeavyLoaded) return;
+  await Promise.all([loadLive(), loadIntegrations(), loadDq()]);
+  s.monitorHeavyLoaded = true;
+}
+
 async function loadWorkbench() {
   const s = state();
   // Build filter params, dropping blanks so the server-side default
@@ -1120,8 +1174,13 @@ export async function pgMonitor(setTopbar) {
 
   updateTopbar();
   render();
-  await Promise.all([loadLive(), loadIntegrations(), loadDq(), loadPatientListForBiometrics(), loadFleet()]);
-  connectLiveStream();
+  await Promise.all([loadPatientListForBiometrics(), loadFleet()]);
+  if (MONITOR_HEAVY_TABS.has(s.tab)) {
+    await ensureMonitorHeavyLoaded();
+  }
+  if (s.tab === 'live') {
+    connectLiveStream();
+  }
 
   // Mount-time audit ping so the regulator trail shows the clinician
   // opened the Devices/Monitor surface. Best-effort only — the helper
@@ -1151,6 +1210,9 @@ export async function pgMonitor(setTopbar) {
     if (s.tab === 'biometrics-analyzer') {
       loadFleet();
       loadWearableSummaryForSelection();
+    }
+    if (MONITOR_HEAVY_TABS.has(s.tab)) {
+      ensureMonitorHeavyLoaded();
     }
     if (s.tab === 'live') {
       connectLiveStream();
