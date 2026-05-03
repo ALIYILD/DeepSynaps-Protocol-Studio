@@ -510,49 +510,24 @@ const ROLE_NAV_HIDE = {
   clinician:  ['population-analytics'],
 };
 
-// ── Nav definition — design-v2 grouping (TODAY / PATIENTS / ANALYZERS / PROTOCOL / SESSIONS / ADMIN)
+// ── Nav definition — design-v2 grouping (TODAY / PATIENTS / ANALYZERS / PROTOCOL / MARKETPLACE / ADMIN)
 // Ordered to match a clinician's day: top-of-day triage → patient roster → analyzers
-// (used during a workup) → protocol design → live sessions → admin.
+// (used during a workup) → protocol design → marketplace → admin.
 // design-v2 nav IDs — new routes alongside legacy; per-phase migration reparents bodies.
 const NAV = [
   // ── TODAY — top-of-day triage (what a doctor opens first) ────────────────────
   { section: 'Today', sectionId: 'clinical', collapsed: false },
   { id: 'home',                label: 'Dashboard',     icon: '🏠' },
   { id: 'clinician-inbox',     label: 'Inbox',         icon: '📬' },
-  { id: 'clinician-adherence', label: 'Adherence',     icon: '✅' },
-  { id: 'clinician-wellness',  label: 'Wellness',      icon: '💚' },
   { id: 'clinician-digest',    label: 'Daily Digest',  icon: '📰' },
-  { id: 'risk-analyzer',       label: 'Risk Analyzer', icon: '⚠' },
   { id: 'schedule-v2',         label: 'Schedule',      icon: '🗓️' },
 
   // ── PATIENTS — roster + per-patient surfaces ─────────────────────────────────
   { section: 'Patients', sectionId: 'patients-section', collapsed: false },
   { id: 'patients-v2',        label: 'Patients',          icon: '👥' },
   { id: 'assessments-v2',     label: 'Assessments',       icon: '◉' },
-  { id: 'deeptwin',           label: 'DeepTwin',          icon: 'BT', ai: true },
-  { id: 'monitor',            label: 'Devices',           icon: '🔌' },
-
-  // ── ANALYZERS — single canonical entry point for every signal modality.
-  // Sits before Protocol Studio because clinicians run analyzers WHEN
-  // building / reviewing a protocol. The duplicate per-modality entries
-  // that used to live under Clinical / Protocol have been removed so each
-  // analyzer has exactly one place to live. Backed by analyzer routers in
-  // `apps/api/app/routers/`.
-  { section: 'Analyzers', sectionId: 'analyzers', collapsed: false },
-  { id: 'mri-analysis',       label: 'MRI',          icon: '🧠', ai: true },
-  { id: 'qeeg-analysis',      label: 'qEEG',         icon: '📊', ai: true },
-  { id: 'voice-analyzer',     label: 'Voice',        icon: '🎙️', ai: true },
-  { id: 'video-assessments',  label: 'Video',        icon: '🎥' },
-  { id: 'text-analyzer',      label: 'Text',         icon: '📝', ai: true },
-  { id: 'wearables',          label: 'Biometrics',   icon: '⌚' },
-  { id: 'risk-analyzer',      label: 'Risk',         icon: '🛡️' },
-  { id: 'medication-analyzer', label: 'Medication',  icon: '💊' },
-  { id: 'treatment-sessions-analyzer', label: 'Sessions', icon: '🗓️' },
-  { id: 'phenotype-analyzer', label: 'Phenotype', icon: '🧬', ai: true },
-  { id: 'movement-analyzer', label: 'Movement', icon: '🏃', ai: true },
-  { id: 'labs-analyzer',     label: 'Labs',      icon: '🧪', ai: true },
-  { id: 'nutrition-analyzer', label: 'Nutrition', icon: '🥗', ai: true },
-  { id: 'digital-phenotyping-analyzer', label: 'Behavior', icon: '📱', ai: true },
+  { id: 'documents-v2',       label: 'Documents',         icon: '📄' },
+  { id: 'live-session',       label: 'Virtual Care',      icon: '📹', ai: true },
 
   // ── PROTOCOL — design / review treatment plans ───────────────────────────────
   { section: 'Protocol', sectionId: 'protocol', collapsed: false },
@@ -562,21 +537,42 @@ const NAV = [
   { id: 'handbooks-v2',       label: 'Handbooks',         icon: '📚' },
   { id: 'research-evidence',  label: 'Research Evidence', icon: '🔬', ai: true },
 
-  // ── SESSIONS — live patient interactions ─────────────────────────────────────
-  { section: 'Sessions', sectionId: 'sessions', collapsed: false },
-  { id: 'live-session',       label: 'Virtual Care',      icon: '📹', ai: true },
+  // ── ANALYZERS — single canonical entry point for every signal modality.
+  // Clinicians run analyzers when building / reviewing a protocol. The
+  // duplicate per-modality entries that used to live under Clinical /
+  // Protocol have been removed so each analyzer has exactly one place to
+  // live. Backed by analyzer routers in `apps/api/app/routers/`.
+  { section: 'Analyzers', sectionId: 'analyzers', collapsed: false },
+  { id: 'deeptwin',           label: 'DeepTwin',          icon: 'BT', ai: true },
+  { id: 'mri-analysis',       label: 'MRI',          icon: '🧠', ai: true },
+  { id: 'qeeg-analysis',      label: 'qEEG',         icon: '📊', ai: true },
+  { id: 'voice-analyzer',     label: 'Voice',        icon: '🎙️', ai: true },
+  { id: 'video-assessments',  label: 'Video',        icon: '🎥', ai: true },
+  { id: 'text-analyzer',      label: 'Text',         icon: '📝', ai: true },
+  { id: 'wearables',          label: 'Biometrics',   icon: '⌚', ai: true },
+  { id: 'risk-analyzer',      label: 'Risk',         icon: '🛡️', ai: true },
+  { id: 'medication-analyzer', label: 'Medication',  icon: '💊', ai: true },
+  { id: 'treatment-sessions-analyzer', label: 'Sessions', icon: '🗓️', ai: true },
+  { id: 'phenotype-analyzer', label: 'Phenotype', icon: '🧬', ai: true },
+  { id: 'movement-analyzer', label: 'Movement', icon: '🏃', ai: true },
+  { id: 'labs-analyzer',     label: 'Labs',      icon: '🧪', ai: true },
+  { id: 'nutrition-analyzer', label: 'Nutrition', icon: '🥗', ai: true },
+  { id: 'digital-phenotyping-analyzer', label: 'Behavior', icon: '📱', ai: true },
+
+  // ── MARKETPLACE — devices, agents, apps & learning ──────────────────────────
+  { section: 'Marketplace', sectionId: 'marketplace-section', collapsed: false },
+  { id: 'monitor',            label: 'Devices',           icon: '🔌' },
+  { id: 'ai-agent-v2',        label: 'AI Agents',         icon: '🤖', ai: true },
+  { id: 'marketplace',        label: 'Marketplace',       icon: '🛒' },
+  { id: 'academy',            label: 'Academy',           icon: '🎓' },
 
   // ── ADMIN — clinic operations (collapsed by default; doctors rarely live here)
   { section: 'Admin', sectionId: 'admin', collapsed: true },
-  { id: 'documents-v2',       label: 'Documents',         icon: '📄' },
   { id: 'reports-v2',         label: 'Reports',           icon: '📈' },
   { id: 'finance-v2',         label: 'Finance',           icon: '💰' },
-  { id: 'ai-agent-v2',        label: 'AI Practice Agents', icon: '🤖', ai: true },
   // Research has moved into Reports (Reports → Research tab).
   // Settings is rendered pinned at the sidebar bottom (outside NAV sections).
   { id: 'tickets',            label: 'Tickets',           icon: '🎫' },
-  { id: 'academy',            label: 'Academy',           icon: '🎓' },
-  { id: 'marketplace',        label: 'Marketplace',       icon: '🛒' },
 ];
 
 // ── Lucide-style SVG icons for nav items ──────────────────────────────────────
@@ -668,8 +664,8 @@ const SECTION_LABELS = {
   clinical:           'Today',
   'patients-section': 'Patients',
   protocol:           'Protocol',
-  sessions:           'Sessions',
   analyzers:          'Analyzers',
+  'marketplace-section': 'Marketplace',
   admin:              'Admin',
   // Legacy section ids retained so any other consumer that looks them up still works.
   'patient-care':  'Patient Care',
@@ -690,8 +686,8 @@ const SECTION_LABELS = {
 const NAV_SECTION_TINTS = {
   clinical:  'var(--nav-section-clinical)',  // blue   — patient triage / inbox / dashboard
   protocol:  'var(--nav-section-protocol)',  // amber  — protocol design / brain-map planning
-  sessions:  'var(--nav-section-sessions)',  // rose   — live virtual care / video assessments
   analyzers: 'var(--nav-section-analyzers)', // violet — AI analyzer launchpad (MRI / qEEG / Voice / Text)
+  'marketplace-section': 'var(--nav-section-marketplace)', // teal — devices, agents, apps & learning
   admin:     'var(--nav-section-admin)',     // slate  — neutral on purpose; admin items shouldn't compete
 };
 
@@ -891,11 +887,13 @@ function renderNav() {
       if (n.id === 'admin' && currentUser?.role !== 'admin') return;
       if (hiddenForRole.includes(n.id)) return;
 
+      const isAnalyzerSection = sectionId === 'analyzers';
       const badge = n.badge != null
         ? (String(n.badge).startsWith('!')
             ? `<span class="nav-badge" style="background:rgba(255,107,107,0.2);color:var(--red);border-color:rgba(255,107,107,0.3)">${String(n.badge).slice(1)}</span>`
             : `<span class="nav-badge">${n.badge}</span>`)
-        : n.ai ? `<span class="nav-badge-ai">AI</span>` : '';
+        : (n.ai ? `<span class="nav-badge-ai">AI</span>` : '')
+          + (isAnalyzerSection ? `<span class="nav-badge-res">RES</span>` : '');
 
       const iconHtml = NAV_ICONS[n.id]
         ? `<span class="nav-icon" aria-hidden="true">${NAV_ICONS[n.id]}</span>`

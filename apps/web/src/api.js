@@ -60,6 +60,28 @@ function _isDemoSession() {
     return !!(t && t.endsWith('-demo-token'));
   } catch { return false; }
 }
+
+// ── Demo inbox items (shared between inbox + digest shims) ──────────────────
+const _DEMO_INBOX_ITEMS = [
+  { event_id: 'demo-inbox-1', surface: 'adherence_events', event_type: 'adherence.missed_session', note: 'Patient missed 3rd consecutive NFB session. Protocol requires escalation after 2 consecutive misses.', actor_id: 'system', patient_id: 'demo-pt-samantha-li', created_at: new Date(Date.now() - 3600000).toISOString(), is_acknowledged: false, is_demo: true },
+  { event_id: 'demo-inbox-2', surface: 'wearables', event_type: 'wearable.anomaly_detected', note: 'HRV dropped below baseline by 2.3 SD overnight. Sleep efficiency 52% (norm >85%). Possible autonomic stress response.', actor_id: 'system', patient_id: 'demo-pt-marcus-chen', created_at: new Date(Date.now() - 5400000).toISOString(), is_acknowledged: false, is_demo: true },
+  { event_id: 'demo-inbox-3', surface: 'adverse_events_hub', event_type: 'ae.new_report', note: 'Patient reported persistent headache (4/10) following rTMS session #8. Duration >24h. Grade 1 AE logged.', actor_id: 'system', patient_id: 'demo-pt-elena-vasquez', created_at: new Date(Date.now() - 9000000).toISOString(), is_acknowledged: false, is_demo: true },
+  { event_id: 'demo-inbox-4', surface: 'patient_messages', event_type: 'message.urgent', note: 'Urgent message from patient: "Feeling very dizzy since yesterday, should I continue home exercises?"', actor_id: 'demo-pt-samantha-li', patient_id: 'demo-pt-samantha-li', created_at: new Date(Date.now() - 14400000).toISOString(), is_acknowledged: false, is_demo: true },
+  { event_id: 'demo-inbox-5', surface: 'home_program_tasks', event_type: 'task.overdue', note: 'Home program task "Daily mindfulness breathing (10 min)" overdue by 3 days. Adherence trend declining.', actor_id: 'system', patient_id: 'demo-pt-marcus-chen', created_at: new Date(Date.now() - 21600000).toISOString(), is_acknowledged: true, is_demo: true },
+  { event_id: 'demo-inbox-6', surface: 'wearables_workbench', event_type: 'wearable.threshold_breach', note: 'Cortisol proxy elevated 1.8 SD above 30-day rolling mean. Combined with sleep disruption — flag for clinical review.', actor_id: 'system', patient_id: 'demo-pt-elena-vasquez', created_at: new Date(Date.now() - 28800000).toISOString(), is_acknowledged: true, is_demo: true },
+];
+const _DEMO_PT_NAMES = { 'demo-pt-samantha-li': 'Samantha Li', 'demo-pt-marcus-chen': 'Marcus Chen', 'demo-pt-elena-vasquez': 'Elena Vasquez' };
+function _buildDemoInboxGroups() {
+  const grouped = {};
+  _DEMO_INBOX_ITEMS.forEach(item => {
+    const pid = item.patient_id || '_unassigned';
+    if (!grouped[pid]) grouped[pid] = { patient_id: pid, patient_name: _DEMO_PT_NAMES[pid] || pid, items: [], item_count: 0, unread_count: 0, is_demo: true };
+    grouped[pid].items.push(item);
+    grouped[pid].item_count++;
+    if (!item.is_acknowledged) grouped[pid].unread_count++;
+  });
+  return Object.values(grouped);
+}
 function _mriDemoLongitudinalCompare(baselineId, followupId) {
   return {
     demo: true,
@@ -91,6 +113,58 @@ function _mriDemoLongitudinalCompare(baselineId, followupId) {
 }
 
 function _demoSyntheticResponse(path, method) {
+  // ── Clinician Inbox demo data ───────────────────────────────────────────────
+  if (path.match(/^\/api\/v1\/clinician-inbox\/items/) && (!method || method === 'GET')) {
+    return {
+      items: _DEMO_INBOX_ITEMS,
+      grouped: _buildDemoInboxGroups(),
+      total: _DEMO_INBOX_ITEMS.length,
+      is_demo_view: true,
+    };
+  }
+  if (path === '/api/v1/clinician-inbox/summary' && (!method || method === 'GET')) {
+    return {
+      high_priority_unread: _DEMO_INBOX_ITEMS.filter(i => !i.is_acknowledged).length,
+      last_24h: 5,
+      last_7d: _DEMO_INBOX_ITEMS.length,
+      by_surface: { adherence_events: 1, wearables: 1, adverse_events_hub: 1, patient_messages: 1, home_program_tasks: 1, wearables_workbench: 1 },
+      is_demo_view: true,
+    };
+  }
+  // ── Clinician Daily Digest demo data ────────────────────────────────────────
+  if (path.match(/^\/api\/v1\/clinician-digest\/summary/) && (!method || method === 'GET')) {
+    const now = new Date();
+    const shiftStart = new Date(now); shiftStart.setHours(now.getHours() - 8);
+    return {
+      handled: 14, escalated: 2, paged: 1, open: 3, sla_breached: 1,
+      since: shiftStart.toISOString(), until: now.toISOString(),
+      is_demo_view: true,
+    };
+  }
+  if (path.match(/^\/api\/v1\/clinician-digest\/sections/) && (!method || method === 'GET')) {
+    return {
+      sections: [
+        { surface: 'clinician_inbox', handled: 6, escalated: 1, paged: 0, open: 1, sla_breached: 0, top_patients: [{ patient_id: 'demo-pt-samantha-li', patient_name: 'Samantha Li', event_count: 3 }, { patient_id: 'demo-pt-marcus-chen', patient_name: 'Marcus Chen', event_count: 2 }] },
+        { surface: 'adherence_events', handled: 3, escalated: 0, paged: 0, open: 1, sla_breached: 0, top_patients: [{ patient_id: 'demo-pt-marcus-chen', patient_name: 'Marcus Chen', event_count: 2 }] },
+        { surface: 'wearables_workbench', handled: 2, escalated: 1, paged: 1, open: 0, sla_breached: 1, top_patients: [{ patient_id: 'demo-pt-elena-vasquez', patient_name: 'Elena Vasquez', event_count: 2 }] },
+        { surface: 'adverse_events_hub', handled: 3, escalated: 0, paged: 0, open: 1, sla_breached: 0, top_patients: [{ patient_id: 'demo-pt-elena-vasquez', patient_name: 'Elena Vasquez', event_count: 1 }] },
+      ],
+      is_demo_view: true,
+    };
+  }
+  if (path.match(/^\/api\/v1\/clinician-digest\/events/) && (!method || method === 'GET')) {
+    return {
+      items: [
+        { event_id: 'cdg-1', surface: 'clinician_inbox', event_type: 'inbox.acknowledged', note: 'Acknowledged urgent wearable alert for Samantha Li — HRV anomaly reviewed, no intervention needed.', actor_id: 'clinician-2', patient_id: 'demo-pt-samantha-li', created_at: new Date(Date.now() - 3600000).toISOString() },
+        { event_id: 'cdg-2', surface: 'adverse_events_hub', event_type: 'ae.escalated', note: 'Escalated Grade 1 AE (persistent headache post-rTMS) for Elena Vasquez — forwarded to attending.', actor_id: 'clinician-2', patient_id: 'demo-pt-elena-vasquez', created_at: new Date(Date.now() - 7200000).toISOString() },
+        { event_id: 'cdg-3', surface: 'wearables_workbench', event_type: 'wearable.paged', note: 'On-call paged for cortisol proxy breach (1.8 SD) combined with sleep disruption — Elena Vasquez.', actor_id: 'system', patient_id: 'demo-pt-elena-vasquez', created_at: new Date(Date.now() - 10800000).toISOString() },
+        { event_id: 'cdg-4', surface: 'adherence_events', event_type: 'adherence.resolved', note: 'Marcus Chen resumed home program tasks after missed-session escalation. 3-day gap resolved.', actor_id: 'clinician-2', patient_id: 'demo-pt-marcus-chen', created_at: new Date(Date.now() - 14400000).toISOString() },
+        { event_id: 'cdg-5', surface: 'clinician_inbox', event_type: 'inbox.bulk_acknowledged', note: 'Bulk-acknowledged 4 routine wearable data-sync confirmations.', actor_id: 'clinician-2', patient_id: null, created_at: new Date(Date.now() - 18000000).toISOString() },
+      ],
+      is_demo_view: true,
+    };
+  }
+  // ── MRI compare ─────────────────────────────────────────────────────────────
   const compare = path.match(/^\/api\/v1\/mri\/compare\/([^/]+)\/([^/?]+)/);
   if (compare && (!method || method === 'GET')) {
     return _mriDemoLongitudinalCompare(

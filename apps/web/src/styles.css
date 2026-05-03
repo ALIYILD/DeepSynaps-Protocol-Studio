@@ -407,6 +407,18 @@ nav { flex: 1; overflow-y: auto; padding: 10px 0; }
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
+.nav-badge-res {
+  margin-left: 4px;
+  background: rgba(155,127,255,0.10);
+  color: var(--violet, #9b7fff);
+  border: 1px solid rgba(155,127,255,0.28);
+  font-size: var(--text-xs);
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
 .user-bar {
   padding: 14px 16px;
   border-top: 1px solid var(--border);
@@ -9505,29 +9517,29 @@ body.light-theme .logo-wrap { border-bottom-color: rgba(0,0,0,0.08); }
    Section → tint:
      clinical   → blue   (--nav-section-clinical)
      protocol   → amber  (--nav-section-protocol)
-     sessions   → rose   (--nav-section-sessions)
      analyzers  → violet (--nav-section-analyzers)
+     marketplace→ teal   (--nav-section-marketplace)
      admin      → slate  (--nav-section-admin)  — neutral on purpose
 */
 :root {
   --nav-section-clinical:  var(--blue);
   --nav-section-protocol:  var(--amber);
-  --nav-section-sessions:  var(--rose);
   --nav-section-analyzers: var(--violet);
+  --nav-section-marketplace: var(--teal);
   --nav-section-admin:     var(--text-tertiary);
 }
 [data-section="clinical"]  .nav-item:not(.active) .nav-icon { color: var(--nav-section-clinical);  opacity: 0.85; }
 [data-section="protocol"]  .nav-item:not(.active) .nav-icon { color: var(--nav-section-protocol);  opacity: 0.85; }
-[data-section="sessions"]  .nav-item:not(.active) .nav-icon { color: var(--nav-section-sessions);  opacity: 0.85; }
 [data-section="analyzers"] .nav-item:not(.active) .nav-icon { color: var(--nav-section-analyzers); opacity: 0.85; }
+[data-section="marketplace-section"] .nav-item:not(.active) .nav-icon { color: var(--nav-section-marketplace); opacity: 0.85; }
 [data-section="admin"]     .nav-item:not(.active) .nav-icon { color: var(--nav-section-admin);     opacity: 0.7;  }
 /* Hover lifts saturation slightly without competing with the active state. */
 [data-section] .nav-item:not(.active):hover .nav-icon { opacity: 1; }
 /* Section header label dot — tint each visible section (same hues as icons). */
 [data-section="clinical"]  .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--nav-section-clinical);  margin-right:7px; vertical-align:middle; opacity:0.85; }
 [data-section="protocol"]  .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--nav-section-protocol);  margin-right:7px; vertical-align:middle; opacity:0.85; }
-[data-section="sessions"]  .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--nav-section-sessions);  margin-right:7px; vertical-align:middle; opacity:0.85; }
 [data-section="analyzers"] .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--nav-section-analyzers); margin-right:7px; vertical-align:middle; opacity:0.85; }
+[data-section="marketplace-section"] .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--nav-section-marketplace); margin-right:7px; vertical-align:middle; opacity:0.85; }
 [data-section="admin"]     .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--nav-section-admin);     margin-right:7px; vertical-align:middle; opacity:0.7;  }
 
 /* ── End Sidebar Redesign ─────────────────────────────────────────────────────── */

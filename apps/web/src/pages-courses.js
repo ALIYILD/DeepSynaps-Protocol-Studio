@@ -12407,7 +12407,7 @@ function _cahGroupByPatient(items) {
 }
 
 export async function pgClinicianAdherenceHub(setTopbar, navigate) {
-  const el = document.getElementById('app');
+  const el = document.getElementById('content');
   if (!el) return;
 
   if (typeof setTopbar === 'function') {
@@ -12975,7 +12975,7 @@ function _cwhGroupByPatient(items) {
 }
 
 export async function pgClinicianWellnessHub(setTopbar, navigate) {
-  const el = document.getElementById('app');
+  const el = document.getElementById('content');
   if (!el) return;
 
   if (typeof setTopbar === 'function') {
@@ -13533,7 +13533,7 @@ const _cdgState = {
 };
 
 export async function pgClinicianDailyDigest(setTopbar, navigate) {
-  const el = document.getElementById('app');
+  const el = document.getElementById('content');
   if (!el) return;
 
   if (typeof setTopbar === 'function') {

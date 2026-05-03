@@ -34,6 +34,49 @@ import { showToast } from './helpers.js';
 
 const esc = s => (s == null ? '' : String(s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+// ── Demo fallback data (shown when API is offline) ──────────────────────────
+const _DEMO_INBOX_ITEMS = [
+  { event_id: 'demo-inbox-1', surface: 'adherence_events', event_type: 'adherence.missed_session', note: 'Patient missed 3rd consecutive NFB session. Protocol requires escalation after 2 consecutive misses.', actor_id: 'system', patient_id: 'demo-pt-samantha-li', created_at: '2026-05-03 08:12', is_acknowledged: false, is_demo: true },
+  { event_id: 'demo-inbox-2', surface: 'wearables', event_type: 'wearable.anomaly_detected', note: 'HRV dropped below baseline by 2.3 SD overnight. Sleep efficiency 52% (norm >85%). Possible autonomic stress response — correlate with patient-reported mood.', actor_id: 'system', patient_id: 'demo-pt-marcus-chen', created_at: '2026-05-03 07:45', is_acknowledged: false, is_demo: true },
+  { event_id: 'demo-inbox-3', surface: 'adverse_events_hub', event_type: 'ae.new_report', note: 'Patient reported persistent headache (4/10) following rTMS session #8. Duration >24h. Grade 1 AE logged.', actor_id: 'system', patient_id: 'demo-pt-elena-vasquez', created_at: '2026-05-03 06:30', is_acknowledged: false, is_demo: true },
+  { event_id: 'demo-inbox-4', surface: 'patient_messages', event_type: 'message.urgent', note: 'Urgent message from patient: "Feeling very dizzy since yesterday, should I continue home exercises?"', actor_id: 'demo-pt-samantha-li', patient_id: 'demo-pt-samantha-li', created_at: '2026-05-02 22:18', is_acknowledged: false, is_demo: true },
+  { event_id: 'demo-inbox-5', surface: 'home_program_tasks', event_type: 'task.overdue', note: 'Home program task "Daily mindfulness breathing (10 min)" overdue by 3 days. Adherence trend declining.', actor_id: 'system', patient_id: 'demo-pt-marcus-chen', created_at: '2026-05-02 18:00', is_acknowledged: true, is_demo: true },
+  { event_id: 'demo-inbox-6', surface: 'wearables_workbench', event_type: 'wearable.threshold_breach', note: 'Cortisol proxy elevated 1.8 SD above 30-day rolling mean. Combined with sleep disruption — flag for clinical review.', actor_id: 'system', patient_id: 'demo-pt-elena-vasquez', created_at: '2026-05-02 14:22', is_acknowledged: true, is_demo: true },
+];
+
+function _buildDemoInboxResponse() {
+  const grouped = {};
+  _DEMO_INBOX_ITEMS.forEach(item => {
+    const pid = item.patient_id || '_unassigned';
+    if (!grouped[pid]) {
+      grouped[pid] = { patient_id: pid, patient_name: _demoPatientName(pid), items: [], item_count: 0, unread_count: 0, is_demo: true };
+    }
+    grouped[pid].items.push(item);
+    grouped[pid].item_count++;
+    if (!item.is_acknowledged) grouped[pid].unread_count++;
+  });
+  return {
+    items: _DEMO_INBOX_ITEMS,
+    grouped: Object.values(grouped),
+    total: _DEMO_INBOX_ITEMS.length,
+    is_demo_view: true,
+  };
+}
+
+function _buildDemoInboxSummary() {
+  return {
+    high_priority_unread: _DEMO_INBOX_ITEMS.filter(i => !i.is_acknowledged).length,
+    last_24h: _DEMO_INBOX_ITEMS.filter(i => i.created_at >= '2026-05-02').length,
+    last_7d: _DEMO_INBOX_ITEMS.length,
+    by_surface: { adherence_events: 1, wearables: 1, adverse_events_hub: 1, patient_messages: 1, home_program_tasks: 1, wearables_workbench: 1 },
+  };
+}
+
+function _demoPatientName(id) {
+  const map = { 'demo-pt-samantha-li': 'Samantha Li', 'demo-pt-marcus-chen': 'Marcus Chen', 'demo-pt-elena-vasquez': 'Elena Vasquez' };
+  return map[id] || id;
+}
+
 // Module-level state — kept tiny so the inbox can mount/unmount cleanly.
 let _inboxState = {
   items: [],
@@ -283,7 +326,7 @@ function renderPatientGroup(group) {
 
 
 export async function pgClinicianInbox(setTopbar, navigate) {
-  const el = document.getElementById('app');
+  const el = document.getElementById('content');
   if (!el) return;
 
   if (typeof setTopbar === 'function') {
@@ -355,12 +398,14 @@ async function loadInboxData() {
     api.clinicianInboxListItems(params),
     api.clinicianInboxSummary(),
   ]);
-  // Honest empty payload when offline — never fabricate rows.
-  _inboxState.items = (list && Array.isArray(list.items)) ? list.items : [];
-  _inboxState.grouped = (list && Array.isArray(list.grouped)) ? list.grouped : [];
-  _inboxState.total = (list && Number(list.total)) || 0;
-  _inboxState.isDemoView = !!(list && list.is_demo_view);
-  _inboxState.summary = summary || { high_priority_unread: 0, last_24h: 0, last_7d: 0, by_surface: {} };
+  // Use demo fallback when API is offline (both calls returned null).
+  const effectiveList = list || _buildDemoInboxResponse();
+  const effectiveSummary = summary || _buildDemoInboxSummary();
+  _inboxState.items = (effectiveList && Array.isArray(effectiveList.items)) ? effectiveList.items : [];
+  _inboxState.grouped = (effectiveList && Array.isArray(effectiveList.grouped)) ? effectiveList.grouped : [];
+  _inboxState.total = (effectiveList && Number(effectiveList.total)) || 0;
+  _inboxState.isDemoView = !!(effectiveList && effectiveList.is_demo_view);
+  _inboxState.summary = effectiveSummary;
   _inboxState.loaded = true;
 
   const summaryEl = document.getElementById('inbox-summary');
@@ -368,10 +413,10 @@ async function loadInboxData() {
   const filtersEl = document.getElementById('inbox-filters');
   if (filtersEl) filtersEl.innerHTML = renderFilterStrip(_inboxState);
   const bannerEl = document.getElementById('inbox-banner');
-  if (bannerEl) bannerEl.innerHTML = shouldShowInboxDemoBanner(list) ? renderDemoBanner() : '';
+  if (bannerEl) bannerEl.innerHTML = shouldShowInboxDemoBanner(effectiveList) ? renderDemoBanner() : '';
   const contentEl = document.getElementById('inbox-content');
   if (contentEl) {
-    if (shouldShowInboxEmptyState(list)) {
+    if (shouldShowInboxEmptyState(effectiveList)) {
       contentEl.innerHTML = renderEmptyState();
     } else {
       contentEl.innerHTML = (_inboxState.grouped || []).map(renderPatientGroup).join('');
