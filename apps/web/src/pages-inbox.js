@@ -34,7 +34,8 @@ import { showToast } from './helpers.js';
 
 const esc = s => (s == null ? '' : String(s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-// ── Demo fallback data (shown when API is offline) ──────────────────────────
+// ── Demo fallback data (ONLY when isDemoSession() AND inbox GETs failed) ───
+// Real clinician JWT sessions never use this path — failed API → error + Retry.
 const _DEMO_INBOX_ITEMS = [
   { event_id: 'demo-inbox-1', surface: 'adherence_events', event_type: 'adherence.missed_session', note: 'Patient missed 3rd consecutive NFB session. Protocol requires escalation after 2 consecutive misses.', actor_id: 'system', patient_id: 'demo-pt-samantha-li', created_at: '2026-05-03 08:12', is_acknowledged: false, is_demo: true },
   { event_id: 'demo-inbox-2', surface: 'wearables', event_type: 'wearable.anomaly_detected', note: 'HRV dropped below baseline by 2.3 SD overnight. Sleep efficiency 52% (norm >85%). Possible autonomic stress response — correlate with patient-reported mood.', actor_id: 'system', patient_id: 'demo-pt-marcus-chen', created_at: '2026-05-03 07:45', is_acknowledged: false, is_demo: true },
@@ -78,6 +79,9 @@ function _demoPatientName(id) {
 }
 
 // Module-level state — kept tiny so the inbox can mount/unmount cleanly.
+/** Set on each `pgClinicianInbox` mount so polling can re-bind UI without passing navigate through every await. */
+let _inboxNavigate = null;
+
 let _inboxState = {
   items: [],
   grouped: [],
@@ -91,6 +95,8 @@ let _inboxState = {
   pollMountGen: 0,
   loaded: false,
   error: null,
+  /** Last refresh failure while stale rows were kept (polling). */
+  staleRefreshError: null,
   /** @type {'all'|'messages'|'adherence'|'wearables'|'safety'|'protocol'|'intake'|'other'} */
   activeCategory: 'all',
   searchQuery: '',
@@ -303,16 +309,59 @@ function _applyClientFilters(items) {
   );
 }
 
+/** Re-render list UI from `_inboxState.items` without fetching (search/category are client-side). */
+function refreshInboxDomNav(navigate) {
+  const filteredItems = _applyClientFilters(_inboxState.items);
+  _inboxState.grouped = groupInboxItemsByPatient(filteredItems);
+  const counts = _categoryCounts(_inboxState.items);
+
+  const summaryEl = document.getElementById('inbox-summary');
+  if (summaryEl) summaryEl.innerHTML = renderSummaryStrip(_inboxState.summary);
+
+  const catEl = document.getElementById('inbox-categories');
+  if (catEl) catEl.innerHTML = renderCategoryTabs(_inboxState, counts);
+
+  const filtersEl = document.getElementById('inbox-filters');
+  if (filtersEl) filtersEl.innerHTML = renderFilterStrip(_inboxState);
+
+  const bannerEl = document.getElementById('inbox-banner');
+  if (bannerEl) {
+    bannerEl.innerHTML = shouldShowInboxDemoBanner({ is_demo_view: _inboxState.isDemoView, items: _inboxState.items })
+      ? renderDemoBanner()
+      : '';
+  }
+
+  const connEl = document.getElementById('inbox-connection');
+  if (connEl) connEl.innerHTML = '';
+
+  const staleEl = document.getElementById('inbox-stale');
+  if (staleEl) staleEl.innerHTML = renderStaleRefreshBanner(_inboxState.staleRefreshError);
+
+  const contentEl = document.getElementById('inbox-content');
+  if (contentEl) {
+    const emptySource = { items: filteredItems };
+    if (shouldShowInboxEmptyState(emptySource)) {
+      contentEl.innerHTML = renderEmptyState();
+    } else {
+      contentEl.innerHTML = (_inboxState.grouped || []).map(renderPatientGroup).join('');
+    }
+  }
+
+  bindFilterHandlers(navigate);
+  bindRowHandlers(navigate);
+}
+
 
 // ── Renderer ────────────────────────────────────────────────────────────────
 
 
 function renderSafetyDisclaimer() {
   return `
-    <div style="margin:0 0 14px;padding:12px 14px;border-radius:10px;background:rgba(59,130,246,0.06);border:1px solid var(--border);font-size:12px;line-height:1.55;color:var(--text-secondary)">
-      <strong style="color:var(--text-primary)">Clinician-in-the-loop decision support.</strong>
-      This queue surfaces HIGH-priority audit signals for review; it does not diagnose, prescribe, or automate clinical decisions.
-      AI-assisted outputs elsewhere in the product remain drafts until you document review.
+    <div id="inbox-scope-note" style="margin:0 0 14px;padding:14px 16px;border-radius:10px;background:rgba(59,130,246,0.06);border:1px solid var(--border);font-size:12px;line-height:1.6;color:var(--text-secondary)">
+      <strong style="color:var(--text-primary);display:block;margin-bottom:6px">Scope: clinical work queue (audit signals)</strong>
+      This inbox lists <strong>HIGH-priority</strong> items aggregated from clinic <strong>audit and activity mirrors</strong> in connected patient surfaces (messages, adherence, wearables, adverse events, etc.). It is <strong>decision support only</strong>—not autonomous diagnosis, prescription, dosing, or treatment planning.
+      <span style="display:block;margin-top:8px"><strong>Not an emergency triage system</strong> — use your institution&apos;s emergency protocols for urgent or life-threatening concerns.</span>
+      <span style="display:block;margin-top:8px">MRI, qEEG, video, biometric <strong>analysis jobs</strong> appear here only if those modules emit qualifying audit/activity events into this feed—or when a future unified queue exists.</span>
     </div>`;
 }
 
@@ -324,7 +373,7 @@ function renderEmptyState() {
         Inbox clear — no matching HIGH-priority items
       </div>
       <div style="font-size:12px;color:var(--text-tertiary);max-width:520px;margin:0 auto;line-height:1.5">
-        When patients trigger urgent mirrors (messages, adherence, wearables, adverse events), they appear here for triage. Adjust filters or search if you expected to see work.
+        When connected surfaces emit HIGH-priority audit mirrors, they appear here for clinician review (not emergency routing—use your institution&apos;s emergency workflow for life-threatening concerns). Narrow filters or search if you expected rows.
       </div>
     </div>`;
 }
@@ -343,7 +392,21 @@ function renderConnectionBanner(isDemoPreview, loadError) {
     <div role="alert" style="margin:12px 0;padding:10px 14px;border-radius:10px;background:rgba(239,68,68,0.08);border:1px solid var(--red);color:var(--text-secondary);font-size:12.5px;line-height:1.45">
       <strong style="color:var(--red)">${offline ? 'Offline or unreachable API.' : 'Could not refresh inbox.'}</strong>
       ${esc(loadError)}
-      ${isDemoPreview ? '<div style="margin-top:6px;font-size:11px;color:var(--text-tertiary)">Demo preview: showing labelled sample items below. Live clinicians should use a signed-in session with API connectivity.</div>' : ''}
+      ${isDemoPreview ? '<div style="margin-top:6px;font-size:11px;color:var(--text-tertiary)">Demo preview: labelled sample rows below are synthetic. Production clinicians use a real API session—demo rows never replace live data.</div>' : ''}
+    </div>`;
+}
+
+/** Shown when a background refresh failed but previously loaded rows are kept. */
+function renderStaleRefreshBanner(loadError) {
+  if (!loadError) return '';
+  return `
+    <div role="status" style="margin:12px 0;padding:10px 14px;border-radius:10px;background:rgba(245,158,11,0.08);border:1px solid var(--amber);color:var(--text-secondary);font-size:12.5px;line-height:1.45">
+      <strong style="color:var(--amber)">Refresh failed — showing last loaded items.</strong>
+      ${esc(loadError)}
+      <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+        <button type="button" id="inbox-refresh-retry-btn" style="padding:6px 12px;border-radius:6px;background:var(--surface-1);border:1px solid var(--amber);color:var(--text-primary);font-size:12px;font-weight:600;cursor:pointer">Retry refresh</button>
+        <span style="font-size:11px;color:var(--text-tertiary)">Acknowledgements and exports still require a live API.</span>
+      </div>
     </div>`;
 }
 
@@ -500,6 +563,8 @@ export async function pgClinicianInbox(setTopbar, navigate) {
   const el = document.getElementById('content');
   if (!el) return;
 
+  _inboxNavigate = navigate;
+
   if (typeof setTopbar === 'function') {
     setTopbar(
       'Clinician Inbox',
@@ -527,6 +592,7 @@ export async function pgClinicianInbox(setTopbar, navigate) {
       <div id="inbox-filters"></div>
       <div id="inbox-banner"></div>
       <div id="inbox-connection"></div>
+      <div id="inbox-stale"></div>
       <div id="inbox-content">
         <div role="status" style="text-align:center;padding:48px 24px;color:var(--text-tertiary);font-size:13px">Loading clinician inbox…</div>
       </div>
@@ -535,10 +601,7 @@ export async function pgClinicianInbox(setTopbar, navigate) {
   const discEl = document.getElementById('inbox-disclaimer');
   if (discEl) discEl.innerHTML = renderSafetyDisclaimer();
 
-  await loadInboxData();
-
-  bindFilterHandlers(navigate);
-  bindRowHandlers(navigate);
+  await loadInboxData(navigate);
 
   if (typeof window !== 'undefined') {
     _inboxState.pollHandle = window.setInterval(() => {
@@ -546,46 +609,54 @@ export async function pgClinicianInbox(setTopbar, navigate) {
       try {
         api.postClinicianInboxAuditEvent(buildInboxAuditPayload('polling_tick'));
       } catch (_) { /* ignore */ }
-      loadInboxData().then(() => {
-        bindFilterHandlers(navigate);
-        bindRowHandlers(navigate);
-      }).catch(() => { /* keep prior UI */ });
+      loadInboxData(_inboxNavigate).catch(() => { /* stale banner inside */ });
     }, 30_000);
   }
 }
 
-async function loadInboxData() {
+async function loadInboxData(navigate) {
   const root = document.getElementById('inbox-root');
   if (!root) return;
+
+  const nav = navigate || _inboxNavigate;
 
   const params = buildInboxFilterParams({
     surface: _inboxState.filterSurface,
     status: _inboxState.filterStatus,
   });
 
-  let list = null;
-  let summary = null;
-  let fetchErr = null;
+  const [ir, sr] = await Promise.allSettled([
+    api.clinicianInboxListItems(params),
+    api.clinicianInboxSummary(),
+  ]);
 
-  try {
-    [list, summary] = await Promise.all([
-      api.clinicianInboxListItems(params),
-      api.clinicianInboxSummary(),
-    ]);
-  } catch (e) {
-    fetchErr = e?.message || String(e);
-  }
+  const list = ir.status === 'fulfilled' ? ir.value : null;
+  const summary = sr.status === 'fulfilled' ? sr.value : null;
+  const itemsErr = ir.status === 'rejected' ? (ir.reason?.message || String(ir.reason)) : null;
+  const summaryErr = sr.status === 'rejected' ? (sr.reason?.message || String(sr.reason)) : null;
+  const fetchErr = [itemsErr, summaryErr].filter(Boolean).join(' · ') || null;
 
   const demoSession = typeof isDemoSession === 'function' && isDemoSession();
-  const useDemoFallback = demoSession && (!list || !summary);
+  const listOk = !!(list && Array.isArray(list.items));
+  const summaryOk = !!(summary && typeof summary === 'object');
+  const useDemoFallback = demoSession && (!listOk || !summaryOk);
 
   if (useDemoFallback) {
-    list = list || _buildDemoInboxResponse();
-    summary = summary || _buildDemoInboxSummary();
-    fetchErr = null;
+    const effList = listOk ? list : _buildDemoInboxResponse();
+    const effSummary = summaryOk ? summary : _buildDemoInboxSummary();
+    _applySuccessfulInboxPayload(effList, effSummary, demoSession, null, nav);
+    return;
   }
 
-  if (fetchErr && !useDemoFallback) {
+  if (fetchErr) {
+    const hadData = _inboxState.loaded && (_inboxState.items || []).length > 0;
+    if (hadData) {
+      _inboxState.staleRefreshError = fetchErr;
+      const staleEl = document.getElementById('inbox-stale');
+      if (staleEl) staleEl.innerHTML = renderStaleRefreshBanner(fetchErr);
+      return;
+    }
+
     _inboxState.error = fetchErr;
     _inboxState.items = [];
     _inboxState.grouped = [];
@@ -593,6 +664,7 @@ async function loadInboxData() {
     _inboxState.summary = null;
     _inboxState.isDemoView = false;
     _inboxState.loaded = true;
+    _inboxState.staleRefreshError = null;
 
     const summaryEl = document.getElementById('inbox-summary');
     if (summaryEl) summaryEl.innerHTML = '';
@@ -602,6 +674,8 @@ async function loadInboxData() {
     if (filtersEl) filtersEl.innerHTML = renderFilterStrip(_inboxState);
     const bannerEl = document.getElementById('inbox-banner');
     if (bannerEl) bannerEl.innerHTML = '';
+    const staleEl = document.getElementById('inbox-stale');
+    if (staleEl) staleEl.innerHTML = '';
     const connEl = document.getElementById('inbox-connection');
     if (connEl) connEl.innerHTML = renderConnectionBanner(demoSession, fetchErr);
     const contentEl = document.getElementById('inbox-content');
@@ -617,9 +691,12 @@ async function loadInboxData() {
     return;
   }
 
+  _applySuccessfulInboxPayload(list, summary, demoSession, null, nav);
+}
+
+function _applySuccessfulInboxPayload(effectiveList, effectiveSummary, demoSession, connectionExtraErr, navigate) {
   _inboxState.error = null;
-  const effectiveList = list;
-  const effectiveSummary = summary;
+  _inboxState.staleRefreshError = null;
 
   _inboxState.items = (effectiveList && Array.isArray(effectiveList.items)) ? effectiveList.items : [];
   _inboxState.total = (effectiveList && Number(effectiveList.total)) || _inboxState.items.length;
@@ -646,8 +723,11 @@ async function loadInboxData() {
     bannerEl.innerHTML = shouldShowInboxDemoBanner(effectiveList) ? renderDemoBanner() : '';
   }
 
+  const staleEl = document.getElementById('inbox-stale');
+  if (staleEl) staleEl.innerHTML = '';
+
   const connEl = document.getElementById('inbox-connection');
-  if (connEl) connEl.innerHTML = renderConnectionBanner(demoSession, fetchErr);
+  if (connEl) connEl.innerHTML = renderConnectionBanner(demoSession, connectionExtraErr);
 
   const contentEl = document.getElementById('inbox-content');
   if (contentEl) {
@@ -658,6 +738,9 @@ async function loadInboxData() {
       contentEl.innerHTML = (_inboxState.grouped || []).map(renderPatientGroup).join('');
     }
   }
+
+  bindFilterHandlers(navigate || _inboxNavigate);
+  bindRowHandlers(navigate || _inboxNavigate);
 }
 
 function bindFilterHandlers(navigate) {
@@ -665,10 +748,15 @@ function bindFilterHandlers(navigate) {
   if (retryBtn && !retryBtn._bound) {
     retryBtn._bound = true;
     retryBtn.onclick = () => {
-      loadInboxData().then(() => {
-        bindFilterHandlers(navigate);
-        bindRowHandlers(navigate);
-      });
+      loadInboxData(_inboxNavigate).catch(() => {});
+    };
+  }
+
+  const refreshRetryBtn = document.getElementById('inbox-refresh-retry-btn');
+  if (refreshRetryBtn && !refreshRetryBtn._bound) {
+    refreshRetryBtn._bound = true;
+    refreshRetryBtn.onclick = () => {
+      loadInboxData(_inboxNavigate).catch(() => {});
     };
   }
 
@@ -680,10 +768,7 @@ function bindFilterHandlers(navigate) {
       _inboxState.searchQuery = searchInp.value || '';
       if (t) window.clearTimeout(t);
       t = window.setTimeout(() => {
-        loadInboxData().then(() => {
-          bindFilterHandlers(navigate);
-          bindRowHandlers(navigate);
-        });
+        refreshInboxDomNav(_inboxNavigate);
       }, 180);
     });
   }
@@ -694,7 +779,7 @@ function bindFilterHandlers(navigate) {
     surfaceSel.onchange = () => {
       _inboxState.filterSurface = surfaceSel.value || '';
       try { api.postClinicianInboxAuditEvent(buildInboxAuditPayload('filter_changed', { note: 'surface=' + (_inboxState.filterSurface || 'all') })); } catch (_) {}
-      loadInboxData().then(() => { bindFilterHandlers(navigate); bindRowHandlers(navigate); });
+      loadInboxData(_inboxNavigate).catch(() => {});
     };
   }
   const statusSel = document.getElementById('inbox-filter-status');
@@ -703,7 +788,7 @@ function bindFilterHandlers(navigate) {
     statusSel.onchange = () => {
       _inboxState.filterStatus = statusSel.value || '';
       try { api.postClinicianInboxAuditEvent(buildInboxAuditPayload('filter_changed', { note: 'status=' + (_inboxState.filterStatus || 'all') })); } catch (_) {}
-      loadInboxData().then(() => { bindFilterHandlers(navigate); bindRowHandlers(navigate); });
+      loadInboxData(_inboxNavigate).catch(() => {});
     };
   }
 
@@ -714,7 +799,7 @@ function bindFilterHandlers(navigate) {
       const cat = btn.getAttribute('data-cat') || 'all';
       _inboxState.activeCategory = cat;
       try { api.postClinicianInboxAuditEvent(buildInboxAuditPayload('filter_changed', { note: 'category=' + cat })); } catch (_) {}
-      loadInboxData().then(() => { bindFilterHandlers(navigate); bindRowHandlers(navigate); });
+      refreshInboxDomNav(_inboxNavigate);
     };
   });
 
@@ -741,9 +826,7 @@ function bindFilterHandlers(navigate) {
           showToast(`Acknowledged ${r?.succeeded || ids.length} items.`, 'success');
         }
         _inboxState.selectedIds.clear();
-        await loadInboxData();
-        bindFilterHandlers(navigate);
-        bindRowHandlers(navigate);
+        await loadInboxData(_inboxNavigate);
       } catch (e) {
         const msg = e?.message || 'Bulk acknowledge failed.';
         showToast(msg, 'error');
@@ -797,9 +880,7 @@ function bindRowHandlers(navigate) {
         if (r && r.accepted) {
           showToast('Recorded acknowledgement.', 'success');
         }
-        await loadInboxData();
-        bindFilterHandlers(navigate);
-        bindRowHandlers(navigate);
+        await loadInboxData(_inboxNavigate);
       } catch (e) {
         showToast(e?.message || 'Acknowledge failed.', 'error');
       }

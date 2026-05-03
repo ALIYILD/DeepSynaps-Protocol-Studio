@@ -3466,8 +3466,10 @@ export const api = {
   // Events #350, Home Program Tasks #351, Patient Wearables #352, Wearables
   // Workbench #353). Reads the audit_events table only — no new schema.
   // Acknowledgements are stored as their own audit rows so the regulator
-  // audit transcript stays single-sourced. All helpers return null on
-  // offline / 404 so the page can render an honest empty state.
+  // audit transcript stays single-sourced.
+  // List/summary reject on network/auth failure (pages-inbox handles Retry).
+  // Demo preview (`*-demo-token` + VITE_ENABLE_DEMO): apiFetch short-circuits to
+  // `_demoSyntheticResponse` before network — never mixed with real clinician data.
   /** Same as {@link isDemoSession} — exposed on `api` for pages that import the bundle object only. */
   isDemoSession: () => _isDemoSession(),
   clinicianInboxListItems: (params = {}) => {

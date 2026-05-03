@@ -279,6 +279,14 @@ test('Source contract: pages-inbox renders honest empty state copy', () => {
   assert.equal(/AI scored/i.test(src), false);
 });
 
+test('Source contract: visible scope / safety note (work queue, not triage)', () => {
+  const src = readSrc('pages-inbox.js');
+  assert.ok(src.includes('inbox-scope-note'));
+  assert.ok(/decision support only/i.test(src));
+  assert.ok(/not an emergency triage system/i.test(src));
+  assert.ok(/not autonomous diagnosis/i.test(src));
+});
+
 test('Source contract: pages-inbox keeps drill-out map in lockstep with the test', () => {
   // The drill-out map in the page must match the mirror in this file —
   // otherwise the contract drifts silently.
@@ -289,6 +297,16 @@ test('Source contract: pages-inbox keeps drill-out map in lockstep with the test
       `pages-inbox.js drill-out map missing or drifted for surface=${surface} → ${page}`,
     );
   }
+});
+
+test('Source contract: INBOX_LIVE_READINESS note exists in repo', () => {
+  const here = path.dirname(url.fileURLToPath(import.meta.url));
+  const p = path.join(here, '..', '..', '..', 'INBOX_LIVE_READINESS.md');
+  const doc = fs.readFileSync(p, 'utf8');
+  assert.ok(doc.includes('?page=clinician-inbox'));
+  assert.ok(doc.includes('pages-inbox.js'));
+  assert.ok(doc.includes('clinician_inbox_router.py'));
+  assert.ok(doc.includes('audit_events'));
 });
 
 test('Source contract: api.js exposes the inbox helpers', () => {
