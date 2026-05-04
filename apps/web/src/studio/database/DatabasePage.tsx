@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { TemplateManager } from "../report/TemplateManager";
 import type { PatientListItem } from "./databaseApi";
 import { fetchPatientList, mergePatients } from "./databaseApi";
 import { PatientDrawer } from "./PatientDrawer";
@@ -26,6 +27,7 @@ export default function DatabasePage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mergeDup, setMergeDup] = useState("");
   const [err, setErr] = useState<string | null>(null);
+  const [reportTplOpen, setReportTplOpen] = useState(false);
 
   const load = useCallback(async () => {
     setErr(null);
@@ -95,6 +97,26 @@ export default function DatabasePage() {
           </label>
           {err ? <span style={{ color: "#a30" }}>{err}</span> : null}
         </div>
+        <details style={{ marginTop: 8, fontSize: 12 }}>
+          <summary style={{ cursor: "pointer", userSelect: "none" }}>Setup</summary>
+          <div
+            style={{
+              marginTop: 8,
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 8,
+              alignItems: "center",
+            }}
+          >
+            <button type="button" onClick={() => setReportTplOpen(true)}>
+              Final Report Templates…
+            </button>
+            <span style={{ opacity: 0.75, maxWidth: 520 }}>
+              Choose Internal (HTML→PDF) vs MS Word (.docx) in Analysis → Final Report → toolbar when
+              exporting. Templates are built-in on the API; local JSON overrides save in this browser.
+            </span>
+          </div>
+        </details>
       </header>
 
       <div style={{ flex: 1, display: "flex", minHeight: 0, position: "relative" }}>
@@ -118,6 +140,7 @@ export default function DatabasePage() {
         </main>
         <PatientDrawer patientId={selectedId} onClose={() => setSelectedId(null)} />
       </div>
+      <TemplateManager open={reportTplOpen} onOpenChange={setReportTplOpen} />
     </div>
   );
 }

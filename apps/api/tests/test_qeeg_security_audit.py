@@ -154,11 +154,11 @@ _ENDPOINTS = [
     ("POST", "/api/v1/qeeg-ai/{aid}/segment_eo_ec", {}),
     ("POST", "/api/v1/qeeg-ai/{aid}/narrate", {}),
     ("POST", "/api/v1/qeeg-ai/{aid}/copilot_assist_bundle", {}),
-    # ERP Analyzer — event-locked pipeline (same patient/clinic gate as qEEG analysis)
-    ("GET", "/api/v1/qeeg-analysis/{aid}/erp/presets", None),
-    ("POST", "/api/v1/qeeg-analysis/{aid}/erp/run", {"preset": "custom", "event_id_map": {"a": 1}}),
-    ("GET", "/api/v1/qeeg-analysis/{aid}/erp/status/00000000-0000-0000-0000-000000000001", None),
-    ("GET", "/api/v1/qeeg-analysis/{aid}/erp/result/00000000-0000-0000-0000-000000000001", None),
+    # Studio ERP — secured via ``studio_erp_router`` + ``_load_analysis`` (same gate as qEEG raw/AI)
+    ("GET", "/api/v1/studio/eeg/{aid}/erp/paradigms", None),
+    ("POST", "/api/v1/studio/eeg/{aid}/erp/compute", {}),
+    ("POST", "/api/v1/studio/eeg/{aid}/erp/erd", {}),
+    ("POST", "/api/v1/studio/eeg/{aid}/erp/wavelet", {}),
 ]
 
 
@@ -232,36 +232,5 @@ def test_invalid_analysis_id(
     )
 
 
-# ── ERP BIDS events.tsv upload (multipart — not in matrix above) ─────────────
-
-_GOOD_BIDS_TSV = b"onset\ttrial_type\n0\ta\n"
-
-
-def test_erp_bids_upload_unauthenticated(client: TestClient, two_clinics: dict[str, Any]) -> None:
-    url = f"/api/v1/qeeg-analysis/{two_clinics['analysis_id']}/erp/bids-events"
-    r = client.post(
-        url,
-        files={"file": ("events.tsv", _GOOD_BIDS_TSV, "text/tab-separated-values")},
-    )
-    assert r.status_code in (401, 403)
-
-
-def test_erp_bids_upload_cross_clinic_blocked(client: TestClient, two_clinics: dict[str, Any]) -> None:
-    url = f"/api/v1/qeeg-analysis/{two_clinics['analysis_id']}/erp/bids-events"
-    r = client.post(
-        url,
-        files={"file": ("events.tsv", _GOOD_BIDS_TSV, "text/tab-separated-values")},
-        headers={"Authorization": f"Bearer {two_clinics['token_b']}"},
-    )
-    assert r.status_code in (403, 404)
-
-
-def test_erp_bids_upload_memory_file_ref_requires_disk(client: TestClient, two_clinics: dict[str, Any]) -> None:
-    """Sec fixture analysis uses ``memory://`` — sidecar cannot be stored."""
-    url = f"/api/v1/qeeg-analysis/{two_clinics['analysis_id']}/erp/bids-events"
-    r = client.post(
-        url,
-        files={"file": ("events.tsv", _GOOD_BIDS_TSV, "text/tab-separated-values")},
-        headers={"Authorization": f"Bearer {two_clinics['token_a']}"},
-    )
-    assert r.status_code == 422
+# Note: dedicated ``/erp/bids-events`` upload is not exposed on main — multipart ERP surface
+# is covered indirectly via matrix POSTs on studio/eeg (same auth + clinic gate stack).

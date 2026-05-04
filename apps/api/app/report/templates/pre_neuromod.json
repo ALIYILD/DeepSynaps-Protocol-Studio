@@ -1,0 +1,13 @@
+{
+  "id": "pre_neuromod",
+  "title": "Pre-Neuromodulation Workup",
+  "defaultRenderer": "ms_word",
+  "blocks": [
+    { "type": "patientCard" },
+    { "type": "findings", "text": "Baseline prior to neuromodulation." },
+    { "type": "sourceFigure" },
+    { "type": "indicesTable" },
+    { "type": "recommendation", "text": "" },
+    { "type": "signature", "text": "" }
+  ]
+}

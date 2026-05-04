@@ -157,6 +157,12 @@ except ImportError as _qa_imp_err:
 from app.routers.qeeg_raw_router import router as qeeg_raw_router
 from app.routers.qeeg_ai_router import router as qeeg_ai_router
 from app.routers.studio_eeg_router import router as studio_eeg_router
+from app.routers.studio_artifacts_router import router as studio_artifacts_router
+from app.routers.studio_spectra_router import router as studio_spectra_router
+from app.routers.studio_erp_router import router as studio_erp_router
+from app.routers.studio_source_router import router as studio_source_router
+from app.routers.studio_spikes_router import router as studio_spikes_router
+from app.routers.studio_report_router import router as studio_report_router
 from app.routers.studio_eeg_database_router import router as studio_eeg_database_router
 from app.routers.recording_eeg_events_router import router as recording_eeg_events_router
 from app.routers.montages_router import router as montages_router
@@ -488,6 +494,12 @@ if _HAS_QA_ROUTER and qa_router is not None:
 app.include_router(qeeg_raw_router)
 app.include_router(qeeg_ai_router)
 app.include_router(studio_eeg_router)
+app.include_router(studio_artifacts_router)
+app.include_router(studio_spectra_router)
+app.include_router(studio_erp_router)
+app.include_router(studio_source_router)
+app.include_router(studio_spikes_router)
+app.include_router(studio_report_router)
 app.include_router(studio_eeg_database_router)
 app.include_router(recording_eeg_events_router)
 app.include_router(montages_router)

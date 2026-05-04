@@ -79,6 +79,31 @@ export function mapEventsToMarkers(events: ApiTimelineEvent[]): ViewerMarker[] {
         channels: e.channels,
       });
     }
+    if (e.type === "spike") {
+      let label = e.text ?? "spike";
+      try {
+        const j = JSON.parse(e.text || "{}") as {
+          channel?: string;
+          peakSec?: number;
+          aiClass?: string;
+        };
+        if (j.peakSec != null && j.channel) {
+          label = `${j.aiClass ?? "IED"} ${j.channel} @ ${Number(j.peakSec).toFixed(3)}s`;
+        }
+      } catch {
+        /* keep label */
+      }
+      out.push({
+        id: e.id,
+        kind: "spike",
+        fromSec: e.fromSec,
+        toSec: e.toSec,
+        text: label,
+        color: e.color ?? "#a855f7",
+        channelScope: (e.channelScope as ViewerMarker["channelScope"]) ?? "selection",
+        channels: e.channels,
+      });
+    }
   }
   return out;
 }
@@ -99,7 +124,7 @@ export function mapTrialsToSlices(rows: ApiTrialRow[]): TrialSlice[] {
 export async function postEvent(
   analysisId: string,
   body: {
-    type: "label" | "fragment" | "artifact";
+    type: "label" | "fragment" | "artifact" | "spike";
     fromSec: number;
     toSec?: number;
     text?: string;

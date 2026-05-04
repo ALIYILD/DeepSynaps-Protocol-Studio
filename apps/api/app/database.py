@@ -47,6 +47,29 @@ def init_database() -> None:
     Base.metadata.create_all(bind=engine)
 
 
+def _sqlite_schema_outdated() -> bool:
+    """True when the on-disk SQLite schema is missing ORM columns (e.g. after a model change).
+
+    ``create_all`` does not ALTER existing tables, and the fast test truncate path
+    leaves old CREATE TABLE definitions in place — inserts then fail with
+    ``no column named …``. When this happens, fall back to a full drop + create.
+    """
+    if engine.dialect.name != "sqlite":
+        return False
+    from sqlalchemy import inspect as sql_inspect
+
+    insp = sql_inspect(engine)
+    table_names = set(insp.get_table_names())
+    for table in Base.metadata.sorted_tables:
+        if table.name not in table_names:
+            return True
+        reflected = {c["name"] for c in insp.get_columns(table.name)}
+        expected = {c.name for c in table.columns}
+        if not expected <= reflected:
+            return True
+    return False
+
+
 def reset_database(fast: bool = False) -> None:
     import app.persistence.models  # noqa: F401
     from sqlalchemy import inspect, text
@@ -68,6 +91,8 @@ def reset_database(fast: bool = False) -> None:
             if "sqlite_sequence" in existing_table_names:
                 conn.execute(text('DELETE FROM "sqlite_sequence"'))
             conn.execute(text("PRAGMA foreign_keys = ON"))
+        if _sqlite_schema_outdated():
+            return reset_database(fast=False)
         return
 
     with engine.begin() as conn:

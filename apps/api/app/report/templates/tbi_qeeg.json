@@ -1,0 +1,14 @@
+{
+  "id": "tbi_qeeg",
+  "title": "TBI qEEG Report",
+  "defaultRenderer": "internal",
+  "blocks": [
+    { "type": "patientCard" },
+    { "type": "indicesTable" },
+    { "type": "spectraGrid" },
+    { "type": "erpFigure" },
+    { "type": "findings", "text": "Trauma-context interpretation." },
+    { "type": "conclusion", "text": "" },
+    { "type": "signature", "text": "" }
+  ]
+}

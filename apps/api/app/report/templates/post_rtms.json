@@ -1,0 +1,13 @@
+{
+  "id": "post_rtms",
+  "title": "Post-rTMS Follow-up",
+  "defaultRenderer": "internal",
+  "blocks": [
+    { "type": "patientCard" },
+    { "type": "findings", "text": "Post-stimulation comparison." },
+    { "type": "erpFigure" },
+    { "type": "indicesTable" },
+    { "type": "conclusion", "text": "" },
+    { "type": "signature", "text": "" }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "id": "qeeg_adhd",
+  "title": "qEEG ADHD Battery",
+  "defaultRenderer": "internal",
+  "blocks": [
+    { "type": "patientCard" },
+    { "type": "indicesTable" },
+    { "type": "spectraGrid" },
+    { "type": "findings", "text": "ADHD-relevant metrics per clinic protocol." },
+    { "type": "conclusion", "text": "" },
+    { "type": "signature", "text": "" }
+  ]
+}

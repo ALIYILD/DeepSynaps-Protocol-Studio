@@ -14,6 +14,7 @@ import { MontagePicker } from "../montage/MontagePicker";
 import { useMontageStore } from "../montage/useMontage";
 import { useAiStore } from "../stores/ai";
 import { useFiltersStore } from "../stores/filters";
+import { useReportEditorStore } from "../report/reportEditorStore";
 import { useEegViewerStore } from "../stores/eegViewer";
 import { useViewStore } from "../stores/view";
 import { ChannelRow } from "./ChannelRow";
@@ -28,6 +29,8 @@ import { useEegStream } from "./useEegStream";
 import { estimatePhoticHz } from "./estimatePhoticHz";
 import { patchTrial } from "../events/eventApi";
 import { photicEdgeMarkers } from "../events/photicMarkers";
+import { ReportWindow } from "../report/ReportWindow";
+import { StudioAnalysisMenu } from "../artifacts/StudioAnalysisMenu";
 import { StudioEditMenu } from "../events/StudioEditMenu";
 import { useRecordingTimeline } from "../events/useEvents";
 
@@ -120,6 +123,14 @@ export function EegViewer({ recordingId }: { recordingId: string }) {
   const fragments = useEegViewerStore((s) => s.fragments);
   const setFragments = useEegViewerStore((s) => s.setFragments);
   const trials = useEegViewerStore((s) => s.trials);
+
+  const stimulusClasses = useMemo(() => {
+    const s = new Set<string>();
+    for (const t of trials) {
+      if (t.stimulusClass) s.add(t.stimulusClass);
+    }
+    return [...s].sort();
+  }, [trials]);
   const toggleTrial = useEegViewerStore((s) => s.toggleTrialIncluded);
   const setMeta = useEegViewerStore((s) => s.setRecordingMeta);
   const setLastVp = useEegViewerStore((s) => s.setLastViewport);
@@ -182,6 +193,10 @@ export function EegViewer({ recordingId }: { recordingId: string }) {
     badChannels,
     liveFilters,
   );
+
+  useEffect(() => {
+    useReportEditorStore.getState().setAnalysisId(recordingId);
+  }, [recordingId]);
 
   useEffect(() => {
     filtersChanged({
@@ -314,17 +329,23 @@ export function EegViewer({ recordingId }: { recordingId: string }) {
     emitViewport();
   }, [emitViewport]);
 
-  const labelFlags = useMemo(
-    () =>
-      markers
-        .filter((m) => m.kind === "label")
-        .map((m) => ({
-          timeSec: m.fromSec,
-          text: m.text ?? "?",
-          color: m.color,
-        })),
-    [markers],
-  );
+  const labelFlags = useMemo(() => {
+    const labs = markers
+      .filter((m) => m.kind === "label")
+      .map((m) => ({
+        timeSec: m.fromSec,
+        text: m.text ?? "?",
+        color: m.color,
+      }));
+    const spikes = markers
+      .filter((m) => m.kind === "spike")
+      .map((m) => ({
+        timeSec: m.fromSec,
+        text: m.text ?? "spike",
+        color: m.color ?? "#a855f7",
+      }));
+    return [...labs, ...spikes];
+  }, [markers]);
 
   const photicMarkers = useMemo(
     () =>
@@ -334,6 +355,17 @@ export function EegViewer({ recordingId }: { recordingId: string }) {
         payload?.fromSec ?? fromSec,
       ),
     [payload?.photic, payload?.sampleRateHz, payload?.fromSec, fromSec],
+  );
+
+  const artifactIntervals = useMemo(
+    () =>
+      markers
+        .filter((m) => m.kind === "artifact" && m.toSec != null)
+        .map((m) => ({
+          fromSec: m.fromSec,
+          toSec: m.toSec as number,
+        })),
+    [markers],
   );
 
   const toggleTrialRemote = useCallback(
@@ -512,6 +544,30 @@ export function EegViewer({ recordingId }: { recordingId: string }) {
           onTimelineReload={() => void reloadTimeline()}
           jumpToSec={jumpToSec}
         />
+        <StudioAnalysisMenu
+          recordingId={recordingId}
+          channelNames={payload?.channels ?? []}
+          trials={trials}
+          stimulusClasses={stimulusClasses}
+          fromSec={fromSec}
+          toSec={toSec}
+          highlightChannelId={highlightId}
+          fragments={fragments.map((f) => ({
+            id: f.id,
+            label: f.label,
+            startSec: f.startSec,
+            endSec: f.endSec,
+          }))}
+          onTimelineReload={() => void reloadTimeline()}
+          onOpenDerivative={(id) => {
+            window.open(
+              `/studio/?id=${encodeURIComponent(id)}`,
+              "_blank",
+              "noopener,noreferrer",
+            );
+          }}
+          jumpToSec={jumpToSec}
+        />
         <MontagePicker recordingId={recordingId} />
         <MontageEditorTrigger recordingId={recordingId} />
         <span style={{ marginLeft: 8 }}>
@@ -633,6 +689,7 @@ export function EegViewer({ recordingId }: { recordingId: string }) {
                   dragSelect={dragSelect}
                   labelMarkers={labelFlags}
                   photicMarkers={photicMarkers}
+                  artifactIntervals={artifactIntervals}
                 />
               </div>
               <div
@@ -754,6 +811,7 @@ export function EegViewer({ recordingId }: { recordingId: string }) {
           Video sync — connect timeline (placeholder)
         </div>
       : null}
+      <ReportWindow />
     </div>
   );
 }

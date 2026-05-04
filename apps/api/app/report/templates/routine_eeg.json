@@ -1,0 +1,18 @@
+{
+  "id": "routine_eeg",
+  "title": "Routine EEG — {{patient.lastName}}, {{patient.firstName}}",
+  "defaultRenderer": "internal",
+  "blocks": [
+    { "type": "heading", "level": 2, "text": "Patient" },
+    { "type": "patientCard" },
+    { "type": "heading", "level": 2, "text": "EEG Findings" },
+    { "type": "findings", "text": "Background: …\n{{indices.theta_beta_ratio}} theta/beta not yet bound — shows red if missing." },
+    { "type": "spectraGrid" },
+    { "type": "indicesTable" },
+    { "type": "erpFigure" },
+    { "type": "spikeSummary" },
+    { "type": "conclusion", "text": "Conclusion: …" },
+    { "type": "recommendation", "text": "Recommendation: …" },
+    { "type": "signature", "text": "{{recording.equipment}} — {{analysis.id}}" }
+  ]
+}

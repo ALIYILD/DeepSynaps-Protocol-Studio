@@ -1,0 +1,13 @@
+{
+  "id": "qeeg_mdd",
+  "title": "qEEG MDD Battery",
+  "defaultRenderer": "internal",
+  "blocks": [
+    { "type": "patientCard" },
+    { "type": "indicesTable" },
+    { "type": "spectraGrid" },
+    { "type": "findings", "text": "Mood-disorder protocol summary." },
+    { "type": "conclusion", "text": "" },
+    { "type": "signature", "text": "" }
+  ]
+}

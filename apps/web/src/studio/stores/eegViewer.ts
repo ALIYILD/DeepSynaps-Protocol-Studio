@@ -13,7 +13,7 @@ export type ChannelBackgroundState =
 
 export interface ViewerMarker {
   id: string;
-  kind: "label" | "artifact" | "fragment";
+  kind: "label" | "artifact" | "fragment" | "spike";
   fromSec: number;
   toSec?: number;
   text?: string;

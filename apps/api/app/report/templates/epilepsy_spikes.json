@@ -1,0 +1,13 @@
+{
+  "id": "epilepsy_spikes",
+  "title": "Epilepsy / Spike Review",
+  "defaultRenderer": "internal",
+  "blocks": [
+    { "type": "patientCard" },
+    { "type": "spikeSummary" },
+    { "type": "sourceFigure" },
+    { "type": "findings", "text": "IED characterization." },
+    { "type": "recommendation", "text": "MRI correlation as clinically indicated." },
+    { "type": "signature", "text": "" }
+  ]
+}

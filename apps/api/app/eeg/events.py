@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-EventKind = Literal["label", "fragment", "artifact", "photic"]
+EventKind = Literal["label", "fragment", "artifact", "photic", "spike"]
 
 
 class RecordingEvent(BaseModel):
@@ -28,7 +28,7 @@ class RecordingEvent(BaseModel):
 class RecordingEventCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
-    type: Literal["label", "fragment", "artifact"]
+    type: Literal["label", "fragment", "artifact", "spike"]
     from_sec: float = Field(..., alias="fromSec")
     to_sec: float | None = Field(None, alias="toSec")
     text: str | None = None
