@@ -54,6 +54,37 @@ def _index_names(bind: sa.engine.Engine, table: str) -> set[str]:
         return set()
 
 
+def _has_column(bind: sa.engine.Engine, table: str, col: str) -> bool:
+    """True if ``col`` exists on ``table`` (for parallel-branch table-shape drift)."""
+    insp = sa.inspect(bind)
+    try:
+        return any(c["name"] == col for c in insp.get_columns(table))
+    except Exception:
+        return False
+
+
+def _create_index_if_all_columns(
+    bind: sa.engine.Engine,
+    table: str,
+    index_name: str,
+    columns: list[str],
+) -> None:
+    """Create index only when the table exists and every indexed column exists.
+
+    Parallel migration ``083_patient_lab_results`` may create ``patient_lab_results``
+    with a Labs-analyzer shape (no ``collected_at``, ``catalog_item_id``, etc.).
+    This neuromod migration must not index columns that are absent.
+    """
+    if not _has_table(bind, table):
+        return
+    if not all(_has_column(bind, table, c) for c in columns):
+        return
+    existing = _index_names(bind, table)
+    if index_name in existing:
+        return
+    op.create_index(index_name, table, columns)
+
+
 def upgrade() -> None:
     bind = op.get_bind()
 
@@ -179,29 +210,39 @@ def upgrade() -> None:
             ),
         )
 
-    lab_indexes = _index_names(bind, "patient_lab_results")
-    if "ix_patient_lab_results_patient_id" not in lab_indexes:
-        op.create_index("ix_patient_lab_results_patient_id", "patient_lab_results", ["patient_id"])
-    if "ix_patient_lab_results_clinician_id" not in lab_indexes:
-        op.create_index("ix_patient_lab_results_clinician_id", "patient_lab_results", ["clinician_id"])
-    if "ix_patient_lab_results_collected_at" not in lab_indexes:
-        op.create_index("ix_patient_lab_results_collected_at", "patient_lab_results", ["collected_at"])
-    if "ix_patient_lab_results_patient_collected_at" not in lab_indexes:
-        op.create_index(
-            "ix_patient_lab_results_patient_collected_at",
-            "patient_lab_results",
-            ["patient_id", "collected_at"],
-        )
-    if "ix_patient_lab_results_clinician_collected_at" not in lab_indexes:
-        op.create_index(
-            "ix_patient_lab_results_clinician_collected_at",
-            "patient_lab_results",
-            ["clinician_id", "collected_at"],
-        )
-    if "ix_patient_lab_results_catalog_item_id" not in lab_indexes:
-        op.create_index("ix_patient_lab_results_catalog_item_id", "patient_lab_results", ["catalog_item_id"])
-    if "ix_patient_lab_results_abnormal_flag" not in lab_indexes:
-        op.create_index("ix_patient_lab_results_abnormal_flag", "patient_lab_results", ["abnormal_flag"])
+    _create_index_if_all_columns(
+        bind, "patient_lab_results", "ix_patient_lab_results_patient_id", ["patient_id"]
+    )
+    _create_index_if_all_columns(
+        bind, "patient_lab_results", "ix_patient_lab_results_clinician_id", ["clinician_id"]
+    )
+    _create_index_if_all_columns(
+        bind, "patient_lab_results", "ix_patient_lab_results_collected_at", ["collected_at"]
+    )
+    _create_index_if_all_columns(
+        bind,
+        "patient_lab_results",
+        "ix_patient_lab_results_patient_collected_at",
+        ["patient_id", "collected_at"],
+    )
+    _create_index_if_all_columns(
+        bind,
+        "patient_lab_results",
+        "ix_patient_lab_results_clinician_collected_at",
+        ["clinician_id", "collected_at"],
+    )
+    _create_index_if_all_columns(
+        bind,
+        "patient_lab_results",
+        "ix_patient_lab_results_catalog_item_id",
+        ["catalog_item_id"],
+    )
+    _create_index_if_all_columns(
+        bind,
+        "patient_lab_results",
+        "ix_patient_lab_results_abnormal_flag",
+        ["abnormal_flag"],
+    )
 
 
 def downgrade() -> None:
