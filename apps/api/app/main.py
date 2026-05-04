@@ -157,8 +157,6 @@ except ImportError as _qa_imp_err:
 from app.routers.qeeg_raw_router import router as qeeg_raw_router
 from app.routers.qeeg_ai_router import router as qeeg_ai_router
 from app.routers.studio_eeg_router import router as studio_eeg_router
-from app.routers.studio_artifacts_router import router as studio_artifacts_router
-from app.routers.studio_spectra_router import router as studio_spectra_router
 from app.routers.studio_erp_router import router as studio_erp_router
 from app.routers.studio_source_router import router as studio_source_router
 from app.routers.studio_spikes_router import router as studio_spikes_router
@@ -197,6 +195,28 @@ settings = get_settings()
 configure_logging(settings)
 logger = get_logger(__name__)
 init_sentry(settings.sentry_dsn, settings.app_env)
+
+try:
+    from app.routers.studio_artifacts_router import router as studio_artifacts_router
+    _HAS_STUDIO_ARTIFACTS_ROUTER = True
+except ImportError as _studio_artifacts_imp_err:
+    studio_artifacts_router = None  # type: ignore[assignment]
+    _HAS_STUDIO_ARTIFACTS_ROUTER = False
+    logger.warning(
+        "Studio artifacts router unavailable; skipping registration: %s",
+        _studio_artifacts_imp_err,
+    )
+
+try:
+    from app.routers.studio_spectra_router import router as studio_spectra_router
+    _HAS_STUDIO_SPECTRA_ROUTER = True
+except ImportError as _studio_spectra_imp_err:
+    studio_spectra_router = None  # type: ignore[assignment]
+    _HAS_STUDIO_SPECTRA_ROUTER = False
+    logger.warning(
+        "Studio spectra router unavailable; skipping registration: %s",
+        _studio_spectra_imp_err,
+    )
 
 
 def _seed_demo_users_for_dev(db: Session) -> None:
@@ -494,8 +514,10 @@ if _HAS_QA_ROUTER and qa_router is not None:
 app.include_router(qeeg_raw_router)
 app.include_router(qeeg_ai_router)
 app.include_router(studio_eeg_router)
-app.include_router(studio_artifacts_router)
-app.include_router(studio_spectra_router)
+if _HAS_STUDIO_ARTIFACTS_ROUTER:
+    app.include_router(studio_artifacts_router)
+if _HAS_STUDIO_SPECTRA_ROUTER:
+    app.include_router(studio_spectra_router)
 app.include_router(studio_erp_router)
 app.include_router(studio_source_router)
 app.include_router(studio_spikes_router)
