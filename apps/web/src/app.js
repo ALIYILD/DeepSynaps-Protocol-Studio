@@ -1227,6 +1227,20 @@ let currentPatientPage = 'patient-portal';
 async function renderPatientPage() {
   const content = document.getElementById('patient-content');
   if (content) {
+    if (currentPatientPage === 'patient-portal') {
+      content.innerHTML = `
+        <div class="ptd-dashboard hm-dashboard" data-patient-shell-loading="true">
+          <div class="hm-hero">
+            <div class="hm-hero-top">
+              <div>
+                <div class="hm-greet-kicker">Patient portal</div>
+                <h1 class="hm-greet-title pth-greeting">Loading your Home page…</h1>
+                <p class="hm-greet-sub">Preparing your dashboard.</p>
+              </div>
+            </div>
+          </div>
+        </div>`;
+    }
     content.style.opacity = '0';
     content.style.transition = 'opacity 0.15s ease';
     setTimeout(() => { content.style.opacity = '1'; }, 20);
@@ -2754,6 +2768,12 @@ window.checkBackendHealth = checkBackendHealth;
 
 // ── Patient portal preview (from clinician app) ───────────────────────────────
 window._previewPatientPortal = function() {
+  if (currentUser && currentUser.role === 'patient') {
+    showPatient();
+    updatePatientBar();
+    window._bootPatient();
+    return;
+  }
   const preview = { id: 'actor-patient-demo', email: 'patient@demo.com', display_name: 'Jane Patient', role: 'patient', package_id: 'explorer' };
   setCurrentUser(preview);
   showPatient();

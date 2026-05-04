@@ -5707,19 +5707,16 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         + '</div>';
       return;
     }
-    // Load the full-screen Raw EEG Workbench inside the tab
-    tabEl.innerHTML = '<div style="text-align:center;padding:48px"><div class="spinner"></div><div style="margin-top:12px;font-size:13px;color:var(--text-secondary)">Loading Raw EEG Workbench&hellip;</div></div>';
+    // Keep the analyzer Raw tab on the legacy in-tab surface so its existing
+    // end-to-end workflow and compatibility selectors remain stable. The
+    // full-screen workbench still ships separately at the dedicated route and
+    // via the launcher bar above this tab.
+    tabEl.innerHTML = '<div style="text-align:center;padding:48px"><div class="spinner"></div><div style="margin-top:12px;font-size:13px;color:var(--text-secondary)">Loading raw EEG view&hellip;</div></div>';
     try {
-      const mod = await import('./pages-qeeg-raw-workbench.js');
-      // The workbench uses position:fixed so it takes over — pass setTopbar + navigate
-      await mod.pgQEEGRawWorkbench(function(title) {
-        // setTopbar callback — we're inside the analyzer so skip
-      }, function(target) {
-        // navigate callback — route back to analyzer tabs
-        if (typeof window._nav === 'function') window._nav(target);
-      });
+      const mod = await import('./pages-qeeg-raw.js');
+      await mod.renderRawDataTab(tabEl, analysisId, _currentAnalysis?.patient_id || null);
     } catch (err) {
-      tabEl.innerHTML = '<div style="color:var(--red);padding:24px" role="alert">Failed to load Raw EEG Workbench: ' + esc(String(err.message || err)) + '</div>';
+      tabEl.innerHTML = '<div style="color:var(--red);padding:24px" role="alert">Failed to load raw EEG view: ' + esc(String(err.message || err)) + '</div>';
     }
     return;
   }
@@ -7064,4 +7061,3 @@ function _wireRawViewerSummary(tabEl, analysisId) {
   });
   observer.observe(document.body, { childList: true, subtree: true });
 }
-
