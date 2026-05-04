@@ -1,10 +1,15 @@
 README.md
 pyproject.toml
 src/deepsynaps_core_schema/__init__.py
+src/deepsynaps_core_schema/assessments.py
+src/deepsynaps_core_schema/auth.py
 src/deepsynaps_core_schema/condition_knowledge.py
 src/deepsynaps_core_schema/condition_package.py
 src/deepsynaps_core_schema/home_program_provenance.py
+src/deepsynaps_core_schema/home_program_tasks.py
 src/deepsynaps_core_schema/models.py
+src/deepsynaps_core_schema/protocols_generate.py
+src/deepsynaps_core_schema/treatment_courses.py
 src/deepsynaps_core_schema.egg-info/PKG-INFO
 src/deepsynaps_core_schema.egg-info/SOURCES.txt
 src/deepsynaps_core_schema.egg-info/dependency_links.txt
