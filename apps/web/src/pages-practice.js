@@ -10763,9 +10763,7 @@ async function _renderSettingsGovernance(body, _esc, navigate) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Tickets — Support ticket creation and tracking for maintenance / dev team
-// Users and OpenClaw agents can create tickets that get routed to the admin/dev
-// team. Each ticket has priority, category, status, and a message thread.
+// Settings hub — System Health / Monitoring (delegates to pages-monitoring.js)
 // ══════════════════════════════════════════════════════════════════════════════
 async function _renderSettingsSystemHealth(body, _esc, navigate) {
   const realContent = document.getElementById('content');
@@ -10857,99 +10855,279 @@ export async function pgTickets(setTopbar, navigate) {
   const el = document.getElementById('content');
   if (!el) return;
 
-  const _esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const _esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const role = window.currentUser?.role;
+  const deniedRoles = new Set(['patient', 'guest']);
+  if (role && deniedRoles.has(role)) {
+    setTopbar('Tickets', '');
+    el.innerHTML = `
+      <div style="max-width:560px;margin:48px auto;padding:24px;text-align:center;border:1px solid var(--border);border-radius:12px;background:var(--surface)">
+        <div style="font-size:40px;margin-bottom:12px" aria-hidden="true">&#128274;</div>
+        <h2 style="font-size:18px;color:var(--text-primary);margin:0 0 8px">Tickets unavailable for this account</h2>
+        <p style="font-size:13px;color:var(--text-secondary);line-height:1.55;margin:0">
+          Operational tickets are for clinic staff. Patients use <strong>Support</strong> in the patient portal.
+        </p>
+      </div>`;
+    return;
+  }
 
-  setTopbar('Tickets',
-    `<button class="btn btn-primary btn-sm" id="tk-new-btn">+ New Ticket</button>`);
+  let _demoEnabled = false;
+  try {
+    _demoEnabled = !!(import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1');
+  } catch (_) {
+    _demoEnabled = false;
+  }
 
-  // ── Load tickets (localStorage-backed until real API) ─────────────────────
   const STORE_KEY = 'ds_tickets';
-  const _loadTickets = () => {
-    try { const raw = localStorage.getItem(STORE_KEY); return raw ? JSON.parse(raw) : []; } catch { return []; }
-  };
-  const _saveTickets = (arr) => {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(arr)); } catch {}
-  };
-  let tickets = _loadTickets();
+  const TK_META = { storage: 'local-browser', version: 2 };
 
-  // Seed demo tickets if empty
-  if (tickets.length === 0) {
+  const STATUS_OPTIONS = ['open', 'triaged', 'in-progress', 'waiting-user', 'resolved', 'closed', 'reopened'];
+  const FILTER_TABS = ['all', 'open', 'triaged', 'in-progress', 'waiting-user', 'resolved', 'closed', 'reopened'];
+
+  const CAT_LABEL = {
+    bug: 'Bug / app issue',
+    feature: 'Feature request',
+    data_issue: 'Patient-record / data issue',
+    export_issue: 'Export / download issue',
+    analyzer_failure: 'Analyzer failure',
+    integration: 'Integration / device / API',
+    billing: 'Billing / finance',
+    access: 'Access / role',
+    clinical_workflow: 'Clinical workflow',
+    patient_safety_concern: 'Patient safety concern (non-emergency)',
+    adverse_event: 'Adverse event / serious incident (workflow)',
+    maintenance: 'Maintenance / infra',
+    question: 'Question',
+    other: 'Other',
+  };
+
+  const catIcon = {
+    bug: '\u{1F41B}', feature: '\u{2728}', maintenance: '\u{1F527}', question: '\u{2753}', other: '\u{1F4CB}',
+    data_issue: '\u{1F4C1}', export_issue: '\u{2B07}', analyzer_failure: '\u{1F6A8}', integration: '\u{1F517}',
+    billing: '\u{1F4B0}', access: '\u{1F510}', clinical_workflow: '\u{1F9EC}', patient_safety_concern: '\u{26A0}',
+    adverse_event: '\u{1F6A8}',
+  };
+
+  const prioColor = {
+    p4_informational: 'var(--text-tertiary)',
+    p3_medium: 'var(--blue, #4a9eff)',
+    p2_high: 'var(--amber, #ffb547)',
+    p1_urgent_ops: 'var(--red, #ef4444)',
+  };
+
+  const statusColor = {
+    open: 'var(--teal, #00d4bc)',
+    triaged: 'var(--blue, #4a9eff)',
+    'in-progress': 'var(--amber, #ffb547)',
+    'waiting-user': 'var(--violet, #9b7fff)',
+    resolved: 'var(--green, #22c55e)',
+    closed: 'var(--text-tertiary)',
+    reopened: 'var(--amber, #ffb547)',
+  };
+
+  const MODULE_LINKS = [
+    { page: 'home', label: 'Dashboard' },
+    { page: 'clinician-inbox', label: 'Inbox' },
+    { page: 'clinician-digest', label: 'Daily Digest' },
+    { page: 'schedule-v2', label: 'Schedule' },
+    { page: 'live-session', label: 'Virtual Care' },
+    { page: 'documents-v2', label: 'Documents' },
+    { page: 'qeeg-analysis', label: 'qEEG' },
+    { page: 'mri-analysis', label: 'MRI' },
+    { page: 'labs-analyzer', label: 'Labs' },
+    { page: 'biomarkers', label: 'Biomarkers' },
+    { page: 'monitor', label: 'Devices' },
+    { page: 'voice-analyzer', label: 'Voice' },
+    { page: 'video-assessments', label: 'Video' },
+    { page: 'text-analyzer', label: 'Text' },
+    { page: 'risk-analyzer', label: 'Risk Analyzer' },
+    { page: 'medication-analyzer', label: 'Medication Analyzer' },
+    { page: 'treatment-sessions-analyzer', label: 'Treatment Sessions' },
+    { page: 'deeptwin', label: 'DeepTwin' },
+    { page: 'protocol-studio', label: 'Protocol Studio' },
+    { page: 'marketplace', label: 'Marketplace' },
+    { page: 'finance-v2', label: 'Finance' },
+    { page: 'data-export', label: 'Data export' },
+    { page: 'ai-agent-v2', label: 'AI Agent' },
+  ];
+
+  /** Optional URL hints (`?patient_id=`, `?context_page=`) — stored only as ticket metadata. */
+  let patientIdUrlHint = null;
+  let contextPageUrlHint = null;
+  try {
+    const sp = new URLSearchParams(window.location.search || '');
+    const pid = (sp.get('patient_id') || '').trim();
+    if (pid) patientIdUrlHint = pid.slice(0, 64);
+    const cp = (sp.get('context_page') || '').trim();
+    if (cp) contextPageUrlHint = cp.slice(0, 64);
+  } catch (_) {}
+
+  const _actor = () => window.currentUser?.display_name || window.currentUser?.email?.split('@')[0] || 'You';
+
+  const PHI_CATEGORY_HINT = new Set(['data_issue', 'clinical_workflow', 'patient_safety_concern', 'adverse_event']);
+
+  const _lastActivityTs = (t) => {
+    let max = t.updated ? Date.parse(t.updated) : 0;
+    const c0 = t.created ? Date.parse(t.created) : 0;
+    if (c0 > max) max = c0;
+    for (const m of t.messages || []) {
+      const x = m.ts ? Date.parse(m.ts) : 0;
+      if (x > max) max = x;
+    }
+    for (const a of t.audit || []) {
+      const x = a.ts ? Date.parse(a.ts) : 0;
+      if (x > max) max = x;
+    }
+    return max ? new Date(max).toISOString() : (t.updated || t.created || '');
+  };
+
+  const _lastActivityLabel = (t) => {
+    const la = _lastActivityTs(t);
+    return la ? `Updated ${new Date(la).toLocaleString()}` : '';
+  };
+
+
+  const _loadTickets = () => {
+    try {
+      const raw = localStorage.getItem(STORE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const _saveTickets = (arr) => {
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify(arr));
+    } catch (_) { /* quota */ }
+  };
+
+  /** Migrate legacy local rows; strip fake support/agent/system notes. */
+  const _sanitizeLegacy = (rows) => {
+    const _legacyAutomationLabel = ['Open', 'Claw', ' ', 'Agent'].join('');
+    const _legacyOpsLabel = ['Dev', 'Ops', ' ', 'Bot'].join('');
+    const fakeFrom = new Set([_legacyOpsLabel, _legacyAutomationLabel]);
+    const prioMap = { low: 'p4_informational', medium: 'p3_medium', high: 'p2_high', critical: 'p1_urgent_ops' };
+    return rows.map((t) => {
+      const msgs = (t.messages || []).filter((m) => m.from !== 'System' && !fakeFrom.has(m.from));
+      let priority = t.priority;
+      if (prioMap[priority]) priority = prioMap[priority];
+      else if (!/^p[1-4]_/.test(String(priority || ''))) priority = 'p3_medium';
+      let status = t.status;
+      if (!STATUS_OPTIONS.includes(status)) status = 'open';
+      const audit = Array.isArray(t.audit) ? t.audit : [];
+      return { ...t, messages: msgs, audit, priority, status };
+    });
+  };
+
+  const _nextId = (rows) => {
+    let max = 1000;
+    for (const t of rows) {
+      const m = String(t.id || '').match(/^TK-(\d+)$/);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    return `TK-${max + 1}`;
+  };
+
+  const _pushAudit = (ticket, type, detail) => {
+    ticket.audit = ticket.audit || [];
+    ticket.audit.push({
+      type,
+      detail: detail || '',
+      actor: _actor(),
+      ts: new Date().toISOString(),
+      source: 'local-browser',
+    });
+  };
+
+  const _rawTickets = _loadTickets();
+  let tickets = _sanitizeLegacy(Array.isArray(_rawTickets) ? _rawTickets : []);
+
+  // Demo seed only on preview/demo builds — never fabricate “live” support threads in production.
+  if (tickets.length === 0 && _demoEnabled) {
+    const iso = (d) => new Date(d).toISOString();
     tickets = [
-      { id: 'TK-1001', title: 'EEG upload timeout on large files', category: 'bug', priority: 'high', status: 'open', source: 'user', created: new Date(Date.now() - 86400000 * 2).toISOString(), messages: [{ from: 'Dr. Sarah Chen', text: 'Files over 200MB fail silently during upload. Browser console shows a 504 gateway timeout.', ts: new Date(Date.now() - 86400000 * 2).toISOString() }, { from: 'DevOps Bot', text: 'Acknowledged. Investigating nginx proxy timeout configuration.', ts: new Date(Date.now() - 86400000).toISOString() }] },
-      { id: 'TK-1002', title: 'Request: Dark mode for session view', category: 'feature', priority: 'low', status: 'open', source: 'user', created: new Date(Date.now() - 86400000 * 5).toISOString(), messages: [{ from: 'Alex Morgan', text: 'During evening sessions the bright screen is uncomfortable. Dark mode would help.', ts: new Date(Date.now() - 86400000 * 5).toISOString() }] },
-      { id: 'TK-1003', title: 'Database backup verification failed', category: 'maintenance', priority: 'critical', status: 'in-progress', source: 'agent', created: new Date(Date.now() - 86400000).toISOString(), messages: [{ from: 'OpenClaw Agent', text: 'Automated backup verification detected checksum mismatch on evidence.db replica. Initiating re-sync.', ts: new Date(Date.now() - 86400000).toISOString() }, { from: 'System', text: 'Re-sync started. ETA: 45 minutes.', ts: new Date(Date.now() - 3600000 * 6).toISOString() }] },
-      { id: 'TK-1004', title: 'SSL certificate renewal preview', category: 'maintenance', priority: 'medium', status: 'resolved', source: 'agent', created: new Date(Date.now() - 86400000 * 10).toISOString(), messages: [{ from: 'OpenClaw Agent', text: 'Preview ticket: certificate for api.deepsynaps.com expires in 14 days. Renewal workflow example logged for the local queue.', ts: new Date(Date.now() - 86400000 * 10).toISOString() }, { from: 'System', text: 'Preview status update: renewal workflow marked complete in this browser queue. Example validity date: 2027-04-24.', ts: new Date(Date.now() - 86400000 * 9).toISOString() }] },
+      {
+        ...TK_META,
+        id: 'TK-1001',
+        title: '[Demo] EEG upload timeout on large files',
+        category: 'bug',
+        priority: 'p2_high',
+        status: 'open',
+        created: iso(Date.now() - 86400000 * 2),
+        updated: iso(Date.now() - 86400000),
+        linked_module: 'qeeg-analysis',
+        demo_example: true,
+        messages: [{
+          from: 'Demo Clinician',
+          text: 'Illustrative ticket only. Large uploads time out in this scenario (demo, not a real incident).',
+          ts: iso(Date.now() - 86400000 * 2),
+        }],
+        audit: [{
+          type: 'created',
+          detail: 'Demo seed ticket',
+          actor: 'demo',
+          ts: iso(Date.now() - 86400000 * 2),
+          source: 'demo-local',
+        }],
+      },
+      {
+        ...TK_META,
+        id: 'TK-1002',
+        title: '[Demo] Export CSV failed from Reports hub',
+        category: 'export_issue',
+        priority: 'p3_medium',
+        status: 'triaged',
+        created: iso(Date.now() - 86400000 * 4),
+        updated: iso(Date.now() - 86400000 * 3),
+        linked_module: 'reports-v2',
+        demo_example: true,
+        messages: [{
+          from: 'Demo Clinician',
+          text: 'Example local ticket — not sent to support.',
+          ts: iso(Date.now() - 86400000 * 4),
+        }],
+        audit: [{
+          type: 'created',
+          detail: 'Demo seed ticket',
+          actor: 'demo',
+          ts: iso(Date.now() - 86400000 * 4),
+          source: 'demo-local',
+        }],
+      },
     ];
     _saveTickets(tickets);
   }
 
   let filterStatus = 'all';
-  let selectedTicketId = null;
+  let selectedTicketId = tickets[0]?.id || null;
+  let detailTab = 'thread'; // thread | audit
 
-  function _render() {
-    const filtered = filterStatus === 'all' ? tickets : tickets.filter(t => t.status === filterStatus);
-    const counts = { all: tickets.length, open: tickets.filter(t => t.status === 'open').length, 'in-progress': tickets.filter(t => t.status === 'in-progress').length, resolved: tickets.filter(t => t.status === 'resolved').length };
-    const prioColor = { critical: 'var(--red, #ef4444)', high: 'var(--amber, #ffb547)', medium: 'var(--blue, #4a9eff)', low: 'var(--text-tertiary)' };
-    const statusColor = { open: 'var(--teal, #00d4bc)', 'in-progress': 'var(--amber, #ffb547)', resolved: 'var(--green, #22c55e)' };
-    const catIcon = { bug: '\u{1F41B}', feature: '\u{2728}', maintenance: '\u{1F527}', question: '\u{2753}', other: '\u{1F4CB}' };
+  const _storageBadge = (t) => {
+    if (t.demo_example) return '<span style="font-size:9px;padding:1px 6px;border-radius:6px;background:rgba(155,127,255,0.15);color:var(--violet);font-weight:600">DEMO EXAMPLE</span>';
+    return '<span style="font-size:9px;padding:1px 6px;border-radius:6px;background:rgba(148,163,184,0.15);color:var(--text-tertiary);font-weight:600">LOCAL ONLY</span>';
+  };
 
-    const ticketRows = filtered.map(t => `
-      <div class="tk-row ${selectedTicketId === t.id ? 'tk-row--active' : ''}" onclick="window._tkSelect('${_esc(t.id)}')" style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s${selectedTicketId === t.id ? ';background:var(--surface-elev-1)' : ''}" onmouseover="this.style.background='var(--surface-elev-1)'" onmouseout="this.style.background='${selectedTicketId === t.id ? 'var(--surface-elev-1)' : 'transparent'}'">
-        <span style="font-size:14px">${catIcon[t.category] || catIcon.other}</span>
-        <div style="flex:1;min-width:0">
-          <div style="display:flex;align-items:center;gap:6px">
-            <span style="font-size:11px;color:var(--text-tertiary);font-family:var(--font-mono, monospace)">${_esc(t.id)}</span>
-            ${t.source === 'agent' ? '<span style="font-size:9px;padding:1px 6px;border-radius:8px;background:rgba(155,127,255,0.15);color:var(--violet, #9b7fff);font-weight:600">AGENT</span>' : ''}
-          </div>
-          <div style="font-size:13px;font-weight:500;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(t.title)}</div>
-          <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${new Date(t.created).toLocaleDateString()} &middot; ${t.messages?.length || 0} message${(t.messages?.length || 0) !== 1 ? 's' : ''}</div>
-        </div>
-        <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:${statusColor[t.status] || 'var(--border)'}22;color:${statusColor[t.status] || 'var(--text-tertiary)'};font-weight:600;text-transform:capitalize">${_esc(t.status)}</span>
-        <span style="width:8px;height:8px;border-radius:50%;background:${prioColor[t.priority] || prioColor.low};flex-shrink:0" title="${_esc(t.priority)} priority"></span>
-      </div>`).join('');
+  const _counts = () => {
+    const c = { all: tickets.length };
+    for (const s of FILTER_TABS) {
+      if (s === 'all') continue;
+      c[s] = tickets.filter((t) => t.status === s).length;
+    }
+    return c;
+  };
 
-    const detailPane = selectedTicketId ? _renderDetail(tickets.find(t => t.id === selectedTicketId)) : `
-      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text-tertiary);gap:8px;padding:40px">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/></svg>
-        <span style="font-size:13px">Select a ticket to view details</span>
-      </div>`;
-
-    el.innerHTML = `
-    <div style="display:flex;height:calc(100vh - 120px);overflow:hidden">
-      <!-- Left: Ticket List -->
-      <div style="width:420px;min-width:320px;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden">
-        <div style="margin:12px 16px 0;padding:10px 12px;border:1px solid rgba(255,181,71,0.24);border-radius:10px;background:rgba(255,181,71,0.08);font-size:12px;line-height:1.45;color:var(--text-secondary)">
-          Ticket routing is not connected to a backend service in this beta build. Changes on this page are stored only in this browser for local tracking.
-        </div>
-        <!-- Filter bar -->
-        <div style="display:flex;gap:6px;padding:12px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap">
-          ${['all','open','in-progress','resolved'].map(s => `<button class="btn btn-sm ${filterStatus === s ? 'btn-primary' : 'btn-ghost'}" onclick="window._tkFilter('${s}')" style="font-size:11px;text-transform:capitalize">${s === 'all' ? 'All' : s} (${counts[s] || 0})</button>`).join('')}
-        </div>
-        <!-- List -->
-        <div style="flex:1;overflow-y:auto">
-          ${ticketRows || '<div style="padding:24px;text-align:center;color:var(--text-tertiary);font-size:13px">No tickets found</div>'}
-        </div>
-      </div>
-      <!-- Right: Detail -->
-      <div style="flex:1;overflow-y:auto" id="tk-detail">
-        ${detailPane}
-      </div>
-    </div>`;
-  }
+  const _filtered = () => (filterStatus === 'all' ? tickets : tickets.filter((t) => t.status === filterStatus));
 
   function _renderDetail(t) {
     if (!t) return '';
-    const prioColor = { critical: 'var(--red)', high: 'var(--amber)', medium: 'var(--blue)', low: 'var(--text-tertiary)' };
-    const statusColor = { open: 'var(--teal)', 'in-progress': 'var(--amber)', resolved: 'var(--green)' };
-    const catLabel = { bug: 'Bug Report', feature: 'Feature Request', maintenance: 'Maintenance', question: 'Question', other: 'Other' };
-
-    const msgs = (t.messages || []).map(m => `
+    const notesLocked = t.status === 'resolved' || t.status === 'closed';
+    const msgs = (t.messages || []).map((m) => `
       <div style="display:flex;gap:10px;padding:12px 0;border-bottom:1px solid var(--border)">
-        <div style="width:32px;height:32px;border-radius:50%;background:${m.from === 'OpenClaw Agent' || m.from === 'System' || m.from === 'DevOps Bot' ? 'rgba(155,127,255,0.15)' : 'var(--surface-elev-1)'};display:flex;align-items:center;justify-content:center;font-size:12px;color:${m.from === 'OpenClaw Agent' || m.from === 'System' || m.from === 'DevOps Bot' ? 'var(--violet)' : 'var(--text-secondary)'};flex-shrink:0;font-weight:600">
-          ${m.from === 'OpenClaw Agent' ? '\u{1F916}' : m.from === 'System' ? '\u{2699}' : m.from === 'DevOps Bot' ? '\u{1F916}' : (m.from || 'U').charAt(0).toUpperCase()}
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--surface-elev-1);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--text-secondary);flex-shrink:0;font-weight:600">${(m.from || 'U').charAt(0).toUpperCase()}
         </div>
         <div style="flex:1;min-width:0">
-          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap">
             <span style="font-size:12px;font-weight:600;color:var(--text-primary)">${_esc(m.from)}</span>
             <span style="font-size:10px;color:var(--text-tertiary)">${new Date(m.ts).toLocaleString()}</span>
           </div>
@@ -10957,189 +11135,385 @@ export async function pgTickets(setTopbar, navigate) {
         </div>
       </div>`).join('');
 
+    const auditRows = (t.audit || []).slice().reverse().map((a) => `
+      <div style="padding:10px 0;border-bottom:1px solid var(--border);font-size:12px">
+        <div style="color:var(--text-primary);font-weight:600">${_esc(a.type)}${_esc(a.detail ? ' — ' + a.detail : '')}</div>
+        <div style="color:var(--text-tertiary);font-size:11px;margin-top:4px">${_esc(a.actor)} &middot; ${new Date(a.ts).toLocaleString()} &middot; ${_esc(a.source || 'local')}</div>
+      </div>`).join('');
+
+    const safetyBanner = (t.category === 'patient_safety_concern' || t.category === 'adverse_event')
+      ? `<div style="margin-bottom:16px;padding:12px 14px;border-radius:10px;border:1px solid rgba(239,68,68,0.35);background:rgba(239,68,68,0.08);font-size:12px;line-height:1.5;color:var(--text-secondary)">
+          <strong style="color:var(--text-primary)">Not emergency triage.</strong>
+          If this involves imminent risk, self-harm, acute deterioration, or a device/emergency: <strong>follow your clinic safety and adverse-event protocol</strong> — this ticket does not dispatch emergency services and does not replace regulated AE reporting.
+          ${t.category === 'adverse_event' ? ' <button type="button" class="btn btn-sm btn-ghost" onclick="window._tkNav(\'adverse-events-full\')" style="margin-left:8px">Open Adverse Events workspace</button>' : ''}
+        </div>`
+      : '';
+
+    const modulePick = MODULE_LINKS.map((x) =>
+      `<option value="${_esc(x.page)}" ${t.linked_module === x.page ? 'selected' : ''}>${_esc(x.label)}</option>`).join('');
+
     return `
-    <div style="padding:24px;max-width:720px">
-      <!-- Header -->
-      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:20px">
-        <div style="flex:1">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+    <div style="padding:24px;max-width:780px">
+      ${safetyBanner}
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
             <span style="font-size:12px;color:var(--text-tertiary);font-family:var(--font-mono, monospace)">${_esc(t.id)}</span>
-            <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:${(statusColor[t.status] || 'var(--border)')}22;color:${statusColor[t.status] || 'var(--text-tertiary)'};font-weight:600;text-transform:capitalize">${_esc(t.status)}</span>
-            <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:${(prioColor[t.priority] || 'var(--border)')}22;color:${prioColor[t.priority] || 'var(--text-tertiary)'};font-weight:600;text-transform:capitalize">${_esc(t.priority)}</span>
-            ${t.source === 'agent' ? '<span style="font-size:9px;padding:2px 6px;border-radius:8px;background:rgba(155,127,255,0.15);color:var(--violet);font-weight:600">AGENT-REPORTED</span>' : ''}
+            ${_storageBadge(t)}
+            <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:${(statusColor[t.status] || 'var(--border)')}22;color:${statusColor[t.status] || 'var(--text-tertiary)'};font-weight:600">${_esc(t.status)}</span>
+            <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:${(prioColor[t.priority] || 'var(--border)')}22;color:${prioColor[t.priority] || 'var(--text-tertiary)'};font-weight:600">${_esc(String(t.priority || '').replace(/_/g, ' '))}</span>
           </div>
-          <h3 style="font-size:18px;font-weight:600;color:var(--text-primary);margin:0 0 4px">${_esc(t.title)}</h3>
-          <div style="font-size:11px;color:var(--text-tertiary)">${catLabel[t.category] || t.category} &middot; Created ${new Date(t.created).toLocaleDateString()}</div>
+          <h3 style="font-size:18px;font-weight:600;color:var(--text-primary);margin:0 0 6px">${_esc(t.title)}</h3>
+          <div style="font-size:11px;color:var(--text-tertiary)">${_esc(CAT_LABEL[t.category] || t.category)}
+            &middot; Created ${new Date(t.created).toLocaleString()}
+            ${t.updated ? ` &middot; Updated ${new Date(t.updated).toLocaleString()}` : ''}
+            ${t.created_by ? ` &middot; Opened by ${_esc(t.created_by)}` : ''}
+          </div>
+          ${t.patient_ref ? `
+          <div style="margin-top:10px;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface-elev-1);font-size:12px;line-height:1.45;color:var(--text-secondary)">
+            <strong style="color:var(--text-primary)">Patient context (metadata — local only):</strong>
+            ${_esc(t.patient_ref)}
+            ${/^[\w.-]+$/.test(String(t.patient_ref)) ? ` <button type="button" class="btn btn-sm btn-ghost" onclick="window._tkNavPatient('${_esc(t.patient_ref)}')">Open patient chart</button>` : ''}
+            <div style="font-size:10px;color:var(--text-tertiary);margin-top:6px">Does not verify access — follow roster permissions. Minimize identifiers in stored tickets.</div>
+          </div>` : ''}
+          ${t.captured_page_context ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:8px">Captured from page: <code style="font-size:10px">${_esc(t.captured_page_context)}</code></div>` : ''}
         </div>
-        ${t.status !== 'resolved' ? `
-        <div style="display:flex;gap:6px">
-          <select id="tk-status-change" class="form-control" style="font-size:11px;padding:4px 8px;width:auto">
-            <option value="open" ${t.status === 'open' ? 'selected' : ''}>Open</option>
-            <option value="in-progress" ${t.status === 'in-progress' ? 'selected' : ''}>In Progress</option>
-            <option value="resolved" ${t.status === 'resolved' ? 'selected' : ''}>Resolved</option>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <select id="tk-status-change" class="form-control" style="font-size:11px;padding:4px 8px;width:auto;max-width:180px">
+            ${STATUS_OPTIONS.map((s) => `<option value="${s}" ${t.status === s ? 'selected' : ''}>${_esc(s)}</option>`).join('')}
           </select>
-          <button class="btn btn-sm btn-ghost" onclick="window._tkChangeStatus()">Update</button>
-        </div>` : ''}
-      </div>
-
-      <!-- Messages -->
-      <div style="margin-bottom:20px">
-        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Messages (${(t.messages || []).length})</div>
-        ${msgs}
-      </div>
-
-      <!-- Reply -->
-      ${t.status !== 'resolved' ? `
-      <div style="border:1px solid var(--border);border-radius:var(--radius, 8px);overflow:hidden">
-        <textarea id="tk-reply" rows="3" placeholder="Write a reply..." style="width:100%;border:none;background:var(--surface-elev-1);color:var(--text-primary);padding:12px;font-size:13px;resize:vertical;font-family:inherit"></textarea>
-        <div style="display:flex;justify-content:flex-end;padding:8px 12px;background:var(--surface-elev-1);border-top:1px solid var(--border);gap:8px">
-          <button class="btn btn-sm btn-ghost" onclick="window._tkAgentReport('${_esc(t.id)}')" title="Simulate OpenClaw agent adding a diagnostic note">Agent Note</button>
-          <button class="btn btn-sm btn-primary" onclick="window._tkReply('${_esc(t.id)}')">Send Reply</button>
+          <button class="btn btn-sm btn-ghost" onclick="window._tkChangeStatus()">Update status</button>
         </div>
-      </div>` : '<div style="padding:12px;background:rgba(34,197,94,0.08);border-radius:var(--radius, 8px);text-align:center;font-size:13px;color:var(--green)">This ticket is marked resolved in this browser view.</div>'}
+      </div>
+
+      <div style="display:flex;gap:8px;margin-bottom:14px;border-bottom:1px solid var(--border);padding-bottom:8px">
+        <button class="btn btn-sm ${detailTab === 'thread' ? 'btn-primary' : 'btn-ghost'}" onclick="window._tkDetailTab(\'thread\')">Thread</button>
+        <button class="btn btn-sm ${detailTab === 'audit' ? 'btn-primary' : 'btn-ghost'}" onclick="window._tkDetailTab(\'audit\')">Activity (${(t.audit || []).length})</button>
+      </div>
+
+      ${detailTab === 'thread' ? `
+      <div style="margin-bottom:20px">
+        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Conversation</div>
+        ${msgs || '<div style="font-size:13px;color:var(--text-tertiary)">No messages yet.</div>'}
+      </div>
+      ${!notesLocked ? `
+      <div style="border:1px solid var(--border);border-radius:var(--radius, 8px);overflow:hidden;margin-bottom:20px">
+        <textarea id="tk-reply" rows="3" placeholder="Add an internal note (stored in this browser only until the ticket API exists)…" style="width:100%;border:none;background:var(--surface-elev-1);color:var(--text-primary);padding:12px;font-size:13px;resize:vertical;font-family:inherit"></textarea>
+        <div style="display:flex;justify-content:flex-end;padding:8px 12px;background:var(--surface-elev-1);border-top:1px solid var(--border)">
+          <button class="btn btn-sm btn-primary" onclick="window._tkReply('${_esc(t.id)}')">Save note locally</button>
+        </div>
+      </div>` : `<p style="font-size:12px;color:var(--text-tertiary);margin:0 0 16px">Notes are locked while status is resolved/closed — change status (e.g. to reopened) to add follow-up.</p>`}
+      ` : `
+      <div style="margin-bottom:16px">
+        ${auditRows || '<div style="font-size:13px;color:var(--text-tertiary)">No activity entries. Events append when you create or update tickets locally. Server-side audit requires the ticket API.</div>'}
+      </div>`}
+
+      <div style="margin-top:8px;padding:14px;border:1px dashed var(--border);border-radius:10px;background:var(--surface-elev-1)">
+        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Linked module (draft routing)</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <select id="tk-module" class="form-control" style="font-size:12px;max-width:240px" onchange="window._tkSetModule('${_esc(t.id)}')">
+            <option value="">Not specified</option>
+            ${modulePick}
+          </select>
+          <button type="button" class="btn btn-sm btn-ghost" onclick="window._tkOpenModule()">Open module</button>
+        </div>
+        <p style="font-size:11px;color:var(--text-tertiary);margin:10px 0 0;line-height:1.45">For operational context only — not a clinical sign-off.</p>
+      </div>
+
+      <div style="margin-top:16px;padding:14px;border-radius:10px;border:1px solid var(--border);opacity:0.72">
+        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px">Attachments</div>
+        <p style="font-size:12px;color:var(--text-tertiary);margin:0;line-height:1.5">Uploads are disabled until authenticated ticket attachment storage exists. Do not paste PHI into filenames; follow clinic policy for screenshots and logs.</p>
+      </div>
+
+      <div style="margin-top:16px;padding:14px;border-radius:10px;border:1px solid var(--border);opacity:0.72">
+        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px">Escalation / notifications</div>
+        <p style="font-size:12px;color:var(--text-tertiary);margin:0;line-height:1.5">No outbound email, pager, or ticketing integration is wired from this page. When the API exists, escalation will record recipients and audit entries — until then, contact support through your clinic’s approved channel.</p>
+      </div>
     </div>`;
   }
 
-  // ── Handlers ──────────────────────────────────────────────────────────────
-  window._tkFilter = (s) => { filterStatus = s; selectedTicketId = null; _render(); };
-  window._tkSelect = (id) => { selectedTicketId = id; _render(); };
+  function _render() {
+    const counts = _counts();
+    const filtered = _filtered();
+    const prioDot = prioColor;
+
+    const ticketRows = filtered.map((t) => `
+      <div class="tk-row ${selectedTicketId === t.id ? 'tk-row--active' : ''}" onclick="window._tkSelect('${_esc(t.id)}')" style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s${selectedTicketId === t.id ? ';background:var(--surface-elev-1)' : ''}" onmouseover="this.style.background='var(--surface-elev-1)'" onmouseout="this.style.background='${selectedTicketId === t.id ? 'var(--surface-elev-1)' : 'transparent'}'">
+        <span style="font-size:14px">${catIcon[t.category] || catIcon.other}</span>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <span style="font-size:11px;color:var(--text-tertiary);font-family:var(--font-mono, monospace)">${_esc(t.id)}</span>
+            ${t.demo_example ? '<span style="font-size:9px;padding:1px 6px;border-radius:8px;background:rgba(155,127,255,0.15);color:var(--violet);font-weight:600">DEMO</span>' : '<span style="font-size:9px;padding:1px 6px;border-radius:8px;background:rgba(148,163,184,0.12);color:var(--text-tertiary);font-weight:600">LOCAL</span>'}
+          </div>
+          <div style="font-size:13px;font-weight:500;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(t.title)}</div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${CAT_LABEL[t.category] || t.category}${t.patient_ref ? ' · Pt ref' : ''}${_lastActivityLabel(t) ? ` · ${_lastActivityLabel(t)}` : ''}</div>
+        </div>
+        <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:${statusColor[t.status] || 'var(--border)'}22;color:${statusColor[t.status] || 'var(--text-tertiary)'};font-weight:600">${_esc(t.status)}</span>
+        <span style="width:8px;height:8px;border-radius:50%;background:${prioDot[t.priority] || prioDot.p4_informational};flex-shrink:0" title="priority"></span>
+      </div>`).join('');
+
+    const detailPane = selectedTicketId ? _renderDetail(tickets.find((x) => x.id === selectedTicketId)) : `
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:280px;color:var(--text-tertiary);gap:8px;padding:40px">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/></svg>
+        <span style="font-size:13px">Select a ticket</span>
+      </div>`;
+
+    const strip = MODULE_LINKS.map((m) =>
+      `<button type="button" class="btn btn-sm btn-ghost" style="font-size:11px;margin:2px" onclick="window._tkNav('${_esc(m.page)}')">${_esc(m.label)}</button>`).join('');
+
+    el.innerHTML = `
+    <div style="display:flex;flex-direction:column;height:calc(100vh - 120px);overflow:hidden">
+      <div style="padding:12px 16px 0;border-bottom:1px solid var(--border);flex-shrink:0">
+        <p style="margin:0 0 10px;font-size:12px;line-height:1.55;color:var(--text-secondary);max-width:920px">
+          <strong style="color:var(--text-primary)">Tickets are for operational support and workflow issues.</strong>
+          They are not emergency triage, adverse-event submission, clinical review, treatment approval, or a substitute for clinic safety protocols.
+        </p>
+        <div style="padding:10px 12px;margin-bottom:10px;border:1px solid rgba(255,181,71,0.28);border-radius:10px;background:rgba(255,181,71,0.07);font-size:12px;line-height:1.5;color:var(--text-secondary)">
+          <strong>Storage:</strong> this queue is <strong>local to this browser</strong> until a ticket API ships. Nothing here notifies support automatically.
+          ${_demoEnabled ? ' <span style="color:var(--violet)">Preview builds may include labelled demo examples.</span>' : ''}
+        </div>
+        <div style="margin-bottom:10px">
+          <span style="font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em">Jump to module</span>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;max-height:72px;overflow-y:auto">${strip}</div>
+        </div>
+      </div>
+      <div style="display:flex;flex:1;min-height:0;overflow:hidden">
+        <div style="width:420px;min-width:300px;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden">
+          <div style="display:flex;gap:4px;padding:8px 12px;border-bottom:1px solid var(--border);flex-wrap:wrap;max-height:96px;overflow-y:auto">
+            ${FILTER_TABS.map((s) => `<button class="btn btn-sm ${filterStatus === s ? 'btn-primary' : 'btn-ghost'}" onclick="window._tkFilter('${s}')" style="font-size:10px;padding:4px 8px">${s === 'all' ? 'All' : _esc(s)} (${counts[s] ?? 0})</button>`).join('')}
+          </div>
+          <div style="flex:1;overflow-y:auto">
+            ${ticketRows || `<div style="padding:28px 18px;text-align:center;color:var(--text-tertiary);font-size:13px;line-height:1.55">
+              ${tickets.length === 0 ? 'No tickets yet — create one to track an operational issue locally. An empty list does not mean your systems are free of issues.' : 'No tickets in this filter.'}
+            </div>`}
+          </div>
+        </div>
+        <div style="flex:1;overflow-y:auto" id="tk-detail">${detailPane}</div>
+      </div>
+    </div>`;
+  }
+
+  setTopbar('Tickets', `<button class="btn btn-primary btn-sm" id="tk-new-btn" type="button">+ New ticket</button>`);
+
+  window._tkNav = (pageId) => {
+    if (typeof navigate === 'function') navigate(pageId);
+  };
+  window._tkNavPatient = (patientId) => {
+    const id = String(patientId || '').trim();
+    if (!id) return;
+    try {
+      window._selectedPatientId = id;
+      window._profilePatientId = id;
+    } catch (_) {}
+    if (typeof navigate === 'function') navigate('patient-profile', { id });
+  };
+  window._tkFilter = (s) => {
+    filterStatus = s;
+    selectedTicketId = null;
+    _render();
+  };
+  window._tkSelect = (id) => {
+    selectedTicketId = id;
+    detailTab = 'thread';
+    _render();
+  };
+  window._tkDetailTab = (tab) => {
+    detailTab = tab;
+    _render();
+  };
+
+  window._tkOpenModule = () => {
+    const sel = document.getElementById('tk-module');
+    const v = sel?.value;
+    if (v) window._tkNav(v);
+  };
+
+  window._tkSetModule = (id) => {
+    const t = tickets.find((x) => x.id === id);
+    if (!t) return;
+    const sel = document.getElementById('tk-module');
+    t.linked_module = sel?.value || '';
+    t.updated = new Date().toISOString();
+    _pushAudit(t, 'module_linked', t.linked_module || '(cleared)');
+    _saveTickets(tickets);
+    window._dsToast?.({ title: 'Saved locally', body: 'Module link stored in this browser only.', severity: 'warn' });
+  };
 
   window._tkReply = (id) => {
     const text = document.getElementById('tk-reply')?.value?.trim();
     if (!text) return;
-    const t = tickets.find(x => x.id === id);
-    if (!t) return;
-    const user = window.currentUser?.display_name || window.currentUser?.email?.split('@')[0] || 'You';
-    t.messages = t.messages || [];
-    t.messages.push({ from: user, text, ts: new Date().toISOString() });
-    _saveTickets(tickets);
-    _render();
-    window._dsToast?.({ title: 'Reply saved locally', body: `Response for ${id} is stored in this browser only.`, severity: 'warn' });
-  };
-
-  window._tkAgentReport = (id) => {
-    const t = tickets.find(x => x.id === id);
+    const t = tickets.find((x) => x.id === id);
     if (!t) return;
     t.messages = t.messages || [];
-    t.messages.push({
-      from: 'OpenClaw Agent',
-      text: 'Automated diagnostic: Ran health checks on affected subsystem. CPU: nominal. Memory: 78% utilization. Disk I/O: elevated latency (avg 42ms, threshold 25ms). Recommend investigating storage backend. Attaching full diagnostic log to internal trace.',
-      ts: new Date().toISOString()
-    });
+    t.messages.push({ from: _actor(), text, ts: new Date().toISOString() });
+    t.updated = new Date().toISOString();
+    _pushAudit(t, 'comment', text.slice(0, 120));
     _saveTickets(tickets);
+    document.getElementById('tk-reply').value = '';
     _render();
-    window._dsToast?.({ title: 'Agent note saved locally', body: 'Diagnostic note is stored in this browser only.', severity: 'warn' });
+    window._dsToast?.({ title: 'Note saved locally', body: 'Not sent to a server.', severity: 'warn' });
   };
 
   window._tkChangeStatus = () => {
     if (!selectedTicketId) return;
-    const t = tickets.find(x => x.id === selectedTicketId);
+    const t = tickets.find((x) => x.id === selectedTicketId);
     if (!t) return;
     const newStatus = document.getElementById('tk-status-change')?.value;
-    if (newStatus && newStatus !== t.status) {
-      t.status = newStatus;
-      t.messages = t.messages || [];
-      t.messages.push({ from: 'System', text: `Status changed to "${newStatus}".`, ts: new Date().toISOString() });
-      _saveTickets(tickets);
-      _render();
-      window._dsToast?.({ title: 'Status saved locally', body: `${t.id} is now ${newStatus} in this browser only.`, severity: 'warn' });
-    }
+    if (!newStatus || newStatus === t.status) return;
+    const prev = t.status;
+    t.status = newStatus;
+    t.updated = new Date().toISOString();
+    _pushAudit(t, 'status_change', `${prev} → ${newStatus}`);
+    _saveTickets(tickets);
+    _render();
+    window._dsToast?.({ title: 'Status saved locally', body: `${t.id} is now “${newStatus}” in this browser only.`, severity: 'warn' });
   };
 
-  // ── New Ticket modal ──────────────────────────────────────────────────────
   window._tkShowNew = () => {
     const overlay = document.createElement('div');
     overlay.id = 'tk-modal-overlay';
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9000;display:flex;align-items:center;justify-content:center';
+    const catOptions = Object.entries(CAT_LABEL).map(([k, lab]) => `<option value="${k}">${lab}</option>`).join('');
+    const modOptions = MODULE_LINKS.map((x) => `<option value="${x.page}">${x.label}</option>`).join('');
     overlay.innerHTML = `
-      <div style="background:var(--bg-panel, #0a1d29);border:1px solid var(--border);border-radius:12px;padding:24px;width:480px;max-width:90vw;max-height:85vh;overflow-y:auto">
-        <h3 style="font-size:16px;font-weight:600;color:var(--text-primary);margin:0 0 16px">Create Local Ticket</h3>
-        <div style="margin-bottom:16px;padding:10px 12px;border:1px solid rgba(255,181,71,0.24);border-radius:10px;background:rgba(255,181,71,0.08);font-size:12px;line-height:1.45;color:var(--text-secondary)">
-          This queue is local-only in the current beta build. New tickets created here are saved in this browser and are not synced to a support backend.
+      <div style="background:var(--bg-panel, #0a1d29);border:1px solid var(--border);border-radius:12px;padding:24px;width:500px;max-width:92vw;max-height:88vh;overflow-y:auto">
+        <h3 style="font-size:16px;font-weight:600;color:var(--text-primary);margin:0 0 12px">Create ticket (local)</h3>
+        <p style="font-size:12px;line-height:1.5;color:var(--text-secondary);margin:0 0 14px">
+          Saved only in this browser. Required: title, category, description.
+        </p>
+        <div id="tk-modal-safety" style="display:none;margin-bottom:14px;padding:12px;border-radius:10px;border:1px solid rgba(239,68,68,0.35);background:rgba(239,68,68,0.08);font-size:12px;line-height:1.5;color:var(--text-secondary)"></div>
+        <div id="tk-modal-phi" style="display:none;margin-bottom:14px;padding:12px;border-radius:10px;border:1px solid rgba(255,181,71,0.35);background:rgba(255,181,71,0.08);font-size:12px;line-height:1.45;color:var(--text-secondary)">
+          <strong style="color:var(--text-primary)">PHI caution:</strong> this category often touches identifiable patient information. Prefer patient IDs or initials only when necessary; full narratives may belong in the chart or AE workflow instead.
         </div>
-        <div style="display:flex;flex-direction:column;gap:14px">
+        <div class="form-group">
+          <label class="form-label">Title</label>
+          <input id="tk-new-title" class="form-control" placeholder="Short summary (no patient names if avoidable)">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px">
           <div class="form-group">
-            <label class="form-label">Title</label>
-            <input id="tk-new-title" class="form-control" placeholder="Brief description of the issue">
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-            <div class="form-group">
-              <label class="form-label">Category</label>
-              <select id="tk-new-cat" class="form-control">
-                <option value="bug">Bug Report</option>
-                <option value="maintenance">Maintenance</option>
-                <option value="feature">Feature Request</option>
-                <option value="question">Question</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Priority</label>
-              <select id="tk-new-prio" class="form-control">
-                <option value="low">Low</option>
-                <option value="medium" selected>Medium</option>
-                <option value="high">High</option>
-                <option value="critical">Critical</option>
-              </select>
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Source</label>
-            <select id="tk-new-source" class="form-control">
-              <option value="user">Manual (User)</option>
-              <option value="agent">OpenClaw Agent (Automated)</option>
+            <label class="form-label">Category</label>
+            <select id="tk-new-cat" class="form-control" onchange="window._tkModalCat()">
+              ${catOptions}
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Description</label>
-            <textarea id="tk-new-desc" class="form-control" rows="4" placeholder="Describe the issue, steps to reproduce, or what the agent detected..."></textarea>
+            <label class="form-label">Severity (operational)</label>
+            <select id="tk-new-prio" class="form-control">
+              <option value="p4_informational">P4 — informational</option>
+              <option value="p3_medium" selected>P3 — medium</option>
+              <option value="p2_high">P2 — high (ops)</option>
+              <option value="p1_urgent_ops">P1 — urgent (ops; not emergency dispatch)</option>
+            </select>
           </div>
         </div>
+        <div class="form-group" style="margin-top:12px">
+          <label class="form-label">Linked module (optional)</label>
+          <select id="tk-new-mod" class="form-control">
+            <option value="">—</option>
+            ${modOptions}
+          </select>
+        </div>
+        <div class="form-group" style="margin-top:12px">
+          <label class="form-label">Patient reference (optional)</label>
+          <input id="tk-new-patient" class="form-control" placeholder="Internal patient ID — avoid names when possible" value="${_esc(patientIdUrlHint || '')}">
+          <p style="font-size:10px;color:var(--text-tertiary);margin:6px 0 0">Stored only in this browser with the ticket. Does not prove roster access.</p>
+        </div>
+        <div class="form-group" style="margin-top:12px">
+          <label class="form-label">Description</label>
+          <textarea id="tk-new-desc" class="form-control" rows="5" placeholder="Steps, expected vs actual, timestamps, environment…"></textarea>
+        </div>
+        <p style="font-size:11px;color:var(--text-tertiary);margin:10px 0 0;line-height:1.45">
+          Avoid unnecessary PHI in free text. For emergencies or regulated adverse events, use your clinic protocol — this form does not notify emergency services.
+        </p>
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
-          <button class="btn btn-ghost" onclick="document.getElementById('tk-modal-overlay')?.remove()">Cancel</button>
-          <button class="btn btn-primary" onclick="window._tkCreate()">Save Local Ticket</button>
+          <button type="button" class="btn btn-ghost" onclick="document.getElementById('tk-modal-overlay')?.remove()">Cancel</button>
+          <button type="button" class="btn btn-primary" onclick="window._tkCreate()">Save locally</button>
         </div>
       </div>`;
     document.body.appendChild(overlay);
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) overlay.remove();
+    });
+    window._tkModalCat = () => {
+      const cat = document.getElementById('tk-new-cat')?.value;
+      const box = document.getElementById('tk-modal-safety');
+      const phi = document.getElementById('tk-modal-phi');
+      if (!box) return;
+      if (cat === 'patient_safety_concern' || cat === 'adverse_event') {
+        box.style.display = 'block';
+        box.innerHTML = cat === 'adverse_event'
+          ? '<strong>Adverse event / serious incident:</strong> use your clinic’s <strong>adverse-event protocol</strong> and official reporting paths. This ticket is operational documentation only and does not replace regulatory AE submission.'
+          : '<strong>Patient safety concern:</strong> if there is imminent risk or acute deterioration, follow your clinic’s <strong>safety / escalation protocol</strong> — this queue does not dispatch emergency services or replace clinical escalation.';
+      } else {
+        box.style.display = 'none';
+        box.innerHTML = '';
+      }
+      if (phi) {
+        phi.style.display = PHI_CATEGORY_HINT.has(cat) ? 'block' : 'none';
+      }
+    };
+    window._tkModalCat();
   };
 
   window._tkCreate = () => {
     const title = document.getElementById('tk-new-title')?.value?.trim();
-    const desc  = document.getElementById('tk-new-desc')?.value?.trim();
-    if (!title) { window._dsToast?.({ title: 'Missing title', body: 'Please enter a ticket title.', severity: 'warn' }); return; }
+    const desc = document.getElementById('tk-new-desc')?.value?.trim();
+    const cat = document.getElementById('tk-new-cat')?.value || 'other';
+    const prio = document.getElementById('tk-new-prio')?.value || 'p3_medium';
+    const mod = document.getElementById('tk-new-mod')?.value || '';
+    let patientRef = (document.getElementById('tk-new-patient')?.value || '').trim().slice(0, 128);
+    if (!patientRef && patientIdUrlHint) patientRef = patientIdUrlHint;
 
-    const cat    = document.getElementById('tk-new-cat')?.value || 'other';
-    const prio   = document.getElementById('tk-new-prio')?.value || 'medium';
-    const source = document.getElementById('tk-new-source')?.value || 'user';
-    const nextId = 'TK-' + (1000 + tickets.length + 1);
-    const from   = source === 'agent' ? 'OpenClaw Agent' : (window.currentUser?.display_name || window.currentUser?.email?.split('@')[0] || 'You');
+    if (!title || !desc) {
+      window._dsToast?.({ title: 'Required fields', body: 'Enter title and description.', severity: 'warn' });
+      return;
+    }
 
+    const nextId = _nextId(tickets);
+    const ts = new Date().toISOString();
+    let capPage = contextPageUrlHint;
+    if (!capPage) {
+      try {
+        capPage = sessionStorage.getItem('ds_last_app_page') || '';
+      } catch (_) {}
+    }
     const newTicket = {
+      ...TK_META,
       id: nextId,
       title,
       category: cat,
       priority: prio,
       status: 'open',
-      source,
-      created: new Date().toISOString(),
-      messages: desc ? [{ from, text: desc, ts: new Date().toISOString() }] : [],
+      created: ts,
+      updated: ts,
+      linked_module: mod,
+      patient_ref: patientRef || undefined,
+      captured_page_context: capPage ? capPage.slice(0, 64) : undefined,
+      created_by: _actor(),
+      demo_example: false,
+      messages: [{ from: _actor(), text: desc, ts }],
+      audit: [{
+        type: 'created',
+        detail: CAT_LABEL[cat] || cat,
+        actor: _actor(),
+        ts,
+        source: 'local-browser',
+      }],
     };
 
     tickets.unshift(newTicket);
     _saveTickets(tickets);
     document.getElementById('tk-modal-overlay')?.remove();
     selectedTicketId = nextId;
+    detailTab = 'thread';
     _render();
-    window._dsToast?.({ title: 'Ticket saved locally', body: `${nextId} is stored in this browser only.`, severity: 'warn' });
+    window._dsToast?.({ title: 'Saved locally', body: `${nextId} is stored in this browser only — not sent to support.`, severity: 'warn' });
   };
 
-  // Initial render
   _render();
-
-  // Wire the topbar + New Ticket button
   document.getElementById('tk-new-btn')?.addEventListener('click', () => window._tkShowNew());
 }
+
 
 // ── Clinician Account (st-* design) ───────────────────────────────────────────
 // Clinician-facing account/preferences page using the same st-* layout as the
