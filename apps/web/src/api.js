@@ -697,6 +697,8 @@ function _demoSyntheticResponse(path, method, body) {
       recent_alerts: [],
       readiness: { score: 0.71, coverage_days: 1, demo: true },
       demo: true,
+    };
+  }
 
   // ── Nutrition analyzer (GET payload + GET audit) — API-shaped JSON for Netlify demo sessions
   const nutGet = path.match(
