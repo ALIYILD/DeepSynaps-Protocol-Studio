@@ -10465,7 +10465,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     const financeCard = fin ? `
       <div class="ch-card" style="margin-top:12px">
         <div class="ch-card-hd"><span class="ch-card-title">Finance Summary</span>
-          <button class="ch-btn-sm" onclick="window._nav('finance-hub')">Open Finance →</button>
+          <button class="ch-btn-sm" onclick="window._nav('finance-v2')">Open Finance →</button>
         </div>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:14px 16px">
           <div><div style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.6px">Revenue paid</div><div style="font-size:18px;font-weight:700;color:var(--green,#4ade80);margin-top:4px">${fmtGBP(fin.revenue_paid)}</div></div>
@@ -10646,10 +10646,17 @@ export async function pgReportsHubNew(setTopbar, navigate) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// pgFinanceHub — Overview · Invoices · Payments · Insurance · Analytics
-// Backed by /api/v1/finance/* (no more localStorage).
+// pgFinanceHub — Finance v2 / finance-hub: Overview · Invoices · Payments ·
+// Insurance · Analytics. Backed by /api/v1/finance/* (clinic ledger). Not Stripe
+// MRR/ARR; SaaS billing lives on the Billing page / payments API.
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgFinanceHub(setTopbar, navigate) {
+  const role = currentUser?.role || 'guest';
+  const FINANCE_VIEW_ROLES = ['clinician', 'admin', 'clinic-admin', 'supervisor', 'reviewer', 'technician'];
+  const FINANCE_ADMIN_ROLES = ['admin', 'clinic-admin'];
+  const canViewFinance = FINANCE_VIEW_ROLES.includes(role);
+  const canManageFinance = FINANCE_ADMIN_ROLES.includes(role);
+
   const tab = window._financeHubTab || 'overview';
   window._financeHubTab = tab;
   const TAB_META = {
@@ -10660,13 +10667,34 @@ export async function pgFinanceHub(setTopbar, navigate) {
     analytics: { label: 'Analytics',   color: 'var(--amber)'  },
   };
   const el = document.getElementById('content');
+  if (!el) return;
+
   function tabBar() {
     return Object.entries(TAB_META).map(([id,m]) =>
       '<button class="ch-tab'+(tab===id?' ch-tab--active':'')+'"'+(tab===id?' style="--tab-color:'+m.color+'"':'')+
-      ' onclick="window._financeHubTab=\''+id+'\';window._nav(\'finance-hub\')">'+ m.label +'</button>'
+      ' onclick="window._financeHubTab=\''+id+'\';window._nav(\'finance-v2\')">'+ m.label +'</button>'
     ).join('');
   }
-  setTopbar('Finance', '<button class="btn btn-primary btn-sm" onclick="window._finNewInvoice()">+ New Invoice</button>');
+
+  if (!canViewFinance) {
+    setTopbar('Finance', '');
+    el.innerHTML = `
+      <div class="dv2-hub-shell" style="padding:20px;max-width:720px;margin:0 auto">
+        <div class="ch-card" style="padding:28px">
+          <div style="font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Finance workspace restricted</div>
+          <p style="font-size:13px;line-height:1.55;color:var(--text-secondary);margin:0 0 14px 0">
+            Billing and ledger tools are for clinic administrators and authorised clinical staff. Patient and guest accounts cannot access finance data.
+          </p>
+          <button class="btn btn-primary btn-sm" onclick="window._nav('home')">Go to dashboard</button>
+        </div>
+      </div>`;
+    return;
+  }
+
+  const topbarActions = canManageFinance
+    ? '<button class="btn btn-primary btn-sm" onclick="window._finNewInvoice()">+ New Invoice</button>'
+    : '<span style="font-size:11px;color:var(--text-tertiary)">View-only · invoice edits require clinic admin</span>';
+  setTopbar('Finance', topbarActions);
 
   const pad2 = n => String(n).padStart(2,'0');
   const now  = new Date();
@@ -10697,6 +10725,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
   const invFilt   = window._invFilt   || 'all';
   const invSearch = window._invSearch || '';
 
+  let usedDemoSeed = false;
   // Declared as `let` so the demo-mode fallback below can reassign with seeded
   // empty payloads when backend rejects demo tokens.
   let [summary, invoicesResp, paymentsResp, claimsResp, monthlyResp] = await Promise.all([
@@ -10713,6 +10742,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
     let _demoBuild = false;
     try { _demoBuild = !!(import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1'); } catch (_) { _demoBuild = false; }
     if (_demoBuild) {
+      usedDemoSeed = true;
       summary = summary || { revenue_paid: 0, outstanding: 0, overdue: 0, total_invoices: 0, total_payments: 0, claims_approved: 0, claims_pending: 0, claims_value: 0 };
       invoicesResp = invoicesResp || { items: [] };
       paymentsResp = paymentsResp || { items: [] };
@@ -10726,13 +10756,21 @@ export async function pgFinanceHub(setTopbar, navigate) {
             <div class="ch-card" style="padding:28px;text-align:center">
               <div style="font-size:14px;font-weight:600;color:var(--red);margin-bottom:6px">Failed to load finance data</div>
               <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:14px">The server returned an error. Please retry.</div>
-              <button class="btn btn-primary btn-sm" onclick="window._nav('finance-hub')">Retry</button>
+              <button class="btn btn-primary btn-sm" onclick="window._nav('finance-v2')">Retry</button>
             </div>
           </div>
         </div>`;
       return;
     }
   }
+
+  const dataSourceKey = usedDemoSeed ? 'demo' : 'ledger';
+  const sourceBlurb =
+    dataSourceKey === 'demo'
+      ? 'DEMO / OFFLINE — figures are zero-filled placeholders until a live API session is available. Not real billing.'
+      : 'Internal clinic ledger (API + database). This is not your SaaS subscription; use Billing for Stripe checkout and the customer portal.';
+  const financeDisclaimer =
+    'Finance data may include provider-sourced billing records, internal estimates, or demo data. This page is for clinic administration only and does not provide tax, legal, financial, clinical, or treatment guidance.';
 
   const invoices = Array.isArray(invoicesResp.items) ? invoicesResp.items : [];
   const payments = Array.isArray(paymentsResp.items) ? paymentsResp.items : [];
@@ -10755,9 +10793,98 @@ export async function pgFinanceHub(setTopbar, navigate) {
     )
   ).join('');
 
-  window._finNewInvoice = () => document.getElementById('fin-new-inv-modal')?.classList.remove('ch-hidden');
-  window._finLogPayment = () => document.getElementById('fin-log-pay-modal')?.classList.remove('ch-hidden');
-  window._finNewClaim   = () => document.getElementById('fin-new-claim-modal')?.classList.remove('ch-hidden');
+  window._finNewInvoice = () => {
+    if (!canManageFinance) {
+      window._dsToast?.({ title: 'View only', body: 'Create invoice requires a clinic admin or platform admin role.', severity: 'warn' });
+      return;
+    }
+    document.getElementById('fin-new-inv-modal')?.classList.remove('ch-hidden');
+  };
+  window._finLogPayment = () => {
+    if (!canManageFinance) {
+      window._dsToast?.({ title: 'View only', body: 'Log payment requires a clinic admin or platform admin role.', severity: 'warn' });
+      return;
+    }
+    document.getElementById('fin-log-pay-modal')?.classList.remove('ch-hidden');
+  };
+  window._finNewClaim   = () => {
+    if (!canManageFinance) {
+      window._dsToast?.({ title: 'View only', body: 'Claims require a clinic admin or platform admin role.', severity: 'warn' });
+      return;
+    }
+    document.getElementById('fin-new-claim-modal')?.classList.remove('ch-hidden');
+  };
+
+  const demoChipHtml = usedDemoSeed
+    ? '<span style="display:inline-block;font-size:10px;font-weight:700;color:var(--amber,#ffb547);background:rgba(255,181,71,0.14);border:1px solid rgba(255,181,71,0.35);padding:2px 8px;border-radius:999px;margin-bottom:8px;letter-spacing:0.04em">DEMO DATA</span>'
+    : '';
+  const bannerHtml = `
+    <div class="ch-card" style="padding:14px 18px;margin-bottom:16px;border-left:3px solid var(--teal);display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start;justify-content:space-between">
+      <div style="flex:1;min-width:240px">
+        ${demoChipHtml}
+        <div style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">Data source</div>
+        <div style="font-size:12.5px;color:var(--text-primary);line-height:1.55">${sourceBlurb}</div>
+        <div style="font-size:11px;color:var(--text-tertiary);margin-top:10px;line-height:1.5">${financeDisclaimer}</div>
+        <div style="font-size:11px;color:var(--text-tertiary);margin-top:8px;line-height:1.45">VAT/tax is not calculated as legal advice here — confirm amounts with accounting or your payments provider. Finance audit events are not recorded separately; use the Audit Trail for governance review where your deployment enables it.</div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;max-width:420px;justify-content:flex-end">
+        <button type="button" class="ch-btn-sm ch-btn-teal" onclick="window._nav('marketplace')">Marketplace</button>
+        <button type="button" class="ch-btn-sm" onclick="window._nav('ai-agent-v2')">AI Agents</button>
+        <button type="button" class="ch-btn-sm" onclick="window._nav('pricing')">Access / Pricing</button>
+        <button type="button" class="ch-btn-sm" onclick="window._nav('billing')">Billing (SaaS)</button>
+        <button type="button" class="ch-btn-sm" onclick="window._nav('admin')">Admin</button>
+        <button type="button" class="ch-btn-sm" onclick="window._nav('documents-v2')">Documents</button>
+        <button type="button" class="ch-btn-sm" onclick="window._nav('settings-v2')">Settings</button>
+        <button type="button" class="ch-btn-sm" onclick="window._nav('audittrail')">Audit Trail</button>
+        <button type="button" class="ch-btn-sm" ${usedDemoSeed ? 'disabled title="Export needs a live finance API session"' : ''} onclick="window._finExportLedgerCsv()">Export CSV (this tab)</button>
+      </div>
+    </div>`;
+
+  window._finExportLedgerCsv = () => {
+    if (usedDemoSeed) {
+      window._dsToast?.({ title: 'Export unavailable', body: 'Connect to the API or disable demo offline mode to export ledger rows.', severity: 'warn' });
+      return;
+    }
+    const escCsv = (v) => {
+      const s = v == null ? '' : String(v);
+      if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+      return s;
+    };
+    let headers;
+    let rows;
+    if (tab === 'invoices') {
+      headers = ['invoice_number', 'patient_name', 'status', 'currency', 'total', 'issue_date', 'due_date'];
+      rows = invoices.map((inv) => headers.map((h) => escCsv(inv[h])).join(','));
+    } else if (tab === 'payments') {
+      headers = ['payment_date', 'patient_name', 'amount', 'currency', 'method', 'reference'];
+      rows = payments.map((p) =>
+        headers.map((h) => escCsv(h === 'currency' ? (p.currency || 'GBP') : p[h])).join(','),
+      );
+    } else if (tab === 'insurance') {
+      headers = ['claim_number', 'patient_name', 'status', 'amount', 'currency', 'insurer', 'submitted_date'];
+      rows = claims.map((c) =>
+        headers.map((h) => escCsv(h === 'currency' ? 'GBP' : c[h])).join(','),
+      );
+    } else {
+      window._dsToast?.({
+        title: 'Switch tab to export',
+        body: 'Open Invoices, Payments, or Insurance, then export CSV.',
+        severity: 'warn',
+      });
+      return;
+    }
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'finance-' + tab + '-' + new Date().toISOString().slice(0, 10) + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    window._dsToast?.({ title: 'Export ready', body: 'Download started.', severity: 'success' });
+  };
 
   let main = '';
 
@@ -10769,7 +10896,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
     const invDenom = Math.max(invoices.length, 1);
     const recentPay = payments.slice(0, 3).map(p => ({
       icon: '💳',
-      text: (p.patient_name || '—') + ' — ' + fmt(p.amount) + ' received',
+      text: (p.patient_name || '—') + ' — ' + fmt(p.amount) + ' GBP recorded',
       date: p.payment_date || p.created_at || '',
       c: 'var(--green)',
     }));
@@ -10785,11 +10912,12 @@ export async function pgFinanceHub(setTopbar, navigate) {
 
     main = `
       <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
-        <div class="ch-kpi-card dv2-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val dv2-kpi-val">${fmt(totalRev)}</div><div class="ch-kpi-label dv2-kpi-label">Revenue (Paid)</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(totalOutstand)}</div><div class="ch-kpi-label">Outstanding</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--red)"><div class="ch-kpi-val">${fmt(totalOverdue)}</div><div class="ch-kpi-label">Overdue</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${totalInvoices}</div><div class="ch-kpi-label">Total Invoices</div></div>
+        <div class="ch-kpi-card dv2-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val dv2-kpi-val">${fmt(totalRev)} GBP</div><div class="ch-kpi-label dv2-kpi-label">Collected (ledger)</div><div style="font-size:10px;color:var(--text-tertiary);margin-top:4px;line-height:1.35">Internal payments logged · not card-settled unless noted elsewhere</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(totalOutstand)} GBP</div><div class="ch-kpi-label">Outstanding (estimate)</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--red)"><div class="ch-kpi-val">${fmt(totalOverdue)} GBP</div><div class="ch-kpi-label">Overdue (estimate)</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${totalInvoices}</div><div class="ch-kpi-label">Invoice rows</div></div>
       </div>
+      <div style="font-size:11px;color:var(--text-tertiary);margin:-8px 0 16px 0;line-height:1.45">Zeros do not prove healthy billing — confirm with your ledger and provider. SaaS subscription status is on <button type="button" class="ch-btn-sm" style="margin:0 4px;vertical-align:middle" onclick="window._nav('billing')">Billing</button>.</div>
       <div class="ch-two-col">
         <div class="ch-card">
           <div class="ch-card-hd"><span class="ch-card-title">Invoice Status</span></div>
@@ -10809,7 +10937,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
                 '<div class="rec-apt-info"><div class="rec-apt-name" style="color:'+x.c+'">'+x.text+'</div></div>'+
                 '<span class="rec-apt-time">'+x.date+'</span></div>'
               ).join('')
-            : '<div style="padding:24px;text-align:center;color:var(--text-tertiary);font-size:12px">No recent activity.</div>'}
+            : '<div style="padding:24px;text-align:center;color:var(--text-tertiary);font-size:12px">No recent ledger activity in this view.</div>'}
         </div>
       </div>`;
   }
@@ -10821,29 +10949,36 @@ export async function pgFinanceHub(setTopbar, navigate) {
         <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px">
           <span class="ch-card-title">Invoices</span>
           <div style="display:flex;gap:4px;flex-wrap:wrap">
-            ${FILTS.map(f=>'<button class="ch-btn-sm'+(f.id===invFilt?' ch-btn-teal':'')+'" onclick="window._invFilt=\''+f.id+'\';window._nav(\'finance-hub\')">'+f.label+'</button>').join('')}
+            ${FILTS.map(f=>'<button class="ch-btn-sm'+(f.id===invFilt?' ch-btn-teal':'')+'" onclick="window._invFilt=\''+f.id+'\';window._nav(\'finance-v2\')">'+f.label+'</button>').join('')}
           </div>
           <div style="position:relative;flex:1;max-width:240px;min-width:140px">
-            <input type="text" placeholder="Search invoices…" class="ph-search-input" value="${(invSearch||'').replace(/"/g,'&quot;')}" oninput="window._invSearch=this.value" onchange="window._nav('finance-hub')" onkeydown="if(event.key==='Enter'){window._invSearch=this.value;window._nav('finance-hub')}">
+            <input type="text" placeholder="Search invoices…" class="ph-search-input" value="${(invSearch||'').replace(/"/g,'&quot;')}" oninput="window._invSearch=this.value" onchange="window._nav('finance-v2')" onkeydown="if(event.key==='Enter'){window._invSearch=this.value;window._nav('finance-v2')}">
           </div>
-          <button class="ch-btn-sm ch-btn-teal" onclick="window._finNewInvoice()">+ New</button>
+          ${canManageFinance ? '<button class="ch-btn-sm ch-btn-teal" onclick="window._finNewInvoice()">+ New</button>' : '<span style="font-size:11px;color:var(--text-tertiary)">Admins create invoices</span>'}
         </div>
         ${rows.length === 0
-          ? '<div style="padding:28px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No invoices found.</div>'
+          ? '<div style="padding:28px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No invoices in this ledger view.</div>'
           : rows.map(inv => {
               const symTotal = fmtC(inv.total, inv.currency);
               const safeId   = String(inv.id).replace(/'/g, "\\'");
               const safeNum  = String(inv.invoice_number || inv.id).replace(/'/g, "\\'");
+              const curLbl = (inv.currency || 'GBP').toUpperCase();
+              const markPaidBtn = (canManageFinance && inv.status !== 'paid')
+                ? '<button class="ch-btn-sm ch-btn-teal" onclick="window._finMarkPaid(\''+safeId+'\')">Mark Paid</button>'
+                : '';
+              const delDraftBtn = (canManageFinance && inv.status === 'draft')
+                ? '<button class="ch-btn-sm" onclick="window._finDeleteInvoice(\''+safeId+'\', \''+safeNum+'\')">Delete</button>'
+                : '';
               return '<div class="book-row">'+
                 '<div class="book-datetime"><div class="book-date">'+(inv.issue_date||'')+'</div><div class="book-time">Due: '+(inv.due_date||'—')+'</div></div>'+
                 '<div class="book-info"><div class="book-patient">'+(inv.invoice_number||inv.id)+' — '+(inv.patient_name||'—')+'</div><div class="book-clinician">'+(inv.service||'')+'</div></div>'+
-                '<div style="flex-shrink:0;text-align:right;min-width:80px"><div style="font-size:14px;font-weight:700;color:var(--text-primary)">'+symTotal+'</div><div style="font-size:11px;color:var(--text-tertiary)">+VAT incl.</div></div>'+
+                '<div style="flex-shrink:0;text-align:right;min-width:88px"><div style="font-size:14px;font-weight:700;color:var(--text-primary)">'+symTotal+'</div><div style="font-size:11px;color:var(--text-tertiary)">VAT as recorded · '+curLbl+'</div></div>'+
                 '<div class="book-status-col"><span class="book-status-badge" style="color:'+(invStC[inv.status]||'var(--text-tertiary)')+';background:'+(invStC[inv.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+(inv.status||'')+'</span></div>'+
                 '<div class="book-actions">'+
                   '<button class="ch-btn-sm" onclick="window._finViewInvoice(\''+safeId+'\')">View</button>'+
-                  (inv.status!=='paid'?'<button class="ch-btn-sm ch-btn-teal" onclick="window._finMarkPaid(\''+safeId+'\')">Mark Paid</button>':'')+
-                  (inv.status==='draft'?'<button class="ch-btn-sm" onclick="window._finDeleteInvoice(\''+safeId+'\', \''+safeNum+'\')">Delete</button>':'')+
-                  '<button class="ch-btn-sm" disabled title="Invoice delivery is not enabled in this beta build">Delivery unavailable</button>'+
+                  markPaidBtn +
+                  delDraftBtn +
+                  '<button class="ch-btn-sm" disabled title="Outbound invoice delivery is not wired in this deployment">Send / PDF unavailable</button>'+
                 '</div>'+
               '</div>';
             }).join('')}
@@ -10883,6 +11018,10 @@ export async function pgFinanceHub(setTopbar, navigate) {
     };
 
     window._finMarkPaid = async (id) => {
+      if (!canManageFinance) {
+        window._dsToast?.({ title: 'View only', body: 'Mark paid requires clinic admin.', severity: 'warn' });
+        return;
+      }
       try {
         const inv = await api.finance.markInvoicePaid(id, { method: 'manual' });
         window._dsToast?.({
@@ -10890,17 +11029,18 @@ export async function pgFinanceHub(setTopbar, navigate) {
           body: (inv?.invoice_number || id) + ' — ' + fmtC(inv?.total, inv?.currency),
           severity: 'success',
         });
-        window._nav('finance-hub');
+        window._nav('finance-v2');
       } catch (err) {
         window._dsToast?.({ title:'Mark paid failed', body: err?.message || 'Server error', severity:'warn' });
       }
     };
     window._finDeleteInvoice = async (id, label) => {
+      if (!canManageFinance) return;
       if (!confirm('Delete draft invoice ' + label + '?')) return;
       try {
         await api.finance.deleteInvoice(id);
         window._dsToast?.({ title:'Draft deleted', body: label + ' was removed.', severity:'success' });
-        window._nav('finance-hub');
+        window._nav('finance-v2');
       } catch (err) {
         window._dsToast?.({ title:'Delete failed', body: err?.message || 'Server error', severity:'warn' });
       }
@@ -10911,23 +11051,23 @@ export async function pgFinanceHub(setTopbar, navigate) {
     const avgPayment   = payments.length ? Math.round(totalReceived / payments.length) : 0;
     main = `
       <div class="ch-kpi-strip" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px">
-        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${fmt(totalReceived)}</div><div class="ch-kpi-label">Total Received</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${fmt(totalReceived)} GBP</div><div class="ch-kpi-label">Total recorded</div></div>
         <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${totalPayments}</div><div class="ch-kpi-label">Transactions</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(avgPayment)}</div><div class="ch-kpi-label">Avg Payment</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(avgPayment)} GBP</div><div class="ch-kpi-label">Avg payment</div></div>
       </div>
       <div class="ch-card">
         <div class="ch-card-hd">
           <span class="ch-card-title">Payment Log</span>
-          <button class="ch-btn-sm ch-btn-teal" onclick="window._finLogPayment()">+ Log Payment</button>
+          ${canManageFinance ? '<button class="ch-btn-sm ch-btn-teal" onclick="window._finLogPayment()">+ Log Payment</button>' : ''}
         </div>
         ${payments.length === 0
-          ? '<div style="padding:28px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No payments recorded yet.</div>'
+          ? '<div style="padding:28px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No payments recorded in this ledger.</div>'
           : payments.map(p =>
               '<div class="book-row">'+
                 '<div class="book-datetime"><div class="book-date">'+(p.payment_date||'')+'</div><div class="book-time">'+(p.reference||'')+'</div></div>'+
                 '<div class="book-info"><div class="book-patient">'+(p.patient_name||'—')+'</div><div class="book-clinician">'+(p.method||'')+(p.reference?(' · Ref: '+p.reference):'')+'</div></div>'+
-                '<div style="flex-shrink:0;min-width:80px;text-align:right"><div style="font-size:15px;font-weight:700;color:var(--green)">'+fmt(p.amount)+'</div></div>'+
-                '<div class="book-status-col"><span class="book-status-badge" style="color:var(--green);background:rgba(74,222,128,0.12)">Received</span></div>'+
+                '<div style="flex-shrink:0;min-width:88px;text-align:right"><div style="font-size:15px;font-weight:700;color:var(--green)">'+fmt(p.amount)+' GBP</div><div style="font-size:10px;color:var(--text-tertiary)">Ledger · not card auth</div></div>'+
+                '<div class="book-status-col"><span class="book-status-badge" style="color:var(--green);background:rgba(74,222,128,0.12)">Recorded</span></div>'+
               '</div>'
             ).join('')}
       </div>`;
@@ -10937,12 +11077,12 @@ export async function pgFinanceHub(setTopbar, navigate) {
       <div class="ch-kpi-strip" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px">
         <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${claimsApproved}</div><div class="ch-kpi-label">Approved</div></div>
         <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${claimsPending}</div><div class="ch-kpi-label">Pending</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(claimsValue)}</div><div class="ch-kpi-label">Claims Value</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(claimsValue)} GBP</div><div class="ch-kpi-label">Claims value (ledger)</div></div>
       </div>
       <div class="ch-card">
         <div class="ch-card-hd">
           <span class="ch-card-title">Insurance & Funding Claims</span>
-          <button class="ch-btn-sm ch-btn-teal" onclick="window._finNewClaim()">+ New Claim</button>
+          ${canManageFinance ? '<button class="ch-btn-sm ch-btn-teal" onclick="window._finNewClaim()">+ New Claim</button>' : ''}
         </div>
         ${claims.length === 0
           ? '<div style="padding:28px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No claims yet.</div>'
@@ -11005,15 +11145,16 @@ export async function pgFinanceHub(setTopbar, navigate) {
     const collectionRate = seriesInv > 0 ? Math.round((seriesSum / seriesInv) * 100) : 0;
 
     main = `
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;line-height:1.5">Billing analytics below are <strong>ledger estimates</strong> from invoiced vs collected rows — not tax filings or SaaS MRR. SaaS plans: <button type="button" class="ch-btn-sm" onclick="window._nav('billing')">Billing</button>.</div>
       <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
-        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${fmt(totalRev)}</div><div class="ch-kpi-label">YTD Revenue</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(avgMonth)}</div><div class="ch-kpi-label">Avg / Month</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${collectionRate}%</div><div class="ch-kpi-label">Collection Rate</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${monthlyData.length}</div><div class="ch-kpi-label">Months Tracked</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${fmt(totalRev)} GBP</div><div class="ch-kpi-label">Collected (ledger)</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(avgMonth)} GBP</div><div class="ch-kpi-label">Avg collected / month</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${collectionRate}%</div><div class="ch-kpi-label">Collection ratio (estimate)</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${monthlyData.length}</div><div class="ch-kpi-label">Months in series</div></div>
       </div>
       <div class="ch-two-col">
         <div class="ch-card">
-          <div class="ch-card-hd"><span class="ch-card-title">Monthly Revenue</span><button class="ch-btn-sm ch-btn-teal" onclick="window._reportsHubTab='analytics';window._nav('reports-hub')">Open Reports</button></div>
+          <div class="ch-card-hd"><span class="ch-card-title">Monthly Revenue</span><button class="ch-btn-sm ch-btn-teal" onclick="window._reportsHubTab='analytics';window._nav('reports-v2')">Open Reports</button></div>
           ${monthlyData.length === 0
             ? '<div style="padding:28px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No monthly data yet.</div>'
             : monthlyData.map(d =>
@@ -11046,6 +11187,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
 
   el.innerHTML = `
   <div class="dv2-hub-shell" style="padding:20px;display:flex;flex-direction:column;gap:16px">
+  ${bannerHtml}
   <div class="ch-shell">
     <div class="ch-tab-bar">${tabBar()}</div>
     <div class="ch-body">${main}</div>
@@ -11110,6 +11252,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
   </div>`;
 
   window._finSaveInvoice = async () => {
+    if (!canManageFinance) return;
     const patient_name = document.getElementById('inv-patient')?.value?.trim();
     const service      = document.getElementById('inv-service')?.value?.trim();
     const amount       = parseFloat(document.getElementById('inv-amount')?.value || 0);
@@ -11132,7 +11275,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
       });
       document.getElementById('fin-new-inv-modal')?.classList.add('ch-hidden');
       window._financeHubTab = 'invoices';
-      window._nav('finance-hub');
+      window._nav('finance-v2');
       window._dsToast?.({
         title:'Invoice created',
         body: (inv?.invoice_number || 'Invoice') + ' — ' + fmtC(inv?.total, inv?.currency),
@@ -11154,6 +11297,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
   };
 
   window._finSavePayment = async () => {
+    if (!canManageFinance) return;
     const patient_name = document.getElementById('pay-patient')?.value?.trim();
     const amount       = parseFloat(document.getElementById('pay-amount')?.value || 0);
     const method       = document.getElementById('pay-method')?.value || 'manual';
@@ -11170,7 +11314,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
       });
       document.getElementById('fin-log-pay-modal')?.classList.add('ch-hidden');
       window._financeHubTab = 'payments';
-      window._nav('finance-hub');
+      window._nav('finance-v2');
       window._dsToast?.({ title:'Payment logged', body: patient_name + ' — ' + fmt(amount), severity:'success' });
     } catch (err) {
       window._dsToast?.({ title:'Log payment failed', body: err?.message || 'Server error', severity:'warn' });
@@ -11178,6 +11322,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
   };
 
   window._finSaveClaim = async () => {
+    if (!canManageFinance) return;
     const patient_name  = document.getElementById('clm-patient')?.value?.trim();
     const insurer       = document.getElementById('clm-insurer')?.value?.trim();
     const policy_number = document.getElementById('clm-policy')?.value?.trim() || null;
@@ -11194,7 +11339,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
       });
       document.getElementById('fin-new-claim-modal')?.classList.add('ch-hidden');
       window._financeHubTab = 'insurance';
-      window._nav('finance-hub');
+      window._nav('finance-v2');
       window._dsToast?.({ title:'Claim created', body: patient_name + ' — ' + insurer, severity:'success' });
     } catch (err) {
       window._dsToast?.({ title:'Create claim failed', body: err?.message || 'Server error', severity:'warn' });

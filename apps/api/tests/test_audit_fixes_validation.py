@@ -27,7 +27,7 @@ class TestFinanceNumberAllocation:
     """Verify invoice/claim number allocation is DB-level MAX + retry safe."""
 
     def test_sequential_invoice_numbers(self, client: TestClient, auth_headers: dict) -> None:
-        headers = auth_headers["clinician"]
+        headers = auth_headers["admin"]
         inv1 = client.post("/api/v1/finance/invoices", json={
             "patient_name": "Patient A", "service": "TMS", "amount": 100.0,
             "issue_date": "2026-01-01", "due_date": "2026-02-01",
@@ -45,7 +45,7 @@ class TestFinanceNumberAllocation:
         assert num2 == "INV-00002"
 
     def test_sequential_claim_numbers(self, client: TestClient, auth_headers: dict) -> None:
-        headers = auth_headers["clinician"]
+        headers = auth_headers["admin"]
         c1 = client.post("/api/v1/finance/claims", json={
             "patient_name": "Patient A", "insurer": "BUPA",
             "description": "TMS pre-auth", "amount": 500.0,
