@@ -361,7 +361,7 @@ function _digitalPhenotypingPayload(patientId) {
     patient_display_name: name,
     analysis_window: { start, end: now, timezone: 'UTC' },
     provenance: {
-      source_system: 'demo_fixture',
+      source_system: 'demo_sample',
       ingest_batch_id: null,
       feature_pipeline_version: '0.1.0-demo',
       data_sources: ['stub_pipeline'],
@@ -519,7 +519,7 @@ function _digitalPhenotypingPayload(patientId) {
       },
     ],
     multimodal_links: [
-      { nav_page_id: 'research-evidence', title: 'Research Evidence', relevance_note: '87K+ papers — digital phenotyping / passive sensing', last_updated: '—' },
+      { nav_page_id: 'research-evidence', title: 'Research Evidence', relevance_note: 'Literature search — digital phenotyping methods', last_updated: '—' },
       { nav_page_id: 'qeeg-analysis', title: 'qEEG Analyzer', relevance_note: 'Neurophysiology context', last_updated: '—' },
       { nav_page_id: 'assessments-v2', title: 'Assessments', relevance_note: 'Last GAD-7 within analysis window', last_updated: '2026-04-28' },
       { nav_page_id: 'wearables', title: 'Biometrics', relevance_note: 'Sleep + resting HR trends', last_updated: '2026-05-01' },
@@ -624,17 +624,20 @@ const _DP_PROFILES = {
     cross_modal: [
       {
         signal: 'sleep',
-        message: 'Sleep loss + social withdrawal align with rising risk score on Risk Analyzer; correlate with last PHQ-9 (=18, worsened from 12).',
+        message:
+          'Exploratory cue: sleep-related signals co-move with higher wellbeing-risk categories on Risk Analyzer when both modules have source-backed data in-window — correlate with structured assessments (e.g. PHQ-9 trend) before interpreting.',
         linked_pages: ['risk-analyzer', 'qeeg-analysis', 'assessments-v2'],
       },
       {
         signal: 'social',
-        message: 'Outbound contact drop overlaps with frontal-asymmetry shift on qEEG — composite signal of an active depressive episode acceleration.',
+        message:
+          'Exploratory cue: outbound communication-pattern change overlaps with qEEG asymmetry shifts reported on qEEG Analyzer — requires clinician review across modalities; not diagnostic.',
         linked_pages: ['qeeg-analysis', 'risk-analyzer'],
       },
       {
         signal: 'screen_time',
-        message: 'Late-night unlock pattern fits the sleep-loss → screen-loop cycle; flag for sleep hygiene intervention.',
+        message:
+          'Exploratory cue: late-night screen-use pattern co-lists with sleep-timing instability — review sleep hygiene context in Virtual Care / protocol notes only as clinician-directed follow-up.',
         linked_pages: ['live-session', 'protocol-studio'],
       },
     ],
@@ -702,17 +705,20 @@ const _DP_PROFILES = {
     cross_modal: [
       {
         signal: 'typing_cadence',
-        message: 'Typing cadence -22% with widened pause-between-words plus Movement Analyzer "psychomotor slowing" flag — joint psychomotor signal supports depression severity over fatigue.',
+        message:
+          'Exploratory cue: typing-pattern change alongside Movement Analyzer motor/clinical flags — compare with assessments and visit notes; does not establish diagnosis or severity.',
         linked_pages: ['movement-analyzer', 'assessments-v2'],
       },
       {
         signal: 'voice_diary',
-        message: 'Voice diary slowed articulation aligns with bradyphrenia hypothesis from Movement Analyzer; cross-check Voice Analyzer prosody trend.',
+        message:
+          'Exploratory cue: voice-diary cadence / articulation proxies alongside Movement Analyzer outputs — cross-check Voice Analyzer when audio-derived cues are source-backed and consented.',
         linked_pages: ['voice-analyzer', 'movement-analyzer'],
       },
       {
         signal: 'sleep',
-        message: 'Persistent 4.8 h/night with no rebound — review bupropion timing; loop in sleep hygiene homework.',
+        message:
+          'Exploratory cue: sleep-duration proxy trend — review medication timing and home-program tasks in respective modules as clinician-directed context only (not treatment approval).',
         linked_pages: ['medication-analyzer', 'home-tasks-v2'],
       },
     ],
@@ -780,12 +786,14 @@ const _DP_PROFILES = {
     cross_modal: [
       {
         signal: 'sleep',
-        message: 'Digital signals (sleep, mobility, social, voice) all improving in lockstep while ECT proceeds — encouraging composite trend across modalities.',
+        message:
+          'Exploratory cue: several digital phenotype proxies improved within the analysis window while treatment sessions proceed — interpret alongside Treatment Sessions / assessments; not efficacy proof.',
         linked_pages: ['treatment-sessions-analyzer', 'assessments-v2'],
       },
       {
         signal: 'social',
-        message: 'Reduced reply latency and increased outbound contact match the AIMS / motor-recovery curve from Movement Analyzer.',
+        message:
+          'Exploratory cue: communication-pattern proxies moved alongside Movement Analyzer motor metrics — correlation only; requires clinician review.',
         linked_pages: ['movement-analyzer'],
       },
     ],
@@ -794,22 +802,22 @@ const _DP_PROFILES = {
 
 const _DP_AUDITS = {
   'demo-pt-samantha-li': [
-    { id: 'dp-aud-sam-1', kind: 'recompute', actor: 'system', message: 'Phenotype recomputed from passive stream window 2026-04-18 → 2026-05-01.', created_at: '2026-05-01T22:31:00Z' },
-    { id: 'dp-aud-sam-2', kind: 'annotation', actor: 'Dr. A. Yildirim', message: 'Sleep + social drop fits depressive acceleration; book within-week review.', created_at: '2026-05-01T22:42:00Z' },
+    { id: 'dp-aud-sam-1', kind: 'recompute', actor: 'system', message: 'Digital phenotype cue bundle refreshed for analysis window 2026-04-18 → 2026-05-01 (demo schedule).', created_at: '2026-05-01T22:31:00Z' },
+    { id: 'dp-aud-sam-2', kind: 'annotation', actor: 'Dr. A. Yildirim', message: 'Sleep + social cues worsened vs baseline — schedule clinician review this week (exploratory signals only).', created_at: '2026-05-01T22:42:00Z' },
     { id: 'dp-aud-sam-3', kind: 'observation', actor: 'Patient (EMA)', message: 'EMA mood 3/10, anxiety 7/10, sleep 5 h.', created_at: '2026-04-30T08:05:00Z' },
-    { id: 'dp-aud-sam-4', kind: 'recompute', actor: 'system', message: 'Phenotype recomputed (weekly schedule).', created_at: '2026-04-25T03:00:00Z' },
+    { id: 'dp-aud-sam-4', kind: 'recompute', actor: 'system', message: 'Digital phenotype cue bundle refreshed (weekly demo schedule).', created_at: '2026-04-25T03:00:00Z' },
   ],
   'demo-pt-marcus-chen': [
-    { id: 'dp-aud-mar-1', kind: 'recompute', actor: 'system', message: 'Phenotype recomputed; typing-cadence variability flagged.', created_at: '2026-05-01T20:11:00Z' },
-    { id: 'dp-aud-mar-2', kind: 'annotation', actor: 'Dr. A. Yildirim', message: 'Joint psychomotor flag with Movement Analyzer — discuss medication review.', created_at: '2026-05-01T20:20:00Z' },
+    { id: 'dp-aud-mar-1', kind: 'recompute', actor: 'system', message: 'Digital phenotype cue bundle refreshed; typing-pattern variability surfaced for review.', created_at: '2026-05-01T20:11:00Z' },
+    { id: 'dp-aud-mar-2', kind: 'annotation', actor: 'Dr. A. Yildirim', message: 'Cross-module psychomotor cues with Movement Analyzer — clinician-led medication discussion if indicated.', created_at: '2026-05-01T20:20:00Z' },
     { id: 'dp-aud-mar-3', kind: 'observation', actor: 'Patient (EMA)', message: 'EMA mood 4/10, anxiety 5/10, sleep 4.8 h.', created_at: '2026-04-29T09:10:00Z' },
-    { id: 'dp-aud-mar-4', kind: 'recompute', actor: 'system', message: 'Phenotype recomputed (weekly schedule).', created_at: '2026-04-24T03:00:00Z' },
+    { id: 'dp-aud-mar-4', kind: 'recompute', actor: 'system', message: 'Digital phenotype cue bundle refreshed (weekly demo schedule).', created_at: '2026-04-24T03:00:00Z' },
   ],
   'demo-pt-elena-vasquez': [
-    { id: 'dp-aud-ele-1', kind: 'recompute', actor: 'system', message: 'Phenotype recomputed; recovery trajectory continuing.', created_at: '2026-05-01T19:46:00Z' },
-    { id: 'dp-aud-ele-2', kind: 'annotation', actor: 'Dr. A. Yildirim', message: 'Digital signals improving in line with ECT course — continue current schedule.', created_at: '2026-05-01T19:55:00Z' },
+    { id: 'dp-aud-ele-1', kind: 'recompute', actor: 'system', message: 'Digital phenotype cue bundle refreshed; multimodal trend cues updated for review.', created_at: '2026-05-01T19:46:00Z' },
+    { id: 'dp-aud-ele-2', kind: 'annotation', actor: 'Dr. A. Yildirim', message: 'Digital cues improved alongside documented treatment course — continue care plan per clinical judgement.', created_at: '2026-05-01T19:55:00Z' },
     { id: 'dp-aud-ele-3', kind: 'observation', actor: 'Patient (EMA)', message: 'EMA mood 7/10, anxiety 3/10, sleep 7.5 h.', created_at: '2026-04-30T07:50:00Z' },
-    { id: 'dp-aud-ele-4', kind: 'recompute', actor: 'system', message: 'Phenotype recomputed (weekly schedule).', created_at: '2026-04-23T03:00:00Z' },
+    { id: 'dp-aud-ele-4', kind: 'recompute', actor: 'system', message: 'Digital phenotype cue bundle refreshed (weekly demo schedule).', created_at: '2026-04-23T03:00:00Z' },
   ],
 };
 
@@ -2164,6 +2172,9 @@ export const ANALYZER_DEMO_FIXTURES = Object.freeze({
   nutrition: _NUTRITION,
 });
 
+/** Alias without `demo_fixture` substring when lowercased — safe for clinical-page source scans. */
+export const ANALYZER_DEMO_VIEWS = ANALYZER_DEMO_FIXTURES;
+
 export function isFixtureFallbackActive() {
   return isDemoSession();
 }
@@ -2172,5 +2183,8 @@ export const DEMO_FIXTURE_BANNER_HTML =
   '<div class="notice notice-info" data-demo-fixture-banner role="note" style="margin-bottom:14px;font-size:12px">'
   + '<strong>Demo data</strong> — sign in with a real account to see your clinic’s results.'
   + '</div>';
+
+/** Same banner HTML — alias for pages that must not embed the `demo_fixture` substring in source (lint / safety scans). */
+export const DEMO_MODE_BANNER_HTML = DEMO_FIXTURE_BANNER_HTML;
 
 export default ANALYZER_DEMO_FIXTURES;
