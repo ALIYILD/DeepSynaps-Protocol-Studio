@@ -1,9 +1,15 @@
-a# DeepSynaps Studio
+# DeepSynaps Studio
 
 Clinical neuromodulation knowledge and document platform for professional users. The current MVP is deterministic, registry-driven, and backed by an imported 201-record clinical database.
 
 ## Product framing
 DeepSynaps Studio supports evidence-based assessments, protocols, clinician handbooks, patient guides, device review, governance, and clinician-gated upload review. It is not an autonomous diagnosis or treatment system.
+
+## EEG Studio — Cursor module prompts
+
+- **`cursor_prompts/`** — Master spec, architecture, and **M1–M13** implementation prompts (file targets, contracts, acceptance criteria). Start at [`cursor_prompts/README.md`](cursor_prompts/README.md).
+- **`CONTRIBUTING.md`** — Workflow for agents and developers (attach spec + architecture + module prompt).
+- **`tests/fixtures/eeg_studio/`** — Golden EDF + WinEEG reference conventions (see README there).
 
 ## Repository structure
 - `apps/api` FastAPI backend

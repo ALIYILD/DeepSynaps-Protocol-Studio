@@ -1,0 +1,13 @@
+---
+description: EEG Studio work — always load master spec + architecture when editing studio or report code
+globs: apps/web/src/studio/**,apps/api/app/routers/studio_*.py,apps/api/app/report/**,apps/api/app/spikes/**
+alwaysApply: false
+---
+
+When changing files under these globs:
+
+1. Follow **`cursor_prompts/00_MASTER_SPEC.md`** (units, norms, logging, i18n, a11y, tests).
+2. Follow **`cursor_prompts/01_ARCHITECTURE.md`** (API prefixes, `src/studio` layout).
+3. For feature work, align with the relevant **`cursor_prompts/M##_*.md`** module prompt (file targets + acceptance criteria).
+
+Do not introduce raw clinical strings without i18n keys (en + tr). Do not log PHI.

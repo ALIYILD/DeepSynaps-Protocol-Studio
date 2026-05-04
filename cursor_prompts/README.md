@@ -27,7 +27,7 @@ Attach **all** of the following to the Cursor chat before module work:
 | `M09_ERP_SUITE.md` | ERP, ERD, wavelet, PFA | 5 |
 | `M10_SOURCE_LOCALIZATION.md` | LORETA, dipole | 6 |
 | `M11_SPIKE_DETECTION.md` | Detection, review | 6 |
-| `M12_FINAL_REPORT.md` | Report generator | 7 |
-| `M13_AI_ASSISTANT.md` | AI overlay, M13 payloads | 8 |
+| `M12_FINAL_REPORT.md` | Final report generator | 7 |
+| `M13_AI_ASSISTANT.md` | AI assistant overlay | 8 |
 
 Cross-cutting validation: sprint **9** uses `tests/fixtures/eeg_studio/` golden EDFs and WinEEG reference outputs (see that README).
