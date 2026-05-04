@@ -17,7 +17,7 @@ fly volumes create deepsynaps_data --size 1 --region lhr --app deepsynaps-studio
 fly secrets set JWT_SECRET_KEY=$(openssl rand -hex 32) --app deepsynaps-studio
 fly secrets set DEEPSYNAPS_SECRETS_KEY=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())") --app deepsynaps-studio
 fly secrets set DEEPSYNAPS_DATABASE_URL=sqlite:////data/deepsynaps_protocol_studio.db --app deepsynaps-studio
-fly secrets set DEEPSYNAPS_CORS_ORIGINS=https://deepsynaps-web.fly.dev,https://deepsynaps-studio.fly.dev --app deepsynaps-studio
+fly secrets set DEEPSYNAPS_CORS_ORIGINS=https://deepsynaps-studio-preview.netlify.app,https://deepsynaps-studio.fly.dev --app deepsynaps-studio
 fly secrets set APP_URL=https://deepsynaps-studio.fly.dev --app deepsynaps-studio
 fly secrets set MEDIA_STORAGE_ROOT=/data/media_uploads --app deepsynaps-studio
 

@@ -4,7 +4,7 @@
 #   DEEPSYNAPS_DATABASE_URL   — SQLite path or PostgreSQL URL for production DB
 #   JWT_SECRET_KEY            — Secret key for JWT signing (min 32 chars)
 #   DEEPSYNAPS_SECRETS_KEY    — Fernet key for persisted auth/2FA secrets
-#   DEEPSYNAPS_CORS_ORIGINS   — Comma-separated allowed frontend origins (for example https://deepsynaps-web.fly.dev)
+#   DEEPSYNAPS_CORS_ORIGINS   — Comma-separated allowed frontend origins (for example https://deepsynaps-studio-preview.netlify.app)
 #   STRIPE_SECRET_KEY         — Stripe secret key (when payments are enabled)
 #   STRIPE_WEBHOOK_SECRET     — Stripe webhook signing secret
 #   WEARABLE_TOKEN_ENC_KEY    — Fernet key required before enabling real wearable OAuth
