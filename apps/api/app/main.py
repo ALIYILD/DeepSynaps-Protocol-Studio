@@ -157,6 +157,8 @@ except ImportError as _qa_imp_err:
 from app.routers.qeeg_raw_router import router as qeeg_raw_router
 from app.routers.qeeg_ai_router import router as qeeg_ai_router
 from app.routers.studio_eeg_router import router as studio_eeg_router
+from app.routers.studio_eeg_database_router import router as studio_eeg_database_router
+from app.routers.recording_eeg_events_router import router as recording_eeg_events_router
 from app.routers.montages_router import router as montages_router
 from app.sentry_setup import init_sentry
 from app.settings import get_settings
@@ -486,6 +488,8 @@ if _HAS_QA_ROUTER and qa_router is not None:
 app.include_router(qeeg_raw_router)
 app.include_router(qeeg_ai_router)
 app.include_router(studio_eeg_router)
+app.include_router(studio_eeg_database_router)
+app.include_router(recording_eeg_events_router)
 app.include_router(montages_router)
 
 app.state.limiter = limiter

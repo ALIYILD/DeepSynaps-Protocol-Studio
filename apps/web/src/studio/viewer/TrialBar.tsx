@@ -1,10 +1,13 @@
 import type { TrialSlice } from "../stores/eegViewer";
 
-const COL: Record<TrialSlice["kind"], string> = {
+const COL: Record<string, string> = {
   Go: "#2d7",
   NoGo: "#c55",
   Target: "#27c",
   NonTarget: "#888",
+  Standard: "#888",
+  Deviant: "#27c",
+  Novel: "#a6c",
 };
 
 export function TrialBar({
@@ -38,11 +41,13 @@ export function TrialBar({
       {trials.map((t) => {
         const x0 = x(t.startSec);
         const x1 = x(t.endSec);
+        const col = COL[t.kind] ?? "#666";
+        const tip = `Trial ${t.index} ${t.stimulusClass ?? t.kind}${t.included ? "" : " (excluded)"}`;
         return (
           <button
             key={t.id}
             type="button"
-            title={`Trial ${t.index} ${t.kind}${t.included ? "" : " (excluded)"}`}
+            title={tip}
             onClick={() => onToggle(t.id)}
             style={{
               position: "absolute",
@@ -50,10 +55,10 @@ export function TrialBar({
               width: Math.max(16, x1 - x0),
               height: height - 4,
               top: 2,
-              border: `2px solid ${COL[t.kind]}`,
+              border: `2px solid ${col}`,
               borderRadius: 4,
-              background: t.included ? `${COL[t.kind]}22` : "transparent",
-              color: COL[t.kind],
+              background: t.included ? `${col}22` : "transparent",
+              color: col,
               fontSize: 11,
               fontWeight: 700,
               cursor: "pointer",

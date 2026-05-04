@@ -1,4 +1,4 @@
-import { create } from "zustand";
+﻿import { create } from "zustand";
 
 import { DEFAULT_MONTAGE_ID } from "./montagePresets";
 
@@ -29,7 +29,7 @@ type MontageState = {
   loadCatalog: () => Promise<void>;
 };
 
-export const useMontageStore = create<MontageState>((set, get) => ({
+export const useMontageStore = create<MontageState>((set) => ({
   montageId: DEFAULT_MONTAGE_ID,
   badChannels: [],
   catalog: null,

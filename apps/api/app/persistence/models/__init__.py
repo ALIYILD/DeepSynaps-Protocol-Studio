@@ -204,6 +204,11 @@ from .ops import (
     SalesInquiry,
     ShiftRoster,
 )
+from .eeg_studio_database import (
+    EegStudioDerivative,
+    EegStudioProfileRevision,
+    EegStudioRecording,
+)
 from .patient import (
     ConsentRecord,
     IntakePacket,
@@ -312,6 +317,9 @@ __all__ = [
     "DeviceSourceRegistry",
     "DeviceSyncEvent",
     "DocumentTemplate",
+    "EegStudioDerivative",
+    "EegStudioProfileRevision",
+    "EegStudioRecording",
     "DsClaimCitation",
     "DsGroundingAudit",
     "DsHgEdgeCitation",

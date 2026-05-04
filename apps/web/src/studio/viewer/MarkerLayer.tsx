@@ -1,4 +1,10 @@
-/** SVG overlay for L/R cursors, drag selection, and label flags. */
+/** SVG overlay for L/R cursors, drag selection, label flags (triangles), photic edges. */
+
+export type LabelMarker = {
+  timeSec: number;
+  text: string;
+  color?: string;
+};
 
 export function MarkerLayer({
   width,
@@ -9,6 +15,7 @@ export function MarkerLayer({
   rightSec,
   dragSelect,
   labelMarkers,
+  photicMarkers = [],
 }: {
   width: number;
   height: number;
@@ -17,7 +24,8 @@ export function MarkerLayer({
   leftSec: number | null;
   rightSec: number | null;
   dragSelect: { startSec: number; endSec: number } | null;
-  labelMarkers: { timeSec: number; text: string }[];
+  labelMarkers: LabelMarker[];
+  photicMarkers?: { timeSec: number }[];
 }) {
   const span = toSec - fromSec || 1;
   const x = (t: number) => ((t - fromSec) / span) * width;
@@ -62,13 +70,26 @@ export function MarkerLayer({
           strokeWidth={1.5}
         />
       ) : null}
+      {photicMarkers.map((m, i) =>
+        m.timeSec >= fromSec && m.timeSec <= toSec ?
+          <g key={`ph-${i}-${m.timeSec}`}>
+            <polygon
+              points={`${x(m.timeSec)},4 ${x(m.timeSec) - 4},14 ${x(m.timeSec) + 4},14`}
+              fill="#7c3aed"
+              opacity={0.85}
+            />
+            <title>Photic stimulus (auto)</title>
+          </g>
+        : null,
+      )}
       {labelMarkers.map((m, i) =>
         m.timeSec >= fromSec && m.timeSec <= toSec ?
           <g key={`${m.timeSec}-${i}`}>
             <polygon
               points={`${x(m.timeSec)},0 ${x(m.timeSec) - 5},12 ${x(m.timeSec) + 5},12`}
-              fill="#6b5b00"
+              fill={m.color ?? "#6b5b00"}
             />
+            <title>{m.text}</title>
             <text
               x={x(m.timeSec) + 6}
               y={11}

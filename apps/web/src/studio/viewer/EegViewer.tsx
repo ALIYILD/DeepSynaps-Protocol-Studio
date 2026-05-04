@@ -7,7 +7,13 @@ import {
   useState,
 } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
+import { BandrangeMenu } from "../filters/BandrangeMenu";
+import { FiltersBar } from "../filters/FiltersBar";
+import { MontageEditorTrigger } from "../montage/MontageEditor";
+import { MontagePicker } from "../montage/MontagePicker";
+import { useMontageStore } from "../montage/useMontage";
 import { useAiStore } from "../stores/ai";
+import { useFiltersStore } from "../stores/filters";
 import { useEegViewerStore } from "../stores/eegViewer";
 import { useViewStore } from "../stores/view";
 import { ChannelRow } from "./ChannelRow";
@@ -19,6 +25,11 @@ import { PhotoBar } from "./PhotoBar";
 import { useEegStatusMetrics } from "./StatusBindings";
 import { TrialBar } from "./TrialBar";
 import { useEegStream } from "./useEegStream";
+import { estimatePhoticHz } from "./estimatePhoticHz";
+import { patchTrial } from "../events/eventApi";
+import { photicEdgeMarkers } from "../events/photicMarkers";
+import { StudioEditMenu } from "../events/StudioEditMenu";
+import { useRecordingTimeline } from "../events/useEvents";
 
 const PREDEFINED_LABELS = [
   "EO",
@@ -29,25 +40,6 @@ const PREDEFINED_LABELS = [
   "HV",
   "Custom",
 ];
-
-export function estimatePhoticHz(
-  photic: number[] | undefined,
-  sampleRate: number,
-): number | null {
-  if (!photic?.length) return null;
-  const idx: number[] = [];
-  for (let i = 0; i < photic.length; i++) {
-    if (photic[i]) idx.push(i);
-  }
-  if (idx.length < 2) return null;
-  const gaps: number[] = [];
-  for (let i = 1; i < idx.length; i++) {
-    gaps.push((idx[i]! - idx[i - 1]!) / sampleRate);
-  }
-  gaps.sort((a, b) => a - b);
-  const med = gaps[Math.floor(gaps.length / 2)]!;
-  return med > 1e-6 ? 1 / med : null;
-}
 
 function GridOverlay({
   width,
@@ -133,8 +125,45 @@ export function EegViewer({ recordingId }: { recordingId: string }) {
   const setLastVp = useEegViewerStore((s) => s.setLastViewport);
   const setPhoticStore = useEegViewerStore((s) => s.setPhoticHz);
   const hasVideo = useEegViewerStore((s) => s.hasVideo);
+  const setMarkersStore = useEegViewerStore((s) => s.setMarkers);
+  const setFragmentsStore = useEegViewerStore((s) => s.setFragments);
+  const setTrialsStore = useEegViewerStore((s) => s.setTrials);
+
+  const { reload: reloadTimeline } = useRecordingTimeline(recordingId);
 
   const viewportChanged = useAiStore((s) => s.viewportChanged);
+  const montageChanged = useAiStore((s) => s.montageChanged);
+  const filtersChanged = useAiStore((s) => s.filtersChanged);
+
+  const globalLowCutS = useFiltersStore((s) => s.globalLowCutS);
+  const globalHighCutHz = useFiltersStore((s) => s.globalHighCutHz);
+  const globalNotch = useFiltersStore((s) => s.globalNotch);
+  const baselineUv = useFiltersStore((s) => s.baselineUv);
+  const overridesJson = useFiltersStore((s) =>
+    JSON.stringify(s.serializeOverridesForApi()),
+  );
+  const channelHasOverride = useFiltersStore((s) => s.channelHasOverrideBadge);
+
+  const liveFilters = useMemo(
+    () => ({
+      lowCutS: globalLowCutS,
+      highCutHz: globalHighCutHz,
+      notch: globalNotch,
+      baselineUv,
+      overridesJson,
+    }),
+    [
+      globalLowCutS,
+      globalHighCutHz,
+      globalNotch,
+      baselineUv,
+      overridesJson,
+    ],
+  );
+
+  const montageId = useMontageStore((s) => s.montageId);
+  const badChannels = useMontageStore((s) => s.badChannels);
+  const toggleBadChannel = useMontageStore((s) => s.toggleBadChannel);
 
   const fromSec = pageStartSec;
   const toSec = pageStartSec + secondsPerPage;
@@ -149,11 +178,58 @@ export function EegViewer({ recordingId }: { recordingId: string }) {
     toSec,
     maxPoints,
     null,
+    montageId,
+    badChannels,
+    liveFilters,
   );
+
+  useEffect(() => {
+    filtersChanged({
+      lowCutS: globalLowCutS,
+      highCutHz: globalHighCutHz,
+      notch: globalNotch,
+      baselineUv,
+      overridesJson,
+    });
+  }, [
+    filtersChanged,
+    globalLowCutS,
+    globalHighCutHz,
+    globalNotch,
+    baselineUv,
+    overridesJson,
+  ]);
+
+  const montageEmitKey = useRef<string>("");
+
+  useEffect(() => {
+    if (!payload?.channels?.length) return;
+    const mid = payload.montageId ?? montageId;
+    const key = `${mid}|${payload.channels.join("\u0001")}`;
+    if (montageEmitKey.current === key) return;
+    montageEmitKey.current = key;
+    montageChanged({
+      montageId: mid,
+      derivations: payload.channels.map((label) => ({
+        label,
+        plus: [],
+        minus: [],
+      })),
+    });
+  }, [montageId, montageChanged, payload?.channels, payload?.montageId]);
+
+  useEffect(() => {
+    if (recordingId === "demo") {
+      setMarkersStore([]);
+      setFragmentsStore([]);
+      setTrialsStore([]);
+    }
+  }, [recordingId, setMarkersStore, setFragmentsStore, setTrialsStore]);
 
   useEffect(() => {
     if (!payload) return;
     setMeta(payload.totalDurationSec, false);
+    if (recordingId !== "demo") return;
     if (payload.fragments?.length)
       setFragments(
         payload.fragments.map((f) => ({
@@ -164,9 +240,12 @@ export function EegViewer({ recordingId }: { recordingId: string }) {
           color: f.color,
         })),
       );
-  }, [payload, setFragments, setMeta]);
+  }, [payload, recordingId, setFragments, setMeta]);
 
-  const channels = payload?.channels ?? [];
+  const channels = useMemo(
+    () => payload?.channels ?? [],
+    [payload],
+  );
   const photicEst = useMemo(
     () =>
       estimatePhoticHz(payload?.photic, payload?.sampleRateHz ?? 250) ?? null,
@@ -207,6 +286,12 @@ export function EegViewer({ recordingId }: { recordingId: string }) {
 
   const durationSec = payload?.totalDurationSec ?? 3600;
 
+  const pageForTime = useCallback(
+    (t: number) =>
+      PagingController.clampStart(t, secondsPerPage, durationSec),
+    [secondsPerPage, durationSec],
+  );
+
   const emitViewport = useCallback(() => {
     if (!payload) return;
     const p = { fromSec, toSec, channels: payload.channels };
@@ -233,12 +318,43 @@ export function EegViewer({ recordingId }: { recordingId: string }) {
     () =>
       markers
         .filter((m) => m.kind === "label")
-        .map((m) => ({ timeSec: m.fromSec, text: m.text ?? "?" })),
+        .map((m) => ({
+          timeSec: m.fromSec,
+          text: m.text ?? "?",
+          color: m.color,
+        })),
     [markers],
   );
 
-  const pageForTime = (t: number) =>
-    PagingController.clampStart(t, secondsPerPage, durationSec);
+  const photicMarkers = useMemo(
+    () =>
+      photicEdgeMarkers(
+        payload?.photic,
+        payload?.sampleRateHz ?? 250,
+        payload?.fromSec ?? fromSec,
+      ),
+    [payload?.photic, payload?.sampleRateHz, payload?.fromSec, fromSec],
+  );
+
+  const toggleTrialRemote = useCallback(
+    (id: string) => {
+      const prev =
+        useEegViewerStore.getState().trials.find((x) => x.id === id)?.included ??
+        true;
+      toggleTrial(id);
+      if (recordingId !== "demo") {
+        void patchTrial(recordingId, id, { included: !prev }).catch(() => {});
+      }
+    },
+    [recordingId, toggleTrial],
+  );
+
+  const jumpToSec = useCallback(
+    (t: number) => {
+      setPage(pageForTime(t));
+    },
+    [setPage, pageForTime],
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -347,6 +463,7 @@ export function EegViewer({ recordingId }: { recordingId: string }) {
     dragSelect,
     addMarker,
     setDrag,
+    pageForTime,
   ]);
 
   const rowCount = Math.max(1, channels.length || 1);
@@ -366,15 +483,69 @@ export function EegViewer({ recordingId }: { recordingId: string }) {
         color: "var(--ds-text, #111)",
       }}
     >
-      <div style={{ fontSize: 11, padding: "4px 8px", opacity: 0.8 }}>
-        {loading ? "Loading…" : null}
-        {error ? ` ${error}` : null}
-        {" — "}
-        Page {fromSec.toFixed(2)}→{toSec.toFixed(2)} s · speed{" "}
-        {secondsPerPage}s · recording {durationSec.toFixed(0)}s
+      <FiltersBar highlightChannelId={highlightId} />
+      <div
+        style={{
+          fontSize: 11,
+          padding: "4px 8px",
+          opacity: 0.8,
+          display: "flex",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: "4px 0",
+        }}
+      >
+        <BandrangeMenu
+          analysisId={recordingId}
+          selectionChannels={
+            highlightId ? [highlightId] : (payload?.channels ?? [])
+          }
+        />
+        <StudioEditMenu
+          recordingId={recordingId}
+          leftCursorSec={leftCursorSec}
+          pageStartSec={pageStartSec}
+          highlightChannelId={highlightId}
+          markers={markers}
+          fragments={fragments}
+          trials={trials}
+          onTimelineReload={() => void reloadTimeline()}
+          jumpToSec={jumpToSec}
+        />
+        <MontagePicker recordingId={recordingId} />
+        <MontageEditorTrigger recordingId={recordingId} />
+        <span style={{ marginLeft: 8 }}>
+          {loading ? "Loading…" : null}
+          {error ? ` ${error}` : null}
+          {" — "}
+          Page {fromSec.toFixed(2)}→{toSec.toFixed(2)} s · speed{" "}
+          {secondsPerPage}s · recording {durationSec.toFixed(0)}s
+        </span>
+        {payload?.montageWarnings?.length ?
+          <span style={{ marginLeft: 8, color: "#a60", maxWidth: 480 }} title={payload.montageWarnings.join("\n")}>
+            ⚠ {payload.montageWarnings[0]}
+            {payload.montageWarnings.length > 1 ?
+              ` (+${payload.montageWarnings.length - 1})`
+            : ""}
+          </span>
+        : null}
+        {payload?.filterWarnings?.length ?
+          <span style={{ marginLeft: 8, color: "#06a", maxWidth: 480 }} title={payload.filterWarnings.join("\n")}>
+            ⓘ {payload.filterWarnings[0]}
+            {payload.filterWarnings.length > 1 ?
+              ` (+${payload.filterWarnings.length - 1})`
+            : ""}
+          </span>
+        : null}
       </div>
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-        <ChannelRow channels={channels.length ? channels : ["—"]} rowHeight={rowH} />
+        <ChannelRow
+          channels={channels.length ? channels : ["—"]}
+          rowHeight={rowH}
+          badChannels={badChannels}
+          onToggleBad={toggleBadChannel}
+          channelHasOverride={channelHasOverride}
+        />
         <ContextMenu.Root>
           <ContextMenu.Trigger asChild>
             <div
@@ -461,6 +632,7 @@ export function EegViewer({ recordingId }: { recordingId: string }) {
                   rightSec={rightCursorSec}
                   dragSelect={dragSelect}
                   labelMarkers={labelFlags}
+                  photicMarkers={photicMarkers}
                 />
               </div>
               <div
@@ -499,7 +671,7 @@ export function EegViewer({ recordingId }: { recordingId: string }) {
                     fromSec={fromSec}
                     toSec={toSec}
                     trials={trials}
-                    onToggle={toggleTrial}
+                    onToggle={toggleTrialRemote}
                   />
                 </div>
               : null}

@@ -58,6 +58,9 @@ class Patient(Base):
     consent_date: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     status: Mapped[str] = mapped_column(String(30), default="active")  # active, on_hold, discharged
     notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    # WinEEG-style EEG Studio patient card (JSON): identification / clinical /
+    # anthropometric / demographic — see app.eeg_database.profile.DEFAULT_PROFILE.
+    eeg_studio_profile_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     # Structured medical-history blob — see routers/patients_router.py for shape.
     # Holds sections, safety flags/ack, and meta (version, reviewed_by/at).
     medical_history: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)

@@ -11,6 +11,9 @@ export interface WindowResponse {
   data: Float32Array[];
   totalDurationSec: number;
   photic?: number[];
+  montageId?: string;
+  montageWarnings?: string[];
+  filterWarnings?: string[];
   fragments?: {
     id: string;
     label: string;
@@ -19,6 +22,16 @@ export interface WindowResponse {
     color: string;
   }[];
 }
+
+/** Live IIR visualization filters (query params on `/window`). */
+export type EegLiveFilterParams = {
+  lowCutS: number;
+  highCutHz: number;
+  notch: string;
+  baselineUv: number;
+  /** JSON string for ``filterOverrides`` query param */
+  overridesJson: string;
+};
 
 function getToken(): string | null {
   try {
@@ -80,14 +93,35 @@ async function fetchWindow(
   toSec: number,
   maxPoints: number,
   channels: string[] | null,
+  montageId: string,
+  badChannels: string[],
+  liveFilters: EegLiveFilterParams,
 ): Promise<WindowResponse | null> {
   const tok = getToken();
   const q = new URLSearchParams({
     fromSec: String(fromSec),
     toSec: String(toSec),
     maxPoints: String(maxPoints),
+    montageId,
   });
   if (channels?.length) q.set("channels", channels.join(","));
+  if (badChannels.length)
+    q.set("badChannels", badChannels.join(","));
+  if (liveFilters.lowCutS > 0)
+    q.set("lowCutS", String(liveFilters.lowCutS));
+  if (liveFilters.highCutHz > 0)
+    q.set("highCutHz", String(liveFilters.highCutHz));
+  if (liveFilters.notch && liveFilters.notch !== "none")
+    q.set("notch", liveFilters.notch);
+  if (Math.abs(liveFilters.baselineUv) > 1e-9)
+    q.set("baselineUv", String(liveFilters.baselineUv));
+  if (
+    liveFilters.overridesJson &&
+    liveFilters.overridesJson !== "{}" &&
+    liveFilters.overridesJson !== "null"
+  )
+    q.set("filterOverrides", liveFilters.overridesJson);
+
   const prefix = API_BASE || "";
   const url = `${prefix}/api/v1/studio/eeg/${encodeURIComponent(recordingId)}/window?${q}`;
   const res = await fetch(url, {
@@ -102,6 +136,9 @@ async function fetchWindow(
     data: number[][] | string[];
     totalDurationSec: number;
     photic?: number[];
+    montageId?: string;
+    montageWarnings?: string[];
+    filterWarnings?: string[];
     fragments?: WindowResponse["fragments"];
   };
 
@@ -127,6 +164,9 @@ async function fetchWindow(
     totalDurationSec: json.totalDurationSec,
     photic: json.photic,
     fragments: json.fragments,
+    montageId: json.montageId,
+    montageWarnings: json.montageWarnings,
+    filterWarnings: json.filterWarnings,
   };
 }
 
@@ -136,6 +176,9 @@ export function useEegStream(
   toSec: number,
   maxPoints: number,
   channelFilter: string[] | null,
+  montageId: string,
+  badChannels: string[],
+  liveFilters: EegLiveFilterParams,
 ) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -145,6 +188,23 @@ export function useEegStream(
   const stableCh = useMemo(
     () => (channelFilter?.length ? channelFilter.join(",") : ""),
     [channelFilter],
+  );
+
+  const stableBad = useMemo(
+    () => badChannels.join("\u0001"),
+    [badChannels],
+  );
+
+  const filterSig = useMemo(
+    () =>
+      `${liveFilters.lowCutS}|${liveFilters.highCutHz}|${liveFilters.notch}|${liveFilters.baselineUv}|${liveFilters.overridesJson}`,
+    [
+      liveFilters.lowCutS,
+      liveFilters.highCutHz,
+      liveFilters.notch,
+      liveFilters.baselineUv,
+      liveFilters.overridesJson,
+    ],
   );
 
   const load = useCallback(async () => {
@@ -160,6 +220,9 @@ export function useEegStream(
           toSec,
           maxPoints,
           channelFilter,
+          montageId,
+          badChannels,
+          liveFilters,
         );
       }
       if (id !== reqId.current) return;
@@ -182,7 +245,20 @@ export function useEegStream(
     } finally {
       if (id === reqId.current) setLoading(false);
     }
-  }, [recordingId, fromSec, toSec, maxPoints, stableCh, channelFilter]);
+    /* filterSig covers liveFilters fields used by fetchWindow */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    recordingId,
+    fromSec,
+    toSec,
+    maxPoints,
+    stableCh,
+    channelFilter,
+    montageId,
+    stableBad,
+    badChannels,
+    filterSig,
+  ]);
 
   useEffect(() => {
     void load();

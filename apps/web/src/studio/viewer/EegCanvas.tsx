@@ -97,7 +97,6 @@ export function EegCanvas({
         const g = Math.max(0.5, gainUvPerCm(channelNames[k]!));
         const uvPerPx = g / pxPerCm;
         const yMid = k * rowPx + rowPx / 2;
-        const scalePx = rowPx * 0.42;
 
         ctx.beginPath();
         for (let i = 0; i < row.length; i++) {
@@ -128,7 +127,6 @@ export function EegCanvas({
       const g = Math.max(0.5, gainUvPerCm(channelNames[k]!));
       const uvPerPx = g / pxPerCm;
       const yMidPx = k * rowPx + rowPx / 2;
-      const scalePx = rowPx * 0.42;
 
       const n = row.length;
       const pos = new Float32Array(n * 2);

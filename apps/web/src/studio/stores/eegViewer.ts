@@ -17,6 +17,9 @@ export interface ViewerMarker {
   fromSec: number;
   toSec?: number;
   text?: string;
+  color?: string;
+  channelScope?: "all" | "selection";
+  channels?: string[];
 }
 
 export interface FragmentSlice {
@@ -32,8 +35,11 @@ export interface TrialSlice {
   index: number;
   startSec: number;
   endSec: number;
-  kind: "Go" | "NoGo" | "Target" | "NonTarget";
+  /** ERP bar color bucket (mapped from stimulus class). */
+  kind: string;
   included: boolean;
+  stimulusClass?: string;
+  responseMs?: number | null;
 }
 
 export interface EegViewerState {
@@ -72,7 +78,7 @@ export interface EegViewerState {
   ) => void;
 }
 
-export const useEegViewerStore = create<EegViewerState>((set, _get) => ({
+export const useEegViewerStore = create<EegViewerState>((set) => ({
   leftCursorSec: null,
   rightCursorSec: null,
   dragSelect: null,
@@ -112,6 +118,9 @@ export const useEegViewerStore = create<EegViewerState>((set, _get) => ({
           fromSec: m.fromSec,
           toSec: m.toSec,
           text: m.text,
+          color: m.color,
+          channelScope: m.channelScope,
+          channels: m.channels,
         },
       ],
     })),
@@ -133,3 +142,7 @@ export const useEegViewerStore = create<EegViewerState>((set, _get) => ({
 
 export const selectArtifactIntervals = (s: EegViewerState) =>
   s.markers.filter((m) => m.kind === "artifact" && m.toSec != null);
+
+/** Trials included in ERP / averaging (M9 reads this). */
+export const selectIncludedTrials = (s: EegViewerState) =>
+  s.trials.filter((t) => t.included);
