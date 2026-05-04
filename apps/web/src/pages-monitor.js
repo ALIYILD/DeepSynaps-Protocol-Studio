@@ -1,5 +1,6 @@
 import { api } from './api.js';
 import { currentUser } from './auth.js';
+import { DEMO_PATIENT_ROSTER } from './patient-dashboard-helpers.js';
 
 const TAB_KEY = 'monitor_tab';
 const STATE_KEY = '__ds_monitor_state';
@@ -210,6 +211,11 @@ function canWriteIntegrations() {
   return role() === 'admin';
 }
 
+/** Roles allowed to load clinician wearable summary APIs (matches wearable_router). */
+function canUseBiometricsAnalyzer() {
+  return new Set(['admin', 'clinician', 'supervisor', 'reviewer', 'technician']).has(role());
+}
+
 function fmtAgo(v) {
   if (!v) return 'never';
   const ms = Date.now() - new Date(v).getTime();
@@ -405,7 +411,7 @@ function renderWorkbenchKpis(summary) {
   var res = Number(s.resolved || 0);
   var inc7 = Number(s.incidence_7d || 0);
   var cards = [
-    ['Open', open, open > 0 ? 'red' : 'green'],
+    ['Open', open, open > 0 ? 'orange' : 'teal'],
     ['Acknowledged', ack, 'orange'],
     ['Escalated', escalated, escalated > 0 ? 'red' : 'green'],
     ['Resolved', res, 'green'],
@@ -446,7 +452,7 @@ function renderWorkbenchTable(flags, isDemoView) {
     : '';
 
   if (!rows.length) {
-    return demoBanner + '<div class="monitor-empty-inline monitor-empty-inline--ok">No alert flags pending review.</div>';
+    return demoBanner + '<div class="monitor-empty-inline">No alert flags pending review. Empty queue does not mean clinically cleared.</div>';
   }
 
   var head = '<thead><tr>'
@@ -563,7 +569,7 @@ function renderCategoryTiles(data) {
   return `<section class="devices-tile-grid">${sortedKinds.map(function (kind) {
     var meta = CATEGORY_META[kind];
     var s = stats[kind] || { total: 0, connected: 0, healthy: 0, degraded: 0, error: 0, health: 'none' };
-    var healthLabel = s.health === 'healthy' ? 'All healthy' :
+    var healthLabel = s.health === 'healthy' ? 'No issues flagged' :
                       s.health === 'degraded' ? 'Some issues' :
                       s.health === 'error' ? 'Has errors' : 'Not connected';
     return `<article class="devices-category-tile" onclick="window._devicesExpandCategory('${esc(kind)}')">
@@ -822,6 +828,12 @@ function render() {
       }</div></div>`;
   }
 
+  const heroKicker = s.tab === 'biometrics-analyzer' ? 'Monitor' : 'Device management &amp; integrations';
+  const heroTitle = s.tab === 'biometrics-analyzer' ? 'Biometrics Analyzer' : 'Devices';
+  const heroSub = s.tab === 'biometrics-analyzer'
+    ? 'Clinician-reviewed wearables and daily summaries — not continuous or emergency monitoring.'
+    : 'Central hub for connected devices, integrations, and data sources.';
+
   el.innerHTML = `<div class="monitor-shell">
     <div class="monitor-hero">
       <div><div class="monitor-kicker">Biometrics &amp; monitoring</div><h1>Monitor</h1><p>Clinician-reviewed wearable metrics, device status, and operational alerts. Not continuous clinical surveillance or emergency monitoring unless your institution configures those workflows elsewhere.</p></div>
@@ -971,6 +983,63 @@ async function loadDq() {
   render();
 }
 
+async function loadBiometricsPatientsList() {
+  const s = state();
+  if (!canUseBiometricsAnalyzer()) return;
+  var items = [];
+  try {
+    const r = await api.listPatients({ limit: 200 });
+    items = (r && r.items) || (Array.isArray(r) ? r : []) || [];
+  } catch {}
+  if ((!items || !items.length) && _isDemoMode()) {
+    items = DEMO_PATIENT_ROSTER.map(function (p) {
+      return { id: p.id, first_name: p.first_name, last_name: p.last_name, demo_seed: true };
+    });
+  }
+  s.biometricsPatients = items;
+  if (s.tab === 'biometrics-analyzer') render();
+}
+
+async function refreshBiometricsPatientData() {
+  const s = state();
+  var pid = s.biometricsPatientId;
+  if (!pid || !canUseBiometricsAnalyzer()) {
+    s.biometricsSummary = null;
+    s.biometricsFleet = null;
+    s.biometricsError = null;
+    s.biometricsLoading = false;
+    render();
+    return;
+  }
+  s.biometricsLoading = true;
+  s.biometricsError = null;
+  render();
+  try {
+    const sum = await api.getPatientWearableSummary(pid, BIOMETRICS_WINDOW_DAYS);
+    s.biometricsSummary = sum && sum.patient_id ? sum : null;
+    if (!s.biometricsSummary) s.biometricsError = 'Wearable summary unavailable for this patient.';
+  } catch {
+    s.biometricsSummary = null;
+    s.biometricsError = 'Could not load wearable summary (offline, unauthorized, or missing patient).';
+  }
+  try {
+    const fl = await api.monitorFleet();
+    s.biometricsFleet = fl && Array.isArray(fl.devices) ? fl : null;
+  } catch {
+    s.biometricsFleet = null;
+  }
+  s.biometricsLoading = false;
+  render();
+}
+
+function disconnectMonitorLiveStream() {
+  const s = state();
+  if (s.socket) {
+    try { s.socket.close(); } catch {}
+    s.socket = null;
+  }
+}
+
 async function loadWorkbench() {
   const s = state();
   // Build filter params, dropping blanks so the server-side default
@@ -995,6 +1064,7 @@ async function loadWorkbench() {
 
 function connectLiveStream() {
   const s = state();
+  if (s.tab !== 'live') return;
   if (s.socket) {
     try { s.socket.close(); } catch {}
   }
@@ -1011,11 +1081,19 @@ function connectLiveStream() {
       } catch {}
     };
     s.socket.onclose = function () {
-      const wait = RETRY_MS[Math.min(s.retryIndex, RETRY_MS.length - 1)];
-      s.retryIndex += 1;
+      const st = state();
+      if (st.tab !== 'live') return;
+      const wait = RETRY_MS[Math.min(st.retryIndex, RETRY_MS.length - 1)];
+      st.retryIndex += 1;
       window.setTimeout(connectLiveStream, wait);
     };
   } catch {}
+}
+
+function ensureLiveStreamForActiveTab() {
+  const s = state();
+  if (s.tab === 'live') connectLiveStream();
+  else disconnectMonitorLiveStream();
 }
 
 /* ── Page entry ────────────────────────────────────────────────────────────── */
@@ -1023,6 +1101,20 @@ function connectLiveStream() {
 export async function pgMonitor(setTopbar, navigate) {
   setTopbar('Monitor', '<span class="monitor-topbar-pill">Biometrics</span>');
   const s = state();
+
+  function applyMonitorTopbar() {
+    if (s.tab === 'biometrics-analyzer') {
+      setTopbar('Monitor', '<span class="monitor-topbar-pill">Biometrics Analyzer</span>');
+    } else if (s.tab === 'live') {
+      setTopbar('Monitor', '<span class="monitor-topbar-pill">Clinic overview</span>');
+    } else if (s.tab === 'dq') {
+      setTopbar('Devices', '<span class="monitor-topbar-pill">Data quality</span>');
+    } else if (s.tab === 'wearables-workbench') {
+      setTopbar('Devices', '<span class="monitor-topbar-pill">Wearable triage</span>');
+    } else {
+      setTopbar('Devices', '<span class="monitor-topbar-pill">Control Center</span>');
+    }
+  }
 
   // Apply preset from route redirects
   if (window._devicesPresetTab) {
@@ -1069,7 +1161,16 @@ export async function pgMonitor(setTopbar, navigate) {
     s.tab = VALID_TABS.has(tab) ? tab : 'biometrics';
     s.expandedCategory = null;
     localStorage.setItem(TAB_KEY, s.tab);
+    applyMonitorTopbar();
     render();
+    ensureLiveStreamForActiveTab();
+    if (s.tab === 'biometrics-analyzer' && canUseBiometricsAnalyzer()) {
+      (async function () {
+        if (!s.biometricsPatients || !s.biometricsPatients.length) await loadBiometricsPatientsList();
+        render();
+        if (s.biometricsPatientId) await refreshBiometricsPatientData();
+      })();
+    }
     if (s.tab === 'wearables-workbench') {
       loadWorkbench();
       try { api.postWearablesWorkbenchAuditEvent({ event: 'tab_opened', note: 'wearables triage tab' }); } catch {}
@@ -1088,6 +1189,28 @@ export async function pgMonitor(setTopbar, navigate) {
     }
     var nav = navigate || window._nav;
     if (typeof nav === 'function') nav(page);
+  };
+
+  window._monitorBiometricsSelectPatient = function (patientId) {
+    s.biometricsPatientId = patientId || null;
+    try {
+      if (patientId) sessionStorage.setItem('ds_pat_selected_id', String(patientId));
+      else sessionStorage.removeItem('ds_pat_selected_id');
+    } catch {}
+    if (patientId) {
+      window._selectedPatientId = patientId;
+      window._profilePatientId = patientId;
+    }
+    refreshBiometricsPatientData();
+  };
+
+  window._monitorLinkedNav = function (pageId, patientId) {
+    if (patientId) {
+      window._selectedPatientId = patientId;
+      window._profilePatientId = patientId;
+      try { sessionStorage.setItem('ds_pat_selected_id', String(patientId)); } catch {}
+    }
+    window._nav?.(pageId);
   };
 
   window._devicesExpandCategory = function (kind) {
