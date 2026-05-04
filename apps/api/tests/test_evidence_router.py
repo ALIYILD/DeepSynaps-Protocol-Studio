@@ -164,7 +164,7 @@ def _build_research_bundle(root: Path) -> None:
             "primary_modality", "canonical_modalities", "indication_tags", "study_type_normalized", "evidence_tier",
             "paper_confidence_score", "priority_score", "citation_count", "record_url", "research_summary",
             "adjunct_domains", "adjunct_topic_keys", "adjunct_topic_labels", "adjunct_terms", "condition_mentions_top",
-            "relation_signal_tags",
+            "relation_signal_tags", "medication_risk_tier", "medication_risk_reason", "medication_risk_signal_tags",
         ],
         [
             {
@@ -193,6 +193,9 @@ def _build_research_bundle(root: Path) -> None:
                 "adjunct_terms": "vitamin d;25-oh vitamin d",
                 "condition_mentions_top": "depression",
                 "relation_signal_tags": "response_modifier;deficiency_signal",
+                "medication_risk_tier": "",
+                "medication_risk_reason": "",
+                "medication_risk_signal_tags": "",
             },
             {
                 "paper_key": "pmid|201",
@@ -220,6 +223,9 @@ def _build_research_bundle(root: Path) -> None:
                 "adjunct_terms": "benzodiazepine;clonazepam",
                 "condition_mentions_top": "depression",
                 "relation_signal_tags": "response_modifier;medication_signal",
+                "medication_risk_tier": "moderate",
+                "medication_risk_reason": "May blunt cortical excitability and reduce some neuromodulation responses; withdrawal also matters.",
+                "medication_risk_signal_tags": "cortical_excitability;withdrawal;response_modifier",
             },
         ],
     )
@@ -452,13 +458,14 @@ def test_research_adjunct_routes_use_bundle_dataset(client: TestClient, auth_hea
         os.environ["DEEPSYNAPS_NEUROMODULATION_RESEARCH_BUNDLE_ROOT"] = str(bundle_root)
         try:
             search = client.get(
-                "/api/v1/evidence/research/adjunct-evidence?domain=medication&topic=benzodiazepine",
+                "/api/v1/evidence/research/adjunct-evidence?domain=medication&topic=benzodiazepine&medication_risk_tier=moderate",
                 headers=auth_headers["clinician"],
             )
             assert search.status_code == 200, search.text
             rows = search.json()
             assert len(rows) == 1
             assert rows[0]["title"] == "Benzodiazepine exposure and TMS antidepressant outcomes"
+            assert rows[0]["medication_risk_tier"] == "moderate"
 
             summary = client.get(
                 "/api/v1/evidence/research/adjunct-summary?domain=medication",
@@ -468,6 +475,7 @@ def test_research_adjunct_routes_use_bundle_dataset(client: TestClient, auth_hea
             payload = summary.json()
             assert payload["paper_count"] == 1
             assert payload["top_topics"][0]["key"] == "Benzodiazepines"
+            assert payload["top_medication_risk_tiers"][0]["key"] == "moderate"
 
             review_tables = client.get(
                 "/api/v1/evidence/research/adjunct-review-tables?limit_per_condition=3",
