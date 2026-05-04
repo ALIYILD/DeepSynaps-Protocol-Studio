@@ -27,6 +27,7 @@ apps/api/app/routers/channel_auth_drift_resolution_audit_hub_router.py
 apps/api/app/routers/channel_auth_drift_resolution_router.py
 apps/api/app/routers/channel_auth_health_probe_router.py
 apps/api/app/routers/chat_router.py
+apps/api/app/routers/bio_router.py
 apps/api/app/routers/citation_validator_router.py
 apps/api/app/routers/clinical_trials_router.py
 apps/api/app/routers/clinician_adherence_router.py

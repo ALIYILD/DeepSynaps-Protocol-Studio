@@ -16,6 +16,9 @@ on:
     branches: [main]
     paths:
       - "apps/web/**"
+      - "packages/api-client/**"
+      - "package.json"
+      - "package-lock.json"
       - "netlify.toml"
       - ".github/workflows/deploy-netlify.yml"
   workflow_dispatch:

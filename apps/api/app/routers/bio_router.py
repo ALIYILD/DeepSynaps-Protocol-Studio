@@ -92,6 +92,7 @@ def _json_loads(raw: Optional[str]) -> list[str]:
     return []
 
 
+# core-schema-exempt: bio router response DTO for local catalog hydration.
 class CatalogItemOut(BaseModel):
     id: str
     item_type: str
@@ -110,17 +111,20 @@ class CatalogItemOut(BaseModel):
     updated_at: Optional[str] = None
 
 
+# core-schema-exempt: bio router wrapper response for catalog list.
 class CatalogListResponse(BaseModel):
     items: list[CatalogItemOut] = Field(default_factory=list)
     total: int = 0
 
 
+# core-schema-exempt: bio router seed summary payload.
 class CatalogSeedResponse(BaseModel):
     created: int = 0
     skipped: int = 0
     total_catalog_items: int = 0
 
 
+# core-schema-exempt: bio router write payload for patient substances.
 class PatientSubstanceCreate(BaseModel):
     catalog_item_id: Optional[str] = Field(default=None, max_length=36)
     name: str = Field(min_length=1, max_length=255)
@@ -140,6 +144,7 @@ class PatientSubstanceCreate(BaseModel):
     notes: Optional[str] = Field(default=None, max_length=4000)
 
 
+# core-schema-exempt: bio router response DTO for patient substances.
 class PatientSubstanceOut(BaseModel):
     id: str
     patient_id: str
@@ -165,11 +170,13 @@ class PatientSubstanceOut(BaseModel):
     updated_at: Optional[str] = None
 
 
+# core-schema-exempt: bio router wrapper response for patient substances.
 class PatientSubstanceListResponse(BaseModel):
     items: list[PatientSubstanceOut] = Field(default_factory=list)
     total: int = 0
 
 
+# core-schema-exempt: bio router write payload for patient lab entries.
 class PatientLabCreate(BaseModel):
     catalog_item_id: Optional[str] = Field(default=None, max_length=36)
     lab_name: Optional[str] = Field(default=None, max_length=255)
@@ -189,6 +196,7 @@ class PatientLabCreate(BaseModel):
     notes: Optional[str] = Field(default=None, max_length=4000)
 
 
+# core-schema-exempt: bio router response DTO for patient lab entries.
 class PatientLabOut(BaseModel):
     id: str
     patient_id: str
@@ -213,11 +221,13 @@ class PatientLabOut(BaseModel):
     updated_at: Optional[str] = None
 
 
+# core-schema-exempt: bio router wrapper response for patient lab entries.
 class PatientLabListResponse(BaseModel):
     items: list[PatientLabOut] = Field(default_factory=list)
     total: int = 0
 
 
+# core-schema-exempt: bio router summary payload for patient bio overview.
 class PatientBioSummary(BaseModel):
     patient_id: str
     substances_count: int = 0

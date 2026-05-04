@@ -222,6 +222,7 @@ from app.routers.dashboard_router import router as dashboard_router
 from app.routers.schedules_router import router as schedules_router
 from app.routers.device_sync_router import router as device_sync_router
 from app.routers.biometrics_router import router as biometrics_router
+from app.routers.quality_assurance_router import router as quality_assurance_router
 try:
     from app.routers.qa_router import router as qa_router
     _HAS_QA_ROUTER = True
@@ -804,6 +805,7 @@ app.include_router(schedules_router)
 app.include_router(dashboard_router)
 app.include_router(device_sync_router)
 app.include_router(biometrics_router)
+app.include_router(quality_assurance_router)
 if _HAS_QA_ROUTER and qa_router is not None:
     app.include_router(qa_router)
 app.include_router(qeeg_raw_router)

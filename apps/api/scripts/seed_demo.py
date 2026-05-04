@@ -340,7 +340,7 @@ def _add_qeeg_brain_map_demo(session, patient_id: str, clinician_id: str, now: d
         channel_count=19,
         eyes_condition="closed",
         pipeline_version="demo-seed-0.1",
-        status="completed",
+        analysis_status="completed",
     )
     session.add(analysis)
 

@@ -19,7 +19,7 @@
 - [x] Release command runs `alembic upgrade head`
 - [x] 1755 backend tests pass, 0 failures
 - [ ] Required secrets set via `fly secrets set`:
-  - [ ] `DEEPSYNAPS_DATABASE_URL` (PostgreSQL connection string)
+  - [ ] `DEEPSYNAPS_DATABASE_URL` (preview: SQLite path on `/data`; production: PostgreSQL connection string)
   - [ ] `JWT_SECRET_KEY` (min 32 chars)
   - [ ] `DEEPSYNAPS_SECRETS_KEY` (Fernet key)
   - [ ] `DEEPSYNAPS_CORS_ORIGINS` (e.g. `https://deepsynaps-studio-preview.netlify.app`)
