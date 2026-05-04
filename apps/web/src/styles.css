@@ -27658,8 +27658,32 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
 .monitor-issue + .monitor-issue { margin-top:10px; }
 .monitor-issue--red { border-color:rgba(201,59,59,.28); }
 .monitor-issue--orange { border-color:rgba(229,138,44,.28); }
+.monitor-issue--yellow { border-color:rgba(227,197,74,.28); }
 .monitor-issue-head { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:8px; }
 .monitor-issue-fix { margin-top:8px; color:var(--text-secondary); font-size:12px; line-height:1.55; }
+
+/* ── Biometrics Analyzer (monitor page) ───────────────────────────────────── */
+.monitor-governance { border:1px solid rgba(0,212,188,0.22); border-radius:14px; padding:14px 18px; background:rgba(0,212,188,0.06); margin-bottom:4px; }
+.monitor-governance__text { margin:0; font-size:13px; line-height:1.55; color:var(--text-secondary); }
+.monitor-demo-banner { border-radius:12px; padding:12px 16px; margin-bottom:10px; background:#fff7e6; border:1px solid #ffd591; color:#874d00; font-size:12px; font-weight:600; }
+.monitor-stale-banner { border-radius:12px; padding:12px 16px; margin-bottom:10px; background:rgba(229,138,44,0.12); border:1px solid rgba(229,138,44,0.35); color:var(--text-primary); font-size:13px; }
+.monitor-live-disclaimer { margin:0 0 12px; font-size:12px; color:var(--text-tertiary); max-width:720px; }
+.monitor-bio-toolbar { display:flex; flex-wrap:wrap; gap:16px; align-items:flex-end; margin-bottom:12px; }
+.monitor-field-label { font-size:12px; color:var(--text-secondary); display:flex; flex-direction:column; gap:6px; }
+.monitor-select { min-width:220px; padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:rgba(255,255,255,0.04); color:var(--text-primary); font-size:13px; }
+.monitor-patient-bar { margin-top:8px; font-size:13px; color:var(--text-secondary); }
+.monitor-patient-bar code { font-size:12px; padding:2px 8px; border-radius:6px; background:rgba(255,255,255,0.06); }
+.monitor-metric-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:12px; margin-top:12px; }
+.monitor-metric-card { border:1px solid var(--border); border-radius:12px; padding:14px; background:rgba(255,255,255,0.03); }
+.monitor-metric-card--missing { opacity:0.72; }
+.monitor-metric-title { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--text-tertiary); margin-bottom:6px; }
+.monitor-metric-value { font-size:22px; font-weight:800; color:var(--text-primary); }
+.monitor-metric-unit { font-size:13px; font-weight:600; margin-left:6px; color:var(--text-tertiary); }
+.monitor-review-line { margin-top:10px; font-size:11px; color:var(--orange,#f59e0b); line-height:1.45; }
+.monitor-textarea { width:100%; box-sizing:border-box; margin-top:10px; padding:10px 12px; border-radius:8px; border:1px solid var(--border); background:rgba(255,255,255,0.04); color:var(--text-primary); font-size:13px; min-height:72px; resize:vertical; }
+.monitor-link-strip { display:flex; flex-wrap:wrap; gap:8px; }
+.monitor-link-btn { white-space:nowrap; }
+.monitor-panel--review-queue { border-color:rgba(201,59,59,.22); box-shadow:none; }
 
 /* ── Devices Control Center ────────────────────────────────────────────────── */
 .devices-kpi-strip { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }

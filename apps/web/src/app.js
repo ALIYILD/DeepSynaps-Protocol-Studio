@@ -1831,7 +1831,7 @@ async function renderPage() {
     case 'condition-packages':   { window._resEvidenceTab = 'conditions'; window._nav('research-evidence'); break; }
     case 'condition-package':   { const { pgConditionPackage }     = await loadKnowledge(); await pgConditionPackage(setTopbar, navigate);  break; }
     case 'notes-dictation': { window._monitorHubTab = 'notes'; window._nav('monitor-hub'); break; }
-    case 'wearable-integration': { window._devicesPresetTab = 'control-center'; window._devicesPresetCategory = 'wearable'; navigate('monitor'); break; }
+    case 'wearable-integration': { window._devicesPresetTab = 'biometrics-analyzer'; window._devicesPresetCategory = 'wearable'; navigate('monitor'); break; }
     // ── Registries ─────────────────────────────────────────────────────────
     case 'reg-conditions':     { window._resEvidenceTab = 'conditions'; window._nav('research-evidence'); break; }
     case 'reg-assessments':    { window._clinicalHubTab = 'registry'; window._nav('assessments'); break; }
