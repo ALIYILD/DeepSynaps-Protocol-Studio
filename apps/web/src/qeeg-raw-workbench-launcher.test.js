@@ -15,14 +15,15 @@ const ANALYZER = readFileSync(new URL('./pages-qeeg-analysis.js', import.meta.ur
 const APP = readFileSync(new URL('./app.js', import.meta.url), 'utf8');
 const WORKBENCH = readFileSync(new URL('./pages-qeeg-raw-workbench.js', import.meta.url), 'utf8');
 
-test('analyzer Raw Data tab shows launcher bar and workbench entrypoint', () => {
+test('analyzer Raw Data tab loads embedded workbench + hero entrypoint', () => {
   for (const label of [
-    'Need full-screen editing?',
-    'Open Raw EEG Workbench',
-    'qeeg-raw-summary-bar',
-    'qeeg-raw-summary-ch',
-    'qeeg-raw-summary-quality',
-    'qeeg-raw-summary-band',
+    "if (tab === 'raw')",
+    'import(\'./pages-qeeg-raw-workbench.js\')',
+    'pgQEEGRawWorkbench',
+    'Loading Raw EEG Workbench',
+    'qeeg-hero-open-workbench',
+    'Open Raw Workbench',
+    '&from=analyzer',
   ]) {
     assert.ok(ANALYZER.includes(label), 'launcher contract: ' + label);
   }

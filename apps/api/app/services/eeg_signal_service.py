@@ -69,7 +69,7 @@ def _make_cache(maxsize: int, ttl: int) -> dict:
     return {}
 
 
-_raw_cache: dict[str, Any] = _make_cache(maxsize=4, ttl=600)
+_raw_cache: dict[str, Any] = _make_cache(maxsize=8, ttl=600)
 _cleaned_cache: dict[str, Any] = _make_cache(maxsize=2, ttl=600)
 _ica_cache: dict[str, Any] = _make_cache(maxsize=2, ttl=600)
 
@@ -279,6 +279,49 @@ def extract_signal_window(
     if processing_applied:
         result["processing_applied"] = processing_applied
     return result
+
+
+def extract_signal_window_rest(
+    raw: Any,
+    t_start: float,
+    t_end: float,
+    channels: list[str] | None,
+    max_points_per_channel: int,
+) -> tuple[dict[str, Any], list[str]]:
+    """Crop ``raw`` to ``[t_start, t_end]``, apply MNE REST, then extract like ``extract_signal_window``.
+
+    REST uses :func:`mne.set_eeg_reference` with ``ref_channels='REST'``. On failure, falls back to
+    the uncorrected cropped window and records a warning.
+    """
+    warns: list[str] = []
+    if not _HAS_MNE or not _HAS_NUMPY:
+        raise RuntimeError("MNE-Python and NumPy are required")
+
+    total_duration = raw.times[-1] if len(raw.times) > 0 else 0.0
+    t_start = max(0.0, float(t_start))
+    t_end = min(float(t_end), total_duration)
+    if t_end <= t_start:
+        t_end = min(t_start + 0.01, total_duration)
+
+    raw_c = raw.copy()
+    raw_c.crop(tmin=t_start, tmax=t_end)
+
+    try:
+        # MNE 1.x: REST reference for surface EEG (requires digitization / sphere model when applicable).
+        mne.set_eeg_reference(raw_c, ref_channels="REST", verbose=False)  # type: ignore[arg-type]
+    except Exception as exc:  # pragma: no cover - optional paths across MNE versions
+        warns.append(f"REST reference failed ({exc}); returning uncorrected cropped data")
+
+    span = float(raw_c.times[-1]) if len(raw_c.times) else max(0.01, t_end - t_start)
+    window = extract_signal_window(
+        raw_c,
+        t_start=0.0,
+        t_end=span,
+        window_sec=max(0.01, span),
+        channels=channels,
+        max_points_per_channel=max_points_per_channel,
+    )
+    return window, warns
 
 
 # ── Channel info extraction ─────────────────────────────────────────────────
@@ -1091,5 +1134,333 @@ def compute_filter_preview(
             "hff": float(hff) if hff is not None else None,
             "notch": float(notch) if notch is not None else None,
         },
+    }
+
+
+# ── Per-window PSD (Raw Workbench helper; not a full qEEG pipeline job) ─────
+
+_MAX_WINDOW_SEC = 600.0
+_PSD_FREQ_RANGE = (1.0, 45.0)
+_UV2_PER_HZ_SCALE = 1e12  # V²/Hz → µV²/Hz
+
+
+def _trapz_compat(y: Any, x: Any, axis: int = -1) -> Any:
+    fn = getattr(np, "trapezoid", None) or getattr(np, "trapz")
+    return fn(y, x, axis=axis)
+
+
+def _integrate_psd_band(
+    freqs: Any, psd_uv2_hz: Any, lo: float, hi: float
+) -> Any:
+    """Trapezoidal integral of PSD over [lo, hi] Hz → µV² (total power in band)."""
+    mask = (freqs >= lo) & (freqs <= hi)
+    if not np.any(mask):
+        return np.zeros(psd_uv2_hz.shape[0])
+    return _trapz_compat(psd_uv2_hz[:, mask], freqs[mask], axis=-1)
+
+
+def _resolve_eeg_channel(raw: Any, requested: str, eeg_names: list[str]) -> str | None:
+    """Map UI-style labels (e.g. ``Cz-Av``) to an available EEG channel name."""
+    if requested in eeg_names:
+        return requested
+    stem = requested.split("-")[0].strip()
+    if stem in eeg_names:
+        return stem
+    matches = [
+        n
+        for n in eeg_names
+        if n.split("-")[0].strip().upper() == stem.upper()
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def _bad_segment_overlap_warnings(
+    analysis_id: str, db: Any, t0: float, t1: float
+) -> list[str]:
+    out: list[str] = []
+    row = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if row is None or not row.cleaning_config_json:
+        return out
+    try:
+        cfg = json.loads(row.cleaning_config_json)
+    except (TypeError, ValueError):
+        return out
+    for seg in cfg.get("bad_segments") or []:
+        try:
+            s0 = float(seg.get("start_sec", 0.0))
+            s1 = float(seg.get("end_sec", 0.0))
+        except (TypeError, ValueError):
+            continue
+        if s1 > t0 and s0 < t1:
+            out.append(f"window_overlaps_marked_bad_segment:{s0:.2f}-{s1:.2f}")
+    return out
+
+
+def compute_window_psd(
+    analysis_id: str,
+    db: Any,
+    *,
+    start_sec: float,
+    end_sec: float,
+    channels: list[str] | None = None,
+    average_channels: bool = False,
+    band_defs: dict[str, tuple[float, float]] | None = None,
+) -> dict[str, Any]:
+    """Welch PSD + band power for a single continuous time window.
+
+    Uses the same Welch segment length / overlap convention as
+    ``deepsynaps_qeeg.features.spectral`` (4 s window, 50 % overlap) where
+    the recording allows. Units: PSD in µV²/Hz; band power integrals in µV².
+
+    Raises
+    ------
+    ApiServiceError
+        Invalid windows, unknown channels, unavailable raw file, or windows too
+        short for a meaningful spectrum estimate.
+    RuntimeError
+        If MNE / NumPy / SciPy are missing.
+    """
+    if not _HAS_MNE or not _HAS_NUMPY:
+        raise RuntimeError("MNE-Python and NumPy are required")
+
+    try:
+        from scipy.signal import welch as scipy_welch  # type: ignore[import-not-found]
+    except ImportError as exc:
+        raise RuntimeError("SciPy is required for Welch PSD") from exc
+
+    try:
+        from deepsynaps_qeeg import FREQ_BANDS  # type: ignore[import-not-found]
+    except ImportError:
+        FREQ_BANDS = {  # noqa: N806 — fallback mirrors package defaults
+            "delta": (1.0, 4.0),
+            "theta": (4.0, 8.0),
+            "alpha": (8.0, 13.0),
+            "beta": (13.0, 30.0),
+            "gamma": (30.0, 45.0),
+        }
+
+    bands: dict[str, tuple[float, float]] = (
+        band_defs if band_defs is not None else dict(FREQ_BANDS)
+    )
+
+    duration = float(end_sec) - float(start_sec)
+    if duration <= 0:
+        raise ApiServiceError(
+            code="invalid_window",
+            message="end_sec must be greater than start_sec",
+            status_code=422,
+        )
+    if duration > _MAX_WINDOW_SEC:
+        raise ApiServiceError(
+            code="invalid_window",
+            message=f"Window duration exceeds {_MAX_WINDOW_SEC:.0f} s",
+            status_code=422,
+        )
+    if float(start_sec) < 0:
+        raise ApiServiceError(
+            code="invalid_window",
+            message="start_sec must be non-negative",
+            status_code=422,
+        )
+
+    try:
+        raw = load_raw_for_analysis(analysis_id, db)
+    except FileNotFoundError as exc:
+        raise ApiServiceError(
+            code="raw_unavailable",
+            message="Raw EEG file is not available for this analysis.",
+            status_code=503,
+        ) from exc
+    except ValueError as exc:
+        raise ApiServiceError(
+            code="not_found",
+            message=str(exc),
+            status_code=404,
+        ) from exc
+
+    sfreq = float(raw.info["sfreq"])
+    total_dur = float(raw.times[-1]) if len(raw.times) > 0 else 0.0
+    if total_dur <= 0:
+        raise ApiServiceError(
+            code="raw_unavailable",
+            message="Recording has zero duration.",
+            status_code=503,
+        )
+
+    t0 = max(0.0, float(start_sec))
+    t1 = min(float(end_sec), total_dur)
+    if t0 >= total_dur:
+        raise ApiServiceError(
+            code="invalid_window",
+            message="start_sec is beyond the end of the recording",
+            status_code=422,
+        )
+    if t1 <= t0:
+        raise ApiServiceError(
+            code="invalid_window",
+            message="Selected window has no samples after clamping to recording bounds",
+            status_code=422,
+        )
+
+    warnings: list[str] = []
+    if float(end_sec) > total_dur + 1e-6:
+        warnings.append("window_end_clamped_to_recording")
+    win_len = t1 - t0
+    if win_len < 2.0:
+        warnings.append("short_window_spectral_resolution_reduced")
+
+    # Match pipeline Welch settings
+    try:
+        from deepsynaps_qeeg.features.spectral import (  # type: ignore[import-not-found]
+            WELCH_OVERLAP,
+            WELCH_WINDOW_SEC,
+        )
+    except ImportError:
+        WELCH_WINDOW_SEC = 4.0  # noqa: N806
+        WELCH_OVERLAP = 0.5  # noqa: N806
+
+    raw_win = raw.copy().crop(tmin=t0, tmax=t1)
+
+    eeg_picks = mne.pick_types(raw_win.info, eeg=True, exclude=[])
+    eeg_names = [raw_win.ch_names[i] for i in eeg_picks]
+    if not eeg_names:
+        raise ApiServiceError(
+            code="no_eeg_channels",
+            message="No EEG channels found in this recording.",
+            status_code=422,
+        )
+
+    if channels:
+        picked_names: list[str] = []
+        unknown: list[str] = []
+        for req in channels:
+            resolved = _resolve_eeg_channel(raw_win, req, eeg_names)
+            if resolved is None:
+                unknown.append(req)
+            elif resolved not in picked_names:
+                picked_names.append(resolved)
+        if unknown:
+            raise ApiServiceError(
+                code="unknown_channels",
+                message=f"Unknown or ambiguous EEG channels: {', '.join(unknown)}",
+                status_code=422,
+                details={"unknown": unknown, "available": eeg_names},
+            )
+        use_names = picked_names
+    else:
+        use_names = list(eeg_names)
+
+    picks_idx = [raw_win.ch_names.index(n) for n in use_names]
+    data_v, _times = raw_win[picks_idx, :]  # Volts
+    n_samples = int(data_v.shape[1])
+    if n_samples < 32:
+        raise ApiServiceError(
+            code="window_too_short",
+            message="Window has too few samples for spectral estimation",
+            status_code=422,
+        )
+
+    n_per_seg = int(min(WELCH_WINDOW_SEC * sfreq, n_samples))
+    n_per_seg = max(n_per_seg, 8)
+    n_overlap = int(n_per_seg * WELCH_OVERLAP)
+
+    freqs_hz: Any
+    psd_v2_hz: Any
+    freqs_hz, psd_v2_hz = scipy_welch(
+        data_v,
+        fs=sfreq,
+        nperseg=n_per_seg,
+        noverlap=n_overlap,
+        axis=-1,
+        scaling="density",
+    )
+
+    fmask = (freqs_hz >= _PSD_FREQ_RANGE[0]) & (freqs_hz <= _PSD_FREQ_RANGE[1])
+    freqs_hz = np.asarray(freqs_hz[fmask], dtype=float)
+    psd_v2_hz = np.asarray(psd_v2_hz[:, fmask], dtype=float)
+    psd_uv2_hz = psd_v2_hz * _UV2_PER_HZ_SCALE
+
+    freqs_list = [float(x) for x in freqs_hz.tolist()]
+    per_channel_psd: dict[str, list[float]] = {}
+    for i, name in enumerate(use_names):
+        per_channel_psd[name] = [float(x) for x in psd_uv2_hz[i].tolist()]
+
+    averaged_psd: list[float] | None = None
+    if average_channels:
+        averaged_psd = [float(x) for x in np.mean(psd_uv2_hz, axis=0).tolist()]
+
+    total_full = _integrate_psd_band(freqs_hz, psd_uv2_hz, *_PSD_FREQ_RANGE)
+
+    abs_per_ch: dict[str, dict[str, float]] = {}
+    rel_per_ch: dict[str, dict[str, float]] = {}
+    for i, ch in enumerate(use_names):
+        abs_per_ch[ch] = {}
+        rel_per_ch[ch] = {}
+        tot = float(total_full[i]) if total_full.size > i else 0.0
+        for bname, (lo, hi) in bands.items():
+            ab = float(
+                _integrate_psd_band(
+                    freqs_hz, psd_uv2_hz[i : i + 1], lo, hi
+                )[0]
+            )
+            abs_per_ch[ch][bname] = ab
+            rel_per_ch[ch][bname] = float(ab / tot) if tot > 0 else 0.0
+
+    band_avg: dict[str, float] | None = None
+    band_avg_rel: dict[str, float] | None = None
+    if average_channels:
+        band_avg = {}
+        band_avg_rel = {}
+        tot_mean = float(np.mean(total_full)) if total_full.size else 0.0
+        for bname, (lo, hi) in bands.items():
+            band_vals = _integrate_psd_band(freqs_hz, psd_uv2_hz, lo, hi)
+            band_avg[bname] = float(np.mean(band_vals))
+            band_avg_rel[bname] = (
+                float(band_avg[bname] / tot_mean) if tot_mean > 0 else 0.0
+            )
+
+    warnings.extend(_bad_segment_overlap_warnings(analysis_id, db, t0, t1))
+
+    if n_per_seg < int(0.5 * WELCH_WINDOW_SEC * sfreq):
+        warnings.append("welch_segment_shortened_insufficient_samples")
+
+    quality_flags: list[str] = []
+    if any("bad_segment" in w for w in warnings):
+        quality_flags.append("bad_segment_overlap")
+
+    return {
+        "analysis_id": analysis_id,
+        "window": {
+            "start_sec": float(t0),
+            "end_sec": float(t1),
+            "duration_sec": float(t1 - t0),
+        },
+        "sfreq": sfreq,
+        "channels": use_names,
+        "frequencies": freqs_list,
+        "psd": {
+            "per_channel": per_channel_psd,
+            "averaged": averaged_psd,
+        },
+        "band_power": {
+            "absolute": {"per_channel": abs_per_ch, "averaged": band_avg},
+            "relative": {"per_channel": rel_per_ch, "averaged": band_avg_rel},
+        },
+        "warnings": warnings,
+        "quality_flags": quality_flags,
+        "method_provenance": {
+            "psd_method": "welch",
+            "welch_window_sec": float(WELCH_WINDOW_SEC),
+            "welch_overlap": float(WELCH_OVERLAP),
+            "freq_range_hz": list(_PSD_FREQ_RANGE),
+            "units_psd": "uV2_per_Hz",
+            "units_band_power": "uV2_integrated",
+            "n_per_seg": int(n_per_seg),
+            "n_overlap": int(n_overlap),
+        },
+        "clinician_review_required": True,
+        "decision_support_only": True,
     }
 

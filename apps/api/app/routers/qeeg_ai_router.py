@@ -1,6 +1,6 @@
 """qEEG AI co-pilot overlay — Phase 5.
 
-Nine endpoints. Each wraps one ``app.services.raw_ai`` function and returns
+Ten public endpoints. Each wraps one ``app.services.raw_ai`` function and returns
 the canonical ``{result, reasoning, features}`` envelope so the UI can show
 "why this suggestion" beside every AI output. All require ``clinician``
 role.
@@ -272,6 +272,26 @@ def post_narrate(
     require_minimum_role(actor, "clinician")
     _ensure_analysis(analysis_id, db, actor)
     return _envelope(analysis_id, raw_ai.narrate(analysis_id, db))
+
+
+# ── 10. copilot_assist_bundle ───────────────────────────────────────────────
+
+
+@router.post(
+    "/{analysis_id}/copilot_assist_bundle",
+    response_model=AIEnvelope,
+    summary="Aggregated QC assist: segments, channel rank, readiness, actions.",
+)
+def post_copilot_assist_bundle(
+    analysis_id: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> AIEnvelope:
+    require_minimum_role(actor, "clinician")
+    _ensure_analysis(analysis_id, db, actor)
+    return _envelope(
+        analysis_id, raw_ai.copilot_assist_bundle(analysis_id, db)
+    )
 
 
 __all__ = ["router"]

@@ -170,11 +170,24 @@ def run_mne_pipeline_custom_job(analysis_id: str) -> dict[str, Any]:
     return run_custom_pipeline_sync(analysis_id)
 
 
+@celery_app.task(name="deepsynaps.qeeg.run_erp_pipeline", bind=False)
+def run_erp_pipeline_job(analysis_id: str, job_id: str, request_payload: dict[str, Any]) -> dict[str, Any]:
+    """Worker entry for Event-Related Potentials (ERP) analysis."""
+    try:
+        from app.services.erp_service import run_erp_job_sync  # type: ignore[import-not-found]
+    except Exception as exc:  # pragma: no cover
+        _log.exception("run_erp_pipeline_job: import failure")
+        return {"analysis_id": analysis_id, "job_id": job_id, "status": "failed", "error": f"import failed: {exc}"}
+
+    return run_erp_job_sync(analysis_id, job_id, request_payload)
+
+
 __all__ = [
     "RenderJob",
     "enqueue_render_job",
     "run_mne_pipeline_job",
     "run_mne_pipeline_custom_job",
+    "run_erp_pipeline_job",
     "deeptwin_simulation_job",
     "celery_app",
 ]

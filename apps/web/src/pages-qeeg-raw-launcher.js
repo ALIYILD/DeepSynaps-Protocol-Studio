@@ -107,6 +107,11 @@ function _renderShell(state) {
       <header class="qrl-header">
         <h1 id="qrl-title">Open EEG recording</h1>
         <p class="qrl-sub">Pick a patient and an existing recording, or upload a new EDF. The Raw Cleaning Workbench opens once a recording is selected.</p>
+        <p class="qrl-cross" style="font-size:13px;margin-top:14px;max-width:52rem;line-height:1.55;color:#3d3d3d">
+          After manual review and cleaning, continue in
+          <button type="button" class="qrl-link" data-action="goto-analyzer" style="background:none;border:none;padding:0;font:inherit;color:var(--teal);cursor:pointer;text-decoration:underline">qEEG Analyzer</button>
+          for spectral maps, AI interpretation, and reporting on the same recording.
+        </p>
       </header>
 
       <div class="qrl-grid">
@@ -258,6 +263,13 @@ function _wireHandlers(state) {
 
   root.querySelectorAll('[data-action="open-demo"]').forEach(btn => {
     btn.addEventListener('click', () => _openWorkbench('demo'));
+  });
+
+  root.querySelectorAll('[data-action="goto-analyzer"]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (typeof window._nav === 'function') window._nav('qeeg-analysis');
+      else window.location.hash = '#/qeeg-analysis';
+    });
   });
 }
 

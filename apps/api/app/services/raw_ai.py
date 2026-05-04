@@ -35,6 +35,8 @@ from __future__ import annotations
 import json
 import logging
 import math
+import threading
+import time
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -42,6 +44,13 @@ from sqlalchemy.orm import Session
 from app.persistence.models import AutoCleanRun, CleaningDecision
 
 _log = logging.getLogger(__name__)
+
+# In-process TTL cache for copilot_assist_bundle — idempotent for repeat HTTP
+# calls: same analysis_id within the window returns the same payload without
+# re-running scan/ICA/LLM and without a second audit row.
+_ASSIST_BUNDLE_LOCK = threading.Lock()
+_ASSIST_BUNDLE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_ASSIST_BUNDLE_TTL_SEC = 120.0
 
 # Fallback reasoning when the LLM provider is unavailable. Surfaced verbatim
 # in the UI so the clinician knows why the narrative is missing.
@@ -872,6 +881,190 @@ def narrate(analysis_id: str, db: Session) -> dict[str, Any]:
     return {"result": result, "reasoning": text, "features": features}
 
 
+# ── 10. copilot_assist_bundle (aggregated assist for Raw EEG Workbench QC) ─
+
+
+def copilot_assist_bundle(analysis_id: str, db: Session) -> dict[str, Any]:
+    """Single-call assist payload for the Raw EEG / QC panel.
+
+    Composes **deterministic** scanner + ICA + metadata into one response so
+    the web UI can render flagged segments, channel ranking, suggested next
+    steps, and a pre-analysis readiness label without firing six separate
+    requests.  LLM use is limited to a short optional narrative; all
+    numbers come from heuristics.
+
+    Does **not** change cleaning state.  Writes one ``CleaningDecision`` row
+    (``propose_copilot_assist_bundle``) for audit.
+    """
+    with _ASSIST_BUNDLE_LOCK:
+        now = time.monotonic()
+        ent = _ASSIST_BUNDLE_CACHE.get(analysis_id)
+        if ent is not None and (now - ent[0]) < _ASSIST_BUNDLE_TTL_SEC:
+            return ent[1]
+
+    scan = _scan_or_empty(analysis_id, db)
+    ica = _ica_or_empty(analysis_id, db)
+    meta = _load_analysis_meta(analysis_id, db)
+
+    bad_chs: list[dict[str, Any]] = list(scan.get("bad_channels") or [])
+    bad_segs: list[dict[str, Any]] = list(scan.get("bad_segments") or [])
+    n_chs_total = max(int(meta.get("channel_count") or 0), 1)
+    duration_sec = max(float(meta.get("duration_sec") or 0.0), 1.0)
+    excluded_sec = float((scan.get("summary") or {}).get("total_excluded_sec") or 0.0)
+
+    flat_count = sum(1 for c in bad_chs if c.get("reason") == "flatline")
+    line_count = sum(1 for c in bad_chs if c.get("reason") == "line_noise")
+    impedance = _clip(100.0 - 100.0 * (flat_count / n_chs_total))
+    line_noise = _clip(100.0 - 100.0 * (line_count / n_chs_total))
+    motion = _clip(100.0 - 100.0 * min(1.0, excluded_sec / duration_sec))
+    channel_agreement = _clip(100.0 - 100.0 * (len(bad_chs) / n_chs_total))
+    eye_components = [c for c in (ica.get("components") or []) if c.get("label") == "eye"]
+    blink_density = _clip(100.0 - 25.0 * max(0, len(eye_components) - 1))
+    subscores = {
+        "impedance": round(impedance, 1),
+        "line_noise": round(line_noise, 1),
+        "blink_density": round(blink_density, 1),
+        "motion": round(motion, 1),
+        "channel_agreement": round(channel_agreement, 1),
+    }
+    composite = round(sum(subscores.values()) / 5.0, 1)
+
+    suspicious_segments: list[dict[str, Any]] = []
+    for s in bad_segs[:80]:
+        suspicious_segments.append(
+            {
+                "start_sec": float(s.get("start_sec") or 0.0),
+                "end_sec": float(s.get("end_sec") or 0.0),
+                "reason": str(s.get("reason") or "other"),
+                "confidence": float(s.get("confidence") or 0.0),
+                "source": "auto_scan",
+            }
+        )
+
+    channel_quality_rank: list[dict[str, Any]] = []
+    for c in bad_chs:
+        conf = float(c.get("confidence") or 0.0)
+        channel_quality_rank.append(
+            {
+                "channel": str(c.get("channel") or ""),
+                "reason": str(c.get("reason") or "other"),
+                "confidence": round(conf, 3),
+                "rank_score": round(conf, 3),
+            }
+        )
+    channel_quality_rank.sort(key=lambda x: -float(x.get("rank_score") or 0.0))
+
+    suggested_next_actions: list[dict[str, Any]] = []
+    if bad_chs:
+        suggested_next_actions.append(
+            {
+                "id": "review_flagged_channels",
+                "label": "Review scanner-flagged channels",
+                "rationale": f"{len(bad_chs)} channel(s) exceeded deterministic thresholds.",
+                "requires_confirmation": True,
+            }
+        )
+    if bad_segs:
+        suggested_next_actions.append(
+            {
+                "id": "review_flagged_segments",
+                "label": "Review flagged time segments",
+                "rationale": f"{len(bad_segs)} segment(s) from automatic scan.",
+                "requires_confirmation": True,
+            }
+        )
+    if len(eye_components) > 1:
+        suggested_next_actions.append(
+            {
+                "id": "review_ica_eye",
+                "label": "Review ICA components labelled as eye",
+                "rationale": f"{len(eye_components)} eye-related component(s) — verify before excluding.",
+                "requires_confirmation": True,
+            }
+        )
+    if not suggested_next_actions:
+        suggested_next_actions.append(
+            {
+                "id": "continue_visual_qc",
+                "label": "Continue systematic visual QC",
+                "rationale": "No automatic scanner flags — still perform manual review.",
+                "requires_confirmation": False,
+            }
+        )
+
+    if composite >= 75 and len(bad_segs) < 8 and len(bad_chs) <= 2:
+        readiness_label = "likely_ready"
+    elif composite < 45 or len(bad_chs) > 8:
+        readiness_label = "blocked"
+    else:
+        readiness_label = "needs_review"
+
+    result: dict[str, Any] = {
+        "assist_engine": "rules_heuristic_v1",
+        "assist_scope": (
+            "Human-in-the-loop assist only. Does not modify EEG. "
+            "Confirm each cleaning action."
+        ),
+        "quality_composite": composite,
+        "subscores": subscores,
+        "suspicious_segments": suspicious_segments,
+        "channel_quality_rank": channel_quality_rank[:32],
+        "suggested_next_actions": suggested_next_actions[:12],
+        "preanalysis_readiness": {
+            "score": composite,
+            "label": readiness_label,
+        },
+        "artifact_hints_summary": {
+            "n_segments": len(bad_segs),
+            "n_channels_flagged": len(bad_chs),
+            "n_ica_components": len(ica.get("components") or []),
+            "iclabel_available": bool(ica.get("iclabel_available")),
+        },
+    }
+
+    features = {
+        "n_bad_channels": len(bad_chs),
+        "n_bad_segments": len(bad_segs),
+        "duration_sec": round(duration_sec, 2),
+        "channel_count": n_chs_total,
+    }
+
+    user_prompt = (
+        "QC assist bundle (deterministic):\n"
+        f"  composite: {composite}/100\n"
+        f"  readiness_label: {readiness_label}\n"
+        f"  bad_channels: {len(bad_chs)}  bad_segments: {len(bad_segs)}\n\n"
+        "In 2-3 sentences, tell the clinician what to review first and what "
+        "could wait. Do not invent metrics."
+    )
+    reasoning = _safe_llm(
+        system=(
+            "You assist EEG technologists with review prioritisation. "
+            "You never replace clinical judgment."
+        ),
+        user=user_prompt,
+        max_tokens=200,
+    )
+
+    _audit_proposal(
+        db,
+        analysis_id=analysis_id,
+        action="propose_copilot_assist_bundle",
+        target=f"qc:{composite}:{readiness_label}",
+        payload={
+            "features": features,
+            "n_segments_returned": len(suspicious_segments),
+            "n_actions": len(suggested_next_actions),
+        },
+        confidence=composite / 100.0 if composite <= 100 else 1.0,
+    )
+
+    out: dict[str, Any] = {"result": result, "reasoning": reasoning, "features": features}
+    with _ASSIST_BUNDLE_LOCK:
+        _ASSIST_BUNDLE_CACHE[analysis_id] = (time.monotonic(), out)
+    return out
+
+
 __all__ = [
     "quality_score",
     "auto_clean_propose",
@@ -882,4 +1075,5 @@ __all__ = [
     "recommend_montage",
     "segment_eo_ec",
     "narrate",
+    "copilot_assist_bundle",
 ]

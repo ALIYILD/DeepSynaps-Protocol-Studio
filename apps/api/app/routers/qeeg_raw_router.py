@@ -187,6 +187,17 @@ class FilterPreviewResponse(BaseModel):
     params: dict[str, Optional[float]] = Field(default_factory=dict)
 
 
+class WindowPSDRequest(BaseModel):
+    """Per-window Welch PSD for the Raw Workbench (no full pipeline job)."""
+
+    start_sec: float = Field(ge=0.0)
+    end_sec: Optional[float] = None
+    duration_sec: Optional[float] = Field(default=None, gt=0.0, le=600.0)
+    channels: Optional[list[str]] = None
+    average_channels: bool = False
+    bands: Optional[dict[str, list[float]]] = None
+
+
 _REASON_VOCAB = {
     "blink", "lateral_eye", "sweat", "movement", "emg", "ecg",
     "electrode_pop", "line_noise", "flatline", "other",
@@ -1069,6 +1080,65 @@ def post_filter_preview(
         notch=payload.notch,
     )
     return FilterPreviewResponse(**result)
+
+
+@router.post("/{analysis_id}/window-psd")
+def post_window_psd(
+    analysis_id: str,
+    body: WindowPSDRequest,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict[str, Any]:
+    """Welch PSD + band power for a selected time window (decision-support only).
+
+    Does not run the full resting qEEG pipeline. Requires raw media bytes.
+    """
+    require_minimum_role(actor, "clinician")
+    _load_analysis(analysis_id, db, actor)
+    _require_mne()
+
+    if body.end_sec is None and body.duration_sec is None:
+        raise ApiServiceError(
+            code="invalid_request",
+            message="Provide end_sec or duration_sec",
+            status_code=422,
+        )
+    if body.end_sec is not None and body.duration_sec is not None:
+        raise ApiServiceError(
+            code="invalid_request",
+            message="Provide only one of end_sec or duration_sec",
+            status_code=422,
+        )
+
+    end_sec = (
+        float(body.end_sec)
+        if body.end_sec is not None
+        else float(body.start_sec) + float(body.duration_sec or 0.0)
+    )
+
+    band_defs: dict[str, tuple[float, float]] | None = None
+    if body.bands:
+        band_defs = {}
+        for name, pair in body.bands.items():
+            if not isinstance(pair, list) or len(pair) != 2:
+                raise ApiServiceError(
+                    code="invalid_bands",
+                    message=f"Band '{name}' must be [low_hz, high_hz]",
+                    status_code=422,
+                )
+            band_defs[name] = (float(pair[0]), float(pair[1]))
+
+    from app.services.eeg_signal_service import compute_window_psd
+
+    return compute_window_psd(
+        analysis_id,
+        db,
+        start_sec=float(body.start_sec),
+        end_sec=end_sec,
+        channels=body.channels,
+        average_channels=bool(body.average_channels),
+        band_defs=band_defs,
+    )
 
 
 # ── Endpoint 6: Save Cleaning Config ────────────────────────────────────────

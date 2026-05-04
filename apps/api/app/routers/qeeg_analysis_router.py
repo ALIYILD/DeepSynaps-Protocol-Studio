@@ -1107,6 +1107,92 @@ def get_analysis_brain_payload(
     return build_brain_payload(roi_band_power, subjects_dir=subjects_dir, subject="fsaverage")
 
 
+@router.get("/{analysis_id}/source-localization.json")
+def get_source_localization_meta(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict:
+    """Provenance and availability for the Source Localization viewer (scaffold).
+
+    This does **not** ship or invoke any proprietary LORETA product. It
+    describes the **DeepSynaps / MNE-Python** minimum-norm pipeline outputs
+    stored on the analysis row.
+    """
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    source_raw = getattr(analysis, "source_roi_json", None)
+    source_payload: dict = {}
+    if source_raw:
+        try:
+            parsed = json.loads(source_raw)
+            if isinstance(parsed, dict):
+                source_payload = parsed
+        except (TypeError, ValueError):
+            source_payload = {}
+
+    roi_band_power = source_payload.get("roi_band_power") if isinstance(source_payload, dict) else None
+    method = (source_payload or {}).get("method") if isinstance(source_payload, dict) else None
+    if not isinstance(method, str) or not method.strip():
+        method = None
+
+    source_available = (
+        analysis.analysis_status == "completed"
+        and isinstance(roi_band_power, dict)
+        and bool(roi_band_power)
+    )
+
+    quality = None
+    qraw = getattr(analysis, "quality_metrics_json", None)
+    if qraw:
+        try:
+            qd = json.loads(qraw)
+            if isinstance(qd, dict):
+                quality = {
+                    "overall": qd.get("overall"),
+                    "notes": qd.get("notes") or qd.get("message"),
+                }
+        except (TypeError, ValueError):
+            quality = None
+
+    return {
+        "analysis_id": analysis_id,
+        "patient_id": analysis.patient_id,
+        "analysis_status": analysis.analysis_status,
+        "analyzed_at": analysis.analyzed_at.isoformat() if analysis.analyzed_at else None,
+        "pipeline_version": getattr(analysis, "pipeline_version", None),
+        "source_available": source_available,
+        "method": method,
+        "method_description": (
+            f"MNE-Python minimum-norm estimate ({method})"
+            if method
+            else "Not computed for this analysis"
+        ),
+        "atlas": "Desikan–Killiany (FreeSurfer aparc), 68 cortical labels",
+        "head_model": (
+            "fsaverage template; 3-layer BEM; "
+            "MNE `make_forward_solution` (EEG-only in pipeline)"
+        ),
+        "ui_product_name": "Source localization (cortical source estimate)",
+        "disclaimer": (
+            "Cortical maps are model-derived estimates on a template surface, "
+            "not direct measurements of neural activity. Spatial resolution is "
+            "limited; do not over-interpret sub-regional detail."
+        ),
+        "endpoints": {
+            "analysis": f"/api/v1/qeeg-analysis/{analysis_id}",
+            "brain_surface_payload": f"/api/v1/qeeg-analysis/{analysis_id}/brain.json",
+        },
+        "quality": quality,
+    }
+
+
 # ── List Analyses for Patient ────────────────────────────────────────────────
 
 @router.get("/patient/{patient_id}", response_model=AnalysisListResponse)

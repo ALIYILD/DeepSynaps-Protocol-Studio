@@ -124,6 +124,7 @@ def two_clinics() -> dict[str, Any]:
 _ENDPOINTS = [
     # Phase 3
     ("POST", "/api/v1/qeeg-raw/{aid}/filter-preview", {}),
+    ("POST", "/api/v1/qeeg-raw/{aid}/window-psd", {"start_sec": 0.0, "end_sec": 1.0}),
     # Phase 4
     ("POST", "/api/v1/qeeg-raw/{aid}/auto-scan", None),
     ("POST", "/api/v1/qeeg-raw/{aid}/auto-scan/run-x/decide",
@@ -152,6 +153,12 @@ _ENDPOINTS = [
     ("POST", "/api/v1/qeeg-ai/{aid}/recommend_montage", {}),
     ("POST", "/api/v1/qeeg-ai/{aid}/segment_eo_ec", {}),
     ("POST", "/api/v1/qeeg-ai/{aid}/narrate", {}),
+    ("POST", "/api/v1/qeeg-ai/{aid}/copilot_assist_bundle", {}),
+    # ERP Analyzer — event-locked pipeline (same patient/clinic gate as qEEG analysis)
+    ("GET", "/api/v1/qeeg-analysis/{aid}/erp/presets", None),
+    ("POST", "/api/v1/qeeg-analysis/{aid}/erp/run", {"preset": "custom", "event_id_map": {"a": 1}}),
+    ("GET", "/api/v1/qeeg-analysis/{aid}/erp/status/00000000-0000-0000-0000-000000000001", None),
+    ("GET", "/api/v1/qeeg-analysis/{aid}/erp/result/00000000-0000-0000-0000-000000000001", None),
 ]
 
 
@@ -223,3 +230,38 @@ def test_invalid_analysis_id(
     assert r.status_code in (404, 422), (
         f"{method} {url} with bogus id returned {r.status_code}, expected 404"
     )
+
+
+# ── ERP BIDS events.tsv upload (multipart — not in matrix above) ─────────────
+
+_GOOD_BIDS_TSV = b"onset\ttrial_type\n0\ta\n"
+
+
+def test_erp_bids_upload_unauthenticated(client: TestClient, two_clinics: dict[str, Any]) -> None:
+    url = f"/api/v1/qeeg-analysis/{two_clinics['analysis_id']}/erp/bids-events"
+    r = client.post(
+        url,
+        files={"file": ("events.tsv", _GOOD_BIDS_TSV, "text/tab-separated-values")},
+    )
+    assert r.status_code in (401, 403)
+
+
+def test_erp_bids_upload_cross_clinic_blocked(client: TestClient, two_clinics: dict[str, Any]) -> None:
+    url = f"/api/v1/qeeg-analysis/{two_clinics['analysis_id']}/erp/bids-events"
+    r = client.post(
+        url,
+        files={"file": ("events.tsv", _GOOD_BIDS_TSV, "text/tab-separated-values")},
+        headers={"Authorization": f"Bearer {two_clinics['token_b']}"},
+    )
+    assert r.status_code in (403, 404)
+
+
+def test_erp_bids_upload_memory_file_ref_requires_disk(client: TestClient, two_clinics: dict[str, Any]) -> None:
+    """Sec fixture analysis uses ``memory://`` — sidecar cannot be stored."""
+    url = f"/api/v1/qeeg-analysis/{two_clinics['analysis_id']}/erp/bids-events"
+    r = client.post(
+        url,
+        files={"file": ("events.tsv", _GOOD_BIDS_TSV, "text/tab-separated-values")},
+        headers={"Authorization": f"Bearer {two_clinics['token_a']}"},
+    )
+    assert r.status_code == 422

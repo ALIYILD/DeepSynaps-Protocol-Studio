@@ -119,11 +119,11 @@ test('demo banner output is marked data-demo for downstream filtering', () => {
 
 test('clinical safety footer lists non-diagnosis and review-required disclaimers', () => {
   const src = _readSrc('pages-qeeg-analysis.js');
-  assert.match(src, /EEG\/qEEG analysis support and decision-support only/);
-  assert.match(src, /not autonomous diagnosis/);
-  assert.match(src, /Normative z-scores and comparisons apply only when/);
-  assert.match(src, /draft ideas for clinician review/);
-  assert.match(src, /Red flags and quality alerts are review cues/);
+  assert.match(src, /support clinical decision-making and require clinician review/);
+  assert.match(src, /are not prescriptive/);
+  assert.match(src, /Z-scores are referenced against the embedded normative dataset/);
+  assert.match(src, /AI interpretation runs after deterministic numerics/);
+  assert.match(src, /Red flags require clinician review per local policy/);
 });
 
 test('Open Raw Workbench hero button is wired to the canonical workbench id', () => {

@@ -1,6 +1,12 @@
 import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig(({ mode }) => ({
+  plugins: [react()],
   base: '/',
   esbuild: {
     // Strip noisy debug calls in prod builds. console.error / console.warn
@@ -18,6 +24,10 @@ export default defineConfig(({ mode }) => ({
     // alone without source-level extraction. Suppress non-actionable warnings.
     chunkSizeWarningLimit: 1000,
     rollupOptions: {
+      input: {
+        main: resolve(__dirname, "index.html"),
+        studio: resolve(__dirname, "studio.html"),
+      },
       // @cornerstonejs/* are optional heavy deps for the MRI 3-D viewer.
       // When not installed the dynamic import in pages-mri-analysis.js
       // catches the failure and falls back to NiiVue.
@@ -60,9 +70,6 @@ export default defineConfig(({ mode }) => ({
   },
   server: {
     port: 5173,
-    // Open the app in your default browser when you run `npm run dev` locally.
-    // Set CI=1 (or run `vite --no-open`) to skip — useful for headless environments.
-    open: !process.env.CI,
     proxy: {
       "/api": {
         target: "http://127.0.0.1:8000",

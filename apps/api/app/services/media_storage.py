@@ -61,6 +61,26 @@ async def save_upload(
         raise IOError(f"Failed to save upload '{file_ref}': {exc}") from exc
 
 
+async def write_upload(file_ref: str, file_bytes: bytes, settings) -> None:
+    """Write *file_bytes* at a validated path under the media root (creates parent dirs).
+
+    *file_ref* uses the same relative form as :func:`read_upload` (``patient_id/name.ext``).
+    Raises ``FileNotFoundError`` if *file_ref* escapes the storage root.
+    Raises ``IOError`` on write failures.
+    """
+    abs_path = _safe_abs_path(file_ref, settings)
+    parent = os.path.dirname(abs_path)
+    try:
+        os.makedirs(parent, exist_ok=True)
+        async with aiofiles.open(abs_path, "wb") as fh:
+            await fh.write(file_bytes)
+        logger.info("Wrote upload: %s (%d bytes)", file_ref, len(file_bytes))
+    except FileNotFoundError:
+        raise
+    except Exception as exc:
+        raise IOError(f"Failed to write upload '{file_ref}': {exc}") from exc
+
+
 def _safe_abs_path(file_ref: str, settings) -> str:
     """
     Resolve *file_ref* to an absolute path and verify it stays inside
