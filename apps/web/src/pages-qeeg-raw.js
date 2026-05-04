@@ -318,7 +318,9 @@ export async function renderRawDataTab(tabEl, analysisId, patientId) {
           notch: cfg.notch_hz != null ? cfg.notch_hz : 50,
         };
       }
-    } catch (_) {}
+    } catch (_) {
+      showToast('Could not load saved cleaning config — starting with defaults', 'warning');
+    }
   }
 
   // Build layout
@@ -1087,7 +1089,7 @@ function _renderICAGrid(state) {
       }
     }
     return '<div class="eeg-sb__ica-card' + (isExcluded ? ' eeg-sb__ica-card--excluded' : '') + '">'
-      + (c.topomap_b64 ? '<img src="' + c.topomap_b64 + '" class="eeg-sb__ica-topo">' : '<div class="eeg-sb__ica-topo-ph">IC' + c.index + '</div>')
+      + (c.topomap_b64 && String(c.topomap_b64).indexOf('data:image/') === 0 ? '<img src="' + esc(c.topomap_b64) + '" class="eeg-sb__ica-topo">' : '<div class="eeg-sb__ica-topo-ph">IC' + c.index + '</div>')
       + '<div class="eeg-sb__ica-info">'
       + '<span class="eeg-sb__ica-badge ' + labelClass + '">IC' + c.index + ': ' + esc(maxLabel) + ' ' + (maxProb * 100).toFixed(0) + '%</span>'
       + '</div>'
@@ -1450,7 +1452,7 @@ function _buildEventsSection(state) {
   var events = state.eventEditor ? state.eventEditor.getEvents() : [];
   var items = events.map(function (evt, idx) {
     return '<div class="eeg-sb__evt-item">'
-      + '<span class="eeg-sb__evt-dot" style="background:' + (evt.color || '#4caf50') + '"></span>'
+      + '<span class="eeg-sb__evt-dot" style="background:' + (evt.color && /^#[0-9a-fA-F]{3,8}$/.test(evt.color) ? evt.color : '#4caf50') + '"></span>'
       + '<span class="eeg-sb__evt-time">' + evt.time.toFixed(2) + 's</span>'
       + '<span class="eeg-sb__evt-label">' + esc(evt.label) + '</span>'
       + '<button class="eeg-sb__evt-remove" data-evt-id="' + evt.id + '">\u00D7</button>'
@@ -1506,7 +1508,7 @@ function _updateTimelineOverview(state) {
     var events = state.eventEditor ? state.eventEditor.getEvents() : [];
     evtContainer.innerHTML = events.map(function (evt) {
       var left = (evt.time / dur) * 100;
-      return '<div class="eeg-timeline__evt" style="left:' + left + '%;background:' + (evt.color || '#4caf50') + '" title="' + esc(evt.label) + ' @ ' + evt.time.toFixed(1) + 's"></div>';
+      return '<div class="eeg-timeline__evt" style="left:' + left + '%;background:' + (evt.color && /^#[0-9a-fA-F]{3,8}$/.test(evt.color) ? evt.color : '#4caf50') + '" title="' + esc(evt.label) + ' @ ' + evt.time.toFixed(1) + 's"></div>';
     }).join('');
   }
 }
@@ -1922,12 +1924,13 @@ function _wireKeyboard(analysisId, state, renderer, tabEl, spectralPanel) {
           var info = renderer && typeof renderer.getCursorInfo === 'function' ? renderer.getCursorInfo() : null;
           var ch = info && info.channel ? info.channel : (state.cursorChannel || null);
           if (ch) {
-            state.badChannels = state.badChannels || new Set();
-            if (state.badChannels.has(ch)) state.badChannels.delete(ch); else state.badChannels.add(ch);
-            if (typeof renderer.setChannelStates === 'function') renderer.setChannelStates(Array.from(state.badChannels));
+            state.badChannels = state.badChannels || [];
+            var bcIdx = state.badChannels.indexOf(ch);
+            if (bcIdx >= 0) state.badChannels.splice(bcIdx, 1); else state.badChannels.push(ch);
+            if (typeof renderer.setChannelStates === 'function') renderer.setChannelStates(state.badChannels.slice());
             state.hasUnsavedChanges = true;
             _updateSaveIndicator(state);
-            showToast((state.badChannels.has(ch) ? 'Marked bad: ' : 'Cleared bad: ') + ch, 'info');
+            showToast((state.badChannels.indexOf(ch) >= 0 ? 'Marked bad: ' : 'Cleared bad: ') + ch, 'info');
           } else {
             showToast('Hover a channel first to toggle bad', 'warning');
           }
@@ -2267,7 +2270,7 @@ function _updateEventList(state) {
   }
   el.innerHTML = events.map(function (evt) {
     return '<div class="eeg-sb__evt-item">'
-      + '<span class="eeg-sb__evt-dot" style="background:' + (evt.color || '#4caf50') + '"></span>'
+      + '<span class="eeg-sb__evt-dot" style="background:' + (evt.color && /^#[0-9a-fA-F]{3,8}$/.test(evt.color) ? evt.color : '#4caf50') + '"></span>'
       + '<span class="eeg-sb__evt-time">' + evt.time.toFixed(2) + 's</span>'
       + '<span class="eeg-sb__evt-label">' + esc(evt.label) + '</span>'
       + '<button class="eeg-sb__evt-remove" data-evt-id="' + evt.id + '">\u00D7</button>'

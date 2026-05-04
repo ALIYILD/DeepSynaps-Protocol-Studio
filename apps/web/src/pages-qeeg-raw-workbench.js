@@ -12,7 +12,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { api } from './api.js';
-import { renderLearningEEGCompactList } from './learning-eeg-reference.js';
+import { renderLearningEEGCompactList, renderLearningEEGReferenceCard } from './learning-eeg-reference.js';
+import { EVIDENCE_TOTAL_PAPERS, EVIDENCE_TOTAL_TRIALS, EVIDENCE_TOTAL_META, EVIDENCE_SOURCES, searchEvidenceByKeyword, getTopConditionsByPaperCount } from './evidence-dataset.js';
 
 // 19-channel 10-20 montage, no ECG (matches design source data.jsx).
 export const DEFAULT_CHANNELS = [
@@ -83,6 +84,108 @@ const CHANNEL_WAVES = {
   'O2-Av':  { primary: 'Alpha (8–13 Hz) — PDR origin', notes: 'Right primary visual cortex. PDR originates here (8.5–12 Hz, symmetric). Occipital alpha asymmetry can indicate posterior circulation pathology.', evidence: 'learningeeg.com — alpha 8-13 Hz, hallmark of normal awake adult; PDR at occipital; attenuates on eye opening.' },
 };
 
+// ── Normal EEG Variants (from learningeeg.com/normal-variants) ──────────────
+// These are benign patterns that can look concerning but are non-pathological.
+// Used for AI-labelled annotations and the channel-level variant tooltips.
+const NORMAL_VARIANTS = {
+  'mu_rhythm': {
+    label: 'Mu Rhythm',
+    frequency: '7–11 Hz',
+    channels: ['C3-Av', 'C4-Av', 'Cz-Av'],
+    morphology: 'Arch-like, sharply contoured alpha-range rhythm over central/parasagittal regions. Attenuates with contralateral movement or motor imagery.',
+    significance: 'Benign idling activity of the sensorimotor cortex. Can appear sharp and be mistaken for epileptiform. Disappears with movement or thought of movement.',
+    reference: 'learningeeg.com — mu rhythm, normal variant',
+  },
+  'lambda_waves': {
+    label: 'Lambda Waves',
+    frequency: '< 4 Hz (transients)',
+    channels: ['O1-Av', 'O2-Av'],
+    morphology: 'Sharply contoured positive occipital transients with a sail-like or triangular appearance, surface-positive at occipital electrodes.',
+    significance: 'Benign. Occur during active visual scanning in wakefulness. Disappear with eyes closed. Not epileptiform.',
+    reference: 'learningeeg.com — lambda waves, normal variant',
+  },
+  'wicket_waves': {
+    label: 'Wicket Waves',
+    frequency: '7–11 Hz',
+    channels: ['T3-Av', 'T4-Av', 'T5-Av', 'T6-Av'],
+    morphology: 'Arch-like, sharply contoured theta/alpha waves over temporal chains. Non-evolving, no after-going slow wave, monomorphic.',
+    significance: 'Benign, especially in drowsiness. Can mimic temporal sharp waves. Key distinction: no evolution, no disruption of background, no after-going slow wave.',
+    reference: 'learningeeg.com — wicket waves, normal variant',
+  },
+  'rmtd': {
+    label: 'RMTD (Rhythmic Mid-Temporal Theta)',
+    frequency: '5–7 Hz',
+    channels: ['T3-Av', 'T4-Av'],
+    morphology: 'Sharply contoured, rhythmic theta bursts lasting 1–2 seconds over mid-temporal regions. Drowsy state.',
+    significance: 'Benign. Previously called "psychomotor variant". Short duration, non-evolving. Do NOT overcall as seizure activity.',
+    reference: 'learningeeg.com — RMTD, normal variant',
+  },
+  'sleep_spindles': {
+    label: 'Sleep Spindles',
+    frequency: '11–16 Hz',
+    channels: ['C3-Av', 'C4-Av', 'Cz-Av', 'Fz-Av'],
+    morphology: 'Waxing-and-waning bursts of 11–16 Hz activity lasting 0.5–2 seconds, maximum over central/frontal regions. Stage II NREM sleep marker.',
+    significance: 'Normal sleep architecture. Hallmark of Stage II sleep. Asymmetry of spindles may indicate underlying pathology.',
+    reference: 'learningeeg.com — sleep EEG patterns',
+  },
+  'vertex_waves': {
+    label: 'Vertex Sharp Waves (V-waves)',
+    frequency: 'Transient (< 200 ms)',
+    channels: ['Cz-Av', 'C3-Av', 'C4-Av'],
+    morphology: 'High-amplitude, sharp, surface-negative transients maximal at the vertex (Cz). Often bi-phasic with initial sharp negative followed by positive component.',
+    significance: 'Normal. Hallmark of Stage I sleep. Can be high amplitude and sharp — do not overcall as epileptiform.',
+    reference: 'learningeeg.com — sleep EEG patterns',
+  },
+  'k_complex': {
+    label: 'K-Complex',
+    frequency: 'Transient (> 0.5 s)',
+    channels: ['Fz-Av', 'Cz-Av', 'F3-Av', 'F4-Av'],
+    morphology: 'Large amplitude biphasic wave: initial sharp negative component followed by slower positive component. Duration > 0.5 seconds, maximal at frontocentral.',
+    significance: 'Normal. Hallmark of Stage II sleep along with spindles. Can be evoked by auditory stimuli. May have superimposed spindle activity.',
+    reference: 'learningeeg.com — sleep EEG patterns',
+  },
+  'posts': {
+    label: 'POSTS (Positive Occipital Sharp Transients of Sleep)',
+    frequency: '4–5 Hz (transients)',
+    channels: ['O1-Av', 'O2-Av'],
+    morphology: 'Surface-positive, triangular or check-mark shaped transients at occipital electrodes, often bilateral but may be asymmetric.',
+    significance: 'Benign. Occur in drowsiness and light sleep. Not epileptiform despite sharp appearance.',
+    reference: 'learningeeg.com — sleep EEG patterns',
+  },
+  'bets': {
+    label: 'BETS (Benign Epileptiform Transients of Sleep)',
+    frequency: 'Brief transients (< 50 µV)',
+    channels: ['T3-Av', 'T4-Av', 'T5-Av', 'T6-Av'],
+    morphology: 'Low-amplitude (< 50 µV), brief, spike-like discharges over temporal regions during sleep. No evolution, isolated.',
+    significance: 'Benign. Previously "small sharp spikes (SSS)". Must NOT be overcalled as epileptiform. Low amplitude and lack of after-going slow wave are key distinctions.',
+    reference: 'learningeeg.com — normal variants',
+  },
+  '14_and_6': {
+    label: '14-and-6 Positive Bursts',
+    frequency: '13–17 Hz or 5–7 Hz',
+    channels: ['P3-Av', 'P4-Av', 'T5-Av', 'T6-Av'],
+    morphology: 'Brief (1–2 second) bursts of arch-shaped positive spikes at 14 Hz or 6 Hz, posterior/temporal distribution. Drowsiness or light sleep.',
+    significance: 'Generally benign. Occur in drowsy adolescents and young adults. WHAM subtype (high amplitude, anterior) may have clinical significance.',
+    reference: 'learningeeg.com — 14-and-6 positive bursts, normal variant',
+  },
+  'breach_rhythm': {
+    label: 'Breach Rhythm',
+    frequency: 'Variable (alpha/mu/beta enhanced)',
+    channels: ['C3-Av', 'C4-Av', 'T3-Av', 'T4-Av'],
+    morphology: 'Enhanced amplitude and sharper contour of background rhythms (mu, alpha, beta) over a skull defect site. Asymmetrically increased amplitude.',
+    significance: 'Benign consequence of skull defect (craniotomy). The breach effect enhances voltage and sharpness of underlying rhythms. Do not overcall as epileptiform.',
+    reference: 'learningeeg.com — breach rhythm',
+  },
+  'pdr': {
+    label: 'PDR (Posterior Dominant Rhythm)',
+    frequency: '8–13 Hz',
+    channels: ['O1-Av', 'O2-Av', 'P3-Av', 'P4-Av', 'Pz-Av'],
+    morphology: 'Sinusoidal 8–13 Hz rhythm maximal over occipital/parietal regions. Attenuates with eye opening (Berger effect). Should be symmetric.',
+    significance: 'Normal hallmark of the awake adult EEG. Frequency < 8 Hz in adults is abnormal. Asymmetry > 1 Hz or > 50% amplitude difference may indicate pathology.',
+    reference: 'learningeeg.com — normal awake EEG',
+  },
+};
+
 const TITLE_MENUS = ['File','Edit','View','Format','Recording','Analysis','Setup','Window','Language','Help'];
 
 const ARTEFACT_EXAMPLES = [
@@ -141,22 +244,45 @@ const KEYBOARD_SHORTCUTS = [
   ['Cleaning', 'Cmd/Ctrl+Shift+S', 'Clinician sign-off'],
   ['Cleaning', 'Z', 'Undo'],
   ['View', '+ / −', 'Zoom in / out'],
+  ['View', 'Scroll', 'Amplitude zoom (gain)'],
+  ['View', 'Ctrl+Scroll', 'Time zoom (timebase)'],
   ['View', 'G', 'Toggle grid'],
   ['View', 'O', 'Toggle AI overlays'],
+  ['View', 'S', 'Toggle solo mode for selected channel'],
   ['View', 'V', 'Cycle view mode'],
   ['View', '?', 'Show shortcuts'],
-  ['View', 'Esc', 'Back / exit confirmation'],
+  ['View', 'Esc', 'Back / exit solo / exit confirmation'],
 ];
 
 // AI kind → semantic colour (matches RAW DATA/styles.css)
 function kindColour(label) {
   const k = String(label || '').toLowerCase();
-  if (k.includes('blink') || k.includes('eye')) return { line: '#1d6f7a', bg: '#d6ebee', border: '#4ea3ad' };
-  if (k.includes('muscle')) return { line: '#b8741a', bg: '#f6e6cb', border: '#b8741a' };
+  if (k.includes('blink') || k.includes('eye'))    return { line: '#1d6f7a', bg: '#d6ebee', border: '#4ea3ad' };
+  if (k.includes('chewing'))                        return { line: '#b03434', bg: '#f3d4d0', border: '#b03434' };
+  if (k.includes('muscle'))                         return { line: '#b8741a', bg: '#f6e6cb', border: '#b8741a' };
   if (k.includes('movement') || k.includes('motion')) return { line: '#5a2f8a', bg: '#e6d8f3', border: '#7a4ea3' };
-  if (k.includes('line') || k.includes('mains')) return { line: '#1a4f7a', bg: '#d6e3ee', border: '#1a4f7a' };
-  if (k.includes('flat') || k.includes('saturat')) return { line: '#3a3633', bg: '#ECE5D8', border: '#6b6660' };
-  if (k.includes('sweat') || k.includes('drift')) return { line: '#8a6a14', bg: '#f3ead0', border: '#b08a1a' };
+  if (k.includes('line') || k.includes('mains'))    return { line: '#1a4f7a', bg: '#d6e3ee', border: '#1a4f7a' };
+  if (k.includes('flat') || k.includes('saturat'))  return { line: '#3a3633', bg: '#ECE5D8', border: '#6b6660' };
+  if (k.includes('sweat') || k.includes('drift'))   return { line: '#8a6a14', bg: '#f3ead0', border: '#b08a1a' };
+  // Expanded taxonomy — sleep, epileptiform, normal rhythms
+  if (k.includes('spindle'))                        return { line: '#6a1b9a', bg: '#ede0f5', border: '#9c4dcc' };
+  if (k.includes('k_complex') || k.includes('kcomplex')) return { line: '#4a148c', bg: '#e1d5f0', border: '#7b1fa2' };
+  if (k.includes('vertex'))                         return { line: '#7e57c2', bg: '#ede7f6', border: '#9575cd' };
+  if (k.includes('spike') || k.includes('sharp'))   return { line: '#c62828', bg: '#ffcdd2', border: '#e53935' };
+  if (k.includes('tirda'))                          return { line: '#ad1457', bg: '#fce4ec', border: '#d81b60' };
+  if (k.includes('rem'))                            return { line: '#00695c', bg: '#e0f2f1', border: '#26a69a' };
+  if (k.includes('pdr') || k.includes('alpha'))     return { line: '#2e7d32', bg: '#e8f5e9', border: '#4caf50' };
+  if (k.includes('mu'))                             return { line: '#558b2f', bg: '#f1f8e9', border: '#8bc34a' };
+  if (k.includes('lambda'))                         return { line: '#33691e', bg: '#f1f8e9', border: '#689f38' };
+  if (k.includes('posts') || k.includes('post'))    return { line: '#1565c0', bg: '#e3f2fd', border: '#42a5f5' };
+  if (k.includes('wicket'))                         return { line: '#00838f', bg: '#e0f7fa', border: '#26c6da' };
+  if (k.includes('rmtd'))                           return { line: '#00695c', bg: '#e0f2f1', border: '#26a69a' };
+  if (k.includes('bets') || k.includes('small_sharp')) return { line: '#4e342e', bg: '#efebe9', border: '#8d6e63' };
+  if (k.includes('14_and_6') || k.includes('14and6'))  return { line: '#6d4c41', bg: '#efebe9', border: '#a1887f' };
+  if (k.includes('breach'))                         return { line: '#37474f', bg: '#eceff1', border: '#78909c' };
+  if (k.includes('slow') || k.includes('delta'))    return { line: '#e65100', bg: '#fff3e0', border: '#ff9800' };
+  if (k.includes('theta'))                          return { line: '#f57f17', bg: '#fffde7', border: '#fdd835' };
+  if (k.includes('beta'))                           return { line: '#0277bd', bg: '#e1f5fe', border: '#29b6f6' };
   return { line: '#2851a3', bg: '#d8e1f3', border: '#2851a3' };
 }
 
@@ -192,47 +318,111 @@ function readModeFromHash() {
   return m ? m[1] : null;
 }
 
-// Canonical 9-artefact demo seed (matches AI_ARTIFACTS in RAW DATA/data.jsx).
-// Used by bootDemoState() on initial load and by generateAISuggestions() when
-// the clinician re-clicks "Generate" in demo mode.
+// Canonical demo seed — expanded taxonomy including sleep, epileptiform, and
+// normal rhythm markers. Used by bootDemoState() on initial load and by
+// generateAISuggestions() when the clinician re-clicks "Generate" in demo mode.
 function buildDemoAISuggestions(timebase) {
   return [
     { id: 'a1', ai_label: 'eye_blink', ai_confidence: 0.96, channel: 'Fp1-Av',
       start_sec: 0.7, end_sec: 1.2,
-      explanation: 'Bilateral frontopolar deflection, ~120 µV.',
+      explanation: 'Bilateral frontopolar deflection, ~120 µV. Large bifrontal positive deflections maximal at Fp1 and Fp2 — characteristic eye blink artifact.',
       suggested_action: 'review_ica', decision_status: 'suggested' },
     { id: 'a2', ai_label: 'muscle', ai_confidence: 0.88, channel: 'T3-Av',
       start_sec: 2.2, end_sec: 2.8,
-      explanation: 'Bilateral temporal high-frequency burst.',
+      explanation: 'Bilateral temporal high-frequency burst (>20 Hz) from temporalis contraction.',
       suggested_action: 'mark_bad_segment', decision_status: 'suggested' },
     { id: 'a3', ai_label: 'eye_blink', ai_confidence: 0.94, channel: 'Fp2-Av',
       start_sec: 3.7, end_sec: 4.2,
-      explanation: 'Frontopolar single blink.',
+      explanation: 'Frontopolar single blink — positive wave maximal at Fp2.',
       suggested_action: 'review_ica', decision_status: 'suggested' },
     { id: 'a4', ai_label: 'movement', ai_confidence: 0.79, channel: 'all',
       start_sec: 5.0, end_sec: 5.8,
-      explanation: 'Whole-head low-frequency drift.',
+      explanation: 'Whole-head low-frequency drift from head/body movement.',
       suggested_action: 'mark_bad_segment', decision_status: 'suggested' },
     { id: 'a5', ai_label: 'line_noise', ai_confidence: 0.91, channel: 'T4-Av',
       start_sec: 6.5, end_sec: 9.4,
-      explanation: 'T4 — recommend notch filter or interpolate.',
+      explanation: 'T4 — 50/60 Hz sinusoidal contamination. Recommend notch filter or interpolate.',
       suggested_action: 'ignore', decision_status: 'suggested' },
     { id: 'a6', ai_label: 'muscle', ai_confidence: 0.72, channel: 'T6-Av',
       start_sec: 7.4, end_sec: 7.9,
-      explanation: 'Posterior temporal jaw clench.',
+      explanation: 'Posterior temporal jaw clench — high-frequency EMG burst.',
       suggested_action: 'mark_bad_segment', decision_status: 'suggested' },
     { id: 'a7', ai_label: 'eye_blink', ai_confidence: 0.92, channel: 'Fp1-Av',
       start_sec: 8.5, end_sec: 8.9,
-      explanation: 'Frontopolar.',
+      explanation: 'Frontopolar blink — symmetric bifrontal positive wave.',
       suggested_action: 'review_ica', decision_status: 'suggested' },
     { id: 'a8', ai_label: 'sweat', ai_confidence: 0.83, channel: 'F3-Av',
       start_sec: 9.8, end_sec: 11.4,
-      explanation: 'F3 — slow rising baseline.',
+      explanation: 'F3 — slow rising baseline drift from galvanic skin / sweat artifact.',
       suggested_action: 'ignore', decision_status: 'suggested' },
     { id: 'a9', ai_label: 'flat', ai_confidence: 0.99, channel: 'C4-Av',
       start_sec: 0, end_sec: timebase,
-      explanation: 'C4 — no signal detected; recommend exclude or interpolate.',
+      explanation: 'C4 — no signal detected; electrode disconnection. Recommend exclude or interpolate.',
       suggested_action: 'mark_bad_channel', decision_status: 'suggested' },
+    { id: 'a10', ai_label: 'chewing', ai_confidence: 0.85, channel: 'T3-Av',
+      start_sec: 4.0, end_sec: 4.8,
+      explanation: 'Chewing artifact: rhythmic bursts of EMG from temporalis/masseter muscles.',
+      suggested_action: 'mark_bad_segment', decision_status: 'suggested' },
+    // Sleep-related patterns
+    { id: 'a11', ai_label: 'sleep_spindle', ai_confidence: 0.87, channel: 'C3-Av',
+      start_sec: 1.5, end_sec: 2.0,
+      explanation: 'Sleep spindle: 12-14 Hz waxing-waning burst over central region. Normal Stage II NREM feature.',
+      suggested_action: 'ignore', decision_status: 'suggested' },
+    { id: 'a12', ai_label: 'k_complex', ai_confidence: 0.82, channel: 'Cz-Av',
+      start_sec: 3.0, end_sec: 3.5,
+      explanation: 'K-complex: high-amplitude biphasic wave at vertex. Normal Stage II NREM sleep marker.',
+      suggested_action: 'ignore', decision_status: 'suggested' },
+    { id: 'a13', ai_label: 'vertex_wave', ai_confidence: 0.78, channel: 'Cz-Av',
+      start_sec: 6.0, end_sec: 6.3,
+      explanation: 'Vertex sharp wave: maximal at Cz. Normal Stage I sleep transient.',
+      suggested_action: 'ignore', decision_status: 'suggested' },
+    { id: 'a14', ai_label: 'rem_activity', ai_confidence: 0.75, channel: 'F7-Av',
+      start_sec: 8.0, end_sec: 8.4,
+      explanation: 'Rapid eye movement: conjugate lateral eye movement deflections at F7/F8. REM sleep indicator.',
+      suggested_action: 'ignore', decision_status: 'suggested' },
+    // Epileptiform / pathological
+    { id: 'a15', ai_label: 'spike', ai_confidence: 0.68, channel: 'T5-Av',
+      start_sec: 2.5, end_sec: 2.7,
+      explanation: 'Left temporal spike: duration 20-70ms, sharp morphology. Potential epileptiform discharge — clinician review required.',
+      suggested_action: 'review_ica', decision_status: 'suggested' },
+    { id: 'a16', ai_label: 'tirda', ai_confidence: 0.64, channel: 'T3-Av',
+      start_sec: 5.5, end_sec: 7.0,
+      explanation: 'TIRDA: temporal intermittent rhythmic delta activity at T3. Suggests left temporal epileptogenic focus.',
+      suggested_action: 'review_ica', decision_status: 'suggested' },
+    // Normal rhythms detected
+    { id: 'a17', ai_label: 'pdr_alpha', ai_confidence: 0.95, channel: 'O1-Av',
+      start_sec: 0, end_sec: timebase,
+      explanation: 'Posterior dominant rhythm (PDR): 10.2 Hz alpha at O1. Normal awake pattern — attenuates with eye opening.',
+      suggested_action: 'ignore', decision_status: 'suggested' },
+    { id: 'a18', ai_label: 'mu_rhythm', ai_confidence: 0.81, channel: 'C3-Av',
+      start_sec: 4.5, end_sec: 5.5,
+      explanation: 'Mu rhythm: 9-11 Hz arch-shaped waves over sensorimotor cortex. Attenuates with contralateral movement.',
+      suggested_action: 'ignore', decision_status: 'suggested' },
+    // Normal variants (learningeeg.com/normal-variants)
+    { id: 'a19', ai_label: 'lambda', ai_confidence: 0.77, channel: 'O2-Av',
+      start_sec: 1.0, end_sec: 1.4,
+      explanation: 'Lambda wave: positive occipital sharp transient during visual scanning. Benign — disappears with eyes closed.',
+      suggested_action: 'ignore', decision_status: 'suggested' },
+    { id: 'a20', ai_label: 'wicket', ai_confidence: 0.74, channel: 'T4-Av',
+      start_sec: 3.2, end_sec: 3.6,
+      explanation: 'Wicket waves: arch-like temporal theta/alpha. Benign variant in drowsiness — no after-going slow wave, non-evolving.',
+      suggested_action: 'ignore', decision_status: 'suggested' },
+    { id: 'a21', ai_label: 'rmtd', ai_confidence: 0.71, channel: 'T3-Av',
+      start_sec: 7.0, end_sec: 7.4,
+      explanation: 'RMTD: rhythmic mid-temporal theta of drowsiness. Sharply contoured 5-7 Hz burst, ~1 second. Benign — do not overcall as seizure.',
+      suggested_action: 'ignore', decision_status: 'suggested' },
+    { id: 'a22', ai_label: 'posts', ai_confidence: 0.80, channel: 'O1-Av',
+      start_sec: 6.4, end_sec: 6.8,
+      explanation: 'POSTS: positive occipital sharp transients of sleep. Triangular surface-positive waves at O1. Benign sleep variant.',
+      suggested_action: 'ignore', decision_status: 'suggested' },
+    { id: 'a23', ai_label: 'bets', ai_confidence: 0.65, channel: 'T5-Av',
+      start_sec: 8.8, end_sec: 9.0,
+      explanation: 'BETS: benign epileptiform transients of sleep. Low-amplitude (<50 µV) brief spike-like discharge. NOT epileptiform — do not overcall.',
+      suggested_action: 'ignore', decision_status: 'suggested' },
+    { id: 'a24', ai_label: '14_and_6', ai_confidence: 0.69, channel: 'P4-Av',
+      start_sec: 9.2, end_sec: 9.8,
+      explanation: '14-and-6 positive bursts: arch-shaped positive spikes at 14 Hz, posterior distribution. Benign variant in drowsy young adults.',
+      suggested_action: 'ignore', decision_status: 'suggested' },
   ];
 }
 
@@ -383,8 +573,14 @@ function synthSignal(channelIndex, totalSamples, sampleRate, archetypeAt) {
 
 export async function pgQEEGRawWorkbench(setTopbar, navigate) {
   if (typeof setTopbar === 'function') setTopbar('Raw EEG Cleaning Workbench');
-  const root = document.getElementById('app') || document.body;
-  if (!root) return;
+  // Mount as an overlay so we preserve the app shell (sidebar, router) underneath.
+  // Teardown removes the overlay, restoring normal navigation.
+  let overlay = document.getElementById('qwb-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'qwb-overlay';
+    document.body.appendChild(overlay);
+  }
 
   const analysisId = readAnalysisIdFromHash();
   const mode = readModeFromHash();
@@ -423,6 +619,7 @@ export async function pgQEEGRawWorkbench(setTopbar, navigate) {
     rawCleanedSummary: null,
     isDirty: false,
     pendingNav: null,
+    soloChannel: null,
     rerunDoneNotice: null,
     // Active editing tool — drives the left tool-selector strip and the
     // trace canvas mouse semantics. Defaults to 'select' (cursor mode).
@@ -482,11 +679,31 @@ export async function pgQEEGRawWorkbench(setTopbar, navigate) {
     }
   };
   window.addEventListener('beforeunload', beforeUnload);
+  // Store handler refs on state for teardown
+  const _keydownHandler = (e) => {
+    // Will be replaced by attachKeyboard; placeholder to get a ref
+  };
+  const _resizeHandler = () => redrawCanvas(state);
+  state._resizeHandler = _resizeHandler;
   window._qeegRawWorkbenchTeardown = () => {
+    // Remove overlay FIRST — this is the most critical visual action.
+    // Everything below is cleanup; even if it throws the user sees the
+    // app shell restored.
+    const ol = document.getElementById('qwb-overlay');
+    if (ol) ol.remove();
     window.removeEventListener('beforeunload', beforeUnload);
+    // Clear intervals
+    if (state._statusInterval) { clearInterval(state._statusInterval); state._statusInterval = null; }
+    if (state.playTimer) { clearInterval(state.playTimer); state.playTimer = null; }
+    // Close WebSocket
+    if (state._copilotWs) { try { state._copilotWs.close(); } catch (_) {} state._copilotWs = null; }
+    // Remove resize listener
+    if (state._resizeHandler) window.removeEventListener('resize', state._resizeHandler);
+    // Remove keydown listener
+    if (state._keydownHandler) document.removeEventListener('keydown', state._keydownHandler);
   };
 
-  root.innerHTML = workbenchShell(state);
+  overlay.innerHTML = workbenchShell(state);
   attachTitleBar(state, navigate);
   attachToolBar(state, navigate);
   attachChannelRail(state);
@@ -496,6 +713,7 @@ export async function pgQEEGRawWorkbench(setTopbar, navigate) {
   attachExportModal(state);
   attachToolSelector(state);
   attachTraceCursor(state);
+  attachTimeSlider(state);
 
   await loadAll(state);
   redrawCanvas(state);
@@ -531,6 +749,7 @@ function workbenchShell(state) {
           <span class="qwb-spectro-label">SPECTROGRAM · 0–50 Hz</span>
           <canvas id="qwb-spectro-canvas" class="qwb-spectro-canvas" role="img" aria-label="Spectrogram, 0 to 50 Hz, current window."></canvas>
         </div>
+        ${timeSliderHtml(state)}
       </div>
       ${rightPanelHtml(state)}
     </div>
@@ -542,6 +761,7 @@ function workbenchShell(state) {
     ${aiExplainPopover(state)}
     ${channelAnatomyPopover(state)}
     ${channelWaveTooltip(state)}
+    ${artifactBoxTooltip()}
   </div>`;
 }
 
@@ -673,7 +893,20 @@ function channelWaveTooltip(state) {
       <span class="qwb-cwt-primary" id="qwb-cwt-primary"></span>
     </div>
     <div class="qwb-cwt-body" id="qwb-cwt-body"></div>
+    <div class="qwb-cwt-ai-summary" id="qwb-cwt-ai-summary"></div>
     <div class="qwb-cwt-evidence" id="qwb-cwt-evidence"></div>
+  </div>`;
+}
+
+function artifactBoxTooltip() {
+  return `
+  <div id="qwb-artifact-tooltip" class="qwb-artifact-tooltip" style="display:none">
+    <div class="qwb-artifact-tooltip-head">
+      <span class="qwb-artifact-tooltip-dot" id="qwb-artifact-tooltip-dot"></span>
+      <b id="qwb-artifact-tooltip-title"></b>
+      <span class="qwb-artifact-tooltip-conf" id="qwb-artifact-tooltip-conf"></span>
+    </div>
+    <div class="qwb-artifact-tooltip-why" id="qwb-artifact-tooltip-why"></div>
   </div>`;
 }
 
@@ -681,13 +914,13 @@ function clinicalCss() {
   return `
     .qwb-clinical {
       position:fixed; top:0; right:0; bottom:0;
-      left: var(--sidebar-w, 240px);
+      left: 0;
       z-index:800;
       display:grid;
       grid-template-rows: 40px auto 28px 1fr 128px 24px;
       background:#FAF7F2; color:#1a1a1a;
       font-family: 'Inter Tight', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-      font-size: 12px; line-height:1.3;
+      font-size: var(--qwb-text-base); line-height:1.3;
       --qwb-paper:#FAF7F2;
       --qwb-paper-2:#F3EEE5;
       --qwb-paper-3:#ECE5D8;
@@ -707,6 +940,20 @@ function clinicalCss() {
       --qwb-select:#2851a3;
       --qwb-select-soft:#d8e1f3;
       --qwb-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+      --qwb-text-xs:9px;
+      --qwb-text-sm:10.5px;
+      --qwb-text-base:11.5px;
+      --qwb-text-md:13px;
+      --qwb-text-lg:16px;
+      --qwb-text-xl:32px;
+      --qwb-touch-min:28px;
+      --qwb-touch-tool:36px;
+      --qwb-panel-w:300px;
+      --qwb-panel-min:240px;
+      --qwb-panel-max:400px;
+      --qwb-panel-collapsed:36px;
+      --qwb-focus-ring:#1d6f7a;
+      --qwb-focus-ring-offset:2px;
     }
 
     /* ── Title bar ───────────────────────────────────────────── */
@@ -716,7 +963,7 @@ function clinicalCss() {
       background:#F2EDE5;
       color:#1a1a1a;
       border-bottom:1px solid rgba(0,0,0,0.08);
-      font-size:12px;
+      font-size:var(--qwb-text-base);
     }
     .qwb-brand {
       display:flex; align-items:center; gap:8px;
@@ -725,37 +972,53 @@ function clinicalCss() {
       background:#1d6f7a; color:#ffffff;
       border-radius:4px;
     }
-    .qwb-brand-name { font-size:13px; color:#ffffff; }
+    .qwb-brand-name { font-size:var(--qwb-text-md); color:#ffffff; }
     .qwb-brand-name b { font-weight:700; color:#ffffff; }
     .qwb-brand-name .sub { color:rgba(255,255,255,0.78); margin-left:6px; font-weight:500; }
     .qwb-menus { display:flex; gap:0; }
     .qwb-menu-btn {
-      background:transparent; border:0; padding:4px 9px; font-size:12px;
+      background:transparent; border:0; padding:4px 9px; font-size:var(--qwb-text-base);
       color:#1a1a1a; border-radius:4px; cursor:pointer;
     }
     .qwb-menu-btn:hover { background:rgba(0,0,0,0.05); color:#1a1a1a; }
     .qwb-titlebar-right {
       margin-left:auto; display:flex; align-items:center; gap:10px;
-      font-family:var(--qwb-mono); font-size:11px; color:#3a3633;
+      font-family:var(--qwb-mono); font-size:var(--qwb-text-base); color:#3a3633;
     }
     .qwb-pat-chip {
       display:inline-flex; align-items:center; gap:8px;
       padding:3px 10px; border:1px solid #d8d1c3; border-radius:999px;
       background:#FAF7F2; font-family:'Inter Tight', system-ui, sans-serif;
-      font-size:11px; color:#1a1a1a;
+      font-size:var(--qwb-text-base); color:#1a1a1a;
     }
     .qwb-pat-chip .qwb-pat-dot { width:6px; height:6px; border-radius:50%; background:#2f6b3a; }
     .qwb-pat-chip b { font-weight:700; color:#1a1a1a; }
 
     /* ── Toolbar (WinEEG parity) ─────────────────────────────── */
     .qwb-toolbar {
-      display:flex; align-items:center; gap:0;
-      padding:2px 8px;
+      display:flex; flex-direction:column; gap:0;
       background:#F3EEE5; border-bottom:1px solid #d8d1c3;
-      font-size:11px;
-      flex-wrap:wrap;
+      font-size:var(--qwb-text-base);
       overflow:hidden;
     }
+    .qwb-tb-primary {
+      display:flex; align-items:center; gap:0;
+      padding:2px 8px; flex-wrap:wrap;
+    }
+    .qwb-tb-secondary {
+      display:flex; align-items:center; gap:0;
+      padding:2px 8px; flex-wrap:wrap;
+      border-top:1px dashed #d8d1c3;
+    }
+    .qwb-tb-secondary.collapsed { display:none; }
+    .qwb-tb-tier-toggle {
+      margin-left:auto; font-size:var(--qwb-text-sm);
+      padding:0 10px; border-left:1px dashed #d8d1c3;
+    }
+    .qwb-tb-tier-toggle .qwb-tier-arrow {
+      display:inline-block; transition:transform 0.15s ease;
+    }
+    .qwb-tb-tier-toggle.expanded .qwb-tier-arrow { transform:rotate(180deg); }
     .qwb-tb-group {
       display:flex; align-items:center; gap:6px;
       padding:2px 8px; min-height:28px;
@@ -764,14 +1027,14 @@ function clinicalCss() {
     }
     .qwb-tb-group:last-child { border-right:0; }
     .qwb-tb-label {
-      color:#6b6660; font-size:10.5px;
+      color:#6b6660; font-size:var(--qwb-text-sm);
       text-transform:uppercase; letter-spacing:0.04em; font-weight:500;
     }
     .qwb-tb-field {
       display:flex; align-items:center; gap:4px;
       background:#FAF7F2; border:1px solid #d8d1c3; border-radius:3px;
       padding:2px 6px; font-family:var(--qwb-mono);
-      font-size:11px; height:22px;
+      font-size:var(--qwb-text-base); height:var(--qwb-touch-min);
     }
     .qwb-tb-field input, .qwb-tb-field select {
       background:transparent; border:0; outline:none;
@@ -779,12 +1042,12 @@ function clinicalCss() {
       width:60px; padding:0;
     }
     .qwb-tb-field select { width:auto; padding-right:8px; }
-    .qwb-tb-field .qwb-tb-unit { color:#6b6660; font-size:10px; }
+    .qwb-tb-field .qwb-tb-unit { color:#6b6660; font-size:var(--qwb-text-sm); }
     .qwb-tb-field:focus-within { border-color:#1d6f7a; box-shadow:0 0 0 2px #d6ebee; }
     .qwb-tb-btn {
       background:#FAF7F2; border:1px solid #d8d1c3; border-radius:3px;
-      padding:0 6px; height:22px;
-      font-size:11px; color:#3a3633;
+      padding:0 8px; height:var(--qwb-touch-min);
+      font-size:var(--qwb-text-base); color:#3a3633;
       display:inline-flex; align-items:center; gap:4px;
       cursor:pointer; white-space:nowrap;
     }
@@ -794,16 +1057,16 @@ function clinicalCss() {
     .qwb-tb-btn.ai { background:#1d6f7a; color:#fff; border-color:#1d6f7a; font-weight:500; }
     .qwb-tb-btn.ai:hover { background:#155a64; }
     .qwb-tb-btn.help-circle {
-      width:22px; height:22px; padding:0;
+      width:var(--qwb-touch-min); height:var(--qwb-touch-min); padding:0;
       border-radius:50%; justify-content:center;
       background:#d6ebee; color:#1d6f7a; border-color:#d8d1c3; font-weight:700;
     }
     .qwb-view-toggle {
       display:inline-flex; border:1px solid #d8d1c3; border-radius:4px;
-      overflow:hidden; height:22px;
+      overflow:hidden; height:var(--qwb-touch-min);
     }
     .qwb-view-toggle button {
-      padding:0 10px; height:22px; font-size:11px;
+      padding:0 10px; height:var(--qwb-touch-min); font-size:var(--qwb-text-base);
       border:0; border-right:1px solid #d8d1c3;
       background:#FAF7F2; color:#3a3633; cursor:pointer;
     }
@@ -817,7 +1080,7 @@ function clinicalCss() {
       display:flex; align-items:center; gap:0;
       padding:0 14px;
       background:#FAF7F2; border-bottom:1px solid #d8d1c3;
-      font-family:var(--qwb-mono); font-size:11px; color:#3a3633;
+      font-family:var(--qwb-mono); font-size:var(--qwb-text-base); color:#3a3633;
       overflow-x:auto; overflow-y:hidden;
     }
     .qwb-summary-strip .qwb-sum-item { white-space:nowrap; }
@@ -828,7 +1091,7 @@ function clinicalCss() {
     .qwb-summary-strip .qwb-sum-pill {
       margin-left:auto; padding:2px 9px; border-radius:10px;
       font-family:'Inter Tight', system-ui, sans-serif;
-      font-size:10.5px; font-weight:600; letter-spacing:0.02em;
+      font-size:var(--qwb-text-sm); font-weight:600; letter-spacing:0.02em;
       border:1px solid;
     }
     .qwb-sum-pill.untouched { background:#ECE5D8; color:#6b6660; border-color:#bdb5a2; }
@@ -843,10 +1106,10 @@ function clinicalCss() {
       background:#F3EEE5; border-right:1px solid #d8d1c3;
     }
     .qwb-tool-btn {
-      width:32px; height:32px; padding:0;
+      width:var(--qwb-touch-tool); height:var(--qwb-touch-tool); padding:0;
       display:inline-flex; align-items:center; justify-content:center;
       background:#FAF7F2; border:1px solid #d8d1c3; border-radius:4px;
-      color:#3a3633; font-size:13px; cursor:pointer;
+      color:#3a3633; font-size:var(--qwb-text-md); cursor:pointer;
     }
     .qwb-tool-btn:hover { background:#fff; border-color:#bdb5a2; }
     .qwb-tool-btn.is-active {
@@ -857,7 +1120,7 @@ function clinicalCss() {
     .qwb-window-breadcrumb {
       padding:3px 10px 2px;
       background:#F3EEE5; border-top:1px dashed #d8d1c3;
-      font-family:var(--qwb-mono); font-size:10px; color:#6b6660;
+      font-family:var(--qwb-mono); font-size:var(--qwb-text-sm); color:#6b6660;
       white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
     }
     .qwb-window-breadcrumb b { color:#3a3633; font-weight:600; }
@@ -865,10 +1128,10 @@ function clinicalCss() {
     /* ── Recording Info card (Cleaning tab) ──────────────────── */
     .qwb-rec-info-grid {
       display:grid; grid-template-columns:auto 1fr; gap:3px 10px;
-      font-size:11px; line-height:1.4;
+      font-size:var(--qwb-text-base); line-height:1.4;
     }
     .qwb-rec-info-grid dt {
-      color:#6b6660; font-family:var(--qwb-mono); font-size:10px;
+      color:#6b6660; font-family:var(--qwb-mono); font-size:var(--qwb-text-sm);
       text-transform:uppercase; letter-spacing:0.04em;
     }
     .qwb-rec-info-grid dd { margin:0; color:#1a1a1a; font-weight:500; }
@@ -880,7 +1143,7 @@ function clinicalCss() {
     .qwb-mini-headmap svg { display:block; }
     .qwb-mini-headmap-legend {
       display:flex; flex-wrap:wrap; gap:8px;
-      font-family:var(--qwb-mono); font-size:9.5px; color:#6b6660;
+      font-family:var(--qwb-mono); font-size:var(--qwb-text-xs); color:#6b6660;
     }
     .qwb-mini-headmap-legend span { display:inline-flex; align-items:center; gap:3px; }
     .qwb-mini-headmap-legend i {
@@ -892,7 +1155,7 @@ function clinicalCss() {
     .qwb-band-row {
       display:grid; grid-template-columns:90px 1fr 38px;
       gap:8px; align-items:center;
-      font-family:var(--qwb-mono); font-size:10.5px; color:#3a3633;
+      font-family:var(--qwb-mono); font-size:var(--qwb-text-sm); color:#3a3633;
     }
     .qwb-band-track {
       height:8px; background:#ECE5D8; border-radius:3px; overflow:hidden;
@@ -904,7 +1167,7 @@ function clinicalCss() {
       display:inline-flex; align-items:center; gap:4px;
       padding:0 8px; height:18px;
       background:#FAF7F2; border:1px solid #d8d1c3; border-radius:3px;
-      font-family:var(--qwb-mono); font-size:10px; color:#3a3633;
+      font-family:var(--qwb-mono); font-size:var(--qwb-text-sm); color:#3a3633;
     }
     .qwb-cursor-readout b { color:#1d6f7a; font-weight:600; }
 
@@ -927,7 +1190,7 @@ function clinicalCss() {
       background:#F3EEE5;
       display:flex; align-items:center; justify-content:flex-end;
       padding:0 8px; font-family:var(--qwb-mono);
-      font-size:9.5px; color:#6b6660;
+      font-size:var(--qwb-text-xs); color:#6b6660;
     }
     .qwb-cg-rows {
       display:grid;
@@ -938,14 +1201,19 @@ function clinicalCss() {
       display:flex; flex-direction:column; justify-content:center;
       align-items:flex-end; padding-right:8px;
       border-bottom:1px dashed #d8d1c3;
-      font-family:var(--qwb-mono); font-size:10.5px; color:#3a3633;
+      font-family:var(--qwb-mono); font-size:var(--qwb-text-sm); color:#3a3633;
       cursor:pointer;
     }
     .qwb-ch-row.bad { background:#f3d4d0; color:#b03434; }
     .qwb-ch-row.active { background:#d8e1f3; }
     .qwb-ch-row.active.bad { background:#d8e1f3; color:#b03434; }
-    .qwb-ch-row .qwb-ch-name { font-weight:600; font-size:11px; }
-    .qwb-ch-row .qwb-ch-scale { color:#6b6660; font-size:9.5px; }
+    .qwb-ch-row.solo { border-left:3px solid var(--qwb-ai,#1d6f7a); background:rgba(29,111,122,0.08); font-weight:600; }
+    .qwb-ch-row.solo .qwb-ch-solo-tag { font-size:8px; color:var(--qwb-ai,#1d6f7a); margin-left:3px; text-transform:uppercase; letter-spacing:0.5px; }
+    .qwb-ch-ai-dots { display:inline-flex; align-items:center; gap:2px; margin-left:auto; }
+    .qwb-ch-ai-dot { display:inline-block; width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+    .qwb-ch-ai-more { font-size:8px; color:#6b6660; margin-left:1px; }
+    .qwb-ch-row .qwb-ch-name { font-weight:600; font-size:var(--qwb-text-base); }
+    .qwb-ch-row .qwb-ch-scale { color:#6b6660; font-size:var(--qwb-text-xs); }
 
     /* ── Channel wave tooltip ────────────────────────────────── */
     .qwb-channel-wave-tooltip {
@@ -953,7 +1221,7 @@ function clinicalCss() {
       max-width:280px; min-width:180px;
       background:#FAF7F2; border:1px solid #d8d1c3; border-radius:5px;
       padding:8px 10px;
-      font-size:11px; line-height:1.4; color:#3a3633;
+      font-size:var(--qwb-text-base); line-height:1.4; color:#3a3633;
       box-shadow:0 3px 10px rgba(0,0,0,0.08);
       pointer-events:none;
       transition: opacity 0.12s ease;
@@ -963,25 +1231,31 @@ function clinicalCss() {
       padding-bottom:4px; border-bottom:1px dashed #d8d1c3;
     }
     .qwb-channel-wave-tooltip .qwb-cwt-head b {
-      font-family:var(--qwb-mono); font-size:11px; color:#1a1a1a;
+      font-family:var(--qwb-mono); font-size:var(--qwb-text-base); color:#1a1a1a;
     }
     .qwb-channel-wave-tooltip .qwb-cwt-primary {
       margin-left:auto; padding:1px 6px; border-radius:3px;
-      background:#d6ebee; color:#1d6f7a; font-size:10px; font-weight:600;
+      background:#d6ebee; color:#1d6f7a; font-size:var(--qwb-text-sm); font-weight:600;
       white-space:nowrap;
     }
     .qwb-channel-wave-tooltip .qwb-cwt-body {
-      color:#3a3633; font-size:10.5px; line-height:1.45;
+      color:#3a3633; font-size:var(--qwb-text-sm); line-height:1.45;
     }
+    .qwb-channel-wave-tooltip .qwb-cwt-ai-summary {
+      margin-top:6px; padding:4px 6px; border-radius:3px;
+      background:rgba(29,111,122,0.08); font-size:var(--qwb-text-sm); line-height:1.4;
+    }
+    .qwb-channel-wave-tooltip .qwb-cwt-ai-summary:empty { display:none; }
+    .qwb-cwt-ai-chip { display:inline-block; margin:1px 3px 1px 0; padding:1px 5px; border-radius:3px; font-size:10px; font-weight:600; color:#fff; }
     .qwb-channel-wave-tooltip .qwb-cwt-evidence {
       margin-top:6px; padding-top:5px;
       border-top:1px dotted #d8d1c3;
-      font-size:10px; color:#8a837a; font-style:italic;
+      font-size:var(--qwb-text-sm); color:#8a837a; font-style:italic;
     }
 
     /* ── Trace column ─────────────────────────────────────────── */
     .qwb-trace-col {
-      display:grid; grid-template-rows: 1fr 80px;
+      display:grid; grid-template-rows: 1fr 80px 32px;
       min-width:0; min-height:0; overflow:hidden;
     }
     .qwb-canvas-wrap {
@@ -993,7 +1267,7 @@ function clinicalCss() {
       position:absolute; top:0; left:0; right:0; height:22px;
       display:flex; border-bottom:1px solid #d8d1c3;
       background:#F3EEE5;
-      font-family:var(--qwb-mono); font-size:10px; color:#6b6660;
+      font-family:var(--qwb-mono); font-size:var(--qwb-text-sm); color:#6b6660;
       z-index:4;
     }
     .qwb-time-tick {
@@ -1005,19 +1279,19 @@ function clinicalCss() {
       position:absolute; top:26px; right:8px;
       background:#FAF7F2; border:1px solid #d8d1c3;
       padding:3px 7px; border-radius:3px;
-      font-size:10px; color:#3a3633; z-index:5;
+      font-size:var(--qwb-text-sm); color:#3a3633; z-index:5;
     }
     .qwb-rerun-notice {
       position:absolute; left:50%; top:30px; transform:translateX(-50%);
       background:#d8e1f3; border:1px solid #2851a3; color:#13306a;
-      padding:8px 14px; border-radius:4px; font-size:12px; z-index:6;
+      padding:8px 14px; border-radius:4px; font-size:var(--qwb-text-base); z-index:6;
       box-shadow: 0 2px 8px rgba(40,81,163,0.10);
     }
     .qwb-ai-chip {
       position:absolute;
       display:inline-flex; align-items:center; gap:6px;
       padding:3px 7px 3px 5px; border-radius:4px;
-      font-size:10.5px; font-weight:500; border:1px solid;
+      font-size:var(--qwb-text-sm); font-weight:500; border:1px solid;
       white-space:nowrap; transform:translateY(-50%);
       box-shadow:0 1px 2px rgba(0,0,0,0.06);
       pointer-events:auto; cursor:pointer;
@@ -1026,8 +1300,75 @@ function clinicalCss() {
       width:6px; height:6px; border-radius:50%; flex-shrink:0;
     }
     .qwb-ai-chip .qwb-ai-chip-pct {
-      font-family:var(--qwb-mono); font-size:9px; opacity:0.85;
+      font-family:var(--qwb-mono); font-size:var(--qwb-text-xs); opacity:0.85;
       margin-left:4px;
+    }
+    .qwb-artifact-box {
+      position:absolute;
+      border:2px solid;
+      border-radius:3px;
+      pointer-events:auto;
+      cursor:pointer;
+      z-index:1;
+      transition: background 0.1s ease;
+    }
+    .qwb-artifact-box:hover {
+      z-index:4;
+    }
+    .qwb-artifact-box-label {
+      position:absolute;
+      bottom:calc(100% + 2px);
+      left:0;
+      padding:2px 6px;
+      border-radius:3px;
+      font-family:var(--qwb-mono);
+      font-size:var(--qwb-text-xs);
+      font-weight:600;
+      white-space:nowrap;
+      pointer-events:none;
+      opacity:0;
+      transition: opacity 0.12s ease;
+    }
+    .qwb-artifact-box:hover .qwb-artifact-box-label {
+      opacity:1;
+    }
+    .qwb-artifact-tooltip {
+      position:fixed;
+      z-index:860;
+      max-width:300px;
+      min-width:180px;
+      background:#FAF7F2;
+      border:1px solid #d8d1c3;
+      border-radius:5px;
+      padding:10px 12px;
+      font-size:var(--qwb-text-base);
+      line-height:1.4;
+      color:#3a3633;
+      box-shadow:0 4px 14px rgba(0,0,0,0.12);
+      pointer-events:none;
+      transition: opacity 0.12s ease;
+    }
+    .qwb-artifact-tooltip-head {
+      display:flex;
+      align-items:center;
+      gap:6px;
+      margin-bottom:6px;
+      padding-bottom:5px;
+      border-bottom:1px dashed #d8d1c3;
+    }
+    .qwb-artifact-tooltip-dot {
+      width:8px; height:8px; border-radius:50%; flex-shrink:0;
+    }
+    .qwb-artifact-tooltip-conf {
+      margin-left:auto;
+      font-family:var(--qwb-mono);
+      font-size:var(--qwb-text-sm);
+      font-weight:600;
+    }
+    .qwb-artifact-tooltip-why {
+      font-size:var(--qwb-text-sm);
+      color:#3a3633;
+      line-height:1.45;
     }
     .qwb-bad-segment {
       position:absolute; top:22px; bottom:0;
@@ -1086,14 +1427,59 @@ function clinicalCss() {
     }
     .qwb-spectro-label {
       position:absolute; top:4px; left:24px; z-index:3;
-      font-family:var(--qwb-mono); font-size:9px;
+      font-family:var(--qwb-mono); font-size:var(--qwb-text-xs);
       color:#3a3633; text-transform:uppercase; letter-spacing:0.06em;
       background:rgba(250,247,242,0.85); padding:1px 5px; border-radius:2px;
     }
+
+    /* ── Time slider (below spectrogram) ───────────────────────── */
+    .qwb-time-slider-strip {
+      display:flex; align-items:center; gap:8px;
+      padding:0 10px;
+      background:#F3EEE5; border-top:1px solid #d8d1c3;
+      font-family:var(--qwb-mono); font-size:var(--qwb-text-sm); color:#6b6660;
+      min-height:32px;
+    }
+    .qwb-time-slider-strip .qwb-ts-label {
+      white-space:nowrap; min-width:44px; text-align:center;
+      color:#3a3633; font-weight:600;
+    }
+    .qwb-time-slider-strip input[type="range"] {
+      flex:1; height:6px; -webkit-appearance:none; appearance:none;
+      background:#ECE5D8; border-radius:3px; outline:none;
+      cursor:pointer;
+    }
+    .qwb-time-slider-strip input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance:none; appearance:none;
+      width:16px; height:16px; border-radius:50%;
+      background:#1d6f7a; border:2px solid #FAF7F2;
+      box-shadow:0 1px 3px rgba(0,0,0,0.18);
+      cursor:grab;
+    }
+    .qwb-time-slider-strip input[type="range"]::-moz-range-thumb {
+      width:16px; height:16px; border-radius:50%;
+      background:#1d6f7a; border:2px solid #FAF7F2;
+      box-shadow:0 1px 3px rgba(0,0,0,0.18);
+      cursor:grab;
+    }
+    .qwb-time-slider-strip input[type="range"]::-webkit-slider-runnable-track {
+      height:6px; border-radius:3px;
+      background:linear-gradient(to right, #1d6f7a var(--qwb-slider-pct, 0%), #ECE5D8 var(--qwb-slider-pct, 0%));
+    }
+    .qwb-time-slider-strip .qwb-ts-nav {
+      background:#FAF7F2; border:1px solid #d8d1c3; border-radius:3px;
+      width:24px; height:24px; display:inline-flex; align-items:center;
+      justify-content:center; cursor:pointer; font-size:12px; color:#3a3633;
+      padding:0; flex-shrink:0;
+    }
+    .qwb-time-slider-strip .qwb-ts-nav:hover {
+      background:#fff; border-color:#bdb5a2;
+    }
+
     /* ── Trace event markers (EYES CLOSED / PHOTIC) ──────────── */
     .qwb-event-marker {
       position:absolute; top:0;
-      font-family:var(--qwb-mono); font-size:9px;
+      font-family:var(--qwb-mono); font-size:var(--qwb-text-xs);
       padding:1px 5px; border-radius:2px;
       color:#fff; pointer-events:none; z-index:6;
       white-space:nowrap;
@@ -1114,7 +1500,7 @@ function clinicalCss() {
       transform:translateX(-50%);
       display:inline-flex; align-items:center;
       padding:2px 7px; border-radius:10px;
-      font-family:var(--qwb-mono); font-size:10px; font-weight:500;
+      font-family:var(--qwb-mono); font-size:var(--qwb-text-sm); font-weight:500;
       background:#FFFFFF; border:1px solid rgba(40,81,163,0.4); color:#2851a3;
       white-space:nowrap; pointer-events:none;
       box-shadow:0 1px 2px rgba(0,0,0,0.04);
@@ -1142,19 +1528,19 @@ function clinicalCss() {
     }
     .qwb-clinical.right-collapsed .qwb-topo-strip { display:none; }
     .qwb-right-toggle {
-      width:36px; height:32px; padding:0; cursor:pointer;
+      width:36px; height:var(--qwb-touch-tool); padding:0; cursor:pointer;
       background:#FAF7F2; color:#3a3633;
       border:none; border-bottom:1px solid #d8d1c3;
-      font-size:14px; font-weight:700;
+      font-size:var(--qwb-text-md); font-weight:700;
     }
     .qwb-right-tabs {
       display:flex; border-bottom:1px solid #d8d1c3; background:#FAF7F2;
     }
     .qwb-tab {
-      flex:1; padding:9px 4px;
+      flex:1; padding:10px 6px;
       background:transparent; color:#6b6660;
       border:none; border-bottom:2px solid transparent;
-      font-size:11px; font-weight:500; cursor:pointer;
+      font-size:var(--qwb-text-base); font-weight:500; cursor:pointer;
       display:flex; flex-direction:column; align-items:center; gap:2px;
     }
     .qwb-tab.active,
@@ -1163,12 +1549,20 @@ function clinicalCss() {
     .qwb-tab .qwb-tab-badge {
       display:inline-block; min-width:16px; padding:1px 4px;
       background:#1d6f7a; color:#fff; border-radius:8px;
-      font-family:var(--qwb-mono); font-size:9px;
+      font-family:var(--qwb-mono); font-size:var(--qwb-text-xs);
     }
     .qwb-right-body { flex:1; overflow-y:auto; padding:4px 6px; }
+    .qwb-resize-handle {
+      position:absolute; left:-3px; top:0; bottom:0; width:6px;
+      cursor:col-resize; z-index:10;
+      background:transparent;
+    }
+    .qwb-resize-handle:hover,
+    .qwb-resize-handle.active { background:rgba(29,111,122,0.25); }
+    .qwb-right { position:relative; }
     .qwb-side-section { padding:14px 16px 16px; border-bottom:1px solid #d8d1c3; }
     .qwb-side-section h4 {
-      margin:0 0 10px; font-size:10.5px; font-weight:600;
+      margin:0 0 10px; font-size:var(--qwb-text-sm); font-weight:600;
       text-transform:uppercase; letter-spacing:0.06em; color:#6b6660;
       display:flex; align-items:center; gap:6px;
     }
@@ -1176,12 +1570,12 @@ function clinicalCss() {
       display:inline-flex; align-items:center; justify-content:center;
       width:16px; height:16px; border-radius:3px;
       background:#1a1a1a; color:#FAF7F2;
-      font-family:var(--qwb-mono); font-size:10px; font-weight:600;
+      font-family:var(--qwb-mono); font-size:var(--qwb-text-sm); font-weight:600;
     }
     .qwb-side-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:0 2px; }
     .qwb-side-btn {
       background:#FAF7F2; border:1px solid #d8d1c3; border-radius:5px;
-      padding:7px 10px; font-size:11.5px; color:#3a3633;
+      padding:9px 12px; font-size:var(--qwb-text-base); color:#3a3633;
       display:flex; align-items:center; justify-content:center; gap:6px;
       text-align:center; line-height:1.1; cursor:pointer; margin:0 2px;
     }
@@ -1220,12 +1614,12 @@ function clinicalCss() {
     }
     .ica-comp-topo { display:block; }
     .ica-comp-label {
-      font-family:var(--qwb-mono); font-size:10.5px; font-weight:600;
+      font-family:var(--qwb-mono); font-size:var(--qwb-text-sm); font-weight:600;
       color:#3a3633;
     }
     .ica-comp-badge {
       display:inline-block; padding:1px 5px; border-radius:7px;
-      font-size:9px; font-weight:600; letter-spacing:0.04em;
+      font-size:var(--qwb-text-xs); font-weight:600; letter-spacing:0.04em;
       border:1px solid;
     }
 
@@ -1234,7 +1628,7 @@ function clinicalCss() {
       display:inline-flex; align-items:center; justify-content:center;
       width:14px; height:14px; border-radius:50%;
       background:#1d6f7a; color:#FAF7F2;
-      font-family:var(--qwb-mono); font-size:9px; font-weight:700;
+      font-family:var(--qwb-mono); font-size:var(--qwb-text-xs); font-weight:700;
       cursor:help; user-select:none;
       margin-right:6px;
     }
@@ -1259,7 +1653,7 @@ function clinicalCss() {
     .qwb-minimap-gutter {
       background:#F3EEE5; border-right:1px solid #d8d1c3;
       display:flex; align-items:center; justify-content:center;
-      font-size:9px; color:#6b6660; font-family:var(--qwb-mono);
+      font-size:var(--qwb-text-xs); color:#6b6660; font-family:var(--qwb-mono);
       text-transform:uppercase; letter-spacing:0.06em;
     }
     .qwb-minimap {
@@ -1270,12 +1664,12 @@ function clinicalCss() {
       margin-bottom:4px;
     }
     .qwb-minimap-title {
-      font-size:10px; color:#6b6660;
+      font-size:var(--qwb-text-sm); color:#6b6660;
       text-transform:uppercase; letter-spacing:0.06em; font-weight:600;
     }
     .qwb-minimap-legend {
       display:flex; gap:10px; font-family:var(--qwb-mono);
-      font-size:9.5px; color:#6b6660;
+      font-size:var(--qwb-text-xs); color:#6b6660;
     }
     .qwb-minimap-track {
       position:relative; height:60px;
@@ -1299,10 +1693,10 @@ function clinicalCss() {
     }
     .qwb-topo-mini svg { width:90px; height:90px; }
     .qwb-topo-label {
-      font-size:11px; font-weight:600; color:#666;
+      font-size:var(--qwb-text-base); font-weight:600; color:#666;
     }
     .qwb-topo-band {
-      font-family:var(--qwb-mono); font-size:8.5px; color:#6b6660;
+      font-family:var(--qwb-mono); font-size:var(--qwb-text-xs); color:#6b6660;
     }
     /* Power ramp scale on the right side of the topo strip. */
     .qwb-topo-strip::after {
@@ -1311,7 +1705,7 @@ function clinicalCss() {
       width:12px; padding:0;
       background:linear-gradient(to top, #FAF7F2, #1d6f7a, #b8741a);
       border:1px solid #d8d1c3; border-radius:2px;
-      font-family:var(--qwb-mono); font-size:8px; color:#6b6660;
+      font-family:var(--qwb-mono); font-size:var(--qwb-text-xs); color:#6b6660;
       letter-spacing:0;
       writing-mode:vertical-rl; transform:rotate(180deg);
       text-align:center; line-height:12px;
@@ -1324,11 +1718,16 @@ function clinicalCss() {
       display:flex; align-items:center; gap:10px;
       padding:3px 14px;
       background:#F3EEE5; border-top:1px solid #d8d1c3;
-      font-family:var(--qwb-mono); font-size:10px; color:#6b6660;
+      font-family:var(--qwb-mono); font-size:var(--qwb-text-sm); color:#6b6660;
       flex-wrap:wrap; row-gap:3px;
     }
     .qwb-stat { display:flex; gap:3px; white-space:nowrap; }
     .qwb-stat b { color:#3a3633; font-weight:600; }
+    .qwb-st-group {
+      display:flex; gap:10px; align-items:center;
+      padding-right:10px; border-right:1px solid #d8d1c3;
+    }
+    .qwb-st-group:last-of-type { border-right:0; padding-right:0; }
     .qwb-bottombar-right { margin-left:auto; display:flex; gap:10px; align-items:center; white-space:nowrap; }
     .qwb-st-save.qwb-dirty { color:#b8741a; font-weight:600; }
     .qwb-ai-watch {
@@ -1355,14 +1754,14 @@ function clinicalCss() {
       padding:24px; min-width:340px; max-width:620px;
       box-shadow: 0 20px 60px rgba(0,0,0,0.3);
     }
-    .qwb-modal h3 { margin:0 0 4px 0; font-size:16px; font-weight:700; }
+    .qwb-modal h3 { margin:0 0 4px 0; font-size:var(--qwb-text-lg); font-weight:700; }
     .qwb-modal .qwb-modal-sub {
-      margin:0 0 18px 0; font-size:12px; color:#6b6660;
+      margin:0 0 18px 0; font-size:var(--qwb-text-base); color:#6b6660;
     }
-    .qwb-modal table { width:100%; font-size:12px; border-collapse:collapse; }
+    .qwb-modal table { width:100%; font-size:var(--qwb-text-base); border-collapse:collapse; }
     .qwb-modal td { padding:4px 8px; }
     .qwb-modal kbd {
-      font-family:var(--qwb-mono); font-size:10.5px;
+      font-family:var(--qwb-mono); font-size:var(--qwb-text-sm);
       background:#F3EEE5; padding:2px 6px; border-radius:3px;
       border:1px solid #d8d1c3; color:#1a1a1a;
     }
@@ -1376,26 +1775,26 @@ function clinicalCss() {
       background:#FAF7F2; border:1px solid #d8d1c3; border-radius:6px;
       padding:14px; width:300px;
       box-shadow:0 8px 24px rgba(0,0,0,0.18);
-      font-size:11.5px;
+      font-size:var(--qwb-text-base);
     }
     .qwb-ai-explain-head { display:flex; align-items:center; gap:6px; margin-bottom:8px; }
     .qwb-ai-explain-dot { width:8px; height:8px; border-radius:50%; background:#1d6f7a; }
-    .qwb-ai-explain-conf { font-family:var(--qwb-mono); font-size:10.5px; color:#1d6f7a; }
+    .qwb-ai-explain-conf { font-family:var(--qwb-mono); font-size:var(--qwb-text-sm); color:#1d6f7a; }
     .qwb-ai-explain-why {
       background:#d6ebee; padding:8px; border-radius:4px; color:#3a3633;
       line-height:1.45; margin-bottom:10px; border-left:2px solid #1d6f7a;
     }
     .qwb-ai-explain-why-label {
-      font-size:9.5px; text-transform:uppercase; letter-spacing:0.06em;
+      font-size:var(--qwb-text-xs); text-transform:uppercase; letter-spacing:0.06em;
       color:#1d6f7a; margin-bottom:3px; font-weight:600;
     }
     .qwb-ai-explain-features-label {
-      font-size:9.5px; text-transform:uppercase; letter-spacing:0.06em;
+      font-size:var(--qwb-text-xs); text-transform:uppercase; letter-spacing:0.06em;
       color:#6b6660; margin-bottom:5px; font-weight:600;
     }
     .qwb-ai-explain-features {
       display:flex; flex-direction:column; gap:3px;
-      font-family:var(--qwb-mono); font-size:10.5px;
+      font-family:var(--qwb-mono); font-size:var(--qwb-text-sm);
     }
     .qwb-ai-explain-features div {
       display:flex; justify-content:space-between;
@@ -1403,14 +1802,14 @@ function clinicalCss() {
     .qwb-ai-explain-features .qwb-feat-key { color:#6b6660; }
     .qwb-ai-explain-footer {
       margin-top:10px; padding-top:6px;
-      font-size:10px; color:#6b6660;
+      font-size:var(--qwb-text-sm); color:#6b6660;
       border-top:1px dotted #d8d1c3;
     }
     .qwb-channel-anatomy-body { padding:6px 0; }
-    .qwb-anatomy-row { display:flex; gap:6px; margin-bottom:4px; font-size:11px; line-height:1.35; }
+    .qwb-anatomy-row { display:flex; gap:6px; margin-bottom:4px; font-size:var(--qwb-text-base); line-height:1.35; }
     .qwb-anatomy-key { color:#8a837a; min-width:80px; flex-shrink:0; }
     .qwb-anatomy-val { color:#3a3633; }
-    .qwb-anatomy-clinical { margin-top:6px; padding-top:6px; border-top:1px dotted #d8d1c3; font-size:10.5px; color:#5a544a; line-height:1.4; font-style:italic; }
+    .qwb-anatomy-clinical { margin-top:6px; padding-top:6px; border-top:1px dotted #d8d1c3; font-size:var(--qwb-text-sm); color:#5a544a; line-height:1.4; font-style:italic; }
 
     /* ── Drag selection + bad-segment label ──────────────────── */
     .qwb-drag-rect {
@@ -1423,14 +1822,14 @@ function clinicalCss() {
     .qwb-selection .qwb-sel-label {
       position:absolute; top:-22px; left:0;
       background:#2851a3; color:#fff;
-      font-family:var(--qwb-mono); font-size:10px;
+      font-family:var(--qwb-mono); font-size:var(--qwb-text-sm);
       padding:2px 6px; border-radius:3px 3px 0 0;
       white-space:nowrap;
     }
     .qwb-bad-segment-label {
       position:absolute; top:2px; left:4px;
       background:#b03434; color:#fff;
-      font-family:var(--qwb-mono); font-size:9.5px;
+      font-family:var(--qwb-mono); font-size:var(--qwb-text-xs);
       padding:1px 5px; border-radius:2px;
     }
 
@@ -1439,14 +1838,14 @@ function clinicalCss() {
       display:flex; align-items:baseline; gap:8px; margin-bottom:6px;
     }
     .qwb-bp-score-num {
-      font-family:var(--qwb-mono); font-size:32px; font-weight:700; color:#1d6f7a;
+      font-family:var(--qwb-mono); font-size:var(--qwb-text-xl); font-weight:700; color:#1d6f7a;
     }
     .qwb-bp-score-bar {
       height:6px; background:#ECE5D8; border-radius:3px; overflow:hidden;
     }
     .qwb-bp-score-fill { height:100%; background:#1d6f7a; }
     .qwb-bp-pill {
-      margin-left:auto; font-size:10.5px; color:#b8741a;
+      margin-left:auto; font-size:var(--qwb-text-sm); color:#b8741a;
       background:#f6e6cb; padding:2px 6px; border-radius:3px;
     }
 
@@ -1454,7 +1853,7 @@ function clinicalCss() {
     .qwb-tab .qwb-tab-count {
       display:inline-block; min-width:16px; padding:1px 5px;
       background:#1d6f7a; color:#fff; border-radius:8px;
-      font-family:var(--qwb-mono); font-size:9px; margin-left:4px;
+      font-family:var(--qwb-mono); font-size:var(--qwb-text-xs); margin-left:4px;
     }
 
     /* ── Audit chat input ────────────────────────────────────── */
@@ -1463,7 +1862,7 @@ function clinicalCss() {
       padding:10px; margin-bottom:10px;
     }
     .qwb-chat-msg-ai {
-      font-size:11.5px; color:#3a3633; line-height:1.45;
+      font-size:var(--qwb-text-base); color:#3a3633; line-height:1.45;
       padding:8px 10px; background:#d6ebee; border-radius:6px;
       margin-bottom:8px; border-left:2px solid #1d6f7a;
     }
@@ -1474,11 +1873,11 @@ function clinicalCss() {
     }
     .qwb-chat-input input {
       flex:1; border:0; outline:none; background:transparent;
-      font-family:inherit; font-size:12px; padding:6px 0;
+      font-family:inherit; font-size:var(--qwb-text-base); padding:6px 0;
     }
     .qwb-chat-input button {
       background:#1d6f7a; color:#fff; border:0; border-radius:4px;
-      padding:5px 10px; font-size:11px; cursor:pointer;
+      padding:5px 10px; font-size:var(--qwb-text-base); cursor:pointer;
     }
 
     /* ── Cards / lists ───────────────────────────────────────── */
@@ -1489,7 +1888,7 @@ function clinicalCss() {
     .qwb-menu-dropdown {
       position:fixed; z-index:900; background:#FAF7F2; border:1px solid #d8d1c3;
       border-radius:4px; box-shadow:0 4px 12px rgba(0,0,0,0.12); min-width:180px;
-      padding:4px 0; font-size:12px;
+      padding:4px 0; font-size:var(--qwb-text-base);
     }
     .qwb-compare-modal {
       position:fixed; inset:0; z-index:900; display:flex; align-items:center; justify-content:center;
@@ -1501,14 +1900,14 @@ function clinicalCss() {
     }
     .qwb-modal-header {
       display:flex; justify-content:space-between; align-items:center;
-      padding:12px 16px; border-bottom:1px solid #d8d1c3; font-weight:600; font-size:14px;
+      padding:12px 16px; border-bottom:1px solid #d8d1c3; font-weight:600; font-size:var(--qwb-text-md);
     }
     .qwb-modal-close { background:none; border:none; font-size:18px; cursor:pointer; color:#6b6660; }
     .qwb-modal-close:hover { color:#b03434; }
     .qwb-modal-body { padding:14px 16px; }
     .qwb-menu-item {
-      display:block; width:100%; text-align:left; padding:6px 14px;
-      background:none; border:none; cursor:pointer; font-size:12px; color:#1a1a1a;
+      display:block; width:100%; text-align:left; padding:8px 14px;
+      background:none; border:none; cursor:pointer; font-size:var(--qwb-text-base); color:#1a1a1a;
     }
     .qwb-menu-item:hover { background:#e8e0d0; }
     .qwb-menu-item--disabled { color:#9e9a93; cursor:not-allowed; }
@@ -1517,7 +1916,56 @@ function clinicalCss() {
     .qwb-ai-banner {
       padding:8px 10px; background:#f6e6cb;
       border:1px solid #b8741a; border-radius:4px;
-      font-size:11px; color:#7a4d10; margin-bottom:12px;
+      font-size:var(--qwb-text-base); color:#7a4d10; margin-bottom:12px;
+    }
+
+    /* ── Focus & accessibility ─────────────────────────────────── */
+    .qwb-tb-btn:focus-visible,
+    .qwb-tool-btn:focus-visible,
+    .qwb-tab:focus-visible,
+    .qwb-side-btn:focus-visible,
+    .qwb-menu-btn:focus-visible,
+    .qwb-view-toggle button:focus-visible,
+    .qwb-right-toggle:focus-visible,
+    .qwb-menu-item:focus-visible,
+    .ica-comp:focus-visible {
+      outline: 2px solid var(--qwb-focus-ring);
+      outline-offset: var(--qwb-focus-ring-offset);
+    }
+    .qwb-clinical :focus:not(:focus-visible) { outline: none; }
+    @media (prefers-reduced-motion: reduce) {
+      .qwb-clinical .qwb-pulse { animation: none; }
+      .qwb-clinical .qwb-right { transition: none; }
+      .qwb-clinical .qwb-ai-chip { transition: none; }
+      .qwb-clinical .ica-comp { transition: none; }
+    }
+
+    /* ── Responsive: medium (1024–1400px) ──────────────────── */
+    @media (max-width: 1400px) {
+      .qwb-main,
+      .qwb-minimap-row {
+        grid-template-columns: 40px 36px 1fr var(--qwb-panel-w);
+      }
+      .qwb-channel-gutter { font-size: var(--qwb-text-xs); }
+      .qwb-tb-btn { font-size: var(--qwb-text-sm); padding: 0 6px; }
+      .qwb-tb-label { font-size: var(--qwb-text-xs); }
+    }
+
+    /* ── Responsive: narrow (<1024px) ──────────────────────── */
+    @media (max-width: 1024px) {
+      .qwb-clinical {
+        grid-template-rows: 36px auto auto 1fr 0px 24px;
+      }
+      .qwb-main,
+      .qwb-minimap-row {
+        grid-template-columns: 32px 0px 1fr var(--qwb-panel-collapsed);
+      }
+      .qwb-tool-selector { display: none; }
+      .qwb-minimap-row { display: none; }
+      .qwb-tb-secondary { display: none; }
+      .qwb-titlebar { padding: 0 8px; }
+      .qwb-st-group { border-right: 0; padding-right: 0; }
+      .qwb-bottombar { font-size: var(--qwb-text-xs); gap: 6px; padding: 2px 8px; }
     }
   `;
 }
@@ -1577,51 +2025,56 @@ function toolBar(state) {
     </div>`;
   return `
   <div class="qwb-toolbar">
-    <div class="qwb-tb-group">
-      <button class="qwb-tb-btn" id="qwb-back" data-testid="qwb-back-analyzer">← Back to qEEG Analyzer</button>
-      <button class="qwb-tb-btn" id="qwb-back-patient" data-testid="qwb-back-patient" title="Back to patient summary">← Patient</button>
+    <div class="qwb-tb-primary">
+      <div class="qwb-tb-group">
+        <button class="qwb-tb-btn" id="qwb-back" data-testid="qwb-back-analyzer">← Back to qEEG Analyzer</button>
+        <button class="qwb-tb-btn" id="qwb-back-patient" data-testid="qwb-back-patient" title="Back to patient summary">← Patient</button>
+      </div>
+      <div class="qwb-tb-group">
+        <button class="qwb-tb-btn" id="qwb-event-prev" data-testid="qwb-event-prev" title="Jump to previous event">◀ Prev</button>
+        <button class="qwb-tb-btn" id="qwb-prev-window" data-testid="qwb-prev-window" title="Previous window">◀</button>
+        <button class="qwb-tb-btn" id="qwb-play" data-testid="qwb-play" title="Play / pause">▶</button>
+        <button class="qwb-tb-btn" id="qwb-next-window" data-testid="qwb-next-window" title="Next window">▶</button>
+        <button class="qwb-tb-btn" id="qwb-event-next" data-testid="qwb-event-next" title="Jump to next event">Next ▶</button>
+      </div>
+      <div class="qwb-tb-group">
+        ${viewToggle}${displayToggle}
+      </div>
+      <div class="qwb-tb-group" style="border-right:0">
+        <button class="qwb-tb-btn" id="qwb-export" data-testid="qwb-export">Export…</button>
+        <button class="qwb-tb-btn primary" id="qwb-save" data-testid="qwb-save">Save Cleaning Version</button>
+        <button class="qwb-tb-btn ai" id="qwb-rerun" data-testid="qwb-rerun">✦ Re-run qEEG</button>
+        <button class="qwb-tb-btn" id="qwb-return-report" data-testid="qwb-return-report" title="Return to clinical report">Return to Report</button>
+        <button class="qwb-tb-btn help-circle" id="qwb-shortcuts" data-testid="qwb-help" title="Keyboard shortcuts (?)">?</button>
+      </div>
+      <button class="qwb-tb-btn qwb-tb-tier-toggle" id="qwb-tb-tier-toggle" title="Toggle parameter controls">▼ More</button>
     </div>
-    <div class="qwb-tb-group">
-      <span class="qwb-tb-label">Speed</span>${num('qwb-speed', state.speed, 'mm/s')}
-      <span class="qwb-tb-label">Gain</span>${num('qwb-gain', state.gain, 'µV/cm')}
-    </div>
-    <div class="qwb-tb-group">
-      <span class="qwb-tb-label">Baseline</span>${num('qwb-baseline', state.baseline.toFixed(2), 'µV', '0.01')}
-      <button class="qwb-tb-btn" id="qwb-baseline-reset" data-testid="qwb-baseline-reset">Reset</button>
-    </div>
-    <div class="qwb-tb-group">
-      <span class="qwb-tb-label">Low</span>${num('qwb-lowcut', state.lowCut, 'Hz', '0.1')}
-      <span class="qwb-tb-label">High</span>${num('qwb-highcut', state.highCut, 'Hz')}
-      <span class="qwb-tb-label">Notch</span>${sel('qwb-notch', NOTCHES, state.notch)}
-    </div>
-    <div class="qwb-tb-group">
-      <span class="qwb-tb-label">Montage</span>${sel('qwb-montage', MONTAGES, state.montage)}
-      <span class="qwb-tb-label">Window</span>${sel('qwb-timebase', TIMEBASES.map(t=>`${t}s`), `${state.timebase}s`)}
-    </div>
-    <div class="qwb-tb-group">
-      <button class="qwb-tb-btn" id="qwb-event-prev" data-testid="qwb-event-prev" title="Jump to previous event">◀ Prev</button>
-      <button class="qwb-tb-btn" id="qwb-prev-window" data-testid="qwb-prev-window" title="Previous window">◀</button>
-      <button class="qwb-tb-btn" id="qwb-play" data-testid="qwb-play" title="Play / pause">▶</button>
-      <button class="qwb-tb-btn" id="qwb-next-window" data-testid="qwb-next-window" title="Next window">▶</button>
-      <button class="qwb-tb-btn" id="qwb-event-next" data-testid="qwb-event-next" title="Jump to next event">Next ▶</button>
-    </div>
-    <div class="qwb-tb-group">
-      <button class="qwb-tb-btn" id="qwb-quick-snapshot" data-testid="qwb-quick-snapshot" title="Snapshot PNG">⤓</button>
-      <button class="qwb-tb-btn" id="qwb-quick-export" data-testid="qwb-quick-export" title="Quick export">⇪</button>
-      <button class="qwb-tb-btn" id="qwb-quick-save" data-testid="qwb-quick-save" title="Quick save">💾</button>
-      <button class="qwb-tb-btn" id="qwb-quick-rerun" data-testid="qwb-quick-rerun" title="Quick reprocess">↻</button>
-      <button class="qwb-tb-btn" id="qwb-quick-spectral" data-testid="qwb-quick-spectral" title="Spectral view">∿</button>
-      <button class="qwb-tb-btn" id="qwb-compare" title="Raw vs Cleaned">⇄</button>
-    </div>
-    <div class="qwb-tb-group">
-      ${viewToggle}${displayToggle}
-    </div>
-    <div class="qwb-tb-group" style="border-right:0">
-      <button class="qwb-tb-btn" id="qwb-export" data-testid="qwb-export">Export…</button>
-      <button class="qwb-tb-btn primary" id="qwb-save" data-testid="qwb-save">Save Cleaning Version</button>
-      <button class="qwb-tb-btn ai" id="qwb-rerun" data-testid="qwb-rerun">✦ Re-run qEEG</button>
-      <button class="qwb-tb-btn" id="qwb-return-report" data-testid="qwb-return-report" title="Return to clinical report">Return to Report</button>
-      <button class="qwb-tb-btn help-circle" id="qwb-shortcuts" data-testid="qwb-help" title="Keyboard shortcuts (?)">?</button>
+    <div class="qwb-tb-secondary collapsed" id="qwb-tb-secondary">
+      <div class="qwb-tb-group">
+        <span class="qwb-tb-label">Speed</span>${num('qwb-speed', state.speed, 'mm/s')}
+        <span class="qwb-tb-label">Gain</span>${num('qwb-gain', state.gain, 'µV/cm')}
+      </div>
+      <div class="qwb-tb-group">
+        <span class="qwb-tb-label">Baseline</span>${num('qwb-baseline', state.baseline.toFixed(2), 'µV', '0.01')}
+        <button class="qwb-tb-btn" id="qwb-baseline-reset" data-testid="qwb-baseline-reset">Reset</button>
+      </div>
+      <div class="qwb-tb-group">
+        <span class="qwb-tb-label">Low</span>${num('qwb-lowcut', state.lowCut, 'Hz', '0.1')}
+        <span class="qwb-tb-label">High</span>${num('qwb-highcut', state.highCut, 'Hz')}
+        <span class="qwb-tb-label">Notch</span>${sel('qwb-notch', NOTCHES, state.notch)}
+      </div>
+      <div class="qwb-tb-group">
+        <span class="qwb-tb-label">Montage</span>${sel('qwb-montage', MONTAGES, state.montage)}
+        <span class="qwb-tb-label">Window</span>${sel('qwb-timebase', TIMEBASES.map(t=>`${t}s`), `${state.timebase}s`)}
+      </div>
+      <div class="qwb-tb-group" style="border-right:0">
+        <button class="qwb-tb-btn" id="qwb-quick-snapshot" data-testid="qwb-quick-snapshot" title="Snapshot PNG">⤓</button>
+        <button class="qwb-tb-btn" id="qwb-quick-export" data-testid="qwb-quick-export" title="Quick export">⇪</button>
+        <button class="qwb-tb-btn" id="qwb-quick-save" data-testid="qwb-quick-save" title="Quick save">💾</button>
+        <button class="qwb-tb-btn" id="qwb-quick-rerun" data-testid="qwb-quick-rerun" title="Quick reprocess">↻</button>
+        <button class="qwb-tb-btn" id="qwb-quick-spectral" data-testid="qwb-quick-spectral" title="Spectral view">∿</button>
+        <button class="qwb-tb-btn" id="qwb-compare" title="Raw vs Cleaned">⇄</button>
+      </div>
     </div>
   </div>`;
 }
@@ -1634,27 +2087,32 @@ function channelGutterHtml(state) {
   const rows = DEFAULT_CHANNELS.map(ch => {
     const isBad = state.badChannels.has(ch);
     const isSel = state.selectedChannel === ch;
+    const isSolo = state.soloChannel === ch;
     const anatomy = CHANNEL_ANATOMY[ch];
     const tipText = anatomy
       ? `${anatomy.region} (${anatomy.brodmann}) — ${anatomy.networks}. Watch for: ${anatomy.artifacts}.`
       : '';
     const tipAttr = tipText ? ` title="${esc(tipText)}"` : '';
-    // Primary artifact warning icon from knowledge base
-    const artifactIcon = anatomy && anatomy.artifacts.includes('eye')
-      ? '<span class="qwb-ch-artifact" style="color:#b8741a;font-size:9px;margin-left:2px" title="Common: eye blink">●</span>'
-      : anatomy && anatomy.artifacts.includes('muscle')
-      ? '<span class="qwb-ch-artifact" style="color:#b03434;font-size:9px;margin-left:2px" title="Common: muscle">●</span>'
-      : anatomy && anatomy.artifacts.includes('ECG')
-      ? '<span class="qwb-ch-artifact" style="color:#1d6f7a;font-size:9px;margin-left:2px" title="Common: ECG">●</span>'
+    // AI artifact dots for this channel
+    const chSuggestions = (state.aiSuggestions || []).filter(s => s.channel === ch || s.channel === 'all');
+    const aiDots = chSuggestions.length > 0
+      ? chSuggestions.slice(0, 3).map(s => {
+          const c = kindColour(s.ai_label);
+          const label = (s.ai_label || '').replace(/_/g, ' ');
+          return `<span class="qwb-ch-ai-dot" style="background:${c.line}" title="AI: ${esc(label)} ${Math.round((s.ai_confidence||0)*100)}%"></span>`;
+        }).join('') + (chSuggestions.length > 3 ? `<span class="qwb-ch-ai-more">+${chSuggestions.length - 3}</span>` : '')
       : '';
-    return `<div class="qwb-ch-row ${isBad?'bad qwb-bad-channel':''} ${isSel?'active':''}" data-channel="${esc(ch)}">
-      <span class="qwb-ch-name"${tipAttr} data-channel="${esc(ch)}">${esc(ch)}${artifactIcon}${isBad?' ⚠':''}</span>
+    const soloTag = isSolo ? '<span class="qwb-ch-solo-tag">SOLO</span>' : '';
+    const cls = `qwb-ch-row ${isBad?'bad qwb-bad-channel':''} ${isSel?'active':''} ${isSolo?'solo':''}`;
+    return `<div class="${cls}" data-channel="${esc(ch)}">
+      <span class="qwb-ch-name"${tipAttr} data-channel="${esc(ch)}">${esc(ch)}${isBad?' ⚠':''}${soloTag}</span>
+      <span class="qwb-ch-ai-dots">${aiDots}</span>
       <span class="qwb-ch-scale">${state.gain} µV/cm</span>
     </div>`;
   }).join('');
   return `
   <div id="qwb-rail" class="qwb-channel-gutter" data-testid="qwb-rail">
-    <div class="qwb-cg-header">CH (${DEFAULT_CHANNELS.length})</div>
+    <div class="qwb-cg-header">CH (${DEFAULT_CHANNELS.length})${state.soloChannel ? ' · Solo' : ''}</div>
     <div class="qwb-cg-rows">${rows}</div>
   </div>`;
 }
@@ -1666,7 +2124,7 @@ function channelGutterHtml(state) {
 function rightPanelHtml(state) {
   const aiPending = (state.aiSuggestions || []).filter(s => (s.decision_status || 'suggested') === 'suggested').length;
   const icaBad = state.rejectedICA ? state.rejectedICA.size : 0;
-  // 6-tab right panel — Cleaning / Manual Analysis / AI Review / Best-Practice / ICA / Audit.
+  // 7-tab right panel — Cleaning / Manual Analysis / AI Review / Best-Practice / ICA / Audit / Learn EEG.
   const tabs = [
     { id: 'cleaning', label: 'Cleaning',      testid: 'qwb-tab-cleaning' },
     { id: 'manual',   label: 'Manual Analysis', testid: 'qwb-tab-manual' },
@@ -1674,9 +2132,11 @@ function rightPanelHtml(state) {
     { id: 'help',     label: 'Best-Practice', testid: 'qwb-tab-bp' },
     { id: 'ica',      label: 'ICA',           testid: 'qwb-tab-ica',   badge: icaBad },
     { id: 'log',      label: 'Audit',         testid: 'qwb-tab-audit' },
+    { id: 'learn',    label: 'Learn EEG',     testid: 'qwb-tab-learn' },
   ];
   return `
   <aside id="qwb-right" class="qwb-right ${state.rightCollapsed ? 'collapsed' : ''}" data-testid="qwb-right">
+    <div class="qwb-resize-handle" id="qwb-resize-handle" ${state.rightCollapsed ? 'style="display:none"' : ''}></div>
     <button class="qwb-right-toggle" id="qwb-right-toggle" data-testid="qwb-right-toggle"
       title="${state.rightCollapsed ? 'Expand panel' : 'Collapse panel'}">
       ${state.rightCollapsed ? '◀' : '▶'}
@@ -1717,6 +2177,28 @@ function refreshTabBadges(state) {
   };
   setBadge(aiTab, aiPending);
   setBadge(icaTab, icaBad);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Time slider (below spectrogram, inside trace column)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function timeSliderHtml(state) {
+  const r = recordingMeta(state);
+  const total = r.durationSec || 600;
+  const max = Math.max(0, total - state.timebase);
+  const startLabel = formatTime(state.windowStart);
+  const endLabel = formatTime(Math.min(state.windowStart + state.timebase, total));
+  return `
+  <div class="qwb-time-slider-strip" data-testid="qwb-time-slider">
+    <button class="qwb-ts-nav" id="qwb-ts-prev" title="Previous window" aria-label="Previous window">&larr;</button>
+    <span class="qwb-ts-label" id="qwb-ts-start">${startLabel}</span>
+    <input type="range" id="qwb-time-slider" min="0" max="${max}" step="1" value="${state.windowStart}"
+      aria-label="Recording time position" style="--qwb-slider-pct:${max > 0 ? ((state.windowStart / max) * 100).toFixed(1) : 0}%">
+    <span class="qwb-ts-label" id="qwb-ts-end">${endLabel}</span>
+    <button class="qwb-ts-nav" id="qwb-ts-next" title="Next window" aria-label="Next window">&rarr;</button>
+  </div>`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1856,15 +2338,22 @@ function bottomBar(state) {
   return `
   <div id="qwb-status" class="qwb-bottombar" data-testid="qwb-status">
     <span class="qwb-decision-info" data-testid="qwb-decision-info" title="${esc(decisionTooltip)}" aria-label="${esc(decisionTooltip)}">i</span>
-    <span class="qwb-stat">Time: <b id="qwb-st-time">--:--:--</b></span>
-    <span class="qwb-stat">Window: <b id="qwb-st-window">0–${state.timebase}s</b></span>
-    <span class="qwb-stat">Selected: <b id="qwb-st-sel">${esc(state.selectedChannel)}</b></span>
-    <span class="qwb-stat" id="qwb-st-amp-wrap">Δamp: <b id="qwb-st-amp">—</b></span>
-    <span class="qwb-stat">Bad ch: <b id="qwb-st-bad">0</b></span>
-    <span class="qwb-stat">Rejected: <b id="qwb-st-rej">0</b></span>
-    <span class="qwb-stat">Retained: <b id="qwb-st-retain">100%</b></span>
-    <span class="qwb-stat" id="qwb-st-version">No cleaning version</span>
-    <span class="qwb-stat" id="qwb-st-signoff">Not signed off</span>
+    <span class="qwb-st-group">
+      <span class="qwb-stat">Time: <b id="qwb-st-time">--:--:--</b></span>
+      <span class="qwb-stat">Window: <b id="qwb-st-window">0–${state.timebase}s</b></span>
+      <span class="qwb-stat">Selected: <b id="qwb-st-sel">${esc(state.selectedChannel)}</b></span>
+      <span class="qwb-stat" id="qwb-st-solo-wrap" style="display:${state.soloChannel ? 'inline' : 'none'}">Solo: <b id="qwb-st-solo">${esc(state.soloChannel || '')}</b></span>
+      <span class="qwb-stat" id="qwb-st-amp-wrap">Δamp: <b id="qwb-st-amp">—</b></span>
+    </span>
+    <span class="qwb-st-group">
+      <span class="qwb-stat">Bad ch: <b id="qwb-st-bad">0</b></span>
+      <span class="qwb-stat">Rejected: <b id="qwb-st-rej">0</b></span>
+      <span class="qwb-stat">Retained: <b id="qwb-st-retain">100%</b></span>
+    </span>
+    <span class="qwb-st-group">
+      <span class="qwb-stat" id="qwb-st-version">No cleaning version</span>
+      <span class="qwb-stat" id="qwb-st-signoff">Not signed off</span>
+    </span>
     <span id="qwb-cursor-readout" class="qwb-cursor-readout" data-testid="qwb-cursor-readout" title="Live cursor t · channel · amplitude">t=—:—.— · ch=— · — µV</span>
     <div class="qwb-bottombar-right">
       <span class="qwb-ai-watch" id="qwb-ai-watching" data-testid="qwb-ai-watching">
@@ -2058,8 +2547,12 @@ function redrawCanvas(state) {
   }
 
   const channels = DEFAULT_CHANNELS;
+  // Solo mode: show only the solo'd channel at full height
+  const visibleChannels = state.soloChannel
+    ? channels.filter(ch => ch === state.soloChannel)
+    : channels;
   const traceTop = rulerH;
-  const rowH = (H - traceTop) / channels.length;
+  const rowH = (H - traceTop) / visibleChannels.length;
   const sampleRate = 256;
   const totalSamples = Math.floor(tb * sampleRate);
   const archetypeAt = state.isDemo ? {
@@ -2069,7 +2562,7 @@ function redrawCanvas(state) {
     muscleEnd:   Math.floor(8.4 * sampleRate),
   } : null;
 
-  const ampScale = (rowH * 0.45) / state.gain;
+  const ampScale = (rowH * (state.soloChannel ? 0.35 : 0.45)) / state.gain;
   const drawTrace = (sig, color, lineWidth, yMid, xStart, xEnd) => {
     ctx.strokeStyle = color;
     ctx.lineWidth = lineWidth;
@@ -2137,18 +2630,20 @@ function redrawCanvas(state) {
     // Draw average trace in grey
     drawTrace(avg, '#999', 1.0, butterY, 0, W);
   } else {
-    // Row mode (default)
-    channels.forEach((ch, idx) => {
-      const yMid = traceTop + rowH * (idx + 0.5);
+    // Row mode (default) — uses visibleChannels for solo support
+    visibleChannels.forEach((ch, vIdx) => {
+      const yMid = traceTop + rowH * (vIdx + 0.5);
       const isBad = state.badChannels.has(ch);
       const isSel = state.selectedChannel === ch;
+      // Look up original index for signal arrays
+      const idx = channels.indexOf(ch);
 
       if (isSel) {
         ctx.fillStyle = '#d8e1f3';
-        ctx.fillRect(0, traceTop + rowH*idx, W, rowH);
+        ctx.fillRect(0, traceTop + rowH*vIdx, W, rowH);
       } else if (isBad) {
         ctx.fillStyle = 'rgba(176,52,52,0.06)';
-        ctx.fillRect(0, traceTop + rowH*idx, W, rowH);
+        ctx.fillRect(0, traceTop + rowH*vIdx, W, rowH);
       }
 
       const cleanedSig = allCleaned[idx];
@@ -2369,6 +2864,47 @@ function renderOverlays(state, W, H, rulerH) {
 
   // AI suggestion chips — left-click=accept, right-click=explain
   if (state.showAiOverlays !== false) {
+    // AI artifact bounding boxes — colored rectangles spanning time range x channel rows
+    const channels = DEFAULT_CHANNELS;
+    const overlayH = H - rulerH;
+    const boxRowH = overlayH / channels.length;
+
+    for (const s of state.aiSuggestions) {
+      if (s.start_sec == null || s.end_sec == null) continue;
+      const bStatus = s.decision_status || 'suggested';
+      if (bStatus === 'rejected') continue;
+
+      const sStart = Math.max(s.start_sec - state.windowStart, 0);
+      const sEnd = Math.min(s.end_sec - state.windowStart, tb);
+      if (sEnd <= sStart) continue;
+      const bLeft = (sStart / tb) * 100;
+      const bWidth = ((sEnd - sStart) / tb) * 100;
+
+      let bTop, bHeight;
+      if (s.channel === 'all' || !s.channel) {
+        bTop = 0;
+        bHeight = overlayH;
+      } else {
+        const chIdx = channels.indexOf(s.channel);
+        if (chIdx === -1) { bTop = 0; bHeight = overlayH; }
+        else { bTop = chIdx * boxRowH; bHeight = boxRowH; }
+      }
+
+      const topPct = (bTop / overlayH) * 100;
+      const heightPct = (bHeight / overlayH) * 100;
+
+      const bc = kindColour(s.ai_label);
+      const bAccepted = bStatus === 'accepted';
+      const bBg = bAccepted ? 'rgba(47,107,58,0.08)' : bc.bg + '40';
+      const bBorder = bAccepted ? '#2f6b3a' : bc.border;
+      const bLabel = (s.ai_label || '').replace(/_/g, ' ');
+
+      pieces.push(`<div class="qwb-artifact-box" data-artifact-box="${esc(s.id)}"
+        style="left:${bLeft.toFixed(2)}%;width:${bWidth.toFixed(2)}%;top:${topPct.toFixed(2)}%;height:${heightPct.toFixed(2)}%;background:${bBg};border-color:${bBorder}">
+        <span class="qwb-artifact-box-label" style="background:${bBorder};color:#fff">${esc(bLabel)}</span>
+      </div>`);
+    }
+
     for (const s of state.aiSuggestions) {
       if (s.start_sec == null) continue;
       const overlap = s.start_sec - state.windowStart;
@@ -2402,11 +2938,110 @@ function renderOverlays(state, W, H, rulerH) {
       openAIExplain(state, sugg, e.clientX || 200, e.clientY || 200);
     });
   });
+  // Bind hover + click handlers on artifact bounding boxes.
+  layer.querySelectorAll && layer.querySelectorAll('.qwb-artifact-box').forEach(el => {
+    el.addEventListener('mouseenter', (e) => {
+      const id = el.dataset.artifactBox;
+      const sugg = (state.aiSuggestions || []).find(s => s.id === id);
+      if (sugg) showArtifactBoxTooltip(sugg, e.clientX, e.clientY);
+    });
+    el.addEventListener('mousemove', (e) => {
+      const id = el.dataset.artifactBox;
+      const sugg = (state.aiSuggestions || []).find(s => s.id === id);
+      if (sugg) showArtifactBoxTooltip(sugg, e.clientX, e.clientY);
+    });
+    el.addEventListener('mouseleave', () => {
+      hideArtifactBoxTooltip();
+    });
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const id = el.dataset.artifactBox;
+      const sugg = (state.aiSuggestions || []).find(s => s.id === id);
+      if (sugg) openAIExplain(state, sugg, e.clientX || 200, e.clientY || 200);
+    });
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Right-panel renderers
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ── Learn EEG + Evidence panel ───────────────────────────────────────────────
+function renderLearnEEGPanel(state) {
+  const topConditions = getTopConditionsByPaperCount(8);
+  const evidenceCards = topConditions.map(c => {
+    const label = (c.condition || c.name || '').replace(/_/g, ' ');
+    return `<div class="qwb-card" style="margin-bottom:4px">
+      <div style="font-weight:600;font-size:11px">${esc(label)}</div>
+      <div style="font-size:10px;color:#6b6660">${c.papers || 0} papers · ${c.trials || 0} trials · ${c.meta_analyses || 0} meta-analyses</div>
+    </div>`;
+  }).join('');
+
+  // Current channel context
+  const ch = state.selectedChannel || DEFAULT_CHANNELS[0];
+  const anatomy = CHANNEL_ANATOMY[ch];
+  const wave = CHANNEL_WAVES[ch];
+  const chArtifacts = (state.aiSuggestions || []).filter(s => s.channel === ch || s.channel === 'all');
+  const chContext = anatomy ? `
+    <div class="qwb-card" style="margin-bottom:8px;border-left:3px solid var(--qwb-ai,#1d6f7a)">
+      <div style="font-weight:600;font-size:12px;margin-bottom:4px">${esc(ch)} — ${esc(anatomy.region)}</div>
+      <div style="font-size:10px;line-height:1.4;margin-bottom:4px">${esc(anatomy.brodmann)} · ${esc(anatomy.networks)}</div>
+      ${wave ? `<div style="font-size:10px;color:#3a3633;margin-bottom:4px"><b>Primary:</b> ${esc(wave.primary)}</div>` : ''}
+      <div style="font-size:10px;color:#6b6660"><b>Watch for:</b> ${esc(anatomy.artifacts)}</div>
+      ${chArtifacts.length > 0 ? `<div style="font-size:10px;color:#1d6f7a;margin-top:4px"><b>AI detected:</b> ${chArtifacts.map(s => (s.ai_label||'').replace(/_/g,' ')).join(', ')}</div>` : ''}
+      ${wave ? `<div style="font-size:9px;color:#8a837a;margin-top:4px;font-style:italic">${esc(wave.evidence)}</div>` : ''}
+    </div>` : '';
+
+  return `
+    <div class="qwb-side-section" data-testid="qwb-learn-eeg-panel">
+      <div style="font-weight:700;font-size:13px;margin-bottom:4px">Learn EEG + Evidence</div>
+      <div style="font-size:10px;color:#6b6660;margin-bottom:10px">
+        Connected to ${EVIDENCE_TOTAL_PAPERS.toLocaleString()} papers, ${EVIDENCE_TOTAL_TRIALS.toLocaleString()} trials,
+        ${EVIDENCE_TOTAL_META.toLocaleString()} meta-analyses across ${EVIDENCE_SOURCES.length} databases.
+      </div>
+
+      <div style="font-weight:600;font-size:12px;margin-bottom:6px">Selected Channel Context</div>
+      ${chContext}
+
+      <div style="font-weight:600;font-size:12px;margin:10px 0 6px">Evidence Search</div>
+      <div style="display:flex;gap:4px;margin-bottom:8px">
+        <input id="qwb-evidence-search" type="text" placeholder="Search 87K papers..." style="flex:1;padding:4px 6px;font-size:11px;border:1px solid #d8d1c3;border-radius:3px;background:#FAF7F2">
+        <button id="qwb-evidence-search-btn" class="qwb-btn" style="font-size:10px;padding:3px 8px">Search</button>
+      </div>
+      <div id="qwb-evidence-results" style="max-height:120px;overflow-y:auto;font-size:10px"></div>
+
+      <div style="font-weight:600;font-size:12px;margin:10px 0 6px">Top Conditions by Evidence</div>
+      ${evidenceCards}
+
+      <div style="font-weight:600;font-size:12px;margin:10px 0 6px">Learning EEG Reference</div>
+      ${renderLearningEEGReferenceCard({ audience: 'raw' })}
+    </div>`;
+}
+
+function attachLearnEEGHandlers(state) {
+  const btn = document.getElementById('qwb-evidence-search-btn');
+  const input = document.getElementById('qwb-evidence-search');
+  const results = document.getElementById('qwb-evidence-results');
+  if (!btn || !input || !results) return;
+  const doSearch = () => {
+    const q = (input.value || '').trim();
+    if (!q) { results.innerHTML = '<span style="color:#8a837a">Type a keyword to search evidence...</span>'; return; }
+    const hits = searchEvidenceByKeyword(q);
+    if (hits.length === 0) {
+      results.innerHTML = '<span style="color:#8a837a">No matching conditions found.</span>';
+    } else {
+      results.innerHTML = hits.slice(0, 10).map(c => {
+        const label = (c.condition || c.name || '').replace(/_/g, ' ');
+        return `<div class="qwb-card" style="margin-bottom:3px;padding:3px 5px">
+          <b style="font-size:10px">${esc(label)}</b>
+          <span style="font-size:9px;color:#6b6660;margin-left:4px">${c.papers || 0} papers</span>
+        </div>`;
+      }).join('');
+    }
+  };
+  btn.addEventListener('click', doSearch);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+}
 
 function renderRightPanel(state) {
   const body = document.getElementById('qwb-right-body');
@@ -2421,6 +3056,7 @@ function renderRightPanel(state) {
     case 'examples': body.innerHTML = renderHelpPanel(state);     attachBestPracticeHandlers(state);     break; // legacy alias
     case 'ica':      body.innerHTML = renderICAPanel(state);      attachICAPanelHandlers(state);      break;
     case 'log':      body.innerHTML = renderAuditPanel(state);    attachAuditPanelHandlers(state);    break;
+    case 'learn':    body.innerHTML = renderLearnEEGPanel(state); attachLearnEEGHandlers(state);     break;
     default:         body.innerHTML = renderCleaningPanel(state); attachCleaningPanelHandlers(state); break;
   }
 }
@@ -3042,9 +3678,13 @@ function attachAuditPanelHandlers(state) {
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
       const base = (typeof API_BASE !== 'undefined' && API_BASE) || location.host;
       const token = (typeof api !== 'undefined' && api._token) || '';
-      const wsUrl = `${protocol}//${base}/api/v1/qeeg-copilot/${encodeURIComponent(state.analysisId)}${token ? '?token=' + encodeURIComponent(token) : ''}`;
+      const wsUrl = `${protocol}//${base}/api/v1/qeeg-copilot/${encodeURIComponent(state.analysisId)}`;
       const ws = new WebSocket(wsUrl);
-      ws.onopen = () => { state._copilotReady = true; };
+      ws.onopen = () => {
+        // Send auth token as first message instead of URL query param
+        if (token) ws.send(JSON.stringify({ type: 'auth', token: token }));
+        state._copilotReady = true;
+      };
       ws.onmessage = (ev) => {
         try {
           const msg = JSON.parse(ev.data);
@@ -3147,6 +3787,9 @@ function renderStatusBar(state) {
   set('qwb-titlebar-time', t);
   set('qwb-st-window', `${state.windowStart}–${state.windowStart + state.timebase}s`);
   set('qwb-st-sel', `${state.selectedChannel}`);
+  const soloWrap = document.getElementById('qwb-st-solo-wrap');
+  if (soloWrap) { soloWrap.style.display = state.soloChannel ? 'inline' : 'none'; }
+  set('qwb-st-solo', state.soloChannel || '');
   set('qwb-st-amp', `—`);
   set('qwb-st-bad', `${state.badChannels.size}`);
   set('qwb-st-rej', `${state.rejectedSegments.length}`);
@@ -3183,6 +3826,8 @@ function renderStatusBar(state) {
   // Window/event breadcrumb under the mini-map.
   const crumb = document.getElementById('qwb-window-breadcrumb');
   if (crumb) crumb.innerHTML = windowBreadcrumb(state);
+  // Keep the time slider in sync with the current window position.
+  syncTimeSlider(state);
 }
 
 function renderRerunNotice(state) {
@@ -3255,6 +3900,7 @@ function handleMenuItem(state, item) {
     case 'Save cleaning version': saveCleaningVersion(state); break;
     case 'Close workbench': navBack(state, null, 'analyzer'); break;
     case 'Undo': popHistory(state); break;
+    case 'Redo': state.saveStatus = 'Redo not yet available — use Undo history'; renderStatusBar(state); break;
     case 'Mark bad channel': handleCleaningAction(state, 'mark-channel'); break;
     case 'Mark bad segment': handleCleaningAction(state, 'mark-segment'); break;
     case 'Interpolate': handleCleaningAction(state, 'interpolate'); break;
@@ -3271,6 +3917,9 @@ function handleMenuItem(state, item) {
     case 'Generate AI suggestions': generateAISuggestions(state); break;
     case 'Report readiness': state.rightTab = 'help'; renderRightPanel(state); break;
     case 'Keyboard shortcuts': toggleShortcuts(state, true); break;
+    case 'Preferences': state.saveStatus = 'Preferences: see Setup menu for display options'; renderStatusBar(state); break;
+    case 'About DeepSynaps': state.saveStatus = 'DeepSynaps Protocol Studio — Raw EEG Cleaning Workbench'; renderStatusBar(state); break;
+    case 'Learn EEG': state.rightTab = 'learn'; renderRightPanel(state); break;
     case 'Artefact examples': state.rightTab = 'examples'; renderRightPanel(state); break;
     case 'Best practices': state.rightTab = 'help'; renderRightPanel(state); break;
     case 'Previous window': state.windowStart = Math.max(0, state.windowStart - state.timebase); redrawCanvas(state); renderStatusBar(state); break;
@@ -3446,6 +4095,17 @@ function attachToolBar(state, navigate) {
   document.getElementById('qwb-back-patient')?.addEventListener('click', () => navBack(state, navigate, 'patient'));
   document.getElementById('qwb-export')?.addEventListener('click', () => toggleExport(state, true));
   document.getElementById('qwb-shortcuts')?.addEventListener('click', () => toggleShortcuts(state, true));
+
+  // ── Toolbar tier toggle ────────────────────────────────────
+  document.getElementById('qwb-tb-tier-toggle')?.addEventListener('click', () => {
+    const sec = document.getElementById('qwb-tb-secondary');
+    const btn = document.getElementById('qwb-tb-tier-toggle');
+    if (sec && btn) {
+      const isCollapsed = sec.classList.toggle('collapsed');
+      btn.textContent = isCollapsed ? '▼ More' : '▲ Less';
+      btn.classList.toggle('expanded', !isCollapsed);
+    }
+  });
   document.getElementById('qwb-close-shortcuts')?.addEventListener('click', () => toggleShortcuts(state, false));
 
   document.getElementById('qwb-unsaved-cancel')?.addEventListener('click', () => closeUnsaved(state));
@@ -3536,8 +4196,9 @@ function attachToolBar(state, navigate) {
   // ── Channel anatomy popover handlers ────────────────────────
   document.getElementById('qwb-channel-anatomy-close')?.addEventListener('click', () => closeChannelAnatomy());
 
-  if (typeof window !== 'undefined') {
-    window.addEventListener('resize', () => redrawCanvas(state));
+  if (typeof window !== 'undefined' && state._resizeHandler) {
+    window.removeEventListener('resize', state._resizeHandler);
+    window.addEventListener('resize', state._resizeHandler);
   }
 }
 
@@ -3583,15 +4244,34 @@ function openChannelAnatomy(state, ch, x, y) {
   const body = document.getElementById('qwb-ch-anat-body');
   if (!root || !title || !body) return;
   title.textContent = ch;
+
+  // Find normal variants that can appear at this channel
+  const variants = Object.values(NORMAL_VARIANTS).filter(v =>
+    v.channels && v.channels.includes(ch)
+  );
+  const variantHtml = variants.length > 0
+    ? `<div style="margin-top:8px;padding-top:6px;border-top:1px dotted #d8d1c3">
+        <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:#2e7d32;font-weight:600;margin-bottom:4px">Normal variants at this site</div>
+        ${variants.map(v => {
+          const c = kindColour(v.label);
+          return `<div style="margin-bottom:4px;font-size:10.5px;line-height:1.35">
+            <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${c.line};margin-right:4px;vertical-align:middle"></span>
+            <b style="color:${c.line}">${esc(v.label)}</b> <span style="color:#6b6660">(${esc(v.frequency)})</span>
+            <div style="color:#3a3633;margin-left:10px;font-size:10px">${esc(v.morphology)}</div>
+          </div>`;
+        }).join('')}
+      </div>`
+    : '';
+
   body.innerHTML = `
     <div class="qwb-anatomy-row"><span class="qwb-anatomy-key">Region</span><span class="qwb-anatomy-val">${esc(anatomy.region)}</span></div>
     <div class="qwb-anatomy-row"><span class="qwb-anatomy-key">Brodmann</span><span class="qwb-anatomy-val">${esc(anatomy.brodmann)}</span></div>
     <div class="qwb-anatomy-row"><span class="qwb-anatomy-key">Networks</span><span class="qwb-anatomy-val">${esc(anatomy.networks)}</span></div>
     <div class="qwb-anatomy-row"><span class="qwb-anatomy-key">Artifacts</span><span class="qwb-anatomy-val">${esc(anatomy.artifacts)}</span></div>
     <div class="qwb-anatomy-clinical">${esc(anatomy.clinical)}</div>
+    ${variantHtml}
   `;
   const card = root.querySelector('.qwb-ai-explain-card');
-  // Measure after making visible so offsetWidth/Height are accurate.
   root.style.display = 'block';
   const vw = window.innerWidth;
   const vh = window.innerHeight;
@@ -3608,7 +4288,7 @@ function closeChannelAnatomy() {
   if (root) root.style.display = 'none';
 }
 
-function showChannelWaveTooltip(ch, x, y) {
+function showChannelWaveTooltip(ch, x, y, state) {
   const info = CHANNEL_WAVES[ch];
   if (!info) return;
   const root = document.getElementById('qwb-channel-wave-tooltip');
@@ -3616,11 +4296,29 @@ function showChannelWaveTooltip(ch, x, y) {
   const primary = document.getElementById('qwb-cwt-primary');
   const body = document.getElementById('qwb-cwt-body');
   const evidence = document.getElementById('qwb-cwt-evidence');
+  const aiSummary = document.getElementById('qwb-cwt-ai-summary');
   if (!root || !title || !body) return;
   title.textContent = ch;
   if (primary) primary.textContent = info.primary;
   body.textContent = info.notes;
   if (evidence) evidence.textContent = 'Evidence: ' + info.evidence;
+  // AI artifact summary for this channel
+  if (aiSummary) {
+    const suggestions = (state && state.aiSuggestions || []).filter(s =>
+      s.channel === ch || s.channel === 'all'
+    );
+    if (suggestions.length > 0) {
+      aiSummary.innerHTML = '<b style="font-size:10px;color:#1d6f7a">AI Detected:</b> ' +
+        suggestions.map(s => {
+          const c = kindColour(s.ai_label);
+          const label = (s.ai_label || '').replace(/_/g, ' ');
+          const conf = Math.round((s.ai_confidence || 0) * 100);
+          return `<span class="qwb-cwt-ai-chip" style="background:${c.line}">${label} ${conf}%</span>`;
+        }).join('');
+    } else {
+      aiSummary.innerHTML = '<span style="font-size:10px;color:#6b6660">No AI artifacts detected on this channel</span>';
+    }
+  }
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   root.style.display = 'block';
@@ -3635,6 +4333,35 @@ function showChannelWaveTooltip(ch, x, y) {
 
 function hideChannelWaveTooltip() {
   const root = document.getElementById('qwb-channel-wave-tooltip');
+  if (root) { root.style.opacity = '0'; root.style.display = 'none'; }
+}
+
+function showArtifactBoxTooltip(sugg, x, y) {
+  const root = document.getElementById('qwb-artifact-tooltip');
+  if (!root) return;
+  const c = kindColour(sugg.ai_label);
+  const label = (sugg.ai_label || '').replace(/_/g, ' ');
+  const conf = Math.round((sugg.ai_confidence || 0) * 100);
+  document.getElementById('qwb-artifact-tooltip-dot').style.background = c.line;
+  document.getElementById('qwb-artifact-tooltip-title').textContent =
+    label.charAt(0).toUpperCase() + label.slice(1) + ' Artifact';
+  const confEl = document.getElementById('qwb-artifact-tooltip-conf');
+  confEl.textContent = conf + '%';
+  confEl.style.color = c.line;
+  document.getElementById('qwb-artifact-tooltip-why').textContent =
+    sugg.explanation || '';
+  root.style.display = 'block';
+  const vw = window.innerWidth || 1280;
+  const vh = window.innerHeight || 720;
+  const rw = root.offsetWidth || 220;
+  const rh = root.offsetHeight || 80;
+  root.style.left = Math.max(8, Math.min(x + 12, vw - rw - 8)) + 'px';
+  root.style.top  = Math.max(8, Math.min(y - rh - 8, vh - rh - 8)) + 'px';
+  root.style.opacity = '1';
+}
+
+function hideArtifactBoxTooltip() {
+  const root = document.getElementById('qwb-artifact-tooltip');
   if (root) { root.style.opacity = '0'; root.style.display = 'none'; }
 }
 
@@ -3654,6 +4381,52 @@ function aiExplainFeatures(sugg) {
   }
   if (k.includes('flat')) {
     return [['Variance','< 0.1 µV²'], ['Duration','Whole epoch'], ['Channel','C4']];
+  }
+  // Normal variants & sleep patterns
+  if (k.includes('spindle')) {
+    return [['Frequency','12–14 Hz'], ['Duration','0.5–2 s'], ['Morphology','Waxing-waning'], ['Stage','NREM II'], ['Status','Normal']];
+  }
+  if (k.includes('k_complex') || k.includes('kcomplex')) {
+    return [['Duration','> 0.5 s'], ['Morphology','Biphasic (neg-pos)'], ['Max','Frontocentral'], ['Stage','NREM II'], ['Status','Normal']];
+  }
+  if (k.includes('vertex')) {
+    return [['Duration','< 200 ms'], ['Polarity','Surface-negative'], ['Max','Cz (vertex)'], ['Stage','NREM I'], ['Status','Normal']];
+  }
+  if (k.includes('mu')) {
+    return [['Frequency','7–11 Hz'], ['Morphology','Arch-shaped'], ['Location','Central (C3/C4)'], ['Reactivity','Attenuates with movement'], ['Status','Normal variant']];
+  }
+  if (k.includes('lambda')) {
+    return [['Morphology','Sail-like positive'], ['Location','Occipital'], ['State','Awake, visual scanning'], ['Reactivity','Disappears eyes closed'], ['Status','Normal variant']];
+  }
+  if (k.includes('wicket')) {
+    return [['Frequency','7–11 Hz'], ['Morphology','Arch-like, non-evolving'], ['Location','Temporal'], ['After-going slow','None'], ['Status','Normal variant']];
+  }
+  if (k.includes('rmtd')) {
+    return [['Frequency','5–7 Hz'], ['Duration','~1 s'], ['Morphology','Sharply contoured theta'], ['State','Drowsiness'], ['Status','Normal variant']];
+  }
+  if (k.includes('posts') || k.includes('post')) {
+    return [['Polarity','Surface-positive'], ['Morphology','Triangular'], ['Location','Occipital'], ['State','Drowsiness/sleep'], ['Status','Normal variant']];
+  }
+  if (k.includes('bets')) {
+    return [['Amplitude','< 50 µV'], ['Duration','Brief'], ['Location','Temporal'], ['After-going slow','None'], ['Status','Normal variant (SSS)']];
+  }
+  if (k.includes('14_and_6') || k.includes('14and6')) {
+    return [['Frequency','14 Hz or 6 Hz'], ['Duration','1–2 s bursts'], ['Polarity','Positive'], ['State','Drowsy'], ['Status','Generally benign']];
+  }
+  if (k.includes('pdr') || k.includes('alpha')) {
+    return [['Frequency','8–13 Hz'], ['Location','Occipital/parietal'], ['Reactivity','Attenuates eyes open'], ['Symmetry','Should be bilateral'], ['Status','Normal awake']];
+  }
+  if (k.includes('spike') || k.includes('sharp')) {
+    return [['Duration','20–70 ms (spike)'], ['Morphology','Sharp, stands out'], ['After-going slow','Often present'], ['Status','Potentially epileptiform']];
+  }
+  if (k.includes('tirda')) {
+    return [['Frequency','1–4 Hz (delta)'], ['Pattern','Intermittent rhythmic'], ['Location','Temporal'], ['Significance','Epileptogenic focus']];
+  }
+  // Look up from NORMAL_VARIANTS if available
+  const varKey = Object.keys(NORMAL_VARIANTS).find(vk => k.includes(vk));
+  if (varKey) {
+    const v = NORMAL_VARIANTS[varKey];
+    return [['Frequency', v.frequency], ['Channels', v.channels.join(', ')], ['Status', 'Normal variant']];
   }
   return [['Type','artefact'], ['Decision','review']];
 }
@@ -3684,18 +4457,26 @@ function attachChannelRail(state) {
     let row = e.target;
     while (row && !(row.classList && row.classList.contains('qwb-ch-row'))) row = row.parentElement;
     if (!row) return;
-    state.selectedChannel = row.dataset.channel;
+    const ch = row.dataset.channel;
+    // Toggle solo mode: click same channel again to exit solo
+    if (state.soloChannel === ch) {
+      state.soloChannel = null;
+    } else {
+      state.soloChannel = ch;
+    }
+    state.selectedChannel = ch;
     rerenderRail(state);
     redrawCanvas(state); renderStatusBar(state);
   });
-  // Hover wave-type tooltip
-  rail.querySelectorAll('.qwb-ch-name').forEach(el => {
-    el.addEventListener('mouseenter', () => {
-      const ch = el.dataset.channel;
-      const rect = el.getBoundingClientRect();
-      showChannelWaveTooltip(ch, rect.right, rect.top);
+  // Hover wave-type + AI tooltip on channel rows
+  rail.querySelectorAll('.qwb-ch-row').forEach(row => {
+    row.addEventListener('mouseenter', () => {
+      const ch = row.dataset.channel;
+      if (!ch) return;
+      const rect = row.getBoundingClientRect();
+      showChannelWaveTooltip(ch, rect.right, rect.top, state);
     });
-    el.addEventListener('mouseleave', () => {
+    row.addEventListener('mouseleave', () => {
       hideChannelWaveTooltip();
     });
   });
@@ -3713,6 +4494,48 @@ function rerenderRail(state) {
 
 function attachRightPanel(state) {
   document.getElementById('qwb-right-toggle')?.addEventListener('click', () => toggleRightPanel(state));
+
+  // ── Resize handle drag ────────────────────────────────────
+  const handle = document.getElementById('qwb-resize-handle');
+  if (handle) {
+    let startX, startW;
+    const minW = 240, maxW = 400;
+    const onMove = (e) => {
+      const dx = startX - (e.clientX || e.touches[0].clientX);
+      const newW = Math.min(maxW, Math.max(minW, startW + dx));
+      const cols = `56px 44px 1fr ${newW}px`;
+      document.querySelectorAll('.qwb-main, .qwb-minimap-row').forEach(el => {
+        el.style.gridTemplateColumns = cols;
+      });
+    };
+    const onUp = () => {
+      handle.classList.remove('active');
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('touchmove', onMove);
+      document.removeEventListener('touchend', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    handle.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      startX = e.clientX;
+      startW = document.getElementById('qwb-right')?.offsetWidth || 300;
+      handle.classList.add('active');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+    handle.addEventListener('touchstart', (e) => {
+      startX = e.touches[0].clientX;
+      startW = document.getElementById('qwb-right')?.offsetWidth || 300;
+      handle.classList.add('active');
+      document.addEventListener('touchmove', onMove, { passive: false });
+      document.addEventListener('touchend', onUp);
+    }, { passive: true });
+  }
+
   document.querySelectorAll('.qwb-tab').forEach(b => {
     b.addEventListener('click', () => {
       state.rightTab = b.dataset.tab;
@@ -3774,7 +4597,8 @@ function syncTabActive(state) {
 
 function attachStatusBar(state) {
   if (typeof setInterval === 'function') {
-    setInterval(() => renderStatusBar(state), 1000);
+    if (state._statusInterval) clearInterval(state._statusInterval);
+    state._statusInterval = setInterval(() => renderStatusBar(state), 1000);
   }
 }
 
@@ -3821,7 +4645,96 @@ function attachTraceCursor(state) {
   const wrap = document.getElementById('qwb-canvas-wrap');
   if (!wrap || !wrap.addEventListener) return;
   wrap.addEventListener('mousemove', (e) => updateCursorReadout(state, e));
+  wrap.addEventListener('mouseleave', () => hideArtifactBoxTooltip());
   wrap.addEventListener('click', (e) => handleTraceClick(state, e));
+
+  // Mouse wheel zoom: Ctrl+wheel = time zoom, plain wheel = amplitude zoom
+  wrap.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 1 : -1;
+
+    if (e.ctrlKey || e.metaKey) {
+      // Time zoom — change timebase (seconds visible)
+      const idx = TIMEBASES.indexOf(state.timebase);
+      if (delta > 0 && idx < TIMEBASES.length - 1) {
+        state.timebase = TIMEBASES[idx + 1];
+      } else if (delta < 0 && idx > 0) {
+        state.timebase = TIMEBASES[idx - 1];
+      } else if (idx === -1) {
+        state.timebase = delta > 0 ? 12 : 5;
+      }
+      // Update the toolbar timebase selector if present
+      const tbSel = document.getElementById('qwb-tb-timebase');
+      if (tbSel) tbSel.value = state.timebase;
+    } else {
+      // Amplitude zoom — change gain (µV/cm)
+      const idx = GAINS.indexOf(state.gain);
+      if (delta > 0 && idx < GAINS.length - 1) {
+        state.gain = GAINS[idx + 1];
+      } else if (delta < 0 && idx > 0) {
+        state.gain = GAINS[idx - 1];
+      }
+      // Update the toolbar gain selector if present
+      const gSel = document.getElementById('qwb-tb-gain');
+      if (gSel) gSel.value = state.gain;
+    }
+    redrawCanvas(state);
+    renderStatusBar(state);
+    rerenderRail(state);
+  }, { passive: false });
+}
+
+// ── Time slider: input range below spectrogram ──
+function attachTimeSlider(state) {
+  const slider = document.getElementById('qwb-time-slider');
+  const prevBtn = document.getElementById('qwb-ts-prev');
+  const nextBtn = document.getElementById('qwb-ts-next');
+  if (!slider) return;
+
+  const r = recordingMeta(state);
+  const total = r.durationSec || 600;
+
+  const navigateTo = (sec) => {
+    const max = Math.max(0, total - state.timebase);
+    state.windowStart = Math.max(0, Math.min(max, Math.round(sec)));
+    redrawCanvas(state);
+    renderStatusBar(state);
+    syncTimeSlider(state);
+  };
+
+  slider.addEventListener('input', () => {
+    navigateTo(parseInt(slider.value, 10) || 0);
+  });
+
+  if (prevBtn) {
+    prevBtn.addEventListener('click', () => {
+      navigateTo(state.windowStart - state.timebase);
+    });
+  }
+  if (nextBtn) {
+    nextBtn.addEventListener('click', () => {
+      navigateTo(state.windowStart + state.timebase);
+    });
+  }
+}
+
+function syncTimeSlider(state) {
+  const slider = document.getElementById('qwb-time-slider');
+  const startEl = document.getElementById('qwb-ts-start');
+  const endEl = document.getElementById('qwb-ts-end');
+  if (!slider) return;
+
+  const r = recordingMeta(state);
+  const total = r.durationSec || 600;
+  const max = Math.max(0, total - state.timebase);
+
+  slider.value = state.windowStart;
+  slider.max = max;
+  const pct = max > 0 ? ((state.windowStart / max) * 100).toFixed(1) : '0';
+  slider.style.setProperty('--qwb-slider-pct', pct + '%');
+
+  if (startEl) startEl.textContent = formatTime(state.windowStart);
+  if (endEl) endEl.textContent = formatTime(Math.min(state.windowStart + state.timebase, total));
 }
 
 function updateCursorReadout(state, e) {
@@ -3836,10 +4749,15 @@ function updateCursorReadout(state, e) {
   const tb = state.timebase || 10;
   const tSec = state.windowStart + (Math.max(0, Math.min(W, x)) / W) * tb;
   const channels = DEFAULT_CHANNELS;
-  const rowH = (H - rulerH) / channels.length;
-  let chIdx = Math.floor(Math.max(0, Math.min(H - rulerH - 1, y - rulerH)) / Math.max(1, rowH));
-  chIdx = Math.max(0, Math.min(channels.length - 1, chIdx));
-  const ch = channels[chIdx];
+  // Account for solo mode
+  const visibleChannels = state.soloChannel
+    ? channels.filter(ch => ch === state.soloChannel)
+    : channels;
+  const rowH = (H - rulerH) / visibleChannels.length;
+  let vIdx = Math.floor(Math.max(0, Math.min(H - rulerH - 1, y - rulerH)) / Math.max(1, rowH));
+  vIdx = Math.max(0, Math.min(visibleChannels.length - 1, vIdx));
+  const ch = visibleChannels[vIdx];
+  const chIdx = channels.indexOf(ch);
   // Approximate amplitude: invert the rendered y (paper-space) → µV using
   // the same ampScale the trace renderer uses. We do not have the actual
   // sample so we ladder back through the synth signal — that's intentionally
@@ -3865,6 +4783,17 @@ function updateCursorReadout(state, e) {
     const s = (tSec - m * 60).toFixed(1);
     const ss = (parseFloat(s) < 10 ? '0' : '') + s;
     el.textContent = `t=${m}:${ss} · ch=${ch.replace('-Av','')} · ${uv} µV`;
+  }
+  // Check if cursor is over an AI artifact region and show tooltip
+  const hitSugg = (state.aiSuggestions || []).find(s =>
+    (s.channel === ch || s.channel === 'all') &&
+    tSec >= (state.windowStart + (s.start_sec || 0)) &&
+    tSec <= (state.windowStart + (s.end_sec || 0))
+  );
+  if (hitSugg) {
+    showArtifactBoxTooltip(hitSugg, e.clientX, e.clientY);
+  } else {
+    hideArtifactBoxTooltip();
   }
 }
 
@@ -4043,7 +4972,8 @@ function attachManualAnalysisHandlers(state) {
         const label = document.getElementById('qwb-event-label-input')?.value?.trim() || (action === 'label-segment' ? 'Manual recording label' : 'Manual event');
         state.events.push({ t: state.windowStart || 0, label, kind: 'manual' });
         await postAnnotation(state, { kind: 'event_marker', start_sec: state.windowStart || 0, end_sec: (state.windowStart || 0) + (state.timebase || 10), note: label, decision_status: 'accepted' });
-        refreshEventMarkers(state);
+        renderInlineTraceEvents(state);
+        renderTraceEventMarkers(state, document.getElementById('qwb-canvas-wrap')?.clientWidth || 800);
         state.saveStatus = 'Event marker added';
       } else if (action === 'save-finding') {
         const channels = (document.getElementById('qwb-manual-finding-channels')?.value || '')
@@ -4128,7 +5058,9 @@ async function toggleICAComponent(state, idx) {
 }
 
 function attachKeyboard(state, navigate) {
-  document.addEventListener('keydown', e => {
+  // Remove previous handler if any (prevents stacking on re-mount)
+  if (state._keydownHandler) document.removeEventListener('keydown', state._keydownHandler);
+  const handler = e => {
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) return;
     // Skip global shortcuts when any modal is open.
     const anyModalOpen = document.querySelector && !!document.querySelector('.qwb-modal-backdrop[style*="flex"], #qwb-annotate-modal, #qwb-confirm-modal, #qwb-spectral-modal');
@@ -4139,9 +5071,21 @@ function attachKeyboard(state, navigate) {
     if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) {
       e.preventDefault(); saveCleaningVersion(state); return;
     }
-    if (e.key === 'Escape') { e.preventDefault(); navBack(state, navigate, 'analyzer'); return; }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      // Exit solo mode first; only navigate back if not in solo
+      if (state.soloChannel) {
+        state.soloChannel = null;
+        rerenderRail(state); redrawCanvas(state); renderStatusBar(state);
+        return;
+      }
+      navBack(state, navigate, 'analyzer'); return;
+    }
     if (e.key === 'ArrowRight') { state.windowStart += state.timebase; redrawCanvas(state); renderStatusBar(state); }
     else if (e.key === 'ArrowLeft') { state.windowStart = Math.max(0, state.windowStart - state.timebase); redrawCanvas(state); renderStatusBar(state); }
+    else if (e.key === 'Home') { e.preventDefault(); state.windowStart = 0; redrawCanvas(state); renderStatusBar(state); }
+    else if (e.key === 'End') { e.preventDefault(); const r = recordingMeta(state); state.windowStart = Math.max(0, (r.durationSec || 600) - state.timebase); redrawCanvas(state); renderStatusBar(state); }
+    else if (e.key === ' ') { e.preventDefault(); togglePlay(state); }
     else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       const idx = DEFAULT_CHANNELS.indexOf(state.selectedChannel);
       const next = e.key === 'ArrowUp' ? Math.max(0, idx - 1) : Math.min(DEFAULT_CHANNELS.length - 1, idx + 1);
@@ -4156,6 +5100,11 @@ function attachKeyboard(state, navigate) {
     else if (e.key === 'a' || e.key === 'A') handleCleaningAction(state, 'annotate');
     else if (e.key === 'r' || e.key === 'R') { state.windowStart = 0; redrawCanvas(state); renderStatusBar(state); }
     else if (e.key === 'g' || e.key === 'G') { state.showGrid = !state.showGrid; redrawCanvas(state); }
+    else if (e.key === 's' && !e.ctrlKey && !e.metaKey) {
+      // S = toggle solo on selected channel (Ctrl+S is save, handled above)
+      state.soloChannel = state.soloChannel === state.selectedChannel ? null : state.selectedChannel;
+      rerenderRail(state); redrawCanvas(state); renderStatusBar(state);
+    }
     else if (e.key === 'o' || e.key === 'O') { state.showAiOverlays = !state.showAiOverlays; redrawCanvas(state); }
     else if (e.key === 'z' || e.key === 'Z') { popHistory(state); }
     else if (e.key === 'j' || e.key === 'J' || e.key === 'k' || e.key === 'K') { jumpToAIArtefact(state, (e.key === 'j' || e.key === 'J') ? 1 : -1); }
@@ -4168,7 +5117,9 @@ function attachKeyboard(state, navigate) {
       redrawCanvas(state);
     }
     else if (e.key === '?') toggleShortcuts(state, true);
-  });
+  };
+  state._keydownHandler = handler;
+  document.addEventListener('keydown', handler);
 }
 
 // ── Modal focus management ───────────────────────────────────────────────────
@@ -4313,15 +5264,24 @@ function closeUnsaved(state) {
 
 export function navBack(state, navigate, target) {
   const go = () => {
+    // Guarantee overlay removal even if teardown throws
+    const ol = document.getElementById('qwb-overlay');
+    if (ol) ol.remove();
     if (typeof window._qeegRawWorkbenchTeardown === 'function') {
       try { window._qeegRawWorkbenchTeardown(); } catch (_e) {}
     }
+    // Clear workbench-specific globals so the analysis page doesn't
+    // accidentally re-open the workbench.
+    window._qeegSelectedId = null;
     if (target === 'patient' && (window._qeegSelectedPatientId || window._currentPatientId)) {
       window._patientHubSelectedId = window._qeegSelectedPatientId || window._currentPatientId;
       if (typeof window._nav === 'function') return window._nav('patients-v2');
     }
     if (typeof window._nav === 'function') {
-      window._qeegTab = 'raw';
+      // Do NOT set _qeegTab = 'raw' — the Raw tab in the analysis page
+      // auto-loads the workbench in demo mode, creating a circular nav.
+      // Let the analysis page land on its default tab instead.
+      window._qeegTab = null;
       return window._nav('qeeg-analysis');
     }
     window.location.hash = '#/qeeg-analysis';
@@ -4985,7 +5945,13 @@ async function handleSignOff(state) {
         annotation_ids: [],
         sign_off: { signed_by: user, signed_at: signedAt, notes, readiness_score: r.score },
       });
-    } catch (_e) {}
+    } catch (_e) {
+      state.signOff = null;
+      state.saveStatus = 'Sign-off failed to save — please retry';
+      showToast('Sign-off could not be saved to server. Please try again.', 'error');
+      renderRightPanel(state);
+      renderStatusBar(state);
+    }
   }
 }
 
@@ -5176,8 +6142,8 @@ th { font-weight: 600; background: #f6f3ed; }
   <tr><td>Rejected segments</td><td>${segCount}</td></tr>
   <tr><td>Rejected ICA components</td><td>${icaCount}</td></tr>
   <tr><td>Cleaning version</td><td>${state.cleaningVersion?.version_number || 'Draft'}</td></tr>
-  <tr><td>Montage</td><td>${state.montage}</td></tr>
-  <tr><td>Filters</td><td>Low ${state.lowCut} Hz · High ${state.highCut} Hz · Notch ${state.notch}</td></tr>
+  <tr><td>Montage</td><td>${esc(state.montage)}</td></tr>
+  <tr><td>Filters</td><td>Low ${esc(String(state.lowCut))} Hz · High ${esc(String(state.highCut))} Hz · Notch ${esc(String(state.notch))}</td></tr>
 </table>
 ${audit.length ? `<h2>Recent Audit Log (${audit.length} entries)</h2>
 <table>

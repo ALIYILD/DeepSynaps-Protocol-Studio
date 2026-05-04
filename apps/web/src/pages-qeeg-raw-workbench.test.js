@@ -33,7 +33,7 @@ class FakeElement {
     this.tagName = (tag || 'div').toUpperCase();
     this.children = [];
     this.parentElement = null;
-    this.style = {};
+    this.style = { setProperty() {}, getPropertyValue() { return ''; }, removeProperty() {} };
     this.classList = new FakeClassList(this);
     this.dataset = {};
     this._innerHTML = '';
@@ -106,9 +106,12 @@ function installDom() {
   return root;
 }
 
-const root = installDom();
+installDom();
 const mod = await import('./pages-qeeg-raw-workbench.js');
 await mod.pgQEEGRawWorkbench(() => {}, () => {});
+// The workbench mounts into #qwb-overlay (an appended overlay div).
+// The mock getElementById auto-creates it, so read from there.
+const root = document._byId['qwb-overlay'];
 const WORKBENCH_SRC = readFileSync(WORKBENCH_PATH, 'utf8');
 const LEARNING_REF_SRC = readFileSync(LEARNING_REF_PATH, 'utf8');
 
@@ -187,9 +190,9 @@ await test('channel rail renders the 19-channel 10-20 montage (no ECG)', () => {
 
 // ── Right panel: tabs + collapsible ─────────────────────────────────────────
 
-await test('right panel exposes all six tabs and collapse toggle', () => {
+await test('right panel exposes all seven tabs and collapse toggle', () => {
   const html = root.innerHTML;
-  for (const tab of ['Cleaning','Manual Analysis','AI Review','Best-Practice','ICA','Audit']) {
+  for (const tab of ['Cleaning','Manual Analysis','AI Review','Best-Practice','ICA','Audit','Learn EEG']) {
     assert.ok(html.includes(tab), 'tab: ' + tab);
   }
   assert.ok(html.includes('data-testid="qwb-right-toggle"'), 'collapsible toggle present');
@@ -197,7 +200,7 @@ await test('right panel exposes all six tabs and collapse toggle', () => {
 
 await test('right panel tabs each carry a testid + the new is-active class hook', () => {
   const html = root.innerHTML;
-  for (const tid of ['qwb-tab-cleaning','qwb-tab-manual','qwb-tab-ai','qwb-tab-bp','qwb-tab-ica','qwb-tab-audit']) {
+  for (const tid of ['qwb-tab-cleaning','qwb-tab-manual','qwb-tab-ai','qwb-tab-bp','qwb-tab-ica','qwb-tab-audit','qwb-tab-learn']) {
     assert.ok(html.includes('data-testid="' + tid + '"'), 'tab testid: ' + tid);
   }
   // The default active tab carries the new is-active class hook for styling.
