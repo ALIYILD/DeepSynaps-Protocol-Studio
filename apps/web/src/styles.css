@@ -24698,6 +24698,130 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
    ═══════════════════════════════════════════════════════════════════ */
 .ac-wrap { display: flex; flex-direction: column; gap: 22px; padding: 20px 28px 80px; max-width: 1400px; margin: 0 auto; }
 
+.ac-governance-banner {
+  padding: 14px 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: rgba(251, 191, 36, 0.08);
+  color: rgba(255, 248, 230, 0.92);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.ac-governance-banner strong { color: #fcd34d; font-weight: 600; }
+
+.ac-pill {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+.ac-pill--audience {
+  background: rgba(74, 158, 255, 0.15);
+  border: 1px solid rgba(74, 158, 255, 0.35);
+  color: #93c5fd;
+}
+
+.ac-linked-strip {
+  padding: 16px 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(12, 18, 32, 0.65);
+}
+.ac-linked-strip-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 14px;
+  margin-bottom: 12px;
+}
+.ac-linked-strip-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #8ba3b0);
+}
+.ac-linked-strip-hint {
+  font-size: 11px;
+  color: var(--text-tertiary, #6b7c87);
+}
+.ac-linked-strip-scroll {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ac-linked-chip {
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary, #e2eaf0);
+  transition: background 0.15s, border-color 0.15s;
+}
+.ac-linked-chip:hover {
+  background: rgba(74, 158, 255, 0.12);
+  border-color: rgba(74, 158, 255, 0.35);
+}
+
+.ac-progress-panel {
+  padding: 16px 18px;
+  border-radius: 16px;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  background: rgba(8, 12, 24, 0.5);
+}
+.ac-progress-title {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary, #e2eaf0);
+}
+.ac-progress-body {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-secondary, #8ba3b0);
+}
+.ac-code-inline {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ac-api-banner {
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.ac-api-banner--warn {
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: rgba(251, 191, 36, 0.07);
+  color: rgba(253, 230, 138, 0.95);
+}
+
+.ac-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: 6px 0 8px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--text-tertiary, #6b7c87);
+}
+.ac-card-meta strong { color: var(--text-secondary, #8ba3b0); font-weight: 600; }
+
 .ac-hero {
   display: grid; grid-template-columns: 1fr auto; gap: 28px; align-items: center;
   padding: 28px 30px;

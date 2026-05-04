@@ -21,6 +21,10 @@ import {
 } from './evidence-dataset.js';
 import { getEvidenceUiStats } from './evidence-ui-live.js';
 import { emptyPatientEvidenceContext, loadPatientEvidenceContext } from './patient-evidence-context.js';
+import {
+  ACADEMY_GOVERNANCE_DISCLAIMER,
+  ACADEMY_PATIENT_LOCAL_PROGRESS_NOTE,
+} from './academy-clinic-constants.js';
 
 // ── Nav definition ────────────────────────────────────────────────────────────
 // Patient nav: each item is tagged with a `tone` so the sidebar renders
@@ -6270,7 +6274,7 @@ async function _pgPatientEducationImpl() {
     { id:'p3', icoCls:'shield', tag:'Foundations',       name:'Brain health basics in 7 short videos',  desc:'A friendly tour of brain regions, neurotransmitters, neuroplasticity, qEEG, and how home devices fit into the broader picture.', lessons:7, mins:42, pct:0 },
   ];
 
-  // Academy courses — curated learning resources with completion tracking
+  // Academy courses — patient-facing samples; "completion" is localStorage-only (not a clinic record)
   const ACADEMY_CATEGORIES = [
     { id: 'all',          label: 'All',             icon: '&#128218;' },
     { id: 'understanding', label: 'Understanding',   icon: '&#129504;' },
@@ -6489,7 +6493,12 @@ async function _pgPatientEducationImpl() {
       <!-- Academy -->
       <div class="el-section">
         <div class="el-section-head">
-          <div class="el-section-title"><svg width="16" height="16"><use href="#i-graduation"/></svg>Academy <span class="el-section-count">${_acadCompleted.length}/${ACADEMY_COURSES.length} completed</span></div>
+          <div class="el-section-title"><svg width="16" height="16"><use href="#i-graduation"/></svg>Academy <span class="el-section-count">local: ${_acadCompleted.length}/${ACADEMY_COURSES.length} marked</span></div>
+        </div>
+        <div class="pt-acad-gov" style="margin:0 0 14px;padding:12px 14px;border-radius:12px;border:1px solid rgba(251,191,36,0.35);background:rgba(251,191,36,0.07);font-size:12px;line-height:1.5;color:var(--text-secondary)">
+          <div style="font-weight:600;color:#fcd34d;margin-bottom:6px">For patients — education only</div>
+          <div style="margin-bottom:8px">${ACADEMY_GOVERNANCE_DISCLAIMER}</div>
+          <div style="font-size:11.5px;color:var(--text-tertiary)">${ACADEMY_PATIENT_LOCAL_PROGRESS_NOTE}</div>
         </div>
         <div style="margin-bottom:12px">
           <div style="display:flex;gap:6px;flex-wrap:wrap" id="el-acad-chips">
@@ -6773,11 +6782,12 @@ async function _pgPatientEducationImpl() {
           <span style="padding:3px 10px;border-radius:5px;background:rgba(255,255,255,0.04);color:var(--text-tertiary)">${esc(c.source)}</span>
           ${!c.free ? '<span style="padding:3px 10px;border-radius:5px;background:rgba(251,191,36,0.1);color:#fbbf24">Premium</span>' : '<span style="padding:3px 10px;border-radius:5px;background:rgba(34,197,94,0.1);color:#22c55e">Free</span>'}
         </div>
-        <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px">${esc(c.description)}</div>
+        <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:12px">${esc(c.description)}</div>
+        <div style="font-size:11px;color:var(--text-tertiary);line-height:1.45;margin-bottom:18px;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">${ACADEMY_PATIENT_LOCAL_PROGRESS_NOTE}</div>
         <div style="display:flex;gap:8px;justify-content:flex-end">
           ${done
-            ? '<span style="font-size:12px;color:#22c55e;font-weight:600;padding:7px 14px">&#10003; Completed</span>'
-            : `<button class="btn btn-ghost btn-sm" onclick="window._edAcadComplete('${esc(c.id)}');document.getElementById('ed-acad-modal').remove()">Mark as completed</button>`}
+            ? '<span style="font-size:12px;color:#22c55e;font-weight:600;padding:7px 14px">&#10003; Marked on this device</span>'
+            : `<button class="btn btn-ghost btn-sm" onclick="window._edAcadComplete('${esc(c.id)}');document.getElementById('ed-acad-modal').remove()">Mark as viewed (this device)</button>`}
           <button class="btn btn-primary btn-sm" onclick="document.getElementById('ed-acad-modal').remove()">Close</button>
         </div>
       </div>`;
@@ -6788,7 +6798,7 @@ async function _pgPatientEducationImpl() {
     if (!_acadCompleted.includes(id)) {
       _acadCompleted.push(id);
       try { localStorage.setItem('ds_pt_academy_completed', JSON.stringify(_acadCompleted)); } catch (_e) {}
-      window._showNotifToast && window._showNotifToast({ title: 'Resource completed', body: 'Great job keeping up with your learning!', severity: 'success' });
+      window._showNotifToast && window._showNotifToast({ title: 'Saved on this device', body: 'Marked locally — not sent to your clinic as a training record.', severity: 'success' });
     }
     // Update the checkmark on the card
     const card = document.querySelector('#el-acad-grid .el-card[data-acad-id="' + id + '"]');
@@ -6802,7 +6812,7 @@ async function _pgPatientEducationImpl() {
     const countEl = document.querySelector('.el-section-title svg[href="#i-graduation"]');
     if (countEl) {
       const span = countEl.closest('.el-section-title').querySelector('.el-section-count');
-      if (span) span.textContent = _acadCompleted.length + '/' + ACADEMY_COURSES.length + ' completed';
+      if (span) span.textContent = 'local: ' + _acadCompleted.length + '/' + ACADEMY_COURSES.length + ' marked';
     }
   };
 }
@@ -14740,12 +14750,17 @@ export async function pgPatientAcademy() {
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:8px">
           <div>
             <h2 style="font-size:18px;font-weight:700;color:var(--text-primary);margin:0 0 4px">Academy</h2>
-            <p style="font-size:12.5px;color:var(--text-secondary);margin:0">Courses, guides, and resources curated for your treatment journey.</p>
+            <p style="font-size:12.5px;color:var(--text-secondary);margin:0">General education only — not personalised medical advice. Follow your care team for treatment decisions.</p>
           </div>
           <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-tertiary)">
-            <span style="background:rgba(45,212,191,0.1);color:#2dd4bf;padding:3px 10px;border-radius:6px;font-weight:600">${completed.length} completed</span>
-            <span>${courses.length} resources</span>
+            <span style="background:rgba(45,212,191,0.1);color:#2dd4bf;padding:3px 10px;border-radius:6px;font-weight:600">local: ${completed.length} marked</span>
+            <span>${courses.length} samples</span>
           </div>
+        </div>
+        <div style="margin:12px 0 16px;padding:12px 14px;border-radius:12px;border:1px solid rgba(251,191,36,0.35);background:rgba(251,191,36,0.07);font-size:12px;line-height:1.5;color:var(--text-secondary)">
+          <div style="font-weight:600;color:#fcd34d;margin-bottom:6px">Education only</div>
+          <div style="margin-bottom:8px">${ACADEMY_GOVERNANCE_DISCLAIMER}</div>
+          <div style="font-size:11.5px;color:var(--text-tertiary)">${ACADEMY_PATIENT_LOCAL_PROGRESS_NOTE}</div>
         </div>
 
         <!-- Search -->
@@ -14768,7 +14783,7 @@ export async function pgPatientAcademy() {
               <div style="display:flex;align-items:flex-start;gap:10px">
                 <div style="width:40px;height:40px;border-radius:10px;background:rgba(45,212,191,0.08);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">${c.icon}</div>
                 <div style="flex:1;min-width:0">
-                  <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:2px;display:flex;align-items:center;gap:6px">${c.title}${done ? '<span style="color:#22c55e;font-size:11px">&#10003;</span>' : ''}</div>
+                  <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:2px;display:flex;align-items:center;gap:6px">${c.title}${done ? '<span style="color:#22c55e;font-size:11px" title="Marked on this device">&#10003;</span>' : ''}</div>
                   <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.4">${c.subtitle}</div>
                 </div>
               </div>
@@ -14809,11 +14824,12 @@ export async function pgPatientAcademy() {
           <span style="padding:3px 10px;border-radius:5px;background:rgba(255,255,255,0.04);color:var(--text-tertiary)">${c.source}</span>
           ${!c.free ? '<span style="padding:3px 10px;border-radius:5px;background:rgba(251,191,36,0.1);color:#fbbf24">Premium</span>' : '<span style="padding:3px 10px;border-radius:5px;background:rgba(34,197,94,0.1);color:#22c55e">Free</span>'}
         </div>
-        <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px">${c.description}</div>
+        <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:12px">${c.description}</div>
+        <div style="font-size:11px;color:var(--text-tertiary);line-height:1.45;margin-bottom:18px;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">${ACADEMY_PATIENT_LOCAL_PROGRESS_NOTE}</div>
         <div style="display:flex;gap:8px;justify-content:flex-end">
           ${done
-            ? '<span style="font-size:12px;color:#22c55e;font-weight:600;padding:7px 14px">&#10003; Completed</span>'
-            : `<button class="btn btn-ghost btn-sm" onclick="window._ptAcadComplete('${c.id}');document.getElementById('pt-acad-modal').remove()">Mark as completed</button>`}
+            ? '<span style="font-size:12px;color:#22c55e;font-weight:600;padding:7px 14px">&#10003; Marked on this device</span>'
+            : `<button class="btn btn-ghost btn-sm" onclick="window._ptAcadComplete('${c.id}');document.getElementById('pt-acad-modal').remove()">Mark as viewed (this device)</button>`}
           <button class="btn btn-primary btn-sm" onclick="document.getElementById('pt-acad-modal').remove()">Close</button>
         </div>
       </div>`;
@@ -14823,7 +14839,7 @@ export async function pgPatientAcademy() {
     if (!completed.includes(id)) {
       completed.push(id);
       try { localStorage.setItem('ds_pt_academy_completed', JSON.stringify(completed)); } catch (_e) {}
-      window._showNotifToast && window._showNotifToast({ title: 'Resource completed', body: 'Great job keeping up with your learning!', severity: 'success' });
+      window._showNotifToast && window._showNotifToast({ title: 'Saved on this device', body: 'Marked locally — not sent to your clinic as a training record.', severity: 'success' });
     }
     _renderAcademy();
   };
