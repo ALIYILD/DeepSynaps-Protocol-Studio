@@ -2877,6 +2877,42 @@ export const api = {
   medicationAnalyzerAudit: (patientId) =>
     apiFetch(`/api/v1/medications/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
 
+  // ── Bio Database ─────────────────────────────────────────────────────────
+  listBioCatalog: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch(`/api/v1/bio/catalog${q ? '?' + q : ''}`);
+  },
+  seedBioCatalog: () =>
+    apiFetch('/api/v1/bio/catalog/seed-defaults', { method: 'POST' }),
+  getPatientBioSummary: (patientId) =>
+    apiFetch(`/api/v1/bio/patients/${encodeURIComponent(patientId)}/summary`),
+  listPatientBioSubstances: (patientId) =>
+    apiFetch(`/api/v1/bio/patients/${encodeURIComponent(patientId)}/substances`),
+  createPatientBioSubstance: (patientId, body) =>
+    apiFetch(`/api/v1/bio/patients/${encodeURIComponent(patientId)}/substances`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  deletePatientBioSubstance: (patientId, substanceId) =>
+    apiFetch(
+      `/api/v1/bio/patients/${encodeURIComponent(patientId)}/substances/${encodeURIComponent(substanceId)}`,
+      { method: 'DELETE' }
+    ),
+  listPatientBioLabs: (patientId) =>
+    apiFetch(`/api/v1/bio/patients/${encodeURIComponent(patientId)}/labs`),
+  createPatientBioLab: (patientId, body) =>
+    apiFetch(`/api/v1/bio/patients/${encodeURIComponent(patientId)}/labs`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  deletePatientBioLab: (patientId, labResultId) =>
+    apiFetch(
+      `/api/v1/bio/patients/${encodeURIComponent(patientId)}/labs/${encodeURIComponent(labResultId)}`,
+      { method: 'DELETE' }
+    ),
+
   // ── Consent Management ────────────────────────────────────────────────────
   getConsentRecords: (params = {}) => {
     const q = new URLSearchParams(params).toString();

@@ -183,6 +183,8 @@ let _modMedicationAnalyzer = null;
 async function loadMedicationAnalyzer() { return (_modMedicationAnalyzer ??= await import('./pages-medication-analyzer.js')); }
 let _modTreatmentSessionsAnalyzer = null;
 async function loadTreatmentSessionsAnalyzer() { return (_modTreatmentSessionsAnalyzer ??= await import('./pages-treatment-sessions-analyzer.js')); }
+let _modBioDatabase = null;
+async function loadBioDatabase() { return (_modBioDatabase ??= await import('./pages-bio-database.js')); }
 let _modPhenotypeAnalyzer = null;
 async function loadPhenotypeAnalyzer() { return (_modPhenotypeAnalyzer ??= await import('./pages-phenotype-analyzer.js')); }
 let _modMovementAnalyzer = null;
@@ -559,6 +561,7 @@ const NAV = [
   { id: 'wearables',          label: 'Biometrics',   icon: '⌚', ai: true },
   { id: 'risk-analyzer',      label: 'Risk',         icon: '🛡️', ai: true },
   { id: 'medication-analyzer', label: 'Medication',  icon: '💊', ai: true },
+  { id: 'bio-database',       label: 'Bio Database', icon: '🧪', ai: true },
   { id: 'treatment-sessions-analyzer', label: 'Sessions', icon: '🗓️', ai: true },
   { id: 'phenotype-analyzer', label: 'Phenotype', icon: '🧬', ai: true },
   { id: 'movement-analyzer', label: 'Movement', icon: '🏃', ai: true },
@@ -1033,6 +1036,7 @@ const PAGE_TITLES = {
   'population-analytics': 'Population Analytics',
   'media-queue': 'Patient Media Review Queue',
   'media-detail': 'Upload Detail',
+  'bio-database': 'Bio Database',
   'clinician-dictation': 'Clinical Note — Voice or Text',
   'clinician-draft-review': 'Review AI-Generated Draft',
   'clinical-notes': 'Clinical Notes',
@@ -1916,6 +1920,7 @@ async function renderPage() {
     case 'risk-analyzer':      { const m = await loadRiskAnalyzer(); await m.pgRiskAnalyzer(setTopbar, navigate); break; }
     case 'nutrition-analyzer': { const m = await loadNutritionAnalyzer(); await m.pgNutritionAnalyzer(setTopbar, navigate); break; }
     case 'medication-analyzer': { const m = await loadMedicationAnalyzer(); await m.pgMedicationAnalyzer(setTopbar, navigate); break; }
+    case 'bio-database':       { const m = await loadBioDatabase(); await m.pgBioDatabase(setTopbar, navigate); break; }
     case 'treatment-sessions-analyzer': { const m = await loadTreatmentSessionsAnalyzer(); await m.pgTreatmentSessionsAnalyzer(setTopbar, navigate); break; }
     case 'phenotype-analyzer': { const m = await loadPhenotypeAnalyzer(); await m.pgPhenotypeAnalyzer(setTopbar, navigate); break; }
     case 'movement-analyzer':  { const m = await loadMovementAnalyzer(); await m.pgMovementAnalyzer(setTopbar, navigate); break; }

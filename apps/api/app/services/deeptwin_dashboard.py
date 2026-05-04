@@ -37,6 +37,7 @@ from app.persistence.models import (
     AssessmentRecord,
     AudioAnalysis,
     ClinicalSession,
+    PatientLabResult,
     Message,
     MriAnalysis,
     OutcomeEvent,
@@ -401,11 +402,32 @@ def _medications(session: Session, patient_id: str) -> dict[str, Any]:
                    summary=f"{n} medication record(s) on file.", upload_links=upload)
 
 
-def _labs(_session: Session, _patient_id: str) -> dict[str, Any]:
+def _labs(session: Session, patient_id: str) -> dict[str, Any]:
+    n, latest = _count_and_latest(
+        session,
+        PatientLabResult,
+        patient_id,
+        ts_col="collected_at",
+    )
+    upload = [{
+        "label": "Add lab result",
+        "href": f"/patients/{patient_id}/bio-database",
+        "kind": "lab",
+    }]
+    if n == 0:
+        return _domain(
+            "labs",
+            status="missing",
+            summary="No labs or biomarkers on file.",
+            upload_links=upload,
+        )
     return _domain(
-        "labs", status="unavailable",
-        summary="No labs/biomarker ingestion path in the platform yet.",
-        warnings=["Domain is structurally unavailable, not data-missing."],
+        "labs",
+        status="available",
+        record_count=n,
+        last_updated=latest,
+        summary=f"{n} lab/biomarker result(s) on file.",
+        upload_links=upload,
     )
 
 
