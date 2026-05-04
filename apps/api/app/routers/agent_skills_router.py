@@ -21,10 +21,23 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from deepsynaps_safety_engine import (
+    GOVERNANCE_POLICY_REF,
+    SAFETY_ENGINE_WRAPPER_VERSION,
+    CuratedSkillDefinition,
+    get_allowlisted_openclaw_skills,
+    get_rejected_openclaw_skills,
+)
+
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import AgentSkill
+from app.services.curated_clinical_skills_layer import (
+    CuratedLayerUseCase,
+    get_curated_clinical_layer_use_case,
+    list_curated_clinical_layer_use_cases,
+)
 
 router = APIRouter(prefix="/api/v1/agent-skills", tags=["agent-skills"])
 
@@ -92,6 +105,49 @@ class AgentSkillListResponse(BaseModel):
     total: int
 
 
+class OpenClawWrapperDefaultsOut(BaseModel):
+    requires_clinician_review: bool
+    governance_policy_ref: str
+    wrapper_version: str
+
+
+class OpenClawCuratedSkillOut(BaseModel):
+    source_skill_name: str
+    domain: str
+    status: str
+    license_note: str
+    rationale: str
+    patient_facing_default_allowed: bool
+    notes: list[str]
+    wrapper_defaults: OpenClawWrapperDefaultsOut
+
+
+class OpenClawCuratedSkillCatalogResponse(BaseModel):
+    allowlisted: list[OpenClawCuratedSkillOut]
+    rejected: list[OpenClawCuratedSkillOut]
+    allowlisted_total: int
+    rejected_total: int
+
+
+class CuratedClinicalLayerUseCaseOut(BaseModel):
+    id: str
+    label: str
+    summary: str
+    execution_mode: str
+    allowed_source_skills: list[str]
+    native_backing_services: list[str]
+    supported_claim_types: list[str]
+    patient_facing_possible: bool
+    requires_citations: bool
+    notes: list[str]
+    wrapper_defaults: OpenClawWrapperDefaultsOut
+
+
+class CuratedClinicalLayerResponse(BaseModel):
+    use_cases: list[CuratedClinicalLayerUseCaseOut]
+    total: int
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
@@ -121,6 +177,47 @@ def _record_to_out(record: AgentSkill) -> AgentSkillOut:
         sort_order=record.sort_order or 0,
         created_at=record.created_at.isoformat(),
         updated_at=record.updated_at.isoformat(),
+    )
+
+
+def _curated_openclaw_skill_to_out(
+    definition: CuratedSkillDefinition,
+) -> OpenClawCuratedSkillOut:
+    return OpenClawCuratedSkillOut(
+        source_skill_name=definition.source_skill_name,
+        domain=definition.domain,
+        status=definition.status,
+        license_note=definition.license_note,
+        rationale=definition.rationale,
+        patient_facing_default_allowed=definition.patient_facing_default_allowed,
+        notes=list(definition.notes),
+        wrapper_defaults=OpenClawWrapperDefaultsOut(
+            requires_clinician_review=True,
+            governance_policy_ref=GOVERNANCE_POLICY_REF,
+            wrapper_version=SAFETY_ENGINE_WRAPPER_VERSION,
+        ),
+    )
+
+
+def _curated_layer_use_case_to_out(
+    definition: CuratedLayerUseCase,
+) -> CuratedClinicalLayerUseCaseOut:
+    return CuratedClinicalLayerUseCaseOut(
+        id=definition.id,
+        label=definition.label,
+        summary=definition.summary,
+        execution_mode=definition.execution_mode,
+        allowed_source_skills=list(definition.allowed_source_skills),
+        native_backing_services=list(definition.native_backing_services),
+        supported_claim_types=list(definition.supported_claim_types),
+        patient_facing_possible=definition.patient_facing_possible,
+        requires_citations=definition.requires_citations,
+        notes=list(definition.notes),
+        wrapper_defaults=OpenClawWrapperDefaultsOut(
+            requires_clinician_review=True,
+            governance_policy_ref=GOVERNANCE_POLICY_REF,
+            wrapper_version=SAFETY_ENGINE_WRAPPER_VERSION,
+        ),
     )
 
 
@@ -167,6 +264,43 @@ def list_agent_skills(
     rows = session.scalars(query).all()
     items = [_record_to_out(r) for r in rows]
     return AgentSkillListResponse(items=items, total=len(items))
+
+
+@router.get("/openclaw-curated", response_model=OpenClawCuratedSkillCatalogResponse)
+def list_curated_openclaw_skills(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> OpenClawCuratedSkillCatalogResponse:
+    """List the reviewed OpenClaw skills DeepSynaps may integrate safely.
+
+    This is a read-only registry view backed by the safety engine's curated
+    allowlist / reject list. It does not enable runtime execution by itself.
+    """
+    require_minimum_role(actor, "clinician")
+    allowlisted = [
+        _curated_openclaw_skill_to_out(row) for row in get_allowlisted_openclaw_skills()
+    ]
+    rejected = [
+        _curated_openclaw_skill_to_out(row) for row in get_rejected_openclaw_skills()
+    ]
+    return OpenClawCuratedSkillCatalogResponse(
+        allowlisted=allowlisted,
+        rejected=rejected,
+        allowlisted_total=len(allowlisted),
+        rejected_total=len(rejected),
+    )
+
+
+@router.get("/openclaw-curated/layer", response_model=CuratedClinicalLayerResponse)
+def list_curated_clinical_skill_layer(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> CuratedClinicalLayerResponse:
+    """List the DeepSynaps-native curated clinical skill layer use-cases."""
+    require_minimum_role(actor, "clinician")
+    use_cases = [
+        _curated_layer_use_case_to_out(row)
+        for row in list_curated_clinical_layer_use_cases()
+    ]
+    return CuratedClinicalLayerResponse(use_cases=use_cases, total=len(use_cases))
 
 
 @router.post("", response_model=AgentSkillOut, status_code=201)

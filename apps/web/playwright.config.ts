@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const remoteBaseURL = process.env.PLAYWRIGHT_BASE_URL;
+
 export default defineConfig({
   testDir: './e2e',
   timeout: 30000,
@@ -9,7 +11,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: [['html', { outputFolder: 'playwright-report' }], ['list']],
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: remoteBaseURL || 'http://localhost:5173',
     actionTimeout: 10000,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
@@ -17,10 +19,13 @@ export default defineConfig({
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
   ],
-  webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:5173',
-    reuseExistingServer: !process.env.CI,
-    timeout: 60000,
-  },
+  // Skip local dev server when running against a remote preview URL.
+  ...(remoteBaseURL ? {} : {
+    webServer: {
+      command: 'npm run dev',
+      url: 'http://localhost:5173',
+      reuseExistingServer: !process.env.CI,
+      timeout: 60000,
+    },
+  }),
 });

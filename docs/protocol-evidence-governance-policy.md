@@ -170,10 +170,41 @@ Use **for this package’s condition** unless `evidence_summary` explicitly scop
 
 ---
 
-## 11. Document control
+## 11. External clinical skill layers
+
+Any external skill library integrated into DeepSynaps, including curated
+OpenClaw skills, is treated as an **untrusted drafting and retrieval layer**,
+not as an autonomous clinical authority.
+
+1. **Allowlist only.** External skills must be reviewed individually. Bulk
+   imports of upstream skill packs are not allowed.
+2. **Mandatory wrapper.** Every external skill output must pass through
+   `deepsynaps_safety_engine.wrap_openclaw_skill_output(...)` or an equivalent
+   gate that records:
+   - source skill name
+   - evidence level
+   - clinical claim type
+   - off-label risk flag
+   - `requires_clinician_review: true`
+   - patient-facing safe copy allowed: true/false
+3. **No bypass paths.** External skills may not directly trigger patient export,
+   clinician sign-off, protocol activation, or safety overrides.
+4. **Protocol claims require citations.** Any protocol or neuromodulation claim
+   produced through an external skill must carry citations before it can be
+   stored, rendered, or exported.
+5. **Off-label handling.** If an external skill suggests off-label or
+   investigational neuromodulation content, the wrapper must set the off-label
+   flag before any downstream use, and patient-facing reuse must remain blocked
+   unless a clinician-safe rewrite is approved.
+6. **Out-of-scope capabilities.** External skills that diagnose, prescribe,
+   guarantee benefit, auto-authorize, auto-deny, or make autonomous clinical
+   decisions are not allowed to run inside this policy boundary.
+
+## 12. Document control
 
 | Version | Date | Notes |
 |---------|------|------|
+| 1.1 | 2026-05-04 | Added external clinical skill layer policy and mandatory wrapper requirements for curated third-party skills. |
 | 1.0 | 2026-04-12 | Initial policy aligned with schema and recent package refreshes (e.g., anxiety, insomnia). |
 
 **Owner:** Clinical governance / medical affairs (assign named role).  
