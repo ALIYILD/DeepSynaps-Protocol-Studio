@@ -1093,6 +1093,16 @@ async function navigate(id, params = {}) {
     }
     if (params.courseId !== undefined) window._selectedCourseId   = params.courseId;
     if (params.uploadId !== undefined) window._mediaDetailUploadId = params.uploadId;
+    if (id === 'research-evidence') {
+      if (params.tab !== undefined) window._resEvidenceTab = params.tab;
+      if (params.q !== undefined) {
+        window._reSearch = window._reSearch || {};
+        const targetTab = params.tab || window._resEvidenceTab || 'search';
+        window._reSearch[targetTab] = String(params.q || '');
+      }
+      if (params.topic !== undefined) window._reAdjunctTopic = params.topic;
+      if (params.source !== undefined) window._reEvidenceSource = params.source;
+    }
   }
   window._closeSidebar();
   // Track recent pages for command palette
@@ -1119,7 +1129,19 @@ async function navigate(id, params = {}) {
   if (id !== 'course-detail') window._cdTab = 'overview';
   // Push browser history so back/forward works
   if (typeof history !== 'undefined' && history.pushState) {
-    history.pushState({ page: id, params }, '', `?page=${encodeURIComponent(id)}`);
+    const sp = new URLSearchParams();
+    sp.set('page', id);
+    if (id === 'research-evidence') {
+      const tab = String(params?.tab || window._resEvidenceTab || '').trim();
+      const q = String((params?.q ?? (tab ? window._reSearch?.[tab] : '')) || '').trim();
+      const topic = String((params?.topic ?? window._reAdjunctTopic) || '').trim();
+      const source = String((params?.source ?? window._reEvidenceSource) || '').trim();
+      if (tab) sp.set('tab', tab);
+      if (q) sp.set('q', q);
+      if (topic) sp.set('topic', topic);
+      if (source) sp.set('source', source);
+    }
+    history.pushState({ page: id, params }, '', `?${sp.toString()}`);
   }
   renderNav();
   initSidebarKeyboard();
@@ -1692,6 +1714,8 @@ async function renderPage() {
     case 'monitoring': { window._devicesPresetTab = 'live'; navigate('monitor'); break; }
     case 'wearables':  { window._devicesPresetTab = 'biometrics'; navigate('monitor'); break; }
     case 'library-hub':    { window._resEvidenceTab = 'search'; window._nav('research-evidence'); break; }
+    case 'adjunct-evidence':
+    case 'research-adjunct': { window._resEvidenceTab = 'adjunct'; window._nav('research-evidence'); break; }
     case 'monitor-hub':    { const { pgMonitorHub }    = await loadClinicalHubs(); await pgMonitorHub(setTopbar, navigate);    break; }
     case 'virtual-care-hub':{ const { pgVirtualCareHub } = await loadClinicalHubs(); await pgVirtualCareHub(setTopbar, navigate); break; }
     case 'home-task-manager': { const m = await loadClinicalTools(); await m.pgHomePrograms(setTopbar, navigate); break; }

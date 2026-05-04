@@ -2125,7 +2125,8 @@ export async function pgDash(setTopbar, navigate) {
     <div style="display:flex;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border);flex-wrap:wrap">
       <button class="dh2-launch-btn" onclick="window._nav('protocol-hub')">Browse protocols</button>
       <button class="dh2-launch-btn" onclick="window._protocolHubTab='generate';window._nav('protocol-hub')">Generate protocol</button>
-      <button class="dh2-launch-btn" onclick="window._nav('research-evidence')">Evidence library</button>
+      <button class="dh2-launch-btn" onclick="window._nav('research-evidence',{tab:'search',source:'clinical-dashboard'})">Evidence library</button>
+      <button class="dh2-launch-btn" onclick="window._nav('research-evidence',{tab:'adjunct',source:'clinical-dashboard'})">Labs / meds / diet evidence</button>
       <span style="margin-left:auto;font-size:10px;color:var(--text-tertiary);align-self:center">Sources: ${(liveEvidence.sources || EVIDENCE_SUMMARY?.sources || []).slice(0, 4).join(', ')}${(liveEvidence.sources || EVIDENCE_SUMMARY?.sources || []).length > 4 ? ' +' + (((liveEvidence.sources || EVIDENCE_SUMMARY?.sources || []).length) - 4) + ' more' : ''}</span>
     </div>
   </div>`;
@@ -10599,7 +10600,7 @@ export async function pgProtocolBuilder(setTopbar) {
       const rows = liveBundle[modality]?.templates || [];
       rows.slice(0, 2).forEach((row) => {
         const label = [row.modality || modality.toUpperCase(), row.indication, row.target].filter(Boolean).join(' — ');
-        links.push({ text: `${label} · ${row.evidence_tier || 'Tier unset'}`, page: 'research-evidence' });
+        links.push({ text: `${label} · ${row.evidence_tier || 'Tier unset'}`, page: 'research-evidence', params: { tab: 'search', q: label, source: 'clinical-protocol-builder' } });
       });
     };
     _pushTemplateLinks('tms');
@@ -10607,11 +10608,11 @@ export async function pgProtocolBuilder(setTopbar) {
     _pushTemplateLinks('tdcs');
     _pushTemplateLinks('biofeedback');
     if (!links.length) {
-      if (hasTMS) links.push({ text: 'George et al. (2010) — TMS for depression, d=0.55', page: 'research-evidence' });
-      if (hasNFB) links.push({ text: 'Arns et al. (2009) — Neurofeedback for ADHD, d=0.59', page: 'research-evidence' });
-      if (hasTDCS) links.push({ text: 'Brunoni et al. (2017) — tDCS meta-analysis, d=0.37', page: 'research-evidence' });
+      if (hasTMS) links.push({ text: 'George et al. (2010) — TMS for depression, d=0.55', page: 'research-evidence', params: { tab: 'search', q: 'George 2010 TMS depression', source: 'clinical-protocol-builder' } });
+      if (hasNFB) links.push({ text: 'Arns et al. (2009) — Neurofeedback for ADHD, d=0.59', page: 'research-evidence', params: { tab: 'search', q: 'Arns 2009 neurofeedback ADHD', source: 'clinical-protocol-builder' } });
+      if (hasTDCS) links.push({ text: 'Brunoni et al. (2017) — tDCS meta-analysis, d=0.37', page: 'research-evidence', params: { tab: 'search', q: 'Brunoni 2017 tDCS meta-analysis', source: 'clinical-protocol-builder' } });
     }
-    links.push({ text: 'Browse full evidence library →', page: 'evidence' });
+    links.push({ text: 'Browse full evidence library →', page: 'research-evidence', params: { tab: 'search', source: 'clinical-protocol-builder' } });
 
     panel.style.display = '';
     panel.innerHTML = `
@@ -10635,7 +10636,7 @@ export async function pgProtocolBuilder(setTopbar) {
 
       <div class="ai-suggest-section">
         <div class="ai-suggest-section-title">Relevant Literature</div>
-        ${links.map(l => `<div style="margin-bottom:4px"><span class="ai-suggest-link" onclick="window._nav('${l.page}')">${l.text}</span></div>`).join('')}
+        ${links.map(l => `<div style="margin-bottom:4px"><span class="ai-suggest-link" onclick='window._nav("${l.page}", ${JSON.stringify(l.params || {})})'>${l.text}</span></div>`).join('')}
       </div>
 
       <div style="margin-top:12px;display:flex;gap:10px;align-items:center">

@@ -274,8 +274,11 @@ function _renderRefPills(refs) {
     return `<span style="display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap;margin:2px 8px 2px 0">
       <span style="font-size:11px;color:var(--text-tertiary);max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${tooltip}">${title}${meta ? ` <span style="opacity:.7">(${esc(meta)})</span>` : ''}</span>
       <button type="button" class="pill" data-action="open-evidence" data-prefill="${prefill}"
-        title="Search this PMID in the local 87k evidence corpus"
+        title="Open the Labs / Meds / Diet evidence area with this PMID context"
         style="background:rgba(155,127,255,0.10);color:var(--violet,#9b7fff);border:1px solid rgba(155,127,255,0.30);cursor:pointer;font-size:10.5px;min-height:24px;padding:2px 8px">📚 87k evidence</button>
+      <button type="button" class="pill" data-action="open-evidence-search" data-prefill="${prefill}"
+        title="Search this PMID in the brokered evidence search"
+        style="background:rgba(45,212,191,0.10);color:var(--teal);border:1px solid rgba(45,212,191,0.30);cursor:pointer;font-size:10.5px;min-height:24px;padding:2px 8px">🔎 Search tab</button>
       <a class="pill" href="${pubmed}" target="_blank" rel="noopener noreferrer"
         title="Open PMID ${esc(pmid)} on PubMed (new tab)"
         style="background:rgba(45,212,191,0.10);color:var(--teal);border:1px solid rgba(45,212,191,0.30);text-decoration:none;font-size:10.5px;min-height:24px;padding:2px 8px">🔗 PubMed</a>
@@ -512,6 +515,8 @@ function _renderPatientDetail(profile, audit, expandedKey, opts = {}) {
   const panelCards = panels.map((pn) => _renderPanelCard(pn, profile?.prior_results, expandedKey)).join('');
   const flags = _renderFlagsPanel(profile?.flags);
   const emptyPanelsMsg = '<div style="color:var(--text-tertiary);font-size:12px;line-height:1.5">No structured panels in this payload. Missing laboratory data here does not imply normal labs or low clinical risk.</div>';
+  const topFlags = Array.isArray(profile?.flags) ? profile.flags.slice(0, 3).map((f) => f?.analyte).filter(Boolean) : [];
+  const adjunctPrefill = esc(topFlags.join(' ') || panels[0]?.results?.[0]?.analyte || 'lithium TSH vitamin D');
   return `${_renderGovernanceStrip()}
     ${_renderProvenanceStrip(profile, usingFixtures)}
     ${_renderLinkedModulesNav(patientId)}
@@ -520,7 +525,11 @@ function _renderPatientDetail(profile, audit, expandedKey, opts = {}) {
         <div style="font-size:12px;color:var(--text-tertiary)">Last reported / generated: ${esc(captured)}</div>
         ${staleHint}
       </div>
-      <button type="button" class="btn btn-ghost btn-sm" data-action="recompute" style="min-height:44px" title="Rebuild lab summary from stored results when API is available">Refresh summary</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" class="btn btn-ghost btn-sm" data-action="open-adjunct" data-prefill="${adjunctPrefill}" style="min-height:44px">Adjunct evidence</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-action="open-brokered-search" data-prefill="${adjunctPrefill}" style="min-height:44px">Evidence search</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-action="recompute" style="min-height:44px" title="Rebuild lab summary from stored results when API is available">Refresh summary</button>
+      </div>
     </div>
     <div style="margin-bottom:12px;font-size:11px;color:var(--text-tertiary);line-height:1.5">
       <strong style="color:var(--text-secondary)">Upload / import:</strong> structured PDF/HL7 ingestion is not exposed on this page yet — use your clinic’s document workflow or manual entry below when permitted.
@@ -832,12 +841,25 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
     body.querySelectorAll('[data-flags-section] [data-action="open-evidence"]').forEach((b) => {
       b.addEventListener('click', () => {
         const prefill = b.getAttribute('data-prefill') || '';
-        try {
-          window._reEvidencePrefill = prefill;
-          window._resEvidenceTab = 'search';
-        } catch {}
-        try { navigate?.('research-evidence'); } catch {}
+        try { navigate?.('research-evidence', { tab: 'adjunct', q: prefill, source: 'labs-analyzer' }); } catch {}
       });
+    });
+
+    body.querySelectorAll('[data-action="open-evidence-search"]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const prefill = b.getAttribute('data-prefill') || '';
+        try { navigate?.('research-evidence', { tab: 'search', q: prefill, source: 'labs-analyzer' }); } catch {}
+      });
+    });
+
+    body.querySelector('[data-action="open-adjunct"]')?.addEventListener('click', (ev) => {
+      const prefill = ev.currentTarget?.getAttribute('data-prefill') || '';
+      try { navigate?.('research-evidence', { tab: 'adjunct', q: prefill, source: 'labs-analyzer' }); } catch {}
+    });
+
+    body.querySelector('[data-action="open-brokered-search"]')?.addEventListener('click', (ev) => {
+      const prefill = ev.currentTarget?.getAttribute('data-prefill') || '';
+      try { navigate?.('research-evidence', { tab: 'search', q: prefill, source: 'labs-analyzer' }); } catch {}
     });
 
     body.querySelector('[data-action="recompute"]')?.addEventListener('click', async (ev) => {

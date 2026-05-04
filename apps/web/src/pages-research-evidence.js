@@ -28,6 +28,51 @@ const fmt = n => Number(n).toLocaleString();
 const fmtK = n => n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'K' : String(n);
 const pct = (n, total) => total ? ((n / total) * 100).toFixed(1) : '0';
 
+function _reReadRouteState() {
+  try {
+    const url = new URL(window.location.href);
+    return {
+      tab: url.searchParams.get('tab') || '',
+      q: url.searchParams.get('q') || '',
+      topic: url.searchParams.get('topic') || '',
+      source: url.searchParams.get('source') || '',
+    };
+  } catch {
+    return { tab: '', q: '', topic: '', source: '' };
+  }
+}
+
+function _reApplyRouteState() {
+  const route = _reReadRouteState();
+  const nextTab = route.tab && TAB_META[route.tab] ? route.tab : '';
+  if (nextTab) window._resEvidenceTab = nextTab;
+  if (route.q) {
+    const targetTab = nextTab || window._resEvidenceTab || 'overview';
+    window._reSearch = window._reSearch || {};
+    window._reSearch[targetTab] = route.q;
+  }
+  if (route.topic) window._reAdjunctTopic = route.topic;
+  if (route.source) window._reEvidenceSource = route.source;
+}
+
+function _reSyncRoute(tab) {
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.set('page', 'research-evidence');
+    url.searchParams.set('tab', tab);
+    const q = String(window._reSearch?.[tab] || '').trim();
+    if (q) url.searchParams.set('q', q);
+    else url.searchParams.delete('q');
+    const topic = String(window._reAdjunctTopic || '').trim();
+    if (tab === 'adjunct' && topic) url.searchParams.set('topic', topic);
+    else url.searchParams.delete('topic');
+    const source = String(window._reEvidenceSource || '').trim();
+    if (source) url.searchParams.set('source', source);
+    else url.searchParams.delete('source');
+    history.replaceState({ page: 'research-evidence' }, '', `${url.pathname}?${url.searchParams.toString()}`);
+  } catch {}
+}
+
 /* condition category from CONDITION_REGISTRY (id→cat lookup) */
 const _condCatMap = {};
 for (const c of CONDITION_REGISTRY) _condCatMap[c.id] = c;
@@ -239,8 +284,10 @@ const TAB_META = {
    pgResearchEvidence — main export
    ══════════════════════════════════════════════════════════════════════════════ */
 export async function pgResearchEvidence(setTopbar, navigate) {
+  _reApplyRouteState();
   const tab = window._resEvidenceTab || 'overview';
   window._resEvidenceTab = tab;
+  _reSyncRoute(tab);
   const el = document.getElementById('content');
   const liveEvidence = await getEvidenceUiStats({
     fallbackSummary: EVIDENCE_SUMMARY,
@@ -270,6 +317,28 @@ export async function pgResearchEvidence(setTopbar, navigate) {
   window._reFilter = window._reFilter || {};
   window._reExpand = window._reExpand || {};
   window._reSort   = window._reSort || {};
+  if (tab !== 'search' && window._reEvidencePrefill) {
+    const prefill = String(window._reEvidencePrefill || '').trim();
+    window._reEvidencePrefill = null;
+    if (prefill) {
+      window._reSearch[tab] = prefill;
+    }
+  }
+  window._reOpenTab = function(nextTab, opts = {}) {
+    if (!TAB_META[nextTab]) return;
+    window._resEvidenceTab = nextTab;
+    window._reSearch = window._reSearch || {};
+    if (Object.prototype.hasOwnProperty.call(opts, 'q')) {
+      window._reSearch[nextTab] = String(opts.q || '');
+    }
+    if (Object.prototype.hasOwnProperty.call(opts, 'topic')) {
+      window._reAdjunctTopic = String(opts.topic || '');
+    }
+    if (Object.prototype.hasOwnProperty.call(opts, 'source')) {
+      window._reEvidenceSource = String(opts.source || '');
+    }
+    window._nav('research-evidence');
+  };
 
   const q    = (window._reSearch[tab] || '').toLowerCase();
   const filt = window._reFilter[tab] || 'All';
@@ -350,6 +419,42 @@ function renderOverview(body, liveEvidence = null) {
   }
   kpiHtml += '</div>';
 
+  const quickLinks = [
+    {
+      title: 'Labs / Meds / Diet',
+      body: 'Jump straight into adjunct evidence for biomarkers, medications, supplements, and diet confounders.',
+      action: `window._reOpenTab('adjunct',{source:'overview'})`,
+      cta: 'Open adjunct evidence',
+      tone: 'var(--cyan,var(--teal))',
+    },
+    {
+      title: 'Common Adjunct Queries',
+      body: 'Start with clinician-ready searches for lithium, TSH, omega-3, vitamin D, and inflammation markers.',
+      action: `window._reOpenTab('adjunct',{q:'lithium TSH vitamin D omega-3 CRP',source:'overview'})`,
+      cta: 'Load common search',
+      tone: 'var(--violet)',
+    },
+    {
+      title: 'Condition Review Tables',
+      body: 'Browse depression, OCD, ADHD, pain, and epilepsy review tables without hunting through the evidence graph.',
+      action: `window._reOpenTab('adjunct',{topic:'review-tables',source:'overview'})`,
+      cta: 'Open review tables',
+      tone: 'var(--amber)',
+    },
+  ];
+  let shortcutHtml = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-bottom:20px">';
+  for (const link of quickLinks) {
+    shortcutHtml += `<button type="button" class="ch-card" onclick="${link.action}" style="padding:16px;text-align:left;cursor:pointer;border:1px solid ${link.tone}55;background:linear-gradient(180deg,${link.tone}10,rgba(255,255,255,0.02))">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
+        <div style="font-size:14px;font-weight:700;color:var(--text-primary)">${esc(link.title)}</div>
+        <span style="padding:2px 8px;font-size:10px;border-radius:999px;background:${link.tone};color:#fff">Shortcut</span>
+      </div>
+      <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;margin-top:8px">${esc(link.body)}</div>
+      <div style="font-size:11px;font-weight:600;color:${link.tone};margin-top:12px">${esc(link.cta)} →</div>
+    </button>`;
+  }
+  shortcutHtml += '</div>';
+
   /* sources strip */
   let srcHtml = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:20px">';
   for (const s of (liveEvidence?.sources?.length ? liveEvidence.sources : EVIDENCE_SOURCES)) {
@@ -423,7 +528,11 @@ function renderOverview(body, liveEvidence = null) {
   tcHtml += '</div>';
 
   /* two-column layout for charts */
+<<<<<<< HEAD
   body.innerHTML = _resWorkspaceHeader(liveEvidence, { shortcuts: true }) + kpiHtml + srcHtml + wearBridge +
+=======
+  body.innerHTML = kpiHtml + shortcutHtml + srcHtml +
+>>>>>>> origin/feat/evidence-autonomous-followup-2026-05-02
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:16px">' +
     yearHtml + gradeHtml + modHtml + tcHtml + jrnlHtml +
     '</div>' +
@@ -731,6 +840,11 @@ function renderAdjunctEvidenceSection(q, { standalone = false } = {}) {
   const reviewConditions = Array.isArray(adjunctReviewTables.conditions)
     ? adjunctReviewTables.conditions.filter((row) => Array.isArray(row.rows) && row.rows.length)
     : [];
+  const selectedTopic = String(window._reAdjunctTopic || '').trim();
+  const normalizedTopic = _reSlug(selectedTopic);
+  const visibleReviewConditions = normalizedTopic === 'review-tables'
+    ? reviewConditions
+    : reviewConditions.filter((condition) => !normalizedTopic || _reSlug(condition.condition_label || condition.condition_slug) === normalizedTopic);
   const adjunctRows = (_researchBundleState.adjunctPapers || [])
     .filter((row) => !q || ([
       row.title,
@@ -740,6 +854,12 @@ function renderAdjunctEvidenceSection(q, { standalone = false } = {}) {
       ...(row.adjunct_terms || []),
       ...(row.indication_tags || []),
     ].join(' ').toLowerCase().includes(q)))
+    .filter((row) => {
+      if (!normalizedTopic || normalizedTopic === 'review-tables') return true;
+      return (row.adjunct_topic_labels || []).some((label) => _reSlug(label) === normalizedTopic)
+        || (row.adjunct_terms || []).some((label) => _reSlug(label) === normalizedTopic)
+        || (row.indication_tags || []).some((label) => _reSlug(label) === normalizedTopic);
+    })
     .slice(0, standalone ? 12 : 8);
 
   let html = '';
@@ -770,7 +890,16 @@ function renderAdjunctEvidenceSection(q, { standalone = false } = {}) {
   </div>`;
   html += `<div class="ch-card" style="padding:16px">
     <div style="font-weight:600;font-size:14px;margin-bottom:10px">Top Topics</div>
-    ${(adjunctSummary.top_topics || []).slice(0, standalone ? 8 : 6).map((row) => `<div style="padding:8px 0;border-bottom:1px solid var(--border)"><div style="font-size:12px;font-weight:600">${esc(row.key)}</div><div style="font-size:11px;color:var(--text-tertiary);margin-top:3px">${fmt(row.count)} linked papers</div></div>`).join('') || '<div style="font-size:12px;color:var(--text-tertiary)">No topic summaries available.</div>'}
+    ${(adjunctSummary.top_topics || []).slice(0, standalone ? 8 : 6).map((row) => {
+      const isActive = _reSlug(row.key) === normalizedTopic;
+      return `<button type="button" onclick="window._reOpenTab('adjunct',{topic:'${esc(_reSlug(row.key))}',source:'topic-chip'})" style="display:block;width:100%;padding:8px 0;border:none;border-bottom:1px solid var(--border);background:transparent;text-align:left;cursor:pointer">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
+          <div style="font-size:12px;font-weight:600;color:${isActive ? 'var(--teal)' : 'var(--text-primary)'}">${esc(row.key)}</div>
+          ${isActive ? '<span style="padding:2px 8px;font-size:10px;border-radius:999px;background:var(--teal);color:#fff">Active</span>' : ''}
+        </div>
+        <div style="font-size:11px;color:var(--text-tertiary);margin-top:3px">${fmt(row.count)} linked papers</div>
+      </button>`;
+    }).join('') || '<div style="font-size:12px;color:var(--text-tertiary)">No topic summaries available.</div>'}
   </div>`;
   html += `<div class="ch-card" style="padding:16px">
     <div style="font-weight:600;font-size:14px;margin-bottom:10px">Example Papers</div>
@@ -789,8 +918,18 @@ function renderAdjunctEvidenceSection(q, { standalone = false } = {}) {
     html += '<div style="font-weight:600;font-size:14px">Condition Review Tables</div>';
     html += `<div style="font-size:11px;color:var(--text-tertiary)">Focused on depression, OCD, ADHD, pain, and epilepsy review workflows.</div>`;
     html += '</div>';
+    if (standalone) {
+      html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">';
+      html += `<button type="button" class="reg-domain-pill${normalizedTopic === 'review-tables' ? ' active' : ''}" onclick="window._reOpenTab('adjunct',{topic:'review-tables',source:'review-tables'})">All review tables</button>`;
+      html += reviewConditions.map((condition) => {
+        const slug = _reSlug(condition.condition_label || condition.condition_slug);
+        const active = slug === normalizedTopic;
+        return `<button type="button" class="reg-domain-pill${active ? ' active' : ''}" onclick="window._reOpenTab('adjunct',{topic:'${esc(slug)}',source:'review-tables'})">${esc(condition.condition_label || condition.condition_slug || 'Condition')}</button>`;
+      }).join('');
+      html += '</div>';
+    }
     html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">';
-    html += reviewConditions.map((condition) => `<div style="padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--surface-2)">
+    html += visibleReviewConditions.map((condition) => `<div style="padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--surface-2)">
       <div style="font-size:13px;font-weight:600;margin-bottom:10px">${esc(condition.condition_label || condition.condition_slug || 'Condition')}</div>
       ${(condition.rows || []).map((row) => `<div style="padding:10px 0;border-top:1px solid var(--border)">
         <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
@@ -808,7 +947,22 @@ function renderAdjunctEvidenceSection(q, { standalone = false } = {}) {
   return html;
 }
 
+<<<<<<< HEAD
 async function renderNeuro(body, liveEvidence, q, filt, sInput, pills) {
+=======
+function _hasAdjunctEvidenceBundleData() {
+  const reviewConditions = Array.isArray(_researchBundleState.adjunctReviewTables?.conditions)
+    ? _researchBundleState.adjunctReviewTables.conditions.filter((row) => Array.isArray(row?.rows) && row.rows.length)
+    : [];
+  return !!(
+    _researchBundleState.adjunctSummary ||
+    _researchBundleState.adjunctPapers.length ||
+    reviewConditions.length
+  );
+}
+
+async function renderNeuro(body, q, filt, sInput, pills) {
+>>>>>>> origin/feat/evidence-autonomous-followup-2026-05-02
   await _ensureResearchBundleData();
   const lobes = ['All', ...new Set(BRAIN_TARGET_REGISTRY.map(t => t.lobe).filter(Boolean))];
 
@@ -864,7 +1018,7 @@ async function renderNeuro(body, liveEvidence, q, filt, sInput, pills) {
   html += '</tbody></table></div>';
   html += `<div style="font-size:11px;color:var(--text-tertiary);margin-top:8px">Showing ${rows.length} of ${BRAIN_TARGET_REGISTRY.length} brain targets</div>`;
 
-  if (_researchBundleState.adjunctSummary || _researchBundleState.adjunctPapers.length) {
+  if (_hasAdjunctEvidenceBundleData()) {
     html += renderAdjunctEvidenceSection(q);
   }
 
@@ -883,7 +1037,7 @@ async function renderAdjunctEvidence(body, liveEvidence, q, sInput) {
     ${sInput('Search labs, medications, supplements, vitamins, and diet evidence...')}
   </div>`;
 
-  if (_researchBundleState.adjunctSummary || _researchBundleState.adjunctPapers.length) {
+  if (_hasAdjunctEvidenceBundleData()) {
     html += renderAdjunctEvidenceSection(q, { standalone: true });
   } else {
     html += `<div class="ch-card" style="padding:16px">
@@ -928,6 +1082,7 @@ function renderAIML(body, liveEvidence, q, sInput) {
    ══════════════════════════════════════════════════════════════════════════════ */
 async function renderEvidenceSearch(body, liveEvidence) {
   await _ensureProtoData();
+  const defaultSearch = String(window._reEvidencePrefill || window._reSearch?.search || '').trim();
 
   const kpi = (color, value, label, title) =>
     `<div class="ch-kpi-card" style="--kpi-color:${color}"${title ? ` title="${esc(title)}"` : ''}>` +
@@ -1099,7 +1254,7 @@ async function renderEvidenceSearch(body, liveEvidence) {
       '</div>' +
       '<div style="padding:14px 16px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">' +
         '<div style="flex:2;min-width:240px"><label class="sr-only" for="lib-ext-q">Query</label>' +
-          '<input id="lib-ext-q" type="search" placeholder="e.g. rTMS dlpfc depression meta-analysis" class="ph-search-input" style="width:100%">' +
+          '<input id="lib-ext-q" type="search" value="' + esc(defaultSearch) + '" placeholder="e.g. rTMS dlpfc depression meta-analysis" class="ph-search-input" style="width:100%">' +
         '</div>' +
         '<div style="flex:1;min-width:180px"><label class="sr-only" for="lib-ext-cond">Condition scope</label>' +
           '<select id="lib-ext-cond" class="ph-search-input" style="width:100%">' + condOptions + '</select>' +
@@ -1151,15 +1306,15 @@ async function renderEvidenceSearch(body, liveEvidence) {
     }
   }
 
-  if (window._reEvidencePrefill) {
-    const _pref = String(window._reEvidencePrefill || '').trim();
+  if (defaultSearch) {
+    window._reSearch = window._reSearch || {};
+    window._reSearch.search = defaultSearch;
     window._reEvidencePrefill = null;
     const _input = document.getElementById('lib-ext-q');
-    if (_input && _pref) {
-      _input.value = _pref;
+    if (_input) {
       try { _input.focus(); _input.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch {}
-      try { window._libExternalSearch?.(); } catch {}
     }
+    try { window._libExternalSearch?.(); } catch {}
   }
 }
 
