@@ -119,6 +119,13 @@ from .auth import (
     TwoFactorVerifyResponse,
     UserProfile,
 )
+from .agent_skills import (
+    CuratedClinicalLayerResponse,
+    CuratedClinicalLayerUseCaseOut,
+    OpenClawCuratedSkillCatalogResponse,
+    OpenClawCuratedSkillOut,
+    OpenClawWrapperDefaultsOut,
+)
 from .models import (
     ApprovalBadge,
     AssessmentPlan,
@@ -247,6 +254,12 @@ __all__ = [
     "TwoFactorVerifyRequest",
     "TwoFactorVerifyResponse",
     "UserProfile",
+    # agent_skills exports
+    "CuratedClinicalLayerResponse",
+    "CuratedClinicalLayerUseCaseOut",
+    "OpenClawCuratedSkillCatalogResponse",
+    "OpenClawCuratedSkillOut",
+    "OpenClawWrapperDefaultsOut",
     # condition_package exports
     "AbsoluteContraindication",
     "AdherenceRules",

@@ -18,6 +18,13 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+from deepsynaps_core_schema import (
+    CuratedClinicalLayerResponse,
+    CuratedClinicalLayerUseCaseOut,
+    OpenClawCuratedSkillCatalogResponse,
+    OpenClawCuratedSkillOut,
+    OpenClawWrapperDefaultsOut,
+)
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -102,49 +109,6 @@ class AgentSkillOut(BaseModel):
 
 class AgentSkillListResponse(BaseModel):
     items: list[AgentSkillOut]
-    total: int
-
-
-class OpenClawWrapperDefaultsOut(BaseModel):
-    requires_clinician_review: bool
-    governance_policy_ref: str
-    wrapper_version: str
-
-
-class OpenClawCuratedSkillOut(BaseModel):
-    source_skill_name: str
-    domain: str
-    status: str
-    license_note: str
-    rationale: str
-    patient_facing_default_allowed: bool
-    notes: list[str]
-    wrapper_defaults: OpenClawWrapperDefaultsOut
-
-
-class OpenClawCuratedSkillCatalogResponse(BaseModel):
-    allowlisted: list[OpenClawCuratedSkillOut]
-    rejected: list[OpenClawCuratedSkillOut]
-    allowlisted_total: int
-    rejected_total: int
-
-
-class CuratedClinicalLayerUseCaseOut(BaseModel):
-    id: str
-    label: str
-    summary: str
-    execution_mode: str
-    allowed_source_skills: list[str]
-    native_backing_services: list[str]
-    supported_claim_types: list[str]
-    patient_facing_possible: bool
-    requires_citations: bool
-    notes: list[str]
-    wrapper_defaults: OpenClawWrapperDefaultsOut
-
-
-class CuratedClinicalLayerResponse(BaseModel):
-    use_cases: list[CuratedClinicalLayerUseCaseOut]
     total: int
 
 
