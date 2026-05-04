@@ -12,14 +12,14 @@
 - [ ] `netlify login` completed on deploy machine
 
 ### API (Fly.io)
-- [x] `fly.toml` configured (app: `deepsynaps-studio`, region: `lhr`)
-- [x] Dockerfile builds (multi-stage, Python 3.11)
+- [x] `apps/api/fly.toml` configured (app: `deepsynaps-studio`, region: `lhr`)
+- [x] `apps/api/Dockerfile` builds (multi-stage, Python 3.11)
 - [x] Health check endpoint at `/health`
 - [x] AI health endpoint at `/api/v1/health/ai`
 - [x] Release command runs `alembic upgrade head`
 - [x] 1755 backend tests pass, 0 failures
 - [ ] Required secrets set via `fly secrets set`:
-  - [ ] `DEEPSYNAPS_DATABASE_URL` (PostgreSQL connection string)
+  - [ ] `DEEPSYNAPS_DATABASE_URL` (preview: SQLite path on `/data`; production: PostgreSQL connection string)
   - [ ] `JWT_SECRET_KEY` (min 32 chars)
   - [ ] `DEEPSYNAPS_SECRETS_KEY` (Fernet key)
   - [ ] `DEEPSYNAPS_CORS_ORIGINS` (e.g. `https://deepsynaps-studio-preview.netlify.app`)
@@ -79,4 +79,7 @@ bash scripts/deploy-preview.sh --api
 
 # Both
 bash scripts/deploy-preview.sh --api
+
+# Direct API deploy (repo root)
+fly deploy --config apps/api/fly.toml --dockerfile apps/api/Dockerfile
 ```

@@ -183,6 +183,8 @@ let _modMedicationAnalyzer = null;
 async function loadMedicationAnalyzer() { return (_modMedicationAnalyzer ??= await import('./pages-medication-analyzer.js')); }
 let _modTreatmentSessionsAnalyzer = null;
 async function loadTreatmentSessionsAnalyzer() { return (_modTreatmentSessionsAnalyzer ??= await import('./pages-treatment-sessions-analyzer.js')); }
+let _modBioDatabase = null;
+async function loadBioDatabase() { return (_modBioDatabase ??= await import('./pages-bio-database.js')); }
 let _modPhenotypeAnalyzer = null;
 async function loadPhenotypeAnalyzer() { return (_modPhenotypeAnalyzer ??= await import('./pages-phenotype-analyzer.js')); }
 let _modMovementAnalyzer = null;
@@ -506,14 +508,10 @@ let currentPage = 'dashboard';
 
 // ── Role-based nav visibility ─────────────────────────────────────────────────
 const ROLE_NAV_HIDE = {
-  technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'population-analytics', 'brain-map-planner', 'handbook-generator', 'notes-dictation', 'assessments-hub', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
-  reviewer:   ['session-execution', 'protocol-wizard', 'billing', 'pricing', 'population-analytics', 'brain-map-planner'],
-  patient:    ['risk-analyzer'],
-  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'risk-analyzer', 'treatment-sessions-analyzer', 'audittrail', 'billing', 'population-analytics', 'brain-map-planner', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-handbooks', 'reg-virtual-care', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
   technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'risk-analyzer', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'handbook-generator', 'notes-dictation', 'assessments-hub', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
   reviewer:   ['session-execution', 'protocol-wizard', 'billing', 'pricing', 'population-analytics', 'brain-map-planner', 'brainmap-v2'],
-  patient:    ['risk-analyzer'],
-  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'risk-analyzer', 'treatment-sessions-analyzer', 'audittrail', 'billing', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-handbooks', 'reg-virtual-care', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
+  patient:    ['finance-v2'],
+  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'risk-analyzer', 'treatment-sessions-analyzer', 'audittrail', 'billing', 'finance-v2', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-handbooks', 'reg-virtual-care', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report', 'tickets'],
   clinician:  ['population-analytics'],
 };
 
@@ -559,6 +557,7 @@ const NAV = [
   { id: 'wearables',          label: 'Biometrics',   icon: '⌚', ai: true },
   { id: 'risk-analyzer',      label: 'Risk',         icon: '🛡️', ai: true },
   { id: 'medication-analyzer', label: 'Medication',  icon: '💊', ai: true },
+  { id: 'bio-database',       label: 'Bio Database', icon: '🧪', ai: true },
   { id: 'treatment-sessions-analyzer', label: 'Sessions', icon: '🗓️', ai: true },
   { id: 'phenotype-analyzer', label: 'Phenotype', icon: '🧬', ai: true },
   { id: 'movement-analyzer', label: 'Movement', icon: '🏃', ai: true },
@@ -723,7 +722,10 @@ NAV.forEach(n => {
 function renderNav() {
   const _navList = document.getElementById('nav-list');
   if (!_navList) return;
-  const hiddenForRole = ROLE_NAV_HIDE[currentUser?.role] || [];
+  const hiddenForRole = [...(ROLE_NAV_HIDE[currentUser?.role] || [])];
+  if (currentUser?.role === 'patient' && !hiddenForRole.includes('risk-analyzer')) {
+    hiddenForRole.push('risk-analyzer');
+  }
 
   // ── Primary action button + patient quick search ─────────────────────────────
   if (!document.getElementById('nav-new-course')) {
@@ -1033,6 +1035,7 @@ const PAGE_TITLES = {
   'population-analytics': 'Population Analytics',
   'media-queue': 'Patient Media Review Queue',
   'media-detail': 'Upload Detail',
+  'bio-database': 'Bio Database',
   'clinician-dictation': 'Clinical Note — Voice or Text',
   'clinician-draft-review': 'Review AI-Generated Draft',
   'clinical-notes': 'Clinical Notes',
@@ -1093,6 +1096,16 @@ async function navigate(id, params = {}) {
     }
     if (params.courseId !== undefined) window._selectedCourseId   = params.courseId;
     if (params.uploadId !== undefined) window._mediaDetailUploadId = params.uploadId;
+    if (id === 'research-evidence') {
+      if (params.tab !== undefined) window._resEvidenceTab = params.tab;
+      if (params.q !== undefined) {
+        window._reSearch = window._reSearch || {};
+        const targetTab = params.tab || window._resEvidenceTab || 'search';
+        window._reSearch[targetTab] = String(params.q || '');
+      }
+      if (params.topic !== undefined) window._reAdjunctTopic = params.topic;
+      if (params.source !== undefined) window._reEvidenceSource = params.source;
+    }
   }
   window._closeSidebar();
   // Track recent pages for command palette
@@ -1102,6 +1115,9 @@ async function navigate(id, params = {}) {
     window._recentPages = window._recentPages.slice(0, 5);
   }
   currentPage = id;
+  try {
+    if (id && id !== 'tickets') sessionStorage.setItem('ds_last_app_page', id);
+  } catch (_) {}
   // Track recent pages for search (localStorage-backed, richer metadata)
   const _rp = JSON.parse(localStorage.getItem('ds_recent_pages') || '[]');
   const _navEntry = NAV.find(n => n.id === id);
@@ -1116,7 +1132,19 @@ async function navigate(id, params = {}) {
   if (id !== 'course-detail') window._cdTab = 'overview';
   // Push browser history so back/forward works
   if (typeof history !== 'undefined' && history.pushState) {
-    history.pushState({ page: id, params }, '', `?page=${encodeURIComponent(id)}`);
+    const sp = new URLSearchParams();
+    sp.set('page', id);
+    if (id === 'research-evidence') {
+      const tab = String(params?.tab || window._resEvidenceTab || '').trim();
+      const q = String((params?.q ?? (tab ? window._reSearch?.[tab] : '')) || '').trim();
+      const topic = String((params?.topic ?? window._reAdjunctTopic) || '').trim();
+      const source = String((params?.source ?? window._reEvidenceSource) || '').trim();
+      if (tab) sp.set('tab', tab);
+      if (q) sp.set('q', q);
+      if (topic) sp.set('topic', topic);
+      if (source) sp.set('source', source);
+    }
+    history.pushState({ page: id, params }, '', `?${sp.toString()}`);
   }
   renderNav();
   initSidebarKeyboard();
@@ -1199,6 +1227,20 @@ let currentPatientPage = 'patient-portal';
 async function renderPatientPage() {
   const content = document.getElementById('patient-content');
   if (content) {
+    if (currentPatientPage === 'patient-portal') {
+      content.innerHTML = `
+        <div class="ptd-dashboard hm-dashboard" data-patient-shell-loading="true">
+          <div class="hm-hero">
+            <div class="hm-hero-top">
+              <div>
+                <div class="hm-greet-kicker">Patient portal</div>
+                <h1 class="hm-greet-title pth-greeting">Loading your Home page…</h1>
+                <p class="hm-greet-sub">Preparing your dashboard.</p>
+              </div>
+            </div>
+          </div>
+        </div>`;
+    }
     content.style.opacity = '0';
     content.style.transition = 'opacity 0.15s ease';
     setTimeout(() => { content.style.opacity = '1'; }, 20);
@@ -1362,6 +1404,20 @@ async function renderPage() {
         <button class="btn btn-primary" onclick="window._nav('dashboard')">Back to dashboard</button>
       </div>`;
     return;
+  }
+
+  if (currentPage === 'tickets') {
+    const tr = currentUser?.role;
+    if (tr === 'patient' || tr === 'guest') {
+      el.innerHTML = `
+        <div class="auth-required-notice" role="alert">
+          <div class="auth-required-icon">🎫</div>
+          <div class="auth-required-text">Tickets is available to clinic staff only. Patients and guests cannot use the operational support workspace.</div>
+          <button class="btn btn-primary" onclick="window._nav('dashboard')">Back to dashboard</button>
+        </div>
+      `;
+      return;
+    }
   }
 
   switch (currentPage) {
@@ -1689,6 +1745,8 @@ async function renderPage() {
     case 'monitoring': { window._devicesPresetTab = 'live'; navigate('monitor'); break; }
     case 'wearables':  { window._devicesPresetTab = 'biometrics'; navigate('monitor'); break; }
     case 'library-hub':    { window._resEvidenceTab = 'search'; window._nav('research-evidence'); break; }
+    case 'adjunct-evidence':
+    case 'research-adjunct': { window._resEvidenceTab = 'adjunct'; window._nav('research-evidence'); break; }
     case 'monitor-hub':    { const { pgMonitorHub }    = await loadClinicalHubs(); await pgMonitorHub(setTopbar, navigate);    break; }
     case 'virtual-care-hub':{ const { pgVirtualCareHub } = await loadClinicalHubs(); await pgVirtualCareHub(setTopbar, navigate); break; }
     case 'home-task-manager': { const m = await loadClinicalTools(); await m.pgHomePrograms(setTopbar, navigate); break; }
@@ -1831,7 +1889,7 @@ async function renderPage() {
     case 'condition-packages':   { window._resEvidenceTab = 'conditions'; window._nav('research-evidence'); break; }
     case 'condition-package':   { const { pgConditionPackage }     = await loadKnowledge(); await pgConditionPackage(setTopbar, navigate);  break; }
     case 'notes-dictation': { window._monitorHubTab = 'notes'; window._nav('monitor-hub'); break; }
-    case 'wearable-integration': { window._devicesPresetTab = 'control-center'; window._devicesPresetCategory = 'wearable'; navigate('monitor'); break; }
+    case 'wearable-integration': { window._devicesPresetTab = 'biometrics-analyzer'; window._devicesPresetCategory = 'wearable'; navigate('monitor'); break; }
     // ── Registries ─────────────────────────────────────────────────────────
     case 'reg-conditions':     { window._resEvidenceTab = 'conditions'; window._nav('research-evidence'); break; }
     case 'reg-assessments':    { window._clinicalHubTab = 'registry'; window._nav('assessments'); break; }
@@ -1889,6 +1947,7 @@ async function renderPage() {
     case 'risk-analyzer':      { const m = await loadRiskAnalyzer(); await m.pgRiskAnalyzer(setTopbar, navigate); break; }
     case 'nutrition-analyzer': { const m = await loadNutritionAnalyzer(); await m.pgNutritionAnalyzer(setTopbar, navigate); break; }
     case 'medication-analyzer': { const m = await loadMedicationAnalyzer(); await m.pgMedicationAnalyzer(setTopbar, navigate); break; }
+    case 'bio-database':       { const m = await loadBioDatabase(); await m.pgBioDatabase(setTopbar, navigate); break; }
     case 'treatment-sessions-analyzer': { const m = await loadTreatmentSessionsAnalyzer(); await m.pgTreatmentSessionsAnalyzer(setTopbar, navigate); break; }
     case 'phenotype-analyzer': { const m = await loadPhenotypeAnalyzer(); await m.pgPhenotypeAnalyzer(setTopbar, navigate); break; }
     case 'movement-analyzer':  { const m = await loadMovementAnalyzer(); await m.pgMovementAnalyzer(setTopbar, navigate); break; }
@@ -2709,6 +2768,12 @@ window.checkBackendHealth = checkBackendHealth;
 
 // ── Patient portal preview (from clinician app) ───────────────────────────────
 window._previewPatientPortal = function() {
+  if (currentUser && currentUser.role === 'patient') {
+    showPatient();
+    updatePatientBar();
+    window._bootPatient();
+    return;
+  }
   const preview = { id: 'actor-patient-demo', email: 'patient@demo.com', display_name: 'Jane Patient', role: 'patient', package_id: 'explorer' };
   setCurrentUser(preview);
   showPatient();

@@ -1,5 +1,5 @@
 import { parseHomeProgramTaskMutationResponse } from './home-program-task-sync.js';
-import { demoDigitalPhenotypingPayload, ANALYZER_DEMO_FIXTURES } from './demo-fixtures-analyzers.js';
+import { demoDigitalPhenotypingPayload, demoNutritionApiPayload, ANALYZER_DEMO_FIXTURES } from './demo-fixtures-analyzers.js';
 import { mapSessionsListQuery } from './beta-readiness-utils.js';
 import { buildDemoDashboard360Payload } from './deeptwin/demo-dashboard-payload.js';
 import {
@@ -223,7 +223,6 @@ function _medicationAnalyzerDemoPayload(patientId) {
     },
   };
 }
-
 function _mriDemoLongitudinalCompare(baselineId, followupId) {
   return {
     demo: true,
@@ -253,7 +252,6 @@ function _mriDemoLongitudinalCompare(baselineId, followupId) {
     pipeline_version: '0.1.0',
   };
 }
-
 function _deeptwinDemoParseBody(body) {
   if (body == null || body === '') return null;
   if (typeof body === 'string') {
@@ -697,6 +695,52 @@ function _demoSyntheticResponse(path, method, body) {
       recent_alerts: [],
       readiness: { score: 0.71, coverage_days: 1, demo: true },
       demo: true,
+    };
+  }
+
+  // ── Nutrition analyzer (GET payload + GET audit) — API-shaped JSON for Netlify demo sessions
+  const nutGet = path.match(
+    /^\/api\/v1\/nutrition\/analyzer\/patient\/([^/?]+)(\/audit)?\/?$/,
+  );
+  if (nutGet && (!method || method === 'GET')) {
+    const pid = decodeURIComponent(nutGet[1]);
+    if (nutGet[2] === '/audit') {
+      return { items: [], total: 0, demo: true, note: 'Use demo fixture path for narrative audit; persisted audit requires clinician API.' };
+    }
+    return { ...demoNutritionApiPayload(pid), is_demo_synthetic: true };
+  }
+  if (path.match(/^\/api\/v1\/nutrition\/analyzer\/patient\/[^/]+\/recompute$/) && method === 'POST') {
+    return { ok: true, demo: true, id: 'demo-recompute-' + Date.now() };
+  }
+  if (path.match(/^\/api\/v1\/patients\/?$/) && (!method || method === 'GET')) {
+    return {
+      items: _DEMO_PT_NAMES
+        ? Object.keys(_DEMO_PT_NAMES).map((id) => ({
+          id,
+          clinician_id: 'demo-clinician',
+          first_name: (_DEMO_PT_NAMES[id] || 'Demo').split(' ')[0] || 'Demo',
+          last_name: (_DEMO_PT_NAMES[id] || 'Patient').split(' ').slice(1).join(' ') || 'Patient',
+          dob: null,
+          email: null,
+          phone: null,
+          gender: null,
+          primary_condition: 'Demo',
+          secondary_conditions: [],
+          primary_modality: null,
+          referring_clinician: null,
+          insurance_provider: null,
+          insurance_number: null,
+          consent_signed: true,
+          consent_date: null,
+          status: 'active',
+          notes: 'Demo roster — not a real patient',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          demo_seed: true,
+        }))
+        : [],
+      total: Object.keys(_DEMO_PT_NAMES || {}).length,
+      is_demo_synthetic: true,
     };
   }
   // Mutations: pretend success (return a minimal accepted-shape object).
@@ -2830,6 +2874,42 @@ export const api = {
     }),
   medicationAnalyzerAudit: (patientId) =>
     apiFetch(`/api/v1/medications/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
+
+  // ── Bio Database ─────────────────────────────────────────────────────────
+  listBioCatalog: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch(`/api/v1/bio/catalog${q ? '?' + q : ''}`);
+  },
+  seedBioCatalog: () =>
+    apiFetch('/api/v1/bio/catalog/seed-defaults', { method: 'POST' }),
+  getPatientBioSummary: (patientId) =>
+    apiFetch(`/api/v1/bio/patients/${encodeURIComponent(patientId)}/summary`),
+  listPatientBioSubstances: (patientId) =>
+    apiFetch(`/api/v1/bio/patients/${encodeURIComponent(patientId)}/substances`),
+  createPatientBioSubstance: (patientId, body) =>
+    apiFetch(`/api/v1/bio/patients/${encodeURIComponent(patientId)}/substances`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  deletePatientBioSubstance: (patientId, substanceId) =>
+    apiFetch(
+      `/api/v1/bio/patients/${encodeURIComponent(patientId)}/substances/${encodeURIComponent(substanceId)}`,
+      { method: 'DELETE' }
+    ),
+  listPatientBioLabs: (patientId) =>
+    apiFetch(`/api/v1/bio/patients/${encodeURIComponent(patientId)}/labs`),
+  createPatientBioLab: (patientId, body) =>
+    apiFetch(`/api/v1/bio/patients/${encodeURIComponent(patientId)}/labs`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  deletePatientBioLab: (patientId, labResultId) =>
+    apiFetch(
+      `/api/v1/bio/patients/${encodeURIComponent(patientId)}/labs/${encodeURIComponent(labResultId)}`,
+      { method: 'DELETE' }
+    ),
 
   // ── Consent Management ────────────────────────────────────────────────────
   getConsentRecords: (params = {}) => {

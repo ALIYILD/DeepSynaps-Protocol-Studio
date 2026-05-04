@@ -24698,6 +24698,130 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
    ═══════════════════════════════════════════════════════════════════ */
 .ac-wrap { display: flex; flex-direction: column; gap: 22px; padding: 20px 28px 80px; max-width: 1400px; margin: 0 auto; }
 
+.ac-governance-banner {
+  padding: 14px 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: rgba(251, 191, 36, 0.08);
+  color: rgba(255, 248, 230, 0.92);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.ac-governance-banner strong { color: #fcd34d; font-weight: 600; }
+
+.ac-pill {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+.ac-pill--audience {
+  background: rgba(74, 158, 255, 0.15);
+  border: 1px solid rgba(74, 158, 255, 0.35);
+  color: #93c5fd;
+}
+
+.ac-linked-strip {
+  padding: 16px 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(12, 18, 32, 0.65);
+}
+.ac-linked-strip-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 14px;
+  margin-bottom: 12px;
+}
+.ac-linked-strip-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #8ba3b0);
+}
+.ac-linked-strip-hint {
+  font-size: 11px;
+  color: var(--text-tertiary, #6b7c87);
+}
+.ac-linked-strip-scroll {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ac-linked-chip {
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary, #e2eaf0);
+  transition: background 0.15s, border-color 0.15s;
+}
+.ac-linked-chip:hover {
+  background: rgba(74, 158, 255, 0.12);
+  border-color: rgba(74, 158, 255, 0.35);
+}
+
+.ac-progress-panel {
+  padding: 16px 18px;
+  border-radius: 16px;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  background: rgba(8, 12, 24, 0.5);
+}
+.ac-progress-title {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary, #e2eaf0);
+}
+.ac-progress-body {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-secondary, #8ba3b0);
+}
+.ac-code-inline {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ac-api-banner {
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.ac-api-banner--warn {
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: rgba(251, 191, 36, 0.07);
+  color: rgba(253, 230, 138, 0.95);
+}
+
+.ac-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: 6px 0 8px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--text-tertiary, #6b7c87);
+}
+.ac-card-meta strong { color: var(--text-secondary, #8ba3b0); font-weight: 600; }
+
 .ac-hero {
   display: grid; grid-template-columns: 1fr auto; gap: 28px; align-items: center;
   padding: 28px 30px;
@@ -25091,6 +25215,100 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   .mp-hero-title { font-size:22px; }
   .mp-hero-stats { gap:16px; }
 }
+
+/* ── Clinic marketplace hub — governance + honest labels ─────────────────── */
+.mp-governance-banner {
+  margin: 0 40px 0;
+  padding: 14px 18px;
+  border-radius: 10px;
+  border: 1px solid rgba(93, 217, 196, 0.28);
+  background: rgba(93, 217, 196, 0.06);
+  max-width: calc(100% - 80px);
+}
+.mp-governance-title { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted, #8ba3b0); margin: 0 0 6px; }
+.mp-governance-body { margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--text-secondary, #b8c9d4); }
+.mp-catalog-banner { margin: 12px 40px 0; padding: 10px 14px; border-radius: 8px; font-size: 12.5px; line-height: 1.45; }
+.mp-catalog-banner--warn { background: rgba(251, 191, 36, 0.08); border: 1px solid rgba(251, 191, 36, 0.28); color: var(--text-primary); }
+.mp-catalog-banner--info { background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.22); color: var(--text-secondary); }
+.mp-billing-strip {
+  margin: 12px 40px 0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #1e3a4a);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 12px;
+  color: var(--text-secondary);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  align-items: baseline;
+}
+.mp-billing-muted { color: var(--text-muted); font-size: 11.5px; flex: 1; min-width: 200px; }
+.mp-modules-strip { padding: 16px 40px 0; }
+.mp-modules-strip-inner { display: flex; flex-wrap: wrap; gap: 8px; }
+.mp-mod-shortcut {
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border, #1e3a4a);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.15s, background 0.15s;
+}
+.mp-mod-shortcut:hover { border-color: #5dd9c4; background: rgba(93, 217, 196, 0.08); }
+.mp-modules-footnote { margin: 10px 0 0; font-size: 11px; color: var(--text-muted); line-height: 1.45; max-width: 720px; }
+.mp-status-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+.mp-status-chip--demo { background: rgba(251, 191, 36, 0.15); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.35); }
+.mp-status-chip--live { background: rgba(52, 211, 153, 0.12); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.35); }
+.mp-status-chip--soon { background: rgba(129, 140, 248, 0.15); color: #a5b4fc; border: 1px solid rgba(129, 140, 248, 0.35); }
+.mp-status-chip--off { background: rgba(107, 114, 128, 0.2); color: #9ca3af; border: 1px solid rgba(107, 114, 128, 0.35); }
+.mp-amazon-inline {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(255, 153, 0, 0.15);
+  color: #f59e0b;
+}
+.mp-platform-inline {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(99, 102, 241, 0.15);
+  color: #818cf8;
+}
+.mp-reg-note {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.mp-api-meta { font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; }
+.mp-card-meta--muted { opacity: 0.85; }
+.mp-no-rating { font-size: 11px; color: var(--text-tertiary); font-style: italic; }
+.mp-seller-gate-note { margin-top: 8px; font-size: 12px; color: var(--text-muted); line-height: 1.45; }
+.mp-cta-btn--disabled { opacity: 0.45; cursor: not-allowed !important; }
 
 /* ── Protocol Studio hub (.ps-*) ─────────────────────────────────────────── */
 .ps-shell { display:flex; flex-direction:column; height:100%; min-height:0; }
@@ -27658,8 +27876,32 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
 .monitor-issue + .monitor-issue { margin-top:10px; }
 .monitor-issue--red { border-color:rgba(201,59,59,.28); }
 .monitor-issue--orange { border-color:rgba(229,138,44,.28); }
+.monitor-issue--yellow { border-color:rgba(227,197,74,.28); }
 .monitor-issue-head { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:8px; }
 .monitor-issue-fix { margin-top:8px; color:var(--text-secondary); font-size:12px; line-height:1.55; }
+
+/* ── Biometrics Analyzer (monitor page) ───────────────────────────────────── */
+.monitor-governance { border:1px solid rgba(0,212,188,0.22); border-radius:14px; padding:14px 18px; background:rgba(0,212,188,0.06); margin-bottom:4px; }
+.monitor-governance__text { margin:0; font-size:13px; line-height:1.55; color:var(--text-secondary); }
+.monitor-demo-banner { border-radius:12px; padding:12px 16px; margin-bottom:10px; background:#fff7e6; border:1px solid #ffd591; color:#874d00; font-size:12px; font-weight:600; }
+.monitor-stale-banner { border-radius:12px; padding:12px 16px; margin-bottom:10px; background:rgba(229,138,44,0.12); border:1px solid rgba(229,138,44,0.35); color:var(--text-primary); font-size:13px; }
+.monitor-live-disclaimer { margin:0 0 12px; font-size:12px; color:var(--text-tertiary); max-width:720px; }
+.monitor-bio-toolbar { display:flex; flex-wrap:wrap; gap:16px; align-items:flex-end; margin-bottom:12px; }
+.monitor-field-label { font-size:12px; color:var(--text-secondary); display:flex; flex-direction:column; gap:6px; }
+.monitor-select { min-width:220px; padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:rgba(255,255,255,0.04); color:var(--text-primary); font-size:13px; }
+.monitor-patient-bar { margin-top:8px; font-size:13px; color:var(--text-secondary); }
+.monitor-patient-bar code { font-size:12px; padding:2px 8px; border-radius:6px; background:rgba(255,255,255,0.06); }
+.monitor-metric-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:12px; margin-top:12px; }
+.monitor-metric-card { border:1px solid var(--border); border-radius:12px; padding:14px; background:rgba(255,255,255,0.03); }
+.monitor-metric-card--missing { opacity:0.72; }
+.monitor-metric-title { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--text-tertiary); margin-bottom:6px; }
+.monitor-metric-value { font-size:22px; font-weight:800; color:var(--text-primary); }
+.monitor-metric-unit { font-size:13px; font-weight:600; margin-left:6px; color:var(--text-tertiary); }
+.monitor-review-line { margin-top:10px; font-size:11px; color:var(--orange,#f59e0b); line-height:1.45; }
+.monitor-textarea { width:100%; box-sizing:border-box; margin-top:10px; padding:10px 12px; border-radius:8px; border:1px solid var(--border); background:rgba(255,255,255,0.04); color:var(--text-primary); font-size:13px; min-height:72px; resize:vertical; }
+.monitor-link-strip { display:flex; flex-wrap:wrap; gap:8px; }
+.monitor-link-btn { white-space:nowrap; }
+.monitor-panel--review-queue { border-color:rgba(201,59,59,.22); box-shadow:none; }
 
 /* ── Devices Control Center ────────────────────────────────────────────────── */
 .devices-kpi-strip { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }

@@ -438,7 +438,6 @@ class MedicationInteractionLog(Base):
     severity_summary: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)  # none, mild, moderate, severe
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
-
 # ── Nutrition Analyzer (MVP scaffold) ─────────────────────────────────────────
 
 class PatientNutritionDietLog(Base):
@@ -541,6 +540,76 @@ class MedicationAnalyzerTimelineEvent(Base):
     payload_json: Mapped[str] = mapped_column(Text(), nullable=False, default="{}")
     source_origin: Mapped[str] = mapped_column(String(48), nullable=False, default="clinician_entry")
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), index=True)
+
+# ── Neuromodulation Bio Database Models ──────────────────────────────────────
+
+class ClinicalCatalogItem(Base):
+    """Reference catalog row for neuromodulation-relevant clinical items."""
+
+    __tablename__ = "clinical_catalog_items"
+    __table_args__ = (
+        CheckConstraint(
+            "item_type IN ('medication', 'supplement', 'vitamin', 'lab_test', 'biomarker')",
+            name="ck_clinical_catalog_items_item_type",
+        ),
+        UniqueConstraint(
+            "item_type",
+            "slug",
+            name="uq_clinical_catalog_items_type_slug",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    item_type: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    slug: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    category: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
+    aliases_json: Mapped[str] = mapped_column(Text(), nullable=False, default="[]")
+    default_unit: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    unit_options_json: Mapped[str] = mapped_column(Text(), nullable=False, default="[]")
+    neuromodulation_relevance: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    evidence_note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class PatientSubstance(Base):
+    """Patient-specific medication / supplement / vitamin record."""
+
+    __tablename__ = "patient_substances"
+    __table_args__ = (
+        CheckConstraint(
+            "substance_type IN ('medication', 'supplement', 'vitamin')",
+            name="ck_patient_substances_substance_type",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True)
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    catalog_item_id: Mapped[Optional[str]] = mapped_column(
+        String(36),
+        ForeignKey("clinical_catalog_items.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    substance_type: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    generic_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    category: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    dose: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    dose_unit: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    frequency: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    route: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
+    indication: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    stopped_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=True, index=True)
+    source: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 # ── Reminder Campaign Models ──────────────────────────────────────────────────

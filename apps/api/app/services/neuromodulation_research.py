@@ -1023,6 +1023,7 @@ def search_adjunct_evidence(
     indication: str | None = None,
     modality: str | None = None,
     evidence_tier: str | None = None,
+    medication_risk_tier: str | None = None,
     year_min: int | None = None,
     year_max: int | None = None,
     limit: int = 20,
@@ -1059,6 +1060,8 @@ def search_adjunct_evidence(
                 continue
             if not _contains_filter(row.get("evidence_tier"), evidence_tier):
                 continue
+            if not _contains_filter(row.get("medication_risk_tier"), medication_risk_tier):
+                continue
             if query and not _text_search_matches(row, query):
                 continue
             if search_terms and not _text_search_matches_any(row, search_terms):
@@ -1089,6 +1092,9 @@ def search_adjunct_evidence(
                 "adjunct_terms": [item.strip() for item in (row.get("adjunct_terms") or "").split(";") if item.strip()],
                 "condition_mentions_top": [item.strip() for item in (row.get("condition_mentions_top") or "").split(";") if item.strip()],
                 "relation_signal_tags": _tokenize(row.get("relation_signal_tags")),
+                "medication_risk_tier": row.get("medication_risk_tier") or None,
+                "medication_risk_reason": row.get("medication_risk_reason") or None,
+                "medication_risk_signal_tags": _tokenize(row.get("medication_risk_signal_tags")),
                 "ranking_mode": "adjunct",
             }
             _push_top(
@@ -1127,6 +1133,7 @@ def build_adjunct_evidence_summary(
             "top_indications": [],
             "top_modalities": [],
             "top_relation_signal_tags": [],
+            "top_medication_risk_tiers": [],
             "top_papers": [],
         }
 
@@ -1136,6 +1143,7 @@ def build_adjunct_evidence_summary(
     indication_counter: Counter[str] = Counter()
     modality_counter: Counter[str] = Counter()
     relation_counter: Counter[str] = Counter()
+    medication_risk_counter: Counter[str] = Counter()
 
     handle, reader = _csv_reader(path)
     try:
@@ -1160,6 +1168,8 @@ def build_adjunct_evidence_summary(
                 modality_counter[item] += 1
             for item in _tokenize(row.get("relation_signal_tags")):
                 relation_counter[item] += 1
+            if row.get("medication_risk_tier"):
+                medication_risk_counter[row["medication_risk_tier"]] += 1
     finally:
         handle.close()
 
@@ -1171,6 +1181,7 @@ def build_adjunct_evidence_summary(
         "top_indications": [{"key": key, "count": count} for key, count in indication_counter.most_common(limit)],
         "top_modalities": [{"key": key, "count": count} for key, count in modality_counter.most_common(limit)],
         "top_relation_signal_tags": [{"key": key, "count": count} for key, count in relation_counter.most_common(limit)],
+        "top_medication_risk_tiers": [{"key": key, "count": count} for key, count in medication_risk_counter.most_common(limit)],
         "top_papers": search_adjunct_evidence(domain=domain, indication=indication, modality=modality, limit=limit),
     }
 

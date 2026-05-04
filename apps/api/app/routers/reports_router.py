@@ -297,6 +297,7 @@ class ReportOut(BaseModel):
     summary: Optional[str] = None
     status: str
     created_at: str
+    is_demo: bool = False
 
 
 class ReportListResponse(BaseModel):
@@ -311,6 +312,7 @@ def _deserialize_report(record: PatientMediaUpload) -> ReportOut:
     rtype = "clinician"
     source: Optional[str] = None
     report_date: Optional[str] = None
+    is_demo = False
     if record.patient_note:
         try:
             meta = _json.loads(record.patient_note)
@@ -318,6 +320,7 @@ def _deserialize_report(record: PatientMediaUpload) -> ReportOut:
             rtype = meta.get("report_type", rtype)
             source = meta.get("source")
             report_date = meta.get("report_date")
+            is_demo = bool(meta.get("is_demo", False))
         except (ValueError, KeyError):
             pass
     return ReportOut(
@@ -331,6 +334,7 @@ def _deserialize_report(record: PatientMediaUpload) -> ReportOut:
         summary=None,
         status=record.status or "generated",
         created_at=(record.created_at or datetime.now(timezone.utc)).isoformat(),
+        is_demo=is_demo,
     )
 
 

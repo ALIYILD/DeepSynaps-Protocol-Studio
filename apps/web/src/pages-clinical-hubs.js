@@ -5,14 +5,24 @@
 import { api } from './api.js';
 import { tag, spinner, emptyState } from './helpers.js';
 import { currentUser } from './auth.js';
+import {
+  DEMO_CURATED_LISTINGS,
+  MARKETPLACE_GOVERNANCE_NOTICE,
+  MARKETPLACE_MODULE_SHORTCUTS,
+  resolveMarketplaceCatalog,
+  canManageSellerListings,
+} from './marketplace-hub-catalog.js';
 import { renderBrainMap10_20 } from './brain-map-svg.js';
 import {
   buildReportFallbackContent,
   buildSchedulingSessionPayload,
+  canAccessClinicalReportsWorkspace,
+  getReportsHubRoutePage,
   getScheduleTypeSubmission,
   mapSessionsListQuery,
   mergeSavedReports,
   parsePatientNameForCreate,
+  reportStatusDisplayLabel,
 } from './beta-readiness-utils.js';
 import {
   SUPPORTED_FORMS as ASSESSMENT_SUPPORTED_FORMS,
@@ -9269,8 +9279,21 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // pgReportsHubNew — Generate · Recent · Analytics · Export
+// (Renders both ?page=reports-hub and design-v2 ?page=reports-v2 — same workspace.)
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgReportsHubNew(setTopbar, navigate) {
+  const reportsRole = currentUser?.role || 'guest';
+  if (!canAccessClinicalReportsWorkspace(reportsRole)) {
+    document.getElementById('content').innerHTML = `
+      <div class="auth-required-notice" role="alert">
+        <div class="auth-required-icon">🩺</div>
+        <div class="auth-required-text">Clinical reports workspace is available to governed clinic staff only. Sign in with a clinician, reviewer, technician, or administrator account to continue.</div>
+        <button class="btn btn-primary" onclick="window._nav('dashboard')">Back to dashboard</button>
+      </div>
+    `;
+    return;
+  }
+
   // Consume focus set by per-widget Report buttons on the patient-analytics page.
   const _focus = window._reportsHubFocus || null;
   if (_focus) { window._reportsHubFocus = null; window._reportsHubTab = 'generate'; }
@@ -9291,14 +9314,52 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     analytics:  { label: 'Analytics',        color: 'var(--violet)' },
     export:     { label: 'Export',           color: 'var(--amber)'  },
   };
-  const el = document.getElementById('content');
   function tabBar() {
     return Object.entries(TAB_META).map(([id,m]) =>
       '<button class="ch-tab'+(tab===id?' ch-tab--active':'')+'"'+(tab===id?' style="--tab-color:'+m.color+'"':'')+
-      ' onclick="window._reportsHubTab=\''+id+'\';window._nav(\'reports-hub\')">'+ m.label +'</button>'
+      ' onclick="window._reportsHubTab=\''+id+'\';window._nav('+repNavLit+')">'+ m.label +'</button>'
     ).join('');
   }
-  setTopbar('Reports', '<span class="ph-ai-badge">AI</span>');
+  setTopbar('Reports', '<span class="ph-ai-badge">AI-assisted drafts</span>');
+
+  const REPORTS_V2_SAFETY_HTML =
+    '<div class="reports-v2-safety-banner" style="padding:12px 14px;border-radius:10px;border:1px solid rgba(94,234,212,0.2);background:rgba(94,234,212,0.06);color:var(--text-secondary);font-size:11.5px;line-height:1.55;margin-bottom:12px">' +
+    '<div style="font-weight:600;color:var(--text-primary);margin-bottom:4px">Clinical decision-support only</div>' +
+    '<div>Reports may contain AI-assisted or source-derived drafts. They require clinician review and do not diagnose, prescribe, approve treatment, or replace clinical judgement. Final status requires a real governed sign-off workflow.</div>' +
+    '<div style="margin-top:8px;font-size:11px;color:var(--text-tertiary)">Exports use authenticated API routes only (no public report URLs). Audit events are recorded when the API supports them; browser-only data is labelled.</div>' +
+    '</div>';
+
+  const MODULE_LINK_STRIP = [
+    { label: 'qEEG', page: 'qeeg-analysis' },
+    { label: 'MRI', page: 'mri-analysis' },
+    { label: 'Labs', page: 'labs-analyzer' },
+    { label: 'Biomarkers', page: 'biomarkers' },
+    { label: 'Voice', page: 'voice-analyzer' },
+    { label: 'Video', page: 'video-assessments' },
+    { label: 'Text', page: 'text-analyzer' },
+    { label: 'Monitor', page: 'monitor' },
+    { label: 'Risk', page: 'risk-analyzer' },
+    { label: 'Medication', page: 'medication-analyzer' },
+    { label: 'Sessions', page: 'treatment-sessions-analyzer' },
+    { label: 'Phenotype', page: 'phenotype-analyzer' },
+    { label: 'Movement', page: 'movement-analyzer' },
+    { label: 'Nutrition', page: 'nutrition-analyzer' },
+    { label: 'DeepTwin', page: 'deeptwin' },
+    { label: 'Protocol Studio', page: 'protocol-studio' },
+    { label: 'Brainmap', page: 'brainmap-v2' },
+    { label: 'Handbooks', page: 'handbooks-v2' },
+    { label: 'Documents', page: 'documents-v2' },
+    { label: 'Schedule', page: 'schedule-v2' },
+    { label: 'Inbox', page: 'clinician-inbox' },
+    { label: 'Live Session', page: 'live-session' },
+  ];
+  const MODULE_STRIP_HTML =
+    '<div class="reports-v2-module-strip" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:12px">' +
+    '<span style="font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-right:4px">Source modules</span>' +
+    MODULE_LINK_STRIP.map((m) =>
+      '<button type="button" class="ch-btn-sm" onclick="window._nav(\'' + m.page + '\')">' + m.label + '</button>',
+    ).join('') +
+    '</div>';
 
   const REPORT_TYPES = [
     { id:'R1', name:'Initial Assessment Report',       cat:'Intake',       auto:true,  fields:18, desc:'Full intake assessment including clinical history, contraindications, baseline scores.', sources:['patients','assessments'] },
@@ -9333,7 +9394,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     wearables:   { label: 'Wearable Data',      icon: '\u231A',       page: 'monitor',           fetch: () => (api.getClinicAlertSummary?api.getClinicAlertSummary():Promise.resolve(null)).catch(()=>null) },
     qeeg:        { label: 'qEEG Records',       icon: '\uD83C\uDF0A', page: 'qeeg-analysis',    fetch: () => (api.listQEEGRecords?api.listQEEGRecords():Promise.resolve({items:[]})).catch(()=>({items:[]})) },
     fusion:      { label: 'Fusion Cases',       icon: '\u2696\uFE0F',  page: 'fusion-workbench', fetch: () => (api.listFusionCases?api.listFusionCases():Promise.resolve([])).catch(()=>[]) },
-    aggregate:   { label: 'Outcome Aggregates', icon: '\uD83D\uDCC8', page: 'reports-hub',      fetch: () => (api.aggregateOutcomes?api.aggregateOutcomes():Promise.resolve({})).catch(()=>({})) },
+    aggregate:   { label: 'Outcome Aggregates', icon: '\uD83D\uDCC8', page: repPage,      fetch: () => (api.aggregateOutcomes?api.aggregateOutcomes():Promise.resolve({})).catch(()=>({})) },
   };
 
   // Helper: fetch data from multiple sources
@@ -9472,6 +9533,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     const today = new Date().toISOString().slice(0,10);
     const local = {
       id: 'RPT-' + Date.now(),
+      patient_id: patientId || null,
       name: report.type + ' — ' + report.patient,
       patient: report.patient,
       type: report.type,
@@ -9498,6 +9560,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
       console.warn('[reports-hub] createReport failed (local cache only):', err?.message || err);
       local.status = 'local-only';
       local._source = 'local';
+      local.is_demo = false;
     }
     const rpts = loadReports();
     rpts.unshift(local);
@@ -9510,8 +9573,35 @@ export async function pgReportsHubNew(setTopbar, navigate) {
       body: persisted ? fallbackSuccessBody : 'The report is stored in this browser only because the server save failed.',
       severity: persisted ? 'success' : 'warn',
     });
-    window._reportsHubTab='recent'; window._nav('reports-hub');
+    window._reportsHubTab='recent'; window._nav(repPage);
   }
+
+  const stBadge = (r) => {
+    const d = reportStatusDisplayLabel(r);
+    const map = {
+      draft: 'var(--amber)',
+      final: 'var(--green)',
+      superseded: 'var(--text-tertiary)',
+      local: 'var(--amber)',
+      demo: 'var(--violet)',
+      error: 'var(--red)',
+      archived: 'var(--text-tertiary)',
+      other: 'var(--teal)',
+    };
+    const c = map[d.tone] || 'var(--teal)';
+    const title = String(d.label).replace(/"/g, '&quot;');
+    return '<span class="book-status-badge reports-v2-status" data-status-tone="' + d.tone + '" title="' + title + '" style="color:' + c + ';background:' + c + '22;max-width:168px;white-space:normal;text-align:left;line-height:1.25;font-size:10.5px">' + d.short + '</span>';
+  };
+  const provLine = (r) => {
+    const src = r && r._source === 'backend' ? 'Server record' : 'Local cache (this browser)';
+    const demo = r && r.is_demo ? ' · Demo/sample' : '';
+    const pid = r && r.patient_id;
+    const link = pid && String(pid).length
+      ? ' <button type="button" class="ch-btn-sm" style="margin-left:4px;padding:2px 7px;font-size:10.5px" onclick="window._nav(\'patients-v2\',{id:\'' + String(pid).replace(/'/g, '') + '\'})">Open patient</button>'
+      : '';
+    const typeEsc = String(r.type || '—').replace(/</g, '&lt;');
+    return 'Context: ' + String(r.patient || '—') + ' · Type: ' + typeEsc + ' · ' + src + demo + link;
+  };
 
   let main = '';
 
@@ -9541,7 +9631,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
             <div class="ch-form-group"><label class="ch-label">Patient / Scope</label><select id="rep-patient" class="ch-select ch-select--full">${patOpts}</select></div>
             <div class="ch-form-group"><label class="ch-label">Report Type</label>
               <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
-                ${cats.map(c=>'<button class="reg-domain-pill'+(c===filtCat?' active':'')+'" onclick="window._repGenCat=\''+c+'\';window._nav(\'reports-hub\')">'+c+'</button>').join('')}
+                ${cats.map(c=>'<button class="reg-domain-pill'+(c===filtCat?' active':'')+'" onclick="window._repGenCat=\''+c+'\';window._nav('+repNavLit+')">'+c+'</button>').join('')}
               </div>
               <select id="rep-type" class="ch-select ch-select--full" onchange="window._repUpdateDesc()">
                 ${filtTypes.map(r=>'<option value="'+r.id+'"'+(r.id===selType.id?' selected':'')+'>'+r.name+'</option>').join('')}
@@ -9633,7 +9723,8 @@ export async function pgReportsHubNew(setTopbar, navigate) {
       const prompt = 'Generate a professional ' + typeName + ' for ' + scope + '. Use standard medical/clinical report format with clear sections, headers, and structured data presentation. ' + typeData.desc +
         (dataContext ? '\n\nHere is the LIVE DATA from the dashboard to base this report on:\n\n' + dataContext : '') +
         (context ? '\n\nAdditional context from clinician: ' + context : '') +
-        '\n\nIMPORTANT: Structure the report with clear section headers. Include data-driven observations. If health data is provided, note any correlations between metrics (e.g., outcome scores vs session count, assessment trends). If financial data is provided, include business performance metrics. Always end with recommendations and next steps.';
+        '\n\nIMPORTANT: Structure the report with clear section headers. Include data-driven observations. If health data is provided, note any correlations between metrics (e.g., outcome scores vs session count, assessment trends). If financial data is provided, include business performance metrics. Always end with recommendations and next steps.' +
+        '\n\nCLINICAL SAFETY: This text is an AI-assisted draft for clinician review only. It must not state or imply a definitive diagnosis, autonomous clinical sign-off, prescription, treatment approval, emergency triage, or autonomous medical decision.';
 
       try {
         const res = await api.chatClinician([{role:'user',content:prompt}],{});
@@ -10046,8 +10137,8 @@ export async function pgReportsHubNew(setTopbar, navigate) {
 
     const STATUS_FILTS = [
       { id: '',           label: 'All' },
-      { id: 'generated',  label: 'Draft' },
-      { id: 'signed',     label: 'Signed' },
+      { id: 'generated',  label: 'AI-assisted draft' },
+      { id: 'signed',     label: 'Signed / final' },
       { id: 'superseded', label: 'Superseded' },
       { id: 'local-only', label: 'Local only' },
     ];
@@ -10060,25 +10151,20 @@ export async function pgReportsHubNew(setTopbar, navigate) {
       '<div class="ch-kpi-card" style="--kpi-color:var(--text-tertiary)"><div class="ch-kpi-val">' + (summaryCounts.superseded ?? 0) + '</div><div class="ch-kpi-label">Superseded</div></div>' +
       '</div>';
 
-    const disclaimerBanner =
-      '<div style="padding:10px 14px;border-radius:8px;border:1px solid rgba(94,234,212,0.18);background:rgba(94,234,212,0.05);color:var(--text-secondary);font-size:11.5px;line-height:1.5;margin-bottom:12px">' +
-      '<div style="font-weight:600;color:var(--text-primary);margin-bottom:2px">Clinical safety</div>' +
-      '<div>Reports are clinical records and require clinician sign-off. Signed reports are immutable; supersede creates a new revision with audit trail. AI summaries are decision-support only.</div>' +
-      '</div>';
-
-    main = summaryStrip + disclaimerBanner + `
+    main = summaryStrip + `
       <div class="ch-card">
         <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px">
           <span class="ch-card-title">Recent Reports</span>
           <div style="display:flex;gap:4px;flex-wrap:wrap">
-            ${STATUS_FILTS.map(f=>'<button class="ch-btn-sm'+(f.id===statusFilt?' ch-btn-teal':'')+'" onclick="window._repStatusFilter=\''+f.id+'\';window._reportsHubAudit(\'filter_changed\',\'status=\'+'+JSON.stringify(f.id)+');window._nav(\'reports-hub\')">'+f.label+'</button>').join('')}
+            ${STATUS_FILTS.map(f=>'<button class="ch-btn-sm'+(f.id===statusFilt?' ch-btn-teal':'')+'" onclick="window._repStatusFilter=\''+f.id+'\';window._reportsHubAudit(\'filter_changed\',\'status=\'+'+JSON.stringify(f.id)+');window._nav('+repNavLit+')">'+f.label+'</button>').join('')}
           </div>
-          <input type="text" placeholder="Filter by kind…" class="ph-search-input" style="max-width:160px" value="${(kindFilt||'').replace(/"/g,'&quot;')}" oninput="window._repKindFilter=this.value" onchange="window._reportsHubAudit('filter_changed','kind='+this.value);window._nav('reports-hub')">
+          <input type="text" placeholder="Filter by kind…" class="ph-search-input" style="max-width:160px" value="${(kindFilt||'').replace(/"/g,'&quot;')}" oninput="window._repKindFilter=this.value" onchange="window._reportsHubAudit('filter_changed','kind='+this.value);window._nav(${repNavLit})">
           <div style="position:relative;flex:1;max-width:260px">
-            <input type="text" placeholder="Search reports…" class="ph-search-input" value="${window._repSearch||''}" oninput="window._repSearch=this.value" onchange="window._reportsHubAudit('filter_changed','q='+this.value);window._nav('reports-hub')">
+            <input type="text" placeholder="Search reports…" class="ph-search-input" value="${window._repSearch||''}" oninput="window._repSearch=this.value" onchange="window._reportsHubAudit('filter_changed','q='+this.value);window._nav(${repNavLit})">
             <svg viewBox="0 0 24 24" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;stroke:var(--text-tertiary);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           </div>
-          <button class="ch-btn-sm ch-btn-teal" onclick="window._reportsHubTab='generate';window._nav('reports-hub')">+ New Report</button>
+          <button type="button" class="ch-btn-sm" onclick="window._nav(\'audittrail\')" title="Clinic audit trail (authenticated)">Audit log</button>
+          <button class="ch-btn-sm ch-btn-teal" onclick="window._reportsHubTab='generate';window._nav(${repNavLit})">+ New Report</button>
         </div>
         ${rows.length ? rows.map(r=>
           (() => {
@@ -10090,6 +10176,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
               ? '<button class="ch-btn-sm" onclick="window._repOpenRenderedHtml(\''+r.id+'\')">HTML</button>'
                 + '<button class="ch-btn-sm" onclick="window._repDownloadPdf(\''+r.id+'\')">PDF</button>'
                 + '<button class="ch-btn-sm" onclick="window._repDownloadCsv(\''+r.id+'\')">CSV</button>'
+                + '<button type="button" class="ch-btn-sm" title="Uses authenticated export route; may be unavailable on this deployment" onclick="window._repDownloadDocx(\''+r.id+'\')">DOCX</button>'
               : '<span style="font-size:10.5px;color:var(--amber);padding:0 6px">'+reportPersistenceLabel(r)+'</span>';
             const signBtn = isBackend && !isSigned && !isSuperseded
               ? '<button class="ch-btn-sm ch-btn-teal" onclick="window._repSign(\''+r.id+'\')">Sign</button>' : '';
@@ -10098,8 +10185,8 @@ export async function pgReportsHubNew(setTopbar, navigate) {
             return (
           '<div class="book-row">'+
             '<div class="book-datetime"><div class="book-date">'+r.date+'</div><div class="book-time">'+r.type+'</div></div>'+
-            '<div class="book-info"><div class="book-patient">'+r.name+'</div><div class="book-clinician">'+r.patient+' · '+reportPersistenceLabel(r)+'</div></div>'+
-            '<div class="book-status-col"><span class="book-status-badge" style="color:'+(stC[r.status]||'var(--teal)')+';background:'+(stC[r.status]||'var(--teal)')+'22">'+r.status+'</span></div>'+
+            '<div class="book-info"><div class="book-patient">'+r.name+'</div><div class="book-clinician">'+provLine(r)+' · '+reportPersistenceLabel(r)+'</div></div>'+
+            '<div class="book-status-col">'+stBadge(r)+'</div>'+
             '<div class="book-actions">'+
               '<button class="ch-btn-sm" onclick="window._repViewSaved(\''+r.id+'\')">View</button>'+
               '<button class="ch-btn-sm" onclick="window._repPrintSaved(\''+r.id+'\')">Print</button>'+
@@ -10108,12 +10195,44 @@ export async function pgReportsHubNew(setTopbar, navigate) {
           '</div>'
             );
           })()
-        ).join('') : '<div class="ch-empty">No reports yet. Generate the first one. <a onclick="window._reportsHubTab=\'generate\';window._nav(\'reports-hub\')" style="color:var(--teal);cursor:pointer">Open Generate →</a></div>'}
+        ).join('') : '<div class="ch-empty">No reports are listed yet — this does not mean workflows are complete. <a onclick="window._reportsHubTab=\'generate\';window._nav('+repNavLit+')" style="color:var(--teal);cursor:pointer">Generate a draft →</a></div>'}
       </div>`;
 
     // Audit ingestion helper used by filter handlers above. Best-effort, fire-and-forget.
     window._reportsHubAudit = (event, note) => {
       try { api.logReportsAudit?.({ event, note: String(note || '').slice(0, 500) }); } catch (_) {}
+    };
+
+    window._repDownloadDocx = async (id) => {
+      const r = findSavedReportRecord(id);
+      if (!r) {
+        window._dsToast?.({ title: 'Not found', body: 'Report record is no longer available.', severity: 'warn' });
+        return;
+      }
+      if (!canRenderSavedReport(r)) {
+        window._dsToast?.({ title: 'DOCX unavailable', body: 'Only server-saved reports can export DOCX.', severity: 'warn' });
+        return;
+      }
+      if (!api.exportReportDocx) {
+        window._dsToast?.({ title: 'DOCX unavailable', body: 'API client has no export helper.', severity: 'warn' });
+        return;
+      }
+      try {
+        const file = await api.exportReportDocx(id);
+        if (!file?.blob) throw new Error('DOCX export returned no file.');
+        const url = URL.createObjectURL(file.blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = file.filename || ('report-' + id + '.docx');
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        api.logReportsAudit?.({ event: 'exported', report_id: id, note: 'format=docx' });
+        window._dsToast?.({ title: 'DOCX ready', body: (file.filename || 'report.docx') + ' downloaded.', severity: 'success' });
+      } catch (err) {
+        window._dsToast?.({ title: 'DOCX export unavailable', body: err?.message || 'Server may not have a DOCX renderer (expect HTTP 503).', severity: 'warn' });
+      }
     };
 
     window._repDownloadCsv = async (id) => {
@@ -10149,7 +10268,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
         const out = await api.signReport(id, note || null);
         api.logReportsAudit?.({ event: 'signed', report_id: id, note: 'signed_by=' + (out?.signed_by || '?') });
         window._dsToast?.({ title: 'Signed', body: 'Report signed and made immutable.', severity: 'success' });
-        window._nav('reports-hub');
+        window._nav(repPage);
       } catch (err) {
         const msg = err?.message || 'Network error';
         window._dsToast?.({ title: 'Sign failed', body: msg, severity: 'critical' });
@@ -10170,7 +10289,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
         const out = await api.supersedeReport(id, { reason });
         api.logReportsAudit?.({ event: 'superseded', report_id: id, note: 'new_revision=' + (out?.id || '?') });
         window._dsToast?.({ title: 'Superseded', body: 'New revision created. Original is now read-only.', severity: 'success' });
-        window._nav('reports-hub');
+        window._nav(repPage);
       } catch (err) {
         const msg = err?.message || 'Network error';
         window._dsToast?.({ title: 'Supersede failed', body: msg, severity: 'critical' });
@@ -10358,7 +10477,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     const financeCard = fin ? `
       <div class="ch-card" style="margin-top:12px">
         <div class="ch-card-hd"><span class="ch-card-title">Finance Summary</span>
-          <button class="ch-btn-sm" onclick="window._nav('finance-hub')">Open Finance →</button>
+          <button class="ch-btn-sm" onclick="window._nav('finance-v2')">Open Finance →</button>
         </div>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:14px 16px">
           <div><div style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.6px">Revenue paid</div><div style="font-size:18px;font-weight:700;color:var(--green,#4ade80);margin-top:4px">${fmtGBP(fin.revenue_paid)}</div></div>
@@ -10430,7 +10549,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
                   <div class="lib-card-top"><span style="font-size:18px">📊</span><span class="lib-card-name">CSV Data Export</span></div>
                   <div style="font-size:11.5px;color:var(--text-tertiary)">Raw rows for analysis in Excel, R, or SPSS. Downloads immediately.</div>
                 </div>
-                <div class="lib-card" style="cursor:pointer" onclick="window._reportsHubTab='recent';window._nav('reports-hub')">
+                <div class="lib-card" style="cursor:pointer" onclick="window._reportsHubTab='recent';window._nav(${repNavLit})">
                   <div class="lib-card-top"><span style="font-size:18px">📄</span><span class="lib-card-name">Per-report PDF</span><span style="margin-left:auto;font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(94,234,212,0.12);color:var(--teal);border:1px solid rgba(94,234,212,0.3)">Available</span></div>
                   <div style="font-size:11.5px;color:var(--text-tertiary)">Use the PDF button on each report in the Recent tab. Bulk PDF is not supported on this deployment.</div>
                 </div>
@@ -10527,14 +10646,29 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     };
   }
 
-  el.innerHTML = `<div class="dv2-hub-shell" style="padding:20px;display:flex;flex-direction:column;gap:16px"><div class="ch-shell"><div class="ch-tab-bar">${tabBar()}</div><div class="ch-body">${main}</div></div></div>`;
+  el.innerHTML =
+    '<div class="dv2-hub-shell reports-v2-workspace" style="padding:20px;display:flex;flex-direction:column;gap:12px">' +
+    MODULE_STRIP_HTML +
+    REPORTS_V2_SAFETY_HTML +
+    '<div class="ch-shell"><div class="ch-tab-bar">' +
+    tabBar() +
+    '</div><div class="ch-body">' +
+    main +
+    '</div></div></div>';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// pgFinanceHub — Overview · Invoices · Payments · Insurance · Analytics
-// Backed by /api/v1/finance/* (no more localStorage).
+// pgFinanceHub — Finance v2 / finance-hub: Overview · Invoices · Payments ·
+// Insurance · Analytics. Backed by /api/v1/finance/* (clinic ledger). Not Stripe
+// MRR/ARR; SaaS billing lives on the Billing page / payments API.
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgFinanceHub(setTopbar, navigate) {
+  const role = currentUser?.role || 'guest';
+  const FINANCE_VIEW_ROLES = ['clinician', 'admin', 'clinic-admin', 'supervisor', 'reviewer', 'technician'];
+  const FINANCE_ADMIN_ROLES = ['admin', 'clinic-admin'];
+  const canViewFinance = FINANCE_VIEW_ROLES.includes(role);
+  const canManageFinance = FINANCE_ADMIN_ROLES.includes(role);
+
   const tab = window._financeHubTab || 'overview';
   window._financeHubTab = tab;
   const TAB_META = {
@@ -10545,13 +10679,34 @@ export async function pgFinanceHub(setTopbar, navigate) {
     analytics: { label: 'Analytics',   color: 'var(--amber)'  },
   };
   const el = document.getElementById('content');
+  if (!el) return;
+
   function tabBar() {
     return Object.entries(TAB_META).map(([id,m]) =>
       '<button class="ch-tab'+(tab===id?' ch-tab--active':'')+'"'+(tab===id?' style="--tab-color:'+m.color+'"':'')+
-      ' onclick="window._financeHubTab=\''+id+'\';window._nav(\'finance-hub\')">'+ m.label +'</button>'
+      ' onclick="window._financeHubTab=\''+id+'\';window._nav(\'finance-v2\')">'+ m.label +'</button>'
     ).join('');
   }
-  setTopbar('Finance', '<button class="btn btn-primary btn-sm" onclick="window._finNewInvoice()">+ New Invoice</button>');
+
+  if (!canViewFinance) {
+    setTopbar('Finance', '');
+    el.innerHTML = `
+      <div class="dv2-hub-shell" style="padding:20px;max-width:720px;margin:0 auto">
+        <div class="ch-card" style="padding:28px">
+          <div style="font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Finance workspace restricted</div>
+          <p style="font-size:13px;line-height:1.55;color:var(--text-secondary);margin:0 0 14px 0">
+            Billing and ledger tools are for clinic administrators and authorised clinical staff. Patient and guest accounts cannot access finance data.
+          </p>
+          <button class="btn btn-primary btn-sm" onclick="window._nav('home')">Go to dashboard</button>
+        </div>
+      </div>`;
+    return;
+  }
+
+  const topbarActions = canManageFinance
+    ? '<button class="btn btn-primary btn-sm" onclick="window._finNewInvoice()">+ New Invoice</button>'
+    : '<span style="font-size:11px;color:var(--text-tertiary)">View-only · invoice edits require clinic admin</span>';
+  setTopbar('Finance', topbarActions);
 
   const pad2 = n => String(n).padStart(2,'0');
   const now  = new Date();
@@ -10582,6 +10737,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
   const invFilt   = window._invFilt   || 'all';
   const invSearch = window._invSearch || '';
 
+  let usedDemoSeed = false;
   // Declared as `let` so the demo-mode fallback below can reassign with seeded
   // empty payloads when backend rejects demo tokens.
   let [summary, invoicesResp, paymentsResp, claimsResp, monthlyResp] = await Promise.all([
@@ -10598,6 +10754,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
     let _demoBuild = false;
     try { _demoBuild = !!(import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1'); } catch (_) { _demoBuild = false; }
     if (_demoBuild) {
+      usedDemoSeed = true;
       summary = summary || { revenue_paid: 0, outstanding: 0, overdue: 0, total_invoices: 0, total_payments: 0, claims_approved: 0, claims_pending: 0, claims_value: 0 };
       invoicesResp = invoicesResp || { items: [] };
       paymentsResp = paymentsResp || { items: [] };
@@ -10611,13 +10768,21 @@ export async function pgFinanceHub(setTopbar, navigate) {
             <div class="ch-card" style="padding:28px;text-align:center">
               <div style="font-size:14px;font-weight:600;color:var(--red);margin-bottom:6px">Failed to load finance data</div>
               <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:14px">The server returned an error. Please retry.</div>
-              <button class="btn btn-primary btn-sm" onclick="window._nav('finance-hub')">Retry</button>
+              <button class="btn btn-primary btn-sm" onclick="window._nav('finance-v2')">Retry</button>
             </div>
           </div>
         </div>`;
       return;
     }
   }
+
+  const dataSourceKey = usedDemoSeed ? 'demo' : 'ledger';
+  const sourceBlurb =
+    dataSourceKey === 'demo'
+      ? 'DEMO / OFFLINE — figures are zero-filled placeholders until a live API session is available. Not real billing.'
+      : 'Internal clinic ledger (API + database). This is not your SaaS subscription; use Billing for Stripe checkout and the customer portal.';
+  const financeDisclaimer =
+    'Finance data may include provider-sourced billing records, internal estimates, or demo data. This page is for clinic administration only and does not provide tax, legal, financial, clinical, or treatment guidance.';
 
   const invoices = Array.isArray(invoicesResp.items) ? invoicesResp.items : [];
   const payments = Array.isArray(paymentsResp.items) ? paymentsResp.items : [];
@@ -10640,9 +10805,98 @@ export async function pgFinanceHub(setTopbar, navigate) {
     )
   ).join('');
 
-  window._finNewInvoice = () => document.getElementById('fin-new-inv-modal')?.classList.remove('ch-hidden');
-  window._finLogPayment = () => document.getElementById('fin-log-pay-modal')?.classList.remove('ch-hidden');
-  window._finNewClaim   = () => document.getElementById('fin-new-claim-modal')?.classList.remove('ch-hidden');
+  window._finNewInvoice = () => {
+    if (!canManageFinance) {
+      window._dsToast?.({ title: 'View only', body: 'Create invoice requires a clinic admin or platform admin role.', severity: 'warn' });
+      return;
+    }
+    document.getElementById('fin-new-inv-modal')?.classList.remove('ch-hidden');
+  };
+  window._finLogPayment = () => {
+    if (!canManageFinance) {
+      window._dsToast?.({ title: 'View only', body: 'Log payment requires a clinic admin or platform admin role.', severity: 'warn' });
+      return;
+    }
+    document.getElementById('fin-log-pay-modal')?.classList.remove('ch-hidden');
+  };
+  window._finNewClaim   = () => {
+    if (!canManageFinance) {
+      window._dsToast?.({ title: 'View only', body: 'Claims require a clinic admin or platform admin role.', severity: 'warn' });
+      return;
+    }
+    document.getElementById('fin-new-claim-modal')?.classList.remove('ch-hidden');
+  };
+
+  const demoChipHtml = usedDemoSeed
+    ? '<span style="display:inline-block;font-size:10px;font-weight:700;color:var(--amber,#ffb547);background:rgba(255,181,71,0.14);border:1px solid rgba(255,181,71,0.35);padding:2px 8px;border-radius:999px;margin-bottom:8px;letter-spacing:0.04em">DEMO DATA</span>'
+    : '';
+  const bannerHtml = `
+    <div class="ch-card" style="padding:14px 18px;margin-bottom:16px;border-left:3px solid var(--teal);display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start;justify-content:space-between">
+      <div style="flex:1;min-width:240px">
+        ${demoChipHtml}
+        <div style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">Data source</div>
+        <div style="font-size:12.5px;color:var(--text-primary);line-height:1.55">${sourceBlurb}</div>
+        <div style="font-size:11px;color:var(--text-tertiary);margin-top:10px;line-height:1.5">${financeDisclaimer}</div>
+        <div style="font-size:11px;color:var(--text-tertiary);margin-top:8px;line-height:1.45">VAT/tax is not calculated as legal advice here — confirm amounts with accounting or your payments provider. Finance audit events are not recorded separately; use the Audit Trail for governance review where your deployment enables it.</div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;max-width:420px;justify-content:flex-end">
+        <button type="button" class="ch-btn-sm ch-btn-teal" onclick="window._nav('marketplace')">Marketplace</button>
+        <button type="button" class="ch-btn-sm" onclick="window._nav('ai-agent-v2')">AI Agents</button>
+        <button type="button" class="ch-btn-sm" onclick="window._nav('pricing')">Access / Pricing</button>
+        <button type="button" class="ch-btn-sm" onclick="window._nav('billing')">Billing (SaaS)</button>
+        <button type="button" class="ch-btn-sm" onclick="window._nav('admin')">Admin</button>
+        <button type="button" class="ch-btn-sm" onclick="window._nav('documents-v2')">Documents</button>
+        <button type="button" class="ch-btn-sm" onclick="window._nav('settings-v2')">Settings</button>
+        <button type="button" class="ch-btn-sm" onclick="window._nav('audittrail')">Audit Trail</button>
+        <button type="button" class="ch-btn-sm" ${usedDemoSeed ? 'disabled title="Export needs a live finance API session"' : ''} onclick="window._finExportLedgerCsv()">Export CSV (this tab)</button>
+      </div>
+    </div>`;
+
+  window._finExportLedgerCsv = () => {
+    if (usedDemoSeed) {
+      window._dsToast?.({ title: 'Export unavailable', body: 'Connect to the API or disable demo offline mode to export ledger rows.', severity: 'warn' });
+      return;
+    }
+    const escCsv = (v) => {
+      const s = v == null ? '' : String(v);
+      if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+      return s;
+    };
+    let headers;
+    let rows;
+    if (tab === 'invoices') {
+      headers = ['invoice_number', 'patient_name', 'status', 'currency', 'total', 'issue_date', 'due_date'];
+      rows = invoices.map((inv) => headers.map((h) => escCsv(inv[h])).join(','));
+    } else if (tab === 'payments') {
+      headers = ['payment_date', 'patient_name', 'amount', 'currency', 'method', 'reference'];
+      rows = payments.map((p) =>
+        headers.map((h) => escCsv(h === 'currency' ? (p.currency || 'GBP') : p[h])).join(','),
+      );
+    } else if (tab === 'insurance') {
+      headers = ['claim_number', 'patient_name', 'status', 'amount', 'currency', 'insurer', 'submitted_date'];
+      rows = claims.map((c) =>
+        headers.map((h) => escCsv(h === 'currency' ? 'GBP' : c[h])).join(','),
+      );
+    } else {
+      window._dsToast?.({
+        title: 'Switch tab to export',
+        body: 'Open Invoices, Payments, or Insurance, then export CSV.',
+        severity: 'warn',
+      });
+      return;
+    }
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'finance-' + tab + '-' + new Date().toISOString().slice(0, 10) + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    window._dsToast?.({ title: 'Export ready', body: 'Download started.', severity: 'success' });
+  };
 
   let main = '';
 
@@ -10654,7 +10908,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
     const invDenom = Math.max(invoices.length, 1);
     const recentPay = payments.slice(0, 3).map(p => ({
       icon: '💳',
-      text: (p.patient_name || '—') + ' — ' + fmt(p.amount) + ' received',
+      text: (p.patient_name || '—') + ' — ' + fmt(p.amount) + ' GBP recorded',
       date: p.payment_date || p.created_at || '',
       c: 'var(--green)',
     }));
@@ -10670,11 +10924,12 @@ export async function pgFinanceHub(setTopbar, navigate) {
 
     main = `
       <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
-        <div class="ch-kpi-card dv2-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val dv2-kpi-val">${fmt(totalRev)}</div><div class="ch-kpi-label dv2-kpi-label">Revenue (Paid)</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(totalOutstand)}</div><div class="ch-kpi-label">Outstanding</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--red)"><div class="ch-kpi-val">${fmt(totalOverdue)}</div><div class="ch-kpi-label">Overdue</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${totalInvoices}</div><div class="ch-kpi-label">Total Invoices</div></div>
+        <div class="ch-kpi-card dv2-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val dv2-kpi-val">${fmt(totalRev)} GBP</div><div class="ch-kpi-label dv2-kpi-label">Collected (ledger)</div><div style="font-size:10px;color:var(--text-tertiary);margin-top:4px;line-height:1.35">Internal payments logged · not card-settled unless noted elsewhere</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(totalOutstand)} GBP</div><div class="ch-kpi-label">Outstanding (estimate)</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--red)"><div class="ch-kpi-val">${fmt(totalOverdue)} GBP</div><div class="ch-kpi-label">Overdue (estimate)</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${totalInvoices}</div><div class="ch-kpi-label">Invoice rows</div></div>
       </div>
+      <div style="font-size:11px;color:var(--text-tertiary);margin:-8px 0 16px 0;line-height:1.45">Zeros do not prove healthy billing — confirm with your ledger and provider. SaaS subscription status is on <button type="button" class="ch-btn-sm" style="margin:0 4px;vertical-align:middle" onclick="window._nav('billing')">Billing</button>.</div>
       <div class="ch-two-col">
         <div class="ch-card">
           <div class="ch-card-hd"><span class="ch-card-title">Invoice Status</span></div>
@@ -10694,7 +10949,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
                 '<div class="rec-apt-info"><div class="rec-apt-name" style="color:'+x.c+'">'+x.text+'</div></div>'+
                 '<span class="rec-apt-time">'+x.date+'</span></div>'
               ).join('')
-            : '<div style="padding:24px;text-align:center;color:var(--text-tertiary);font-size:12px">No recent activity.</div>'}
+            : '<div style="padding:24px;text-align:center;color:var(--text-tertiary);font-size:12px">No recent ledger activity in this view.</div>'}
         </div>
       </div>`;
   }
@@ -10706,29 +10961,36 @@ export async function pgFinanceHub(setTopbar, navigate) {
         <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px">
           <span class="ch-card-title">Invoices</span>
           <div style="display:flex;gap:4px;flex-wrap:wrap">
-            ${FILTS.map(f=>'<button class="ch-btn-sm'+(f.id===invFilt?' ch-btn-teal':'')+'" onclick="window._invFilt=\''+f.id+'\';window._nav(\'finance-hub\')">'+f.label+'</button>').join('')}
+            ${FILTS.map(f=>'<button class="ch-btn-sm'+(f.id===invFilt?' ch-btn-teal':'')+'" onclick="window._invFilt=\''+f.id+'\';window._nav(\'finance-v2\')">'+f.label+'</button>').join('')}
           </div>
           <div style="position:relative;flex:1;max-width:240px;min-width:140px">
-            <input type="text" placeholder="Search invoices…" class="ph-search-input" value="${(invSearch||'').replace(/"/g,'&quot;')}" oninput="window._invSearch=this.value" onchange="window._nav('finance-hub')" onkeydown="if(event.key==='Enter'){window._invSearch=this.value;window._nav('finance-hub')}">
+            <input type="text" placeholder="Search invoices…" class="ph-search-input" value="${(invSearch||'').replace(/"/g,'&quot;')}" oninput="window._invSearch=this.value" onchange="window._nav('finance-v2')" onkeydown="if(event.key==='Enter'){window._invSearch=this.value;window._nav('finance-v2')}">
           </div>
-          <button class="ch-btn-sm ch-btn-teal" onclick="window._finNewInvoice()">+ New</button>
+          ${canManageFinance ? '<button class="ch-btn-sm ch-btn-teal" onclick="window._finNewInvoice()">+ New</button>' : '<span style="font-size:11px;color:var(--text-tertiary)">Admins create invoices</span>'}
         </div>
         ${rows.length === 0
-          ? '<div style="padding:28px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No invoices found.</div>'
+          ? '<div style="padding:28px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No invoices in this ledger view.</div>'
           : rows.map(inv => {
               const symTotal = fmtC(inv.total, inv.currency);
               const safeId   = String(inv.id).replace(/'/g, "\\'");
               const safeNum  = String(inv.invoice_number || inv.id).replace(/'/g, "\\'");
+              const curLbl = (inv.currency || 'GBP').toUpperCase();
+              const markPaidBtn = (canManageFinance && inv.status !== 'paid')
+                ? '<button class="ch-btn-sm ch-btn-teal" onclick="window._finMarkPaid(\''+safeId+'\')">Mark Paid</button>'
+                : '';
+              const delDraftBtn = (canManageFinance && inv.status === 'draft')
+                ? '<button class="ch-btn-sm" onclick="window._finDeleteInvoice(\''+safeId+'\', \''+safeNum+'\')">Delete</button>'
+                : '';
               return '<div class="book-row">'+
                 '<div class="book-datetime"><div class="book-date">'+(inv.issue_date||'')+'</div><div class="book-time">Due: '+(inv.due_date||'—')+'</div></div>'+
                 '<div class="book-info"><div class="book-patient">'+(inv.invoice_number||inv.id)+' — '+(inv.patient_name||'—')+'</div><div class="book-clinician">'+(inv.service||'')+'</div></div>'+
-                '<div style="flex-shrink:0;text-align:right;min-width:80px"><div style="font-size:14px;font-weight:700;color:var(--text-primary)">'+symTotal+'</div><div style="font-size:11px;color:var(--text-tertiary)">+VAT incl.</div></div>'+
+                '<div style="flex-shrink:0;text-align:right;min-width:88px"><div style="font-size:14px;font-weight:700;color:var(--text-primary)">'+symTotal+'</div><div style="font-size:11px;color:var(--text-tertiary)">VAT as recorded · '+curLbl+'</div></div>'+
                 '<div class="book-status-col"><span class="book-status-badge" style="color:'+(invStC[inv.status]||'var(--text-tertiary)')+';background:'+(invStC[inv.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+(inv.status||'')+'</span></div>'+
                 '<div class="book-actions">'+
                   '<button class="ch-btn-sm" onclick="window._finViewInvoice(\''+safeId+'\')">View</button>'+
-                  (inv.status!=='paid'?'<button class="ch-btn-sm ch-btn-teal" onclick="window._finMarkPaid(\''+safeId+'\')">Mark Paid</button>':'')+
-                  (inv.status==='draft'?'<button class="ch-btn-sm" onclick="window._finDeleteInvoice(\''+safeId+'\', \''+safeNum+'\')">Delete</button>':'')+
-                  '<button class="ch-btn-sm" disabled title="Invoice delivery is not enabled in this beta build">Delivery unavailable</button>'+
+                  markPaidBtn +
+                  delDraftBtn +
+                  '<button class="ch-btn-sm" disabled title="Outbound invoice delivery is not wired in this deployment">Send / PDF unavailable</button>'+
                 '</div>'+
               '</div>';
             }).join('')}
@@ -10768,6 +11030,10 @@ export async function pgFinanceHub(setTopbar, navigate) {
     };
 
     window._finMarkPaid = async (id) => {
+      if (!canManageFinance) {
+        window._dsToast?.({ title: 'View only', body: 'Mark paid requires clinic admin.', severity: 'warn' });
+        return;
+      }
       try {
         const inv = await api.finance.markInvoicePaid(id, { method: 'manual' });
         window._dsToast?.({
@@ -10775,17 +11041,18 @@ export async function pgFinanceHub(setTopbar, navigate) {
           body: (inv?.invoice_number || id) + ' — ' + fmtC(inv?.total, inv?.currency),
           severity: 'success',
         });
-        window._nav('finance-hub');
+        window._nav('finance-v2');
       } catch (err) {
         window._dsToast?.({ title:'Mark paid failed', body: err?.message || 'Server error', severity:'warn' });
       }
     };
     window._finDeleteInvoice = async (id, label) => {
+      if (!canManageFinance) return;
       if (!confirm('Delete draft invoice ' + label + '?')) return;
       try {
         await api.finance.deleteInvoice(id);
         window._dsToast?.({ title:'Draft deleted', body: label + ' was removed.', severity:'success' });
-        window._nav('finance-hub');
+        window._nav('finance-v2');
       } catch (err) {
         window._dsToast?.({ title:'Delete failed', body: err?.message || 'Server error', severity:'warn' });
       }
@@ -10796,23 +11063,23 @@ export async function pgFinanceHub(setTopbar, navigate) {
     const avgPayment   = payments.length ? Math.round(totalReceived / payments.length) : 0;
     main = `
       <div class="ch-kpi-strip" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px">
-        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${fmt(totalReceived)}</div><div class="ch-kpi-label">Total Received</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${fmt(totalReceived)} GBP</div><div class="ch-kpi-label">Total recorded</div></div>
         <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${totalPayments}</div><div class="ch-kpi-label">Transactions</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(avgPayment)}</div><div class="ch-kpi-label">Avg Payment</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(avgPayment)} GBP</div><div class="ch-kpi-label">Avg payment</div></div>
       </div>
       <div class="ch-card">
         <div class="ch-card-hd">
           <span class="ch-card-title">Payment Log</span>
-          <button class="ch-btn-sm ch-btn-teal" onclick="window._finLogPayment()">+ Log Payment</button>
+          ${canManageFinance ? '<button class="ch-btn-sm ch-btn-teal" onclick="window._finLogPayment()">+ Log Payment</button>' : ''}
         </div>
         ${payments.length === 0
-          ? '<div style="padding:28px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No payments recorded yet.</div>'
+          ? '<div style="padding:28px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No payments recorded in this ledger.</div>'
           : payments.map(p =>
               '<div class="book-row">'+
                 '<div class="book-datetime"><div class="book-date">'+(p.payment_date||'')+'</div><div class="book-time">'+(p.reference||'')+'</div></div>'+
                 '<div class="book-info"><div class="book-patient">'+(p.patient_name||'—')+'</div><div class="book-clinician">'+(p.method||'')+(p.reference?(' · Ref: '+p.reference):'')+'</div></div>'+
-                '<div style="flex-shrink:0;min-width:80px;text-align:right"><div style="font-size:15px;font-weight:700;color:var(--green)">'+fmt(p.amount)+'</div></div>'+
-                '<div class="book-status-col"><span class="book-status-badge" style="color:var(--green);background:rgba(74,222,128,0.12)">Received</span></div>'+
+                '<div style="flex-shrink:0;min-width:88px;text-align:right"><div style="font-size:15px;font-weight:700;color:var(--green)">'+fmt(p.amount)+' GBP</div><div style="font-size:10px;color:var(--text-tertiary)">Ledger · not card auth</div></div>'+
+                '<div class="book-status-col"><span class="book-status-badge" style="color:var(--green);background:rgba(74,222,128,0.12)">Recorded</span></div>'+
               '</div>'
             ).join('')}
       </div>`;
@@ -10822,12 +11089,12 @@ export async function pgFinanceHub(setTopbar, navigate) {
       <div class="ch-kpi-strip" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px">
         <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${claimsApproved}</div><div class="ch-kpi-label">Approved</div></div>
         <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${claimsPending}</div><div class="ch-kpi-label">Pending</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(claimsValue)}</div><div class="ch-kpi-label">Claims Value</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(claimsValue)} GBP</div><div class="ch-kpi-label">Claims value (ledger)</div></div>
       </div>
       <div class="ch-card">
         <div class="ch-card-hd">
           <span class="ch-card-title">Insurance & Funding Claims</span>
-          <button class="ch-btn-sm ch-btn-teal" onclick="window._finNewClaim()">+ New Claim</button>
+          ${canManageFinance ? '<button class="ch-btn-sm ch-btn-teal" onclick="window._finNewClaim()">+ New Claim</button>' : ''}
         </div>
         ${claims.length === 0
           ? '<div style="padding:28px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No claims yet.</div>'
@@ -10890,15 +11157,16 @@ export async function pgFinanceHub(setTopbar, navigate) {
     const collectionRate = seriesInv > 0 ? Math.round((seriesSum / seriesInv) * 100) : 0;
 
     main = `
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;line-height:1.5">Billing analytics below are <strong>ledger estimates</strong> from invoiced vs collected rows — not tax filings or SaaS MRR. SaaS plans: <button type="button" class="ch-btn-sm" onclick="window._nav('billing')">Billing</button>.</div>
       <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
-        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${fmt(totalRev)}</div><div class="ch-kpi-label">YTD Revenue</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(avgMonth)}</div><div class="ch-kpi-label">Avg / Month</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${collectionRate}%</div><div class="ch-kpi-label">Collection Rate</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${monthlyData.length}</div><div class="ch-kpi-label">Months Tracked</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${fmt(totalRev)} GBP</div><div class="ch-kpi-label">Collected (ledger)</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(avgMonth)} GBP</div><div class="ch-kpi-label">Avg collected / month</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${collectionRate}%</div><div class="ch-kpi-label">Collection ratio (estimate)</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${monthlyData.length}</div><div class="ch-kpi-label">Months in series</div></div>
       </div>
       <div class="ch-two-col">
         <div class="ch-card">
-          <div class="ch-card-hd"><span class="ch-card-title">Monthly Revenue</span><button class="ch-btn-sm ch-btn-teal" onclick="window._reportsHubTab='analytics';window._nav('reports-hub')">Open Reports</button></div>
+          <div class="ch-card-hd"><span class="ch-card-title">Monthly Revenue</span><button class="ch-btn-sm ch-btn-teal" onclick="window._reportsHubTab='analytics';window._nav('reports-v2')">Open Reports</button></div>
           ${monthlyData.length === 0
             ? '<div style="padding:28px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No monthly data yet.</div>'
             : monthlyData.map(d =>
@@ -10931,6 +11199,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
 
   el.innerHTML = `
   <div class="dv2-hub-shell" style="padding:20px;display:flex;flex-direction:column;gap:16px">
+  ${bannerHtml}
   <div class="ch-shell">
     <div class="ch-tab-bar">${tabBar()}</div>
     <div class="ch-body">${main}</div>
@@ -10995,6 +11264,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
   </div>`;
 
   window._finSaveInvoice = async () => {
+    if (!canManageFinance) return;
     const patient_name = document.getElementById('inv-patient')?.value?.trim();
     const service      = document.getElementById('inv-service')?.value?.trim();
     const amount       = parseFloat(document.getElementById('inv-amount')?.value || 0);
@@ -11017,7 +11287,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
       });
       document.getElementById('fin-new-inv-modal')?.classList.add('ch-hidden');
       window._financeHubTab = 'invoices';
-      window._nav('finance-hub');
+      window._nav('finance-v2');
       window._dsToast?.({
         title:'Invoice created',
         body: (inv?.invoice_number || 'Invoice') + ' — ' + fmtC(inv?.total, inv?.currency),
@@ -11039,6 +11309,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
   };
 
   window._finSavePayment = async () => {
+    if (!canManageFinance) return;
     const patient_name = document.getElementById('pay-patient')?.value?.trim();
     const amount       = parseFloat(document.getElementById('pay-amount')?.value || 0);
     const method       = document.getElementById('pay-method')?.value || 'manual';
@@ -11055,7 +11326,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
       });
       document.getElementById('fin-log-pay-modal')?.classList.add('ch-hidden');
       window._financeHubTab = 'payments';
-      window._nav('finance-hub');
+      window._nav('finance-v2');
       window._dsToast?.({ title:'Payment logged', body: patient_name + ' — ' + fmt(amount), severity:'success' });
     } catch (err) {
       window._dsToast?.({ title:'Log payment failed', body: err?.message || 'Server error', severity:'warn' });
@@ -11063,6 +11334,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
   };
 
   window._finSaveClaim = async () => {
+    if (!canManageFinance) return;
     const patient_name  = document.getElementById('clm-patient')?.value?.trim();
     const insurer       = document.getElementById('clm-insurer')?.value?.trim();
     const policy_number = document.getElementById('clm-policy')?.value?.trim() || null;
@@ -11079,7 +11351,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
       });
       document.getElementById('fin-new-claim-modal')?.classList.add('ch-hidden');
       window._financeHubTab = 'insurance';
-      window._nav('finance-hub');
+      window._nav('finance-v2');
       window._dsToast?.({ title:'Claim created', body: patient_name + ' — ' + insurer, severity:'success' });
     } catch (err) {
       window._dsToast?.({ title:'Create claim failed', body: err?.message || 'Server error', severity:'warn' });
@@ -12762,6 +13034,34 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
   const el = document.getElementById('content');
   el.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
 
+  let apiPayload = null;
+  let apiErr = null;
+  try {
+    apiPayload = await api.marketplaceItems();
+  } catch (e) {
+    apiErr = e;
+  }
+
+  const resolved = resolveMarketplaceCatalog(apiPayload, DEMO_CURATED_LISTINGS, apiErr);
+  const LISTINGS = resolved.rows;
+  const catalogMode = resolved.mode;
+  const catalogBanner = resolved.banner;
+  const role = currentUser?.role || 'guest';
+  const canSeller = canManageSellerListings(role);
+  const pkgLabel = currentUser?.package_id ? String(currentUser.package_id) : '—';
+
+  try {
+    const audit = (window.api && window.api.logAudit) || api.logAudit;
+    audit?.({
+      surface: 'marketplace_hub',
+      event: 'marketplace_hub_loaded',
+      catalog_mode: catalogMode,
+      listing_count: LISTINGS.length,
+      role,
+      ts: new Date().toISOString(),
+    });
+  } catch {}
+
   const CATEGORIES = [
     { id: 'all',           label: 'All Listings',     icon: '🛒' },
     { id: 'consultations', label: 'Consultations',    icon: '🩺' },
@@ -12772,45 +13072,23 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
     { id: 'courses',       label: 'Short Courses',    icon: '📚' },
   ];
 
-  const DEMO_LISTINGS = [
-    // ── Consultations ──
-    { id: 'l1',  cat: 'consultations', title: 'Initial TMS Assessment',       clinic: 'Smart TMS',           price: 120,  unit: 'session',  badge: 'Featured', rating: 4.9, reviews: 142, desc: 'Comprehensive first-consultation including QEEG screening and protocol recommendation.', img: '🩺', url: 'https://www.smarttms.co.uk/gps-referrals/' },
-    { id: 'l2',  cat: 'consultations', title: 'Follow-up Protocol Review',    clinic: 'AIM Neuromodulation', price: 75,   unit: 'session',  badge: '',         rating: 4.7, reviews: 89,  desc: 'Review progress, adjust stimulation parameters and outcomes targets mid-course.', img: '🩺', url: 'https://www.aimneuromodulation.com/' },
-    { id: 'l3',  cat: 'consultations', title: 'tDCS Home Setup Consultation', clinic: 'Neuroelectrics',      price: 60,   unit: 'session',  badge: 'New',      rating: 4.5, reviews: 23,  desc: 'Remote session to configure home tDCS device and safety protocols.', img: '🩺', url: 'https://www.neuroelectrics.com/blog/home-based-tdcs-as-a-promising-treatment-for-depression' },
-    // ── Products (real Amazon links) ──
-    { id: 'l4',  cat: 'products',      title: 'Ten20 Conductive EEG Paste 228g', clinic: 'Weaver and Company', price: 12,   unit: 'item',     badge: 'Bestseller', rating: 4.7, reviews: 1250, desc: 'Industry-standard conductive paste for EEG, EMG, and neurofeedback electrode application.', img: '🧴', url: 'https://www.amazon.com/dp/B00GTX2MNE' },
-    { id: 'l5',  cat: 'products',      title: 'Muse 2 Brain Sensing Headband', clinic: 'Interaxon',          price: 199,  unit: 'item',     badge: 'Featured', rating: 4.3, reviews: 3200, desc: 'EEG-powered meditation headband with real-time biofeedback for brain activity, heart rate, breathing, and movement.', img: '🧠', url: 'https://www.amazon.com/dp/B07HL2JQQJ' },
-    { id: 'l6',  cat: 'products',      title: 'Polar H10 Heart Rate Sensor',  clinic: 'Polar',              price: 89,   unit: 'item',     badge: '',         rating: 4.7, reviews: 18500, desc: 'Medical-grade ECG chest strap with dual Bluetooth + ANT+. Gold standard for HRV monitoring in clinical settings.', img: '🫀', url: 'https://www.amazon.com/dp/B07PM54P4N' },
-    { id: 'l17', cat: 'products',      title: 'Oura Ring Gen 4',              clinic: 'Oura Health',         price: 349,  unit: 'item',     badge: 'New',      rating: 4.2, reviews: 5400, desc: 'Titanium smart ring with advanced sleep staging, HRV, blood oxygen, and activity tracking. 7-day battery life.', img: '💍', url: 'https://www.amazon.com/dp/B0DKLHHMZ5' },
-    { id: 'l18', cat: 'products',      title: 'Verilux HappyLight Touch Plus', clinic: 'Verilux',           price: 64,   unit: 'item',     badge: '',         rating: 4.5, reviews: 9800, desc: '10,000 lux UV-free LED light therapy lamp. Adjustable brightness and colour temperature for SAD and circadian therapy.', img: '☀️', url: 'https://www.amazon.com/dp/B07WC7KT4G' },
-    { id: 'l19', cat: 'products',      title: 'Garmin vivosmart 5 Fitness Tracker', clinic: 'Garmin',       price: 149,  unit: 'item',     badge: '',         rating: 4.3, reviews: 7200, desc: 'Fitness tracker with stress tracking, Body Battery energy monitoring, sleep score, and Garmin Connect integration.', img: '⌚', url: 'https://www.amazon.com/dp/B09W1TVFS7' },
-    { id: 'l20', cat: 'products',      title: 'LectroFan Evo White Noise Machine', clinic: 'Adaptive Sound', price: 49,  unit: 'item',     badge: '',         rating: 4.6, reviews: 11400, desc: 'High-fidelity white noise, fan, and ocean sounds with precise volume control. 22 non-looping sounds for sleep and focus.', img: '🔊', url: 'https://www.amazon.com/dp/B07XXR2NVB' },
-    // ── Software ──
-    { id: 'l7',  cat: 'software',      title: 'NeuroGuide QEEG Software',     clinic: 'Applied Neuroscience', price: 49,   unit: 'month',    badge: 'Featured', rating: 4.9, reviews: 204, desc: 'Industry-standard QEEG analysis, database comparison, and clinical report generation platform with normative databases.', img: '💻', url: 'https://www.appliedneuroscience.com/product/neuroguide/' },
-    { id: 'l8',  cat: 'software',      title: 'qEEG-Pro Report Generator',    clinic: 'qEEG-Pro',            price: 29,   unit: 'month',    badge: '',         rating: 4.5, reviews: 78,  desc: 'Automated clinical QEEG report generation with z-score analysis, ERP processing, and protocol recommendations.', img: '📊', url: 'https://qeeg.pro/' },
-    { id: 'l9',  cat: 'software',      title: 'BrainMaster Discovery 24E',    clinic: 'BrainMaster',         price: 0,    unit: 'free',     badge: 'Free',     rating: 4.2, reviews: 331, desc: 'Neurofeedback software suite with real-time EEG acquisition, biofeedback, and patient engagement tracking.', img: '📱', url: 'https://brainmaster.com/our-software/' },
-    // ── Seminars ──
-    { id: 'l10', cat: 'seminars',      title: 'rTMS in Treatment-Resistant Depression', clinic: 'Clinical TMS Society', price: 95, unit: 'seat', badge: 'Live', rating: 4.9, reviews: 67, desc: 'Half-day CPD seminar covering evidence, protocols, and real-world outcomes.', img: '🎤', url: 'https://www.clinicaltmssociety.org/education' },
-    { id: 'l11', cat: 'seminars',      title: 'Neuromodulation for Chronic Pain', clinic: 'INS',            price: 85,   unit: 'seat',     badge: '',         rating: 4.7, reviews: 41,  desc: 'Evidence-based webinar on SCS, TENS, and tDCS for pain management by the International Neuromodulation Society.', img: '🎤', url: 'https://www.neuromodulation.com/webinars' },
-    // ── Workshops ──
-    { id: 'l12', cat: 'workshops',     title: 'Hands-On TMS Coil Placement',  clinic: 'Clinical TMS Society', price: 195, unit: 'seat',     badge: '', rating: 5.0, reviews: 29,  desc: 'Practical workshop: figure-8 placement, motor threshold mapping, safety protocols.', img: '🔧', url: 'https://www.clinicaltmssociety.org/courses' },
-    { id: 'l13', cat: 'workshops',     title: 'QEEG Interpretation Workshop', clinic: 'Neurocare Academy',  price: 225,  unit: 'seat',     badge: 'New',      rating: 4.8, reviews: 15,  desc: 'Full-day workshop analysing real patient EEG traces and building personalised protocol maps.', img: '🔧', url: 'https://www.neurocaregroup.com/academy.html' },
-    // ── Short Courses (real platform links) ──
-    { id: 'l14', cat: 'courses',       title: 'Medical Neuroscience — Duke University', clinic: 'Coursera', price: 0,   unit: 'free audit', badge: 'Featured', rating: 4.9, reviews: 4200, desc: 'Comprehensive neuroanatomy and neurophysiology. ~14 weeks. Free audit or paid certificate.', img: '📚', url: 'https://www.coursera.org/learn/medical-neuroscience' },
-    { id: 'l15', cat: 'courses',       title: 'Fundamentals of Neuroscience — HarvardX', clinic: 'edX',    price: 0,   unit: 'free audit', badge: '',         rating: 4.8, reviews: 2800, desc: 'Three-part Harvard Medical School series covering cellular, systems, and clinical neuroscience.', img: '📚', url: 'https://www.edx.org/xseries/harvardx-fundamentals-of-neuroscience' },
-    { id: 'l16', cat: 'courses',       title: 'Computational Neuroscience — University of Washington', clinic: 'Coursera', price: 0, unit: 'free audit', badge: '',  rating: 4.7, reviews: 1600, desc: 'Neural coding, modelling, and closed-loop stimulation design primer. ~9 weeks.', img: '📚', url: 'https://www.coursera.org/learn/computational-neuroscience' },
-    { id: 'l21', cat: 'courses',       title: 'The Brain and Space — Duke University', clinic: 'Coursera',  price: 0,   unit: 'free audit', badge: 'New', rating: 4.7, reviews: 900, desc: 'How the brain creates our sense of spatial awareness. Covers spatial perception, sensory systems, brain mapping.', img: '📚', url: 'https://www.coursera.org/learn/the-brain-and-space' },
-    { id: 'l22', cat: 'courses',       title: 'Introduction to Psychology — Yale University', clinic: 'Coursera', price: 0, unit: 'free audit', badge: '', rating: 4.9, reviews: 12500, desc: 'Paul Bloom\'s famous course covering brain structure, neural development, perception, learning, memory, and more.', img: '📚', url: 'https://www.coursera.org/learn/introduction-psychology' },
-    { id: 'l23', cat: 'courses',       title: 'Neuroscience and Neuroimaging — Johns Hopkins', clinic: 'Coursera', price: 0, unit: 'free audit', badge: '', rating: 4.6, reviews: 1100, desc: 'Neurohacking in R — neuroimaging analysis including preprocessing, structural and functional MRI.', img: '📚', url: 'https://www.coursera.org/learn/neurohacking' },
-    { id: 'l24', cat: 'courses',       title: 'Understanding the Brain — University of Chicago', clinic: 'Coursera', price: 0, unit: 'free audit', badge: '', rating: 4.8, reviews: 3500, desc: 'Neurobiology of everyday life — how the brain generates behaviour and how it is affected by disease.', img: '📚', url: 'https://www.coursera.org/learn/neurobiology' },
-    { id: 'l25', cat: 'courses',       title: 'Biohacking Your Brain\'s Health — Udemy', clinic: 'Udemy',    price: 19,  unit: 'course',     badge: '',  rating: 4.5, reviews: 5200, desc: 'Practical strategies for optimising brain health through sleep, nutrition, exercise, and neurofeedback techniques.', img: '📚', url: 'https://www.udemy.com/topic/neuroscience/' },
-  ];
-
-  const BADGE_COLORS = { Featured: '#5dd9c4', New: '#6366f1', Bestseller: '#f59e0b', Sale: '#ef4444', Live: '#10b981', Free: '#8b5cf6', 'Sold Out': '#6b7280', '': 'transparent' };
+  const BADGE_COLORS = {
+    Featured: '#5dd9c4', New: '#6366f1', Bestseller: '#f59e0b', Sale: '#ef4444', Live: '#10b981', Free: '#8b5cf6',
+    'Sold Out': '#6b7280', 'Coming soon': '#818cf8', Unavailable: '#6b7280', '': 'transparent',
+  };
 
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
+  function listingStatusChip(l) {
+    const k = l.listingKind || 'demo_curated';
+    if (k === 'catalog_active') return '<span class="mp-status-chip mp-status-chip--live">Catalog</span>';
+    if (k === 'coming_soon') return '<span class="mp-status-chip mp-status-chip--soon" data-test="mp-status-coming-soon">Coming soon</span>';
+    if (k === 'unavailable') return '<span class="mp-status-chip mp-status-chip--off" data-test="mp-status-unavailable">Unavailable</span>';
+    return '<span class="mp-status-chip mp-status-chip--demo" data-test="mp-status-demo">Demo</span>';
+  }
+
   function renderStars(r) {
+    if (r == null || Number.isNaN(Number(r))) return '';
     const full = Math.floor(r); const half = r % 1 >= 0.5 ? 1 : 0;
     let s = '';
     for (let i = 0; i < full; i++) s += '<span class="mp-star full">&#9733;</span>';
@@ -12819,33 +13097,66 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
     return s;
   }
 
-  function renderCard(l) {
+  function formatPriceStr(l) {
     const isFreeAudit = l.unit === 'free audit' || l.unit === 'free';
-    const priceStr = isFreeAudit ? 'Free' : l.unit === 'month' ? '&#163;' + l.price + '<span class="mp-card-unit">/mo</span>' : '&#163;' + l.price + '<span class="mp-card-unit">/' + l.unit + '</span>';
+    if (l.priceCurrency && l.price != null) {
+      const sym = l.priceCurrency === 'GBP' ? '\u00A3' : l.priceCurrency === 'EUR' ? '\u20AC' : '$';
+      return sym + l.price + (l.unit && !isCurrencyUnit(l.unit) ? '<span class="mp-card-unit"> / ' + esc(l.unit) + '</span>' : '');
+    }
+    if (isFreeAudit) return 'Free';
+    if (l.price == null) return '\u2014';
+    if (l.unit === 'month') return '\u00A3' + l.price + '<span class="mp-card-unit">/mo</span>';
+    return '\u00A3' + l.price + '<span class="mp-card-unit">/' + esc(String(l.unit || 'unit')) + '</span>';
+  }
+
+  function isCurrencyUnit(u) {
+    const x = String(u || '').toUpperCase();
+    return x === 'GBP' || x === 'USD' || x === 'EUR';
+  }
+
+  function renderCard(l) {
+    const priceStr = formatPriceStr(l);
     const badgeBg = BADGE_COLORS[l.badge] || 'transparent';
     const soldOut = l.badge === 'Sold Out';
     const catLabel = (CATEGORIES.find(c => c.id === l.cat) || {}).label || l.cat;
-    const hasUrl = l.url && l.url.length > 0;
+    const hasUrl = l.url && String(l.url).length > 0;
     const isAmazon = hasUrl && l.url.includes('amazon');
     const isCoursePlatform = hasUrl && (l.url.includes('coursera') || l.url.includes('edx') || l.url.includes('udemy') || l.url.includes('futurelearn'));
-    const amazonBadge = isAmazon ? '<span style="display:inline-block;background:rgba(255,153,0,0.15);color:#f59e0b;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;margin-left:6px">Amazon</span>' : '';
-    const platformBadge = isCoursePlatform ? '<span style="display:inline-block;background:rgba(99,102,241,0.15);color:#818cf8;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;margin-left:6px">' + esc(l.clinic) + '</span>' : '';
-    let ctaLabel = soldOut ? 'Sold Out' : l.unit === 'month' ? 'Subscribe' : (l.unit === 'course' || l.unit === 'free audit') ? 'Enroll' : isFreeAudit ? 'Get Free' : 'Book';
-    if (isAmazon) ctaLabel = 'Buy on Amazon';
-    if (isCoursePlatform) ctaLabel = 'View Course';
-    return '<div class="mp-card" data-id="' + esc(l.id) + '">' +
+    const amazonBadge = isAmazon ? '<span class="mp-amazon-inline">Amazon</span>' : '';
+    const platformBadge = isCoursePlatform ? '<span class="mp-platform-inline">' + esc(l.clinic) + '</span>' : '';
+    const kind = l.listingKind || 'demo_curated';
+    const starsHtml = (l.rating != null)
+      ? '<div class="mp-card-meta"><div class="mp-card-stars">' + renderStars(l.rating) + '<span class="mp-card-rating">' + l.rating + '</span><span class="mp-card-reviews">(' + (l.reviews != null ? l.reviews : '\u2014') + ')</span></div></div>'
+      : '<div class="mp-card-meta mp-card-meta--muted"><span class="mp-no-rating">Illustrative ratings hidden for catalog items</span></div>';
+    let ctaDisabled = soldOut || kind === 'coming_soon' || kind === 'unavailable' || (kind === 'catalog_active' && !hasUrl);
+    let ctaLabel = soldOut ? 'Unavailable' : kind === 'coming_soon' ? 'Not available yet' : kind === 'unavailable' ? 'No vendor link' : (!hasUrl && kind === 'catalog_active') ? 'No external link' : '';
+    if (!ctaLabel) {
+      const isFreeAudit = l.unit === 'free audit' || l.unit === 'free';
+      ctaLabel = l.unit === 'month' ? 'Vendor pricing' : (l.unit === 'course' || l.unit === 'free audit') ? 'Enroll' : isFreeAudit ? 'Get Free' : 'Open link';
+      if (isAmazon) ctaLabel = 'Vendor (Amazon)';
+      if (isCoursePlatform) ctaLabel = 'Open course';
+      if (kind === 'demo_curated' && !isAmazon && !isCoursePlatform) ctaLabel = 'Open link (demo)';
+      if (kind === 'catalog_active') ctaLabel = hasUrl ? 'Open vendor link' : ctaLabel;
+    }
+    const regNote = l.regulatoryNote ? '<div class="mp-reg-note">' + esc(l.regulatoryNote) + '</div>' : '';
+    const apiMeta = (kind === 'catalog_active' && l.apiKind)
+      ? '<div class="mp-api-meta">' + esc(l.apiKind) + (l.source ? ' · ' + esc(l.source) : '') + '</div>'
+      : '';
+    return '<div class="mp-card" data-id="' + esc(l.id) + '" data-listing-kind="' + esc(kind) + '">' +
       '<div class="mp-card-img">' + esc(l.img) + '</div>' +
       (l.badge ? '<span class="mp-card-badge" style="background:' + badgeBg + '">' + esc(l.badge) + '</span>' : '') +
       '<div class="mp-card-body">' +
-        '<div class="mp-card-cat">' + esc(catLabel) + amazonBadge + platformBadge + '</div>' +
+        '<div class="mp-card-cat">' + listingStatusChip(l) + ' ' + esc(catLabel) + amazonBadge + platformBadge + '</div>' +
         '<div class="mp-card-title">' + esc(l.title) + '</div>' +
         '<div class="mp-card-clinic">by ' + esc(l.clinic) + '</div>' +
+        apiMeta +
         '<div class="mp-card-desc">' + esc(l.desc) + '</div>' +
-        '<div class="mp-card-meta"><div class="mp-card-stars">' + renderStars(l.rating) + '<span class="mp-card-rating">' + l.rating + '</span><span class="mp-card-reviews">(' + l.reviews + ')</span></div></div>' +
+        regNote +
+        starsHtml +
       '</div>' +
       '<div class="mp-card-footer">' +
         '<div class="mp-card-price">' + priceStr + '</div>' +
-        '<button class="mp-card-cta' + (soldOut ? ' mp-card-cta--disabled' : '') + (isAmazon ? ' mp-card-cta--amazon' : '') + '" ' + (soldOut ? 'disabled' : '') + ' onclick="window._mpBook(\'' + esc(l.id) + '\')">' + ctaLabel + '</button>' +
+        '<button type="button" class="mp-card-cta' + (ctaDisabled ? ' mp-card-cta--disabled' : '') + (isAmazon ? ' mp-card-cta--amazon' : '') + '" ' + (ctaDisabled ? 'disabled title="' + esc(ctaLabel) + '"' : '') + (!ctaDisabled ? ' onclick="window._mpBook(\'' + esc(l.id) + '\')"' : '') + ' data-test="mp-card-cta">' + esc(ctaLabel) + '</button>' +
       '</div>' +
     '</div>';
   }
@@ -12856,43 +13167,121 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
   }
 
   function buildPage(cat, q) {
-    let list = DEMO_LISTINGS;
+    let list = LISTINGS;
     if (cat !== 'all') list = list.filter(l => l.cat === cat);
-    if (q) { const lq = q.toLowerCase(); list = list.filter(l => l.title.toLowerCase().includes(lq) || l.clinic.toLowerCase().includes(lq) || l.desc.toLowerCase().includes(lq)); }
-    const catTabs = CATEGORIES.map(c => '<button class="mp-cat-tab' + (c.id === cat ? ' active' : '') + '" onclick="window._mpCat(\'' + c.id + '\')">' + c.icon + ' ' + esc(c.label) + '</button>').join('');
-    const featuredList = DEMO_LISTINGS.filter(l => l.badge === 'Featured');
-    const heroSection = '<div class="mp-hero"><div class="mp-hero-text"><h1 class="mp-hero-title">Clinic Marketplace</h1><p class="mp-hero-sub">Discover consultations, products, software, courses and events from leading neuromodulation clinics.</p><div class="mp-search-wrap"><svg class="mp-search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg><input class="mp-search" id="mp-search-input" placeholder="Search listings, clinics, topics..." value="' + esc(q) + '" oninput="window._mpSearch(this.value)"/></div></div><div class="mp-hero-stats"><div class="mp-stat"><span class="mp-stat-num">' + DEMO_LISTINGS.length + '</span><span class="mp-stat-label">Listings</span></div><div class="mp-stat"><span class="mp-stat-num">12</span><span class="mp-stat-label">Clinics</span></div><div class="mp-stat"><span class="mp-stat-num">4.7&#9733;</span><span class="mp-stat-label">Avg Rating</span></div></div></div>';
-    const featuredSection = cat === 'all' && !q ? '<div class="mp-section"><div class="mp-section-header"><h2 class="mp-section-title">Featured</h2><a class="mp-section-link" onclick="window._mpCat(\'all\')">View all</a></div><div class="mp-grid mp-grid--featured">' + featuredList.map(renderCard).join('') + '</div></div>' : '';
-    const listSection = '<div class="mp-section"><div class="mp-section-header"><h2 class="mp-section-title">' + (cat === 'all' && !q ? 'All Listings' : (CATEGORIES.find(c => c.id === cat) || {}).label || 'Results') + '</h2><span class="mp-count">' + list.length + ' listing' + (list.length !== 1 ? 's' : '') + '</span></div>' + renderGrid(list) + '</div>';
-    const ctaSection = '<div class="mp-section mp-section--cta"><div class="mp-cta-card"><div class="mp-cta-icon">&#127978;</div><div class="mp-cta-body"><h3>Sell your products &amp; services</h3><p>List consultations, devices, software and products directly on the marketplace. Reach thousands of clinicians and patients in minutes.</p></div><div class="mp-cta-btns"><button class="btn btn-primary mp-cta-btn" onclick="window._mpListNew()">+ List a Product or Service</button><button class="btn mp-cta-btn mp-cta-btn--secondary" onclick="window._mpMyListings()">My Listings</button></div></div></div>';
-    return '<div class="mp-shell">' + heroSection + '<div class="mp-cat-bar">' + catTabs + '</div><div class="mp-body">' + featuredSection + listSection + ctaSection + '</div></div>';
+    if (q) {
+      const lq = q.toLowerCase();
+      list = list.filter(l =>
+        l.title.toLowerCase().includes(lq) || l.clinic.toLowerCase().includes(lq) || l.desc.toLowerCase().includes(lq));
+    }
+    const catTabs = CATEGORIES.map(c => '<button type="button" class="mp-cat-tab' + (c.id === cat ? ' active' : '') + '" onclick="window._mpCat(\'' + c.id + '\')">' + c.icon + ' ' + esc(c.label) + '</button>').join('');
+    const featuredList = LISTINGS.filter(l => l.badge === 'Featured');
+    const govBlock =
+      '<section class="mp-governance-banner" data-test="mp-governance-copy">' +
+        '<p class="mp-governance-title">Clinical governance</p>' +
+        '<p class="mp-governance-body">' + esc(MARKETPLACE_GOVERNANCE_NOTICE) + '</p>' +
+      '</section>';
+    const moduleShortcuts = '<section class="mp-modules-strip"><div class="mp-modules-strip-inner">' +
+      MARKETPLACE_MODULE_SHORTCUTS.map(m =>
+        '<button type="button" class="mp-mod-shortcut" data-test="mp-mod-' + esc(m.id) + '" onclick="window._nav(\'' + esc(m.route) + '\')" title="' + esc(m.hint) + '">' +
+          '<span class="mp-mod-shortcut-label">' + esc(m.label) + '</span>' +
+        '</button>'
+      ).join('') +
+      '</div><p class="mp-modules-footnote">Shortcuts open Studio modules only — they do not enable catalog purchases or change device connections.</p></section>';
+    const bannerHtml = catalogBanner
+      ? '<div class="mp-catalog-banner mp-catalog-banner--' + esc(catalogBanner.tone) + '" data-test="mp-catalog-banner" role="status">' + esc(catalogBanner.text) + '</div>'
+      : '';
+    const billingStrip =
+      '<div class="mp-billing-strip" data-test="mp-plan-strip">' +
+        '<span><strong>Plan</strong> ' + esc(pkgLabel) + '</span>' +
+        '<span class="mp-billing-muted">In-app purchases and Stripe checkout for agents live under AI Agents / Billing — not on this discovery page.</span>' +
+      '</div>';
+    const heroSection =
+      '<div class="mp-hero">' +
+        '<div class="mp-hero-text">' +
+          '<h1 class="mp-hero-title">Clinic marketplace</h1>' +
+          '<p class="mp-hero-sub">Discover external vendors, education, and references. This page does not activate clinical modules, approve treatment, or complete checkout.</p>' +
+          '<div class="mp-search-wrap">' +
+            '<svg class="mp-search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>' +
+            '<input class="mp-search" id="mp-search-input" placeholder="Search listings, clinics, topics..." value="' + esc(q) + '" oninput="window._mpSearch(this.value)" />' +
+          '</div>' +
+        '</div>' +
+        '<div class="mp-hero-stats">' +
+          '<div class="mp-stat"><span class="mp-stat-num">' + LISTINGS.length + '</span><span class="mp-stat-label">Rows</span></div>' +
+          '<div class="mp-stat"><span class="mp-stat-num">' + esc(catalogMode.replace(/_/g, ' ')) + '</span><span class="mp-stat-label">Catalog source</span></div>' +
+          '<div class="mp-stat"><span class="mp-stat-num">' + esc(role) + '</span><span class="mp-stat-label">Role</span></div>' +
+        '</div>' +
+      '</div>';
+    const featuredSection = cat === 'all' && !q && featuredList.length
+      ? '<div class="mp-section"><div class="mp-section-header"><h2 class="mp-section-title">Featured</h2><button type="button" class="mp-section-link" onclick="window._mpCat(\'all\')">View all</button></div><div class="mp-grid mp-grid--featured">' + featuredList.map(renderCard).join('') + '</div></div>'
+      : '';
+    const listSection =
+      '<div class="mp-section">' +
+        '<div class="mp-section-header">' +
+          '<h2 class="mp-section-title">' + (cat === 'all' && !q ? 'All listings' : (CATEGORIES.find(c => c.id === cat) || {}).label || 'Results') + '</h2>' +
+          '<span class="mp-count">' + list.length + ' listing' + (list.length !== 1 ? 's' : '') + '</span>' +
+        '</div>' +
+        renderGrid(list) +
+      '</div>';
+    const sellerDisabledNote = canSeller ? '' : '<p class="mp-seller-gate-note">Listing management requires a clinician (or admin) account. Guest and technician roles can browse only.</p>';
+    const sellerButtons = canSeller
+      ? '<div class="mp-cta-btns"><button type="button" class="btn btn-primary mp-cta-btn" data-test="mp-seller-new" onclick="window._mpListNew()">Request / manage listings</button><button type="button" class="btn mp-cta-btn mp-cta-btn--secondary" data-test="mp-seller-my" onclick="window._mpMyListings()">My listings</button></div>'
+      : '<div class="mp-cta-btns"><button type="button" class="btn mp-cta-btn mp-cta-btn--disabled" disabled title="Clinician or admin role required">Request / manage listings</button><button type="button" class="btn mp-cta-btn mp-cta-btn--disabled" disabled title="Clinician or admin role required">My listings</button></div>';
+    const ctaSection =
+      '<div class="mp-section mp-section--cta">' +
+        '<div class="mp-cta-card">' +
+          '<div class="mp-cta-icon">&#127978;</div>' +
+          '<div class="mp-cta-body">' +
+            '<h3>Clinic catalogue listings</h3>' +
+            '<p>Seller endpoints persist listings server-side (subject to role checks). This is not an app-store purchase flow.</p>' +
+            sellerDisabledNote +
+          '</div>' +
+          sellerButtons +
+        '</div>' +
+      '</div>';
+    return '<div class="mp-shell" data-catalog-mode="' + esc(catalogMode) + '" data-test="mp-shell">' +
+      govBlock + bannerHtml + billingStrip + moduleShortcuts + heroSection +
+      '<div class="mp-cat-bar">' + catTabs + '</div>' +
+      '<div class="mp-body">' + featuredSection + listSection + ctaSection + '</div>' +
+    '</div>';
   }
 
-  let _activeCat = 'all', _searchQ = '';
+  let _activeCat = 'all'; let _searchQ = '';
 
   window._mpCat = (cat) => { _activeCat = cat; el.innerHTML = buildPage(_activeCat, _searchQ); };
   window._mpSearch = (q) => {
     _searchQ = q;
-    let list = DEMO_LISTINGS;
+    let list = LISTINGS;
     if (_activeCat !== 'all') list = list.filter(l => l.cat === _activeCat);
-    if (q) { const lq = q.toLowerCase(); list = list.filter(l => l.title.toLowerCase().includes(lq) || l.clinic.toLowerCase().includes(lq) || l.desc.toLowerCase().includes(lq)); }
-    const section = el.querySelector('.mp-section:last-of-type:not(.mp-section--cta), .mp-section + .mp-section:not(.mp-section--cta)');
+    if (q) {
+      const lq = q.toLowerCase();
+      list = list.filter(l =>
+        l.title.toLowerCase().includes(lq) || l.clinic.toLowerCase().includes(lq) || l.desc.toLowerCase().includes(lq));
+    }
     const countEl = el.querySelector('.mp-count');
     if (countEl) countEl.textContent = list.length + ' listing' + (list.length !== 1 ? 's' : '');
     const gridEl = el.querySelector('.mp-section:not(.mp-section--cta):last-of-type .mp-grid, .mp-section:not(.mp-section--cta):last-of-type .mp-empty');
     if (gridEl) gridEl.outerHTML = renderGrid(list);
   };
   window._mpBook = (id) => {
-    const l = DEMO_LISTINGS.find(x => x.id === id);
+    const l = LISTINGS.find(x => x.id === id);
     if (!l) return;
-    if (l.url && l.url.length > 0) {
+    const kind = l.listingKind || 'demo_curated';
+    if (kind === 'coming_soon' || kind === 'unavailable') {
+      window._showToast?.('This row is not actionable yet.', 'info');
+      return;
+    }
+    if (l.url && String(l.url).length > 0) {
       window.open(l.url, '_blank', 'noopener,noreferrer');
       return;
     }
-    const verb = l.unit === 'month' ? 'Subscribe to' : l.unit === 'course' ? 'Enroll in' : l.unit === 'free' ? 'Get' : 'Book';
-    window._showToast?.(verb + ': "' + l.title + '" - Provider: ' + l.clinic + ' Price: ' + (l.unit === 'free' ? 'Free' : '\u00A3' + l.price + '/' + l.unit) + '. Please contact the provider directly to proceed.', 'info');
+    window._showToast?.('No vendor URL on file — contact the provider outside this app.', 'info');
   };
   window._mpListNew = (editItem) => {
+    if (!canSeller) {
+      window._showToast?.('Listing management requires a clinician or admin account.', 'error');
+      return;
+    }
     const existing = document.getElementById('mp-list-modal');
     if (existing) { existing.remove(); return; }
     const isEdit = !!editItem;
@@ -12977,6 +13366,10 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
 
   // ── My Listings dashboard ──
   window._mpMyListings = async () => {
+    if (!canSeller) {
+      window._showToast?.('Listing management requires a clinician or admin account.', 'error');
+      return;
+    }
     const existing = document.getElementById('mp-list-modal');
     if (existing) { existing.remove(); }
     const modal = document.createElement('div');

@@ -22,11 +22,9 @@
   NODE_VERSION        = "20"
   NPM_FLAGS           = "--prefix=/dev/null"
   VITE_ENABLE_DEMO    = "1"
-  # Empty so api.js builds *relative* /api/v1/… URLs. Netlify proxies
-  # every /api/* path through to the Fly backend below — this makes API
-  # calls same-origin from the browser, bypassing the Fly CORS allow-
-  # list (which currently does not include the Netlify preview origin).
-  VITE_API_BASE_URL   = ""
+  # The maintained preview deploy targets the Fly API directly.
+  # Keep the redirect rules below as a fallback for relative-path callers.
+  VITE_API_BASE_URL   = "https://deepsynaps-studio.fly.dev"
 
 # Proxy API calls to the Fly backend so they appear same-origin to the
 # browser. MUST come before the SPA fallback redirect below — Netlify

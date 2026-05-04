@@ -52,6 +52,18 @@ class ReviewAckRequest(BaseModel):
     note: str = Field(..., min_length=1, max_length=4000, description="Required review note / attestation.")
 
 
+def _require_authenticated_clinician(actor: AuthenticatedActor) -> None:
+    if actor.role == "guest" and actor.token_id is None:
+        from app.errors import ApiServiceError
+
+        raise ApiServiceError(
+            code="auth_required",
+            message="Authentication is required for this action.",
+            status_code=401,
+        )
+    require_minimum_role(actor, "clinician")
+
+
 def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session) -> None:
     exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
     if exists:
@@ -68,7 +80,7 @@ def get_movement_analyzer(
 
     Uses cached snapshot when fresh (same day UTC); otherwise recomputes.
     """
-    require_minimum_role(actor, "clinician")
+    _require_authenticated_clinician(actor)
     _gate_patient_access(actor, patient_id, db)
 
     from datetime import datetime, timezone
@@ -106,7 +118,7 @@ def recompute_movement_analyzer(
     db: Session = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Force rebuild of movement workspace and persist cache."""
-    require_minimum_role(actor, "clinician")
+    _require_authenticated_clinician(actor)
     _gate_patient_access(actor, patient_id, db)
 
     payload = build_movement_workspace_payload(patient_id, db)
@@ -135,7 +147,7 @@ def annotate_movement_analyzer(
     Accepts either ``{message: str}`` (frontend contract from PR #452) or the
     legacy ``{note: str}`` field. At least one must be non-empty.
     """
-    require_minimum_role(actor, "clinician")
+    _require_authenticated_clinician(actor)
     _gate_patient_access(actor, patient_id, db)
 
     text = body.text()
@@ -155,7 +167,7 @@ def review_ack_movement_analyzer(
     db: Session = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Record clinician review acknowledgment (audit trail only — not a clinical sign-off)."""
-    require_minimum_role(actor, "clinician")
+    _require_authenticated_clinician(actor)
     _gate_patient_access(actor, patient_id, db)
 
     note = body.note.strip()
@@ -176,7 +188,7 @@ def export_movement_analyzer_json(
     db: Session = Depends(get_db_session),
 ) -> Response:
     """Download serialised workspace JSON for documentation (clinician scope only)."""
-    require_minimum_role(actor, "clinician")
+    _require_authenticated_clinician(actor)
     _gate_patient_access(actor, patient_id, db)
 
     snap = load_snapshot(patient_id, db)
@@ -224,7 +236,7 @@ def movement_analyzer_audit(
     db: Session = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Paginated audit trail for Movement Analyzer."""
-    require_minimum_role(actor, "clinician")
+    _require_authenticated_clinician(actor)
     _gate_patient_access(actor, patient_id, db)
 
     items = list_audit_events(patient_id, db, limit=100)

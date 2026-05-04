@@ -6,8 +6,8 @@ import uuid
 
 import pytest
 from fastapi.testclient import TestClient
-
 from app.database import SessionLocal
+from app.persistence.models import Clinic, Patient, User
 from app.persistence.models import DigitalPhenotypingAudit, DigitalPhenotypingPatientState
 
 
@@ -16,6 +16,79 @@ def client():
     from app.main import app
 
     return TestClient(app)
+
+
+def _mint_token(user_id: str, role: str, clinic_id: str | None) -> str:
+    from app.services.auth_service import create_access_token
+
+    return create_access_token(
+        user_id=user_id,
+        email=f"{user_id}@example.com",
+        role=role,
+        package_id="explorer",
+        clinic_id=clinic_id,
+    )
+
+
+def _auth(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _seed(dp_router_scope: dict) -> dict:
+    db = SessionLocal()
+    try:
+        clinic_a = Clinic(id=str(uuid.uuid4()), name="DP Clinic A")
+        clinic_b = Clinic(id=str(uuid.uuid4()), name="DP Clinic B")
+        db.add_all([clinic_a, clinic_b])
+        db.flush()
+
+        clin_a = User(
+            id=str(uuid.uuid4()),
+            email=f"dp_clin_a_{uuid.uuid4().hex[:6]}@example.com",
+            display_name="DP Clin A",
+            hashed_password="x",
+            role="clinician",
+            package_id="explorer",
+            clinic_id=clinic_a.id,
+        )
+        clin_b = User(
+            id=str(uuid.uuid4()),
+            email=f"dp_clin_b_{uuid.uuid4().hex[:6]}@example.com",
+            display_name="DP Clin B",
+            hashed_password="x",
+            role="clinician",
+            package_id="explorer",
+            clinic_id=clinic_b.id,
+        )
+        pat = Patient(
+            id=str(uuid.uuid4()),
+            clinician_id=clin_a.id,
+            first_name="DP",
+            last_name="Test",
+        )
+        db.add_all([clin_a, clin_b, pat])
+        db.commit()
+
+        out = {
+            "patient_id": pat.id,
+            "token_a": _mint_token(clin_a.id, "clinician", clinic_a.id),
+            "token_b": _mint_token(clin_b.id, "clinician", clinic_b.id),
+            "token_patient": _mint_token(str(uuid.uuid4()), "patient", clinic_a.id),
+        }
+        dp_router_scope.update(out)
+        return out
+    finally:
+        db.close()
+
+
+@pytest.fixture
+def seeded(dp_router_scope):
+    return _seed(dp_router_scope)
+
+
+@pytest.fixture
+def dp_router_scope():
+    return {}
 
 
 @pytest.fixture
@@ -65,6 +138,39 @@ def test_digital_phenotyping_get_requires_auth(client: TestClient):
 def test_digital_phenotyping_audit_requires_auth(client: TestClient):
     res = client.get("/api/v1/digital-phenotyping/analyzer/patient/some-patient-id/audit")
     assert res.status_code in (401, 403)
+
+
+def test_digital_phenotyping_patient_role_blocked(
+    client: TestClient, seeded: dict, dp_router_scope: dict
+):
+    pid = dp_router_scope["patient_id"]
+    r = client.get(
+        f"/api/v1/digital-phenotyping/analyzer/patient/{pid}",
+        headers=_auth(dp_router_scope["token_patient"]),
+    )
+    assert r.status_code == 403
+
+
+def test_digital_phenotyping_owner_gets_payload(client: TestClient, seeded: dict, dp_router_scope: dict):
+    pid = dp_router_scope["patient_id"]
+    r = client.get(
+        f"/api/v1/digital-phenotyping/analyzer/patient/{pid}",
+        headers=_auth(dp_router_scope["token_a"]),
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["patient_id"] == pid
+    assert "snapshot" in data
+    assert "domains" in data
+
+
+def test_digital_phenotyping_idor_other_clinic(client: TestClient, seeded: dict, dp_router_scope: dict):
+    pid = dp_router_scope["patient_id"]
+    r = client.get(
+        f"/api/v1/digital-phenotyping/analyzer/patient/{pid}",
+        headers=_auth(dp_router_scope["token_b"]),
+    )
+    assert r.status_code == 403
 
 
 @pytest.mark.skip(

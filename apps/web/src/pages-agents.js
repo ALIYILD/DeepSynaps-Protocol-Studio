@@ -1,5 +1,188 @@
 import { api } from './api.js';
 
+/** Shown on AI Agent v2 — required governance copy for clinician-controlled decision support. */
+export const AI_AGENT_V2_GOVERNANCE_COPY =
+  'AI agents provide clinician-reviewed draft support only. They do not diagnose, prescribe, approve treatment, sign documents, trigger emergency actions, message patients, or control devices without explicit authorised workflow.';
+
+// ── Clinical access gate (AI Agent v2 is clinician governance — not a patient/guest surface) ──
+const _AGENT_V2_CLINICAL_ROLES = new Set([
+  'clinician',
+  'admin',
+  'clinic-admin',
+  'supervisor',
+  'reviewer',
+  'technician',
+  'resident',
+]);
+
+function _agentV2UserRole() {
+  try {
+    const u = JSON.parse(localStorage.getItem('ds_user') || '{}');
+    return String(u.role || '').trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/** True when the signed-in user may use the full AI Agent v2 workspace (not patient/guest demo). */
+export function canUseAiAgentV2Workspace() {
+  const role = _agentV2UserRole();
+  if (!role) return true;
+  return _AGENT_V2_CLINICAL_ROLES.has(role);
+}
+
+function _renderAiAgentV2Restricted(setTopbar) {
+  setTopbar('AI Agents', '');
+  const el = document.getElementById('content');
+  if (!el) return;
+  el.innerHTML = `<div class="dv2-hub-shell" style="padding:24px;max-width:720px;margin:0 auto">
+    <div class="card" style="padding:20px 22px;border-left:3px solid var(--amber,#f59e0b)">
+      <div style="font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Clinician workspace only</div>
+      <p style="font-size:12.5px;color:var(--text-secondary);line-height:1.6;margin:0 0 12px">
+        AI Agent v2 is for authorised clinical staff. Patient and guest accounts cannot access clinic AI orchestration, PHI-backed tools, or audit views.
+      </p>
+      <p style="font-size:11.5px;color:var(--text-tertiary);line-height:1.55;margin:0">${AI_AGENT_V2_GOVERNANCE_COPY}</p>
+    </div>
+  </div>`;
+}
+
+function _resolvePatientContextLabel() {
+  let pid =
+    (typeof window !== 'undefined' && window._selectedPatientId) ||
+    null;
+  let name = '';
+  try {
+    const ss = sessionStorage.getItem('ds_pat_selected_id');
+    if (!pid && ss) pid = ss;
+  } catch { /* ignore */ }
+  try {
+    const ls = localStorage.getItem('ds_selected_patient_id');
+    if (!pid && ls) pid = ls;
+  } catch { /* ignore */ }
+  try {
+    const roster = window._patientRoster;
+    if (pid && Array.isArray(roster)) {
+      const row = roster.find(p => p && (p.id === pid || p.patient_id === pid));
+      if (row) name = row.name || row.full_name || row.display_name || '';
+    }
+  } catch { /* ignore */ }
+  return { patientId: pid ? String(pid) : '', patientName: name ? String(name) : '' };
+}
+
+function _renderAiAgentV2GovernanceBanner() {
+  const demo = _isMarketplaceDemoMode()
+    ? `<div data-test="ai-agent-v2-demo-banner" role="alert" style="margin-bottom:12px;padding:10px 12px;border-radius:8px;background:rgba(245,158,11,0.10);border:1px solid rgba(245,158,11,0.35);font-size:11.5px;color:var(--text-primary)">
+        <strong>Demo mode:</strong> synthetic fixtures and offline behaviour — not real patient data and not persisted as production audit.
+      </div>`
+    : '';
+  return `
+    ${demo}
+    <div class="card" data-test="ai-agent-v2-governance" style="padding:12px 14px;margin-bottom:14px;border-left:3px solid var(--violet);background:rgba(155,127,255,0.06);font-size:11.5px;color:var(--text-secondary);line-height:1.55">
+      <strong style="color:var(--text-primary)">Governance:</strong> ${AI_AGENT_V2_GOVERNANCE_COPY}
+    </div>`;
+}
+
+function _renderAiAgentV2PatientContextPanel() {
+  const { patientId, patientName } = _resolvePatientContextLabel();
+  const clinicId = (() => {
+    try {
+      const u = JSON.parse(localStorage.getItem('ds_user') || '{}');
+      return u.clinic_id ? String(u.clinic_id) : '';
+    } catch {
+      return '';
+    }
+  })();
+  const demo = _isMarketplaceDemoMode();
+  const missing = !patientId;
+  const statusLine = missing
+    ? 'No patient selected in this session — assistant context uses clinic-wide summaries only. Pick a patient from Patients or an analyzer to scope drafts.'
+    : `Scoped to patient <code style="font-size:11px">${patientId}</code>${patientName ? ` (${patientName})` : ''}. Verify identifiers before acting.`;
+  return `
+    <div class="card" data-test="ai-agent-v2-context-panel"${missing ? ' data-ai-agent-v2-patient-missing="1"' : ''} style="padding:14px 16px;margin-bottom:16px">
+      <div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Patient &amp; clinic context</div>
+      <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.55;margin-bottom:8px">${statusLine}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:11px;color:var(--text-tertiary)">
+        ${clinicId ? `<span>Clinic: <code style="font-size:11px">${_esc(clinicId)}</code></span>` : '<span>Clinic: not loaded</span>'}
+        ${demo ? '<span data-test="ai-agent-v2-demo-badge" style="padding:2px 8px;border-radius:99px;background:rgba(245,158,11,0.12);color:var(--amber,#f59e0b);font-weight:600">Demo / synthetic</span>' : ''}
+      </div>
+    </div>`;
+}
+
+function _renderAiAgentV2PermissionMatrix(agents) {
+  const list = Array.isArray(agents) && agents.length ? agents : _agentsOrDemo([]);
+  if (!list.length) {
+    return `<div class="card" data-test="ai-agent-v2-permission-matrix" style="padding:14px 16px;margin-bottom:16px;font-size:12px;color:var(--text-tertiary)">Agent permissions load when the marketplace catalogue is available.</div>`;
+  }
+  const rows = list.map(a => {
+    const tools = Array.isArray(a.tool_allowlist) ? a.tool_allowlist.map(t => _esc(String(t))).join(', ') : '—';
+    const writeRe = /\.(?:create|update|delete|send|approve|approve_draft|schedule|reschedule|cancel|write)\b/i;
+    const writes = Array.isArray(a.tool_allowlist)
+      ? a.tool_allowlist.filter(id => writeRe.test(String(id))).map(t => _esc(String(t))).join(', ')
+      : '';
+    return `<tr class="ds-tr">
+      <td style="font-size:11.5px;font-weight:600">${_esc(a.name || a.id)}</td>
+      <td style="font-size:11px">${_esc(String(a.role_required || 'clinician'))}</td>
+      <td style="font-size:11px">${_esc(String(a.audience || 'clinic'))}</td>
+      <td style="font-size:10.5px;font-family:ui-monospace,Menlo,monospace;max-width:220px;word-break:break-word">${tools}</td>
+      <td style="font-size:11px;color:var(--text-secondary)">${writes ? writes : '—'}</td>
+      <td style="font-size:11px">Human approval for writes &amp; outbound comms (see Activity audit).</td>
+    </tr>`;
+  }).join('');
+  return `
+    <div class="card" data-test="ai-agent-v2-permission-matrix" style="padding:14px 16px;margin-bottom:16px;overflow-x:auto">
+      <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:10px">Marketplace agent permissions</div>
+      <table class="ds-table" style="width:100%;font-size:11.5px">
+        <thead><tr><th>Agent</th><th>Min role</th><th>Audience</th><th>Tool allowlist</th><th>Write tools</th><th>Approval</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div style="margin-top:10px;font-size:10.5px;color:var(--text-tertiary);line-height:1.45">Write-capable tools run only after explicit confirmation in chat; server records runs in audit when the API is available.</div>
+    </div>`;
+}
+
+function _renderAiAgentV2ModuleShortcuts() {
+  const links = [
+    ['deeptwin', 'DeepTwin'],
+    ['qeeg-analysis', 'qEEG'],
+    ['mri-analysis', 'MRI'],
+    ['labs-analyzer', 'Labs'],
+    ['biomarkers', 'Biomarkers'],
+    ['text-analyzer', 'Text'],
+    ['voice-analyzer', 'Voice'],
+    ['video-assessments', 'Video'],
+    ['risk-analyzer', 'Risk'],
+    ['medication-analyzer', 'Medication'],
+    ['protocol-studio', 'Protocol Studio'],
+    ['documents-v2', 'Documents'],
+    ['handbooks-v2', 'Handbooks'],
+    ['schedule-v2', 'Schedule'],
+  ];
+  const btns = links.map(([id, label]) =>
+    `<button type="button" class="btn btn-sm btn-ghost" style="font-size:11px" onclick="window._nav && window._nav('${id}')">${_esc(label)}</button>`
+  ).join('');
+  return `
+    <div class="card" data-test="ai-agent-v2-module-links" style="padding:12px 14px;margin-bottom:16px">
+      <div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Open data modules</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">${btns}</div>
+      <div style="margin-top:8px;font-size:10.5px;color:var(--text-tertiary)">Navigation only — opens the module for clinician review; nothing runs in the background from this row.</div>
+    </div>`;
+}
+
+function _renderAiAgentV2LocalAuditPanel() {
+  const log = _loadActivity().slice(0, 12);
+  const rows = log.length
+    ? log.map(e => `<div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:11.5px">
+        <span style="color:var(--text-tertiary);flex-shrink:0">${_esc(e.ts || '')}</span>
+        <span style="color:var(--text-secondary);flex:1">${_esc(e.type || '')} · ${_esc(e.summary || '')}</span>
+      </div>`).join('')
+    : '<div style="font-size:11.5px;color:var(--text-tertiary)">No local session events yet.</div>';
+  return `
+    <div class="card" data-test="ai-agent-v2-local-audit" style="padding:14px 16px;margin-bottom:16px">
+      <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:6px">Session activity (this browser)</div>
+      <p style="font-size:10.5px;color:var(--text-tertiary);margin:0 0 10px;line-height:1.45">Lightweight log of chats and tasks on this device. For clinic-wide audit and billing-grade history, use the <strong>Activity</strong> tab on marketplace agents when the API is available.</p>
+      ${rows}
+    </div>`;
+}
+
 // ── State ────────────────────────────────────────────────────────────────────
 let _agentView = 'hub'; // 'hub' | 'chat-clinician' | 'chat-patient' | 'config'
 let _agentBusy = false;
@@ -884,6 +1067,10 @@ function _marketplaceIsLocked(agent) {
 // ── Main Export ──────────────────────────────────────────────────────────────
 export async function pgAgentChat(setTopbar) {
   _lastSetTopbar = setTopbar;
+  if (!canUseAiAgentV2Workspace()) {
+    _renderAiAgentV2Restricted(setTopbar);
+    return;
+  }
   if (!_agentSkillsHydrated && !_agentSkillsHydrating) {
     // Fire-and-forget hydration; bundled defaults render immediately while
     // this resolves. `_hydrateAgentSkills` re-renders on success.
@@ -2776,12 +2963,17 @@ function _renderHub(setTopbar) {
 
   el.innerHTML = `<div class="dv2-hub-shell" style="padding:20px;display:flex;flex-direction:column;gap:16px"><div class="agent-hub">
     ${_twinHandoffBanner}
+    ${_renderAiAgentV2GovernanceBanner()}
+    ${_renderAiAgentV2PatientContextPanel()}
+    ${_renderAiAgentV2ModuleShortcuts()}
+    ${_renderAiAgentV2PermissionMatrix(_marketplaceAgents)}
+    ${_renderAiAgentV2LocalAuditPanel()}
     <!-- Welcome banner -->
     <div class="card" style="padding:20px 24px;margin-bottom:20px;border-left:3px solid var(--violet);background:linear-gradient(135deg,rgba(155,127,255,0.05),rgba(0,212,188,0.03))">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
         <div>
           <div style="font-size:18px;font-weight:700;color:var(--text-primary);margin-bottom:4px">${greeting}, ${_esc(userName.split(' ')[0])}</div>
-          <div style="font-size:12px;color:var(--text-secondary)">Your AI practice assistants are ready. Pick a skill below or start a conversation.</div>
+          <div style="font-size:12px;color:var(--text-secondary)">Clinician-controlled drafts and orchestration only — review every output; nothing here replaces your judgement or authorised workflows.</div>
         </div>
         <div style="display:flex;gap:8px;align-items:center">
           <span style="font-size:10px;padding:3px 10px;border-radius:99px;background:rgba(74,222,128,0.12);color:var(--green,#22c55e);font-weight:600">${provLabel} active</span>
@@ -2959,8 +3151,8 @@ function _renderChat(setTopbar, agent) {
             <div class="agent-welcome-title">${label}</div>
             <div class="agent-welcome-sub">
               ${agent === 'patient'
-                ? 'I help you understand your treatment and track your progress. Pick a skill on the left or type a question below.'
-                : 'Your AI clinic receptionist. I can handle patient communications, check reports, manage scheduling, and more. Pick a skill on the left or type freely.'}
+                ? 'I provide educational summaries about your care plan (not medical advice). Pick a skill or ask a question below.'
+                : 'Draft support for clinic workflows — I do not send messages, approve care, or finalise protocols without your explicit review. Pick a skill or type below.'}
             </div>
           </div>
         ` : history.map(m => _renderMsg(m, agent)).join('')}
@@ -2972,7 +3164,7 @@ function _renderChat(setTopbar, agent) {
 
       <div class="agent-input-area">
         <textarea id="agent-input" class="agent-textarea"
-          placeholder="${agent === 'patient' ? 'Ask about your treatment, progress, or next steps...' : 'Ask me to do anything — check reports, message patients, review schedules...'}"
+          placeholder="${agent === 'patient' ? 'Ask about your treatment plan or progress (informational drafts only)…' : 'Ask for drafts or summaries — clinical actions require your review and authorised workflows…'}"
           rows="1"
           onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();window._agentSend('${agent}')}"
           oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,140)+'px'"></textarea>
@@ -3232,7 +3424,8 @@ window._agentSend = async function(agent) {
           flags: (p.categories || []).filter(c => c.level === 'red' || c.level === 'amber').map(c => ({ category: c.category, level: c.level })),
         })),
         today: new Date().toISOString().split('T')[0],
-        instructions: 'You are a clinic AI receptionist. You have full access to the clinic data above, including risk stratification flags (red=high risk, amber=moderate, green=safe). Proactively flag patients with red risk levels. Answer questions, create tasks (prefix with TASK:), and help manage day-to-day clinic operations. Be specific — use patient names, real data, and actionable advice.',
+        instructions:
+          'You support licensed clinicians with drafts and checklists only. Do not diagnose, prescribe, change medications, approve protocols or treatments, message patients, send notifications, or claim any action was performed unless the human confirms an authorised workflow. Use only the snapshot above — if something is missing, say so; never invent PHI or results. Risk flags are decision-support signals, not diagnoses. When suggesting next steps, prefix optional tasks with TASK: for local tracking only — tasks are not clinical orders.',
       });
     } else {
       // Patient agent — scoped to their own data only
@@ -3250,7 +3443,8 @@ window._agentSend = async function(agent) {
         assessments: (assessRes?.items || []).slice(0, 10).map(a => ({ template: a.template_name, score: a.score, date: a.completed_at })),
         outcomes: (outRes?.items || []).slice(0, 10).map(o => ({ template: o.template_name, score: o.score, date: o.recorded_at })),
         tasks: patientTasks.map(t => ({ title: t.title, due: t.due, status: t.status })),
-        instructions: 'You are a patient support assistant. Only discuss this patient\'s own data. Be empathetic, clear, and avoid medical jargon. Never reveal other patients\' information.',
+        instructions:
+          'You are an educational patient-support assistant (not a clinician). Only discuss this patient\'s own approved portal data. Do not diagnose, prescribe, recommend medication changes, or promise that staff were notified. If information is missing, say so clearly.',
       });
     }
   } catch {}
@@ -4293,6 +4487,29 @@ window._agentPromptHistoryDiffToggle = function(agentId, version) {
   if (_promptHistoryDiffOpen === key) _promptHistoryDiffOpen = null;
   else _promptHistoryDiffOpen = key;
   if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
+};
+
+// ── AI Agent v2 — Test surface ────────────────────────────────────────────────
+export const __aiAgentV2TestApi__ = {
+  reset() {
+    _agentView = 'detached';
+    _lastSetTopbar = () => {};
+  },
+  renderGovernanceBanner() {
+    return _renderAiAgentV2GovernanceBanner();
+  },
+  renderPatientContextPanel() {
+    return _renderAiAgentV2PatientContextPanel();
+  },
+  renderPermissionMatrix(agents) {
+    return _renderAiAgentV2PermissionMatrix(agents);
+  },
+  renderModuleShortcuts() {
+    return _renderAiAgentV2ModuleShortcuts();
+  },
+  renderLocalAuditPanel() {
+    return _renderAiAgentV2LocalAuditPanel();
+  },
 };
 
 // ── Phase 9: Test surface ────────────────────────────────────────────────────

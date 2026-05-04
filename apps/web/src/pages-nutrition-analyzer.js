@@ -1,6 +1,26 @@
 import { api } from './api.js';
 import { isDemoSession } from './demo-session.js';
-import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
+import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML, labsPatientProfileFor } from './demo-fixtures-analyzers.js';
+import {
+  normalizeNutritionProfile,
+  normalizeNutritionAudit,
+  summarizeNutritionForClinic,
+  extractNutritionRelevantLabRows,
+} from './nutrition-analyzer-view-model.js';
+
+/** Extra navigation targets not always present in biomarker_links */
+const _NUTRITION_EXTRA_HANDOFFS = [
+  { label: 'Labs analyzer', page_id: 'labs-analyzer' },
+  { label: 'Biomarkers hub', page_id: 'biomarkers' },
+  { label: 'Patient analytics', page_id: 'patient-analytics' },
+  { label: 'Protocol Studio', page_id: 'protocol-studio' },
+  { label: 'Documents', page_id: 'documents-v2' },
+  { label: 'Text analyzer', page_id: 'text-analyzer' },
+  { label: 'Schedule', page_id: 'schedule-v2' },
+  { label: 'Inbox', page_id: 'clinician-inbox' },
+  { label: 'Virtual care', page_id: 'live-session' },
+  { label: 'Handbooks', page_id: 'handbooks-v2' },
+];
 
 function esc(s) {
   return String(s ?? '')
@@ -71,10 +91,28 @@ function _errorCard(message) {
 
 function _emptyClinicCard() {
   return `<div style="max-width:560px;margin:48px auto;padding:24px;border:1px solid var(--border);border-radius:14px;background:var(--bg-card);text-align:center">
-    <div style="font-size:15px;font-weight:600;margin-bottom:8px">No nutrition logs recorded yet.</div>
-    <div style="font-size:12px;color:var(--text-secondary);line-height:1.5">
-      Patients log diet via the mobile companion app, or enter intake from a patient detail page to populate this summary.
+    <div style="font-size:15px;font-weight:600;margin-bottom:8px">No patient nutrition summaries available</div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;margin-bottom:14px">
+      Missing nutrition data does not mean low nutrition risk — it means intake and supplements are not yet logged or linked for your cohort.
+      Add patients under Patients, then record diet logs or structured intake here when your clinic enables capture.
     </div>
+    <button type="button" class="btn btn-primary btn-sm" id="nu-go-patients" style="min-height:44px">Open Patients</button>
+  </div>`;
+}
+
+function _renderClinicSelect(patients) {
+  const rows = Array.isArray(patients) ? patients : [];
+  if (!rows.length) return '';
+  const opts = rows.map((p) =>
+    `<option value="${esc(p.patient_id)}">${esc(p.patient_name || p.patient_id)}</option>`,
+  ).join('');
+  return `<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px;padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--bg-card)">
+    <label style="font-size:12px;color:var(--text-secondary);display:flex;flex-direction:column;gap:4px;flex:1;min-width:220px">
+      Select patient
+      <select class="form-control" data-nu-patient-select style="min-height:44px" aria-label="Select patient for nutrition review">${opts}</select>
+    </label>
+    <button type="button" class="btn btn-primary btn-sm" data-action="nu-open-selected" style="min-height:44px;margin-top:18px">Open nutrition review</button>
+    <button type="button" class="btn btn-ghost btn-sm" data-action="nu-go-patients" style="min-height:44px;margin-top:18px">Patients list</button>
   </div>`;
 }
 
@@ -135,11 +173,14 @@ function _renderClinicTable(rows, sortKey, sortDir) {
     const flags = Array.isArray(p.flags) ? p.flags : [];
     const flagsHtml = flags.length
       ? flags.map((f) => _flagPill(f.label, f.status)).join(' ')
-      : '<span style="color:var(--green);font-size:11px">No flags</span>';
+      : '<span style="color:var(--text-tertiary);font-size:11px">No review cues from available data</span>';
     const adherence = `${Math.round(p.adherence_pct || 0)}%`;
-    const sevTint = p.worst_severity === 'critical'
+    const ws = String(p.worst_severity || '').toLowerCase();
+    const sevTint = ws === 'critical'
       ? 'border-left:3px solid var(--red)'
-      : (flags.length ? 'border-left:3px solid var(--amber)' : 'border-left:3px solid var(--green)');
+      : (ws === 'high' || ws === 'monitor' || flags.length
+        ? 'border-left:3px solid var(--amber)'
+        : 'border-left:3px solid var(--border)');
     return `<tr data-patient-id="${esc(p.patient_id)}" tabindex="0" role="button" style="cursor:pointer;min-height:44px;${sevTint}"
       onmouseover="this.style.background='rgba(255,255,255,.03)'"
       onmouseout="this.style.background='transparent'">
@@ -169,9 +210,10 @@ function _macroBarColor(status) {
   return 'var(--green)';
 }
 
-function _renderMacrosPanel(macros) {
+function _renderMacrosPanel(macros, opts = {}) {
   const m = macros || {};
   const day = m.day ? new Date(m.day).toLocaleDateString() : 'Today';
+  const showVsTarget = opts.showPctAgainstTarget !== false;
   const rows = [
     ['Calories', m.calories, 'kcal'],
     ['Protein',  m.protein,  m.protein?.unit || 'g'],
@@ -184,20 +226,32 @@ function _renderMacrosPanel(macros) {
     const intake = v?.intake ?? null;
     const target = v?.target ?? null;
     const status = v?.status || 'normal';
-    const pct = (intake != null && target) ? Math.min(140, Math.round((intake / target) * 100)) : 0;
-    const fillPct = Math.min(100, pct);
-    const overPct = Math.max(0, Math.min(40, pct - 100));
-    const color = _macroBarColor(status);
+    const noTarget = target == null || !showVsTarget;
+    const pct = (!noTarget && intake != null && target)
+      ? Math.min(140, Math.round((intake / target) * 100))
+      : (intake != null ? 50 : 0);
+    const fillPct = noTarget ? (intake != null ? 50 : 0) : Math.min(100, pct);
+    const overPct = noTarget ? 0 : Math.max(0, Math.min(40, pct - 100));
+    const color = noTarget ? 'var(--text-tertiary)' : _macroBarColor(status);
     const valTxt = intake != null ? `${esc(intake)}` : '—';
     const tgtTxt = target != null ? `/ ${esc(target)} ${esc(unit)}` : '';
+    const pctTxt = noTarget
+      ? (intake != null ? '' : '')
+      : ` (${pct}% vs clinic reference)`;
+    const barExtra = noTarget && intake == null
+      ? '<div style="font-size:10px;color:var(--text-tertiary);margin-top:2px">No aggregate logged for this window.</div>'
+      : (noTarget && intake != null
+        ? '<div style="font-size:10px;color:var(--text-tertiary);margin-top:2px">7-day mean where logged — not compared to a prescribed target here.</div>'
+        : '');
     return `<div style="display:flex;flex-direction:column;gap:4px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
         <div style="font-size:12px;font-weight:500">${esc(label)}</div>
         <div style="display:flex;gap:8px;align-items:center">
-          <span style="font-size:11px;color:var(--text-tertiary);font-variant-numeric:tabular-nums">${valTxt} ${tgtTxt} (${pct}%)</span>
+          <span style="font-size:11px;color:var(--text-tertiary);font-variant-numeric:tabular-nums">${valTxt} ${tgtTxt}${pctTxt}</span>
           ${_statusPill(status)}
         </div>
       </div>
+      ${barExtra}
       <div style="height:8px;border-radius:4px;background:rgba(255,255,255,.05);overflow:hidden;position:relative">
         <div style="height:100%;width:${fillPct}%;background:${color};border-radius:4px"></div>
         ${overPct > 0 ? `<div style="position:absolute;top:0;left:${fillPct}%;height:100%;width:${overPct}%;background:repeating-linear-gradient(45deg,var(--red),var(--red) 4px,rgba(255,107,107,0.4) 4px,rgba(255,107,107,0.4) 8px)"></div>` : ''}
@@ -285,7 +339,7 @@ function _renderSupplementsPanel(supplements, patientId) {
   return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;overflow:hidden">
     <div style="padding:12px 14px;font-weight:600;font-size:13px;border-bottom:1px solid var(--border);background:rgba(255,255,255,.02);display:flex;justify-content:space-between;align-items:center">
       <span>Supplements & meds-as-supplements</span>
-      <span style="font-size:11px;color:var(--text-tertiary)">${list.length} active</span>
+      <span style="font-size:11px;color:var(--text-tertiary)">${list.filter((s) => s.active !== false).length} active / ${list.length} listed</span>
     </div>
     <ul style="list-style:none;margin:0;padding:0">${items}</ul>
     <div style="padding:10px 14px;border-top:1px solid var(--border);background:rgba(255,255,255,.01)">
@@ -326,32 +380,288 @@ function _renderInteractionsPanel(interactions) {
   const list = Array.isArray(interactions) ? interactions : [];
   if (!list.length) {
     return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px">
-      <div style="font-weight:600;font-size:13px;margin-bottom:8px">Diet ↔ medication interactions</div>
-      <div style="font-size:12px;color:var(--text-tertiary)">No diet-drug interactions flagged.</div>
+      <div style="font-weight:600;font-size:13px;margin-bottom:8px">Nutrition–medication review cues</div>
+      <div style="font-size:12px;color:var(--text-tertiary)">No structured interaction cues in this view. Use Medication Analyzer and Labs for formal interaction checks.</div>
     </div>`;
   }
   const cards = list.map((f) => {
     const color = _severityColor(f.severity);
+    const note = f.recommendation || f.clinical_review_note || '';
     return `<div style="padding:14px;border:1px solid ${color};background:rgba(255,255,255,.02);border-radius:12px;display:flex;flex-direction:column;gap:6px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-        <div style="font-weight:600;font-size:13px">${esc(f.title || 'Interaction')}</div>
+        <div style="font-weight:600;font-size:13px">${esc(f.title || 'Review cue')}</div>
         <div>${_severityPill(f.severity)}</div>
       </div>
       <div style="font-size:12px;color:var(--text-secondary);line-height:1.5">${esc(f.mechanism || '')}</div>
-      ${f.recommendation ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:2px"><strong style="color:var(--text-secondary)">Recommendation:</strong> ${esc(f.recommendation)}</div>` : ''}
+      ${note ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:2px;border-left:2px solid var(--amber);padding-left:8px"><strong style="color:var(--text-secondary)">Clinician/dietitian review note (not a prescription):</strong> ${esc(note)}</div>` : ''}
       ${_renderRefPills(f.references)}
     </div>`;
   }).join('');
   return `<div data-interactions-section style="display:flex;flex-direction:column;gap:10px">
-    <div style="font-size:12px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px">Diet ↔ medication interactions</div>
+    <div style="font-size:12px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px">Nutrition-linked review cues (demo narrative — requires clinician/dietitian review)</div>
     ${cards}
   </div>`;
 }
 
-function _renderIntakeForm() {
+function _renderSafetyStrip() {
+  return `<div role="note" style="padding:10px 12px;border-radius:10px;border:1px solid rgba(255,176,87,0.35);background:rgba(255,176,87,0.06);font-size:11px;line-height:1.5;color:var(--text-secondary);margin-bottom:14px">
+    <strong style="color:var(--amber)">High-risk topics.</strong> Energy intake, weight, glucose/HbA1c, supplements, GLP-1 or anticoagulant context, pregnancy, renal/hepatic disease, allergies, or eating-disorder risk require <strong>clinician/dietitian review</strong> and your clinic nutrition safety protocol.
+    This workspace does not prescribe diets, supplements, or medication changes and must not be used for emergency triage.
+  </div>`;
+}
+
+function _renderPatientContextCard(profile) {
+  const pid = esc(profile?.patient_id || '');
+  const name = esc(profile?.patient_name || 'Patient');
+  const src = profile?._data_source === 'demo_fixture' ? 'Demo/sample narrative (not a real patient record)' : 'Clinic-linked payload';
+  const comp = profile?.computation_id ? esc(String(profile.computation_id)) : '—';
+  const schema = profile?.schema_version != null ? esc(String(profile.schema_version)) : '—';
+  const disc = profile?.clinical_disclaimer ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:8px;line-height:1.45">${esc(profile.clinical_disclaimer)}</div>` : '';
+  return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px">
+    <div style="font-weight:600;font-size:13px;margin-bottom:8px">Patient context</div>
+    <div style="font-size:13px;font-weight:500">${name}</div>
+    <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">Patient ID: ${pid}</div>
+    <div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">Data source: ${esc(src)} · Computation: ${comp} · Schema: ${schema}</div>
+    ${disc}
+  </div>`;
+}
+
+function _renderDataAvailability(profile) {
+  const diet = profile?._diet_summary && typeof profile._diet_summary === 'object' ? profile._diet_summary : {};
+  const prov = esc(String(diet.provenance || 'unknown'));
+  const cov = diet.logging_coverage_pct != null ? `${esc(String(diet.logging_coverage_pct))}%` : '—';
+  const conf = diet.confidence != null ? `${Math.round(Number(diet.confidence) * 100)}%` : '—';
+  const notes = diet.notes ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:8px;line-height:1.45">${esc(diet.notes)}</div>` : '';
+  const stale = (!cov || cov === '—' || cov === '0%')
+    ? '<div style="font-size:11px;color:var(--amber);margin-top:8px">Sparse or missing logging — do not infer completeness of intake.</div>'
+    : '';
+  return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px">
+    <div style="font-weight:600;font-size:13px;margin-bottom:8px">Nutrition data availability</div>
+    <ul style="margin:0;padding-left:18px;font-size:12px;color:var(--text-secondary);line-height:1.55">
+      <li>Provenance: ${prov}</li>
+      <li>Approx. weekly logging coverage (computed): ${cov}</li>
+      <li>Diet signal confidence (heuristic): ${conf}</li>
+    </ul>
+    ${notes}${stale}
+  </div>`;
+}
+
+function _renderSnapshotGrid(profile) {
+  const cards = Array.isArray(profile?._snapshot_cards) ? profile._snapshot_cards : [];
+  if (!cards.length) return '';
+  const cells = cards.map((c) => {
+    const conf = typeof c.confidence === 'number' ? `${Math.round(c.confidence * 100)}%` : '—';
+    const prov = esc(String(c.provenance || ''));
+    return `<div style="padding:12px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.02)">
+      <div style="font-size:11px;color:var(--text-tertiary)">${esc(c.label || '')}</div>
+      <div style="font-size:18px;font-weight:600;margin-top:4px;font-variant-numeric:tabular-nums">${esc(c.value ?? '—')} <span style="font-size:12px;font-weight:500;color:var(--text-secondary)">${esc(c.unit || '')}</span></div>
+      <div style="font-size:10px;color:var(--text-tertiary);margin-top:6px">Confidence: ${esc(conf)} · ${prov}</div>
+    </div>`;
+  }).join('');
+  return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px">
+    <div style="font-weight:600;font-size:13px;margin-bottom:10px">Summary cards (observed / aggregated)</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px">${cells}</div>
+  </div>`;
+}
+
+function _renderReviewCuesPanel(profile) {
+  const cues = Array.isArray(profile?._review_cues) ? profile._review_cues : [];
+  if (!cues.length) return '';
+  const body = cues.map((c) => {
+    const pri = esc(String(c.priority || 'routine'));
+    const cf = c.confidence != null ? `${Math.round(Number(c.confidence) * 100)}%` : '—';
+    return `<li style="padding:10px 0;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-secondary);line-height:1.5">
+      <div style="font-weight:600;color:var(--text-primary)">${esc(c.title)} <span style="font-size:10px;color:var(--text-tertiary)">(${pri})</span></div>
+      <div style="margin-top:4px">${esc(c.detail)}</div>
+      <div style="font-size:10px;color:var(--text-tertiary);margin-top:6px">Provenance: ${esc(c.provenance || '—')} · Confidence: ${esc(cf)} — requires clinician/dietitian review</div>
+    </li>`;
+  }).join('');
+  return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px">
+    <div style="font-weight:600;font-size:13px;margin-bottom:8px">Nutrition review cues (not prescriptions)</div>
+    <ul style="list-style:none;margin:0;padding:0">${body}</ul>
+  </div>`;
+}
+
+function _renderAiBlocks(profile) {
+  const blocks = Array.isArray(profile?._ai_interpretation) ? profile._ai_interpretation : [];
+  if (!blocks.length) return '';
+  const cards = blocks.map((b) => {
+    const conf = typeof b.confidence === 'number' ? `${Math.round(b.confidence * 100)}%` : '—';
+    const prov = esc(String(b.provenance || 'rule_assembled'));
+    return `<div style="padding:12px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.02)">
+      <div style="font-weight:600;font-size:12px">${esc(b.title || 'AI-assisted summary')}</div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-top:6px;line-height:1.5">${esc(b.summary || '')}</div>
+      <div style="font-size:11px;color:var(--amber);margin-top:8px">${esc(b.uncertainty || 'Requires clinician review.')}</div>
+      <div style="font-size:10px;color:var(--text-tertiary);margin-top:6px">AI-assisted / rule-assembled · Confidence ${esc(conf)} · ${prov}</div>
+    </div>`;
+  }).join('');
+  return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px">
+    <div style="font-weight:600;font-size:13px;margin-bottom:10px">AI-assisted interpretation (draft — audit against source data)</div>
+    <div style="display:flex;flex-direction:column;gap:10px">${cards}</div>
+  </div>`;
+}
+
+function _renderEvidenceSnippet(profile) {
+  const pack = profile?._evidence_pack;
+  if (!pack || typeof pack !== 'object') return '';
+  const items = Array.isArray(pack.items) ? pack.items.slice(0, 3) : [];
+  if (!items.length) return '';
+  const rows = items.map((it) => `<li style="font-size:11px;color:var(--text-secondary);margin-bottom:6px">${esc(it.title || it.snippet?.slice(0, 120) || 'Reference')}</li>`).join('');
+  const note = pack.corpus_note ? `<div style="font-size:10px;color:var(--text-tertiary);margin-bottom:8px">${esc(pack.corpus_note)}</div>` : '';
+  return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px">
+    <div style="font-weight:600;font-size:13px;margin-bottom:8px">Evidence corpus (context only)</div>
+    ${note}
+    <ul style="margin:0;padding-left:18px">${rows}</ul>
+    <button type="button" class="btn btn-ghost btn-sm" data-action="open-evidence-corpus" style="margin-top:10px;min-height:40px">Open research evidence</button>
+  </div>`;
+}
+
+function _mergeHandoffLinks(profile) {
+  const primary = Array.isArray(profile?._biomarker_links) ? profile._biomarker_links : [];
+  const seen = new Set(primary.map((l) => l.page_id));
+  const extra = _NUTRITION_EXTRA_HANDOFFS.filter((x) => !seen.has(x.page_id));
+  return [...primary, ...extra];
+}
+
+function _renderLinkedModules(profile, patientId) {
+  const links = _mergeHandoffLinks(profile);
+  if (!links.length) return '';
+  const btns = links.map((l) => {
+    const page = esc(String(l.page_id || ''));
+    const conf = typeof l.confidence === 'number' ? `${Math.round(l.confidence * 100)}%` : '—';
+    return `<button type="button" class="btn btn-ghost btn-sm" data-action="nav-handoff" data-page="${page}" data-patient-id="${esc(patientId)}"
+      style="min-height:40px;text-align:left;justify-content:flex-start;flex:1 1 200px">
+      <span style="font-weight:600">${esc(l.label || page)}</span>
+      <span style="display:block;font-size:10px;color:var(--text-tertiary);font-weight:400;margin-top:2px">${esc(l.detail || '')} · Uncertainty: ${esc(conf)}</span>
+    </button>`;
+  }).join('');
+  return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px">
+    <div style="font-weight:600;font-size:13px;margin-bottom:10px">Linked modules (context handoff — not eligibility)</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">${btns}</div>
+    <div style="font-size:10px;color:var(--text-tertiary);margin-top:10px;line-height:1.45">Navigation sets patient context where supported; it does not approve protocols, medications, or treatments.</div>
+  </div>`;
+}
+
+function _renderAuditSummaryStrip(profile) {
+  const a = profile?._audit_summary;
+  if (!a || typeof a !== 'object') return '';
+  const last = a.last_event_at ? new Date(a.last_event_at).toLocaleString() : '—';
+  return `<div style="font-size:11px;color:var(--text-tertiary);padding:8px 12px;border:1px dashed var(--border);border-radius:8px;margin-bottom:14px">
+    Audit index: ${esc(String(a.total_events ?? 0))} events · Last: ${esc(last)} (${esc(String(a.last_event_type || '—'))})
+  </div>`;
+}
+
+function _renderDailyLogTable(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) {
+    return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px">
+      <div style="font-weight:600;font-size:13px;margin-bottom:6px">Diet diary / daily aggregates</div>
+      <div style="font-size:12px;color:var(--text-tertiary)">No per-day rows in this view. Add intake below when your workflow captures structured logs.</div>
+    </div>`;
+  }
+  const head = `<tr>
+    <th style="text-align:left;padding:8px;font-size:10px;color:var(--text-tertiary);border-bottom:1px solid var(--border)">Day</th>
+    <th style="text-align:right;padding:8px;font-size:10px;color:var(--text-tertiary);border-bottom:1px solid var(--border)">kcal</th>
+    <th style="text-align:right;padding:8px;font-size:10px;color:var(--text-tertiary);border-bottom:1px solid var(--border)">Protein</th>
+    <th style="text-align:right;padding:8px;font-size:10px;color:var(--text-tertiary);border-bottom:1px solid var(--border)">Carbs</th>
+    <th style="text-align:right;padding:8px;font-size:10px;color:var(--text-tertiary);border-bottom:1px solid var(--border)">Fat</th>
+    <th style="text-align:right;padding:8px;font-size:10px;color:var(--text-tertiary);border-bottom:1px solid var(--border)">Fiber</th>
+    <th style="text-align:right;padding:8px;font-size:10px;color:var(--text-tertiary);border-bottom:1px solid var(--border)">Na</th>
+  </tr>`;
+  const body = list.map((r) => `<tr>
+    <td style="padding:8px;border-bottom:1px solid var(--border);font-size:12px">${esc(r.day || '')}</td>
+    <td style="padding:8px;border-bottom:1px solid var(--border);font-size:12px;text-align:right;font-variant-numeric:tabular-nums">${r.calories_kcal != null ? esc(String(r.calories_kcal)) : '—'}</td>
+    <td style="padding:8px;border-bottom:1px solid var(--border);font-size:12px;text-align:right;font-variant-numeric:tabular-nums">${r.protein_g != null ? esc(String(r.protein_g)) : '—'}</td>
+    <td style="padding:8px;border-bottom:1px solid var(--border);font-size:12px;text-align:right;font-variant-numeric:tabular-nums">${r.carbs_g != null ? esc(String(r.carbs_g)) : '—'}</td>
+    <td style="padding:8px;border-bottom:1px solid var(--border);font-size:12px;text-align:right;font-variant-numeric:tabular-nums">${r.fat_g != null ? esc(String(r.fat_g)) : '—'}</td>
+    <td style="padding:8px;border-bottom:1px solid var(--border);font-size:12px;text-align:right;font-variant-numeric:tabular-nums">${r.fiber_g != null ? esc(String(r.fiber_g)) : '—'}</td>
+    <td style="padding:8px;border-bottom:1px solid var(--border);font-size:12px;text-align:right;font-variant-numeric:tabular-nums">${r.sodium_mg != null ? esc(String(r.sodium_mg)) : '—'}</td>
+  </tr>`).join('');
+  return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px;overflow:auto">
+    <div style="font-weight:600;font-size:13px;margin-bottom:8px">Diet diary / daily aggregates (source-backed where logged)</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:520px"><thead>${head}</thead><tbody>${body}</tbody></table>
+  </div>`;
+}
+
+function _renderGovernanceNote() {
+  return `<div style="font-size:11px;color:var(--text-tertiary);line-height:1.5;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.02);border:1px solid var(--border)">
+    <strong style="color:var(--text-secondary)">Governance.</strong> Nutrition-review rules, reference ranges, and dietetic policy are clinic-specific.
+    If your organisation has not configured them, treat all flags as <strong>requires review</strong> — not as evidence grades or autonomous conclusions.
+  </div>`;
+}
+
+function _refRangeTxt(r) {
+  const lo = r.ref_low != null ? String(r.ref_low) : '';
+  const hi = r.ref_high != null ? String(r.ref_high) : '';
+  if (!lo && !hi) return '—';
+  return `${lo}–${hi}`;
+}
+
+function _statusBadgeLab(status) {
+  const s = String(status || '').toLowerCase();
+  if (s === 'critical') return '<span class="pill" style="background:rgba(255,107,107,0.14);color:var(--red);font-size:10px;padding:2px 6px">Critical</span>';
+  if (s === 'high' || s === 'low') return '<span class="pill pill-pending" style="font-size:10px;padding:2px 6px">' + esc(status) + '</span>';
+  if (s === 'normal') return '<span class="pill pill-active" style="font-size:10px;padding:2px 6px">In range</span>';
+  return '<span class="pill pill-inactive" style="font-size:10px;padding:2px 6px">—</span>';
+}
+
+function _renderNutritionLinkedLabs(ctx) {
+  if (!ctx || typeof ctx !== 'object') return '';
+  const src = String(ctx.source || 'unknown');
+  const srcLabel = src === 'demo' ? 'Demo / sample (not a real patient record)' : src === 'api' ? 'Labs analyzer (clinic system)' : 'Unavailable';
+  const when = ctx.captured_at ? new Date(ctx.captured_at).toLocaleString() : '—';
+  const err = ctx.error ? `<div role="alert" style="font-size:12px;color:var(--amber);margin-bottom:8px">${esc(ctx.error)}</div>` : '';
+  const rows = Array.isArray(ctx.rows) ? ctx.rows : [];
+  if (!rows.length && !err) {
+    return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px">
+      <div style="font-weight:600;font-size:13px;margin-bottom:6px">Nutrition-linked labs &amp; biomarkers</div>
+      <div style="font-size:12px;color:var(--text-tertiary);line-height:1.5">
+        No matching analytes in the current Labs profile (or labs not on file). Missing lab context does not mean normal nutrition-metabolic status — use Labs Analyzer for the full set and source documents.
+      </div>
+      <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px">Source: ${esc(srcLabel)} · Last panel: ${esc(when)}</div>
+      <button type="button" class="btn btn-ghost btn-sm" data-action="refresh-labs" style="margin-top:10px;min-height:40px">Refresh linked labs</button>
+    </div>`;
+  }
+  const head = `<tr>
+    <th style="text-align:left;padding:8px;font-size:10px;color:var(--text-tertiary);border-bottom:1px solid var(--border)">Analyte</th>
+    <th style="text-align:left;padding:8px;font-size:10px;color:var(--text-tertiary);border-bottom:1px solid var(--border)">Panel</th>
+    <th style="text-align:right;padding:8px;font-size:10px;color:var(--text-tertiary);border-bottom:1px solid var(--border)">Value</th>
+    <th style="text-align:left;padding:8px;font-size:10px;color:var(--text-tertiary);border-bottom:1px solid var(--border)">Unit</th>
+    <th style="text-align:left;padding:8px;font-size:10px;color:var(--text-tertiary);border-bottom:1px solid var(--border)">Ref (lab)</th>
+    <th style="text-align:right;padding:8px;font-size:10px;color:var(--text-tertiary);border-bottom:1px solid var(--border)">Status</th>
+  </tr>`;
+  const body = rows.map((r) => `<tr>
+    <td style="padding:8px;border-bottom:1px solid var(--border);font-size:12px">${esc(r.analyte || '—')}</td>
+    <td style="padding:8px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-tertiary)">${esc(r._panel_name || '—')}</td>
+    <td style="padding:8px;border-bottom:1px solid var(--border);font-size:12px;text-align:right;font-variant-numeric:tabular-nums">${r.value != null ? esc(String(r.value)) : '—'}</td>
+    <td style="padding:8px;border-bottom:1px solid var(--border);font-size:11px">${esc(r.unit || '—')}</td>
+    <td style="padding:8px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-secondary)">${esc(_refRangeTxt(r))}</td>
+    <td style="padding:8px;border-bottom:1px solid var(--border);text-align:right">${_statusBadgeLab(r.status)}</td>
+  </tr>`).join('');
+  return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px;overflow:auto">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+      <div>
+        <div style="font-weight:600;font-size:13px">Nutrition-linked labs &amp; biomarkers (cross-check)</div>
+        <div style="font-size:10px;color:var(--text-tertiary);margin-top:4px;line-height:1.45">Filtered subset for diet / metabolic / safety context. Reference intervals are as reported by the source panel — verify in Labs Analyzer and against local policy. Not a diagnosis.</div>
+      </div>
+      <button type="button" class="btn btn-ghost btn-sm" data-action="refresh-labs" style="min-height:40px">Refresh linked labs</button>
+    </div>
+    ${err}
+    <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:8px">Source: ${esc(srcLabel)} · Last panel: ${esc(when)}</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:640px"><thead>${head}</thead><tbody>${body}</tbody></table>
+  </div>`;
+}
+
+function _renderIntakeForm(opts = {}) {
+  const disabled = !!opts.disabled;
   const today = new Date().toISOString().slice(0, 10);
-  return `<form data-intake-form style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px">
-    <div style="font-weight:600;font-size:13px">Add intake</div>
+  const dim = disabled ? 'opacity:0.55;pointer-events:none' : '';
+  const note = disabled
+    ? '<div style="font-size:11px;color:var(--amber);margin-bottom:8px">Structured intake entry requires authenticated clinician API access. Sign in with a clinician account, or use demo mode for local narrative exercises.</div>'
+    : '';
+  return `<form data-intake-form style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;${dim}">
+    <div style="font-weight:600;font-size:13px">Add intake (structured diet log)</div>
+    ${note}
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px">
       <label style="display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--text-tertiary)">Day
         <input name="log_day" type="date" class="form-control" value="${esc(today)}" required style="min-height:36px"/>
@@ -378,18 +688,24 @@ function _renderIntakeForm() {
     <textarea name="notes" class="form-control" rows="2" placeholder="Optional notes (e.g. main meal, supplement taken)…" style="min-height:48px;width:100%"></textarea>
     <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end">
       <span data-form-error style="color:var(--red);font-size:11px;margin-right:auto"></span>
-      <button type="submit" class="btn btn-primary btn-sm" style="min-height:44px">Add intake</button>
+      <button type="submit" class="btn btn-primary btn-sm" style="min-height:44px" ${disabled ? 'disabled aria-disabled="true"' : ''}>Add intake</button>
     </div>
   </form>`;
 }
 
-function _renderAnnotationForm() {
-  return `<form data-annotation-form style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px">
-    <div style="font-weight:600;font-size:13px">Add annotation</div>
+function _renderAnnotationForm(opts = {}) {
+  const disabled = !!opts.disabled;
+  const dim = disabled ? 'opacity:0.55;pointer-events:none' : '';
+  const note = disabled
+    ? '<div style="font-size:11px;color:var(--amber);margin-bottom:8px">Review notes persist only when the nutrition API is available for your session.</div>'
+    : '';
+  return `<form data-annotation-form style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;${dim}">
+    <div style="font-weight:600;font-size:13px">Clinician/dietitian review note</div>
+    ${note}
     <textarea name="note" class="form-control" rows="2" placeholder="Clinical note (e.g. counsel on caffeine cap, request food diary, escalate vit-D)…" style="min-height:64px;width:100%"></textarea>
     <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end">
       <span data-form-error style="color:var(--red);font-size:11px;margin-right:auto"></span>
-      <button type="submit" class="btn btn-primary btn-sm" style="min-height:44px">Save annotation</button>
+      <button type="submit" class="btn btn-primary btn-sm" style="min-height:44px" ${disabled ? 'disabled aria-disabled="true"' : ''}>Save annotation</button>
     </div>
   </form>`;
 }
@@ -427,27 +743,55 @@ function _renderAuditPanel(audit) {
   </div>`;
 }
 
-function _renderPatientDetail(profile, audit, expandedKey) {
-  const captured = profile?.captured_at ? new Date(profile.captured_at).toLocaleString() : 'No log recorded.';
-  const macros = _renderMacrosPanel(profile?.macros);
+function _renderPatientDetail(profile, audit, expandedKey, usingFixtures, labsContext) {
+  const captured = profile?.captured_at ? new Date(profile.captured_at).toLocaleString() : '—';
+  const isApi = profile?._data_source === 'api';
+  const macros = _renderMacrosPanel(profile?.macros, { showPctAgainstTarget: !isApi });
   const micros = _renderMicrosPanel(profile?.micronutrients, expandedKey);
   const supplements = _renderSupplementsPanel(profile?.supplements, profile?.patient_id);
   const interactions = _renderInteractionsPanel(profile?.interactions);
-  return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:12px 0 14px;flex-wrap:wrap">
-      <div style="font-size:12px;color:var(--text-tertiary)">Last log: ${esc(captured)}</div>
-      <button type="button" class="btn btn-ghost btn-sm" data-action="recompute" style="min-height:44px">Recompute</button>
+  const pid = profile?.patient_id || '';
+  const labsPanel = _renderNutritionLinkedLabs(labsContext);
+  return `${_renderSafetyStrip()}
+    ${_renderPatientContextCard(profile)}
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:14px 0;flex-wrap:wrap">
+      <div style="font-size:12px;color:var(--text-tertiary)">Data as of: ${esc(captured)}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" class="btn btn-ghost btn-sm" data-action="open-patient-profile" data-patient-id="${esc(pid)}" style="min-height:44px">Patient profile</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-action="recompute" style="min-height:44px">Refresh / recompute</button>
+      </div>
     </div>
+    ${_renderAuditSummaryStrip(profile)}
     <div style="display:grid;grid-template-columns:1fr;gap:14px">
+      ${_renderDataAvailability(profile)}
+      ${labsPanel}
+      ${_renderSnapshotGrid(profile)}
+      ${_renderReviewCuesPanel(profile)}
+      ${_renderDailyLogTable(profile?.daily_log)}
       ${macros}
       ${micros}
       ${supplements}
     </div>
     ${interactions ? `<div style="margin-top:18px">${interactions}</div>` : ''}
     <div style="margin-top:18px;display:grid;grid-template-columns:1fr;gap:14px">
+      ${_renderLinkedModules(profile, pid)}
+      ${_renderAiBlocks(profile)}
+      ${_renderEvidenceSnippet(profile)}
+      ${_renderGovernanceNote()}
+    </div>
+    <div style="margin-top:18px;display:grid;grid-template-columns:1fr;gap:14px">
       ${_renderIntakeForm()}
       ${_renderAnnotationForm()}
       ${_renderAuditPanel(audit)}
     </div>`;
+}
+
+function _patientDisplayName(rec) {
+  if (!rec || typeof rec !== 'object') return '';
+  const fn = String(rec.first_name || '').trim();
+  const ln = String(rec.last_name || '').trim();
+  const combined = `${fn} ${ln}`.trim();
+  return combined || String(rec.id || '');
 }
 
 function _enrichPatientName(p) {
@@ -457,43 +801,29 @@ function _enrichPatientName(p) {
   return { ...p, patient_name: match ? match.name : p.patient_id };
 }
 
-function _summariseProfileForClinic(p) {
-  const flags = [];
-  (p.micronutrients || []).forEach((m) => {
-    if (m.status === 'low')  flags.push({ label: `${m.label} low`,  status: 'low' });
-    if (m.status === 'high') flags.push({ label: `${m.label} high`, status: 'high' });
-  });
-  const macros = p.macros || {};
-  ['fiber', 'sodium'].forEach((k) => {
-    const v = macros[k];
-    if (v && v.status === 'low')  flags.push({ label: `${k} low`,  status: 'low' });
-    if (v && v.status === 'high') flags.push({ label: `${k} high`, status: 'high' });
-  });
-  const supplementCount = (p.supplements || []).length;
-  const log = Array.isArray(p.daily_log) ? p.daily_log : [];
-  const lastLogDay = log[0]?.day || (p.captured_at ? p.captured_at.slice(0, 10) : null);
-  const adherencePct = log.length ? Math.min(100, Math.round((log.length / 3) * 100)) : 0;
-  const critical = (p.interactions || []).some((i) => i.severity === 'critical');
-  return {
-    patient_id: p.patient_id,
-    patient_name: p.patient_name,
-    last_log_day: lastLogDay,
-    flags: flags.slice(0, 4),
-    supplement_count: supplementCount,
-    adherence_pct: adherencePct,
-    worst_severity: critical ? 'critical' : (flags.length ? 'monitor' : 'green'),
-  };
-}
-
 async function _loadClinicSummary() {
-  const personas = ANALYZER_DEMO_FIXTURES?.patients || [];
-  const ids = personas.map((p) => p.id);
+  let listRes = null;
+  try {
+    listRes = await api.listPatients({ limit: 100 });
+  } catch {
+    listRes = null;
+  }
+  const items = Array.isArray(listRes?.items) ? listRes.items : [];
+  if (!items.length && isDemoSession() && ANALYZER_DEMO_FIXTURES?.nutrition) {
+    return ANALYZER_DEMO_FIXTURES.nutrition.clinic_summary();
+  }
   const results = await Promise.all(
-    ids.map((pid) => api.getNutritionProfile(pid).then((r) => r).catch(() => null))
+    items.map((rec) =>
+      api.getNutritionProfile(rec.id).then((r) => ({ rec, r })).catch(() => ({ rec, r: null })),
+    ),
   );
   const patients = [];
-  results.forEach((r) => {
-    if (r && r.patient_id) patients.push(_summariseProfileForClinic(_enrichPatientName(r)));
+  results.forEach(({ rec, r }) => {
+    if (!r || !r.patient_id) return;
+    const display = _patientDisplayName(rec);
+    const normalized = normalizeNutritionProfile(r, { patientDisplayName: display });
+    if (!normalized) return;
+    patients.push(summarizeNutritionForClinic(normalized));
   });
   return { patients };
 }
@@ -517,17 +847,56 @@ export async function pgNutritionAnalyzer(setTopbar, navigate) {
   let activePatientName = '';
   let profileCache = null;
   let auditCache = null;
+  let labsCache = null;
   let sortKey = 'flags';
   let sortDir = 'desc';
   let usingFixtures = false;
   let expandedKey = '';
 
+  async function buildLabsContext(patientId, usingDemoFixtureProfile) {
+    const pid = patientId || activePatientId;
+    if (!pid) return { rows: [], captured_at: null, source: 'none', error: null };
+    try {
+      if (usingDemoFixtureProfile) {
+        const lp = labsPatientProfileFor(pid);
+        if (lp && Array.isArray(lp.panels)) {
+          const ex = extractNutritionRelevantLabRows(lp);
+          return { ...ex, source: 'demo', error: null };
+        }
+        return {
+          rows: [],
+          captured_at: null,
+          source: 'demo',
+          error: 'No demo labs panel on file for this persona.',
+        };
+      }
+      const lp = await api.getLabsProfile(pid).catch(() => null);
+      if (lp && Array.isArray(lp.panels)) {
+        const ex = extractNutritionRelevantLabRows(lp);
+        return { ...ex, source: 'api', error: null };
+      }
+      return {
+        rows: [],
+        captured_at: null,
+        source: 'unavailable',
+        error: 'Labs analyzer did not return panels for this patient (permissions, empty record, or offline). Open Labs Analyzer for the full view.',
+      };
+    } catch (e) {
+      return {
+        rows: [],
+        captured_at: null,
+        source: 'error',
+        error: (e && e.message) || String(e),
+      };
+    }
+  }
+
   el.innerHTML = `
     <div class="ds-nutrition-analyzer-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px">
       <div id="nu-demo-banner"></div>
       <div style="padding:12px 14px;border-radius:12px;border:1px solid rgba(155,127,255,0.28);background:rgba(155,127,255,0.06);margin-bottom:14px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
-        <strong style="color:var(--text-primary)">Clinical decision-support.</strong>
-        Diet, supplements and micronutrient cover for patients on psychiatric pharmacology and neuromodulation. Flags surface vitamin / mineral deficits that blunt antidepressant response, supplement-drug bleed risk on warfarin / NSAID, and food-drug interactions (vitamin K + warfarin, caffeine + bupropion + rTMS). Decision-support only — confirm against your local prescribing & dietetic policy.
+        <strong style="color:var(--text-primary)">Clinician-reviewed nutrition decision-support.</strong>
+        Use this workspace to review diet logs, supplements, and nutrition-linked context alongside labs, medications, and wearables. It does not diagnose, prescribe diets or supplements, change medications, or approve protocols. Outputs require explicit clinician/dietitian review and local governance.
       </div>
       <div id="nu-breadcrumb" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:12px"></div>
       <div id="nu-body"></div>
@@ -582,17 +951,38 @@ export async function pgNutritionAnalyzer(setTopbar, navigate) {
       }
     }
     _syncDemoBanner();
-    body.innerHTML = _renderClinicTable(summaryCache?.patients || [], sortKey, sortDir);
+    body.innerHTML = _renderClinicSelect(summaryCache?.patients || [])
+      + _renderClinicTable(summaryCache?.patients || [], sortKey, sortDir);
+    wireClinicChrome(body);
     body.querySelectorAll('[data-sort-key]').forEach((th) => {
       th.addEventListener('click', () => {
         const k = th.getAttribute('data-sort-key');
         if (k === sortKey) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
         else { sortKey = k; sortDir = k === 'name' ? 'asc' : 'desc'; }
-        body.innerHTML = _renderClinicTable(summaryCache?.patients || [], sortKey, sortDir);
+        body.innerHTML = _renderClinicSelect(summaryCache?.patients || [])
+          + _renderClinicTable(summaryCache?.patients || [], sortKey, sortDir);
+        wireClinicChrome(body);
         wireClinicRows();
       });
     });
     wireClinicRows();
+  }
+
+  function wireClinicChrome(body) {
+    body.querySelectorAll('[data-action="nu-go-patients"]').forEach((b) => {
+      b.addEventListener('click', () => { try { navigate?.('patients-v2'); } catch {} });
+    });
+    body.querySelector('[data-action="nu-open-selected"]')?.addEventListener('click', () => {
+      const sel = body.querySelector('[data-nu-patient-select]');
+      const pid = sel?.value;
+      if (!pid) return;
+      const p = (summaryCache?.patients || []).find((x) => x.patient_id === pid);
+      activePatientId = pid;
+      activePatientName = p?.patient_name || pid;
+      view = 'patient';
+      expandedKey = '';
+      render();
+    });
   }
 
   function wireClinicRows() {
@@ -634,24 +1024,42 @@ export async function pgNutritionAnalyzer(setTopbar, navigate) {
     if (!body || !activePatientId) return;
     body.innerHTML = `<div style="padding:18px;background:var(--bg-card);border:1px solid var(--border);border-radius:14px">${_skeletonChips(5)}</div>`;
     try {
-      const [profile, audit] = await Promise.all([
+      const [rawProfile, rawAudit] = await Promise.all([
         api.getNutritionProfile(activePatientId),
-        api.getNutritionAudit(activePatientId).catch(() => ({ items: [] })),
+        api.getNutritionAudit(activePatientId).catch(() => ({ items: [], total: 0 })),
       ]);
-      profileCache = profile;
-      auditCache = audit;
-      if ((!profile || !profile.macros) && isDemoSession() && ANALYZER_DEMO_FIXTURES?.nutrition) {
-        profileCache = ANALYZER_DEMO_FIXTURES.nutrition.patient_profile(activePatientId);
-        auditCache = ANALYZER_DEMO_FIXTURES.nutrition.patient_audit(activePatientId);
+      let prof = rawProfile;
+      let aud = rawAudit;
+      const synthDemo = !!(prof && prof.is_demo_synthetic);
+      if (synthDemo && ANALYZER_DEMO_FIXTURES?.nutrition) {
+        prof = ANALYZER_DEMO_FIXTURES.nutrition.patient_profile(activePatientId);
+        aud = ANALYZER_DEMO_FIXTURES.nutrition.patient_audit(activePatientId);
         usingFixtures = true;
-      } else if (profileCache) {
+      } else if (!prof || !prof.patient_id) {
+        if (isDemoSession() && ANALYZER_DEMO_FIXTURES?.nutrition) {
+          prof = ANALYZER_DEMO_FIXTURES.nutrition.patient_profile(activePatientId);
+          aud = ANALYZER_DEMO_FIXTURES.nutrition.patient_audit(activePatientId);
+          usingFixtures = true;
+        } else {
+          usingFixtures = false;
+        }
+      } else {
         usingFixtures = false;
       }
+      const displayName = activePatientName || String(activePatientId);
+      profileCache = normalizeNutritionProfile(prof, { patientDisplayName: displayName });
+      auditCache = normalizeNutritionAudit(aud);
+      if (profileCache && !profileCache.patient_name) profileCache.patient_name = displayName;
+      labsCache = await buildLabsContext(activePatientId, usingFixtures);
     } catch (e) {
       if (isDemoSession() && ANALYZER_DEMO_FIXTURES?.nutrition) {
-        profileCache = ANALYZER_DEMO_FIXTURES.nutrition.patient_profile(activePatientId);
-        auditCache = ANALYZER_DEMO_FIXTURES.nutrition.patient_audit(activePatientId);
+        const prof = ANALYZER_DEMO_FIXTURES.nutrition.patient_profile(activePatientId);
+        const aud = ANALYZER_DEMO_FIXTURES.nutrition.patient_audit(activePatientId);
         usingFixtures = true;
+        const displayName = activePatientName || String(activePatientId);
+        profileCache = normalizeNutritionProfile(prof, { patientDisplayName: displayName });
+        auditCache = normalizeNutritionAudit(aud);
+        labsCache = await buildLabsContext(activePatientId, true);
       } else {
         const msg = (e && e.message) || String(e);
         body.innerHTML = _errorCard(msg);
@@ -660,14 +1068,14 @@ export async function pgNutritionAnalyzer(setTopbar, navigate) {
       }
     }
     _syncDemoBanner();
-    body.innerHTML = _renderPatientDetail(profileCache, auditCache, expandedKey);
+    body.innerHTML = _renderPatientDetail(profileCache, auditCache, expandedKey, usingFixtures, labsCache);
     wirePatientDetail();
   }
 
   function _rerenderPatient() {
     const body = $('nu-body');
     if (!body) return;
-    body.innerHTML = _renderPatientDetail(profileCache, auditCache, expandedKey);
+    body.innerHTML = _renderPatientDetail(profileCache, auditCache, expandedKey, usingFixtures, labsCache);
     wirePatientDetail();
   }
 
@@ -695,6 +1103,38 @@ export async function pgNutritionAnalyzer(setTopbar, navigate) {
           window._resEvidenceTab = 'search';
         } catch {}
         try { navigate?.('research-evidence'); } catch {}
+      });
+    });
+
+    body.querySelector('[data-action="open-patient-profile"]')?.addEventListener('click', (ev) => {
+      const pid = ev.currentTarget?.getAttribute?.('data-patient-id') || activePatientId;
+      if (!pid) return;
+      try { window._selectedPatientId = pid; } catch {}
+      try { navigate?.('patient-profile'); } catch {}
+    });
+
+    body.querySelectorAll('[data-action="refresh-labs"]').forEach((btn) => {
+      btn.addEventListener('click', () => { loadPatient(); });
+    });
+
+    body.querySelector('[data-action="open-evidence-corpus"]')?.addEventListener('click', () => {
+      try {
+        window._reEvidencePrefill = '';
+        window._resEvidenceTab = 'search';
+      } catch {}
+      try { navigate?.('research-evidence'); } catch {}
+    });
+
+    body.querySelectorAll('[data-action="nav-handoff"]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const page = btn.getAttribute('data-page');
+        const pid = btn.getAttribute('data-patient-id') || activePatientId;
+        if (!page) return;
+        try { window._selectedPatientId = pid; } catch {}
+        if (page === 'patient-analytics') {
+          try { window._paPatientId = pid; } catch {}
+        }
+        try { navigate?.(page); } catch {}
       });
     });
 
@@ -808,7 +1248,9 @@ export async function pgNutritionAnalyzer(setTopbar, navigate) {
             created_at: new Date().toISOString(),
           };
         } else {
-          added = await api.addNutritionAnnotation(activePatientId, { note });
+          await api.addNutritionAnnotation(activePatientId, { note });
+          await loadPatient();
+          return;
         }
         const items = Array.isArray(auditCache?.items) ? auditCache.items.slice() : [];
         items.unshift(added);

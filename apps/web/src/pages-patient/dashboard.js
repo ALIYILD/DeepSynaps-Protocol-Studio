@@ -38,13 +38,26 @@ export async function pgPatientDashboard(user) {
   setTopbar('Home');
   function esc(v) { if (v == null) return ''; return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;'); }
   const firstName = esc((user?.display_name || 'there').split(' ')[0]);
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const el = document.getElementById('patient-content');
+  el.innerHTML = `
+    <div class="ptd-dashboard hm-dashboard" data-patient-dashboard-loading="true">
+      <div class="hm-hero">
+        <div class="hm-hero-top">
+          <div>
+            <div class="hm-greet-kicker">Patient portal</div>
+            <h1 class="hm-greet-title pth-greeting">${greeting}, ${firstName}.</h1>
+            <p class="hm-greet-sub">Loading your Home page…</p>
+          </div>
+        </div>
+      </div>
+      ${spinner()}
+    </div>`;
   const liveEvidence = await getEvidenceUiStats({
     fallbackSummary: EVIDENCE_SUMMARY,
     fallbackConditionCount: EVIDENCE_SUMMARY.totalConditions,
   });
-
-  const el = document.getElementById('patient-content');
-  el.innerHTML = spinner();
 
   // ── Fetch all real endpoints in parallel ────────────────────────────────────
   const patientId = user?.patient_id || user?.id || null;
@@ -362,8 +375,6 @@ export async function pgPatientDashboard(user) {
     : null;
 
   // ── Greeting ───────────────────────────────────────────────────────────────
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   const todayStr = new Date().toISOString().slice(0, 10);
   const _wellnessLogs = Array.isArray(wellnessLogsRaw) ? wellnessLogsRaw : [];
   const checkedInToday = dashboardRaw?.last_checkin_date === todayStr
@@ -1511,7 +1522,7 @@ export async function pgPatientDashboard(user) {
         <div class="hm-hero-top">
           <div>
             <div class="hm-greet-kicker">${esc(_hmKicker)}</div>
-            <h1 class="hm-greet-title">${greeting}, ${firstName}.</h1>
+            <h1 class="hm-greet-title pth-greeting">${greeting}, ${firstName}.</h1>
             <p class="hm-greet-sub">${_hmSub}</p>
           </div>
         </div>

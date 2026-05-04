@@ -23,10 +23,14 @@ do not introduce a new heavy dep.
 from __future__ import annotations
 
 import base64
+import importlib.util
 import io
 import json
 import logging
+import subprocess
+import sys
 from datetime import datetime, timezone
+from functools import lru_cache
 from typing import Any, Optional
 
 from sqlalchemy.orm import Session
@@ -63,6 +67,10 @@ _FORMAT_MNE_FMT = {
 
 class ExportFormatError(ValueError):
     """Raised when an unknown format string is passed."""
+
+
+class ExportDependencyUnavailable(RuntimeError):
+    """Raised when an optional export dependency is unavailable on this host."""
 
 
 # ── Cleaning application ────────────────────────────────────────────────────
@@ -232,12 +240,19 @@ def export_cleaned_to_path(
         import mne  # type: ignore[import-not-found]
 
         mne_fmt = _FORMAT_MNE_FMT[fmt]
+        if importlib.util.find_spec("edfio") is None:
+            raise ExportDependencyUnavailable(
+                "EDF/BDF export requires the optional 'edfio' package on this host."
+            )
         # mne.export.export_raw arrived in MNE >=1.1; fall back to write_raw_edf if unavailable.
         export_raw = getattr(getattr(mne, "export", None), "export_raw", None)
         if export_raw is not None:
-            export_raw(out_path, raw_clean, fmt=mne_fmt, overwrite=True, verbose=False)
+            try:
+                export_raw(out_path, raw_clean, fmt=mne_fmt, overwrite=True, verbose=False)
+            except RuntimeError as exc:
+                raise ExportDependencyUnavailable(str(exc)) from exc
         else:  # pragma: no cover — older MNE
-            raise RuntimeError(
+            raise ExportDependencyUnavailable(
                 "mne.export.export_raw is not available; install MNE >= 1.1 for EDF/BDF export."
             )
 
@@ -632,8 +647,37 @@ class CleaningReportRendererUnavailable(RuntimeError):
     """Raised when WeasyPrint (or its native deps) is unavailable for PDF."""
 
 
+@lru_cache(maxsize=1)
+def weasyprint_render_available() -> bool:
+    """Return whether this host can import WeasyPrint and render a tiny PDF.
+
+    Probe in a subprocess so broken native libraries cannot crash the API
+    process or the test runner.
+    """
+    probe = (
+        "from weasyprint import HTML; "
+        "pdf = HTML(string='<html><body>x</body></html>').write_pdf(); "
+        "raise SystemExit(0 if pdf else 1)"
+    )
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", probe],
+            capture_output=True,
+            timeout=15,
+            check=False,
+        )
+    except Exception:
+        return False
+    return result.returncode == 0
+
+
 def render_cleaning_report_pdf(html: str) -> bytes:
     """Convert an HTML body to PDF bytes using WeasyPrint."""
+    if not weasyprint_render_available():
+        raise CleaningReportRendererUnavailable(
+            "WeasyPrint native deps unavailable on this host. PDF rendering "
+            "requires WeasyPrint + Pango/Cairo system libraries."
+        )
     try:
         from weasyprint import HTML  # type: ignore[import-not-found]
     except Exception as exc:  # pragma: no cover — WeasyPrint optional
@@ -650,9 +694,11 @@ def render_cleaning_report_pdf(html: str) -> bytes:
 
 __all__ = [
     "ExportFormatError",
+    "ExportDependencyUnavailable",
     "CleaningReportRendererUnavailable",
     "apply_cleaning_to_raw",
     "export_cleaned_to_path",
     "build_cleaning_report_html",
     "render_cleaning_report_pdf",
+    "weasyprint_render_available",
 ]

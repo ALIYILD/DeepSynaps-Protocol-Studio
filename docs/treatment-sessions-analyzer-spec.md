@@ -46,7 +46,6 @@ Use this before clinician design review or pilot demos:
 | Tests | API: `pytest tests/test_treatment_sessions_analyzer.py`; Web: `treatment-sessions-analyzer-launch-audit.test.js` + full `apps/web` `test:unit` in CI. |
 | Honest limits | Response probability and session ranges are **heuristic** until `meta` lists a calibrated model version; multimodal “stubs” are explicit in UI. |
 | Staging smoke | Load a patient with course + sessions + at least one MRI or qEEG row; confirm contributors populate and no 500s. |
-
 ---
 
 ## PART 1 — PAGE PURPOSE

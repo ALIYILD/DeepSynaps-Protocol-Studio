@@ -613,7 +613,7 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
         const prefill = b.getAttribute('data-prefill') || '';
         try {
           window._reEvidencePrefill = prefill;
-          window._resEvidenceTab = 'search';
+          window._resEvidenceTab = 'adjunct';
         } catch {}
         try { navigate?.('research-evidence'); } catch {}
       });

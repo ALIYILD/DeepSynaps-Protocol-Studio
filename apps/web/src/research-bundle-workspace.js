@@ -4,6 +4,10 @@ function safeArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function hasAdjunctReviewRows(value) {
+  return Array.isArray(value?.conditions) && value.conditions.some((row) => Array.isArray(row?.rows) && row.rows.length);
+}
+
 export async function loadResearchBundleWorkspace({
   summaryLimit = 12,
   coverageLimit = 24,
@@ -32,6 +36,7 @@ export async function loadResearchBundleWorkspace({
     const safeSafetySignals = safeArray(safetySignals);
     const safeEvidenceGraph = safeArray(evidenceGraph);
     const safeAdjunctPapers = safeArray(adjunctPapers);
+    const adjunctReviewTablesLive = hasAdjunctReviewRows(adjunctReviewTables);
 
     return {
       summary: summary || null,
@@ -49,7 +54,8 @@ export async function loadResearchBundleWorkspace({
         safeExactProtocols.length > 0 ||
         safeSafetySignals.length > 0 ||
         safeEvidenceGraph.length > 0 ||
-        safeAdjunctPapers.length > 0,
+        safeAdjunctPapers.length > 0 ||
+        adjunctReviewTablesLive,
     };
   } catch {
     return {

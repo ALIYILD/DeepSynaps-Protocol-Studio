@@ -4,12 +4,15 @@ import assert from 'node:assert/strict';
 import {
   buildReportFallbackContent,
   buildSchedulingSessionPayload,
+  canAccessClinicalReportsWorkspace,
   getReferralNextStage,
   getScheduleTypeSubmission,
   mapSessionsListQuery,
   mergeSavedReports,
   normalizeReferralLead,
   parsePatientNameForCreate,
+  getReportsHubRoutePage,
+  reportStatusDisplayLabel,
   summarizeReferralLeads,
 } from './beta-readiness-utils.js';
 
@@ -145,4 +148,31 @@ test('mergeSavedReports prefers backend records and keeps local-only rows', () =
   assert.deepEqual(merged.map((row) => row.id), ['r-2', 'local-3', 'r-1']);
   assert.equal(merged.find((row) => row.id === 'r-1')?.name, 'Server title');
   assert.equal(merged.find((row) => row.id === 'local-3')?._source, 'local');
+});
+
+test('mergeSavedReports carries patient_id and is_demo from backend rows', () => {
+  const merged = mergeSavedReports(
+    [{ id: 'a', title: 'T', patient_id: 'p1', created_at: '2026-01-01', type: 'x', status: 'generated', is_demo: true }],
+    [],
+  );
+  const row = merged.find((r) => r.id === 'a');
+  assert.equal(row?.patient_id, 'p1');
+  assert.equal(row?.is_demo, true);
+});
+
+test('reportStatusDisplayLabel never implies signed without backend state', () => {
+  assert.match(reportStatusDisplayLabel({ status: 'generated', _source: 'backend' }).label, /AI-assisted/i);
+  assert.match(reportStatusDisplayLabel({ status: 'signed', _source: 'backend' }).label, /Signed/i);
+  assert.match(reportStatusDisplayLabel({ status: 'local-only', _source: 'local' }).label, /Local/i);
+  assert.match(reportStatusDisplayLabel({ status: 'generated', _source: 'backend', is_demo: true }).label, /Demo/i);
+});
+
+test('canAccessClinicalReportsWorkspace gates patient and guest', () => {
+  assert.equal(canAccessClinicalReportsWorkspace('clinician'), true);
+  assert.equal(canAccessClinicalReportsWorkspace('patient'), false);
+  assert.equal(canAccessClinicalReportsWorkspace('guest'), false);
+});
+
+test('getReportsHubRoutePage defaults when window is absent', () => {
+  assert.equal(getReportsHubRoutePage(), 'reports-v2');
 });

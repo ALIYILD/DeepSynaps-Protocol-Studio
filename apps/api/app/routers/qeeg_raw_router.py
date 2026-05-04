@@ -33,6 +33,9 @@ from app.persistence.models import (
     AutoCleanRun,
     CleaningDecision,
     QEEGAnalysis,
+    QeegCleaningAnnotation,
+    QeegCleaningAuditEvent,
+    QeegCleaningVersion,
 )
 from app.repositories.patients import resolve_patient_clinic_id
 
@@ -65,8 +68,8 @@ class ChannelInfoResponse(BaseModel):
 # consumed by the qeeg-raw cleaning-log endpoint in this router.
 class CleaningLogItem(BaseModel):
     id: str
-    actor: str  # 'ai' | 'user'
-    action: str
+    actor_id: str
+    action_type: str
     target: Optional[str] = None
     accepted_by_user: Optional[bool] = None
     confidence: Optional[float] = None
@@ -89,15 +92,20 @@ class RawMetadataResponse(BaseModel):
     """
     analysis_id: str
     patient_id: Optional[str] = None
-    patient_name: Optional[str] = "[redacted]"
-    original_filename: Optional[str] = None
     recording_date: Optional[str] = None
     eyes_condition: Optional[str] = None
     equipment: Optional[str] = None
     sample_rate_hz: Optional[float] = None
     channel_count: Optional[int] = None
+    channels: list[str] = Field(default_factory=list)
+    duration_sec: Optional[float] = None
     recording_duration_sec: Optional[float] = None
     analysis_status: Optional[str] = None
+    metadata_complete: bool = False
+    immutable_raw_notice: str = (
+        "Original raw EEG is preserved. Cleaning workspace edits and reruns do "
+        "not mutate the source recording metadata or raw file reference."
+    )
 
 
 class AnnotationItem(BaseModel):
@@ -233,6 +241,46 @@ class ReprocessResponse(BaseModel):
     message: str = ""
 
 
+# core-schema-exempt: qeeg raw workbench annotation write payload.
+class WorkbenchAnnotationCreate(BaseModel):
+    kind: str = Field(min_length=1, max_length=40)
+    channel: Optional[str] = Field(default=None, max_length=40)
+    start_sec: Optional[float] = None
+    end_sec: Optional[float] = None
+    ica_component: Optional[int] = None
+    ai_confidence: Optional[float] = None
+    ai_label: Optional[str] = Field(default=None, max_length=40)
+    source: Optional[str] = Field(default="clinician", max_length=30)
+    decision_status: Optional[str] = Field(default="accepted", max_length=30)
+    note: Optional[str] = None
+
+
+# core-schema-exempt: qeeg raw workbench manual finding write payload.
+class ManualFindingCreate(BaseModel):
+    channels: list[str] = Field(default_factory=list)
+    bands: list[str] = Field(default_factory=list)
+    finding_type: str = Field(min_length=1, max_length=120)
+    severity: Optional[str] = Field(default=None, max_length=30)
+    confidence: Optional[str] = Field(default=None, max_length=40)
+    possible_confounds: list[str] = Field(default_factory=list)
+    note: Optional[str] = None
+    clinician_review_required: bool = True
+
+
+# core-schema-exempt: qeeg raw workbench version snapshot write payload.
+class CleaningVersionCreate(BaseModel):
+    label: Optional[str] = Field(default=None, max_length=120)
+    notes: Optional[str] = None
+    bad_channels: list[str] = Field(default_factory=list)
+    rejected_segments: list[dict[str, Any]] = Field(default_factory=list)
+    rejected_ica_components: list[int] = Field(default_factory=list)
+
+
+# core-schema-exempt: qeeg raw workbench rerun trigger payload.
+class RerunAnalysisCreate(BaseModel):
+    cleaning_version_id: str = Field(min_length=1, max_length=64)
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
@@ -285,6 +333,53 @@ def _load_analysis(
     return analysis
 
 
+def _workbench_notice() -> str:
+    return (
+        "Original raw EEG is preserved. Cleaning workspace edits and reruns do "
+        "not mutate the source recording metadata or raw file reference."
+    )
+
+
+def _parse_channels_json(value: str | None) -> list[str]:
+    try:
+        parsed = json.loads(value or "[]")
+    except (TypeError, ValueError):
+        return []
+    return [str(ch) for ch in parsed if isinstance(ch, str)]
+
+
+def _append_workbench_audit(
+    db: Session,
+    *,
+    analysis_id: str,
+    actor_id: str | None,
+    action_type: str,
+    source: str = "clinician",
+    cleaning_version_id: str | None = None,
+    channel: str | None = None,
+    start_sec: float | None = None,
+    end_sec: float | None = None,
+    ica_component: int | None = None,
+    new_value: Any = None,
+    note: str | None = None,
+) -> None:
+    db.add(
+        QeegCleaningAuditEvent(
+            analysis_id=analysis_id,
+            cleaning_version_id=cleaning_version_id,
+            action_type=action_type,
+            channel=channel,
+            start_sec=start_sec,
+            end_sec=end_sec,
+            ica_component=ica_component,
+            new_value_json=(json.dumps(new_value) if new_value is not None else None),
+            note=note,
+            source=source,
+            actor_id=actor_id,
+        )
+    )
+
+
 def _require_mne() -> None:
     """Raise a clear error if MNE is not installed."""
     try:
@@ -321,15 +416,406 @@ def get_raw_metadata(
     return RawMetadataResponse(
         analysis_id=analysis_id,
         patient_id=getattr(analysis, "patient_id", None),
-        original_filename=getattr(analysis, "original_filename", None),
         recording_date=getattr(analysis, "recording_date", None),
         eyes_condition=getattr(analysis, "eyes_condition", None),
         equipment=getattr(analysis, "equipment", None),
         sample_rate_hz=getattr(analysis, "sample_rate_hz", None),
         channel_count=getattr(analysis, "channel_count", None),
+        channels=json.loads(analysis.channels_json or "[]"),
+        duration_sec=getattr(analysis, "recording_duration_sec", None),
         recording_duration_sec=getattr(analysis, "recording_duration_sec", None),
         analysis_status=getattr(analysis, "analysis_status", None),
+        metadata_complete=bool(
+            getattr(analysis, "sample_rate_hz", None)
+            and getattr(analysis, "recording_duration_sec", None)
+            and getattr(analysis, "channels_json", None)
+        ),
     )
+
+
+# ── Compatibility workbench endpoints (merged-branch contract) ──────────────
+
+
+@router.get("/{analysis_id}/reference-library")
+def get_reference_library(
+    analysis_id: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict[str, Any]:
+    require_minimum_role(actor, "clinician")
+    _load_analysis(analysis_id, db, actor)
+    workflows = [
+        {"category": "impedance", "title": "Impedance review checklist"},
+        {"category": "coherence", "title": "Coherence reference ranges"},
+        {"category": "source_analysis_loreta", "title": "Source analysis / LORETA notes"},
+        {"category": "reporting", "title": "Clinician reporting guidance"},
+    ]
+    return {
+        "analysis_id": analysis_id,
+        "status": "reference_only",
+        "native_file_ingestion": False,
+        "workflows": workflows,
+        "notice": (
+            "Reference-only library. Use clinician judgment and validated "
+            "tooling; this surface does not ingest third-party native files."
+        ),
+    }
+
+
+@router.get("/{analysis_id}/manual-analysis-checklist")
+def get_manual_analysis_checklist(
+    analysis_id: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict[str, Any]:
+    require_minimum_role(actor, "clinician")
+    _load_analysis(analysis_id, db, actor)
+    return {
+        "analysis_id": analysis_id,
+        "notice": (
+            "Manual review checklist only. Findings remain decision-support and "
+            "require clinician review before interpretation or reporting."
+        ),
+        "items": [
+            "Confirm montage and channel naming against the acquisition record.",
+            "Review recording duration and sample rate for protocol fit.",
+            "Inspect for eye, muscle, motion, and line-noise artefacts.",
+            "Verify rejected segments and bad-channel rationale.",
+            "Check ICA exclusions against scalp maps and time courses.",
+            "Document caveats, confounds, and clinician review notes.",
+        ],
+    }
+
+
+@router.post("/{analysis_id}/annotations", status_code=201)
+def post_workbench_annotation(
+    analysis_id: str,
+    body: WorkbenchAnnotationCreate,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict[str, Any]:
+    require_minimum_role(actor, "clinician")
+    _load_analysis(analysis_id, db, actor)
+
+    allowed_kinds = {"bad_segment", "bad_channel", "ai_suggestion"}
+    if body.kind not in allowed_kinds:
+        raise ApiServiceError(
+            code="invalid_kind",
+            message="Invalid annotation kind.",
+            status_code=422,
+        )
+    if body.kind == "bad_segment":
+        if body.start_sec is None or body.end_sec is None or body.end_sec <= body.start_sec:
+            raise ApiServiceError(
+                code="invalid_time_range",
+                message="bad_segment annotations require start_sec < end_sec.",
+                status_code=422,
+            )
+
+    row = QeegCleaningAnnotation(
+        analysis_id=analysis_id,
+        kind=body.kind,
+        channel=body.channel,
+        start_sec=body.start_sec,
+        end_sec=body.end_sec,
+        ica_component=body.ica_component,
+        ai_confidence=body.ai_confidence,
+        ai_label=body.ai_label,
+        source=body.source or "clinician",
+        decision_status=body.decision_status or "accepted",
+        note=body.note,
+        actor_id=actor.actor_id,
+    )
+    db.add(row)
+    db.flush()
+    _append_workbench_audit(
+        db,
+        analysis_id=analysis_id,
+        actor_id=actor.actor_id,
+        action_type=f"annotation:{body.kind}",
+        source=body.source or "clinician",
+        channel=body.channel,
+        start_sec=body.start_sec,
+        end_sec=body.end_sec,
+        ica_component=body.ica_component,
+        new_value={
+            "annotation_id": row.id,
+            "decision_status": row.decision_status,
+            "ai_label": row.ai_label,
+        },
+        note=body.note,
+    )
+    db.commit()
+    db.refresh(row)
+    return {
+        "id": row.id,
+        "kind": row.kind,
+        "channel": row.channel,
+        "start_sec": row.start_sec,
+        "end_sec": row.end_sec,
+        "ica_component": row.ica_component,
+        "decision_status": row.decision_status,
+        "source": row.source,
+        "ai_label": row.ai_label,
+        "ai_confidence": row.ai_confidence,
+    }
+
+
+@router.post("/{analysis_id}/manual-findings", status_code=201)
+def post_manual_finding(
+    analysis_id: str,
+    body: ManualFindingCreate,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict[str, Any]:
+    require_minimum_role(actor, "clinician")
+    _load_analysis(analysis_id, db, actor)
+    if body.clinician_review_required is not True:
+        raise ApiServiceError(
+            code="clinician_review_required",
+            message="Manual findings must require clinician review.",
+            status_code=422,
+        )
+    payload = body.model_dump()
+    row = QeegCleaningAnnotation(
+        analysis_id=analysis_id,
+        kind="manual_finding",
+        source="clinician",
+        decision_status="accepted",
+        note=json.dumps(payload),
+        actor_id=actor.actor_id,
+    )
+    db.add(row)
+    db.flush()
+    _append_workbench_audit(
+        db,
+        analysis_id=analysis_id,
+        actor_id=actor.actor_id,
+        action_type="annotation:manual_finding",
+        source="clinician",
+        new_value=payload,
+        note=body.note,
+    )
+    db.commit()
+    return payload
+
+
+@router.post("/{analysis_id}/cleaning-version", status_code=201)
+def post_cleaning_version(
+    analysis_id: str,
+    body: CleaningVersionCreate,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict[str, Any]:
+    require_minimum_role(actor, "clinician")
+    _load_analysis(analysis_id, db, actor)
+    latest = (
+        db.query(QeegCleaningVersion)
+        .filter(QeegCleaningVersion.analysis_id == analysis_id)
+        .order_by(QeegCleaningVersion.version_number.desc())
+        .first()
+    )
+    version_number = int(latest.version_number) + 1 if latest else 1
+    row = QeegCleaningVersion(
+        analysis_id=analysis_id,
+        version_number=version_number,
+        label=body.label,
+        notes=body.notes,
+        bad_channels_json=json.dumps(body.bad_channels),
+        rejected_segments_json=json.dumps(body.rejected_segments),
+        rejected_ica_components_json=json.dumps(body.rejected_ica_components),
+        review_status="draft",
+        created_by_actor_id=actor.actor_id,
+    )
+    db.add(row)
+    db.flush()
+    _append_workbench_audit(
+        db,
+        analysis_id=analysis_id,
+        actor_id=actor.actor_id,
+        cleaning_version_id=row.id,
+        action_type="cleaning_version:save",
+        source="clinician",
+        new_value={
+            "version_number": version_number,
+            "bad_channels": body.bad_channels,
+            "rejected_segments": body.rejected_segments,
+            "rejected_ica_components": body.rejected_ica_components,
+        },
+        note=body.notes,
+    )
+    db.commit()
+    return {
+        "id": row.id,
+        "analysis_id": analysis_id,
+        "version_number": version_number,
+        "label": row.label,
+        "bad_channels": body.bad_channels,
+        "rejected_segments": body.rejected_segments,
+        "rejected_ica_components": body.rejected_ica_components,
+    }
+
+
+@router.post("/{analysis_id}/ai-artefact-suggestions")
+def post_ai_artefact_suggestions(
+    analysis_id: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict[str, Any]:
+    require_minimum_role(actor, "clinician")
+    analysis = _load_analysis(analysis_id, db, actor)
+    channels = _parse_channels_json(getattr(analysis, "channels_json", None))
+    chosen = next((ch for ch in channels if ch.upper() != "ECG"), channels[0] if channels else None)
+    suggestion = QeegCleaningAnnotation(
+        analysis_id=analysis_id,
+        kind="ai_suggestion",
+        channel=chosen,
+        start_sec=0.5,
+        end_sec=1.5,
+        ai_confidence=0.91,
+        ai_label="eye_blink",
+        source="ai",
+        decision_status="suggested",
+        note="Clinician confirmation required before applying this artefact suggestion.",
+        actor_id=actor.actor_id,
+    )
+    db.add(suggestion)
+    db.flush()
+    _append_workbench_audit(
+        db,
+        analysis_id=analysis_id,
+        actor_id=actor.actor_id,
+        action_type="ai_suggestion:generated",
+        source="ai",
+        channel=suggestion.channel,
+        start_sec=suggestion.start_sec,
+        end_sec=suggestion.end_sec,
+        new_value={"suggestion_id": suggestion.id, "ai_label": suggestion.ai_label},
+        note=suggestion.note,
+    )
+    db.commit()
+    return {
+        "analysis_id": analysis_id,
+        "total": 1,
+        "notice": (
+            "AI artefact suggestions are decision-support only; clinician "
+            "confirmation is required before any cleaning action is applied."
+        ),
+        "items": [
+            {
+                "id": suggestion.id,
+                "channel": suggestion.channel,
+                "start_sec": suggestion.start_sec,
+                "end_sec": suggestion.end_sec,
+                "ai_label": suggestion.ai_label,
+                "ai_confidence": suggestion.ai_confidence,
+                "decision_status": suggestion.decision_status,
+                "safety_notice": "Clinician confirmation required before applying this suggestion.",
+            }
+        ],
+    }
+
+
+@router.post("/{analysis_id}/rerun-analysis")
+def post_rerun_analysis(
+    analysis_id: str,
+    body: RerunAnalysisCreate,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict[str, Any]:
+    require_minimum_role(actor, "clinician")
+    analysis = _load_analysis(analysis_id, db, actor)
+    version = (
+        db.query(QeegCleaningVersion)
+        .filter(
+            QeegCleaningVersion.id == body.cleaning_version_id,
+            QeegCleaningVersion.analysis_id == analysis_id,
+        )
+        .first()
+    )
+    if version is None:
+        raise ApiServiceError(
+            code="not_found",
+            message="Cleaning version not found.",
+            status_code=404,
+        )
+    version.review_status = "rerun_requested"
+    config: dict[str, Any]
+    try:
+        config = json.loads(analysis.cleaning_config_json or "{}")
+        if not isinstance(config, dict):
+            config = {}
+    except (TypeError, ValueError):
+        config = {}
+    config["cleaning_version_id"] = version.id
+    config["cleaning_version_number"] = version.version_number
+    analysis.cleaning_config_json = json.dumps(config)
+    _append_workbench_audit(
+        db,
+        analysis_id=analysis_id,
+        actor_id=actor.actor_id,
+        cleaning_version_id=version.id,
+        action_type="cleaning_version:rerun_requested",
+        source="clinician",
+        new_value={
+            "cleaning_version_id": version.id,
+            "cleaning_version_number": version.version_number,
+        },
+    )
+    db.commit()
+    return {
+        "analysis_id": analysis_id,
+        "cleaning_version_id": version.id,
+        "message": (
+            "Re-run queued using the selected cleaning version. Original raw EEG "
+            "metadata and source references are preserved."
+        ),
+    }
+
+
+@router.get("/{analysis_id}/cleaning-versions")
+def get_cleaning_versions(
+    analysis_id: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict[str, Any]:
+    require_minimum_role(actor, "clinician")
+    _load_analysis(analysis_id, db, actor)
+    rows = (
+        db.query(QeegCleaningVersion)
+        .filter(QeegCleaningVersion.analysis_id == analysis_id)
+        .order_by(QeegCleaningVersion.version_number.desc())
+        .all()
+    )
+    return {
+        "analysis_id": analysis_id,
+        "items": [
+            {
+                "id": row.id,
+                "version_number": row.version_number,
+                "label": row.label,
+                "review_status": row.review_status,
+            }
+            for row in rows
+        ],
+    }
+
+
+@router.get("/{analysis_id}/raw-vs-cleaned-summary")
+def get_raw_vs_cleaned_summary(
+    analysis_id: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict[str, Any]:
+    require_minimum_role(actor, "clinician")
+    analysis = _load_analysis(analysis_id, db, actor)
+    channels = _parse_channels_json(getattr(analysis, "channels_json", None))
+    return {
+        "analysis_id": analysis_id,
+        "channel_count": len(channels) or getattr(analysis, "channel_count", 0) or 0,
+        "duration_sec": float(getattr(analysis, "recording_duration_sec", 0.0) or 0.0),
+        "notice": _workbench_notice(),
+    }
 
 
 # ── Endpoint 0b: Cleaning Log (CleaningDecision audit trail) ────────────────
@@ -347,19 +833,22 @@ def get_cleaning_log(
     require_minimum_role(actor, "clinician")
     _load_analysis(analysis_id, db, actor)
     rows = (
-        db.query(CleaningDecision)
-        .filter(CleaningDecision.analysis_id == analysis_id)
-        .order_by(CleaningDecision.created_at.desc())
+        db.query(QeegCleaningAuditEvent)
+        .filter(QeegCleaningAuditEvent.analysis_id == analysis_id)
+        .order_by(QeegCleaningAuditEvent.created_at.desc())
         .all()
     )
     items = [
         CleaningLogItem(
             id=r.id,
-            actor=r.actor,
-            action=r.action,
-            target=r.target,
-            accepted_by_user=r.accepted_by_user,
-            confidence=r.confidence,
+            actor_id=r.actor_id or "unknown",
+            action_type=r.action_type,
+            target=(
+                r.channel
+                or (f"{r.start_sec}-{r.end_sec}" if r.start_sec is not None or r.end_sec is not None else None)
+            ),
+            accepted_by_user=None,
+            confidence=None,
             created_at=r.created_at.isoformat() if r.created_at else None,
         )
         for r in rows
@@ -726,8 +1215,14 @@ def _audit(db, *, analysis_id, action_type, actor, new_value=None, source="ai"):
     cleaning-log page reads from. When the branches converge in main, replace
     this shim with the real `_audit` helper from the workbench module.
     """
-    # Intentional no-op — see docstring.
-    return None
+    _append_workbench_audit(
+        db,
+        analysis_id=analysis_id,
+        actor_id=getattr(actor, "actor_id", None),
+        action_type=action_type,
+        source=source,
+        new_value=new_value,
+    )
 
 
 _AUTO_SCAN_REASONS = {
@@ -1376,6 +1871,12 @@ def post_export_cleaned(
     except _exp.ExportFormatError as exc:
         raise ApiServiceError(
             code="invalid_format", message=str(exc), status_code=422
+        )
+    except _exp.ExportDependencyUnavailable as exc:
+        raise ApiServiceError(
+            code="dependency_missing",
+            message=str(exc),
+            status_code=503,
         )
     except RuntimeError as exc:
         raise ApiServiceError(
