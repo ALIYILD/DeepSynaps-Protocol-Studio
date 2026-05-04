@@ -2,6 +2,22 @@ import { api } from './api.js';
 import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 
+/** Mirrors backend ROLE_ORDER — Labs API requires clinician minimum. */
+export const LABS_ANALYZER_ROLE_ORDER = Object.freeze({
+  guest: 0,
+  patient: 1,
+  technician: 2,
+  reviewer: 3,
+  clinician: 4,
+  admin: 5,
+});
+
+/** Match GET /api/v1/labs/analyzer/* server gate (clinician+). */
+export function labsWorkspaceAllowedForRole(role) {
+  const r = String(role || 'guest').toLowerCase();
+  return r === 'clinician' || r === 'admin';
+}
+
 function esc(s) {
   return String(s ?? '')
     .replace(/&/g, '&amp;')
@@ -17,16 +33,16 @@ function _statusKey(s) {
 function _statusPill(status) {
   const s = _statusKey(status);
   if (s === 'critical') {
-    return '<span class="pill" style="background:rgba(255,107,107,0.16);color:var(--red);border:1px solid rgba(255,107,107,0.32);font-weight:700">⚠ Critical</span>';
+    return '<span class="pill" style="background:rgba(255,107,107,0.16);color:var(--red);border:1px solid rgba(255,107,107,0.32);font-weight:700" title="Requires clinician review">Out of range — review</span>';
   }
   if (s === 'high') {
-    return '<span class="pill" style="background:rgba(255,176,87,0.14);color:var(--amber);border:1px solid rgba(255,176,87,0.30)">High</span>';
+    return '<span class="pill" style="background:rgba(255,176,87,0.14);color:var(--amber);border:1px solid rgba(255,176,87,0.30)" title="Above reference band — requires review">Above ref — review</span>';
   }
   if (s === 'low') {
-    return '<span class="pill" style="background:rgba(96,165,250,0.12);color:var(--blue);border:1px solid rgba(96,165,250,0.25)">Low</span>';
+    return '<span class="pill" style="background:rgba(96,165,250,0.12);color:var(--blue);border:1px solid rgba(96,165,250,0.25)" title="Below reference band — requires review">Below ref — review</span>';
   }
   if (s === 'normal') {
-    return '<span class="pill pill-active">Normal</span>';
+    return '<span class="pill pill-active" title="Within displayed reference band — confirm against source lab">Within band</span>';
   }
   return '<span class="pill pill-inactive">—</span>';
 }
@@ -47,7 +63,7 @@ function _topFlagPill(label, status) {
     : s === 'low' ? 'var(--blue)'
     : 'var(--text-secondary)';
   const prefix = s === 'critical' ? '⚠ ' : '';
-  return `<span style="color:${color};font-weight:${s === 'critical' ? 700 : 500}">${prefix}${esc(label)}</span>`;
+  return `<span style="color:${color};font-weight:${s === 'critical' ? 700 : 500}" title="Possible flag — requires clinician review">${prefix}${esc(label)}</span>`;
 }
 
 function _severityColor(sev) {
@@ -60,9 +76,9 @@ function _severityColor(sev) {
 
 function _severityPill(sev) {
   const s = String(sev || '').toLowerCase();
-  if (s === 'critical') return '<span class="pill" style="background:rgba(255,107,107,0.14);color:var(--red);border:1px solid rgba(255,107,107,0.30);font-weight:700">⚠ Critical</span>';
-  if (s === 'major')    return '<span class="pill pill-pending">Major</span>';
-  if (s === 'monitor')  return '<span class="pill" style="background:rgba(96,165,250,0.10);color:var(--blue);border:1px solid rgba(96,165,250,0.25)">Monitor</span>';
+  if (s === 'critical') return '<span class="pill" style="background:rgba(255,107,107,0.14);color:var(--red);border:1px solid rgba(255,107,107,0.30);font-weight:700" title="Requires clinician review">Review priority</span>';
+  if (s === 'major')    return '<span class="pill pill-pending" title="Decision-support note — not autonomous guidance">Elevated attention</span>';
+  if (s === 'monitor')  return '<span class="pill" style="background:rgba(96,165,250,0.10);color:var(--blue);border:1px solid rgba(96,165,250,0.25)">Watch</span>';
   return '<span class="pill pill-inactive">—</span>';
 }
 
@@ -70,9 +86,9 @@ function _trendArrow(prev, curr) {
   if (prev == null || curr == null) return '<span style="color:var(--text-tertiary)" title="No prior result">·</span>';
   const delta = curr - prev;
   const tol = Math.max(0.05 * Math.abs(prev || 1), 0.05);
-  if (Math.abs(delta) < tol) return '<span title="Stable" style="color:var(--text-tertiary)">→</span>';
-  if (delta > 0) return '<span title="Rising" style="color:var(--amber)">↑</span>';
-  return '<span title="Falling" style="color:var(--blue)">↓</span>';
+  if (Math.abs(delta) < tol) return '<span title="Observed change within tolerance — not clinical stability" style="color:var(--text-tertiary)">→</span>';
+  if (delta > 0) return '<span title="Observed increase vs prior point — temporally associated only" style="color:var(--amber)">↑</span>';
+  return '<span title="Observed decrease vs prior point — temporally associated only" style="color:var(--blue)">↓</span>';
 }
 
 function _skeletonChips(n = 5) {
@@ -90,10 +106,10 @@ function _errorCard(message) {
 }
 
 function _emptyClinicCard() {
-  return `<div style="max-width:560px;margin:48px auto;padding:24px;border:1px solid var(--border);border-radius:14px;background:var(--bg-card);text-align:center">
-    <div style="font-size:15px;font-weight:600;margin-bottom:8px">No lab results recorded yet.</div>
+  return `<div style="max-width:560px;margin:48px auto;padding:24px;border:1px solid var(--border);border-radius:14px;background:var(--bg-card);text-align:center" role="status">
+    <div style="font-size:15px;font-weight:600;margin-bottom:8px">No lab summary available in this view</div>
     <div style="font-size:12px;color:var(--text-secondary);line-height:1.5">
-      Upload a panel from a patient detail page or wait for the next HL7 ingest to populate this summary.
+      Absence of data here does not mean absence of laboratory concerns elsewhere. Add patients and recorded results per your clinic workflow, or sign in with a clinician account to load clinic-scoped labs.
     </div>
   </div>`;
 }
@@ -126,7 +142,7 @@ function _sparkline(points) {
   const last = points[points.length - 1];
   const lx = pad + (points.length - 1) * step;
   const ly = h - pad - ((last.value - min) / (max - min)) * (h - pad * 2);
-  return `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" style="display:block;color:var(--text-secondary)" role="img" aria-label="Trend across ${points.length} captures">
+  return `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" style="display:block;color:var(--text-secondary)" role="img" aria-label="Observed trend across ${points.length} demo or source captures — clinician interpretation required">
     <polyline fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" points="${coords}"/>
     <circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="1.8" fill="currentColor"/>
   </svg>`;
@@ -162,10 +178,10 @@ function _renderClinicTable(rows, sortKey, sortDir) {
     const abnormal = p.abnormal_count || 0;
     const critical = p.critical_count || 0;
     const abCell = critical
-      ? `<span style="color:var(--red);font-weight:700">${critical} crit</span><span style="color:var(--text-tertiary)"> · ${abnormal} total</span>`
+      ? `<span style="color:var(--red);font-weight:700">${critical} review-priority</span><span style="color:var(--text-tertiary)"> · ${abnormal} out of band (total)</span>`
       : abnormal
-        ? `<span style="color:var(--amber);font-weight:600">${abnormal}</span>`
-        : `<span style="color:var(--green);font-weight:500">0</span>`;
+        ? `<span style="color:var(--amber);font-weight:600">${abnormal} out of band</span>`
+        : `<span style="color:var(--text-tertiary);font-weight:500">0 flagged in table</span>`;
     return `<tr data-patient-id="${esc(p.patient_id)}" tabindex="0" role="button" style="cursor:pointer;min-height:44px"
       onmouseover="this.style.background='rgba(255,255,255,.03)'"
       onmouseout="this.style.background='transparent'">
@@ -193,11 +209,22 @@ function _renderPanelCard(panel, prior, expandedKey) {
   const rows = results.map((r) => {
     const k = `${panel.name}::${r.analyte}`;
     const series = _priorSeriesFor(prior, r.analyte);
-    const valTxt = (r.value == null || r.value === '') ? '—' : `${esc(r.value)}${r.unit ? ` <span style="color:var(--text-tertiary);font-size:11px">${esc(r.unit)}</span>` : ''}`;
-    const refTxt = (r.ref_low != null && r.ref_high != null) ? `${esc(r.ref_low)}–${esc(r.ref_high)}` : '—';
+    const missingUnit = !r.unit;
+    const missingRef = r.ref_low == null || r.ref_high == null;
+    const unitWarn = missingUnit ? ' <span style="color:var(--amber);font-size:10px;font-weight:600">· unit unavailable — review</span>' : '';
+    const valTxt = (r.value == null || r.value === '')
+      ? '—'
+      : `${esc(r.value)}${r.unit ? ` <span style="color:var(--text-tertiary);font-size:11px">${esc(r.unit)}</span>` : ''}${unitWarn}`;
+    const refTxt = (r.ref_low != null && r.ref_high != null)
+      ? `${esc(r.ref_low)}–${esc(r.ref_high)} <span style="color:var(--text-tertiary);font-size:10px">(displayed band)</span>`
+      : '<span style="color:var(--amber);font-size:11px">Reference band unavailable — do not infer normal/abnormal without source lab</span>';
     const tint = _statusRowTint(r.status);
-    const noteRow = r.note
-      ? `<tr><td colspan="4" style="padding:0 12px 8px 12px;font-size:11px;color:var(--text-tertiary);font-style:italic;${tint}">${esc(r.note)}</td></tr>`
+    const extraNote = (missingRef && r.status && r.status !== 'normal')
+      ? ' Source flag or rule without full reference band in view — requires clinician review against source laboratory.'
+      : '';
+    const combinedNote = [r.note && String(r.note).trim(), extraNote && extraNote.trim()].filter(Boolean).join(' ');
+    const noteRow = combinedNote
+      ? `<tr><td colspan="4" style="padding:0 12px 8px 12px;font-size:11px;color:var(--text-tertiary);font-style:italic;${tint}">${esc(combinedNote)}</td></tr>`
       : '';
     const isOpen = expandedKey === k;
     const sparkRow = isOpen
@@ -221,6 +248,14 @@ function _renderPanelCard(panel, prior, expandedKey) {
   return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;overflow:hidden">
     <div style="padding:12px 14px;font-weight:600;font-size:13px;border-bottom:1px solid var(--border);background:rgba(255,255,255,.02)">${esc(panel.name)}</div>
     <table style="width:100%;border-collapse:collapse">
+      <thead>
+        <tr>
+          <th scope="col" style="text-align:left;padding:8px 12px;font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border)">Analyte</th>
+          <th scope="col" style="text-align:left;padding:8px 12px;font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border)">Reported value</th>
+          <th scope="col" style="text-align:left;padding:8px 12px;font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border)">Reference band</th>
+          <th scope="col" style="text-align:right;padding:8px 12px;font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border)">Flag</th>
+        </tr>
+      </thead>
       <tbody>${rows}</tbody>
     </table>
   </div>`;
@@ -260,23 +295,27 @@ function _renderFlagsPanel(flags) {
     const color = _severityColor(f.severity);
     return `<div style="padding:14px;border:1px solid ${color};background:rgba(255,255,255,.02);border-radius:12px;display:flex;flex-direction:column;gap:6px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
-        <div style="font-weight:600;font-size:13px">${esc(f.analyte || 'Flag')}</div>
+        <div style="font-weight:600;font-size:13px">${esc(f.analyte || 'Note')}</div>
         <div>${_severityPill(f.severity)}</div>
       </div>
       <div style="font-size:12px;color:var(--text-secondary);line-height:1.5">${esc(f.mechanism || '')}</div>
-      ${f.recommendation ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:2px"><strong style="color:var(--text-secondary)">Recommendation:</strong> ${esc(f.recommendation)}</div>` : ''}
+      ${f.recommendation ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:2px"><strong style="color:var(--text-secondary)">Review pointer (not autonomous care):</strong> ${esc(f.recommendation)}</div>` : ''}
       ${_renderRefPills(f.references)}
     </div>`;
   }).join('');
   return `<div data-flags-section style="display:flex;flex-direction:column;gap:10px">
-    <div style="font-size:12px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px">Clinical flags</div>
+    <div style="font-size:12px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px">AI-assisted / rule-based notes — clinician review required</div>
     ${cards}
   </div>`;
 }
 
-function _renderAddResultForm() {
+function _renderAddResultForm(demoLocalOnly) {
+  const demoHint = demoLocalOnly
+    ? '<div style="font-size:11px;color:var(--amber);line-height:1.45">Demo mode: entries update this browser session only — they are not saved as a clinical record until you use a signed-in clinician session with the API.</div>'
+    : '<div style="font-size:11px;color:var(--text-tertiary);line-height:1.45">Manual entry posts to the clinic lab store when the API is available. Confirm units and reference intervals against the source laboratory.</div>';
   return `<form data-result-form style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px">
-    <div style="font-weight:600;font-size:13px">Add lab result</div>
+    <div style="font-weight:600;font-size:13px">Add lab result (manual)</div>
+    ${demoHint}
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px">
       <label style="display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--text-tertiary)">Panel
         <input name="panel" class="form-control" placeholder="e.g. CBC" required style="min-height:36px"/>
@@ -318,7 +357,8 @@ function _renderAnnotationForm() {
 function _renderReviewNoteForm() {
   return `<form data-review-form style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px">
     <div style="font-weight:600;font-size:13px">Sign clinical review</div>
-    <textarea name="note" class="form-control" rows="2" placeholder="Sign-off note (visible in audit trail as a clinician review)…" style="min-height:64px;width:100%"></textarea>
+    <div style="font-size:11px;color:var(--text-tertiary);line-height:1.45">Persists to the lab audit trail when the API accepts your session (clinician/admin). Not a diagnosis or medication instruction.</div>
+    <textarea name="note" class="form-control" rows="2" placeholder="Chart-aligned review note (audit event when persisted)…" style="min-height:64px;width:100%"></textarea>
     <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end">
       <span data-form-error style="color:var(--red);font-size:11px;margin-right:auto"></span>
       <button type="submit" class="btn btn-primary btn-sm" style="min-height:44px">Sign review</button>
@@ -326,12 +366,16 @@ function _renderReviewNoteForm() {
   </form>`;
 }
 
-function _renderAuditPanel(audit) {
+function _renderAuditPanel(audit, auditDemoLabel) {
   const items = Array.isArray(audit?.items) ? audit.items : [];
+  const banner = auditDemoLabel
+    ? `<div style="font-size:11px;color:var(--amber);margin-bottom:8px;line-height:1.45">${esc(auditDemoLabel)}</div>`
+    : '';
   if (!items.length) {
     return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px">
       <div style="font-weight:600;font-size:13px;margin-bottom:8px">Audit trail</div>
-      <div style="font-size:12px;color:var(--text-tertiary)">No recomputes, annotations, or reviews recorded yet.</div>
+      ${banner}
+      <div style="font-size:12px;color:var(--text-tertiary)">No audit events in this view yet — absence does not imply no prior laboratory activity.</div>
     </div>`;
   }
   const sorted = items.slice().sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
@@ -355,26 +399,140 @@ function _renderAuditPanel(audit) {
   }).join('');
   return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px">
     <div style="font-weight:600;font-size:13px;margin-bottom:8px">Audit trail</div>
+    ${banner}
     <ul style="list-style:none;margin:0;padding:0">${rows}</ul>
   </div>`;
 }
 
-function _renderPatientDetail(profile, audit, expandedKey) {
-  const captured = profile?.captured_at ? new Date(profile.captured_at).toLocaleString() : 'No draw recorded.';
+function _richPayloadExtras(profile) {
+  if (!profile || typeof profile !== 'object') return { narrative: '', confidence: null, provenance: null, links: [] };
+  const narrative = profile.ai_clinical_narrative || profile.clinical_narrative || '';
+  const conf = profile.confidence_block || profile.confidence || null;
+  const prov = profile.provenance || profile.provenance_block || null;
+  const links = Array.isArray(profile.multimodal_links) ? profile.multimodal_links : [];
+  return { narrative, confidence: conf, provenance: prov, links };
+}
+
+function _renderProvenanceStrip(profile, usingFixtures) {
+  const { narrative, confidence, provenance, links } = _richPayloadExtras(profile);
+  const lines = [];
+  if (usingFixtures) {
+    lines.push('Data source: demo / sample fixture — not a real patient record.');
+  } else {
+    lines.push('Data source: clinic API payload when available — confirm critical values in the source laboratory system.');
+  }
+  if (provenance?.analyzer_version) {
+    lines.push(`Analyzer build: ${esc(String(provenance.analyzer_version))}`);
+  }
+  if (confidence && typeof confidence === 'object') {
+    const c = confidence.overall_panel_completeness;
+    const ic = confidence.interpretation_confidence_cap;
+    if (typeof c === 'number' || typeof ic === 'number') {
+      lines.push(`Completeness / interpretation cap (model): ${typeof c === 'number' ? c.toFixed(2) : '—'} / ${typeof ic === 'number' ? ic.toFixed(2) : '—'} — informational only.`);
+    }
+  }
+  if (narrative && String(narrative).trim()) {
+    lines.push(`AI-assisted summary (requires verification): ${esc(String(narrative).slice(0, 360))}${String(narrative).length > 360 ? '…' : ''}`);
+  }
+  if (links.length) {
+    const lbl = links.slice(0, 4).map((l) => l.label || l.target_page || 'link').join(', ');
+    lines.push(`Linked modules in payload: ${esc(lbl)}${links.length > 4 ? '…' : ''}`);
+  }
+  if (lines.length <= 1 && !narrative) return '';
+  return `<div style="margin-bottom:14px;padding:12px 14px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.02);font-size:11px;color:var(--text-secondary);line-height:1.5">
+    <div style="font-weight:600;color:var(--text-primary);margin-bottom:6px;font-size:12px">Provenance &amp; method</div>
+    ${lines.map((x) => `<div>${x}</div>`).join('')}
+  </div>`;
+}
+
+function _renderGovernanceStrip() {
+  return `<div style="margin-bottom:14px;padding:12px 14px;border-radius:12px;border:1px dashed rgba(155,127,255,0.35);background:rgba(155,127,255,0.04);font-size:11px;color:var(--text-secondary);line-height:1.5">
+    <strong style="color:var(--text-primary)">Governance.</strong>
+    Laboratory review rules and reference intervals are institution-specific. If your clinic has not configured governance for this workspace, follow local lab-review protocol.
+    This page does not replace critical-value call-back procedures or specialist interpretation.
+  </div>`;
+}
+
+function _renderLinkedModulesNav(patientId) {
+  const items = [
+    { page: 'patient-profile', label: 'Patient profile', hint: 'Demographics & chart context' },
+    { page: 'biomarkers', label: 'Biomarkers workspace', hint: 'Related neuro biomarker context' },
+    { page: 'documents-v2', label: 'Documents', hint: 'Source PDFs / uploads when available' },
+    { page: 'text-analyzer', label: 'Text Analyzer', hint: 'NLP on clinical text — review required' },
+    { page: 'medication-analyzer', label: 'Medication Analyzer', hint: 'Med context — no auto dosing' },
+    { page: 'risk-analyzer', label: 'Risk Analyzer', hint: 'Risk stratification — separate model' },
+    { page: 'deeptwin', label: 'DeepTwin', hint: 'Digital twin context — draft only' },
+    { page: 'protocol-studio', label: 'Protocol Studio', hint: 'Draft protocols — not approval' },
+    { page: 'clinical-hub', label: 'Assessments', hint: 'Structured scales' },
+    { page: 'qeeg-analysis', label: 'qEEG', hint: 'EEG analyses when linked' },
+    { page: 'mri-analysis', label: 'MRI Analyzer', hint: 'Imaging when linked' },
+    { page: 'video-assessments', label: 'Video analysis', hint: 'Video-derived signals' },
+    { page: 'voice-analyzer', label: 'Voice analysis', hint: 'Acoustic biomarkers' },
+    { page: 'handbooks-v2', label: 'Handbooks', hint: 'Institutional guidance' },
+    { page: 'schedule-v2', label: 'Schedule', hint: 'Calendar & slots' },
+    { page: 'inbox', label: 'Inbox', hint: 'Operational tasks' },
+    { page: 'live-session', label: 'Live session', hint: 'Virtual care surface' },
+    { page: 'treatment-sessions-analyzer', label: 'Treatment sessions', hint: 'Session history' },
+    { page: 'research-evidence', label: 'Evidence search', hint: 'Literature lookup' },
+  ];
+  const buttons = items.map((it) =>
+    `<button type="button" class="btn btn-ghost btn-sm" data-nav-page="${esc(it.page)}"
+      title="${esc(it.hint)}" style="min-height:40px;margin:2px">${esc(it.label)}</button>`).join('');
+  return `<div style="margin-bottom:16px;padding:14px;border:1px solid var(--border);border-radius:12px;background:var(--bg-card)">
+    <div style="font-weight:600;font-size:13px;margin-bottom:4px">Linked modules</div>
+    <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:10px;line-height:1.45">
+      Opens other Clinical OS sections for context. Labs do not automatically change medication, risk, or protocol eligibility.
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px">${buttons}</div>
+  </div>`;
+}
+
+function _renderRestrictedCard(roleLabel) {
+  return `<div role="alert" style="max-width:640px;margin:24px auto;padding:22px 24px;border:1px solid rgba(255,176,87,0.35);background:rgba(255,176,87,0.06);border-radius:14px">
+    <div style="font-weight:600;margin-bottom:8px;color:var(--text-primary)">Clinician workspace</div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.55;margin-bottom:12px">
+      The Labs Analyzer API requires a <strong>clinician</strong> or <strong>admin</strong> session for patient-scoped laboratory review.
+      Your current role is <strong>${esc(roleLabel)}</strong>. Sign in with an appropriate account to load clinic labs, persist audit events, and use manual entry.
+    </div>
+    <div style="font-size:11px;color:var(--text-tertiary);line-height:1.5">
+      Demo preview: you may still see labelled demo fixtures when demo mode is enabled — treat them as non-clinical samples only.
+    </div>
+  </div>`;
+}
+
+function _renderPatientDetail(profile, audit, expandedKey, opts = {}) {
+  const usingFixtures = !!opts.usingFixtures;
+  const patientId = opts.patientId || profile?.patient_id || '';
+  const auditDemoLabel = usingFixtures ? 'Demo audit trail — synthetic events for UI training; not from your EHR.' : '';
+  const captured = profile?.captured_at ? new Date(profile.captured_at).toLocaleString() : 'No collection timestamp in this payload.';
+  const staleHint = profile?.captured_at
+    ? `<span style="font-size:11px;color:var(--text-tertiary)">Verify freshness against source lab — stale values are not reassuring.</span>`
+    : '';
   const panels = Array.isArray(profile?.panels) ? profile.panels : [];
   const panelCards = panels.map((pn) => _renderPanelCard(pn, profile?.prior_results, expandedKey)).join('');
   const flags = _renderFlagsPanel(profile?.flags);
-  return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:12px 0 14px;flex-wrap:wrap">
-      <div style="font-size:12px;color:var(--text-tertiary)">Last draw: ${esc(captured)}</div>
-      <button type="button" class="btn btn-ghost btn-sm" data-action="recompute" style="min-height:44px">Recompute</button>
+  const emptyPanelsMsg = '<div style="color:var(--text-tertiary);font-size:12px;line-height:1.5">No structured panels in this payload. Missing laboratory data here does not imply normal labs or low clinical risk.</div>';
+  return `${_renderGovernanceStrip()}
+    ${_renderProvenanceStrip(profile, usingFixtures)}
+    ${_renderLinkedModulesNav(patientId)}
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin:12px 0 14px;flex-wrap:wrap">
+      <div>
+        <div style="font-size:12px;color:var(--text-tertiary)">Last reported / generated: ${esc(captured)}</div>
+        ${staleHint}
+      </div>
+      <button type="button" class="btn btn-ghost btn-sm" data-action="recompute" style="min-height:44px" title="Rebuild lab summary from stored results when API is available">Refresh summary</button>
     </div>
-    <div style="display:flex;flex-direction:column;gap:12px">${panelCards || '<div style="color:var(--text-tertiary);font-size:12px">No panels reported.</div>'}</div>
+    <div style="margin-bottom:12px;font-size:11px;color:var(--text-tertiary);line-height:1.5">
+      <strong style="color:var(--text-secondary)">Upload / import:</strong> structured PDF/HL7 ingestion is not exposed on this page yet — use your clinic’s document workflow or manual entry below when permitted.
+    </div>
+    <h2 style="font-size:13px;font-weight:600;margin:0 0 8px 0;color:var(--text-primary)">Structured results</h2>
+    <div style="display:flex;flex-direction:column;gap:12px">${panelCards || emptyPanelsMsg}</div>
     ${flags ? `<div style="margin-top:18px">${flags}</div>` : ''}
     <div style="margin-top:18px;display:grid;grid-template-columns:1fr;gap:14px">
-      ${_renderAddResultForm()}
+      ${_renderAddResultForm(usingFixtures)}
       ${_renderAnnotationForm()}
       ${_renderReviewNoteForm()}
-      ${_renderAuditPanel(audit)}
+      ${_renderAuditPanel(audit, auditDemoLabel)}
     </div>`;
 }
 
@@ -400,7 +558,10 @@ function _summariseProfileForClinic(p) {
   };
 }
 
-async function _loadClinicSummary() {
+async function _loadClinicSummary(apiReadsAllowed) {
+  if (!apiReadsAllowed && isDemoSession() && ANALYZER_DEMO_FIXTURES?.labs) {
+    return { patients: (ANALYZER_DEMO_FIXTURES.labs.clinic_summary()?.patients) || [], fromDemoOnly: true };
+  }
   const personas = ANALYZER_DEMO_FIXTURES?.patients || [];
   const ids = personas.map((p) => p.id);
   const results = await Promise.all(
@@ -417,14 +578,23 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
   try {
     setTopbar({
       title: 'Labs Analyzer',
-      subtitle: 'Blood biomarkers · psych-med + neuromodulation safety windows',
+      subtitle: 'Clinician-reviewed laboratory decision-support — not autonomous interpretation',
     });
   } catch {
-    try { setTopbar('Labs Analyzer', 'Blood biomarkers'); } catch {}
+    try { setTopbar('Labs Analyzer', 'Laboratory review workspace'); } catch {}
   }
 
   const el = document.getElementById('content');
   if (!el) return;
+
+  let sessionRole = 'guest';
+  try {
+    const me = await api.me();
+    sessionRole = me?.role || 'guest';
+  } catch {
+    sessionRole = 'guest';
+  }
+  const apiReadsAllowed = labsWorkspaceAllowedForRole(sessionRole);
 
   let view = 'clinic';
   let summaryCache = null;
@@ -436,13 +606,40 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
   let sortDir = 'desc';
   let usingFixtures = false;
   let expandedKey = '';
+  /** Non-clinician demo preview — fixtures only, no API persistence */
+  let demoPreviewOnly = false;
+
+  if (String(sessionRole).toLowerCase() === 'patient') {
+    el.innerHTML = `<div class="ds-labs-analyzer-shell" style="max-width:720px;margin:0 auto;padding:24px 20px 48px">
+      ${_renderRestrictedCard('patient')}
+      <p style="font-size:12px;color:var(--text-tertiary);line-height:1.5">If your clinic intends patient-facing lab summaries, use the workflow approved by your governance team — this route is clinician-oriented.</p>
+    </div>`;
+    return;
+  }
+
+  if (!apiReadsAllowed && !isDemoSession()) {
+    el.innerHTML = `<div class="ds-labs-analyzer-shell" style="max-width:720px;margin:0 auto;padding:24px 20px 48px">
+      ${_renderRestrictedCard(sessionRole)}
+    </div>`;
+    return;
+  }
+
+  if (!apiReadsAllowed && isDemoSession()) {
+    demoPreviewOnly = true;
+  }
 
   el.innerHTML = `
     <div class="ds-labs-analyzer-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px">
+      <h1 id="lb-page-title" style="font-size:18px;font-weight:600;margin:0 0 12px 0;color:var(--text-primary)">Labs Analyzer</h1>
       <div id="lb-demo-banner"></div>
+      ${demoPreviewOnly ? `<div role="note" style="padding:12px 14px;border-radius:12px;border:1px solid rgba(255,176,87,0.35);background:rgba(255,176,87,0.08);margin-bottom:14px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
+        <strong style="color:var(--text-primary)">Preview mode.</strong>
+        You are signed in with a non-clinician demo token. The workspace below uses <strong>labelled synthetic samples</strong> only — API persistence and clinic-scoped labs require a clinician or admin session.
+      </div>` : ''}
       <div style="padding:12px 14px;border-radius:12px;border:1px solid rgba(155,127,255,0.28);background:rgba(155,127,255,0.06);margin-bottom:14px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
-        <strong style="color:var(--text-primary)">Clinical decision-support.</strong>
-        Lab flags surface safety windows that overlap psychiatric prescribing and neuromodulation — lithium trough, INR for ECT-day risk, TSH for treatment-resistant depression, eGFR for renal-cleared agents. Ranges are heuristic; always confirm against your local lab’s reference intervals.
+        <strong style="color:var(--text-primary)">Laboratory review decision-support.</strong>
+        For clinician review only — not autonomous diagnosis, dosing, emergency triage, or protocol approval. When results mention medications, monitoring, inflammation, organ markers, or safety concerns: follow your clinic lab-review protocol and primary laboratory source.
+        Reference bands shown here are informational; always verify units and intervals against the reporting laboratory.
       </div>
       <div id="lb-breadcrumb" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:12px"></div>
       <div id="lb-body"></div>
@@ -478,11 +675,14 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
     if (!body) return;
     body.innerHTML = `<div style="padding:18px;background:var(--bg-card);border:1px solid var(--border);border-radius:14px">${_skeletonChips(5)}</div>`;
     try {
-      summaryCache = await _loadClinicSummary();
+      summaryCache = await _loadClinicSummary(apiReadsAllowed);
+      if (summaryCache?.fromDemoOnly) {
+        usingFixtures = true;
+      }
       if ((!summaryCache || !summaryCache.patients?.length) && isDemoSession() && ANALYZER_DEMO_FIXTURES?.labs) {
         summaryCache = ANALYZER_DEMO_FIXTURES.labs.clinic_summary();
         usingFixtures = true;
-      } else if (summaryCache && summaryCache.patients?.length) {
+      } else if (summaryCache && summaryCache.patients?.length && !summaryCache.fromDemoOnly) {
         usingFixtures = false;
       }
     } catch (e) {
@@ -549,18 +749,24 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
     if (!body || !activePatientId) return;
     body.innerHTML = `<div style="padding:18px;background:var(--bg-card);border:1px solid var(--border);border-radius:14px">${_skeletonChips(5)}</div>`;
     try {
-      const [profile, audit] = await Promise.all([
-        api.getLabsProfile(activePatientId),
-        api.getLabsAudit(activePatientId).catch(() => ({ items: [] })),
-      ]);
-      profileCache = profile;
-      auditCache = audit;
-      if ((!profile || !Array.isArray(profile.panels)) && isDemoSession() && ANALYZER_DEMO_FIXTURES?.labs) {
+      if (!apiReadsAllowed && isDemoSession() && ANALYZER_DEMO_FIXTURES?.labs) {
         profileCache = ANALYZER_DEMO_FIXTURES.labs.patient_profile(activePatientId);
         auditCache = ANALYZER_DEMO_FIXTURES.labs.patient_audit(activePatientId);
         usingFixtures = true;
-      } else if (profileCache) {
-        usingFixtures = false;
+      } else {
+        const [profile, audit] = await Promise.all([
+          api.getLabsProfile(activePatientId),
+          api.getLabsAudit(activePatientId).catch(() => ({ items: [] })),
+        ]);
+        profileCache = profile;
+        auditCache = audit;
+        if ((!profile || !Array.isArray(profile.panels)) && isDemoSession() && ANALYZER_DEMO_FIXTURES?.labs) {
+          profileCache = ANALYZER_DEMO_FIXTURES.labs.patient_profile(activePatientId);
+          auditCache = ANALYZER_DEMO_FIXTURES.labs.patient_audit(activePatientId);
+          usingFixtures = true;
+        } else if (profileCache) {
+          usingFixtures = false;
+        }
       }
     } catch (e) {
       if (isDemoSession() && ANALYZER_DEMO_FIXTURES?.labs) {
@@ -575,20 +781,41 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
       }
     }
     _syncDemoBanner();
-    body.innerHTML = _renderPatientDetail(profileCache, auditCache, expandedKey);
+    body.innerHTML = _renderPatientDetail(profileCache, auditCache, expandedKey, {
+      usingFixtures,
+      patientId: activePatientId,
+    });
     wirePatientDetail();
   }
 
   function _rerenderPatient() {
     const body = $('lb-body');
     if (!body) return;
-    body.innerHTML = _renderPatientDetail(profileCache, auditCache, expandedKey);
+    body.innerHTML = _renderPatientDetail(profileCache, auditCache, expandedKey, {
+      usingFixtures,
+      patientId: activePatientId,
+    });
     wirePatientDetail();
   }
 
   function wirePatientDetail() {
     const body = $('lb-body');
     if (!body) return;
+
+    try {
+      window._selectedPatientId = activePatientId;
+      window._profilePatientId = activePatientId;
+    } catch {}
+
+    body.querySelectorAll('[data-nav-page]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const page = btn.getAttribute('data-nav-page');
+        if (!page || !navigate) return;
+        try {
+          navigate(page, { id: activePatientId });
+        } catch {}
+      });
+    });
 
     body.querySelectorAll('[data-result-toggle]').forEach((row) => {
       const k = row.getAttribute('data-result-toggle');
@@ -617,8 +844,12 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
       const btn = ev.currentTarget;
       const old = btn.textContent;
       btn.disabled = true;
-      btn.textContent = 'Recomputing…';
+      btn.textContent = 'Refreshing…';
       try {
+        if (!apiReadsAllowed || demoPreviewOnly) {
+          await loadPatient();
+          return;
+        }
         if (!usingFixtures) {
           await api.recomputeLabs(activePatientId);
         }
@@ -627,6 +858,11 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
         btn.disabled = false;
         btn.textContent = old;
         body.insertAdjacentHTML('afterbegin', _errorCard((e && e.message) || String(e)));
+      } finally {
+        if (btn?.isConnected) {
+          btn.disabled = false;
+          btn.textContent = old;
+        }
       }
     });
 
@@ -652,6 +888,9 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
       submit.disabled = true;
       submit.textContent = 'Adding…';
       try {
+        if (!apiReadsAllowed || demoPreviewOnly) {
+          usingFixtures = true;
+        }
         if (usingFixtures) {
           const status = (payload.ref_low != null && payload.value < payload.ref_low) ? 'low'
             : (payload.ref_high != null && payload.value > payload.ref_high) ? 'high'
@@ -676,8 +915,8 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
           const auditAdd = {
             id: `demo-lab-aud-${Date.now()}`,
             kind: 'result-add',
-            actor: 'Dr. A. Yildirim',
-            message: `Added ${newResult.analyte} ${newResult.value} ${newResult.unit || ''}`.trim(),
+            actor: 'Demo session (local)',
+            message: `[Demo / local only] Added ${newResult.analyte} ${newResult.value} ${newResult.unit || ''}`.trim(),
             created_at: newResult.captured_at,
           };
           auditCache = { ...(auditCache || {}), items: [auditAdd, ...(auditCache?.items || [])] };
@@ -714,12 +953,15 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
       submit.textContent = 'Saving…';
       try {
         let added;
+        if (!apiReadsAllowed || demoPreviewOnly) {
+          usingFixtures = true;
+        }
         if (usingFixtures) {
           added = {
             id: `demo-lab-aud-${Date.now()}`,
             kind: 'annotation',
-            actor: 'Dr. A. Yildirim',
-            message: note,
+            actor: 'Demo session (local)',
+            message: `[Demo / local only] ${note}`,
             created_at: new Date().toISOString(),
           };
         } else {
@@ -756,12 +998,15 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
       submit.textContent = 'Signing…';
       try {
         let added;
+        if (!apiReadsAllowed || demoPreviewOnly) {
+          usingFixtures = true;
+        }
         if (usingFixtures) {
           added = {
             id: `demo-lab-aud-${Date.now()}`,
             kind: 'review-note',
-            actor: 'Dr. A. Yildirim',
-            message: note,
+            actor: 'Demo session (local)',
+            message: `[Demo / local only] ${note}`,
             created_at: new Date().toISOString(),
           };
         } else {

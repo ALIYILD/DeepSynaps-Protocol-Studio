@@ -177,3 +177,41 @@ class TestDeletePhenotypeAssignment:
             headers=auth_headers["guest"],
         )
         assert resp.status_code == 403
+
+
+class TestPhenotypeAnalyzerAudit:
+    def test_list_audit_events_after_create(self, client: TestClient, auth_headers: dict, patient_id: str) -> None:
+        create = client.post(
+            "/api/v1/phenotype-assignments",
+            json={"patient_id": patient_id, **MINIMAL_ASSIGNMENT},
+            headers=auth_headers["clinician"],
+        )
+        assert create.status_code == 201
+
+        r1 = client.get(
+            f"/api/v1/phenotype-assignments/audit-events?patient_id={patient_id}",
+            headers=auth_headers["clinician"],
+        )
+        assert r1.status_code == 200
+        data = r1.json()
+        assert data["total"] >= 1
+        actions = {item["action"] for item in data["items"]}
+        assert "assignment_created" in actions
+
+    def test_post_page_audit_event(self, client: TestClient, auth_headers: dict, patient_id: str) -> None:
+        resp = client.post(
+            "/api/v1/phenotype-assignments/audit-events",
+            json={"event": "workspace_view", "patient_id": patient_id, "note": "unit test"},
+            headers=auth_headers["clinician"],
+        )
+        assert resp.status_code == 200
+        assert resp.json().get("accepted") is True
+        assert "event_id" in resp.json()
+
+    def test_guest_cannot_post_audit(self, client: TestClient, auth_headers: dict, patient_id: str) -> None:
+        resp = client.post(
+            "/api/v1/phenotype-assignments/audit-events",
+            json={"event": "workspace_view", "patient_id": patient_id},
+            headers=auth_headers["guest"],
+        )
+        assert resp.status_code == 403

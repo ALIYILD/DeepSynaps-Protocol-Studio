@@ -69,6 +69,7 @@ router = APIRouter(prefix="/api/v1/audit-trail", tags=["Audit Trail"])
 # before this whitelist existed (e.g. legacy ``evidence`` / ``upload``)
 # are still listed truthfully — we never silently rewrite history.
 KNOWN_SURFACES = {
+    "handbooks",
     "qeeg",
     "brain_map_planner",
     "session_runner",
@@ -117,6 +118,9 @@ KNOWN_SURFACES = {
     # checkin_shared_to_clinician (clinician-visible), export_csv,
     # export_ndjson, summary_viewed, cross_link_journal_clicked.
     "wellness_hub",
+    # Medication Analyzer (2026-05) — clinician CDS surface; audit via
+    # create_audit_event with target_type medication_analyzer.
+    "medication_analyzer",
     # Patient Reports view-side launch-audit (2026-05-01). Third patient-facing
     # surface. Distinct from the clinician-side ``reports`` surface (which
     # tracks generation / sign / supersede / export). The patient_reports
@@ -623,6 +627,11 @@ KNOWN_SURFACES = {
     # within 30d" backlog. Pure read-only — no schema change. Mirrors
     # IRB-AMD3 (#451) outcome-pairing precedent.
     "qeeg_annotation_outcome_tracker",
+    # Video Assessments — guided motor capture + clinician review (MVP).
+    # Events emitted by video_assessment_router: session_created,
+    # session_read, session_patched, task_video_uploaded, task_video_viewed,
+    # session_finalized. Notes are PHI-safe (ids, counts, no raw video).
+    "video_assessment",
 }
 
 

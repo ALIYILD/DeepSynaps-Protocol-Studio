@@ -3,21 +3,21 @@ import { isDemoSession } from './demo-session.js';
 const DEMO_PATIENTS = Object.freeze([
   Object.freeze({
     id: 'demo-pt-samantha-li',
-    name: 'Samantha Li',
+    name: 'Demo Patient A (synthetic)',
     age: 33,
     sex: 'F',
     presenting: 'Major Depressive Disorder · 6mo persistent low mood, anhedonia',
   }),
   Object.freeze({
     id: 'demo-pt-marcus-chen',
-    name: 'Marcus Chen',
+    name: 'Demo Patient B (synthetic)',
     age: 40,
     sex: 'M',
     presenting: 'Generalized Anxiety Disorder · sleep-onset insomnia, somatic tension',
   }),
   Object.freeze({
     id: 'demo-pt-elena-vasquez',
-    name: 'Elena Vasquez',
+    name: 'Demo Patient C (synthetic)',
     age: 47,
     sex: 'F',
     presenting: 'Chronic pain (Fibromyalgia) · refractory to first-line pharmacology',
@@ -29,7 +29,7 @@ export const DEMO_PATIENT_PERSONAS = DEMO_PATIENTS;
 const _MRI = {
   ok: true,
   analysis_id: 'demo-mri-samantha-li',
-  patient: { patient_id: 'demo-pt-samantha-li', name: 'Samantha Li', age: 33, sex: 'F' },
+  patient: { patient_id: 'demo-pt-samantha-li', name: 'Demo Patient A (synthetic)', age: 33, sex: 'F' },
   acquired_at: '2026-04-22T09:14:00Z',
   modality: 'T1w + T2 FLAIR',
   scanner: 'Siemens Prisma 3T',
@@ -62,7 +62,7 @@ const _MRI = {
 const _QEEG = {
   id: 'demo-qeeg-marcus-chen',
   analysis_status: 'completed',
-  patient: { patient_id: 'demo-pt-marcus-chen', name: 'Marcus Chen', age: 40, sex: 'M' },
+  patient: { patient_id: 'demo-pt-marcus-chen', name: 'Demo Patient B (synthetic)', age: 40, sex: 'M' },
   original_filename: 'demo_marcus-chen_eyes-closed.edf',
   channels_used: 19,
   channel_count: 19,
@@ -100,7 +100,7 @@ const _VOICE = {
   analysis_id: 'demo-voice-elena-vasquez',
   clinical_disclaimer: 'Acoustic outputs are decision-support signals. Confirm clinically.',
   voice_report: {
-    patient: { patient_id: 'demo-pt-elena-vasquez', name: 'Elena Vasquez' },
+    patient: { patient_id: 'demo-pt-elena-vasquez', name: 'Demo Patient C (synthetic)' },
     qc: { snr_db: 28.6, clipping_pct: 0.4, voiced_ratio: 0.71, usable: true },
     pd_voice: {
       jitter_local_pct: 1.42,
@@ -141,58 +141,48 @@ const _VOICE = {
   },
 };
 
-const _TEXT_NOTE = `Patient Marcus Chen, 40 y/o male (DOB 1985-07-22, MRN 998211), seen on 2026-04-30 in the Oxford clinic by Dr. Ali Yildirim.
+const _TEXT_NOTE = `Synthetic demo clinical note — Demo Patient B (40 y/o male), sample encounter 2026-04-30.
 
-Hx: GAD x4 years, sleep-onset insomnia, somatic tension. Currently on sertraline 100 mg PO daily and melatonin 3 mg qhs. BP 128/82, HR 78.
+Hx: GAD x4 years, sleep-onset insomnia, somatic tension. Sertraline 100 mg PO daily and melatonin 3 mg qhs. BP 128/82, HR 78.
 
-Plan: trial neurofeedback (SMR uptraining at Cz) x10 sessions; repeat GAD-7 in 4 weeks. Patient consented to research data sharing.
+Plan: trial neurofeedback (SMR uptraining at Cz) x10 sessions; repeat GAD-7 in 4 weeks.
 
-Contact: marcus.chen@example.com / +44 7700 900456.`;
+Contact (fictional): demo-clinic-patient-b@example.invalid`;
 
 const _TEXT = {
   source_text: _TEXT_NOTE,
-  patient: { patient_id: 'demo-pt-marcus-chen', name: 'Marcus Chen' },
+  patient: { patient_id: 'demo-pt-marcus-chen', name: 'Demo Patient B (synthetic)' },
   analyze: {
     entities: [
-      { text: 'Marcus Chen',                label: 'PERSON',       score: 0.99, start: 8,   end: 19 },
-      { text: '40 y/o male',                label: 'DEMOGRAPHIC',  score: 0.94, start: 21,  end: 32 },
-      { text: 'GAD',                        label: 'CONDITION',    score: 0.97, start: 173, end: 176 },
-      { text: 'sleep-onset insomnia',       label: 'SYMPTOM',      score: 0.92, start: 188, end: 208 },
-      { text: 'somatic tension',            label: 'SYMPTOM',      score: 0.88, start: 210, end: 225 },
-      { text: 'sertraline 100 mg PO daily', label: 'MEDICATION',   score: 0.96, start: 250, end: 277 },
-      { text: 'melatonin 3 mg qhs',         label: 'MEDICATION',   score: 0.95, start: 282, end: 300 },
-      { text: 'BP 128/82',                  label: 'VITAL',        score: 0.91, start: 302, end: 311 },
-      { text: 'HR 78',                      label: 'VITAL',        score: 0.93, start: 313, end: 318 },
-      { text: 'neurofeedback',              label: 'INTERVENTION', score: 0.89, start: 343, end: 356 },
-      { text: 'SMR uptraining at Cz',       label: 'INTERVENTION', score: 0.90, start: 358, end: 379 },
-      { text: 'GAD-7',                      label: 'ASSESSMENT',   score: 0.96, start: 405, end: 410 },
+      { text: 'Demo Patient B', label: 'PERSON', score: 0.99, start: 39, end: 53 },
+      { text: 'GAD', label: 'CONDITION', score: 0.97, start: 112, end: 115 },
+      { text: 'sleep-onset insomnia', label: 'SYMPTOM', score: 0.92, start: 127, end: 147 },
+      { text: 'sertraline 100 mg PO daily', label: 'MEDICATION', score: 0.96, start: 179, end: 206 },
+      { text: 'melatonin 3 mg qhs', label: 'MEDICATION', score: 0.95, start: 211, end: 229 },
+      { text: 'neurofeedback', label: 'INTERVENTION', score: 0.89, start: 278, end: 291 },
+      { text: 'GAD-7', label: 'ASSESSMENT', score: 0.96, start: 334, end: 339 },
     ],
   },
   pii: {
     pii_spans: [
-      { text: 'Marcus Chen',           label: 'NAME',     score: 0.99 },
-      { text: '1985-07-22',            label: 'DOB',      score: 0.99 },
-      { text: '998211',                label: 'MRN',      score: 0.98 },
-      { text: 'Dr. Ali Yildirim',      label: 'CLINICIAN', score: 0.95 },
-      { text: 'marcus.chen@example.com', label: 'EMAIL',  score: 0.99 },
-      { text: '+44 7700 900456',       label: 'PHONE',    score: 0.99 },
+      { text: 'demo-clinic-patient-b@example.invalid', label: 'EMAIL', score: 0.99 },
     ],
   },
   deidentify: {
-    deidentified_text: `Patient [NAME], 40 y/o male (DOB [DATE], MRN [ID]), seen on [DATE] in the Oxford clinic by [CLINICIAN].
+    deidentified_text: `Synthetic demo clinical note — [NAME] (40 y/o male), sample encounter 2026-04-30.
 
-Hx: GAD x4 years, sleep-onset insomnia, somatic tension. Currently on sertraline 100 mg PO daily and melatonin 3 mg qhs. BP 128/82, HR 78.
+Hx: GAD x4 years, sleep-onset insomnia, somatic tension. Sertraline 100 mg PO daily and melatonin 3 mg qhs. BP 128/82, HR 78.
 
-Plan: trial neurofeedback (SMR uptraining at Cz) x10 sessions; repeat GAD-7 in 4 weeks. Patient consented to research data sharing.
+Plan: trial neurofeedback (SMR uptraining at Cz) x10 sessions; repeat GAD-7 in 4 weeks.
 
-Contact: [EMAIL] / [PHONE].`,
+Contact (fictional): [EMAIL]`,
   },
 };
 
 const _RISK_PATIENTS = [
   {
     patient_id: 'demo-pt-samantha-li',
-    patient_name: 'Samantha Li',
+    patient_name: 'Demo Patient A (synthetic)',
     worst_level: 'amber',
     categories: [
       { category: 'safety',                 level: 'green', confidence: 0.82 },
@@ -207,7 +197,7 @@ const _RISK_PATIENTS = [
   },
   {
     patient_id: 'demo-pt-marcus-chen',
-    patient_name: 'Marcus Chen',
+    patient_name: 'Demo Patient B (synthetic)',
     worst_level: 'red',
     categories: [
       { category: 'safety',                 level: 'red',   confidence: 0.61 },
@@ -222,7 +212,7 @@ const _RISK_PATIENTS = [
   },
   {
     patient_id: 'demo-pt-elena-vasquez',
-    patient_name: 'Elena Vasquez',
+    patient_name: 'Demo Patient C (synthetic)',
     worst_level: 'green',
     categories: [
       { category: 'safety',                 level: 'green', confidence: 0.91 },
@@ -245,13 +235,17 @@ function _riskCategoryDetails(patient) {
       computed_level: c.level,
       confidence: c.confidence,
       override_level: null,
-      data_sources: ['demo_fixture'],
+      data_sources: ['studio_demo_sample'],
       evidence_refs: [],
       rationale: '',
     };
     if (c.category === 'safety' && c.level === 'red') {
-      base.evidence_refs = ['PHQ-9 item 9 endorsed (passive ideation)', 'No active plan documented'];
-      base.rationale = 'PHQ-9 item 9 endorsed at last self-report. Triage and same-day clinician contact recommended.';
+      base.evidence_refs = [
+        'Demo scenario: PHQ-9 item 9 field shows endorsement in sample record',
+        'Demo scenario: collaborative safety plan status not documented in sample chart',
+      ];
+      base.rationale =
+        'Demo sample only — PHQ-9 item 9 warrants clinician review per clinic protocol; this workspace does not perform emergency triage or dispatch notifications.';
     } else if (c.category === 'wellbeing' && c.level === 'amber') {
       base.evidence_refs = ['Sleep diary <6h x5 nights', 'Self-reported fatigue 7/10'];
       base.rationale = 'Sub-threshold sleep duration with elevated fatigue ratings.';
@@ -316,7 +310,7 @@ const _RISK = {
 };
 
 const _BIOMETRICS = {
-  patient: { patient_id: 'demo-pt-elena-vasquez', name: 'Elena Vasquez' },
+  patient: { patient_id: 'demo-pt-elena-vasquez', name: 'Demo Patient C (synthetic)' },
   window_days: 7,
   generated_at: '2026-05-02T06:00:00Z',
   summary: {
@@ -340,7 +334,7 @@ const _BIOMETRICS = {
 };
 
 const _VIDEO = {
-  patient: { patient_id: 'demo-pt-samantha-li', name: 'Samantha Li' },
+  patient: { patient_id: 'demo-pt-samantha-li', name: 'Demo Patient A (synthetic)' },
   session_id: 'demo-video-samantha-li-001',
   captured_at: '2026-04-29T14:18:00Z',
   tasks_completed: 5,
@@ -569,7 +563,7 @@ export function demoDigitalPhenotypingPayload(patientId) {
 const _DP_PROFILES = {
   'demo-pt-samantha-li': {
     patient_id: 'demo-pt-samantha-li',
-    patient_name: 'Samantha Li',
+    patient_name: 'Demo Patient A (synthetic)',
     captured_at: '2026-05-01T22:30:00Z',
     signals: {
       sleep: {
@@ -647,7 +641,7 @@ const _DP_PROFILES = {
   },
   'demo-pt-marcus-chen': {
     patient_id: 'demo-pt-marcus-chen',
-    patient_name: 'Marcus Chen',
+    patient_name: 'Demo Patient B (synthetic)',
     captured_at: '2026-05-01T20:10:00Z',
     signals: {
       sleep: {
@@ -725,7 +719,7 @@ const _DP_PROFILES = {
   },
   'demo-pt-elena-vasquez': {
     patient_id: 'demo-pt-elena-vasquez',
-    patient_name: 'Elena Vasquez',
+    patient_name: 'Demo Patient C (synthetic)',
     captured_at: '2026-05-01T19:45:00Z',
     signals: {
       sleep: {
@@ -881,6 +875,13 @@ const _MED_PATIENT_REGIMENS = {
   ],
 };
 
+const _MED_INTERACTION_DEMO_META = {
+  engine_id: 'demo_fixture_rules_v1',
+  engine_detail:
+    'Synthetic demo interaction pairs for UI review only. Not verified against a drug database; does not represent a real patient or pharmacy record.',
+  requires_clinician_review: true,
+};
+
 const _MED_INTERACTION_RESULTS = {
   'demo-pt-samantha-li': {
     medications_checked: ['Sertraline', 'Tramadol', 'Melatonin'],
@@ -888,16 +889,19 @@ const _MED_INTERACTION_RESULTS = {
       {
         drugs: ['sertraline', 'tramadol'],
         severity: 'moderate',
-        description: 'Co-administration of an SSRI with tramadol increases the risk of serotonin syndrome via additive serotonergic activity.',
-        recommendation: 'Monitor for tremor, hyperreflexia, agitation, hyperthermia. Consider non-opioid analgesia or reduce tramadol dose; counsel patient on warning signs.',
+        description: 'Possible additive serotonergic activity (serotonin syndrome is a recognised concern with some SSRI + tramadol combinations).',
+        recommendation:
+          'Demo sample only — requires clinician/pharmacist review and monitoring per your clinic medication safety protocol; not a directive to change therapy.',
       },
     ],
     severity_summary: 'moderate',
+    ..._MED_INTERACTION_DEMO_META,
   },
   'demo-pt-marcus-chen': {
     medications_checked: ['Sertraline', 'Melatonin'],
     interactions: [],
     severity_summary: 'none',
+    ..._MED_INTERACTION_DEMO_META,
   },
   'demo-pt-elena-vasquez': {
     medications_checked: ['Warfarin', 'Ibuprofen', 'Amitriptyline', 'Pregabalin'],
@@ -905,17 +909,20 @@ const _MED_INTERACTION_RESULTS = {
       {
         drugs: ['warfarin', 'ibuprofen'],
         severity: 'severe',
-        description: 'NSAIDs displace warfarin from plasma protein binding and inhibit platelet aggregation, substantially increasing major-bleed risk (GI and intracranial).',
-        recommendation: 'Stop ibuprofen. Switch to paracetamol or topical NSAID. If continued use is unavoidable, add gastroprotection and re-check INR within 3–5 days.',
+        description: 'Possible increased bleeding risk when anticoagulants/antiplatelets overlap with NSAIDs (patient-specific; depends on renal function, indication, and monitoring).',
+        recommendation:
+          'Demo sample only — bleeding-risk decisions require clinician/pharmacist review per local protocol; this workspace does not instruct stopping or switching medication.',
       },
       {
         drugs: ['amitriptyline', 'pregabalin'],
         severity: 'mild',
-        description: 'Additive CNS depression and anticholinergic load; modest increase in sedation, dizziness, and falls risk in older adults.',
-        recommendation: 'Counsel on driving / fall risk. Review necessity of both agents for chronic pain; consider tapering one if symptom control allows.',
+        description: 'Possible additive CNS depression / sedation burden when multiple CNS-active agents are combined (context-dependent).',
+        recommendation:
+          'Demo sample only — falls/sedation risk requires clinician review; not an instruction to taper or discontinue.',
       },
     ],
     severity_summary: 'severe',
+    ..._MED_INTERACTION_DEMO_META,
   },
 };
 
@@ -923,7 +930,7 @@ const _MED_INTERACTION_LOG = [
   {
     id: 'demo-med-log-1',
     patient_id: 'demo-pt-elena-vasquez',
-    patient_name: 'Elena Vasquez',
+    patient_name: 'Demo Patient C (synthetic)',
     medications_checked: ['Warfarin', 'Ibuprofen', 'Amitriptyline', 'Pregabalin'],
     interactions_found: _MED_INTERACTION_RESULTS['demo-pt-elena-vasquez'].interactions,
     severity_summary: 'severe',
@@ -932,7 +939,7 @@ const _MED_INTERACTION_LOG = [
   {
     id: 'demo-med-log-2',
     patient_id: 'demo-pt-samantha-li',
-    patient_name: 'Samantha Li',
+    patient_name: 'Demo Patient A (synthetic)',
     medications_checked: ['Sertraline', 'Tramadol', 'Melatonin'],
     interactions_found: _MED_INTERACTION_RESULTS['demo-pt-samantha-li'].interactions,
     severity_summary: 'moderate',
@@ -941,7 +948,7 @@ const _MED_INTERACTION_LOG = [
   {
     id: 'demo-med-log-3',
     patient_id: 'demo-pt-marcus-chen',
-    patient_name: 'Marcus Chen',
+    patient_name: 'Demo Patient B (synthetic)',
     medications_checked: ['Sertraline', 'Melatonin'],
     interactions_found: [],
     severity_summary: 'none',
@@ -1001,6 +1008,7 @@ function _medCheckInteractions(patientId, names) {
       medications_checked: names && names.length ? names : seeded.medications_checked,
       interactions: seeded.interactions,
       severity_summary: seeded.severity_summary,
+      ..._MED_INTERACTION_DEMO_META,
     };
   }
   return {
@@ -1055,7 +1063,7 @@ const _TS_DETAIL = {
     });
     return {
       course: {
-        id: 'demo-course-sam-tdcs', patient_id: 'demo-pt-samantha-li', patient_name: 'Samantha Li',
+        id: 'demo-course-sam-tdcs', patient_id: 'demo-pt-samantha-li', patient_name: 'Demo Patient A (synthetic)',
         protocol_name: 'Anodal tDCS · L-DLPFC for MDD', modality: 'tDCS', target_site: 'L-DLPFC (F3)',
         total_sessions: 24, completed_sessions: 18, adherence_pct: 92,
         current_week: 9, total_weeks: 12, started_at: '2026-02-05T09:30:00Z',
@@ -1074,7 +1082,7 @@ const _TS_DETAIL = {
     });
     return {
       course: {
-        id: 'demo-course-mar-rtms', patient_id: 'demo-pt-marcus-chen', patient_name: 'Marcus Chen',
+        id: 'demo-course-mar-rtms', patient_id: 'demo-pt-marcus-chen', patient_name: 'Demo Patient B (synthetic)',
         protocol_name: '10 Hz rTMS · L-DLPFC', modality: 'rTMS', target_site: 'L-DLPFC (BA46)',
         total_sessions: 30, completed_sessions: 8, adherence_pct: 75,
         current_week: 4, total_weeks: 6, started_at: '2026-04-05T10:00:00Z',
@@ -1093,7 +1101,7 @@ const _TS_DETAIL = {
     });
     return {
       course: {
-        id: 'demo-course-ele-ect', patient_id: 'demo-pt-elena-vasquez', patient_name: 'Elena Vasquez',
+        id: 'demo-course-ele-ect', patient_id: 'demo-pt-elena-vasquez', patient_name: 'Demo Patient C (synthetic)',
         protocol_name: 'Bilateral ECT · refractory depression in chronic pain', modality: 'ECT', target_site: 'Bifrontal',
         total_sessions: 12, completed_sessions: 6, adherence_pct: 100,
         current_week: 3, total_weeks: 4, started_at: '2026-04-15T08:00:00Z',
@@ -1361,7 +1369,7 @@ const _PHENOTYPE = {
 const _MOVEMENT_PROFILES = {
   'demo-pt-samantha-li': {
     patient_id: 'demo-pt-samantha-li',
-    patient_name: 'Samantha Li',
+    patient_name: 'Demo Patient A (synthetic)',
     captured_at: '2026-04-29T14:18:00Z',
     source_video: {
       recording_id: 'demo-video-samantha-li-001',
@@ -1372,15 +1380,15 @@ const _MOVEMENT_PROFILES = {
       bradykinesia: {
         score: 18, severity: 'green', confidence: 0.88,
         contributing_factors: [
-          'Finger-tap rate within age-norm range (4.2 Hz)',
-          'No decrement across 10-second tap sequence',
+          '[Sample] Finger-tap rate within demo scenario range — requires clinician review.',
+          '[Sample] Model narrative only — not confirmed kinematics.',
         ],
       },
       tremor: {
         score: 46, severity: 'amber', confidence: 0.74,
         contributing_factors: [
-          'Postural tremor 7.8 Hz, amplitude 0.9 cm — consistent with SSRI exposure',
-          'Tremor absent at rest; emerges with arms outstretched',
+          '[Sample] Tremor-frequency narrative — movement-analysis cue; correlate with meds/clinical exam.',
+          '[Sample] Model-assisted description — not a tremor diagnosis.',
         ],
       },
       gait: {
@@ -1431,7 +1439,7 @@ const _MOVEMENT_PROFILES = {
   },
   'demo-pt-marcus-chen': {
     patient_id: 'demo-pt-marcus-chen',
-    patient_name: 'Marcus Chen',
+    patient_name: 'Demo Patient B (synthetic)',
     captured_at: '2026-04-30T11:45:00Z',
     source_video: {
       recording_id: 'demo-video-marcus-chen-002',
@@ -1442,36 +1450,36 @@ const _MOVEMENT_PROFILES = {
       bradykinesia: {
         score: 24, severity: 'green', confidence: 0.83,
         contributing_factors: [
-          'Finger-tap rate 4.0 Hz — borderline-low but within age range',
-          'Slight slowing on rapid alternating movements',
+          '[Sample] Bradykinesia narrative for training UI — not confirmed kinematics.',
+          '[Sample] Model-assisted timing description — requires clinician review.',
         ],
       },
       tremor: {
         score: 14, severity: 'green', confidence: 0.91,
         contributing_factors: [
-          'No rest, postural, or kinetic tremor detected',
-          'Hand steadiness within norm during sustained posture',
+          '[Sample] Tremor cue low in demo scenario — does not exclude clinical tremor.',
+          '[Sample] Posture-hold proxy only.',
         ],
       },
       gait: {
         score: 28, severity: 'green', confidence: 0.78,
         contributing_factors: [
-          'Step length 0.68 m, cadence 108 steps/min',
-          'Arm swing slightly reduced but symmetric',
+          '[Sample] Gait metrics are illustrative — not instrumented lab gait.',
+          '[Sample] Review alongside exam and wearable context.',
         ],
       },
       posture: {
         score: 52, severity: 'amber', confidence: 0.71,
         contributing_factors: [
-          'Sagittal forward lean 7.4° — above 5° clinical threshold',
-          'Persists across both standing and seated tasks',
+          '[Sample] Forward-lean narrative — movement-analysis cue for review.',
+          '[Sample] Video proxy may differ from in-person exam.',
         ],
       },
       monitoring: {
         score: 58, severity: 'amber', confidence: 0.69,
         contributing_factors: [
-          'Movement variability index 0.18 — markedly reduced vs baseline',
-          'Possible psychomotor slowing; correlates with PHQ-9 trend',
+          '[Sample] Variability index — exploratory marker only.',
+          '[Sample] Correlate with mood scales separately — not causal inference.',
         ],
       },
     },
@@ -1500,7 +1508,7 @@ const _MOVEMENT_PROFILES = {
   },
   'demo-pt-elena-vasquez': {
     patient_id: 'demo-pt-elena-vasquez',
-    patient_name: 'Elena Vasquez',
+    patient_name: 'Demo Patient C (synthetic)',
     captured_at: '2026-05-01T09:22:00Z',
     source_video: {
       recording_id: 'demo-video-elena-vasquez-003',
@@ -1511,36 +1519,36 @@ const _MOVEMENT_PROFILES = {
       bradykinesia: {
         score: 54, severity: 'amber', confidence: 0.72,
         contributing_factors: [
-          'Finger-tap rate 3.1 Hz — slowed (post-ECT day 2)',
-          'Decrement of 18% across 10-second tap sequence',
+          '[Sample] Slowed tap narrative — contextual cue after procedure day (scenario).',
+          '[Sample] Requires in-person motor exam — not a diagnosis.',
         ],
       },
       tremor: {
         score: 21, severity: 'green', confidence: 0.86,
         contributing_factors: [
-          'No measurable rest tremor',
-          'Sub-threshold postural tremor (4 mm amplitude)',
+          '[Sample] Rest-tremor cue low in demo clip — not clinical exclusion.',
+          '[Sample] Small postural oscillation — interpret with exam.',
         ],
       },
       gait: {
         score: 49, severity: 'amber', confidence: 0.74,
         contributing_factors: [
-          'Step length 0.41 m — reduced from 0.55 m baseline',
-          'Cadence 96 steps/min, mild en bloc turning',
+          '[Sample] Reduced step-length narrative — movement-analysis cue for review.',
+          '[Sample] Not a fall-risk determination.',
         ],
       },
       posture: {
         score: 26, severity: 'green', confidence: 0.80,
         contributing_factors: [
-          'Sagittal tilt 3.0° — within norm',
-          'No lateral lean or retropulsion',
+          '[Sample] Posture proxy from video — may miss clinical pull-test.',
+          '[Sample] Labelled demo metrics only.',
         ],
       },
       monitoring: {
         score: 31, severity: 'green', confidence: 0.77,
         contributing_factors: [
-          'Movement variability index 0.34 — preserved',
-          'Spontaneous facial expression intact',
+          '[Sample] Variability marker within demo scenario.',
+          '[Sample] Does not assess facial affect clinically.',
         ],
       },
     },
@@ -1584,7 +1592,7 @@ const _MOVEMENT_AUDITS = {
   'demo-pt-elena-vasquez': [
     { id: 'mv-aud-ele-1', kind: 'recompute', actor: 'system', message: 'Profile recomputed from new video capture.', created_at: '2026-05-01T09:24:00Z' },
     { id: 'mv-aud-ele-2', kind: 'annotation', actor: 'Dr. A. Yildirim', message: 'Post-ECT day-2 motor slowing expected; reassess at 72 h before adjusting course.', created_at: '2026-05-01T09:40:00Z' },
-    { id: 'mv-aud-ele-3', kind: 'annotation', actor: 'Dr. R. Patel', message: 'Reduced step length on 6-m walk; flag fall-risk for nursing.', created_at: '2026-04-29T09:30:00Z' },
+    { id: 'mv-aud-ele-3', kind: 'annotation', actor: 'Dr. R. Patel', message: 'Reduced step length on sample 6-m walk task — movement-analysis cue for clinician safety review (not a fall-risk determination).', created_at: '2026-04-29T09:30:00Z' },
     { id: 'mv-aud-ele-4', kind: 'recompute', actor: 'system', message: 'Profile recomputed from new video capture.', created_at: '2026-04-22T09:00:00Z' },
     { id: 'mv-aud-ele-5', kind: 'annotation', actor: 'Dr. A. Yildirim', message: 'Pre-ECT baseline captured; motor exam grossly normal.', created_at: '2026-04-15T08:45:00Z' },
   ],
@@ -1622,7 +1630,7 @@ const _MOVEMENT = {
 const _LABS_PROFILES = {
   'demo-pt-samantha-li': {
     patient_id: 'demo-pt-samantha-li',
-    patient_name: 'Samantha Li',
+    patient_name: 'Demo Patient A (synthetic)',
     captured_at: '2026-04-26T08:30:00Z',
     panels: [
       {
@@ -1645,9 +1653,9 @@ const _LABS_PROFILES = {
       {
         name: 'Endocrine',
         results: [
-          { analyte: 'TSH',        value: 4.8,  unit: 'mIU/L', ref_low: 0.4, ref_high: 4.0,  status: 'high', captured_at: '2026-04-26T08:30:00Z', note: 'Sub-clinical hypothyroid pattern.' },
+          { analyte: 'TSH',        value: 4.8,  unit: 'mIU/L', ref_low: 0.4, ref_high: 4.0,  status: 'high', captured_at: '2026-04-26T08:30:00Z', note: 'Demo sample: above local demo reference band — requires clinician review; not a diagnosis.' },
           { analyte: 'Free T4',    value: 1.0,  unit: 'ng/dL', ref_low: 0.8, ref_high: 1.8,  status: 'normal', captured_at: '2026-04-26T08:30:00Z' },
-          { analyte: 'Vitamin D',  value: 18,   unit: 'ng/mL', ref_low: 30,  ref_high: 100,  status: 'low',  captured_at: '2026-04-26T08:30:00Z', note: 'Insufficient — supplementation indicated.' },
+          { analyte: 'Vitamin D',  value: 18,   unit: 'ng/mL', ref_low: 30,  ref_high: 100,  status: 'low',  captured_at: '2026-04-26T08:30:00Z', note: 'Demo sample: below demo reference band — requires clinician review per clinic lab-review protocol.' },
         ],
       },
     ],
@@ -1655,8 +1663,8 @@ const _LABS_PROFILES = {
       {
         analyte: 'TSH',
         severity: 'major',
-        mechanism: 'Sub-clinical hypothyroidism (TSH 4.8 mIU/L) is a recognised contributor to depressive symptoms and treatment resistance, particularly in young women on SSRIs.',
-        recommendation: 'Consider endocrine referral; treat hypothyroidism before escalating sertraline or adding augmentation. Repeat TSH + anti-TPO in 6 weeks.',
+        mechanism: 'Demo educational note (literature context): elevated TSH can associate with mood symptoms in some populations — correlation is not causation; interpretation requires clinical correlation.',
+        recommendation: 'Requires clinician review / follow clinic lab-review protocol. Consider correlation with symptoms, medications, and repeat testing per institutional policy — not autonomous treatment guidance.',
         references: [
           { pmid: '19833552', title: 'Safety of TMS — consensus guideline (Rossi et al., 2009)', year: 2009, journal: 'Clinical Neurophysiology' },
         ],
@@ -1664,8 +1672,8 @@ const _LABS_PROFILES = {
       {
         analyte: 'Vitamin D',
         severity: 'monitor',
-        mechanism: 'Vitamin D insufficiency (18 ng/mL) co-occurs with low mood and may blunt antidepressant response.',
-        recommendation: 'Start cholecalciferol 2000 IU daily; recheck 25-OH-D at 12 weeks.',
+        mechanism: 'Demo sample: value below the demo reference band shown — clinical significance depends on assay, units, and patient context.',
+        recommendation: 'Requires clinician review per clinic governance. This workspace does not recommend supplements or doses.',
         references: [],
       },
     ],
@@ -1683,7 +1691,7 @@ const _LABS_PROFILES = {
   },
   'demo-pt-marcus-chen': {
     patient_id: 'demo-pt-marcus-chen',
-    patient_name: 'Marcus Chen',
+    patient_name: 'Demo Patient B (synthetic)',
     captured_at: '2026-04-28T09:10:00Z',
     panels: [
       {
@@ -1706,7 +1714,7 @@ const _LABS_PROFILES = {
       {
         name: 'Therapeutic Drug Monitoring',
         results: [
-          { analyte: 'Lithium (trough)', value: 0.4, unit: 'mmol/L', ref_low: 0.6, ref_high: 1.0, status: 'low', captured_at: '2026-04-28T09:10:00Z', note: 'Sub-therapeutic — drawn 12 h post-dose.' },
+          { analyte: 'Lithium (trough)', value: 0.4, unit: 'mmol/L', ref_low: 0.6, ref_high: 1.0, status: 'low', captured_at: '2026-04-28T09:10:00Z', note: 'Demo sample: below demo trough band — timing/dose correlation requires clinician review; not dosing advice.' },
         ],
       },
     ],
@@ -1714,8 +1722,8 @@ const _LABS_PROFILES = {
       {
         analyte: 'Lithium (trough)',
         severity: 'major',
-        mechanism: 'Trough lithium 0.4 mmol/L sits below the 0.6–1.0 mmol/L therapeutic window. Concurrent rTMS course will not compensate for sub-therapeutic mood-stabiliser cover.',
-        recommendation: 'Review prescribing — confirm adherence and timing of last dose, consider dose increase to 600–900 mg or augmentation. Repeat trough in 5–7 days.',
+        mechanism: 'Demo educational note: trough below the demo reference band may warrant correlation with timing, adherence, and renal function — requires clinician interpretation.',
+        recommendation: 'Requires clinician review / medication monitoring protocol. Do not change lithium dosing based on this demo workspace alone.',
         references: [
           { pmid: '19833552', title: 'Safety of TMS — consensus guideline (Rossi et al., 2009)', year: 2009, journal: 'Clinical Neurophysiology' },
         ],
@@ -1733,20 +1741,20 @@ const _LABS_PROFILES = {
   },
   'demo-pt-elena-vasquez': {
     patient_id: 'demo-pt-elena-vasquez',
-    patient_name: 'Elena Vasquez',
+    patient_name: 'Demo Patient C (synthetic)',
     captured_at: '2026-05-01T07:45:00Z',
     panels: [
       {
         name: 'Coagulation',
         results: [
-          { analyte: 'INR',        value: 3.8,  unit: 'ratio', ref_low: 2.0, ref_high: 3.0, status: 'critical', captured_at: '2026-05-01T07:45:00Z', note: 'Supratherapeutic — bleeding risk. Concurrent ibuprofen + ECT-day proximity.' },
+          { analyte: 'INR',        value: 3.8,  unit: 'ratio', ref_low: 2.0, ref_high: 3.0, status: 'critical', captured_at: '2026-05-01T07:45:00Z', note: 'Demo sample: outside demo warfarin target band — requires clinician review; not emergency triage.' },
           { analyte: 'PT',         value: 38.2, unit: 's',     ref_low: 11,  ref_high: 14,  status: 'high',     captured_at: '2026-05-01T07:45:00Z' },
         ],
       },
       {
         name: 'Complete Blood Count',
         results: [
-          { analyte: 'Hemoglobin',  value: 11.4, unit: 'g/dL',   ref_low: 12.0, ref_high: 16.0, status: 'low',    captured_at: '2026-05-01T07:45:00Z', note: 'Mild anemia — investigate for occult bleeding given supratherapeutic INR.' },
+          { analyte: 'Hemoglobin',  value: 11.4, unit: 'g/dL',   ref_low: 12.0, ref_high: 16.0, status: 'low',    captured_at: '2026-05-01T07:45:00Z', note: 'Demo sample: below demo reference band — interpret with clinical context and source lab.' },
           { analyte: 'WBC',         value: 7.0,  unit: '10^9/L', ref_low: 4.0,  ref_high: 11.0, status: 'normal', captured_at: '2026-05-01T07:45:00Z' },
           { analyte: 'Platelets',   value: 232,  unit: '10^9/L', ref_low: 150,  ref_high: 400,  status: 'normal', captured_at: '2026-05-01T07:45:00Z' },
         ],
@@ -1765,8 +1773,8 @@ const _LABS_PROFILES = {
       {
         analyte: 'INR',
         severity: 'critical',
-        mechanism: 'INR 3.8 with concurrent ibuprofen 400 mg TID and a scheduled ECT session creates a stacked bleeding risk: supratherapeutic warfarin, NSAID-induced platelet inhibition, plus airway/dental trauma exposure during ECT-related muscle relaxation.',
-        recommendation: 'Hold warfarin tonight; coordinate with hematology before next ECT session. Stop ibuprofen, switch analgesia to paracetamol. Recheck INR in 24 h before re-dosing.',
+        mechanism: 'Demo educational note: elevated INR with anticoagulation and other factors may increase bleeding risk — requires in-person clinician assessment per institutional policy.',
+        recommendation: 'Requires clinician review / follow clinic lab-review protocol. This workspace does not direct medication holds, procedures, or emergency actions.',
         references: [
           { pmid: '19833552', title: 'Safety of TMS — consensus guideline (Rossi et al., 2009)', year: 2009, journal: 'Clinical Neurophysiology' },
         ],
@@ -1774,8 +1782,8 @@ const _LABS_PROFILES = {
       {
         analyte: 'Hemoglobin',
         severity: 'monitor',
-        mechanism: 'Mild anemia (11.4 g/dL) in the setting of supratherapeutic anticoagulation suggests possible occult GI loss.',
-        recommendation: 'Order ferritin + reticulocytes; consider stool occult-blood testing if Hb continues to drift.',
+        mechanism: 'Demo sample: hemoglobin below demo band — clinical significance requires correlation with symptoms, trends, and source laboratory.',
+        recommendation: 'Requires clinician review. Further testing is at clinician discretion — not directed by this tool.',
         references: [],
       },
     ],
@@ -1795,22 +1803,22 @@ const _LABS_PROFILES = {
 
 const _LABS_AUDITS = {
   'demo-pt-samantha-li': [
-    { id: 'lab-aud-sam-1', kind: 'recompute',   actor: 'system',          message: 'Lab profile recomputed after CMP/TSH panel uploaded.', created_at: '2026-04-26T08:32:00Z' },
-    { id: 'lab-aud-sam-2', kind: 'annotation',  actor: 'Dr. A. Yildirim', message: 'TSH trending up across 6 months — request anti-TPO and refer endocrine.', created_at: '2026-04-26T09:14:00Z' },
-    { id: 'lab-aud-sam-3', kind: 'review-note', actor: 'Dr. A. Yildirim', message: 'Reviewed and signed: hold sertraline dose escalation pending thyroid workup.', created_at: '2026-04-26T09:18:00Z' },
-    { id: 'lab-aud-sam-4', kind: 'result-add',  actor: 'Lab Corp (HL7)',  message: 'Added Vitamin D 25-OH result.', created_at: '2026-04-26T08:40:00Z' },
+    { id: 'lab-aud-sam-1', kind: 'recompute',   actor: 'system',          message: '[Demo audit] Lab summary recomputed after synthetic panel ingest (not a real HL7 feed).', created_at: '2026-04-26T08:32:00Z' },
+    { id: 'lab-aud-sam-2', kind: 'annotation',  actor: 'Demo clinician', message: '[Demo audit] Annotation example: trend review documented — follow live clinic lab-review protocol.', created_at: '2026-04-26T09:14:00Z' },
+    { id: 'lab-aud-sam-3', kind: 'review-note', actor: 'Demo clinician', message: '[Demo audit] Review note example: clinical plan documented outside this workspace.', created_at: '2026-04-26T09:18:00Z' },
+    { id: 'lab-aud-sam-4', kind: 'result-add',  actor: 'Demo lab ingest', message: '[Demo audit] Synthetic result row added for UI exercise.', created_at: '2026-04-26T08:40:00Z' },
   ],
   'demo-pt-marcus-chen': [
-    { id: 'lab-aud-mar-1', kind: 'recompute',   actor: 'system',          message: 'Lab profile recomputed after lithium trough result.', created_at: '2026-04-28T09:12:00Z' },
-    { id: 'lab-aud-mar-2', kind: 'annotation',  actor: 'Dr. A. Yildirim', message: 'Trough 0.4 mmol/L — confirm timing of last dose with patient before dose change.', created_at: '2026-04-28T09:35:00Z' },
-    { id: 'lab-aud-mar-3', kind: 'review-note', actor: 'Dr. A. Yildirim', message: 'Sign-off: increase lithium to 600 mg nocte; repeat trough in 1 week.', created_at: '2026-04-28T10:02:00Z' },
+    { id: 'lab-aud-mar-1', kind: 'recompute',   actor: 'system',          message: '[Demo audit] Lab summary recomputed after synthetic trough value.', created_at: '2026-04-28T09:12:00Z' },
+    { id: 'lab-aud-mar-2', kind: 'annotation',  actor: 'Demo clinician', message: '[Demo audit] Annotation example: verify draw timing with patient before any med change (real workflows only).', created_at: '2026-04-28T09:35:00Z' },
+    { id: 'lab-aud-mar-3', kind: 'review-note', actor: 'Demo clinician', message: '[Demo audit] Review note example — not a persisted order or prescription.', created_at: '2026-04-28T10:02:00Z' },
   ],
   'demo-pt-elena-vasquez': [
-    { id: 'lab-aud-ele-1', kind: 'recompute',   actor: 'system',          message: 'Lab profile recomputed after coagulation panel.', created_at: '2026-05-01T07:48:00Z' },
-    { id: 'lab-aud-ele-2', kind: 'annotation',  actor: 'Dr. A. Yildirim', message: 'INR critical at 3.8 + concurrent ibuprofen — pause ECT session, brief hematology.', created_at: '2026-05-01T08:02:00Z' },
-    { id: 'lab-aud-ele-3', kind: 'review-note', actor: 'Dr. R. Patel',    message: 'Sign-off: hold warfarin tonight, recheck INR 24 h, reassess ECT slot.', created_at: '2026-05-01T08:18:00Z' },
-    { id: 'lab-aud-ele-4', kind: 'annotation',  actor: 'Dr. A. Yildirim', message: 'Mild anemia trending — order ferritin and reticulocytes.', created_at: '2026-05-01T08:25:00Z' },
-    { id: 'lab-aud-ele-5', kind: 'result-add',  actor: 'Lab Corp (HL7)',  message: 'Added INR 3.8 + PT 38.2 s.', created_at: '2026-05-01T07:46:00Z' },
+    { id: 'lab-aud-ele-1', kind: 'recompute',   actor: 'system',          message: '[Demo audit] Lab summary recomputed after synthetic coagulation panel.', created_at: '2026-05-01T07:48:00Z' },
+    { id: 'lab-aud-ele-2', kind: 'annotation',  actor: 'Demo clinician', message: '[Demo audit] Annotation example: elevated INR requires clinician follow-up per policy — not autonomous triage.', created_at: '2026-05-01T08:02:00Z' },
+    { id: 'lab-aud-ele-3', kind: 'review-note', actor: 'Demo clinician', message: '[Demo audit] Review note example — procedure/medication decisions occur in the chart.', created_at: '2026-05-01T08:18:00Z' },
+    { id: 'lab-aud-ele-4', kind: 'annotation',  actor: 'Demo clinician', message: '[Demo audit] Annotation example: correlate Hb trend with clinical context.', created_at: '2026-05-01T08:25:00Z' },
+    { id: 'lab-aud-ele-5', kind: 'result-add',  actor: 'Demo lab ingest', message: '[Demo audit] Synthetic INR/PT rows for UI exercise.', created_at: '2026-05-01T07:46:00Z' },
   ],
 };
 
@@ -1855,7 +1863,7 @@ const _LABS = {
 const _NUTRITION_PROFILES = {
   'demo-pt-samantha-li': {
     patient_id: 'demo-pt-samantha-li',
-    patient_name: 'Samantha Li',
+    patient_name: 'Demo Patient A (synthetic)',
     captured_at: '2026-04-30T08:30:00Z',
     macros: {
       day: '2026-04-30',
@@ -1912,7 +1920,7 @@ const _NUTRITION_PROFILES = {
   },
   'demo-pt-marcus-chen': {
     patient_id: 'demo-pt-marcus-chen',
-    patient_name: 'Marcus Chen',
+    patient_name: 'Demo Patient B (synthetic)',
     captured_at: '2026-04-29T09:15:00Z',
     macros: {
       day: '2026-04-29',
@@ -1979,7 +1987,7 @@ const _NUTRITION_PROFILES = {
   },
   'demo-pt-elena-vasquez': {
     patient_id: 'demo-pt-elena-vasquez',
-    patient_name: 'Elena Vasquez',
+    patient_name: 'Demo Patient C (synthetic)',
     captured_at: '2026-05-01T07:50:00Z',
     macros: {
       day: '2026-05-01',

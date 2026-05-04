@@ -3,13 +3,17 @@
 GET    /api/v1/movement/analyzer/patient/{patient_id}
 POST   /api/v1/movement/analyzer/patient/{patient_id}/recompute
 POST   /api/v1/movement/analyzer/patient/{patient_id}/annotation
+POST   /api/v1/movement/analyzer/patient/{patient_id}/review
+GET    /api/v1/movement/analyzer/patient/{patient_id}/export.json
 GET    /api/v1/movement/analyzer/patient/{patient_id}/audit
 """
 from __future__ import annotations
 
+import json
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -39,6 +43,13 @@ class AnnotationRequest(BaseModel):
 
     def text(self) -> str:
         return (self.message or self.note or "").strip()
+
+
+# core-schema-exempt: integration branch; migrate to core-schema in follow-up PR
+class ReviewAckRequest(BaseModel):
+    """Clinician attestation that the movement workspace was reviewed (audit only)."""
+
+    note: str = Field(..., min_length=1, max_length=4000, description="Required review note / attestation.")
 
 
 def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session) -> None:
@@ -134,6 +145,76 @@ def annotate_movement_analyzer(
 
     append_audit(patient_id, "annotate", actor.actor_id, {"note": text, "message": text}, db)
     return {"ok": True, "patient_id": patient_id}
+
+
+@router.post("/patient/{patient_id}/review")
+def review_ack_movement_analyzer(
+    patient_id: str,
+    body: ReviewAckRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Record clinician review acknowledgment (audit trail only — not a clinical sign-off)."""
+    require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
+
+    note = body.note.strip()
+    append_audit(
+        patient_id,
+        "review_ack",
+        actor.actor_id,
+        {"note": note, "message": note, "kind": "movement_workspace_review"},
+        db,
+    )
+    return {"ok": True, "patient_id": patient_id}
+
+
+@router.get("/patient/{patient_id}/export.json")
+def export_movement_analyzer_json(
+    patient_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> Response:
+    """Download serialised workspace JSON for documentation (clinician scope only)."""
+    require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
+
+    snap = load_snapshot(patient_id, db)
+    if snap is None:
+        payload = build_movement_workspace_payload(patient_id, db)
+    else:
+        payload = dict(snap)
+
+    append_audit(
+        patient_id,
+        "export_download",
+        actor.actor_id,
+        {"message": "Movement workspace JSON export", "format": "json"},
+        db,
+    )
+
+    from datetime import datetime, timezone
+
+    bundle = {
+        "export_meta": {
+            "format": "movement_analyzer_workspace_v1",
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "patient_id": patient_id,
+            "disclaimer": (
+                "Decision-support export for clinician review. Not a diagnosis, "
+                "fall-risk determination, or treatment authorization."
+            ),
+        },
+        "workspace": payload,
+    }
+    body = json.dumps(bundle, indent=2, default=str)
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="movement-workspace-{patient_id[:8]}.json"',
+        },
+    )
 
 
 @router.get("/patient/{patient_id}/audit")

@@ -374,6 +374,29 @@ class VideoAnalysis(Base):
     )
 
 
+class VideoAssessmentSession(Base):
+    """Guided video motor assessment (tele-neurology MVP) — session + task state in JSON."""
+
+    __tablename__ = "video_assessment_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True)
+    encounter_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    protocol_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    protocol_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    overall_status: Mapped[str] = mapped_column(String(32), nullable=False, default="in_progress")
+    session_json: Mapped[str] = mapped_column(Text(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        CheckConstraint(
+            "overall_status IN ('draft','in_progress','completed','finalized','cancelled')",
+            name="ck_va_session_status",
+        ),
+    )
+
+
 # ── Risk Stratification Models ────────────────────────────────────────────────
 
 # ── qEEG Analysis Pipeline Models ──────────────────────────────────────────────

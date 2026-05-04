@@ -166,9 +166,11 @@ export function wireTribeCompare(getPatientId) {
       });
       if (out) out.innerHTML = _renderRankingCards(resp.comparison || {});
       if (status) {
-        const winner = resp.comparison?.winner || '—';
+        const top = resp.comparison?.winner || resp.comparison?.ranking?.[0]?.protocol_id || '—';
         const gap = resp.comparison?.confidence_gap ?? 0;
-        status.textContent = `Winner: ${winner} · confidence gap ${gap}. Decision-support only — clinician approval required.`;
+        status.textContent =
+          `Top-ranked candidate (exploratory score): ${top} · score gap ${gap}. `
+          + 'Not a treatment recommendation — clinician review required.';
       }
     } catch (e) {
       if (status) status.textContent = 'Compare failed: ' + (e.message || e);

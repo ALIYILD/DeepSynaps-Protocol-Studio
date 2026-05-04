@@ -126,3 +126,33 @@ def test_movement_annotation_audit(client: TestClient, seeded: dict):
     assert aud.status_code == 200
     items = aud.json().get("items") or []
     assert any((it.get("action") == "annotate") for it in items)
+
+
+def test_movement_review_ack_audit(client: TestClient, seeded: dict):
+    pid = seeded["patient_id"]
+    h = _auth(seeded["token_a"])
+    r = client.post(
+        f"/api/v1/movement/analyzer/patient/{pid}/review",
+        headers=h,
+        json={"note": "Reviewed movement workspace — cues noted; no autonomous diagnosis."},
+    )
+    assert r.status_code == 200
+    aud = client.get(f"/api/v1/movement/analyzer/patient/{pid}/audit", headers=h)
+    assert aud.status_code == 200
+    items = aud.json().get("items") or []
+    assert any((it.get("action") == "review_ack") for it in items)
+
+
+def test_movement_export_json(client: TestClient, seeded: dict):
+    pid = seeded["patient_id"]
+    h = _auth(seeded["token_a"])
+    r = client.get(f"/api/v1/movement/analyzer/patient/{pid}/export.json", headers=h)
+    assert r.status_code == 200
+    assert r.headers.get("content-type", "").startswith("application/json")
+    data = r.json()
+    assert "export_meta" in data
+    assert "workspace" in data
+    assert data["workspace"]["patient_id"] == pid
+    aud = client.get(f"/api/v1/movement/analyzer/patient/{pid}/audit", headers=h)
+    items = aud.json().get("items") or []
+    assert any((it.get("action") == "export_download") for it in items)

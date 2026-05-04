@@ -1192,6 +1192,35 @@ def get_patient_courses(
     return PatientCoursesResponse(items=items, total=len(items))
 
 
+@router.get("/{patient_id}/treatment-sessions-analyzer")
+def get_treatment_sessions_analyzer(
+    patient_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict:
+    """Aggregated Treatment Sessions Analyzer payload (decision-support UI).
+
+    Clinicians and admins use ownership-aware access via ``_get_patient_for_actor``.
+    Patients may request their own aggregate view (same pattern as sessions/courses).
+    """
+    from app.services.treatment_sessions_analyzer import (
+        build_treatment_sessions_analyzer_payload,
+    )
+
+    if actor.role == "patient":
+        if actor.actor_id != patient_id:
+            raise ApiServiceError(
+                code="forbidden",
+                message="You may only view your own treatment analyzer.",
+                status_code=403,
+            )
+    else:
+        require_minimum_role(actor, "clinician")
+        _get_patient_for_actor(db, patient_id, actor)
+
+    return build_treatment_sessions_analyzer_payload(db, patient_id, actor)
+
+
 @router.get("/{patient_id}/assessments", response_model=PatientAssessmentsResponse)
 def get_patient_assessments(
     patient_id: str,

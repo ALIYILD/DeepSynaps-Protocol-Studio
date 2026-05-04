@@ -3,7 +3,10 @@ import { currentUser } from './auth.js';
 
 const TAB_KEY = 'monitor_tab';
 const STATE_KEY = '__ds_monitor_state';
+const PATIENT_CACHE_KEY = '__ds_monitor_patients_cache';
 const RETRY_MS = [1000, 2000, 4000, 8000, 16000, 30000];
+
+const VALID_TABS = new Set(['biometrics', 'control-center', 'live', 'dq', 'wearables-workbench']);
 
 /* ── Demo mode detection ──────────────────────────────────────────────────── */
 function _isDemoMode() {
@@ -13,39 +16,45 @@ function _isDemoMode() {
 /* ── Demo data generators ─────────────────────────────────────────────────── */
 function demoLiveSnapshot() {
   const now = Date.now();
+  // DEMO ONLY — synthetic cohort for UI review; not live patient data or clinical findings.
   const caseload = [
-    { patient_id: 'pt-demo-001', display_name: 'James Morrison',  risk_tier: 'red',    risk_score: 0.91, risk_drivers: ['suicidal_ideation', 'low_readiness'], hrv_last: 28,   sleep_last: 3.8, prom_delta: -12, adherence_pct: 45,  last_feature_at: new Date(now - 1800000).toISOString(),  wearable_stale: false },
-    { patient_id: 'pt-demo-002', display_name: 'Angela Rivera',   risk_tier: 'red',    risk_score: 0.84, risk_drivers: ['hrv_critical', 'missed_sessions'],    hrv_last: 22,   sleep_last: 4.1, prom_delta: -8,  adherence_pct: 30,  last_feature_at: new Date(now - 7200000).toISOString(),  wearable_stale: false },
-    { patient_id: 'pt-demo-003', display_name: 'Robert Kim',      risk_tier: 'orange', risk_score: 0.64, risk_drivers: ['wearable_stale'],                     hrv_last: null,  sleep_last: null, prom_delta: -3,  adherence_pct: 62,  last_feature_at: new Date(now - 200000000).toISOString(), wearable_stale: true },
-    { patient_id: 'pt-demo-004', display_name: 'Emily Torres',    risk_tier: 'orange', risk_score: 0.58, risk_drivers: ['sleep_disruption', 'prom_decline'],   hrv_last: 38,   sleep_last: 4.9, prom_delta: -5,  adherence_pct: 70,  last_feature_at: new Date(now - 3600000).toISOString(),  wearable_stale: false },
-    { patient_id: 'pt-demo-005', display_name: 'David Okafor',    risk_tier: 'orange', risk_score: 0.52, risk_drivers: ['prom_decline'],                       hrv_last: 42,   sleep_last: 5.6, prom_delta: -4,  adherence_pct: 75,  last_feature_at: new Date(now - 5400000).toISOString(),  wearable_stale: false },
-    { patient_id: 'pt-demo-006', display_name: 'Maria Santos',    risk_tier: 'yellow', risk_score: 0.38, risk_drivers: ['adherence_low'],                      hrv_last: 48,   sleep_last: 6.2, prom_delta: -1,  adherence_pct: 55,  last_feature_at: new Date(now - 900000).toISOString(),   wearable_stale: false },
-    { patient_id: 'pt-demo-007', display_name: 'Liam Patel',      risk_tier: 'yellow', risk_score: 0.32, risk_drivers: ['mild_insomnia'],                      hrv_last: 52,   sleep_last: 5.8, prom_delta: 0,   adherence_pct: 80,  last_feature_at: new Date(now - 2700000).toISOString(),  wearable_stale: false },
-    { patient_id: 'pt-demo-008', display_name: 'Samantha Li',     risk_tier: 'green',  risk_score: 0.18, risk_drivers: ['stable'],                              hrv_last: 62,   sleep_last: 7.4, prom_delta: 3,   adherence_pct: 92,  last_feature_at: new Date(now - 600000).toISOString(),   wearable_stale: false },
-    { patient_id: 'pt-demo-009', display_name: 'Carlos Mendez',   risk_tier: 'green',  risk_score: 0.15, risk_drivers: ['stable'],                              hrv_last: 58,   sleep_last: 7.1, prom_delta: 2,   adherence_pct: 88,  last_feature_at: new Date(now - 1500000).toISOString(),  wearable_stale: false },
-    { patient_id: 'pt-demo-010', display_name: 'Aisha Johnson',   risk_tier: 'green',  risk_score: 0.12, risk_drivers: ['stable'],                              hrv_last: 65,   sleep_last: 7.8, prom_delta: 5,   adherence_pct: 95,  last_feature_at: new Date(now - 420000).toISOString(),   wearable_stale: false },
-    { patient_id: 'pt-demo-011', display_name: 'Nathan Wright',   risk_tier: 'green',  risk_score: 0.10, risk_drivers: ['stable'],                              hrv_last: 70,   sleep_last: 8.0, prom_delta: 4,   adherence_pct: 97,  last_feature_at: new Date(now - 300000).toISOString(),   wearable_stale: false },
-    { patient_id: 'pt-demo-012', display_name: 'Yuki Tanaka',     risk_tier: 'green',  risk_score: 0.08, risk_drivers: ['stable'],                              hrv_last: 68,   sleep_last: 7.6, prom_delta: 6,   adherence_pct: 98,  last_feature_at: new Date(now - 240000).toISOString(),   wearable_stale: false },
+    { patient_id: 'pt-demo-001', display_name: 'James Morrison',  review_tier: 'red',    review_priority: 0.71, review_drivers: ['demo_threshold_review', 'vendor_readiness_low'], risk_tier: 'red',    risk_score: 0.71, risk_drivers: ['demo_threshold_review', 'vendor_readiness_low'], hrv_last: 28, sleep_last: 3.8, prom_delta: null, readiness_score: 42, adherence_pct: null, last_feature_at: new Date(now - 1800000).toISOString(), wearable_stale: false },
+    { patient_id: 'pt-demo-002', display_name: 'Angela Rivera',   review_tier: 'red',    review_priority: 0.64, review_drivers: ['demo_rule_flag', 'symptom_report_pattern'],             risk_tier: 'red',    risk_score: 0.64, risk_drivers: ['demo_rule_flag', 'symptom_report_pattern'],             hrv_last: 22, sleep_last: 4.1, prom_delta: null, readiness_score: 38, adherence_pct: null, last_feature_at: new Date(now - 7200000).toISOString(), wearable_stale: false },
+    { patient_id: 'pt-demo-003', display_name: 'Robert Kim',      review_tier: 'orange', review_priority: 0.54, review_drivers: ['wearable_stale'],                     risk_tier: 'orange', risk_score: 0.54, risk_drivers: ['wearable_stale'],                     hrv_last: null, sleep_last: null, prom_delta: null, readiness_score: null, adherence_pct: null, last_feature_at: new Date(now - 200000000).toISOString(), wearable_stale: true },
+    { patient_id: 'pt-demo-004', display_name: 'Emily Torres',    review_tier: 'orange', review_priority: 0.48, review_drivers: ['sleep_duration_change', 'self_report_shift'], risk_tier: 'orange', risk_score: 0.48, risk_drivers: ['sleep_duration_change', 'self_report_shift'], hrv_last: 38, sleep_last: 4.9, prom_delta: null, readiness_score: 58, adherence_pct: null, last_feature_at: new Date(now - 3600000).toISOString(), wearable_stale: false },
+    { patient_id: 'pt-demo-005', display_name: 'David Okafor',    review_tier: 'orange', review_priority: 0.42, review_drivers: ['session_attendance_gap'],                       risk_tier: 'orange', risk_score: 0.42, risk_drivers: ['session_attendance_gap'],                       hrv_last: 42, sleep_last: 5.6, prom_delta: null, readiness_score: 62, adherence_pct: null, last_feature_at: new Date(now - 5400000).toISOString(), wearable_stale: false },
+    { patient_id: 'pt-demo-006', display_name: 'Maria Santos',    review_tier: 'yellow', review_priority: 0.38, review_drivers: ['home_program_adherence_low'],                      risk_tier: 'yellow', risk_score: 0.38, risk_drivers: ['home_program_adherence_low'],                      hrv_last: 48, sleep_last: 6.2, prom_delta: null, readiness_score: 55, adherence_pct: null, last_feature_at: new Date(now - 900000).toISOString(), wearable_stale: false },
+    { patient_id: 'pt-demo-007', display_name: 'Liam Patel',      review_tier: 'yellow', review_priority: 0.32, review_drivers: ['sleep_variability'],                             risk_tier: 'yellow', risk_score: 0.32, risk_drivers: ['sleep_variability'],                             hrv_last: 52, sleep_last: 5.8, prom_delta: null, readiness_score: 72, adherence_pct: null, last_feature_at: new Date(now - 2700000).toISOString(), wearable_stale: false },
+    { patient_id: 'pt-demo-008', display_name: 'Samantha Li',     review_tier: 'green',  review_priority: 0.18, review_drivers: ['no_flags_in_window'],                              risk_tier: 'green',  risk_score: 0.18, risk_drivers: ['no_flags_in_window'],                              hrv_last: 62, sleep_last: 7.4, prom_delta: null, readiness_score: 78, adherence_pct: null, last_feature_at: new Date(now - 600000).toISOString(), wearable_stale: false },
+    { patient_id: 'pt-demo-009', display_name: 'Carlos Mendez',   review_tier: 'green',  review_priority: 0.15, review_drivers: ['no_flags_in_window'],                              risk_tier: 'green',  risk_score: 0.15, risk_drivers: ['no_flags_in_window'],                              hrv_last: 58, sleep_last: 7.1, prom_delta: null, readiness_score: 81, adherence_pct: null, last_feature_at: new Date(now - 1500000).toISOString(), wearable_stale: false },
+    { patient_id: 'pt-demo-010', display_name: 'Aisha Johnson',   review_tier: 'green',  review_priority: 0.12, review_drivers: ['no_flags_in_window'],                              risk_tier: 'green',  risk_score: 0.12, risk_drivers: ['no_flags_in_window'],                              hrv_last: 65, sleep_last: 7.8, prom_delta: null, readiness_score: 84, adherence_pct: null, last_feature_at: new Date(now - 420000).toISOString(), wearable_stale: false },
+    { patient_id: 'pt-demo-011', display_name: 'Nathan Wright',   review_tier: 'green',  review_priority: 0.10, review_drivers: ['no_flags_in_window'],                              risk_tier: 'green',  risk_score: 0.10, risk_drivers: ['no_flags_in_window'],                              hrv_last: 70, sleep_last: 8.0, prom_delta: null, readiness_score: 88, adherence_pct: null, last_feature_at: new Date(now - 300000).toISOString(), wearable_stale: false },
+    { patient_id: 'pt-demo-012', display_name: 'Yuki Tanaka',     review_tier: 'green',  review_priority: 0.08, review_drivers: ['no_flags_in_window'],                              risk_tier: 'green',  risk_score: 0.08, risk_drivers: ['no_flags_in_window'],                              hrv_last: 68, sleep_last: 7.6, prom_delta: null, readiness_score: 90, adherence_pct: null, last_feature_at: new Date(now - 240000).toISOString(), wearable_stale: false },
   ];
-  const crises = caseload.filter(r => r.risk_tier === 'red').map(r => ({
+  const priority_review_queue = caseload.filter(r => (r.review_tier || r.risk_tier) === 'red').map(r => ({
     patient_id: r.patient_id,
     display_name: r.display_name,
-    tier: r.risk_tier,
-    score: r.risk_score,
-    top_driver: r.risk_drivers[0],
-    reason_text: r.risk_drivers.slice(0, 2).join(', '),
+    tier: r.review_tier || r.risk_tier,
+    priority: r.review_priority ?? r.risk_score,
+    top_driver: (r.review_drivers || r.risk_drivers || [])[0],
+    reason_text: (r.review_drivers || r.risk_drivers || []).slice(0, 2).join(', '),
   }));
   return {
     clinic_id: 'demo-clinic',
     generated_at: new Date().toISOString(),
+    is_demo_view: true,
     kpis: {
       red: 2, orange: 3, yellow: 2, green: 5,
-      open_crises: crises.length,
+      open_priority_review: priority_review_queue.length,
+      open_crises: priority_review_queue.length,
+      wearable_data_recency_pct: 91.7,
       wearable_uptime_pct: 91.7,
+      outcome_contact_pct: 83.3,
       prom_compliance_pct: 83.3,
     },
     caseload,
-    crises,
+    priority_review_queue,
+    crises: priority_review_queue,
   };
 }
 
@@ -258,24 +267,50 @@ function state() {
   if (!window[STATE_KEY]) {
     var storedTab = localStorage.getItem(TAB_KEY);
     if (storedTab === 'integrations') storedTab = 'control-center';
-    var validTabs = new Set(['control-center', 'live', 'dq', 'wearables-workbench']);
     window[STATE_KEY] = {
-      tab: validTabs.has(storedTab) ? storedTab : 'control-center',
+      tab: VALID_TABS.has(storedTab) ? storedTab : 'biometrics',
       expandedCategory: null,
       live: null,
       integrations: null,
       dq: null,
       socket: null,
       retryIndex: 0,
-      // Wearables Workbench triage queue. ``flags`` is the server-side
-      // list, ``summary`` is the deterministic count strip, ``filters``
-      // are the user-controlled query state. Loaded on tab activation.
+      patientsList: null,
+      patientsLoadError: null,
+      selectedPatientId: null,
+      patientWearableDays: 30,
+      patientDetail: null,
+      patientDetailLoading: false,
+      patientDetailError: null,
+      fleet: null,
       workbenchFlags: null,
       workbenchSummary: null,
       workbenchFilters: { status: 'open', severity: '' },
     };
   }
   return window[STATE_KEY];
+}
+
+function _tier(row) {
+  return row.review_tier || row.risk_tier || 'green';
+}
+
+function _drivers(row) {
+  return row.review_drivers || row.risk_drivers || [];
+}
+
+function _priority(row) {
+  var p = row.review_priority != null ? row.review_priority : row.risk_score;
+  return p != null ? Number(p) : null;
+}
+
+function _liveIsDemo(live) {
+  return !!(live && live.is_demo_view);
+}
+
+function _fmtReadiness(v) {
+  if (v == null || Number.isNaN(Number(v))) return '\u2014';
+  return `${Math.round(Number(v))} (vendor)`;
 }
 
 /* ── Live tab renderers (unchanged) ────────────────────────────────────────── */
@@ -290,14 +325,17 @@ function openPatient(patientId, reasonText) {
 
 function renderKpis(live) {
   const k = live?.kpis || {};
+  const openPri = k.open_priority_review != null ? k.open_priority_review : k.open_crises;
+  const dataFresh = k.wearable_data_recency_pct != null ? k.wearable_data_recency_pct : k.wearable_uptime_pct;
+  const outcomeContact = k.outcome_contact_pct != null ? k.outcome_contact_pct : k.prom_compliance_pct;
   const cards = [
-    ['Red', k.red, 'red'],
-    ['Orange', k.orange, 'orange'],
-    ['Yellow', k.yellow, 'yellow'],
-    ['Green', k.green, 'green'],
-    ['Open crises', k.open_crises, 'red'],
-    ['Wearable uptime', fmtPct(k.wearable_uptime_pct), 'green'],
-    ['PROM compliance', fmtPct(k.prom_compliance_pct), 'blue'],
+    ['Review: high priority', k.red, 'red'],
+    ['Review: elevated', k.orange, 'orange'],
+    ['Watch', k.yellow, 'yellow'],
+    ['No queued flags', k.green, 'green'],
+    ['Priority review queue', openPri, 'red'],
+    ['Wearable sync recency', fmtPct(dataFresh), 'green'],
+    ['Outcome contact rate', fmtPct(outcomeContact), 'blue'],
   ];
   return `<section class="monitor-kpi-strip">${cards.map(([label, value, color]) => `
     <article class="monitor-kpi-card monitor-kpi-card--${color}">
@@ -307,32 +345,38 @@ function renderKpis(live) {
 }
 
 function renderLive(live) {
-  const crises = Array.isArray(live?.crises) ? live.crises : [];
+  const priorityQ = Array.isArray(live?.priority_review_queue)
+    ? live.priority_review_queue
+    : (Array.isArray(live?.crises) ? live.crises : []);
   const rows = Array.isArray(live?.caseload) ? live.caseload : [];
+  const demoChip = _liveIsDemo(live)
+    ? '<span class="monitor-badge monitor-badge--orange" title="Synthetic cohort for UI review">DEMO COHORT</span>'
+    : '';
   return `
     <section class="monitor-panel">
-      <div class="monitor-panel-head"><h3>Caseload grid</h3><span>${rows.length} active rows</span></div>
+      <div class="monitor-panel-head"><h3>Caseload overview</h3><span>${rows.length} patients ${demoChip}</span></div>
+      <p class="monitor-muted" style="margin:-8px 0 12px;line-height:1.5">Tiers are operational review priorities from wearable summaries and alert flags — not diagnoses, emergency triage, or treatment eligibility.</p>
       ${rows.length ? `<div class="monitor-table-wrap"><table class="monitor-table"><thead>
-        <tr><th>Patient</th><th>Tier</th><th>Drivers</th><th>HRV</th><th>Sleep</th><th>PROM \u0394</th><th>Adherence</th><th>Last signal</th></tr>
+        <tr><th>Patient</th><th>Review tier</th><th>Signals</th><th>HRV (ms)</th><th>Sleep (h)</th><th>Readiness</th><th>Last wearable sync</th></tr>
       </thead><tbody>
-        ${rows.map((row) => `<tr onclick="window._monitorOpenPatient('${esc(row.patient_id)}', '${esc((row.risk_drivers || []).join(', '))}')">
+        ${rows.map((row) => `<tr onclick="window._monitorOpenPatient('${esc(row.patient_id)}', '${esc(_drivers(row).join(', '))}')">
           <td><div class="monitor-patient-name">${esc(row.display_name)}</div><div class="monitor-muted">${esc(row.patient_id)}</div></td>
-          <td><span class="monitor-badge monitor-badge--${tone(row.risk_tier)}">${esc(row.risk_tier)}</span></td>
-          <td>${esc((row.risk_drivers || []).join(', ') || 'stable')}</td>
+          <td><span class="monitor-badge monitor-badge--${tone(_tier(row))}">${esc(_tier(row))}</span></td>
+          <td>${esc(_drivers(row).join(', ') || '\u2014')}</td>
           <td>${fmtNum(row.hrv_last)}</td>
           <td>${fmtNum(row.sleep_last)}</td>
-          <td>${fmtNum(row.prom_delta)}</td>
-          <td>${fmtPct(row.adherence_pct)}</td>
-          <td>${esc(fmtAgo(row.last_feature_at))}</td>
+          <td>${esc(_fmtReadiness(row.readiness_score != null ? row.readiness_score : row.adherence_pct))}</td>
+          <td>${esc(fmtAgo(row.last_feature_at))}${row.wearable_stale ? ' <span class="monitor-badge monitor-badge--orange">stale</span>' : ''}</td>
         </tr>`).join('')}
-      </tbody></table></div>` : `<div class="monitor-empty-inline">No active caseload rows.</div>`}
+      </tbody></table></div>` : `<div class="monitor-empty-inline">No caseload rows returned. Add patients or check API access.</div>`}
     </section>
     <section class="monitor-panel monitor-panel--crisis">
-      <div class="monitor-panel-head"><h3>Crisis queue</h3><span>${crises.length} open</span></div>
-      ${crises.length ? crises.map((item) => `<button class="monitor-crisis-item" onclick="window._monitorOpenPatient('${esc(item.patient_id)}', '${esc(item.reason_text || '')}')">
-        <div class="monitor-crisis-item__row"><strong>${esc(item.display_name)}</strong><span class="monitor-badge monitor-badge--red">${Math.round(Number(item.score || 0) * 100)}%</span></div>
-        <div class="monitor-crisis-item__sub">${esc(item.reason_text || item.top_driver || 'Immediate review required.')}</div>
-      </button>`).join('') : `<div class="monitor-empty-inline monitor-empty-inline--ok">No open crises right now.</div>`}
+      <div class="monitor-panel-head"><h3>Priority review queue</h3><span>${priorityQ.length} patient${priorityQ.length !== 1 ? 's' : ''}</span></div>
+      <p class="monitor-muted" style="margin:-8px 0 12px;line-height:1.5">Requires clinician review of source data and context — not an automated emergency list.</p>
+      ${priorityQ.length ? priorityQ.map((item) => `<button type="button" class="monitor-crisis-item" onclick="window._monitorOpenPatient('${esc(item.patient_id)}', '${esc(item.reason_text || '')}')">
+        <div class="monitor-crisis-item__row"><strong>${esc(item.display_name)}</strong><span class="monitor-badge monitor-badge--orange">${esc(Math.round(Number(item.priority != null ? item.priority : item.score || 0) * 100))}% priority</span></div>
+        <div class="monitor-crisis-item__sub">${esc(item.reason_text || item.top_driver || 'Review wearable summaries and alert flags.')}</div>
+      </button>`).join('') : `<div class="monitor-empty-inline">No patients in the priority review queue for this snapshot.</div>`}
     </section>`;
 }
 
@@ -346,8 +390,8 @@ function renderDq(dq) {
       <div class="monitor-issue-head"><strong>${esc(item.title)}</strong><span class="monitor-badge monitor-badge--${tone(item.severity)}">${esc(item.severity)}</span></div>
       <div class="monitor-muted">${esc(item.detail || '')}</div>
       ${item.suggested_fix ? `<div class="monitor-issue-fix">${esc(item.suggested_fix)}</div>` : ''}
-      ${canWriteIntegrations() ? `<div class="monitor-inline-actions"><button class="btn btn-sm" onclick="window._monitorResolveIssue('${esc(item.id)}')">Resolve</button></div>` : ''}
-    </div>`).join('') : `<div class="monitor-empty-inline monitor-empty-inline--ok">No data-quality issues.</div>`}
+      ${canWriteIntegrations() ? `<div class="monitor-inline-actions"><button type="button" class="btn btn-sm" onclick="window._monitorResolveIssue('${esc(item.id)}')">Resolve</button></div>` : ''}
+    </div>`).join('') : `<div class="monitor-empty-inline">No integration or sync issues are recorded for this clinic snapshot.</div>`}
   </section>`;
 }
 
@@ -357,13 +401,13 @@ function renderWorkbenchKpis(summary) {
   var s = summary || {};
   var open = Number(s.open || 0);
   var ack = Number(s.acknowledged || 0);
-  var esc = Number(s.escalated || 0);
+  var escalated = Number(s.escalated || 0);
   var res = Number(s.resolved || 0);
   var inc7 = Number(s.incidence_7d || 0);
   var cards = [
     ['Open', open, open > 0 ? 'red' : 'green'],
     ['Acknowledged', ack, 'orange'],
-    ['Escalated', esc, esc > 0 ? 'red' : 'green'],
+    ['Escalated', escalated, escalated > 0 ? 'red' : 'green'],
     ['Resolved', res, 'green'],
     ['7-day incidence', inc7, inc7 > 0 ? 'orange' : 'green'],
   ];
@@ -571,6 +615,182 @@ function renderExpandedCategory(kind, data) {
   </section>`;
 }
 
+function renderMetricMatrix(summaries) {
+  var rows = Array.isArray(summaries) ? summaries : [];
+  var last = rows.length ? rows[rows.length - 1] : null;
+  var defs = [
+    ['HRV', 'ms', function (r) { return r.hrv_ms; }],
+    ['Resting HR', 'bpm', function (r) { return r.rhr_bpm; }],
+    ['Sleep duration', 'h', function (r) { return r.sleep_duration_h; }],
+    ['Steps', 'count', function (r) { return r.steps; }],
+    ['SpO\u2082', '%', function (r) { return r.spo2_pct; }],
+    ['Skin temp \u0394', '\u00b0', function (r) { return r.skin_temp_delta; }],
+    ['Readiness (vendor)', 'score', function (r) { return r.readiness_score; }],
+  ];
+  var head = '<thead><tr><th>Metric</th><th>Unit</th><th>Latest</th><th>Availability</th></tr></thead>';
+  var body = defs.map(function (d) {
+    var v = last ? d[2](last) : null;
+    var avail = v == null || Number.isNaN(Number(v)) ? '<span class="monitor-badge monitor-badge--orange">missing</span>' : '<span class="monitor-badge monitor-badge--green">present</span>';
+    var disp = v == null || Number.isNaN(Number(v)) ? '\u2014' : (Number.isInteger(Number(v)) ? String(v) : Number(v).toFixed(1));
+    return '<tr><td>' + esc(d[0]) + '</td><td>' + esc(d[1]) + '</td><td>' + esc(disp) + '</td><td>' + avail + '</td></tr>';
+  }).join('');
+  return '<div class="monitor-table-wrap"><table class="monitor-table">' + head + '<tbody>' + body + '</tbody></table></div>';
+}
+
+function renderBiometricsWorkspace(s) {
+  var patients = Array.isArray(s.patientsList) ? s.patientsList : [];
+  var selId = s.selectedPatientId || window._selectedPatientId || '';
+  var detail = s.patientDetail;
+  var loading = s.patientDetailLoading;
+  var err = s.patientDetailError;
+  var days = s.patientWearableDays || 30;
+  var fleet = s.fleet;
+  var live = s.live || {};
+
+  var demoBanner = _isDemoMode()
+    ? '<div class="monitor-disclaimer monitor-disclaimer--demo" role="status"><strong>DEMO mode</strong> \u2014 When the API is unavailable, sample cohort data may appear. Treat as non-authoritative; not live PHI.</div>'
+    : '';
+
+  var clinDisclaimer = '<div class="monitor-disclaimer"><strong>Clinical decision support only.</strong> This workspace supports review of device-reported metrics and operational alerts. It does not diagnose, triage emergencies, approve protocols, or recommend treatments. AI-assisted outputs require clinician review and traceable source data.</div>';
+
+  var patientOpts = '<option value="">\u2014 Select patient \u2014</option>' + patients.map(function (p) {
+    var id = p.id || p.patient_id;
+    var nm = (p.display_name || (p.first_name + ' ' + p.last_name) || id || '').trim();
+    return '<option value="' + esc(id) + '"' + (String(id) === String(selId) ? ' selected' : '') + '>' + esc(nm || id) + '</option>';
+  }).join('');
+
+    var connRows = detail && Array.isArray(detail.connections) ? detail.connections : [];
+  var connectionsPanel = connRows.length
+    ? '<div class="monitor-table-wrap"><table class="monitor-table"><thead><tr><th>Source</th><th>Status</th><th>Last sync</th></tr></thead><tbody>'
+      + connRows.map(function (c) {
+        var st = String(c.status || '').toLowerCase();
+        var toneKey = (st === 'connected' || st === 'healthy' || st === 'active') ? 'green' : (st === 'error' || st === 'revoked') ? 'red' : 'orange';
+        return '<tr><td>' + esc(c.display_name || c.source) + '</td><td>'
+          + '<span class="monitor-badge monitor-badge--' + tone(toneKey) + '">' + esc(c.status || 'unknown') + '</span>'
+          + '</td><td>' + esc(c.last_sync_at ? fmtAgo(c.last_sync_at) : '\u2014') + '</td></tr>';
+      }).join('')
+      + '</tbody></table></div>'
+    : '<p class="monitor-muted">No device connections on file for this patient, or none returned by the server.</p>';
+
+  var fleetRows = fleet && Array.isArray(fleet.devices) ? fleet.devices : [];
+  var fleetPanel = fleetRows.length
+    ? '<div class="monitor-table-wrap"><table class="monitor-table"><thead><tr><th>Source</th><th>Patients</th><th>Last seen</th></tr></thead><tbody>'
+      + fleetRows.map(function (d) {
+        return '<tr><td>' + esc(d.display_name || d.id) + '</td><td>' + esc(d.assigned_patient_count) + '</td><td>'
+          + esc(d.last_seen_at ? fmtAgo(d.last_seen_at) : '\u2014') + '</td></tr>';
+      }).join('')
+      + '</tbody></table></div>'
+    : '<p class="monitor-muted">No fleet snapshot (empty roster or endpoint unavailable).</p>';
+
+  var alerts = detail && Array.isArray(detail.recent_alerts) ? detail.recent_alerts : [];
+  var alertsPanel = alerts.length
+    ? '<div class="monitor-table-wrap"><table class="monitor-table"><thead><tr><th>Type</th><th>Severity</th><th>Triggered</th><th>Detail</th></tr></thead><tbody>'
+      + alerts.map(function (a) {
+        return '<tr><td>' + esc(a.flag_type) + '</td><td><span class="monitor-badge monitor-badge--' + tone(a.severity === 'urgent' ? 'red' : 'orange') + '">' + esc(a.severity) + '</span></td><td>'
+          + esc(fmtAgo(a.triggered_at)) + '</td><td>' + esc((a.detail || '').slice(0, 120)) + '</td></tr>';
+      }).join('')
+      + '</tbody></table></div>'
+    : '<p class="monitor-muted">No active wearable alert flags for this patient in the current window.</p>';
+
+  var readinessBlock = '';
+  if (detail && detail.readiness && typeof detail.readiness === 'object') {
+    try {
+      readinessBlock = '<pre class="monitor-readiness-pre" aria-label="Readiness detail">' + esc(JSON.stringify(detail.readiness, null, 2)) + '</pre>';
+    } catch (e) {
+      readinessBlock = '<p class="monitor-muted">Readiness summary unavailable.</p>';
+    }
+  } else if (detail && !loading) {
+    readinessBlock = '<p class="monitor-muted">No readiness aggregate returned.</p>';
+  }
+
+  var summaryStrip = '';
+  if (detail && Array.isArray(detail.summaries) && detail.summaries.length) {
+    var lastS = detail.summaries[detail.summaries.length - 1];
+    summaryStrip = '<div class="monitor-vitals-strip">'
+      + '<article class="monitor-vital-card"><div class="monitor-kpi-label">HRV</div><div class="monitor-vital-val">' + esc(fmtNum(lastS.hrv_ms)) + '<span class="monitor-vital-unit">ms</span></div></article>'
+      + '<article class="monitor-vital-card"><div class="monitor-kpi-label">Sleep</div><div class="monitor-vital-val">' + esc(fmtNum(lastS.sleep_duration_h)) + '<span class="monitor-vital-unit">h</span></div></article>'
+      + '<article class="monitor-vital-card"><div class="monitor-kpi-label">SpO\u2082</div><div class="monitor-vital-val">' + esc(fmtNum(lastS.spo2_pct)) + '<span class="monitor-vital-unit">%</span></div></article>'
+      + '<article class="monitor-vital-card"><div class="monitor-kpi-label">Steps</div><div class="monitor-vital-val">' + esc(fmtNum(lastS.steps)) + '</div></article>'
+      + '<article class="monitor-vital-card"><div class="monitor-kpi-label">Readiness</div><div class="monitor-vital-val">' + esc(_fmtReadiness(lastS.readiness_score)) + '</div></article>'
+      + '</div>'
+      + '<p class="monitor-muted" style="margin-top:8px">Values are device/vendor-reported aggregates for the latest day in range \u2014 not a clinical vital sign interpretation.</p>';
+  } else if (selId && !loading && !err) {
+    summaryStrip = '<div class="monitor-empty-inline">No daily summaries in the selected window. Data may be missing, not yet synced, or not ingested.</div>';
+  }
+
+  var trendHint = '<p class="monitor-muted">Trend charts require a time-series endpoint; use daily summary table below or export from Wearables / device integrations. SpO\u2082/HRV units depend on vendor documentation.</p>';
+
+  var quickLinks = '<nav class="monitor-quick-links" aria-label="Linked clinical modules">'
+    + '<button type="button" class="btn btn-sm" onclick="window._monitorLink(\'patient-profile\')">Patient profile</button>'
+    + '<button type="button" class="btn btn-sm" onclick="window._monitorLink(\'assessments\')">Assessments</button>'
+    + '<button type="button" class="btn btn-sm" onclick="window._monitorLink(\'qeeg-launcher\')">qEEG</button>'
+    + '<button type="button" class="btn btn-sm" onclick="window._monitorLink(\'mri-analysis\')">MRI</button>'
+    + '<button type="button" class="btn btn-sm" onclick="window._monitorLink(\'video-assessments\')">Video</button>'
+    + '<button type="button" class="btn btn-sm" onclick="window._monitorLink(\'voice-analyzer\')">Voice</button>'
+    + '<button type="button" class="btn btn-sm" onclick="window._monitorLink(\'text-analyzer\')">Text</button>'
+    + '<button type="button" class="btn btn-sm" onclick="window._monitorLink(\'labs-analyzer\')">Labs</button>'
+    + '<button type="button" class="btn btn-sm" onclick="window._monitorLink(\'documents\')">Documents</button>'
+    + '<button type="button" class="btn btn-sm" onclick="window._monitorLink(\'deeptwin\')">DeepTwin</button>'
+    + '<button type="button" class="btn btn-sm" onclick="window._monitorLink(\'protocol-hub\')">Protocol Studio</button>'
+    + '<button type="button" class="btn btn-sm" onclick="window._monitorLink(\'brainmap-v2\')">Brainmap</button>'
+    + '<button type="button" class="btn btn-sm" onclick="window._monitorLink(\'schedule-v2\')">Schedule</button>'
+    + '<button type="button" class="btn btn-sm" onclick="window._monitorLink(\'inbox\')">Inbox</button>'
+    + '<button type="button" class="btn btn-sm" onclick="window._monitorLink(\'handbooks-v2\')">Handbooks</button>'
+    + '<button type="button" class="btn btn-sm" onclick="window._monitorLink(\'live-session\')">Live session</button>'
+    + '</nav>';
+
+  var aiPanel = '<section class="monitor-panel"><div class="monitor-panel-head"><h3>AI-assisted summary</h3></div>'
+    + '<p class="monitor-muted">Biometrics-specific AI summaries are not enabled on this page. Use DeepTwin or Protocol Studio with patient context; all outputs remain drafts pending clinician review.</p>'
+    + '</section>';
+
+  var evidencePanel = '<section class="monitor-panel"><div class="monitor-panel-head"><h3>Evidence &amp; governance</h3></div>'
+    + '<p class="monitor-muted">Wearable metrics are consumer or research-grade unless sourced from a regulated device workflow. Evidence grades and citations are shown only when supplied by the evidence service \u2014 none are inferred here.</p>'
+    + '</section>';
+
+  var caseloadHint = '';
+  if (live && live.kpis && typeof live.kpis.red === 'number') {
+    caseloadHint = '<p class="monitor-muted">Caseload snapshot: ' + esc(live.kpis.red) + ' high-priority review, '
+      + esc(live.kpis.orange + live.kpis.yellow) + ' elevated/watch. Open the <strong>Caseload overview</strong> tab for the full grid.</p>';
+  }
+
+  var detailBody = '';
+  if (!selId) {
+    detailBody = '<div class="monitor-empty-inline">Select a patient to load wearable connections, daily summaries, and alert flags.</div>';
+  } else if (loading) {
+    detailBody = '<div class="monitor-empty-inline" role="status">Loading wearable summary\u2026</div>';
+  } else if (err) {
+    detailBody = '<div class="monitor-empty-inline" role="alert">Could not load wearable data: ' + esc(err) + '</div>';
+  } else if (detail) {
+    detailBody = summaryStrip
+      + '<h4 class="monitor-subheading">Data availability</h4>' + renderMetricMatrix(detail.summaries)
+      + trendHint
+      + '<h4 class="monitor-subheading">Device connections</h4>' + connectionsPanel
+      + '<h4 class="monitor-subheading">Alert flags (review)</h4>' + alertsPanel
+      + '<h4 class="monitor-subheading">Readiness aggregate</h4>' + readinessBlock;
+  }
+
+  return demoBanner + clinDisclaimer
+    + '<section class="monitor-panel monitor-panel--patient"><div class="monitor-panel-head"><h2>Patient context</h2></div>'
+    + '<div class="monitor-patient-toolbar">'
+    + '<label class="monitor-field">Patient <select id="monitor-patient-select" class="monitor-select" aria-label="Select patient for biometrics">' + patientOpts + '</select></label>'
+    + '<label class="monitor-field">Window <select id="monitor-days-select" class="monitor-select" aria-label="Summary window in days">'
+    + [7, 14, 30, 90].map(function (d) { return '<option value="' + d + '"' + (Number(days) === d ? ' selected' : '') + '>' + d + ' days</option>'; }).join('')
+    + '</select></label>'
+    + '<button type="button" class="btn btn-sm btn-primary" id="monitor-refresh-btn">Refresh</button>'
+    + '<button type="button" class="btn btn-sm" id="monitor-clear-patient-btn">Clear</button>'
+    + '</div>'
+    + (s.patientsLoadError ? '<p class="monitor-inline-error" role="alert">' + esc(s.patientsLoadError) + '</p>' : '')
+    + caseloadHint
+    + '</section>'
+    + '<div class="monitor-main-grid"><div class="monitor-main-col">'
+    + '<section class="monitor-panel"><div class="monitor-panel-head"><h3>Clinic device connections (fleet)</h3></div>' + fleetPanel + '</section>'
+    + '<section class="monitor-panel"><div class="monitor-panel-head"><h3>Wearables &amp; biometrics</h3></div>' + detailBody + '</section>'
+    + quickLinks
+    + aiPanel
+    + evidencePanel
+    + '</div></div>';
+}
+
 /* ── Main render ───────────────────────────────────────────────────────────── */
 
 function render() {
@@ -582,7 +802,9 @@ function render() {
   if (!el) return;
 
   var tabBody = '';
-  if (s.tab === 'live') {
+  if (s.tab === 'biometrics') {
+    tabBody = renderBiometricsWorkspace(s);
+  } else if (s.tab === 'live') {
     tabBody = renderKpis(live) + `<div class="monitor-main-grid"><div class="monitor-main-col">${renderLive(live)}</div></div>`;
   } else if (s.tab === 'dq') {
     tabBody = `<div class="monitor-main-grid"><div class="monitor-main-col">${renderDq(dq)}</div></div>`;
@@ -602,16 +824,119 @@ function render() {
 
   el.innerHTML = `<div class="monitor-shell">
     <div class="monitor-hero">
-      <div><div class="monitor-kicker">Device management &amp; integrations</div><h1>Devices</h1><p>Central hub for all connected devices, integrations, and data sources.</p></div>
-      <div class="monitor-tabs" role="tablist">
-        <button class="monitor-tab ${s.tab === 'control-center' ? 'is-active' : ''}" onclick="window._monitorSetTab('control-center')">Control Center</button>
-        <button class="monitor-tab ${s.tab === 'live' ? 'is-active' : ''}" onclick="window._monitorSetTab('live')">Live Monitoring</button>
-        <button class="monitor-tab ${s.tab === 'dq' ? 'is-active' : ''}" onclick="window._monitorSetTab('dq')">Data Quality</button>
-        <button class="monitor-tab ${s.tab === 'wearables-workbench' ? 'is-active' : ''}" onclick="window._monitorSetTab('wearables-workbench')">Wearable Triage</button>
+      <div><div class="monitor-kicker">Biometrics &amp; monitoring</div><h1>Monitor</h1><p>Clinician-reviewed wearable metrics, device status, and operational alerts. Not continuous clinical surveillance or emergency monitoring unless your institution configures those workflows elsewhere.</p></div>
+      <div class="monitor-tabs" role="tablist" aria-label="Monitor sections">
+        <button type="button" role="tab" class="monitor-tab ${s.tab === 'biometrics' ? 'is-active' : ''}" aria-selected="${s.tab === 'biometrics'}" onclick="window._monitorSetTab('biometrics')">Biometrics Analyzer</button>
+        <button type="button" role="tab" class="monitor-tab ${s.tab === 'control-center' ? 'is-active' : ''}" aria-selected="${s.tab === 'control-center'}" onclick="window._monitorSetTab('control-center')">Integrations</button>
+        <button type="button" role="tab" class="monitor-tab ${s.tab === 'live' ? 'is-active' : ''}" aria-selected="${s.tab === 'live'}" onclick="window._monitorSetTab('live')">Caseload overview</button>
+        <button type="button" role="tab" class="monitor-tab ${s.tab === 'dq' ? 'is-active' : ''}" aria-selected="${s.tab === 'dq'}" onclick="window._monitorSetTab('dq')">Data quality</button>
+        <button type="button" role="tab" class="monitor-tab ${s.tab === 'wearables-workbench' ? 'is-active' : ''}" aria-selected="${s.tab === 'wearables-workbench'}" onclick="window._monitorSetTab('wearables-workbench')">Wearable triage</button>
       </div>
     </div>
     ${tabBody}
   </div>`;
+
+  if (s.tab === 'biometrics') {
+    queueMicrotask(function () { attachBiometricsListeners(s); });
+  }
+}
+
+function attachBiometricsListeners(s) {
+  var sel = document.getElementById('monitor-patient-select');
+  var daysSel = document.getElementById('monitor-days-select');
+  var refBtn = document.getElementById('monitor-refresh-btn');
+  var clrBtn = document.getElementById('monitor-clear-patient-btn');
+  if (sel) {
+    sel.addEventListener('change', function () {
+      var v = sel.value || '';
+      s.selectedPatientId = v || null;
+      window._selectedPatientId = v || null;
+      try {
+        if (v) sessionStorage.setItem('ds_pat_selected_id', v);
+        else sessionStorage.removeItem('ds_pat_selected_id');
+      } catch {}
+      loadPatientWearableDetail();
+    });
+  }
+  if (daysSel) {
+    daysSel.addEventListener('change', function () {
+      var d = parseInt(daysSel.value, 10);
+      s.patientWearableDays = Number.isFinite(d) ? d : 30;
+      loadPatientWearableDetail();
+    });
+  }
+  if (refBtn) {
+    refBtn.addEventListener('click', function () {
+      loadPatientWearableDetail();
+      loadFleetSnapshot();
+      try { api.postWearablesWorkbenchAuditEvent({ event: 'refresh', note: 'biometrics tab refresh' }); } catch {}
+    });
+  }
+  if (clrBtn) {
+    clrBtn.addEventListener('click', function () {
+      s.selectedPatientId = null;
+      window._selectedPatientId = null;
+      s.patientDetail = null;
+      try { sessionStorage.removeItem('ds_pat_selected_id'); } catch {}
+      if (sel) sel.value = '';
+      render();
+    });
+  }
+}
+
+async function loadPatientsList(opts) {
+  const skipRender = opts && opts.skipRender;
+  const s = state();
+  s.patientsLoadError = null;
+  try {
+    const rows = await api.listPatients({ limit: 200 });
+    var list = [];
+    if (Array.isArray(rows)) list = rows;
+    else if (rows && Array.isArray(rows.items)) list = rows.items;
+    else if (rows && Array.isArray(rows.patients)) list = rows.patients;
+    s.patientsList = list;
+    try { window[PATIENT_CACHE_KEY] = s.patientsList; } catch {}
+  } catch (e) {
+    s.patientsLoadError = (e && e.message) ? String(e.message) : 'Could not load patient roster';
+    s.patientsList = [];
+  }
+  if (!skipRender) render();
+}
+
+async function loadFleetSnapshot(opts) {
+  const skipRender = opts && opts.skipRender;
+  const s = state();
+  try {
+    const data = await api.monitorFleet();
+    if (data && Array.isArray(data.devices)) s.fleet = data;
+  } catch {}
+  if (!s.fleet) s.fleet = { devices: [] };
+  if (!skipRender) render();
+}
+
+async function loadPatientWearableDetail() {
+  const s = state();
+  const pid = s.selectedPatientId || window._selectedPatientId;
+  if (!pid) {
+    s.patientDetail = null;
+    s.patientDetailError = null;
+    s.patientDetailLoading = false;
+    render();
+    return;
+  }
+  s.patientDetailLoading = true;
+  s.patientDetailError = null;
+  render();
+  try {
+    const days = s.patientWearableDays || 30;
+    const data = await api.getPatientWearableSummary(pid, days);
+    s.patientDetail = data;
+  } catch (e) {
+    s.patientDetail = null;
+    s.patientDetailError = (e && e.message) ? String(e.message) : 'Request failed';
+  }
+  s.patientDetailLoading = false;
+  render();
 }
 
 /* ── Data loaders ──────────────────────────────────────────────────────────── */
@@ -695,13 +1020,14 @@ function connectLiveStream() {
 
 /* ── Page entry ────────────────────────────────────────────────────────────── */
 
-export async function pgMonitor(setTopbar) {
-  setTopbar('Devices', '<span class="monitor-topbar-pill">Control Center</span>');
+export async function pgMonitor(setTopbar, navigate) {
+  setTopbar('Monitor', '<span class="monitor-topbar-pill">Biometrics</span>');
   const s = state();
 
   // Apply preset from route redirects
   if (window._devicesPresetTab) {
-    s.tab = window._devicesPresetTab;
+    var preset = window._devicesPresetTab;
+    s.tab = VALID_TABS.has(preset) ? preset : 'control-center';
     delete window._devicesPresetTab;
   }
   if (window._devicesPresetCategory) {
@@ -710,8 +1036,18 @@ export async function pgMonitor(setTopbar) {
     delete window._devicesPresetCategory;
   }
 
+  try {
+    var storedPid = sessionStorage.getItem('ds_pat_selected_id');
+    if (storedPid && !s.selectedPatientId) {
+      s.selectedPatientId = storedPid;
+      window._selectedPatientId = storedPid;
+    }
+  } catch {}
+
   render();
   await Promise.all([loadLive(), loadIntegrations(), loadDq()]);
+  await Promise.all([loadPatientsList({ skipRender: true }), loadFleetSnapshot({ skipRender: true })]);
+  render();
   connectLiveStream();
 
   // Mount-time audit ping so the regulator trail shows the clinician
@@ -725,10 +1061,12 @@ export async function pgMonitor(setTopbar) {
   if (s.tab === 'wearables-workbench') {
     await loadWorkbench();
   }
+  if (s.tab === 'biometrics') {
+    await loadPatientWearableDetail();
+  }
 
   window._monitorSetTab = function (tab) {
-    var validTabs = new Set(['control-center', 'live', 'dq', 'wearables-workbench']);
-    s.tab = validTabs.has(tab) ? tab : 'control-center';
+    s.tab = VALID_TABS.has(tab) ? tab : 'biometrics';
     s.expandedCategory = null;
     localStorage.setItem(TAB_KEY, s.tab);
     render();
@@ -736,6 +1074,20 @@ export async function pgMonitor(setTopbar) {
       loadWorkbench();
       try { api.postWearablesWorkbenchAuditEvent({ event: 'tab_opened', note: 'wearables triage tab' }); } catch {}
     }
+    if (s.tab === 'biometrics') {
+      try { api.postWearablesWorkbenchAuditEvent({ event: 'tab_opened', note: 'biometrics analyzer tab' }); } catch {}
+      loadPatientWearableDetail();
+    }
+  };
+
+  window._monitorLink = function (page) {
+    var pid = s.selectedPatientId || window._selectedPatientId;
+    if (pid) {
+      window._selectedPatientId = pid;
+      window._profilePatientId = pid;
+    }
+    var nav = navigate || window._nav;
+    if (typeof nav === 'function') nav(page);
   };
 
   window._devicesExpandCategory = function (kind) {

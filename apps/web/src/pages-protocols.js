@@ -168,10 +168,12 @@ window._protOffLabelUseAcks = window._protOffLabelUseAcks || {};
 // =============================================================================
 // pgProtocolSearch — Browse, filter, and launch all protocols
 // =============================================================================
-export async function pgProtocolSearch(setTopbar, navigate) {
+// opts.mountEl — render into this element (e.g. Protocol Studio browse tab).
+//                 Defaults to #content for standalone route.
+export async function pgProtocolSearch(setTopbar, navigate, opts = {}) {
   setTopbar('Protocol Intelligence', '');
 
-  const el = document.getElementById('content');
+  const el = opts.mountEl || document.getElementById('content');
   if (!el) return;
   el.innerHTML = '<div class="prot-loading">Loading protocol library\u2026</div>';
 

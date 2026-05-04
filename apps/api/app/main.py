@@ -56,6 +56,7 @@ from app.routers.agent_billing_router import router as agent_billing_router
 from app.routers.finance_router import router as finance_router
 from app.routers.sessions_router import router as sessions_router
 from app.routers.treatment_courses_router import router as treatment_courses_router
+from app.routers.treatment_sessions_router import router as treatment_sessions_router
 from app.routers.treatment_courses_router import review_router as review_queue_router
 from app.routers.adverse_events_router import router as adverse_events_router
 from app.routers.population_analytics_router import router as population_analytics_router
@@ -76,6 +77,7 @@ from app.routers.home_device_portal_router import router as home_device_portal_r
 from app.routers.marketplace_router import router as marketplace_router
 from app.routers.marketplace_seller_router import router as marketplace_seller_router
 from app.routers.virtual_care_router import router as virtual_care_router
+from app.routers.video_assessment_router import router as video_assessment_router
 from app.routers.forms_router import router as forms_router
 from app.routers.medications_router import router as medications_router
 from app.routers.nutrition_analyzer_router import router as nutrition_analyzer_router
@@ -200,6 +202,7 @@ from app.routers.qeeg_analysis_router import router as qeeg_analysis_router
 from app.routers.qeeg_live_router import router as qeeg_live_router
 from app.routers.qeeg_copilot_router import router as qeeg_copilot_router
 from app.routers.qeeg_viz_router import router as qeeg_viz_router
+from app.routers.medication_analyzer_router import router as medication_analyzer_router
 from app.routers.mri_analysis_router import router as mri_analysis_router
 from app.routers.audio_analysis_router import router as audio_analysis_router
 from app.routers.fusion_router import router as fusion_router
@@ -442,6 +445,7 @@ app.include_router(telegram_router)
 app.include_router(chat_router)
 app.include_router(registries_router)
 app.include_router(treatment_courses_router)
+app.include_router(treatment_sessions_router)
 app.include_router(review_queue_router)
 app.include_router(adverse_events_router)
 app.include_router(population_analytics_router)
@@ -458,6 +462,7 @@ app.include_router(home_device_portal_router)
 app.include_router(marketplace_router)
 app.include_router(marketplace_seller_router)
 app.include_router(virtual_care_router)
+app.include_router(video_assessment_router)
 app.include_router(forms_router)
 app.include_router(medications_router)
 app.include_router(nutrition_analyzer_router)
@@ -777,6 +782,7 @@ app.include_router(qeeg_analysis_router)
 app.include_router(qeeg_live_router)
 app.include_router(qeeg_copilot_router)
 app.include_router(qeeg_viz_router)
+app.include_router(medication_analyzer_router)
 app.include_router(mri_analysis_router)
 app.include_router(audio_analysis_router)
 app.include_router(fusion_router)

@@ -1,0 +1,696 @@
+"""Video Assessments — guided motor capture + clinician review (MVP).
+
+Separate from Virtual Care ``video-analysis`` (engagement metrics). This router
+stores session JSON and optional raw video blobs under media storage.
+
+Endpoints
+---------
+POST   /api/v1/video-assessments/sessions
+GET    /api/v1/video-assessments/sessions/{id}
+PATCH  /api/v1/video-assessments/sessions/{id}
+POST   /api/v1/video-assessments/sessions/{id}/tasks/{task_id}/upload
+GET    /api/v1/video-assessments/sessions/{id}/tasks/{task_id}/video
+POST   /api/v1/video-assessments/sessions/{id}/finalize
+GET    /api/v1/video-assessments/sessions                  List sessions (scoped by role + optional patient_id)
+"""
+from __future__ import annotations
+
+import json
+import logging
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path as FsPath
+from typing import Any, Optional
+
+from fastapi import APIRouter, Depends, File, Path as PathParam, Query, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+
+from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role, require_patient_owner
+from app.database import get_db_session
+from app.errors import ApiServiceError
+from app.repositories.video_assessments import Patient, User, VideoAssessmentSession
+from app.repositories.audit import create_audit_event
+from app.repositories.patients import resolve_patient_clinic_id
+from app.services import media_storage
+from app.services.video_assessment_seed import (
+    PROTOCOL_NAME,
+    PROTOCOL_VERSION,
+    default_future_ai_placeholder,
+    default_summary,
+    default_tasks_payload,
+)
+from app.settings import get_settings
+
+_log = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/v1/video-assessments", tags=["Video Assessments"])
+
+_DEMO_PATIENT_ACTOR_ID = "actor-patient-demo"
+_DEMO_ALLOWED_ENVS = frozenset({"development", "test"})
+
+_MAX_TASK_VIDEO_BYTES = 120 * 1024 * 1024  # 120 MB per task clip
+_ALLOWED_VIDEO_MIME = frozenset({"video/webm", "video/mp4", "video/quicktime"})
+
+
+def _audit_va(
+    db: Session,
+    *,
+    actor: AuthenticatedActor,
+    action: str,
+    target_id: str,
+    note: str = "",
+) -> None:
+    """Best-effort PHI-safe audit (no video bytes in note)."""
+    now = datetime.now(timezone.utc)
+    event_id = f"video_assessment-{action}-{actor.actor_id}-{int(now.timestamp())}-{uuid.uuid4().hex[:8]}"
+    audit_role = actor.role if actor.role in {"guest", "clinician", "admin"} else "guest"
+    try:
+        create_audit_event(
+            db,
+            event_id=event_id,
+            target_id=target_id[:64],
+            target_type="video_assessment",
+            action=f"video_assessment.{action}",
+            role=audit_role,
+            actor_id=actor.actor_id,
+            note=(note or action)[:1024],
+            created_at=now.isoformat(),
+        )
+    except Exception:
+        _log.exception("video_assessment audit skipped")
+
+
+def _sessions_query_for_clinician(actor: AuthenticatedActor, db: Session):
+    """Join sessions to patient owning clinician's clinic for IDOR-safe listing."""
+    q = (
+        db.query(VideoAssessmentSession)
+        .join(Patient, Patient.id == VideoAssessmentSession.patient_id)
+        .join(User, User.id == Patient.clinician_id)
+    )
+    if actor.role in ("admin", "supervisor"):
+        return q
+    if not getattr(actor, "clinic_id", None):
+        return q.filter(VideoAssessmentSession.id.is_(None))
+    return q.filter(User.clinic_id == actor.clinic_id)
+
+
+def _require_patient(actor: AuthenticatedActor, db: Session) -> Patient:
+    """Patient or admin only; demo bypass in dev/test only (same as virtual_care)."""
+    if actor.role not in ("patient", "admin"):
+        raise ApiServiceError(
+            code="patient_role_required",
+            message="This action requires a patient account.",
+            status_code=403,
+        )
+    if actor.actor_id == _DEMO_PATIENT_ACTOR_ID:
+        from app.settings import get_settings as _gs
+
+        app_env = (getattr(_gs(), "app_env", None) or "production").lower()
+        if app_env not in _DEMO_ALLOWED_ENVS:
+            raise ApiServiceError(
+                code="demo_disabled",
+                message="Demo patient bypass is not available in this environment.",
+                status_code=403,
+            )
+        patient = db.query(Patient).filter(Patient.email == "patient@demo.com").first()
+        if patient:
+            return patient
+        raise ApiServiceError(code="patient_not_linked", message="No demo patient record found.", status_code=404)
+    user = db.query(User).filter_by(id=actor.actor_id).first()
+    if user is None:
+        raise ApiServiceError(code="not_found", message="User not found.", status_code=404)
+    patient = db.query(Patient).filter(Patient.email == user.email).first()
+    if patient is None:
+        raise ApiServiceError(
+            code="patient_not_linked",
+            message="No patient record linked to this user account.",
+            status_code=404,
+        )
+    return patient
+
+
+def _gate_session_patient(row: VideoAssessmentSession, patient: Patient) -> None:
+    if row.patient_id != patient.id:
+        raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
+
+
+def _gate_session_clinician(actor: AuthenticatedActor, row: VideoAssessmentSession, db: Session) -> None:
+    require_minimum_role(actor, "clinician")
+    exists, clinic_id = resolve_patient_clinic_id(db, row.patient_id)
+    if not exists:
+        raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
+    try:
+        require_patient_owner(actor, clinic_id)
+    except ApiServiceError as exc:
+        if exc.status_code == 403:
+            raise ApiServiceError(code="not_found", message="Session not found.", status_code=404) from exc
+        raise
+
+
+def _load_session_body(row: VideoAssessmentSession) -> dict[str, Any]:
+    try:
+        return json.loads(row.session_json or "{}")
+    except Exception:
+        return {}
+
+
+def _save_session_body(row: VideoAssessmentSession, body: dict[str, Any]) -> None:
+    row.session_json = json.dumps(body, separators=(",", ":"), default=str)
+    row.updated_at = datetime.now(timezone.utc)
+
+
+def _is_finalized(doc: dict[str, Any]) -> bool:
+    return str(doc.get("overall_status") or "") == "finalized"
+
+
+def _new_session_document(
+    *,
+    patient_id: str,
+    encounter_id: Optional[str],
+    consent: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    now = datetime.now(timezone.utc).isoformat()
+    consent_block = consent or {
+        "recording_consent": False,
+        "research_use_acknowledged": False,
+        "consent_version": "video_assessment_mvp_v1",
+        "consent_recorded_at": None,
+    }
+    return {
+        "id": str(uuid.uuid4()),
+        "patient_id": patient_id,
+        "encounter_id": encounter_id,
+        "protocol_name": PROTOCOL_NAME,
+        "protocol_version": PROTOCOL_VERSION,
+        "mode": "patient_capture",
+        "started_at": now,
+        "completed_at": None,
+        "overall_status": "in_progress",
+        "safety_flags": [],
+        "patient_consent": consent_block,
+        "clinical_context": {
+            "preset_id": "parkinsonism_followup",
+            "condition_label": "",
+            "custom_indication": "",
+            "set_at": now,
+        },
+        "tasks": default_tasks_payload(),
+        "summary": default_summary(),
+        "future_ai_metrics_placeholder": default_future_ai_placeholder(),
+    }
+
+
+def _merge_task_updates(stored_tasks: list[dict[str, Any]], updates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_id = {t["task_id"]: i for i, t in enumerate(stored_tasks)}
+    for patch in updates:
+        tid = patch.get("task_id")
+        if tid is None or tid not in by_id:
+            continue
+        i = by_id[tid]
+        base = dict(stored_tasks[i])
+        for k, v in patch.items():
+            if k == "task_id":
+                continue
+            base[k] = v
+        stored_tasks[i] = base
+    return stored_tasks
+
+
+def _recalc_summary(body: dict[str, Any]) -> None:
+    tasks = body.get("tasks") or []
+    completed = sum(
+        1
+        for t in tasks
+        if str(t.get("recording_status") or "") in ("recorded", "accepted")
+    )
+    skipped = sum(
+        1
+        for t in tasks
+        if str(t.get("recording_status") or "") in ("skipped", "unsafe_skipped")
+    )
+    safety = [t["task_id"] for t in tasks if t.get("unsafe_flag") or t.get("recording_status") == "unsafe_skipped"]
+    reviewed = sum(1 for t in tasks if (t.get("clinician_review") or {}).get("reviewed_at"))
+    need_repeat = sum(
+        1 for t in tasks if (t.get("clinician_review") or {}).get("repeat_needed") == "yes"
+    )
+    n = len(tasks) or 1
+    body["summary"] = body.get("summary") or {}
+    body["summary"]["tasks_completed"] = completed
+    body["summary"]["tasks_skipped"] = skipped
+    body["summary"]["tasks_needing_repeat"] = need_repeat
+    body["summary"]["review_completion_percent"] = int(round(100 * reviewed / n))
+    body["safety_flags"] = safety
+
+
+# core-schema-exempt: integration branch; migrate to core-schema in follow-up PR
+class PatientConsentIn(BaseModel):
+    """Acknowledgements stored on the session for research / audit trail."""
+
+    recording_consent: bool = False
+    research_use_acknowledged: bool = False
+    consent_version: str = Field(default="video_assessment_mvp_v1", max_length=64)
+
+
+# core-schema-exempt: integration branch; migrate to core-schema in follow-up PR
+class CreateSessionRequest(BaseModel):
+    encounter_id: Optional[str] = Field(None, max_length=64)
+    consent: Optional[PatientConsentIn] = None
+    # Virtual-care motor: condition preset (UI sends structured dict)
+    clinical_context: Optional[dict[str, Any]] = None
+
+
+# core-schema-exempt: integration branch; migrate to core-schema in follow-up PR
+class PatchSessionRequest(BaseModel):
+    """Merge into session document. When ``tasks`` is set, merge by task_id."""
+    mode: Optional[str] = None
+    overall_status: Optional[str] = None
+    completed_at: Optional[str] = None
+    safety_flags: Optional[list[str]] = None
+    summary: Optional[dict[str, Any]] = None
+    tasks: Optional[list[dict[str, Any]]] = None
+    future_ai_metrics_placeholder: Optional[dict[str, Any]] = None
+    patient_consent: Optional[dict[str, Any]] = None
+    clinical_context: Optional[dict[str, Any]] = None
+
+
+# core-schema-exempt: integration branch; migrate to core-schema in follow-up PR
+class SessionListItem(BaseModel):
+    id: str
+    patient_id: str
+    encounter_id: Optional[str] = None
+    protocol_name: str
+    protocol_version: str
+    overall_status: str
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    review_completion_percent: Optional[int] = None
+
+
+# core-schema-exempt: integration branch; migrate to core-schema in follow-up PR
+class SessionListResponse(BaseModel):
+    items: list[SessionListItem]
+    total: int
+
+
+def _list_item_from_row(row: VideoAssessmentSession) -> SessionListItem:
+    body = _load_session_body(row)
+    summ = body.get("summary") or {}
+    try:
+        pct = int(summ.get("review_completion_percent", 0)) if summ else None
+    except Exception:
+        pct = None
+    return SessionListItem(
+        id=row.id,
+        patient_id=row.patient_id,
+        encounter_id=row.encounter_id,
+        protocol_name=row.protocol_name,
+        protocol_version=row.protocol_version,
+        overall_status=row.overall_status,
+        created_at=row.created_at.isoformat() if row.created_at else None,
+        updated_at=row.updated_at.isoformat() if row.updated_at else None,
+        review_completion_percent=pct,
+    )
+
+
+@router.get("/sessions", response_model=SessionListResponse)
+def list_sessions(
+    patient_id: Optional[str] = Query(None, description="Filter to one patient (clinician; must be in your clinic)"),
+    limit: int = Query(50, ge=1, le=200),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> SessionListResponse:
+    """List video assessment sessions the caller may access."""
+    if actor.role == "patient":
+        patient = _require_patient(actor, db)
+        q = db.query(VideoAssessmentSession).filter(VideoAssessmentSession.patient_id == patient.id)
+    elif actor.role == "admin":
+        q = db.query(VideoAssessmentSession)
+    else:
+        require_minimum_role(actor, "clinician")
+        q = _sessions_query_for_clinician(actor, db)
+        if patient_id:
+            exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+            if not exists:
+                raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
+            try:
+                require_patient_owner(actor, clinic_id)
+            except ApiServiceError as exc:
+                if exc.status_code == 403:
+                    raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404) from exc
+                raise
+            q = q.filter(VideoAssessmentSession.patient_id == patient_id)
+
+    rows = (
+        q.order_by(VideoAssessmentSession.updated_at.desc())
+        .limit(limit)
+        .all()
+    )
+    items = [_list_item_from_row(r) for r in rows]
+    who = "admin" if actor.role == "admin" else ("patient" if actor.role == "patient" else "clinician")
+    _audit_va(
+        db,
+        actor=actor,
+        action="session_list",
+        target_id=actor.actor_id,
+        note=f"role={who} n={len(items)}" + (f" patient_filter={patient_id}" if patient_id else ""),
+    )
+    return SessionListResponse(items=items, total=len(items))
+
+
+@router.post("/sessions", status_code=201)
+def create_session(
+    body: CreateSessionRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    patient = _require_patient(actor, db)
+    consent_payload: Optional[dict[str, Any]] = None
+    if body.consent is not None:
+        consent_payload = body.consent.model_dump()
+        consent_payload["consent_recorded_at"] = datetime.now(timezone.utc).isoformat()
+    doc = _new_session_document(
+        patient_id=patient.id,
+        encounter_id=body.encounter_id,
+        consent=consent_payload,
+    )
+    if body.clinical_context is not None:
+        merged_cc = {**(doc.get("clinical_context") or {}), **body.clinical_context}
+        doc["clinical_context"] = merged_cc
+    sid = doc["id"]
+    row = VideoAssessmentSession(
+        id=sid,
+        patient_id=patient.id,
+        encounter_id=body.encounter_id,
+        protocol_name=PROTOCOL_NAME,
+        protocol_version=PROTOCOL_VERSION,
+        overall_status="in_progress",
+        session_json=json.dumps(doc, separators=(",", ":"), default=str),
+    )
+    row.updated_at = datetime.now(timezone.utc)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    _log.info("video_assessment session created id=%s patient=%s", sid, patient.id)
+    _audit_va(db, actor=actor, action="session_created", target_id=sid, note=f"patient_id={patient.id}")
+    return _load_session_body(row)
+
+
+@router.get("/sessions/{session_id}")
+def get_session(
+    session_id: str = PathParam(..., min_length=8),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    row = db.query(VideoAssessmentSession).filter(VideoAssessmentSession.id == session_id).first()
+    if row is None:
+        raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
+
+    if actor.role == "admin":
+        _audit_va(db, actor=actor, action="session_read", target_id=session_id, note="admin_json_fetch")
+    elif actor.role == "patient":
+        patient = _require_patient(actor, db)
+        _gate_session_patient(row, patient)
+        _audit_va(db, actor=actor, action="session_read", target_id=session_id, note="patient_json_fetch")
+    else:
+        _gate_session_clinician(actor, row, db)
+        _audit_va(db, actor=actor, action="session_read", target_id=session_id, note="clinician_json_fetch")
+
+    return _load_session_body(row)
+
+
+@router.patch("/sessions/{session_id}")
+def patch_session(
+    body: PatchSessionRequest,
+    session_id: str = PathParam(..., min_length=8),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    row = db.query(VideoAssessmentSession).filter(VideoAssessmentSession.id == session_id).first()
+    if row is None:
+        raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
+
+    if actor.role == "admin":
+        patient = None
+    elif actor.role == "patient":
+        patient = _require_patient(actor, db)
+        _gate_session_patient(row, patient)
+    else:
+        _gate_session_clinician(actor, row, db)
+
+    doc = _load_session_body(row)
+    if _is_finalized(doc):
+        raise ApiServiceError(
+            code="session_finalized",
+            message="This session is finalized and cannot be modified. Contact an administrator if a correction is required.",
+            status_code=409,
+        )
+    if body.patient_consent is not None:
+        doc["patient_consent"] = {**(doc.get("patient_consent") or {}), **body.patient_consent}
+    if body.clinical_context is not None:
+        doc["clinical_context"] = {**(doc.get("clinical_context") or {}), **body.clinical_context}
+    if body.mode is not None:
+        doc["mode"] = body.mode
+    if body.overall_status is not None:
+        doc["overall_status"] = body.overall_status
+        row.overall_status = body.overall_status
+    if body.completed_at is not None:
+        doc["completed_at"] = body.completed_at
+    if body.safety_flags is not None:
+        doc["safety_flags"] = body.safety_flags
+    if body.summary is not None:
+        doc["summary"] = {**(doc.get("summary") or {}), **body.summary}
+    if body.future_ai_metrics_placeholder is not None:
+        doc["future_ai_metrics_placeholder"] = body.future_ai_metrics_placeholder
+    if body.tasks is not None:
+        doc["tasks"] = _merge_task_updates(doc.get("tasks") or [], body.tasks)
+    _recalc_summary(doc)
+    _save_session_body(row, doc)
+    db.commit()
+    role_note = "patient" if actor.role == "patient" else ("admin" if actor.role == "admin" else "clinician")
+    _audit_va(db, actor=actor, action="session_patched", target_id=session_id, note=f"{role_note}_update")
+    return doc
+
+
+def _va_storage_dir(patient_id: str, session_id: str) -> FsPath:
+    root = FsPath(get_settings().media_storage_root)
+    d = root / "video_assessments" / patient_id / session_id
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+@router.post("/sessions/{session_id}/tasks/{task_id}/upload", status_code=201)
+async def upload_task_video(
+    session_id: str = PathParam(..., min_length=8),
+    task_id: str = PathParam(..., min_length=2),
+    file: UploadFile = File(...),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Patient uploads a single task clip; stored on disk under media root."""
+    patient = _require_patient(actor, db)
+    row = db.query(VideoAssessmentSession).filter(VideoAssessmentSession.id == session_id).first()
+    if row is None:
+        raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
+    _gate_session_patient(row, patient)
+
+    doc_pre = _load_session_body(row)
+    if _is_finalized(doc_pre):
+        raise ApiServiceError(
+            code="session_finalized",
+            message="Session is finalized; uploads are disabled.",
+            status_code=409,
+        )
+
+    mime = (file.content_type or "").split(";")[0].strip().lower()
+    if mime not in _ALLOWED_VIDEO_MIME:
+        raise ApiServiceError(
+            code="invalid_mime_type",
+            message=f"Video MIME '{file.content_type}' is not allowed.",
+            status_code=422,
+        )
+    raw = await file.read()
+    if not raw:
+        raise ApiServiceError(code="empty_file", message="Empty upload.", status_code=422)
+    if len(raw) > _MAX_TASK_VIDEO_BYTES:
+        raise ApiServiceError(code="file_too_large", message="Clip exceeds size limit.", status_code=422)
+    if not media_storage.looks_like_video(raw[:65536]):
+        raise ApiServiceError(
+            code="invalid_file_content",
+            message="Bytes do not match a known video container.",
+            status_code=422,
+        )
+
+    ext = ".webm"
+    if mime == "video/mp4":
+        ext = ".mp4"
+    elif mime == "video/quicktime":
+        ext = ".mov"
+
+    rid = str(uuid.uuid4())
+    out_dir = _va_storage_dir(patient.id, session_id)
+    rel_ref = f"video_assessments/{patient.id}/{session_id}/{task_id}_{rid}{ext}"
+    abs_path = FsPath(get_settings().media_storage_root) / rel_ref
+    abs_path.parent.mkdir(parents=True, exist_ok=True)
+    abs_path.write_bytes(raw)
+
+    doc = _load_session_body(row)
+    tasks = doc.get("tasks") or []
+    merged = _merge_task_updates(
+        tasks,
+        [
+            {
+                "task_id": task_id,
+                "recording_asset_id": rid,
+                "recording_storage_ref": rel_ref.replace("\\", "/"),
+                "recording_status": "accepted",
+            }
+        ],
+    )
+    doc["tasks"] = merged
+    _recalc_summary(doc)
+    _save_session_body(row, doc)
+    row.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    _audit_va(
+        db,
+        actor=actor,
+        action="task_video_uploaded",
+        target_id=session_id,
+        note=f"task_id={task_id} bytes={len(raw)} asset={rid}",
+    )
+    return {"recording_asset_id": rid, "recording_storage_ref": rel_ref.replace("\\", "/"), "session": doc}
+
+
+@router.get("/sessions/{session_id}/tasks/{task_id}/video")
+def stream_task_video(
+    session_id: str = PathParam(..., min_length=8),
+    task_id: str = PathParam(..., min_length=2),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    row = db.query(VideoAssessmentSession).filter(VideoAssessmentSession.id == session_id).first()
+    if row is None:
+        raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
+
+    if actor.role == "admin":
+        pass
+    elif actor.role == "patient":
+        patient = _require_patient(actor, db)
+        _gate_session_patient(row, patient)
+    else:
+        _gate_session_clinician(actor, row, db)
+
+    doc = _load_session_body(row)
+    ref = None
+    for t in doc.get("tasks") or []:
+        if t.get("task_id") == task_id:
+            ref = t.get("recording_storage_ref")
+            break
+    if not ref:
+        raise ApiServiceError(code="no_recording", message="No recording for this task.", status_code=404)
+
+    root = FsPath(get_settings().media_storage_root)
+    path = (root / ref).resolve()
+    try:
+        path.relative_to(root.resolve())
+    except ValueError as exc:
+        raise ApiServiceError(code="invalid_path", message="Invalid storage reference.", status_code=400) from exc
+    if not path.is_file():
+        raise ApiServiceError(code="not_found", message="Recording file missing.", status_code=404)
+
+    mime = "video/webm"
+    if path.suffix.lower() == ".mp4":
+        mime = "video/mp4"
+    elif path.suffix.lower() == ".mov":
+        mime = "video/quicktime"
+    _audit_va(db, actor=actor, action="task_video_viewed", target_id=session_id, note=f"task_id={task_id}")
+    return FileResponse(path, media_type=mime)
+
+
+# core-schema-exempt: integration branch; migrate to core-schema in follow-up PR
+class FinalizeRequest(BaseModel):
+    """Optional final impression fields stored in summary."""
+    clinician_impression: Optional[str] = None
+    recommended_followup: Optional[str] = None
+
+
+@router.post("/sessions/{session_id}/finalize")
+def finalize_session(
+    body: FinalizeRequest,
+    session_id: str = PathParam(..., min_length=8),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    require_minimum_role(actor, "clinician")
+    row = db.query(VideoAssessmentSession).filter(VideoAssessmentSession.id == session_id).first()
+    if row is None:
+        raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
+    _gate_session_clinician(actor, row, db)
+
+    doc = _load_session_body(row)
+    if _is_finalized(doc):
+        raise ApiServiceError(
+            code="session_already_finalized",
+            message="Session was already finalized.",
+            status_code=409,
+        )
+    doc["overall_status"] = "finalized"
+    doc["completed_at"] = datetime.now(timezone.utc).isoformat()
+    row.overall_status = "finalized"
+    summ = doc.get("summary") or {}
+    if body.clinician_impression is not None:
+        summ["clinician_impression"] = body.clinician_impression
+    if body.recommended_followup is not None:
+        summ["recommended_followup"] = body.recommended_followup
+    doc["summary"] = summ
+    _recalc_summary(doc)
+    _save_session_body(row, doc)
+    db.commit()
+    _audit_va(db, actor=actor, action="session_finalized", target_id=session_id, note="review_complete")
+    return doc
+
+
+@router.get("/sessions/{session_id}/export.json")
+def export_session_json(
+    session_id: str = PathParam(..., min_length=8),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Research record export: full session JSON + export manifest (no raw video bytes).
+
+    Video clips remain server-side; ``recording_storage_ref`` references paths only.
+    """
+    row = db.query(VideoAssessmentSession).filter(VideoAssessmentSession.id == session_id).first()
+    if row is None:
+        raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
+
+    if actor.role == "admin":
+        pass
+    elif actor.role == "patient":
+        patient = _require_patient(actor, db)
+        _gate_session_patient(row, patient)
+    else:
+        require_minimum_role(actor, "clinician")
+        _gate_session_clinician(actor, row, db)
+
+    doc = _load_session_body(row)
+    now = datetime.now(timezone.utc).isoformat()
+    payload = {
+        "export_kind": "video_assessment_session",
+        "export_version": 1,
+        "exported_at": now,
+        "session": doc,
+        "disclaimer": (
+            "Structured observation data for clinician review and authorized research only. "
+            "Not a standalone diagnosis; interpret with clinical judgment and protocol IRB approval."
+        ),
+    }
+    _audit_va(db, actor=actor, action="session_export_json", target_id=session_id, note="research_bundle")
+    return JSONResponse(
+        content=payload,
+        headers={
+            "Content-Disposition": f'attachment; filename="video_assessment_{session_id}.json"',
+        },
+    )

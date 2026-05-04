@@ -10,6 +10,7 @@ import {
   buildReportFallbackContent,
   buildSchedulingSessionPayload,
   getScheduleTypeSubmission,
+  mapSessionsListQuery,
   mergeSavedReports,
   parsePatientNameForCreate,
 } from './beta-readiness-utils.js';
@@ -19,12 +20,20 @@ import {
   getAssessmentConfig,
 } from './assessment-forms.js';
 import { DOCUMENT_TEMPLATES, renderTemplate } from './documents-templates.js';
+import { documentsWorkspaceRouteFromSearch } from './documents-v2-route.js';
 import { SCALE_REGISTRY } from './registries/scale-assessment-registry.js';
 import { ASSESS_REGISTRY } from './registries/assess-instruments-registry.js';
 import { EVIDENCE_SUMMARY, CONDITION_EVIDENCE, getConditionEvidence } from './evidence-dataset.js';
 import { PROTOCOL_LIBRARY, CONDITIONS as PROTO_CONDITIONS, DEVICES as PROTO_DEVICES, getProtocolsByCondition } from './protocols-data.js';
 import { DEMO_PATIENT_ROSTER } from './patient-dashboard-helpers.js';
+import { canAccessPatientRegistry } from './patient-registry-access.js';
 import { VOICE_DECISION_SUPPORT_SHORT, voiceApiErrorToast } from './voice-decision-support.js';
+import {
+  assessmentDetailIdFromRow,
+  assessmentsSampleQueueAllowed,
+  DEMO_ASSESSMENTS_BANNER_MARK,
+  mapApiAssessmentToQueueRow,
+} from './assessments-hub-mapping.js';
 
 function shortMrn(p) {
   if (p?.mrn) return String(p.mrn);
@@ -289,8 +298,25 @@ export async function pgPatientHub(setTopbar, navigate) {
   // count comes from the API. No client-side slicing of a pre-fetched full
   // cohort, no fake aggregates, no placeholder onClicks.
   if (tab === 'patients') {
+    if (!canAccessPatientRegistry(currentUser)) {
+      setTopbar('Patients', '');
+      el.innerHTML = `
+      <div class="ch-shell">
+        <div class="ch-tab-bar">${tabBar()}</div>
+        <div class="ch-card" style="max-width:560px;margin:24px auto;padding:28px;text-align:center;border:1px solid var(--border);border-radius:14px;background:var(--bg-card)">
+          <div style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Patient registry requires a clinical account</div>
+          <p style="font-size:13px;line-height:1.5;color:var(--text-secondary);margin:0 0 18px">
+            This area lists identifiable clinic patients and is restricted to licensed clinical staff.
+            Sign in with a clinician or administrator account to continue.
+          </p>
+          <button type="button" class="btn btn-primary btn-sm" onclick="typeof window.showLogin==='function'&&window.showLogin()">Sign in</button>
+        </div>
+      </div>`;
+      return;
+    }
+
     const canAdd = ['clinician','admin','clinic-admin','supervisor'].includes(currentUser?.role);
-    const _twinBtn = '<button class="btn btn-sm btn-ghost" onclick="window._nav(\'deeptwin\')" title="Open the patient intelligence hub" style="margin-right:6px">🧠 DeepTwin</button>';
+    const _twinBtn = '<button class="btn btn-sm btn-ghost" onclick="window._nav(\'deeptwin\')" title="AI-assisted patient intelligence (decision support — requires clinician review)" style="margin-right:6px">🧠 DeepTwin</button>';
     setTopbar('Patients',
       _twinBtn + (canAdd
         ? '<button class="btn btn-primary btn-sm" onclick="window.showAddPatient()">+ Add patient</button>' +
@@ -417,14 +443,16 @@ export async function pgPatientHub(setTopbar, navigate) {
       const pid = esc(p?.id || '');
       const stop = 'event.stopPropagation();';
       return '<div class="ds-pt-actions" role="group" aria-label="Patient quick actions">' +
-        '<button type="button" class="ds-pt-action" data-action="start-session" title="Start session" aria-label="Start session" ' +
+        '<button type="button" class="ds-pt-action" data-action="open-chart" title="Open patient profile" aria-label="Open patient profile" ' +
+          'onclick="' + stop + 'window._phOpenChart(\'' + pid + '\')">📂</button>' +
+        '<button type="button" class="ds-pt-action" data-action="analytics" title="Patient analytics (decision support)" aria-label="Open analytics" ' +
+          'onclick="' + stop + 'window._phOpenAnalytics(\'' + pid + '\')">▤</button>' +
+        '<button type="button" class="ds-pt-action" data-action="start-session" title="Start or schedule session" aria-label="Start session" ' +
           'onclick="' + stop + 'window._phStartSession(\'' + pid + '\')">▶</button>' +
         '<button type="button" class="ds-pt-action" data-action="quick-note" title="Quick note" aria-label="Quick note" ' +
           'onclick="' + stop + 'window._phQuickNote(\'' + pid + '\')">✎</button>' +
-        '<button type="button" class="ds-pt-action" data-action="message" title="Message" aria-label="Message" ' +
+        '<button type="button" class="ds-pt-action" data-action="message" title="Message patient" aria-label="Message" ' +
           'onclick="' + stop + 'window._phMessage(\'' + pid + '\')">✉</button>' +
-        '<button type="button" class="ds-pt-action" data-action="open-chart" title="Open chart" aria-label="Open chart" ' +
-          'onclick="' + stop + 'window._phOpenChart(\'' + pid + '\')">📂</button>' +
       '</div>';
     }
 
@@ -645,11 +673,20 @@ export async function pgPatientHub(setTopbar, navigate) {
     // Current server response state (re-populated on every fetch).
     let _currentSummary = null;
     let _currentList = { items: [], total: 0 };
+    let _registrySummaryFailed = false;
+    let _registryListFailed = false;
+    let _registryUsingDemoData = false;
+
+    function _registryDemoMode() {
+      return import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
+    }
 
     async function fetchSummary() {
+      _registrySummaryFailed = false;
       try {
         _currentSummary = await api.getPatientsCohortSummary();
       } catch (err) {
+        _registrySummaryFailed = true;
         // Cohort summary is additive; if it 404s on older servers, fall back
         // to zeroed counts so the layout still renders.
         _currentSummary = {
@@ -666,8 +703,9 @@ export async function pgPatientHub(setTopbar, navigate) {
           },
         };
       }
-      // Demo mode: seed summary with plausible demo KPIs when API returns empty
-      const _demoOk = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
+      // Demo / preview: seed summary with sample KPIs only when the API
+      // returns empty and demo mode is on (not a substitute for real metrics).
+      const _demoOk = _registryDemoMode();
       if (_demoOk && _currentSummary && (_currentSummary.total === 0 || !_currentSummary.total)) {
         const n = DEMO_PATIENT_ROSTER.length;
         const activeN = DEMO_PATIENT_ROSTER.filter(p => p.status === 'active').length;
@@ -696,14 +734,17 @@ export async function pgPatientHub(setTopbar, navigate) {
         limit: PAGE_SIZE,
         offset: Math.max(0, (s.page - 1) * PAGE_SIZE),
       };
+      _registryListFailed = false;
       try {
         _currentList = await api.listPatients(params);
       } catch (err) {
+        _registryListFailed = true;
         _currentList = { items: [], total: 0 };
       }
-      // Demo mode: seed with demo roster when API returns empty
-      const _demoOk = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
-      if (_demoOk && (!_currentList?.items?.length)) {
+      // Demo / preview: show labelled sample patients only when the API fails or returns empty.
+      const _demoOk = _registryDemoMode();
+      const empty = !(_currentList?.items?.length);
+      if (_demoOk && empty) {
         _currentList = { items: [...DEMO_PATIENT_ROSTER], total: DEMO_PATIENT_ROSTER.length };
       }
     }
@@ -721,27 +762,78 @@ export async function pgPatientHub(setTopbar, navigate) {
       const activeCount = k.active_courses || 0;
       const delta7 = k.active_courses_delta_7d || 0;
       const responderPct = k.responder_rate_pct;
+      const demoHint = _registryUsingDemoData
+        ? '<div class="d2p7-kpi-demo-hint">Sample metrics — connect API for clinic data</div>'
+        : '';
       return (
         '<div class="d2p7-kpi"><div class="d2p7-kpi-lbl"><span class="dot"></span>Active course</div>' +
           '<div class="d2p7-kpi-num">' + activeCount + '</div>' +
           '<div class="d2p7-kpi-delta ' + (delta7>0?'up':'') + '">' +
             (delta7>0 ? ('↑ ' + delta7 + ' this week') : (activeCount ? (activeCount + ' active') : 'No active courses')) +
-          '</div></div>' +
+          '</div>' + demoHint + '</div>' +
         '<div class="d2p7-kpi"><div class="d2p7-kpi-lbl blue"><span class="dot"></span>Avg response (PHQ-9 Δ)</div>' +
           '<div class="d2p7-kpi-num">' + phqSigned + '<span class="unit">pts</span></div>' +
           '<div class="d2p7-kpi-delta ' + (phqVal && Number(phqVal)<0 ? 'up' : '') + '">' +
             (responderPct != null ? ('Responder rate ' + Math.round(responderPct) + '%')
                                   : (phqN ? (phqN + ' scored') : 'No data')) +
-          '</div></div>' +
+          '</div>' + demoHint + '</div>' +
         '<div class="d2p7-kpi"><div class="d2p7-kpi-lbl violet"><span class="dot"></span>Homework adherence</div>' +
           '<div class="d2p7-kpi-num">' + (adh != null ? Math.round(adh) : '—') + (adh != null ? '<span class="unit">%</span>' : '') + '</div>' +
-          '<div class="d2p7-kpi-delta">' + (adhN ? ('across ' + adhN + ' patients') : 'No data') + '</div></div>' +
+          '<div class="d2p7-kpi-delta">' + (adhN ? ('across ' + adhN + ' patients') : 'No data') + '</div>' + demoHint + '</div>' +
         '<div class="d2p7-kpi"><div class="d2p7-kpi-lbl amber"><span class="dot"></span>Needs follow-up</div>' +
           '<div class="d2p7-kpi-num">' + follow + '</div>' +
           '<div class="d2p7-kpi-delta ' + (followOver ? 'down' : '') + '">' +
-            (followOver ? (followOver + ' overdue >7d') : (follow ? 'On track' : 'All on track')) +
-          '</div></div>'
+            (followOver ? (followOver + ' overdue >7d') : (follow ? 'On track' : (_registryUsingDemoData ? 'No overdue (sample)' : 'None flagged'))) +
+          '</div>' + demoHint + '</div>'
       );
+    }
+
+    function renderRegistryAlertBanner() {
+      const host = document.getElementById('ds-pt-registry-banner');
+      if (!host) return;
+      if (_registryListFailed && _registrySummaryFailed && !_registryDemoMode()) {
+        host.innerHTML = '<div class="ds-pt-alert ds-pt-alert--error" role="alert">Could not load patient data. Check your connection and sign-in, then retry.</div>';
+        host.style.display = 'block';
+        return;
+      }
+      if (_registryUsingDemoData && _registryDemoMode()) {
+        host.innerHTML = '<div class="ds-pt-alert ds-pt-alert--demo" role="status">' +
+          '<strong>Preview data</strong> — roster and KPIs may be sample values. Sign in to the API for your clinic cohort. ' +
+          'This registry is for clinician review and navigation; it does not diagnose or approve treatment.</div>';
+        host.style.display = 'block';
+        return;
+      }
+      host.innerHTML = '';
+      host.style.display = 'none';
+    }
+
+    function patientUsesDemoContext(pid) {
+      const p = (_currentList?.items || []).find(x => x.id === pid);
+      return !!(_registryUsingDemoData || (p && isDemoSeed(p)));
+    }
+
+    function modLinksHtml(p) {
+      const pid = esc(p?.id || '');
+      const stop = 'event.stopPropagation();';
+      const hint = (_registryUsingDemoData || isDemoSeed(p)) ? ' — demo preview, clinician review required' : '';
+      function mk(page, label, audit) {
+        return '<button type="button" class="ds-pt-modlink" title="' + esc(label + hint) + '" ' +
+          'onclick="' + stop + 'window._phNavigatePatientModule(\'' + pid + '\',\'' + page + '\',\'' + audit + '\')">' +
+          esc(label) + '</button>';
+      }
+      return '<div class="ds-pt-modstrip" role="toolbar" aria-label="Linked modules">' +
+        mk('qeeg-analysis', 'qEEG', 'registry_open_qeeg') +
+        mk('mri-analysis', 'MRI', 'registry_open_mri') +
+        mk('video-assessments', 'Video', 'registry_open_video') +
+        mk('wearables', 'Bio', 'registry_open_wearables') +
+        mk('text-analyzer', 'Text', 'registry_open_text') +
+        mk('deeptwin', 'Twin', 'registry_open_deeptwin') +
+        mk('documents-v2', 'Docs', 'registry_open_documents') +
+        mk('schedule-v2', 'Sched', 'registry_open_schedule') +
+        mk('clinician-inbox', 'Inbox', 'registry_open_inbox') +
+        mk('protocol-studio', 'Protocol', 'registry_open_protocol') +
+        mk('assessments-v2', 'Assess', 'registry_open_assessments') +
+      '</div>';
     }
 
     function renderBreadcrumb() {
@@ -805,6 +897,7 @@ export async function pgPatientHub(setTopbar, navigate) {
       const density = window._phState.density === 'comfortable' ? 'comfortable' : 'compact';
       out.classList.toggle('ds-density-compact', density === 'compact');
       out.classList.toggle('ds-density-comfortable', density === 'comfortable');
+      renderRegistryAlertBanner();
       if (!items.length) {
         out.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary)">' +
           (window._phState.q || window._phState.status !== 'all' || window._phState.activeQuickFilter !== 'all'
@@ -827,9 +920,12 @@ export async function pgPatientHub(setTopbar, navigate) {
           // Inline action icons (4-icon strip) replace the previous open buttons,
           // but the 📂 icon still navigates to the original chart route — no
           // existing function lost. Demo patients render with seeded telemetry.
-          return '<div class="queue-row pt-row ds-pt-row' + (isFocused ? ' ds-pt-row--focus' : '') + '" data-row-idx="' + idx + '" data-pid="' + esc(p.id) + '" ' +
-            'style="grid-template-columns:1.8fr 1.1fr 1fr 1fr 1fr 160px" ' +
-            'onclick="window._phState.selectedRowIndex=' + idx + ';window._paPatientId=\'' + esc(p.id) + '\';window._selectedPatientId=\'' + esc(p.id) + '\';try{sessionStorage.setItem(\'ds_pat_selected_id\',\'' + esc(p.id) + '\')}catch(e){}window._nav(\'patient-analytics\')">' +
+          const highRisk = hasAdverseEvent(p) || p?.off_label_flag || p?.adverse_event_flag;
+          const rowExtra = (highRisk ? ' ds-pt-row--risk' : '') + (patientUsesDemoContext(p.id) ? ' ds-pt-row--democontext' : '');
+          return '<div class="ds-pt-patient-block' + (highRisk ? ' ds-pt-patient-block--risk' : '') + '">' +
+            '<div class="queue-row pt-row ds-pt-row' + rowExtra + (isFocused ? ' ds-pt-row--focus' : '') + '" data-row-idx="' + idx + '" data-pid="' + esc(p.id) + '" ' +
+            'style="grid-template-columns:1.8fr 1.1fr 1fr 1fr 1fr 200px" ' +
+            'onclick="window._phState.selectedRowIndex=' + idx + ';window._phState.selectedPatientId=\'' + esc(p.id) + '\';window._phOpenChart(\'' + esc(p.id) + '\')">' +
               '<div class="queue-pt"><div class="pt-av ' + av + '">' + esc(ini) + '</div>' +
                 '<div><div class="queue-pt-name">' + esc(name) + demoChip + (p.is_responder ? ' <span class="pl-responder-chip">Responder</span>' : '') + '</div>' +
                   '<div class="queue-pt-cond">' + statusPill(p) + '</div></div></div>' +
@@ -839,7 +935,9 @@ export async function pgPatientHub(setTopbar, navigate) {
               '<div>' + outcomeCell(p) + '</div>' +
               '<div>' + nextStepChip(p) + '</div>' +
               actionIcons(p) +
-            '</div>';
+            '</div>' +
+            '<div class="ds-pt-row-modules">' + modLinksHtml(p) + '</div>' +
+          '</div>';
         }).join('');
       }
 
@@ -870,6 +968,7 @@ export async function pgPatientHub(setTopbar, navigate) {
       const fr = document.getElementById('d2p7-filter-row');
       if (fr) fr.innerHTML = renderFilterRow();
       window._phRenderQuickFilters();
+      renderRegistryAlertBanner();
     }
 
     // Right-panel renderer: Today's Queue when nothing selected, otherwise a
@@ -892,12 +991,22 @@ export async function pgPatientHub(setTopbar, navigate) {
 
     async function refreshAll() {
       await Promise.all([fetchSummary(), fetchList()]);
+      _recomputeRegistryDemoFlag();
       renderHeader();
       renderList();
     }
 
+    function _recomputeRegistryDemoFlag() {
+      const items = _currentList?.items || [];
+      _registryUsingDemoData = _registryDemoMode() && (
+        _registryListFailed || _registrySummaryFailed ||
+        (items.length > 0 && items.every(p => isDemoSeed(p)))
+      );
+    }
+
     async function refreshListOnly() {
       await fetchList();
+      _recomputeRegistryDemoFlag();
       renderList();
     }
 
@@ -1008,7 +1117,7 @@ export async function pgPatientHub(setTopbar, navigate) {
         // Today scheduled but no session id surfaced — open the scheduling hub
         // for that patient. Better than a silent click.
         window._paPatientId = pid; window._selectedPatientId = pid;
-        if (typeof window._nav === 'function') { window._nav('scheduling-hub'); return; }
+        if (typeof window._nav === 'function') { window._nav(window._schedHubNavTarget || 'scheduling-hub'); return; }
       }
       // No session scheduled today — surface a visible toast naming the patient
       // so the click is never silent. The toast helper above guarantees a
@@ -1082,11 +1191,50 @@ export async function pgPatientHub(setTopbar, navigate) {
       window._selectedPatientId = pid;
       window._profilePatientId = pid;
       try { sessionStorage.setItem('ds_pat_selected_id', pid); } catch {}
+      if (typeof api?.recordPatientProfileAuditEvent === 'function') {
+        api.recordPatientProfileAuditEvent(pid, {
+          event: 'registry_open_profile',
+          note: 'patients-v2',
+          using_demo_data: patientUsesDemoContext(pid),
+        }).catch(() => {});
+      }
       if (typeof window._nav === 'function') {
         window._nav('patient-profile');
       } else {
         _phToast('Chart unavailable (demo)', 'info');
       }
+    };
+
+    window._phOpenAnalytics = (pid) => {
+      window._paPatientId = pid;
+      window._selectedPatientId = pid;
+      window._profilePatientId = pid;
+      try { sessionStorage.setItem('ds_pat_selected_id', pid); } catch {}
+      if (typeof api?.recordPatientProfileAuditEvent === 'function') {
+        api.recordPatientProfileAuditEvent(pid, {
+          event: 'registry_open_analytics',
+          note: 'patients-v2',
+          using_demo_data: patientUsesDemoContext(pid),
+        }).catch(() => {});
+      }
+      if (typeof window._nav === 'function') window._nav('patient-analytics');
+      else _phToast('Analytics unavailable', 'warn');
+    };
+
+    window._phNavigatePatientModule = (pid, page, auditEvent) => {
+      window._selectedPatientId = pid;
+      window._profilePatientId = pid;
+      try { sessionStorage.setItem('ds_pat_selected_id', pid); } catch {}
+      const ev = auditEvent || 'registry_drill_out';
+      if (typeof api?.recordPatientProfileAuditEvent === 'function') {
+        api.recordPatientProfileAuditEvent(pid, {
+          event: ev,
+          note: 'patients-v2 → ' + String(page || ''),
+          using_demo_data: patientUsesDemoContext(pid),
+        }).catch(() => {});
+      }
+      if (typeof window._nav === 'function') window._nav(page);
+      else _phToast('Navigation unavailable', 'warn');
     };
 
     // ── Shortcuts overlay ──────────────────────────────────────────────────
@@ -1240,6 +1388,18 @@ export async function pgPatientHub(setTopbar, navigate) {
         .d2p7-kpi-delta { font-size:11px; color:var(--text-tertiary); margin-top:8px; display:inline-flex; align-items:center; gap:4px; padding:2px 6px; border-radius:4px; background:rgba(255,255,255,0.04); }
         .d2p7-kpi-delta.up   { color:var(--green);  background:rgba(74,222,128,0.10); }
         .d2p7-kpi-delta.down { color:var(--amber);  background:rgba(255,181,71,0.10); }
+        .d2p7-kpi-demo-hint { font-size:10px; color:var(--text-tertiary); margin-top:8px; line-height:1.35; }
+
+        /* Registry alerts + patient blocks */
+        .ds-pt-alert { padding:10px 14px; border-radius:10px; font-size:12.5px; line-height:1.45; color:var(--text-secondary); }
+        .ds-pt-alert--demo { background:rgba(255,181,71,0.10); border:1px solid rgba(255,181,71,0.35); }
+        .ds-pt-alert--error { background:rgba(176,52,52,0.10); border:1px solid rgba(176,52,52,0.35); color:var(--text-primary); }
+        .ds-pt-patient-block { margin-bottom:10px; border:1px solid var(--border); border-radius:12px; overflow:hidden; background:var(--bg-surface); }
+        .ds-pt-patient-block--risk { border-color:rgba(224,72,128,0.45); }
+        .ds-pt-row-modules { padding:8px 10px 10px; border-top:1px solid var(--border); background:rgba(255,255,255,0.02); }
+        .ds-pt-modstrip { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+        .ds-pt-modlink { font-size:10.5px; padding:4px 8px; border-radius:6px; border:1px solid var(--border); background:transparent; color:var(--text-secondary); cursor:pointer; font-family:inherit; line-height:1.2; }
+        .ds-pt-modlink:hover { border-color:var(--teal); color:var(--text-primary); }
 
         /* Table card */
         .d2p7-card { background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:8px 16px 16px; }
@@ -1385,6 +1545,8 @@ export async function pgPatientHub(setTopbar, navigate) {
         <!-- Quick-filter chip row (above the cohort tabs / facets / search). -->
         <div id="ds-pt-quickfilters">${quickFilterChipsHtml()}</div>
 
+        <div id="ds-pt-registry-banner" style="display:none;margin-bottom:12px" aria-live="polite"></div>
+
         <!-- Status tabs + facet filters + density toggle + ? -->
         <div style="display:flex;gap:12px;margin-bottom:18px;align-items:center;flex-wrap:wrap">
           <div id="d2p7-tabrow" class="d2p7-tabrow"></div>
@@ -1403,7 +1565,7 @@ export async function pgPatientHub(setTopbar, navigate) {
         <div class="ds-pt-shell">
           <div class="d2p7-card">
             <div style="overflow-x:auto">
-              <div style="min-width:860px">
+              <div style="min-width:920px">
                 <div class="queue-row head" style="grid-template-columns:1.8fr 1.1fr 1fr 1fr 1fr 160px">
                   <div>Patient</div><div>Protocol</div><div>Progress</div><div>Last outcome</div><div>Next step</div><div></div>
                 </div>
@@ -3203,9 +3365,58 @@ export async function pgProtocolHub(setTopbar, navigate) {
       '.ps-state-approved{background:rgba(0,212,188,0.14);color:var(--dv2-teal,var(--teal))}' +
       '.ps-empty{padding:40px 20px;text-align:center;color:var(--text-tertiary);font-size:13px}' +
       '.ps-spin{display:inline-block;width:18px;height:18px;border:2px solid rgba(0,212,188,0.2);border-top-color:var(--dv2-teal,var(--teal));border-radius:50%;animation:ps-spin 0.7s linear infinite;vertical-align:middle;margin-right:6px}' +
-      '@keyframes ps-spin{to{transform:rotate(360deg)}}';
+      '@keyframes ps-spin{to{transform:rotate(360deg)}}' +
+      '.ps-hero{border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:16px;background:linear-gradient(135deg,rgba(0,212,188,0.06),rgba(14,22,40,0.35))}' +
+      '.ps-hero-title{font-family:var(--font-display,"Outfit",system-ui,sans-serif);font-size:17px;font-weight:600;margin:0 0 6px;letter-spacing:-0.02em;color:var(--text-primary)}' +
+      '.ps-hero-sub{font-size:12px;color:var(--text-secondary);line-height:1.55;margin:0;max-width:920px}' +
+      '.ps-quick-links{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}' +
+      '.ps-quick-links a,.ps-quick-links button{font-size:11.5px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-surface);color:var(--text-primary);cursor:pointer;font-family:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:4px}' +
+      '.ps-quick-links a:hover,.ps-quick-links button:hover{border-color:var(--dv2-teal,var(--teal));color:var(--dv2-teal,var(--teal))}' +
+      '.ps-patient-banner{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;padding:12px 14px;border-radius:10px;margin-bottom:14px;border:1px solid var(--border);background:rgba(245,158,11,0.06)}' +
+      '.ps-patient-banner.ps-patient-ok{background:rgba(0,212,188,0.06);border-color:rgba(0,212,188,0.22)}' +
+      '.ps-patient-banner strong{font-size:12px;display:block;margin-bottom:4px;color:var(--text-primary)}' +
+      '.ps-patient-banner span{font-size:11.5px;color:var(--text-secondary);line-height:1.45}' +
+      '.ps-role-banner{padding:10px 14px;border-radius:10px;margin-bottom:14px;font-size:12px;line-height:1.5;border:1px solid var(--border);background:rgba(74,158,255,0.06)}' +
+      '.ps-section-label{font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-tertiary);margin:14px 0 8px}' +
+      '.ps-checklist{font-size:11.5px;color:var(--text-secondary);line-height:1.65;margin:8px 0 0;padding-left:18px}' +
+      '.ps-checklist li{margin-bottom:4px}';
     document.head.appendChild(_st);
   }
+
+  // ── Access: authoring workspace is clinician/admin only (not patients) ───
+  const _role = currentUser?.role;
+  if (_role === 'patient') {
+    setTopbar('Protocol Studio', '');
+    el.innerHTML =
+      '<div class="ps-shell"><div class="ps-body">' +
+        '<div class="ps-hero"><h1 class="ps-hero-title">Clinician workspace</h1>' +
+        '<p class="ps-hero-sub">Protocol Studio is for licensed clinicians and clinic staff to draft and review neuromodulation protocols. Patient-facing programs are available under Virtual Care and your home portal.</p>' +
+        '<div class="ps-quick-links">' +
+          '<button type="button" onclick="window._nav(\'live-session\')">Virtual Care</button>' +
+          '<button type="button" onclick="window._nav(\'home\')">Dashboard</button>' +
+        '</div></div></div></div>';
+    return;
+  }
+
+  const _psCanAuthor = () => {
+    const r = currentUser?.role;
+    return r === 'clinician' || r === 'admin' || r === 'technician';
+  };
+
+  const _psContextPatientId = () =>
+    window._builderPatientId || window._selectedPatientId || window._profilePatientId || null;
+
+  const _psRecordStudioAudit = (event, note) => {
+    const pid = _psContextPatientId();
+    if (!pid || !api?.recordPatientProfileAuditEvent) return;
+    try {
+      api.recordPatientProfileAuditEvent(pid, {
+        event,
+        note: (note || '').slice(0, 480),
+        using_demo_data: !!(currentUser?.email && String(currentUser.email).toLowerCase().includes('demo')),
+      }).catch(() => {});
+    } catch { /* soft-fail */ }
+  };
 
   // ── State shared across wizard panels ──────────────────────────────────────
   window._psWizard = window._psWizard || { mode: null, result: null, saving: false, error: null };
@@ -3228,35 +3439,116 @@ export async function pgProtocolHub(setTopbar, navigate) {
   // ── Render result card from a ProtocolDraftResponse ───────────────────────
   function _renderResultCard(draft, extraHtml) {
     const contra = (draft.contraindications || []).filter(Boolean);
-    return '<div class="ps-result-card">' +
+    const mon = (draft.monitoring_plan || []).filter(Boolean);
+    const offLabel = !!draft.off_label_review_required;
+    const aiDraftNote = '<div class="ps-result-section" style="border-left:3px solid rgba(245,158,11,0.6);padding-left:10px;margin-top:10px">' +
+      '<strong>Status: </strong>AI-assisted draft — not treatment approval. Requires clinician review and sign-off before clinical use. Not diagnosis or autonomous prescribing.' +
+      (offLabel ? ' <strong>Off-label review required.</strong>' : '') +
+    '</div>';
+    const missingChecklist = (
+      '<div class="ps-section-label">Missing data checklist</div>' +
+      '<ul class="ps-checklist" aria-label="Missing clinical inputs">' +
+        '<li>Patient-specific imaging / qEEG (if brain-guided workflow)</li>' +
+        '<li>Current medications and seizure risk review</li>' +
+        '<li>Standardized assessments (PHQ-9, GAD-7, etc.) when applicable</li>' +
+        '<li>Implants / metal workup for magnetic modalities</li>' +
+      '</ul>'
+    );
+    const auditHint = '<div class="ps-result-section" style="font-size:11px;color:var(--text-tertiary);margin-top:8px">Governance events (save, review, export) are recorded in the clinic audit trail when you use a signed-in API session.</div>';
+    return '<div class="ps-result-card" role="region" aria-label="AI-assisted protocol draft">' +
       '<div class="ps-result-header">' +
-        '<span class="ps-result-title">Generated Protocol</span>' +
-        '<div style="display:flex;gap:6px">' +
+        '<span class="ps-result-title">AI-assisted draft (registry-backed)</span>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
           _gradeBadge(draft.evidence_grade) +
           _approvalBadge(draft.approval_status_badge) +
         '</div>' +
       '</div>' +
+      aiDraftNote +
       '<div class="ps-result-section"><strong>Rationale: </strong>' + esc(draft.rationale) + '</div>' +
-      '<div class="ps-result-section"><strong>Target Region: </strong>' + esc(draft.target_region) + '</div>' +
-      '<div class="ps-result-section"><strong>Session Frequency: </strong>' + esc(draft.session_frequency) + '</div>' +
+      '<div class="ps-result-section"><strong>Target region: </strong>' + esc(draft.target_region) + '</div>' +
+      '<div class="ps-result-section"><strong>Session frequency: </strong>' + esc(draft.session_frequency) + '</div>' +
       '<div class="ps-result-section"><strong>Duration: </strong>' + esc(draft.duration) + '</div>' +
-      (contra.length ? '<div class="ps-result-section"><strong>Contraindications: </strong>' + contra.map(c => esc(c)).join('; ') + '</div>' : '') +
+      (mon.length ? '<div class="ps-result-section"><strong>Safety / monitoring: </strong>' + mon.map(c => esc(c)).join('; ') + '</div>' : '') +
+      (contra.length ? '<div class="ps-result-section" style="color:#f59e0b"><strong>Contraindications / cautions: </strong>' + contra.map(c => esc(c)).join('; ') + '</div>' : '<div class="ps-result-section"><strong>Contraindications: </strong>None listed by rules — clinical review still required.</div>') +
       (extraHtml || '') +
+      missingChecklist +
       '<div class="ps-disclaimer">' +
-        esc((draft.disclaimers && draft.disclaimers.general_disclaimer) || 'For use by licensed clinicians only. Not a substitute for clinical judgment.') +
+        esc((draft.disclaimers && draft.disclaimers.general_disclaimer) || 'Decision-support draft only. Licensed clinician review required before any treatment planning.') +
       '</div>' +
+      auditHint +
       '<div class="ps-result-actions">' +
-        '<button class="ps-save-btn" id="ps-save-draft-btn" onclick="window._psSaveDraft()">Save as Draft</button>' +
-        '<button class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border)" onclick="window._nav(\'protocol-builder\')">Open in Builder</button>' +
+        '<button type="button" class="ps-save-btn" id="ps-save-draft-btn" onclick="window._psSaveDraft()"' + (_psCanAuthor() ? '' : ' disabled title="Clinician sign-in required"') + '>Save as draft</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border)" onclick="window._nav(\'protocol-builder\')"' + (_psCanAuthor() ? '' : ' disabled title="Clinician sign-in required"') + '>Open in builder</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border)" onclick="window._psExportProtocolDocx()" title="Requires clinician auth and render engine on API"' + (_psCanAuthor() ? '' : ' disabled title="Clinician sign-in required"') + '>Export protocol (.docx)</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border)" onclick="window._psExportHandbookDocx()" title="Requires clinician auth"' + (_psCanAuthor() ? '' : ' disabled title="Clinician sign-in required"') + '>Export handbook (.docx)</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border)" onclick="window._psExportPatientGuideDocx()" title="Requires clinician auth"' + (_psCanAuthor() ? '' : ' disabled title="Clinician sign-in required"') + '>Export patient guide (.docx)</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border)" onclick="window._psMarkReviewed()">Clinician review &amp; sign-off…</button>' +
       '</div>' +
     '</div>';
+  }
+
+  function _renderPatientBanner() {
+    const pid = _psContextPatientId();
+    if (!pid) {
+      return '<div class="ps-patient-banner" role="status">' +
+        '<div><strong>No patient in context</strong>' +
+        '<span>Select a patient from Patients or search in the sidebar to link drafts, exports, and audit events to a record.</span></div>' +
+        '<button type="button" class="ps-save-btn" style="font-size:11px;padding:5px 12px" onclick="window._nav(\'patients-v2\')">Open patients</button>' +
+      '</div>';
+    }
+    const nm = ((window._profilePatientName || '') + '').trim() || 'Patient';
+    const pidJs = JSON.stringify(pid);
+    return '<div class="ps-patient-banner ps-patient-ok" role="status">' +
+      '<div><strong>Patient context</strong>' +
+      '<span>' + esc(nm) + ' · ID <code style="font-size:10px">' + esc(pid) + '</code></span></div>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-left:auto">' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._selectedPatientId=' + pidJs + ';window._profilePatientId=' + pidJs + ';try{sessionStorage.setItem(\'ds_pat_selected_id\',' + pidJs + ')}catch(e){};window._nav(\'patient-profile\')">Profile</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._selectedPatientId=' + pidJs + ';window._nav(\'assessments-v2\')">Assessments</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._selectedPatientId=' + pidJs + ';window._nav(\'documents-v2\')">Documents</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._selectedPatientId=' + pidJs + ';window._nav(\'qeeg-analysis\')">qEEG</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._selectedPatientId=' + pidJs + ';window._nav(\'mri-analysis\')">MRI</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._selectedPatientId=' + pidJs + ';window._nav(\'video-assessments\')">Video</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._selectedPatientId=' + pidJs + ';window._nav(\'wearables\')">Biometrics</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._selectedPatientId=' + pidJs + ';window._nav(\'text-analyzer\')">Text</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._selectedPatientId=' + pidJs + ';window._nav(\'deeptwin\')">DeepTwin</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._nav(\'schedule-v2\')">Schedule</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._nav(\'clinician-inbox\')">Inbox</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._nav(\'audittrail\')">Audit trail</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function _renderClinicalShell(innerHtml) {
+    const hero =
+      '<div class="ps-hero">' +
+        '<h1 class="ps-hero-title">Protocol Studio</h1>' +
+        '<p class="ps-hero-sub">Clinician-reviewed protocol drafting and governance workspace. Use this surface to align indications, modalities, and evidence with clinic policy — not for autonomous diagnosis, prescribing, treatment approval, device control, or emergency triage. All AI-assisted output remains draft until your review and sign-off in your clinic workflow.</p>' +
+        '<div class="ps-quick-links" role="navigation" aria-label="Protocol Studio shortcuts">' +
+          '<a href="#" onclick="event.preventDefault();window._nav(\'research-evidence\')">Research evidence</a>' +
+          '<a href="#" onclick="event.preventDefault();window._nav(\'handbooks-v2\')">Handbooks</a>' +
+          '<a href="#" onclick="event.preventDefault();window._nav(\'protocol-builder-full\')">5-step wizard</a>' +
+        '</div>' +
+      '</div>';
+    const guestNote = (_role === 'guest')
+      ? '<div class="ps-role-banner" role="note">Signed in as guest — browse conditions and library patterns. Connect with a clinician account to generate drafts, save to the backend, and export documents.</div>'
+      : '';
+    return hero + guestNote + _renderPatientBanner() + innerHtml;
+  }
+
+  function _renderReadOnlyShell() {
+    return _renderClinicalShell(
+      '<div class="ps-empty" style="text-align:left;max-width:720px;margin:0 auto">' +
+        '<strong style="color:var(--text-primary);display:block;margin-bottom:8px">Browse-only mode</strong>' +
+        'Open <strong>Conditions</strong> or <strong>Browse Protocols</strong> to explore registry-backed entries. Sign in as a clinician to run AI-assisted drafts, save to My Drafts, and export documents.' +
+      '</div>'
+    );
   }
 
   // ── Tab 1: Conditions ──────────────────────────────────────────────────────
   async function _renderConditions() {
     const host = document.getElementById('ps-tab-content');
     if (!host) return;
-    host.innerHTML = '<div class="ps-empty"><span class="ps-spin"></span>Loading conditions...</div>';
+    host.innerHTML = _renderClinicalShell('<div class="ps-empty"><span class="ps-spin"></span>Loading conditions…</div>');
 
     let conditions = [];
     let errMsg = null;
@@ -3297,10 +3589,12 @@ export async function pgProtocolHub(setTopbar, navigate) {
         });
         errMsg = null;
       } else {
-        host.innerHTML = '<div class="ps-empty">' +
-          (errMsg ? ('Library unavailable: ' + esc(errMsg) + '<br>') : 'No conditions in registry.<br>') +
-          '<button class="ps-save-btn" style="margin-top:12px" onclick="window._nav(\'research-evidence\')">Open Research Evidence</button>' +
-        '</div>';
+        host.innerHTML = _renderClinicalShell(
+          '<div class="ps-empty">' +
+            (errMsg ? ('Library unavailable: ' + esc(errMsg) + '<br>') : 'No conditions in registry.<br>') +
+            '<button type="button" class="ps-save-btn" style="margin-top:12px" onclick="window._nav(\'research-evidence\')">Open Research Evidence</button>' +
+          '</div>'
+        );
         return;
       }
     }
@@ -3339,8 +3633,8 @@ export async function pgProtocolHub(setTopbar, navigate) {
       };
       const eligBadge = (c) => {
         const elig = c.neuromod_eligible;
-        if (elig === true || elig === 1) return '<span class="ps-result-badge ps-badge-approved">Ready</span>';
-        return '<span class="ps-result-badge ps-badge-c">Needs Evidence</span>';
+        if (elig === true || elig === 1) return '<span class="ps-result-badge ps-badge-a">Registry evidence</span>';
+        return '<span class="ps-result-badge ps-badge-c">Limited / verify</span>';
       };
       return '<div class="ps-cond-grid">' +
         (rows.length ? rows.map(c => {
@@ -3362,8 +3656,8 @@ export async function pgProtocolHub(setTopbar, navigate) {
               (c.compatible_device_count ? '&#9679; ' + c.compatible_device_count + ' device' + (c.compatible_device_count !== 1 ? 's' : '') + '<br>' : '') +
             '</div>' +
             '<div class="ps-cond-actions">' +
-              '<button class="ps-save-btn" onclick="window._psCondToGenerate(\'' + esc(c.id) + '\',\'' + esc(c.name).replace(/'/g,'\\'+'\'') + '\')">Generate Protocol &#8594;</button>' +
-              ((c.reviewed_protocol_count || 0) > 0 ? '<button class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border)" onclick="window._psCondToBrowse(\'' + esc(c.id) + '\')">Browse &#8594;</button>' : '') +
+              '<button type="button" class="ps-save-btn" onclick="window._psCondToGenerate(\'' + esc(c.id) + '\',\'' + esc(c.name).replace(/'/g,'\\'+'\'') + '\')">' + (_psCanAuthor() ? 'Open AI draft wizard →' : 'Open generator (view) →') + '</button>' +
+              ((c.reviewed_protocol_count || 0) > 0 ? '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border)" onclick="window._psCondToBrowse(\'' + esc(c.id) + '\')">Browse protocols →</button>' : '') +
             '</div>' +
           '</article>';
         }).join('') : '<div class="ps-empty" style="grid-column:1/-1">No conditions match.</div>') +
@@ -3374,15 +3668,16 @@ export async function pgProtocolHub(setTopbar, navigate) {
     const _totalEvPapers = EVIDENCE_SUMMARY?.totalPapers || 87000;
     const _totalEvTrials = EVIDENCE_SUMMARY?.totalTrials || 0;
 
-    host.innerHTML =
-      '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">' +
+    const kpiAndGrid =
+      '<p class="ps-hero-sub" style="margin:0 0 12px;font-size:11.5px">Curated library roll-up (registry + local evidence index). Not a patient-specific treatment recommendation.</p>' +
+      '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px" role="group" aria-label="Evidence library summary">' +
         '<div style="text-align:center;padding:10px 6px;border-radius:10px;background:rgba(0,212,188,0.06);border:1px solid rgba(0,212,188,0.12)">' +
           '<div style="font-family:var(--font-display);font-size:18px;font-weight:600;color:var(--dv2-teal,var(--teal));letter-spacing:-0.4px">' + (_totalEvPapers/1000).toFixed(0) + 'K</div>' +
-          '<div style="font-size:9.5px;color:var(--text-tertiary);text-transform:uppercase;font-weight:600;letter-spacing:0.4px;margin-top:2px">Papers</div>' +
+          '<div style="font-size:9.5px;color:var(--text-tertiary);text-transform:uppercase;font-weight:600;letter-spacing:0.4px;margin-top:2px">Papers (index)</div>' +
         '</div>' +
         '<div style="text-align:center;padding:10px 6px;border-radius:10px;background:rgba(74,158,255,0.06);border:1px solid rgba(74,158,255,0.12)">' +
           '<div style="font-family:var(--font-display);font-size:18px;font-weight:600;color:var(--blue);letter-spacing:-0.4px">' + _totalProtos + '</div>' +
-          '<div style="font-size:9.5px;color:var(--text-tertiary);text-transform:uppercase;font-weight:600;letter-spacing:0.4px;margin-top:2px">Protocols</div>' +
+          '<div style="font-size:9.5px;color:var(--text-tertiary);text-transform:uppercase;font-weight:600;letter-spacing:0.4px;margin-top:2px">Protocol patterns</div>' +
         '</div>' +
         '<div style="text-align:center;padding:10px 6px;border-radius:10px;background:rgba(155,127,255,0.06);border:1px solid rgba(155,127,255,0.12)">' +
           '<div style="font-family:var(--font-display);font-size:18px;font-weight:600;color:var(--violet);letter-spacing:-0.4px">' + conditions.length + '</div>' +
@@ -3390,18 +3685,19 @@ export async function pgProtocolHub(setTopbar, navigate) {
         '</div>' +
         '<div style="text-align:center;padding:10px 6px;border-radius:10px;background:rgba(255,181,71,0.06);border:1px solid rgba(255,181,71,0.12)">' +
           '<div style="font-family:var(--font-display);font-size:18px;font-weight:600;color:var(--amber);letter-spacing:-0.4px">' + _totalEvTrials.toLocaleString() + '</div>' +
-          '<div style="font-size:9.5px;color:var(--text-tertiary);text-transform:uppercase;font-weight:600;letter-spacing:0.4px;margin-top:2px">Trials</div>' +
+          '<div style="font-size:9.5px;color:var(--text-tertiary);text-transform:uppercase;font-weight:600;letter-spacing:0.4px;margin-top:2px">Trials (index)</div>' +
         '</div>' +
       '</div>' +
       '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">' +
         '<div style="position:relative;flex:1;min-width:180px;max-width:300px">' +
-          '<input type="search" placeholder="Search conditions..." class="ps-form-input" style="width:100%;box-sizing:border-box" id="ps-cond-search" value="' + esc(_q) + '" oninput="window._psCatSearch(this.value)">' +
+          '<input type="search" placeholder="Search conditions..." class="ps-form-input" style="width:100%;box-sizing:border-box" id="ps-cond-search" value="' + esc(_q) + '" aria-label="Search conditions" oninput="window._psCatSearch(this.value)">' +
         '</div>' +
-        '<div style="display:flex;gap:4px;flex-wrap:wrap">' + cats.map(cat =>
-          '<button class="reg-domain-pill' + (cat === _catFilt ? ' active' : '') + '" onclick="window._psCatFilter(\'' + esc(cat) + '\')">' + esc(cat) + '</button>'
+        '<div style="display:flex;gap:4px;flex-wrap:wrap" role="group" aria-label="Filter by category">' + cats.map(cat =>
+          '<button type="button" class="reg-domain-pill' + (cat === _catFilt ? ' active' : '') + '" onclick="window._psCatFilter(\'' + esc(cat) + '\')">' + esc(cat) + '</button>'
         ).join('') + '</div>' +
       '</div>' +
       '<div id="ps-cond-grid">' + _renderGrid() + '</div>';
+    host.innerHTML = _renderClinicalShell(kpiAndGrid);
 
     window._psCatFilter = (cat) => {
       _catFilt = cat;
@@ -3424,26 +3720,32 @@ export async function pgProtocolHub(setTopbar, navigate) {
     const host = document.getElementById('ps-tab-content');
     if (!host) return;
 
+    if (!_psCanAuthor()) {
+      host.innerHTML = _renderReadOnlyShell();
+      return;
+    }
+
     const prefill = _prefillCondition ? _prefillCondition.name : '';
     const prefillId = _prefillCondition ? _prefillCondition.id : '';
+    const defaultPat = _psContextPatientId() || '';
 
     // Card A = Evidence-Based AI
     const cardA = '<div class="ps-gen-card' + (W.mode === 'evidence' ? ' ps-gen-card--active' : '') + '" onclick="window._psOpenMode(\'evidence\')">' +
       '<div class="ps-gen-card-icon">&#129504;</div>' +
       '<div class="ps-gen-card-title">Evidence-Based AI</div>' +
-      '<div class="ps-gen-card-sub">Condition + modality + device + evidence threshold. Calls POST /api/v1/protocols/generate-draft.</div>' +
+      '<div class="ps-gen-card-sub">Registry-aligned AI-assisted draft from indication + modality + evidence tier (POST /api/v1/protocols/generate-draft). Not a treatment order.</div>' +
     '</div>';
     // Card B = Brain Scan Guided
     const cardB = '<div class="ps-gen-card' + (W.mode === 'brainscan' ? ' ps-gen-card--active' : '') + '" onclick="window._psOpenMode(\'brainscan\')">' +
       '<div class="ps-gen-card-icon">&#129504;</div>' +
       '<div class="ps-gen-card-title">Brain Scan Guided</div>' +
-      '<div class="ps-gen-card-sub">qEEG / fMRI / NIRS data drives montage selection. Calls POST /api/v1/protocols/generate-brain-scan.</div>' +
+      '<div class="ps-gen-card-sub">Structured draft using imaging modality hints — link real scans under patient analyzers (POST /api/v1/protocols/generate-brain-scan).</div>' +
     '</div>';
     // Card C = Personalized
     const cardC = '<div class="ps-gen-card' + (W.mode === 'personalized' ? ' ps-gen-card--active' : '') + '" onclick="window._psOpenMode(\'personalized\')">' +
       '<div class="ps-gen-card-icon">&#129300;</div>' +
       '<div class="ps-gen-card-title">Personalized Protocol</div>' +
-      '<div class="ps-gen-card-sub">PHQ-9, GAD-7, MoCA, chronotype. Calls POST /api/v1/protocols/generate-personalized.</div>' +
+      '<div class="ps-gen-card-sub">Scores adjust narrative emphasis only — still draft until clinician review (POST /api/v1/protocols/generate-personalized).</div>' +
     '</div>';
 
     let wizardPanel = '';
@@ -3487,8 +3789,8 @@ export async function pgProtocolHub(setTopbar, navigate) {
         '</div>' +
         (W.error ? '<div style="color:#ef4444;font-size:12px;margin-bottom:10px">' + esc(W.error) + '</div>' : '') +
         (W.mode === 'evidence' && W.result ? _renderResultCard(W.result, '') : '') +
-        '<button class="ps-save-btn" id="ps-ev-generate-btn" onclick="window._psGenerateEvidence()">' +
-          (W.saving ? '<span class="ps-spin"></span>Generating...' : 'Generate Protocol') +
+        '<button type="button" class="ps-save-btn" id="ps-ev-generate-btn" onclick="window._psGenerateEvidence()">' +
+          (W.saving ? '<span class="ps-spin"></span>Drafting...' : 'Generate AI-assisted draft') +
         '</button>' +
       '</div>';
     } else if (W.mode === 'brainscan') {
@@ -3534,8 +3836,8 @@ export async function pgProtocolHub(setTopbar, navigate) {
           '<div class="ps-result-section"><strong>Scan Guidance: </strong>' + esc(W.result.scan_guidance || '') + '</div>' +
           '<div class="ps-result-section"><strong>Marker Adjustment: </strong>' + esc(W.result.marker_adjustment || '') + '</div>'
         ) : '') +
-        '<button class="ps-save-btn" id="ps-bs-generate-btn" onclick="window._psGenerateBrainScan()">' +
-          (W.saving ? '<span class="ps-spin"></span>Generating...' : 'Generate Protocol') +
+        '<button type="button" class="ps-save-btn" id="ps-bs-generate-btn" onclick="window._psGenerateBrainScan()">' +
+          (W.saving ? '<span class="ps-spin"></span>Drafting...' : 'Generate AI-assisted draft') +
         '</button>' +
       '</div>';
     } else if (W.mode === 'personalized') {
@@ -3548,7 +3850,7 @@ export async function pgProtocolHub(setTopbar, navigate) {
           '</div>' +
           '<div class="ps-form-group">' +
             '<label class="ps-form-label">Patient ID</label>' +
-            '<input class="ps-form-input" id="ps-pe-patient" type="text" placeholder="Patient ID or &quot;Demo Patient&quot;" value="demo">' +
+            '<input class="ps-form-input" id="ps-pe-patient" type="text" placeholder="Patient UUID from roster" value="' + esc(defaultPat || '') + '">' +
           '</div>' +
         '</div>' +
         '<div class="ps-form-row">' +
@@ -3594,36 +3896,41 @@ export async function pgProtocolHub(setTopbar, navigate) {
         (W.mode === 'personalized' && W.result ? _renderResultCard(W.result,
           '<div class="ps-result-section"><strong>Personalization Rationale: </strong>' + esc(W.result.personalization_rationale || '') + '</div>'
         ) : '') +
-        '<button class="ps-save-btn" id="ps-pe-generate-btn" onclick="window._psGeneratePersonalized()">' +
-          (W.saving ? '<span class="ps-spin"></span>Generating...' : 'Generate Protocol') +
+        '<button type="button" class="ps-save-btn" id="ps-pe-generate-btn" onclick="window._psGeneratePersonalized()">' +
+          (W.saving ? '<span class="ps-spin"></span>Drafting...' : 'Generate AI-assisted draft') +
         '</button>' +
       '</div>';
     }
 
-    host.innerHTML =
-      '<div style="margin-bottom:6px;font-size:12px;color:var(--text-tertiary)">Choose a generation mode to open the wizard:</div>' +
-      '<div class="ps-gen-cards">' + cardA + cardB + cardC + '</div>' +
+    const cardsAndWizard =
+      '<div style="margin-bottom:6px;font-size:12px;color:var(--text-tertiary)">Choose a generator — outputs are <strong>drafts</strong> for clinician review, not prescriptions or device approvals.</div>' +
+      '<div class="ps-gen-cards" role="group" aria-label="Protocol draft generators">' + cardA + cardB + cardC + '</div>' +
       wizardPanel;
+    host.innerHTML = _renderClinicalShell(cardsAndWizard);
   }
 
   // ── Tab 3: Browse ──────────────────────────────────────────────────────────
   async function _renderBrowse() {
     const host = document.getElementById('ps-tab-content');
     if (!host) return;
-    host.innerHTML = '<div class="ps-empty"><span class="ps-spin"></span>Loading protocol library...</div>';
-    // Lazy-import pgProtocolSearch and run it in a sub-container
+    host.innerHTML = _renderClinicalShell(
+      '<div id="ps-prot-browse-mount"><div class="ps-empty"><span class="ps-spin"></span>Loading protocol library…</div></div>'
+    );
+    const mountEl = document.getElementById('ps-prot-browse-mount');
+    if (!mountEl) return;
     try {
       const m = await import('./pages-protocols.js');
       if (typeof m.pgProtocolSearch === 'function') {
         await m.pgProtocolSearch(
           () => {},  // suppress topbar changes from inner call
           navigate,
+          { mountEl },
         );
       } else {
-        host.innerHTML = '<div class="ps-empty">Protocol search module unavailable.</div>';
+        host.innerHTML = _renderClinicalShell('<div class="ps-empty">Protocol search module unavailable.</div>');
       }
     } catch (e) {
-      host.innerHTML = '<div class="ps-empty">Could not load protocol browser: ' + esc(e?.message || 'error') + '</div>';
+      host.innerHTML = _renderClinicalShell('<div class="ps-empty">Could not load protocol browser: ' + esc(e?.message || 'error') + '</div>');
     }
   }
 
@@ -3631,7 +3938,11 @@ export async function pgProtocolHub(setTopbar, navigate) {
   async function _renderDrafts() {
     const host = document.getElementById('ps-tab-content');
     if (!host) return;
-    host.innerHTML = '<div class="ps-empty"><span class="ps-spin"></span>Loading drafts...</div>';
+    if (!_psCanAuthor()) {
+      host.innerHTML = _renderReadOnlyShell();
+      return;
+    }
+    host.innerHTML = _renderClinicalShell('<div class="ps-empty"><span class="ps-spin"></span>Loading drafts…</div>');
     let items = [];
     let err = null;
     try {
@@ -3640,32 +3951,46 @@ export async function pgProtocolHub(setTopbar, navigate) {
     } catch (e) { err = e?.message || 'endpoint error'; }
 
     if (err) {
-      host.innerHTML = '<div class="ps-empty">Could not load drafts: ' + esc(err) + '<br><button class="ps-save-btn" style="margin-top:10px" onclick="window._psRenderCurrentTab()">Retry</button></div>';
+      host.innerHTML = _renderClinicalShell(
+        '<div class="ps-empty">Could not load drafts: ' + esc(err) + '<br><button type="button" class="ps-save-btn" style="margin-top:10px" onclick="window._psRenderCurrentTab()">Retry</button></div>'
+      );
       return;
     }
     if (!items.length) {
-      host.innerHTML = '<div class="ps-empty">No saved protocol drafts yet.<br>Generate a protocol and click "Save as Draft" to see it here.</div>';
+      host.innerHTML = _renderClinicalShell(
+        '<div class="ps-empty">No saved protocol drafts yet.<br>Generate an AI-assisted draft, save it while a patient is in context, or open the builder.</div>'
+      );
       return;
     }
 
-    const _stateClass = (s) => s === 'approved' ? 'ps-state-approved' : s === 'submitted' ? 'ps-state-submitted' : 'ps-state-draft';
-    host.innerHTML =
-      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">' +
+    const _govLabel = (s) => {
+      const x = String(s || 'draft').toLowerCase();
+      if (x === 'approved') return 'Signed / final (workspace)';
+      if (x === 'submitted') return 'Submitted for review';
+      if (x === 'rejected') return 'Rejected';
+      return 'Draft';
+    };
+    const listHtml =
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">' +
         '<span style="font-size:13px;font-weight:600">' + items.length + ' saved draft' + (items.length !== 1 ? 's' : '') + '</span>' +
-        '<button class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:4px 10px" onclick="window._psRenderCurrentTab()">&#8635; Refresh</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:4px 10px" onclick="window._psRenderCurrentTab()">Refresh</button>' +
       '</div>' +
+      '<p class="ps-hero-sub" style="margin:0 0 12px;font-size:11.5px">Governance states mirror saved protocol metadata — formal sign-off follows your clinic policy.</p>' +
       '<div class="ps-drafts-list">' + items.map(d => {
         const proto = d.parameters_json || {};
         const date = d.created_at ? new Date(d.created_at).toLocaleDateString() : '';
+        const aiTag = proto.ai_assisted ? '<span class="ps-result-badge ps-badge-draft">AI-assisted</span>' : '';
         return '<div class="ps-draft-row">' +
           '<div style="flex:1;min-width:0">' +
             '<div class="ps-draft-name">' + esc(d.name || d.condition || 'Draft') + '</div>' +
             '<div class="ps-draft-meta">' + esc(d.condition || '') + (d.device_slug ? ' \u00B7 ' + esc(d.device_slug) : '') + (date ? ' \u00B7 ' + date : '') + '</div>' +
           '</div>' +
-          _stateBadge(d.governance_state) +
-          '<button class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:4px 10px;flex-shrink:0" onclick="window._psOpenInBuilder(\'' + esc(d.id) + '\')">Open in Builder</button>' +
+          aiTag +
+          '<span class="ps-state-badge ' + (d.governance_state === 'approved' ? 'ps-state-approved' : d.governance_state === 'submitted' ? 'ps-state-submitted' : 'ps-state-draft') + '">' + esc(_govLabel(d.governance_state)) + '</span>' +
+          '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:4px 10px;flex-shrink:0" onclick="window._psOpenInBuilder(\'' + esc(d.id) + '\')">Open in builder</button>' +
         '</div>';
       }).join('') + '</div>';
+    host.innerHTML = _renderClinicalShell(listHtml);
   }
 
   // ── Tab switcher ───────────────────────────────────────────────────────────
@@ -3762,6 +4087,14 @@ export async function pgProtocolHub(setTopbar, navigate) {
       };
       W.result = await api.generateProtocol(payload);
       W.error = null;
+      window._psLastGenPayload = {
+        kind: 'evidence',
+        condition: payload.condition,
+        modality: modality,
+        device: payload.device || '',
+        evidence_threshold: payload.evidence_threshold,
+        off_label: payload.off_label,
+      };
     } catch (e) { W.error = e?.message || 'Generation failed.'; }
     W.saving = false;
     _renderGenerate();
@@ -3790,6 +4123,19 @@ export async function pgProtocolHub(setTopbar, navigate) {
       };
       W.result = await api.generateBrainScanProtocol(payload);
       W.error = null;
+      const scanMod = (
+        { qEEG: 'tDCS', EEG: 'tDCS', fMRI: 'rTMS', NIRS: 'tDCS' }[payload.scan_type] || 'tDCS'
+      );
+      window._psLastGenPayload = {
+        kind: 'brainscan',
+        condition: payload.condition,
+        modality: scanMod,
+        device: payload.device || '',
+        evidence_threshold: 'Systematic Review',
+        off_label: false,
+        scan_type: payload.scan_type,
+        primary_target: payload.primary_target,
+      };
     } catch (e) { W.error = e?.message || 'Generation failed.'; }
     W.saving = false;
     _renderGenerate();
@@ -3824,41 +4170,172 @@ export async function pgProtocolHub(setTopbar, navigate) {
       };
       W.result = await api.generatePersonalizedProtocol(payload);
       W.error = null;
+      window._psLastGenPayload = {
+        kind: 'personalized',
+        condition: payload.condition,
+        modality: 'tDCS',
+        device: (devEl && devEl.value.trim()) || '',
+        evidence_threshold: 'Systematic Review',
+        off_label: false,
+        patient_id: payload.patient_id,
+      };
     } catch (e) { W.error = e?.message || 'Generation failed.'; }
     W.saving = false;
     _renderGenerate();
   };
 
-  window._psSaveDraft = async () => {
-    if (!W.result) return;
-    const btn = document.getElementById('ps-save-draft-btn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
-    const condition = (W.result.rationale || '').split('/')[0]?.trim() || 'unknown';
-    const patientId = window._builderPatientId || null;
-    if (!patientId) {
-      if (btn) { btn.disabled = false; btn.textContent = 'Save as Draft'; }
-      window._showNotifToast?.({ title: 'No Patient Selected', body: 'Attach a patient context to save to backend. Use the 5-step wizard for patient-linked saves.', severity: 'warn' });
+  const _psNormModality = (m) => {
+    const s = String(m || 'tDCS').trim();
+    const map = { tDCS: 'tdcs', 'tDCS': 'tdcs', rTMS: 'rtms', 'rTMS': 'rtms', tACS: 'tacs', Neurofeedback: 'neurofeedback', neurofeedback: 'neurofeedback' };
+    return map[s] || s.toLowerCase().replace(/\s+/g, '_');
+  };
+
+  window._psDownloadBlob = (blob, filename) => {
+    try {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename || 'download.bin';
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      try { window._showNotifToast?.({ title: 'Download failed', body: e?.message || 'browser error', severity: 'error' }); } catch (_) {}
+    }
+  };
+
+  window._psExportProtocolDocx = async () => {
+    if (!_psCanAuthor()) {
+      window._showNotifToast?.({ title: 'Clinician sign-in required', body: 'Export uses authenticated API.', severity: 'warn' });
+      return;
+    }
+    const p = window._psLastGenPayload;
+    if (!p?.condition) {
+      window._showNotifToast?.({ title: 'Nothing to export', body: 'Generate an AI-assisted draft first.', severity: 'warn' });
       return;
     }
     try {
+      const blob = await api.exportProtocolDocx({
+        condition_name: p.condition,
+        modality_name: p.modality || 'tDCS',
+        device_name: p.device || '',
+        setting: 'Clinic',
+        evidence_threshold: p.evidence_threshold || 'Systematic Review',
+        off_label: !!p.off_label,
+        symptom_cluster: 'General',
+      });
+      window._psDownloadBlob(blob, 'protocol_draft.docx');
+      _psRecordStudioAudit('protocol_export_docx', 'protocol-docx from Protocol Studio');
+      window._showNotifToast?.({ title: 'Export started', body: 'Draft DOCX — label as unreviewed in your records.', severity: 'success' });
+    } catch (e) {
+      window._showNotifToast?.({ title: 'Export failed', body: e?.message || 'API or render engine unavailable.', severity: 'error' });
+    }
+  };
+
+  window._psExportHandbookDocx = async () => {
+    if (!_psCanAuthor()) {
+      window._showNotifToast?.({ title: 'Clinician sign-in required', body: 'Export uses authenticated API.', severity: 'warn' });
+      return;
+    }
+    const p = window._psLastGenPayload;
+    if (!p?.condition) {
+      window._showNotifToast?.({ title: 'Nothing to export', body: 'Generate an AI-assisted draft first.', severity: 'warn' });
+      return;
+    }
+    try {
+      const blob = await api.exportHandbookDocx({
+        condition_name: p.condition,
+        modality_name: p.modality || 'tDCS',
+        device_name: p.device || '',
+      });
+      window._psDownloadBlob(blob, 'handbook_draft.docx');
+      _psRecordStudioAudit('protocol_export_handbook', 'handbook-docx from Protocol Studio');
+      window._showNotifToast?.({ title: 'Export started', body: 'Handbook draft — review before clinic use.', severity: 'success' });
+    } catch (e) {
+      window._showNotifToast?.({ title: 'Export failed', body: e?.message || 'API or render engine unavailable.', severity: 'error' });
+    }
+  };
+
+  window._psExportPatientGuideDocx = async () => {
+    if (!_psCanAuthor()) {
+      window._showNotifToast?.({ title: 'Clinician sign-in required', body: 'Export uses authenticated API.', severity: 'warn' });
+      return;
+    }
+    const p = window._psLastGenPayload;
+    if (!p?.condition) {
+      window._showNotifToast?.({ title: 'Nothing to export', body: 'Generate an AI-assisted draft first.', severity: 'warn' });
+      return;
+    }
+    try {
+      const blob = await api.exportPatientGuideDocx({
+        condition_name: p.condition,
+        modality_name: p.modality || 'tDCS',
+      });
+      window._psDownloadBlob(blob, 'patient_guide_draft.docx');
+      _psRecordStudioAudit('protocol_export_patient_guide', 'patient-guide-docx from Protocol Studio');
+      window._showNotifToast?.({ title: 'Export started', body: 'Patient-facing draft — clinician review required.', severity: 'success' });
+    } catch (e) {
+      window._showNotifToast?.({ title: 'Export failed', body: e?.message || 'API or render engine unavailable.', severity: 'error' });
+    }
+  };
+
+  window._psSaveDraft = async () => {
+    if (!_psCanAuthor()) {
+      window._showNotifToast?.({ title: 'Clinician sign-in required', body: 'Saving drafts requires a clinician session.', severity: 'warn' });
+      return;
+    }
+    if (!W.result) return;
+    const btn = document.getElementById('ps-save-draft-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+    const payload = window._psLastGenPayload || {};
+    const condition = String(payload.condition || (W.result.rationale || '').split('/')[0]?.trim() || 'unknown').slice(0, 200);
+    const patientId = _psContextPatientId() || window._builderPatientId || null;
+    if (!patientId) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Save as draft'; }
+      window._showNotifToast?.({ title: 'No patient in context', body: 'Select a patient from the roster or profile so this draft can be scoped and audited.', severity: 'warn' });
+      return;
+    }
+    const modalitySlug = _psNormModality(payload.modality);
+    try {
       await api.saveProtocol({
         patient_id: patientId,
-        name: 'Generated: ' + condition,
+        name: 'AI-assisted draft: ' + condition.slice(0, 80),
         condition,
-        modality: 'tDCS',
+        modality: modalitySlug,
+        device_slug: (payload.device || '').slice(0, 120) || null,
         governance_state: 'draft',
         parameters_json: {
+          generator: payload.kind || 'evidence',
           target_region: W.result.target_region,
           session_frequency: W.result.session_frequency,
           duration: W.result.duration,
+          evidence_grade: W.result.evidence_grade,
+          ai_assisted: true,
+          registry_threshold: payload.evidence_threshold || null,
+          off_label: !!payload.off_label,
         },
         evidence_refs: [],
       });
-      window._showNotifToast?.({ title: 'Saved', body: 'Protocol draft saved.', severity: 'success' });
+      _psRecordStudioAudit('protocol_draft_saved', 'generate tab save; modality=' + modalitySlug);
+      window._showNotifToast?.({ title: 'Saved', body: 'Draft stored — review before any clinical use.', severity: 'success' });
     } catch (e) {
-      window._showNotifToast?.({ title: 'Save Failed', body: e?.message || 'endpoint error', severity: 'error' });
+      window._showNotifToast?.({ title: 'Save failed', body: e?.message || 'endpoint error', severity: 'error' });
     }
-    if (btn) { btn.disabled = false; btn.textContent = 'Save as Draft'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Save as draft'; }
+  };
+
+  window._psMarkReviewed = async () => {
+    if (!_psCanAuthor()) {
+      window._showNotifToast?.({ title: 'Clinician sign-in required', body: 'Governance actions require a clinician session.', severity: 'warn' });
+      return;
+    }
+    window._showNotifToast?.({
+      title: 'Use saved drafts or builder',
+      body: 'Open My Drafts → Open in Builder, or use the protocol builder to mark clinician-reviewed when your clinic workflow supports it.',
+      severity: 'info',
+    });
   };
 
   window._psOpenInBuilder = (draftId) => {
@@ -3878,9 +4355,21 @@ export async function pgProtocolHub(setTopbar, navigate) {
 // pgSchedulingHub — Calendar · Bookings · Leads · Reception
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgSchedulingHub(setTopbar, navigate) {
-  // ── Design-v2 Schedule (screen 04): Appointments · Referrals · Staff ──────
-  let tab = 'appointments';
+  // ── Design-v2 Schedule (screen 04): Appointments · Referrals · Staff · List ─
+  const _schedTabs = ['appointments', 'referrals', 'staff', 'list'];
+  let tab = _schedTabs.includes(window._schedHubTab) ? window._schedHubTab : 'appointments';
   window._schedHubTab = tab;
+
+  let schedPage = 'scheduling-hub';
+  try {
+    const p = new URL(window.location.href).searchParams.get('page');
+    if (p === 'schedule-v2') schedPage = 'schedule-v2';
+  } catch (_e) { /* ignore */ }
+  window._schedHubNavTarget = schedPage;
+  window._schedHubGoTab = function _schedHubGoTab(id) {
+    window._schedHubTab = id;
+    window._nav(window._schedHubNavTarget || 'scheduling-hub');
+  };
 
   const el = document.getElementById('content');
 
@@ -4199,7 +4688,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   if (apiCalls[0].status === 'fulfilled') {
     const items = apiCalls[0].value?.items || apiCalls[0].value || [];
     if (Array.isArray(items) && items.length) {
-      clinicians = items.slice(0,4).map((c,i)=>({ id:c.id||('c'+i), name:c.name||c.full_name||('Clinician '+(i+1)), color:DEFAULT_CLINICIANS[i%4].color }));
+      clinicians = items.map((c,i)=>({ id:c.id||('c'+i), name:c.name||c.full_name||('Clinician '+(i+1)), color:DEFAULT_CLINICIANS[i%4].color }));
     }
   } else { logUnavailable('listClinicians'); }
   if (apiCalls[1].status === 'fulfilled') {
@@ -4226,38 +4715,31 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     if (!Array.isArray(patientsList)) patientsList = [];
   } else { logUnavailable('listPatients'); }
 
-  function buildMockEvents() {
-    const ev = [];
-    const clinIds = clinicians.map(c => c.id);
-    const pCycle = ['Samantha Li','Marcus Reilly','Priya Nambiar','Dana Keller','Aisha Haddad','Rafael Figueroa','K. Yamada','G. Bennett','H. Nakamura','J. Abernathy','Jamal Thompson','L. Hassan','Nora Iyer','D. Ortega','R. Svensson','F. Akbari','C. Morales','V. Ibarra','M. Duvall','S. Varga','T. Wu','J. Okonkwo','B. Moss','Elena Okafor','B. Faulkner','P. Larsson'];
-    const tCycle = ['tdcs','rtms','nf','bio','assess','intake','tele','mdt','hw'];
-    let n = 0;
-    for (let di = 0; di < 7; di++) {
-      const isWeekend = di >= 5;
-      clinIds.forEach((cid, ci) => {
-        const slots = isWeekend ? [ 9, 10 ] : [ 8, 9, 9.5, 10, 11, 13, 14, 15, 16 ];
-        slots.forEach((start, si) => {
-          if (((n * 7) % 17) < 3 && !isWeekend) { n++; return; }
-          const dur = start === 9 || start === 14 ? 0.5 : 1;
-          const type = tCycle[(n + ci + si) % tCycle.length];
-          const warn = (n % 17 === 0) ? 'err' : (n % 13 === 0 ? 'amb' : null);
-          ev.push({
-            id: 'MOCK-' + n, day: di, clin: cid,
-            start, end: Math.min(start + dur, 19),
-            type, patient: pCycle[n % pCycle.length],
-            meta: rooms[n % rooms.length]?.name || '',
-            warn,
-            duration: Math.round(dur * 60),
-            clinician: clinicians[ci]?.name || '',
-            course_position: (n % 20) + 1,
-            course_total: 20,
-          });
-          n++;
-        });
-      });
+  const patientById = {};
+  patientsList.forEach((p) => {
+    if (p && p.id) {
+      const nm = [p.first_name, p.last_name].filter(Boolean).join(' ').trim()
+        || p.name || p.full_name || '';
+      patientById[p.id] = nm || p.id;
     }
-    return ev;
+  });
+  const roomNameById = {};
+  rooms.forEach((r) => { if (r && r.id) roomNameById[r.id] = r.name || r.label || r.id; });
+
+  const leadCalls = await Promise.allSettled([callOrReject(api.listReferrals)]);
+  if (leadCalls[0].status === 'fulfilled') {
+    const raw = leadCalls[0].value?.items || leadCalls[0].value || [];
+    leads = Array.isArray(raw) ? raw : [];
+    referralsIsDemo = leads.length === 0;
+  } else {
+    logUnavailable('listReferrals');
+    leads = [];
+    referralsIsDemo = true;
   }
+
+  const actor = (typeof currentUser === 'function' ? currentUser() : null) || {};
+  const schedRole = String(actor.role || actor.actor_role || '').toLowerCase();
+  const schedCanMutate = ['clinician', 'admin', 'superadmin'].includes(schedRole);
 
   function sessionToEvent(s) {
     const scheduledAt = s.scheduled_at || (s.date && s.time ? (s.date + 'T' + s.time) : '');
@@ -4278,8 +4760,17 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       || modality
       || String(s.type || 'session').toLowerCase()
     );
+    const clinById = clinicians.find((c) => String(c.id) === String(s.clinician_id));
     const clinLookup = String(s.clinician_id || s.clinician || '').toLowerCase();
-    const clin = clinicians.find(c => String(c.id||'').toLowerCase() === clinLookup || String(c.name||'').toLowerCase() === clinLookup) || clinicians[0];
+    const clin = clinById || clinicians.find(c => String(c.id||'').toLowerCase() === clinLookup || String(c.name||'').toLowerCase() === clinLookup) || clinicians[0];
+    const rid = s.room_id || s.room;
+    const roomLabel = (rid != null && String(rid).toLowerCase() === 'telehealth') ? 'Telehealth'
+      : (rid && roomNameById[rid]) || (typeof rid === 'string' && rid && !/^[0-9a-f-]{30,}$/i.test(rid) ? rid : '') || (s.device_id ? 'Device' : '');
+    const pid = s.patient_id;
+    const patientLabel = (s.patient_name || (pid && patientById[pid]) || pid || 'Patient').trim();
+    const st = String(s.status || '').toLowerCase();
+    let warn = s.has_conflict ? 'err' : (s.prereq_missing ? 'amb' : null);
+    if (!warn && (st === 'cancelled' || st === 'no_show')) warn = 'amb';
     return {
       id: s.id,
       day: dayIdx,
@@ -4287,14 +4778,16 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       clinician: clin.name,
       start, end: Math.min(start + dur, 24),
       type,
-      patient: s.patient_name || s.patient_id || 'Unknown',
-      meta: s.room_id || s.room || s.device_id || '',
-      warn: s.has_conflict ? 'err' : (s.prereq_missing ? 'amb' : null),
+      patient: patientLabel,
+      meta: roomLabel,
+      warn,
       duration: s.duration_minutes || s.duration || 60,
-      course_position: s.course_position || null,
-      course_total: s.course_total || null,
+      course_position: s.session_number || s.course_position || null,
+      course_total: s.total_sessions || s.course_total || null,
       status: s.status || 'scheduled',
       notes: s.session_notes || '',
+      appointment_type: s.appointment_type || '',
+      modality: s.modality || '',
       _raw: s,
     };
   }
@@ -4302,13 +4795,12 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   let events = [];
   let eventsIsDemo = false;
   // Honest empty-state rule:
-  //   - sessions === null  → backend call errored → OK to show demo data so the
-  //                          UI layout doesn't collapse (banner explains it).
-  //   - sessions === []    → backend returned zero results for the week → in
-  //                          demo mode, seed a representative set so reviewers
-  //                          can exercise the calendar; in production builds
-  //                          we still render the honest "no appointments"
-  //                          state.
+  //   - sessions === null → backend call errored → no demo seed (empty calendar +
+  //                          error banner). Fake appointments must not appear when
+  //                          the API fails.
+  //   - sessions === []   → empty week; demo seed only if _schedDemoEnabled()
+  //                         (VITE_ENABLE_DEMO / dev). Production builds without
+  //                         demo flag show an honest empty week.
   events = Array.isArray(sessions) ? sessions.map(sessionToEvent).filter(Boolean) : [];
   eventsIsDemo = false;
 
@@ -4427,13 +4919,17 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   // demo data so reviewers know the sessions aren't real bookings.
   const showDemoBanner = !!eventsIsDemo;
 
+  const referralOpen = leads.filter(l => (l.stage||'').toLowerCase() !== 'dismissed' && (l.stage||'').toLowerCase() !== 'lost').length;
   const TAB_META = {
-    appointments: { label:'Appointments', count: events.filter(eventPasses).length },
+    appointments: { label:'Calendar', count: events.filter(eventPasses).length },
+    referrals: { label:'Booking queue', count: referralOpen },
+    staff: { label:'Workload', count: clinicians.length },
+    list: { label:'All appointments', count: events.filter(eventPasses).length },
   };
   function renderTabBar() {
-    return '<div class="dv2s-tab-bar" role="tablist">' +
+    return '<div class="dv2s-tab-bar" role="tablist" aria-label="Schedule sections">' +
       Object.entries(TAB_META).map(([id, m]) =>
-        '<button role="tab" aria-selected="'+(tab===id)+'" class="dv2s-tab'+(tab===id?' is-active':'')+'" onclick="window._schedHubTab=\''+id+'\';window._nav(\'scheduling-hub\')">'
+        '<button type="button" role="tab" aria-selected="'+(tab===id)+'" class="dv2s-tab'+(tab===id?' is-active':'')+'" onclick="window._schedHubGoTab(\''+id+'\')">'
         + esc(m.label) + '<span class="dv2s-tab-count">' + m.count + '</span></button>'
       ).join('') + '</div>';
   }
@@ -4455,13 +4951,22 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     if (banner && banner.parentNode) banner.parentNode.removeChild(banner);
   };
 
-  setTopbar('Schedule', '<button class="btn btn-primary btn-sm" onclick="window._schedNewBookingIntent()">+ New booking</button>');
-  window._schedNewBookingIntent = () => { window._schedOpenWizard({}); };
+  const bookingBtn = schedCanMutate
+    ? '<button type="button" class="btn btn-primary btn-sm" onclick="window._schedNewBookingIntent()">+ New booking</button>'
+    : '<span class="btn btn-sm btn-ghost" style="opacity:.65;cursor:default" title="Clinician sign-in required">Booking unavailable</span>';
+  setTopbar('Schedule', bookingBtn);
+  window._schedNewBookingIntent = () => {
+    if (!schedCanMutate) {
+      window._dsToast?.({ title:'Sign in required', body:'Booking requires a clinician or administrator account.', severity:'warn' });
+      return;
+    }
+    window._schedOpenWizard({});
+  };
   window._schedToggleRealMode = () => {
     window._schedTryBackend = true;
     window._schedLoggedEndpoints = {};
     window._dsToast?.({ title:'Retrying backend', body:'Re-fetching real data from API.', severity:'info' });
-    window._nav('scheduling-hub');
+    window._nav(window._schedHubNavTarget || 'scheduling-hub');
   };
 
   const ROW_H = 48;
@@ -4776,14 +5281,19 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     const meta = typeMeta(sel.type);
     const initials = String(sel.patient||'').split(/\s+/).map(w=>w[0]||'').slice(0,2).join('').toUpperCase();
     const rem = (sel.course_total && sel.course_position) ? (sel.course_total - sel.course_position) : 0;
+    const stLow = String(sel.status||'').toLowerCase();
     const warns = [];
-    if (sel.warn === 'err') warns.push('<div class="dv2s-warn err"><div class="dv2s-warn-ico">&#9888;</div><div><div class="dv2s-warn-title">Local overlap detected</div><div class="dv2s-warn-body">The loaded schedule shows an overlapping clinician or room assignment. Server-side resource validation is unavailable here.</div></div></div>');
-    if (sel.warn === 'amb') warns.push('<div class="dv2s-warn amb"><div class="dv2s-warn-ico">&#9680;</div><div><div class="dv2s-warn-title">Prereq outstanding</div><div class="dv2s-warn-body">Assessment or consent overdue for this course.</div></div></div>');
-    // Heuristic warnings — deterministic
-    const noShowScore = Math.abs(String(sel.id||'').split('').reduce((s,c)=>s+c.charCodeAt(0),0)) % 40;
-    const noShowColor = noShowScore < 15 ? 'var(--green,#4ade80)' : noShowScore < 30 ? 'var(--amber)' : 'var(--red,#ff5e7a)';
-    const noShowLevel = noShowScore < 15 ? 'low' : noShowScore < 30 ? 'medium' : 'high';
-    if (!warns.length) warns.push('<div class="dv2s-warn ok"><div class="dv2s-warn-ico">&#10003;</div><div><div class="dv2s-warn-title">Consent &amp; auth OK</div><div class="dv2s-warn-body">e-consent on file; payer auth valid.</div></div></div>');
+    if (sel.warn === 'err') warns.push('<div class="dv2s-warn err"><div class="dv2s-warn-ico">&#9888;</div><div><div class="dv2s-warn-title">Overlap / resource conflict</div><div class="dv2s-warn-body">Use &ldquo;Check conflicts&rdquo; for server validation. Calendar overlap here is computed from loaded appointments.</div></div></div>');
+    if (sel.warn === 'amb' && (stLow === 'cancelled' || stLow === 'no_show')) {
+      warns.push('<div class="dv2s-warn amb"><div class="dv2s-warn-ico">&#9432;</div><div><div class="dv2s-warn-title">Appointment ended</div><div class="dv2s-warn-body">Status: '+esc(stLow.replace('_',' '))+'. This slot may still appear until the list refreshes.</div></div></div>');
+    } else if (sel.warn === 'amb') {
+      warns.push('<div class="dv2s-warn amb"><div class="dv2s-warn-ico">&#9680;</div><div><div class="dv2s-warn-title">Review / missing data</div><div class="dv2s-warn-body">Open the patient record to confirm prep items and consents before the visit.</div></div></div>');
+    }
+    if (stLow === 'cancelled' || stLow === 'no_show') {
+      /* already covered */
+    } else if (!warns.length) {
+      warns.push('<div class="dv2s-warn ok"><div class="dv2s-warn-ico">&#10003;</div><div><div class="dv2s-warn-title">No local flags</div><div class="dv2s-warn-body">Confirm consents, billing, and device prep in the chart. This panel is operational &mdash; not a clinical approval.</div></div></div>');
+    }
 
     const chain = upcomingSessionsFor(sel);
     const chainHtml = chain.length ? chain.map((s,i) => {
@@ -4796,12 +5306,14 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       + '</div>';
     }).join('') : '<div style="padding:8px 10px;font-size:11px;color:var(--text-tertiary)">No other upcoming sessions in window.</div>';
 
+    const subMrn = sel._raw && sel._raw.patient_id ? ('Patient '+esc(String(sel._raw.patient_id).slice(0,8))) : 'Appointment '+esc(String(sel.id).slice(-8));
+
     return '<aside class="dv2s-side" id="dv2s-side">'
       + '<div class="dv2s-side-head">'
         + '<div class="dv2s-side-av">'+esc(initials||'PT')+'</div>'
         + '<div style="flex:1;min-width:0"><div class="dv2s-side-name">'+esc(sel.patient)+'</div>'
-        + '<div class="dv2s-side-sub">MRN '+esc(String(sel.id).slice(-6).toUpperCase())+' &middot; '+esc(meta.label)+(sel.course_position?' &middot; Session '+sel.course_position+(sel.course_total?('/'+sel.course_total):''):'')+'</div></div>'
-        + '<button class="dv2s-side-close" onclick="window._schedClosePanel()" title="Close">&#10005;</button>'
+        + '<div class="dv2s-side-sub">'+subMrn+' &middot; '+esc(meta.label)+(sel.course_position?' &middot; Session '+sel.course_position+(sel.course_total?('/'+sel.course_total):''):'')+'</div></div>'
+        + '<button type="button" class="dv2s-side-close" onclick="window._schedClosePanel()" title="Close">&#10005;</button>'
       + '</div>'
       + '<div class="dv2s-side-body">'
         + warns.join('')
@@ -4810,20 +5322,29 @@ export async function pgSchedulingHub(setTopbar, navigate) {
         + '<div class="dv2s-side-row"><div class="lbl">Clinician</div><div class="val">'+esc(sel.clinician || '')+'</div></div>'
         + '<div class="dv2s-side-row"><div class="lbl">Room</div><div class="val">'+esc(sel.meta || '—')+'</div></div>'
         + '<div class="dv2s-side-row"><div class="lbl">Device</div><div class="val">'+esc(sel.device || sel.meta || '—')+'</div></div>'
+        + '<div class="dv2s-side-row"><div class="lbl">Status</div><div class="val">'+esc(String(sel.status||'scheduled'))+'</div></div>'
         + '<div class="dv2s-side-row"><div class="lbl">Duration</div><div class="val">'+esc(sel.duration+' min')+'</div></div>'
         + (sel.course_position ? '<div class="dv2s-side-row"><div class="lbl">Course</div><div class="val">Session '+sel.course_position+' of '+(sel.course_total||'—')+'</div></div>' : '')
         + (sel.notes ? '<div class="dv2s-side-row"><div class="lbl">Notes</div><div class="val" style="white-space:pre-wrap">'+esc(sel.notes)+'</div></div>' : '')
-        + '<div class="dv2s-side-section">Risk signals</div>'
-        + '<div class="dv2s-side-row"><div class="lbl">No-show</div><div class="val" style="color:'+noShowColor+'">'+noShowScore+'% &middot; '+noShowLevel+'</div></div>'
-        + (rem ? ('<div class="dv2s-side-row"><div class="lbl">Remaining</div><div class="val">'+rem+' sessions</div></div>') : '')
-        + '<div class="dv2s-side-section">Upcoming in this course</div>'
+        + '<div class="dv2s-side-section">Prep &amp; workflow</div>'
+        + '<div class="dv2s-side-row"><div class="lbl">AI-assisted prep</div><div class="val" style="font-size:11px;color:var(--text-secondary)">Open chart for charts, labs, and protocol review. Nothing here auto-approves treatment.</div></div>'
+        + '<div class="dv2s-side-row"><div class="lbl">Evidence</div><div class="val" style="font-size:11px">Operational scheduling only &mdash; clinician review required for clinical decisions.</div></div>'
+        + (rem ? ('<div class="dv2s-side-row"><div class="lbl">Remaining</div><div class="val">'+rem+' planned sessions (course)</div></div>') : '')
+        + '<div class="dv2s-side-section">Upcoming in window</div>'
         + '<div class="dv2s-chain">'+chainHtml+'</div>'
       + '</div>'
       + '<div class="dv2s-side-foot">'
-        + '<button class="btn btn-ghost btn-sm" style="flex:1" onclick="window._schedReschedule(\''+esc(sel.id)+'\')">Reschedule</button>'
-        + '<button class="btn btn-ghost btn-sm" onclick="window._schedCancelEvent(\''+esc(sel.id)+'\')">Cancel</button>'
-        + '<button class="btn btn-ghost btn-sm" onclick="window._schedCheckConflictsBtn(\''+esc(sel.id)+'\')">Local conflicts</button>'
-        + '<button class="btn btn-primary btn-sm" style="flex:1" onclick="window._schedOpenChart(\''+esc(sel.id)+'\')">Open chart &rarr;</button>'
+        + (schedCanMutate && stLow !== 'cancelled' && stLow !== 'no_show' && stLow !== 'completed'
+          ? '<button type="button" class="btn btn-ghost btn-sm" style="flex:1" onclick="window._schedReschedule(\''+esc(sel.id)+'\')">Reschedule</button>'
+            + '<button type="button" class="btn btn-ghost btn-sm" onclick="window._schedCancelEvent(\''+esc(sel.id)+'\')">Cancel</button>'
+          : '<span class="btn btn-ghost btn-sm" style="opacity:.5;cursor:default" title="Not available for this status or role">Reschedule / cancel</span>')
+        + '<button type="button" class="btn btn-ghost btn-sm" onclick="window._schedCheckConflictsBtn(\''+esc(sel.id)+'\')">Check conflicts</button>'
+        + '<button type="button" class="btn btn-ghost btn-sm" onclick="window._schedMarkAttended(\''+esc(sel.id)+'\')">Attended / no-show</button>'
+        + '<button type="button" class="btn btn-ghost btn-sm" onclick="window._schedOpenAssessments(\''+esc(sel.id)+'\')">Assessments</button>'
+        + '<button type="button" class="btn btn-ghost btn-sm" onclick="window._schedOpenProtocol(\''+esc(sel.id)+'\')">Protocol</button>'
+        + '<button type="button" class="btn btn-ghost btn-sm" onclick="window._schedOpenSessionPrep(\''+esc(sel.id)+'\')">Session prep</button>'
+        + '<button type="button" class="btn btn-ghost btn-sm" onclick="window._schedSessionAudit(\''+esc(sel.id)+'\')">Session audit</button>'
+        + '<button type="button" class="btn btn-primary btn-sm" style="flex:1" onclick="window._schedOpenChart(\''+esc(sel.id)+'\')">Open chart &rarr;</button>'
       + '</div>'
     + '</aside>';
   }
@@ -4856,13 +5377,13 @@ export async function pgSchedulingHub(setTopbar, navigate) {
 
     html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">';
     html += '<h3 style="margin:0;font-size:15px;font-family:var(--font-display)">Incoming referrals &middot; '+filtered.length+(referralsIsDemo?' <span style="font-size:11px;color:#ffd28a;font-weight:500">· demo</span>':'')+'</h3>';
-    const fChip = (id, label) => '<button class="dv2s-chip'+(filter===id?' is-active':'')+'" onclick="window._schedRefFilter=\''+id+'\';window._nav(\'scheduling-hub\')">'+esc(label)+'</button>';
+    const fChip = (id, label) => '<button type="button" class="dv2s-chip'+(filter===id?' is-active':'')+'" onclick="window._schedRefFilter=\''+id+'\';window._schedHubGoTab(\'referrals\')">'+esc(label)+'</button>';
     html += '<div style="display:flex;gap:6px;flex-wrap:wrap">'
       + fChip('all','All sources')
       + fChip('gp','GP referrals')
       + fChip('self','Self-referral')
       + fChip('insurer','Insurer')
-      + '<button class="dv2s-chip warn'+(filter==='triage'?' is-active':'')+'" onclick="window._schedRefFilter=\'triage\';window._nav(\'scheduling-hub\')">&#9888; Needs triage</button>'
+      + '<button type="button" class="dv2s-chip warn'+(filter==='triage'?' is-active':'')+'" onclick="window._schedRefFilter=\'triage\';window._schedHubGoTab(\'referrals\')">&#9888; Needs triage</button>'
     + '</div>';
     html += '</div>';
 
@@ -5005,31 +5526,35 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     + '</div>';
   }
 
-  window._schedShift = (delta) => { shiftAnchor(delta); window._schedSelectedId=null; window._nav('scheduling-hub'); };
-  window._schedToday = () => { window._schedAnchor = iso(new Date()); window._schedSelectedId=null; window._nav('scheduling-hub'); };
-  window._schedSetView = (v) => { window._schedView = v; window._nav('scheduling-hub'); };
-  window._schedClosePanel = () => { window._schedSelectedId = null; window._nav('scheduling-hub'); };
-  window._schedMonthZoom = (iso0) => { window._schedAnchor = iso0; window._schedView = 'day'; window._nav('scheduling-hub'); };
+  window._schedShift = (delta) => { shiftAnchor(delta); window._schedSelectedId=null; window._nav(window._schedHubNavTarget || 'scheduling-hub'); };
+  window._schedToday = () => { window._schedAnchor = iso(new Date()); window._schedSelectedId=null; window._nav(window._schedHubNavTarget || 'scheduling-hub'); };
+  window._schedSetView = (v) => { window._schedView = v; window._nav(window._schedHubNavTarget || 'scheduling-hub'); };
+  window._schedClosePanel = () => { window._schedSelectedId = null; window._nav(window._schedHubNavTarget || 'scheduling-hub'); };
+  window._schedMonthZoom = (iso0) => { window._schedAnchor = iso0; window._schedView = 'day'; window._nav(window._schedHubNavTarget || 'scheduling-hub'); };
   window._schedToggleClinician = (id) => {
     F.clinicians = F.clinicians || [];
     if (F.clinicians.includes(id)) F.clinicians = F.clinicians.filter(x=>x!==id); else F.clinicians.push(id);
     if (F.clinicians.length === 0) F.clinicians = null;
-    window._nav('scheduling-hub');
+    window._nav(window._schedHubNavTarget || 'scheduling-hub');
   };
   window._schedToggleRoom = (name) => {
     F.rooms = F.rooms || [];
     if (F.rooms.includes(name)) F.rooms = F.rooms.filter(x=>x!==name); else F.rooms.push(name);
     if (F.rooms.length === 0) F.rooms = null;
-    window._nav('scheduling-hub');
+    window._nav(window._schedHubNavTarget || 'scheduling-hub');
   };
   window._schedToggleType = (t) => {
     F.types = F.types || [];
     if (F.types.includes(t)) F.types = F.types.filter(x=>x!==t); else F.types.push(t);
     if (F.types.length === 0) F.types = null;
-    window._nav('scheduling-hub');
+    window._nav(window._schedHubNavTarget || 'scheduling-hub');
   };
-  window._schedToggleConflicts = () => { F.conflictsOnly = !F.conflictsOnly; window._nav('scheduling-hub'); };
-  window._schedSelectEvent = (id) => { window._schedSelectedId = id; window._nav('scheduling-hub'); };
+  window._schedToggleConflicts = () => { F.conflictsOnly = !F.conflictsOnly; window._nav(window._schedHubNavTarget || 'scheduling-hub'); };
+  window._schedSelectEvent = (id) => {
+    window._schedSelectedId = id;
+    window._schedHubTab = 'appointments';
+    window._nav(window._schedHubNavTarget || 'scheduling-hub');
+  };
 
   window._schedReschedule = (id) => {
     const ev = events.find(e => String(e.id) === String(id));
@@ -5040,13 +5565,14 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       sessionId: id,
       patient: ev.patient,
       patient_id: ev._raw?.patient_id || null,
-      clin: ev.clin,
+      clin: ev._raw?.clinician_id || ev.clin,
       day: day ? day.iso : window._schedAnchor,
       start: ev.start,
       type: ev.type,
       duration: ev.duration,
       notes: ev.notes || '',
       course_id: ev._raw?.course_id || null,
+      room_id: ev._raw?.room_id || null,
     });
   };
   window._schedCancelEvent = async (id) => {
@@ -5060,29 +5586,36 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       return;
     }
     window._schedSelectedId = null;
-    window._nav('scheduling-hub');
+    window._nav(window._schedHubNavTarget || 'scheduling-hub');
   };
   window._schedCheckConflictsBtn = async (id) => {
     const ev = events.find(e => String(e.id) === String(id));
     if (!ev) return;
     const day = DAYS[ev.day];
-    const startDt = (day ? day.iso : window._schedAnchor) + 'T' + pad2(Math.floor(ev.start)) + ':' + (ev.start % 1 === 0 ? '00' : '30');
-    const endHr = ev.end; const endDt = (day ? day.iso : window._schedAnchor) + 'T' + pad2(Math.floor(endHr)) + ':' + (endHr % 1 === 0 ? '00' : '30');
+    const startDt = (day ? day.iso : window._schedAnchor) + 'T' + pad2(Math.floor(ev.start)) + ':' + (ev.start % 1 === 0 ? '00' : '30') + ':00';
+    const roomForApi = ev._raw?.room_id || (String(ev.meta).toLowerCase() === 'telehealth' ? 'telehealth' : null);
     let result = null;
     try {
-      result = await api.checkSlotConflicts?.({ clinician_id: ev.clin, room_id: ev.meta, start: startDt, end: endDt });
+      result = await api.checkSlotConflicts?.({
+        clinician_id: ev._raw?.clinician_id || ev.clin,
+        room_id: roomForApi,
+        device_id: ev._raw?.device_id || null,
+        start: startDt,
+        duration_minutes: ev.duration || 60,
+        exclude_appointment_id: id,
+      });
     } catch (_err) { logUnavailable('checkSlotConflicts'); }
     if (!result) {
-      // Local detection
-      const conflicts = events.filter(e => e !== ev && e.day === ev.day && e.start < ev.end && ev.start < e.end && (e.clin === ev.clin || (e.meta && e.meta === ev.meta)));
+      const conflicts = events.filter(e => e !== ev && e.day === ev.day && e.start < ev.end && ev.start < e.end && (e.clin === ev.clin || (e.meta && ev.meta === ev.meta)));
       result = { conflicts };
     }
     const n = (result.conflicts || []).length;
+    const apiLabels = (result.conflicts || []).slice(0, 3).map((c) => c.patient_id || c.appointment_id || c.id).join(', ');
     window._dsToast?.({
-      title: n ? (n + ' local conflict(s) detected') : 'No local conflicts',
+      title: n ? (n + ' conflict(s) detected') : 'No conflicts',
       body: n
-        ? 'Loaded schedule overlap with: ' + result.conflicts.slice(0,3).map(c=>c.patient||c.id).join(', ') + '. Server-side room/device validation is unavailable.'
-        : 'No overlap was found in the loaded schedule. Server-side room/device validation is unavailable here.',
+        ? (apiLabels ? ('Overlap / resource conflict with: ' + apiLabels + '. ') : '') + 'Confirm in chart before proceeding.'
+        : 'No overlap on server check for this clinician/room window.',
       severity: n ? 'warn' : 'success',
     });
   };
@@ -5091,6 +5624,67 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     if (!ev) return;
     if (ev._raw && ev._raw.patient_id) { try { window.location.hash = '#patient/' + ev._raw.patient_id; } catch {} }
     window._nav?.('patient-hub');
+  };
+  window._schedMarkAttended = async (id) => {
+    if (!schedCanMutate) {
+      window._dsToast?.({ title:'Sign in required', body:'Only clinicians can update appointment status.', severity:'warn' });
+      return;
+    }
+    const ev = events.find(e => String(e.id) === String(id));
+    if (!ev || ev._demoSeed) {
+      window._dsToast?.({ title:'Not available', body:'Cannot change status on demo sample appointments.', severity:'info' });
+      return;
+    }
+    const choice = typeof prompt === 'function'
+      ? (prompt('Update status: attended (confirmed arrival), no_show, or cancel', 'attended') || '').trim().toLowerCase()
+      : 'attended';
+    let status = 'confirmed';
+    if (choice.includes('no')) status = 'no_show';
+    else if (choice.includes('cancel')) status = 'cancelled';
+    try {
+      await api.updateSession?.(id, { status });
+      window._dsToast?.({ title:'Status updated', body:'Appointment marked '+status+'.', severity:'success' });
+    } catch (err) {
+      window._dsToast?.({ title:'Update failed', body: err?.message || 'Could not update status.', severity:'warn' });
+      return;
+    }
+    window._schedSelectedId = null;
+    window._nav(window._schedHubNavTarget || 'scheduling-hub');
+  };
+  window._schedOpenAssessments = (id) => {
+    const ev = events.find(e => String(e.id) === String(id));
+    if (ev?._raw?.patient_id) window._selectedPatientId = ev._raw.patient_id;
+    window._clinicalHubTab = 'clinical';
+    window._nav?.('assessments-v2');
+  };
+  window._schedOpenProtocol = (id) => {
+    const ev = events.find(e => String(e.id) === String(id));
+    if (ev?._raw?.patient_id) window._selectedPatientId = ev._raw.patient_id;
+    window._nav?.('protocol-studio');
+  };
+  window._schedOpenSessionPrep = (id) => {
+    const ev = events.find(e => String(e.id) === String(id));
+    if (ev?._raw?.patient_id) window._selectedPatientId = ev._raw.patient_id;
+    window._nav?.('session-execution');
+  };
+  window._schedSessionAudit = async (id) => {
+    const ev = events.find(e => String(e.id) === String(id));
+    if (!ev) return;
+    if (ev._demoSeed) {
+      window._dsToast?.({ title:'Demo appointment', body:'No audit trail for sample data.', severity:'info' });
+      return;
+    }
+    try {
+      const rows = await api.listSessionEvents?.(id);
+      const n = Array.isArray(rows) ? rows.length : 0;
+      window._dsToast?.({
+        title: n ? (n + ' session events') : 'No session events',
+        body: n ? 'Latest activity is logged on the server for this appointment.' : 'No events recorded yet for this session.',
+        severity: n ? 'info' : 'warn',
+      });
+    } catch (err) {
+      window._dsToast?.({ title:'Audit unavailable', body: err?.message || 'Could not load session events.', severity:'warn' });
+    }
   };
 
   // ── Referral handlers ────────────────────────────────────────────────
@@ -5102,14 +5696,14 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     } catch (_err) { logUnavailable('triageReferral'); }
     lead.urgency = next;
     window._dsToast?.({ title:'Triage set', body: lead.name + ' marked ' + next + '.', severity:'info' });
-    window._nav('scheduling-hub');
+    window._nav(window._schedHubNavTarget || 'scheduling-hub');
   };
   window._schedDismissLead = async (id) => {
     if (!confirm('Dismiss this referral?')) return;
     try { await api.dismissReferral?.(id); } catch (_err) { logUnavailable('dismissReferral'); }
     const lead = leads.find(l => String(l.id) === String(id)); if (lead) lead.stage = 'dismissed';
     window._dsToast?.({ title:'Dismissed', body:'Referral archived.', severity:'info' });
-    window._nav('scheduling-hub');
+    window._nav(window._schedHubNavTarget || 'scheduling-hub');
   };
   window._schedAssignLead = (id) => {
     const lead = leads.find(l => String(l.id) === String(id)); if (!lead) return;
@@ -5144,7 +5738,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       if (!c) return;
       lead.assigned_to = c.id;
       window._dsToast?.({ title:'Assigned', body: lead.name + ' → ' + c.name, severity:'info' });
-      window._nav('scheduling-hub');
+      window._nav(window._schedHubNavTarget || 'scheduling-hub');
     });
   };
   window._schedBookLead = (id) => {
@@ -5154,6 +5748,11 @@ export async function pgSchedulingHub(setTopbar, navigate) {
 
   // ── Booking wizard ───────────────────────────────────────────────────
   window._schedOpenWizard = (ctx) => {
+    let roomId = ctx?.room_id || null;
+    if (!roomId && ctx?.room) {
+      const rm = rooms.find(r => r.name === ctx.room || r.id === ctx.room);
+      if (rm) roomId = rm.id;
+    }
     window._schedWiz = {
       step: 1,
       patient: ctx?.patient || '',
@@ -5169,6 +5768,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       leadId: ctx?.leadId || null,
       duration: ctx?.duration || 60,
       notes: ctx?.notes || '',
+      room_id: roomId,
       conflictResult: null,
       patientQuery: '',
     };
@@ -5189,6 +5789,16 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     _renderWizard();
   };
   window._schedWizSearch = (q) => { if (!window._schedWiz) return; window._schedWiz.patientQuery = q; _renderWizard(); };
+  window._schedWizPickRoom = (v) => {
+    if (!window._schedWiz) return;
+    if (v === 'telehealth') {
+      window._schedWiz.room_id = 'telehealth';
+      if (!['tele', 'telehealth'].includes(String(window._schedWiz.type))) window._schedWiz.type = 'tele';
+    } else {
+      window._schedWiz.room_id = v || null;
+    }
+    _renderWizard();
+  };
   window._schedWizConfirm = async () => {
     const w = window._schedWiz; if (!w) return;
     const startHr = Number(w.start) || 9;
@@ -5232,13 +5842,14 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       type: w.type,
       scheduledAt: startIso,
       durationMinutes: dur,
-      courseId: w.course_id || null,
       notes: w.notes || '',
+      roomId: w.room_id || null,
     });
     let savedSession = null;
     try {
       if (w.mode === 'reschedule' && w.sessionId) {
-        savedSession = await api.updateSession?.(w.sessionId, payload);
+        const { patient_id: _pid, ...patchBody } = payload;
+        savedSession = await api.updateSession?.(w.sessionId, patchBody);
       } else if (typeof api.bookSession === 'function') {
         try { savedSession = await api.bookSession(payload); } catch { /* fall through */ }
       }
@@ -5267,7 +5878,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       severity:'success',
     });
     window._schedCloseWizard();
-    window._nav('scheduling-hub');
+    window._nav(window._schedHubNavTarget || 'scheduling-hub');
   };
 
   function _renderWizard() {
@@ -5315,6 +5926,13 @@ export async function pgSchedulingHub(setTopbar, navigate) {
         + [30,45,60,90,120].map(d => '<option value="'+d+'"'+(Number(w.duration)===d?' selected':'')+'>'+d+' min</option>').join('')
       + '</select></div>';
       body += '</div>';
+      const roomOpts = '<option value="">— Unassigned —</option>'
+        + rooms.map((r) => '<option value="'+esc(r.id)+'"'+(String(w.room_id)===String(r.id)?' selected':'')+'>'+esc(r.name||r.id)+'</option>').join('');
+      const teleSelected = String(w.room_id) === 'telehealth' ? ' selected' : '';
+      body += '<div class="dv2s-field"><label>Room / setting</label><select onchange="window._schedWizPickRoom(this.value)">'
+        + roomOpts
+        + '<option value="telehealth"'+teleSelected+'>Telehealth (virtual)</option>'
+      + '</select></div>';
     } else if (step === 3) {
       const typeList = [
         ['tdcs','tDCS'],['rtms','rTMS'],['nf','Neurofeedback'],['bio','Biofeedback'],
@@ -5329,9 +5947,12 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       const clin = clinicians.find(c => c.id === w.clin);
       const startLabel = pad2(Math.floor(w.start))+':'+(w.start%1===0?'00':'30');
       const localConflicts = events.filter(e => DAYS[e.day]?.iso === w.day && e.start < (w.start + (w.duration/60)) && w.start < e.end && (e.clin === w.clin));
+      const roomPick = rooms.find(r => String(r.id) === String(w.room_id));
+      const roomLbl = (w.room_id === 'telehealth') ? 'Telehealth' : (roomPick ? roomPick.name : '—');
       body += '<div class="dv2s-side-row"><div class="lbl">Patient</div><div class="val">'+esc(w.patient||'(not set)')+'</div></div>';
       body += '<div class="dv2s-side-row"><div class="lbl">When</div><div class="val">'+esc(day?.dow+' '+day?.num+' · '+startLabel)+'</div></div>';
       body += '<div class="dv2s-side-row"><div class="lbl">Clinician</div><div class="val">'+esc(clin?.name||'—')+'</div></div>';
+      body += '<div class="dv2s-side-row"><div class="lbl">Room</div><div class="val">'+esc(roomLbl)+'</div></div>';
       body += '<div class="dv2s-side-row"><div class="lbl">Type</div><div class="val">'+esc(typeMeta(w.type).label)+' · '+w.duration+' min</div></div>';
       if (localConflicts.length) {
         body += '<div class="dv2s-warn err" style="margin-top:10px"><div class="dv2s-warn-ico">&#9888;</div><div><div class="dv2s-warn-title">'+localConflicts.length+' local overlap(s) at this slot</div><div class="dv2s-warn-body">Loaded schedule overlap with: '+localConflicts.slice(0,3).map(c=>esc(c.patient)).join(', ')+' . Server-side room/device validation is unavailable here.</div></div></div>';
@@ -5376,7 +5997,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     catch (_err) { logUnavailable('createStaffShift'); }
     window._dsToast?.({ title: ok ? 'Shift added' : 'Shift added (local)', body: payload.clinician_id + ' · ' + payload.date + ' · ' + type, severity: ok ? 'success' : 'warn' });
     window._schedCloseShiftModal();
-    window._nav('scheduling-hub');
+    window._nav(window._schedHubNavTarget || 'scheduling-hub');
   };
 
   function _renderShiftModal(mode) {
@@ -5413,14 +6034,54 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     return { conflicts: [] };
   }
 
+  function buildAppointmentList() {
+    const sorted = events.filter(eventPasses).slice().sort((a, b) => {
+      const da = DAYS[a.day]?.iso || '';
+      const db = DAYS[b.day]?.iso || '';
+      if (da !== db) return da.localeCompare(db);
+      return a.start - b.start;
+    });
+    const rows = sorted.map((e) => {
+      const d = DAYS[e.day];
+      const st = String(e.status || '').toLowerCase();
+      const urgent = e.warn === 'err' || st === 'cancelled' || st === 'no_show';
+      const t = (() => { const h = Math.floor(e.start), m = Math.round((e.start - h) * 60); return pad2(h) + ':' + pad2(m); })();
+      return '<tr'+(urgent?' style="background:rgba(255,94,122,0.06)"':'')+'>'
+        + '<td style="padding:8px 10px">'+esc(d ? (d.dow + ' ' + d.num) : '—')+'</td>'
+        + '<td style="padding:8px 10px;font-family:var(--font-mono)">'+esc(t)+'</td>'
+        + '<td style="padding:8px 10px">'+esc(e.patient)+'</td>'
+        + '<td style="padding:8px 10px">'+esc(typeMeta(e.type).label)+'</td>'
+        + '<td style="padding:8px 10px">'+esc(e.clinician||'—')+'</td>'
+        + '<td style="padding:8px 10px">'+esc(e.meta||'—')+'</td>'
+        + '<td style="padding:8px 10px">'+esc(String(e.status||'scheduled'))+'</td>'
+        + '<td style="padding:8px 10px">'
+          + '<button type="button" class="btn btn-ghost btn-sm" onclick="window._schedSelectEvent(\''+esc(e.id)+'\')">Select</button>'
+        + '</td>'
+      + '</tr>';
+    }).join('');
+    const intro = '<div class="dv2s-error-banner" style="margin:0 0 12px 0" role="status">'
+      + 'Times use this browser&rsquo;s local timezone. For cross-site coordination, confirm zone in the patient record.</div>';
+    const empty = sorted.length
+      ? ''
+      : '<div class="dv2s-empty" data-testid="ds-schedule-list-empty">No appointments match filters or nothing scheduled this week.</div>';
+    return '<div class="dv2s-refbox" style="padding-top:16px">'+intro+'<h3 style="margin:0 0 12px;font-size:15px;font-family:var(--font-display)">All appointments (filtered)</h3>'
+      + empty
+      + (sorted.length ? '<div style="overflow-x:auto"><table class="dv2s-staff-table"><thead><tr>'
+        + '<th>Day</th><th>Time</th><th>Patient</th><th>Type</th><th>Clinician</th><th>Room</th><th>Status</th><th></th>'
+        + '</tr></thead><tbody>'+rows+'</tbody></table></div>' : '')
+    + '</div>';
+  }
+
   let body;
   if (tab === 'referrals')   body = buildReferrals();
   else if (tab === 'staff')  body = buildStaff();
+  else if (tab === 'list')   body = buildAppointmentList();
   else                       body = buildAppointments();
 
   el.innerHTML = '<div class="dv2s-shell">'
     + renderDemoBanner()
-    + (apiErrors.length && !showDemoBanner ? '<div class="dv2s-error-banner">Live schedule data unavailable ('+apiErrors.join(', ')+'). No sample appointments are shown in beta mode.</div>' : '')
+    + (showDemoBanner ? '<div class="dv2s-error-banner" role="status">Sample sessions only &mdash; not real PHI. Sign in and load API data for production scheduling.</div>' : '')
+    + (apiErrors.length && !showDemoBanner ? '<div class="dv2s-error-banner">Live schedule data unavailable ('+apiErrors.join(', ')+'). No sample appointments are shown outside demo mode.</div>' : '')
     + renderTabBar()
     + body
   + '</div>';
@@ -7560,7 +8221,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
   // Drill-in coverage from upstream surfaces (Documents Hub launch-audit
   // 2026-04-30 re-audit). Read source_target_type / source_target_id from
   // the URL once on mount and keep them on `window` so re-renders of the
-  // page (window._nav('documents-hub') after a sign / supersede) preserve
+  // page (window._refreshDocumentsWorkspace after a sign / supersede) preserve
   // the filter context. Whitelist matches the backend KNOWN_DRILL_IN_-
   // SURFACES — anything else is dropped silently here and the API will
   // 422 if a hand-crafted URL bypasses the UI.
@@ -7626,7 +8287,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       url.searchParams.delete('source_target_id');
       window.history.replaceState({}, '', url.toString());
     } catch (_) {}
-    window._nav('documents-hub');
+    window._refreshDocumentsWorkspace();
   };
   // Drill BACK to the upstream surface that pointed here.
   window._docsDrillBack = () => {
@@ -7652,10 +8313,18 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
     }
   };
   const el = document.getElementById('content');
+  // Keep `?page=documents-v2` stable: both v2 and legacy `documents-hub` routes
+  // render this module; internal refreshes must not rewrite the URL to the legacy id.
+  const _documentsWorkspaceRoute = () =>
+    documentsWorkspaceRouteFromSearch(
+      (typeof window !== 'undefined' && window.location && window.location.search) ? window.location.search : ''
+    );
+  window._refreshDocumentsWorkspace = () => { window._nav(_documentsWorkspaceRoute()); };
+
   function tabBar() {
     return Object.entries(TAB_META).map(([id,m]) =>
       '<button class="ch-tab'+(tab===id?' ch-tab--active':'')+'"'+(tab===id?' style="--tab-color:'+m.color+'"':'')+
-      ' onclick="window._docsHubTab=\''+id+'\';window._nav(\'documents-hub\')">'+ m.label +'</button>'
+      ' onclick="window._docsHubTab=\''+id+'\';window._refreshDocumentsWorkspace()">'+ m.label +'</button>'
     ).join('');
   }
   setTopbar('Documents', '<button class="btn btn-primary btn-sm" onclick="window._docsUpload()">+ Upload</button>');
@@ -7705,17 +8374,45 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       listParams.source_target_id   = drillInId;
     }
     const r = await api.listDocuments(listParams);
-    backendDocs = (r?.items || []).map(d => ({
-      id: d.id, name: d.title, type: d.doc_type, patient: d.patient_id || '—',
-      date: (d.updated_at||'').slice(0,10), status: d.status,
-      size: d.file_ref ? 'file' : '—',
-      template_id: d.template_id, notes: d.notes, file_ref: d.file_ref,
-      signed_by: d.signed_by, signed_at: d.signed_at,
-      supersedes: d.supersedes, superseded_by: d.superseded_by,
-      revision: d.revision || 1, is_demo: !!d.is_demo,
-      source_target_type: d.source_target_type || null,
-      source_target_id:   d.source_target_id   || null,
-    }));
+    const rawItems = r?.items || [];
+    let patientNameById = {};
+    if (rawItems.length) {
+      try {
+        const pr = await api.listPatients().catch(() => ({ items: [] }));
+        (pr?.items || []).forEach((p) => {
+          const nm = ((p.first_name || '') + ' ' + (p.last_name || '')).trim();
+          if (p.id) patientNameById[p.id] = nm || 'Patient';
+        });
+      } catch (_) { /* roster optional */ }
+    }
+    backendDocs = rawItems.map((d) => {
+      const pid = d.patient_id || null;
+      let patientLabel = '—';
+      if (pid) {
+        patientLabel = patientNameById[pid] || ('Patient ' + String(pid).slice(0, 8) + '…');
+      }
+      return {
+        id: d.id,
+        name: d.title,
+        type: d.doc_type,
+        patient: patientLabel,
+        patient_id: pid,
+        date: (d.updated_at || '').slice(0, 10),
+        status: d.status,
+        size: d.file_ref ? 'Attachment' : '—',
+        template_id: d.template_id,
+        notes: d.notes,
+        file_ref: d.file_ref,
+        signed_by: d.signed_by,
+        signed_at: d.signed_at,
+        supersedes: d.supersedes,
+        superseded_by: d.superseded_by,
+        revision: d.revision || 1,
+        is_demo: !!d.is_demo,
+        source_target_type: d.source_target_type || null,
+        source_target_id: d.source_target_id || null,
+      };
+    });
     saveDocs(backendDocs);
   } catch (err) {
     backendError = err?.message || 'Documents API unreachable.';
@@ -7843,7 +8540,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       window._dsToast?.({title:'Template saved',body:name+' is now available.',severity:'success'});
       document.getElementById('docs-template-builder-modal')?.remove();
       window._docsHubTab = 'templates';
-      window._nav('documents-hub');  // refresh — re-fetches templates list
+      window._refreshDocumentsWorkspace();  // refresh — re-fetches templates list
     } catch (err) {
       const msg = (err && (err.message || err.detail)) || 'Failed to save template.';
       window._dsToast?.({title:'Save failed',body:String(msg),severity:'error'});
@@ -7858,7 +8555,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
     try {
       await api.deleteDocumentTemplate(id);
       window._dsToast?.({title:'Template deleted',body:tpl.name+' removed.',severity:'success'});
-      window._nav('documents-hub');
+      window._refreshDocumentsWorkspace();
     } catch (err) {
       const msg = (err && (err.message || err.detail)) || 'Failed to delete template.';
       window._dsToast?.({title:'Delete failed',body:String(msg),severity:'error'});
@@ -7906,7 +8603,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
           '<pre style="white-space:pre-wrap;font-family:inherit;font-size:12.5px;line-height:1.55;max-height:60vh;overflow-y:auto">'+esc(rendered)+'</pre>'+
           '<div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">'+
             '<button class="btn" onclick="document.getElementById(\'docs-preview-modal\')?.remove()">Close</button>'+
-            '<button class="btn btn-primary" onclick="document.getElementById(\'docs-preview-modal\')?.remove();window._docsSendTemplate(\''+safeTplId+'\')">Send to Patient</button>'+
+            '<button class="btn btn-primary" onclick="document.getElementById(\'docs-preview-modal\')?.remove();window._docsSendTemplate(\''+safeTplId+'\')">Assign (pending review)</button>'+
           '</div>'+
         '</div>'+
       '</div>';
@@ -7928,7 +8625,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
         notes: 'Sent from Documents Hub template',
       });
       window._dsToast?.({title:'Sent',body:tpl.name+' — pending signature.',severity:'success'});
-      window._nav('documents-hub');
+      window._refreshDocumentsWorkspace();
     } catch {
       window._dsToast?.({title:'Failed',body:'Could not save document.',severity:'error'});
     }
@@ -7992,20 +8689,101 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       return;
     }
     try {
+      const prefix = '[AI-assisted draft — requires clinician review]\n\n';
       await api.createDocument({
-        title: title || (kind === 'letter' ? 'Patient Letter' : 'Clinical Document'),
+        title: title || (kind === 'letter' ? 'Patient Letter (AI-assisted draft)' : 'Clinical document (AI-assisted draft)'),
         doc_type: 'generated',
         patient_id: patientId || null,
         template_id: templateId || null,
-        status: 'completed',
-        notes: content,
+        status: 'pending',
+        notes: prefix + content,
       });
-      window._dsToast?.({title:'Saved',body:(kind==='letter'?'Letter':'Document')+' saved to records.',severity:'success'});
-      window._nav('documents-hub');
+      window._dsToast?.({title:'Saved as draft',body:'AI-assisted draft stored — review and sign off before release.',severity:'success'});
+      window._refreshDocumentsWorkspace();
     } catch {
       window._dsToast?.({title:'Failed',body:'Could not save document.',severity:'error'});
     }
   };
+
+  window._docsOpenPatient = (patientId) => {
+    if (!patientId) return;
+    window._profilePatientId = patientId;
+    window._selectedPatientId = patientId;
+    window._currentPatientId = patientId;
+    window._nav('patients-v2');
+  };
+
+  window._docsPreviewNotes = async (docId) => {
+    if (!docId) return;
+    try {
+      const d = await api.getDocument(docId);
+      const body = (d && (d.notes || '')) || '';
+      document.getElementById('docs-notes-preview-modal')?.remove();
+      const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const overlay = document.createElement('div');
+      overlay.id = 'docs-notes-preview-modal';
+      overlay.className = 'ch-modal-overlay';
+      overlay.innerHTML =
+        '<div class="ch-modal" style="width:min(720px,95vw)">'+
+          '<div class="ch-modal-hd"><span>'+esc(d.title || 'Document')+'</span>'+
+            '<button type="button" class="ch-modal-close" onclick="document.getElementById(\'docs-notes-preview-modal\')?.remove()" aria-label="Close">✕</button>'+
+          '</div>'+
+          '<div class="ch-modal-body">'+
+            '<p style="font-size:11.5px;color:var(--text-tertiary);margin:0 0 10px">Text preview — verify content before sign-off. Not a substitute for source imaging or raw data.</p>'+
+            '<pre style="white-space:pre-wrap;font-family:inherit;font-size:12.5px;line-height:1.55;max-height:55vh;overflow-y:auto;margin:0">'+esc(body)+'</pre>'+
+            '<div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">'+
+              '<button type="button" class="btn" onclick="document.getElementById(\'docs-notes-preview-modal\')?.remove()">Close</button>'+
+            '</div>'+
+          '</div>'+
+        '</div>';
+      document.body.appendChild(overlay);
+    } catch (err) {
+      const msg = err?.message || 'Could not load document.';
+      window._dsToast?.({ title: 'Preview failed', body: String(msg), severity: 'error' });
+    }
+  };
+
+  /** Single-purpose links to analyzers / modules (decision-support context only). */
+  window._docsOpenSourceModule = (hint) => {
+    const h = (hint || '').toLowerCase();
+    const map = {
+      qeeg: 'qeeg-analysis',
+      mri: 'mri-analysis',
+      video: 'video-assessments',
+      biometrics: 'wearables',
+      text: 'text-analyzer',
+      deeptwin: 'deeptwin',
+      protocol: 'protocol-studio',
+      assessments: 'assessments-v2',
+      inbox: 'clinician-inbox',
+      schedule: 'schedule-v2',
+    };
+    const page = map[h];
+    if (page) window._nav(page);
+    else window._dsToast?.({ title: 'Open module', body: 'Choose a module from the sidebar.', severity: 'info' });
+  };
+
+  function _dv2ReviewBadge(d) {
+    const t = (d.type || '').toLowerCase();
+    const st = (d.status || '').toLowerCase();
+    const aiDraft = t === 'generated' || (d.notes && /^\[AI-assisted draft/i.test(String(d.notes)));
+    if (st === 'signed' || st === 'completed') {
+      return '<span class="book-status-badge" style="color:var(--green);background:rgba(34,197,94,0.12);font-size:10px">Reviewed</span>';
+    }
+    if (st === 'superseded') {
+      return '<span class="book-status-badge" style="color:var(--text-tertiary);background:rgba(148,163,184,0.12);font-size:10px">Archived</span>';
+    }
+    if (aiDraft || (st === 'pending' && t === 'generated')) {
+      return '<span class="book-status-badge" style="color:var(--amber);background:rgba(245,158,11,0.14);font-size:10px">Needs review</span>';
+    }
+    if (st === 'pending') {
+      return '<span class="book-status-badge" style="color:var(--violet);background:rgba(139,92,246,0.12);font-size:10px">Draft</span>';
+    }
+    if (st === 'uploaded') {
+      return '<span class="book-status-badge" style="color:var(--teal);background:rgba(46,196,182,0.12);font-size:10px">Attachment</span>';
+    }
+    return '';
+  }
 
   function docRows(list) {
     if (!list.length) {
@@ -8013,7 +8791,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       // from "no rows linked to this drill-in upstream".
       if (backendError) {
         return '<div class="ch-empty">Documents service unreachable. Showing local cache (' + data.docs.length + ' rows). ' +
-          '<button class="ch-btn-sm" style="margin-left:8px" onclick="window._nav(\'documents-hub\')">Retry</button></div>';
+          '<button class="ch-btn-sm" style="margin-left:8px" onclick="window._refreshDocumentsWorkspace()">Retry</button></div>';
       }
       if (drillInType && drillInId) {
         const surfaceLabel = DRILL_IN_LABELS[drillInType] || drillInType;
@@ -8039,11 +8817,13 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
     const esc = s => String(s==null?'':s).replace(/'/g,"\\'");
     return list.map(d => {
       const hasFile = !!(d.file_ref || d.status === 'uploaded');
+      const hasNotes = !!(d.notes && String(d.notes).trim());
       // Downloadable records key on document id; template previews key on template_id.
       const downloadArg = hasFile ? "'"+esc(d.id)+"'" : (d.template_id ? "'"+esc(d.template_id)+"'" : 'null');
       const nameArg = "'"+esc(d.name)+"'";
       const hasFileArg = hasFile ? 'true' : 'false';
       const idArg = "'"+esc(d.id)+"'";
+      const pidArg = d.patient_id ? "'"+esc(d.patient_id)+"'" : 'null';
       const isBackend = !d.id || /^[0-9a-fA-F-]{8,}$/.test(String(d.id));
       const signed = d.status === 'signed' || d.status === 'completed' || d.status === 'final';
       const superseded = d.status === 'superseded';
@@ -8051,23 +8831,34 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       // Local-cache rows show download only — pre-fix the "Sign" button
       // would call api.signDocument with a synthetic id and throw.
       const signBtn = (isBackend && !signed && !superseded)
-        ? '<button class="ch-btn-sm ch-btn-teal" title="Sign-off" onclick="window._docsSign('+idArg+')">Sign</button>'
+        ? '<button type="button" class="ch-btn-sm ch-btn-teal" title="Clinician sign-off (finalizes record)" onclick="window._docsSign('+idArg+')">Sign off</button>'
         : '';
       const supersedeBtn = (isBackend && !superseded)
-        ? '<button class="ch-btn-sm" title="Create new revision" onclick="window._docsSupersede('+idArg+','+nameArg+')">Revise</button>'
+        ? '<button type="button" class="ch-btn-sm" title="Create new revision" onclick="window._docsSupersede('+idArg+','+nameArg+')">Revise</button>'
         : '';
       const deleteBtn = (isBackend && !signed)
-        ? '<button class="ch-btn-sm" title="Delete" onclick="window._docsDelete('+idArg+','+nameArg+')">Delete</button>'
+        ? '<button type="button" class="ch-btn-sm" title="Delete" onclick="window._docsDelete('+idArg+','+nameArg+')">Delete</button>'
         : '';
       const demoBadge = d.is_demo ? '<span class="book-status-badge" style="color:var(--amber);background:rgba(245,158,11,0.12);margin-right:4px">DEMO</span>' : '';
       const revLabel = d.revision && d.revision > 1 ? ' · v' + d.revision : '';
-      return '<div class="book-row">'+
+      const reviewBadges = _dv2ReviewBadge(d);
+      const previewBtn = (isBackend && hasNotes)
+        ? '<button type="button" class="ch-btn-sm" title="Preview text content (requires sign-in)" onclick="window._docsPreviewNotes('+idArg+')">Preview</button>'
+        : '';
+      const patientBtn = (isBackend && d.patient_id)
+        ? '<button type="button" class="ch-btn-sm" title="Open patient profile" onclick="window._docsOpenPatient('+pidArg+')">Patient</button>'
+        : '';
+      const dlTitle = hasFile ? 'Download file (authenticated)' : 'Download rendered text';
+      return '<div class="book-row dv2-doc-row">'+
         '<div class="book-datetime"><div class="book-date">'+(d.date||'—')+'</div><div class="book-time">'+(d.size||'—')+'</div></div>'+
-        '<div class="book-info"><div class="book-patient">'+d.name+revLabel+'</div><div class="book-clinician">'+d.patient+' · '+d.type+'</div></div>'+
-        '<div class="book-status-col">'+demoBadge+'<span class="book-status-badge" style="color:'+(stC[d.status]||'var(--text-tertiary)')+';background:'+(stC[d.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+d.status+'</span></div>'+
-        '<div class="book-actions" style="display:flex;gap:4px;flex-wrap:wrap">'+
-          '<button class="ch-btn-sm" title="Download" onclick="window._docsDownload('+downloadArg+','+nameArg+','+hasFileArg+')">↓</button>'+
-          signBtn + supersedeBtn + deleteBtn +
+        '<div class="book-info"><div class="book-patient">'+d.name+revLabel+'</div><div class="book-clinician">'+d.patient+' · <span style="text-transform:capitalize">'+(d.type||'')+'</span></div></div>'+
+        '<div class="book-status-col" style="display:flex;flex-direction:column;align-items:flex-start;gap:4px">'+demoBadge+
+          '<span class="book-status-badge" style="color:'+(stC[d.status]||'var(--text-tertiary)')+';background:'+(stC[d.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+d.status+'</span>'+
+          reviewBadges+
+        '</div>'+
+        '<div class="book-actions" style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">'+
+          '<button type="button" class="ch-btn-sm" title="'+dlTitle+'" onclick="window._docsDownload('+downloadArg+','+nameArg+','+hasFileArg+')">Download</button>'+
+          previewBtn + patientBtn + signBtn + supersedeBtn + deleteBtn +
         '</div>'+
       '</div>';
     }).join('');
@@ -8084,7 +8875,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       await api.signDocument(docId, note || null);
       window._dsToast?.({title:'Signed',body:'Document marked signed and immutable.',severity:'success'});
       api.logDocumentsAudit?.({event:'signed', document_id: docId, note: 'ui sign-off'}).catch(()=>{});
-      window._nav('documents-hub');
+      window._refreshDocumentsWorkspace();
     } catch (err) {
       const msg = err?.message || 'Sign failed.';
       window._dsToast?.({title:'Sign failed',body:String(msg),severity:'error'});
@@ -8101,7 +8892,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       const out = await api.supersedeDocument(docId, { reason: reason.trim(), new_title: newTitle });
       window._dsToast?.({title:'Revision created',body:'New revision v'+(out?.revision||2)+' created. Original marked superseded.',severity:'success'});
       api.logDocumentsAudit?.({event:'superseded', document_id: docId, note: 'ui supersede: ' + reason.slice(0,200)}).catch(()=>{});
-      window._nav('documents-hub');
+      window._refreshDocumentsWorkspace();
     } catch (err) {
       const msg = err?.message || 'Supersede failed.';
       window._dsToast?.({title:'Revise failed',body:String(msg),severity:'error'});
@@ -8113,7 +8904,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       await api.deleteDocument(docId);
       window._dsToast?.({title:'Deleted',body:'Document removed.',severity:'success'});
       api.logDocumentsAudit?.({event:'deleted', document_id: docId, note: 'ui delete'}).catch(()=>{});
-      window._nav('documents-hub');
+      window._refreshDocumentsWorkspace();
     } catch (err) {
       const msg = err?.message || 'Delete failed.';
       window._dsToast?.({title:'Delete failed',body:String(msg),severity:'error'});
@@ -8166,7 +8957,39 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
     const q = (window._docsSearch||'').toLowerCase();
     const filt = window._docsFilter||'All';
     const types = ['All',...new Set(data.docs.map(d=>d.type))];
-    const rows = data.docs.filter(d=>(filt==='All'||d.type===filt)&&(!q||(d.name+d.patient).toLowerCase().includes(q)));
+    const rows = data.docs.filter(d=>(filt==='All'||d.type===filt)&&(!q||(d.name+d.patient+(d.patient_id||'')).toLowerCase().includes(q)));
+    const pendingReview = rows.filter(d => {
+      const st = (d.status||'').toLowerCase();
+      const ty = (d.type||'').toLowerCase();
+      return st === 'pending' || ty === 'generated' || (d.notes && /^\[AI-assisted draft/i.test(String(d.notes)));
+    });
+    const archived = rows.filter(d => (d.status||'').toLowerCase() === 'superseded');
+    const activeRows = rows.filter(d => (d.status||'').toLowerCase() !== 'superseded');
+    const recent = rows.slice(0, 10);
+
+    function section(title, subtitle, list, limit) {
+      const slice = typeof limit === 'number' ? list.slice(0, limit) : list;
+      if (!slice.length) return '';
+      return '<div style="margin-bottom:18px">'+
+        '<div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;margin-bottom:8px">'+
+          '<h3 style="margin:0;font-size:14px;font-weight:600;color:var(--text-primary)">'+title+'</h3>'+
+          '<span style="font-size:11.5px;color:var(--text-tertiary)">'+subtitle+'</span>'+
+        '</div>'+
+        docRows(slice)+
+      '</div>';
+    }
+
+    const moduleLinks = (
+      '<div class="dv2-module-links" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px">'+
+        '<span style="font-size:11px;color:var(--text-tertiary);width:100%;margin-bottom:2px">Open source modules (decision support — review outputs here)</span>'+
+        ['qeeg:qEEG','mri:MRI','video:Video','biometrics:Biometrics','text:Text','deeptwin:DeepTwin','protocol:Protocols','assessments:Assessments','inbox:Inbox','schedule:Schedule']
+          .map(s => {
+            const [k, lab] = s.split(':');
+            return '<button type="button" class="ch-btn-sm" onclick="window._docsOpenSourceModule(\''+k+'\')">'+lab+'</button>';
+          }).join('')+
+      '</div>'
+    );
+
     // Top KPIs come from the server-side /summary so they are honest
     // about empty cases. The fallback (`summaryCounts || …`) above keeps
     // the UI working when the API is down.
@@ -8174,29 +8997,42 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
     const signedK  = summaryCounts.signed     ?? rows.filter(d=>d.status==='signed'||d.status==='completed').length;
     const draftK   = summaryCounts.draft      ?? rows.filter(d=>d.status==='pending').length;
     const supersK  = summaryCounts.superseded ?? rows.filter(d=>d.status==='superseded').length;
+    const demoK    = (typeof summaryCounts.demo === 'number') ? summaryCounts.demo : rows.filter(d => d.is_demo).length;
     const errBanner = backendError
-      ? '<div style="padding:8px 12px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:8px;color:var(--red);font-size:12px;margin-bottom:12px">Documents API unreachable — '+ String(backendError).replace(/[<>]/g,'') +'. Counts are local-cache only. <button class="ch-btn-sm" style="margin-left:8px" onclick="window._nav(\'documents-hub\')">Retry</button></div>'
+      ? '<div style="padding:8px 12px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:8px;color:var(--red);font-size:12px;margin-bottom:12px">Documents API unreachable — '+ String(backendError).replace(/[<>]/g,'') +'. Counts are local-cache only. <button class="ch-btn-sm" style="margin-left:8px" onclick="window._refreshDocumentsWorkspace()">Retry</button></div>'
       : '';
     main = errBanner + `
-      <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+      <div class="dv2-scope-note" style="font-size:11.5px;color:var(--text-tertiary);line-height:1.5;margin-bottom:10px">
+        Clinical document workspace — not autonomous documentation or diagnosis. AI-assisted items stay in <strong>draft</strong> until you sign off.
+      </div>
+      <div class="ch-kpi-strip dv2-kpi-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:10px;margin-bottom:16px">
         <div class="ch-kpi-card dv2-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val dv2-kpi-val">${totalK}</div><div class="ch-kpi-label dv2-kpi-label">Total</div></div>
         <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${signedK}</div><div class="ch-kpi-label">Signed</div></div>
         <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${draftK}</div><div class="ch-kpi-label">Drafts</div></div>
         <div class="ch-kpi-card" style="--kpi-color:var(--text-tertiary)"><div class="ch-kpi-val">${supersK}</div><div class="ch-kpi-label">Superseded</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${demoK}</div><div class="ch-kpi-label">Demo rows</div></div>
       </div>
+      ${moduleLinks}
       <div class="ch-card">
-        <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px">
-          <span class="ch-card-title">All Documents</span>
-          <div style="position:relative;flex:1;max-width:260px">
-            <input type="text" placeholder="Search…" class="ph-search-input" value="${window._docsSearch||''}" oninput="window._docsSearch=this.value;window._nav('documents-hub')">
-            <svg viewBox="0 0 24 24" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;stroke:var(--text-tertiary);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px;align-items:center">
+          <span class="ch-card-title">Documents</span>
+          <div style="position:relative;flex:1;min-width:160px;max-width:280px">
+            <label class="sr-only" for="dv2-docs-search">Search documents</label>
+            <input id="dv2-docs-search" type="search" autocomplete="off" placeholder="Search title, patient…" class="ph-search-input" style="padding-left:28px" value="${window._docsSearch||''}" oninput="window._docsSearch=this.value;window._refreshDocumentsWorkspace()">
+            <svg viewBox="0 0 24 24" aria-hidden="true" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;stroke:var(--text-tertiary);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           </div>
-          <button class="ch-btn-sm" title="Download filtered ZIP (manifest.csv + uploaded blobs)" onclick="window._docsExport()">⤓ Export ZIP</button>
+          <button type="button" class="ch-btn-sm" title="Download filtered ZIP (manifest.csv + uploaded blobs)" onclick="window._docsExport()">Export ZIP</button>
         </div>
         <div style="padding:10px 16px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border)">
-          ${types.map(t=>'<button class="reg-domain-pill'+(t===filt?' active':'')+'" onclick="window._docsFilter=\''+t+'\';window._docsLogFilter(\'kind\','+JSON.stringify(t)+');window._nav(\'documents-hub\')">'+t+'</button>').join('')}
+          ${types.map(t=>'<button type="button" class="reg-domain-pill'+(t===filt?' active':'')+'" onclick="window._docsFilter=\''+t+'\';window._docsLogFilter(\'kind\','+JSON.stringify(t)+');window._refreshDocumentsWorkspace()">'+t+'</button>').join('')}
         </div>
-        ${docRows(rows)}
+        <div style="padding:12px 16px 20px">
+          ${section('Awaiting clinician review', 'pending drafts and AI-assisted drafts', pendingReview, 40)}
+          ${rows.length > 12 ? section('Recent', 'newest matches (quick scan)', recent, 10) : ''}
+          ${section('All matching records', 'scroll or narrow filters', activeRows, undefined)}
+          ${archived.length ? section('Archived', 'superseded revisions retained for audit', archived, 80) : ''}
+          ${!rows.length ? docRows([]) : ''}
+        </div>
       </div>`;
   }
   else if (tab === 'templates') {
@@ -8211,7 +9047,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
           <button class="ch-btn-sm ch-btn-teal" onclick="window._docOpenTemplateBuilder?.()">+ New Template</button>
         </div>
         <div style="padding:10px 16px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border)">
-          ${cats.map(c=>'<button class="reg-domain-pill'+(c===filt?' active':'')+'" onclick="window._tplFilter=\''+c+'\';window._nav(\'documents-hub\')">'+c+'</button>').join('')}
+          ${cats.map(c=>'<button class="reg-domain-pill'+(c===filt?' active':'')+'" onclick="window._tplFilter=\''+c+'\';window._refreshDocumentsWorkspace()">'+c+'</button>').join('')}
         </div>
         ${rows.map(t=>{
           const safeId = String(t.id).replace(/'/g,"\\'");
@@ -8239,39 +9075,51 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
   else if (tab === 'letters') {
     let patients = [];
     try { const r = await api.listPatients().catch(()=>({items:[]})); patients=r?.items||[]; } catch {}
-    const patOpts = patients.map(p=>'<option value="'+p.id+'">'+ ((p.first_name||'')+' '+(p.last_name||'')).trim() +'</option>').join('') || '<option>Demo Patient A</option>';
+    const patOpts = patients.length
+      ? patients.map(p=>'<option value="'+p.id+'">'+ ((p.first_name||'')+' '+(p.last_name||'')).trim() +'</option>').join('')
+      : '<option value="" disabled selected>No patients in roster — add a patient first</option>';
     const letterTpls = TEMPLATES.filter(t=>t.cat==='Letter');
+    const letterDocs = data.docs.filter(d => (d.type||'').toLowerCase() === 'letter' || (d.type||'').toLowerCase() === 'clinical');
     main = `
       <div class="ch-two-col">
         <div class="ch-card">
-          <div class="ch-card-hd"><span class="ch-card-title">Generate Letter</span><span class="ph-ai-badge">AI</span></div>
+          <div class="ch-card-hd"><span class="ch-card-title">AI-assisted letter draft</span><span class="ph-ai-badge" title="Decision support only">AI</span></div>
+          <p style="padding:0 16px 0;margin:0;font-size:12px;color:var(--text-tertiary);line-height:1.5">Generates a <strong>draft</strong> for clinician review — not a final medical letter or diagnosis.</p>
           <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
-            <div class="ch-form-group"><label class="ch-label">Patient</label><select id="letter-patient" class="ch-select ch-select--full">${patOpts}</select></div>
+            <div class="ch-form-group"><label class="ch-label">Patient</label><select id="letter-patient" class="ch-select ch-select--full" ${patients.length ? '' : 'disabled'}>${patOpts}</select></div>
             <div class="ch-form-group"><label class="ch-label">Template</label>
-              <select id="letter-template" class="ch-select ch-select--full">
-                ${letterTpls.map(t=>'<option value="'+t.id+'">'+t.name+'</option>').join('')}
+              <select id="letter-template" class="ch-select ch-select--full" ${letterTpls.length ? '' : 'disabled'}>
+                ${letterTpls.length ? letterTpls.map(t=>'<option value="'+t.id+'">'+t.name+'</option>').join('') : '<option value="">No letter templates bundled</option>'}
               </select>
             </div>
             <div class="ch-form-group"><label class="ch-label">Recipient</label><input id="letter-recipient" class="ch-select ch-select--full" placeholder="GP name, insurer, patient…"></div>
             <div class="ch-form-group"><label class="ch-label">Additional Notes</label><textarea id="letter-notes" class="ch-textarea" rows="3" placeholder="Any specific points to include…"></textarea></div>
-            <button class="btn btn-primary" onclick="window._genLetter()">✦ Generate Letter</button>
+            <button type="button" class="btn btn-primary" onclick="window._genLetter()" ${patients.length && letterTpls.length ? '' : 'disabled'} title="${patients.length && letterTpls.length ? '' : (!patients.length ? 'Add at least one patient' : 'No letter templates available')}">Generate draft</button>
           </div>
           <div id="letter-output" style="display:none;padding:0 16px 16px">
-            <div class="ch-card-hd" style="padding:0 0 8px"><span class="ch-card-title">Generated Letter</span></div>
+            <div class="ch-card-hd" style="padding:0 0 8px"><span class="ch-card-title">Draft output</span></div>
             <div id="letter-content" class="ch-textarea" style="min-height:120px;padding:12px;font-size:12.5px;line-height:1.7;white-space:pre-wrap"></div>
-            <div style="display:flex;gap:8px;margin-top:10px">
-              <button class="ch-btn-sm ch-btn-teal" onclick="window._docsSaveGenerated('letter', document.getElementById('letter-template')?.options[document.getElementById('letter-template')?.selectedIndex]?.text, document.getElementById('letter-content')?.textContent || '', document.getElementById('letter-patient')?.value, document.getElementById('letter-template')?.value)">Save</button>
-              <button class="ch-btn-sm" onclick="window.print()">Print</button>
+            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+              <button type="button" class="ch-btn-sm ch-btn-teal" onclick="window._docsSaveGenerated('letter', document.getElementById('letter-template')?.options[document.getElementById('letter-template')?.selectedIndex]?.text, document.getElementById('letter-content')?.textContent || '', document.getElementById('letter-patient')?.value, document.getElementById('letter-template')?.value)">Save draft to documents</button>
+              <button type="button" class="ch-btn-sm" onclick="window.print()">Print</button>
             </div>
           </div>
         </div>
         <div class="ch-card">
-          <div class="ch-card-hd"><span class="ch-card-title">Sent Letters</span></div>
-          ${docRows(data.docs.filter(d=>d.type==='Letter'))}
+          <div class="ch-card-hd"><span class="ch-card-title">Letter records</span></div>
+          ${docRows(letterDocs)}
         </div>
       </div>`;
 
     window._genLetter = async () => {
+      if (!patients.length) {
+        window._dsToast?.({ title: 'No patients', body: 'Add a patient in the roster before generating a letter draft.', severity: 'info' });
+        return;
+      }
+      if (!letterTpls.length) {
+        window._dsToast?.({ title: 'No templates', body: 'No letter templates are available in this build.', severity: 'info' });
+        return;
+      }
       const patEl = document.getElementById('letter-patient');
       const tplEl = document.getElementById('letter-template');
       const recip = document.getElementById('letter-recipient')?.value||'Referring Clinician';
@@ -8281,12 +9129,12 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       const out = document.getElementById('letter-output');
       const content = document.getElementById('letter-content');
       if (out) out.style.display='';
-      if (content) content.textContent='✦ Generating…';
+      if (content) content.textContent='Generating draft…';
       try {
-        const res = await api.chatClinician([{role:'user',content:'Write a professional '+tplName+' for patient '+patName+' addressed to '+recip+'. Include: patient name, treatment summary, current status, recommendations. Formal medical letter format. Additional notes: '+notes}],{});
-        if (content) content.textContent = res?.message||res?.content||'Dear '+recip+',\n\nRe: '+patName+'\n\nI am writing regarding the above-named patient who has been receiving neuromodulation therapy at our clinic. Treatment is progressing well with measurable improvement in symptom scores.\n\nKind regards,\nDr. [Clinician Name]';
+        const res = await api.chatClinician([{role:'user',content:'Write a professional '+tplName+' for patient '+patName+' addressed to '+recip+'. Include: patient name, treatment summary, current status, recommendations. Formal medical letter format. Emphasize this is administrative correspondence requiring clinician review — no diagnosis or prescribing language. Additional notes: '+notes}],{});
+        if (content) content.textContent = res?.message||res?.content||('[Draft placeholder — replace with clinic-approved content]\n\nDear '+recip+',\n\nRe: '+patName+'\n\n…\n\nKind regards,\n[Clinician name]');
       } catch {
-        if (content) content.textContent = 'Dear '+recip+',\n\nRe: '+patName+'\n\nI am writing to provide an update on the above patient\'s neuromodulation treatment.\n\nTreatment is progressing satisfactorily.\n\nKind regards,\nDr. [Clinician Name]';
+        if (content) content.textContent = '[Draft placeholder — review offline template]\n\nDear '+recip+',\n\nRe: '+patName+'\n\n…\n\nKind regards,\n[Clinician name]';
       }
     };
   }
@@ -8318,7 +9166,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
           '<div class="book-row"><div class="book-info"><div class="book-patient">'+f.name+'</div><div class="book-clinician">'+(f.size>1024*1024?(f.size/1024/1024).toFixed(1)+' MB':(f.size/1024).toFixed(0)+' KB')+'</div></div><div class="book-status-col"><span class="book-status-badge" style="color:var(--amber);background:rgba(245,158,11,0.1)">Uploading…</span></div><div class="book-actions"></div></div>'
         ).join('');
       }
-      await window._docsUploadFiles(files, () => { window._nav('documents-hub'); });
+      await window._docsUploadFiles(files, () => { window._refreshDocumentsWorkspace(); });
     };
     window._docsUpload = () => document.getElementById('docs-file-input')?.click();
   }
@@ -8402,7 +9250,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
         </div>
         <input type="file" id="docs-modal-file" multiple accept=".pdf,.docx,.doc,.jpg,.jpeg,.png,.webp,.txt" style="display:none" onchange="var h=document.getElementById('docs-modal-file-hint');if(h)h.textContent=this.files.length+' file(s) selected'">
         <div style="display:flex;gap:8px">
-          <button class="btn btn-primary" id="docs-modal-upload-btn" onclick="(async()=>{const inp=document.getElementById('docs-modal-file');if(!inp||!inp.files||!inp.files.length){window._dsToast?.({title:'No files',body:'Select one or more files first.',severity:'info'});return;}const btn=document.getElementById('docs-modal-upload-btn');if(btn){btn.disabled=true;btn.textContent='Uploading…';}await window._docsUploadFiles(inp.files,()=>{document.getElementById('docs-upload-modal')?.classList.add('ch-hidden');window._nav('documents-hub');});if(btn){btn.disabled=false;btn.textContent='Upload';}})()">Upload</button>
+          <button class="btn btn-primary" id="docs-modal-upload-btn" onclick="(async()=>{const inp=document.getElementById('docs-modal-file');if(!inp||!inp.files||!inp.files.length){window._dsToast?.({title:'No files',body:'Select one or more files first.',severity:'info'});return;}const btn=document.getElementById('docs-modal-upload-btn');if(btn){btn.disabled=true;btn.textContent='Uploading…';}await window._docsUploadFiles(inp.files,()=>{document.getElementById('docs-upload-modal')?.classList.add('ch-hidden');window._refreshDocumentsWorkspace();});if(btn){btn.disabled=false;btn.textContent='Upload';}})()">Upload</button>
           <button class="btn" onclick="document.getElementById('docs-upload-modal').classList.add('ch-hidden')">Cancel</button>
         </div>
       </div>
@@ -8423,8 +9271,18 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
 // pgReportsHubNew — Generate · Recent · Analytics · Export
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgReportsHubNew(setTopbar, navigate) {
+  // Consume focus set by per-widget Report buttons on the patient-analytics page.
+  const _focus = window._reportsHubFocus || null;
+  if (_focus) { window._reportsHubFocus = null; window._reportsHubTab = 'generate'; }
   const tab = window._reportsHubTab || 'generate';
   window._reportsHubTab = tab;
+  const FOCUS_TYPE_TO_REPORT_ID = {
+    'wearables-summary':  'R16',
+    'outcome-summary':    'R4',
+    'medication-history': 'R18',
+    'adherence-summary':  'R9',
+    'digital-phenotype':  'R11',
+  };
   const TAB_META = {
     generate:   { label: 'Generate',         color: 'var(--teal)'   },
     combined:   { label: 'Combined Report',  color: 'var(--green)'  },
@@ -8460,6 +9318,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     { id:'R15',name:'Protocol Efficacy Report',        cat:'Health',       auto:false, fields:22, desc:'Per-protocol responder rates, mean outcome deltas, session tolerance, and evidence alignment.', sources:['protocols','outcomes','courses','sessions'] },
     { id:'R16',name:'Wearable Health Summary',         cat:'Health',       auto:true,  fields:14, desc:'Wearable-derived health metrics: sleep, HRV, activity, and correlation with clinical outcomes.', sources:['wearables','outcomes','patients'] },
     { id:'R17',name:'Comprehensive Combined Report',   cat:'Combined',     auto:false, fields:40, desc:'Full cross-domain report combining clinical, financial, and operational data with AI insights.', sources:['patients','courses','outcomes','sessions','finance','protocols','assessments','wearables'] },
+    { id:'R18',name:'Medication History Report',        cat:'Health',       auto:true,  fields:16, desc:'Per-patient medication history with prescriptions, changes, adherence, and drug interactions.', sources:['patients','courses','assessments'] },
   ];
 
   // ── Data source registry — each dashboard page's data accessor ──
@@ -8665,11 +9524,14 @@ export async function pgReportsHubNew(setTopbar, navigate) {
       ]);
       patients=pR?.items||[]; courses=cR?.items||[];
     } catch {}
-    const patOpts = '<option value="all">All Patients (Clinic-wide)</option>' + patients.map(p=>'<option value="'+p.id+'">'+ ((p.first_name||'')+' '+(p.last_name||'')).trim() +'</option>').join('');
+    const focusReportId = _focus ? (FOCUS_TYPE_TO_REPORT_ID[_focus.type] || null) : null;
+    const focusPatientId = _focus?.patientId || null;
+    const patOpts = '<option value="all"' + (focusPatientId ? '' : ' selected') + '>All Patients (Clinic-wide)</option>' +
+      patients.map(p => '<option value="' + p.id + '"' + (focusPatientId && String(p.id) === String(focusPatientId) ? ' selected' : '') + '>' + ((p.first_name||'')+' '+(p.last_name||'')).trim() + '</option>').join('');
     const cats = ['All',...new Set(REPORT_TYPES.map(r=>r.cat))];
-    const filtCat = window._repGenCat||'All';
+    const filtCat = focusReportId ? 'All' : (window._repGenCat||'All');
     const filtTypes = REPORT_TYPES.filter(r=>filtCat==='All'||r.cat===filtCat);
-    const selType = filtTypes[0] || REPORT_TYPES[0];
+    const selType = (focusReportId && REPORT_TYPES.find(r => r.id === focusReportId)) || filtTypes[0] || REPORT_TYPES[0];
 
     main = `
       <div class="ch-two-col">
@@ -8682,7 +9544,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
                 ${cats.map(c=>'<button class="reg-domain-pill'+(c===filtCat?' active':'')+'" onclick="window._repGenCat=\''+c+'\';window._nav(\'reports-hub\')">'+c+'</button>').join('')}
               </div>
               <select id="rep-type" class="ch-select ch-select--full" onchange="window._repUpdateDesc()">
-                ${filtTypes.map(r=>'<option value="'+r.id+'">'+r.name+'</option>').join('')}
+                ${filtTypes.map(r=>'<option value="'+r.id+'"'+(r.id===selType.id?' selected':'')+'>'+r.name+'</option>').join('')}
               </select>
             </div>
             <div id="rep-desc" style="font-size:11.5px;color:var(--text-tertiary);line-height:1.5;padding:8px;background:rgba(255,255,255,0.03);border-radius:6px">${selType.desc}</div>
@@ -10227,12 +11089,13 @@ export async function pgFinanceHub(setTopbar, navigate) {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // pgAssessmentsHub — Screen 05 · Queue / Cohort / Library / Individual
+// (Assessments v2 route: ?page=assessments-v2)
+// TODO: remove legacy duplicate `pgAssessmentsHub` in pages-clinical-tools.js (unused
+// by this route; confuses maintainers). Tracked for a follow-up PR, not this file’s scope.
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgAssessmentsHub(setTopbar, navigate) {
   const tab = window._assessHubTab || 'queue';
   window._assessHubTab = tab;
-  const selectedId = window._assessSelectedId || 'as-3';
-  window._assessSelectedId = selectedId;
 
   const el = document.getElementById('content');
   if (!el) return;
@@ -10243,7 +11106,7 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
     const syncLbl = c.lastSync ? ' · synced ' + new Date(c.lastSync).toLocaleTimeString() : '';
     setTopbar(
       'Assessments',
-      '<span id="dv2a-demo-chip" style="display:none;font-size:10px;font-weight:700;color:var(--amber,#ffb547);background:rgba(255,181,71,0.14);border:1px solid rgba(255,181,71,0.35);padding:2px 8px;border-radius:999px;margin-right:8px;letter-spacing:0.04em">DEMO DATA</span>' +
+      '<span id="dv2a-demo-chip" style="display:none;font-size:10px;font-weight:700;color:var(--amber,#ffb547);background:rgba(255,181,71,0.14);border:1px solid rgba(255,181,71,0.35);padding:2px 8px;border-radius:999px;margin-right:8px;letter-spacing:0.04em">Demo · not real patients</span>' +
       '<span id="dv2a-counts" style="font-size:11px;color:var(--text-tertiary);margin-right:10px">' +
         c.instruments + ' instruments · ' +
         '<strong style="color:var(--rose)">' + c.redFlags + ' red flag' + (c.redFlags===1?'':'s') + '</strong> · ' +
@@ -10417,6 +11280,18 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
 
 .dv2a-footer-actions { display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--border); background:var(--bg-panel,#0d1b22); flex-shrink:0; }
 
+.dv2a-demo-page-banner {
+  margin: 0 18px 10px;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--amber, #ffb547);
+  background: rgba(255, 181, 71, 0.1);
+  border: 1px solid rgba(255, 181, 71, 0.35);
+  border-radius: 8px;
+  line-height: 1.45;
+}
+
 /* Crisis modal */
 .dv2a-crisis-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); backdrop-filter:blur(4px); z-index:9999; display:flex; align-items:center; justify-content:center; }
 .dv2a-crisis-modal { width:min(480px,92vw); background:var(--bg-panel,#0d1b22); border:1px solid rgba(255,107,157,0.45); border-radius:12px; padding:22px; box-shadow:0 20px 60px rgba(0,0,0,0.5); }
@@ -10502,66 +11377,39 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   // Hydrate queue from backend, transforming records into the Queue row shape.
   // Port of the legacy `hydrate()` in pages-clinical-tools.js — preserves backend
   // ids so Submit/Approve/Score later can round-trip.
-  let queueRows = MOCK_QUEUE;
-  let usingDemoData = true;
+  let queueRows = [];
+  let usingDemoData = false;
+  /** True when MOCK_QUEUE is shown — only if assessmentsSampleQueueAllowed (demo build or demo token). */
+  let usingSampleQueue = false;
+  let assessmentsListFetchFailed = false;
+  /** True when listAssessments returned successfully with zero items (not an error). */
+  let assessmentsListEmptyOk = false;
+  const allowSampleQueueFallback = assessmentsSampleQueueAllowed(import.meta.env, api.getToken?.()).allowed;
   try {
     const apiRes = await (api.listAssessments?.() || Promise.reject());
     const items = Array.isArray(apiRes) ? apiRes : ((apiRes && apiRes.items) || []);
+    assessmentsListEmptyOk = items.length === 0;
     if (items.length) {
-      const merged = items.slice(0, 40).map((a, i) => {
-        const sid = a.scale_id || a.scale || a.instrument || a.template_id || 'PHQ-9';
-        const score = (a.score == null ? (a.data && a.data.score) : a.score);
-        const itemsArr = (a.data && a.data.items) || a.items || null;
-        const item9 = (Array.isArray(itemsArr) && itemsArr.length >= 9) ? Number(itemsArr[8]) || 0 : (a.item9 ?? 0);
-        const max = a.max_score ?? (ASSESS_REGISTRY.find(x => x.id === sid || x.abbr === sid)?.max ?? 27);
-        // Severity band
-        let sev = 'mod', sevLabel = a.severity_label || '—';
-        if (score != null && scoringEngine?.interpretScore) {
-          const interp = scoringEngine.interpretScore(sid, Number(score));
-          if (interp) {
-            sev = ({ minimal:'mild', mild:'mild', moderate:'mod', severe:'mods', critical:'sev' })[interp.severity] || 'mod';
-            sevLabel = interp.label;
-          }
-        }
-        const overdue = !!a.overdue || (a.due_date && new Date(a.due_date) < new Date());
-        const patientName = a.patient_name || a.patient_id || 'Patient';
-        return {
-          id: 'be-' + (a.id || i),
-          backendId: a.id,
-          patientId: a.patient_id || a.patientId || '',
-          scaleId: sid,
-          patient: patientName,
-          mrn: a.mrn || (a.patient_id ? String(a.patient_id).slice(0, 8) : '—'),
-          avInit: patientName.split(' ').map(x => x[0]).slice(0,2).join('').toUpperCase() || 'PT',
-          avCls: ['a','b','c','d','e'][i % 5],
-          dx: a.diagnosis || a.condition_name || '—',
-          inst: sid,
-          instSub: a.cadence || a.phase || '',
-          score: (score == null ? null : Number(score)),
-          max,
-          item9,
-          sev,
-          sevLabel,
-          trend: a.trend_label || (a.status === 'completed' ? 'Completed' : 'Pending'),
-          trendCls: overdue ? 'up' : 'flat',
-          sparkline: a.sparkline || [],
-          due: a.due_label || (a.due_date ? new Date(a.due_date).toLocaleDateString() : '—'),
-          dueCls: overdue ? 'overdue' : (a.due_today ? 'today' : 'soon'),
-          overdue,
-          mode: a.delivery_mode || (a.respondent_type === 'patient' ? 'TABLET' : 'ASYNC'),
-          modeSub: a.delivery_sub || (a.respondent_type || ''),
-          redflag: item9 >= 1,
-          flagLabel: overdue ? 'OVERDUE' : null,
-          flagCls: overdue ? 'amber' : null,
-          sendLabel: (a.status === 'completed' && !a.reviewed) ? 'Review' : (overdue ? 'Resend' : 'Open'),
-          status: a.status,
-          reviewed: !!a.reviewed,
-          items: Array.isArray(itemsArr) ? itemsArr.map(Number) : null,
-        };
-      });
-      if (merged.length) { queueRows = merged; usingDemoData = false; }
+      const merged = items
+        .slice(0, 80)
+        .map((a, i) => mapApiAssessmentToQueueRow(a, i, scoringEngine, ASSESS_REGISTRY));
+      if (merged.length) {
+        queueRows = merged;
+      }
+    } else if (allowSampleQueueFallback) {
+      queueRows = MOCK_QUEUE;
+      usingDemoData = true;
+      usingSampleQueue = true;
     }
-  } catch {}
+  } catch {
+    assessmentsListFetchFailed = true;
+    assessmentsListEmptyOk = false;
+    if (allowSampleQueueFallback) {
+      queueRows = MOCK_QUEUE;
+      usingDemoData = true;
+      usingSampleQueue = true;
+    }
+  }
 
   // Compute real counts from hydrated rows and update the topbar.
   const _ahCounts = () => {
@@ -10573,16 +11421,77 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   window._ahLastSync = window._ahLastSync || new Date().toISOString();
   _setAssessTopbar(_ahCounts());
 
-  // Reveal DEMO chip now that load has settled.
+  // Reveal sample-data chip only when MOCK_QUEUE is active (demo preview session).
   setTimeout(() => {
     const chip = document.getElementById('dv2a-demo-chip');
-    if (chip) chip.style.display = usingDemoData ? 'inline-block' : 'none';
+    if (chip) chip.style.display = usingSampleQueue ? 'inline-block' : 'none';
   }, 0);
+
+  // Selected row: keep prior selection when valid; otherwise first queue row (no fake default).
+  let selectedId = window._assessSelectedId || null;
+  if (!selectedId || !queueRows.some((r) => r.id === selectedId)) {
+    selectedId = queueRows[0]?.id || null;
+    window._assessSelectedId = selectedId;
+  } else {
+    window._assessSelectedId = selectedId;
+  }
 
   // ── State & handlers ─────────────────────────────────────────────────────────
   window._assessSelect = (id) => { window._assessSelectedId = id; window._nav('assessments-v2'); };
   window._assessTab = (t) => { window._assessHubTab = t; window._nav('assessments-v2'); };
   window._assessCloseSide = () => { window._assessSelectedId = null; window._nav('assessments-v2'); };
+  window._assessOpenPatient = (rowId) => {
+    const row = queueRows.find((r) => r.id === rowId);
+    const pid = row?.patientId;
+    if (!pid) {
+      window._dsToast?.({ title: 'No patient link', body: 'Select a patient-linked assessment or open Patients to choose a record.', severity: 'warn' });
+      return;
+    }
+    window._selectedPatientId = pid;
+    window._profilePatientId = pid;
+    if (row?.patient) window._profilePatientName = row.patient;
+    try { sessionStorage.setItem('ds_pat_selected_id', pid); } catch {}
+    if (typeof navigate === 'function') navigate('patient-profile');
+    else window._nav('patient-profile');
+  };
+  window._assessOpenTimeline = (rowId) => {
+    const row = queueRows.find((r) => r.id === rowId);
+    const pid = row?.patientId;
+    if (!pid) {
+      window._dsToast?.({ title: 'No patient link', body: 'Link this assessment to a patient to open the timeline.', severity: 'warn' });
+      return;
+    }
+    window._selectedPatientId = pid;
+    if (typeof navigate === 'function') navigate('patient-timeline');
+    else window._nav('patient-timeline');
+  };
+  window._assessOpenProtocol = () => {
+    if (typeof navigate === 'function') navigate('protocol-studio');
+    else window._nav('protocol-studio');
+  };
+  window._assessOpenDeeptwin = (rowId) => {
+    const row = queueRows.find((r) => r.id === rowId);
+    const pid = row?.patientId;
+    if (!pid) {
+      window._dsToast?.({ title: 'No patient link', body: 'Link this assessment to a patient before opening DeepTwin.', severity: 'warn' });
+      return;
+    }
+    window._selectedPatientId = pid;
+    window._profilePatientId = pid;
+    if (typeof navigate === 'function') navigate('deeptwin');
+    else window._nav('deeptwin');
+  };
+  window._assessOpenModality = (pageId, rowId) => {
+    const row = queueRows.find((r) => r.id === rowId);
+    const pid = row?.patientId;
+    if (!pid) {
+      window._dsToast?.({ title: 'No patient link', body: 'Link this assessment to a patient to open analyzer modules.', severity: 'warn' });
+      return;
+    }
+    window._selectedPatientId = pid;
+    if (typeof navigate === 'function') navigate(pageId);
+    else window._nav(pageId);
+  };
   // Batch send → jump to Cohort tab where the real _ahBulkAssign flow lives.
   window._assessBatch = () => { window._assessHubTab = 'cohort'; window._nav('assessments-v2'); };
   // New assessment → jump to Library tab (clinician picks the instrument then Submit/Assign).
@@ -10712,19 +11621,20 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   };
 
   // ── Crisis escalation (real behavior) ────────────────────────────────────────
-  window._assessCrisis = (patientId, patientName) => {
+  window._assessCrisis = (patientId, patientName, contextNote) => {
     const existing = document.getElementById('dv2a-crisis-modal');
     if (existing) existing.remove();
+    const note = contextNote || 'A safety-related response or red-flag trigger was recorded. Follow your clinic safety protocol; this app does not perform emergency triage.';
     const overlay = document.createElement('div');
     overlay.id = 'dv2a-crisis-modal';
     overlay.className = 'dv2a-crisis-overlay';
     overlay.innerHTML =
       '<div class="dv2a-crisis-modal" role="alertdialog" aria-labelledby="dv2a-crisis-title">'+
-        '<div class="dv2a-crisis-title" id="dv2a-crisis-title">⚠ Crisis protocol</div>'+
-        '<div class="dv2a-crisis-body"><strong>'+esc(patientName || 'Patient')+'</strong> indicated thoughts of self-harm on PHQ-9 item 9. Follow clinic crisis protocol?</div>'+
+        '<div class="dv2a-crisis-title" id="dv2a-crisis-title">Safety review required</div>'+
+        '<div class="dv2a-crisis-body"><strong>'+esc(patientName || 'Patient')+'</strong> — '+esc(note)+' This workspace does not replace your clinic\'s crisis or emergency procedures.</div>'+
         '<div class="dv2a-crisis-actions">'+
-          '<button class="btn btn-ghost btn-sm" onclick="document.getElementById(\'dv2a-crisis-modal\')?.remove()">Cancel</button>'+
-          '<button class="btn btn-primary btn-sm" style="background:var(--rose,#ff6b9d);color:#04121c;border-color:var(--rose,#ff6b9d)" onclick="window._assessCrisisConfirm(\''+esc(patientId)+'\',\''+esc(patientName || '')+'\')">Confirm escalation →</button>'+
+          '<button class="btn btn-ghost btn-sm" onclick="document.getElementById(\'dv2a-crisis-modal\')?.remove()">Close</button>'+
+          (patientId ? '<button class="btn btn-primary btn-sm" style="background:var(--rose,#ff6b9d);color:#04121c;border-color:var(--rose,#ff6b9d)" onclick="window._assessCrisisConfirm(\''+esc(patientId)+'\',\''+esc(patientName || '')+'\')">Log follow-up &amp; dismiss →</button>' : '') +
         '</div>'+
       '</div>';
     document.body.appendChild(overlay);
@@ -10732,20 +11642,22 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   };
   window._assessCrisisConfirm = async (patientId, patientName) => {
     const ts = new Date().toISOString();
-    const event = { ts, patient_id:patientId, patient_name:patientName, reason:'PHQ-9 item 9 positive', user:(currentUser?.email || 'clinician') };
+    const event = { ts, patient_id: patientId, patient_name: patientName, reason: 'safety_review_follow_up', user:(currentUser?.email || 'clinician'), source: 'assessments-v2' };
     try {
       const raw = localStorage.getItem('ds_crisis_audit');
       const arr = raw ? JSON.parse(raw) : [];
       arr.push(event);
       localStorage.setItem('ds_crisis_audit', JSON.stringify(arr));
     } catch {}
-    try {
-      await (api.escalateCrisis?.(patientId) || Promise.reject());
-    } catch {
-      // backend missing — audit already saved locally above
+    if (patientId) {
+      try {
+        await (api.escalateCrisis?.(patientId) || Promise.reject());
+      } catch {
+        // backend optional — local audit above
+      }
     }
     document.getElementById('dv2a-crisis-modal')?.remove();
-    window._dsToast?.({ title:'Crisis escalated', body:'Supervisor notified · audit logged', severity:'error' });
+    window._dsToast?.({ title: 'Follow-up logged', body: 'Local safety audit entry saved. Continue per clinic protocol.', severity: 'warn' });
   };
 
   // ── Scoring helper (uses scoring-engine.js when available, else sum) ─────────
@@ -11202,7 +12114,13 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       '</div>'
     ).join('') + '</div>';
 
-    const chipHtml = '<div class="dv2a-filter-bar">' +
+    const chipHtml =
+      (usingSampleQueue
+        ? '<div role="note" style="margin:0 0 10px;padding:8px 12px;font-size:11px;font-weight:600;color:var(--amber,#ffb547);background:rgba(255,181,71,0.1);border:1px solid rgba(255,181,71,0.35);border-radius:8px">' +
+          esc(DEMO_ASSESSMENTS_BANNER_MARK) +
+          '</div>'
+        : '') +
+      '<div class="dv2a-filter-bar">' +
       '<button class="dv2a-chip'+(activeFilter==='all'?' active':'')+'" onclick="window._assessSetFilter(\'all\')">All instruments · '+queueRows.length+'</button>' +
       INSTRUMENTS.map(code => {
         const n = queueRows.filter(r => (r.inst || '').includes(code)).length;
@@ -11227,6 +12145,27 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       window._assessCycleSort = () => { const cur = window._assessSort || 'due-asc'; const next = _SORTS[(_SORTS.indexOf(cur)+1) % _SORTS.length]; window._assessSort = next; window._nav('assessments-v2'); };
     }
 
+    const emptyBanner =
+      queueRows.length === 0
+        ? '<div role="status" style="padding:28px 20px;text-align:center;border-bottom:1px solid var(--border)">' +
+          '<div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:8px">' +
+          (assessmentsListFetchFailed ? 'Could not load assessments' : 'No assessments found') +
+          '</div>' +
+          '<div style="font-size:11.5px;color:var(--text-tertiary);line-height:1.55;max-width:520px;margin:0 auto">' +
+          (assessmentsListFetchFailed
+            ? 'The assessment list could not be loaded. Check your connection and API configuration (<code style="font-size:10px">VITE_API_BASE_URL</code>).'
+            : 'No assessments found for this clinic or current filter. An empty list does not imply low clinical risk, completed workflows, or absence of outstanding items elsewhere.') +
+          '</div>' +
+          '<div style="margin-top:14px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">' +
+          (assessmentsListFetchFailed
+            ? '<button type="button" class="btn btn-primary btn-sm" onclick="window._ahRefresh()">Retry</button>' +
+              '<button type="button" class="btn btn-ghost btn-sm" onclick="window._assessNew()">Open library</button>'
+            : '<button type="button" class="btn btn-primary btn-sm" onclick="window._assessNew()">Open library</button>' +
+              '<button type="button" class="btn btn-ghost btn-sm" onclick="window._ahRefresh()">Refresh</button>') +
+          '</div>' +
+          '</div>'
+        : '';
+
     const rowHtml = filtered.map(r => {
       const selected = r.id === selectedId;
       const rowCls = 'dv2a-queue-row'+(r.redflag?' redflag':'')+(r.overdue?' overdue':'')+(selected?' selected':'');
@@ -11238,13 +12177,16 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         ? '<div class="dv2a-score" style="color:var(--text-tertiary)">—</div>'
         : '<div class="dv2a-score" style="color:'+scoreColor+'">'+r.score+(r.scoreUnit?' <span class="max">'+esc(r.scoreUnit)+'</span>':(r.max?' <span class="max">/'+r.max+'</span>':''))+'</div>';
       const sendBtn = r.redflag
-        ? '<button class="dv2a-send-btn danger" onclick="event.stopPropagation();window._assessCrisis(\''+esc(r.id)+'\',\''+esc(r.patient)+'\')">Escalate →</button>'
+        ? '<button class="dv2a-send-btn danger" onclick="event.stopPropagation();window._assessCrisis(\''+esc(r.patientId||'')+'\',\''+esc(r.patient)+'\',\'PHQ-9 item 9 or safety item ≥1 — requires clinician review per local policy\')">Review safety →</button>'
         : '<button class="dv2a-send-btn" onclick="event.stopPropagation();window._assessSelect(\''+esc(r.id)+'\')">'+esc(r.sendLabel||'Open')+' →</button>';
       const modeStyle = r.modeStyle === 'teal' ? 'background:rgba(0,212,188,0.14);color:var(--teal,#00d4bc)' : (r.modeStyle === 'rose' ? 'background:rgba(255,107,157,0.14);color:var(--rose,#ff6b9d)' : '');
 
+      const demoRowNote = usingSampleQueue
+        ? '<div style="font-size:9px;color:var(--amber,#ffb547);font-weight:700;margin-top:2px;letter-spacing:0.03em">Demo row · not real patient data</div>'
+        : '';
       return '<div class="'+rowCls+'" onclick="window._assessSelect(\''+esc(r.id)+'\')">' +
         '<div>'+flagHtml+'</div>' +
-        '<div class="dv2a-pt"><div class="dv2a-pt-av '+(r.avCls||'a')+'">'+esc(r.avInit)+'</div><div style="min-width:0"><div class="dv2a-pt-name">'+esc(r.patient)+'</div><div class="dv2a-pt-sub">'+esc(r.dx)+' · MRN '+esc(r.mrn)+'</div></div></div>' +
+        '<div class="dv2a-pt"><div class="dv2a-pt-av '+(r.avCls||'a')+'">'+esc(r.avInit)+'</div><div style="min-width:0"><div class="dv2a-pt-name">'+esc(r.patient)+'</div><div class="dv2a-pt-sub">'+esc(r.dx)+' · MRN '+esc(r.mrn)+'</div>'+demoRowNote+'</div></div>' +
         '<div><div class="dv2a-inst-name">'+esc(r.inst)+'</div><div class="dv2a-inst-sub">'+esc(r.instSub||'')+'</div></div>' +
         '<div>'+scoreHtml+sevBar(r.sev)+'<div style="font-size:10px;color:'+scoreColor+';margin-top:3px;font-weight:500">'+esc(r.sevLabel||'')+'</div></div>' +
         '<div><span class="dv2a-trend '+r.trendCls+'">'+(r.trendCls==='up'?'▲ ':r.trendCls==='down'?'▼ ':'◆ ')+esc(r.trend||'')+'</span>'+sparkSvg(r.sparkline, Math.max(...(r.sparkline||[1]),1), r.trendCls==='up'?'#ff6b9d':'#00d4bc')+'</div>' +
@@ -11254,9 +12196,16 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       '</div>';
     }).join('');
 
+    const filterEmptyMsg =
+      queueRows.length > 0 && filtered.length === 0
+        ? '<div style="padding:18px 14px;text-align:center;font-size:11.5px;color:var(--text-tertiary);border-bottom:1px solid var(--border)">No assessments match the current instrument filter. Choose <strong>All instruments</strong> or another filter.</div>'
+        : '';
+
     return kpiHtml + chipHtml +
       '<div class="dv2a-card">' +
+        emptyBanner +
         '<div class="dv2a-queue-head"><div></div><div>Patient</div><div>Instrument</div><div>Last score · severity</div><div>Trend (course)</div><div>Due</div><div>Send via</div><div></div></div>' +
+        filterEmptyMsg +
         rowHtml +
         '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;font-size:11px;color:var(--text-tertiary);border-top:1px solid var(--border)">'+
           '<span>Showing '+filtered.length+' of '+queueRows.length+' · sorted by risk & due date</span>'+
@@ -11267,131 +12216,255 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
 
   // ── Side panel ───────────────────────────────────────────────────────────────
   async function renderSidePanel() {
-    const row = queueRows.find(r => r.id === selectedId) || queueRows[2];
+    const row = queueRows.find((r) => r.id === selectedId);
     if (!row) {
-      return '<div class="dv2a-side"><div class="dv2a-side-body" style="text-align:center;color:var(--text-tertiary);padding:40px 20px">Select a row to view details.</div></div>';
+      return '<div class="dv2a-side"><div class="dv2a-side-body" style="text-align:center;color:var(--text-tertiary);padding:40px 20px">Select a row in the queue to open the detail panel.</div></div>';
     }
 
+    const detailId = assessmentDetailIdFromRow(row);
+    let detail = null;
+    try {
+      detail = await (api.getAssessmentDetail?.(detailId) || Promise.reject());
+    } catch {}
+
+    const st = String((detail && detail.status) || row.status || '').toLowerCase();
+    const reviewed = !!(detail?.reviewed_at || row.reviewed);
+    const fromData = detail?.data && Array.isArray(detail.data.items) ? detail.data.items : null;
+    const fromItemsTop =
+      detail?.items && typeof detail.items === 'object' && !Array.isArray(detail.items)
+        ? Object.keys(detail.items)
+            .sort((a, b) => Number(a) - Number(b))
+            .map((k) => detail.items[k])
+        : Array.isArray(detail?.items)
+          ? detail.items
+          : null;
+    const itemsArr = fromData || fromItemsTop || (Array.isArray(row.items) ? row.items : null);
+
     let aiSummary = null;
-    try { const r = await (api.generateAssessmentSummary?.(row.id) || Promise.reject()); aiSummary = r?.summary_md || r?.summary || null; } catch {}
-    try { if (!aiSummary) { const d = await (api.getAssessmentDetail?.(row.id) || Promise.reject()); aiSummary = d?.ai_summary || null; } } catch {}
+    let aiModel = row.aiModel || null;
+    let aiConf = row.aiConfidence;
+    if (detail) {
+      if (detail.ai_summary) aiSummary = detail.ai_summary;
+      if (detail.ai_model) aiModel = detail.ai_model;
+      if (detail.ai_confidence != null) aiConf = detail.ai_confidence;
+    }
     if (!aiSummary) {
-      aiSummary = row.inst.includes('PHQ-9')
-        ? (row.id === 'as-3'
-          ? '<strong>'+esc(row.patient)+'</strong> has sustained a <strong>responder-level Δ of −8 PHQ-9 points</strong> from baseline (17 → 9) across 12 tDCS sessions targeting DLPFC-L. Item-level recovery is strongest on <strong>anhedonia</strong> and <strong>concentration</strong>, with residual sleep disturbance (Q3 = 2). Trajectory suggests <strong>remission likely by session 16</strong>. No red-flag items.'
-          : '<strong>'+esc(row.patient)+'</strong> · PHQ-9 '+row.score+'/'+row.max+'. '+esc(row.sevLabel||'')+'. Recommend clinician review.')
-        : '<strong>'+esc(row.patient)+'</strong> · '+esc(row.inst)+' '+(row.score||'—')+'/'+(row.max||'—')+'. '+esc(row.sevLabel||'')+'.';
+      try {
+        const gen = await (api.generateAssessmentSummary?.(detailId) || Promise.reject());
+        aiSummary = gen?.summary_md || gen?.summary || null;
+        if (gen?.model) aiModel = gen.model;
+      } catch {}
+    }
+
+    if (!aiSummary) {
+      const parts = [];
+      parts.push('<p><strong>' + esc(row.patient) + '</strong> · <strong>' + esc(row.inst) + '</strong></p>');
+      parts.push('<p>Status: <strong>' + esc(st || '—') + '</strong>. Labels shown here are <strong>scale or screening results</strong> from the instrument — not a standalone diagnosis. Interpretation requires a qualified clinician.</p>');
+      if (row.score != null && row.max != null) {
+        parts.push('<p>Recorded total: <strong>' + esc(String(row.score)) + '</strong> / ' + esc(String(row.max)) + ' · ' + esc(row.sevLabel || 'band per instrument') + '.</p>');
+      } else {
+        parts.push('<p>No scored total on file for this row yet, or scoring is pending / unavailable.</p>');
+      }
+      if (row.redflag) {
+        parts.push('<p style="color:var(--rose,#ff6b9d)"><strong>Safety flag:</strong> review per clinic protocol. This application does not route emergencies or replace crisis services.</p>');
+      }
+      parts.push('<p style="font-size:10.5px;color:var(--text-tertiary)">When the API is available, an <strong>AI-assisted summary</strong> can be generated from the stored record. None is shown without that service or stored summary.</p>');
+      aiSummary = parts.join('');
     }
 
     const scoreColor = severityColor(row.sev);
+    const confStr =
+      aiConf != null && !Number.isNaN(Number(aiConf))
+        ? Number(aiConf) <= 1
+          ? Math.round(Number(aiConf) * 100) + '%'
+          : String(aiConf)
+        : '';
 
-    const aiHtml = '<div class="dv2a-ai-card">' +
-      '<div class="dv2a-ai-badge">AI · Haiku 4.5</div>' +
-      '<div class="dv2a-ai-meta">✧ Draft summary · clinician to co-sign</div>' +
-      '<div class="dv2a-ai-body">'+aiSummary+'</div>' +
-    '</div>';
-
-    const trendHtml = '<div style="height:120px;position:relative">' +
-      '<svg width="100%" height="120" viewBox="0 0 300 120" preserveAspectRatio="none">' +
-        '<rect x="0" y="0" width="300" height="20" fill="rgba(255,107,157,0.06)"/>' +
-        '<rect x="0" y="20" width="300" height="24" fill="rgba(255,139,71,0.06)"/>' +
-        '<rect x="0" y="44" width="300" height="24" fill="rgba(255,181,71,0.06)"/>' +
-        '<rect x="0" y="68" width="300" height="26" fill="rgba(0,212,188,0.06)"/>' +
-        '<rect x="0" y="94" width="300" height="26" fill="rgba(74,222,128,0.04)"/>' +
-        '<text x="4" y="12" font-size="7" fill="rgba(255,107,157,0.5)" font-family="ui-monospace,monospace">Severe 20+</text>' +
-        '<text x="4" y="112" font-size="7" fill="rgba(74,222,128,0.55)" font-family="ui-monospace,monospace">None 0-4</text>' +
-        '<line x1="50" y1="0" x2="50" y2="120" stroke="rgba(74,158,255,0.35)" stroke-width="1" stroke-dasharray="2,2"/>' +
-        '<text x="52" y="10" font-size="7" fill="#4a9eff" font-family="ui-monospace,monospace">S4 rev</text>' +
-        '<line x1="150" y1="0" x2="150" y2="120" stroke="rgba(74,158,255,0.35)" stroke-width="1" stroke-dasharray="2,2"/>' +
-        '<text x="152" y="10" font-size="7" fill="#4a9eff" font-family="ui-monospace,monospace">S10 review</text>' +
-        '<line x1="250" y1="0" x2="250" y2="120" stroke="rgba(0,212,188,0.35)" stroke-width="1" stroke-dasharray="2,2"/>' +
-        '<text x="252" y="10" font-size="7" fill="var(--teal,#00d4bc)" font-family="ui-monospace,monospace">Target</text>' +
-        '<polyline points="0,22 25,26 50,34 75,44 100,52 125,60 150,68 175,76 200,82 225,86 250,92 275,96" fill="none" stroke="#00d4bc" stroke-width="2" stroke-linecap="round"/>' +
-        '<g fill="#00d4bc">' +
-          '<circle cx="0" cy="22" r="2.5"/><circle cx="25" cy="26" r="2.5"/><circle cx="50" cy="34" r="2.5"/>' +
-          '<circle cx="75" cy="44" r="2.5"/><circle cx="100" cy="52" r="2.5"/><circle cx="125" cy="60" r="2.5"/>' +
-          '<circle cx="150" cy="68" r="2.5"/><circle cx="175" cy="76" r="2.5"/><circle cx="200" cy="82" r="2.5"/>' +
-          '<circle cx="225" cy="86" r="2.5"/><circle cx="250" cy="92" r="3.5" stroke="#fff" stroke-width="1.5"/>' +
-        '</g>' +
-        '<line x1="0" y1="60" x2="300" y2="60" stroke="rgba(74,158,255,0.4)" stroke-width="1" stroke-dasharray="4,3"/>' +
-        '<text x="245" y="57" font-size="7" fill="#4a9eff" font-family="ui-monospace,monospace">50% Δ</text>' +
-      '</svg></div>' +
-      '<div style="display:flex;justify-content:space-between;margin-top:4px;font-size:9.5px;color:var(--text-tertiary);font-family:var(--font-mono,ui-monospace,monospace)">' +
-        '<span>Baseline · 17</span><span>Session 12 · '+(row.score??9)+'</span><span>Target · ≤5</span>' +
-      '</div>';
-
-    const bmHtml =
-      '<div class="dv2a-bm-link"><div><div class="dv2a-bm-sym">Anhedonia</div><div class="dv2a-bm-cluster">items 1, 3 · −4 pts</div></div><div class="dv2a-bm-target">F3 · DLPFC-L ● anode</div></div>' +
-      '<div class="dv2a-bm-link"><div><div class="dv2a-bm-sym">Concentration</div><div class="dv2a-bm-cluster">items 7, 8 · −2 pts</div></div><div class="dv2a-bm-target">FP2 · mPFC ○ cathode</div></div>' +
-      '<div class="dv2a-bm-link"><div><div class="dv2a-bm-sym">Sleep · residual</div><div class="dv2a-bm-cluster">item 3 · Q=2</div></div><div class="dv2a-bm-target" style="color:var(--amber,#ffb547)">Consider +F4 next</div></div>';
-
-    const normHtml = '<div style="font-size:10.5px;color:var(--text-tertiary);line-height:1.5">At session 12, your clinic\'s MDD cohort averages <strong style="color:var(--teal,#00d4bc)">7.2</strong>, published tDCS MDD Δ-course average is <strong style="color:var(--text-primary)">10.4</strong> (Fregni 2021). '+esc(row.patient)+' is <strong style="color:var(--teal,#00d4bc)">ahead of both.</strong></div>' +
-      '<div class="dv2a-norm-bar">' +
-        '<div class="dv2a-norm-mark clinic" style="left:27%" title="Clinic avg 7.2"></div>' +
-        '<div class="dv2a-norm-mark pub" style="left:39%" title="Published 10.4"></div>' +
-        '<div class="dv2a-norm-mark pt" style="left:34%" title="Patient"></div>' +
+    const aiHtml =
+      '<div class="dv2a-ai-card">' +
+      '<div class="dv2a-ai-badge">AI-assisted summary</div>' +
+      '<div class="dv2a-ai-meta">Decision support only · requires clinician review · ' +
+      esc(aiModel || 'model n/a') +
+      (confStr ? ' · confidence ' + esc(confStr) : '') +
       '</div>' +
-      '<div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text-tertiary);font-family:var(--font-mono,ui-monospace,monospace);margin-top:3px"><span>0</span><span>5</span><span>10</span><span>15</span><span>20+</span></div>' +
-      '<div style="display:flex;gap:10px;margin-top:8px;font-size:10px;color:var(--text-tertiary)">' +
-        '<span style="display:inline-flex;align-items:center;gap:4px"><span style="width:4px;height:10px;background:var(--teal,#00d4bc);display:inline-block;border-radius:1px"></span>Patient</span>' +
-        '<span style="display:inline-flex;align-items:center;gap:4px"><span style="width:4px;height:10px;background:var(--blue,#4a9eff);display:inline-block;border-radius:1px"></span>Clinic</span>' +
-        '<span style="display:inline-flex;align-items:center;gap:4px"><span style="width:4px;height:10px;background:var(--violet,#9b7fff);display:inline-block;border-radius:1px"></span>Published</span>' +
+      '<div class="dv2a-ai-body">' +
+      aiSummary +
+      '</div>' +
       '</div>';
 
-    const phq9 = ASSESS_REGISTRY.find(x => x.id === 'PHQ-9');
-    const sampleAnswers = [1,1,2,1,0,0,1,2,0]; // responses for PHQ-9 in the demo
-    const phqItems = (phq9?.questions || [
-      'Little interest or pleasure in doing things',
-      'Feeling down, depressed, or hopeless',
-      'Trouble falling or staying asleep',
-      'Feeling tired or having little energy',
-      'Poor appetite or overeating',
-      'Feeling bad about yourself',
-      'Trouble concentrating',
-      'Moving slowly or restlessly',
-      'Thoughts that you would be better off dead — <strong style="color:var(--text-primary)">monitored</strong>',
-    ]).slice(0, 9);
+    const reviewHtml =
+      '<div style="font-size:11.5px;color:var(--text-secondary);line-height:1.55">' +
+      '<p><strong>Workflow status:</strong> ' +
+      esc(st || '—') +
+      '</p>' +
+      '<p><strong>Clinician review:</strong> ' +
+      (reviewed
+        ? 'Recorded' + (detail?.reviewed_at ? ' · ' + esc(String(detail.reviewed_at)) : '')
+        : '<span style="color:var(--amber,#ffb547)">Pending review</span>') +
+      '</p>' +
+      '<p><strong>Completed / updated:</strong> ' +
+      esc(String(row.completedAt || detail?.completed_at || '—')) +
+      '</p>' +
+      '<p style="font-size:10.5px;color:var(--text-tertiary)">Longitudinal trajectories and cohort norms are not inferred in this panel; use linked visits and analyzers when available.</p>' +
+      '</div>';
 
-    const formHtml = phqItems.map((q, i) => {
-      const sel = sampleAnswers[i] ?? 0;
-      const opts = [0,1,2,3].map(v => {
-        const cls = v === sel ? (v >= 2 ? (i === 8 ? 'sel rose' : 'sel amb') : 'sel') : '';
-        return '<div'+(cls?' class="'+cls+'"':'')+'>'+v+'</div>';
+    const rid = esc(row.id);
+    const linksHtml =
+      '<div style="font-size:10.5px;color:var(--text-tertiary);line-height:1.45;margin-bottom:8px">Jump to patient context and modalities (requires a patient ID on the assessment).</div>' +
+      '<div class="dv2a-ds-links" style="display:flex;flex-wrap:wrap;gap:8px">' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="font-size:11px" onclick="window._assessOpenPatient(\'' +
+      rid +
+      '\')">Patient profile</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="font-size:11px" onclick="window._assessOpenTimeline(\'' +
+      rid +
+      '\')">Timeline</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="font-size:11px" onclick="window._assessOpenProtocol()">Protocol Studio</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="font-size:11px" onclick="window._assessOpenDeeptwin(\'' +
+      rid +
+      '\')">DeepTwin</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="font-size:11px" onclick="window._assessOpenModality(\'qeeg-analysis\',\'' +
+      rid +
+      '\')">qEEG</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="font-size:11px" onclick="window._assessOpenModality(\'mri-analysis\',\'' +
+      rid +
+      '\')">MRI</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="font-size:11px" onclick="window._assessOpenModality(\'video-assessments\',\'' +
+      rid +
+      '\')">Video</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="font-size:11px" onclick="window._assessOpenModality(\'wearables\',\'' +
+      rid +
+      '\')">Biometrics</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="font-size:11px" onclick="window._assessOpenModality(\'text-analyzer\',\'' +
+      rid +
+      '\')">Text</button>' +
+      '</div>';
+
+    const scaleKey = row.scaleId || row.inst;
+    const instMeta = ASSESS_REGISTRY.find((x) => x.id === scaleKey || x.abbr === scaleKey);
+    let missingHint = '';
+    let formHtml = '';
+    if (itemsArr && itemsArr.length && instMeta && Array.isArray(instMeta.questions)) {
+      const miss = [];
+      itemsArr.forEach((v, i) => {
+        if (v == null || v === '') miss.push(i + 1);
+      });
+      if (miss.length) missingHint = '<div style="font-size:10.5px;color:var(--amber,#ffb547);margin-bottom:8px">Missing responses · items ' + esc(miss.join(', ')) + '</div>';
+      formHtml = instMeta.questions.slice(0, itemsArr.length).map((q, i) => {
+        const v = itemsArr[i];
+        const disp = v == null || v === '' ? '—' : String(v);
+        const rose = instMeta.id === 'PHQ-9' && i === 8 && Number(v) >= 1;
+        return (
+          '<div class="dv2a-form-row"><span class="dv2a-form-q">' +
+          (i + 1) +
+          '. ' +
+          esc(q) +
+          '</span><span style="font-family:var(--font-mono,ui-monospace,monospace);color:' +
+          (rose ? 'var(--rose,#ff6b9d)' : 'var(--teal,#00d4bc)') +
+          '">' +
+          esc(disp) +
+          '</span></div>'
+        );
       }).join('');
-      return '<div class="dv2a-form-row"><span class="dv2a-form-q">'+(i+1)+'. '+q+'</span><div class="dv2a-form-ans">'+opts+'</div></div>';
-    }).join('');
+    } else if (itemsArr && itemsArr.length) {
+      formHtml = itemsArr
+        .map((v, i) => {
+          const disp = v == null || v === '' ? '—' : String(v);
+          return (
+            '<div class="dv2a-form-row"><span class="dv2a-form-q">Item ' +
+            (i + 1) +
+            '</span><span style="font-family:var(--font-mono,ui-monospace,monospace)">' +
+            esc(disp) +
+            '</span></div>'
+          );
+        })
+        .join('');
+    } else {
+      formHtml =
+        '<div style="font-size:11px;color:var(--text-tertiary);line-height:1.5">Item-level responses are not loaded for this row. Use <strong>Continue / Score now</strong> to capture answers, or <strong>Refresh</strong> after sync.</div>';
+    }
 
-    return '<div class="dv2a-side" style="position:relative">' +
+    const demoDetailBanner = usingSampleQueue
+      ? '<div role="note" style="margin:0 0 12px;padding:8px 10px;font-size:10.5px;font-weight:600;color:var(--amber,#ffb547);background:rgba(255,181,71,0.12);border:1px solid rgba(255,181,71,0.35);border-radius:6px;line-height:1.45">' +
+        esc(DEMO_ASSESSMENTS_BANNER_MARK) +
+        '</div>'
+      : '';
+
+    return (
+      '<div class="dv2a-side" style="position:relative">' +
+      demoDetailBanner +
       '<div class="dv2a-side-head">' +
-        '<button class="dv2a-side-close" onclick="window._assessCloseSide()" aria-label="Close panel">✕</button>' +
-        '<div style="display:flex;gap:10px;align-items:center;padding-right:30px">' +
-          '<div class="dv2a-pt-av '+(row.avCls||'a')+'" style="width:40px;height:40px;font-size:13px;border-radius:8px">'+esc(row.avInit)+'</div>' +
-          '<div style="flex:1;min-width:0">' +
-            '<div style="font-size:14px;font-weight:600;font-family:var(--font-display,inherit)">'+esc(row.patient)+' · '+esc(row.inst)+'</div>' +
-            '<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">Due '+esc(row.due||'')+' · '+esc(row.dx)+'</div>' +
-          '</div>' +
-        '</div>' +
-        '<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">' +
-          '<span class="dv2a-chip-sm '+(row.sev==='sev'?'rose':row.sev==='mods'?'amber':'teal')+'">'+esc(row.sevLabel||'')+' · '+(row.score||'—')+(row.max?'/'+row.max:'')+'</span>' +
-          (row.trendCls==='down' && row.score!=null ? '<span class="dv2a-chip-sm teal">Responder</span>' : '') +
-          (row.redflag ? '<span class="dv2a-chip-sm rose">⚠ Red flag · item 9</span>' : '') +
-        '</div>' +
+      '<button class="dv2a-side-close" onclick="window._assessCloseSide()" aria-label="Close panel">✕</button>' +
+      '<div style="display:flex;gap:10px;align-items:center;padding-right:30px">' +
+      '<div class="dv2a-pt-av ' +
+      (row.avCls || 'a') +
+      '" style="width:40px;height:40px;font-size:13px;border-radius:8px">' +
+      esc(row.avInit) +
+      '</div>' +
+      '<div style="flex:1;min-width:0">' +
+      '<div style="font-size:14px;font-weight:600;font-family:var(--font-display,inherit)">' +
+      esc(row.patient) +
+      ' · ' +
+      esc(row.inst) +
+      '</div>' +
+      '<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">Due ' +
+      esc(row.due || '') +
+      ' · ' +
+      esc(row.dx) +
+      '</div>' +
+      '</div>' +
+      '</div>' +
+      '<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">' +
+      '<span class="dv2a-chip-sm ' +
+      (row.sev === 'sev' ? 'rose' : row.sev === 'mods' ? 'amber' : 'teal') +
+      '">' +
+      esc(row.sevLabel || '') +
+      ' · ' +
+      (row.score != null ? esc(String(row.score)) : '—') +
+      (row.max != null ? '/' + esc(String(row.max)) : '') +
+      '</span>' +
+      (row.redflag ? '<span class="dv2a-chip-sm rose">Safety review · flagged</span>' : '') +
+      (usingSampleQueue ? '<span class="dv2a-chip-sm amber">' + esc(DEMO_ASSESSMENTS_BANNER_MARK) + '</span>' : '') +
+      '</div>' +
       '</div>' +
       '<div class="dv2a-side-body">' +
-        '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">01</span>AI clinical summary</div>'+aiHtml+'</div>' +
-        '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">02</span>Trend across course</div>'+trendHtml+'</div>' +
-        '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">03</span>Brain-map linkage</div><div style="font-size:10.5px;color:var(--text-tertiary);margin-bottom:6px;line-height:1.4">Item-level response mapped to active stimulation targets.</div>'+bmHtml+'</div>' +
-        '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">04</span>Comparative norms · '+esc(row.inst)+'</div>'+normHtml+'</div>' +
-        '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">05</span>Last completed · form preview</div>'+formHtml+
-          '<div style="display:flex;justify-content:space-between;margin-top:8px;font-size:10.5px;color:var(--text-tertiary);padding-top:8px;border-top:1px solid rgba(255,255,255,0.06)"><span>Total · items 1–9</span><span style="font-family:var(--font-mono,ui-monospace,monospace);color:'+scoreColor+';font-weight:600">'+(row.score??'—')+'</span></div>' +
-        '</div>' +
+      '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">01</span>AI-assisted narrative</div>' +
+      aiHtml +
+      '</div>' +
+      '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">02</span>Scoring &amp; review status</div>' +
+      reviewHtml +
+      '</div>' +
+      '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">03</span>Linked tools</div>' +
+      linksHtml +
+      '</div>' +
+      '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">04</span>Responses on file</div>' +
+      missingHint +
+      formHtml +
+      '<div style="display:flex;justify-content:space-between;margin-top:8px;font-size:10.5px;color:var(--text-tertiary);padding-top:8px;border-top:1px solid rgba(255,255,255,0.06)"><span>Total (recorded)</span><span style="font-family:var(--font-mono,ui-monospace,monospace);color:' +
+      scoreColor +
+      ';font-weight:600">' +
+      (row.score != null ? esc(String(row.score)) : '—') +
+      '</span></div>' +
+      '</div>' +
       '</div>' +
       '<div class="dv2a-footer-actions">' +
-        '<button class="btn btn-ghost btn-sm" style="flex:1" onclick="window._assessReschedule(\''+esc(row.id)+'\')">Reschedule</button>' +
-        '<button class="btn btn-ghost btn-sm" style="flex:1" onclick="window._ahOpenForm(\''+esc(row.scaleId || row.inst || 'PHQ-9')+'\',\''+esc(row.patientId||'')+'\',\''+esc(row.backendId||'')+'\')">Score now</button>' +
-        '<button class="btn btn-primary btn-sm" style="flex:1.3" onclick="window._assessCosign(\''+esc(row.id)+'\')">Co-sign →</button>' +
+      '<button class="btn btn-ghost btn-sm" style="flex:1" onclick="window._assessReschedule(\'' +
+      esc(row.id) +
+      '\')">Reschedule</button>' +
+      '<button class="btn btn-ghost btn-sm" style="flex:1" onclick="window._ahOpenForm(\'' +
+      esc(row.scaleId || row.inst || 'PHQ-9') +
+      '\',\'' +
+      esc(row.patientId || '') +
+      '\',\'' +
+      esc(row.backendId || '') +
+      '\')">' +
+      (st === 'draft' || st === 'in_progress' || st === 'assigned' ? 'Continue' : 'Score / update') +
+      '</button>' +
+      '<button class="btn btn-primary btn-sm" style="flex:1.3" onclick="window._assessCosign(\'' +
+      esc(row.id) +
+      '\')">Mark reviewed →</button>' +
       '</div>' +
-    '</div>';
+      '</div>'
+    );
   }
 
   // ── Cohort tab ───────────────────────────────────────────────────────────────
@@ -11406,18 +12479,31 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       { id:'adhd-peds',label:'Peds ADHD', n:15, inst:'Vanderbilt' },
       { id:'migraine', label:'Migraine prevention', n:19, inst:'MIDAS' },
     ];
+    let cohortsFromApi = false;
     try {
       const cRes = await (api.listCohorts?.() || Promise.reject());
       if (cRes && Array.isArray(cRes.items) && cRes.items.length) {
+        cohortsFromApi = true;
         COHORTS.splice(0, COHORTS.length, ...cRes.items.map(c => ({ id:c.id, label:c.label, n:c.n||0, inst:c.instruments||'' })));
       }
     } catch {}
 
+    const cohortPlaceholder = !cohortsFromApi && !allowSampleQueueFallback;
+    const cohortDemoSizing = !cohortsFromApi && allowSampleQueueFallback;
+    const cohortSizeLabel = (n) => {
+      if (cohortPlaceholder) return '—';
+      return String(n);
+    };
+
     const active = COHORTS.find(c => c.id === cohortSel) || COHORTS[0];
+    const cohortBatchCap = () => {
+      if (cohortPlaceholder) return Math.min(queueRows.filter((r) => r.patientId).length, 12) || 0;
+      return active.n;
+    };
     const cohortListHtml = COHORTS.map(c =>
       '<div class="dv2a-cohort-card'+(c.id===active.id?' active':'')+'" onclick="window._assessPickCohort(\''+esc(c.id)+'\')">' +
         '<div style="font-size:12.5px;font-weight:600;color:var(--text-primary)">'+esc(c.label)+'</div>' +
-        '<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:4px">'+c.n+' patients · '+esc(c.inst)+'</div>' +
+        '<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:4px">'+(cohortPlaceholder ? '<span style="color:var(--amber,#ffb547);font-weight:600">Placeholder · </span>' : '')+(cohortDemoSizing ? '<span style="color:var(--amber,#ffb547);font-weight:600">Demo sizing · </span>' : '')+cohortSizeLabel(c.n)+' patients · '+esc(c.inst)+'</div>' +
       '</div>'
     ).join('');
 
@@ -11471,6 +12557,10 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         window._dsToast?.({ title:'Bulk assign failed', body:(err && err.message) || 'Network error. Saved locally.', severity:'error' });
       }
     };
+    const batchN = cohortBatchCap();
+    const batchBtnLabel = cohortPlaceholder
+      ? 'Batch send (from queue) →'
+      : ('Batch send to '+active.n+' →');
     // Cohort filter chips — wired to local state (instrument, time window).
     const cohortFilterInst = window._assessCohortInst || 'any';
     const cohortFilterWin  = window._assessCohortWin  || '30d';
@@ -11478,16 +12568,22 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
     window._assessCohortSetWin  = (v) => { window._assessCohortWin  = v; window._nav('assessments-v2'); };
     const cohortInstrumentOpts = ['any', ...cohortInst.length ? [cohortInst[0]] : []];
     const cohortWinOpts = ['7d', '30d', '90d', 'all'];
-    return '<div class="dv2a-filter-bar">' +
+    return (cohortPlaceholder
+      ? '<div role="note" style="margin:0 0 10px;padding:10px 14px;font-size:11.5px;color:var(--text-secondary);background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.3);border-radius:8px;line-height:1.5"><strong style="color:var(--amber,#ffb547)">Cohort sizes:</strong> Live cohort registry is unavailable — patient counts shown as placeholders only, not clinic census.</div>'
+      : '') +
+      (cohortDemoSizing && !cohortPlaceholder
+      ? '<div role="note" style="margin:0 0 10px;padding:10px 14px;font-size:11.5px;color:var(--text-secondary);background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.3);border-radius:8px;line-height:1.5"><strong style="color:var(--amber,#ffb547)">Demo cohort sizing:</strong> Patient counts are illustrative until <code style="font-size:10px">listCohorts</code> returns live data.</div>'
+      : '') +
+      '<div class="dv2a-filter-bar">' +
         cohortInstrumentOpts.map(v => '<button class="dv2a-chip'+(cohortFilterInst===v?' active':'')+'" onclick="window._assessCohortSetInst(\''+esc(v)+'\')">Instrument: '+esc(v)+'</button>').join('') +
         cohortWinOpts.map(v => '<button class="dv2a-chip'+(cohortFilterWin===v?' active':'')+'" onclick="window._assessCohortSetWin(\''+esc(v)+'\')">Window: '+esc(v)+'</button>').join('') +
-        '<div style="margin-left:auto"><button class="btn btn-primary btn-sm" onclick="window._ahBulkAssign(\''+esc(active.id)+'\',\''+esc(active.label)+'\','+active.n+',\''+esc(active.inst)+'\')">Batch send to '+active.n+' →</button></div>' +
+        '<div style="margin-left:auto"><button class="btn btn-primary btn-sm" onclick="window._ahBulkAssign(\''+esc(active.id)+'\',\''+esc(active.label)+'\','+batchN+',\''+esc(active.inst)+'\')">'+esc(batchBtnLabel)+'</button></div>' +
       '</div>' +
       '<div style="font-size:10.5px;color:var(--text-tertiary);margin:6px 2px 4px;line-height:1.5"><strong style="color:var(--amber,#ffb547)">Note:</strong> Batch send creates assignments and audit entries. SMS/email delivery requires a configured messaging integration; otherwise patients see assignments via the patient portal only.</div>' +
       '<div class="dv2a-cohort-grid">' +
         '<div style="display:flex;flex-direction:column;gap:8px">' + cohortListHtml + '</div>' +
         '<div class="dv2a-card">' +
-          '<div style="padding:12px 14px;border-bottom:1px solid var(--border)"><div style="font-size:13px;font-weight:600;color:var(--text-primary)">'+esc(active.label)+'</div><div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">'+active.n+' patients · '+esc(active.inst)+' · response status below</div></div>' +
+          '<div style="padding:12px 14px;border-bottom:1px solid var(--border)"><div style="font-size:13px;font-weight:600;color:var(--text-primary)">'+esc(active.label)+'</div><div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">'+(cohortPlaceholder ? '— patients · ' : active.n+' patients · ')+esc(active.inst)+' · response status below</div></div>' +
           '<table style="width:100%;border-collapse:collapse"><thead><tr style="background:rgba(255,255,255,0.02)"><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Patient</th><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Instrument</th><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Score</th><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Status</th><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Δ</th></tr></thead><tbody>' + tableRows + '</tbody></table>' +
         '</div>' +
       '</div>';
@@ -11529,7 +12625,12 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         '</div>' +
       '</div>';
     }).join('');
-    return '<div style="font-size:12px;color:var(--text-tertiary);margin-bottom:6px">Validated instruments across depression, anxiety, OCD, trauma, sleep, mania, pain, language, and QoL. <strong>Click a card to open its fillable form and compute the score on-platform.</strong></div>' +
+    return (usingSampleQueue
+      ? '<div role="note" style="margin-bottom:12px;padding:8px 12px;font-size:11px;font-weight:600;color:var(--amber,#ffb547);background:rgba(255,181,71,0.1);border:1px solid rgba(255,181,71,0.35);border-radius:8px">' +
+        esc(DEMO_ASSESSMENTS_BANNER_MARK) +
+        '</div>'
+      : '') +
+      '<div style="font-size:12px;color:var(--text-tertiary);margin-bottom:6px">Validated instruments across depression, anxiety, OCD, trauma, sleep, mania, pain, language, and QoL. <strong>Click a card to open its fillable form and compute the score on-platform.</strong></div>' +
       catBar +
       '<div class="dv2a-lib-grid">'+cards+'</div>';
   }
@@ -11598,6 +12699,10 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   }
 
   // ── Compose page ─────────────────────────────────────────────────────────────
+  const demoPageBanner = usingSampleQueue
+    ? '<div class="dv2a-demo-page-banner" role="banner">' + esc(DEMO_ASSESSMENTS_BANNER_MARK) + '</div>'
+    : '';
+
   let mainContent = '';
   let sideContent = '';
   if (tab === 'queue') {
@@ -11624,6 +12729,7 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
 
   el.innerHTML =
     '<div class="dv2a-shell">' +
+      demoPageBanner +
       '<div class="dv2a-tabs" role="tablist">' + tabBar() + '</div>' +
       '<div class="dv2a-body">' +
         '<div class="dv2a-main">' + mainContent + '</div>' +
@@ -11641,6 +12747,9 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       tab,
       counts: _ahCounts(),
       using_demo_data: usingDemoData,
+      using_sample_queue: usingSampleQueue,
+      assessments_list_fetch_failed: assessmentsListFetchFailed,
+      assessments_list_empty_ok: assessmentsListEmptyOk,
       ts: new Date().toISOString(),
     });
   } catch {}

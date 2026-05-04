@@ -52,13 +52,7 @@ def _clinician_headers(clinician_id: str) -> dict[str, str]:
     finally:
         db.close()
     token = create_access_token(
-        {
-            "sub": clinician_id,
-            "role": "clinician",
-            "email": email,
-            "package_id": "explorer",
-            "clinic_id": clinic_id,
-        }
+        clinician_id, email, "clinician", "explorer", clinic_id
     )
     return {"Authorization": f"Bearer {token}"}
 
@@ -107,6 +101,17 @@ class TestBiometricsData:
                     hrv_ms=45.0,
                     sleep_duration_h=7.5,
                     steps=6000,
+                )
+            )
+            db.add(
+                WearableDailySummary(
+                    id=str(uuid.uuid4()),
+                    patient_id=pid,
+                    source="apple_health",
+                    date="2026-02-01",
+                    hrv_ms=50.0,
+                    sleep_duration_h=8.0,
+                    steps=7000,
                 )
             )
             db.commit()

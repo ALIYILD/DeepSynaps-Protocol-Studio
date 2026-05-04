@@ -1,5 +1,15 @@
 import { parseHomeProgramTaskMutationResponse } from './home-program-task-sync.js';
-import { demoDigitalPhenotypingPayload } from './demo-fixtures-analyzers.js';
+import { demoDigitalPhenotypingPayload, ANALYZER_DEMO_FIXTURES } from './demo-fixtures-analyzers.js';
+import { mapSessionsListQuery } from './beta-readiness-utils.js';
+import { buildDemoDashboard360Payload } from './deeptwin/demo-dashboard-payload.js';
+import {
+  demoSummary,
+  demoSignals,
+  demoTimeline,
+  demoCorrelations,
+  demoPrediction,
+  demoSimulation,
+} from './deeptwin/mockData.js';
 
 const API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 const TOKEN_KEY = 'ds_access_token';
@@ -52,6 +62,8 @@ function _on401() {
 // returning a synthetic empty response WITHOUT firing the network call.
 // Auth endpoints still pass through so demo-login / refresh / me work.
 const _DEMO_PASSTHROUGH = /^\/api\/v1\/auth\/(demo-login|refresh|me|login|logout|register|activate-patient|forgot-password|reset-password)\b/;
+/** Demo sessions short-circuit most API calls; clinical-text NLP must hit the real API when preview points at Fly. */
+const _DEMO_CLINICAL_TEXT_NETWORK = /^\/api\/v1\/clinical-text\//;
 function _isDemoSession() {
   try {
     const flag = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
@@ -59,6 +71,17 @@ function _isDemoSession() {
     const t = getToken();
     return !!(t && t.endsWith('-demo-token'));
   } catch { return false; }
+}
+
+// Clinician Digest: `_demoSyntheticResponse` supplies digest JSON only when
+// `_isDemoSession()` is true (demo flag ON + `*-demo-token`). Production
+// builds without `VITE_ENABLE_DEMO` never take this path — real sessions always
+// hit the Fly API (or show failure/empty states), so demo digest cannot appear
+// for normal clinician JWTs.
+
+/** True when the preview/demo-login synthetic token is active (Netlify + VITE_ENABLE_DEMO). */
+export function isDemoSession() {
+  return _isDemoSession();
 }
 
 // ── Demo inbox items (shared between inbox + digest shims) ──────────────────
@@ -70,7 +93,11 @@ const _DEMO_INBOX_ITEMS = [
   { event_id: 'demo-inbox-5', surface: 'home_program_tasks', event_type: 'task.overdue', note: 'Home program task "Daily mindfulness breathing (10 min)" overdue by 3 days. Adherence trend declining.', actor_id: 'system', patient_id: 'demo-pt-marcus-chen', created_at: new Date(Date.now() - 21600000).toISOString(), is_acknowledged: true, is_demo: true },
   { event_id: 'demo-inbox-6', surface: 'wearables_workbench', event_type: 'wearable.threshold_breach', note: 'Cortisol proxy elevated 1.8 SD above 30-day rolling mean. Combined with sleep disruption — flag for clinical review.', actor_id: 'system', patient_id: 'demo-pt-elena-vasquez', created_at: new Date(Date.now() - 28800000).toISOString(), is_acknowledged: true, is_demo: true },
 ];
-const _DEMO_PT_NAMES = { 'demo-pt-samantha-li': 'Samantha Li', 'demo-pt-marcus-chen': 'Marcus Chen', 'demo-pt-elena-vasquez': 'Elena Vasquez' };
+const _DEMO_PT_NAMES = {
+  'demo-pt-samantha-li': 'Demo Patient A (synthetic)',
+  'demo-pt-marcus-chen': 'Demo Patient B (synthetic)',
+  'demo-pt-elena-vasquez': 'Demo Patient C (synthetic)',
+};
 function _buildDemoInboxGroups() {
   const grouped = {};
   _DEMO_INBOX_ITEMS.forEach(item => {
@@ -82,6 +109,121 @@ function _buildDemoInboxGroups() {
   });
   return Object.values(grouped);
 }
+
+function _medicationAnalyzerDemoPayload(patientId) {
+  return {
+    demo: true,
+    schema_version: '1.0',
+    generated_at: new Date().toISOString(),
+    patient_id: patientId,
+    provenance: {
+      source_systems: ['demo_fixture'],
+      computed_by: 'demo',
+      ruleset_versions: { 'med-analyzer-rules-v1': '1' },
+      model_versions: {},
+    },
+    snapshot: {
+      active_medications: [
+        {
+          id: 'demo-med-1',
+          drug_name: 'Sertraline',
+          medication_class: 'ssri',
+          dose: { value: 50, unit: 'mg' },
+          route: 'oral',
+          frequency: { code: 'custom', times_per_day: 1, free_text: 'daily' },
+          indication: 'MDD',
+          status: 'active',
+          start_date: '2025-06-01',
+          end_date: null,
+          source: { origin: 'demo', recorded_at: new Date().toISOString(), confidence: 0.5 },
+        },
+      ],
+      recent_change_count_30d: 0,
+      polypharmacy: { active_count: 2, risk_band: 'elevated' },
+      high_risk_med_count: 0,
+      adherence: {
+        as_of: new Date().toISOString(),
+        window_days: 30,
+        estimate_type: 'proportion',
+        value: 0.78,
+        trend: 'stable',
+        evidence_sources: [{ type: 'clinician_entry', weight: 0.5, coverage: 0.4 }],
+        confidence: 0.55,
+        limitations: ['Demo preview — not patient-specific.'],
+      },
+      interaction_flag_count: 1,
+      neuromodulation_flag_count: 0,
+      interaction_severity_summary: 'mild',
+    },
+    timeline: [],
+    adherence: {
+      as_of: new Date().toISOString(),
+      window_days: 30,
+      estimate_type: 'proportion',
+      value: 0.78,
+      trend: 'stable',
+      evidence_sources: [],
+      confidence: 0.55,
+      limitations: ['Demo preview.'],
+    },
+    safety_alerts: [
+      {
+        id: 'demo-ia-1',
+        category: 'drug_drug',
+        severity: 'moderate',
+        urgency: 'routine',
+        title: 'Demo interaction flag',
+        detail: 'This is static demo text. Connect to the API for patient-specific rules.',
+        medications_involved: [],
+        conditions_involved: [],
+        detected_at: new Date().toISOString(),
+        ruleset_id: 'demo',
+        ruleset_version: 'med-analyzer-rules-v1',
+        confidence: 1,
+        management_hints: ['Verify against EHR and pharmacy data.'],
+      },
+    ],
+    confounds: [
+      {
+        id: 'demo-cf-1',
+        domain: 'mood',
+        hypothesis: 'possible confound',
+        linked_medications: ['demo-med-1'],
+        temporal_alignment: 'unclear',
+        strength: 'possible',
+        confidence: 0.45,
+        explanation: 'SSRIs may overlap with mood reporting on assessments and symptom scales.',
+        counterevidence: [],
+        generated_at: new Date().toISOString(),
+        source: 'rules',
+      },
+    ],
+    recommendations: [
+      {
+        id: 'demo-rec-1',
+        type: 'interpretation_caution',
+        priority: 'medium',
+        title: 'Interpret biomarkers conservatively',
+        rationale: 'Demo recommendation — load a real patient id when authenticated.',
+        due_by: null,
+        linked_alert_ids: [],
+        linked_confound_ids: ['demo-cf-1'],
+        created_at: new Date().toISOString(),
+        status: 'open',
+      },
+    ],
+    evidence_links: [],
+    audit_ref: 'demo-med-analyzer',
+    persisted_review_notes: [],
+    regulatory_disclosures: {
+      intended_use: 'Clinical decision-support for structured regimen review and confound prompts (demo).',
+      not_intended_for: ['Autonomous prescribing', 'Replacement for pharmacy systems'],
+      evidence_basis: 'Deterministic demo rules — connect API for versioned rulesets.',
+      limitations: ['Not exhaustive DDI screening', 'Hypothesis-level confounds only'],
+    },
+  };
+}
+
 function _mriDemoLongitudinalCompare(baselineId, followupId) {
   return {
     demo: true,
@@ -112,7 +254,186 @@ function _mriDemoLongitudinalCompare(baselineId, followupId) {
   };
 }
 
-function _demoSyntheticResponse(path, method) {
+function _deeptwinDemoParseBody(body) {
+  if (body == null || body === '') return null;
+  if (typeof body === 'string') {
+    try { return JSON.parse(body); } catch { return null; }
+  }
+  return body;
+}
+
+/** Demo-token short-circuit: return API-shaped DeepTwin payloads (matches FastAPI). */
+function _deeptwinDemoSyntheticResponse(path, method, bodyRaw) {
+  const methodU = (method || 'GET').toUpperCase();
+  const body = _deeptwinDemoParseBody(bodyRaw);
+
+  const dash = path.match(/^\/api\/v1\/deeptwin\/patients\/([^/]+)\/dashboard$/);
+  if (dash && methodU === 'GET') {
+    return buildDemoDashboard360Payload(decodeURIComponent(dash[1]));
+  }
+
+  const summaryPath = path.match(/^\/api\/v1\/deeptwin\/patients\/([^/]+)\/summary$/);
+  if (summaryPath && methodU === 'GET') {
+    return demoSummary(decodeURIComponent(summaryPath[1]));
+  }
+
+  const tlPath = path.match(/^\/api\/v1\/deeptwin\/patients\/([^/]+)\/timeline\?(.*)$/);
+  if (tlPath && methodU === 'GET') {
+    const pid = decodeURIComponent(tlPath[1]);
+    const q = new URLSearchParams(tlPath[2]);
+    const days = Math.min(365, Math.max(7, parseInt(q.get('days') || '90', 10) || 90));
+    return demoTimeline(pid, days);
+  }
+
+  const sigPath = path.match(/^\/api\/v1\/deeptwin\/patients\/([^/]+)\/signals$/);
+  if (sigPath && methodU === 'GET') {
+    return demoSignals(decodeURIComponent(sigPath[1]));
+  }
+
+  const corrPath = path.match(/^\/api\/v1\/deeptwin\/patients\/([^/]+)\/correlations$/);
+  if (corrPath && methodU === 'GET') {
+    return demoCorrelations(decodeURIComponent(corrPath[1]));
+  }
+
+  const predPath = path.match(/^\/api\/v1\/deeptwin\/patients\/([^/]+)\/predictions\?(.*)$/);
+  if (predPath && methodU === 'GET') {
+    const pid = decodeURIComponent(predPath[1]);
+    const q = new URLSearchParams(predPath[2]);
+    const horizon = q.get('horizon') || '6w';
+    return demoPrediction(pid, horizon);
+  }
+
+  const simPath = path.match(/^\/api\/v1\/deeptwin\/patients\/([^/]+)\/simulations$/);
+  if (simPath && methodU === 'POST') {
+    const pid = decodeURIComponent(simPath[1]);
+    const payload = body && typeof body === 'object' ? body : {};
+    return demoSimulation(pid, payload);
+  }
+
+  const reportPath = path.match(/^\/api\/v1\/deeptwin\/patients\/([^/]+)\/reports$/);
+  if (reportPath && methodU === 'POST') {
+    const pid = decodeURIComponent(reportPath[1]);
+    const kind = (body && body.kind) || 'clinician_deep';
+    const now = new Date().toISOString();
+    return {
+      patient_id: pid,
+      kind,
+      title: `DeepTwin report (${kind})`,
+      generated_at: now,
+      data_sources_used: ['demo_session'],
+      date_range_days: 90,
+      audit_refs: [`demo:deeptwin_report:${kind}`],
+      limitations: [
+        'Demo session — report not persisted server-side.',
+        'Outputs are model-estimated hypotheses for clinician review, not prescriptions.',
+      ],
+      review_points: ['Verify source data freshness before clinical use.'],
+      evidence_grade: 'low',
+      body: { kind, demo: true, patient_id: pid },
+    };
+  }
+
+  const handoffPath = path.match(/^\/api\/v1\/deeptwin\/patients\/([^/]+)\/agent-handoff$/);
+  if (handoffPath && methodU === 'POST') {
+    const pid = decodeURIComponent(handoffPath[1]);
+    const kind = (body && body.kind) || 'send_summary';
+    return {
+      patient_id: pid,
+      kind,
+      note: body?.note ?? null,
+      submitted_at: new Date().toISOString(),
+      audit_ref: `demo:twin_handoff:${kind}`,
+      summary_markdown:
+        `# DeepTwin handoff (demo)\n- patient_id: \`${pid}\`\n- kind: ${kind}\n\n`
+        + '_Decision-support only. Clinician review required._',
+      approval_required: true,
+      disclaimer: 'Agent handoff is decision-support context only.',
+    };
+  }
+
+  const dsPath = path.match(/^\/api\/v1\/deeptwin\/patients\/([^/]+)\/data-sources$/);
+  if (dsPath && methodU === 'GET') {
+    const pid = decodeURIComponent(dsPath[1]);
+    const empty = { available: false, count: 0, last_updated: null };
+    return {
+      patient_id: pid,
+      completeness_score: 0,
+      sources: {
+        assessments: { ...empty },
+        qeeg: { ...empty },
+        mri: { ...empty },
+        sessions: { ...empty },
+        wearables: { ...empty },
+        outcomes: { ...empty },
+      },
+      is_demo_view: true,
+    };
+  }
+
+  const arList = path.match(/^\/api\/v1\/deeptwin\/patients\/([^/]+)\/analysis-runs$/);
+  if (arList && methodU === 'GET') {
+    return [];
+  }
+  const srList = path.match(/^\/api\/v1\/deeptwin\/patients\/([^/]+)\/simulation-runs$/);
+  if (srList && methodU === 'GET') {
+    return [];
+  }
+  const notesPath = path.match(/^\/api\/v1\/deeptwin\/patients\/([^/]+)\/clinician-notes$/);
+  if (notesPath && methodU === 'GET') {
+    return [];
+  }
+
+  const cmpPath = path === '/api/v1/deeptwin/compare-protocols';
+  if (cmpPath && methodU === 'POST' && body?.patient_id) {
+    const protos = Array.isArray(body.protocols) ? body.protocols : [];
+    const ranking = protos.slice(0, 3).map((p, i) => ({
+      protocol_id: p.protocol_id || String(i),
+      label: p.label || p.protocol_id || `Protocol ${i + 1}`,
+      rank: i + 1,
+      score: 0.7 - i * 0.04,
+      rationale:
+        'Demo ranking from offline shim — connect a clinician API session for patient-specific TRIBE simulation.',
+    }));
+    const winner = ranking[0]?.protocol_id ?? null;
+    const confidence_gap = ranking.length > 1 ? (ranking[0].score - ranking[1].score) : 0;
+    const candidates = protos.map((p, i) => ({
+      protocol: { protocol_id: p.protocol_id, label: p.label },
+      heads: {
+        response_probability: 0.55 - i * 0.05,
+        response_confidence: 'low',
+      },
+      explanation: {
+        evidence_grade: 'low',
+        top_drivers: [{ modality: String(p.modality || '—'), feature: 'availability', direction: 'neutral' }],
+      },
+    }));
+    return {
+      patient_id: body.patient_id,
+      horizon_weeks: body.horizon_weeks || 6,
+      comparison: {
+        winner,
+        confidence_gap,
+        ranking,
+        candidates,
+      },
+      engine_info: {
+        name: 'demo-shim',
+        version: '0',
+        real_ai: false,
+        notice: 'Offline demo — use authenticated API for audited comparison.',
+      },
+      disclaimer:
+        'Ranking is exploratory simulation only; not a treatment recommendation. Clinician judgement is required.',
+    };
+  }
+
+  return null;
+}
+
+function _demoSyntheticResponse(path, method, body) {
+  const dt = _deeptwinDemoSyntheticResponse(path, method, body);
+  if (dt !== null) return dt;
+
   // ── Clinician Inbox demo data ───────────────────────────────────────────────
   if (path.match(/^\/api\/v1\/clinician-inbox\/items/) && (!method || method === 'GET')) {
     return {
@@ -131,7 +452,8 @@ function _demoSyntheticResponse(path, method) {
       is_demo_view: true,
     };
   }
-  // ── Clinician Daily Digest demo data ────────────────────────────────────────
+  // ── Clinician Daily Digest demo data (offline demo-token sessions only) ─────
+  // Surfaces must match apps/api `clinician_digest_router.DIGEST_SURFACES`.
   if (path.match(/^\/api\/v1\/clinician-digest\/summary/) && (!method || method === 'GET')) {
     const now = new Date();
     const shiftStart = new Date(now); shiftStart.setHours(now.getHours() - 8);
@@ -139,28 +461,49 @@ function _demoSyntheticResponse(path, method) {
       handled: 14, escalated: 2, paged: 1, open: 3, sla_breached: 1,
       since: shiftStart.toISOString(), until: now.toISOString(),
       is_demo_view: true,
+      by_surface: {
+        clinician_inbox: { handled: 6, escalated: 1, paged: 1, open: 1 },
+        wearables_workbench: { handled: 2, escalated: 1, paged: 0, open: 0 },
+        clinician_adherence_hub: { handled: 3, escalated: 0, paged: 0, open: 1 },
+        clinician_wellness_hub: { handled: 2, escalated: 0, paged: 0, open: 1 },
+        adverse_events_hub: { handled: 1, escalated: 0, paged: 0, open: 0 },
+      },
     };
   }
   if (path.match(/^\/api\/v1\/clinician-digest\/sections/) && (!method || method === 'GET')) {
     return {
       sections: [
-        { surface: 'clinician_inbox', handled: 6, escalated: 1, paged: 0, open: 1, sla_breached: 0, top_patients: [{ patient_id: 'demo-pt-samantha-li', patient_name: 'Samantha Li', event_count: 3 }, { patient_id: 'demo-pt-marcus-chen', patient_name: 'Marcus Chen', event_count: 2 }] },
-        { surface: 'adherence_events', handled: 3, escalated: 0, paged: 0, open: 1, sla_breached: 0, top_patients: [{ patient_id: 'demo-pt-marcus-chen', patient_name: 'Marcus Chen', event_count: 2 }] },
-        { surface: 'wearables_workbench', handled: 2, escalated: 1, paged: 1, open: 0, sla_breached: 1, top_patients: [{ patient_id: 'demo-pt-elena-vasquez', patient_name: 'Elena Vasquez', event_count: 2 }] },
-        { surface: 'adverse_events_hub', handled: 3, escalated: 0, paged: 0, open: 1, sla_breached: 0, top_patients: [{ patient_id: 'demo-pt-elena-vasquez', patient_name: 'Elena Vasquez', event_count: 1 }] },
+        { surface: 'clinician_inbox', handled: 6, escalated: 1, paged: 0, open: 1, top_patients: [{ patient_id: 'demo-pt-samantha-li', patient_name: 'Samantha Li', event_count: 3 }, { patient_id: 'demo-pt-marcus-chen', patient_name: 'Marcus Chen', event_count: 2 }] },
+        { surface: 'wearables_workbench', handled: 2, escalated: 1, paged: 1, open: 0, top_patients: [{ patient_id: 'demo-pt-elena-vasquez', patient_name: 'Elena Vasquez', event_count: 2 }] },
+        { surface: 'clinician_adherence_hub', handled: 3, escalated: 0, paged: 0, open: 1, top_patients: [{ patient_id: 'demo-pt-marcus-chen', patient_name: 'Marcus Chen', event_count: 2 }] },
+        { surface: 'clinician_wellness_hub', handled: 2, escalated: 0, paged: 0, open: 1, top_patients: [{ patient_id: 'demo-pt-samantha-li', patient_name: 'Samantha Li', event_count: 1 }] },
+        { surface: 'adverse_events_hub', handled: 1, escalated: 0, paged: 0, open: 1, top_patients: [{ patient_id: 'demo-pt-elena-vasquez', patient_name: 'Elena Vasquez', event_count: 1 }] },
       ],
       is_demo_view: true,
     };
   }
   if (path.match(/^\/api\/v1\/clinician-digest\/events/) && (!method || method === 'GET')) {
+    const drill = (page, pid) =>
+      (pid ? `?page=${page}&patient_id=${encodeURIComponent(pid)}` : `?page=${page}`);
     return {
       items: [
-        { event_id: 'cdg-1', surface: 'clinician_inbox', event_type: 'inbox.acknowledged', note: 'Acknowledged urgent wearable alert for Samantha Li — HRV anomaly reviewed, no intervention needed.', actor_id: 'clinician-2', patient_id: 'demo-pt-samantha-li', created_at: new Date(Date.now() - 3600000).toISOString() },
-        { event_id: 'cdg-2', surface: 'adverse_events_hub', event_type: 'ae.escalated', note: 'Escalated Grade 1 AE (persistent headache post-rTMS) for Elena Vasquez — forwarded to attending.', actor_id: 'clinician-2', patient_id: 'demo-pt-elena-vasquez', created_at: new Date(Date.now() - 7200000).toISOString() },
-        { event_id: 'cdg-3', surface: 'wearables_workbench', event_type: 'wearable.paged', note: 'On-call paged for cortisol proxy breach (1.8 SD) combined with sleep disruption — Elena Vasquez.', actor_id: 'system', patient_id: 'demo-pt-elena-vasquez', created_at: new Date(Date.now() - 10800000).toISOString() },
-        { event_id: 'cdg-4', surface: 'adherence_events', event_type: 'adherence.resolved', note: 'Marcus Chen resumed home program tasks after missed-session escalation. 3-day gap resolved.', actor_id: 'clinician-2', patient_id: 'demo-pt-marcus-chen', created_at: new Date(Date.now() - 14400000).toISOString() },
-        { event_id: 'cdg-5', surface: 'clinician_inbox', event_type: 'inbox.bulk_acknowledged', note: 'Bulk-acknowledged 4 routine wearable data-sync confirmations.', actor_id: 'clinician-2', patient_id: null, created_at: new Date(Date.now() - 18000000).toISOString() },
+        { event_id: 'cdg-1', surface: 'clinician_inbox', event_type: 'inbox.acknowledged', is_handled: true, is_escalated: false, is_paged: false, is_demo: true,
+          drill_out_url: drill('clinician-inbox', 'demo-pt-samantha-li'),
+          note: 'Acknowledged inbox item (demo) — HRV-related queue entry reviewed; requires clinician judgment.', actor_id: 'clinician-2', patient_id: 'demo-pt-samantha-li', patient_name: 'Samantha Li', created_at: new Date(Date.now() - 3600000).toISOString() },
+        { event_id: 'cdg-2', surface: 'adverse_events_hub', event_type: 'ae.draft_reported', is_handled: false, is_escalated: true, is_paged: false, is_demo: true,
+          drill_out_url: drill('adverse-events-hub', 'demo-pt-elena-vasquez'),
+          note: 'Adverse event draft logged (demo) — AI-assisted triage is not a diagnosis; attending review required.', actor_id: 'clinician-2', patient_id: 'demo-pt-elena-vasquez', patient_name: 'Elena Vasquez', created_at: new Date(Date.now() - 7200000).toISOString() },
+        { event_id: 'cdg-3', surface: 'wearables_workbench', event_type: 'wearable.alert', is_handled: false, is_escalated: false, is_paged: true, is_demo: true,
+          drill_out_url: drill('monitor', 'demo-pt-elena-vasquez'),
+          note: 'Wearables workbench: on-call paging event (demo scenario).', actor_id: 'system', patient_id: 'demo-pt-elena-vasquez', patient_name: 'Elena Vasquez', created_at: new Date(Date.now() - 10800000).toISOString() },
+        { event_id: 'cdg-4', surface: 'clinician_adherence_hub', event_type: 'adherence.resolved', is_handled: true, is_escalated: false, is_paged: false, is_demo: true,
+          drill_out_url: drill('clinician-adherence', 'demo-pt-marcus-chen'),
+          note: 'Home adherence follow-up marked resolved (demo).', actor_id: 'clinician-2', patient_id: 'demo-pt-marcus-chen', patient_name: 'Marcus Chen', created_at: new Date(Date.now() - 14400000).toISOString() },
+        { event_id: 'cdg-5', surface: 'clinician_inbox', event_type: 'inbox.bulk_acknowledged', is_handled: true, is_escalated: false, is_paged: false, is_demo: true,
+          drill_out_url: drill('clinician-inbox', null),
+          note: 'Bulk-acknowledged routine queue items (demo).', actor_id: 'clinician-2', patient_id: null, created_at: new Date(Date.now() - 18000000).toISOString() },
       ],
+      total: 5,
       is_demo_view: true,
     };
   }
@@ -198,6 +541,164 @@ function _demoSyntheticResponse(path, method) {
     }
     return payload;
   }
+  const pathNoQuery = path.split('?')[0];
+  const medAz = pathNoQuery.match(/^\/api\/v1\/medications\/analyzer\/patient\/([^/?]+)$/);
+  if (medAz && (!method || method === 'GET')) {
+    return _medicationAnalyzerDemoPayload(decodeURIComponent(medAz[1]));
+  }
+  const medAzAudit = pathNoQuery.match(/^\/api\/v1\/medications\/analyzer\/patient\/([^/?]+)\/audit$/);
+  if (medAzAudit && (!method || method === 'GET')) {
+    return {
+      demo: true,
+      entries: [],
+      review_notes: [],
+    };
+  }
+  const medAzTimeline = pathNoQuery.match(
+    /^\/api\/v1\/medications\/analyzer\/patient\/([^/?]+)\/timeline-event$/,
+  );
+  if (medAzTimeline && method === 'POST') {
+    const pid = decodeURIComponent(medAzTimeline[1]);
+    const base = _medicationAnalyzerDemoPayload(pid);
+    const evId = 'demo-ev-' + Date.now();
+    base.timeline = (base.timeline || []).concat([
+      {
+        id: evId,
+        patient_id: pid,
+        event_type: 'clinician_annotation',
+        occurred_at: new Date().toISOString(),
+        medication_id: null,
+        payload: { demo: true },
+        source: {
+          origin: 'demo_session',
+          recorded_at: new Date().toISOString(),
+          confidence: 1,
+        },
+        confidence: 1,
+      },
+    ]);
+    return {
+      ok: true,
+      demo: true,
+      event: base.timeline[base.timeline.length - 1],
+      full_payload: base,
+    };
+  }
+  const medAzNote = pathNoQuery.match(
+    /^\/api\/v1\/medications\/analyzer\/patient\/([^/?]+)\/review-note$/,
+  );
+  if (medAzNote && method === 'POST') {
+    const pid = decodeURIComponent(medAzNote[1]);
+    const base = _medicationAnalyzerDemoPayload(pid);
+    const nid = 'demo-note-' + Date.now();
+    const created = new Date().toISOString();
+    base.persisted_review_notes = (base.persisted_review_notes || []).concat([
+      {
+        note_id: nid,
+        patient_id: pid,
+        actor_id: 'demo',
+        created_at: created,
+        note_text: '(Demo session — saved locally only in preview.)',
+        linked_recommendation_ids: [],
+      },
+    ]);
+    return {
+      note_id: nid,
+      created_at: created,
+      demo: true,
+      full_payload: base,
+    };
+  }
+  // biomarkers workspace / labs analyzer — demo fixtures (reads only)
+  const labsProfilePath = pathNoQuery.match(/^\/api\/v1\/labs\/analyzer\/patient\/([^/]+)$/);
+  if (labsProfilePath && (!method || method === 'GET')) {
+    const pid = decodeURIComponent(labsProfilePath[1]);
+    const profile = ANALYZER_DEMO_FIXTURES?.labs?.patient_profile?.(pid);
+    if (profile) return profile;
+    return {
+      patient_id: pid,
+      patient_name: pid,
+      captured_at: null,
+      panels: [],
+      flags: [],
+      prior_results: [],
+      demo_empty: true,
+    };
+  }
+  const labsAuditPath = pathNoQuery.match(/^\/api\/v1\/labs\/analyzer\/patient\/([^/]+)\/audit$/);
+  if (labsAuditPath && (!method || method === 'GET')) {
+    const pid = decodeURIComponent(labsAuditPath[1]);
+    const audit = ANALYZER_DEMO_FIXTURES?.labs?.patient_audit?.(pid);
+    return audit || { patient_id: pid, items: [], demo_empty: true };
+  }
+  const qeegListPath = pathNoQuery.match(/^\/api\/v1\/qeeg-analysis\/patient\/([^/]+)$/);
+  if (qeegListPath && (!method || method === 'GET')) {
+    const pid = decodeURIComponent(qeegListPath[1]);
+    const q = ANALYZER_DEMO_FIXTURES?.qeeg;
+    if (pid === 'demo-pt-marcus-chen' && q && q.id) {
+      return {
+        items: [{
+          id: q.id,
+          analysis_status: q.analysis_status || 'completed',
+          patient_id: pid,
+          original_filename: q.original_filename || 'demo.edf',
+          created_at: q.recording_date || new Date().toISOString(),
+        }],
+        total: 1,
+        demo: true,
+      };
+    }
+    return { items: [], total: 0, demo: true };
+  }
+  const mriListPath = pathNoQuery.match(/^\/api\/v1\/mri\/patients\/([^/]+)\/analyses$/);
+  if (mriListPath && (!method || method === 'GET')) {
+    const pid = decodeURIComponent(mriListPath[1]);
+    const m = ANALYZER_DEMO_FIXTURES?.mri;
+    if (pid === 'demo-pt-samantha-li' && m && m.analysis_id) {
+      return {
+        items: [{
+          id: m.analysis_id,
+          patient_id: pid,
+          status: 'completed',
+          modality: m.modality || 'MRI',
+          acquired_at: m.acquired_at || new Date().toISOString(),
+        }],
+        total: 1,
+        demo: true,
+      };
+    }
+    return { items: [], total: 0, demo: true };
+  }
+  const wearSummaryPath = pathNoQuery.match(/^\/api\/v1\/wearables\/patients\/([^/]+)\/summary$/);
+  if (wearSummaryPath && (!method || method === 'GET')) {
+    const pid = decodeURIComponent(wearSummaryPath[1]);
+    const day = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
+    return {
+      patient_id: pid,
+      connections: [],
+      summaries: [{
+        id: `demo-wear-${pid}`,
+        patient_id: pid,
+        source: 'demo',
+        date: day,
+        rhr_bpm: 72,
+        hrv_ms: 42,
+        sleep_duration_h: 6.5,
+        sleep_consistency_score: null,
+        steps: 5100,
+        spo2_pct: null,
+        skin_temp_delta: null,
+        readiness_score: 0.71,
+        mood_score: null,
+        pain_score: null,
+        anxiety_score: null,
+        synced_at: new Date().toISOString(),
+      }],
+      recent_alerts: [],
+      readiness: { score: 0.71, coverage_days: 1, demo: true },
+      demo: true,
+    };
+  }
   // Mutations: pretend success (return a minimal accepted-shape object).
   if (method && method !== 'GET') return { ok: true, demo: true, id: 'demo-' + Date.now() };
   // Reads: list-shaped endpoints get { items: [] }; singular getters get null.
@@ -220,8 +721,12 @@ async function apiFetch(path, opts = {}) {
   const { _fetch: fetchOverride, _transportExtractor: transportExtractor, ...requestOpts } = opts;
   const fetchFn = fetchOverride || globalThis.fetch;
   // Demo-mode shim — short-circuit before any network call. See helper above.
-  if (_isDemoSession() && !_DEMO_PASSTHROUGH.test(path)) {
-    const data = _demoSyntheticResponse(path, (requestOpts.method || 'GET').toUpperCase());
+  if (_isDemoSession() && !_DEMO_PASSTHROUGH.test(path) && !_DEMO_CLINICAL_TEXT_NETWORK.test(path)) {
+    const data = _demoSyntheticResponse(
+      path,
+      (requestOpts.method || 'GET').toUpperCase(),
+      requestOpts.body,
+    );
     if (transportExtractor) return { data, transport: undefined };
     return data;
   }
@@ -406,6 +911,13 @@ async function apiFetchBinary(path, opts = {}) {
       const blob = new Blob([stub], { type: 'text/html;charset=utf-8' });
       return { blob, contentType: 'text/html;charset=utf-8', filename: 'mri_demo_preview.html' };
     }
+    if (path === '/api/v1/clinician-inbox/export.csv' && (!opts.method || opts.method === 'GET')) {
+      const csv =
+        'event_id,surface,is_demo,note\n'
+        + 'demo-export-placeholder,preview,1,"DEMO synthetic export — use a live clinician API session for regulator-ready CSV."\n';
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      return { blob, contentType: 'text/csv;charset=utf-8', filename: 'DEMO-clinician-inbox.csv' };
+    }
   }
   const token = getToken();
   const headers = { ...(opts.headers || {}) };
@@ -535,6 +1047,8 @@ export const api = {
   getPatientSessions: (patientId) => apiFetch(`/api/v1/patients/${patientId}/sessions`),
   getPatientCourse: (patientId) => apiFetch(`/api/v1/patients/${patientId}/courses`),
   getPatientCourses: (patientId) => apiFetch(`/api/v1/patients/${patientId}/courses`),
+  getTreatmentSessionsAnalyzer: (patientId) =>
+    apiFetch(`/api/v1/patients/${encodeURIComponent(patientId)}/treatment-sessions-analyzer`),
   getPatientAssessments: (patientId) => apiFetch(`/api/v1/patients/${patientId}/assessments`),
   getPatientReports: (patientId) => apiFetch(`/api/v1/patients/${patientId}/reports`),
   getPatientMessages: (patientId) => apiFetch(`/api/v1/patients/${patientId}/messages`),
@@ -597,7 +1111,8 @@ export const api = {
     }
     if (params.limit == null) params.limit = 100;
     if (params.offset == null) params.offset = 0;
-    const entries = Object.entries(params).filter(([_, v]) => v != null && v !== '');
+    const mapped = mapSessionsListQuery(params);
+    const entries = Object.entries(mapped).filter(([_, v]) => v != null && v !== '');
     const qs = entries.length ? '?' + new URLSearchParams(entries.map(([k, v]) => [k, String(v)])).toString() : '';
     return apiFetchWithRetry(`/api/v1/sessions${qs}`);
   },
@@ -649,6 +1164,8 @@ export const api = {
       body: JSON.stringify({ impedance_kohm }),
     }),
   createSession: (data) => apiFetch('/api/v1/sessions', { method: 'POST', body: JSON.stringify(data) }),
+  /** Single clinical session by id (scheduled appointment / treatment session record). */
+  getSession: (id) => apiFetch(`/api/v1/sessions/${encodeURIComponent(id)}`),
   updateSession: (id, data) => apiFetch(`/api/v1/sessions/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteSession: (id) => apiFetch(`/api/v1/sessions/${id}`, { method: 'DELETE' }),
 
@@ -1369,6 +1886,16 @@ export const api = {
   logSession: (courseId, data) =>
     apiFetch(`/api/v1/treatment-courses/${courseId}/sessions`, { method: 'POST', body: JSON.stringify(data) }),
   listCourseSessions: (courseId) => apiFetch(`/api/v1/treatment-courses/${courseId}/sessions`),
+  /** Batch SIGN/REVIEW status from clinical_session_events — Treatment Sessions Analyzer clinic table. */
+  getTreatmentSessionSignStatusBatch: (payload = {}) =>
+    apiFetch('/api/v1/treatment-sessions/sign-status/batch', {
+      method: 'POST',
+      body: JSON.stringify({
+        course_ids: payload.course_ids || [],
+        session_ids: payload.session_ids || [],
+        include_events: !!payload.include_events,
+      }),
+    }),
 
   /** List persisted home program tasks (optional patient filter: `patient_id` or `patientId`). */
   listHomeProgramTasks: (params = {}) => {
@@ -1642,6 +2169,15 @@ export const api = {
   },
   deletePhenotypeAssignment: (id) =>
     apiFetch(`/api/v1/phenotype-assignments/${id}`, { method: 'DELETE' }),
+  listPhenotypeAuditEvents: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/phenotype-assignments/audit-events${q ? '?' + q : ''}`);
+  },
+  postPhenotypeAuditEvent: (body) =>
+    apiFetch('/api/v1/phenotype-assignments/audit-events', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
 
   // ── Consent records ───────────────────────────────────────────────────────
   createConsent: (data) =>
@@ -2270,6 +2806,30 @@ export const api = {
     const q = new URLSearchParams(params).toString();
     return apiFetchWithRetry(`/api/v1/medications/interaction-log${q ? '?' + q : ''}`);
   },
+  medicationAnalyzerPayload: (patientId) =>
+    apiFetch(`/api/v1/medications/analyzer/patient/${encodeURIComponent(patientId)}`),
+  medicationAnalyzerRecompute: (patientId, body = {}) =>
+    apiFetch(`/api/v1/medications/analyzer/patient/${encodeURIComponent(patientId)}/recompute`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  medicationAnalyzerAdherence: (patientId, body = {}) =>
+    apiFetch(`/api/v1/medications/analyzer/patient/${encodeURIComponent(patientId)}/adherence`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  medicationAnalyzerReviewNote: (patientId, body) =>
+    apiFetch(`/api/v1/medications/analyzer/patient/${encodeURIComponent(patientId)}/review-note`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  medicationAnalyzerTimelineEvent: (patientId, body) =>
+    apiFetch(`/api/v1/medications/analyzer/patient/${encodeURIComponent(patientId)}/timeline-event`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  medicationAnalyzerAudit: (patientId) =>
+    apiFetch(`/api/v1/medications/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
 
   // ── Consent Management ────────────────────────────────────────────────────
   getConsentRecords: (params = {}) => {
@@ -3082,10 +3642,7 @@ export const api = {
   // endpoint. This preserves history (DELETE is also available but destructive).
   cancelSession: (id, data = {}) => {
     const body = { status: 'cancelled' };
-    if (data && data.reason) {
-      body.cancel_reason = String(data.reason);
-      body.session_notes = '[Cancelled] ' + String(data.reason);
-    }
+    if (data && data.reason) body.cancel_reason = String(data.reason);
     return apiFetch(`/api/v1/sessions/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
   },
   // Booking alias — backend uses POST /api/v1/sessions (createSession).
@@ -3099,11 +3656,51 @@ export const api = {
     api.listTeam().then((res) => ({
       items: (res?.items || []).filter((member) => ['admin', 'clinician', 'technician'].includes(String(member?.role || '').toLowerCase())),
     })),
-  listRooms: () => Promise.reject(new Error('not_implemented')),
+  listRooms: () =>
+    apiFetch('/api/v1/schedule/rooms').then((rows) => ({
+      items: Array.isArray(rows) ? rows : [],
+    })),
   listReferrals: () => api.listLeads(),
   listStaffSchedule: (_params) => Promise.reject(new Error('not_implemented')),
   createStaffShift: (_data) => Promise.reject(new Error('not_implemented')),
-  checkSlotConflicts: (_slot) => Promise.reject(new Error('not_implemented')),
+  checkSlotConflicts: (slot) => {
+    if (!slot || !slot.clinician_id || !slot.start) {
+      return Promise.reject(new Error('invalid_slot'));
+    }
+    const start = slot.start;
+    let durationMinutes = slot.duration_minutes;
+    if (durationMinutes == null && slot.end) {
+      try {
+        const ms = new Date(slot.end).getTime() - new Date(start).getTime();
+        durationMinutes = Math.max(15, Math.round(ms / 60000));
+      } catch {
+        durationMinutes = 60;
+      }
+    }
+    if (durationMinutes == null) durationMinutes = 60;
+    const body = {
+      clinician_id: slot.clinician_id,
+      scheduled_at: start,
+      duration_minutes: durationMinutes,
+      room_id: slot.room_id || null,
+      device_id: slot.device_id || null,
+      exclude_appointment_id: slot.exclude_appointment_id || slot.exclude_id || null,
+    };
+    return apiFetch('/api/v1/schedule/conflicts', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }).then((out) => ({
+      has_conflicts: !!out?.has_conflicts,
+      conflicts: (out?.conflicts || []).map((c) => ({
+        id: c.appointment_id,
+        appointment_id: c.appointment_id,
+        patient_id: c.patient_id,
+        scheduled_at: c.scheduled_at,
+        type: c.type,
+        resource_name: c.resource_name,
+      })),
+    }));
+  },
   triageReferral: (_id, _data) => Promise.reject(new Error('not_implemented')),
   dismissReferral: (_id) => Promise.reject(new Error('not_implemented')),
 
@@ -3227,6 +3824,15 @@ export const api = {
     apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/annotation`, { method: 'POST', body: JSON.stringify(body || {}) }),
   getMovementAudit: (patientId) =>
     apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
+  /** Clinician review acknowledgment (audit only; requires non-empty note). */
+  ackMovementReview: (patientId, body) =>
+    apiFetch(
+      `/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/review`,
+      { method: 'POST', body: JSON.stringify(body || {}) },
+    ),
+  /** JSON download of movement workspace (triggers server audit event). */
+  exportMovementWorkspace: (patientId) =>
+    apiFetchBinary(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}/export.json`),
 
   // ── Nutrition, Supplements & Diet Analyzer ───────────────────────────────
   getNutritionAnalyzerPayload: (patientId) =>
@@ -3454,14 +4060,17 @@ export const api = {
   // Events #350, Home Program Tasks #351, Patient Wearables #352, Wearables
   // Workbench #353). Reads the audit_events table only — no new schema.
   // Acknowledgements are stored as their own audit rows so the regulator
-  // audit transcript stays single-sourced. All helpers return null on
-  // offline / 404 so the page can render an honest empty state.
+  // audit transcript stays single-sourced.
+  // List/summary reject on network/auth failure (pages-inbox handles Retry).
+  // Demo preview (`*-demo-token` + VITE_ENABLE_DEMO): apiFetch short-circuits to
+  // `_demoSyntheticResponse` before network — never mixed with real clinician data.
+  /** Same as {@link isDemoSession} — exposed on `api` for pages that import the bundle object only. */
+  isDemoSession: () => _isDemoSession(),
   clinicianInboxListItems: (params = {}) => {
     const q = new URLSearchParams(params).toString();
-    return apiFetch(`/api/v1/clinician-inbox/items${q ? '?' + q : ''}`).catch(() => null);
+    return apiFetch(`/api/v1/clinician-inbox/items${q ? '?' + q : ''}`);
   },
-  clinicianInboxSummary: () =>
-    apiFetch('/api/v1/clinician-inbox/summary').catch(() => null),
+  clinicianInboxSummary: () => apiFetch('/api/v1/clinician-inbox/summary'),
   clinicianInboxGetItem: (eventId) =>
     apiFetch(`/api/v1/clinician-inbox/items/${encodeURIComponent(eventId)}`).catch(() => null),
   clinicianInboxAcknowledge: (eventId, note) =>
@@ -3476,6 +4085,9 @@ export const api = {
     }),
   clinicianInboxExportCsvUrl: () =>
     `${API_BASE}/api/v1/clinician-inbox/export.csv`,
+  /** Same-origin CSV download with Authorization header (use instead of raw href to API origin). */
+  clinicianInboxExportCsvBlob: () =>
+    apiFetchBinary('/api/v1/clinician-inbox/export.csv', { method: 'GET' }),
   postClinicianInboxAuditEvent: (data) =>
     apiFetch('/api/v1/clinician-inbox/audit-events', {
       method: 'POST',
@@ -3855,17 +4467,17 @@ export const api = {
   clinicianDigestSummary: (params) => {
     const usp = new URLSearchParams(params || {});
     const qs = usp.toString();
-    return apiFetch('/api/v1/clinician-digest/summary' + (qs ? '?' + qs : '')).catch(() => null);
+    return apiFetch('/api/v1/clinician-digest/summary' + (qs ? '?' + qs : ''));
   },
   clinicianDigestSections: (params) => {
     const usp = new URLSearchParams(params || {});
     const qs = usp.toString();
-    return apiFetch('/api/v1/clinician-digest/sections' + (qs ? '?' + qs : '')).catch(() => null);
+    return apiFetch('/api/v1/clinician-digest/sections' + (qs ? '?' + qs : ''));
   },
   clinicianDigestEvents: (params) => {
     const usp = new URLSearchParams(params || {});
     const qs = usp.toString();
-    return apiFetch('/api/v1/clinician-digest/events' + (qs ? '?' + qs : '')).catch(() => null);
+    return apiFetch('/api/v1/clinician-digest/events' + (qs ? '?' + qs : ''));
   },
   clinicianDigestSendEmail: (body) =>
     apiFetch('/api/v1/clinician-digest/send-email', {

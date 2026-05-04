@@ -168,6 +168,8 @@ async function loadInbox()         { return (_modInbox         ??= await import(
 async function loadDeeptwin()   { return (_modDeeptwin  ??= await import('./pages-deeptwin.js')); }
 async function loadBrainTwin()  { return (_modBrainTwin ??= await import('./pages-brain-twin.js')); }
 async function loadKnowledge()  { return (_modKnowledge ??= await import('./pages-knowledge.js')); }
+let _modBiomarkers = null;
+async function loadBiomarkers() { return (_modBiomarkers ??= await import('./pages-biomarkers.js')); }
 async function loadVoiceAnalyzer() { return (_modVoiceAnalyzer ??= await import('./pages-voice-analyzer.js')); }
 let _modTextAnalyzer = null;
 async function loadTextAnalyzer() { return (_modTextAnalyzer ??= await import('./pages-text-analyzer.js')); }
@@ -504,9 +506,14 @@ let currentPage = 'dashboard';
 
 // ── Role-based nav visibility ─────────────────────────────────────────────────
 const ROLE_NAV_HIDE = {
-  technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'risk-analyzer', 'population-analytics', 'brain-map-planner', 'handbook-generator', 'notes-dictation', 'assessments-hub', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
+  technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'population-analytics', 'brain-map-planner', 'handbook-generator', 'notes-dictation', 'assessments-hub', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
   reviewer:   ['session-execution', 'protocol-wizard', 'billing', 'pricing', 'population-analytics', 'brain-map-planner'],
-  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'risk-analyzer', 'audittrail', 'billing', 'population-analytics', 'brain-map-planner', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-handbooks', 'reg-virtual-care', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
+  patient:    ['risk-analyzer'],
+  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'risk-analyzer', 'treatment-sessions-analyzer', 'audittrail', 'billing', 'population-analytics', 'brain-map-planner', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-handbooks', 'reg-virtual-care', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
+  technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'risk-analyzer', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'handbook-generator', 'notes-dictation', 'assessments-hub', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
+  reviewer:   ['session-execution', 'protocol-wizard', 'billing', 'pricing', 'population-analytics', 'brain-map-planner', 'brainmap-v2'],
+  patient:    ['risk-analyzer'],
+  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'risk-analyzer', 'treatment-sessions-analyzer', 'audittrail', 'billing', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-handbooks', 'reg-virtual-care', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
   clinician:  ['population-analytics'],
 };
 
@@ -519,7 +526,7 @@ const NAV = [
   { section: 'Today', sectionId: 'clinical', collapsed: false },
   { id: 'home',                label: 'Dashboard',     icon: '🏠' },
   { id: 'clinician-inbox',     label: 'Inbox',         icon: '📬' },
-  { id: 'clinician-digest',    label: 'Daily Digest',  icon: '📰' },
+  { id: 'clinician-digest',    label: 'Clinician Digest',  icon: '📰' },
   { id: 'schedule-v2',         label: 'Schedule',      icon: '🗓️' },
 
   // ── PATIENTS — roster + per-patient surfaces ─────────────────────────────────
@@ -561,7 +568,7 @@ const NAV = [
 
   // ── MARKETPLACE — devices, agents, apps & learning ──────────────────────────
   { section: 'Marketplace', sectionId: 'marketplace-section', collapsed: false },
-  { id: 'monitor',            label: 'Devices',           icon: '🔌' },
+  { id: 'monitor',            label: 'Monitor',           icon: '⌚' },
   { id: 'ai-agent-v2',        label: 'AI Agents',         icon: '🤖', ai: true },
   { id: 'marketplace',        label: 'Marketplace',       icon: '🛒' },
   { id: 'academy',            label: 'Academy',           icon: '🎓' },
@@ -998,7 +1005,7 @@ function loadingDone() {
 
 // ── Page id → human-readable title map (for screen-reader announcements) ──────
 const PAGE_TITLES = {
-  dashboard: 'Dashboard', patients: 'Patients', profile: 'Profile', monitor: 'Devices',
+  dashboard: 'Dashboard', patients: 'Patients', profile: 'Profile', monitor: 'Monitor',
   courses: 'Treatment Courses', 'course-detail': 'Course Detail',
   'session-execution': 'Session Execution', 'review-queue': 'Clinical Review & Approvals',
   'protocol-wizard': 'Protocol Intelligence', 'protocols-registry': 'Protocol Registry',
@@ -1328,6 +1335,10 @@ async function renderPage() {
   const el = document.getElementById('content');
   if (!el) return;
   el.scrollTop = 0;
+  // Immediately mark content non-empty so waitForSelector('#content:not(:empty)')
+  // resolves as soon as rendering starts rather than after the async module load.
+  // navigate() does the same; this covers the bootApp() path that skips navigate().
+  el.innerHTML = '<div class="page-loading">Loading…</div>';
 
   // ── Auth guard (synchronous — runs before any async data fetch) ───────────
   if (!_PUBLIC_ROUTES.includes(currentPage) && !window._isAuthenticated?.()) {
@@ -1338,6 +1349,18 @@ async function renderPage() {
         <button class="btn btn-primary" onclick="window._nav('home')">Sign in</button>
       </div>
     `;
+    return;
+  }
+
+  // Brain Map Planner is clinician/staff decision-support — not exposed to patient portal accounts.
+  if ((currentPage === 'brainmap-v2' || currentPage === 'brain-map-planner')
+      && currentUser?.role === 'patient') {
+    el.innerHTML = `
+      <div class="auth-required-notice" role="alert">
+        <div class="auth-required-icon">🧠</div>
+        <div class="auth-required-text">Brain Map Planner is available to clinical staff only. This workspace is not part of the patient portal.</div>
+        <button class="btn btn-primary" onclick="window._nav('dashboard')">Back to dashboard</button>
+      </div>`;
     return;
   }
 
@@ -1406,7 +1429,7 @@ async function renderPage() {
     case 'protocols':       { window._protocolHubTab = 'browse';   window._nav('protocol-hub'); break; }
     case 'brain-map-planner':
     case 'brain-map-full':
-    case 'reg-protocols':   { const { pgBrainMapPlanner } = await loadClinicalTools(); await pgBrainMapPlanner(setTopbar); break; }
+    case 'reg-protocols':   { const { pgBrainMapPlanner } = await loadClinicalTools(); await pgBrainMapPlanner(setTopbar, navigate); break; }
     // protocols-registry routes to the real protocol search/registry browser,
     // not the brain-map planner. Previously this alias pointed at
     // pgBrainMapPlanner which mislabelled the surface.
@@ -1664,7 +1687,7 @@ async function renderPage() {
     }
     case 'telehealth-recorder': { const m = await loadPractice(); await m.pgTelehealthRecorder(setTopbar); break; }
     case 'monitoring': { window._devicesPresetTab = 'live'; navigate('monitor'); break; }
-    case 'wearables':  { window._devicesPresetTab = 'control-center'; window._devicesPresetCategory = 'wearable'; navigate('monitor'); break; }
+    case 'wearables':  { window._devicesPresetTab = 'biometrics'; navigate('monitor'); break; }
     case 'library-hub':    { window._resEvidenceTab = 'search'; window._nav('research-evidence'); break; }
     case 'monitor-hub':    { const { pgMonitorHub }    = await loadClinicalHubs(); await pgMonitorHub(setTopbar, navigate);    break; }
     case 'virtual-care-hub':{ const { pgVirtualCareHub } = await loadClinicalHubs(); await pgVirtualCareHub(setTopbar, navigate); break; }
@@ -1877,10 +1900,10 @@ async function renderPage() {
     }
     case 'fusion-workbench':   { const m = await loadFusionWorkbench(); await m.pgFusionWorkbench(setTopbar, navigate); break; }
     case 'patient-timeline':   { const m = await loadPatientTimeline(); await m.pgPatientTimeline(setTopbar, navigate); break; }
-    case 'biomarkers':         { const m = await loadKnowledge(); await m.pgQEEGMaps(setTopbar); break; }
+    case 'biomarkers':         { const m = await loadBiomarkers(); await m.pgBiomarkersWorkspace(setTopbar, navigate); break; }
     case 'handbooks-v2':       { const m = await loadHandbooks(); await m.pgHandbooks(setTopbar); break; }
     case 'library-v2':         { window._resEvidenceTab = 'search'; window._nav('research-evidence'); break; }
-    case 'live-session':       { window._vcUnifiedDefaultTab = 'dashboard'; const m = await loadVirtualCare(); await m.pgVirtualCare(setTopbar, navigate); break; }
+    case 'live-session':       { window._vcUnifiedDefaultTab = 'livesession'; const m = await loadVirtualCare(); await m.pgVirtualCare(setTopbar, navigate); break; }
     case 'live-session-monitor': { window._vcUnifiedDefaultTab = 'livesession'; const m = await loadVirtualCare(); await m.pgVirtualCare(setTopbar, navigate); break; }
     case 'home-tasks-v2':      { const m = await loadClinicalTools(); await m.pgHomePrograms(setTopbar, navigate); break; }
     case 'documents-v2':       { const m = await loadClinicalHubs(); await m.pgDocumentsHubNew(setTopbar, navigate); break; }

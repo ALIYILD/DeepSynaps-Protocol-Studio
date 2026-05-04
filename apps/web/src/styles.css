@@ -26377,6 +26377,47 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
    ═══════════════════════════════════════════════════════════════════════════════ */
 .ds-mri-shell { display: flex; flex-direction: column; min-height: 100%; gap: 12px; }
 
+.ds-mri-linked__intro {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  margin: 0 0 12px;
+}
+.ds-mri-linked__demo-label {
+  color: var(--amber);
+  font-weight: 600;
+}
+.ds-mri-linked__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px 16px;
+}
+.ds-mri-linked__cluster {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.ds-mri-linked__cluster-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+.ds-mri-linked__btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ds-mri-linked__btns .btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .ds-mri-shell .visually-hidden {
   position: absolute;
   width: 1px;
@@ -27550,6 +27591,20 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   body { background: #fff !important; color: #000 !important; }
 }
 .monitor-shell { display:flex; flex-direction:column; gap:20px; }
+.monitor-disclaimer { border:1px solid var(--border); border-radius:12px; padding:14px 16px; background:rgba(74,158,255,.06); font-size:13px; line-height:1.55; color:var(--text-secondary); margin-bottom:4px; }
+.monitor-disclaimer strong { color:var(--text-primary); }
+.monitor-disclaimer--demo { background:rgba(229,138,44,.12); border-color:rgba(229,138,44,.35); }
+.monitor-patient-toolbar { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; margin-top:8px; }
+.monitor-field { font-size:13px; color:var(--text-secondary); display:flex; flex-direction:column; gap:6px; }
+.monitor-select { min-width:220px; padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:rgba(0,0,0,.25); color:var(--text-primary); font-size:13px; }
+.monitor-vitals-strip { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:12px; margin-top:12px; }
+.monitor-vital-card { border:1px solid var(--border); border-radius:12px; padding:12px 14px; background:rgba(255,255,255,.03); }
+.monitor-vital-val { font-size:22px; font-weight:800; letter-spacing:-.03em; color:var(--text-primary); }
+.monitor-vital-unit { font-size:12px; font-weight:600; color:var(--text-tertiary); margin-left:4px; }
+.monitor-quick-links { display:flex; flex-wrap:wrap; gap:8px; margin:16px 0; padding:14px; border:1px dashed var(--border); border-radius:12px; background:rgba(255,255,255,.02); }
+.monitor-readiness-pre { font-size:11px; line-height:1.45; overflow:auto; max-height:180px; padding:12px; border-radius:8px; background:rgba(0,0,0,.35); border:1px solid var(--border); color:var(--text-secondary); margin:0; }
+.monitor-subheading { margin:20px 0 10px; font-size:14px; font-weight:700; color:var(--text-primary); }
+.monitor-panel--patient { border-color:rgba(0,212,188,.22); }
 .monitor-hero { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; padding:24px; border:1px solid var(--border); border-radius:16px; background:linear-gradient(135deg, rgba(12,20,34,0.96), rgba(8,12,22,0.98)); }
 .monitor-kicker { font-size:11px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--teal,#00d4bc); margin-bottom:8px; }
 .monitor-hero h1 { margin:0; font-size:32px; letter-spacing:-.03em; }
@@ -27991,6 +28046,7 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
 .dt-src-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
 .dt-src { padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,.02); }
 .dt-src-on { border-color: rgba(0,212,188,.22); }
+.dt-src-stale { border-color: rgba(246,178,60,.35) !important; background: rgba(246,178,60,.06); }
 .dt-src-off { border-color: rgba(255,179,71,.22); background: rgba(255,179,71,.04); }
 .dt-src-label { font-weight: 650; font-size: 13px; color: var(--text); }
 .dt-src-meta { font-size: 11px; color: var(--text-tertiary); margin-top: 4px; }

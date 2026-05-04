@@ -454,7 +454,12 @@ export function summarizeSession(session) {
   const safety = [];
 
   for (const t of tasks) {
-    if (t.recording_status === 'recorded' || t.recording_status === 'accepted') completed++;
+    if (
+      t.recording_status === 'recorded' ||
+      t.recording_status === 'accepted' ||
+      t.recording_status === 'pending_review'
+    )
+      completed++;
     if (t.recording_status === 'skipped' || t.recording_status === 'unsafe_skipped') {
       skipped++;
       if (t.unsafe_flag || t.skip_reason === 'unsafe') safety.push(t.task_id);
