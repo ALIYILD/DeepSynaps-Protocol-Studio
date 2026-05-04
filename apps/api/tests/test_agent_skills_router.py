@@ -9,6 +9,11 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from deepsynaps_safety_engine import (
+    GOVERNANCE_POLICY_REF,
+    SAFETY_ENGINE_WRAPPER_VERSION,
+)
+
 from app.database import SessionLocal
 from app.persistence.models import AgentSkill
 from app.services.agent_skills_seed import DEFAULT_AGENT_SKILLS
@@ -140,6 +145,60 @@ class TestAgentSkillsCrud:
             headers=auth_headers["admin"],
         )
         assert resp.status_code == 422
+
+
+class TestCuratedOpenClawSkills:
+    def test_clinician_can_list_curated_catalog(
+        self, client: TestClient, auth_headers: dict
+    ) -> None:
+        resp = client.get(
+            "/api/v1/agent-skills/openclaw-curated",
+            headers=auth_headers["clinician"],
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+
+        assert data["allowlisted_total"] >= 10
+        assert data["rejected_total"] >= 5
+
+        allowlisted = {row["source_skill_name"]: row for row in data["allowlisted"]}
+        rejected = {row["source_skill_name"]: row for row in data["rejected"]}
+
+        assert "patiently-ai" in allowlisted
+        assert "clinical-decision-support" in rejected
+        assert allowlisted["patiently-ai"]["patient_facing_default_allowed"] is True
+
+        wrapper = allowlisted["patiently-ai"]["wrapper_defaults"]
+        assert wrapper["requires_clinician_review"] is True
+        assert wrapper["governance_policy_ref"] == GOVERNANCE_POLICY_REF
+        assert wrapper["wrapper_version"] == SAFETY_ENGINE_WRAPPER_VERSION
+
+    def test_guest_denied_curated_catalog(
+        self, client: TestClient, auth_headers: dict
+    ) -> None:
+        resp = client.get(
+            "/api/v1/agent-skills/openclaw-curated",
+            headers=auth_headers["guest"],
+        )
+        assert resp.status_code == 403
+
+    def test_clinician_can_list_curated_layer_use_cases(
+        self, client: TestClient, auth_headers: dict
+    ) -> None:
+        resp = client.get(
+            "/api/v1/agent-skills/openclaw-curated/layer",
+            headers=auth_headers["clinician"],
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["total"] >= 6
+
+        rows = {row["id"]: row for row in data["use_cases"]}
+        assert rows["patient-handbooks"]["patient_facing_possible"] is True
+        assert "patiently-ai" in rows["patient-handbooks"]["allowed_source_skills"]
+        assert rows["protocol-generation"]["requires_citations"] is True
+        assert rows["fhir-integration"]["execution_mode"] == "native_only"
+        assert rows["fhir-integration"]["allowed_source_skills"] == []
 
 
 class TestAgentSkillsSortOrder:
