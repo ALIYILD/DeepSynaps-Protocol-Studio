@@ -407,7 +407,7 @@ def _labs(session: Session, patient_id: str) -> dict[str, Any]:
         session,
         PatientLabResult,
         patient_id,
-        ts_col="collected_at",
+        ts_col="sample_collected_at",
     )
     upload = [{
         "label": "Add lab result",
@@ -417,8 +417,9 @@ def _labs(session: Session, patient_id: str) -> dict[str, Any]:
     if n == 0:
         return _domain(
             "labs",
-            status="missing",
-            summary="No labs or biomarkers on file.",
+            status="unavailable",
+            summary="No governed lab ingestion context is available for this patient yet.",
+            warnings=["Labs remain unavailable until a clinician records or syncs source-backed results."],
             upload_links=upload,
         )
     return _domain(

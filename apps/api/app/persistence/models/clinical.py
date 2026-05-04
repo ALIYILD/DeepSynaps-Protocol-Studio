@@ -612,45 +612,6 @@ class PatientSubstance(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
-class PatientLabResult(Base):
-    """Timestamped lab test or biomarker observation for a patient."""
-
-    __tablename__ = "patient_lab_results"
-    __table_args__ = (
-        CheckConstraint(
-            "(lab_test_name IS NOT NULL) OR (biomarker_name IS NOT NULL)",
-            name="ck_patient_lab_results_named_result",
-        ),
-    )
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True)
-    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    catalog_item_id: Mapped[Optional[str]] = mapped_column(
-        String(36),
-        ForeignKey("clinical_catalog_items.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
-    )
-    lab_test_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    biomarker_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    specimen_type: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
-    value_text: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    value_numeric: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
-    unit: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
-    reference_range_low: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
-    reference_range_high: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
-    reference_range_text: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    abnormal_flag: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
-    collected_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True, index=True)
-    reported_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
-    source_lab: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    fasting_state: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
-    notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
-
-
 # ── Reminder Campaign Models ──────────────────────────────────────────────────
 
 class ReminderCampaign(Base):

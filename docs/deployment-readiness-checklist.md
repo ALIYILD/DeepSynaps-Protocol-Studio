@@ -12,8 +12,8 @@
 - [ ] `netlify login` completed on deploy machine
 
 ### API (Fly.io)
-- [x] `fly.toml` configured (app: `deepsynaps-studio`, region: `lhr`)
-- [x] Dockerfile builds (multi-stage, Python 3.11)
+- [x] `apps/api/fly.toml` configured (app: `deepsynaps-studio`, region: `lhr`)
+- [x] `apps/api/Dockerfile` builds (multi-stage, Python 3.11)
 - [x] Health check endpoint at `/health`
 - [x] AI health endpoint at `/api/v1/health/ai`
 - [x] Release command runs `alembic upgrade head`
@@ -79,4 +79,7 @@ bash scripts/deploy-preview.sh --api
 
 # Both
 bash scripts/deploy-preview.sh --api
+
+# Direct API deploy (repo root)
+fly deploy --config apps/api/fly.toml --dockerfile apps/api/Dockerfile
 ```

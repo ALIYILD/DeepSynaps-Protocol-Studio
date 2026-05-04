@@ -130,7 +130,6 @@ from .clinical import (
     OnboardingState,
     PatientAgentActivation,
     PatientHomeProgramTaskCompletion,
-    PatientLabResult,
     PatientMedication,
     PatientNutritionDietLog,
     PatientRiskFormulation,

@@ -508,14 +508,10 @@ let currentPage = 'dashboard';
 
 // ── Role-based nav visibility ─────────────────────────────────────────────────
 const ROLE_NAV_HIDE = {
-  technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'population-analytics', 'brain-map-planner', 'handbook-generator', 'notes-dictation', 'assessments-hub', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
-  reviewer:   ['session-execution', 'protocol-wizard', 'billing', 'pricing', 'population-analytics', 'brain-map-planner'],
-  patient:    ['risk-analyzer'],
-  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'risk-analyzer', 'treatment-sessions-analyzer', 'audittrail', 'billing', 'population-analytics', 'brain-map-planner', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-handbooks', 'reg-virtual-care', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
   technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'risk-analyzer', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'handbook-generator', 'notes-dictation', 'assessments-hub', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
   reviewer:   ['session-execution', 'protocol-wizard', 'billing', 'pricing', 'population-analytics', 'brain-map-planner', 'brainmap-v2'],
-  patient:    ['risk-analyzer'],
-  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'risk-analyzer', 'treatment-sessions-analyzer', 'audittrail', 'billing', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-handbooks', 'reg-virtual-care', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
+  patient:    ['finance-v2'],
+  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'risk-analyzer', 'treatment-sessions-analyzer', 'audittrail', 'billing', 'finance-v2', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-handbooks', 'reg-virtual-care', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report', 'tickets'],
   clinician:  ['population-analytics'],
 };
 
@@ -726,7 +722,10 @@ NAV.forEach(n => {
 function renderNav() {
   const _navList = document.getElementById('nav-list');
   if (!_navList) return;
-  const hiddenForRole = ROLE_NAV_HIDE[currentUser?.role] || [];
+  const hiddenForRole = [...(ROLE_NAV_HIDE[currentUser?.role] || [])];
+  if (currentUser?.role === 'patient' && !hiddenForRole.includes('risk-analyzer')) {
+    hiddenForRole.push('risk-analyzer');
+  }
 
   // ── Primary action button + patient quick search ─────────────────────────────
   if (!document.getElementById('nav-new-course')) {
@@ -1391,6 +1390,20 @@ async function renderPage() {
         <button class="btn btn-primary" onclick="window._nav('dashboard')">Back to dashboard</button>
       </div>`;
     return;
+  }
+
+  if (currentPage === 'tickets') {
+    const tr = currentUser?.role;
+    if (tr === 'patient' || tr === 'guest') {
+      el.innerHTML = `
+        <div class="auth-required-notice" role="alert">
+          <div class="auth-required-icon">🎫</div>
+          <div class="auth-required-text">Tickets is available to clinic staff only. Patients and guests cannot use the operational support workspace.</div>
+          <button class="btn btn-primary" onclick="window._nav('dashboard')">Back to dashboard</button>
+        </div>
+      `;
+      return;
+    }
   }
 
   switch (currentPage) {

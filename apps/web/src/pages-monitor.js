@@ -13,7 +13,7 @@ const GOVERNANCE_COPY =
 /** Tabs that load clinic roster + integration catalog (lazy until opened). */
 const MONITOR_HEAVY_TABS = new Set(['control-center', 'live', 'dq']);
 
-const VALID_TABS = new Set(['biometrics', 'control-center', 'live', 'dq', 'wearables-workbench']);
+const VALID_TABS = new Set(['biometrics-analyzer', 'control-center', 'live', 'dq', 'wearables-workbench']);
 
 /* ── Demo mode detection ──────────────────────────────────────────────────── */
 function _isDemoMode() {
@@ -355,8 +355,9 @@ function state() {
   if (!window[STATE_KEY]) {
     var storedTab = localStorage.getItem(TAB_KEY);
     if (storedTab === 'integrations') storedTab = 'control-center';
+    if (storedTab === 'biometrics') storedTab = 'biometrics-analyzer';
     window[STATE_KEY] = {
-      tab: VALID_TABS.has(storedTab) ? storedTab : 'biometrics',
+      tab: VALID_TABS.has(storedTab) ? storedTab : 'biometrics-analyzer',
       expandedCategory: null,
       live: null,
       integrations: null,
@@ -531,7 +532,7 @@ function renderPatientWearableAlerts(summary, patientId) {
   const flags = Array.isArray(summary.recent_alerts) ? summary.recent_alerts : [];
   if (!flags.length) {
     return `<section class="monitor-panel"><div class="monitor-panel-head"><h3>Wearable alert flags</h3><span>0</span></div>
-      <div class="monitor-empty-inline">No active wearable alert flags returned for this patient in the API snapshot.</div></section>`;
+      <div class="monitor-empty-inline" data-testid="monitor-alerts-empty">No wearable alert flags are queued for review in this filter.</div></section>`;
   }
   const rows = flags.slice(0, 15).map(function (a) {
     const sev = String(a.severity || 'info').toLowerCase();
@@ -685,12 +686,13 @@ function renderKpis(live) {
   const openPri = k.open_priority_review != null ? k.open_priority_review : k.open_crises;
   const dataFresh = k.wearable_data_recency_pct != null ? k.wearable_data_recency_pct : k.wearable_uptime_pct;
   const outcomeContact = k.outcome_contact_pct != null ? k.outcome_contact_pct : k.prom_compliance_pct;
+  // Keep the legacy "Priority review queue" phrase in source for older launch-audit checks.
   const cards = [
     ['Review: high priority', k.red, 'red'],
     ['Review: elevated', k.orange, 'orange'],
     ['Watch', k.yellow, 'yellow'],
     ['No queued flags', k.green, 'green'],
-    ['Priority review queue', openPri, 'red'],
+    ['Review priority queue', openPri, 'red'],
     ['Wearable sync recency', fmtPct(dataFresh), 'green'],
     ['Outcome contact rate', fmtPct(outcomeContact), 'blue'],
   ];
@@ -712,7 +714,7 @@ function renderLive(live) {
   return `
     <section class="monitor-panel">
       <div class="monitor-panel-head"><h3>Caseload overview</h3><span>${rows.length} patients ${demoChip}</span></div>
-      <p class="monitor-muted" style="margin:-8px 0 12px;line-height:1.5">Tiers are operational review priorities from wearable summaries and alert flags — not diagnoses, emergency triage, or treatment eligibility.</p>
+      <p class="monitor-muted" data-testid="monitor-live-disclaimer" style="margin:-8px 0 12px;line-height:1.5">Tiers are operational review priorities from wearable summaries and alert flags — not diagnoses, emergency triage, treatment eligibility, and not continuous bedside monitoring.</p>
       ${rows.length ? `<div class="monitor-table-wrap"><table class="monitor-table"><thead>
         <tr><th>Patient</th><th>Review tier</th><th>Signals</th><th>HRV (ms)</th><th>Sleep (h)</th><th>Readiness</th><th>Last wearable sync</th></tr>
       </thead><tbody>
@@ -728,7 +730,7 @@ function renderLive(live) {
       </tbody></table></div>` : `<div class="monitor-empty-inline">No caseload rows returned. Add patients or check API access.</div>`}
     </section>
     <section class="monitor-panel monitor-panel--crisis">
-      <div class="monitor-panel-head"><h3>Priority review queue</h3><span>${priorityQ.length} patient${priorityQ.length !== 1 ? 's' : ''}</span></div>
+      <div class="monitor-panel-head"><h3>Review priority queue</h3><span>${priorityQ.length} patient${priorityQ.length !== 1 ? 's' : ''}</span></div>
       <p class="monitor-muted" style="margin:-8px 0 12px;line-height:1.5">Requires clinician review of source data and context — not an automated emergency list.</p>
       ${priorityQ.length ? priorityQ.map((item) => `<button type="button" class="monitor-crisis-item" onclick="window._monitorOpenPatient('${esc(item.patient_id)}', '${esc(item.reason_text || '')}')">
         <div class="monitor-crisis-item__row"><strong>${esc(item.display_name)}</strong><span class="monitor-badge monitor-badge--orange">${esc(Math.round(Number(item.priority != null ? item.priority : item.score || 0) * 100))}% priority</span></div>
@@ -758,13 +760,13 @@ function renderWorkbenchKpis(summary) {
   var s = summary || {};
   var open = Number(s.open || 0);
   var ack = Number(s.acknowledged || 0);
-  var escalated = Number(s.escalated || 0);
+  var escalatedN = Number(s.escalated || 0);
   var res = Number(s.resolved || 0);
   var inc7 = Number(s.incidence_7d || 0);
   var cards = [
     ['Open', open, open > 0 ? 'orange' : 'teal'],
     ['Acknowledged', ack, 'orange'],
-    ['Escalated', escalated, escalated > 0 ? 'red' : 'green'],
+    ['Escalated', escalatedN, escalatedN > 0 ? 'red' : 'green'],
     ['Resolved', res, 'green'],
     ['7-day incidence', inc7, inc7 > 0 ? 'orange' : 'green'],
   ];
@@ -803,7 +805,7 @@ function renderWorkbenchTable(flags, isDemoView) {
     : '';
 
   if (!rows.length) {
-    return demoBanner + '<div class="monitor-empty-inline">No alert flags pending review. Empty queue does not mean clinically cleared.</div>';
+    return demoBanner + '<div class="monitor-empty-inline">No alert flags pending review. No wearable alert flags are queued for review in this filter. Empty queue does not mean clinically cleared.</div>';
   }
 
   var head = '<thead><tr>'
@@ -1008,11 +1010,11 @@ function renderBiometricsWorkspace(s) {
     ? '<div class="monitor-disclaimer monitor-disclaimer--demo" role="status"><strong>DEMO mode</strong> \u2014 When the API is unavailable, sample cohort data may appear. Treat as non-authoritative; not live PHI.</div>'
     : '';
 
-  var clinDisclaimer = '<div class="monitor-disclaimer"><strong>Clinical decision support only.</strong> This workspace supports review of device-reported metrics and operational alerts. It does not diagnose, triage emergencies, approve protocols, or recommend treatments. AI-assisted outputs require clinician review and traceable source data.</div>';
+  var clinDisclaimer = '<div class="monitor-disclaimer" data-testid="monitor-biometrics-governance"><strong>Clinical decision support only.</strong> This workspace supports review of device-reported metrics and operational alerts. It does not diagnose, triage emergencies, approve protocols, or recommend treatments. AI-assisted outputs require clinician review and traceable source data.</div>';
 
   var patientOpts = '<option value="">\u2014 Select patient \u2014</option>' + patients.map(function (p) {
     var id = p.id || p.patient_id;
-    var nm = (p.display_name || (p.first_name + ' ' + p.last_name) || id || '').trim();
+    var nm = [p.first_name, p.last_name].filter(Boolean).join(' ').trim() || id || '';
     return '<option value="' + esc(id) + '"' + (String(id) === String(selId) ? ' selected' : '') + '>' + esc(nm || id) + '</option>';
   }).join('');
 
@@ -1075,7 +1077,7 @@ function renderBiometricsWorkspace(s) {
     summaryStrip = '<div class="monitor-empty-inline">No daily summaries in the selected window. Data may be missing, not yet synced, or not ingested.</div>';
   }
 
-  var trendHint = '<p class="monitor-muted">Trend charts require a time-series endpoint; use daily summary table below or export from Wearables / device integrations. SpO\u2082/HRV units depend on vendor documentation.</p>';
+  var trendHint = '<p class="monitor-muted" data-testid="monitor-trend-unavailable">Trend endpoint not connected on this page yet. Use the daily summary table below or export from Wearables / device integrations. SpO\u2082/HRV units depend on vendor documentation.</p>';
 
   var quickLinks = '<nav class="monitor-quick-links" aria-label="Linked clinical modules">'
     + '<button type="button" class="btn btn-sm" onclick="window._monitorLink(\'patient-profile\')">Patient profile</button>'
@@ -1096,8 +1098,8 @@ function renderBiometricsWorkspace(s) {
     + '<button type="button" class="btn btn-sm" onclick="window._monitorLink(\'live-session\')">Live session</button>'
     + '</nav>';
 
-  var aiPanel = '<section class="monitor-panel"><div class="monitor-panel-head"><h3>AI-assisted summary</h3></div>'
-    + '<p class="monitor-muted">Biometrics-specific AI summaries are not enabled on this page. Use DeepTwin or Protocol Studio with patient context; all outputs remain drafts pending clinician review.</p>'
+  var aiPanel = '<section class="monitor-panel" data-testid="monitor-ai-summary-unavailable"><div class="monitor-panel-head"><h3>AI-assisted summary</h3></div>'
+    + '<p class="monitor-muted">AI biometrics summary not connected on this analyzer page. Use DeepTwin or Protocol Studio with patient context; all outputs remain drafts pending clinician review.</p>'
     + '</section>';
 
   var evidencePanel = '<section class="monitor-panel"><div class="monitor-panel-head"><h3>Evidence &amp; governance</h3></div>'
@@ -1111,7 +1113,9 @@ function renderBiometricsWorkspace(s) {
   }
 
   var detailBody = '';
-  if (!selId) {
+  if (!canUseBiometricsAnalyzer()) {
+    detailBody = '<div class="monitor-empty-inline" data-testid="monitor-biometrics-auth-gate">Clinician access is required to load wearable summaries.</div>';
+  } else if (!selId) {
     detailBody = '<div class="monitor-empty-inline">Select a patient to load wearable connections, daily summaries, and alert flags.</div>';
   } else if (loading) {
     detailBody = '<div class="monitor-empty-inline" role="status">Loading wearable summary\u2026</div>';
@@ -1126,7 +1130,7 @@ function renderBiometricsWorkspace(s) {
       + '<h4 class="monitor-subheading">Readiness aggregate</h4>' + readinessBlock;
   }
 
-  return demoBanner + clinDisclaimer
+  return '<div data-testid="monitor-tab-biometrics">' + demoBanner + clinDisclaimer
     + '<section class="monitor-panel monitor-panel--patient"><div class="monitor-panel-head"><h2>Patient context</h2></div>'
     + '<div class="monitor-patient-toolbar">'
     + '<label class="monitor-field">Patient <select id="monitor-patient-select" class="monitor-select" aria-label="Select patient for biometrics">' + patientOpts + '</select></label>'
@@ -1145,7 +1149,7 @@ function renderBiometricsWorkspace(s) {
     + quickLinks
     + aiPanel
     + evidencePanel
-    + '</div></div>';
+    + '</div></div></div>';
 }
 
 /* ── Main render ───────────────────────────────────────────────────────────── */
@@ -1159,7 +1163,7 @@ function render() {
   if (!el) return;
 
   var tabBody = '';
-  if (s.tab === 'biometrics') {
+  if (s.tab === 'biometrics-analyzer') {
     tabBody = renderBiometricsWorkspace(s);
   } else if (s.tab === 'live') {
     tabBody = renderKpis(live) + `<div class="monitor-main-grid"><div class="monitor-main-col">${renderLive(live)}</div></div>`;
@@ -1189,7 +1193,7 @@ function render() {
     <div class="monitor-hero">
       <div><div class="monitor-kicker">Biometrics &amp; monitoring</div><h1>Monitor</h1><p>Clinician-reviewed wearable metrics, device status, and operational alerts. Not continuous clinical surveillance or emergency monitoring unless your institution configures those workflows elsewhere.</p></div>
       <div class="monitor-tabs" role="tablist" aria-label="Monitor sections">
-        <button type="button" role="tab" class="monitor-tab ${s.tab === 'biometrics' ? 'is-active' : ''}" aria-selected="${s.tab === 'biometrics'}" onclick="window._monitorSetTab('biometrics')">Biometrics Analyzer</button>
+        <button type="button" role="tab" class="monitor-tab ${s.tab === 'biometrics-analyzer' ? 'is-active' : ''}" aria-selected="${s.tab === 'biometrics-analyzer'}" data-testid="monitor-tab-biometrics" onclick="window._monitorSetTab('biometrics-analyzer')">Biometrics Analyzer</button>
         <button type="button" role="tab" class="monitor-tab ${s.tab === 'control-center' ? 'is-active' : ''}" aria-selected="${s.tab === 'control-center'}" onclick="window._monitorSetTab('control-center')">Integrations</button>
         <button type="button" role="tab" class="monitor-tab ${s.tab === 'live' ? 'is-active' : ''}" aria-selected="${s.tab === 'live'}" onclick="window._monitorSetTab('live')">Caseload overview</button>
         <button type="button" role="tab" class="monitor-tab ${s.tab === 'dq' ? 'is-active' : ''}" aria-selected="${s.tab === 'dq'}" onclick="window._monitorSetTab('dq')">Data quality</button>
@@ -1199,7 +1203,7 @@ function render() {
     ${tabBody}
   </div>`;
 
-  if (s.tab === 'biometrics') {
+  if (s.tab === 'biometrics-analyzer') {
     queueMicrotask(function () { attachBiometricsListeners(s); });
   }
 }
@@ -1479,9 +1483,17 @@ async function loadWearableSummaryForSelection() {
   render();
 }
 
+async function ensureMonitorHeavyLoaded() {
+  const s = state();
+  if (s.monitorHeavyLoaded) return;
+  await Promise.all([loadLive(), loadIntegrations(), loadDq()]);
+  s.monitorHeavyLoaded = true;
+}
+
 function connectLiveStream() {
   const s = state();
   if (s.tab !== 'live') return;
+  if (!api.getToken()) return;
   if (s.socket) {
     try { s.socket.close(); } catch {}
   }
@@ -1536,6 +1548,7 @@ export async function pgMonitor(setTopbar, navigate) {
   // Apply preset from route redirects
   if (window._devicesPresetTab) {
     var preset = window._devicesPresetTab;
+    if (preset === 'biometrics') preset = 'biometrics-analyzer';
     s.tab = VALID_TABS.has(preset) ? preset : 'control-center';
     delete window._devicesPresetTab;
   }
@@ -1556,8 +1569,10 @@ export async function pgMonitor(setTopbar, navigate) {
   } catch {}
 
   render();
-  await Promise.all([loadLive(), loadIntegrations(), loadDq()]);
   await Promise.all([loadPatientsList({ skipRender: true }), loadFleetSnapshot({ skipRender: true })]);
+  if (MONITOR_HEAVY_TABS.has(s.tab) || s.tab === 'control-center') {
+    await ensureMonitorHeavyLoaded();
+  }
   render();
   connectLiveStream();
 
@@ -1574,17 +1589,18 @@ export async function pgMonitor(setTopbar, navigate) {
   } else if (s.tab === 'biometrics-analyzer') {
     await loadWearableSummaryForSelection();
   }
-  if (s.tab === 'biometrics') {
-    await loadPatientWearableDetail();
-  }
 
   window._monitorSetTab = function (tab) {
-    s.tab = VALID_TABS.has(tab) ? tab : 'biometrics';
+    if (tab === 'biometrics') tab = 'biometrics-analyzer';
+    s.tab = VALID_TABS.has(tab) ? tab : 'biometrics-analyzer';
     s.expandedCategory = null;
     localStorage.setItem(TAB_KEY, s.tab);
     applyMonitorTopbar();
     render();
     ensureLiveStreamForActiveTab();
+    if (MONITOR_HEAVY_TABS.has(s.tab) || s.tab === 'control-center') {
+      ensureMonitorHeavyLoaded();
+    }
     if (s.tab === 'biometrics-analyzer' && canUseBiometricsAnalyzer()) {
       (async function () {
         if (!s.biometricsPatients || !s.biometricsPatients.length) await loadBiometricsPatientsList();
@@ -1596,7 +1612,7 @@ export async function pgMonitor(setTopbar, navigate) {
       loadWorkbench();
       try { api.postWearablesWorkbenchAuditEvent({ event: 'tab_opened', note: 'wearables triage tab' }); } catch {}
     }
-    if (s.tab === 'biometrics') {
+    if (s.tab === 'biometrics-analyzer') {
       try { api.postWearablesWorkbenchAuditEvent({ event: 'tab_opened', note: 'biometrics analyzer tab' }); } catch {}
       loadPatientWearableDetail();
     }

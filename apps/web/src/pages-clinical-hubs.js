@@ -9282,6 +9282,18 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
 // (Renders both ?page=reports-hub and design-v2 ?page=reports-v2 — same workspace.)
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgReportsHubNew(setTopbar, navigate) {
+  const reportsRole = currentUser?.role || 'guest';
+  if (!canAccessClinicalReportsWorkspace(reportsRole)) {
+    document.getElementById('content').innerHTML = `
+      <div class="auth-required-notice" role="alert">
+        <div class="auth-required-icon">🩺</div>
+        <div class="auth-required-text">Clinical reports workspace is available to governed clinic staff only. Sign in with a clinician, reviewer, technician, or administrator account to continue.</div>
+        <button class="btn btn-primary" onclick="window._nav('dashboard')">Back to dashboard</button>
+      </div>
+    `;
+    return;
+  }
+
   // Consume focus set by per-widget Report buttons on the patient-analytics page.
   const _focus = window._reportsHubFocus || null;
   if (_focus) { window._reportsHubFocus = null; window._reportsHubTab = 'generate'; }

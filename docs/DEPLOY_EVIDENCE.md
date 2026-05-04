@@ -34,7 +34,7 @@ and lands on the existing 1 GB persistent volume (`deepsynaps_data` → `/data`)
 ## 2. Deploy
 
 ```bash
-fly deploy -a deepsynaps-studio
+fly deploy --config apps/api/fly.toml --dockerfile apps/api/Dockerfile -a deepsynaps-studio
 ```
 
 Ship the code. The image now includes `/app/services/evidence-pipeline/` and the

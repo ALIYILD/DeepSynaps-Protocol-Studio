@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -396,27 +397,33 @@ def _substance_out(row: PatientSubstance) -> PatientSubstanceOut:
 
 
 def _lab_out(row: PatientLabResult) -> PatientLabOut:
-    name = row.lab_test_name or row.biomarker_name
+    name = row.analyte_display_name or row.analyte_code
+    abnormal_flag = None
+    if row.value_numeric is not None:
+        if row.ref_low is not None and row.value_numeric < row.ref_low:
+            abnormal_flag = "low"
+        elif row.ref_high is not None and row.value_numeric > row.ref_high:
+            abnormal_flag = "high"
     return PatientLabOut(
         id=row.id,
         patient_id=row.patient_id,
         clinician_id=row.clinician_id,
-        catalog_item_id=row.catalog_item_id,
-        lab_name=row.lab_test_name,
-        biomarker_name=row.biomarker_name,
+        catalog_item_id=None,
+        lab_name=name,
+        biomarker_name=None,
         name=name,
-        specimen_type=row.specimen_type,
+        specimen_type=row.panel_name,
         value_text=row.value_text,
         value_numeric=row.value_numeric,
-        unit=row.unit,
-        reference_range_low=row.reference_range_low,
-        reference_range_high=row.reference_range_high,
-        reference_range_text=row.reference_range_text,
-        abnormal_flag=row.abnormal_flag,
-        source_lab=row.source_lab,
-        notes=row.notes,
-        collected_at=_dt(row.collected_at),
-        reported_at=_dt(row.reported_at),
+        unit=row.unit_ucum,
+        reference_range_low=row.ref_low,
+        reference_range_high=row.ref_high,
+        reference_range_text=row.ref_text,
+        abnormal_flag=abnormal_flag,
+        source_lab=row.source,
+        notes=None,
+        collected_at=_dt(row.sample_collected_at),
+        reported_at=_dt(row.sample_collected_at),
         created_at=_dt(row.created_at),
         updated_at=_dt(row.updated_at),
     )
@@ -595,7 +602,7 @@ def list_patient_labs(
         db.query(PatientLabResult)
         .filter(PatientLabResult.patient_id == patient_id)
         .order_by(
-            PatientLabResult.collected_at.desc(),
+            PatientLabResult.sample_collected_at.desc(),
             PatientLabResult.updated_at.desc(),
             PatientLabResult.created_at.desc(),
         )
@@ -622,24 +629,21 @@ def create_patient_lab(
             status_code=422,
         )
     row = PatientLabResult(
+        id=str(uuid.uuid4()),
         patient_id=patient_id,
         clinician_id=actor.actor_id,
-        catalog_item_id=body.catalog_item_id,
-        lab_test_name=(body.lab_name or None),
-        biomarker_name=(body.biomarker_name or None),
-        specimen_type=(body.specimen_type or None),
+        analyte_code=_slugify(body.biomarker_name or body.lab_name or "lab-result")[:64],
+        analyte_display_name=((body.biomarker_name or body.lab_name or "").strip() or "Lab result"),
+        panel_name=(body.specimen_type or None),
         value_text=(body.value_text or None),
         value_numeric=body.value_numeric,
-        unit=(body.unit or None),
-        reference_range_low=body.reference_range_low,
-        reference_range_high=body.reference_range_high,
-        reference_range_text=(body.reference_range_text or None),
-        abnormal_flag=(body.abnormal_flag or None),
-        collected_at=_parse_dt(body.collected_at),
-        reported_at=_parse_dt(body.reported_at),
-        source_lab=(body.source_lab or None),
-        fasting_state=(body.fasting_state or None),
-        notes=(body.notes or None),
+        unit_ucum=(body.unit or None),
+        ref_low=body.reference_range_low,
+        ref_high=body.reference_range_high,
+        ref_text=(body.reference_range_text or None),
+        sample_collected_at=_parse_dt(body.collected_at) or _parse_dt(body.reported_at),
+        source=(body.source_lab or "manual")[:32],
+        is_demo=False,
     )
     db.add(row)
     db.commit()
@@ -697,7 +701,7 @@ def get_patient_bio_summary(
     )
     latest_lab = max(
         (
-            _dt(row.collected_at or row.reported_at or row.updated_at or row.created_at)
+            _dt(row.sample_collected_at or row.updated_at or row.created_at)
             for row in labs
         ),
         default=None,
@@ -705,14 +709,13 @@ def get_patient_bio_summary(
     abnormal_lab_count = sum(
         1
         for row in labs
-        if str(row.abnormal_flag or "").lower() in {
-            "abnormal",
-            "high",
-            "low",
-            "critical",
-            "out_of_range",
-            "low_normal",
-        }
+        if (
+            row.value_numeric is not None
+            and (
+                (row.ref_low is not None and row.value_numeric < row.ref_low)
+                or (row.ref_high is not None and row.value_numeric > row.ref_high)
+            )
+        )
     )
     return PatientBioSummary(
         patient_id=patient_id,

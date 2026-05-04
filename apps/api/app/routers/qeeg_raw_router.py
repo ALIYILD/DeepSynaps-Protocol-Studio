@@ -1377,6 +1377,12 @@ def post_export_cleaned(
         raise ApiServiceError(
             code="invalid_format", message=str(exc), status_code=422
         )
+    except _exp.ExportDependencyUnavailable as exc:
+        raise ApiServiceError(
+            code="dependency_missing",
+            message=str(exc),
+            status_code=503,
+        )
     except RuntimeError as exc:
         raise ApiServiceError(
             code="export_failed",

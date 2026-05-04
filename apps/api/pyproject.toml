@@ -47,6 +47,7 @@ dependencies = [
     "pillow>=10",
     # qEEG analysis pipeline — EDF parsing + spectral analysis
     "mne>=1.7.0,<2.0.0",
+    "edfio>=0.4",
     "scipy>=1.13.0,<2.0.0",
     "numpy>=1.26.0,<3.0.0",
     # qEEG advanced analyses — aperiodic/periodic spectral decomposition
@@ -58,8 +59,7 @@ dependencies = [
     # code "pdf_renderer_unavailable" instead of producing a blank PDF.
     # NOTE: WeasyPrint requires Pango + Cairo system libs in the runtime
     # image (libpango-1.0-0, libpangoft2-1.0-0, libcairo2, libharfbuzz0b,
-    # libgdk-pixbuf2.0-0). These are NOT in the current slim Docker base —
-    # see DEPLOYMENT.md before relying on PDF output.
+    # libgdk-pixbuf-2.0-0). apps/api/Dockerfile installs them for deploys.
     "weasyprint>=60.0,<70.0",
     # qEEG MNE-Python pipeline (preprocess, ICA, SpecParam, connectivity,
     # eLORETA, normative z-scores, RAG) is installed as a SIBLING editable

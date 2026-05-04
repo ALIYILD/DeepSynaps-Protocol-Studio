@@ -528,11 +528,7 @@ function renderOverview(body, liveEvidence = null) {
   tcHtml += '</div>';
 
   /* two-column layout for charts */
-<<<<<<< HEAD
-  body.innerHTML = _resWorkspaceHeader(liveEvidence, { shortcuts: true }) + kpiHtml + srcHtml + wearBridge +
-=======
-  body.innerHTML = kpiHtml + shortcutHtml + srcHtml +
->>>>>>> origin/feat/evidence-autonomous-followup-2026-05-02
+  body.innerHTML = _resWorkspaceHeader(liveEvidence, { shortcuts: true }) + kpiHtml + shortcutHtml + srcHtml + wearBridge +
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:16px">' +
     yearHtml + gradeHtml + modHtml + tcHtml + jrnlHtml +
     '</div>' +
@@ -947,9 +943,6 @@ function renderAdjunctEvidenceSection(q, { standalone = false } = {}) {
   return html;
 }
 
-<<<<<<< HEAD
-async function renderNeuro(body, liveEvidence, q, filt, sInput, pills) {
-=======
 function _hasAdjunctEvidenceBundleData() {
   const reviewConditions = Array.isArray(_researchBundleState.adjunctReviewTables?.conditions)
     ? _researchBundleState.adjunctReviewTables.conditions.filter((row) => Array.isArray(row?.rows) && row.rows.length)
@@ -961,8 +954,7 @@ function _hasAdjunctEvidenceBundleData() {
   );
 }
 
-async function renderNeuro(body, q, filt, sInput, pills) {
->>>>>>> origin/feat/evidence-autonomous-followup-2026-05-02
+async function renderNeuro(body, liveEvidence, q, filt, sInput, pills) {
   await _ensureResearchBundleData();
   const lobes = ['All', ...new Set(BRAIN_TARGET_REGISTRY.map(t => t.lobe).filter(Boolean))];
 

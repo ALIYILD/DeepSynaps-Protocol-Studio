@@ -121,7 +121,7 @@ def post_biometrics_sync(
 
 @router.get("/summary")
 def get_biometrics_summary(
-    days: int = Query(default=30, ge=1, le=365),
+    days: int = Query(default=30, ge=1, le=400),
     patient_id: Optional[str] = Query(default=None),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
@@ -135,7 +135,7 @@ def get_biometrics_summary(
 
 @router.get("/features")
 def get_biometrics_features(
-    days: int = Query(default=30, ge=7, le=365),
+    days: int = Query(default=30, ge=7, le=400),
     patient_id: Optional[str] = Query(default=None),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
@@ -151,7 +151,7 @@ def get_biometrics_features(
 
 @router.get("/correlations")
 def get_biometrics_correlations(
-    days: int = Query(default=30, ge=7, le=365),
+    days: int = Query(default=30, ge=7, le=400),
     patient_id: Optional[str] = Query(default=None),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
@@ -165,7 +165,7 @@ def get_biometrics_correlations(
 @router.get("/baseline", response_model=Union[PersonalBaselineProfile, dict[str, str]])
 def get_biometrics_baseline(
     feature: str = Query(..., min_length=1, description="Column e.g. hrv_ms, sleep_duration_h"),
-    days: int = Query(default=30, ge=7, le=365),
+    days: int = Query(default=30, ge=7, le=400),
     patient_id: Optional[str] = Query(default=None),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
@@ -178,7 +178,7 @@ def get_biometrics_baseline(
 
 @router.get("/alerts", response_model=list[PredictiveAlert])
 def get_biometrics_alerts(
-    days: int = Query(default=30, ge=14, le=365),
+    days: int = Query(default=30, ge=14, le=400),
     patient_id: Optional[str] = Query(default=None),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),

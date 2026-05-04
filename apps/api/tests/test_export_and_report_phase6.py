@@ -19,6 +19,7 @@ rather than silently passing.
 """
 from __future__ import annotations
 
+import importlib.util
 import io
 import json
 import uuid
@@ -229,6 +230,8 @@ def test_export_cleaned_edf_round_trip(phase6_fixture, monkeypatch):
     """EDF export reads back via mne.io.read_raw_edf; sample rate matches."""
     mne = pytest.importorskip("mne")
     pytest.importorskip("numpy")
+    if not importlib.util.find_spec("edfio"):
+        pytest.skip("edfio not installed on this host; EDF export path unavailable.")
     from app.services import eeg_export_and_report, eeg_signal_service
 
     aid = phase6_fixture["analysis_id"]
@@ -285,19 +288,10 @@ def test_export_cleaned_edf_round_trip(phase6_fixture, monkeypatch):
 
 
 def _weasyprint_can_render() -> bool:
-    """Probe whether WeasyPrint can actually render a tiny doc on this host.
+    """Probe PDF rendering without risking an in-process native-lib crash."""
+    from app.services import eeg_export_and_report
 
-    On Windows test hosts the wheel imports fine but the Pango/Cairo native
-    libs are missing — even *importing* weasyprint raises OSError. We
-    swallow any exception and treat it as 'unavailable' so the test skips
-    gracefully rather than erroring out.
-    """
-    try:
-        from weasyprint import HTML  # type: ignore[import-not-found]
-        HTML(string="<html><body>x</body></html>").write_pdf()
-        return True
-    except Exception:
-        return False
+    return eeg_export_and_report.weasyprint_render_available()
 
 
 def test_cleaning_report_returns_pdf_with_required_strings(
@@ -385,6 +379,8 @@ def test_export_cleaned_endpoint_streams_edf(
 ):
     pytest.importorskip("mne")
     pytest.importorskip("numpy")
+    if not importlib.util.find_spec("edfio"):
+        pytest.skip("edfio not installed on this host; EDF export path unavailable.")
     aid = phase6_fixture["analysis_id"]
     headers = {"Authorization": f"Bearer {phase6_fixture['token']}"}
 
@@ -408,6 +404,31 @@ def test_export_cleaned_endpoint_streams_edf(
     assert "attachment" in disp.lower()
     assert "cleaned_" in disp
     assert len(r.content) > 100
+
+
+def test_export_cleaned_endpoint_returns_503_when_export_dependency_missing(
+    client: TestClient, phase6_fixture, monkeypatch
+):
+    aid = phase6_fixture["analysis_id"]
+    headers = {"Authorization": f"Bearer {phase6_fixture['token']}"}
+
+    from app.services import eeg_export_and_report
+
+    monkeypatch.setattr(
+        eeg_export_and_report,
+        "export_cleaned_to_path",
+        lambda *a, **k: (_ for _ in ()).throw(
+            eeg_export_and_report.ExportDependencyUnavailable("edfio missing")
+        ),
+    )
+
+    r = client.post(
+        f"/api/v1/qeeg-raw/{aid}/export-cleaned",
+        json={"format": "edf", "interpolate_bad_channels": True},
+        headers=headers,
+    )
+    assert r.status_code == 503, r.text
+    assert "dependency_missing" in r.text
 
 
 def test_export_rejects_unknown_format(client: TestClient, phase6_fixture):
