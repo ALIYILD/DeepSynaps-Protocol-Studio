@@ -5,6 +5,13 @@
 import { api } from './api.js';
 import { tag, spinner, emptyState } from './helpers.js';
 import { currentUser } from './auth.js';
+import {
+  DEMO_CURATED_LISTINGS,
+  MARKETPLACE_GOVERNANCE_NOTICE,
+  MARKETPLACE_MODULE_SHORTCUTS,
+  resolveMarketplaceCatalog,
+  canManageSellerListings,
+} from './marketplace-hub-catalog.js';
 import { renderBrainMap10_20 } from './brain-map-svg.js';
 import {
   buildReportFallbackContent,
@@ -12762,6 +12769,34 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
   const el = document.getElementById('content');
   el.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
 
+  let apiPayload = null;
+  let apiErr = null;
+  try {
+    apiPayload = await api.marketplaceItems();
+  } catch (e) {
+    apiErr = e;
+  }
+
+  const resolved = resolveMarketplaceCatalog(apiPayload, DEMO_CURATED_LISTINGS, apiErr);
+  const LISTINGS = resolved.rows;
+  const catalogMode = resolved.mode;
+  const catalogBanner = resolved.banner;
+  const role = currentUser?.role || 'guest';
+  const canSeller = canManageSellerListings(role);
+  const pkgLabel = currentUser?.package_id ? String(currentUser.package_id) : '—';
+
+  try {
+    const audit = (window.api && window.api.logAudit) || api.logAudit;
+    audit?.({
+      surface: 'marketplace_hub',
+      event: 'marketplace_hub_loaded',
+      catalog_mode: catalogMode,
+      listing_count: LISTINGS.length,
+      role,
+      ts: new Date().toISOString(),
+    });
+  } catch {}
+
   const CATEGORIES = [
     { id: 'all',           label: 'All Listings',     icon: '🛒' },
     { id: 'consultations', label: 'Consultations',    icon: '🩺' },
@@ -12772,45 +12807,23 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
     { id: 'courses',       label: 'Short Courses',    icon: '📚' },
   ];
 
-  const DEMO_LISTINGS = [
-    // ── Consultations ──
-    { id: 'l1',  cat: 'consultations', title: 'Initial TMS Assessment',       clinic: 'Smart TMS',           price: 120,  unit: 'session',  badge: 'Featured', rating: 4.9, reviews: 142, desc: 'Comprehensive first-consultation including QEEG screening and protocol recommendation.', img: '🩺', url: 'https://www.smarttms.co.uk/gps-referrals/' },
-    { id: 'l2',  cat: 'consultations', title: 'Follow-up Protocol Review',    clinic: 'AIM Neuromodulation', price: 75,   unit: 'session',  badge: '',         rating: 4.7, reviews: 89,  desc: 'Review progress, adjust stimulation parameters and outcomes targets mid-course.', img: '🩺', url: 'https://www.aimneuromodulation.com/' },
-    { id: 'l3',  cat: 'consultations', title: 'tDCS Home Setup Consultation', clinic: 'Neuroelectrics',      price: 60,   unit: 'session',  badge: 'New',      rating: 4.5, reviews: 23,  desc: 'Remote session to configure home tDCS device and safety protocols.', img: '🩺', url: 'https://www.neuroelectrics.com/blog/home-based-tdcs-as-a-promising-treatment-for-depression' },
-    // ── Products (real Amazon links) ──
-    { id: 'l4',  cat: 'products',      title: 'Ten20 Conductive EEG Paste 228g', clinic: 'Weaver and Company', price: 12,   unit: 'item',     badge: 'Bestseller', rating: 4.7, reviews: 1250, desc: 'Industry-standard conductive paste for EEG, EMG, and neurofeedback electrode application.', img: '🧴', url: 'https://www.amazon.com/dp/B00GTX2MNE' },
-    { id: 'l5',  cat: 'products',      title: 'Muse 2 Brain Sensing Headband', clinic: 'Interaxon',          price: 199,  unit: 'item',     badge: 'Featured', rating: 4.3, reviews: 3200, desc: 'EEG-powered meditation headband with real-time biofeedback for brain activity, heart rate, breathing, and movement.', img: '🧠', url: 'https://www.amazon.com/dp/B07HL2JQQJ' },
-    { id: 'l6',  cat: 'products',      title: 'Polar H10 Heart Rate Sensor',  clinic: 'Polar',              price: 89,   unit: 'item',     badge: '',         rating: 4.7, reviews: 18500, desc: 'Medical-grade ECG chest strap with dual Bluetooth + ANT+. Gold standard for HRV monitoring in clinical settings.', img: '🫀', url: 'https://www.amazon.com/dp/B07PM54P4N' },
-    { id: 'l17', cat: 'products',      title: 'Oura Ring Gen 4',              clinic: 'Oura Health',         price: 349,  unit: 'item',     badge: 'New',      rating: 4.2, reviews: 5400, desc: 'Titanium smart ring with advanced sleep staging, HRV, blood oxygen, and activity tracking. 7-day battery life.', img: '💍', url: 'https://www.amazon.com/dp/B0DKLHHMZ5' },
-    { id: 'l18', cat: 'products',      title: 'Verilux HappyLight Touch Plus', clinic: 'Verilux',           price: 64,   unit: 'item',     badge: '',         rating: 4.5, reviews: 9800, desc: '10,000 lux UV-free LED light therapy lamp. Adjustable brightness and colour temperature for SAD and circadian therapy.', img: '☀️', url: 'https://www.amazon.com/dp/B07WC7KT4G' },
-    { id: 'l19', cat: 'products',      title: 'Garmin vivosmart 5 Fitness Tracker', clinic: 'Garmin',       price: 149,  unit: 'item',     badge: '',         rating: 4.3, reviews: 7200, desc: 'Fitness tracker with stress tracking, Body Battery energy monitoring, sleep score, and Garmin Connect integration.', img: '⌚', url: 'https://www.amazon.com/dp/B09W1TVFS7' },
-    { id: 'l20', cat: 'products',      title: 'LectroFan Evo White Noise Machine', clinic: 'Adaptive Sound', price: 49,  unit: 'item',     badge: '',         rating: 4.6, reviews: 11400, desc: 'High-fidelity white noise, fan, and ocean sounds with precise volume control. 22 non-looping sounds for sleep and focus.', img: '🔊', url: 'https://www.amazon.com/dp/B07XXR2NVB' },
-    // ── Software ──
-    { id: 'l7',  cat: 'software',      title: 'NeuroGuide QEEG Software',     clinic: 'Applied Neuroscience', price: 49,   unit: 'month',    badge: 'Featured', rating: 4.9, reviews: 204, desc: 'Industry-standard QEEG analysis, database comparison, and clinical report generation platform with normative databases.', img: '💻', url: 'https://www.appliedneuroscience.com/product/neuroguide/' },
-    { id: 'l8',  cat: 'software',      title: 'qEEG-Pro Report Generator',    clinic: 'qEEG-Pro',            price: 29,   unit: 'month',    badge: '',         rating: 4.5, reviews: 78,  desc: 'Automated clinical QEEG report generation with z-score analysis, ERP processing, and protocol recommendations.', img: '📊', url: 'https://qeeg.pro/' },
-    { id: 'l9',  cat: 'software',      title: 'BrainMaster Discovery 24E',    clinic: 'BrainMaster',         price: 0,    unit: 'free',     badge: 'Free',     rating: 4.2, reviews: 331, desc: 'Neurofeedback software suite with real-time EEG acquisition, biofeedback, and patient engagement tracking.', img: '📱', url: 'https://brainmaster.com/our-software/' },
-    // ── Seminars ──
-    { id: 'l10', cat: 'seminars',      title: 'rTMS in Treatment-Resistant Depression', clinic: 'Clinical TMS Society', price: 95, unit: 'seat', badge: 'Live', rating: 4.9, reviews: 67, desc: 'Half-day CPD seminar covering evidence, protocols, and real-world outcomes.', img: '🎤', url: 'https://www.clinicaltmssociety.org/education' },
-    { id: 'l11', cat: 'seminars',      title: 'Neuromodulation for Chronic Pain', clinic: 'INS',            price: 85,   unit: 'seat',     badge: '',         rating: 4.7, reviews: 41,  desc: 'Evidence-based webinar on SCS, TENS, and tDCS for pain management by the International Neuromodulation Society.', img: '🎤', url: 'https://www.neuromodulation.com/webinars' },
-    // ── Workshops ──
-    { id: 'l12', cat: 'workshops',     title: 'Hands-On TMS Coil Placement',  clinic: 'Clinical TMS Society', price: 195, unit: 'seat',     badge: '', rating: 5.0, reviews: 29,  desc: 'Practical workshop: figure-8 placement, motor threshold mapping, safety protocols.', img: '🔧', url: 'https://www.clinicaltmssociety.org/courses' },
-    { id: 'l13', cat: 'workshops',     title: 'QEEG Interpretation Workshop', clinic: 'Neurocare Academy',  price: 225,  unit: 'seat',     badge: 'New',      rating: 4.8, reviews: 15,  desc: 'Full-day workshop analysing real patient EEG traces and building personalised protocol maps.', img: '🔧', url: 'https://www.neurocaregroup.com/academy.html' },
-    // ── Short Courses (real platform links) ──
-    { id: 'l14', cat: 'courses',       title: 'Medical Neuroscience — Duke University', clinic: 'Coursera', price: 0,   unit: 'free audit', badge: 'Featured', rating: 4.9, reviews: 4200, desc: 'Comprehensive neuroanatomy and neurophysiology. ~14 weeks. Free audit or paid certificate.', img: '📚', url: 'https://www.coursera.org/learn/medical-neuroscience' },
-    { id: 'l15', cat: 'courses',       title: 'Fundamentals of Neuroscience — HarvardX', clinic: 'edX',    price: 0,   unit: 'free audit', badge: '',         rating: 4.8, reviews: 2800, desc: 'Three-part Harvard Medical School series covering cellular, systems, and clinical neuroscience.', img: '📚', url: 'https://www.edx.org/xseries/harvardx-fundamentals-of-neuroscience' },
-    { id: 'l16', cat: 'courses',       title: 'Computational Neuroscience — University of Washington', clinic: 'Coursera', price: 0, unit: 'free audit', badge: '',  rating: 4.7, reviews: 1600, desc: 'Neural coding, modelling, and closed-loop stimulation design primer. ~9 weeks.', img: '📚', url: 'https://www.coursera.org/learn/computational-neuroscience' },
-    { id: 'l21', cat: 'courses',       title: 'The Brain and Space — Duke University', clinic: 'Coursera',  price: 0,   unit: 'free audit', badge: 'New', rating: 4.7, reviews: 900, desc: 'How the brain creates our sense of spatial awareness. Covers spatial perception, sensory systems, brain mapping.', img: '📚', url: 'https://www.coursera.org/learn/the-brain-and-space' },
-    { id: 'l22', cat: 'courses',       title: 'Introduction to Psychology — Yale University', clinic: 'Coursera', price: 0, unit: 'free audit', badge: '', rating: 4.9, reviews: 12500, desc: 'Paul Bloom\'s famous course covering brain structure, neural development, perception, learning, memory, and more.', img: '📚', url: 'https://www.coursera.org/learn/introduction-psychology' },
-    { id: 'l23', cat: 'courses',       title: 'Neuroscience and Neuroimaging — Johns Hopkins', clinic: 'Coursera', price: 0, unit: 'free audit', badge: '', rating: 4.6, reviews: 1100, desc: 'Neurohacking in R — neuroimaging analysis including preprocessing, structural and functional MRI.', img: '📚', url: 'https://www.coursera.org/learn/neurohacking' },
-    { id: 'l24', cat: 'courses',       title: 'Understanding the Brain — University of Chicago', clinic: 'Coursera', price: 0, unit: 'free audit', badge: '', rating: 4.8, reviews: 3500, desc: 'Neurobiology of everyday life — how the brain generates behaviour and how it is affected by disease.', img: '📚', url: 'https://www.coursera.org/learn/neurobiology' },
-    { id: 'l25', cat: 'courses',       title: 'Biohacking Your Brain\'s Health — Udemy', clinic: 'Udemy',    price: 19,  unit: 'course',     badge: '',  rating: 4.5, reviews: 5200, desc: 'Practical strategies for optimising brain health through sleep, nutrition, exercise, and neurofeedback techniques.', img: '📚', url: 'https://www.udemy.com/topic/neuroscience/' },
-  ];
-
-  const BADGE_COLORS = { Featured: '#5dd9c4', New: '#6366f1', Bestseller: '#f59e0b', Sale: '#ef4444', Live: '#10b981', Free: '#8b5cf6', 'Sold Out': '#6b7280', '': 'transparent' };
+  const BADGE_COLORS = {
+    Featured: '#5dd9c4', New: '#6366f1', Bestseller: '#f59e0b', Sale: '#ef4444', Live: '#10b981', Free: '#8b5cf6',
+    'Sold Out': '#6b7280', 'Coming soon': '#818cf8', Unavailable: '#6b7280', '': 'transparent',
+  };
 
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
+  function listingStatusChip(l) {
+    const k = l.listingKind || 'demo_curated';
+    if (k === 'catalog_active') return '<span class="mp-status-chip mp-status-chip--live">Catalog</span>';
+    if (k === 'coming_soon') return '<span class="mp-status-chip mp-status-chip--soon" data-test="mp-status-coming-soon">Coming soon</span>';
+    if (k === 'unavailable') return '<span class="mp-status-chip mp-status-chip--off" data-test="mp-status-unavailable">Unavailable</span>';
+    return '<span class="mp-status-chip mp-status-chip--demo" data-test="mp-status-demo">Demo</span>';
+  }
+
   function renderStars(r) {
+    if (r == null || Number.isNaN(Number(r))) return '';
     const full = Math.floor(r); const half = r % 1 >= 0.5 ? 1 : 0;
     let s = '';
     for (let i = 0; i < full; i++) s += '<span class="mp-star full">&#9733;</span>';
@@ -12819,33 +12832,66 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
     return s;
   }
 
-  function renderCard(l) {
+  function formatPriceStr(l) {
     const isFreeAudit = l.unit === 'free audit' || l.unit === 'free';
-    const priceStr = isFreeAudit ? 'Free' : l.unit === 'month' ? '&#163;' + l.price + '<span class="mp-card-unit">/mo</span>' : '&#163;' + l.price + '<span class="mp-card-unit">/' + l.unit + '</span>';
+    if (l.priceCurrency && l.price != null) {
+      const sym = l.priceCurrency === 'GBP' ? '\u00A3' : l.priceCurrency === 'EUR' ? '\u20AC' : '$';
+      return sym + l.price + (l.unit && !isCurrencyUnit(l.unit) ? '<span class="mp-card-unit"> / ' + esc(l.unit) + '</span>' : '');
+    }
+    if (isFreeAudit) return 'Free';
+    if (l.price == null) return '\u2014';
+    if (l.unit === 'month') return '\u00A3' + l.price + '<span class="mp-card-unit">/mo</span>';
+    return '\u00A3' + l.price + '<span class="mp-card-unit">/' + esc(String(l.unit || 'unit')) + '</span>';
+  }
+
+  function isCurrencyUnit(u) {
+    const x = String(u || '').toUpperCase();
+    return x === 'GBP' || x === 'USD' || x === 'EUR';
+  }
+
+  function renderCard(l) {
+    const priceStr = formatPriceStr(l);
     const badgeBg = BADGE_COLORS[l.badge] || 'transparent';
     const soldOut = l.badge === 'Sold Out';
     const catLabel = (CATEGORIES.find(c => c.id === l.cat) || {}).label || l.cat;
-    const hasUrl = l.url && l.url.length > 0;
+    const hasUrl = l.url && String(l.url).length > 0;
     const isAmazon = hasUrl && l.url.includes('amazon');
     const isCoursePlatform = hasUrl && (l.url.includes('coursera') || l.url.includes('edx') || l.url.includes('udemy') || l.url.includes('futurelearn'));
-    const amazonBadge = isAmazon ? '<span style="display:inline-block;background:rgba(255,153,0,0.15);color:#f59e0b;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;margin-left:6px">Amazon</span>' : '';
-    const platformBadge = isCoursePlatform ? '<span style="display:inline-block;background:rgba(99,102,241,0.15);color:#818cf8;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;margin-left:6px">' + esc(l.clinic) + '</span>' : '';
-    let ctaLabel = soldOut ? 'Sold Out' : l.unit === 'month' ? 'Subscribe' : (l.unit === 'course' || l.unit === 'free audit') ? 'Enroll' : isFreeAudit ? 'Get Free' : 'Book';
-    if (isAmazon) ctaLabel = 'Buy on Amazon';
-    if (isCoursePlatform) ctaLabel = 'View Course';
-    return '<div class="mp-card" data-id="' + esc(l.id) + '">' +
+    const amazonBadge = isAmazon ? '<span class="mp-amazon-inline">Amazon</span>' : '';
+    const platformBadge = isCoursePlatform ? '<span class="mp-platform-inline">' + esc(l.clinic) + '</span>' : '';
+    const kind = l.listingKind || 'demo_curated';
+    const starsHtml = (l.rating != null)
+      ? '<div class="mp-card-meta"><div class="mp-card-stars">' + renderStars(l.rating) + '<span class="mp-card-rating">' + l.rating + '</span><span class="mp-card-reviews">(' + (l.reviews != null ? l.reviews : '\u2014') + ')</span></div></div>'
+      : '<div class="mp-card-meta mp-card-meta--muted"><span class="mp-no-rating">Illustrative ratings hidden for catalog items</span></div>';
+    let ctaDisabled = soldOut || kind === 'coming_soon' || kind === 'unavailable' || (kind === 'catalog_active' && !hasUrl);
+    let ctaLabel = soldOut ? 'Unavailable' : kind === 'coming_soon' ? 'Not available yet' : kind === 'unavailable' ? 'No vendor link' : (!hasUrl && kind === 'catalog_active') ? 'No external link' : '';
+    if (!ctaLabel) {
+      const isFreeAudit = l.unit === 'free audit' || l.unit === 'free';
+      ctaLabel = l.unit === 'month' ? 'Vendor pricing' : (l.unit === 'course' || l.unit === 'free audit') ? 'Enroll' : isFreeAudit ? 'Get Free' : 'Open link';
+      if (isAmazon) ctaLabel = 'Vendor (Amazon)';
+      if (isCoursePlatform) ctaLabel = 'Open course';
+      if (kind === 'demo_curated' && !isAmazon && !isCoursePlatform) ctaLabel = 'Open link (demo)';
+      if (kind === 'catalog_active') ctaLabel = hasUrl ? 'Open vendor link' : ctaLabel;
+    }
+    const regNote = l.regulatoryNote ? '<div class="mp-reg-note">' + esc(l.regulatoryNote) + '</div>' : '';
+    const apiMeta = (kind === 'catalog_active' && l.apiKind)
+      ? '<div class="mp-api-meta">' + esc(l.apiKind) + (l.source ? ' · ' + esc(l.source) : '') + '</div>'
+      : '';
+    return '<div class="mp-card" data-id="' + esc(l.id) + '" data-listing-kind="' + esc(kind) + '">' +
       '<div class="mp-card-img">' + esc(l.img) + '</div>' +
       (l.badge ? '<span class="mp-card-badge" style="background:' + badgeBg + '">' + esc(l.badge) + '</span>' : '') +
       '<div class="mp-card-body">' +
-        '<div class="mp-card-cat">' + esc(catLabel) + amazonBadge + platformBadge + '</div>' +
+        '<div class="mp-card-cat">' + listingStatusChip(l) + ' ' + esc(catLabel) + amazonBadge + platformBadge + '</div>' +
         '<div class="mp-card-title">' + esc(l.title) + '</div>' +
         '<div class="mp-card-clinic">by ' + esc(l.clinic) + '</div>' +
+        apiMeta +
         '<div class="mp-card-desc">' + esc(l.desc) + '</div>' +
-        '<div class="mp-card-meta"><div class="mp-card-stars">' + renderStars(l.rating) + '<span class="mp-card-rating">' + l.rating + '</span><span class="mp-card-reviews">(' + l.reviews + ')</span></div></div>' +
+        regNote +
+        starsHtml +
       '</div>' +
       '<div class="mp-card-footer">' +
         '<div class="mp-card-price">' + priceStr + '</div>' +
-        '<button class="mp-card-cta' + (soldOut ? ' mp-card-cta--disabled' : '') + (isAmazon ? ' mp-card-cta--amazon' : '') + '" ' + (soldOut ? 'disabled' : '') + ' onclick="window._mpBook(\'' + esc(l.id) + '\')">' + ctaLabel + '</button>' +
+        '<button type="button" class="mp-card-cta' + (ctaDisabled ? ' mp-card-cta--disabled' : '') + (isAmazon ? ' mp-card-cta--amazon' : '') + '" ' + (ctaDisabled ? 'disabled title="' + esc(ctaLabel) + '"' : '') + (!ctaDisabled ? ' onclick="window._mpBook(\'' + esc(l.id) + '\')"' : '') + ' data-test="mp-card-cta">' + esc(ctaLabel) + '</button>' +
       '</div>' +
     '</div>';
   }
@@ -12856,43 +12902,121 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
   }
 
   function buildPage(cat, q) {
-    let list = DEMO_LISTINGS;
+    let list = LISTINGS;
     if (cat !== 'all') list = list.filter(l => l.cat === cat);
-    if (q) { const lq = q.toLowerCase(); list = list.filter(l => l.title.toLowerCase().includes(lq) || l.clinic.toLowerCase().includes(lq) || l.desc.toLowerCase().includes(lq)); }
-    const catTabs = CATEGORIES.map(c => '<button class="mp-cat-tab' + (c.id === cat ? ' active' : '') + '" onclick="window._mpCat(\'' + c.id + '\')">' + c.icon + ' ' + esc(c.label) + '</button>').join('');
-    const featuredList = DEMO_LISTINGS.filter(l => l.badge === 'Featured');
-    const heroSection = '<div class="mp-hero"><div class="mp-hero-text"><h1 class="mp-hero-title">Clinic Marketplace</h1><p class="mp-hero-sub">Discover consultations, products, software, courses and events from leading neuromodulation clinics.</p><div class="mp-search-wrap"><svg class="mp-search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg><input class="mp-search" id="mp-search-input" placeholder="Search listings, clinics, topics..." value="' + esc(q) + '" oninput="window._mpSearch(this.value)"/></div></div><div class="mp-hero-stats"><div class="mp-stat"><span class="mp-stat-num">' + DEMO_LISTINGS.length + '</span><span class="mp-stat-label">Listings</span></div><div class="mp-stat"><span class="mp-stat-num">12</span><span class="mp-stat-label">Clinics</span></div><div class="mp-stat"><span class="mp-stat-num">4.7&#9733;</span><span class="mp-stat-label">Avg Rating</span></div></div></div>';
-    const featuredSection = cat === 'all' && !q ? '<div class="mp-section"><div class="mp-section-header"><h2 class="mp-section-title">Featured</h2><a class="mp-section-link" onclick="window._mpCat(\'all\')">View all</a></div><div class="mp-grid mp-grid--featured">' + featuredList.map(renderCard).join('') + '</div></div>' : '';
-    const listSection = '<div class="mp-section"><div class="mp-section-header"><h2 class="mp-section-title">' + (cat === 'all' && !q ? 'All Listings' : (CATEGORIES.find(c => c.id === cat) || {}).label || 'Results') + '</h2><span class="mp-count">' + list.length + ' listing' + (list.length !== 1 ? 's' : '') + '</span></div>' + renderGrid(list) + '</div>';
-    const ctaSection = '<div class="mp-section mp-section--cta"><div class="mp-cta-card"><div class="mp-cta-icon">&#127978;</div><div class="mp-cta-body"><h3>Sell your products &amp; services</h3><p>List consultations, devices, software and products directly on the marketplace. Reach thousands of clinicians and patients in minutes.</p></div><div class="mp-cta-btns"><button class="btn btn-primary mp-cta-btn" onclick="window._mpListNew()">+ List a Product or Service</button><button class="btn mp-cta-btn mp-cta-btn--secondary" onclick="window._mpMyListings()">My Listings</button></div></div></div>';
-    return '<div class="mp-shell">' + heroSection + '<div class="mp-cat-bar">' + catTabs + '</div><div class="mp-body">' + featuredSection + listSection + ctaSection + '</div></div>';
+    if (q) {
+      const lq = q.toLowerCase();
+      list = list.filter(l =>
+        l.title.toLowerCase().includes(lq) || l.clinic.toLowerCase().includes(lq) || l.desc.toLowerCase().includes(lq));
+    }
+    const catTabs = CATEGORIES.map(c => '<button type="button" class="mp-cat-tab' + (c.id === cat ? ' active' : '') + '" onclick="window._mpCat(\'' + c.id + '\')">' + c.icon + ' ' + esc(c.label) + '</button>').join('');
+    const featuredList = LISTINGS.filter(l => l.badge === 'Featured');
+    const govBlock =
+      '<section class="mp-governance-banner" data-test="mp-governance-copy">' +
+        '<p class="mp-governance-title">Clinical governance</p>' +
+        '<p class="mp-governance-body">' + esc(MARKETPLACE_GOVERNANCE_NOTICE) + '</p>' +
+      '</section>';
+    const moduleShortcuts = '<section class="mp-modules-strip"><div class="mp-modules-strip-inner">' +
+      MARKETPLACE_MODULE_SHORTCUTS.map(m =>
+        '<button type="button" class="mp-mod-shortcut" data-test="mp-mod-' + esc(m.id) + '" onclick="window._nav(\'' + esc(m.route) + '\')" title="' + esc(m.hint) + '">' +
+          '<span class="mp-mod-shortcut-label">' + esc(m.label) + '</span>' +
+        '</button>'
+      ).join('') +
+      '</div><p class="mp-modules-footnote">Shortcuts open Studio modules only — they do not enable catalog purchases or change device connections.</p></section>';
+    const bannerHtml = catalogBanner
+      ? '<div class="mp-catalog-banner mp-catalog-banner--' + esc(catalogBanner.tone) + '" data-test="mp-catalog-banner" role="status">' + esc(catalogBanner.text) + '</div>'
+      : '';
+    const billingStrip =
+      '<div class="mp-billing-strip" data-test="mp-plan-strip">' +
+        '<span><strong>Plan</strong> ' + esc(pkgLabel) + '</span>' +
+        '<span class="mp-billing-muted">In-app purchases and Stripe checkout for agents live under AI Agents / Billing — not on this discovery page.</span>' +
+      '</div>';
+    const heroSection =
+      '<div class="mp-hero">' +
+        '<div class="mp-hero-text">' +
+          '<h1 class="mp-hero-title">Clinic marketplace</h1>' +
+          '<p class="mp-hero-sub">Discover external vendors, education, and references. This page does not activate clinical modules, approve treatment, or complete checkout.</p>' +
+          '<div class="mp-search-wrap">' +
+            '<svg class="mp-search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>' +
+            '<input class="mp-search" id="mp-search-input" placeholder="Search listings, clinics, topics..." value="' + esc(q) + '" oninput="window._mpSearch(this.value)" />' +
+          '</div>' +
+        '</div>' +
+        '<div class="mp-hero-stats">' +
+          '<div class="mp-stat"><span class="mp-stat-num">' + LISTINGS.length + '</span><span class="mp-stat-label">Rows</span></div>' +
+          '<div class="mp-stat"><span class="mp-stat-num">' + esc(catalogMode.replace(/_/g, ' ')) + '</span><span class="mp-stat-label">Catalog source</span></div>' +
+          '<div class="mp-stat"><span class="mp-stat-num">' + esc(role) + '</span><span class="mp-stat-label">Role</span></div>' +
+        '</div>' +
+      '</div>';
+    const featuredSection = cat === 'all' && !q && featuredList.length
+      ? '<div class="mp-section"><div class="mp-section-header"><h2 class="mp-section-title">Featured</h2><button type="button" class="mp-section-link" onclick="window._mpCat(\'all\')">View all</button></div><div class="mp-grid mp-grid--featured">' + featuredList.map(renderCard).join('') + '</div></div>'
+      : '';
+    const listSection =
+      '<div class="mp-section">' +
+        '<div class="mp-section-header">' +
+          '<h2 class="mp-section-title">' + (cat === 'all' && !q ? 'All listings' : (CATEGORIES.find(c => c.id === cat) || {}).label || 'Results') + '</h2>' +
+          '<span class="mp-count">' + list.length + ' listing' + (list.length !== 1 ? 's' : '') + '</span>' +
+        '</div>' +
+        renderGrid(list) +
+      '</div>';
+    const sellerDisabledNote = canSeller ? '' : '<p class="mp-seller-gate-note">Listing management requires a clinician (or admin) account. Guest and technician roles can browse only.</p>';
+    const sellerButtons = canSeller
+      ? '<div class="mp-cta-btns"><button type="button" class="btn btn-primary mp-cta-btn" data-test="mp-seller-new" onclick="window._mpListNew()">Request / manage listings</button><button type="button" class="btn mp-cta-btn mp-cta-btn--secondary" data-test="mp-seller-my" onclick="window._mpMyListings()">My listings</button></div>'
+      : '<div class="mp-cta-btns"><button type="button" class="btn mp-cta-btn mp-cta-btn--disabled" disabled title="Clinician or admin role required">Request / manage listings</button><button type="button" class="btn mp-cta-btn mp-cta-btn--disabled" disabled title="Clinician or admin role required">My listings</button></div>';
+    const ctaSection =
+      '<div class="mp-section mp-section--cta">' +
+        '<div class="mp-cta-card">' +
+          '<div class="mp-cta-icon">&#127978;</div>' +
+          '<div class="mp-cta-body">' +
+            '<h3>Clinic catalogue listings</h3>' +
+            '<p>Seller endpoints persist listings server-side (subject to role checks). This is not an app-store purchase flow.</p>' +
+            sellerDisabledNote +
+          '</div>' +
+          sellerButtons +
+        '</div>' +
+      '</div>';
+    return '<div class="mp-shell" data-catalog-mode="' + esc(catalogMode) + '" data-test="mp-shell">' +
+      govBlock + bannerHtml + billingStrip + moduleShortcuts + heroSection +
+      '<div class="mp-cat-bar">' + catTabs + '</div>' +
+      '<div class="mp-body">' + featuredSection + listSection + ctaSection + '</div>' +
+    '</div>';
   }
 
-  let _activeCat = 'all', _searchQ = '';
+  let _activeCat = 'all'; let _searchQ = '';
 
   window._mpCat = (cat) => { _activeCat = cat; el.innerHTML = buildPage(_activeCat, _searchQ); };
   window._mpSearch = (q) => {
     _searchQ = q;
-    let list = DEMO_LISTINGS;
+    let list = LISTINGS;
     if (_activeCat !== 'all') list = list.filter(l => l.cat === _activeCat);
-    if (q) { const lq = q.toLowerCase(); list = list.filter(l => l.title.toLowerCase().includes(lq) || l.clinic.toLowerCase().includes(lq) || l.desc.toLowerCase().includes(lq)); }
-    const section = el.querySelector('.mp-section:last-of-type:not(.mp-section--cta), .mp-section + .mp-section:not(.mp-section--cta)');
+    if (q) {
+      const lq = q.toLowerCase();
+      list = list.filter(l =>
+        l.title.toLowerCase().includes(lq) || l.clinic.toLowerCase().includes(lq) || l.desc.toLowerCase().includes(lq));
+    }
     const countEl = el.querySelector('.mp-count');
     if (countEl) countEl.textContent = list.length + ' listing' + (list.length !== 1 ? 's' : '');
     const gridEl = el.querySelector('.mp-section:not(.mp-section--cta):last-of-type .mp-grid, .mp-section:not(.mp-section--cta):last-of-type .mp-empty');
     if (gridEl) gridEl.outerHTML = renderGrid(list);
   };
   window._mpBook = (id) => {
-    const l = DEMO_LISTINGS.find(x => x.id === id);
+    const l = LISTINGS.find(x => x.id === id);
     if (!l) return;
-    if (l.url && l.url.length > 0) {
+    const kind = l.listingKind || 'demo_curated';
+    if (kind === 'coming_soon' || kind === 'unavailable') {
+      window._showToast?.('This row is not actionable yet.', 'info');
+      return;
+    }
+    if (l.url && String(l.url).length > 0) {
       window.open(l.url, '_blank', 'noopener,noreferrer');
       return;
     }
-    const verb = l.unit === 'month' ? 'Subscribe to' : l.unit === 'course' ? 'Enroll in' : l.unit === 'free' ? 'Get' : 'Book';
-    window._showToast?.(verb + ': "' + l.title + '" - Provider: ' + l.clinic + ' Price: ' + (l.unit === 'free' ? 'Free' : '\u00A3' + l.price + '/' + l.unit) + '. Please contact the provider directly to proceed.', 'info');
+    window._showToast?.('No vendor URL on file — contact the provider outside this app.', 'info');
   };
   window._mpListNew = (editItem) => {
+    if (!canSeller) {
+      window._showToast?.('Listing management requires a clinician or admin account.', 'error');
+      return;
+    }
     const existing = document.getElementById('mp-list-modal');
     if (existing) { existing.remove(); return; }
     const isEdit = !!editItem;
@@ -12977,6 +13101,10 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
 
   // ── My Listings dashboard ──
   window._mpMyListings = async () => {
+    if (!canSeller) {
+      window._showToast?.('Listing management requires a clinician or admin account.', 'error');
+      return;
+    }
     const existing = document.getElementById('mp-list-modal');
     if (existing) { existing.remove(); }
     const modal = document.createElement('div');

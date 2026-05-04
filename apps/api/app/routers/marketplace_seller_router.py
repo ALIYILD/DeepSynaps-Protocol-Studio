@@ -290,6 +290,7 @@ def delete_listing(
     db: Session = Depends(get_db_session),
 ) -> None:
     """Soft-delete a listing by setting active=False."""
+    require_minimum_role(actor, "clinician")
     user = _require_user(actor, db)
     item = db.query(MarketplaceItem).filter(
         MarketplaceItem.id == item_id,
