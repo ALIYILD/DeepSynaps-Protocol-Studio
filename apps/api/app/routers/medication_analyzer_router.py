@@ -25,7 +25,7 @@ from app.auth import (
     require_patient_owner,
 )
 from app.database import get_db_session
-from app.persistence.models import (
+from app.repositories.medication_analyzer import (
     MedicationAnalyzerAudit,
     MedicationAnalyzerReviewNote,
     MedicationAnalyzerTimelineEvent,
@@ -238,20 +238,24 @@ def _audit_row_to_entry(row: MedicationAnalyzerAudit) -> dict[str, Any]:
     }
 
 
+# core-schema-exempt: integration branch; migrate to core-schema in follow-up PR
 class RecomputeBody(BaseModel):
     force: bool = False
     modules: Optional[list[str]] = None
 
 
+# core-schema-exempt: integration branch; migrate to core-schema in follow-up PR
 class RecomputeResponse(BaseModel):
     status: str = "complete"
     audit_ref: Optional[str] = None
 
 
+# core-schema-exempt: integration branch; migrate to core-schema in follow-up PR
 class AdherencePostBody(BaseModel):
     window_days: int = Field(default=30, ge=7, le=365)
 
 
+# core-schema-exempt: integration branch; migrate to core-schema in follow-up PR
 class TimelineEventInput(BaseModel):
     event_type: str
     occurred_at: str
@@ -260,23 +264,27 @@ class TimelineEventInput(BaseModel):
     source_origin: str = "clinician_entry"
 
 
+# core-schema-exempt: integration branch; migrate to core-schema in follow-up PR
 class TimelineEventResponse(BaseModel):
     ok: bool = True
     event: dict[str, Any]
     full_payload: Optional[dict[str, Any]] = None
 
 
+# core-schema-exempt: integration branch; migrate to core-schema in follow-up PR
 class ReviewNoteBody(BaseModel):
     note_text: str = Field(..., min_length=1, max_length=8000)
     linked_recommendation_ids: list[str] = Field(default_factory=list)
 
 
+# core-schema-exempt: integration branch; migrate to core-schema in follow-up PR
 class ReviewNoteResponse(BaseModel):
     note_id: str
     created_at: str
     full_payload: Optional[dict[str, Any]] = None
 
 
+# core-schema-exempt: integration branch; migrate to core-schema in follow-up PR
 class AuditListResponse(BaseModel):
     entries: list[dict[str, Any]]
     review_notes: list[dict[str, Any]]

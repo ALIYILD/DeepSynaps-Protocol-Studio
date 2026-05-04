@@ -89,7 +89,7 @@ export function doLogout() {
   if (pub) { pub.classList.add('visible'); window._navPublic?.('home'); }
   else { showLogin(); }
 }
-window.doLogout = doLogout;
+if (typeof window !== 'undefined') window.doLogout = doLogout;
 
 // ── Session-expired handler ───────────────────────────────────────────────────
 function _showSessionExpiredNotice() {
@@ -105,32 +105,34 @@ function _showSessionExpiredNotice() {
   setTimeout(() => el.remove(), 4000);
 }
 
-window._handleSessionExpired = function() {
-  const intended = new URL(location.href).searchParams.get('page') || 'dashboard';
-  if (intended !== 'login' && intended !== 'home') {
-    sessionStorage.setItem('ds_intended_destination', intended);
-  }
-  api.clearToken();
-  currentUser = null;
-  _showSessionExpiredNotice();
-  setTimeout(() => {
-    window._401InFlight = false;
-    // Close any open shells and return to public landing
-    document.getElementById('sidebar')?.classList.remove('visible');
-    document.getElementById('app-shell')?.classList.remove('visible');
-    document.getElementById('patient-shell')?.classList.remove('visible');
-    document.getElementById('login-overlay')?.classList.remove('visible');
-    window._navPublic?.('home');
-  }, 1500);
-};
+if (typeof window !== 'undefined') {
+  window._handleSessionExpired = function() {
+    const intended = new URL(location.href).searchParams.get('page') || 'dashboard';
+    if (intended !== 'login' && intended !== 'home') {
+      sessionStorage.setItem('ds_intended_destination', intended);
+    }
+    api.clearToken();
+    currentUser = null;
+    _showSessionExpiredNotice();
+    setTimeout(() => {
+      window._401InFlight = false;
+      // Close any open shells and return to public landing
+      document.getElementById('sidebar')?.classList.remove('visible');
+      document.getElementById('app-shell')?.classList.remove('visible');
+      document.getElementById('patient-shell')?.classList.remove('visible');
+      document.getElementById('login-overlay')?.classList.remove('visible');
+      window._navPublic?.('home');
+    }, 1500);
+  };
 
-// ── isAuthenticated (synchronous) ─────────────────────────────────────────────
-window._isAuthenticated = function() {
-  // Allow demo sessions that set currentUser directly only in explicit demo environments.
-  const _demoOk = _demoEnabled();
-  if (_demoOk && currentUser) return true;
-  return !!api.getToken();
-};
+  // ── isAuthenticated (synchronous) ─────────────────────────────────────────────
+  window._isAuthenticated = function() {
+    // Allow demo sessions that set currentUser directly only in explicit demo environments.
+    const _demoOk = _demoEnabled();
+    if (_demoOk && currentUser) return true;
+    return !!api.getToken();
+  };
+}
 
 function renderLoginPage() {
   _injectAuthDv2Styles();
@@ -599,6 +601,7 @@ function _injectAuthDv2Styles() {
   document.head.appendChild(s);
 }
 
+if (typeof window !== 'undefined') {
 window._dv2PickRole = function(role, btn) {
   document.querySelectorAll('.dv2-auth-role').forEach(b => b.classList.toggle('active', b === btn));
   if (role === 'patient') {
@@ -807,3 +810,4 @@ window.submitRegister = async function() {
     if (btn) { btn.textContent = origLabel; btn.disabled = false; }
   }
 };
+}

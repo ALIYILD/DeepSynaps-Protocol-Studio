@@ -4,10 +4,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import path from 'node:url';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 function src() {
-  const here = path.dirname(url.fileURLToPath(import.meta.url));
+  const here = path.dirname(fileURLToPath(import.meta.url));
   return fs.readFileSync(path.join(here, 'pages-monitor.js'), 'utf8');
 }
 

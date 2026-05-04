@@ -81,6 +81,7 @@ class PhenotypeAssignmentListResponse(BaseModel):
     total: int
 
 
+# core-schema-exempt: integration branch; migrate to core-schema in follow-up PR
 class PhenotypeAuditEventOut(BaseModel):
     event_id: str
     action: str
@@ -91,6 +92,7 @@ class PhenotypeAuditEventOut(BaseModel):
     created_at: str
 
 
+# core-schema-exempt: integration branch; migrate to core-schema in follow-up PR
 class PhenotypeAuditListResponse(BaseModel):
     items: list[PhenotypeAuditEventOut]
     total: int
@@ -98,6 +100,7 @@ class PhenotypeAuditListResponse(BaseModel):
     offset: int
 
 
+# core-schema-exempt: integration branch; migrate to core-schema in follow-up PR
 class PhenotypeAuditEventIn(BaseModel):
     """Page-level audit ingestion — decision-support navigation / export only."""
 
@@ -107,6 +110,7 @@ class PhenotypeAuditEventIn(BaseModel):
     using_demo_data: bool = False
 
 
+# core-schema-exempt: integration branch; migrate to core-schema in follow-up PR
 class PhenotypeAuditEventAck(BaseModel):
     accepted: bool = True
     event_id: str

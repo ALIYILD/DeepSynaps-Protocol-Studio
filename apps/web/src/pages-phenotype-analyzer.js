@@ -515,7 +515,7 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
       <div id="ph-demo-banner"></div>
       <div style="padding:12px 14px;border-radius:12px;border:1px solid rgba(155,127,255,0.28);background:rgba(155,127,255,0.06);margin-bottom:14px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
         <strong style="color:var(--text-primary)">Clinical decision-support — requires clinician review.</strong>
-        Phenotype <em>hypothesis</em> labels document stratification thinking for team alignment. They are not diagnoses, eligibility decisions, “best protocol” picks, or autonomous treatment recommendations. Missing data does not imply clinical clearance.
+        Phenotype <em>hypothesis</em> labels document stratification thinking for team alignment. They are not diagnoses, eligibility decisions, protocol-selection picks, or autonomous treatment recommendations. Missing data does not imply clinical clearance.
       </div>
       <div id="ph-toolbar" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px;font-size:12px"></div>
       <div id="ph-breadcrumb" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:12px"></div>

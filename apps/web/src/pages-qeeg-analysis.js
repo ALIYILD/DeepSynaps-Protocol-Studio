@@ -4011,20 +4011,29 @@ async function _exportQEEGArtifact(kind) {
   }
 }
 
-window._qeegExportFHIRBundle = function () { return _exportQEEGArtifact('fhir'); };
-window._qeegExportBIDSPackage = function () { return _exportQEEGArtifact('bids'); };
-window._exportCurrentFHIRBundle = function () {
-  if (window.location.hash && window.location.hash.indexOf('mri-analysis') !== -1 && typeof window._mriExportFHIRBundle === 'function') {
-    return window._mriExportFHIRBundle();
-  }
-  return window._qeegExportFHIRBundle();
-};
-window._exportCurrentBIDSPackage = function () {
-  if (window.location.hash && window.location.hash.indexOf('mri-analysis') !== -1 && typeof window._mriExportBIDSPackage === 'function') {
-    return window._mriExportBIDSPackage();
-  }
-  return window._qeegExportBIDSPackage();
-};
+
+if (typeof window !== 'undefined') {
+  window._qeegExportFHIRBundle = function () { return _exportQEEGArtifact('fhir'); };
+}
+if (typeof window !== 'undefined') {
+  window._qeegExportBIDSPackage = function () { return _exportQEEGArtifact('bids'); };
+}
+if (typeof window !== 'undefined') {
+  window._exportCurrentFHIRBundle = function () {
+    if (window.location.hash && window.location.hash.indexOf('mri-analysis') !== -1 && typeof window._mriExportFHIRBundle === 'function') {
+      return window._mriExportFHIRBundle();
+    }
+    return window._qeegExportFHIRBundle();
+  };
+}
+if (typeof window !== 'undefined') {
+  window._exportCurrentBIDSPackage = function () {
+    if (window.location.hash && window.location.hash.indexOf('mri-analysis') !== -1 && typeof window._mriExportBIDSPackage === 'function') {
+      return window._mriExportBIDSPackage();
+    }
+    return window._qeegExportBIDSPackage();
+  };
+}
 let _fusionSummary = null;
 let _collapsedSections = (function () {
   const fallback = { medications: true, neurological: true, lifestyle: true };
@@ -6313,150 +6322,158 @@ function _downloadCSV(csv, filename) {
   URL.revokeObjectURL(url);
 }
 
-window._qeegExportBandPowerCSV = function () {
-  if (!_currentAnalysis) return showToast('No analysis data loaded', 'warning');
-  var bp = _currentAnalysis.band_powers || {};
-  var bands = bp.bands || {};
-  var bandNames = Object.keys(bands);
-  if (!bandNames.length) return showToast('No band power data', 'warning');
-  var _isDemoExport = !!(window._qeegSelectedId === 'demo' && _isDemoMode());
-  _qeegAudit('export_csv', {
-    analysis_id: _currentAnalysis.id || window._qeegSelectedId || null,
-    note: 'bands=' + bandNames.length + (_isDemoExport ? '; demo' : ''),
-  });
-  var normDev = _currentAnalysis.normative_deviations_json || _currentAnalysis.normative_deviations || null;
-  var chSet = new Set();
-  bandNames.forEach(function (b) { Object.keys(bands[b]?.channels || {}).forEach(function (ch) { chSet.add(ch); }); });
-  var header = 'Channel,' + bandNames.join(',') + ',Total';
-  if (normDev) header += ',' + bandNames.map(function (b) { return b + '_zscore'; }).join(',');
-  var rows = [header];
-  Array.from(chSet).sort().forEach(function (ch) {
-    var vals = bandNames.map(function (b) { var v = bands[b]?.channels?.[ch]?.relative_pct; return v != null ? v.toFixed(1) : ''; });
-    var total = 0;
-    bandNames.forEach(function (b) { var v = bands[b]?.channels?.[ch]?.relative_pct; if (v != null) total += v; });
-    var row = ch + ',' + vals.join(',') + ',' + total.toFixed(1);
-    if (normDev) {
-      var zVals = bandNames.map(function (b) { return normDev[ch] && normDev[ch][b] != null ? normDev[ch][b].toFixed(2) : ''; });
-      row += ',' + zVals.join(',');
-    }
-    rows.push(row);
-  });
-  var _filename = (_isDemoExport ? 'DEMO_' : '') + 'qeeg_band_powers.csv';
-  // Stamp DEMO recordings explicitly inside the file body so downstream
-  // viewers cannot mistake a demo download for clinical data.
-  var _csv = (_isDemoExport ? '# DEMO — not for clinical use\n' : '') + rows.join('\n');
-  _downloadCSV(_csv, _filename);
-  showToast(_isDemoExport ? 'DEMO band power CSV exported' : 'Band power CSV exported', 'success');
-};
-
-window._qeegExportAdvancedCSV = function () {
-  if (!_currentAnalysis || !_currentAnalysis.advanced_analyses) return showToast('No advanced analyses data', 'warning');
-  var adv = _currentAnalysis.advanced_analyses;
-  var rows = ['Analysis,Category,Status,Duration_ms,Summary'];
-  Object.keys(adv.results || {}).forEach(function (slug) {
-    var r = adv.results[slug];
-    rows.push([esc(r.label), esc(r.category), r.status, r.duration_ms || 0, '"' + (r.summary || '').replace(/"/g, '""') + '"'].join(','));
-  });
-  _downloadCSV(rows.join('\n'), 'qeeg_advanced_analyses.csv');
-  showToast('Advanced analyses CSV exported', 'success');
-};
-
-window._qeegExportJSON = function () {
-  if (!_currentAnalysis) return showToast('No analysis data loaded', 'warning');
-  var patientName = _patient ? ((_patient.first_name || '') + ' ' + (_patient.last_name || '')).trim() : '';
-  var _isDemoExport = !!(window._qeegSelectedId === 'demo' && _isDemoMode());
-  var exportData = {
-    metadata: {
-      patient_name: patientName,
-      analysis_date: _currentAnalysis.analyzed_at || new Date().toISOString(),
-      original_filename: _currentAnalysis.original_filename || '',
-      channels_used: _currentAnalysis.channels_used || _currentAnalysis.channel_count || 0,
-      sample_rate_hz: _currentAnalysis.sample_rate_hz || 0,
-      eyes_condition: _currentAnalysis.eyes_condition || '',
-      exported_at: new Date().toISOString(),
-      demo: _isDemoExport,
-      disclaimer: _isDemoExport
-        ? 'DEMO — not for clinical use. Synthetic sample recording.'
-        : 'qEEG findings support clinical decision-making and require clinician review.',
-    },
-    analysis: _currentAnalysis,
+if (typeof window !== 'undefined') {
+  window._qeegExportBandPowerCSV = function () {
+    if (!_currentAnalysis) return showToast('No analysis data loaded', 'warning');
+    var bp = _currentAnalysis.band_powers || {};
+    var bands = bp.bands || {};
+    var bandNames = Object.keys(bands);
+    if (!bandNames.length) return showToast('No band power data', 'warning');
+    var _isDemoExport = !!(window._qeegSelectedId === 'demo' && _isDemoMode());
+    _qeegAudit('export_csv', {
+      analysis_id: _currentAnalysis.id || window._qeegSelectedId || null,
+      note: 'bands=' + bandNames.length + (_isDemoExport ? '; demo' : ''),
+    });
+    var normDev = _currentAnalysis.normative_deviations_json || _currentAnalysis.normative_deviations || null;
+    var chSet = new Set();
+    bandNames.forEach(function (b) { Object.keys(bands[b]?.channels || {}).forEach(function (ch) { chSet.add(ch); }); });
+    var header = 'Channel,' + bandNames.join(',') + ',Total';
+    if (normDev) header += ',' + bandNames.map(function (b) { return b + '_zscore'; }).join(',');
+    var rows = [header];
+    Array.from(chSet).sort().forEach(function (ch) {
+      var vals = bandNames.map(function (b) { var v = bands[b]?.channels?.[ch]?.relative_pct; return v != null ? v.toFixed(1) : ''; });
+      var total = 0;
+      bandNames.forEach(function (b) { var v = bands[b]?.channels?.[ch]?.relative_pct; if (v != null) total += v; });
+      var row = ch + ',' + vals.join(',') + ',' + total.toFixed(1);
+      if (normDev) {
+        var zVals = bandNames.map(function (b) { return normDev[ch] && normDev[ch][b] != null ? normDev[ch][b].toFixed(2) : ''; });
+        row += ',' + zVals.join(',');
+      }
+      rows.push(row);
+    });
+    var _filename = (_isDemoExport ? 'DEMO_' : '') + 'qeeg_band_powers.csv';
+    // Stamp DEMO recordings explicitly inside the file body so downstream
+    // viewers cannot mistake a demo download for clinical data.
+    var _csv = (_isDemoExport ? '# DEMO — not for clinical use\n' : '') + rows.join('\n');
+    _downloadCSV(_csv, _filename);
+    showToast(_isDemoExport ? 'DEMO band power CSV exported' : 'Band power CSV exported', 'success');
   };
-  _qeegAudit('export_json', {
-    analysis_id: _currentAnalysis.id || window._qeegSelectedId || null,
-    note: _isDemoExport ? 'demo' : 'live',
-  });
-  var json = JSON.stringify(exportData, null, 2);
-  var blob = new Blob([json], { type: 'application/json' });
-  var url = URL.createObjectURL(blob);
-  var a = document.createElement('a');
-  var d = new Date().toISOString().split('T')[0];
-  var prefix = _isDemoExport ? 'DEMO_' : '';
-  a.href = url; a.download = prefix + 'qeeg_analysis_' + (_currentAnalysis.id || 'data') + '_' + d + '.json'; a.click();
-  URL.revokeObjectURL(url);
-  showToast(_isDemoExport ? 'DEMO analysis JSON exported' : 'Full analysis JSON exported', 'success');
-};
+}
 
-window._qeegPrintReport = function () {
-  if (!_currentReport) return showToast('No report data loaded', 'warning');
-  var narrative = _currentReport.ai_narrative || {};
-  var conditions = _currentReport.condition_matches || [];
-  var suggestions = _currentReport.protocol_suggestions || [];
-  var printSynth = _qeegReportIsSyntheticDemo(_currentReport, _currentAnalysis);
-  var w = window.open('', '_blank', 'width=900,height=700');
-  if (!w) return showToast('Popup blocked', 'error');
-  var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>qEEG AI Report</title>'
-    + '<style>body{font-family:Georgia,serif;max-width:780px;margin:40px auto;color:#222;line-height:1.6}'
-    + 'h1{font-size:22px;border-bottom:2px solid #0a4d68;padding-bottom:8px}'
-    + 'h2{font-size:16px;color:#0a4d68;margin-top:24px;border-left:3px solid #0a4d68;padding-left:10px}'
-    + 'h4{font-size:13px;color:#0a4d68;text-transform:uppercase;letter-spacing:.5px;border-left:3px solid #0a4d68;padding-left:8px;margin:18px 0 6px}'
-    + 'p{font-size:13px;margin:0 0 10px}table{width:100%;border-collapse:collapse;margin:12px 0}'
-    + 'th,td{border:1px solid #ddd;padding:6px 10px;font-size:12px;text-align:left}'
-    + 'th{background:#f5f5f5;font-weight:700}li{margin-bottom:6px;font-size:13px}'
-    + '.print-btn{background:#0a4d68;color:#fff;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;font-size:14px;margin:20px 0}'
-    + '@media print{.print-btn{display:none}}</style></head><body>';
-  html += '<h1>qEEG Analysis — AI Report</h1>';
-  html += '<p style="color:#666;font-size:12px">Generated: ' + new Date().toLocaleString() + '</p>';
-  if (printSynth) {
-    html += '<p style="background:#fff7ed;border:1px solid #fdba74;color:#7c2d12;padding:10px 12px;border-radius:8px;font-size:12px"><strong>Synthetic demo preview.</strong> '
-      + 'Condition-match percentages and protocol suggestion lists are omitted from this printout so the bundle cannot be mistaken for a diagnosis or treatment plan.</p>';
-  }
-  if (narrative.summary) {
-    html += '<h2>Executive Summary</h2><p><em>' + esc(narrative.summary) + '</em></p>';
-  }
-  if (narrative.detailed_findings) {
-    html += '<h2>Detailed Findings</h2>' + _formatNarrative(narrative.detailed_findings);
-  }
-  if (conditions.length && !printSynth) {
-    html += '<h2>Condition pattern similarity (decision-support)</h2><table><tr><th>Condition profile</th><th>Model similarity</th></tr>';
-    conditions.forEach(function (c) {
-      html += '<tr><td>' + esc(c.condition || c.name || '') + '</td><td>' + Math.round((c.confidence || 0) * 100) + '%</td></tr>';
+if (typeof window !== 'undefined') {
+  window._qeegExportAdvancedCSV = function () {
+    if (!_currentAnalysis || !_currentAnalysis.advanced_analyses) return showToast('No advanced analyses data', 'warning');
+    var adv = _currentAnalysis.advanced_analyses;
+    var rows = ['Analysis,Category,Status,Duration_ms,Summary'];
+    Object.keys(adv.results || {}).forEach(function (slug) {
+      var r = adv.results[slug];
+      rows.push([esc(r.label), esc(r.category), r.status, r.duration_ms || 0, '"' + (r.summary || '').replace(/"/g, '""') + '"'].join(','));
     });
-    html += '</table>';
-    html += '<p style="font-size:11px;color:#666">Similarity to named profiles — not a psychiatric or neurological diagnosis.</p>';
-  }
-  if (suggestions.length && !printSynth) {
-    html += '<h2>Protocol suggestions (draft — clinician review required)</h2><ol>';
-    suggestions.forEach(function (s) {
-      html += '<li><strong>' + esc(s.protocol || s.title || '') + '</strong>' + (s.rationale ? ': ' + esc(s.rationale) : '') + '</li>';
+    _downloadCSV(rows.join('\n'), 'qeeg_advanced_analyses.csv');
+    showToast('Advanced analyses CSV exported', 'success');
+  };
+}
+
+if (typeof window !== 'undefined') {
+  window._qeegExportJSON = function () {
+    if (!_currentAnalysis) return showToast('No analysis data loaded', 'warning');
+    var patientName = _patient ? ((_patient.first_name || '') + ' ' + (_patient.last_name || '')).trim() : '';
+    var _isDemoExport = !!(window._qeegSelectedId === 'demo' && _isDemoMode());
+    var exportData = {
+      metadata: {
+        patient_name: patientName,
+        analysis_date: _currentAnalysis.analyzed_at || new Date().toISOString(),
+        original_filename: _currentAnalysis.original_filename || '',
+        channels_used: _currentAnalysis.channels_used || _currentAnalysis.channel_count || 0,
+        sample_rate_hz: _currentAnalysis.sample_rate_hz || 0,
+        eyes_condition: _currentAnalysis.eyes_condition || '',
+        exported_at: new Date().toISOString(),
+        demo: _isDemoExport,
+        disclaimer: _isDemoExport
+          ? 'DEMO — not for clinical use. Synthetic sample recording.'
+          : 'qEEG findings support clinical decision-making and require clinician review.',
+      },
+      analysis: _currentAnalysis,
+    };
+    _qeegAudit('export_json', {
+      analysis_id: _currentAnalysis.id || window._qeegSelectedId || null,
+      note: _isDemoExport ? 'demo' : 'live',
     });
-    html += '</ol>';
-  }
-  if (_currentReport.clinician_amendments) {
-    html += '<h2>Clinician Amendments</h2><p>' + esc(_currentReport.clinician_amendments) + '</p>';
-  }
-  if (_qeegSavedEvidenceCitations && _qeegSavedEvidenceCitations.length) {
-    html += '<h2>Evidence Citations Added from Drawer</h2><ul>';
-    _qeegSavedEvidenceCitations.slice(0, 8).forEach(function (item) {
-      var meta = [item.finding_label, item.pmid ? ('PMID ' + item.pmid) : '', item.doi || ''].filter(Boolean).join(' · ');
-      html += '<li><strong>' + esc(item.paper_title || 'Evidence citation') + '</strong>' + (meta ? ' — ' + esc(meta) : '') + '</li>';
-    });
-    html += '</ul>';
-  }
-  html += '<button class="print-btn" onclick="window.print()">Print / Save PDF</button>';
-  html += '</body></html>';
-  w.document.write(html);
-  w.document.close();
-};
+    var json = JSON.stringify(exportData, null, 2);
+    var blob = new Blob([json], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    var d = new Date().toISOString().split('T')[0];
+    var prefix = _isDemoExport ? 'DEMO_' : '';
+    a.href = url; a.download = prefix + 'qeeg_analysis_' + (_currentAnalysis.id || 'data') + '_' + d + '.json'; a.click();
+    URL.revokeObjectURL(url);
+    showToast(_isDemoExport ? 'DEMO analysis JSON exported' : 'Full analysis JSON exported', 'success');
+  };
+}
+
+if (typeof window !== 'undefined') {
+  window._qeegPrintReport = function () {
+    if (!_currentReport) return showToast('No report data loaded', 'warning');
+    var narrative = _currentReport.ai_narrative || {};
+    var conditions = _currentReport.condition_matches || [];
+    var suggestions = _currentReport.protocol_suggestions || [];
+    var printSynth = _qeegReportIsSyntheticDemo(_currentReport, _currentAnalysis);
+    var w = window.open('', '_blank', 'width=900,height=700');
+    if (!w) return showToast('Popup blocked', 'error');
+    var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>qEEG AI Report</title>'
+      + '<style>body{font-family:Georgia,serif;max-width:780px;margin:40px auto;color:#222;line-height:1.6}'
+      + 'h1{font-size:22px;border-bottom:2px solid #0a4d68;padding-bottom:8px}'
+      + 'h2{font-size:16px;color:#0a4d68;margin-top:24px;border-left:3px solid #0a4d68;padding-left:10px}'
+      + 'h4{font-size:13px;color:#0a4d68;text-transform:uppercase;letter-spacing:.5px;border-left:3px solid #0a4d68;padding-left:8px;margin:18px 0 6px}'
+      + 'p{font-size:13px;margin:0 0 10px}table{width:100%;border-collapse:collapse;margin:12px 0}'
+      + 'th,td{border:1px solid #ddd;padding:6px 10px;font-size:12px;text-align:left}'
+      + 'th{background:#f5f5f5;font-weight:700}li{margin-bottom:6px;font-size:13px}'
+      + '.print-btn{background:#0a4d68;color:#fff;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;font-size:14px;margin:20px 0}'
+      + '@media print{.print-btn{display:none}}</style></head><body>';
+    html += '<h1>qEEG Analysis — AI Report</h1>';
+    html += '<p style="color:#666;font-size:12px">Generated: ' + new Date().toLocaleString() + '</p>';
+    if (printSynth) {
+      html += '<p style="background:#fff7ed;border:1px solid #fdba74;color:#7c2d12;padding:10px 12px;border-radius:8px;font-size:12px"><strong>Synthetic demo preview.</strong> '
+        + 'Condition-match percentages and protocol suggestion lists are omitted from this printout so the bundle cannot be mistaken for a diagnosis or treatment plan.</p>';
+    }
+    if (narrative.summary) {
+      html += '<h2>Executive Summary</h2><p><em>' + esc(narrative.summary) + '</em></p>';
+    }
+    if (narrative.detailed_findings) {
+      html += '<h2>Detailed Findings</h2>' + _formatNarrative(narrative.detailed_findings);
+    }
+    if (conditions.length && !printSynth) {
+      html += '<h2>Condition pattern similarity (decision-support)</h2><table><tr><th>Condition profile</th><th>Model similarity</th></tr>';
+      conditions.forEach(function (c) {
+        html += '<tr><td>' + esc(c.condition || c.name || '') + '</td><td>' + Math.round((c.confidence || 0) * 100) + '%</td></tr>';
+      });
+      html += '</table>';
+      html += '<p style="font-size:11px;color:#666">Similarity to named profiles — not a psychiatric or neurological diagnosis.</p>';
+    }
+    if (suggestions.length && !printSynth) {
+      html += '<h2>Protocol suggestions (draft — clinician review required)</h2><ol>';
+      suggestions.forEach(function (s) {
+        html += '<li><strong>' + esc(s.protocol || s.title || '') + '</strong>' + (s.rationale ? ': ' + esc(s.rationale) : '') + '</li>';
+      });
+      html += '</ol>';
+    }
+    if (_currentReport.clinician_amendments) {
+      html += '<h2>Clinician Amendments</h2><p>' + esc(_currentReport.clinician_amendments) + '</p>';
+    }
+    if (_qeegSavedEvidenceCitations && _qeegSavedEvidenceCitations.length) {
+      html += '<h2>Evidence Citations Added from Drawer</h2><ul>';
+      _qeegSavedEvidenceCitations.slice(0, 8).forEach(function (item) {
+        var meta = [item.finding_label, item.pmid ? ('PMID ' + item.pmid) : '', item.doi || ''].filter(Boolean).join(' · ');
+        html += '<li><strong>' + esc(item.paper_title || 'Evidence citation') + '</strong>' + (meta ? ' — ' + esc(meta) : '') + '</li>';
+      });
+      html += '</ul>';
+    }
+    html += '<button class="print-btn" onclick="window.print()">Print / Save PDF</button>';
+    html += '</body></html>';
+    w.document.write(html);
+    w.document.close();
+  };
+}
 
 // ── qEEG Brain Map report ─────────────────────────────────────────────────────
 // Opens / downloads the server-rendered brain-map report (Jinja template at
@@ -6523,101 +6540,109 @@ function _qeegBuildDemoBrainMapHTML() {
 function _qeegIsDemoReportId(reportId) {
   return reportId === 'demo-report' || reportId === encodeURIComponent('demo-report');
 }
-window._qeegOpenBrainMapReport = function (reportId) {
-  if (!reportId) return showToast('No report id available', 'warning');
-  _qeegAudit('open_brain_map_report', { report_id: reportId });
-  if (_qeegIsDemoReportId(reportId)) {
-    var w = window.open('', '_blank');
-    if (!w) return showToast('Popup blocked', 'error');
-    w.document.write(_qeegBuildDemoBrainMapHTML());
-    w.document.close();
-    return;
-  }
-  try {
-    var url = api.getQEEGBrainMapReportURL(reportId, 'html');
-    window.open(url, '_blank', 'noopener,noreferrer');
-  } catch (err) {
-    showToast('Could not open brain map report: ' + (err && err.message ? err.message : err), 'error');
-  }
-};
-window._qeegDownloadBrainMapReport = function (reportId) {
-  if (!reportId) return showToast('No report id available', 'warning');
-  _qeegAudit('download_brain_map_report', { report_id: reportId });
-  if (_qeegIsDemoReportId(reportId)) {
-    try {
-      var blob = new Blob([_qeegBuildDemoBrainMapHTML()], { type: 'text/html' });
-      downloadBlob(blob, 'qeeg_brain_map_demo.html');
-      showToast('Demo brain map HTML downloaded — open it in a browser and use Print to save as PDF.', 'success');
-    } catch (err) {
-      showToast('Could not build demo brain map: ' + (err && err.message ? err.message : err), 'error');
+if (typeof window !== 'undefined') {
+  window._qeegOpenBrainMapReport = function (reportId) {
+    if (!reportId) return showToast('No report id available', 'warning');
+    _qeegAudit('open_brain_map_report', { report_id: reportId });
+    if (_qeegIsDemoReportId(reportId)) {
+      var w = window.open('', '_blank');
+      if (!w) return showToast('Popup blocked', 'error');
+      w.document.write(_qeegBuildDemoBrainMapHTML());
+      w.document.close();
+      return;
     }
-    return;
-  }
-  api.getQEEGBrainMapReportPDF(reportId)
-    .then(function (file) {
-      var filename = file.filename || ('qeeg_brain_map_' + reportId + '.pdf');
-      downloadBlob(file.blob, filename);
-      showToast('Brain map PDF downloaded', 'success');
-    })
-    .catch(function (err) {
-      var msg = (err && err.message ? err.message : String(err));
-      _qeegAudit('download_brain_map_failed', { note: msg.slice(0, 200) });
-      // The backend returns 503 when WeasyPrint isn't installed; surface it
-      // honestly so a clinician knows it's an infra issue, not a data one.
-      if (/503|renderer.*unavailable/i.test(msg)) {
-        showToast('Brain map PDF renderer is not configured on this server. Open the HTML version instead.', 'warning');
-      } else {
-        showToast('Brain map PDF download failed: ' + msg, 'error');
+    try {
+      var url = api.getQEEGBrainMapReportURL(reportId, 'html');
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      showToast('Could not open brain map report: ' + (err && err.message ? err.message : err), 'error');
+    }
+  };
+}
+if (typeof window !== 'undefined') {
+  window._qeegDownloadBrainMapReport = function (reportId) {
+    if (!reportId) return showToast('No report id available', 'warning');
+    _qeegAudit('download_brain_map_report', { report_id: reportId });
+    if (_qeegIsDemoReportId(reportId)) {
+      try {
+        var blob = new Blob([_qeegBuildDemoBrainMapHTML()], { type: 'text/html' });
+        downloadBlob(blob, 'qeeg_brain_map_demo.html');
+        showToast('Demo brain map HTML downloaded — open it in a browser and use Print to save as PDF.', 'success');
+      } catch (err) {
+        showToast('Could not build demo brain map: ' + (err && err.message ? err.message : err), 'error');
       }
-    });
-};
+      return;
+    }
+    api.getQEEGBrainMapReportPDF(reportId)
+      .then(function (file) {
+        var filename = file.filename || ('qeeg_brain_map_' + reportId + '.pdf');
+        downloadBlob(file.blob, filename);
+        showToast('Brain map PDF downloaded', 'success');
+      })
+      .catch(function (err) {
+        var msg = (err && err.message ? err.message : String(err));
+        _qeegAudit('download_brain_map_failed', { note: msg.slice(0, 200) });
+        // The backend returns 503 when WeasyPrint isn't installed; surface it
+        // honestly so a clinician knows it's an infra issue, not a data one.
+        if (/503|renderer.*unavailable/i.test(msg)) {
+          showToast('Brain map PDF renderer is not configured on this server. Open the HTML version instead.', 'warning');
+        } else {
+          showToast('Brain map PDF download failed: ' + msg, 'error');
+        }
+      });
+  };
+}
 
 // ── PDF download via backend endpoint ────────────────────────────────────────
-window._qeegDownloadPDF = function () {
-  if (!_currentReport) return showToast('No report data loaded', 'warning');
-  if (!_canRenderQEEGPrintableReport(_currentReport, _currentAnalysis)) {
-    return showToast('Printable report is not available for this analysis yet', 'warning');
-  }
-  _qeegAudit('export_pdf_requested', {
-    analysis_id: _currentAnalysis && _currentAnalysis.id,
-    note: 'report=' + (_currentReport && _currentReport.id ? _currentReport.id : ''),
-  });
-  api.getQEEGPrintableReport(_currentAnalysis.id, _currentReport.id)
-    .then(function (file) {
-      var filename = file.filename || ('qeeg_report_' + _currentReport.id + '.html');
-      downloadBlob(file.blob, filename);
-      var contentType = (file.contentType || '').toLowerCase();
-      _qeegAudit('export_pdf_completed', { analysis_id: _currentAnalysis && _currentAnalysis.id });
-      showToast(contentType.indexOf('pdf') >= 0 ? 'PDF report downloaded' : 'Printable report downloaded', 'success');
-    })
-    .catch(function (err) {
-      _qeegAudit('export_pdf_failed', { note: (err && err.message ? err.message : String(err)).slice(0, 200) });
-      showToast('Printable report download failed: ' + (err && err.message ? err.message : err), 'error');
+if (typeof window !== 'undefined') {
+  window._qeegDownloadPDF = function () {
+    if (!_currentReport) return showToast('No report data loaded', 'warning');
+    if (!_canRenderQEEGPrintableReport(_currentReport, _currentAnalysis)) {
+      return showToast('Printable report is not available for this analysis yet', 'warning');
+    }
+    _qeegAudit('export_pdf_requested', {
+      analysis_id: _currentAnalysis && _currentAnalysis.id,
+      note: 'report=' + (_currentReport && _currentReport.id ? _currentReport.id : ''),
     });
-};
+    api.getQEEGPrintableReport(_currentAnalysis.id, _currentReport.id)
+      .then(function (file) {
+        var filename = file.filename || ('qeeg_report_' + _currentReport.id + '.html');
+        downloadBlob(file.blob, filename);
+        var contentType = (file.contentType || '').toLowerCase();
+        _qeegAudit('export_pdf_completed', { analysis_id: _currentAnalysis && _currentAnalysis.id });
+        showToast(contentType.indexOf('pdf') >= 0 ? 'PDF report downloaded' : 'Printable report downloaded', 'success');
+      })
+      .catch(function (err) {
+        _qeegAudit('export_pdf_failed', { note: (err && err.message ? err.message : String(err)).slice(0, 200) });
+        showToast('Printable report download failed: ' + (err && err.message ? err.message : err), 'error');
+      });
+  };
+}
 
 // ── Coherence band switcher ──────────────────────────────────────────────────
-window._qeegSwitchCoherenceBand = function (band) {
-  _coherenceBand = band;
-  var wrap = document.getElementById('qeeg-coherence-wrap');
-  if (!wrap || !_currentAnalysis) return;
-  var cohResult = _currentAnalysis.advanced_analyses?.results?.coherence_matrix;
-  if (!cohResult || cohResult.status !== 'ok') return;
-  var d = cohResult.data || {};
-  var mat = d.bands?.[band];
-  if (!mat) return;
-  // Re-render tabs + matrix
-  var tabsHtml = '<div class="qeeg-coh-tabs">';
-  Object.keys(d.bands).forEach(function (b) {
-    var active = b === band ? ' qeeg-coh-tab--active' : '';
-    var col = BAND_COLORS[b] || 'var(--teal)';
-    tabsHtml += '<button class="qeeg-coh-tab' + active + '" style="--coh-color:' + col + '" onclick="window._qeegSwitchCoherenceBand(\'' + b + '\')">' + esc(b) + '</button>';
-  });
-  tabsHtml += '</div>';
-  wrap.innerHTML = tabsHtml + '<div style="overflow-x:auto">'
-    + renderConnectivityMatrix(mat, d.channels, { band: band + ' coherence', size: 360 })
-    + '</div>';
-};
+if (typeof window !== 'undefined') {
+  window._qeegSwitchCoherenceBand = function (band) {
+    _coherenceBand = band;
+    var wrap = document.getElementById('qeeg-coherence-wrap');
+    if (!wrap || !_currentAnalysis) return;
+    var cohResult = _currentAnalysis.advanced_analyses?.results?.coherence_matrix;
+    if (!cohResult || cohResult.status !== 'ok') return;
+    var d = cohResult.data || {};
+    var mat = d.bands?.[band];
+    if (!mat) return;
+    // Re-render tabs + matrix
+    var tabsHtml = '<div class="qeeg-coh-tabs">';
+    Object.keys(d.bands).forEach(function (b) {
+      var active = b === band ? ' qeeg-coh-tab--active' : '';
+      var col = BAND_COLORS[b] || 'var(--teal)';
+      tabsHtml += '<button class="qeeg-coh-tab' + active + '" style="--coh-color:' + col + '" onclick="window._qeegSwitchCoherenceBand(\'' + b + '\')">' + esc(b) + '</button>';
+    });
+    tabsHtml += '</div>';
+    wrap.innerHTML = tabsHtml + '<div style="overflow-x:auto">'
+      + renderConnectivityMatrix(mat, d.channels, { band: band + ' coherence', size: 360 })
+      + '</div>';
+  };
+}
 
 // ── Advanced Analyses Renderer ───────────────────────────────────────────────
 
@@ -7039,3 +7064,4 @@ function _wireRawViewerSummary(tabEl, analysisId) {
   });
   observer.observe(document.body, { childList: true, subtree: true });
 }
+

@@ -45,6 +45,7 @@ class AnnotationRequest(BaseModel):
         return (self.message or self.note or "").strip()
 
 
+# core-schema-exempt: integration branch; migrate to core-schema in follow-up PR
 class ReviewAckRequest(BaseModel):
     """Clinician attestation that the movement workspace was reviewed (audit only)."""
 

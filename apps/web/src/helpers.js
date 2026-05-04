@@ -219,7 +219,7 @@ export function showToast(message, type = 'success') {
     setTimeout(() => toast.remove(), 300);
   }, 4000);
 }
-window._showToast = showToast;
+if (typeof window !== 'undefined') window._showToast = showToast;
 
 // ── Stat Card ──────────────────────────────────────────────────────────────
 export function statCard(icon, label, value, color = 'var(--teal)', trend = '') {
