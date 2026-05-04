@@ -25,7 +25,7 @@ primary_region = "lhr"
   # the Netlify preview + demo-login flow without installing FreeSurfer/FastSurfer
   # on the VM. Set to ``0`` when the full ``deepsynaps_mri`` neuro stack is
   # deployed and you want real pipeline jobs instead.
-  MRI_DEMO_MODE = "0"
+  MRI_DEMO_MODE = "1"
   # Evidence pipeline DB lives on the mounted volume below. The evidence_router
   # serves 503 with a clear message until the file exists. Populate it once per
   # machine (or weekly via cron) with:

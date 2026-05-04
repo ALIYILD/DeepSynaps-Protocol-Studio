@@ -223,7 +223,6 @@ function _medicationAnalyzerDemoPayload(patientId) {
     },
   };
 }
-
 function _mriDemoLongitudinalCompare(baselineId, followupId) {
   return {
     demo: true,
@@ -253,7 +252,6 @@ function _mriDemoLongitudinalCompare(baselineId, followupId) {
     pipeline_version: '0.1.0',
   };
 }
-
 function _deeptwinDemoParseBody(body) {
   if (body == null || body === '') return null;
   if (typeof body === 'string') {
