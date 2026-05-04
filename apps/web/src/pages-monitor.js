@@ -284,11 +284,6 @@ function canWriteIntegrations() {
   return role() === 'admin';
 }
 
-/** Roles allowed to load clinician wearable summary APIs (matches wearable_router). */
-function canUseBiometricsAnalyzer() {
-  return new Set(['admin', 'clinician', 'supervisor', 'reviewer', 'technician']).has(role());
-}
-
 function fmtAgo(v) {
   if (!v) return 'never';
   const ms = Date.now() - new Date(v).getTime();
