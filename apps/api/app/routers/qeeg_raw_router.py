@@ -186,6 +186,8 @@ class FilterPreviewResponse(BaseModel):
     freq_response: FreqResponseModel = Field(default_factory=FreqResponseModel)
     params: dict[str, Optional[float]] = Field(default_factory=dict)
 
+# core-schema-exempt: window PSD request — qEEG raw router-local
+
 
 class WindowPSDRequest(BaseModel):
     """Per-window Welch PSD for the Raw Workbench (no full pipeline job)."""

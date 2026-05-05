@@ -1,0 +1,18 @@
+{
+  "name": "Pattern: left / right hemifield",
+  "code": "PAT_LR",
+  "description": "Lateralized pattern stimulation for contralateral VEP comparison (labels are placeholders—map to your lab's event codes)",
+  "stimClasses": [
+    { "code": "L", "label": "Left hemifield", "expectedProbability": 0.5 },
+    { "code": "R", "label": "Right hemifield", "expectedProbability": 0.5 }
+  ],
+  "preStimMs": -100,
+  "postStimMs": 300,
+  "baselineCorrection": "mean",
+  "artifactThresholdUv": 100,
+  "minTrials": 80,
+  "expectedPeaks": ["N100", "P200"],
+  "citations": [
+    "Di Russo, F., Spinelli, D., & Morrone, M. C. (2001). Automatic gain control contrast mechanisms are modulated by attention in humans. Vision Research, 41(20), 2585-2594."
+  ]
+}

@@ -19,6 +19,8 @@ from app.spikes.dipole_spike import dipole_at_spike_peak
 
 router = APIRouter(prefix="/api/v1/studio/eeg", tags=["studio-spikes"])
 
+# core-schema-exempt: spike detection params — studio spikes router-local
+
 
 class SpikeDetectIn(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -33,6 +35,8 @@ class SpikeDetectIn(BaseModel):
     use_ai: bool = Field(True, alias="useAi")
     ai_confidence_min: float = Field(0.0, alias="aiConfidenceMin")
 
+# core-schema-exempt: spike average — studio spikes router-local
+
 
 class SpikeAverageIn(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -40,6 +44,8 @@ class SpikeAverageIn(BaseModel):
     peaks: list[dict[str, Any]]
     pre_ms: float = Field(300.0, alias="preMs")
     post_ms: float = Field(300.0, alias="postMs")
+
+# core-schema-exempt: spike dipole — studio spikes router-local
 
 
 class SpikeDipoleIn(BaseModel):

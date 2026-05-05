@@ -1,5 +1,7 @@
 import { create } from "zustand";
 
+import type { ErpComputeParams, ErpPeak } from "../erp/types";
+
 export interface AiMessage {
   id: string;
   role: "user" | "assistant" | "system";
@@ -122,6 +124,16 @@ export type ReportDraftPayload = {
   at: string;
 };
 
+/** ERP averaged waveforms computed / re-averaged (M9). */
+export type ErpComputedSnapshot = {
+  analysisId: string;
+  params: ErpComputeParams;
+  peakSummary: ErpPeak[];
+  nIncludedTrials: number;
+  paradigmCode: string;
+  at: string;
+};
+
 export interface AiState {
   messages: AiMessage[];
   pendingSuggestions: string[];
@@ -137,6 +149,7 @@ export interface AiState {
   lastSourceLocalization: SourceLocalizationPayload | null;
   lastSpikeDetection: SpikeDetectionPayload | null;
   lastReportDraft: ReportDraftPayload | null;
+  lastErpComputed: ErpComputedSnapshot | null;
   addMessage: (m: Omit<AiMessage, "id" | "createdAt">) => void;
   setPendingSuggestions: (s: string[]) => void;
   setCitations: (c: AiCitation[]) => void;
@@ -152,6 +165,7 @@ export interface AiState {
   sourceLocalizationChanged: (p: Omit<SourceLocalizationPayload, "at">) => void;
   spikeDetectionChanged: (p: Omit<SpikeDetectionPayload, "at">) => void;
   reportDraftChanged: (p: Omit<ReportDraftPayload, "at">) => void;
+  erpComputed: (p: Omit<ErpComputedSnapshot, "at">) => void;
 }
 
 export const useAiStore = create<AiState>((set) => ({
@@ -169,6 +183,7 @@ export const useAiStore = create<AiState>((set) => ({
   lastSourceLocalization: null,
   lastSpikeDetection: null,
   lastReportDraft: null,
+  lastErpComputed: null,
   addMessage: (m) =>
     set((s) => ({
       messages: [
@@ -257,6 +272,13 @@ export const useAiStore = create<AiState>((set) => ({
   reportDraftChanged: (p) =>
     set({
       lastReportDraft: {
+        ...p,
+        at: new Date().toISOString(),
+      },
+    }),
+  erpComputed: (p) =>
+    set({
+      lastErpComputed: {
         ...p,
         at: new Date().toISOString(),
       },

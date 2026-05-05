@@ -29,12 +29,16 @@ router = APIRouter(prefix="/api/v1/studio/eeg", tags=["studio-eeg"])
 
 _STUDIO_MARKERS: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
+# core-schema-exempt: studio EEG marker — router-local
+
 
 class MarkerIn(BaseModel):
     kind: str = Field(..., pattern="^(label|artifact|fragment)$")
     fromSec: float
     toSec: float | None = None
     text: str | None = None
+
+# core-schema-exempt: bandrange compute — studio EEG router-local
 
 
 class BandrangeIn(BaseModel):

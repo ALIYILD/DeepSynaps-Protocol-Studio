@@ -1,6 +1,9 @@
 import type { CSSProperties, ReactNode } from "react";
 import { useState } from "react";
 
+import { ErpDialog } from "../erp/ErpDialog";
+import { ErpWindow } from "../erp/ErpWindow";
+import type { ErpComputeParams } from "../erp/types";
 import type { TrialSlice } from "../stores/eegViewer";
 import { StudioReportMenu } from "../report/StudioReportMenu";
 import { StudioSpikeMenu } from "../spikes/StudioSpikeMenu";
@@ -14,7 +17,7 @@ export function StudioAnalysisMenu({
   toSec,
   highlightChannelId,
   patientId,
-  fragments,
+  fragments: _fragments,
   onTimelineReload,
   onOpenDerivative,
   jumpToSec,
@@ -32,10 +35,13 @@ export function StudioAnalysisMenu({
   onOpenDerivative?: (id: string) => void;
   jumpToSec?: (t: number) => void;
 }) {
+  void _fragments;
   const [markOpen, setMarkOpen] = useState(false);
   const [eogOpen, setEogOpen] = useState(false);
   const [corrOpen, setCorrOpen] = useState(false);
   const [tplOpen, setTplOpen] = useState(false);
+  const [erpDlgOpen, setErpDlgOpen] = useState(false);
+  const [erpWinOpen, setErpWinOpen] = useState(false);
 
   return (
     <>
@@ -62,6 +68,9 @@ export function StudioAnalysisMenu({
           </button>
           <button type="button" style={btn} onClick={() => setTplOpen(true)}>
             Artifacts correction using templates…
+          </button>
+          <button type="button" style={btn} onClick={() => setErpDlgOpen(true)}>
+            ERP → Compute…
           </button>
           <StudioSpikeMenu
             analysisId={recordingId}
@@ -104,6 +113,24 @@ export function StudioAnalysisMenu({
         patientId={patientId}
         onApplied={(id) => onOpenDerivative?.(id)}
       />
+
+      <ErpDialog
+        open={erpDlgOpen}
+        onOpenChange={setErpDlgOpen}
+        analysisId={recordingId}
+        availableClasses={
+          stimulusClasses.length ?
+            stimulusClasses
+          : [...new Set(trials.map((t) => t.stimulusClass).filter(Boolean))] as string[]
+        }
+        trials={trials}
+        mode="compute"
+        onConfirm={(_p: ErpComputeParams) => {
+          void _p;
+          setErpWinOpen(true);
+        }}
+      />
+      <ErpWindow open={erpWinOpen} onOpenChange={setErpWinOpen} />
     </>
   );
 }

@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.database import get_db_session
 from app.erp.cluster_stats import cluster_test_between_epochs
 from app.erp.coherence import ercoh_pair_timecourse
-from app.erp.epoching import build_epochs, get_trials_for_analysis
+from app.erp.epoching import apply_linear_baseline_to_epochs, build_epochs, get_trials_for_analysis
 from app.erp.averaging import evoked_by_condition, per_trial_erp_uv, reaverage_from_trials
 from app.erp.erd import erd_percent_timecourse
 from app.erp.ica_erp import fit_ica_on_epochs
@@ -24,18 +24,31 @@ from app.services.eeg_signal_service import load_raw_for_analysis
 
 router = APIRouter(prefix="/api/v1/studio/eeg", tags=["studio-erp"])
 
+# core-schema-exempt: M9 studio ERP compute payload — router-local until shared with workers
+
 
 class ErpComputeIn(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    stimulus_classes: list[str] = Field(default_factory=list, alias="stimulusClasses")
+    stimulus_classes: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("stimulusClasses", "stim_classes", "stimClasses"),
+    )
     pre_stim_ms: float = Field(-200, alias="preStimMs")
     post_stim_ms: float = Field(1000, alias="postStimMs")
     baseline_from_ms: float = Field(-200, alias="baselineFromMs")
     baseline_to_ms: float = Field(0, alias="baselineToMs")
+    baseline_correction: Literal["none", "mean", "linear"] = Field(
+        "mean",
+        validation_alias=AliasChoices("baselineCorrection", "baseline_correction"),
+    )
     reject_uv: dict[str, float] | None = Field(None, alias="rejectUv")
     flat_uv: dict[str, float] | None = Field(None, alias="flatUv")
     return_trial_erps: bool = Field(False, alias="returnTrialErps")
+    artifact_threshold_uv: float | None = Field(
+        None,
+        validation_alias=AliasChoices("artifactThresholdUv", "artifact_threshold_uv"),
+    )
 
 
 def _epochs_common(analysis_id: str, db: Session, body: ErpComputeIn) -> tuple[Any, list[str]]:
@@ -44,17 +57,52 @@ def _epochs_common(analysis_id: str, db: Session, body: ErpComputeIn) -> tuple[A
     trials = get_trials_for_analysis(analysis_id)
     tmin = body.pre_stim_ms / 1000.0
     tmax = body.post_stim_ms / 1000.0
-    baseline = (body.baseline_from_ms / 1000.0, body.baseline_to_ms / 1000.0)
-    return build_epochs(
+    bl = (body.baseline_from_ms / 1000.0, body.baseline_to_ms / 1000.0)
+    if body.baseline_correction == "none":
+        baseline_mne: tuple[float, float] | None = None
+    elif body.baseline_correction == "mean":
+        baseline_mne = bl
+    else:
+        baseline_mne = None
+    epochs, tids = build_epochs(
         raw,
         trials=trials,
         stimulus_classes=body.stimulus_classes,
         tmin_sec=tmin,
         tmax_sec=tmax,
-        baseline=baseline,
+        baseline=baseline_mne,
         reject_uv=body.reject_uv,
         flat_uv=body.flat_uv,
-    )  # (Epochs, trial_ids)
+    )
+    if body.baseline_correction == "linear":
+        apply_linear_baseline_to_epochs(epochs, tmin_bl=bl[0], tmax_bl=bl[1])
+    return epochs, tids
+
+
+@router.get("/{analysis_id}/erp/trials")
+def erp_trials_list(
+    analysis_id: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict[str, Any]:
+    """Trial rows for ERP UI (same backing store as recording trials)."""
+    require_minimum_role(actor, "clinician")
+    _load_analysis(analysis_id, db, actor)
+    raw = get_trials_for_analysis(analysis_id)
+    rows: list[dict[str, Any]] = []
+    for i, tr in enumerate(raw):
+        if not tr.get("included", True):
+            continue
+        rows.append(
+            {
+                "index": i,
+                "class": str(tr.get("class", "Standard")).strip(),
+                "trialId": str(tr.get("id", "")),
+                "onsetSec": float(tr.get("onsetSec", tr.get("onset_sec", 0))),
+                "included": True,
+            }
+        )
+    return {"analysisId": analysis_id, "trials": rows}
 
 
 @router.get("/{analysis_id}/erp/paradigms")
@@ -68,6 +116,37 @@ def erp_paradigms(
     return {"paradigms": list_paradigms()}
 
 
+def _waveforms_from_evoked(evok: dict[str, Any]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for cls, pack in evok.items():
+        out.append(
+            {
+                "class": cls,
+                "meanUv": pack.get("meanUv"),
+                "timesSec": pack.get("timesSec"),
+                "nTrials": pack.get("nTrials"),
+            }
+        )
+    return out
+
+
+def _trials_client_shape(tri_list: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    if not tri_list:
+        return []
+    rows: list[dict[str, Any]] = []
+    for row in tri_list:
+        rows.append(
+            {
+                "index": row.get("epochIndex"),
+                "class": row.get("class"),
+                "included": row.get("included", True),
+                "trialId": row.get("trialId", ""),
+                "erpUv": row.get("erpUv"),
+            }
+        )
+    return rows
+
+
 @router.post("/{analysis_id}/erp/compute")
 def erp_compute(
     analysis_id: str,
@@ -77,16 +156,22 @@ def erp_compute(
 ) -> dict[str, Any]:
     require_minimum_role(actor, "clinician")
     _load_analysis(analysis_id, db, actor)
-    epochs, trial_ids_ordered = _epochs_common(analysis_id, db, body)
+    rej = dict(body.reject_uv) if body.reject_uv else {}
+    if body.artifact_threshold_uv is not None:
+        rej["eeg"] = float(body.artifact_threshold_uv)
+    body_eff = body.model_copy(update={"return_trial_erps": True, "reject_uv": rej or None})
+    epochs, trial_ids_ordered = _epochs_common(analysis_id, db, body_eff)
     evok = evoked_by_condition(epochs)
     tri_list = None
-    if body.return_trial_erps:
+    if body_eff.return_trial_erps:
         tri_list = per_trial_erp_uv(epochs, trial_ids=trial_ids_ordered)
     counts = {k: len(epochs[k]) for k in epochs.event_id}
     warn_p300 = False
     for _k, n in counts.items():
         if n < 30:
             warn_p300 = True
+    waveforms = _waveforms_from_evoked(evok)
+    trials_out = _trials_client_shape(tri_list)
     return {
         "analysisId": analysis_id,
         "evokedByClass": evok,
@@ -96,7 +181,12 @@ def erp_compute(
         "trialIdsOrdered": trial_ids_ordered,
         "channelNames": epochs.ch_names,
         "eventId": dict(epochs.event_id),
+        "waveforms": waveforms,
+        "trials": trials_out,
     }
+
+
+# core-schema-exempt: M9 studio ERP client-side trial re-average payload
 
 
 class ReaverageIn(BaseModel):

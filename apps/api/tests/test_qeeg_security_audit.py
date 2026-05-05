@@ -156,6 +156,7 @@ _ENDPOINTS = [
     ("POST", "/api/v1/qeeg-ai/{aid}/copilot_assist_bundle", {}),
     # Studio ERP — secured via ``studio_erp_router`` + ``_load_analysis`` (same gate as qEEG raw/AI)
     ("GET", "/api/v1/studio/eeg/{aid}/erp/paradigms", None),
+    ("GET", "/api/v1/studio/eeg/{aid}/erp/trials", None),
     ("POST", "/api/v1/studio/eeg/{aid}/erp/compute", {}),
     ("POST", "/api/v1/studio/eeg/{aid}/erp/erd", {}),
     ("POST", "/api/v1/studio/eeg/{aid}/erp/wavelet", {}),

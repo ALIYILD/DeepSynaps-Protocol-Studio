@@ -1,0 +1,18 @@
+{
+  "name": "TOVA (visual sustained attention)",
+  "code": "TOVA",
+  "description": "Continuous performance / sustained attention task with infrequent targets (clinic implementations vary)",
+  "stimClasses": [
+    { "code": "NONTGT", "label": "Non-target", "expectedProbability": 0.9 },
+    { "code": "TGT", "label": "Target", "expectedProbability": 0.1 }
+  ],
+  "preStimMs": -200,
+  "postStimMs": 800,
+  "baselineCorrection": "mean",
+  "artifactThresholdUv": 100,
+  "minTrials": 40,
+  "expectedPeaks": ["N100", "P300"],
+  "citations": [
+    "Leark, R. A., Dupuy, T. R., Green, L., Clemons, C. B., & Malkmus, D. (1996). Test of Variables of Attention professional manual. Los Alamitos, CA: Universal Attention Disorders."
+  ]
+}

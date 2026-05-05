@@ -26,7 +26,7 @@ function withId(b: Record<string, unknown> & { type: ReportBlock["type"] }): Rep
   return { ...b, id: newId() } as ReportBlock;
 }
 
-export const useReportEditorStore = create<ReportEditorState>((set, get) => ({
+export const useReportEditorStore = create<ReportEditorState>((set) => ({
   analysisId: null,
   open: false,
   cursorAfter: -1,
