@@ -6,11 +6,35 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
+from app.errors import ApiServiceError
 from app.persistence.models import QeegAnalysisJob
+from app.qeeg.audit import record_qeeg_105_audit_event
+from app.repositories.patients import resolve_patient_clinic_id
 
 router = APIRouter(prefix="/api/v1/qeeg/jobs", tags=["qeeg-105"])
+
+def _require_job_owner(db: Session, *, actor: AuthenticatedActor, job: QeegAnalysisJob) -> None:
+    """Enforce tenant isolation for job-backed QEEG-105 operations.
+
+    Jobs are scoped by the patient that owns the originating EEG Studio recording.
+    Cross-clinic denial is converted to 404 to avoid leaking job existence.
+    """
+    exists, clinic_id = resolve_patient_clinic_id(db, job.patient_id)
+    if not exists:
+        raise HTTPException(status_code=404, detail="job_not_found")
+    try:
+        require_patient_owner(actor, clinic_id)
+    except ApiServiceError as exc:
+        if exc.code in {"cross_clinic_access_denied", "forbidden"}:
+            raise HTTPException(status_code=404, detail="job_not_found") from exc
+        raise
 
 
 class JobStatusOut(BaseModel):
@@ -42,10 +66,21 @@ def get_job_status(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> JobStatusOut:
-    _ = actor
+    require_minimum_role(actor, "clinician")
     job = db.query(QeegAnalysisJob).filter(QeegAnalysisJob.id == job_id).first()
     if job is None:
         raise HTTPException(status_code=404, detail="job_not_found")
+    _require_job_owner(db, actor=actor, job=job)
+    try:
+        record_qeeg_105_audit_event(
+            db,
+            actor=actor,
+            event="job_view",
+            target_id=job.id,
+            metadata={"job_id": job.id, "analysis_code": job.analysis_code, "status": job.status},
+        )
+    except Exception:  # pragma: no cover
+        pass
     return JobStatusOut(
         job_id=job.id,
         recording_id=job.recording_id,
@@ -64,10 +99,21 @@ def get_job_results(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> JobResultsOut:
-    _ = actor
+    require_minimum_role(actor, "clinician")
     job = db.query(QeegAnalysisJob).filter(QeegAnalysisJob.id == job_id).first()
     if job is None:
         raise HTTPException(status_code=404, detail="job_not_found")
+    _require_job_owner(db, actor=actor, job=job)
+    try:
+        record_qeeg_105_audit_event(
+            db,
+            actor=actor,
+            event="result_view",
+            target_id=job.id,
+            metadata={"job_id": job.id, "analysis_code": job.analysis_code, "status": job.status},
+        )
+    except Exception:  # pragma: no cover
+        pass
     if job.status != "ready":
         raise HTTPException(status_code=409, detail="job_not_ready")
     # Phase 0 stub: results storage lands in Phase 1+.
