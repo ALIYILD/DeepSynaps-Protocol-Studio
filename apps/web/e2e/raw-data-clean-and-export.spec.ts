@@ -113,7 +113,7 @@ test.describe('Raw Data — embedded workbench smoke', () => {
   });
 
   test('? key opens the keyboard shortcuts modal', async ({ page }) => {
-    await landOnRawDataTab(page);
+    await landOnRawDataTab(page, { realToken: true });
 
     await expect(page.locator('[data-testid="qwb-root"]')).toBeVisible({ timeout: 20000 });
 
@@ -124,7 +124,7 @@ test.describe('Raw Data — embedded workbench smoke', () => {
   });
 
   test('toolbar help (?) button opens the same shortcuts modal', async ({ page }) => {
-    await landOnRawDataTab(page);
+    await landOnRawDataTab(page, { realToken: true });
 
     await expect(page.locator('[data-testid="qwb-root"]')).toBeVisible({ timeout: 20000 });
 

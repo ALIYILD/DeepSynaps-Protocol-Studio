@@ -130,6 +130,9 @@ from app.routers.caregiver_delivery_concern_resolution_outcome_tracker_router im
 from app.routers.channel_auth_health_probe_router import (
     router as channel_auth_health_probe_router,
 )
+from app.routers.channel_misconfiguration_detector_router import (
+    router as channel_misconfiguration_detector_router,
+)
 from app.routers.channel_auth_drift_resolution_router import (
     router as channel_auth_drift_resolution_router,
 )
@@ -547,6 +550,7 @@ app.include_router(caregiver_delivery_concern_resolution_audit_hub_router)
 # Lightweight outcome tracking over resolution reasons.
 app.include_router(caregiver_delivery_concern_resolution_outcome_tracker_router)
 app.include_router(channel_auth_health_probe_router)
+app.include_router(channel_misconfiguration_detector_router)
 # Channel Auth Drift Resolution (2026-05-02). Admin marks auth drift rows rotated;
 # clinician list/audit views; cross-clinic scoped.
 app.include_router(channel_auth_drift_resolution_router)
