@@ -18,7 +18,6 @@
     "overnight:summary": ".\\.venv\\Scripts\\python.exe scripts/generate_overnight_swarm_summary.py"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.119",
-    "@radix-ui/react-context-menu": "^2.2.16"
+    "@anthropic-ai/claude-agent-sdk": "^0.2.119"
   }
 }
