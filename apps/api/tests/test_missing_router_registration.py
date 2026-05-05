@@ -10,3 +10,11 @@ def test_audit_trail_route_is_registered(client: TestClient) -> None:
     assert resp.status_code != 404, (
         "audit_trail_router is not registered — include it in main.py"
     )
+
+
+def test_biometrics_route_is_registered(client: TestClient) -> None:
+    """GET /api/biometrics/summary must exist (not 404) — router was not included in main.py."""
+    resp = client.get("/api/biometrics/summary", params={"patient_id": "00000000-0000-0000-0000-000000000001"})
+    assert resp.status_code != 404, (
+        "biometrics_router is not registered — include it in main.py"
+    )
