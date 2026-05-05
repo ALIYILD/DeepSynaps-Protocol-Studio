@@ -37,4 +37,6 @@ test('reports hub navigation preserves route page (reports-v2) not only reports-
   const src = read('./pages-clinical-hubs.js');
   assert.ok(src.includes('getReportsHubRoutePage'));
   assert.ok(src.includes('repNavLit'));
+  assert.match(src, /const repPage = getReportsHubRoutePage\(\);/);
+  assert.match(src, /const repNavLit = JSON\.stringify\(repPage\);/);
 });

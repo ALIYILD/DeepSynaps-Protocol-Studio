@@ -9297,6 +9297,8 @@ export async function pgReportsHubNew(setTopbar, navigate) {
   // Consume focus set by per-widget Report buttons on the patient-analytics page.
   const _focus = window._reportsHubFocus || null;
   if (_focus) { window._reportsHubFocus = null; window._reportsHubTab = 'generate'; }
+  const repPage = getReportsHubRoutePage();
+  const repNavLit = JSON.stringify(repPage);
   const tab = window._reportsHubTab || 'generate';
   window._reportsHubTab = tab;
   const FOCUS_TYPE_TO_REPORT_ID = {
