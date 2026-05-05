@@ -115,6 +115,24 @@ from app.routers.patient_oncall_router import router as patient_oncall_router
 from app.routers.patient_digest_router import router as patient_digest_router
 from app.routers.caregiver_consent_router import router as caregiver_consent_router
 from app.routers.caregiver_email_digest_router import router as caregiver_email_digest_router
+from app.routers.caregiver_delivery_concern_aggregator_router import (
+    router as caregiver_delivery_concern_aggregator_router,
+)
+from app.routers.caregiver_delivery_concern_resolution_router import (
+    router as caregiver_delivery_concern_resolution_router,
+)
+from app.routers.caregiver_delivery_concern_resolution_audit_hub_router import (
+    router as caregiver_delivery_concern_resolution_audit_hub_router,
+)
+from app.routers.caregiver_delivery_concern_resolution_outcome_tracker_router import (
+    router as caregiver_delivery_concern_resolution_outcome_tracker_router,
+)
+from app.routers.channel_auth_drift_resolution_router import (
+    router as channel_auth_drift_resolution_router,
+)
+from app.routers.channel_auth_drift_resolution_audit_hub_router import (
+    router as channel_auth_drift_resolution_audit_hub_router,
+)
 # Settings API routers (foundation scaffolded by backend subagent #1; endpoints
 # fleshed out by backend subagents #3–#6). See apps/api/SETTINGS_API_DESIGN.md.
 from app.routers.profile_router import router as profile_router
@@ -168,6 +186,7 @@ from app.qeeg.routers.qeeg_analysis_results_router import (
 )
 from app.routers.studio_eeg_router import router as studio_eeg_router
 from app.routers.studio_erp_router import router as studio_erp_router
+from app.routers.video_assessment_router import router as video_assessment_router
 from app.routers.studio_source_router import router as studio_source_router
 from app.routers.studio_spikes_router import router as studio_spikes_router
 from app.routers.studio_report_router import router as studio_report_router
@@ -492,6 +511,23 @@ app.include_router(patient_digest_router)
 # patient access blocked at the router (404). Caregivers see grants
 # pointed at them via ``/grants/by-caregiver``.
 app.include_router(caregiver_consent_router)
+# Caregiver Delivery Concern Aggregator (2026-05-01). Clinic-scoped
+# status/tick endpoints + audit ingestion for delivery-concern clustering.
+app.include_router(caregiver_delivery_concern_aggregator_router)
+# Caregiver Delivery Concern Resolution (2026-05-02). Clinician review +
+# resolution flow for aggregator flags.
+app.include_router(caregiver_delivery_concern_resolution_router)
+# Caregiver Delivery Concern Resolution Audit Hub (2026-05-02). Read-only
+# cohort analytics over resolution audit rows.
+app.include_router(caregiver_delivery_concern_resolution_audit_hub_router)
+# Caregiver Delivery Concern Resolution Outcome Tracker (2026-05-02).
+# Lightweight outcome tracking over resolution reasons.
+app.include_router(caregiver_delivery_concern_resolution_outcome_tracker_router)
+# Channel Auth Drift Resolution (2026-05-02). Admin marks auth drift rows rotated;
+# clinician list/audit views; cross-clinic scoped.
+app.include_router(channel_auth_drift_resolution_router)
+# Channel Auth Drift Resolution Audit Hub (2026-05-02). Read-only cohort analytics.
+app.include_router(channel_auth_drift_resolution_audit_hub_router)
 # Caregiver Email Digest (2026-05-01) — closes the bidirectional
 # notification loop opened by Caregiver Notification Hub #379. Daily
 # roll-up of unread caregiver notifications via the on-call delivery
@@ -537,6 +573,7 @@ if _HAS_QA_ROUTER and qa_router is not None:
     app.include_router(qa_router)
 app.include_router(qeeg_raw_router)
 app.include_router(qeeg_ai_router)
+app.include_router(video_assessment_router)
 app.include_router(studio_eeg_router)
 if _HAS_STUDIO_ARTIFACTS_ROUTER:
     app.include_router(studio_artifacts_router)
