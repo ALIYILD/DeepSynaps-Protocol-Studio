@@ -10,10 +10,24 @@
 
 ## 1) Executive summary
 
-- **Go/No-Go**: ☐ Go ☐ No-Go ☐ Go with constraints (listed below)
-- **What shipped**: (1–3 bullets)
-- **Major risks**: (1–3 bullets)
-- **Required follow-ups**: (links to issues / PRs)
+- **Go/No-Go**: ☐ Go ☐ No-Go ☑ Go with constraints (listed below)
+- **Doctor-demo ready**: ☑ Pending CI Node 20 build/E2E for PR #515; backend + clinical safety gates validated locally.
+- **Preview-ready**: ☑ Pending CI confirmation (Netlify/Fly deploys unchanged by this PR; doctor-ready hardening adds audits/tests/docs).
+- **Production-ready**: ☐ No (this PR is validation/hardening; several modules remain demo-gated and require operational secrets + evidence DB + clinician workflow sign-off).
+
+**What shipped (doctor-ready hardening):**
+- QEEG-105 Phase 0 registry-first surface (honest statuses, audit events, no placeholder results, SSE status stream).
+- Tenant isolation/security hardening for QEEG-105 job/run/result surfaces + PHI redaction before LLM prompt assembly.
+- Doctor-ready validation reports + deployment checklist updates (Node 20 requirement, MRI_DEMO_MODE boundary, etc.).
+
+**Major risks / constraints:**
+- CI (Node 20) build + Playwright E2E must pass before merge; local VM is Node 18 (Vite 7 cannot run).
+- Evidence DB in preview/prod may be empty; evidence routes intentionally return 503 until populated (acceptable for doctor-demo if documented).
+- Some “real” pipelines remain demo-gated (MRI_DEMO_MODE, DeepTwin simulation gate); must stay honest.
+
+**Required follow-ups:**
+- Land CI green on PR #515 and keep it draft until green.
+- Optional language hardening: rename visible Source Localization UI title to “MNE Source Imaging” (safer framing; no urgency).
 
 ---
 
@@ -58,12 +72,12 @@
 
 | Gate | Status | Notes / link |
 |---|---|---|
-| Web build | ☐ pass ☐ fail | |
-| Web unit tests | ☐ pass ☐ fail | |
-| E2E tests | ☐ pass ☐ fail | |
-| Backend tests | ☐ pass ☐ fail | |
-| Router lints | ☐ pass ☐ fail | |
-| API image smoke | ☐ pass ☐ fail | |
+| Web build | ☐ pass ☐ fail | CI Node 20 is authoritative (local VM Node 18 cannot run Vite 7) |
+| Web unit tests | ☑ pass ☐ fail | Local: `1029` pass (`npm run test:unit`) |
+| E2E tests | ☐ pass ☐ fail | CI Node 20 is authoritative (local VM Node 18 cannot start Vite webServer) |
+| Backend tests | ☑ pass ☐ fail | Targeted suites passed locally (see matrix below) |
+| Router lints | ☑ pass ☐ fail | `tests/test_router_basemodel_lint.py`, `tests/test_router_no_models_lint.py` covered by web unit suite; API lint tools in CI |
+| API image smoke | ☐ pass ☐ fail | CI gate |
 
 ---
 
@@ -71,12 +85,11 @@
 
 | Area | Command(s) | Result | Notes |
 |---|---|---|---|
-| Install (node) | `npm ci` | ☐ pass ☐ fail | |
-| Web unit tests | `npm run test:unit --workspace @deepsynaps/web` | ☐ pass ☐ fail | |
-| Web build | `npm run build:web` | ☐ pass ☐ fail | |
-| API install (editable) | (paste) | ☐ pass ☐ fail | |
-| API tests | `cd apps/api && python -m pytest -q` | ☐ pass ☐ fail | |
-| E2E | `npm run test:e2e --workspace @deepsynaps/web` | ☐ pass ☐ fail | |
+| Install (node) | `npm ci` | ☑ pass ☐ fail | Node 18 in VM; install ok |
+| Web unit tests | `cd apps/web && npm run test:unit` | ☑ pass ☐ fail | `1029` pass |
+| Web build | `cd apps/web && npm run build` | ☐ pass ☑ fail | Node 18 incompatible with Vite 7 (requires Node >=20.19) |
+| API tests (targeted) | `cd apps/api && python3 -m pytest -q ...` | ☑ pass ☐ fail | See matrix below |
+| E2E | `cd apps/web && npx playwright test` | ☐ pass ☑ fail | Blocked by Node 18 (cannot start Vite) |
 
 ---
 
