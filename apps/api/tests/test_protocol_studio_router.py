@@ -67,6 +67,38 @@ def _seed_two_clinics_with_patient() -> dict[str, str]:
         db.close()
 
 
+def _seed_patient_for_demo_clinician() -> dict[str, str]:
+    """Seed a clinic + ensure demo clinician owns a patient for auth tests."""
+    db = SessionLocal()
+    try:
+        clinic = Clinic(id="clinic-ps-demo", name="PS Clinic Demo")
+        db.add(clinic)
+        db.flush()
+
+        demo = db.query(User).filter_by(id="actor-clinician-demo").first()
+        assert demo is not None
+        demo.clinic_id = clinic.id
+        db.flush()
+
+        patient = Patient(
+            id=str(uuid.uuid4()),
+            clinician_id=demo.id,
+            first_name="Pat",
+            last_name="Demo",
+            dob="2000-01-01",
+            gender="female",
+            primary_condition="mdd",
+            status="active",
+            consent_signed=True,
+            consent_date="2026-01-01",
+        )
+        db.add(patient)
+        db.commit()
+        return {"patient_id": patient.id, "clinic_id": clinic.id, "clinician_id": demo.id}
+    finally:
+        db.close()
+
+
 def test_protocol_studio_evidence_health_structured(client: TestClient, auth_headers: dict) -> None:
     res = client.get("/api/v1/protocol-studio/evidence/health", headers=auth_headers["clinician"])
     assert res.status_code == 200
@@ -163,7 +195,14 @@ def test_generate_evidence_search_without_evidence_returns_insufficient(client: 
     res = client.post(
         "/api/v1/protocol-studio/generate",
         headers=auth_headers["clinician"],
-        json={"mode": "evidence_search", "condition": "mdd", "modality": "tms", "include_off_label": True, "constraints": {}},
+        json={
+            "mode": "evidence_search",
+            "condition": "mdd",
+            "modality": "tms",
+            "protocol_id": "PRO-FHIR",
+            "include_off_label": True,
+            "constraints": {},
+        },
     )
     assert res.status_code == 200
     body = res.json()
@@ -177,7 +216,14 @@ def test_generate_evidence_search_with_evidence_returns_draft_requires_review(cl
     res = client.post(
         "/api/v1/protocol-studio/generate",
         headers=auth_headers["clinician"],
-        json={"mode": "evidence_search", "condition": "mdd", "modality": "tms", "include_off_label": True, "constraints": {}},
+        json={
+            "mode": "evidence_search",
+            "condition": "mdd",
+            "modality": "tms",
+            "protocol_id": "PRO-FHIR",
+            "include_off_label": True,
+            "constraints": {},
+        },
     )
     assert res.status_code == 200
     body = res.json()
@@ -192,7 +238,14 @@ def test_generate_qeeg_mode_without_patient_returns_needs_more_data(client: Test
     res = client.post(
         "/api/v1/protocol-studio/generate",
         headers=auth_headers["clinician"],
-        json={"mode": "qeeg_guided", "condition": "mdd", "modality": "tms", "include_off_label": True, "constraints": {}},
+        json={
+            "mode": "qeeg_guided",
+            "condition": "mdd",
+            "modality": "tms",
+            "protocol_id": "PRO-FHIR",
+            "include_off_label": True,
+            "constraints": {},
+        },
     )
     assert res.status_code == 200
     body = res.json()
@@ -202,11 +255,19 @@ def test_generate_qeeg_mode_without_patient_returns_needs_more_data(client: Test
 
 def test_generate_qeeg_mode_with_patient_but_no_qeeg_returns_needs_more_data(client: TestClient, monkeypatch) -> None:
     _monkeypatch_evidence_ok(monkeypatch)
-    seeded = _seed_two_clinics_with_patient()
+    seeded = _seed_patient_for_demo_clinician()
     res = client.post(
         "/api/v1/protocol-studio/generate",
         headers={"Authorization": "Bearer clinician-demo-token"},
-        json={"patient_id": seeded["patient_id"], "mode": "qeeg_guided", "condition": "mdd", "modality": "tms", "include_off_label": True, "constraints": {}},
+        json={
+            "patient_id": seeded["patient_id"],
+            "mode": "qeeg_guided",
+            "condition": "mdd",
+            "modality": "tms",
+            "protocol_id": "PRO-FHIR",
+            "include_off_label": True,
+            "constraints": {},
+        },
     )
     assert res.status_code == 200
     body = res.json()
@@ -216,13 +277,13 @@ def test_generate_qeeg_mode_with_patient_but_no_qeeg_returns_needs_more_data(cli
 
 def test_generate_qeeg_mode_with_patient_and_qeeg_can_draft(client: TestClient, monkeypatch) -> None:
     _monkeypatch_evidence_ok(monkeypatch)
-    seeded = _seed_two_clinics_with_patient()
+    seeded = _seed_patient_for_demo_clinician()
     db = SessionLocal()
     try:
         db.add(
             QEEGAnalysis(
                 patient_id=seeded["patient_id"],
-                clinician_id=seeded["clinician_a"],
+                clinician_id=seeded["clinician_id"],
                 analysis_status="completed",
             )
         )
@@ -232,7 +293,15 @@ def test_generate_qeeg_mode_with_patient_and_qeeg_can_draft(client: TestClient, 
     res = client.post(
         "/api/v1/protocol-studio/generate",
         headers={"Authorization": "Bearer clinician-demo-token"},
-        json={"patient_id": seeded["patient_id"], "mode": "qeeg_guided", "condition": "mdd", "modality": "tms", "include_off_label": True, "constraints": {}},
+        json={
+            "patient_id": seeded["patient_id"],
+            "mode": "qeeg_guided",
+            "condition": "mdd",
+            "modality": "tms",
+            "protocol_id": "PRO-FHIR",
+            "include_off_label": True,
+            "constraints": {},
+        },
     )
     assert res.status_code == 200
     body = res.json()
@@ -242,11 +311,19 @@ def test_generate_qeeg_mode_with_patient_and_qeeg_can_draft(client: TestClient, 
 
 def test_generate_mri_mode_requires_mri_source(client: TestClient, monkeypatch) -> None:
     _monkeypatch_evidence_ok(monkeypatch)
-    seeded = _seed_two_clinics_with_patient()
+    seeded = _seed_patient_for_demo_clinician()
     res = client.post(
         "/api/v1/protocol-studio/generate",
         headers={"Authorization": "Bearer clinician-demo-token"},
-        json={"patient_id": seeded["patient_id"], "mode": "mri_guided", "condition": "mdd", "modality": "tms", "include_off_label": True, "constraints": {}},
+        json={
+            "patient_id": seeded["patient_id"],
+            "mode": "mri_guided",
+            "condition": "mdd",
+            "modality": "tms",
+            "protocol_id": "PRO-FHIR",
+            "include_off_label": True,
+            "constraints": {},
+        },
     )
     assert res.status_code == 200
     assert res.json()["status"] == "needs_more_data"
@@ -260,7 +337,15 @@ def test_generate_mri_mode_requires_mri_source(client: TestClient, monkeypatch) 
     res2 = client.post(
         "/api/v1/protocol-studio/generate",
         headers={"Authorization": "Bearer clinician-demo-token"},
-        json={"patient_id": seeded["patient_id"], "mode": "mri_guided", "condition": "mdd", "modality": "tms", "include_off_label": True, "constraints": {}},
+        json={
+            "patient_id": seeded["patient_id"],
+            "mode": "mri_guided",
+            "condition": "mdd",
+            "modality": "tms",
+            "protocol_id": "PRO-FHIR",
+            "include_off_label": True,
+            "constraints": {},
+        },
     )
     assert res2.status_code == 200
     assert res2.json()["status"] == "draft_requires_review"
@@ -268,11 +353,19 @@ def test_generate_mri_mode_requires_mri_source(client: TestClient, monkeypatch) 
 
 def test_generate_deeptwin_mode_requires_deeptwin_source(client: TestClient, monkeypatch) -> None:
     _monkeypatch_evidence_ok(monkeypatch)
-    seeded = _seed_two_clinics_with_patient()
+    seeded = _seed_patient_for_demo_clinician()
     res = client.post(
         "/api/v1/protocol-studio/generate",
         headers={"Authorization": "Bearer clinician-demo-token"},
-        json={"patient_id": seeded["patient_id"], "mode": "deeptwin_personalized", "condition": "mdd", "modality": "tms", "include_off_label": True, "constraints": {}},
+        json={
+            "patient_id": seeded["patient_id"],
+            "mode": "deeptwin_personalized",
+            "condition": "mdd",
+            "modality": "tms",
+            "protocol_id": "PRO-FHIR",
+            "include_off_label": True,
+            "constraints": {},
+        },
     )
     assert res.status_code == 200
     assert res.json()["status"] == "needs_more_data"
@@ -282,7 +375,7 @@ def test_generate_deeptwin_mode_requires_deeptwin_source(client: TestClient, mon
         db.add(
             DeepTwinAnalysisRun(
                 patient_id=seeded["patient_id"],
-                clinician_id=seeded["clinician_a"],
+                clinician_id=seeded["clinician_id"],
                 analysis_type="protocol-studio-fixture",
                 input_sources_json="[]",
                 output_summary_json="{}",
@@ -294,7 +387,15 @@ def test_generate_deeptwin_mode_requires_deeptwin_source(client: TestClient, mon
     res2 = client.post(
         "/api/v1/protocol-studio/generate",
         headers={"Authorization": "Bearer clinician-demo-token"},
-        json={"patient_id": seeded["patient_id"], "mode": "deeptwin_personalized", "condition": "mdd", "modality": "tms", "include_off_label": True, "constraints": {}},
+        json={
+            "patient_id": seeded["patient_id"],
+            "mode": "deeptwin_personalized",
+            "condition": "mdd",
+            "modality": "tms",
+            "protocol_id": "PRO-FHIR",
+            "include_off_label": True,
+            "constraints": {},
+        },
     )
     assert res2.status_code == 200
     assert res2.json()["status"] == "draft_requires_review"
@@ -302,11 +403,19 @@ def test_generate_deeptwin_mode_requires_deeptwin_source(client: TestClient, mon
 
 def test_generate_multimodal_requires_two_sources(client: TestClient, monkeypatch) -> None:
     _monkeypatch_evidence_ok(monkeypatch)
-    seeded = _seed_two_clinics_with_patient()
+    seeded = _seed_patient_for_demo_clinician()
     res = client.post(
         "/api/v1/protocol-studio/generate",
         headers={"Authorization": "Bearer clinician-demo-token"},
-        json={"patient_id": seeded["patient_id"], "mode": "multimodal", "condition": "mdd", "modality": "tms", "include_off_label": True, "constraints": {}},
+        json={
+            "patient_id": seeded["patient_id"],
+            "mode": "multimodal",
+            "condition": "mdd",
+            "modality": "tms",
+            "protocol_id": "PRO-FHIR",
+            "include_off_label": True,
+            "constraints": {},
+        },
     )
     assert res.status_code == 200
     body = res.json()
