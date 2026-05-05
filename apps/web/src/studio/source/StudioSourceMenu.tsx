@@ -41,6 +41,7 @@ export function StudioSourceMenu({
   const [winDip, setWinDip] = useState(false);
 
   const sourceHook = useAiStore((s) => s.sourceLocalizationChanged);
+  void channelNames;
 
   const open = (which: Intent) => {
     setIntent(which);

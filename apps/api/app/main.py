@@ -115,6 +115,66 @@ from app.routers.patient_oncall_router import router as patient_oncall_router
 from app.routers.patient_digest_router import router as patient_digest_router
 from app.routers.caregiver_consent_router import router as caregiver_consent_router
 from app.routers.caregiver_email_digest_router import router as caregiver_email_digest_router
+from app.routers.caregiver_delivery_concern_aggregator_router import (
+    router as caregiver_delivery_concern_aggregator_router,
+)
+from app.routers.caregiver_delivery_concern_resolution_router import (
+    router as caregiver_delivery_concern_resolution_router,
+)
+from app.routers.caregiver_delivery_concern_resolution_audit_hub_router import (
+    router as caregiver_delivery_concern_resolution_audit_hub_router,
+)
+from app.routers.caregiver_delivery_concern_resolution_outcome_tracker_router import (
+    router as caregiver_delivery_concern_resolution_outcome_tracker_router,
+)
+from app.routers.channel_auth_health_probe_router import (
+    router as channel_auth_health_probe_router,
+)
+from app.routers.channel_misconfiguration_detector_router import (
+    router as channel_misconfiguration_detector_router,
+)
+from app.routers.channel_auth_drift_resolution_router import (
+    router as channel_auth_drift_resolution_router,
+)
+from app.routers.channel_auth_drift_resolution_audit_hub_router import (
+    router as channel_auth_drift_resolution_audit_hub_router,
+)
+from app.routers.auth_drift_rotation_policy_advisor_router import (
+    router as auth_drift_rotation_policy_advisor_router,
+)
+from app.routers.clinical_trials_router import router as clinical_trials_router
+from app.routers.irb_amendment_workflow_router import (
+    router as irb_amendment_workflow_router,
+)
+from app.routers.coaching_digest_delivery_failure_drilldown_router import (
+    router as coaching_digest_delivery_failure_drilldown_router,
+)
+from app.routers.irb_amendment_reviewer_workload_router import (
+    router as irb_amendment_reviewer_workload_router,
+)
+from app.routers.irb_amendment_reviewer_workload_outcome_tracker_router import (
+    router as irb_amendment_reviewer_workload_outcome_tracker_router,
+)
+from app.routers.resolver_coaching_inbox_router import (
+    router as resolver_coaching_inbox_router,
+)
+from app.routers.resolver_coaching_digest_audit_hub_router import (
+    router as resolver_coaching_digest_audit_hub_router,
+)
+from app.routers.resolver_coaching_self_review_digest_router import (
+    router as resolver_coaching_self_review_digest_router,
+)
+from app.routers.reviewer_sla_calibration_threshold_tuning_router import (
+    router as reviewer_sla_calibration_threshold_tuning_router,
+)
+from app.routers.digital_phenotyping_router import router as digital_phenotyping_router
+from app.routers.labs_analyzer_router import router as labs_analyzer_router
+from app.routers.medication_analyzer_router import router as medication_analyzer_router
+from app.routers.movement_analyzer_router import router as movement_analyzer_router
+from app.routers.nutrition_analyzer_router import router as nutrition_analyzer_router
+from app.routers.qeeg_annotation_outcome_tracker_router import (
+    router as qeeg_annotation_outcome_tracker_router,
+)
 # Settings API routers (foundation scaffolded by backend subagent #1; endpoints
 # fleshed out by backend subagents #3–#6). See apps/api/SETTINGS_API_DESIGN.md.
 from app.routers.profile_router import router as profile_router
@@ -135,11 +195,11 @@ from app.routers.clinical_text_router import router as clinical_text_router
 from app.routers.agents_router import router as agents_router
 from app.routers.agent_admin_router import router as agent_admin_router
 from app.routers.admin_pgvector_router import router as admin_pgvector_router
-from app.routers.fusion_router import router as fusion_router
 from app.routers.monitor_router import router as monitor_router
 from app.routers.deeptwin_router import brain_twin_router, router as deeptwin_router
 from app.routers.feature_store_router import router as feature_store_router
 from app.routers.citation_validator_router import router as citation_validator_router
+from app.routers.ai_health_router import router as ai_health_router
 from app.routers.command_center_router import router as command_center_router
 from app.routers.dashboard_router import router as dashboard_router
 from app.routers.schedules_router import router as schedules_router
@@ -156,8 +216,18 @@ except ImportError as _qa_imp_err:
     )
 from app.routers.qeeg_raw_router import router as qeeg_raw_router
 from app.routers.qeeg_ai_router import router as qeeg_ai_router
+from app.qeeg.routers.qeeg_analysis_catalog_router import (
+    router as qeeg_105_analysis_catalog_router,
+)
+from app.qeeg.routers.qeeg_analysis_run_router import (
+    router as qeeg_105_analysis_run_router,
+)
+from app.qeeg.routers.qeeg_analysis_results_router import (
+    router as qeeg_105_analysis_results_router,
+)
 from app.routers.studio_eeg_router import router as studio_eeg_router
 from app.routers.studio_erp_router import router as studio_erp_router
+from app.routers.video_assessment_router import router as video_assessment_router
 from app.routers.studio_source_router import router as studio_source_router
 from app.routers.studio_spikes_router import router as studio_spikes_router
 from app.routers.studio_report_router import router as studio_report_router
@@ -166,6 +236,20 @@ from app.routers.recording_eeg_events_router import router as recording_eeg_even
 from app.routers.montages_router import router as montages_router
 from app.routers.audit_trail_router import router as audit_trail_router
 from app.routers.biometrics_router import router as biometrics_router
+from app.routers.qeeg_report_annotations_router import (
+    router as qeeg_report_annotations_router,
+)
+from app.routers.quality_assurance_router import router as quality_assurance_router
+from app.routers.rotation_policy_advisor_outcome_tracker_router import (
+    router as rotation_policy_advisor_outcome_tracker_router,
+)
+from app.routers.rotation_policy_advisor_threshold_adoption_outcome_tracker_router import (
+    router as rotation_policy_advisor_threshold_adoption_outcome_tracker_router,
+)
+from app.routers.rotation_policy_advisor_threshold_tuning_router import (
+    router as rotation_policy_advisor_threshold_tuning_router,
+)
+from app.routers.treatment_sessions_router import router as treatment_sessions_router
 from app.sentry_setup import init_sentry
 from app.settings import get_settings
 from app.services.brain_regions import list_brain_regions
@@ -181,6 +265,10 @@ from app.workers.auto_page_worker import (
 from app.workers.caregiver_email_digest_worker import (
     shutdown_worker as shutdown_caregiver_email_digest_worker,
     start_worker_if_enabled as start_caregiver_email_digest_worker,
+)
+from app.qeeg.workers.qeeg_analysis_worker import (
+    shutdown_worker as shutdown_qeeg_105_worker,
+    start_worker_if_enabled as start_qeeg_105_worker,
 )
 from app.services.agent_skills_seed import seed_default_agent_skills
 from app.services.clinical_data import seed_clinical_dataset
@@ -303,12 +391,16 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
     # dispatches. Per-caregiver enable lives on
     # caregiver_digest_preferences.enabled.
     start_caregiver_email_digest_worker()
+    # QEEG-105 Analysis Worker (Phase 0 scaffold) — gated on
+    # DEEPSYNAPS_QEEG_105_WORKER_ENABLED so tests / CI don't run background jobs.
+    start_qeeg_105_worker()
     try:
         yield
     finally:
         shutdown_scheduler()
         shutdown_auto_page_worker()
         shutdown_caregiver_email_digest_worker()
+        shutdown_qeeg_105_worker()
 
 
 app = FastAPI(title=settings.api_title, version=settings.api_version, lifespan=lifespan)
@@ -343,6 +435,11 @@ app.include_router(marketplace_seller_router)
 app.include_router(virtual_care_router)
 app.include_router(forms_router)
 app.include_router(medications_router)
+app.include_router(medication_analyzer_router)
+app.include_router(labs_analyzer_router)
+app.include_router(digital_phenotyping_router)
+app.include_router(movement_analyzer_router)
+app.include_router(nutrition_analyzer_router)
 app.include_router(consent_management_router)
 # Patient Home Program Tasks (Homework) launch-audit (2026-05-01).
 # Mounted BEFORE the clinician-side ``home_program_tasks_router`` so the
@@ -474,6 +571,27 @@ app.include_router(patient_digest_router)
 # patient access blocked at the router (404). Caregivers see grants
 # pointed at them via ``/grants/by-caregiver``.
 app.include_router(caregiver_consent_router)
+# Caregiver Delivery Concern Aggregator (2026-05-01). Clinic-scoped
+# status/tick endpoints + audit ingestion for delivery-concern clustering.
+app.include_router(caregiver_delivery_concern_aggregator_router)
+# Caregiver Delivery Concern Resolution (2026-05-02). Clinician review +
+# resolution flow for aggregator flags.
+app.include_router(caregiver_delivery_concern_resolution_router)
+# Caregiver Delivery Concern Resolution Audit Hub (2026-05-02). Read-only
+# cohort analytics over resolution audit rows.
+app.include_router(caregiver_delivery_concern_resolution_audit_hub_router)
+# Caregiver Delivery Concern Resolution Outcome Tracker (2026-05-02).
+# Lightweight outcome tracking over resolution reasons.
+app.include_router(caregiver_delivery_concern_resolution_outcome_tracker_router)
+app.include_router(channel_auth_health_probe_router)
+app.include_router(channel_misconfiguration_detector_router)
+# Channel Auth Drift Resolution (2026-05-02). Admin marks auth drift rows rotated;
+# clinician list/audit views; cross-clinic scoped.
+app.include_router(channel_auth_drift_resolution_router)
+# Channel Auth Drift Resolution Audit Hub (2026-05-02). Read-only cohort analytics.
+app.include_router(channel_auth_drift_resolution_audit_hub_router)
+app.include_router(auth_drift_rotation_policy_advisor_router)
+app.include_router(clinical_trials_router)
 # Caregiver Email Digest (2026-05-01) — closes the bidirectional
 # notification loop opened by Caregiver Notification Hub #379. Daily
 # roll-up of unread caregiver notifications via the on-call delivery
@@ -494,6 +612,9 @@ app.include_router(qeeg_analysis_router)
 app.include_router(qeeg_live_router)
 app.include_router(qeeg_copilot_router)
 app.include_router(qeeg_viz_router)
+app.include_router(qeeg_105_analysis_catalog_router)
+app.include_router(qeeg_105_analysis_run_router)
+app.include_router(qeeg_105_analysis_results_router)
 app.include_router(mri_analysis_router)
 app.include_router(fusion_router)
 app.include_router(monitor_router)
@@ -507,6 +628,7 @@ app.include_router(agent_admin_router)
 app.include_router(admin_pgvector_router)
 app.include_router(feature_store_router)
 app.include_router(citation_validator_router)
+app.include_router(ai_health_router)
 app.include_router(command_center_router)
 app.include_router(schedules_router)
 app.include_router(dashboard_router)
@@ -515,6 +637,7 @@ if _HAS_QA_ROUTER and qa_router is not None:
     app.include_router(qa_router)
 app.include_router(qeeg_raw_router)
 app.include_router(qeeg_ai_router)
+app.include_router(video_assessment_router)
 app.include_router(studio_eeg_router)
 if _HAS_STUDIO_ARTIFACTS_ROUTER:
     app.include_router(studio_artifacts_router)
@@ -527,6 +650,21 @@ app.include_router(studio_report_router)
 app.include_router(studio_eeg_database_router)
 app.include_router(recording_eeg_events_router)
 app.include_router(montages_router)
+app.include_router(irb_amendment_workflow_router)
+app.include_router(coaching_digest_delivery_failure_drilldown_router)
+app.include_router(irb_amendment_reviewer_workload_router)
+app.include_router(irb_amendment_reviewer_workload_outcome_tracker_router)
+app.include_router(resolver_coaching_inbox_router)
+app.include_router(resolver_coaching_digest_audit_hub_router)
+app.include_router(resolver_coaching_self_review_digest_router)
+app.include_router(reviewer_sla_calibration_threshold_tuning_router)
+app.include_router(qeeg_annotation_outcome_tracker_router)
+app.include_router(qeeg_report_annotations_router)
+app.include_router(quality_assurance_router)
+app.include_router(rotation_policy_advisor_outcome_tracker_router)
+app.include_router(rotation_policy_advisor_threshold_adoption_outcome_tracker_router)
+app.include_router(rotation_policy_advisor_threshold_tuning_router)
+app.include_router(treatment_sessions_router)
 app.include_router(audit_trail_router)
 app.include_router(biometrics_router)
 
