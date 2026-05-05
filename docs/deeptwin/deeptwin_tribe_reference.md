@@ -39,8 +39,9 @@ architecture. The pieces that map onto DeepTwin are:
 ## What should NOT be copied directly
 
 - **Whole-brain fMRI prediction goal.** TRIBE predicts dense neural
-  responses. DeepTwin predicts *clinical* trajectories, not fMRI maps.
-  Borrow the architecture; do not borrow the target.
+  responses. DeepTwin produces *modeled what-if trajectories* for clinician
+  review (decision-support), not validated patient-specific outcome prediction
+  and not fMRI maps. Borrow the architecture; do not borrow the target.
 - **Pretrained encoder choices.** TRIBE's audio/text/video encoders are
   not clinically calibrated. We expose the seam, but real model swaps
   must pass clinical validation before enabling.

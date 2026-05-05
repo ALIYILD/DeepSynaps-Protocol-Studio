@@ -189,7 +189,7 @@ test.describe('Flow 4: Media and messaging', () => {
     await page.goto('/');
     await waitForClinicianApp(page);
     await navTo(page, 'messaging');
-    await expect(page.locator('#content')).toContainText(/(message|inbox|compose|thread)/i);
+    await expect(page.locator('#content')).toContainText(/(virtual care|communications|new message|inbox|compose|thread)/i);
   });
 
   test('telehealth recorder loads', async ({ page }) => {

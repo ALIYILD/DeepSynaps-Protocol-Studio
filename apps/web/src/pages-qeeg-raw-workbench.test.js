@@ -284,8 +284,8 @@ await test('Manual Analysis tab source includes signal quality, findings builder
     'Create event marker',
     'Add to report',
     'Bicoherence / bispectrum: Future module',
-    'LORETA / sLORETA: Not computed in this build',
-    'WinEEG-style workflow reference only',
+    'Source imaging: Not computed in this workbench',
+    'Manual workflow reference only. DeepSynaps does not claim native WinEEG compatibility here.',
     'Clinician review required',
   ]) {
     assert.ok(WORKBENCH_SRC.includes(item), 'manual-analysis source item: ' + item);

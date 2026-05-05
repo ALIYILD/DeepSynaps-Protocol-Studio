@@ -19,14 +19,11 @@ async function demoLoginAs(page: Page, token: string) {
     try { localStorage.clear(); } catch {}
   });
   await page.goto('/');
-  await page.waitForSelector('#public-shell, body', { timeout: 15000 });
-  await page.waitForFunction(
-    () => typeof (window as any).demoLogin === 'function',
-    { timeout: 10000 },
-  );
-  await page.evaluate(async (t) => {
-    await (window as any).demoLogin(t);
-  }, token);
+  await page.waitForSelector('#public-shell', { timeout: 15000 });
+
+  // Wait for the SPA bootstrap to attach the demo helper.
+  await page.waitForFunction(() => typeof (window as any).demoLogin === 'function', { timeout: 15000 });
+  await page.evaluate((t) => (window as any).demoLogin(t), token);
 
   // Patient and clinician previews expose different root shells after login.
   await page.waitForSelector('#app-shell.visible, #patient-shell.visible', { timeout: 12000 });

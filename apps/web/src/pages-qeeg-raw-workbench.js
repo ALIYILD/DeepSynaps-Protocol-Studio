@@ -459,7 +459,7 @@ export function bootDemoState(state) {
     );
   }
 
-  // 4) WinEEG-style manual analysis checklist (matches backend wineeg_reference.py)
+  // 4) Legacy-style manual analysis checklist (demo reference only)
   if (!Array.isArray(state.manualChecklist) || state.manualChecklist.length === 0) {
     state.manualChecklist = [
       { category: 'recording_setup', title: 'Recording setup', action: 'Confirm recording metadata, condition, and preservation of original raw EEG.', safety_notes: ['Decision-support only.', 'Clinician review required before reporting.'] },
@@ -477,10 +477,10 @@ export function bootDemoState(state) {
     ];
   }
 
-  // 5) WinEEG-style reference concepts for the analysis panel
+  // 5) Reference concepts for the analysis panel (demo)
   if (!state.manualReference || !Array.isArray(state.manualReference.concepts)) {
     state.manualReference = {
-      source: 'WinEEG manuals reference summary (demo)',
+      source: 'Manual workflow reference summary (demo)',
       concepts: [
         { id: 'spectra', label: 'Spectra', summary: 'Spectral review helps organize slowing, alpha rhythm quality, excess beta, and focal deviations after artifact control.', caveats: ['Recording state affects spectra.', 'Reference and filters can change appearance.'] },
         { id: 'band_power', label: 'Band power', summary: 'Absolute and relative band power support descriptive review of delta, theta, alpha, beta, and related patterns.', caveats: ['Not diagnostic by itself.', 'Medication confounds should be considered.'] },
@@ -994,7 +994,7 @@ function clinicalCss() {
     .qwb-pat-chip .qwb-pat-dot { width:6px; height:6px; border-radius:50%; background:#2f6b3a; }
     .qwb-pat-chip b { font-weight:700; color:#1a1a1a; }
 
-    /* ── Toolbar (WinEEG parity) ─────────────────────────────── */
+    /* ── Toolbar (legacy workstation parity) ─────────────────────────────── */
     .qwb-toolbar {
       display:flex; flex-direction:column; gap:0;
       background:#F3EEE5; border-bottom:1px solid #d8d1c3;
@@ -2000,7 +2000,7 @@ function titleBar(state) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Toolbar (WinEEG parity)
+// Toolbar (legacy workstation parity)
 // ─────────────────────────────────────────────────────────────────────────────
 
 function toolBar(state) {
@@ -3307,7 +3307,7 @@ function renderManualAnalysisPanel(state) {
         ${_manualReferenceOnlyPill('Decision-support only')}
       </div>
       <div style="font-size:11px;color:#6b6660;line-height:1.45">
-        WinEEG-style workflow reference only. DeepSynaps does not claim native WinEEG compatibility here. Clinician review required.
+        Manual workflow reference only. DeepSynaps does not claim native WinEEG compatibility here. Clinician review required.
       </div>
     </div>
     <div class="qwb-side-section" data-testid="qwb-manual-signal-quality">
@@ -3358,7 +3358,7 @@ function renderManualAnalysisPanel(state) {
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
         ${['Spectra', 'Absolute power', 'Relative power', 'Asymmetry', 'Coherence', 'Average coherence'].map(item => _manualReferenceOnlyPill(item)).join('')}
         <span data-testid="qwb-manual-ref-bicoherence">${_manualReferenceOnlyPill('Bicoherence / bispectrum: Future module')}</span>
-        <span data-testid="qwb-manual-ref-loreta">${_manualReferenceOnlyPill('LORETA / sLORETA: Not computed in this build')}</span>
+        <span data-testid="qwb-manual-ref-source">${_manualReferenceOnlyPill('Source imaging: Not computed in this workbench')}</span>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px">
         ${concepts.slice(0, 5).map(item => `<div class="qwb-card"><div style="font-weight:600;font-size:12px">${esc(item.label || item.id || 'Concept')}</div><div style="font-size:11px;line-height:1.45;margin-top:3px">${esc(item.summary || '')}</div><div style="font-size:10px;color:#6b6660;margin-top:4px">${esc((item.caveats || []).join(' · ') || 'Clinician review required.')}</div></div>`).join('')}
@@ -3529,7 +3529,7 @@ function renderHelpPanel(state) {
     </div>
     <div class="qwb-side-section">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <div style="font-weight:600;font-size:13px">WinEEG Workflow Checklist</div>
+        <div style="font-weight:600;font-size:13px">Manual Workflow Checklist</div>
         <span style="font-size:10px;color:#6b6660">${(state.manualChecklist || []).filter(function() { return true; }).length} steps</span>
       </div>
       <div style="font-size:10px;color:#6b6660;margin-bottom:8px">Follow this workflow order for reliable manual qEEG review. Check off each step as you complete it.</div>
@@ -4933,7 +4933,7 @@ function attachCleaningPanelHandlers(state) {
     renderStatusBar(state);
     state.saveStatus = 'sign‑off revoked';
   });
-  // WinEEG workflow checklist toggle
+  // Manual workflow checklist toggle
   document.querySelectorAll('#qwb-right-body [data-checklist-cat]').forEach(li => {
     li.addEventListener('click', () => {
       if (!state._checklistDone) state._checklistDone = {};
@@ -5032,7 +5032,7 @@ function attachICAPanelHandlers(state) {
 }
 
 function attachBestPracticeHandlers(state) {
-  // WinEEG workflow checklist toggle — must be re-attached on every render
+  // Manual workflow checklist toggle — must be re-attached on every render
   document.querySelectorAll('#qwb-right-body [data-checklist-cat]').forEach(li => {
     li.addEventListener('click', () => {
       if (!state._checklistDone) state._checklistDone = {};

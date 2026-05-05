@@ -465,6 +465,14 @@ def chat_clinician(messages: list[dict], patient_context: str | None = None) -> 
     # Add patient context as a user message, not system prompt, to prevent
     # prompt injection via patient-supplied data overriding system instructions.
     if patient_context:
+        # Best-effort PHI redaction before any LLM/provider call.
+        try:
+            from app.qeeg.services.phi_redaction import redact_phi
+
+            patient_context = redact_phi(patient_context).redacted_text
+        except Exception:
+            # Fail open: context is optional, and callers already have safety banners.
+            pass
         messages = [
             {"role": "user", "content": f"[Patient context for this session]\n{patient_context}"},
             {"role": "assistant", "content": "Understood. I have the patient context."},

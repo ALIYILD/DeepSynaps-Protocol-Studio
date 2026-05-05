@@ -3,13 +3,10 @@ import { mockApiSuccess, setAuthToken } from './helpers';
 
 test.describe('Login and Dashboard', () => {
   test('shows public landing when unauthenticated', async ({ page }) => {
+    await page.addInitScript(() => { try { localStorage.clear(); } catch {} });
     await page.goto('/');
-    // Should show public shell or login
-    const publicShell = page.locator('#public-shell');
-    const loginVisible = await publicShell.isVisible().catch(() => false);
-    // Either public shell or a login form should be visible
-    const hasLoginForm = await page.locator('input[type="email"]').isVisible().catch(() => false);
-    expect(loginVisible || hasLoginForm).toBeTruthy();
+    await page.waitForSelector('#public-shell.visible', { timeout: 15000 });
+    await expect(page.locator('#public-shell')).toBeVisible();
   });
 
   test('login form submits and navigates to dashboard', async ({ page }) => {
