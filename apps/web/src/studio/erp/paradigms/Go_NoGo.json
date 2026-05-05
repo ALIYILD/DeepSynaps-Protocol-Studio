@@ -1,0 +1,18 @@
+{
+  "name": "Go / NoGo",
+  "code": "Go_NoGo",
+  "description": "Response inhibition: frequent Go stimuli and infrequent NoGo stimuli requiring withheld response",
+  "stimClasses": [
+    { "code": "GO", "label": "Go", "expectedProbability": 0.8 },
+    { "code": "NOGO", "label": "NoGo", "expectedProbability": 0.2 }
+  ],
+  "preStimMs": -200,
+  "postStimMs": 800,
+  "baselineCorrection": "mean",
+  "artifactThresholdUv": 100,
+  "minTrials": 30,
+  "expectedPeaks": ["N200", "P300"],
+  "citations": [
+    "Smith, J. L., Johnstone, S. J., & Barry, R. J. (2008). Movement-related potentials in the Go/NoGo task: The P3-like ERP and modulating subjects' performance. Neuropsychologia, 46(1), 222-233."
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "Pattern: high / low / right",
+  "code": "PAT_HLR",
+  "description": "Multi-condition pattern stimulation contrasting high contrast, low contrast, and right-field variants (labels are placeholders—map to your lab's event codes)",
+  "stimClasses": [
+    { "code": "HI", "label": "High contrast", "expectedProbability": 0.34 },
+    { "code": "LO", "label": "Low contrast", "expectedProbability": 0.33 },
+    { "code": "RGT", "label": "Right field", "expectedProbability": 0.33 }
+  ],
+  "preStimMs": -100,
+  "postStimMs": 300,
+  "baselineCorrection": "mean",
+  "artifactThresholdUv": 100,
+  "minTrials": 60,
+  "expectedPeaks": ["N100", "P200"],
+  "citations": [
+    "TODO: clinical reference for PAT_HLR"
+  ]
+}

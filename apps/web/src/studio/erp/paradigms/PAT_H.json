@@ -1,0 +1,17 @@
+{
+  "name": "Pattern reversal (high contrast)",
+  "code": "PAT_H",
+  "description": "Checkerboard or grating pattern reversal at high contrast for visual evoked potentials",
+  "stimClasses": [
+    { "code": "REV", "label": "Reversal", "expectedProbability": 1.0 }
+  ],
+  "preStimMs": -100,
+  "postStimMs": 300,
+  "baselineCorrection": "mean",
+  "artifactThresholdUv": 100,
+  "minTrials": 100,
+  "expectedPeaks": ["N100", "P200"],
+  "citations": [
+    "Odom, J. V., Bach, M., Barber, C., et al. (2010). ISCEV standard for clinical visual evoked potentials (2009 update). Documenta Ophthalmologica, 120(1), 1-12."
+  ]
+}

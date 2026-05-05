@@ -65,6 +65,29 @@ def trials_to_mne_events(
     return ev, ids, tids
 
 
+def apply_linear_baseline_to_epochs(epochs: Any, *, tmin_bl: float, tmax_bl: float) -> None:
+    """In-place: subtract linear trend fit on [tmin_bl, tmax_bl] per epoch × channel."""
+    import mne
+
+    if not isinstance(epochs, mne.Epochs):
+        return
+    times = epochs.times
+    bl_mask = (times >= tmin_bl) & (times <= tmax_bl)
+    if not bl_mask.any():
+        return
+    x_bl = times[bl_mask]
+    data = epochs.get_data(copy=False)
+    for ei in range(data.shape[0]):
+        for ci in range(data.shape[1]):
+            y = data[ei, ci].astype("float64", copy=False)
+            y_bl = y[bl_mask]
+            if y_bl.size < 2:
+                continue
+            coeffs = np.polyfit(x_bl, y_bl, 1)
+            trend = np.polyval(coeffs, times)
+            data[ei, ci] = y - trend
+
+
 def build_epochs(
     raw: Any,
     *,
