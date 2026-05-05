@@ -72,9 +72,9 @@ if [ "$want_web" = 1 ]; then
 
   echo "▶ Deploying dist/ to Netlify site $NETLIFY_SITE_ID"
   if [ "$is_wsl" = 1 ] && [ "$netlify_cmd" = "netlify.cmd" ] && command -v powershell.exe >/dev/null 2>&1; then
-    powershell.exe -NoProfile -Command "netlify deploy --filter $NETLIFY_FILTER --dir apps/web/dist --prod --site $NETLIFY_SITE_ID"
+    powershell.exe -NoProfile -Command "netlify deploy --dir apps/web/dist --prod --site $NETLIFY_SITE_ID"
   else
-    "$netlify_cmd" deploy --filter "$NETLIFY_FILTER" --dir apps/web/dist --prod --site "$NETLIFY_SITE_ID"
+    "$netlify_cmd" deploy --dir apps/web/dist --prod --site "$NETLIFY_SITE_ID"
   fi
   echo "✓ Web live: https://deepsynaps-studio-preview.netlify.app"
 fi
