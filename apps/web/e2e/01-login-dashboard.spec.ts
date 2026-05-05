@@ -4,6 +4,7 @@ import { mockApiSuccess, setAuthToken } from './helpers';
 test.describe('Login and Dashboard', () => {
   test('shows public landing when unauthenticated', async ({ page }) => {
     await page.goto('/');
+    await page.waitForSelector('#public-shell', { timeout: 15000 });
     // Should show public shell or login
     const publicShell = page.locator('#public-shell');
     const loginVisible = await publicShell.isVisible().catch(() => false);
