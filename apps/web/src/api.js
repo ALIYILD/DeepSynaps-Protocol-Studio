@@ -1259,6 +1259,51 @@ export const api = {
   escalateCrisis: (patientId, payload) => apiFetch(`/api/v1/crisis-escalations`, { method: 'POST', body: JSON.stringify({ patient_id: patientId, ...(payload || {}) }) }),
   listCohorts: () => apiFetchWithRetry('/api/v1/cohorts'),
 
+  // ── Assessments v2 (doctor workspace) ───────────────────────────────────
+  // Thin wrappers over /api/v1/assessments-v2/* (licence-aware, audit-logged).
+  assessmentsV2Library: () => apiFetchWithRetry('/api/v1/assessments-v2/library'),
+  assessmentsV2LibraryById: (assessmentId) =>
+    apiFetchWithRetry(`/api/v1/assessments-v2/library/${encodeURIComponent(assessmentId)}`),
+  assessmentsV2ByCondition: (condition) =>
+    apiFetchWithRetry(`/api/v1/assessments-v2/by-condition/${encodeURIComponent(condition)}`),
+  assessmentsV2ByDomain: (domain) =>
+    apiFetchWithRetry(`/api/v1/assessments-v2/by-domain/${encodeURIComponent(domain)}`),
+  assessmentsV2AssignToPatient: (patientId, payload) =>
+    apiFetch(`/api/v1/assessments-v2/patients/${encodeURIComponent(patientId)}/assign`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+  assessmentsV2PatientQueue: (patientId) =>
+    apiFetchWithRetry(`/api/v1/assessments-v2/patients/${encodeURIComponent(patientId)}/queue`),
+  assessmentsV2Queue: () => apiFetchWithRetry('/api/v1/assessments-v2/queue'),
+  assessmentsV2PatchAssignment: (assignmentId, payload) =>
+    apiFetch(`/api/v1/assessments-v2/assignments/${encodeURIComponent(assignmentId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload || {}),
+    }),
+  assessmentsV2AssignmentForm: (assignmentId) =>
+    apiFetchWithRetry(`/api/v1/assessments-v2/assignments/${encodeURIComponent(assignmentId)}/form`),
+  assessmentsV2SubmitResponses: (assignmentId, payload) =>
+    apiFetch(`/api/v1/assessments-v2/assignments/${encodeURIComponent(assignmentId)}/responses`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+  assessmentsV2Score: (assignmentId) =>
+    apiFetch(`/api/v1/assessments-v2/assignments/${encodeURIComponent(assignmentId)}/score`, { method: 'POST' }),
+  assessmentsV2GetScore: (assignmentId) =>
+    apiFetchWithRetry(`/api/v1/assessments-v2/assignments/${encodeURIComponent(assignmentId)}/score`),
+  assessmentsV2EvidenceHealth: () => apiFetchWithRetry('/api/v1/assessments-v2/evidence/health'),
+  assessmentsV2EvidenceSearch: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetchWithRetry('/api/v1/assessments-v2/evidence/search' + (q ? '?' + q : ''));
+  },
+  assessmentsV2EvidenceForAssessment: (assessmentId) =>
+    apiFetchWithRetry(`/api/v1/assessments-v2/library/${encodeURIComponent(assessmentId)}/evidence`),
+  assessmentsV2Recommend: (payload) =>
+    apiFetch('/api/v1/assessments-v2/recommend', { method: 'POST', body: JSON.stringify(payload || {}) }),
+
   // ── Course-scoped reads (assessment severity, audit trail, AE roll-up) ──
   getCourseAssessmentSummary: (courseId) => apiFetch(`/api/v1/treatment-courses/${encodeURIComponent(courseId)}/assessment-summary`),
   getCourseAuditTrail: (courseId) => apiFetch(`/api/v1/treatment-courses/${encodeURIComponent(courseId)}/audit-trail`),

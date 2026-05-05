@@ -44,6 +44,7 @@ import {
   DEMO_ASSESSMENTS_BANNER_MARK,
   mapApiAssessmentToQueueRow,
 } from './assessments-hub-mapping.js';
+import { hydrateAssessmentsV2Queue } from './assessments-v2-queue.js';
 
 function shortMrn(p) {
   if (p?.mrn) return String(p.mrn);
@@ -11937,30 +11938,20 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   /** True when listAssessments returned successfully with zero items (not an error). */
   let assessmentsListEmptyOk = false;
   const allowSampleQueueFallback = assessmentsSampleQueueAllowed(import.meta.env, api.getToken?.()).allowed;
-  try {
-    const apiRes = await (api.listAssessments?.() || Promise.reject());
-    const items = Array.isArray(apiRes) ? apiRes : ((apiRes && apiRes.items) || []);
-    assessmentsListEmptyOk = items.length === 0;
-    if (items.length) {
-      const merged = items
-        .slice(0, 80)
-        .map((a, i) => mapApiAssessmentToQueueRow(a, i, scoringEngine, ASSESS_REGISTRY));
-      if (merged.length) {
-        queueRows = merged;
-      }
-    } else if (allowSampleQueueFallback) {
-      queueRows = MOCK_QUEUE;
-      usingDemoData = true;
-      usingSampleQueue = true;
-    }
-  } catch {
-    assessmentsListFetchFailed = true;
-    assessmentsListEmptyOk = false;
-    if (allowSampleQueueFallback) {
-      queueRows = MOCK_QUEUE;
-      usingDemoData = true;
-      usingSampleQueue = true;
-    }
+  {
+    const hydrated = await hydrateAssessmentsV2Queue({
+      allowSampleQueueFallback,
+      loadV2Queue: () => api.assessmentsV2Queue?.(),
+      loadLegacyQueue: () => api.listAssessments?.(),
+      loadDemoRows: () => MOCK_QUEUE,
+      mapRow: (a, i) => mapApiAssessmentToQueueRow(a, i, scoringEngine, ASSESS_REGISTRY),
+      maxRows: 80,
+    });
+    queueRows = hydrated.rows;
+    usingSampleQueue = hydrated.source === 'demo';
+    usingDemoData = hydrated.source === 'demo';
+    assessmentsListFetchFailed = hydrated.fetchFailed;
+    assessmentsListEmptyOk = hydrated.emptyOk;
   }
 
   // Compute real counts from hydrated rows and update the topbar.
@@ -12437,18 +12428,26 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
 
     window._ahSaveDraft = async () => {
       const s = window._ahForm; if (!s) return;
-      const payload = {
-        patient_id: s.patientId || null,
-        scale_id: s.instrumentId,
-        status: 'draft',
-        data: { items: s.values, scale_id: s.instrumentId, source: 'assessments-hub-v2' },
-      };
       try {
-        if (s.backendId) {
-          await api.updateAssessment(s.backendId, payload);
+        // If we have an existing backend assignment id, persist via v2 assignment responses.
+        if (s.backendId && api.assessmentsV2SubmitResponses) {
+          await api.assessmentsV2SubmitResponses(s.backendId, {
+            status: 'in_progress',
+            items: s.values,
+          });
         } else {
-          const res = await api.createAssessment(payload);
-          if (res && res.id) s.backendId = res.id;
+          const payload = {
+            patient_id: s.patientId || null,
+            scale_id: s.instrumentId,
+            status: 'draft',
+            data: { items: s.values, scale_id: s.instrumentId, source: 'assessments-hub-v2' },
+          };
+          if (s.backendId) {
+            await api.updateAssessment(s.backendId, payload);
+          } else {
+            const res = await api.createAssessment(payload);
+            if (res && res.id) s.backendId = res.id;
+          }
         }
         window._dsToast?.({ title:'Draft saved', body:'Progress saved — return later to finish.', severity:'success' });
       } catch {
@@ -12489,59 +12488,53 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         itemsArr = null;
       }
 
-      const payload = {
-        patient_id: s.patientId || null,
-        scale_id: instId,
-        status: 'completed',
-        score: String(total),
-        data: {
-          score: total,
-          interpretation: interp?.label || null,
-          severity: interp?.severity || null,
-          items: itemsArr,
-          scale_id: instId,
-          source: 'assessments-hub-v2',
-          safety,
-        },
-      };
-
       let savedId = s.backendId;
-      const _persist = async (overrideVal) => {
-        const p = overrideVal ? { ...payload, data: { ...payload.data, override_score_validation: true }, override_score_validation: true } : payload;
+      const _persist = async () => {
+        // Prefer v2 assignment workflow when backendId represents an assignment id.
+        if (s.backendId && api.assessmentsV2SubmitResponses) {
+          await api.assessmentsV2SubmitResponses(s.backendId, {
+            status: 'completed',
+            items: itemsArr,
+            score_numeric: total,
+          });
+          if (api.assessmentsV2Score) {
+            // Best-effort canonical scoring when available (no-op for score-only instruments).
+            try { await api.assessmentsV2Score(s.backendId); } catch {}
+          }
+          savedId = s.backendId;
+          return;
+        }
+
+        // Fallback to legacy v1 record creation when not operating on an assignment id.
+        const payload = {
+          patient_id: s.patientId || null,
+          scale_id: instId,
+          status: 'completed',
+          score: String(total),
+          data: {
+            score: total,
+            interpretation: interp?.label || null,
+            severity: interp?.severity || null,
+            items: itemsArr,
+            scale_id: instId,
+            source: 'assessments-hub-v2',
+            safety,
+          },
+        };
         if (s.backendId) {
-          await api.updateAssessment(s.backendId, p);
+          await api.updateAssessment(s.backendId, payload);
         } else {
-          const res = await api.createAssessment(p);
+          const res = await api.createAssessment(payload);
           savedId = res?.id || null;
         }
       };
       try {
-        await _persist(false);
+        await _persist();
         window._dsToast?.({ title:'Submitted', body:(inst.abbr||instId)+' · '+total+(inst.max?'/'+inst.max:'')+' · '+(interp?.label||'scored'), severity:'success' });
       } catch (err) {
-        // Server-side canonical-score validation rejected the submit (±5% tolerance).
-        // Surface the delta + offer clinician-override retry so we don't block on minor
-        // rounding but still audit. Otherwise fall through to offline toast.
-        if (err && err.code === 'score_mismatch' && err.details) {
-          const d = err.details;
-          const ok = window.confirm(
-            'Score mismatch: clinician entered '+d.submitted_score+' · server computed '+d.canonical_score+
-            ' (Δ '+(d.delta_pct!=null?d.delta_pct.toFixed(1)+'%':'n/a')+'). Submit with clinician override?'
-          );
-          if (ok) {
-            try {
-              await _persist(true);
-              window._dsToast?.({ title:'Submitted (override)', body:'Canonical '+d.canonical_score+' · clinician '+d.submitted_score, severity:'success' });
-            } catch {
-              window._dsToast?.({ title:'Saved offline', body:'Will sync when backend is available.', severity:'info' });
-            }
-          } else {
-            window._dsToast?.({ title:'Submit cancelled', body:'Adjust score or items then resubmit.', severity:'warn' });
-            return;
-          }
-        } else {
-          window._dsToast?.({ title:'Saved offline', body:'Will sync when backend is available.', severity:'info' });
-        }
+        // v2 does not support a clinician override of canonical scoring via this UI.
+        // If v1 validation rejects, fall back to offline/local behaviour.
+        window._dsToast?.({ title:'Saved offline', body:'Will sync when backend is available.', severity:'info' });
       }
 
       // Fire-and-forget AI summary
@@ -12622,7 +12615,12 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   function tabBar() {
     return Object.entries(TAB_META).map(([id,m]) => {
       const hot = m.hot && id === 'queue' ? ' hot' : '';
-      return '<button class="dv2a-tab'+(tab===id?' active':'')+'" onclick="window._assessTab(\''+id+'\')">'+esc(m.label)+' <span class="dv2a-tab-count'+hot+'">'+esc(m.count)+'</span></button>';
+      const tid =
+        id === 'queue' ? 'assessments-queue-tab' :
+        id === 'cohort' ? 'assessments-condition-map-tab' :
+        id === 'library' ? 'assessments-library-tab' :
+        id === 'individual' ? 'assessments-fill-score-tab' : 'assessments-tab';
+      return '<button class="dv2a-tab'+(tab===id?' active':'')+'" data-testid="'+esc(tid)+'" onclick="window._assessTab(\''+id+'\')">'+esc(m.label)+' <span class="dv2a-tab-count'+hot+'">'+esc(m.count)+'</span></button>';
     }).join('') +
     '<div class="dv2a-legend">' +
       '<span><i style="background:var(--rose,#ff6b9d)"></i>Red flag</span>' +
@@ -12753,7 +12751,9 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         ? '<div style="padding:18px 14px;text-align:center;font-size:11.5px;color:var(--text-tertiary);border-bottom:1px solid var(--border)">No assessments match the current instrument filter. Choose <strong>All instruments</strong> or another filter.</div>'
         : '';
 
-    return kpiHtml + chipHtml +
+    return '<div id="assessments-queue" data-testid="assessments-queue">' +
+      kpiHtml + chipHtml +
+      '</div>' +
       '<div class="dv2a-card">' +
         emptyBanner +
         '<div class="dv2a-queue-head"><div></div><div>Patient</div><div>Instrument</div><div>Last score · severity</div><div>Trend (course)</div><div>Due</div><div>Send via</div><div></div></div>' +
@@ -12770,7 +12770,7 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   async function renderSidePanel() {
     const row = queueRows.find((r) => r.id === selectedId);
     if (!row) {
-      return '<div class="dv2a-side"><div class="dv2a-side-body" style="text-align:center;color:var(--text-tertiary);padding:40px 20px">Select a row in the queue to open the detail panel.</div></div>';
+      return '<div class="dv2a-side" data-testid="assessments-evidence-panel"><div class="dv2a-side-body" style="text-align:center;color:var(--text-tertiary);padding:40px 20px">Select a row in the queue to open the detail panel.</div></div>';
     }
 
     const detailId = assessmentDetailIdFromRow(row);
@@ -12842,6 +12842,95 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       '<div class="dv2a-ai-body">' +
       aiSummary +
       '</div>' +
+      '</div>';
+
+    // Evidence + AI Recommendations (best-effort; never block UI).
+    let evidenceHealth = null;
+    try { evidenceHealth = await (api.assessmentsV2EvidenceHealth?.() || Promise.reject()); } catch {}
+    const evOk = !!evidenceHealth?.ok;
+    const evBadge = evOk
+      ? '<span class="dv2a-chip-sm teal" data-testid="assessments-evidence-health">Evidence: OK</span>'
+      : '<span class="dv2a-chip-sm amber" data-testid="assessments-evidence-health">Evidence: unavailable</span>';
+    const evNote = evidenceHealth
+      ? '<div style="font-size:10.5px;color:var(--text-tertiary);line-height:1.45;margin-top:6px">' +
+        esc(String(evidenceHealth.local_corpus_note || '')) +
+        (evidenceHealth.live_literature_note ? ' · ' + esc(String(evidenceHealth.live_literature_note)) : '') +
+        '</div>'
+      : '<div style="font-size:10.5px;color:var(--text-tertiary);line-height:1.45;margin-top:6px">Evidence services not reachable. Showing only what is locally cached/available.</div>';
+
+    let evRefs = [];
+    try {
+      const aid = (row.scaleId || row.inst || '').toLowerCase();
+      const evRes = await (api.assessmentsV2EvidenceForAssessment?.(aid) || Promise.reject());
+      evRefs = Array.isArray(evRes?.items) ? evRes.items : [];
+    } catch {}
+    const evRefsHtml = (evRefs && evRefs.length)
+      ? '<div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">' +
+        evRefs.slice(0, 6).map((r) => {
+          const title = esc(r.title || 'Untitled');
+          const yr = r.year ? ' · ' + esc(String(r.year)) : '';
+          const src = r.source_link ? '<a href="'+esc(r.source_link)+'" target="_blank" rel="noreferrer" style="color:var(--teal,#00d4bc);text-decoration:none">Open</a>' : '';
+          const idt = (r.doi ? 'DOI '+esc(r.doi) : (r.pmid ? 'PMID '+esc(r.pmid) : ''));
+          return '<div class="dv2a-card" style="padding:10px 12px;background:rgba(255,255,255,0.02)">' +
+            '<div style="font-size:11.5px;font-weight:650;color:var(--text-primary);line-height:1.4">'+title+'</div>' +
+            '<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:4px;line-height:1.4">' +
+              esc((r.journal || r.authors || '').toString()) + yr +
+              (idt ? ' · '+idt : '') +
+            '</div>' +
+            (src ? '<div style="margin-top:6px;font-size:10.5px">'+src+'</div>' : '') +
+          '</div>';
+        }).join('') +
+        '</div>'
+      : '<div style="font-size:11px;color:var(--text-tertiary);margin-top:10px">No structured evidence references are linked for this instrument in this build.</div>';
+
+    let recs = null;
+    try {
+      if (row.patientId) {
+        recs = await (api.assessmentsV2Recommend?.({
+          patient_id: row.patientId,
+          condition: (row.dx || '').slice(0, 120) || null,
+          symptom_domains: [],
+          clinician_question: null,
+        }) || Promise.reject());
+      }
+    } catch {}
+    const recList = Array.isArray(recs?.recommended) ? recs.recommended : [];
+    const recHtml = (row.patientId)
+      ? (recList.length
+          ? '<div data-testid="assessments-ai-recommendation" style="display:flex;flex-direction:column;gap:8px;margin-top:10px">' +
+            recList.slice(0, 6).map((x) =>
+              '<div class="dv2a-card" style="padding:10px 12px;background:rgba(255,255,255,0.02)">' +
+                '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">' +
+                  '<div style="min-width:0"><div style="font-size:12px;font-weight:700;color:var(--text-primary)">'+esc(x.assessment_id)+'</div>' +
+                    '<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:4px;line-height:1.45">'+esc(x.reason || '')+'</div></div>' +
+                  '<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;white-space:nowrap">' +
+                    '<span class="dv2a-chip-sm '+(x.fillable_in_platform?'teal':'amber')+'">'+(x.fillable_in_platform?'Fillable':'External')+'</span>' +
+                    '<span class="dv2a-chip-sm '+(x.scorable_in_platform?'teal':'amber')+'">'+(x.scorable_in_platform?'Scorable':'Manual')+'</span>' +
+                    '<span class="dv2a-chip-sm">'+esc(x.licence_status || 'unknown')+'</span>' +
+                  '</div>' +
+                '</div>' +
+              '</div>'
+            ).join('') +
+            '</div>'
+          : '<div data-testid="assessments-ai-recommendation" style="font-size:11px;color:var(--text-tertiary);margin-top:10px">No recommendations available for this patient context (or service unavailable).</div>')
+      : '<div data-testid="assessments-ai-recommendation" style="font-size:11px;color:var(--text-tertiary);margin-top:10px">No patient ID on this row — AI recommendation requires a patient-linked assignment.</div>';
+
+    const evidencePanelHtml =
+      '<div class="dv2a-ai-card" style="border-color:rgba(99,102,241,0.35)">' +
+        '<div class="dv2a-ai-badge" style="background:rgba(99,102,241,0.15);color:#a5b4fc">Evidence</div>' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px">' +
+          '<div style="font-size:10.5px;color:var(--text-tertiary)">Local corpus / live literature status</div>' +
+          evBadge +
+        '</div>' +
+        evNote +
+        evRefsHtml +
+      '</div>';
+
+    const recommendPanelHtml =
+      '<div class="dv2a-ai-card" style="border-color:rgba(0,212,188,0.25)">' +
+        '<div class="dv2a-ai-badge" style="background:rgba(0,212,188,0.14);color:var(--teal,#00d4bc)">AI recommendations</div>' +
+        '<div class="dv2a-ai-meta">Decision support only · clinician review required · no autonomous diagnosis</div>' +
+        recHtml +
       '</div>';
 
     const reviewHtml =
@@ -12942,10 +13031,10 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       : '';
 
     return (
-      '<div class="dv2a-side" style="position:relative">' +
+      '<div class="dv2a-side" data-testid="assessments-evidence-panel" style="position:relative">' +
       demoDetailBanner +
       '<div class="dv2a-side-head">' +
-      '<button class="dv2a-side-close" onclick="window._assessCloseSide()" aria-label="Close panel">✕</button>' +
+      '<button class="dv2a-side-close" data-testid="assessments-side-close" onclick="window._assessCloseSide()" aria-label="Close panel">✕</button>' +
       '<div style="display:flex;gap:10px;align-items:center;padding-right:30px">' +
       '<div class="dv2a-pt-av ' +
       (row.avCls || 'a') +
@@ -12981,6 +13070,12 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       '<div class="dv2a-side-body">' +
       '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">01</span>AI-assisted narrative</div>' +
       aiHtml +
+      '</div>' +
+      '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">01b</span>Evidence</div>' +
+      evidencePanelHtml +
+      '</div>' +
+      '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">01c</span>AI recommendations</div>' +
+      recommendPanelHtml +
       '</div>' +
       '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">02</span>Scoring &amp; review status</div>' +
       reviewHtml +
@@ -13120,7 +13215,8 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
     window._assessCohortSetWin  = (v) => { window._assessCohortWin  = v; window._nav('assessments-v2'); };
     const cohortInstrumentOpts = ['any', ...cohortInst.length ? [cohortInst[0]] : []];
     const cohortWinOpts = ['7d', '30d', '90d', 'all'];
-    return (cohortPlaceholder
+    return '<div id="assessments-condition-map" data-testid="assessments-condition-map">' +
+      (cohortPlaceholder
       ? '<div role="note" style="margin:0 0 10px;padding:10px 14px;font-size:11.5px;color:var(--text-secondary);background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.3);border-radius:8px;line-height:1.5"><strong style="color:var(--amber,#ffb547)">Cohort sizes:</strong> Live cohort registry is unavailable — patient counts shown as placeholders only, not clinic census.</div>'
       : '') +
       (cohortDemoSizing && !cohortPlaceholder
@@ -13138,6 +13234,7 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
           '<div style="padding:12px 14px;border-bottom:1px solid var(--border)"><div style="font-size:13px;font-weight:600;color:var(--text-primary)">'+esc(active.label)+'</div><div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">'+(cohortPlaceholder ? '— patients · ' : active.n+' patients · ')+esc(active.inst)+' · response status below</div></div>' +
           '<table style="width:100%;border-collapse:collapse"><thead><tr style="background:rgba(255,255,255,0.02)"><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Patient</th><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Instrument</th><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Score</th><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Status</th><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Δ</th></tr></thead><tbody>' + tableRows + '</tbody></table>' +
         '</div>' +
+      '</div>' +
       '</div>';
   }
 
@@ -13177,14 +13274,16 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         '</div>' +
       '</div>';
     }).join('');
-    return (usingSampleQueue
+    return '<div id="assessments-library" data-testid="assessments-library">' +
+      (usingSampleQueue
       ? '<div role="note" style="margin-bottom:12px;padding:8px 12px;font-size:11px;font-weight:600;color:var(--amber,#ffb547);background:rgba(255,181,71,0.1);border:1px solid rgba(255,181,71,0.35);border-radius:8px">' +
         esc(DEMO_ASSESSMENTS_BANNER_MARK) +
         '</div>'
       : '') +
       '<div style="font-size:12px;color:var(--text-tertiary);margin-bottom:6px">Validated instruments across depression, anxiety, OCD, trauma, sleep, mania, pain, language, and QoL. <strong>Click a card to open its fillable form and compute the score on-platform.</strong></div>' +
       catBar +
-      '<div class="dv2a-lib-grid">'+cards+'</div>';
+      '<div class="dv2a-lib-grid" data-testid="assessments-library-grid">'+cards+'</div>' +
+      '</div>';
   }
 
   // ── Individual tab ───────────────────────────────────────────────────────────
@@ -13252,7 +13351,7 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
 
   // ── Compose page ─────────────────────────────────────────────────────────────
   const demoPageBanner = usingSampleQueue
-    ? '<div class="dv2a-demo-page-banner" role="banner">' + esc(DEMO_ASSESSMENTS_BANNER_MARK) + '</div>'
+    ? '<div class="dv2a-demo-page-banner" id="assessments-demo-banner" data-testid="assessments-demo-banner" role="banner">' + esc(DEMO_ASSESSMENTS_BANNER_MARK) + '</div>'
     : '';
 
   let mainContent = '';
@@ -13271,7 +13370,7 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   // Clinical safety footer — visible on every tab. Required by clinical-launch
   // governance: assessments support, not replace, clinician judgment.
   const safetyFooter =
-    '<div role="note" aria-label="Clinical safety disclaimer" style="font-size:10.5px;color:var(--text-tertiary);padding:8px 18px;border-top:1px solid var(--border);background:rgba(0,0,0,0.18);line-height:1.5">' +
+    '<div id="assessments-safety-banner" data-testid="assessments-safety-banner" role="note" aria-label="Clinical safety disclaimer" style="font-size:10.5px;color:var(--text-tertiary);padding:8px 18px;border-top:1px solid var(--border);background:rgba(0,0,0,0.18);line-height:1.5">' +
       '<strong style="color:var(--text-secondary)">Clinical safety:</strong> ' +
       'Assessments support clinical decision-making and require clinician review. ' +
       'Scores are not diagnoses on their own. ' +
@@ -13280,11 +13379,11 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
     '</div>';
 
   el.innerHTML =
-    '<div class="dv2a-shell">' +
+    '<div class="dv2a-shell" id="assessments-v2-root" data-testid="assessments-v2-root">' +
       demoPageBanner +
-      '<div class="dv2a-tabs" role="tablist">' + tabBar() + '</div>' +
-      '<div class="dv2a-body">' +
-        '<div class="dv2a-main">' + mainContent + '</div>' +
+      '<div class="dv2a-tabs" role="tablist" data-testid="assessments-tabs">' + tabBar() + '</div>' +
+      '<div class="dv2a-body" data-testid="assessments-v2-body">' +
+        '<div class="dv2a-main" data-testid="assessments-v2-main">' + mainContent + '</div>' +
         (tab === 'queue' && selectedId ? sideContent : '') +
       '</div>' +
       safetyFooter +
