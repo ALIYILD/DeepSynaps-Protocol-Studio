@@ -156,6 +156,15 @@ except ImportError as _qa_imp_err:
     )
 from app.routers.qeeg_raw_router import router as qeeg_raw_router
 from app.routers.qeeg_ai_router import router as qeeg_ai_router
+from app.qeeg.routers.qeeg_analysis_catalog_router import (
+    router as qeeg_105_analysis_catalog_router,
+)
+from app.qeeg.routers.qeeg_analysis_run_router import (
+    router as qeeg_105_analysis_run_router,
+)
+from app.qeeg.routers.qeeg_analysis_results_router import (
+    router as qeeg_105_analysis_results_router,
+)
 from app.routers.studio_eeg_router import router as studio_eeg_router
 from app.routers.studio_erp_router import router as studio_erp_router
 from app.routers.studio_source_router import router as studio_source_router
@@ -179,6 +188,10 @@ from app.workers.auto_page_worker import (
 from app.workers.caregiver_email_digest_worker import (
     shutdown_worker as shutdown_caregiver_email_digest_worker,
     start_worker_if_enabled as start_caregiver_email_digest_worker,
+)
+from app.qeeg.workers.qeeg_analysis_worker import (
+    shutdown_worker as shutdown_qeeg_105_worker,
+    start_worker_if_enabled as start_qeeg_105_worker,
 )
 from app.services.agent_skills_seed import seed_default_agent_skills
 from app.services.clinical_data import seed_clinical_dataset
@@ -301,12 +314,16 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
     # dispatches. Per-caregiver enable lives on
     # caregiver_digest_preferences.enabled.
     start_caregiver_email_digest_worker()
+    # QEEG-105 Analysis Worker (Phase 0 scaffold) — gated on
+    # DEEPSYNAPS_QEEG_105_WORKER_ENABLED so tests / CI don't run background jobs.
+    start_qeeg_105_worker()
     try:
         yield
     finally:
         shutdown_scheduler()
         shutdown_auto_page_worker()
         shutdown_caregiver_email_digest_worker()
+        shutdown_qeeg_105_worker()
 
 
 app = FastAPI(title=settings.api_title, version=settings.api_version, lifespan=lifespan)
@@ -492,6 +509,9 @@ app.include_router(qeeg_analysis_router)
 app.include_router(qeeg_live_router)
 app.include_router(qeeg_copilot_router)
 app.include_router(qeeg_viz_router)
+app.include_router(qeeg_105_analysis_catalog_router)
+app.include_router(qeeg_105_analysis_run_router)
+app.include_router(qeeg_105_analysis_results_router)
 app.include_router(mri_analysis_router)
 app.include_router(fusion_router)
 app.include_router(monitor_router)
