@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.database import get_db_session
 from app.persistence.models import EegStudioRecording, QeegAnalysisAudit, QeegAnalysisJob
+from app.qeeg.audit import record_qeeg_105_audit_event
 from app.qeeg.registry import get_analysis
 
 router = APIRouter(prefix="/api/v1/qeeg/analyses", tags=["qeeg-105"])
@@ -76,6 +77,16 @@ def run_qeeg_analysis(
             action="run",
             metadata={"analysis_code": code, "status": "research_stub_not_validated"},
         )
+        try:
+            record_qeeg_105_audit_event(
+                db,
+                actor=actor,
+                event="run_rejected",
+                target_id=actor.clinic_id or actor.actor_id,
+                metadata={"analysis_code": code, "status": definition.status.value},
+            )
+        except Exception:  # pragma: no cover
+            pass
         raise HTTPException(
             status_code=501,
             detail={
@@ -105,6 +116,21 @@ def run_qeeg_analysis(
             action="run",
             metadata={"analysis_code": code, "recording_id": rec.id, "cache_hit": True},
         )
+        try:
+            record_qeeg_105_audit_event(
+                db,
+                actor=actor,
+                event="run",
+                target_id=existing.id,
+                metadata={
+                    "analysis_code": code,
+                    "recording_id": rec.id,
+                    "job_id": existing.id,
+                    "cache_hit": True,
+                },
+            )
+        except Exception:  # pragma: no cover
+            pass
         return AnalysisRunOut(
             job_id=existing.id,
             status="queued" if existing.status != "ready" else "queued",
@@ -139,6 +165,21 @@ def run_qeeg_analysis(
         action="run",
         metadata={"analysis_code": code, "recording_id": rec.id, "params_hash": phash},
     )
+    try:
+        record_qeeg_105_audit_event(
+            db,
+            actor=actor,
+            event="run",
+            target_id=job.id,
+            metadata={
+                "analysis_code": code,
+                "recording_id": rec.id,
+                "job_id": job.id,
+                "cache_hit": False,
+            },
+        )
+    except Exception:  # pragma: no cover
+        pass
 
     return AnalysisRunOut(
         job_id=job.id,
