@@ -661,7 +661,7 @@ function renderModuleLinks(patientId) {
     ['Protocol Studio', 'protocol-studio', false],
     ['Assessments', 'assessments-v2', false],
     ['MRI', 'mri-analysis', false],
-    ['qEEG', 'qeeg-analysis', false],
+    ['qEEG', 'qeeg-launcher', false],
     ['Video assessments', 'video-assessments', false],
     ['Voice analyzer', 'voice-analyzer', false],
     ['Text analyzer', 'text-analyzer', false],

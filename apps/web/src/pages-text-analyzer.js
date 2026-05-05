@@ -373,7 +373,7 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
     navigate('patient-profile');
   });
   wireNav('ta-nav-assessments', 'assessments-v2');
-  wireNav('ta-nav-qeeg', 'qeeg-analysis');
+  wireNav('ta-nav-qeeg', 'qeeg-launcher');
   wireNav('ta-nav-mri', 'mri-analysis');
   wireNav('ta-nav-video', 'video-assessments');
   wireNav('ta-nav-voice', 'voice-analyzer');

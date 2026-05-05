@@ -425,7 +425,7 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px" class="va-linked-modules" aria-label="Linked clinical modules">
         <button type="button" class="btn btn-ghost btn-sm" data-va-nav="patient-profile">Patient profile</button>
         <button type="button" class="btn btn-ghost btn-sm" data-va-nav="assessments-hub">Assessments</button>
-        <button type="button" class="btn btn-ghost btn-sm" data-va-nav="qeeg-analysis">qEEG</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-va-nav="qeeg-launcher">qEEG</button>
         <button type="button" class="btn btn-ghost btn-sm" data-va-nav="mri-analysis">MRI</button>
         <button type="button" class="btn btn-ghost btn-sm" data-va-nav="video-assessments">Video</button>
         <button type="button" class="btn btn-ghost btn-sm" data-va-nav="text-analyzer">Text</button>

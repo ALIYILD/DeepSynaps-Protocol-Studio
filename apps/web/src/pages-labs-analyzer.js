@@ -467,7 +467,7 @@ function _renderLinkedModulesNav(patientId) {
     { page: 'deeptwin', label: 'DeepTwin', hint: 'Digital twin context — draft only' },
     { page: 'protocol-studio', label: 'Protocol Studio', hint: 'Draft protocols — not approval' },
     { page: 'clinical-hub', label: 'Assessments', hint: 'Structured scales' },
-    { page: 'qeeg-analysis', label: 'qEEG', hint: 'EEG analyses when linked' },
+    { page: 'qeeg-launcher', label: 'qEEG', hint: 'EEG analyses when linked' },
     { page: 'mri-analysis', label: 'MRI Analyzer', hint: 'Imaging when linked' },
     { page: 'video-assessments', label: 'Video analysis', hint: 'Video-derived signals' },
     { page: 'voice-analyzer', label: 'Voice analysis', hint: 'Acoustic biomarkers' },

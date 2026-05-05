@@ -249,7 +249,7 @@ function _statusPill(status) {
 function _renderDataMatrix(matrix) {
   const rows = [
     { key: 'assessments', label: 'Assessments & scales', page: 'assessments-v2' },
-    { key: 'qeeg', label: 'qEEG analyses', page: 'qeeg-analysis' },
+    { key: 'qeeg', label: 'qEEG analyses', page: 'qeeg-launcher' },
     { key: 'mri', label: 'MRI analyses', page: 'mri-analysis' },
     { key: 'wearables', label: 'Biometrics / wearables', page: 'wearables' },
     { key: 'labs', label: 'Labs / biomarkers', page: 'labs-analyzer' },

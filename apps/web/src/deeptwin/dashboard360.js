@@ -52,7 +52,7 @@ const DOMAIN_NAV = {
   diagnosis:          'patient-profile',
   symptoms_goals:     'patient-profile',
   assessments:        'assessments',
-  qeeg:               'qeeg-analysis',
+  qeeg:               'qeeg-launcher',
   mri:                'mri-analysis',
   video:              null,
   voice:              'voice-analyzer',

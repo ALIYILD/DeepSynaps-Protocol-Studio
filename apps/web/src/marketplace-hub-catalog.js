@@ -13,7 +13,7 @@ export const MARKETPLACE_MODULE_SHORTCUTS = [
   { id: 'handbooks-v2', label: 'Handbooks', route: 'handbooks-v2', hint: 'Guidance & references' },
   { id: 'documents-v2', label: 'Documents', route: 'documents-v2', hint: 'Clinic documents' },
   { id: 'labs-analyzer', label: 'Labs', route: 'labs-analyzer', hint: 'Lab interpretation support' },
-  { id: 'qeeg-analysis', label: 'qEEG', route: 'qeeg-analysis', hint: 'EEG / neurophysiology' },
+  { id: 'qeeg-launcher', label: 'qEEG', route: 'qeeg-launcher', hint: 'EEG / neurophysiology' },
   { id: 'mri-analysis', label: 'MRI', route: 'mri-analysis', hint: 'Structural imaging pipeline' },
   { id: 'deeptwin', label: 'DeepTwin', route: 'deeptwin', hint: 'Patient intelligence hub' },
   { id: 'monitor', label: 'Monitor / devices', route: 'monitor', hint: 'Device workspace' },

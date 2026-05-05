@@ -429,7 +429,7 @@ function _renderLinkedActions() {
       <button type="button" class="btn btn-ghost btn-sm" data-nav="scheduling-hub" style="min-height:40px">Schedule</button>
       <button type="button" class="btn btn-ghost btn-sm" data-nav="inbox" style="min-height:40px">Inbox</button>
       <button type="button" class="btn btn-ghost btn-sm" data-nav="session-execution" style="min-height:40px">Live session</button>
-      <button type="button" class="btn btn-ghost btn-sm" data-nav="qeeg-analysis" style="min-height:40px">qEEG</button>
+      <button type="button" class="btn btn-ghost btn-sm" data-nav="qeeg-launcher" style="min-height:40px">qEEG</button>
       <button type="button" class="btn btn-ghost btn-sm" data-nav="mri-analysis" style="min-height:40px">MRI</button>
       <button type="button" class="btn btn-ghost btn-sm" data-nav="voice-analyzer" style="min-height:40px">Voice</button>
       <button type="button" class="btn btn-ghost btn-sm" data-nav="video-assessments" style="min-height:40px">Video</button>

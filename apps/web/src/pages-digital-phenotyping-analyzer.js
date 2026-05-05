@@ -438,7 +438,7 @@ function _renderLinkedModuleStrip(raw) {
     ['text-analyzer', 'Text'],
     ['labs-analyzer', 'Labs'],
     ['assessments-v2', 'Assessments'],
-    ['qeeg-analysis', 'qEEG'],
+    ['qeeg-launcher', 'qEEG'],
     ['mri-analysis', 'MRI'],
     ['documents-v2', 'Documents'],
     ['deeptwin', 'DeepTwin'],

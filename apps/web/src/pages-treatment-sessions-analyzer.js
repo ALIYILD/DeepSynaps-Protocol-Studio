@@ -715,7 +715,7 @@ function _renderLinkedBar(patientId, courseId, navigate) {
       <button type="button" class="btn btn-ghost btn-sm" data-nav="patient-profile" style="min-height:40px">Patient profile</button>
       <button type="button" class="btn btn-ghost btn-sm" data-nav="course-detail" style="min-height:40px">Course detail</button>
       <button type="button" class="btn btn-ghost btn-sm" data-nav="assessments-v2" style="min-height:40px">Assessments</button>
-      <button type="button" class="btn btn-ghost btn-sm" data-nav="qeeg-analysis" style="min-height:40px">qEEG</button>
+      <button type="button" class="btn btn-ghost btn-sm" data-nav="qeeg-launcher" style="min-height:40px">qEEG</button>
       <button type="button" class="btn btn-ghost btn-sm" data-nav="mri-analysis" style="min-height:40px">MRI</button>
       <button type="button" class="btn btn-ghost btn-sm" data-nav="biomarkers" style="min-height:40px">Biomarkers</button>
       <button type="button" class="btn btn-ghost btn-sm" data-nav="documents-hub" style="min-height:40px">Documents</button>
@@ -742,7 +742,7 @@ function _wireLinkedBar(body, patientId, courseId, navigate) {
     'patient-profile': () => { window._selectedPatientId = patientId; window._profilePatientId = patientId; navigate('patient-profile', { id: patientId }); },
     'course-detail': () => { window._selectedPatientId = patientId; window._selectedCourseId = courseId; navigate('course-detail'); },
     'assessments-v2': () => { window._selectedPatientId = patientId; navigate('assessments-v2', { id: patientId }); },
-    'qeeg-analysis': () => { window._selectedPatientId = patientId; navigate('qeeg-analysis', { id: patientId }); },
+    'qeeg-launcher': () => { window._selectedPatientId = patientId; navigate('qeeg-launcher', { id: patientId }); },
     'mri-analysis': () => { window._selectedPatientId = patientId; navigate('mri-analysis', { id: patientId }); },
     'biomarkers': () => { window._selectedPatientId = patientId; navigate('biomarkers', { id: patientId }); },
     'documents-hub': () => { window._selectedPatientId = patientId; navigate('documents-hub', { id: patientId }); },

@@ -29,7 +29,7 @@ export function analyzerIdToNavPage(analyzerId) {
     'risk-analyzer': 'risk-analyzer',
     'assessments-v2': 'assessments-v2',
     'mri-analysis': 'mri-analysis',
-    'qeeg-analysis': 'qeeg-analysis',
+    'qeeg-launcher': 'qeeg-launcher',
   };
   if (map[id]) return map[id];
   return id || null;

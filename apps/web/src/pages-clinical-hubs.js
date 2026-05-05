@@ -833,7 +833,7 @@ export async function pgPatientHub(setTopbar, navigate) {
           esc(label) + '</button>';
       }
       return '<div class="ds-pt-modstrip" role="toolbar" aria-label="Linked modules">' +
-        mk('qeeg-analysis', 'qEEG', 'registry_open_qeeg') +
+        mk('qeeg-launcher', 'qEEG', 'registry_open_qeeg') +
         mk('mri-analysis', 'MRI', 'registry_open_mri') +
         mk('video-assessments', 'Video', 'registry_open_video') +
         mk('wearables', 'Bio', 'registry_open_wearables') +
@@ -3763,7 +3763,7 @@ export async function pgProtocolHub(setTopbar, navigate) {
         '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._selectedPatientId=' + pidJs + ';window._profilePatientId=' + pidJs + ';try{sessionStorage.setItem(\'ds_pat_selected_id\',' + pidJs + ')}catch(e){};window._nav(\'patient-profile\')">Profile</button>' +
         '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._selectedPatientId=' + pidJs + ';window._nav(\'assessments-v2\')">Assessments</button>' +
         '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._selectedPatientId=' + pidJs + ';window._nav(\'documents-v2\')">Documents</button>' +
-        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._selectedPatientId=' + pidJs + ';window._nav(\'qeeg-analysis\')">qEEG</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._selectedPatientId=' + pidJs + ';window._nav(\'qeeg-launcher\')">qEEG</button>' +
         '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._selectedPatientId=' + pidJs + ';window._nav(\'mri-analysis\')">MRI</button>' +
         '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._selectedPatientId=' + pidJs + ';window._nav(\'video-assessments\')">Video</button>' +
         '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._selectedPatientId=' + pidJs + ';window._nav(\'wearables\')">Biometrics</button>' +
@@ -9036,7 +9036,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
   window._docsOpenSourceModule = (hint) => {
     const h = (hint || '').toLowerCase();
     const map = {
-      qeeg: 'qeeg-analysis',
+      qeeg: 'qeeg-launcher',
       mri: 'mri-analysis',
       video: 'video-assessments',
       biometrics: 'wearables',
@@ -9611,7 +9611,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     '</div>';
 
   const MODULE_LINK_STRIP = [
-    { label: 'qEEG', page: 'qeeg-analysis' },
+    { label: 'qEEG', page: 'qeeg-launcher' },
     { label: 'MRI', page: 'mri-analysis' },
     { label: 'Labs', page: 'labs-analyzer' },
     { label: 'Biomarkers', page: 'biomarkers' },
@@ -9673,7 +9673,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     assessments: { label: 'Assessments',        icon: '\uD83D\uDCDD', page: 'assessments-v2',   fetch: () => (api.listAssessments?api.listAssessments():Promise.resolve({items:[]})).catch(()=>({items:[]})) },
     finance:     { label: 'Finance',            icon: '\uD83D\uDCB0', page: 'finance-v2',       fetch: () => (api.finance?.summary?api.finance.summary():Promise.resolve(null)).catch(()=>null) },
     wearables:   { label: 'Wearable Data',      icon: '\u231A',       page: 'monitor',           fetch: () => (api.getClinicAlertSummary?api.getClinicAlertSummary():Promise.resolve(null)).catch(()=>null) },
-    qeeg:        { label: 'qEEG Records',       icon: '\uD83C\uDF0A', page: 'qeeg-analysis',    fetch: () => (api.listQEEGRecords?api.listQEEGRecords():Promise.resolve({items:[]})).catch(()=>({items:[]})) },
+    qeeg:        { label: 'qEEG Records',       icon: '\uD83C\uDF0A', page: 'qeeg-launcher',    fetch: () => (api.listQEEGRecords?api.listQEEGRecords():Promise.resolve({items:[]})).catch(()=>({items:[]})) },
     fusion:      { label: 'Fusion Cases',       icon: '\u2696\uFE0F',  page: 'fusion-workbench', fetch: () => (api.listFusionCases?api.listFusionCases():Promise.resolve([])).catch(()=>[]) },
     aggregate:   { label: 'Outcome Aggregates', icon: '\uD83D\uDCC8', page: repPage,      fetch: () => (api.aggregateOutcomes?api.aggregateOutcomes():Promise.resolve({})).catch(()=>({})) },
   };
@@ -12963,7 +12963,7 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       '<button type="button" class="btn btn-ghost btn-sm" style="font-size:11px" onclick="window._assessOpenDeeptwin(\'' +
       rid +
       '\')">DeepTwin</button>' +
-      '<button type="button" class="btn btn-ghost btn-sm" style="font-size:11px" onclick="window._assessOpenModality(\'qeeg-analysis\',\'' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="font-size:11px" onclick="window._assessOpenModality(\'qeeg-launcher\',\'' +
       rid +
       '\')">qEEG</button>' +
       '<button type="button" class="btn btn-ghost btn-sm" style="font-size:11px" onclick="window._assessOpenModality(\'mri-analysis\',\'' +

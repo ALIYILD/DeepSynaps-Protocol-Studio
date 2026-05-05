@@ -520,7 +520,7 @@ function _digitalPhenotypingPayload(patientId) {
     ],
     multimodal_links: [
       { nav_page_id: 'research-evidence', title: 'Research Evidence', relevance_note: 'Literature search — digital phenotyping methods', last_updated: '—' },
-      { nav_page_id: 'qeeg-analysis', title: 'qEEG Analyzer', relevance_note: 'Neurophysiology context', last_updated: '—' },
+      { nav_page_id: 'qeeg-launcher', title: 'qEEG Launcher', relevance_note: 'Neurophysiology context', last_updated: '—' },
       { nav_page_id: 'assessments-v2', title: 'Assessments', relevance_note: 'Last GAD-7 within analysis window', last_updated: '2026-04-28' },
       { nav_page_id: 'wearables', title: 'Biometrics', relevance_note: 'Sleep + resting HR trends', last_updated: '2026-05-01' },
       { nav_page_id: 'risk-analyzer', title: 'Risk Analyzer', relevance_note: 'Wellbeing + engagement context', last_updated: '2026-05-02' },
@@ -626,13 +626,13 @@ const _DP_PROFILES = {
         signal: 'sleep',
         message:
           'Exploratory cue: sleep-related signals co-move with higher wellbeing-risk categories on Risk Analyzer when both modules have source-backed data in-window — correlate with structured assessments (e.g. PHQ-9 trend) before interpreting.',
-        linked_pages: ['risk-analyzer', 'qeeg-analysis', 'assessments-v2'],
+        linked_pages: ['risk-analyzer', 'qeeg-launcher', 'assessments-v2'],
       },
       {
         signal: 'social',
         message:
           'Exploratory cue: outbound communication-pattern change overlaps with qEEG asymmetry shifts reported on qEEG Analyzer — requires clinician review across modalities; not diagnostic.',
-        linked_pages: ['qeeg-analysis', 'risk-analyzer'],
+        linked_pages: ['qeeg-launcher', 'risk-analyzer'],
       },
       {
         signal: 'screen_time',

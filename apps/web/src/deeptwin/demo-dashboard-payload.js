@@ -52,7 +52,7 @@ export function buildDemoDashboard360Payload(patientId) {
       upload_links: [{ label: 'Submit assessment', href: '/assessments', kind: 'assessment' }],
     }),
     card('qeeg', 'missing', 'No qEEG records in this demo seed.', {
-      upload_links: [{ label: 'Upload qEEG', href: '/qeeg-analysis', kind: 'qeeg' }],
+      upload_links: [{ label: 'Upload qEEG', href: '/qeeg-launcher', kind: 'qeeg' }],
     }),
     card('mri', 'missing', 'No MRI records in this demo seed.', {
       upload_links: [{ label: 'Upload MRI', href: '/mri-analysis', kind: 'mri' }],

@@ -167,8 +167,8 @@ test('renderMRILinkedModules disables Brain Map / Protocol without patient and a
   assert.match(missingBoth, /<button[^>]*data-page="protocol-studio"[^>]*disabled/);
 
   const withPatientOnly = renderMRILinkedModules({ patientId: 'P-1', report: null });
-  assert.match(withPatientOnly, /data-page="qeeg-analysis"/);
-  assert.ok(!/data-page="qeeg-analysis"[^>]*\bdisabled\b/.test(withPatientOnly),
+  assert.match(withPatientOnly, /data-page="qeeg-launcher"/);
+  assert.ok(!/data-page="qeeg-launcher"[^>]*\bdisabled\b/.test(withPatientOnly),
     'qEEG link should be enabled once patient id is set');
   assert.match(withPatientOnly, /data-page="brainmap-v2"[^>]*\bdisabled\b/,
     'Brain Map stays disabled until an analysis report exists');

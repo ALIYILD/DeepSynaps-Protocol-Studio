@@ -142,7 +142,7 @@ function _renderAiAgentV2PermissionMatrix(agents) {
 function _renderAiAgentV2ModuleShortcuts() {
   const links = [
     ['deeptwin', 'DeepTwin'],
-    ['qeeg-analysis', 'qEEG'],
+    ['qeeg-launcher', 'qEEG'],
     ['mri-analysis', 'MRI'],
     ['labs-analyzer', 'Labs'],
     ['biomarkers', 'Biomarkers'],

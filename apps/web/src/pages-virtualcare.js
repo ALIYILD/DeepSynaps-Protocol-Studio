@@ -3642,7 +3642,7 @@ function _lsRender() {
             <button type="button" class="btn btn-sm" onclick="window.openPatient('${_e(session.patient_id)}');window._nav('patient-profile')">Patient profile</button>
             <button type="button" class="btn btn-sm" onclick="window.openPatient('${_e(session.patient_id)}');window._nav('documents-v2')">Documents</button>
             <button type="button" class="btn btn-sm" onclick="window.openPatient('${_e(session.patient_id)}');window._nav('assessments-v2')">Assessments</button>
-            <button type="button" class="btn btn-sm" onclick="window._nav('qeeg-analysis')">qEEG</button>
+            <button type="button" class="btn btn-sm" onclick="window._nav('qeeg-launcher')">qEEG</button>
             <button type="button" class="btn btn-sm" onclick="window._nav('mri-analysis')">MRI</button>
             <button type="button" class="btn btn-sm" onclick="window._nav('video-assessments')">Video</button>
             <button type="button" class="btn btn-sm" onclick="window._nav('wearables')">Biometrics</button>

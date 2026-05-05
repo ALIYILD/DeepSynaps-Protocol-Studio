@@ -460,7 +460,7 @@ function _setTopbar(setTopbar) {
         } },
       { label: 'qEEG', onClick: () => {
           if (id) bindPatient();
-          window._nav('qeeg-analysis');
+          window._nav('qeeg-launcher');
         } },
       { label: 'Video', onClick: () => {
           if (id) bindPatient();

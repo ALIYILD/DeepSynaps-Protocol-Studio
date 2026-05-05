@@ -431,7 +431,7 @@ function _renderLinkedToolbar(patientId) {
     ['Live session', `window._selectedPatientId='${pid}';window._nav('live-session')`, 'Virtual care / live session'],
     ['DeepTwin', `window._selectedPatientId='${pid}';window._profilePatientId='${pid}';window._nav('deeptwin')`, 'DeepTwin workspace'],
     ['Biomarkers', `window._nav('biomarkers')`, 'Biomarker maps'],
-    ['qEEG', `window._selectedPatientId='${pid}';window._nav('qeeg-analysis')`, 'qEEG analysis'],
+    ['qEEG', `window._selectedPatientId='${pid}';window._nav('qeeg-launcher')`, 'qEEG entry'],
     ['MRI', `window._selectedPatientId='${pid}';window._nav('mri-analysis')`, 'MRI analysis'],
     ['Video', `window._selectedPatientId='${pid}';window._nav('video-assessments')`, 'Video assessments'],
     ['Voice', `window._selectedPatientId='${pid}';window._nav('voice-analyzer')`, 'Voice analyzer'],

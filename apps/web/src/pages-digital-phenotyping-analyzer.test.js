@@ -23,7 +23,7 @@ test('demoDigitalPhenotypingPayload has snapshot keys and multimodal links', () 
   assert.equal(p.provenance?.source_system, 'demo_sample');
   const pages = (p.multimodal_links || []).map((l) => l.nav_page_id);
   assert.ok(pages.includes('research-evidence'));
-  assert.ok(pages.includes('qeeg-analysis'));
+  assert.ok(pages.includes('qeeg-launcher'));
   assert.ok(pages.includes('risk-analyzer'));
   assert.ok(pages.includes('session-execution'));
   assert.ok(pages.includes('live-session'));

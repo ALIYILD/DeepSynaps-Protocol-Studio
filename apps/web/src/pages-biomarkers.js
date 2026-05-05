@@ -394,7 +394,7 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
           <button type="button" class="btn btn-ghost btn-sm bm-link" data-nav="assessments-v2">Assessments</button>
           <button type="button" class="btn btn-ghost btn-sm bm-link" data-nav="documents-v2">Documents</button>
           <button type="button" class="btn btn-ghost btn-sm bm-link" data-nav="live-session">Virtual Care</button>
-          <button type="button" class="btn btn-ghost btn-sm bm-link" data-nav="qeeg-analysis">qEEG</button>
+          <button type="button" class="btn btn-ghost btn-sm bm-link" data-nav="qeeg-launcher">qEEG</button>
           <button type="button" class="btn btn-ghost btn-sm bm-link" data-nav="mri-analysis">MRI</button>
           <button type="button" class="btn btn-ghost btn-sm bm-link" data-nav="video-assessments">Video</button>
           <button type="button" class="btn btn-ghost btn-sm bm-link" data-nav="text-analyzer">Text</button>

@@ -168,7 +168,7 @@ function _resWorkbenchShortcuts() {
     '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'clinician-inbox\')">Inbox</button>' +
     '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'schedule-v2\')">Schedule</button>' +
     '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'deeptwin\')">DeepTwin</button>' +
-    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'qeeg-analysis\')">qEEG</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'qeeg-launcher\')">qEEG</button>' +
     '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'mri-analysis\')">MRI</button>' +
     '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'video-assessments\')">Video</button>' +
     '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'wearables\')">Biometrics</button>' +

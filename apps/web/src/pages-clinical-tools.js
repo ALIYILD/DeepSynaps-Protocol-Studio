@@ -7518,7 +7518,7 @@ export async function pgBrainMapPlanner(setTopbar, navigate) {
     h += '</div>';
     if (!hasContext) {
       h += '<div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5">'
-        + 'No qEEG analysis loaded. <a href="#" onclick="window._nav(\'qeeg-analysis\');return false" style="color:var(--blue)">Run a qEEG analysis</a> '
+        + 'No qEEG analysis loaded. <a href="#" onclick="window._nav(\'qeeg-launcher\');return false" style="color:var(--blue)">Run a qEEG analysis</a> '
         + 'first or place targets manually using the atlas at left.'
         + '</div></div>';
       return h;
@@ -7526,7 +7526,7 @@ export async function pgBrainMapPlanner(setTopbar, navigate) {
     if (!fit) {
       const reason = _bmpAnalyzerErr ? 'Analyzer fit fetch failed (network or no fit computed yet).' : 'No persisted protocol-fit for this analysis yet.';
       h += '<div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5">'
-        + _esc(reason) + ' Open the <a href="#" onclick="window._nav(\'qeeg-analysis\');return false" style="color:var(--blue)">Analyzer</a> and run protocol-fit, '
+        + _esc(reason) + ' Open the <a href="#" onclick="window._nav(\'qeeg-launcher\');return false" style="color:var(--blue)">qEEG workspace</a> and run protocol-fit, '
         + 'or place targets manually below.'
         + '</div></div>';
       return h;
@@ -7630,7 +7630,7 @@ export async function pgBrainMapPlanner(setTopbar, navigate) {
       + 'background:rgba(255,255,255,0.02);display:flex;flex-wrap:wrap;gap:6px;align-items:center">';
     h += '<span style="font-size:10px;font-weight:700;letter-spacing:0.06em;color:var(--text-tertiary);margin-right:6px">OPEN</span>';
     h += btn('Patient profile', 'patient-profile', true);
-    h += btn('qEEG Analyzer', 'qeeg-analysis', false);
+    h += btn('qEEG', 'qeeg-launcher', false);
     h += btn('MRI Analyzer', 'mri-analysis', false);
     h += btn('Protocol Studio', 'protocol-studio', false);
     h += btn('DeepTwin', 'deeptwin', false);

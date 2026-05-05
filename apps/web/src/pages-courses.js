@@ -13863,7 +13863,7 @@ function _cdgRenderPriorityStrip(events) {
 function _cdgShortcutRows() {
   const rows = [
     { route: 'mri-analysis', label: 'MRI', line: 'Not yet aggregated into digest — open module to review.' },
-    { route: 'qeeg-analysis', label: 'qEEG', line: 'Not yet aggregated into digest — open module to review.' },
+    { route: 'qeeg-launcher', label: 'qEEG', line: 'Not yet aggregated into digest — open module to review.' },
     { route: 'video-assessments', label: 'Video', line: 'Not yet aggregated into digest — open module to review.' },
     { route: 'wearables', label: 'Biometrics', line: 'Not yet aggregated into digest — open module to review.' },
     { route: 'text-analyzer', label: 'Text analysis', line: 'Not yet aggregated into digest — open module to review.' },

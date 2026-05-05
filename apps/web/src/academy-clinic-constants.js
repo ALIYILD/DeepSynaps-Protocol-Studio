@@ -15,7 +15,7 @@ export const ACADEMY_CLINIC_LINKED_MODULES = [
   { page: 'research-evidence', label: 'Research Evidence' },
   { page: 'handbooks-v2', label: 'Handbooks' },
   { page: 'documents-v2', label: 'Documents' },
-  { page: 'qeeg-analysis', label: 'qEEG' },
+  { page: 'qeeg-launcher', label: 'qEEG' },
   { page: 'mri-analysis', label: 'MRI' },
   { page: 'deeptwin', label: 'DeepTwin' },
   { page: 'labs-analyzer', label: 'Labs' },

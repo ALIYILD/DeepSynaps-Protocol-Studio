@@ -1402,7 +1402,7 @@ function renderMRILinkedModules(opts) {
     + '</div></div>'
     + '<div class="ds-mri-linked__cluster"><span class="ds-mri-linked__cluster-label">Multimodal context</span>'
     + '<div class="ds-mri-linked__btns">'
-    + mkBtn('qeeg-analysis', 'qEEG', 'patient')
+    + mkBtn('qeeg-launcher', 'qEEG', 'patient')
     + mkBtn('biomarkers', 'Biomarkers hub', 'patient')
     + mkBtn('video-assessments', 'Video analysis', 'patient')
     + mkBtn('voice-analyzer', 'Voice analysis', 'patient')

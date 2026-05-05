@@ -810,7 +810,7 @@ function handbookQuickLinksHtml() {
     ['Research Evidence', 'research-evidence'],
     ['DeepTwin', 'deeptwin'],
     ['MRI Analyzer', 'mri-analysis'],
-    ['qEEG', 'qeeg-analysis'],
+    ['qEEG', 'qeeg-launcher'],
     ['Voice', 'voice-analyzer'],
     ['Video', 'video-assessments'],
     ['Text', 'text-analyzer'],

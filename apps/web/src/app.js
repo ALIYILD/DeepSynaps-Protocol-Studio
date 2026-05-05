@@ -550,7 +550,7 @@ const NAV = [
   { section: 'Analyzers', sectionId: 'analyzers', collapsed: false },
   { id: 'deeptwin',           label: 'DeepTwin',          icon: 'BT', ai: true },
   { id: 'mri-analysis',       label: 'MRI',          icon: '🧠', ai: true },
-  { id: 'qeeg-analysis',      label: 'qEEG',         icon: '📊', ai: true },
+  { id: 'qeeg-launcher',      label: 'qEEG',         icon: '📊', ai: true },
   { id: 'voice-analyzer',     label: 'Voice',        icon: '🎙️', ai: true },
   { id: 'video-assessments',  label: 'Video',        icon: '🎥', ai: true },
   { id: 'text-analyzer',      label: 'Text',         icon: '📝', ai: true },
@@ -3162,7 +3162,7 @@ window.addEventListener('popstate', (e) => {
   let _cachedProtocols = null;
 
   NAV_COMMANDS.push(
-    { type: 'nav', icon: '📊', title: 'qEEG Analyzer', page: 'qeeg-analysis' },
+    { type: 'nav', icon: '📊', title: 'qEEG Launcher', page: 'qeeg-launcher' },
     { type: 'nav', icon: '🧠', title: 'MRI Analyzer', page: 'mri-analysis' },
     { type: 'nav', icon: '🎥', title: 'Video Assessments', page: 'video-assessments' },
     { type: 'nav', icon: '🎥', title: 'Video Analyzer', page: 'video-assessments' },

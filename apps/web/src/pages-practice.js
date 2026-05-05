@@ -10939,7 +10939,7 @@ export async function pgTickets(setTopbar, navigate) {
     { page: 'schedule-v2', label: 'Schedule' },
     { page: 'live-session', label: 'Virtual Care' },
     { page: 'documents-v2', label: 'Documents' },
-    { page: 'qeeg-analysis', label: 'qEEG' },
+    { page: 'qeeg-launcher', label: 'qEEG' },
     { page: 'mri-analysis', label: 'MRI' },
     { page: 'labs-analyzer', label: 'Labs' },
     { page: 'biomarkers', label: 'Biomarkers' },
@@ -11063,7 +11063,7 @@ export async function pgTickets(setTopbar, navigate) {
         status: 'open',
         created: iso(Date.now() - 86400000 * 2),
         updated: iso(Date.now() - 86400000),
-        linked_module: 'qeeg-analysis',
+        linked_module: 'qeeg-launcher',
         demo_example: true,
         messages: [{
           from: 'Demo Clinician',

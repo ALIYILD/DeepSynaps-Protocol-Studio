@@ -33,3 +33,12 @@ test('telehealth recorder source still renders session copy', () => {
   assert.match(src, />Live Session</);
   assert.match(src, />Recording Library</);
 });
+
+test('generic qEEG navigation routes through the launcher', () => {
+  const appSrc = read('./app.js');
+  assert.match(appSrc, /id: 'qeeg-launcher',\s+label: 'qEEG'/);
+  assert.match(appSrc, /title: 'qEEG Launcher',\s+page: 'qeeg-launcher'/);
+
+  const monitorSrc = read('./pages-monitor.js');
+  assert.match(monitorSrc, /\['qEEG', 'qeeg-launcher', false\]/);
+});
