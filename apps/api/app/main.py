@@ -144,6 +144,9 @@ from app.routers.channel_auth_drift_resolution_audit_hub_router import (
     router as channel_auth_drift_resolution_audit_hub_router,
 )
 from app.routers.clinical_trials_router import router as clinical_trials_router
+from app.routers.digital_phenotyping_router import (
+    router as digital_phenotyping_router,
+)
 from app.routers.irb_amendment_workflow_router import (
     router as irb_amendment_workflow_router,
 )
@@ -177,7 +180,11 @@ from app.routers.qeeg_analysis_router import router as qeeg_analysis_router
 from app.routers.qeeg_live_router import router as qeeg_live_router
 from app.routers.qeeg_copilot_router import router as qeeg_copilot_router
 from app.routers.qeeg_viz_router import router as qeeg_viz_router
+from app.routers.labs_analyzer_router import router as labs_analyzer_router
+from app.routers.medication_analyzer_router import router as medication_analyzer_router
 from app.routers.mri_analysis_router import router as mri_analysis_router
+from app.routers.movement_analyzer_router import router as movement_analyzer_router
+from app.routers.nutrition_analyzer_router import router as nutrition_analyzer_router
 from app.routers.fusion_router import router as fusion_router
 from app.routers.patient_summary_router import router as patient_summary_router
 from app.routers.patient_timeline_router import router as patient_timeline_router
@@ -227,10 +234,16 @@ from app.routers.studio_report_router import router as studio_report_router
 from app.routers.studio_eeg_database_router import router as studio_eeg_database_router
 from app.routers.recording_eeg_events_router import router as recording_eeg_events_router
 from app.routers.montages_router import router as montages_router
+from app.routers.qeeg_annotation_outcome_tracker_router import (
+    router as qeeg_annotation_outcome_tracker_router,
+)
 from app.routers.qeeg_report_annotations_router import (
     router as qeeg_report_annotations_router,
 )
 from app.routers.quality_assurance_router import router as quality_assurance_router
+from app.routers.resolver_coaching_digest_audit_hub_router import (
+    router as resolver_coaching_digest_audit_hub_router,
+)
 from app.sentry_setup import init_sentry
 from app.settings import get_settings
 from app.services.brain_regions import list_brain_regions
@@ -552,6 +565,7 @@ app.include_router(channel_misconfiguration_detector_router)
 app.include_router(channel_auth_drift_resolution_router)
 app.include_router(channel_auth_drift_resolution_audit_hub_router)
 app.include_router(clinical_trials_router)
+app.include_router(digital_phenotyping_router)
 # Caregiver Email Digest (2026-05-01) — closes the bidirectional
 # notification loop opened by Caregiver Notification Hub #379. Daily
 # roll-up of unread caregiver notifications via the on-call delivery
@@ -567,6 +581,7 @@ app.include_router(reviewer_sla_calibration_threshold_tuning_router)
 app.include_router(rotation_policy_advisor_threshold_tuning_router)
 app.include_router(rotation_policy_advisor_threshold_adoption_outcome_tracker_router)
 app.include_router(rotation_policy_advisor_outcome_tracker_router)
+app.include_router(resolver_coaching_digest_audit_hub_router)
 app.include_router(resolver_coaching_inbox_router)
 app.include_router(resolver_coaching_self_review_digest_router)
 # Settings API (scaffolded 024_settings_schema) — stubs; endpoints arrive in
@@ -581,7 +596,11 @@ app.include_router(qeeg_analysis_router)
 app.include_router(qeeg_live_router)
 app.include_router(qeeg_copilot_router)
 app.include_router(qeeg_viz_router)
+app.include_router(labs_analyzer_router)
+app.include_router(medication_analyzer_router)
 app.include_router(mri_analysis_router)
+app.include_router(movement_analyzer_router)
+app.include_router(nutrition_analyzer_router)
 app.include_router(fusion_router)
 app.include_router(monitor_router)
 app.include_router(deeptwin_router)
@@ -618,6 +637,7 @@ app.include_router(montages_router)
 app.include_router(irb_amendment_workflow_router)
 app.include_router(irb_amendment_reviewer_workload_router)
 app.include_router(irb_amendment_reviewer_workload_outcome_tracker_router)
+app.include_router(qeeg_annotation_outcome_tracker_router)
 app.include_router(qeeg_report_annotations_router)
 app.include_router(quality_assurance_router)
 
