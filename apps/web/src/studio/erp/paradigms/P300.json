@@ -1,0 +1,18 @@
+{
+  "name": "P300 Oddball",
+  "code": "P300",
+  "description": "Auditory or visual oddball with rare target detection",
+  "stimClasses": [
+    { "code": "STD", "label": "Standard", "expectedProbability": 0.8 },
+    { "code": "TGT", "label": "Target", "expectedProbability": 0.2 }
+  ],
+  "preStimMs": -200,
+  "postStimMs": 800,
+  "baselineCorrection": "mean",
+  "artifactThresholdUv": 100,
+  "minTrials": 30,
+  "expectedPeaks": ["N100", "P200", "P300"],
+  "citations": [
+    "Polich, J. (2007). Updating P300: An integrative theory of P3a and P3b. Clinical Neurophysiology, 118(10), 2128-2148."
+  ]
+}

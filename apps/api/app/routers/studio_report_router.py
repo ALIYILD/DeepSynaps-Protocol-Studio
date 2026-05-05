@@ -20,12 +20,16 @@ from app.routers.qeeg_raw_router import _load_analysis
 
 router = APIRouter(prefix="/api/v1/studio/eeg", tags=["studio-report"])
 
+# core-schema-exempt: report document — studio report router-local
+
 
 class ReportDocumentIn(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     title: str = "EEG Report"
     blocks: list[dict[str, Any]] = Field(default_factory=list)
+
+# core-schema-exempt: render report — studio report router-local
 
 
 class RenderReportIn(BaseModel):

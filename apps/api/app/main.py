@@ -174,6 +174,8 @@ from app.routers.studio_report_router import router as studio_report_router
 from app.routers.studio_eeg_database_router import router as studio_eeg_database_router
 from app.routers.recording_eeg_events_router import router as recording_eeg_events_router
 from app.routers.montages_router import router as montages_router
+from app.routers.audit_trail_router import router as audit_trail_router
+from app.routers.biometrics_router import router as biometrics_router
 from app.sentry_setup import init_sentry
 from app.settings import get_settings
 from app.services.brain_regions import list_brain_regions
@@ -547,6 +549,8 @@ app.include_router(studio_report_router)
 app.include_router(studio_eeg_database_router)
 app.include_router(recording_eeg_events_router)
 app.include_router(montages_router)
+app.include_router(audit_trail_router)
+app.include_router(biometrics_router)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)

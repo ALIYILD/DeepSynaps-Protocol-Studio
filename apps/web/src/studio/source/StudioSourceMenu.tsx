@@ -27,6 +27,7 @@ export function StudioSourceMenu({
   toSec: number;
   availableClasses: string[];
 }) {
+  void channelNames;
   const [dlgOpen, setDlgOpen] = useState(false);
   const [intent, setIntent] = useState<Intent>("loretaErp");
   const [busy, setBusy] = useState(false);
@@ -48,7 +49,8 @@ export function StudioSourceMenu({
     setErr(null);
   };
 
-  const onConfirm = async (p: ErpComputeParams) => {
+  const onConfirm = async (p: ErpComputeParams, _result?: unknown) => {
+    void _result;
     setBusy(true);
     setErr(null);
     try {
@@ -140,6 +142,8 @@ export function StudioSourceMenu({
         onOpenChange={setDlgOpen}
         analysisId={analysisId}
         availableClasses={classes.length ? classes : DEFAULT_ERP_PARAMS.stimulusClasses}
+        trials={trials}
+        mode="paramsOnly"
         onConfirm={(p) => void onConfirm(p)}
       />
 

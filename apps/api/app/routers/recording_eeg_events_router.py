@@ -148,6 +148,8 @@ def list_trials(
         "raw": raw,
     }
 
+# core-schema-exempt: trial patch — recording events router-local
+
 
 class TrialPatchIn(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -155,6 +157,8 @@ class TrialPatchIn(BaseModel):
     included: bool | None = None
     class_: str | None = Field(None, alias="class")
     response_ms: float | None = Field(None, alias="responseMs")
+
+# core-schema-exempt: trial sync — recording events router-local
 
 
 class TrialSyncIn(BaseModel):
