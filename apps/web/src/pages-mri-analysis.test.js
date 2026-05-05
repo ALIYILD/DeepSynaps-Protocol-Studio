@@ -54,8 +54,9 @@ const {
   renderMRIPatientReport,
   renderMRIRegistrationQA,
   renderMRIPhiAudit,
-  renderMRILinkedModules,
 } = mod;
+
+const { renderMRILinkedModules } = _INTERNALS;
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 function mkTarget(overrides) {

@@ -5310,7 +5310,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       if (_aiUpgradesFeatureFlagEnabled()) {
         aiButtonsHtml = ''
           + '<button class="btn btn-outline btn-sm" data-qeeg-ai-action="embedding" aria-label="Compute LaBraM embedding">Compute embedding</button>'
-          + '<button class="btn btn-outline btn-sm" data-qeeg-ai-action="brain_age" aria-label="Predict brain age">Predict brain age</button>'
+          + '<button class="btn btn-outline btn-sm" data-qeeg-ai-action="brain_age" aria-label="Estimate brain age (research)">Estimate brain age (research)</button>'
           + '<button class="btn btn-outline btn-sm" data-qeeg-ai-action="risk_scores" aria-label="Score similarity indices">Score conditions</button>'
           + '<button class="btn btn-outline btn-sm" data-qeeg-ai-action="explain" aria-label="Explain similarity indices">Explain</button>'
           + '<button class="btn btn-outline btn-sm" data-qeeg-ai-action="similar" aria-label="Find similar cases">Find similar cases</button>'
@@ -5428,7 +5428,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         if (_aiUpgradesFeatureFlagEnabled()) {
           var aiActionMap = {
             embedding:  { label: 'Computing embedding...',         call: function () { return api.computeQEEGEmbedding(analysisId); } },
-            brain_age:  { label: 'Predicting brain age...',        call: function () { return api.predictQEEGBrainAge(analysisId, {}); } },
+            brain_age:  { label: 'Estimating brain age (research)...', call: function () { return api.predictQEEGBrainAge(analysisId, {}); } },
             risk_scores:{ label: 'Scoring similarity indices...',  call: function () { return api.scoreQEEGConditions(analysisId); } },
             explain:    { label: 'Generating explainability...',   call: function () { return api.explainQEEGRiskScores(analysisId); } },
             similar:    { label: 'Finding similar cases...',       call: function () { return api.fetchQEEGSimilarCases(analysisId, 10); } },

@@ -239,6 +239,11 @@ from .qeeg import (
     QeegCleaningAuditEvent,
     QeegCleaningVersion,
 )
+from .qeeg_105 import (
+    QeegAnalysisAudit,
+    QeegAnalysisDefinitionsCache,
+    QeegAnalysisJob,
+)
 from .research import (
     ClinicalTrial,
     ClinicalTrialEnrollment,
@@ -409,6 +414,9 @@ __all__ = [
     "QeegCleaningAnnotation",
     "QeegCleaningAuditEvent",
     "QeegCleaningVersion",
+    "QeegAnalysisAudit",
+    "QeegAnalysisDefinitionsCache",
+    "QeegAnalysisJob",
     "QualityFinding",
     "QualityFindingRevision",
     "ReceptionCall",
