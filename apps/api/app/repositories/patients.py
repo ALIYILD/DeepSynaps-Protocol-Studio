@@ -126,3 +126,18 @@ def resolve_patient_clinic_id(
     if row is None:
         return False, None
     return True, row[1]
+
+
+def get_patient_primary_condition(
+    session: Session, patient_id: str
+) -> Optional[str]:
+    """Return the patient's primary condition without exposing ORM access to routers."""
+    if not patient_id:
+        return None
+    condition = session.scalar(
+        select(Patient.primary_condition).where(Patient.id == patient_id)
+    )
+    if condition is None:
+        return None
+    normalized = str(condition).strip()
+    return normalized or None

@@ -6,8 +6,25 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+
+from deepsynaps_core_schema import (
+    AssignmentFormResponse,
+    AssessmentRegistryEntry,
+    AssignRequestV2,
+    EvidenceHealthV2,
+    EvidenceRefV2,
+    EvidenceSearchResponseV2,
+    FormAccessState,
+    LibraryResponse,
+    QueueItemV2,
+    QueueResponseV2,
+    RecommendedAssessmentV2,
+    RecommendRequestV2,
+    RecommendResponseV2,
+    ScoreResponseV2,
+    SubmitResponsesRequest,
+)
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role, require_patient_owner
 from app.database import get_db_session
@@ -20,7 +37,7 @@ from app.repositories.assessments import (
     update_assessment,
 )
 from app.repositories.audit import create_audit_event
-from app.repositories.patients import resolve_patient_clinic_id
+from app.repositories.patients import get_patient_primary_condition, resolve_patient_clinic_id
 from app.services.assessment_scoring import compute_canonical_score, detect_red_flags, severity_for_score
 from app.services.assessment_summary import normalize_assessment_score
 from app.services.evidence_rag import search_evidence
@@ -71,170 +88,6 @@ def _audit_db(
     except Exception:
         # Never break clinician workflow because audit write failed.
         pass
-
-
-# ── Schemas (v2 contract) ────────────────────────────────────────────────────
-
-
-class AssessmentRegistryEntry(BaseModel):
-    id: str
-    name: str
-    abbreviation: str | None = None
-    category: str | None = None
-    condition_tags: list[str] = Field(default_factory=list)
-    symptom_domains: list[str] = Field(default_factory=list)
-    age_range: str | None = None
-    informant: str | None = None
-    modality_context: list[str] = Field(default_factory=list)
-    fillable_in_platform: bool
-    scorable_in_platform: bool
-    scoring_status: str
-    licence_status: str
-    external_link: str | None = None
-    instructions_summary: str | None = None
-    scoring_summary: str | None = None
-    interpretation_caveat: str | None = None
-    evidence_grade: str | None = None
-    evidence_links: list[str] = Field(default_factory=list)
-    live_literature_query: str | None = None
-    required_role: str = "clinician"
-    audit_required: bool = True
-    clinician_review_required: bool = True
-
-
-class LibraryResponse(BaseModel):
-    items: list[AssessmentRegistryEntry]
-    total: int
-    source: str = "v1_templates"
-
-
-class AssignRequestV2(BaseModel):
-    assessment_id: str = Field(..., description="Template/scale id (e.g., phq9).")
-    due_date: Optional[str] = None
-    phase: Optional[str] = None
-    bundle_id: Optional[str] = None
-    respondent_type: Optional[str] = None
-    clinician_notes: Optional[str] = None
-
-
-class QueueItemV2(BaseModel):
-    assignment_id: str
-    patient_id: str
-    assessment_id: str
-    assessment_title: str
-    status: str
-    due_date: Optional[str] = None
-    respondent_type: Optional[str] = None
-    phase: Optional[str] = None
-    bundle_id: Optional[str] = None
-    score_numeric: Optional[float] = None
-    severity: Optional[str] = None
-    severity_label: Optional[str] = None
-    red_flags: list[str] = Field(default_factory=list)
-    clinician_review_required: bool = True
-    licence_status: str | None = None
-    score_only: bool = False
-    external_link: str | None = None
-
-
-class QueueResponseV2(BaseModel):
-    items: list[QueueItemV2]
-    total: int
-
-
-class FormAccessState(BaseModel):
-    fillable_in_platform: bool
-    score_only: bool
-    licence_status: str
-    external_link: str | None = None
-    message: str | None = None
-
-
-class AssignmentFormResponse(BaseModel):
-    assignment_id: str
-    assessment_id: str
-    assessment_title: str
-    licensing: dict[str, Any] = Field(default_factory=dict)
-    access: FormAccessState
-    template: dict[str, Any] | None = None
-    clinician_review_required: bool = True
-
-
-class SubmitResponsesRequest(BaseModel):
-    status: str = Field("in_progress", description="in_progress|completed")
-    items: dict[str, Any] | list[Any] | None = None
-    score_numeric: float | None = None
-    clinician_notes: str | None = None
-
-
-class ScoreResponseV2(BaseModel):
-    assignment_id: str
-    assessment_id: str
-    scoring_status: str
-    raw_score: float | None = None
-    subscale_scores: dict[str, Any] | None = None
-    missing_items: list[str] = Field(default_factory=list)
-    severity: str | None = None
-    severity_label: str | None = None
-    red_flags: list[str] = Field(default_factory=list)
-    limitations: str
-    clinician_review_required: bool = True
-
-
-class EvidenceHealthV2(BaseModel):
-    ok: bool
-    local_corpus_available: bool
-    local_corpus_note: str
-    live_literature_available: bool
-    live_literature_note: str
-
-
-class EvidenceRefV2(BaseModel):
-    title: str
-    authors: str | None = None
-    year: int | None = None
-    doi: str | None = None
-    pmid: str | None = None
-    journal: str | None = None
-    study_type: str | None = None
-    population: str | None = None
-    condition: str | None = None
-    assessment_tool: str | None = None
-    limitations: str | None = None
-    evidence_grade: str | None = None
-    status: str = "local"
-    source_link: str | None = None
-
-
-class EvidenceSearchResponseV2(BaseModel):
-    status: str
-    items: list[EvidenceRefV2]
-    total: int
-
-
-class RecommendRequestV2(BaseModel):
-    patient_id: str
-    condition: str | None = None
-    age_years: int | None = None
-    symptom_domains: list[str] = Field(default_factory=list)
-    clinician_question: str | None = None
-
-
-class RecommendedAssessmentV2(BaseModel):
-    assessment_id: str
-    reason: str
-    informant: str | None = None
-    priority: str = "normal"
-    fillable_in_platform: bool
-    scorable_in_platform: bool
-    licence_status: str
-    clinician_review_required: bool = True
-
-
-class RecommendResponseV2(BaseModel):
-    source: str
-    recommended: list[RecommendedAssessmentV2]
-    caveats: list[str]
 
 
 # ── Helpers for registry mapping ─────────────────────────────────────────────
@@ -883,11 +736,9 @@ def recommend_v2(
     if not cond:
         # Attempt to read condition from patient record without including name/PHI.
         try:
-            from app.persistence.models import Patient  # noqa: PLC0415
-
-            p = db.get(Patient, body.patient_id)
-            if p and p.primary_condition:
-                cond = str(p.primary_condition).strip().lower()
+            patient_condition = get_patient_primary_condition(db, body.patient_id)
+            if patient_condition:
+                cond = patient_condition.strip().lower()
         except Exception:
             pass
 
@@ -929,4 +780,3 @@ def recommend_v2(
         note="assessments_v2_recommend_deterministic",
     )
     return RecommendResponseV2(source="deterministic_registry", recommended=recommended, caveats=caveats)
-
