@@ -32,6 +32,7 @@ fi
 
 NETLIFY_SITE_ID="13baea11-07e8-4ab3-9c25-af1f045c845b"
 API_BASE_URL="https://deepsynaps-studio.fly.dev"
+NETLIFY_FILTER="@deepsynaps/web"
 
 netlify_cmd="netlify"
 if command -v netlify.cmd >/dev/null 2>&1; then
@@ -71,9 +72,9 @@ if [ "$want_web" = 1 ]; then
 
   echo "▶ Deploying dist/ to Netlify site $NETLIFY_SITE_ID"
   if [ "$is_wsl" = 1 ] && [ "$netlify_cmd" = "netlify.cmd" ] && command -v powershell.exe >/dev/null 2>&1; then
-    powershell.exe -NoProfile -Command "netlify deploy --dir apps/web/dist --prod --site $NETLIFY_SITE_ID"
+    powershell.exe -NoProfile -Command "netlify deploy --filter $NETLIFY_FILTER --dir apps/web/dist --prod --site $NETLIFY_SITE_ID"
   else
-    "$netlify_cmd" deploy --dir apps/web/dist --prod --site "$NETLIFY_SITE_ID"
+    "$netlify_cmd" deploy --filter "$NETLIFY_FILTER" --dir apps/web/dist --prod --site "$NETLIFY_SITE_ID"
   fi
   echo "✓ Web live: https://deepsynaps-studio-preview.netlify.app"
 fi
