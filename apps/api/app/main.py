@@ -158,11 +158,22 @@ from app.routers.irb_amendment_reviewer_workload_outcome_tracker_router import (
 from app.routers.resolver_coaching_inbox_router import (
     router as resolver_coaching_inbox_router,
 )
+from app.routers.resolver_coaching_digest_audit_hub_router import (
+    router as resolver_coaching_digest_audit_hub_router,
+)
 from app.routers.resolver_coaching_self_review_digest_router import (
     router as resolver_coaching_self_review_digest_router,
 )
 from app.routers.reviewer_sla_calibration_threshold_tuning_router import (
     router as reviewer_sla_calibration_threshold_tuning_router,
+)
+from app.routers.digital_phenotyping_router import router as digital_phenotyping_router
+from app.routers.labs_analyzer_router import router as labs_analyzer_router
+from app.routers.medication_analyzer_router import router as medication_analyzer_router
+from app.routers.movement_analyzer_router import router as movement_analyzer_router
+from app.routers.nutrition_analyzer_router import router as nutrition_analyzer_router
+from app.routers.qeeg_annotation_outcome_tracker_router import (
+    router as qeeg_annotation_outcome_tracker_router,
 )
 # Settings API routers (foundation scaffolded by backend subagent #1; endpoints
 # fleshed out by backend subagents #3–#6). See apps/api/SETTINGS_API_DESIGN.md.
@@ -424,6 +435,11 @@ app.include_router(marketplace_seller_router)
 app.include_router(virtual_care_router)
 app.include_router(forms_router)
 app.include_router(medications_router)
+app.include_router(medication_analyzer_router)
+app.include_router(labs_analyzer_router)
+app.include_router(digital_phenotyping_router)
+app.include_router(movement_analyzer_router)
+app.include_router(nutrition_analyzer_router)
 app.include_router(consent_management_router)
 # Patient Home Program Tasks (Homework) launch-audit (2026-05-01).
 # Mounted BEFORE the clinician-side ``home_program_tasks_router`` so the
@@ -639,8 +655,10 @@ app.include_router(coaching_digest_delivery_failure_drilldown_router)
 app.include_router(irb_amendment_reviewer_workload_router)
 app.include_router(irb_amendment_reviewer_workload_outcome_tracker_router)
 app.include_router(resolver_coaching_inbox_router)
+app.include_router(resolver_coaching_digest_audit_hub_router)
 app.include_router(resolver_coaching_self_review_digest_router)
 app.include_router(reviewer_sla_calibration_threshold_tuning_router)
+app.include_router(qeeg_annotation_outcome_tracker_router)
 app.include_router(qeeg_report_annotations_router)
 app.include_router(quality_assurance_router)
 app.include_router(rotation_policy_advisor_outcome_tracker_router)
