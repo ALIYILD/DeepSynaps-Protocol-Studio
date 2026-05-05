@@ -4019,6 +4019,8 @@ export const api = {
   // require clinician confirmation before AI suggestions become accepted.
   getQEEGWorkbenchMetadata: (analysisId) =>
     apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/metadata`),
+  getQEEGCapabilities: () =>
+    apiFetch(`/api/v1/qeeg/capabilities`),
   getQEEGWorkbenchReferenceLibrary: (analysisId) =>
     apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/reference-library`),
   getQEEGManualAnalysisChecklist: (analysisId) =>

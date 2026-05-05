@@ -424,6 +424,7 @@ await test('navBack is a no-op-on-dirty path that does not call window._nav', ()
 await test('workbench source references every backend API method', () => {
   const REQUIRED_API = [
     'getQEEGWorkbenchMetadata',
+    'getQEEGCapabilities',
     'getQEEGCleaningLog',
     'createQEEGCleaningAnnotation',
     'saveQEEGCleaningVersion',
@@ -435,6 +436,18 @@ await test('workbench source references every backend API method', () => {
   ];
   for (const m of REQUIRED_API) {
     assert.ok(WORKBENCH_SRC.includes('api.' + m), 'api.' + m + ' is called from the workbench');
+  }
+});
+
+await test('capabilities panel selectors exist in source (stable UI surface)', () => {
+  for (const selector of [
+    'qeeg-capabilities-panel',
+    'qeeg-capability-row',
+    'qeeg-capability-status',
+    'qeeg-wineeg-reference-status',
+    'qeeg-norm-db-status',
+  ]) {
+    assert.ok(WORKBENCH_SRC.includes(selector), 'selector present: ' + selector);
   }
 });
 

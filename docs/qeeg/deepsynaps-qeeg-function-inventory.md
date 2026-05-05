@@ -5,6 +5,7 @@ Decision-support only. Clinician review required.
 This document inventories **real qEEG processing** implemented in `packages/qeeg-pipeline/src/deepsynaps_qeeg/` and maps it to the Studio API and web UI.
 
 It **does not** claim:
+
 - native WinEEG compatibility
 - proprietary WinEEG integration
 - WinEEG parsers / WinEEG binaries
@@ -13,39 +14,44 @@ It **does not** claim:
 ## Scope boundaries
 
 ### WinEEG-style workflow reference (reference-only)
+
 - **Purpose**: manual qEEG review guidance, reference-only checklists, workflow concepts.
 - **Not included**: any proprietary runtime, any WinEEG file ingestion, any WinEEG “engine”.
 - **Implementation**: `deepsynaps_qeeg.knowledge.wineeg_reference` loads a JSON library of guidance and safety notes.
 
 ### DeepSynaps real processing (MNE / `deepsynaps_qeeg`)
+
 - **Purpose**: load EEG files, preprocess, artifact handling, feature extraction, optional source localization, normative scoring, optional reporting.
 - **Implementation**: Python modules in `packages/qeeg-pipeline/src/deepsynaps_qeeg/`.
 - **Studio surfaces**: qEEG Analyzer, qEEG Raw Data Workbench, and supporting API endpoints.
 
 ## Summary table (capability → module → API/UI surface → status → caveat)
 
-| Capability | Implementation module(s) | API service / route | UI surface | Status | Caveat (decision-support only) |
-|---|---|---|---|---|---|
-| EEG file ingest (EDF/BDF/VHDR/SET/FIF) + montage + minimum validation | `deepsynaps_qeeg.io` | indirectly via pipeline; raw viewer uses MNE directly with fallback | qEEG Analyzer upload + analysis; Raw Workbench load | **Real** | Requires correct channel naming + montage mapping; fails below channel/sfreq/duration minimums |
-| Preprocess: robust ref (PyPREP when available), bandpass, notch, resample | `deepsynaps_qeeg.preprocess` | `apps/api/app/services/qeeg_pipeline.py` via `run_full_pipeline` | qEEG Analyzer; Raw Workbench “cleaned signal” uses similar logic | **Real + fallback** | PyPREP optional; fallback uses average ref + lightweight bad-channel detection |
-| Artifact stage: ICA (ICLabel optional), epoching, autoreject (optional) | `deepsynaps_qeeg.artifacts` | `apps/api/app/services/qeeg_pipeline.py` via `run_full_pipeline` | qEEG Analyzer; Raw Workbench has separate ICA review | **Real + graceful-degrade** | ICLabel/autoreject optional; short/low-quality data reduces reliability |
-| Spectral band power (absolute/relative), SpecParam aperiodic, PAF | `deepsynaps_qeeg.features.spectral` | pipeline → stored fields; also used by other services | qEEG Analyzer | **Real + partial** | SpecParam optional; falls back to PAF-from-PSD when needed |
-| Connectivity matrices (wPLI, coherence) | `deepsynaps_qeeg.features.connectivity` | pipeline → stored fields | qEEG Analyzer | **Real + fallback** | `mne-connectivity` optional; returns zero matrices if missing |
-| Frontal Alpha Asymmetry (FAA) | `deepsynaps_qeeg.features.asymmetry` | pipeline → stored fields | qEEG Analyzer | **Real** | Requires F3/F4 and/or F7/F8; propagates spectral confidence |
-| Graph metrics (clustering/path length/small-worldness) | `deepsynaps_qeeg.features.graph` | pipeline → stored fields | qEEG Analyzer | **Real** | Requires `networkx`; disconnected graphs yield NaNs |
-| Source localization (template fsaverage) + DK ROI band power | `deepsynaps_qeeg.source.*` | pipeline optional + `qeeg-viz` payload endpoints | qEEG Analyzer (source panels / 3D viewer) | **Real + quality-guarded** | Heavy; skipped when insufficient channels/epochs; model-derived, requires clinical correlation |
-| Normative z-scores (toy CSV DB) | `deepsynaps_qeeg.normative.zscore` | pipeline → stored fields | qEEG Analyzer | **Real (toy norms)** | Age/sex required; DB is toy fixture unless a real norm DB is configured |
-| Normative centiles/z via GAMLSS (optional) | `deepsynaps_qeeg.normative.gamlss` | qEEG Analyzer “AI upgrades” endpoints | qEEG Analyzer | **Partial/optional** | Depends on optional heavy libs; treat as experimental until validated norms |
-| Reporting (HTML + PDF) + topomaps | `deepsynaps_qeeg.report.generate`, `deepsynaps_qeeg.report.weasyprint_pdf`, `deepsynaps_qeeg.viz.*` | `qeeg-viz` report endpoints; pipeline `do_report=True` | qEEG Analyzer | **Real + graceful-degrade** | PDF requires WeasyPrint; images require matplotlib; always decision-support only |
-| Literature retrieval (RAG fallback supported) | `deepsynaps_qeeg.report.rag` | via qEEG AI/report pipelines | qEEG Analyzer narrative/citations | **Real + fallback** | DB-backed retrieval optional; JSON fixture fallback exists for offline/testing |
-| Narrative generation safety wrapper | `deepsynaps_qeeg.narrative.safety` | called by report generator | qEEG Analyzer report | **Real** | Must avoid diagnostic/treatment language; citations must be checked |
-| Protocol recommendation (rules/ranker/library) | `deepsynaps_qeeg.recommender.*` | `apps/api/app/routers/qeeg_analysis_router.py` recommendation endpoints | qEEG Analyzer | **Real (backend-scaffold)** | Output is decision-support only; not a treatment recommendation |
-| Live/streaming rolling features (LSL/mock) | `deepsynaps_qeeg.streaming.*` | `apps/api/app/routers/qeeg_live_router.py` | Live panel | **Real + optional** | Feature-flagged + entitlement-gated; depends on SciPy; “Monitoring only — not diagnostic.” |
-| WinEEG-style workflow reference library + manual checklist | `deepsynaps_qeeg.knowledge.wineeg_reference` | `GET /api/v1/qeeg-raw/{id}/reference-library`, `.../manual-analysis-checklist` | Raw Workbench | **Reference-only** | No native WinEEG compatibility; guidance only |
+
+| Capability                                                                | Implementation module(s)                                                                            | API service / route                                                            | UI surface                                                       | Status                      | Caveat (decision-support only)                                                                 |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------- |
+| EEG file ingest (EDF/BDF/VHDR/SET/FIF) + montage + minimum validation     | `deepsynaps_qeeg.io`                                                                                | indirectly via pipeline; raw viewer uses MNE directly with fallback            | qEEG Analyzer upload + analysis; Raw Workbench load              | **Real**                    | Requires correct channel naming + montage mapping; fails below channel/sfreq/duration minimums |
+| Preprocess: robust ref (PyPREP when available), bandpass, notch, resample | `deepsynaps_qeeg.preprocess`                                                                        | `apps/api/app/services/qeeg_pipeline.py` via `run_full_pipeline`               | qEEG Analyzer; Raw Workbench “cleaned signal” uses similar logic | **Real + fallback**         | PyPREP optional; fallback uses average ref + lightweight bad-channel detection                 |
+| Artifact stage: ICA (ICLabel optional), epoching, autoreject (optional)   | `deepsynaps_qeeg.artifacts`                                                                         | `apps/api/app/services/qeeg_pipeline.py` via `run_full_pipeline`               | qEEG Analyzer; Raw Workbench has separate ICA review             | **Real + graceful-degrade** | ICLabel/autoreject optional; short/low-quality data reduces reliability                        |
+| Spectral band power (absolute/relative), SpecParam aperiodic, PAF         | `deepsynaps_qeeg.features.spectral`                                                                 | pipeline → stored fields; also used by other services                          | qEEG Analyzer                                                    | **Real + partial**          | SpecParam optional; falls back to PAF-from-PSD when needed                                     |
+| Connectivity matrices (wPLI, coherence)                                   | `deepsynaps_qeeg.features.connectivity`                                                             | pipeline → stored fields                                                       | qEEG Analyzer                                                    | **Real + fallback**         | `mne-connectivity` optional; returns zero matrices if missing                                  |
+| Frontal Alpha Asymmetry (FAA)                                             | `deepsynaps_qeeg.features.asymmetry`                                                                | pipeline → stored fields                                                       | qEEG Analyzer                                                    | **Real**                    | Requires F3/F4 and/or F7/F8; propagates spectral confidence                                    |
+| Graph metrics (clustering/path length/small-worldness)                    | `deepsynaps_qeeg.features.graph`                                                                    | pipeline → stored fields                                                       | qEEG Analyzer                                                    | **Real**                    | Requires `networkx`; disconnected graphs yield NaNs                                            |
+| Source localization (template fsaverage) + DK ROI band power              | `deepsynaps_qeeg.source.`*                                                                          | pipeline optional + `qeeg-viz` payload endpoints                               | qEEG Analyzer (source panels / 3D viewer)                        | **Real + quality-guarded**  | Heavy; skipped when insufficient channels/epochs; model-derived, requires clinical correlation |
+| Normative z-scores (toy CSV DB)                                           | `deepsynaps_qeeg.normative.zscore`                                                                  | pipeline → stored fields                                                       | qEEG Analyzer                                                    | **Real (toy norms)**        | Age/sex required; DB is toy fixture unless a real norm DB is configured                        |
+| Normative centiles/z via GAMLSS (optional)                                | `deepsynaps_qeeg.normative.gamlss`                                                                  | qEEG Analyzer “AI upgrades” endpoints                                          | qEEG Analyzer                                                    | **Partial/optional**        | Depends on optional heavy libs; treat as experimental until validated norms                    |
+| Reporting (HTML + PDF) + topomaps                                         | `deepsynaps_qeeg.report.generate`, `deepsynaps_qeeg.report.weasyprint_pdf`, `deepsynaps_qeeg.viz.`* | `qeeg-viz` report endpoints; pipeline `do_report=True`                         | qEEG Analyzer                                                    | **Real + graceful-degrade** | PDF requires WeasyPrint; images require matplotlib; always decision-support only               |
+| Literature retrieval (RAG fallback supported)                             | `deepsynaps_qeeg.report.rag`                                                                        | via qEEG AI/report pipelines                                                   | qEEG Analyzer narrative/citations                                | **Real + fallback**         | DB-backed retrieval optional; JSON fixture fallback exists for offline/testing                 |
+| Narrative generation safety wrapper                                       | `deepsynaps_qeeg.narrative.safety`                                                                  | called by report generator                                                     | qEEG Analyzer report                                             | **Real**                    | Must avoid diagnostic/treatment language; citations must be checked                            |
+| Protocol recommendation (rules/ranker/library)                            | `deepsynaps_qeeg.recommender.`*                                                                     | `apps/api/app/routers/qeeg_analysis_router.py` recommendation endpoints        | qEEG Analyzer                                                    | **Real (backend-scaffold)** | Output is decision-support only; not a treatment recommendation                                |
+| Live/streaming rolling features (LSL/mock)                                | `deepsynaps_qeeg.streaming.`*                                                                       | `apps/api/app/routers/qeeg_live_router.py`                                     | Live panel                                                       | **Real + optional**         | Feature-flagged + entitlement-gated; depends on SciPy; “Monitoring only — not diagnostic.”     |
+| WinEEG-style workflow reference library + manual checklist                | `deepsynaps_qeeg.knowledge.wineeg_reference`                                                        | `GET /api/v1/qeeg-raw/{id}/reference-library`, `.../manual-analysis-checklist` | Raw Workbench                                                    | **Reference-only**          | No native WinEEG compatibility; guidance only                                                  |
+
 
 ## End-to-end orchestration (real processing)
 
 ### Primary pipeline entrypoint
+
 - **File**: `packages/qeeg-pipeline/src/deepsynaps_qeeg/pipeline.py`
 - **Key public surface**
   - `PipelineResult` (dataclass)
@@ -58,7 +64,7 @@ It **does not** claim:
   - Optional source localization: `source.forward`, `source.inverse`, `source.noise`, `source.roi`, `source.viz_3d`
   - Normative: `normative.zscore.compute`
   - Clinical summary (best effort): `clinical_summary.build_clinical_summary`
-  - Optional longitudinal compare: `longitudinal.*`
+  - Optional longitudinal compare: `longitudinal.`*
   - Optional report: `report.generate.build`
 - **Inputs**
   - EEG file path on disk
@@ -77,6 +83,7 @@ It **does not** claim:
   - Every stage is decision-support only; low-quality data leads to limited confidence; source localization is model-derived and requires clinical correlation.
 
 ### Studio API façade for the pipeline
+
 - **File**: `apps/api/app/services/qeeg_pipeline.py`
 - **Key public surface**
   - `HAS_MNE_PIPELINE`
@@ -91,6 +98,7 @@ Below, “Used by Studio” means directly reachable via API/UI on this monorepo
 ### I/O
 
 #### `deepsynaps_qeeg.io`
+
 - **File**: `packages/qeeg-pipeline/src/deepsynaps_qeeg/io.py`
 - **Key items**
   - `EEGIngestError`
@@ -114,6 +122,7 @@ Below, “Used by Studio” means directly reachable via API/UI on this monorepo
 ### Preprocessing
 
 #### `deepsynaps_qeeg.preprocess`
+
 - **File**: `packages/qeeg-pipeline/src/deepsynaps_qeeg/preprocess.py`
 - **Key functions**
   - `run(raw, bandpass, notch, resample)`
@@ -136,6 +145,7 @@ Below, “Used by Studio” means directly reachable via API/UI on this monorepo
 ### Artifact stage (ICA, epoching, autoreject)
 
 #### `deepsynaps_qeeg.artifacts`
+
 - **File**: `packages/qeeg-pipeline/src/deepsynaps_qeeg/artifacts.py`
 - **Key functions**
   - `run(raw_clean, epoch_len, overlap, quality, ica_exclude_override, ica_keep_override)`
@@ -154,6 +164,7 @@ Below, “Used by Studio” means directly reachable via API/UI on this monorepo
 ### Spectral features
 
 #### `deepsynaps_qeeg.features.spectral`
+
 - **File**: `packages/qeeg-pipeline/src/deepsynaps_qeeg/features/spectral.py`
 - **Key functions**
   - `compute(epochs, bands=FREQ_BANDS)`
@@ -174,6 +185,7 @@ Below, “Used by Studio” means directly reachable via API/UI on this monorepo
 ### Connectivity
 
 #### `deepsynaps_qeeg.features.connectivity`
+
 - **File**: `packages/qeeg-pipeline/src/deepsynaps_qeeg/features/connectivity.py`
 - **Key functions**
   - `compute(epochs, bands=FREQ_BANDS)`
@@ -192,6 +204,7 @@ Below, “Used by Studio” means directly reachable via API/UI on this monorepo
 ### Asymmetry
 
 #### `deepsynaps_qeeg.features.asymmetry`
+
 - **File**: `packages/qeeg-pipeline/src/deepsynaps_qeeg/features/asymmetry.py`
 - **Key functions**
   - `compute(features_spectral, ch_names)`
@@ -210,6 +223,7 @@ Below, “Used by Studio” means directly reachable via API/UI on this monorepo
 ### Graph metrics
 
 #### `deepsynaps_qeeg.features.graph`
+
 - **File**: `packages/qeeg-pipeline/src/deepsynaps_qeeg/features/graph.py`
 - **Key functions**
   - `compute(connectivity)`
@@ -228,6 +242,7 @@ Below, “Used by Studio” means directly reachable via API/UI on this monorepo
 ### Source localization (MNE-based)
 
 #### `deepsynaps_qeeg.source.forward`
+
 - **File**: `packages/qeeg-pipeline/src/deepsynaps_qeeg/source/forward.py`
 - **Key function**
   - `build_forward_model(raw, subject="fsaverage", subjects_dir=None, bids_subject=None)`
@@ -239,6 +254,7 @@ Below, “Used by Studio” means directly reachable via API/UI on this monorepo
   - **Real**
 
 #### `deepsynaps_qeeg.source.inverse`
+
 - **File**: `packages/qeeg-pipeline/src/deepsynaps_qeeg/source/inverse.py`
 - **Key functions**
   - `compute_inverse_operator(raw, forward, noise_cov)`
@@ -247,6 +263,7 @@ Below, “Used by Studio” means directly reachable via API/UI on this monorepo
   - **Real**
 
 #### `deepsynaps_qeeg.source.noise`
+
 - **File**: `packages/qeeg-pipeline/src/deepsynaps_qeeg/source/noise.py`
 - **Key function**
   - `estimate_noise_covariance(epochs)`
@@ -254,6 +271,7 @@ Below, “Used by Studio” means directly reachable via API/UI on this monorepo
   - **Real**
 
 #### `deepsynaps_qeeg.source.roi`
+
 - **File**: `packages/qeeg-pipeline/src/deepsynaps_qeeg/source/roi.py`
 - **Key function**
   - `extract_roi_band_power(source_estimates, subject="fsaverage", subjects_dir=None) -> pandas.DataFrame`
@@ -263,6 +281,7 @@ Below, “Used by Studio” means directly reachable via API/UI on this monorepo
   - **Real**
 
 #### `deepsynaps_qeeg.source.viz_3d`
+
 - **File**: `packages/qeeg-pipeline/src/deepsynaps_qeeg/source/viz_3d.py`
 - **Key function**
   - `save_stc_snapshots(...)` (used to write report artifacts)
@@ -270,11 +289,13 @@ Below, “Used by Studio” means directly reachable via API/UI on this monorepo
   - **Real**
 
 **Tests**
+
 - `packages/qeeg-pipeline/tests/test_source.py` (skips unless `mne`, `nibabel`, `pandas` installed)
 
 ### Normative scoring
 
 #### `deepsynaps_qeeg.normative.zscore`
+
 - **File**: `packages/qeeg-pipeline/src/deepsynaps_qeeg/normative/zscore.py`
 - **Key items**
   - `ToyCsvNormDB` (fixture-backed)
@@ -286,6 +307,7 @@ Below, “Used by Studio” means directly reachable via API/UI on this monorepo
   - `packages/qeeg-pipeline/tests/test_schema_v3.py` (output shape coverage)
 
 #### `deepsynaps_qeeg.normative.gamlss`
+
 - **File**: `packages/qeeg-pipeline/src/deepsynaps_qeeg/normative/gamlss.py`
 - **Key items**
   - `GamlssNormativeDB`, `compute_centiles_and_zscores(...)`
@@ -297,6 +319,7 @@ Below, “Used by Studio” means directly reachable via API/UI on this monorepo
 ### Reporting + visualization helpers
 
 #### `deepsynaps_qeeg.report.generate`
+
 - **File**: `packages/qeeg-pipeline/src/deepsynaps_qeeg/report/generate.py`
 - **Key function**
   - `build(result, out_dir, ch_names) -> (html_str, pdf_path|None)`
@@ -304,6 +327,7 @@ Below, “Used by Studio” means directly reachable via API/UI on this monorepo
   - **Real + graceful-degrade** (no PDF if WeasyPrint missing)
 
 #### `deepsynaps_qeeg.report.weasyprint_pdf`
+
 - **File**: `packages/qeeg-pipeline/src/deepsynaps_qeeg/report/weasyprint_pdf.py`
 - **Key function**
   - `build_pdf_report(result, ch_names, out_dir, case_id, recording_date, ...)`
@@ -313,6 +337,7 @@ Below, “Used by Studio” means directly reachable via API/UI on this monorepo
   - **Real + dependency-optional**
 
 #### `deepsynaps_qeeg.report.rag`
+
 - **File**: `packages/qeeg-pipeline/src/deepsynaps_qeeg/report/rag.py`
 - **Key function**
   - `query_literature(conditions, modalities, top_k=...)`
@@ -321,7 +346,8 @@ Below, “Used by Studio” means directly reachable via API/UI on this monorepo
 - **Tests**
   - `packages/qeeg-pipeline/tests/test_rag.py`
 
-#### `deepsynaps_qeeg.viz.*`
+#### `deepsynaps_qeeg.viz.`*
+
 - **Files**
   - `viz/topomap.py`, `viz/band_grid.py`, `viz/connectivity.py`, `viz/source.py`, `viz/animation.py`, `viz/web_payload.py`
 - **Purpose**
@@ -336,6 +362,7 @@ Below, “Used by Studio” means directly reachable via API/UI on this monorepo
 ### Knowledge & reference-only guidance
 
 #### `deepsynaps_qeeg.knowledge.wineeg_reference` (reference-only)
+
 - **File**: `packages/qeeg-pipeline/src/deepsynaps_qeeg/knowledge/wineeg_reference.py`
 - **Key functions**
   - `load_wineeg_reference_library()`
@@ -350,6 +377,7 @@ Below, “Used by Studio” means directly reachable via API/UI on this monorepo
   - `packages/qeeg-pipeline/tests/test_knowledge.py` (validates reference-only + category coverage)
 
 #### Other knowledge modules (clinical workflow concepts)
+
 - **Files**
   - `knowledge/channel_anatomy.py`, `knowledge/medication_eeg.py`, `knowledge/artifact_atlas.py`, etc.
 - **Purpose**
@@ -361,7 +389,8 @@ Below, “Used by Studio” means directly reachable via API/UI on this monorepo
 
 ### Streaming (live qEEG monitoring)
 
-#### `deepsynaps_qeeg.streaming.*`
+#### `deepsynaps_qeeg.streaming.`*
+
 - **Files**
   - `streaming/lsl_source.py`, `streaming/rolling.py`, `streaming/quality.py`, `streaming/zscore_live.py`, `streaming/server.py`
 - **Used by Studio**
@@ -374,7 +403,8 @@ Below, “Used by Studio” means directly reachable via API/UI on this monorepo
 
 ### Recommender + AI adjuncts (decision-support)
 
-#### `deepsynaps_qeeg.recommender.*`
+#### `deepsynaps_qeeg.recommender.`*
+
 - **Purpose**
   - rule/ranker-based protocol fit and candidate protocol selection.
 - **Used by Studio**
@@ -385,7 +415,8 @@ Below, “Used by Studio” means directly reachable via API/UI on this monorepo
   - `packages/qeeg-pipeline/tests/test_recommender.py`
   - `packages/qeeg-pipeline/tests/test_protocol_recommender.py`
 
-#### `deepsynaps_qeeg.ai.*`
+#### `deepsynaps_qeeg.ai.`*
+
 - **Purpose**
   - risk scores, similar cases, explainability scaffolding, copilot tool dispatch, fusion synthesis.
 - **Used by Studio**
@@ -400,6 +431,7 @@ Below, “Used by Studio” means directly reachable via API/UI on this monorepo
 Simple string-based reference scanning can mistakenly label modules “unused” when they’re imported relatively (e.g. `from . import preprocess`) or used only via API routers that import submodules by function name.
 
 **Actionable approach**:
+
 - Treat modules as “potentially unused” only when:
   - they are not imported by `pipeline.py`, **and**
   - not imported by any Studio router/service (e.g. `qeeg_viz_router.py`, `qeeg_live_router.py`, `qeeg_analysis_router.py`), **and**
@@ -421,3 +453,11 @@ This repo already has a broad `packages/qeeg-pipeline/tests/` suite; most module
 3. **Hardening around recording-state & medication confounds**: ensure every report includes the “decision-support only / clinician review required” framing plus confounds.
 4. **Increase integration tests**: one API-level test that runs `analyze-mne` end-to-end with pipeline installed and checks DB columns + GET payload shape.
 
+## Capability/dependency status endpoint (deployment transparency)
+
+DeepSynaps also exposes a lightweight capability check endpoint:
+
+- **API**: `GET /api/v1/qeeg/capabilities`
+- **Purpose**: report **dependency/config availability only** (no heavy imports, no computation).
+- **Statuses**: `active` / `fallback` / `unavailable` / `reference_only` / `experimental`
+- **Safety**: decision-support only; clinician review required; **no secrets are returned**.
