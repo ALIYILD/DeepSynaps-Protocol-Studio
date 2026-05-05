@@ -3314,6 +3314,8 @@ export async function pgProtocolHub(setTopbar, navigate) {
 
   setTopbar('Protocol Studio', '');
 
+  const _tid = (id, extra = '') => ` data-testid="${id}"${extra}`;
+
   // ── CSS injected once ──────────────────────────────────────────────────────
   if (!document.getElementById('ps-styles')) {
     const _st = document.createElement('style');
@@ -3398,7 +3400,7 @@ export async function pgProtocolHub(setTopbar, navigate) {
   if (_role === 'patient') {
     setTopbar('Protocol Studio', '');
     el.innerHTML =
-      '<div class="ps-shell"><div class="ps-body">' +
+      '<div class="ps-shell"' + _tid('protocol-studio-root') + '><div class="ps-body"' + _tid('protocol-studio-body') + '>' +
         '<div class="ps-hero"><h1 class="ps-hero-title">Clinician workspace</h1>' +
         '<p class="ps-hero-sub">Protocol Studio is for licensed clinicians and clinic staff to draft and review neuromodulation protocols. Patient-facing programs are available under Virtual Care and your home portal.</p>' +
         '<div class="ps-quick-links">' +
@@ -3451,6 +3453,9 @@ export async function pgProtocolHub(setTopbar, navigate) {
     const contra = (draft.contraindications || []).filter(Boolean);
     const mon = (draft.monitoring_plan || []).filter(Boolean);
     const offLabel = !!draft.off_label_review_required;
+    const offLabelWarning = offLabel
+      ? '<div class="ps-result-section" style="color:#f59e0b"' + _tid('protocol-off-label-warning') + '><strong>Off-label:</strong> This draft requires explicit clinician review and acknowledgement before use.</div>'
+      : '';
     const aiDraftNote = '<div class="ps-result-section" style="border-left:3px solid rgba(245,158,11,0.6);padding-left:10px;margin-top:10px">' +
       '<strong>Status: </strong>AI-assisted draft — not treatment approval. Requires clinician review and sign-off before clinical use. Not diagnosis or autonomous prescribing.' +
       (offLabel ? ' <strong>Off-label review required.</strong>' : '') +
@@ -3465,7 +3470,12 @@ export async function pgProtocolHub(setTopbar, navigate) {
       '</ul>'
     );
     const auditHint = '<div class="ps-result-section" style="font-size:11px;color:var(--text-tertiary);margin-top:8px">Governance events (save, review, export) are recorded in the clinic audit trail when you use a signed-in API session.</div>';
-    return '<div class="ps-result-card" role="region" aria-label="AI-assisted protocol draft">' +
+    const evidenceLinks = '<div class="ps-result-section"' + _tid('protocol-evidence-links') + '><strong>Evidence links:</strong> ' +
+      (Array.isArray(draft.evidence_links) && draft.evidence_links.length
+        ? draft.evidence_links.map(x => esc(x)).join('; ')
+        : '<span style="color:var(--text-tertiary)">None attached to this draft payload.</span>') +
+      '</div>';
+    return '<div class="ps-result-card" role="region" aria-label="AI-assisted protocol draft"' + _tid('protocol-draft-output') + '>' +
       '<div class="ps-result-header">' +
         '<span class="ps-result-title">AI-assisted draft (registry-backed)</span>' +
         '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
@@ -3474,15 +3484,17 @@ export async function pgProtocolHub(setTopbar, navigate) {
         '</div>' +
       '</div>' +
       aiDraftNote +
+      offLabelWarning +
       '<div class="ps-result-section"><strong>Rationale: </strong>' + esc(draft.rationale) + '</div>' +
       '<div class="ps-result-section"><strong>Target region: </strong>' + esc(draft.target_region) + '</div>' +
       '<div class="ps-result-section"><strong>Session frequency: </strong>' + esc(draft.session_frequency) + '</div>' +
       '<div class="ps-result-section"><strong>Duration: </strong>' + esc(draft.duration) + '</div>' +
       (mon.length ? '<div class="ps-result-section"><strong>Safety / monitoring: </strong>' + mon.map(c => esc(c)).join('; ') + '</div>' : '') +
       (contra.length ? '<div class="ps-result-section" style="color:#f59e0b"><strong>Contraindications / cautions: </strong>' + contra.map(c => esc(c)).join('; ') + '</div>' : '<div class="ps-result-section"><strong>Contraindications: </strong>None listed by rules — clinical review still required.</div>') +
+      evidenceLinks +
       (extraHtml || '') +
       missingChecklist +
-      '<div class="ps-disclaimer">' +
+      '<div class="ps-disclaimer"' + _tid('protocol-safety-banner') + '>' +
         esc((draft.disclaimers && draft.disclaimers.general_disclaimer) || 'Decision-support draft only. Licensed clinician review required before any treatment planning.') +
       '</div>' +
       auditHint +
@@ -3492,7 +3504,7 @@ export async function pgProtocolHub(setTopbar, navigate) {
         '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border)" onclick="window._psExportProtocolDocx()" title="Requires clinician auth and render engine on API"' + (_psCanAuthor() ? '' : ' disabled title="Clinician sign-in required"') + '>Export protocol (.docx)</button>' +
         '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border)" onclick="window._psExportHandbookDocx()" title="Requires clinician auth"' + (_psCanAuthor() ? '' : ' disabled title="Clinician sign-in required"') + '>Export handbook (.docx)</button>' +
         '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border)" onclick="window._psExportPatientGuideDocx()" title="Requires clinician auth"' + (_psCanAuthor() ? '' : ' disabled title="Clinician sign-in required"') + '>Export patient guide (.docx)</button>' +
-        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border)" onclick="window._psMarkReviewed()">Clinician review &amp; sign-off…</button>' +
+        '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border)" onclick="window._psMarkReviewed()"' + _tid('protocol-approve-action') + '>Clinician review &amp; sign-off…</button>' +
       '</div>' +
     '</div>';
   }
@@ -3500,7 +3512,7 @@ export async function pgProtocolHub(setTopbar, navigate) {
   function _renderPatientBanner() {
     const pid = _psContextPatientId();
     if (!pid) {
-      return '<div class="ps-patient-banner" role="status">' +
+      return '<div class="ps-patient-banner" role="status"' + _tid('protocol-patient-context') + '>' +
         '<div><strong>No patient in context</strong>' +
         '<span>Select a patient from Patients or search in the sidebar to link drafts, exports, and audit events to a record.</span></div>' +
         '<button type="button" class="ps-save-btn" style="font-size:11px;padding:5px 12px" onclick="window._nav(\'patients-v2\')">Open patients</button>' +
@@ -3508,7 +3520,7 @@ export async function pgProtocolHub(setTopbar, navigate) {
     }
     const nm = ((window._profilePatientName || '') + '').trim() || 'Patient';
     const pidJs = JSON.stringify(pid);
-    return '<div class="ps-patient-banner ps-patient-ok" role="status">' +
+    return '<div class="ps-patient-banner ps-patient-ok" role="status"' + _tid('protocol-patient-context') + '>' +
       '<div><strong>Patient context</strong>' +
       '<span>' + esc(nm) + ' · ID <code style="font-size:10px">' + esc(pid) + '</code></span></div>' +
       '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-left:auto">' +
@@ -3530,7 +3542,7 @@ export async function pgProtocolHub(setTopbar, navigate) {
 
   function _renderClinicalShell(innerHtml) {
     const hero =
-      '<div class="ps-hero">' +
+      '<div class="ps-hero"' + _tid('protocol-studio-root') + '>' +
         '<h1 class="ps-hero-title">Protocol Studio</h1>' +
         '<p class="ps-hero-sub">Clinician-reviewed protocol drafting and governance workspace. Use this surface to align indications, modalities, and evidence with clinic policy — not for autonomous diagnosis, prescribing, treatment approval, device control, or emergency triage. All AI-assisted output remains draft until your review and sign-off in your clinic workflow.</p>' +
         '<div class="ps-quick-links" role="navigation" aria-label="Protocol Studio shortcuts">' +
@@ -3765,11 +3777,11 @@ export async function pgProtocolHub(setTopbar, navigate) {
         '<div class="ps-form-row">' +
           '<div class="ps-form-group">' +
             '<label class="ps-form-label">Condition *</label>' +
-            '<input class="ps-form-input" id="ps-ev-condition" type="text" placeholder="e.g. Major Depressive Disorder" value="' + esc(prefill) + '">' +
+            '<input class="ps-form-input" id="ps-ev-condition"' + _tid('protocol-evidence-search') + ' type="text" placeholder="e.g. Major Depressive Disorder" value="' + esc(prefill) + '">' +
           '</div>' +
           '<div class="ps-form-group">' +
             '<label class="ps-form-label">Modality *</label>' +
-            '<select class="ps-form-input" id="ps-ev-modality">' +
+            '<select class="ps-form-input" id="ps-ev-modality"' + _tid('protocol-mode-selector') + '>' +
               '<option value="tDCS">tDCS</option>' +
               '<option value="rTMS">rTMS</option>' +
               '<option value="tACS">tACS</option>' +
@@ -3799,7 +3811,7 @@ export async function pgProtocolHub(setTopbar, navigate) {
         '</div>' +
         (W.error ? '<div style="color:#ef4444;font-size:12px;margin-bottom:10px">' + esc(W.error) + '</div>' : '') +
         (W.mode === 'evidence' && W.result ? _renderResultCard(W.result, '') : '') +
-        '<button type="button" class="ps-save-btn" id="ps-ev-generate-btn" onclick="window._psGenerateEvidence()">' +
+        '<button type="button" class="ps-save-btn" id="ps-ev-generate-btn"' + _tid('protocol-generate-action') + ' onclick="window._psGenerateEvidence()">' +
           (W.saving ? '<span class="ps-spin"></span>Drafting...' : 'Generate AI-assisted draft') +
         '</button>' +
       '</div>';
@@ -4012,15 +4024,20 @@ export async function pgProtocolHub(setTopbar, navigate) {
       { id: 'drafts',     label: 'My Drafts' },
     ];
     return tabs.map(t =>
-      '<button class="ps-tab' + (_tab === t.id ? ' active' : '') + '" onclick="window._psTab(\'' + t.id + '\')">' + t.label + '</button>'
+      '<button class="ps-tab' + (_tab === t.id ? ' active' : '') + '" onclick="window._psTab(\'' + t.id + '\')"' +
+        (t.id === 'conditions' ? _tid('protocol-studio-tab-conditions') : '') +
+        (t.id === 'generate'   ? _tid('protocol-studio-tab-generate') : '') +
+        (t.id === 'browse'     ? _tid('protocol-studio-tab-browse') : '') +
+        (t.id === 'drafts'     ? _tid('protocol-studio-tab-drafts') : '') +
+        '>' + t.label + '</button>'
     ).join('');
   }
 
   // Paint shell once, swap content on tab change
   el.innerHTML =
-    '<div class="ps-shell">' +
-      '<div class="ps-tab-bar">' + _renderTabBar() + '</div>' +
-      '<div class="ps-body" id="ps-tab-content"></div>' +
+    '<div class="ps-shell"' + _tid('protocol-studio-root') + '>' +
+      '<div class="ps-tab-bar"' + _tid('protocol-studio-tabbar') + '>' + _renderTabBar() + '</div>' +
+      '<div class="ps-body" id="ps-tab-content"' + _tid('protocol-studio-body') + '></div>' +
     '</div>';
 
   // ── Window handlers ────────────────────────────────────────────────────────
