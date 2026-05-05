@@ -1180,9 +1180,10 @@ async function navigate(id, params = {}) {
 }
 
 window._nav = async function(id, params) {
-  // External static page: clinical biomarker reference. Served from apps/web/public/.
+  // Neuro-biomarker reference now lives in the main Biomarkers page (reference tab).
   if (id === 'biomarkers-ref') {
-    window.location.href = 'biomarkers.html';
+    window._bmActiveTab = 'reference';
+    await navigate('biomarkers');
     return;
   }
   await navigate(id, params);
@@ -3110,7 +3111,7 @@ window.addEventListener('popstate', (e) => {
     { type: 'nav', icon: '🔬', title: 'Devices',             page: 'devices' },
     { type: 'nav', icon: '◈',  title: 'qEEG / Brain Data',   page: 'braindata' },
     { type: 'nav', icon: '◫',  title: 'qEEG Maps',           page: 'qeegmaps' },
-    { type: 'nav', icon: '🧬', title: 'Biomarkers Reference', page: 'biomarkers-ref' },
+    { type: 'nav', icon: '🧬', title: 'Biomarkers Reference', page: 'biomarkers' },
     { type: 'nav', icon: '◉',  title: 'Assessments',         page: 'assessments' },
     { type: 'nav', icon: '◧',  title: 'Handbooks',           page: 'handbooks' },
     { type: 'nav', icon: '🤖', title: 'AI Clinical Assistant', page: 'ai-assistant' },
