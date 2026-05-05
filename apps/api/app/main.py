@@ -146,6 +146,12 @@ from app.routers.clinical_trials_router import router as clinical_trials_router
 from app.routers.irb_amendment_workflow_router import (
     router as irb_amendment_workflow_router,
 )
+from app.routers.irb_amendment_reviewer_workload_router import (
+    router as irb_amendment_reviewer_workload_router,
+)
+from app.routers.irb_amendment_reviewer_workload_outcome_tracker_router import (
+    router as irb_amendment_reviewer_workload_outcome_tracker_router,
+)
 # Settings API routers (foundation scaffolded by backend subagent #1; endpoints
 # fleshed out by backend subagents #3–#6). See apps/api/SETTINGS_API_DESIGN.md.
 from app.routers.profile_router import router as profile_router
@@ -617,6 +623,8 @@ app.include_router(studio_eeg_database_router)
 app.include_router(recording_eeg_events_router)
 app.include_router(montages_router)
 app.include_router(irb_amendment_workflow_router)
+app.include_router(irb_amendment_reviewer_workload_router)
+app.include_router(irb_amendment_reviewer_workload_outcome_tracker_router)
 app.include_router(qeeg_report_annotations_router)
 app.include_router(quality_assurance_router)
 app.include_router(rotation_policy_advisor_outcome_tracker_router)
