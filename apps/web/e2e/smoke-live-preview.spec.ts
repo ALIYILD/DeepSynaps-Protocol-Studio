@@ -20,8 +20,13 @@ async function demoLoginAs(page: Page, token: string) {
   });
   await page.goto('/');
   await page.waitForSelector('#public-shell, body', { timeout: 15000 });
-
-  await page.evaluate((t) => (window as any).demoLogin(t), token);
+  await page.waitForFunction(
+    () => typeof (window as any).demoLogin === 'function',
+    { timeout: 10000 },
+  );
+  await page.evaluate(async (t) => {
+    await (window as any).demoLogin(t);
+  }, token);
 
   // Patient and clinician previews expose different root shells after login.
   await page.waitForSelector('#app-shell.visible, #patient-shell.visible', { timeout: 12000 });
