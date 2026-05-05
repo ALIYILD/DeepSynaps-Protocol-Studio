@@ -12342,7 +12342,12 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   function tabBar() {
     return Object.entries(TAB_META).map(([id,m]) => {
       const hot = m.hot && id === 'queue' ? ' hot' : '';
-      return '<button class="dv2a-tab'+(tab===id?' active':'')+'" onclick="window._assessTab(\''+id+'\')">'+esc(m.label)+' <span class="dv2a-tab-count'+hot+'">'+esc(m.count)+'</span></button>';
+      const tid =
+        id === 'queue' ? 'assessments-queue-tab' :
+        id === 'cohort' ? 'assessments-condition-map-tab' :
+        id === 'library' ? 'assessments-library-tab' :
+        id === 'individual' ? 'assessments-fill-score-tab' : 'assessments-tab';
+      return '<button class="dv2a-tab'+(tab===id?' active':'')+'" data-testid="'+esc(tid)+'" onclick="window._assessTab(\''+id+'\')">'+esc(m.label)+' <span class="dv2a-tab-count'+hot+'">'+esc(m.count)+'</span></button>';
     }).join('') +
     '<div class="dv2a-legend">' +
       '<span><i style="background:var(--rose,#ff6b9d)"></i>Red flag</span>' +
@@ -12473,7 +12478,9 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         ? '<div style="padding:18px 14px;text-align:center;font-size:11.5px;color:var(--text-tertiary);border-bottom:1px solid var(--border)">No assessments match the current instrument filter. Choose <strong>All instruments</strong> or another filter.</div>'
         : '';
 
-    return kpiHtml + chipHtml +
+    return '<div id="assessments-queue" data-testid="assessments-queue">' +
+      kpiHtml + chipHtml +
+      '</div>' +
       '<div class="dv2a-card">' +
         emptyBanner +
         '<div class="dv2a-queue-head"><div></div><div>Patient</div><div>Instrument</div><div>Last score · severity</div><div>Trend (course)</div><div>Due</div><div>Send via</div><div></div></div>' +
@@ -12490,7 +12497,7 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   async function renderSidePanel() {
     const row = queueRows.find((r) => r.id === selectedId);
     if (!row) {
-      return '<div class="dv2a-side"><div class="dv2a-side-body" style="text-align:center;color:var(--text-tertiary);padding:40px 20px">Select a row in the queue to open the detail panel.</div></div>';
+      return '<div class="dv2a-side" data-testid="assessments-evidence-panel"><div class="dv2a-side-body" style="text-align:center;color:var(--text-tertiary);padding:40px 20px">Select a row in the queue to open the detail panel.</div></div>';
     }
 
     const detailId = assessmentDetailIdFromRow(row);
@@ -12662,10 +12669,10 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       : '';
 
     return (
-      '<div class="dv2a-side" style="position:relative">' +
+      '<div class="dv2a-side" data-testid="assessments-evidence-panel" style="position:relative">' +
       demoDetailBanner +
       '<div class="dv2a-side-head">' +
-      '<button class="dv2a-side-close" onclick="window._assessCloseSide()" aria-label="Close panel">✕</button>' +
+      '<button class="dv2a-side-close" data-testid="assessments-side-close" onclick="window._assessCloseSide()" aria-label="Close panel">✕</button>' +
       '<div style="display:flex;gap:10px;align-items:center;padding-right:30px">' +
       '<div class="dv2a-pt-av ' +
       (row.avCls || 'a') +
@@ -12840,7 +12847,8 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
     window._assessCohortSetWin  = (v) => { window._assessCohortWin  = v; window._nav('assessments-v2'); };
     const cohortInstrumentOpts = ['any', ...cohortInst.length ? [cohortInst[0]] : []];
     const cohortWinOpts = ['7d', '30d', '90d', 'all'];
-    return (cohortPlaceholder
+    return '<div id="assessments-condition-map" data-testid="assessments-condition-map">' +
+      (cohortPlaceholder
       ? '<div role="note" style="margin:0 0 10px;padding:10px 14px;font-size:11.5px;color:var(--text-secondary);background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.3);border-radius:8px;line-height:1.5"><strong style="color:var(--amber,#ffb547)">Cohort sizes:</strong> Live cohort registry is unavailable — patient counts shown as placeholders only, not clinic census.</div>'
       : '') +
       (cohortDemoSizing && !cohortPlaceholder
@@ -12858,6 +12866,7 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
           '<div style="padding:12px 14px;border-bottom:1px solid var(--border)"><div style="font-size:13px;font-weight:600;color:var(--text-primary)">'+esc(active.label)+'</div><div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">'+(cohortPlaceholder ? '— patients · ' : active.n+' patients · ')+esc(active.inst)+' · response status below</div></div>' +
           '<table style="width:100%;border-collapse:collapse"><thead><tr style="background:rgba(255,255,255,0.02)"><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Patient</th><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Instrument</th><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Score</th><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Status</th><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Δ</th></tr></thead><tbody>' + tableRows + '</tbody></table>' +
         '</div>' +
+      '</div>' +
       '</div>';
   }
 
@@ -12897,14 +12906,16 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         '</div>' +
       '</div>';
     }).join('');
-    return (usingSampleQueue
+    return '<div id="assessments-library" data-testid="assessments-library">' +
+      (usingSampleQueue
       ? '<div role="note" style="margin-bottom:12px;padding:8px 12px;font-size:11px;font-weight:600;color:var(--amber,#ffb547);background:rgba(255,181,71,0.1);border:1px solid rgba(255,181,71,0.35);border-radius:8px">' +
         esc(DEMO_ASSESSMENTS_BANNER_MARK) +
         '</div>'
       : '') +
       '<div style="font-size:12px;color:var(--text-tertiary);margin-bottom:6px">Validated instruments across depression, anxiety, OCD, trauma, sleep, mania, pain, language, and QoL. <strong>Click a card to open its fillable form and compute the score on-platform.</strong></div>' +
       catBar +
-      '<div class="dv2a-lib-grid">'+cards+'</div>';
+      '<div class="dv2a-lib-grid" data-testid="assessments-library-grid">'+cards+'</div>' +
+      '</div>';
   }
 
   // ── Individual tab ───────────────────────────────────────────────────────────
@@ -12972,7 +12983,7 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
 
   // ── Compose page ─────────────────────────────────────────────────────────────
   const demoPageBanner = usingSampleQueue
-    ? '<div class="dv2a-demo-page-banner" role="banner">' + esc(DEMO_ASSESSMENTS_BANNER_MARK) + '</div>'
+    ? '<div class="dv2a-demo-page-banner" id="assessments-demo-banner" data-testid="assessments-demo-banner" role="banner">' + esc(DEMO_ASSESSMENTS_BANNER_MARK) + '</div>'
     : '';
 
   let mainContent = '';
@@ -12991,7 +13002,7 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   // Clinical safety footer — visible on every tab. Required by clinical-launch
   // governance: assessments support, not replace, clinician judgment.
   const safetyFooter =
-    '<div role="note" aria-label="Clinical safety disclaimer" style="font-size:10.5px;color:var(--text-tertiary);padding:8px 18px;border-top:1px solid var(--border);background:rgba(0,0,0,0.18);line-height:1.5">' +
+    '<div id="assessments-safety-banner" data-testid="assessments-safety-banner" role="note" aria-label="Clinical safety disclaimer" style="font-size:10.5px;color:var(--text-tertiary);padding:8px 18px;border-top:1px solid var(--border);background:rgba(0,0,0,0.18);line-height:1.5">' +
       '<strong style="color:var(--text-secondary)">Clinical safety:</strong> ' +
       'Assessments support clinical decision-making and require clinician review. ' +
       'Scores are not diagnoses on their own. ' +
@@ -13000,11 +13011,11 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
     '</div>';
 
   el.innerHTML =
-    '<div class="dv2a-shell">' +
+    '<div class="dv2a-shell" id="assessments-v2-root" data-testid="assessments-v2-root">' +
       demoPageBanner +
-      '<div class="dv2a-tabs" role="tablist">' + tabBar() + '</div>' +
-      '<div class="dv2a-body">' +
-        '<div class="dv2a-main">' + mainContent + '</div>' +
+      '<div class="dv2a-tabs" role="tablist" data-testid="assessments-tabs">' + tabBar() + '</div>' +
+      '<div class="dv2a-body" data-testid="assessments-v2-body">' +
+        '<div class="dv2a-main" data-testid="assessments-v2-main">' + mainContent + '</div>' +
         (tab === 'queue' && selectedId ? sideContent : '') +
       '</div>' +
       safetyFooter +
