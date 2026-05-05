@@ -99,6 +99,7 @@ from app.routers.documents_router import patient_docs_router
 from app.routers.recordings_router import router as recordings_router
 from app.routers.protocols_saved_router import router as protocols_saved_router
 from app.routers.protocols_generate_router import router as protocols_generate_router
+from app.routers.protocol_studio_router import router as protocol_studio_router
 from app.routers.leads_reception_router import router as leads_reception_router
 from app.routers.onboarding_router import router as onboarding_router
 from app.routers.symptom_journal_router import router as symptom_journal_router
@@ -368,6 +369,7 @@ app.include_router(patient_docs_router)
 app.include_router(recordings_router)
 app.include_router(protocols_saved_router)
 app.include_router(protocols_generate_router)
+app.include_router(protocol_studio_router)
 app.include_router(leads_reception_router)
 app.include_router(onboarding_router)
 app.include_router(symptom_journal_router)

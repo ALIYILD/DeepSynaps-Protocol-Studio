@@ -1112,6 +1112,26 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload || {}),
     }),
+
+  // ── Protocol Studio thin facades (doctor-ready scaffolding) ─────────────
+  protocolStudioEvidenceHealth: () =>
+    apiFetchWithRetry('/api/v1/protocol-studio/evidence/health'),
+  protocolStudioEvidenceSearch: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetchWithRetry(`/api/v1/protocol-studio/evidence/search${q ? '?' + q : ''}`);
+  },
+  protocolStudioProtocols: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetchWithRetry(`/api/v1/protocol-studio/protocols${q ? '?' + q : ''}`);
+  },
+  protocolStudioProtocol: (protocolId) =>
+    apiFetchWithRetry(`/api/v1/protocol-studio/protocols/${encodeURIComponent(protocolId)}`),
+  protocolStudioPatientContext: (patientId) =>
+    apiFetchWithRetry(`/api/v1/protocol-studio/patients/${encodeURIComponent(patientId)}/context`),
   exportPatientCsv: (patientId) =>
     apiFetchBinary(`/api/v1/patients/${encodeURIComponent(patientId)}/export.csv`),
   exportPatientNdjson: (patientId) =>

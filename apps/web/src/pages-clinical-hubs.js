@@ -3316,6 +3316,241 @@ export async function pgProtocolHub(setTopbar, navigate) {
 
   const _tid = (id, extra = '') => ` data-testid="${id}"${extra}`;
 
+  // ── Phase 1: thin facades state (no protocol generation yet) ─────────────
+  window._psFacade = window._psFacade || {
+    evidenceHealth: null,
+    evidenceSearch: null,
+    protocolCatalog: null,
+    patientContext: null,
+    loading: {},
+    errors: {},
+  };
+  const F = window._psFacade;
+  const _setLoading = (k, v) => { F.loading[k] = !!v; };
+  const _setErr = (k, msg) => { F.errors[k] = msg ? String(msg) : null; };
+
+  async function _fetchEvidenceHealth() {
+    _setLoading('evidenceHealth', true); _setErr('evidenceHealth', null);
+    try {
+      F.evidenceHealth = await api.protocolStudioEvidenceHealth();
+    } catch (e) {
+      F.evidenceHealth = null;
+      _setErr('evidenceHealth', e?.message || 'Evidence health unavailable.');
+    }
+    _setLoading('evidenceHealth', false);
+  }
+
+  async function _fetchProtocolCatalog(params = {}) {
+    _setLoading('protocolCatalog', true); _setErr('protocolCatalog', null);
+    try {
+      F.protocolCatalog = await api.protocolStudioProtocols(params);
+    } catch (e) {
+      F.protocolCatalog = null;
+      _setErr('protocolCatalog', e?.message || 'Protocol catalog unavailable.');
+    }
+    _setLoading('protocolCatalog', false);
+  }
+
+  async function _fetchPatientContext() {
+    const pid = _psContextPatientId();
+    if (!pid) { F.patientContext = null; return; }
+    _setLoading('patientContext', true); _setErr('patientContext', null);
+    try {
+      F.patientContext = await api.protocolStudioPatientContext(pid);
+    } catch (e) {
+      F.patientContext = null;
+      _setErr('patientContext', e?.message || 'Patient context unavailable.');
+    }
+    _setLoading('patientContext', false);
+  }
+
+  async function _fetchEvidenceSearch(params = {}) {
+    _setLoading('evidenceSearch', true); _setErr('evidenceSearch', null);
+    try {
+      F.evidenceSearch = await api.protocolStudioEvidenceSearch(params);
+    } catch (e) {
+      F.evidenceSearch = null;
+      _setErr('evidenceSearch', e?.message || 'Evidence search unavailable.');
+    }
+    _setLoading('evidenceSearch', false);
+  }
+
+  // ── Phase-1 facade UI handlers ────────────────────────────────────────────
+  window._psRefreshEvidenceHealth = async () => {
+    await _fetchEvidenceHealth();
+    try { window._psRenderCurrentTab?.(); } catch {}
+  };
+  window._psRefreshProtocolCatalog = async () => {
+    await _fetchProtocolCatalog({});
+    try { window._psRenderCurrentTab?.(); } catch {}
+  };
+  window._psRefreshPatientContext = async () => {
+    await _fetchPatientContext();
+    try { window._psRenderCurrentTab?.(); } catch {}
+  };
+  window._psRunEvidenceSearch = async () => {
+    const q = document.getElementById('ps-ev-q')?.value || '';
+    const modality = document.getElementById('ps-ev-q-modality')?.value || '';
+    await _fetchEvidenceSearch({ q, modality });
+    try { window._psRenderCurrentTab?.(); } catch {}
+  };
+  window._psOpenProtocol = async (protocolId) => {
+    if (!protocolId) return;
+    try {
+      const p = await api.protocolStudioProtocol(protocolId);
+      const refs = Array.isArray(p?.evidence_refs) ? p.evidence_refs : [];
+      window._showNotifToast?.({
+        title: 'Protocol opened (registry)',
+        body: `${p?.title || protocolId}${p?.off_label ? ' · off-label review required' : ''}${refs.length ? ' · refs: ' + refs.slice(0, 2).join(' · ') : ''}`,
+        severity: 'info',
+      });
+    } catch (e) {
+      window._showNotifToast?.({ title: 'Protocol load failed', body: e?.message || 'endpoint error', severity: 'error' });
+    }
+  };
+
+  function _renderEvidenceHealthCard() {
+    const h = F.evidenceHealth;
+    const err = F.errors.evidenceHealth;
+    const loading = !!F.loading.evidenceHealth;
+    const status = h ? (h.local_evidence_available ? 'Indexed corpus available' : 'Evidence unavailable') : err ? 'Evidence status unavailable' : 'Evidence status';
+    const badge = h
+      ? `<span class="ps-result-badge ${h.local_evidence_available ? 'ps-badge-a' : 'ps-badge-c'}">${esc(h.fallback_mode || 'unavailable')}</span>`
+      : `<span class="ps-result-badge ps-badge-c">unavailable</span>`;
+    const body = loading
+      ? '<span class="ps-spin"></span>Checking evidence…'
+      : h
+        ? `<div style="font-size:12px;color:var(--text-secondary);line-height:1.55">${esc(h.safe_user_message || '')}</div>`
+        : `<div style="font-size:12px;color:var(--text-tertiary)">${esc(err || 'Evidence status not loaded.')}</div>`;
+    const refreshBtn = `<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:4px 10px" onclick="window._psRefreshEvidenceHealth()">Refresh</button>`;
+    return `
+      <section class="ps-result-card" style="margin-top:0" data-testid="protocol-evidence-health">
+        <div class="ps-result-header">
+          <span class="ps-result-title">Evidence health</span>
+          <div style="display:flex;gap:8px;align-items:center">${badge}${refreshBtn}</div>
+        </div>
+        <div class="ps-result-section"><strong>Status:</strong> ${esc(status)}</div>
+        <div class="ps-result-section">${body}</div>
+      </section>`;
+  }
+
+  function _renderEvidenceSearchPanel() {
+    const s = F.evidenceSearch;
+    const err = F.errors.evidenceSearch;
+    const loading = !!F.loading.evidenceSearch;
+    const results = Array.isArray(s?.results) ? s.results : [];
+    const status = s?.status || (err ? 'unavailable' : 'idle');
+    const msg = s?.message || (err ? err : 'Enter a keyword query to search the local evidence corpus (if available).');
+    const rows = results.length ? results.slice(0, 10).map(r => {
+      const link = r.link ? `<a href="${esc(r.link)}" target="_blank" rel="noopener" style="color:var(--dv2-teal,var(--teal));text-decoration:none">open ↗</a>` : '';
+      const id = r.pmid ? `PMID ${esc(r.pmid)}` : r.doi ? `DOI ${esc(r.doi)}` : esc(r.id || '');
+      return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+          <div style="font-weight:600;color:var(--text-primary);line-height:1.35">${esc(r.title || '(untitled)')}</div>
+          <div style="flex-shrink:0;font-size:11px">${link}</div>
+        </div>
+        <div style="margin-top:2px;font-size:11px;color:var(--text-tertiary)">${id}${r.year ? ' · ' + esc(r.year) : ''}${r.source ? ' · ' + esc(r.source) : ''}</div>
+        ${r.summary ? `<div style="margin-top:6px;font-size:12px;color:var(--text-secondary);line-height:1.55">${esc(r.summary)}</div>` : ''}
+      </div>`;
+    }).join('') : `<div style="color:var(--text-tertiary);font-size:12px;padding:6px 0">${esc(msg)}</div>`;
+
+    return `
+      <section class="ps-result-card" data-testid="protocol-evidence-search-panel">
+        <div class="ps-result-header">
+          <span class="ps-result-title">Evidence search (local corpus)</span>
+          <span class="ps-result-badge ${status === 'ok' ? 'ps-badge-a' : status === 'fallback' ? 'ps-badge-c' : 'ps-badge-c'}">${esc(status)}</span>
+        </div>
+        <div class="ps-form-row" style="margin-bottom:10px">
+          <div class="ps-form-group">
+            <label class="ps-form-label">Query</label>
+            <input class="ps-form-input" id="ps-ev-q" type="search" placeholder="e.g. rTMS depression DLPFC" value="">
+          </div>
+          <div class="ps-form-group">
+            <label class="ps-form-label">Modality (optional)</label>
+            <input class="ps-form-input" id="ps-ev-q-modality" type="text" placeholder="e.g. tms, tdcs">
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button type="button" class="ps-save-btn" onclick="window._psRunEvidenceSearch()" data-testid="protocol-evidence-search-run">${loading ? 'Searching…' : 'Search'}</button>
+          <span style="font-size:11px;color:var(--text-tertiary)">${loading ? 'Running search (no live internet calls)…' : 'No live literature calls are made by this endpoint.'}</span>
+        </div>
+        <div style="margin-top:12px">${rows}</div>
+      </section>`;
+  }
+
+  function _renderProtocolCatalogPanel() {
+    const cat = F.protocolCatalog;
+    const err = F.errors.protocolCatalog;
+    const loading = !!F.loading.protocolCatalog;
+    const items = Array.isArray(cat?.items) ? cat.items : [];
+    const hdr = `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+        <span style="font-size:13px;font-weight:600">Protocol catalog</span>
+        <button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:4px 10px" onclick="window._psRefreshProtocolCatalog()">Refresh</button>
+      </div>`;
+    if (loading) return `<section class="ps-result-card" data-testid="protocol-results-list">${hdr}<div class="ps-empty"><span class="ps-spin"></span>Loading registry-backed protocols…</div></section>`;
+    if (err) return `<section class="ps-result-card" data-testid="protocol-results-list">${hdr}<div class="ps-empty">Protocol catalog unavailable: ${esc(err)}</div></section>`;
+    if (!items.length) return `<section class="ps-result-card" data-testid="protocol-results-list">${hdr}<div class="ps-empty">No protocols returned by registry. This may indicate clinical dataset not seeded on the API host.</div></section>`;
+    const rows = items.slice(0, 30).map(p => {
+      const badge = `<span class="ps-result-badge ${p.off_label ? 'ps-badge-c' : 'ps-badge-a'}">${esc(p.status)}</span>`;
+      const ol = p.off_label ? `<div style="margin-top:6px;color:#f59e0b;font-size:11.5px" ${_tid('protocol-off-label-warning')}>${esc(p.off_label_warning || 'Off-label; clinician review required.')}</div>` : '';
+      const ev = (p.evidence_grade || '').replace(/^EV-/, '');
+      const refs = (p.evidence_refs || []).length ? `<div style="margin-top:6px;font-size:11px;color:var(--text-tertiary)">Refs: ${(p.evidence_refs||[]).slice(0,2).map(x=>`<span style="font-family:var(--font-mono)">${esc(x)}</span>`).join(' · ')}${(p.evidence_refs||[]).length>2?'…':''}</div>` : `<div style="margin-top:6px;font-size:11px;color:var(--text-tertiary)">No evidence refs attached (insufficient evidence).</div>`;
+      return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+          <div>
+            <div style="font-weight:600;color:var(--text-primary)">${esc(p.title || p.id)}</div>
+            <div style="font-size:11px;color:var(--text-tertiary)">${esc(p.condition||'')}${p.modality ? ' · ' + esc(p.modality) : ''}${p.target ? ' · ' + esc(p.target) : ''}${ev ? ' · Grade ' + esc(ev) : ''}</div>
+          </div>
+          <div style="flex-shrink:0;display:flex;gap:6px;align-items:center">
+            ${badge}
+            <button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:4px 10px" onclick="window._psOpenProtocol('${esc(p.id)}')">Open</button>
+          </div>
+        </div>
+        ${ol}
+        ${refs}
+      </div>`;
+    }).join('');
+    return `<section class="ps-result-card" data-testid="protocol-results-list">${hdr}${rows}</section>`;
+  }
+
+  function _renderPatientContextPanel() {
+    const pid = _psContextPatientId();
+    if (!pid) return `<section class="ps-result-card" data-testid="protocol-patient-context-panel"><div class="ps-empty">No patient in context. Select a patient to load patient context summary.</div></section>`;
+    const ctx = F.patientContext;
+    const err = F.errors.patientContext;
+    const loading = !!F.loading.patientContext;
+    if (loading) return `<section class="ps-result-card" data-testid="protocol-patient-context-panel"><div class="ps-empty"><span class="ps-spin"></span>Loading patient context…</div></section>`;
+    if (err) return `<section class="ps-result-card" data-testid="protocol-patient-context-panel"><div class="ps-empty">Patient context unavailable: ${esc(err)}</div></section>`;
+    if (!ctx) return `<section class="ps-result-card" data-testid="protocol-patient-context-panel"><div class="ps-empty">Patient context not loaded.</div></section>`;
+    const src = ctx.sources || {};
+    const srcKeys = Object.keys(src);
+    const rows = srcKeys.map(k => {
+      const s = src[k] || {};
+      const ok = !!s.available;
+      const stamp = s.last_updated ? ` · ${esc(s.last_updated)}` : '';
+      return `<div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--border)">
+        <div style="color:var(--text-primary);font-size:12px">${esc(k)}</div>
+        <div style="color:${ok ? 'var(--dv2-teal,var(--teal))' : 'var(--text-tertiary)'};font-size:11px">${ok ? 'available' : 'missing'}${s.count!=null ? ' · ' + esc(s.count) : ''}${stamp}</div>
+      </div>`;
+    }).join('');
+    const missing = Array.isArray(ctx.missing_data) ? ctx.missing_data : [];
+    const safety = ctx.safety_flags || {};
+    const safetyOn = Object.entries(safety).filter(([, v]) => v === true).map(([k]) => k);
+    const safetyHtml = safetyOn.length
+      ? `<div style="margin-top:10px;color:#f59e0b;font-size:12px"><strong>Safety flags (clinician-entered):</strong> ${safetyOn.map(esc).join(', ')}</div>`
+      : `<div style="margin-top:10px;color:var(--text-tertiary);font-size:12px">No structured safety flags present.</div>`;
+    return `<section class="ps-result-card" ${_tid('protocol-patient-context')} data-testid="protocol-patient-context-panel">
+      <div class="ps-result-header">
+        <span class="ps-result-title">Patient context (summary)</span>
+        <button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:4px 10px" onclick="window._psRefreshPatientContext()">Refresh</button>
+      </div>
+      <div class="ps-result-section"><strong>Completeness:</strong> ${esc(ctx.completeness_score)} · <strong>Review required:</strong> yes</div>
+      <div style="margin-top:10px">${rows}</div>
+      ${safetyHtml}
+      ${missing.length ? `<div style="margin-top:10px;color:var(--text-tertiary);font-size:11px">Missing: ${missing.map(esc).join(', ')}</div>` : ''}
+    </section>`;
+  }
+
   // ── CSS injected once ──────────────────────────────────────────────────────
   if (!document.getElementById('ps-styles')) {
     const _st = document.createElement('style');
@@ -3554,7 +3789,21 @@ export async function pgProtocolHub(setTopbar, navigate) {
     const guestNote = (_role === 'guest')
       ? '<div class="ps-role-banner" role="note">Signed in as guest — browse conditions and library patterns. Connect with a clinician account to generate drafts, save to the backend, and export documents.</div>'
       : '';
-    return hero + guestNote + _renderPatientBanner() + innerHtml;
+    // Phase-1 thin facades: show evidence health + evidence search + protocol catalog + patient context
+    // in a consistent, PHI-safe dashboard strip. These panels are best-effort and must be honest
+    // about unavailable sources.
+    const facadeStrip =
+      '<div style="display:grid;grid-template-columns:1.1fr 1.4fr;gap:14px;align-items:start">' +
+        '<div>' +
+          _renderEvidenceHealthCard() +
+          _renderPatientContextPanel() +
+        '</div>' +
+        '<div>' +
+          _renderEvidenceSearchPanel() +
+          _renderProtocolCatalogPanel() +
+        '</div>' +
+      '</div>';
+    return hero + guestNote + _renderPatientBanner() + facadeStrip + innerHtml;
   }
 
   function _renderReadOnlyShell() {
@@ -3747,6 +3996,10 @@ export async function pgProtocolHub(setTopbar, navigate) {
       return;
     }
 
+    // Phase-1 thin facades only: Protocol Studio generation is intentionally disabled
+    // until grounded safety/governance + evidence linking + review workflow are implemented.
+    const _genDisabled = true;
+
     const prefill = _prefillCondition ? _prefillCondition.name : '';
     const prefillId = _prefillCondition ? _prefillCondition.id : '';
     const defaultPat = _psContextPatientId() || '';
@@ -3774,6 +4027,10 @@ export async function pgProtocolHub(setTopbar, navigate) {
     if (W.mode === 'evidence') {
       wizardPanel = '<div class="ps-wizard">' +
         '<div class="ps-wizard-title">&#129504; Evidence-Based AI Generator</div>' +
+        (_genDisabled ? '<div class="ps-role-banner" role="note" style="margin-bottom:12px">' +
+          '<strong>Generation engine not enabled.</strong> This workspace is currently wired for evidence health/search, protocol catalog, and patient context only. ' +
+          'Draft generation will be enabled after safety/governance review + evidence grounding are complete.' +
+        '</div>' : '') +
         '<div class="ps-form-row">' +
           '<div class="ps-form-group">' +
             '<label class="ps-form-label">Condition *</label>' +
@@ -3811,13 +4068,17 @@ export async function pgProtocolHub(setTopbar, navigate) {
         '</div>' +
         (W.error ? '<div style="color:#ef4444;font-size:12px;margin-bottom:10px">' + esc(W.error) + '</div>' : '') +
         (W.mode === 'evidence' && W.result ? _renderResultCard(W.result, '') : '') +
-        '<button type="button" class="ps-save-btn" id="ps-ev-generate-btn"' + _tid('protocol-generate-action') + ' onclick="window._psGenerateEvidence()">' +
-          (W.saving ? '<span class="ps-spin"></span>Drafting...' : 'Generate AI-assisted draft') +
+        '<button type="button" class="ps-save-btn" id="ps-ev-generate-btn"' + _tid('protocol-generate-action') +
+          (_genDisabled ? ' disabled title=\"Generation engine not enabled\"' : ' onclick=\"window._psGenerateEvidence()\"') + '>' +
+          (_genDisabled ? 'Generation engine not enabled' : (W.saving ? '<span class="ps-spin"></span>Drafting...' : 'Generate AI-assisted draft')) +
         '</button>' +
       '</div>';
     } else if (W.mode === 'brainscan') {
       wizardPanel = '<div class="ps-wizard">' +
         '<div class="ps-wizard-title">&#129308; Brain Scan Guided Generator</div>' +
+        (_genDisabled ? '<div class="ps-role-banner" role="note" style="margin-bottom:12px">' +
+          '<strong>Generation engine not enabled.</strong> Brain-guided draft generation will be enabled after MRI/qEEG linkage, contraindication checks, and evidence grounding are complete.' +
+        '</div>' : '') +
         '<div class="ps-form-row">' +
           '<div class="ps-form-group">' +
             '<label class="ps-form-label">Condition *</label>' +
@@ -3858,13 +4119,17 @@ export async function pgProtocolHub(setTopbar, navigate) {
           '<div class="ps-result-section"><strong>Scan Guidance: </strong>' + esc(W.result.scan_guidance || '') + '</div>' +
           '<div class="ps-result-section"><strong>Marker Adjustment: </strong>' + esc(W.result.marker_adjustment || '') + '</div>'
         ) : '') +
-        '<button type="button" class="ps-save-btn" id="ps-bs-generate-btn" onclick="window._psGenerateBrainScan()">' +
-          (W.saving ? '<span class="ps-spin"></span>Drafting...' : 'Generate AI-assisted draft') +
+        '<button type="button" class="ps-save-btn" id="ps-bs-generate-btn"' +
+          (_genDisabled ? ' disabled title=\"Generation engine not enabled\"' : ' onclick=\"window._psGenerateBrainScan()\"') + '>' +
+          (_genDisabled ? 'Generation engine not enabled' : (W.saving ? '<span class="ps-spin"></span>Drafting...' : 'Generate AI-assisted draft')) +
         '</button>' +
       '</div>';
     } else if (W.mode === 'personalized') {
       wizardPanel = '<div class="ps-wizard">' +
         '<div class="ps-wizard-title">&#129300; Personalized Protocol Generator</div>' +
+        (_genDisabled ? '<div class="ps-role-banner" role="note" style="margin-bottom:12px">' +
+          '<strong>Generation engine not enabled.</strong> Personalized drafts will be enabled after patient-context safety checks, off-label governance, and evidence linking are complete.' +
+        '</div>' : '') +
         '<div class="ps-form-row">' +
           '<div class="ps-form-group">' +
             '<label class="ps-form-label">Condition *</label>' +
@@ -3918,8 +4183,9 @@ export async function pgProtocolHub(setTopbar, navigate) {
         (W.mode === 'personalized' && W.result ? _renderResultCard(W.result,
           '<div class="ps-result-section"><strong>Personalization Rationale: </strong>' + esc(W.result.personalization_rationale || '') + '</div>'
         ) : '') +
-        '<button type="button" class="ps-save-btn" id="ps-pe-generate-btn" onclick="window._psGeneratePersonalized()">' +
-          (W.saving ? '<span class="ps-spin"></span>Drafting...' : 'Generate AI-assisted draft') +
+        '<button type="button" class="ps-save-btn" id="ps-pe-generate-btn"' +
+          (_genDisabled ? ' disabled title=\"Generation engine not enabled\"' : ' onclick=\"window._psGeneratePersonalized()\"') + '>' +
+          (_genDisabled ? 'Generation engine not enabled' : (W.saving ? '<span class="ps-spin"></span>Drafting...' : 'Generate AI-assisted draft')) +
         '</button>' +
       '</div>';
     }
