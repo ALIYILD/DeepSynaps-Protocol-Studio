@@ -38,6 +38,9 @@ from app.repositories.audit import create_audit_event
 from app.repositories.patients import resolve_patient_clinic_id
 from app.services import evidence_rag
 from app.services.pgvector_bridge import HAS_PGVECTOR_RUNTIME, check_pgvector_enabled
+from app.services.protocol_studio_generation import DraftResponse as DraftResponseDict
+from app.services.protocol_studio_generation import GenerateRequest as GenerateRequestDict
+from app.services.protocol_studio_generation import build_generation_preview_id, generate_deterministic_protocol_studio_draft
 from app.services.registries import get_protocol as registry_get_protocol
 from app.services.registries import list_protocols as registry_list_protocols
 
@@ -555,4 +558,102 @@ def protocol_studio_patient_context(
         completeness_score=completeness,
         clinician_review_required=True,
     )
+
+
+# ── Deterministic draft generation (Phase 2) ──────────────────────────────────
+
+GenerateMode = Literal["evidence_search", "qeeg_guided", "mri_guided", "deeptwin_personalized", "multimodal"]
+
+
+class ProtocolStudioGenerateRequest(BaseModel):
+    patient_id: str | None = None
+    mode: GenerateMode
+    condition: str
+    modality: str
+    target: str | None = None
+    protocol_id: str | None = None
+    include_off_label: bool = False
+    constraints: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProtocolStudioGenerateResponse(BaseModel):
+    draft_id: str | None
+    status: Literal[
+        "draft_requires_review",
+        "insufficient_evidence",
+        "needs_more_data",
+        "blocked_requires_review",
+        "research_only_not_prescribable",
+    ]
+    mode: GenerateMode
+    protocol_summary: str
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    rationale: list[str] = Field(default_factory=list)
+    evidence_links: list[dict[str, Any]] = Field(default_factory=list)
+    evidence_grade: str | None = None
+    regulatory_status: str | None = None
+    off_label: bool
+    off_label_warning: str | None = None
+    contraindications: list[str] = Field(default_factory=list)
+    missing_data: list[str] = Field(default_factory=list)
+    uncertainty: str
+    patient_context_used: dict[str, Any] = Field(default_factory=dict)
+    safety_status: str
+    clinician_review_required: bool = True
+    not_autonomous_prescription: bool = True
+
+
+@router.post("/generate", response_model=ProtocolStudioGenerateResponse)
+def protocol_studio_generate(
+    body: ProtocolStudioGenerateRequest,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> ProtocolStudioGenerateResponse:
+    """Generate a deterministic protocol draft (decision-support only).
+
+    Safety constraints:
+    - No LLM calls.
+    - No invented citations or parameters.
+    - Drafts require local evidence matches.
+    - Patient-gated modes require patient ownership + relevant data sources.
+    """
+    require_minimum_role(actor, "clinician")
+
+    patient_id = (body.patient_id or "").strip() or None
+    if patient_id:
+        exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+        if not exists:
+            from app.errors import ApiServiceError
+
+            raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
+        require_patient_owner(actor, clinic_id)
+
+    req: GenerateRequestDict = {
+        "patient_id": patient_id,
+        "mode": body.mode,
+        "condition": body.condition,
+        "modality": body.modality,
+        "target": body.target,
+        "protocol_id": body.protocol_id,
+        "include_off_label": body.include_off_label,
+        "constraints": body.constraints or {},
+    }
+
+    out: DraftResponseDict = generate_deterministic_protocol_studio_draft(db, actor=actor, req=req)
+
+    # Ensure a non-empty identifier for UX even when not persisted.
+    if not out.get("draft_id"):
+        out["draft_id"] = build_generation_preview_id()
+
+    # Audit every attempt; keep note PHI-safe and bounded.
+    _audit(
+        db,
+        actor=actor,
+        action="protocol_studio.generate_attempt",
+        target_id=str(out.get("draft_id") or "draft"),
+        patient_id=patient_id,
+        note=f"mode={body.mode}; status={out.get('status')}; off_label={int(bool(out.get('off_label')))}; include_off_label={int(bool(body.include_off_label))}; has_patient={int(bool(patient_id))}",
+    )
+
+    return ProtocolStudioGenerateResponse(**out)
 

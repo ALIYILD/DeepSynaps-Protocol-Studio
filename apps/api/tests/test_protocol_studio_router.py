@@ -1,12 +1,21 @@
 from __future__ import annotations
 
+import json
 import uuid
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
-from app.persistence.models import Clinic, Patient, User
+from app.persistence.models import (
+    AuditEventRecord,
+    Clinic,
+    DeepTwinAnalysisRun,
+    MriAnalysis,
+    Patient,
+    QEEGAnalysis,
+    User,
+)
 
 
 def _seed_two_clinics_with_patient() -> dict[str, str]:
@@ -125,4 +134,230 @@ def test_patient_context_cross_clinic_blocked(client: TestClient) -> None:
     assert res.status_code == 403
     body = res.json()
     assert body.get("code") == "cross_clinic_access_denied"
+
+
+def _monkeypatch_evidence_ok(monkeypatch) -> None:
+    # Avoid depending on a real evidence.db in tests.
+    monkeypatch.setattr("app.services.evidence_rag._default_db_path", lambda: "/tmp/evidence.db")
+    monkeypatch.setattr("app.services.protocol_studio_generation._local_evidence_available", lambda: True)
+    monkeypatch.setattr(
+        "app.services.evidence_rag.search_evidence",
+        lambda *args, **kwargs: [
+            {"paper_id": "P1", "title": "Paper 1", "url": "https://example.test/p1"},
+        ],
+    )
+
+
+def _monkeypatch_evidence_empty(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.evidence_rag._default_db_path", lambda: "/tmp/evidence.db")
+    monkeypatch.setattr("app.services.protocol_studio_generation._local_evidence_available", lambda: True)
+    monkeypatch.setattr("app.services.evidence_rag.search_evidence", lambda *args, **kwargs: [])
+
+
+def _monkeypatch_evidence_unavailable(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.protocol_studio_generation._local_evidence_available", lambda: False)
+
+
+def test_generate_evidence_search_without_evidence_returns_insufficient(client: TestClient, auth_headers: dict, monkeypatch) -> None:
+    _monkeypatch_evidence_unavailable(monkeypatch)
+    res = client.post(
+        "/api/v1/protocol-studio/generate",
+        headers=auth_headers["clinician"],
+        json={"mode": "evidence_search", "condition": "mdd", "modality": "tms", "include_off_label": True, "constraints": {}},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "insufficient_evidence"
+    assert body["clinician_review_required"] is True
+    assert body["not_autonomous_prescription"] is True
+
+
+def test_generate_evidence_search_with_evidence_returns_draft_requires_review(client: TestClient, auth_headers: dict, monkeypatch) -> None:
+    _monkeypatch_evidence_ok(monkeypatch)
+    res = client.post(
+        "/api/v1/protocol-studio/generate",
+        headers=auth_headers["clinician"],
+        json={"mode": "evidence_search", "condition": "mdd", "modality": "tms", "include_off_label": True, "constraints": {}},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "draft_requires_review"
+    assert body["evidence_links"]
+    assert body["clinician_review_required"] is True
+    assert body["not_autonomous_prescription"] is True
+
+
+def test_generate_qeeg_mode_without_patient_returns_needs_more_data(client: TestClient, auth_headers: dict, monkeypatch) -> None:
+    _monkeypatch_evidence_ok(monkeypatch)
+    res = client.post(
+        "/api/v1/protocol-studio/generate",
+        headers=auth_headers["clinician"],
+        json={"mode": "qeeg_guided", "condition": "mdd", "modality": "tms", "include_off_label": True, "constraints": {}},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "needs_more_data"
+    assert "patient_id" in body["missing_data"]
+
+
+def test_generate_qeeg_mode_with_patient_but_no_qeeg_returns_needs_more_data(client: TestClient, monkeypatch) -> None:
+    _monkeypatch_evidence_ok(monkeypatch)
+    seeded = _seed_two_clinics_with_patient()
+    res = client.post(
+        "/api/v1/protocol-studio/generate",
+        headers={"Authorization": "Bearer clinician-demo-token"},
+        json={"patient_id": seeded["patient_id"], "mode": "qeeg_guided", "condition": "mdd", "modality": "tms", "include_off_label": True, "constraints": {}},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "needs_more_data"
+    assert "qeeg" in body["missing_data"]
+
+
+def test_generate_qeeg_mode_with_patient_and_qeeg_can_draft(client: TestClient, monkeypatch) -> None:
+    _monkeypatch_evidence_ok(monkeypatch)
+    seeded = _seed_two_clinics_with_patient()
+    db = SessionLocal()
+    try:
+        db.add(
+            QEEGAnalysis(
+                patient_id=seeded["patient_id"],
+                clinician_id=seeded["clinician_a"],
+                analysis_status="completed",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+    res = client.post(
+        "/api/v1/protocol-studio/generate",
+        headers={"Authorization": "Bearer clinician-demo-token"},
+        json={"patient_id": seeded["patient_id"], "mode": "qeeg_guided", "condition": "mdd", "modality": "tms", "include_off_label": True, "constraints": {}},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "draft_requires_review"
+    assert body["patient_context_used"]["sources"]["qeeg"]["available"] is True
+
+
+def test_generate_mri_mode_requires_mri_source(client: TestClient, monkeypatch) -> None:
+    _monkeypatch_evidence_ok(monkeypatch)
+    seeded = _seed_two_clinics_with_patient()
+    res = client.post(
+        "/api/v1/protocol-studio/generate",
+        headers={"Authorization": "Bearer clinician-demo-token"},
+        json={"patient_id": seeded["patient_id"], "mode": "mri_guided", "condition": "mdd", "modality": "tms", "include_off_label": True, "constraints": {}},
+    )
+    assert res.status_code == 200
+    assert res.json()["status"] == "needs_more_data"
+
+    db = SessionLocal()
+    try:
+        db.add(MriAnalysis(analysis_id=str(uuid.uuid4()), patient_id=seeded["patient_id"], state="completed"))
+        db.commit()
+    finally:
+        db.close()
+    res2 = client.post(
+        "/api/v1/protocol-studio/generate",
+        headers={"Authorization": "Bearer clinician-demo-token"},
+        json={"patient_id": seeded["patient_id"], "mode": "mri_guided", "condition": "mdd", "modality": "tms", "include_off_label": True, "constraints": {}},
+    )
+    assert res2.status_code == 200
+    assert res2.json()["status"] == "draft_requires_review"
+
+
+def test_generate_deeptwin_mode_requires_deeptwin_source(client: TestClient, monkeypatch) -> None:
+    _monkeypatch_evidence_ok(monkeypatch)
+    seeded = _seed_two_clinics_with_patient()
+    res = client.post(
+        "/api/v1/protocol-studio/generate",
+        headers={"Authorization": "Bearer clinician-demo-token"},
+        json={"patient_id": seeded["patient_id"], "mode": "deeptwin_personalized", "condition": "mdd", "modality": "tms", "include_off_label": True, "constraints": {}},
+    )
+    assert res.status_code == 200
+    assert res.json()["status"] == "needs_more_data"
+
+    db = SessionLocal()
+    try:
+        db.add(
+            DeepTwinAnalysisRun(
+                patient_id=seeded["patient_id"],
+                clinician_id=seeded["clinician_a"],
+                analysis_type="protocol-studio-fixture",
+                input_sources_json="[]",
+                output_summary_json="{}",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+    res2 = client.post(
+        "/api/v1/protocol-studio/generate",
+        headers={"Authorization": "Bearer clinician-demo-token"},
+        json={"patient_id": seeded["patient_id"], "mode": "deeptwin_personalized", "condition": "mdd", "modality": "tms", "include_off_label": True, "constraints": {}},
+    )
+    assert res2.status_code == 200
+    assert res2.json()["status"] == "draft_requires_review"
+
+
+def test_generate_multimodal_requires_two_sources(client: TestClient, monkeypatch) -> None:
+    _monkeypatch_evidence_ok(monkeypatch)
+    seeded = _seed_two_clinics_with_patient()
+    res = client.post(
+        "/api/v1/protocol-studio/generate",
+        headers={"Authorization": "Bearer clinician-demo-token"},
+        json={"patient_id": seeded["patient_id"], "mode": "multimodal", "condition": "mdd", "modality": "tms", "include_off_label": True, "constraints": {}},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "needs_more_data"
+    assert "multimodal_requires_two_sources" in body["missing_data"]
+
+
+def test_generate_off_label_disabled_blocks_off_label_protocol(client: TestClient, auth_headers: dict, monkeypatch) -> None:
+    _monkeypatch_evidence_ok(monkeypatch)
+    # PRO-FHIR is a test fixture protocol in registries, and it is off-label.
+    res = client.post(
+        "/api/v1/protocol-studio/generate",
+        headers=auth_headers["clinician"],
+        json={"mode": "evidence_search", "condition": "mdd", "modality": "tms", "protocol_id": "PRO-FHIR", "include_off_label": False, "constraints": {}},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "blocked_requires_review"
+    assert body["off_label"] is True
+    assert body["off_label_warning"]
+
+
+def test_generate_off_label_enabled_includes_warning(client: TestClient, auth_headers: dict, monkeypatch) -> None:
+    _monkeypatch_evidence_ok(monkeypatch)
+    res = client.post(
+        "/api/v1/protocol-studio/generate",
+        headers=auth_headers["clinician"],
+        json={"mode": "evidence_search", "condition": "mdd", "modality": "tms", "protocol_id": "PRO-FHIR", "include_off_label": True, "constraints": {}},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["off_label"] is True
+    assert body["off_label_warning"]
+
+
+def test_generate_writes_audit_event(client: TestClient, auth_headers: dict, monkeypatch) -> None:
+    _monkeypatch_evidence_ok(monkeypatch)
+    res = client.post(
+        "/api/v1/protocol-studio/generate",
+        headers=auth_headers["clinician"],
+        json={"mode": "evidence_search", "condition": "mdd", "modality": "tms", "include_off_label": True, "constraints": {}},
+    )
+    assert res.status_code == 200
+    draft_id = res.json().get("draft_id")
+    assert draft_id
+    db = SessionLocal()
+    try:
+        row = db.query(AuditEventRecord).filter_by(action="protocol_studio.generate_attempt", target_id=draft_id).first()
+        assert row is not None
+        assert "mode=" in (row.note or "")
+        assert "status=" in (row.note or "")
+    finally:
+        db.close()
 
