@@ -14,7 +14,7 @@ type Intent = "loretaErp" | "loretaSpectra" | "dipole";
 
 export function StudioSourceMenu({
   analysisId,
-  channelNames: _channelNames,
+  channelNames,
   trials,
   fromSec,
   toSec,
@@ -40,6 +40,7 @@ export function StudioSourceMenu({
   const [winDip, setWinDip] = useState(false);
 
   const sourceHook = useAiStore((s) => s.sourceLocalizationChanged);
+  void channelNames;
 
   const open = (which: Intent) => {
     setIntent(which);

@@ -38,6 +38,9 @@ export function documentForApi(doc: ReportDocument): {
 } {
   return {
     title: doc.title,
-    blocks: doc.blocks.map(({ id: _id, ...rest }) => rest),
+    blocks: doc.blocks.map(({ id, ...rest }) => {
+      void id;
+      return rest;
+    }),
   };
 }

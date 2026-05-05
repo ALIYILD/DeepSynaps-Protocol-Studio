@@ -14,6 +14,11 @@ The main CI workflow is `.github/workflows/ci.yml`.
 From repo root:
 
 ```bash
+# Node version note (important)
+# - CI uses Node 20 (`actions/setup-node@v4 node-version: 20`)
+# - `apps/web` uses Vite 7 which requires Node >=20.19 (or >=22.12)
+# If your local/node VM is Node 18, `npm run build` will fail.
+
 # Node workspace install (required for web + api-client checks)
 npm ci
 

@@ -32,6 +32,10 @@ export function StudioAnalysisMenu({
   onOpenDerivative?: (id: string) => void;
   jumpToSec?: (t: number) => void;
 }) {
+  // Reserved for upcoming artifact windows + report blocks (keep prop surface stable).
+  void trials;
+  void stimulusClasses;
+  void fragments;
   const [markOpen, setMarkOpen] = useState(false);
   const [eogOpen, setEogOpen] = useState(false);
   const [corrOpen, setCorrOpen] = useState(false);
