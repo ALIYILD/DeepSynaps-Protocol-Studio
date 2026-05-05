@@ -2816,7 +2816,7 @@ async function init() {
         // In demo-enabled preview builds (Netlify), auto-enter clinician demo so
         // reviewers can deep-link directly to private clinical hubs without
         // getting stuck on an offline/login overlay.
-        const _demoOk = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1';
+        const _demoOk = import.meta.env.VITE_ENABLE_DEMO === '1';
         if (_demoOk && typeof window.demoLogin === 'function') {
           await window.demoLogin('clinician-demo-token');
           return;
