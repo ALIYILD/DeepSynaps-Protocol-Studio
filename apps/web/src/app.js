@@ -2812,6 +2812,14 @@ async function init() {
       if (deepLinkId
           && /^[a-z0-9][a-z0-9-]{0,63}$/i.test(deepLinkId)
           && !_PUBLIC_ROUTES.includes(normalizeRouteId(deepLinkId))) {
+        // In demo-enabled preview builds (Netlify), auto-enter clinician demo so
+        // reviewers can deep-link directly to private clinical hubs without
+        // getting stuck on an offline/login overlay.
+        const _demoOk = import.meta.env.VITE_ENABLE_DEMO === '1';
+        if (_demoOk && typeof window.demoLogin === 'function') {
+          await window.demoLogin('clinician-demo-token');
+          return;
+        }
         showLogin();
       }
     } catch {}
