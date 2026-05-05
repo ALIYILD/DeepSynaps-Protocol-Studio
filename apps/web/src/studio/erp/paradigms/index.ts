@@ -6,4 +6,4 @@ import PAT_LR from "./PAT_LR.json";
 import TOVA from "./TOVA.json";
 import type { ParadigmDef } from "../types";
 
-export const PARADIGMS: ParadigmDef[] = [P300, GoNoGo, TOVA, PAT_H, PAT_HLR, PAT_LR];
+export const PARADIGMS = [P300, GoNoGo, TOVA, PAT_H, PAT_HLR, PAT_LR] as const satisfies readonly ParadigmDef[];

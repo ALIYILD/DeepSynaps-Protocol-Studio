@@ -2,7 +2,6 @@ import { useMemo, useState, type CSSProperties } from "react";
 
 import { PARADIGMS } from "./paradigms/index";
 import type { ErpComputeParams } from "./types";
-import { DEFAULT_ERP_PARAMS } from "./types";
 
 const lb: CSSProperties = {
   display: "flex",
@@ -190,12 +189,4 @@ export function ErpComputeForm({
       </p>
     </>
   );
-}
-
-export function buildInitialParams(availableClasses: string[]): ErpComputeParams {
-  const base = { ...DEFAULT_ERP_PARAMS };
-  if (availableClasses.length) {
-    base.stimulusClasses = [availableClasses[0]];
-  }
-  return base;
 }

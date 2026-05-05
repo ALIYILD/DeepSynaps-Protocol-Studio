@@ -17,7 +17,7 @@ export function StudioAnalysisMenu({
   toSec,
   highlightChannelId,
   patientId,
-  fragments,
+  fragments: _fragments,
   onTimelineReload,
   onOpenDerivative,
   jumpToSec,
@@ -35,6 +35,7 @@ export function StudioAnalysisMenu({
   onOpenDerivative?: (id: string) => void;
   jumpToSec?: (t: number) => void;
 }) {
+  void _fragments;
   const [markOpen, setMarkOpen] = useState(false);
   const [eogOpen, setEogOpen] = useState(false);
   const [corrOpen, setCorrOpen] = useState(false);

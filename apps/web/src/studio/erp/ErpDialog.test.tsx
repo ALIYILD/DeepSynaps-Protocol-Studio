@@ -3,29 +3,31 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ErpResult } from "./types";
 
-const mockResult: ErpResult = {
-  analysisId: "a1",
-  channelNames: ["Cz"],
-  waveforms: [
-    {
-      class: "TGT",
-      meanUv: [[0, 1, 2]],
-      timesSec: [-0.2, 0, 0.2],
-      nTrials: 1,
-    },
-  ],
-  trials: [],
-  peaks: [],
-  trialCounts: { TGT: 1 },
-};
-
-const erpState = vi.hoisted(() => ({
-  setParams: vi.fn(),
-  compute: vi.fn(async () => {}),
-  loading: false,
-  error: null as string | null,
-  result: mockResult as ErpResult | null,
-}));
+const { mockResult, erpState } = vi.hoisted(() => {
+  const result: ErpResult = {
+    analysisId: "a1",
+    channelNames: ["Cz"],
+    waveforms: [
+      {
+        class: "TGT",
+        meanUv: [[0, 1, 2]],
+        timesSec: [-0.2, 0, 0.2],
+        nTrials: 1,
+      },
+    ],
+    trials: [],
+    peaks: [],
+    trialCounts: { TGT: 1 },
+  };
+  const state = {
+    setParams: vi.fn(),
+    compute: vi.fn(async () => {}),
+    loading: false,
+    error: null as string | null,
+    result: result as ErpResult | null,
+  };
+  return { mockResult: result, erpState: state };
+});
 
 vi.mock("./ErpStore", () => ({
   useErpStore: Object.assign(

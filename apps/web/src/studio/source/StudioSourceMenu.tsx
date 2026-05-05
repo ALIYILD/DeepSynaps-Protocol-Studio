@@ -14,7 +14,7 @@ type Intent = "loretaErp" | "loretaSpectra" | "dipole";
 
 export function StudioSourceMenu({
   analysisId,
-  channelNames: _channelNames,
+  channelNames,
   trials,
   fromSec,
   toSec,
@@ -27,6 +27,7 @@ export function StudioSourceMenu({
   toSec: number;
   availableClasses: string[];
 }) {
+  void channelNames;
   const [dlgOpen, setDlgOpen] = useState(false);
   const [intent, setIntent] = useState<Intent>("loretaErp");
   const [busy, setBusy] = useState(false);

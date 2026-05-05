@@ -1,5 +1,6 @@
 export { ErpClient } from "./ErpClient";
-export { ErpComputeForm, buildInitialParams } from "./ErpComputeForm";
+export { ErpComputeForm } from "./ErpComputeForm";
+export { buildInitialParams } from "./erpFormUtils";
 export { ErpDialog } from "./ErpDialog";
 export type { ErpDialogMode } from "./ErpDialog";
 export { ErpWindow } from "./ErpWindow";

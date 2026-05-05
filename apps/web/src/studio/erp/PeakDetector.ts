@@ -58,7 +58,7 @@ export function detectPeaks(
     const [w0, w1] = windows[name];
     const win = windowIndices(w0, w1);
     if (!win) continue;
-    let [i0, i1] = win;
+    const [i0, i1] = win;
     if (i1 < i0) continue;
 
     let bestI = i0;

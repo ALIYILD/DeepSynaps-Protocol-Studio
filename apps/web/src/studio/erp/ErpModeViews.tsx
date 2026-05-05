@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import type { ErpPeak, ErpResult } from "./types";
 
@@ -151,18 +151,20 @@ function drawHeat(
 
 export function ModeTimeGroupMap({ result }: { result: ErpResult }) {
   const ref = useRef<HTMLCanvasElement>(null);
-  const matrices = result.waveforms.map((wf) => {
-    const nT = wf.timesSec.length;
-    const ch = wf.meanUv.length;
-    const row: number[] = [];
-    for (let t = 0; t < nT; t++) {
-      let s = 0;
-      for (let c = 0; c < ch; c++) s += wf.meanUv[c][t] ?? 0;
-      row.push(ch ? s / ch : 0);
-    }
-    return [row];
-  });
-  const merged = matrices.length ? matrices.reduce((a, b) => a.concat(b), [] as number[][]) : [];
+  const merged = useMemo(() => {
+    const matrices = result.waveforms.map((wf) => {
+      const nT = wf.timesSec.length;
+      const ch = wf.meanUv.length;
+      const row: number[] = [];
+      for (let t = 0; t < nT; t++) {
+        let s = 0;
+        for (let c = 0; c < ch; c++) s += wf.meanUv[c][t] ?? 0;
+        row.push(ch ? s / ch : 0);
+      }
+      return [row];
+    });
+    return matrices.length ? matrices.reduce((a, b) => a.concat(b), [] as number[][]) : [];
+  }, [result.waveforms]);
 
   useEffect(() => {
     const c = ref.current;
@@ -180,17 +182,19 @@ export function ModeTimeGroupMap({ result }: { result: ErpResult }) {
 
 export function ModeGroupTimeMap({ result }: { result: ErpResult }) {
   const ref = useRef<HTMLCanvasElement>(null);
-  const nT = result.waveforms[0]?.timesSec.length ?? 0;
-  const matrix: number[][] = result.waveforms.map((wf) => {
-    const ch = wf.meanUv.length;
-    const row: number[] = [];
-    for (let t = 0; t < nT; t++) {
-      let s = 0;
-      for (let c = 0; c < ch; c++) s += wf.meanUv[c][t] ?? 0;
-      row.push(ch ? s / ch : 0);
-    }
-    return row;
-  });
+  const matrix = useMemo(() => {
+    const nT = result.waveforms[0]?.timesSec.length ?? 0;
+    return result.waveforms.map((wf) => {
+      const ch = wf.meanUv.length;
+      const row: number[] = [];
+      for (let t = 0; t < nT; t++) {
+        let s = 0;
+        for (let c = 0; c < ch; c++) s += wf.meanUv[c][t] ?? 0;
+        row.push(ch ? s / ch : 0);
+      }
+      return row;
+    });
+  }, [result.waveforms]);
 
   useEffect(() => {
     const c = ref.current;

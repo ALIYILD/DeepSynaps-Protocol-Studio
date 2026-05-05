@@ -24,6 +24,8 @@ from app.services.eeg_signal_service import load_raw_for_analysis
 
 router = APIRouter(prefix="/api/v1/studio/eeg", tags=["studio-erp"])
 
+# core-schema-exempt: M9 studio ERP compute payload — router-local until shared with workers
+
 
 class ErpComputeIn(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -182,6 +184,9 @@ def erp_compute(
         "waveforms": waveforms,
         "trials": trials_out,
     }
+
+
+# core-schema-exempt: M9 studio ERP client-side trial re-average payload
 
 
 class ReaverageIn(BaseModel):

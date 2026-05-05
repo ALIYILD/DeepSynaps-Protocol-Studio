@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { buildInitialParams, ErpComputeForm } from "./ErpComputeForm";
+import { ErpComputeForm } from "./ErpComputeForm";
+import { buildInitialParams } from "./erpFormUtils";
 import { useErpStore } from "./ErpStore";
 import type { ErpComputeParams, ErpResult } from "./types";
 import { DEFAULT_ERP_PARAMS } from "./types";
