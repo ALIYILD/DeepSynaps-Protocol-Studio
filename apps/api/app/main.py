@@ -119,6 +119,34 @@ from app.routers.patient_oncall_router import router as patient_oncall_router
 from app.routers.patient_digest_router import router as patient_digest_router
 from app.routers.caregiver_consent_router import router as caregiver_consent_router
 from app.routers.caregiver_email_digest_router import router as caregiver_email_digest_router
+from app.routers.caregiver_delivery_concern_aggregator_router import (
+    router as caregiver_delivery_concern_aggregator_router,
+)
+from app.routers.caregiver_delivery_concern_resolution_router import (
+    router as caregiver_delivery_concern_resolution_router,
+)
+from app.routers.caregiver_delivery_concern_resolution_audit_hub_router import (
+    router as caregiver_delivery_concern_resolution_audit_hub_router,
+)
+from app.routers.caregiver_delivery_concern_resolution_outcome_tracker_router import (
+    router as caregiver_delivery_concern_resolution_outcome_tracker_router,
+)
+from app.routers.channel_auth_health_probe_router import (
+    router as channel_auth_health_probe_router,
+)
+from app.routers.channel_misconfiguration_detector_router import (
+    router as channel_misconfiguration_detector_router,
+)
+from app.routers.channel_auth_drift_resolution_router import (
+    router as channel_auth_drift_resolution_router,
+)
+from app.routers.channel_auth_drift_resolution_audit_hub_router import (
+    router as channel_auth_drift_resolution_audit_hub_router,
+)
+from app.routers.clinical_trials_router import router as clinical_trials_router
+from app.routers.irb_amendment_workflow_router import (
+    router as irb_amendment_workflow_router,
+)
 from app.routers.coaching_digest_delivery_failure_drilldown_router import (
     router as coaching_digest_delivery_failure_drilldown_router,
 )
@@ -199,6 +227,10 @@ from app.routers.studio_report_router import router as studio_report_router
 from app.routers.studio_eeg_database_router import router as studio_eeg_database_router
 from app.routers.recording_eeg_events_router import router as recording_eeg_events_router
 from app.routers.montages_router import router as montages_router
+from app.routers.qeeg_report_annotations_router import (
+    router as qeeg_report_annotations_router,
+)
+from app.routers.quality_assurance_router import router as quality_assurance_router
 from app.sentry_setup import init_sentry
 from app.settings import get_settings
 from app.services.brain_regions import list_brain_regions
@@ -511,6 +543,15 @@ app.include_router(patient_digest_router)
 # patient access blocked at the router (404). Caregivers see grants
 # pointed at them via ``/grants/by-caregiver``.
 app.include_router(caregiver_consent_router)
+app.include_router(caregiver_delivery_concern_aggregator_router)
+app.include_router(caregiver_delivery_concern_resolution_router)
+app.include_router(caregiver_delivery_concern_resolution_audit_hub_router)
+app.include_router(caregiver_delivery_concern_resolution_outcome_tracker_router)
+app.include_router(channel_auth_health_probe_router)
+app.include_router(channel_misconfiguration_detector_router)
+app.include_router(channel_auth_drift_resolution_router)
+app.include_router(channel_auth_drift_resolution_audit_hub_router)
+app.include_router(clinical_trials_router)
 # Caregiver Email Digest (2026-05-01) — closes the bidirectional
 # notification loop opened by Caregiver Notification Hub #379. Daily
 # roll-up of unread caregiver notifications via the on-call delivery
@@ -574,8 +615,11 @@ app.include_router(studio_report_router)
 app.include_router(studio_eeg_database_router)
 app.include_router(recording_eeg_events_router)
 app.include_router(montages_router)
+app.include_router(irb_amendment_workflow_router)
 app.include_router(irb_amendment_reviewer_workload_router)
 app.include_router(irb_amendment_reviewer_workload_outcome_tracker_router)
+app.include_router(qeeg_report_annotations_router)
+app.include_router(quality_assurance_router)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
