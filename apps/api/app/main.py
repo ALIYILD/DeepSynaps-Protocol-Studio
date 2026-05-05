@@ -127,6 +127,9 @@ from app.routers.caregiver_delivery_concern_resolution_audit_hub_router import (
 from app.routers.caregiver_delivery_concern_resolution_outcome_tracker_router import (
     router as caregiver_delivery_concern_resolution_outcome_tracker_router,
 )
+from app.routers.channel_misconfiguration_detector_router import (
+    router as channel_misconfiguration_detector_router,
+)
 from app.routers.channel_auth_health_probe_router import (
     router as channel_auth_health_probe_router,
 )
@@ -183,6 +186,7 @@ except ImportError as _qa_imp_err:
     )
 from app.routers.qeeg_raw_router import router as qeeg_raw_router
 from app.routers.qeeg_ai_router import router as qeeg_ai_router
+from app.routers.video_assessment_router import router as video_assessment_router
 from app.routers.studio_eeg_router import router as studio_eeg_router
 from app.routers.studio_erp_router import router as studio_erp_router
 from app.routers.studio_source_router import router as studio_source_router
@@ -529,6 +533,7 @@ app.include_router(caregiver_delivery_concern_resolution_audit_hub_router)
 # Caregiver Delivery Concern Resolution Outcome Tracker (2026-05-02).
 # Lightweight outcome tracking over resolution reasons.
 app.include_router(caregiver_delivery_concern_resolution_outcome_tracker_router)
+app.include_router(channel_misconfiguration_detector_router)
 app.include_router(channel_auth_health_probe_router)
 # Channel Auth Drift Resolution (2026-05-02). Admin marks auth drift rows rotated;
 # clinician list/audit views; cross-clinic scoped.
@@ -578,6 +583,7 @@ if _HAS_QA_ROUTER and qa_router is not None:
     app.include_router(qa_router)
 app.include_router(qeeg_raw_router)
 app.include_router(qeeg_ai_router)
+app.include_router(video_assessment_router)
 app.include_router(studio_eeg_router)
 if _HAS_STUDIO_ARTIFACTS_ROUTER:
     app.include_router(studio_artifacts_router)
