@@ -57,6 +57,7 @@ from app.routers.finance_router import router as finance_router
 from app.routers.sessions_router import router as sessions_router
 from app.routers.treatment_courses_router import router as treatment_courses_router
 from app.routers.treatment_courses_router import review_router as review_queue_router
+from app.routers.treatment_sessions_router import router as treatment_sessions_router
 from app.routers.adverse_events_router import router as adverse_events_router
 from app.routers.population_analytics_router import router as population_analytics_router
 from app.routers.outcomes_router import router as outcomes_router
@@ -71,6 +72,7 @@ from app.routers.wearables_workbench_router import router as wearables_workbench
 from app.routers.clinician_inbox_router import router as clinician_inbox_router
 from app.routers.care_team_coverage_router import router as care_team_coverage_router
 from app.routers.media_router import router as media_router
+from app.routers.biometrics_router import router as biometrics_router
 from app.routers.home_devices_router import router as home_devices_router
 from app.routers.home_device_portal_router import router as home_device_portal_router
 from app.routers.marketplace_router import router as marketplace_router
@@ -86,6 +88,7 @@ from app.routers.patient_home_program_tasks_router import (
 from app.routers.home_task_templates_router import router as home_task_templates_router
 from app.routers.agent_skills_router import router as agent_skills_router
 from app.routers.annotations_router import router as annotations_router
+from app.routers.audit_trail_router import router as audit_trail_router
 from app.routers.reminders_router import router as reminders_router
 from app.routers.irb_router import router as irb_router
 from app.routers.irb_manager_router import router as irb_manager_router
@@ -97,6 +100,7 @@ from app.routers.reports_router import router as reports_router
 from app.routers.documents_router import router as documents_router
 from app.routers.documents_router import patient_docs_router
 from app.routers.recordings_router import router as recordings_router
+from app.routers.video_assessment_router import router as video_assessment_router
 from app.routers.protocols_saved_router import router as protocols_saved_router
 from app.routers.protocols_generate_router import router as protocols_generate_router
 from app.routers.leads_reception_router import router as leads_reception_router
@@ -144,6 +148,18 @@ from app.routers.command_center_router import router as command_center_router
 from app.routers.dashboard_router import router as dashboard_router
 from app.routers.schedules_router import router as schedules_router
 from app.routers.device_sync_router import router as device_sync_router
+from app.routers.auth_drift_rotation_policy_advisor_router import (
+    router as auth_drift_rotation_policy_advisor_router,
+)
+from app.routers.rotation_policy_advisor_threshold_tuning_router import (
+    router as rotation_policy_advisor_threshold_tuning_router,
+)
+from app.routers.rotation_policy_advisor_threshold_adoption_outcome_tracker_router import (
+    router as rotation_policy_advisor_threshold_adoption_outcome_tracker_router,
+)
+from app.routers.rotation_policy_advisor_outcome_tracker_router import (
+    router as rotation_policy_advisor_outcome_tracker_router,
+)
 try:
     from app.routers.qa_router import router as qa_router
     _HAS_QA_ROUTER = True
@@ -324,6 +340,7 @@ app.include_router(chat_router)
 app.include_router(registries_router)
 app.include_router(treatment_courses_router)
 app.include_router(review_queue_router)
+app.include_router(treatment_sessions_router)
 app.include_router(adverse_events_router)
 app.include_router(population_analytics_router)
 app.include_router(outcomes_router)
@@ -334,6 +351,7 @@ app.include_router(patient_portal_router)
 app.include_router(notifications_router)
 app.include_router(wearable_router)
 app.include_router(media_router)
+app.include_router(biometrics_router)
 app.include_router(home_devices_router)
 app.include_router(home_device_portal_router)
 app.include_router(marketplace_router)
@@ -364,6 +382,7 @@ app.include_router(reports_router, prefix="/api/v1/reports", tags=["reports"])
 app.include_router(documents_router)
 app.include_router(patient_docs_router)
 app.include_router(recordings_router)
+app.include_router(video_assessment_router)
 app.include_router(protocols_saved_router)
 app.include_router(protocols_generate_router)
 app.include_router(leads_reception_router)
@@ -371,6 +390,7 @@ app.include_router(onboarding_router)
 app.include_router(symptom_journal_router)
 app.include_router(wellness_hub_router)
 app.include_router(patient_messages_router)
+app.include_router(audit_trail_router)
 # Patient Home Devices launch-audit (2026-05-01). Distinct from the
 # clinician-side ``home_devices_router`` (registered later under the
 # clinician group) — this one carries the patient-side
@@ -480,6 +500,11 @@ app.include_router(caregiver_consent_router)
 # (DEEPSYNAPS_CAREGIVER_DIGEST_ENABLED=1) honours a 24h per-caregiver
 # cooldown.
 app.include_router(caregiver_email_digest_router)
+# Auth Drift Rotation Policy Advisor (CSAHP4) + threshold tuning / adoption trackers.
+app.include_router(auth_drift_rotation_policy_advisor_router)
+app.include_router(rotation_policy_advisor_threshold_tuning_router)
+app.include_router(rotation_policy_advisor_threshold_adoption_outcome_tracker_router)
+app.include_router(rotation_policy_advisor_outcome_tracker_router)
 # Settings API (scaffolded 024_settings_schema) — stubs; endpoints arrive in
 # follow-up subagents. Grouped together for discoverability.
 app.include_router(profile_router)
