@@ -31,6 +31,7 @@ if [ -x "${HOME:-}/.fly/bin/flyctl" ]; then
 fi
 
 NETLIFY_SITE_ID="13baea11-07e8-4ab3-9c25-af1f045c845b"
+NETLIFY_FILTER="@deepsynaps/web"
 API_BASE_URL="https://deepsynaps-studio.fly.dev"
 
 netlify_cmd="netlify"

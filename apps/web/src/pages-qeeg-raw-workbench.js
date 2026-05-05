@@ -3467,6 +3467,86 @@ function _computeReportReadiness(state) {
   return { score, retain, badChCount, rejSegCount, icaReviewed, hasFilters, artifactBurden, totalArtifacts, readiness };
 }
 
+function _capabilityPill(label, bg, fg) {
+  return `<span style="display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border-radius:999px;border:1px solid #d8d1c3;background:${bg};color:${fg};font-size:10px;font-family:var(--qwb-mono);white-space:nowrap">${esc(label)}</span>`;
+}
+
+function _capabilityStatusPill(status) {
+  var s = (status || '').toLowerCase();
+  if (s === 'active') return _capabilityPill('Active', '#d6e8d6', '#2f6b3a');
+  if (s === 'fallback') return _capabilityPill('Fallback', '#f6e6cb', '#8a5a00');
+  if (s === 'experimental') return _capabilityPill('Experimental', '#e7e0ff', '#4b2fb6');
+  if (s === 'reference_only') return _capabilityPill('Reference-only', '#f3eee5', '#6b6660');
+  return _capabilityPill('Unavailable', '#f3d4d0', '#b03434');
+}
+
+function renderQEEGCapabilitiesPanel(state) {
+  var cap = state.qeegCapabilities || null;
+  if (!cap || !Array.isArray(cap.features)) {
+    return `
+      <div class="qwb-side-section" data-testid="qeeg-capabilities-panel">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-weight:600;font-size:13px">qEEG Capabilities</div>
+          <span style="font-size:10px;color:#6b6660">Not available</span>
+        </div>
+        <div style="font-size:11px;color:#6b6660;line-height:1.45">
+          Capability reporting endpoint is unavailable in this deployment.
+        </div>
+      </div>`;
+  }
+
+  var features = cap.features || [];
+  var wineeg = cap.wineeg_reference || {};
+  var norm = cap.normative_database || {};
+
+  var rows = features.map(function(f) {
+    var missingPkgs = Array.isArray(f.missing_packages) ? f.missing_packages : [];
+    var missingEnv = Array.isArray(f.missing_env) ? f.missing_env : [];
+    var details = [];
+    if (missingPkgs.length) details.push('Missing packages: ' + missingPkgs.join(', '));
+    if (missingEnv.length) details.push('Missing env: ' + missingEnv.join(', '));
+    return `
+      <div data-testid="qeeg-capability-row" style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;padding:6px 0;border-bottom:1px dashed #d8d1c3">
+        <div style="min-width:0">
+          <div style="font-size:11px;font-weight:600;color:#1a1a1a;line-height:1.25">${esc(f.label || f.id)}</div>
+          ${details.length ? `<div style="font-size:10px;color:#6b6660;margin-top:3px;line-height:1.35">${esc(details.join(' · '))}</div>` : ''}
+        </div>
+        <div data-testid="qeeg-capability-status">${_capabilityStatusPill(f.status)}</div>
+      </div>`;
+  }).join('');
+
+  var normLabel = (norm.status || 'unavailable').toLowerCase();
+  var normCaveat = norm.clinical_caveat || 'Decision-support only. Clinician review required.';
+
+  return `
+    <div class="qwb-side-section" data-testid="qeeg-capabilities-panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px">
+        <div style="font-weight:600;font-size:13px">qEEG Capabilities</div>
+        <span style="font-size:10px;color:#6b6660;font-family:var(--qwb-mono)">${esc((cap.generated_at || '').slice(0, 19).replace('T',' '))}Z</span>
+      </div>
+
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">
+        <span data-testid="qeeg-wineeg-reference-status">${_capabilityStatusPill(wineeg.status || 'reference_only')}</span>
+        <span data-testid="qeeg-norm-db-status">${_capabilityStatusPill(normLabel === 'configured' ? 'active' : normLabel === 'toy' ? 'experimental' : 'unavailable')}</span>
+      </div>
+
+      <div style="font-size:10px;color:#6b6660;line-height:1.45;margin-bottom:10px">
+        ${esc(wineeg.caveat || 'No native WinEEG compatibility. Reference-only checklist and workflow guidance.')}
+      </div>
+      <div style="font-size:10px;color:#6b6660;line-height:1.45;margin-bottom:10px">
+        Normative DB: <b>${esc(norm.status || 'unavailable')}</b>${norm.version ? ` · ${esc(norm.version)}` : ''} — ${esc(normCaveat)}
+      </div>
+
+      <div style="max-height:220px;overflow:auto">
+        ${rows}
+      </div>
+
+      <div style="margin-top:10px;font-size:10px;color:#6b6660;line-height:1.45">
+        Decision-support only. Clinician review required. This panel checks configuration and optional dependency presence; it does not run analyses.
+      </div>
+    </div>`;
+}
+
 function renderHelpPanel(state) {
   var r = _computeReportReadiness(state);
   var grade = r.score >= 80 ? 'PASS' : r.score >= 60 ? 'NEEDS REVIEW' : 'BLOCK';
@@ -3485,6 +3565,7 @@ function renderHelpPanel(state) {
   ];
   return `
     ${renderBandPowerSection(state)}
+    ${renderQEEGCapabilitiesPanel(state)}
     <div class="qwb-side-section">
       <h4>Cleaning quality score</h4>
       <div class="qwb-bp-score">
@@ -6314,6 +6395,9 @@ async function loadAll(state) {
     state.metadata = await api.getQEEGWorkbenchMetadata(state.analysisId);
     const pn = document.getElementById('qwb-pat-name');
     if (pn && state.metadata?.patient_name) pn.textContent = state.metadata.patient_name;
+  } catch (_e) {}
+  try {
+    state.qeegCapabilities = await api.getQEEGCapabilities();
   } catch (_e) {}
   try {
     const versions = await api.listQEEGCleaningVersions(state.analysisId);
