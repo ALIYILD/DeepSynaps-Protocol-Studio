@@ -147,6 +147,24 @@ from app.routers.clinical_trials_router import router as clinical_trials_router
 from app.routers.irb_amendment_workflow_router import (
     router as irb_amendment_workflow_router,
 )
+from app.routers.coaching_digest_delivery_failure_drilldown_router import (
+    router as coaching_digest_delivery_failure_drilldown_router,
+)
+from app.routers.irb_amendment_reviewer_workload_router import (
+    router as irb_amendment_reviewer_workload_router,
+)
+from app.routers.irb_amendment_reviewer_workload_outcome_tracker_router import (
+    router as irb_amendment_reviewer_workload_outcome_tracker_router,
+)
+from app.routers.resolver_coaching_inbox_router import (
+    router as resolver_coaching_inbox_router,
+)
+from app.routers.resolver_coaching_self_review_digest_router import (
+    router as resolver_coaching_self_review_digest_router,
+)
+from app.routers.reviewer_sla_calibration_threshold_tuning_router import (
+    router as reviewer_sla_calibration_threshold_tuning_router,
+)
 # Settings API routers (foundation scaffolded by backend subagent #1; endpoints
 # fleshed out by backend subagents #3–#6). See apps/api/SETTINGS_API_DESIGN.md.
 from app.routers.profile_router import router as profile_router
@@ -171,6 +189,7 @@ from app.routers.monitor_router import router as monitor_router
 from app.routers.deeptwin_router import brain_twin_router, router as deeptwin_router
 from app.routers.feature_store_router import router as feature_store_router
 from app.routers.citation_validator_router import router as citation_validator_router
+from app.routers.ai_health_router import router as ai_health_router
 from app.routers.command_center_router import router as command_center_router
 from app.routers.dashboard_router import router as dashboard_router
 from app.routers.schedules_router import router as schedules_router
@@ -575,6 +594,7 @@ app.include_router(agent_admin_router)
 app.include_router(admin_pgvector_router)
 app.include_router(feature_store_router)
 app.include_router(citation_validator_router)
+app.include_router(ai_health_router)
 app.include_router(command_center_router)
 app.include_router(schedules_router)
 app.include_router(dashboard_router)
@@ -597,6 +617,12 @@ app.include_router(studio_eeg_database_router)
 app.include_router(recording_eeg_events_router)
 app.include_router(montages_router)
 app.include_router(irb_amendment_workflow_router)
+app.include_router(coaching_digest_delivery_failure_drilldown_router)
+app.include_router(irb_amendment_reviewer_workload_router)
+app.include_router(irb_amendment_reviewer_workload_outcome_tracker_router)
+app.include_router(resolver_coaching_inbox_router)
+app.include_router(resolver_coaching_self_review_digest_router)
+app.include_router(reviewer_sla_calibration_threshold_tuning_router)
 app.include_router(qeeg_report_annotations_router)
 app.include_router(quality_assurance_router)
 app.include_router(rotation_policy_advisor_outcome_tracker_router)
