@@ -16,53 +16,24 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timezone
-from importlib.util import find_spec
+import importlib.util
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from fastapi import APIRouter
-from pydantic import BaseModel, Field
+from app.schemas.qeeg_capabilities import (
+    CapabilityFeature,
+    CapabilityStatus,
+    NormativeDatabaseStatus,
+    QeegCapabilitiesResponse,
+    WineegReferenceStatus,
+)
 
 router = APIRouter(prefix="/api/v1/qeeg", tags=["qeeg"])
 
-CapabilityStatus = Literal["active", "fallback", "unavailable", "reference_only", "experimental"]
-
-
-class CapabilityFeature(BaseModel):
-    id: str
-    label: str
-    status: CapabilityStatus
-    required_packages: list[str] = Field(default_factory=list)
-    missing_packages: list[str] = Field(default_factory=list)
-    required_env: list[str] = Field(default_factory=list)
-    missing_env: list[str] = Field(default_factory=list)
-    clinical_caveat: str
-    ui_surfaces: list[str] = Field(default_factory=list)
-    notes: str = ""
-
-
-class NormativeDatabaseStatus(BaseModel):
-    status: Literal["toy", "configured", "unavailable"]
-    version: str | None = None
-    clinical_caveat: str
-
-
-class WineegReferenceStatus(BaseModel):
-    status: Literal["reference_only"] = "reference_only"
-    native_file_ingestion: bool = False
-    caveat: str = "No native WinEEG compatibility. Reference-only checklist and workflow guidance."
-
-
-class QeegCapabilitiesResponse(BaseModel):
-    status: Literal["ok"] = "ok"
-    generated_at: str
-    features: list[CapabilityFeature]
-    normative_database: NormativeDatabaseStatus
-    wineeg_reference: WineegReferenceStatus
-
 
 def _has_pkg(mod: str) -> bool:
-    return find_spec(mod) is not None
+    return importlib.util.find_spec(mod) is not None
 
 
 def _missing(required: list[str]) -> list[str]:
@@ -286,7 +257,7 @@ def _capabilities_payload() -> QeegCapabilitiesResponse:
     elif has_autoreject:
         ar_status = "active"
     else:
-        ar_status = "fallback"
+        ar_status = "unavailable"
     features.append(
         _feature(
             feature_id="autoreject",
@@ -323,7 +294,7 @@ def _capabilities_payload() -> QeegCapabilitiesResponse:
     elif has_specparam:
         specparam_status = "active"
     else:
-        specparam_status = "fallback"
+        specparam_status = "unavailable"
     features.append(
         _feature(
             feature_id="specparam",
@@ -636,4 +607,3 @@ def get_qeeg_capabilities() -> Any:
     """
 
     return _capabilities_payload().model_dump()
-
