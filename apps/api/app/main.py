@@ -146,11 +146,23 @@ from app.routers.clinical_trials_router import router as clinical_trials_router
 from app.routers.irb_amendment_workflow_router import (
     router as irb_amendment_workflow_router,
 )
+from app.routers.coaching_digest_delivery_failure_drilldown_router import (
+    router as coaching_digest_delivery_failure_drilldown_router,
+)
 from app.routers.irb_amendment_reviewer_workload_router import (
     router as irb_amendment_reviewer_workload_router,
 )
 from app.routers.irb_amendment_reviewer_workload_outcome_tracker_router import (
     router as irb_amendment_reviewer_workload_outcome_tracker_router,
+)
+from app.routers.resolver_coaching_inbox_router import (
+    router as resolver_coaching_inbox_router,
+)
+from app.routers.resolver_coaching_self_review_digest_router import (
+    router as resolver_coaching_self_review_digest_router,
+)
+from app.routers.reviewer_sla_calibration_threshold_tuning_router import (
+    router as reviewer_sla_calibration_threshold_tuning_router,
 )
 # Settings API routers (foundation scaffolded by backend subagent #1; endpoints
 # fleshed out by backend subagents #3–#6). See apps/api/SETTINGS_API_DESIGN.md.
@@ -623,8 +635,12 @@ app.include_router(studio_eeg_database_router)
 app.include_router(recording_eeg_events_router)
 app.include_router(montages_router)
 app.include_router(irb_amendment_workflow_router)
+app.include_router(coaching_digest_delivery_failure_drilldown_router)
 app.include_router(irb_amendment_reviewer_workload_router)
 app.include_router(irb_amendment_reviewer_workload_outcome_tracker_router)
+app.include_router(resolver_coaching_inbox_router)
+app.include_router(resolver_coaching_self_review_digest_router)
+app.include_router(reviewer_sla_calibration_threshold_tuning_router)
 app.include_router(qeeg_report_annotations_router)
 app.include_router(quality_assurance_router)
 app.include_router(rotation_policy_advisor_outcome_tracker_router)
