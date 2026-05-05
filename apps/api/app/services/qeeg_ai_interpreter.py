@@ -607,6 +607,7 @@ async def generate_ai_report(
     """
     from app.services.chat_service import _llm_chat_async
     from app.services import qeeg_rag
+    from app.qeeg.services.phi_redaction import redact_phi
 
     # ── Resolve features ↔ band_powers ───────────────────────────────────
     if features is None and band_powers is None:
@@ -678,7 +679,8 @@ async def generate_ai_report(
     if flagged:
         user_parts.append("\nPIPELINE-FLAGGED CONDITIONS: " + ", ".join(flagged))
     if patient_context:
-        user_parts.append(f"\nPatient Clinical Context:\n{patient_context}")
+        red = redact_phi(patient_context)
+        user_parts.append(f"\nPatient Clinical Context (redacted):\n{red.redacted_text}")
     if condition_matches:
         top_matches = condition_matches[:5]
         match_text = "\n".join(

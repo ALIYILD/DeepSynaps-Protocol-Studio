@@ -13,6 +13,11 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
+# Best-effort PHI redaction for any LLM-bound free text. This file receives
+# patient transcripts / dictations and optional names in context; we redact
+# before calling the LLM to avoid leaking identifiers to external providers.
+from app.qeeg.services.phi_redaction import redact_phi
+
 # ---------------------------------------------------------------------------
 # Shared constants
 # ---------------------------------------------------------------------------
@@ -161,6 +166,7 @@ async def analyze_patient_upload(
     )
     prior_summary = _build_prior_analyses_summary(prior_analyses)
 
+    transcript_safe = redact_phi(transcript_text or "").redacted_text
     user_prompt = f"""Patient context:
 - Condition: {condition}
 - Modality: {modality}
@@ -169,7 +175,7 @@ async def analyze_patient_upload(
 
 Patient transcript:
 \"\"\"
-{transcript_text}
+{transcript_safe}
 \"\"\"
 
 {prior_summary}
@@ -314,16 +320,21 @@ async def generate_clinician_note_draft(
         else "\n- \"adverse_event_draft\": null  (not required for this note type)"
     )
 
+    transcript_safe = redact_phi(transcript_text or "").redacted_text
+    # Redact any identifiers in clinician-provided context fields too.
+    patient_name_safe = redact_phi(str(patient_name or "")).redacted_text or "the patient"
+    condition_safe = redact_phi(str(condition or "")).redacted_text or "unspecified"
+    modality_safe = redact_phi(str(modality or "")).redacted_text or "unspecified"
     user_prompt = f"""Patient context:
-- Patient: {patient_name}
-- Condition: {condition}
-- Modality: {modality}
+- Patient: {patient_name_safe}
+- Condition: {condition_safe}
+- Modality: {modality_safe}
 - Course progress: {sessions_completed} of {total_sessions} sessions completed
 - Note type requested: {note_type}
 
 Clinician input / transcript:
 \"\"\"
-{transcript_text}
+{transcript_safe}
 \"\"\"
 
 Please produce a structured clinical documentation draft and return a JSON object with EXACTLY these keys:
