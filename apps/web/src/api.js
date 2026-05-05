@@ -1132,6 +1132,11 @@ export const api = {
     apiFetchWithRetry(`/api/v1/protocol-studio/protocols/${encodeURIComponent(protocolId)}`),
   protocolStudioPatientContext: (patientId) =>
     apiFetchWithRetry(`/api/v1/protocol-studio/patients/${encodeURIComponent(patientId)}/context`),
+  protocolStudioGenerate: (payload) =>
+    apiFetchWithRetry('/api/v1/protocol-studio/generate', {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
   exportPatientCsv: (patientId) =>
     apiFetchBinary(`/api/v1/patients/${encodeURIComponent(patientId)}/export.csv`),
   exportPatientNdjson: (patientId) =>

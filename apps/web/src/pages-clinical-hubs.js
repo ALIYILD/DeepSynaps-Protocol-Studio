@@ -3996,9 +3996,10 @@ export async function pgProtocolHub(setTopbar, navigate) {
       return;
     }
 
-    // Phase-1 thin facades only: Protocol Studio generation is intentionally disabled
-    // until grounded safety/governance + evidence linking + review workflow are implemented.
-    const _genDisabled = true;
+    // Phase 2: deterministic generation is enabled for the Evidence-Based card only.
+    // Brain-guided + personalized remain disabled until analyzers + governance wiring are complete.
+    const _genDisabledEvidence = false;
+    const _genDisabledOther = true;
 
     const prefill = _prefillCondition ? _prefillCondition.name : '';
     const prefillId = _prefillCondition ? _prefillCondition.id : '';
@@ -4027,10 +4028,10 @@ export async function pgProtocolHub(setTopbar, navigate) {
     if (W.mode === 'evidence') {
       wizardPanel = '<div class="ps-wizard">' +
         '<div class="ps-wizard-title">&#129504; Evidence-Based AI Generator</div>' +
-        (_genDisabled ? '<div class="ps-role-banner" role="note" style="margin-bottom:12px">' +
-          '<strong>Generation engine not enabled.</strong> This workspace is currently wired for evidence health/search, protocol catalog, and patient context only. ' +
-          'Draft generation will be enabled after safety/governance review + evidence grounding are complete.' +
-        '</div>' : '') +
+        '<div class="ps-role-banner" role="note" style="margin-bottom:12px">' +
+          '<strong>Clinician decision-support only.</strong> Drafts are generated deterministically from the protocol registry + local evidence search. ' +
+          'They require clinician review and are not autonomous prescriptions.' +
+        '</div>' +
         '<div class="ps-form-row">' +
           '<div class="ps-form-group">' +
             '<label class="ps-form-label">Condition *</label>' +
@@ -4069,14 +4070,14 @@ export async function pgProtocolHub(setTopbar, navigate) {
         (W.error ? '<div style="color:#ef4444;font-size:12px;margin-bottom:10px">' + esc(W.error) + '</div>' : '') +
         (W.mode === 'evidence' && W.result ? _renderResultCard(W.result, '') : '') +
         '<button type="button" class="ps-save-btn" id="ps-ev-generate-btn"' + _tid('protocol-generate-action') +
-          (_genDisabled ? ' disabled title=\"Generation engine not enabled\"' : ' onclick=\"window._psGenerateEvidence()\"') + '>' +
-          (_genDisabled ? 'Generation engine not enabled' : (W.saving ? '<span class="ps-spin"></span>Drafting...' : 'Generate AI-assisted draft')) +
+          (_genDisabledEvidence ? ' disabled title=\"Generation engine not enabled\"' : ' onclick=\"window._psGenerateEvidence()\"') + '>' +
+          (_genDisabledEvidence ? 'Generation engine not enabled' : (W.saving ? '<span class="ps-spin"></span>Drafting...' : 'Generate draft (deterministic)')) +
         '</button>' +
       '</div>';
     } else if (W.mode === 'brainscan') {
       wizardPanel = '<div class="ps-wizard">' +
         '<div class="ps-wizard-title">&#129308; Brain Scan Guided Generator</div>' +
-        (_genDisabled ? '<div class="ps-role-banner" role="note" style="margin-bottom:12px">' +
+        (_genDisabledOther ? '<div class="ps-role-banner" role="note" style="margin-bottom:12px">' +
           '<strong>Generation engine not enabled.</strong> Brain-guided draft generation will be enabled after MRI/qEEG linkage, contraindication checks, and evidence grounding are complete.' +
         '</div>' : '') +
         '<div class="ps-form-row">' +
@@ -4120,14 +4121,14 @@ export async function pgProtocolHub(setTopbar, navigate) {
           '<div class="ps-result-section"><strong>Marker Adjustment: </strong>' + esc(W.result.marker_adjustment || '') + '</div>'
         ) : '') +
         '<button type="button" class="ps-save-btn" id="ps-bs-generate-btn"' +
-          (_genDisabled ? ' disabled title=\"Generation engine not enabled\"' : ' onclick=\"window._psGenerateBrainScan()\"') + '>' +
-          (_genDisabled ? 'Generation engine not enabled' : (W.saving ? '<span class="ps-spin"></span>Drafting...' : 'Generate AI-assisted draft')) +
+          (_genDisabledOther ? ' disabled title=\"Generation engine not enabled\"' : ' onclick=\"window._psGenerateBrainScan()\"') + '>' +
+          (_genDisabledOther ? 'Generation engine not enabled' : (W.saving ? '<span class="ps-spin"></span>Drafting...' : 'Generate AI-assisted draft')) +
         '</button>' +
       '</div>';
     } else if (W.mode === 'personalized') {
       wizardPanel = '<div class="ps-wizard">' +
         '<div class="ps-wizard-title">&#129300; Personalized Protocol Generator</div>' +
-        (_genDisabled ? '<div class="ps-role-banner" role="note" style="margin-bottom:12px">' +
+        (_genDisabledOther ? '<div class="ps-role-banner" role="note" style="margin-bottom:12px">' +
           '<strong>Generation engine not enabled.</strong> Personalized drafts will be enabled after patient-context safety checks, off-label governance, and evidence linking are complete.' +
         '</div>' : '') +
         '<div class="ps-form-row">' +
@@ -4184,8 +4185,8 @@ export async function pgProtocolHub(setTopbar, navigate) {
           '<div class="ps-result-section"><strong>Personalization Rationale: </strong>' + esc(W.result.personalization_rationale || '') + '</div>'
         ) : '') +
         '<button type="button" class="ps-save-btn" id="ps-pe-generate-btn"' +
-          (_genDisabled ? ' disabled title=\"Generation engine not enabled\"' : ' onclick=\"window._psGeneratePersonalized()\"') + '>' +
-          (_genDisabled ? 'Generation engine not enabled' : (W.saving ? '<span class="ps-spin"></span>Drafting...' : 'Generate AI-assisted draft')) +
+          (_genDisabledOther ? ' disabled title=\"Generation engine not enabled\"' : ' onclick=\"window._psGeneratePersonalized()\"') + '>' +
+          (_genDisabledOther ? 'Generation engine not enabled' : (W.saving ? '<span class="ps-spin"></span>Drafting...' : 'Generate AI-assisted draft')) +
         '</button>' +
       '</div>';
     }
@@ -4370,24 +4371,18 @@ export async function pgProtocolHub(setTopbar, navigate) {
         }
       }
       const payload = {
+        patient_id: _psContextPatientId() || null,
+        mode: 'evidence_search',
         condition,
-        symptom_cluster: 'General',
         modality,
-        device: (devEl && devEl.value.trim()) || '',
-        setting: 'Clinic',
-        evidence_threshold: (thrEl && thrEl.value) || 'Systematic Review',
-        off_label: !!(olEl && olEl.checked),
+        target: null,
+        protocol_id: null,
+        include_off_label: !!(olEl && olEl.checked),
+        constraints: {},
       };
-      W.result = await api.generateProtocol(payload);
+      W.result = await api.protocolStudioGenerate(payload);
       W.error = null;
-      window._psLastGenPayload = {
-        kind: 'evidence',
-        condition: payload.condition,
-        modality: modality,
-        device: payload.device || '',
-        evidence_threshold: payload.evidence_threshold,
-        off_label: payload.off_label,
-      };
+      window._psLastGenPayload = { kind: 'protocol-studio', ...payload };
     } catch (e) { W.error = e?.message || 'Generation failed.'; }
     W.saving = false;
     _renderGenerate();

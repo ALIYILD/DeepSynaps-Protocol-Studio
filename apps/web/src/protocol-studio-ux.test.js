@@ -50,5 +50,6 @@ test('Protocol Studio API helpers are present in api.js', () => {
   assert.ok(apiJs.includes('protocolStudioProtocols'));
   assert.ok(apiJs.includes('protocolStudioProtocol'));
   assert.ok(apiJs.includes('protocolStudioPatientContext'));
+  assert.ok(apiJs.includes('protocolStudioGenerate'));
 });
 
