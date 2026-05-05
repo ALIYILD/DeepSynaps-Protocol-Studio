@@ -74,11 +74,13 @@ def upgrade() -> None:
         "qeeg_analysis_jobs",
         ["params_hash"],
     )
-    op.create_unique_constraint(
-        "uq_qeeg_analysis_jobs_recording_code_params_hash",
-        "qeeg_analysis_jobs",
-        ["recording_id", "analysis_code", "params_hash"],
-    )
+    # SQLite cannot ALTER TABLE to add/drop constraints; use batch mode
+    # so the UNIQUE constraint is created portably across dialects.
+    with op.batch_alter_table("qeeg_analysis_jobs") as batch_op:
+        batch_op.create_unique_constraint(
+            "uq_qeeg_analysis_jobs_recording_code_params_hash",
+            ["recording_id", "analysis_code", "params_hash"],
+        )
 
     op.create_table(
         "qeeg_analysis_audit",
@@ -129,11 +131,11 @@ def downgrade() -> None:
     op.drop_index("ix_qeeg_analysis_audit_user_created", table_name="qeeg_analysis_audit")
     op.drop_index("ix_qeeg_analysis_audit_job_id", table_name="qeeg_analysis_audit")
     op.drop_table("qeeg_analysis_audit")
-    op.drop_constraint(
-        "uq_qeeg_analysis_jobs_recording_code_params_hash",
-        "qeeg_analysis_jobs",
-        type_="unique",
-    )
+    with op.batch_alter_table("qeeg_analysis_jobs") as batch_op:
+        batch_op.drop_constraint(
+            "uq_qeeg_analysis_jobs_recording_code_params_hash",
+            type_="unique",
+        )
     op.drop_index("ix_qeeg_analysis_jobs_params_hash", table_name="qeeg_analysis_jobs")
     op.drop_index("ix_qeeg_analysis_jobs_status_active", table_name="qeeg_analysis_jobs")
     op.drop_index("ix_qeeg_analysis_jobs_recording_code", table_name="qeeg_analysis_jobs")
