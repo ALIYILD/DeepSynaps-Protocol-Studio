@@ -321,6 +321,8 @@ app.include_router(personalization_router)
 app.include_router(patients_router)
 app.include_router(sessions_router)
 app.include_router(assessments_router)
+from app.routers.assessments_v2_router import router as assessments_v2_router  # noqa: E402
+app.include_router(assessments_v2_router)
 app.include_router(telegram_router)
 app.include_router(chat_router)
 app.include_router(registries_router)

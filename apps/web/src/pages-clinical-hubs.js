@@ -11658,8 +11658,14 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   let assessmentsListEmptyOk = false;
   const allowSampleQueueFallback = assessmentsSampleQueueAllowed(import.meta.env, api.getToken?.()).allowed;
   try {
-    const apiRes = await (api.listAssessments?.() || Promise.reject());
-    const items = Array.isArray(apiRes) ? apiRes : ((apiRes && apiRes.items) || []);
+    // Prefer v2 queue when available (licence-aware, audit-logged). Fall back
+    // to v1 listAssessments for backward compatibility.
+    const apiRes = await (
+      api.assessmentsV2Queue?.()
+        || api.listAssessments?.()
+        || Promise.reject()
+    );
+    const items = Array.isArray(apiRes) ? apiRes : ((apiRes && (apiRes.items || apiRes)) || []);
     assessmentsListEmptyOk = items.length === 0;
     if (items.length) {
       const merged = items
@@ -12157,18 +12163,26 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
 
     window._ahSaveDraft = async () => {
       const s = window._ahForm; if (!s) return;
-      const payload = {
-        patient_id: s.patientId || null,
-        scale_id: s.instrumentId,
-        status: 'draft',
-        data: { items: s.values, scale_id: s.instrumentId, source: 'assessments-hub-v2' },
-      };
       try {
-        if (s.backendId) {
-          await api.updateAssessment(s.backendId, payload);
+        // If we have an existing backend assignment id, persist via v2 assignment responses.
+        if (s.backendId && api.assessmentsV2SubmitResponses) {
+          await api.assessmentsV2SubmitResponses(s.backendId, {
+            status: 'in_progress',
+            items: s.values,
+          });
         } else {
-          const res = await api.createAssessment(payload);
-          if (res && res.id) s.backendId = res.id;
+          const payload = {
+            patient_id: s.patientId || null,
+            scale_id: s.instrumentId,
+            status: 'draft',
+            data: { items: s.values, scale_id: s.instrumentId, source: 'assessments-hub-v2' },
+          };
+          if (s.backendId) {
+            await api.updateAssessment(s.backendId, payload);
+          } else {
+            const res = await api.createAssessment(payload);
+            if (res && res.id) s.backendId = res.id;
+          }
         }
         window._dsToast?.({ title:'Draft saved', body:'Progress saved — return later to finish.', severity:'success' });
       } catch {
@@ -12209,59 +12223,53 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         itemsArr = null;
       }
 
-      const payload = {
-        patient_id: s.patientId || null,
-        scale_id: instId,
-        status: 'completed',
-        score: String(total),
-        data: {
-          score: total,
-          interpretation: interp?.label || null,
-          severity: interp?.severity || null,
-          items: itemsArr,
-          scale_id: instId,
-          source: 'assessments-hub-v2',
-          safety,
-        },
-      };
-
       let savedId = s.backendId;
-      const _persist = async (overrideVal) => {
-        const p = overrideVal ? { ...payload, data: { ...payload.data, override_score_validation: true }, override_score_validation: true } : payload;
+      const _persist = async () => {
+        // Prefer v2 assignment workflow when backendId represents an assignment id.
+        if (s.backendId && api.assessmentsV2SubmitResponses) {
+          await api.assessmentsV2SubmitResponses(s.backendId, {
+            status: 'completed',
+            items: itemsArr,
+            score_numeric: total,
+          });
+          if (api.assessmentsV2Score) {
+            // Best-effort canonical scoring when available (no-op for score-only instruments).
+            try { await api.assessmentsV2Score(s.backendId); } catch {}
+          }
+          savedId = s.backendId;
+          return;
+        }
+
+        // Fallback to legacy v1 record creation when not operating on an assignment id.
+        const payload = {
+          patient_id: s.patientId || null,
+          scale_id: instId,
+          status: 'completed',
+          score: String(total),
+          data: {
+            score: total,
+            interpretation: interp?.label || null,
+            severity: interp?.severity || null,
+            items: itemsArr,
+            scale_id: instId,
+            source: 'assessments-hub-v2',
+            safety,
+          },
+        };
         if (s.backendId) {
-          await api.updateAssessment(s.backendId, p);
+          await api.updateAssessment(s.backendId, payload);
         } else {
-          const res = await api.createAssessment(p);
+          const res = await api.createAssessment(payload);
           savedId = res?.id || null;
         }
       };
       try {
-        await _persist(false);
+        await _persist();
         window._dsToast?.({ title:'Submitted', body:(inst.abbr||instId)+' · '+total+(inst.max?'/'+inst.max:'')+' · '+(interp?.label||'scored'), severity:'success' });
       } catch (err) {
-        // Server-side canonical-score validation rejected the submit (±5% tolerance).
-        // Surface the delta + offer clinician-override retry so we don't block on minor
-        // rounding but still audit. Otherwise fall through to offline toast.
-        if (err && err.code === 'score_mismatch' && err.details) {
-          const d = err.details;
-          const ok = window.confirm(
-            'Score mismatch: clinician entered '+d.submitted_score+' · server computed '+d.canonical_score+
-            ' (Δ '+(d.delta_pct!=null?d.delta_pct.toFixed(1)+'%':'n/a')+'). Submit with clinician override?'
-          );
-          if (ok) {
-            try {
-              await _persist(true);
-              window._dsToast?.({ title:'Submitted (override)', body:'Canonical '+d.canonical_score+' · clinician '+d.submitted_score, severity:'success' });
-            } catch {
-              window._dsToast?.({ title:'Saved offline', body:'Will sync when backend is available.', severity:'info' });
-            }
-          } else {
-            window._dsToast?.({ title:'Submit cancelled', body:'Adjust score or items then resubmit.', severity:'warn' });
-            return;
-          }
-        } else {
-          window._dsToast?.({ title:'Saved offline', body:'Will sync when backend is available.', severity:'info' });
-        }
+        // v2 does not support a clinician override of canonical scoring via this UI.
+        // If v1 validation rejects, fall back to offline/local behaviour.
+        window._dsToast?.({ title:'Saved offline', body:'Will sync when backend is available.', severity:'info' });
       }
 
       // Fire-and-forget AI summary
@@ -12571,6 +12579,95 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       '</div>' +
       '</div>';
 
+    // Evidence + AI Recommendations (best-effort; never block UI).
+    let evidenceHealth = null;
+    try { evidenceHealth = await (api.assessmentsV2EvidenceHealth?.() || Promise.reject()); } catch {}
+    const evOk = !!evidenceHealth?.ok;
+    const evBadge = evOk
+      ? '<span class="dv2a-chip-sm teal" data-testid="assessments-evidence-health">Evidence: OK</span>'
+      : '<span class="dv2a-chip-sm amber" data-testid="assessments-evidence-health">Evidence: unavailable</span>';
+    const evNote = evidenceHealth
+      ? '<div style="font-size:10.5px;color:var(--text-tertiary);line-height:1.45;margin-top:6px">' +
+        esc(String(evidenceHealth.local_corpus_note || '')) +
+        (evidenceHealth.live_literature_note ? ' · ' + esc(String(evidenceHealth.live_literature_note)) : '') +
+        '</div>'
+      : '<div style="font-size:10.5px;color:var(--text-tertiary);line-height:1.45;margin-top:6px">Evidence services not reachable. Showing only what is locally cached/available.</div>';
+
+    let evRefs = [];
+    try {
+      const aid = (row.scaleId || row.inst || '').toLowerCase();
+      const evRes = await (api.assessmentsV2EvidenceForAssessment?.(aid) || Promise.reject());
+      evRefs = Array.isArray(evRes?.items) ? evRes.items : [];
+    } catch {}
+    const evRefsHtml = (evRefs && evRefs.length)
+      ? '<div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">' +
+        evRefs.slice(0, 6).map((r) => {
+          const title = esc(r.title || 'Untitled');
+          const yr = r.year ? ' · ' + esc(String(r.year)) : '';
+          const src = r.source_link ? '<a href="'+esc(r.source_link)+'" target="_blank" rel="noreferrer" style="color:var(--teal,#00d4bc);text-decoration:none">Open</a>' : '';
+          const idt = (r.doi ? 'DOI '+esc(r.doi) : (r.pmid ? 'PMID '+esc(r.pmid) : ''));
+          return '<div class="dv2a-card" style="padding:10px 12px;background:rgba(255,255,255,0.02)">' +
+            '<div style="font-size:11.5px;font-weight:650;color:var(--text-primary);line-height:1.4">'+title+'</div>' +
+            '<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:4px;line-height:1.4">' +
+              esc((r.journal || r.authors || '').toString()) + yr +
+              (idt ? ' · '+idt : '') +
+            '</div>' +
+            (src ? '<div style="margin-top:6px;font-size:10.5px">'+src+'</div>' : '') +
+          '</div>';
+        }).join('') +
+        '</div>'
+      : '<div style="font-size:11px;color:var(--text-tertiary);margin-top:10px">No structured evidence references are linked for this instrument in this build.</div>';
+
+    let recs = null;
+    try {
+      if (row.patientId) {
+        recs = await (api.assessmentsV2Recommend?.({
+          patient_id: row.patientId,
+          condition: (row.dx || '').slice(0, 120) || null,
+          symptom_domains: [],
+          clinician_question: null,
+        }) || Promise.reject());
+      }
+    } catch {}
+    const recList = Array.isArray(recs?.recommended) ? recs.recommended : [];
+    const recHtml = (row.patientId)
+      ? (recList.length
+          ? '<div data-testid="assessments-ai-recommendation" style="display:flex;flex-direction:column;gap:8px;margin-top:10px">' +
+            recList.slice(0, 6).map((x) =>
+              '<div class="dv2a-card" style="padding:10px 12px;background:rgba(255,255,255,0.02)">' +
+                '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">' +
+                  '<div style="min-width:0"><div style="font-size:12px;font-weight:700;color:var(--text-primary)">'+esc(x.assessment_id)+'</div>' +
+                    '<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:4px;line-height:1.45">'+esc(x.reason || '')+'</div></div>' +
+                  '<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;white-space:nowrap">' +
+                    '<span class="dv2a-chip-sm '+(x.fillable_in_platform?'teal':'amber')+'">'+(x.fillable_in_platform?'Fillable':'External')+'</span>' +
+                    '<span class="dv2a-chip-sm '+(x.scorable_in_platform?'teal':'amber')+'">'+(x.scorable_in_platform?'Scorable':'Manual')+'</span>' +
+                    '<span class="dv2a-chip-sm">'+esc(x.licence_status || 'unknown')+'</span>' +
+                  '</div>' +
+                '</div>' +
+              '</div>'
+            ).join('') +
+            '</div>'
+          : '<div data-testid="assessments-ai-recommendation" style="font-size:11px;color:var(--text-tertiary);margin-top:10px">No recommendations available for this patient context (or service unavailable).</div>')
+      : '<div data-testid="assessments-ai-recommendation" style="font-size:11px;color:var(--text-tertiary);margin-top:10px">No patient ID on this row — AI recommendation requires a patient-linked assignment.</div>';
+
+    const evidencePanelHtml =
+      '<div class="dv2a-ai-card" style="border-color:rgba(99,102,241,0.35)">' +
+        '<div class="dv2a-ai-badge" style="background:rgba(99,102,241,0.15);color:#a5b4fc">Evidence</div>' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px">' +
+          '<div style="font-size:10.5px;color:var(--text-tertiary)">Local corpus / live literature status</div>' +
+          evBadge +
+        '</div>' +
+        evNote +
+        evRefsHtml +
+      '</div>';
+
+    const recommendPanelHtml =
+      '<div class="dv2a-ai-card" style="border-color:rgba(0,212,188,0.25)">' +
+        '<div class="dv2a-ai-badge" style="background:rgba(0,212,188,0.14);color:var(--teal,#00d4bc)">AI recommendations</div>' +
+        '<div class="dv2a-ai-meta">Decision support only · clinician review required · no autonomous diagnosis</div>' +
+        recHtml +
+      '</div>';
+
     const reviewHtml =
       '<div style="font-size:11.5px;color:var(--text-secondary);line-height:1.55">' +
       '<p><strong>Workflow status:</strong> ' +
@@ -12708,6 +12805,12 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       '<div class="dv2a-side-body">' +
       '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">01</span>AI-assisted narrative</div>' +
       aiHtml +
+      '</div>' +
+      '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">01b</span>Evidence</div>' +
+      evidencePanelHtml +
+      '</div>' +
+      '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">01c</span>AI recommendations</div>' +
+      recommendPanelHtml +
       '</div>' +
       '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">02</span>Scoring &amp; review status</div>' +
       reviewHtml +
