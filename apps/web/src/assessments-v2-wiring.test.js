@@ -47,9 +47,9 @@ test('api.js exposes Assessments v2 helpers with correct paths', () => {
 test('Assessments v2 page prefers v2 queue over legacy queue', () => {
   const hubs = readFileSync(join(__dirname, 'pages-clinical-hubs.js'), 'utf8');
 
-  // Ensure the v2-first hydration logic exists.
+  // Ensure the v2-first hydration logic exists (now via pure helper).
   assert.ok(
-    hubs.includes('api.assessmentsV2Queue?.()') && hubs.includes('|| api.listAssessments?.()'),
+    hubs.includes('hydrateAssessmentsV2Queue') && hubs.includes('loadV2Queue') && hubs.includes('loadLegacyQueue'),
     'expected v2 queue hydration with legacy fallback',
   );
 });

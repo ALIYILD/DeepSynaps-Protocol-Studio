@@ -44,6 +44,7 @@ import {
   DEMO_ASSESSMENTS_BANNER_MARK,
   mapApiAssessmentToQueueRow,
 } from './assessments-hub-mapping.js';
+import { hydrateAssessmentsV2Queue } from './assessments-v2-queue.js';
 
 function shortMrn(p) {
   if (p?.mrn) return String(p.mrn);
@@ -11657,36 +11658,20 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   /** True when listAssessments returned successfully with zero items (not an error). */
   let assessmentsListEmptyOk = false;
   const allowSampleQueueFallback = assessmentsSampleQueueAllowed(import.meta.env, api.getToken?.()).allowed;
-  try {
-    // Prefer v2 queue when available (licence-aware, audit-logged). Fall back
-    // to v1 listAssessments for backward compatibility.
-    const apiRes = await (
-      api.assessmentsV2Queue?.()
-        || api.listAssessments?.()
-        || Promise.reject()
-    );
-    const items = Array.isArray(apiRes) ? apiRes : ((apiRes && (apiRes.items || apiRes)) || []);
-    assessmentsListEmptyOk = items.length === 0;
-    if (items.length) {
-      const merged = items
-        .slice(0, 80)
-        .map((a, i) => mapApiAssessmentToQueueRow(a, i, scoringEngine, ASSESS_REGISTRY));
-      if (merged.length) {
-        queueRows = merged;
-      }
-    } else if (allowSampleQueueFallback) {
-      queueRows = MOCK_QUEUE;
-      usingDemoData = true;
-      usingSampleQueue = true;
-    }
-  } catch {
-    assessmentsListFetchFailed = true;
-    assessmentsListEmptyOk = false;
-    if (allowSampleQueueFallback) {
-      queueRows = MOCK_QUEUE;
-      usingDemoData = true;
-      usingSampleQueue = true;
-    }
+  {
+    const hydrated = await hydrateAssessmentsV2Queue({
+      allowSampleQueueFallback,
+      loadV2Queue: () => api.assessmentsV2Queue?.(),
+      loadLegacyQueue: () => api.listAssessments?.(),
+      loadDemoRows: () => MOCK_QUEUE,
+      mapRow: (a, i) => mapApiAssessmentToQueueRow(a, i, scoringEngine, ASSESS_REGISTRY),
+      maxRows: 80,
+    });
+    queueRows = hydrated.rows;
+    usingSampleQueue = hydrated.source === 'demo';
+    usingDemoData = hydrated.source === 'demo';
+    assessmentsListFetchFailed = hydrated.fetchFailed;
+    assessmentsListEmptyOk = hydrated.emptyOk;
   }
 
   // Compute real counts from hydrated rows and update the topbar.
