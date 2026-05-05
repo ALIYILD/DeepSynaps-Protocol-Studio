@@ -39,9 +39,13 @@ from app.repositories.patients import get_patient
 
 router = APIRouter(prefix="/api/v1/studio/eeg-database", tags=["studio-eeg-database"])
 
+# core-schema-exempt: EEG DB profile patch — router-local
+
 
 class ProfilePatchIn(BaseModel):
     patch: dict[str, Any] = Field(default_factory=dict)
+
+# core-schema-exempt: merge patients — EEG DB router-local
 
 
 class MergePatientsIn(BaseModel):
@@ -49,6 +53,8 @@ class MergePatientsIn(BaseModel):
 
     primary_patient_id: str = Field(validation_alias="primaryPatientId")
     duplicate_patient_id: str = Field(validation_alias="duplicatePatientId")
+
+# core-schema-exempt: export recordings — EEG DB router-local
 
 
 class ExportRecordingsIn(BaseModel):

@@ -18,6 +18,8 @@ from app.source.pipelines import dipole_pipeline, loreta_erp_pipeline, loreta_sp
 
 router = APIRouter(prefix="/api/v1/studio/eeg", tags=["studio-source"])
 
+# core-schema-exempt: LORETA/dipole epoch base — studio source router-local
+
 
 class SourceEpochIn(BaseModel):
     model_config = ConfigDict(populate_by_name=True)

@@ -21,12 +21,16 @@ _USER_MONTAGES: dict[str, dict[str, Any]] = {}
 # analysis_id / recording_id → preferred montage id
 _RECORDING_MONTAGE_PREF: dict[str, str] = {}
 
+# core-schema-exempt: montage upsert payload — studio router-local
+
 
 class MontageUpsert(BaseModel):
     id: str | None = None
     name: str = Field(..., min_length=1, max_length=200)
     family: str = "custom"
     spec: dict[str, Any]
+
+# core-schema-exempt: recording montage body — studio router-local
 
 
 class RecordingMontageBody(BaseModel):
