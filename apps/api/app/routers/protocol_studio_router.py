@@ -16,26 +16,33 @@ from __future__ import annotations
 import os
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, Field
-from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role, require_patient_owner
 from app.database import get_db_session
-from app.persistence.models import (
-    AssessmentRecord,
-    ClinicalSession,
-    DeepTwinAnalysisRun,
-    MriAnalysis,
-    OutcomeEvent,
-    Patient,
-    QEEGAnalysis,
-)
 from app.repositories.audit import create_audit_event
 from app.repositories.patients import resolve_patient_clinic_id
+from app.repositories.protocol_studio import (
+    get_patient_context_record,
+    get_patient_data_source_stats,
+)
+from app.schemas.protocol_studio import (
+    DataSourceAvailability,
+    EvidenceHealthResponse,
+    EvidenceSearchResponse,
+    EvidenceSearchResult,
+    FallbackMode,
+    GenerateMode,
+    PatientContextResponse,
+    ProtocolCatalogItem,
+    ProtocolCatalogResponse,
+    ProtocolStatus,
+    ProtocolStudioGenerateRequest,
+    ProtocolStudioGenerateResponse,
+)
 from app.services import evidence_rag
 from app.services.pgvector_bridge import HAS_PGVECTOR_RUNTIME, check_pgvector_enabled
 from app.services.protocol_studio_generation import DraftResponse as DraftResponseDict
@@ -78,46 +85,6 @@ def _audit(
 
 
 # ── Evidence endpoints ────────────────────────────────────────────────────────
-
-FallbackMode = Literal["local_only", "keyword_fallback", "unavailable"]
-EvidenceHealthOut = dict[str, Any]
-
-
-class EvidenceHealthResponse(BaseModel):
-    local_evidence_available: bool
-    local_count: int | None = None
-    live_literature_available: bool
-    vector_search_available: bool
-    fallback_mode: FallbackMode
-    last_checked: str
-    safe_user_message: str
-
-
-class EvidenceSearchResult(BaseModel):
-    id: str
-    title: str
-    authors: list[str] = Field(default_factory=list)
-    year: int | None = None
-    doi: str | None = None
-    pmid: str | None = None
-    source: str | None = None
-    evidence_type: str | None = None
-    evidence_grade: str | None = None
-    condition: str | None = None
-    modality: str | None = None
-    target: str | None = None
-    summary: str | None = None
-    limitations: list[str] = Field(default_factory=list)
-    link: str | None = None
-    retrieval_source: Literal["local", "live", "cached", "fixture"] = "local"
-    retrieved_at: str
-
-
-class EvidenceSearchResponse(BaseModel):
-    results: list[EvidenceSearchResult] = Field(default_factory=list)
-    status: Literal["ok", "fallback", "unavailable"]
-    message: str
-
 
 def _is_local_evidence_available() -> bool:
     # evidence_rag internally checks EVIDENCE_DB_PATH / repo guess / /app.
@@ -261,38 +228,6 @@ def protocol_studio_evidence_search(
 
 # ── Protocol catalog endpoints ────────────────────────────────────────────────
 
-ProtocolStatus = Literal[
-    "evidence_based",
-    "clinic_review_required",
-    "off_label_requires_review",
-    "research_only",
-    "insufficient_evidence",
-]
-
-
-class ProtocolCatalogItem(BaseModel):
-    id: str
-    title: str
-    condition: str | None = None
-    modality: str | None = None
-    target: str | None = None
-    status: ProtocolStatus
-    evidence_grade: str | None = None
-    regulatory_status: str | None = None
-    off_label: bool
-    off_label_warning: str | None = None
-    fillable_or_generate_mode: str = "registry_only"
-    contraindication_summary: str | None = None
-    clinician_review_required: bool = True
-    not_autonomous_prescription: bool = True
-    evidence_refs: list[str] = Field(default_factory=list)
-
-
-class ProtocolCatalogResponse(BaseModel):
-    items: list[ProtocolCatalogItem]
-    total: int
-
-
 def _protocol_status(off_label: bool, evidence_refs: list[str], evidence_grade: str | None) -> ProtocolStatus:
     if not evidence_refs:
         return "insufficient_evidence"
@@ -431,29 +366,6 @@ def protocol_studio_protocol_detail(
 # ── Patient context endpoint ─────────────────────────────────────────────────
 
 
-class DataSourceAvailability(BaseModel):
-    available: bool
-    count: int | None = None
-    last_updated: str | None = None
-
-
-class PatientContextResponse(BaseModel):
-    patient_id: str
-    demographics: dict[str, Any] = Field(default_factory=dict)
-    sources: dict[str, DataSourceAvailability] = Field(default_factory=dict)
-    missing_data: list[str] = Field(default_factory=list)
-    safety_flags: dict[str, bool] = Field(default_factory=dict)
-    data_freshness: dict[str, str | None] = Field(default_factory=dict)
-    completeness_score: float
-    clinician_review_required: bool = True
-
-
-def _serialize_dt(dt: Any) -> str | None:
-    if dt is None:
-        return None
-    return dt.isoformat() if hasattr(dt, "isoformat") else str(dt)
-
-
 @router.get("/patients/{patient_id}/context", response_model=PatientContextResponse)
 def protocol_studio_patient_context(
     patient_id: str,
@@ -469,8 +381,7 @@ def protocol_studio_patient_context(
         raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
     require_patient_owner(actor, clinic_id)
 
-    # Load minimal patient row (PHI-minimised response).
-    patient = db.scalar(select(Patient).where(Patient.id == patient_id))
+    patient = get_patient_context_record(db, patient_id)
     if patient is None:
         from app.errors import ApiServiceError
 
@@ -493,36 +404,18 @@ def protocol_studio_patient_context(
         "primary_condition": (patient.primary_condition or "").strip() or None,
     }
 
-    def _last_updated(model_cls) -> str | None:
-        ts_col = getattr(model_cls, "created_at", None) or getattr(model_cls, "observed_at", None) or getattr(model_cls, "synced_at", None)
-        if ts_col is None:
-            return None
-        row = db.execute(
-            select(ts_col)
-            .where(model_cls.patient_id == patient_id)
-            .order_by(ts_col.desc())
-            .limit(1)
-        ).scalar_one_or_none()
-        return _serialize_dt(row)
-
-    assessment_count = db.scalar(select(func.count()).where(AssessmentRecord.patient_id == patient_id)) or 0
-    qeeg_count = db.scalar(select(func.count()).where(QEEGAnalysis.patient_id == patient_id)) or 0
-    mri_count = db.scalar(select(func.count()).where(MriAnalysis.patient_id == patient_id)) or 0
-    session_count = db.scalar(select(func.count()).where(ClinicalSession.patient_id == patient_id)) or 0
-    outcome_count = db.scalar(select(func.count()).where(OutcomeEvent.patient_id == patient_id)) or 0
-    deeptwin_count = db.scalar(select(func.count()).where(DeepTwinAnalysisRun.patient_id == patient_id)) or 0
-
+    source_stats = get_patient_data_source_stats(db, patient_id)
     sources: dict[str, DataSourceAvailability] = {
-        "assessments": DataSourceAvailability(available=assessment_count > 0, count=assessment_count, last_updated=_last_updated(AssessmentRecord)),
-        "qeeg": DataSourceAvailability(available=qeeg_count > 0, count=qeeg_count, last_updated=_last_updated(QEEGAnalysis)),
-        "mri": DataSourceAvailability(available=mri_count > 0, count=mri_count, last_updated=_last_updated(MriAnalysis)),
-        "sessions": DataSourceAvailability(available=session_count > 0, count=session_count, last_updated=_last_updated(ClinicalSession)),
-        "outcomes": DataSourceAvailability(available=outcome_count > 0, count=outcome_count, last_updated=_last_updated(OutcomeEvent)),
-        # Explicitly list sources we are not aggregating yet (ERP, meds) as unavailable.
-        "erp": DataSourceAvailability(available=False, count=None, last_updated=None),
-        "medications": DataSourceAvailability(available=False, count=None, last_updated=None),
-        "deeptwin": DataSourceAvailability(available=deeptwin_count > 0, count=deeptwin_count, last_updated=_last_updated(DeepTwinAnalysisRun)),
+        key: DataSourceAvailability(
+            available=stat.count > 0,
+            count=stat.count,
+            last_updated=stat.last_updated,
+        )
+        for key, stat in source_stats.items()
     }
+    # Explicitly list sources we are not aggregating yet (ERP, meds) as unavailable.
+    sources["erp"] = DataSourceAvailability(available=False, count=None, last_updated=None)
+    sources["medications"] = DataSourceAvailability(available=False, count=None, last_updated=None)
 
     # Safety flags: extract from patient.medical_history JSON if present, but do not return free-text.
     flags: dict[str, bool] = {}
@@ -558,49 +451,6 @@ def protocol_studio_patient_context(
         completeness_score=completeness,
         clinician_review_required=True,
     )
-
-
-# ── Deterministic draft generation (Phase 2) ──────────────────────────────────
-
-GenerateMode = Literal["evidence_search", "qeeg_guided", "mri_guided", "deeptwin_personalized", "multimodal"]
-
-
-class ProtocolStudioGenerateRequest(BaseModel):
-    patient_id: str | None = None
-    mode: GenerateMode
-    condition: str
-    modality: str
-    target: str | None = None
-    protocol_id: str | None = None
-    include_off_label: bool = False
-    constraints: dict[str, Any] = Field(default_factory=dict)
-
-
-class ProtocolStudioGenerateResponse(BaseModel):
-    draft_id: str | None
-    status: Literal[
-        "draft_requires_review",
-        "insufficient_evidence",
-        "needs_more_data",
-        "blocked_requires_review",
-        "research_only_not_prescribable",
-    ]
-    mode: GenerateMode
-    protocol_summary: str
-    parameters: dict[str, Any] = Field(default_factory=dict)
-    rationale: list[str] = Field(default_factory=list)
-    evidence_links: list[dict[str, Any]] = Field(default_factory=list)
-    evidence_grade: str | None = None
-    regulatory_status: str | None = None
-    off_label: bool
-    off_label_warning: str | None = None
-    contraindications: list[str] = Field(default_factory=list)
-    missing_data: list[str] = Field(default_factory=list)
-    uncertainty: str
-    patient_context_used: dict[str, Any] = Field(default_factory=dict)
-    safety_status: str
-    clinician_review_required: bool = True
-    not_autonomous_prescription: bool = True
 
 
 @router.post("/generate", response_model=ProtocolStudioGenerateResponse)
@@ -656,4 +506,3 @@ def protocol_studio_generate(
     )
 
     return ProtocolStudioGenerateResponse(**out)
-
