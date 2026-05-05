@@ -62,6 +62,9 @@ from app.routers.population_analytics_router import router as population_analyti
 from app.routers.outcomes_router import router as outcomes_router
 from app.routers.qeeg_records_router import router as qeeg_records_router
 from app.routers.phenotype_router import router as phenotype_router
+from app.routers.digital_phenotyping_router import (
+    router as digital_phenotyping_router,
+)
 from app.routers.consent_router import router as consent_router
 from app.routers.patient_portal_router import router as patient_portal_router
 from app.routers.notifications_router import router as notifications_router
@@ -78,6 +81,14 @@ from app.routers.marketplace_seller_router import router as marketplace_seller_r
 from app.routers.virtual_care_router import router as virtual_care_router
 from app.routers.forms_router import router as forms_router
 from app.routers.medications_router import router as medications_router
+from app.routers.labs_analyzer_router import router as labs_analyzer_router
+from app.routers.medication_analyzer_router import (
+    router as medication_analyzer_router,
+)
+from app.routers.movement_analyzer_router import router as movement_analyzer_router
+from app.routers.nutrition_analyzer_router import (
+    router as nutrition_analyzer_router,
+)
 from app.routers.consent_management_router import router as consent_management_router
 from app.routers.home_program_tasks_router import router as home_program_tasks_router
 from app.routers.patient_home_program_tasks_router import (
@@ -159,6 +170,9 @@ from app.routers.irb_amendment_reviewer_workload_outcome_tracker_router import (
 from app.routers.resolver_coaching_inbox_router import (
     router as resolver_coaching_inbox_router,
 )
+from app.routers.resolver_coaching_digest_audit_hub_router import (
+    router as resolver_coaching_digest_audit_hub_router,
+)
 from app.routers.resolver_coaching_self_review_digest_router import (
     router as resolver_coaching_self_review_digest_router,
 )
@@ -219,6 +233,9 @@ from app.routers.audit_trail_router import router as audit_trail_router
 from app.routers.biometrics_router import router as biometrics_router
 from app.routers.qeeg_report_annotations_router import (
     router as qeeg_report_annotations_router,
+)
+from app.routers.qeeg_annotation_outcome_tracker_router import (
+    router as qeeg_annotation_outcome_tracker_router,
 )
 from app.routers.quality_assurance_router import router as quality_assurance_router
 from app.routers.rotation_policy_advisor_outcome_tracker_router import (
@@ -396,6 +413,7 @@ app.include_router(population_analytics_router)
 app.include_router(outcomes_router)
 app.include_router(qeeg_records_router)
 app.include_router(phenotype_router)
+app.include_router(digital_phenotyping_router)
 app.include_router(consent_router)
 app.include_router(patient_portal_router)
 app.include_router(notifications_router)
@@ -408,6 +426,10 @@ app.include_router(marketplace_seller_router)
 app.include_router(virtual_care_router)
 app.include_router(forms_router)
 app.include_router(medications_router)
+app.include_router(labs_analyzer_router)
+app.include_router(medication_analyzer_router)
+app.include_router(movement_analyzer_router)
+app.include_router(nutrition_analyzer_router)
 app.include_router(consent_management_router)
 # Patient Home Program Tasks (Homework) launch-audit (2026-05-01).
 # Mounted BEFORE the clinician-side ``home_program_tasks_router`` so the
@@ -621,9 +643,11 @@ app.include_router(coaching_digest_delivery_failure_drilldown_router)
 app.include_router(irb_amendment_reviewer_workload_router)
 app.include_router(irb_amendment_reviewer_workload_outcome_tracker_router)
 app.include_router(resolver_coaching_inbox_router)
+app.include_router(resolver_coaching_digest_audit_hub_router)
 app.include_router(resolver_coaching_self_review_digest_router)
 app.include_router(reviewer_sla_calibration_threshold_tuning_router)
 app.include_router(qeeg_report_annotations_router)
+app.include_router(qeeg_annotation_outcome_tracker_router)
 app.include_router(quality_assurance_router)
 app.include_router(rotation_policy_advisor_outcome_tracker_router)
 app.include_router(rotation_policy_advisor_threshold_adoption_outcome_tracker_router)
