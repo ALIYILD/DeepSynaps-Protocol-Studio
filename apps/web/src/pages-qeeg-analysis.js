@@ -32,6 +32,7 @@ import { renderClinicianReport, mountClinicianReport } from './qeeg-clinician-re
 import { renderTimeline, mountTimeline } from './qeeg-timeline.js';
 import { EvidenceChip, createEvidenceQueryForTarget, initEvidenceDrawer, openEvidenceDrawer, wireEvidenceChips } from './evidence-intelligence.js';
 import { renderLearningEEGReferenceCard } from './learning-eeg-reference.js';
+import { renderUploadWorkflow, mountUploadWorkflow, resetUploadWorkflow } from './qeeg-upload-workflow.js';
 import {
   erpApplyTrialMappingRows,
   erpFormatBidsSummaryHtml,
@@ -4919,46 +4920,19 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   const tabEl = document.getElementById('qeeg-tab-content');
 
   // ══════════════════════════════════════════════════════════════════════════
-  // TAB 1: PATIENT & UPLOAD
+  // TAB 1: PATIENT & UPLOAD (Full Upload Workflow)
   // ══════════════════════════════════════════════════════════════════════════
   if (tab === 'patient') {
-    if (!patientId) {
-      var patEmptyHtml = emptyState('&#x1F9E0;', 'Select a Patient to Begin', 'Use the search box above to find and select a patient, then upload their EEG recording for analysis.');
-      if (_isDemoMode()) {
-        patEmptyHtml += '<div style="text-align:center;margin-top:-8px;padding-bottom:16px">'
-          + '<button class="btn btn-primary btn-sm" onclick="window._qeegSelectedId=\'demo\';window._qeegTab=\'analysis\';window._nav(\'qeeg-analysis\')">View Sample Analysis</button></div>';
-      }
-      tabEl.innerHTML = patEmptyHtml;
-      return;
-    }
-
-    tabEl.innerHTML = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px" id="qeeg-patient-grid">'
-      + '<div id="qeeg-clinical-info">' + spinner('Loading clinical info...') + '</div>'
-      + '<div id="qeeg-upload-col">' + spinner() + '</div>'
-      + '</div>';
-
-    // Render clinical info
-    const infoEl = document.getElementById('qeeg-clinical-info');
-    if (infoEl) infoEl.innerHTML = renderClinicalInfo(_patient, _medHistory);
-
-    // Render upload + analyses
-    const uploadCol = document.getElementById('qeeg-upload-col');
-    if (uploadCol) {
-      var displayAnalyses = _analyses.length === 0 && _isDemoMode() ? [DEMO_ANALYSIS_ENTRY] : _analyses;
-      uploadCol.innerHTML = renderUploadArea(patientId)
-        + '<div style="margin-top:16px">' + renderQEEGStackCard() + '</div>'
-        + '<div style="margin-top:16px"><h4 style="font-size:14px;font-weight:600;margin:0 0 8px">Recent Analyses</h4>'
-        + '<div id="qeeg-analyses-list">' + renderAnalysisList(displayAnalyses) + '</div></div>';
-      _wireQEEGAnalysisCopyButtons();
-    }
-
-    initUploadHandlers(patientId);
-
-    // Responsive: stack on narrow screens
-    const grid = document.getElementById('qeeg-patient-grid');
-    if (grid && window.innerWidth < 900) {
-      grid.style.gridTemplateColumns = '1fr';
-    }
+    // Render the unified 6-step upload workflow
+    const patients = _patients || [];
+    const analyses = _analyses.length === 0 && _isDemoMode() ? [DEMO_ANALYSIS_ENTRY] : _analyses;
+    tabEl.innerHTML = renderUploadWorkflow({
+      patientId: patientId || null,
+      patients: patients,
+      analyses: analyses,
+      patient: _patient || null,
+    });
+    mountUploadWorkflow(tabEl);
     return;
   }
 
