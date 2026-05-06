@@ -5229,8 +5229,9 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     const n = events.length;
     return '<div class="dv2s-demo-banner" data-testid="ds-schedule-demo-banner" role="status">'
       + '<span class="dv2s-demo-dot" aria-hidden="true"></span>'
-      + '<span>&#9432; Demo schedule &mdash; ' + n + ' sample sessions for this week. '
-      + 'Real bookings from the API will replace these when available.</span>'
+      + '<span><b>Demo schedule</b> &mdash; ' + n + ' synthetic sample sessions (non-PHI) for this week. '
+      + 'Real bookings from the API replace these when available. '
+      + 'Controlled preview: scheduling supports workflow only (not emergency triage, diagnosis, or autonomous decision-making).</span>'
       + '<button type="button" class="dv2s-demo-btn" onclick="window._schedDismissDemoBanner()">Dismiss</button>'
       + '</div>';
   }
@@ -5293,6 +5294,8 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       sub = 'Week view';
     }
     const shift = VIEW === 'day' || VIEW === 'resources' ? 1 : VIEW === 'month' ? 30 : 7;
+    const hasServerConflictCheck = typeof api.checkSlotConflicts === 'function';
+    const conflictLabel = hasServerConflictCheck ? 'Conflict check: server + local' : 'Conflict check: local-only estimate';
     return '<div class="dv2s-toolbar">'
       + '<div style="display:flex;gap:4px;align-items:center">'
         + '<button class="dv2s-nav-btn" onclick="window._schedShift('+(-shift)+')" title="Previous">&lsaquo;</button>'
@@ -5312,7 +5315,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       + typeChip('tdcs','tDCS') + typeChip('rtms','rTMS') + typeChip('nf','NF') + typeChip('bio','Bio') + typeChip('assess','Assess') + typeChip('intake','Intake') + typeChip('tele','Telehealth')
       + '<button class="dv2s-chip warn'+(F.conflictsOnly?' is-active':'')+'" onclick="window._schedToggleConflicts()">&#9888; '+conflictCount+' conflicts'+(prereqCount?(' &middot; &#9680; '+prereqCount+' prereqs'):'')+'</button>'
       + (roomDataLimited ? '<span class="dv2s-chip warn" style="cursor:default">Rooms estimated locally</span>' : '')
-      + '<span class="dv2s-chip'+(F.conflictsOnly?' warn':'')+'" style="cursor:default">Conflict checks local-only</span>'
+      + '<span class="dv2s-chip'+(F.conflictsOnly?' warn':'')+'" style="cursor:default">'+esc(conflictLabel)+'</span>'
       + '<div class="dv2s-legend">'
         + '<span class="dv2s-legend-item"><span class="dv2s-legend-sw" style="background:var(--teal)"></span>tDCS</span>'
         + '<span class="dv2s-legend-item"><span class="dv2s-legend-sw" style="background:var(--blue)"></span>rTMS</span>'
@@ -5572,6 +5575,9 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     const rem = (sel.course_total && sel.course_position) ? (sel.course_total - sel.course_position) : 0;
     const stLow = String(sel.status||'').toLowerCase();
     const warns = [];
+    if (eventsIsDemo) {
+      warns.push('<div class="dv2s-warn amb"><div class="dv2s-warn-ico">&#9432;</div><div><div class="dv2s-warn-title">Controlled preview &mdash; synthetic data</div><div class="dv2s-warn-body">This appointment is demo-only (non-PHI). Actions labeled &ldquo;local-only&rdquo; are not persisted. Scheduling supports workflow coordination only (not emergency triage, diagnosis, prescribing, or autonomous decision-making).</div></div></div>');
+    }
     if (sel.warn === 'err') warns.push('<div class="dv2s-warn err"><div class="dv2s-warn-ico">&#9888;</div><div><div class="dv2s-warn-title">Overlap / resource conflict</div><div class="dv2s-warn-body">Use &ldquo;Check conflicts&rdquo; for server validation. Calendar overlap here is computed from loaded appointments.</div></div></div>');
     if (sel.warn === 'amb' && (stLow === 'cancelled' || stLow === 'no_show')) {
       warns.push('<div class="dv2s-warn amb"><div class="dv2s-warn-ico">&#9432;</div><div><div class="dv2s-warn-title">Appointment ended</div><div class="dv2s-warn-body">Status: '+esc(stLow.replace('_',' '))+'. This slot may still appear until the list refreshes.</div></div></div>');
@@ -5616,8 +5622,8 @@ export async function pgSchedulingHub(setTopbar, navigate) {
         + (sel.course_position ? '<div class="dv2s-side-row"><div class="lbl">Course</div><div class="val">Session '+sel.course_position+' of '+(sel.course_total||'—')+'</div></div>' : '')
         + (sel.notes ? '<div class="dv2s-side-row"><div class="lbl">Notes</div><div class="val" style="white-space:pre-wrap">'+esc(sel.notes)+'</div></div>' : '')
         + '<div class="dv2s-side-section">Prep &amp; workflow</div>'
-        + '<div class="dv2s-side-row"><div class="lbl">AI-assisted prep</div><div class="val" style="font-size:11px;color:var(--text-secondary)">Open chart for charts, labs, and protocol review. Nothing here auto-approves treatment.</div></div>'
-        + '<div class="dv2s-side-row"><div class="lbl">Evidence</div><div class="val" style="font-size:11px">Operational scheduling only &mdash; clinician review required for clinical decisions.</div></div>'
+        + '<div class="dv2s-side-row"><div class="lbl">Workflow prep</div><div class="val" style="font-size:11px;color:var(--text-secondary)">Use the chart for history, labs, consents, and protocol review. Scheduling does not approve treatment.</div></div>'
+        + '<div class="dv2s-side-row"><div class="lbl">Safety</div><div class="val" style="font-size:11px">Not for emergency triage. No clinical diagnosis, prescribing, or autonomous decisions are made from scheduling.</div></div>'
         + (rem ? ('<div class="dv2s-side-row"><div class="lbl">Remaining</div><div class="val">'+rem+' planned sessions (course)</div></div>') : '')
         + '<div class="dv2s-side-section">Upcoming in window</div>'
         + '<div class="dv2s-chain">'+chainHtml+'</div>'
@@ -5866,7 +5872,15 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   };
   window._schedCancelEvent = async (id) => {
     if (!confirm('Cancel this appointment?')) return;
-    const reason = (typeof prompt === 'function') ? (prompt('Reason (optional):','') || '') : '';
+    if (typeof prompt !== 'function') {
+      window._dsToast?.({ title:'Cancel blocked', body:'This build requires a cancellation reason to proceed.', severity:'warn' });
+      return;
+    }
+    const reason = (prompt('Reason (required):', '') || '').trim();
+    if (!reason) {
+      window._dsToast?.({ title:'Cancel blocked', body:'A cancellation reason is required. Appointment unchanged.', severity:'warn' });
+      return;
+    }
     try {
       await api.cancelSession?.(id, { reason });
       window._dsToast?.({ title:'Cancelled', body:'Appointment cancelled.', severity:'success' });
@@ -5980,18 +5994,28 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   window._schedTriageLead = async (id) => {
     const lead = leads.find(l => String(l.id) === String(id)); if (!lead) return;
     const next = (lead.urgency === 'urgent') ? 'routine' : 'urgent';
+    const canPersist = typeof api.triageReferral === 'function';
     try {
       await api.triageReferral?.(id, { urgency: next });
     } catch (_err) { logUnavailable('triageReferral'); }
     lead.urgency = next;
-    window._dsToast?.({ title:'Triage set', body: lead.name + ' marked ' + next + '.', severity:'info' });
+    window._dsToast?.({
+      title: canPersist ? 'Triage updated' : 'Triage updated (local-only)',
+      body: (lead.name || 'Referral') + ' marked ' + next + (canPersist ? '.' : '. Not persisted to server in this build.'),
+      severity: canPersist ? 'info' : 'warn',
+    });
     window._nav(window._schedHubNavTarget || 'scheduling-hub');
   };
   window._schedDismissLead = async (id) => {
     if (!confirm('Dismiss this referral?')) return;
+    const canPersist = typeof api.dismissReferral === 'function';
     try { await api.dismissReferral?.(id); } catch (_err) { logUnavailable('dismissReferral'); }
     const lead = leads.find(l => String(l.id) === String(id)); if (lead) lead.stage = 'dismissed';
-    window._dsToast?.({ title:'Dismissed', body:'Referral archived.', severity:'info' });
+    window._dsToast?.({
+      title: canPersist ? 'Dismissed' : 'Dismissed (local-only)',
+      body: canPersist ? 'Referral archived.' : 'Referral archived locally. Not persisted to server in this build.',
+      severity: canPersist ? 'info' : 'warn',
+    });
     window._nav(window._schedHubNavTarget || 'scheduling-hub');
   };
   window._schedAssignLead = (id) => {
@@ -6026,7 +6050,11 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       close();
       if (!c) return;
       lead.assigned_to = c.id;
-      window._dsToast?.({ title:'Assigned', body: lead.name + ' → ' + c.name, severity:'info' });
+      window._dsToast?.({
+        title:'Assigned (local-only)',
+        body: (lead.name || 'Referral') + ' → ' + c.name + '. Not persisted to server in this build.',
+        severity:'warn',
+      });
       window._nav(window._schedHubNavTarget || 'scheduling-hub');
     });
   };
@@ -6068,7 +6096,56 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     const bd = document.getElementById('dv2s-wizard-bd');
     if (bd) bd.remove();
   };
-  window._schedWizSetStep = (n) => { if (!window._schedWiz) return; window._schedWiz.step = n; _renderWizard(); };
+  function _wizHasPatient(w) {
+    return !!((w?.patient_id) || (String(w?.patient || '').trim().length >= 3));
+  }
+  function _wizHasValidSlot(w) {
+    if (!w) return false;
+    const dayOk = typeof w.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(w.day);
+    const clinOk = !!String(w.clin || '').trim();
+    const startOk = Number.isFinite(Number(w.start));
+    const dur = Number(w.duration);
+    const durOk = Number.isFinite(dur) && dur >= 15 && dur <= 480;
+    return !!(dayOk && clinOk && startOk && durOk);
+  }
+  function _wizHasType(w) {
+    return !!String(w?.type || '').trim();
+  }
+  window._schedWizSetStep = (n) => {
+    const w = window._schedWiz;
+    if (!w) return;
+    if (w.saving) return;
+    const cur = Number(w.step) || 1;
+    const next = Math.max(1, Math.min(4, Number(n) || 1));
+    if (next > cur) {
+      if (cur === 1 && !_wizHasPatient(w)) {
+        window._dsToast?.({
+          title: 'Patient required',
+          body: 'Select a patient (or enter a full name) before continuing.',
+          severity: 'warn',
+        });
+        return;
+      }
+      if (cur === 2 && !_wizHasValidSlot(w)) {
+        window._dsToast?.({
+          title: 'Slot incomplete',
+          body: 'Select day, clinician, start time, and a valid duration before continuing.',
+          severity: 'warn',
+        });
+        return;
+      }
+      if (cur === 3 && !_wizHasType(w)) {
+        window._dsToast?.({
+          title: 'Appointment type required',
+          body: 'Select an appointment type before continuing.',
+          severity: 'warn',
+        });
+        return;
+      }
+    }
+    w.step = next;
+    _renderWizard();
+  };
   window._schedWizSet = (field, val) => { if (!window._schedWiz) return; window._schedWiz[field] = val; _renderWizard(); };
   window._schedWizPickPatient = (pid, pname) => {
     if (!window._schedWiz) return;
@@ -6090,6 +6167,17 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   };
   window._schedWizConfirm = async () => {
     const w = window._schedWiz; if (!w) return;
+    if (w.saving) return;
+    if (!_wizHasPatient(w) || !_wizHasValidSlot(w) || !_wizHasType(w)) {
+      window._dsToast?.({
+        title: 'Booking incomplete',
+        body: 'Complete all steps before booking.',
+        severity: 'warn',
+      });
+      return;
+    }
+    w.saving = true;
+    _renderWizard();
     const startHr = Number(w.start) || 9;
     const dur = Number(w.duration) || 60;
     const startIso = w.day + 'T' + pad2(Math.floor(startHr)) + ':' + (startHr % 1 === 0 ? '00' : '30') + ':00';
@@ -6118,10 +6206,14 @@ export async function pgSchedulingHub(setTopbar, navigate) {
           body: err?.message || 'Could not create the patient record needed for this booking.',
           severity:'warn',
         });
+        w.saving = false;
+        _renderWizard();
         return;
       }
       if (!patientId) {
         window._dsToast?.({ title:'Patient creation failed', body:'The server did not return a patient id.', severity:'warn' });
+        w.saving = false;
+        _renderWizard();
         return;
       }
     }
@@ -6159,6 +6251,8 @@ export async function pgSchedulingHub(setTopbar, navigate) {
         body: err?.message || 'The server rejected this appointment.',
         severity:'warn',
       });
+      w.saving = false;
+      _renderWizard();
       return;
     }
     window._dsToast?.({
@@ -6253,10 +6347,15 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       }
     }
 
-    const prevBtn = step > 1 ? '<button class="btn btn-ghost btn-sm" onclick="window._schedWizSetStep('+(step-1)+')">&larr; Back</button>' : '<span></span>';
+    const isSaving = !!w.saving;
+    const prevBtn = step > 1
+      ? '<button class="btn btn-ghost btn-sm" onclick="window._schedWizSetStep('+(step-1)+')"'+(isSaving?' disabled':'')+'>&larr; Back</button>'
+      : '<span></span>';
     const nextBtn = step < 4
-      ? '<button class="btn btn-primary btn-sm" onclick="window._schedWizSetStep('+(step+1)+')">Next &rarr;</button>'
-      : '<button class="btn btn-primary btn-sm" onclick="window._schedWizConfirm()"'+(w.patient?'':' disabled')+'>' + (w.mode === 'reschedule' ? 'Save reschedule' : 'Book appointment') + '</button>';
+      ? '<button class="btn btn-primary btn-sm" onclick="window._schedWizSetStep('+(step+1)+')"'+(isSaving?' disabled':'')+'>Next &rarr;</button>'
+      : '<button class="btn btn-primary btn-sm" onclick="window._schedWizConfirm()"'
+        + ((isSaving || !_wizHasPatient(w)) ? ' disabled' : '')
+        + '>' + (isSaving ? 'Saving…' : (w.mode === 'reschedule' ? 'Save reschedule' : 'Book appointment')) + '</button>';
 
     bd.innerHTML = '<div class="dv2s-modal" role="dialog" aria-label="Booking wizard">'
       + '<div class="dv2s-modal-head">'
@@ -6281,12 +6380,23 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     const type = mode === 'pto' ? 'pto' : (document.getElementById('dv2s-shift-type')?.value || 'clinic');
     const hours = parseFloat(document.getElementById('dv2s-shift-hrs')?.value || '8');
     const payload = { clinician_id: clinId, date: dayIso, type, hours };
-    let ok = false;
-    try { await api.createStaffShift?.(payload); ok = true; }
-    catch (_err) { logUnavailable('createStaffShift'); }
-    window._dsToast?.({ title: ok ? 'Shift added' : 'Shift added (local)', body: payload.clinician_id + ' · ' + payload.date + ' · ' + type, severity: ok ? 'success' : 'warn' });
-    window._schedCloseShiftModal();
-    window._nav(window._schedHubNavTarget || 'scheduling-hub');
+    if (typeof api.createStaffShift !== 'function') {
+      logUnavailable('createStaffShift');
+      window._dsToast?.({
+        title: 'Not available',
+        body: 'Staff shift management is not available in this build. No changes were saved.',
+        severity: 'warn',
+      });
+      return;
+    }
+    try {
+      await api.createStaffShift(payload);
+      window._dsToast?.({ title: 'Shift added', body: payload.clinician_id + ' · ' + payload.date + ' · ' + type, severity: 'success' });
+      window._schedCloseShiftModal();
+      window._nav(window._schedHubNavTarget || 'scheduling-hub');
+    } catch (_err) {
+      window._dsToast?.({ title: 'Shift save failed', body: 'The server rejected the shift change.', severity: 'warn' });
+    }
   };
 
   function _renderShiftModal(mode) {
@@ -6369,8 +6479,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
 
   el.innerHTML = '<div class="dv2s-shell">'
     + renderDemoBanner()
-    + (showDemoBanner ? '<div class="dv2s-error-banner" role="status">Sample sessions only &mdash; not real PHI. Sign in and load API data for production scheduling.</div>' : '')
-    + (apiErrors.length && !showDemoBanner ? '<div class="dv2s-error-banner">Live schedule data unavailable ('+apiErrors.join(', ')+'). No sample appointments are shown outside demo mode.</div>' : '')
+    + (apiErrors.length && !showDemoBanner ? '<div class="dv2s-error-banner" role="status"><b>Live schedule data unavailable</b> ('+apiErrors.join(', ')+'). No demo appointments are shown when the API fails. Booking and server-side conflict checks require the backend.</div>' : '')
     + renderTabBar()
     + body
   + '</div>';
