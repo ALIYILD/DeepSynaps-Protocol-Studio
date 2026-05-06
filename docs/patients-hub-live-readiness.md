@@ -13,6 +13,23 @@
 
 **Demo posture:** Safe for a **controlled** demo when preview banners are shown; treat **patient-specific persistence** (quick note, chart) as **environment-dependent** until API tests pass in full dev/CI.
 
+**Source of truth:** This file (`docs/patients-hub-live-readiness.md`). Branch: `cursor/patients-hub-demo-readiness-23e4` · PR **#526** · readiness doc baseline commit `74762286` (additive governance edits may follow).
+
+### Frozen baseline (pre-demo)
+
+No further Patients Hub implementation changes before the demo **except** fixes for:
+
+- blocking route errors  
+- unsafe or misleading clinical copy  
+- demo-label clarity  
+- degraded-state honesty  
+- role-gating issues  
+- fake persistence / outcome prevention  
+
+### Doctor-facing line (canonical)
+
+> Patients Hub is a controlled preview with synthetic non-PHI demo data. It supports workflow navigation and clinician review; it is not a full clinical record, not emergency triage, and it does not diagnose, prescribe, approve treatment, or act autonomously.
+
 ## Scope
 
 This document covers the **Patients** area of the clinician app:
