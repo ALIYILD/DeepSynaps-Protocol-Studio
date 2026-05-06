@@ -38,6 +38,7 @@ SOURCE_PATHS = [
     # schemas without pip-installing the package.
     REPO_ROOT / "packages" / "mri-pipeline" / "src",
     REPO_ROOT / "packages" / "biometrics-pipeline" / "src",
+    REPO_ROOT / "packages" / "deeptwin-neuroai-lab" / "src",
     # Evidence Citation Validator package (migration 045).
     REPO_ROOT / "packages" / "evidence" / "src",
     # QA package — protocol quality checks (may be added by parallel session).

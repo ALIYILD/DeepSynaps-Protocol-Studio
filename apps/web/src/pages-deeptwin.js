@@ -44,6 +44,7 @@ import {
   renderDashboard360, renderDashboard360Skeleton,
   wireDashboard360Actions, loadDashboard360,
 } from './deeptwin/dashboard360.js';
+import { renderNeuroAiLabSection, wireNeuroAiLab } from './deeptwin/neuroai-lab.js';
 
 const HOST_TIMELINE = 'dt-timeline-host';
 const HOST_CORR     = 'dt-corr-host';
@@ -131,6 +132,11 @@ function _renderAll() {
     <div class="dt-page">
       ${_renderTabStrip(STATE.activeTab || 'overview')}
       ${decisionSupportBanner()}
+      ${renderNeuroAiLabSection({
+        patientId: STATE.patientId,
+        timeline: STATE.timeline,
+        dataSources: STATE.dataSources,
+      })}
       ${_voiceDomainHintBanner()}
       ${renderHeader({ patientLabel, condition, summary: STATE.summary, dataSources: STATE.dataSources })}
       ${renderDataSources({ summary: STATE.summary, dataSources: STATE.dataSources })}
@@ -164,6 +170,7 @@ function _renderAll() {
   _wireTabStrip();
   _wireHistoryReviewButtons();
   _wireClinicianNoteForm();
+  wireNeuroAiLab(STATE.patientId, STATE.timeline, STATE.dataSources);
 }
 
 function _wireTimelineFilters() {

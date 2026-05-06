@@ -157,3 +157,7 @@ shape.
 2. Add it to `ModalityName` and `ALL_MODALITIES` in `types.py`.
 3. Register it in `encoders/__init__.py` and `simulator.encode_all`.
 4. Add fixtures to `apps/api/tests/test_deeptwin_tribe.py`.
+
+## Related: NeuroAI Lab (optional research layer)
+
+DeepTwin NeuroAI Lab is an optional, research-only multimodal analytics layer inspired by public NeuroAI tooling. It is not a diagnostic engine and does not autonomously recommend neuromodulation protocols. See [neuroai-lab.md](neuroai-lab.md) and [../research/neuroai-integration-review.md](../research/neuroai-integration-review.md).

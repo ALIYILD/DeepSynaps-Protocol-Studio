@@ -21,6 +21,7 @@ dependencies = [
     "deepsynaps-modality-registry",
     "deepsynaps-device-registry",
     "deepsynaps-biometrics-pipeline",
+    "deeptwin-neuroai-lab",
     "deepsynaps-safety-engine",
     "deepsynaps-generation-engine",
     "slowapi>=0.1.9",

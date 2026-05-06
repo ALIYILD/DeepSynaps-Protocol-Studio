@@ -79,6 +79,7 @@ jobs:
             -e packages/generation-engine \
             -e packages/render-engine \
             -e packages/biometrics-pipeline \
+            -e packages/deeptwin-neuroai-lab \
             -e apps/api
       - name: Start FastAPI backend on :8000
         # vite.config.ts proxies /api and /health to 127.0.0.1:8000, so the
@@ -161,6 +162,7 @@ jobs:
             -e packages/generation-engine \
             -e packages/render-engine \
             -e packages/biometrics-pipeline \
+            -e packages/deeptwin-neuroai-lab \
             -e apps/api
       - name: Run tests
         working-directory: apps/api
@@ -193,6 +195,7 @@ jobs:
             -e packages/generation-engine \
             -e packages/render-engine \
             -e packages/biometrics-pipeline \
+            -e packages/deeptwin-neuroai-lab \
             -e apps/api
       - name: Run smoke tests
         working-directory: apps/api
