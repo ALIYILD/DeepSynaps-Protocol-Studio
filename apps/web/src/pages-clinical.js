@@ -50,7 +50,7 @@ import { resolveRiskTrafficPatientName, shouldSeedDashboardDemo } from './clinic
 import {
   DEMO_PATIENT,
   DEMO_CLINICIAN_DASHBOARD,
-  DEMO_PATIENT_ROSTER,
+  buildDemoPatientRosterPreview,
   demoPtFromRoster,
   sparklineSVG,
   groupOutcomesByTemplate,
@@ -2259,7 +2259,7 @@ export async function pgPatients(setTopbar, navigate) {
       // Offline demo fallback — seed with demo roster when API is unreachable
       const _demoOk = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
       if (_demoOk) {
-        items = [...DEMO_PATIENT_ROSTER];
+        items = [...buildDemoPatientRosterPreview()];
       } else {
         el.innerHTML = `<div class="notice notice-warn">Could not load patients.</div>`;
         return;
@@ -2269,7 +2269,7 @@ export async function pgPatients(setTopbar, navigate) {
     // Offline demo fallback on network error
     const _demoOk = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
     if (_demoOk) {
-      items = [...DEMO_PATIENT_ROSTER];
+      items = [...buildDemoPatientRosterPreview()];
     } else {
       el.innerHTML = `<div class="notice notice-warn">Could not load patients: ${_escCC(e.message)}</div>`;
       return;
@@ -2280,7 +2280,7 @@ export async function pgPatients(setTopbar, navigate) {
   {
     const _demoOk = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
     if (_demoOk && items.length === 0) {
-      items = [...DEMO_PATIENT_ROSTER];
+      items = [...buildDemoPatientRosterPreview()];
     }
   }
 
@@ -3385,7 +3385,7 @@ export async function pgProfile(setTopbar, navigate) {
   // Offline demo fallback — construct patient from local roster when API is down
   if (!pt) {
     const _demoOk = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
-    const _isDemoId = String(id).startsWith('demo-') || String(id).startsWith('P-DEMO-') || DEMO_PATIENT_ROSTER.some(p => p.id === id);
+    const _isDemoId = String(id).startsWith('demo-') || String(id).startsWith('P-DEMO-') || String(id).startsWith('demo-pt-');
     if (_demoOk && _isDemoId) {
       pt = demoPtFromRoster(id);
     } else {

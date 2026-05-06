@@ -7,10 +7,15 @@ CI instead of in a clinician's browser.
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+
+# Demo DB seed is gated — tests opt in explicitly (matches ops preview docs).
+os.environ.setdefault("DEEPSYNAPS_APP_ENV", "test")
+os.environ.setdefault("DEEPSYNAPS_DEMO_CLINIC_SEED", "1")
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
