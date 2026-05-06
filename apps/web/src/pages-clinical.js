@@ -696,15 +696,15 @@ export async function pgDash(setTopbar, navigate) {
 
   const _todayDateStr = new Date().toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'short', year:'numeric' });
   setTopbar('Today \u2014 ' + _todayDateStr,
-    `<button class="btn btn-sm btn-ghost" onclick="window._cdAddWalkin?.() || window._nav('clinic-day')" style="white-space:nowrap" title="Add a walk-in patient to today's list">+ Walk-in</button>` +
+    `<button class="btn btn-sm btn-ghost" ${_isReadonly ? 'disabled aria-disabled="true" style="white-space:nowrap;opacity:.55;cursor:not-allowed" title="Read-only access: adding walk-ins is disabled."' : 'onclick="window._cdAddWalkin?.() || window._nav(\\\'clinic-day\\\')" style="white-space:nowrap" title="Add a walk-in patient to today\\\'s list"'}>+ Walk-in</button>` +
     `<button class="btn btn-sm btn-ghost" onclick="window._nav('risk-analyzer')" style="white-space:nowrap;margin-left:6px" title="Operational safety, formulation, and transparent prediction support">\u26a0 Risk Analyzer</button>` +
     `<button class="btn btn-sm btn-ghost" onclick="window._nav('deeptwin')" style="white-space:nowrap;margin-left:6px" title="Open the patient intelligence hub">\ud83e\udde0 DeepTwin</button>` +
-    `<button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')" style="white-space:nowrap;margin-left:6px" title="Open the live session console">&#9654; Start Session</button>` +
+    `<button class="btn btn-primary btn-sm" ${_isReadonly ? 'disabled aria-disabled="true" style="white-space:nowrap;margin-left:6px;opacity:.55;cursor:not-allowed" title="Read-only access: starting sessions is disabled."' : 'onclick="window._nav(\\\'session-execution\\\')" style="white-space:nowrap;margin-left:6px" title="Open the live session console"'}>&#9654; Start Session</button>` +
     // Adverse Event report \u2014 kept accessible but visually de-escalated until
     // it's actually needed. Red was always-on; the button now uses an
     // amber-tinted, ghost style and shows the full label only on hover so it
     // doesn't compete for attention on a normal day.
-    `<button class="btn btn-sm btn-ghost" aria-label="Report an adverse event" onclick="window._nav('adverse-events')" style="white-space:nowrap;margin-left:6px;color:var(--amber);border-color:rgba(255,181,71,0.35)" title="Report an adverse event">&#9888; Report AE</button>`
+    `<button class="btn btn-sm btn-ghost" aria-label="Report an adverse event" ${_isReadonly ? 'disabled aria-disabled="true" style="white-space:nowrap;margin-left:6px;color:var(--amber);border-color:rgba(255,181,71,0.35);opacity:.55;cursor:not-allowed" title="Read-only access: adverse event reporting is disabled."' : 'onclick="window._nav(\\\'adverse-events\\\')" style="white-space:nowrap;margin-left:6px;color:var(--amber);border-color:rgba(255,181,71,0.35)" title="Report an adverse event"'}>&#9888; Report AE</button>`
   );
 
   const el = document.getElementById('content');
@@ -1475,7 +1475,7 @@ export async function pgDash(setTopbar, navigate) {
 
   // ── Demo banner ───────────────────────────────────────────────────────────────
   const _demoBannerCopy = _viteEnableDemo
-    ? '<strong>Demo data — not real patient data.</strong> Names and IDs such as <code style="background:rgba(0,0,0,0.15);padding:1px 5px;border-radius:4px;font-size:11px">P-DEMO-*</code> are synthetic samples only.'
+    ? '<strong>DEMO BUILD — demo data only, not real patient data.</strong> Names and IDs such as <code style="background:rgba(0,0,0,0.15);padding:1px 5px;border-radius:4px;font-size:11px">P-DEMO-*</code> are synthetic samples only.'
     : 'Showing sample data so you can explore the dashboard. Add a patient or course to see your own data here.';
   const _demoBanner = _isDemo ? `<div class="dh2-demo-banner" role="alert">
     <span class="dh2-demo-pill">${_viteEnableDemo ? 'PREVIEW DEMO' : 'DEMO'}</span>
@@ -1484,7 +1484,7 @@ export async function pgDash(setTopbar, navigate) {
   </div>` : '';
   const _demoBuildBanner = (_viteEnableDemo && !_isDemo) ? `<div class="dh2-demo-banner dh2-demo-banner--slim" role="status">
     <span class="dh2-demo-pill">DEMO BUILD</span>
-    <span><strong>Preview mode:</strong> This build may suppress backend-unreachable toasts and enable offline demo flows. Do not use for real PHI.</span>
+    <span><strong>Demo build:</strong> Do not use for real patient data / PHI. Demo data and preview-only flows may be enabled.</span>
   </div>` : '';
   const _failBanner = _apiFailCount > 0 ? `<div class="dh2-fail-banner">&#9888; Some live data could not be loaded. Showing what we have.</div>` : '';
   const _offlineBanner = (typeof navigator !== 'undefined' && navigator.onLine === false)
@@ -1492,7 +1492,7 @@ export async function pgDash(setTopbar, navigate) {
     : '';
 
   const _safetyStrip = `<div class="dh2-safety-strip" role="note">
-    <strong>Clinical decision support.</strong> Not for autonomous diagnosis or prescribing.
+    <strong>Clinical decision support only.</strong> Not autonomous diagnosis, prescribing, dosing, or treatment planning.
     Outputs require clinician review and professional judgement.
     ${(_isDemo || _viteEnableDemo) ? '<span class="dh2-safety-demo"> Demo data / not real patient data.</span>' : ''}
   </div>`;
@@ -2190,9 +2190,29 @@ export async function pgDash(setTopbar, navigate) {
       );
       const answer = result?.reply || 'No response.';
       const safe = String(answer).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
-      resp.innerHTML = '<div class="ptd-asst-answer">' + safe + '</div>';
+      const cited = Array.isArray(result?.cited_papers) ? result.cited_papers : [];
+      const citedHtml = cited.length
+        ? `<div class="ptd-asst-cites" style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.08)">
+            <div style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Papers cited</div>
+            ${cited.slice(0, 5).map((p, i) => {
+              const t = (p && (p.title || p.pmid || p.url)) ? (p.title || p.pmid || p.url) : `Citation ${i + 1}`;
+              const u = p?.url ? String(p.url).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
+              const pmid = p?.pmid ? String(p.pmid).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
+              return `<div style="font-size:12px;color:var(--text-secondary);margin:4px 0">
+                <span style="color:var(--text-tertiary);font-family:var(--font-mono)">[${i + 1}]</span>
+                ${u ? `<a href="${u}" target="_blank" rel="noopener" style="color:var(--teal);text-decoration:none">${t}</a>` : `${t}`}
+                ${pmid ? `<span style="color:var(--text-tertiary)"> · PMID ${pmid}</span>` : ''}
+              </div>`;
+            }).join('')}
+          </div>`
+        : '';
+      resp.innerHTML = '<div class="ptd-asst-answer">' + safe + '</div>' + citedHtml;
     } catch (_e) {
-      resp.innerHTML = '<div class="ptd-asst-answer">Assistant unavailable. Try again later.</div>';
+      const msg = (_e && _e.message) ? String(_e.message) : '';
+      const friendly = (/provider|api key|configured|anthropic|openrouter|openai/i.test(msg))
+        ? 'AI provider not configured for this environment.'
+        : 'Assistant unavailable (backend unreachable or error).';
+      resp.innerHTML = `<div class="ptd-asst-answer">${friendly}<br><span style="color:var(--text-tertiary);font-size:12px">No clinical action has been taken.</span></div>`;
     }
   };
 }

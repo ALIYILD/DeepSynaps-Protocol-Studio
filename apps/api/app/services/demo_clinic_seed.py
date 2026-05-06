@@ -1,0 +1,426 @@
+from __future__ import annotations
+
+import os
+import uuid
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy.orm import Session
+
+from app.persistence.models import (
+    AdverseEvent,
+    AuditEventRecord,
+    ClinicalSession,
+    ConsentRecord,
+    Patient,
+    PatientMediaUpload,
+    ReviewQueueItem,
+    RiskStratificationResult,
+    TreatmentCourse,
+    WearableAlertFlag,
+    WearableDailySummary,
+)
+
+
+DEMO_CLINIC_ID = "clinic-demo-default"
+DEMO_CLINICIAN_ID = "actor-clinician-demo"
+
+
+def _env_truthy(name: str) -> bool:
+    return (os.environ.get(name, "") or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def demo_seed_enabled(app_env: str) -> bool:
+    """Enable demo clinic seeding only when explicitly requested in non-prod envs."""
+    if (app_env or "production").lower() not in {"development", "test"}:
+        return False
+    return _env_truthy("DEEPSYNAPS_DEMO_CLINIC_SEED")
+
+
+def seed_demo_clinic_data(db: Session) -> dict[str, int]:
+    """Idempotently seed a synthetic demo clinic dataset (non-PHI) for live demos.
+
+    IMPORTANT:
+    - Must never run in production.
+    - All records must be clearly marked as demo (e.g. Patient.notes "[DEMO] ...",
+      AdverseEvent.is_demo=True).
+    - IDs are deterministic-ish but remain UUIDs to match schema constraints.
+    """
+    now = datetime.now(timezone.utc)
+    today = now.date().isoformat()
+
+    # ── Patients ────────────────────────────────────────────────────────────
+    demo_patients = [
+        # Names are synthetic; no real addresses/phones; no PHI-like notes.
+        ("DEMO Samantha", "Li", "1985-03-12", "Major Depressive Disorder (demo)"),
+        ("DEMO Marcus", "Reilly", "1978-07-22", "Anxious depression (demo)"),
+        ("DEMO Priya", "Nambiar", "1990-11-04", "GAD (demo)"),
+        ("DEMO Jamal", "Thompson", "2011-05-30", "ADHD pediatric (demo)"),
+        ("DEMO Elena", "Okafor", "1992-08-19", "Adult ADHD (demo)"),
+        ("DEMO Terence", "Wu", "1980-02-14", "PTSD (demo)"),
+    ]
+
+    patients: list[Patient] = []
+    for i, (first, last, dob, cond) in enumerate(demo_patients, start=1):
+        email = f"demo.patient{i}@example.invalid"
+        row = db.query(Patient).filter(Patient.email == email).one_or_none()
+        if row is None:
+            row = Patient(
+                id=str(uuid.uuid4()),
+                clinician_id=DEMO_CLINICIAN_ID,
+                first_name=first,
+                last_name=last,
+                dob=dob,
+                email=email,
+                phone=None,
+                gender=None,
+                primary_condition=cond,
+                primary_modality=None,
+                consent_signed=False,
+                status="active",
+                notes="[DEMO] Synthetic demo record — not real patient data.",
+            )
+            db.add(row)
+        patients.append(row)
+    db.flush()
+
+    # ── Courses ─────────────────────────────────────────────────────────────
+    course_specs = [
+        (0, "proto-demo-tdcs-mdd", "mdd", "tDCS", "active", 12, 20, True, "A", False),
+        (1, "proto-demo-itbs-ad", "anxious-depression", "rTMS-iTBS", "active", 6, 20, True, "A", False),
+        (2, "proto-demo-tacs-gad", "gad", "tACS", "active", 18, 30, True, "B", True),  # review_required for sign-off chip
+        (3, "proto-demo-nfb-adhd", "adhd-pediatric", "Neurofeedback", "active", 8, 20, False, "C", True),
+        (5, "proto-demo-tdcs-ptsd", "ptsd", "tDCS", "active", 19, 20, True, "B", False),
+        (4, "proto-demo-intake-adhd", "adhd-adult", "Intake", "pending_approval", 0, 0, True, "B", True),
+    ]
+    courses: list[TreatmentCourse] = []
+    for idx, protocol_id, cond_slug, mod_slug, status, delivered, total, on_label, grade, review_required in course_specs:
+        patient_id = patients[idx].id
+        existing = (
+            db.query(TreatmentCourse)
+            .filter(TreatmentCourse.patient_id == patient_id, TreatmentCourse.protocol_id == protocol_id)
+            .one_or_none()
+        )
+        if existing is None:
+            existing = TreatmentCourse(
+                id=str(uuid.uuid4()),
+                patient_id=patient_id,
+                clinician_id=DEMO_CLINICIAN_ID,
+                protocol_id=protocol_id,
+                condition_slug=cond_slug,
+                modality_slug=mod_slug,
+                device_slug=None,
+                target_region=None,
+                phenotype_id=None,
+                evidence_grade=grade,
+                on_label=bool(on_label),
+                planned_sessions_total=int(total),
+                planned_sessions_per_week=3 if mod_slug in {"tDCS", "tACS"} else 5,
+                planned_session_duration_minutes=40,
+                planned_frequency_hz=None,
+                planned_intensity=None,
+                coil_placement=None,
+                status=status,
+                sessions_delivered=int(delivered),
+                clinician_notes="[DEMO] Synthetic course — for UI demo only.",
+                protocol_json="{}",
+                review_required=bool(review_required),
+                started_at=now - timedelta(days=14),
+                updated_at=now,
+            )
+            db.add(existing)
+        courses.append(existing)
+    db.flush()
+
+    # ── Today's schedule ────────────────────────────────────────────────────
+    # Ensure a few sessions exist with scheduled_at starting with YYYY-MM-DD
+    slots = [
+        ("09:00", 0, 0, "scheduled"),
+        ("09:30", 1, 1, "confirmed"),
+        ("10:30", 2, 2, "checked_in"),
+        ("11:00", 3, 3, "scheduled"),
+        ("14:00", 4, 4, "scheduled"),
+        ("15:30", 5, 5, "scheduled"),
+    ]
+    for hhmm, course_i, sess_num, status in slots:
+        scheduled_at = f"{today}T{hhmm}:00+00:00"
+        existing = (
+            db.query(ClinicalSession)
+            .filter(
+                ClinicalSession.patient_id == patients[course_i].id,
+                ClinicalSession.scheduled_at == scheduled_at,
+            )
+            .one_or_none()
+        )
+        if existing is None:
+            db.add(
+                ClinicalSession(
+                    id=str(uuid.uuid4()),
+                    patient_id=patients[course_i].id,
+                    clinician_id=DEMO_CLINICIAN_ID,
+                    scheduled_at=scheduled_at,
+                    duration_minutes=40,
+                    modality=courses[course_i].modality_slug,
+                    protocol_ref=courses[course_i].protocol_id,
+                    session_number=sess_num + 1,
+                    total_sessions=courses[course_i].planned_sessions_total or None,
+                    appointment_type="session",
+                    status=status,
+                    room_id="Room A",
+                    device_id=None,
+                )
+            )
+
+    # ── Pending reviews (review queue) ──────────────────────────────────────
+    for i, c in enumerate(courses[:3]):
+        # One pending review item per course
+        existing = (
+            db.query(ReviewQueueItem)
+            .filter(ReviewQueueItem.target_id == c.id, ReviewQueueItem.status == "pending")
+            .one_or_none()
+        )
+        if existing is None:
+            db.add(
+                ReviewQueueItem(
+                    id=str(uuid.uuid4()),
+                    item_type="protocol_review",
+                    target_id=c.id,
+                    target_type="treatment_course",
+                    patient_id=c.patient_id,
+                    assigned_to=None,
+                    priority="high" if i == 0 else "normal",
+                    status="pending",
+                    created_by=DEMO_CLINICIAN_ID,
+                    due_by=now + timedelta(days=1),
+                    notes="[DEMO] Review required: synthetic pending sign-off.",
+                )
+            )
+
+    # ── Consents ────────────────────────────────────────────────────────────
+    # Mix of signed/expiring/missing. Dashboard uses ConsentRecord + Patient.consent_signed.
+    for i, p in enumerate(patients):
+        expires_at = now + timedelta(days=(10 if i % 2 == 0 else -3))  # some expired
+        existing = (
+            db.query(ConsentRecord)
+            .filter(
+                ConsentRecord.patient_id == p.id,
+                ConsentRecord.consent_type == "treatment",
+            )
+            .one_or_none()
+        )
+        if existing is None:
+            signed = i % 3 != 0
+            db.add(
+                ConsentRecord(
+                    id=str(uuid.uuid4()),
+                    patient_id=p.id,
+                    clinician_id=DEMO_CLINICIAN_ID,
+                    consent_type="treatment",
+                    modality_slug=courses[i].modality_slug if i < len(courses) else None,
+                    status="active",
+                    signed=signed,
+                    signed_at=(now - timedelta(days=30)) if signed else None,
+                    expires_at=expires_at,
+                    notes="[DEMO] Synthetic consent record — not a legal document.",
+                )
+            )
+            p.consent_signed = signed
+
+    # ── Adverse events ──────────────────────────────────────────────────────
+    # Seed one serious unresolved + one mild resolved.
+    if not db.query(AdverseEvent).filter(AdverseEvent.is_demo.is_(True)).first():
+        db.add(
+            AdverseEvent(
+                id=str(uuid.uuid4()),
+                patient_id=patients[1].id,
+                course_id=courses[1].id,
+                clinician_id=DEMO_CLINICIAN_ID,
+                event_type="headache",
+                severity="serious",
+                description="[DEMO] Synthetic adverse event example for UI demo.",
+                onset_timing="during_session",
+                resolution=None,
+                action_taken="paused",
+                reported_at=now - timedelta(hours=5),
+                resolved_at=None,
+                is_serious=True,
+                reportable=False,
+                is_demo=True,
+            )
+        )
+        db.add(
+            AdverseEvent(
+                id=str(uuid.uuid4()),
+                patient_id=patients[0].id,
+                course_id=courses[0].id,
+                clinician_id=DEMO_CLINICIAN_ID,
+                event_type="scalp_tingling",
+                severity="mild",
+                description="[DEMO] Synthetic mild adverse event (resolved).",
+                onset_timing="post_session",
+                resolution="resolved",
+                action_taken="reassured",
+                reported_at=now - timedelta(days=2),
+                resolved_at=now - timedelta(days=1),
+                is_serious=False,
+                reportable=False,
+                is_demo=True,
+            )
+        )
+
+    # ── Wearables: summaries + alerts ───────────────────────────────────────
+    for p in patients[:3]:
+        for d in range(7):
+            date = (now.date() - timedelta(days=(6 - d))).isoformat()
+            exists = (
+                db.query(WearableDailySummary)
+                .filter_by(patient_id=p.id, source="demo", date=date)
+                .one_or_none()
+            )
+            if exists is None:
+                db.add(
+                    WearableDailySummary(
+                        id=str(uuid.uuid4()),
+                        patient_id=p.id,
+                        source="demo",
+                        date=date,
+                        rhr_bpm=62 + (d % 3),
+                        hrv_ms=38 + (d % 5) * 2,
+                        sleep_duration_h=6.5 + (d % 4) * 0.3,
+                        steps=6000 + d * 500,
+                        spo2_pct=97.5,
+                        mood_score=3.0 + (d % 3) * 0.3,
+                        anxiety_score=4.0 - (d % 2) * 0.5,
+                        data_json=None,
+                    )
+                )
+
+    existing_alert = (
+        db.query(WearableAlertFlag)
+        .filter(
+            WearableAlertFlag.patient_id == patients[2].id,
+            WearableAlertFlag.flag_type == "sleep_disruption",
+            WearableAlertFlag.dismissed.is_(False),
+        )
+        .one_or_none()
+    )
+    if existing_alert is None:
+        db.add(
+            WearableAlertFlag(
+                id=str(uuid.uuid4()),
+                patient_id=patients[2].id,
+                course_id=courses[2].id,
+                flag_type="sleep_disruption",
+                severity="urgent",
+                detail="[DEMO] Sleep duration fell below threshold for 3 nights.",
+                metric_snapshot='{"sleep_duration_h": 4.2, "baseline_h": 6.8}',
+                triggered_at=now - timedelta(hours=8),
+                dismissed=False,
+                auto_generated=True,
+                workbench_status="open",
+            )
+        )
+
+    # ── Risk stratification ─────────────────────────────────────────────────
+    categories = [
+        ("suicide_risk", "green"),
+        ("self_harm", "green"),
+        ("mental_crisis", "amber"),
+        ("harm_to_others", "green"),
+        ("allergy", "red"),
+        ("seizure_risk", "green"),
+        ("implant_risk", "green"),
+        ("medication_interaction", "amber"),
+    ]
+    for cat, level in categories:
+        existing = (
+            db.query(RiskStratificationResult)
+            .filter(RiskStratificationResult.patient_id == patients[1].id, RiskStratificationResult.category == cat)
+            .one_or_none()
+        )
+        if existing is None:
+            db.add(
+                RiskStratificationResult(
+                    id=str(uuid.uuid4()),
+                    patient_id=patients[1].id,
+                    clinician_id=DEMO_CLINICIAN_ID,
+                    category=cat,
+                    level=level,
+                    confidence="high" if level != "green" else "no_data",
+                    rationale="[DEMO] Synthetic risk level for UI demo. Not a diagnosis.",
+                    data_sources_json='["demo_seed"]',
+                    evidence_refs_json="[]",
+                    computed_at=now,
+                )
+            )
+
+    # ── Clinician inbox: high priority audit events ─────────────────────────
+    # Clinician inbox /summary reads high-priority audit rows.
+    demo_inbox_events = [
+        # Keep `action` <= 32 chars (AuditEventRecord.action is String(32)).
+        ("patient_messages", "patient_messages_to_clinician", patients[1].id, "New patient message flagged urgent."),
+        ("wearables_workbench", "wearables_workbench_to_clinician", patients[2].id, "Wearable alert escalated by system."),
+    ]
+    for target_type, action, patient_id, msg in demo_inbox_events:
+        event_id = f"demo-inbox-{target_type}-{patient_id[:8]}"
+        exists = db.query(AuditEventRecord).filter(AuditEventRecord.event_id == event_id).one_or_none()
+        if exists is None:
+            db.add(
+                AuditEventRecord(
+                    event_id=event_id,
+                    target_id=patient_id,
+                    target_type=target_type,
+                    action=action,
+                    role="clinician",
+                    actor_id=DEMO_CLINICIAN_ID,
+                    note=f"[DEMO] priority=high patient_id={patient_id} {msg} No clinical action taken.",
+                    created_at=now.isoformat(),
+                )
+            )
+
+    # ── Media review queue seed ─────────────────────────────────────────────
+    # Seed uploads that will appear in /media/review-queue.
+    if not db.query(PatientMediaUpload).filter(PatientMediaUpload.uploaded_by == DEMO_CLINICIAN_ID).first():
+        db.add(
+            PatientMediaUpload(
+                id=str(uuid.uuid4()),
+                patient_id=patients[0].id,
+                course_id=courses[0].id,
+                session_id=None,
+                uploaded_by=DEMO_CLINICIAN_ID,
+                media_type="voice",
+                file_ref=None,
+                file_size_bytes=None,
+                duration_seconds=45,
+                text_content=None,
+                patient_note="[DEMO] Synthetic upload for review queue demo.",
+                status="pending_review",
+                consent_id=None,
+                expires_at=now + timedelta(days=7),
+            )
+        )
+        db.add(
+            PatientMediaUpload(
+                id=str(uuid.uuid4()),
+                patient_id=patients[2].id,
+                course_id=courses[2].id,
+                session_id=None,
+                uploaded_by=DEMO_CLINICIAN_ID,
+                media_type="text",
+                file_ref=None,
+                file_size_bytes=None,
+                duration_seconds=None,
+                text_content="[DEMO] 'Felt more anxious after yesterday’s session; sleep was poor.'",
+                patient_note=None,
+                status="pending_review",
+                consent_id=None,
+                expires_at=now + timedelta(days=7),
+            )
+        )
+
+    db.commit()
+
+    return {
+        "patients": len(patients),
+        "courses": len(courses),
+    }
+

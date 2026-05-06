@@ -84,6 +84,36 @@ class DashboardActivityOut(BaseModel):
     tier: str
 
 
+# core-schema-exempt: Dashboard-only aggregate summary types (not shared contracts yet).
+class DashboardActiveCaseloadOut(BaseModel):
+    patients_active: int = 0
+    courses_active: int = 0
+    courses_pending: int = 0
+    courses_paused: int = 0
+
+
+# core-schema-exempt: Dashboard-only aggregate summary types (not shared contracts yet).
+class DashboardReviewQueueSummaryOut(BaseModel):
+    pending_items: int = 0
+
+
+# core-schema-exempt: Dashboard-only aggregate summary types (not shared contracts yet).
+class DashboardAdverseEventSummaryOut(BaseModel):
+    open: int = 0
+    serious_open: int = 0
+
+
+# core-schema-exempt: Dashboard-only aggregate summary types (not shared contracts yet).
+class DashboardConsentSummaryOut(BaseModel):
+    expiring_or_expired: int = 0
+
+
+# core-schema-exempt: Dashboard-only aggregate summary types (not shared contracts yet).
+class DashboardEvidenceGovernanceOut(BaseModel):
+    flagged_courses: int = 0
+    off_label_pending: int = 0
+
+
 class DashboardOverviewOut(BaseModel):
     clinic: Optional[DashboardClinicOut] = None
     user: DashboardUserOut
@@ -91,6 +121,13 @@ class DashboardOverviewOut(BaseModel):
     metrics: Dict[str, DashboardMetricOut]
     schedule: List[DashboardScheduleSlotOut]
     safety_flags: List[DashboardSafetyFlagOut]
+    # Expanded overview fields for doctor-ready dashboards. Optional so older
+    # clients can ignore them safely.
+    active_caseload: DashboardActiveCaseloadOut = DashboardActiveCaseloadOut()
+    review_queue_summary: DashboardReviewQueueSummaryOut = DashboardReviewQueueSummaryOut()
+    adverse_event_summary: DashboardAdverseEventSummaryOut = DashboardAdverseEventSummaryOut()
+    consent_summary: DashboardConsentSummaryOut = DashboardConsentSummaryOut()
+    evidence_governance: DashboardEvidenceGovernanceOut = DashboardEvidenceGovernanceOut()
     activity_feed: List[DashboardActivityOut]
     system_health: Dict[str, Any]
 
@@ -389,6 +426,19 @@ def dashboard_overview(
         metrics=metrics,
         schedule=schedule_slots,
         safety_flags=safety_flags,
+        active_caseload=DashboardActiveCaseloadOut(
+            patients_active=len([p for p in patients if p.status == "active"]),
+            courses_active=len(active_courses),
+            courses_pending=len(pending_courses),
+            courses_paused=len([c for c in courses if c.status == "paused"]),
+        ),
+        review_queue_summary=DashboardReviewQueueSummaryOut(pending_items=pending_review_count),
+        adverse_event_summary=DashboardAdverseEventSummaryOut(open=len(open_aes), serious_open=len(serious_aes)),
+        consent_summary=DashboardConsentSummaryOut(expiring_or_expired=consent_alert_count),
+        evidence_governance=DashboardEvidenceGovernanceOut(
+            flagged_courses=len(flagged_courses),
+            off_label_pending=len([c for c in courses if c.on_label is False and c.status in ("pending_approval", "approved")]),
+        ),
         activity_feed=activity_feed,
         system_health=system_health,
     )

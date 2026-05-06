@@ -74,6 +74,20 @@ def test_overview_audit_log_created():
     assert r.status_code == 200
 
 
+def test_overview_audit_failure_does_not_break(monkeypatch):
+    """Audit logging failures must never break the overview response."""
+    from app.repositories import audit as audit_repo
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("audit write failed")
+
+    monkeypatch.setattr(audit_repo, "create_audit_event", _boom)
+    r = client.get("/api/v1/dashboard/overview", headers=AUTH_HDR)
+    assert r.status_code == 200
+    data = r.json()
+    assert "metrics" in data
+
+
 def test_search_requires_auth():
     """Search must require authentication."""
     r = client.get("/api/v1/dashboard/search?q=test")
@@ -125,3 +139,22 @@ def test_search_case_insensitive():
     assert r.status_code == 200
     data = r.json()
     assert data["total"] >= 1
+
+
+def test_demo_seed_populates_overview_shape():
+    """Synthetic demo seed should populate schedule, flags, and inbox surfaces."""
+    from app.database import SessionLocal
+    from app.services.demo_clinic_seed import seed_demo_clinic_data
+
+    db = SessionLocal()
+    try:
+        seed_demo_clinic_data(db)
+    finally:
+        db.close()
+
+    r = client.get("/api/v1/dashboard/overview", headers=AUTH_HDR)
+    assert r.status_code == 200
+    data = r.json()
+    assert "metrics" in data
+    assert "schedule" in data and isinstance(data["schedule"], list)
+    assert "safety_flags" in data and isinstance(data["safety_flags"], list)

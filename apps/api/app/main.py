@@ -206,6 +206,7 @@ from app.routers.command_center_router import router as command_center_router
 from app.routers.dashboard_router import router as dashboard_router
 from app.routers.schedules_router import router as schedules_router
 from app.routers.device_sync_router import router as device_sync_router
+from app.routers.bio_router import router as bio_router
 try:
     from app.routers.qa_router import router as qa_router
     _HAS_QA_ROUTER = True
@@ -274,6 +275,7 @@ from app.qeeg.workers.qeeg_analysis_worker import (
 )
 from app.services.agent_skills_seed import seed_default_agent_skills
 from app.services.clinical_data import seed_clinical_dataset
+from app.services.demo_clinic_seed import demo_seed_enabled, seed_demo_clinic_data
 from app.services.devices import list_devices
 from app.services.evidence import list_evidence
 from app.services.generation import generate_handbook, generate_protocol_draft
@@ -374,6 +376,10 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
         # Seed demo Clinic + User rows so demo tokens resolve with a real
         # clinic_id and cross-clinic gates work in dev/test/smoke runs.
         _seed_demo_users_for_dev(session)
+        # Seed synthetic demo clinic operational data (patients/courses/queues).
+        # Gated by app_env allowlist + DEEPSYNAPS_DEMO_CLINIC_SEED=1.
+        if demo_seed_enabled(settings.app_env):
+            seed_demo_clinic_data(session)
         app_instance.state.clinical_snapshot_id = snapshot.snapshot_id
         logger.info(
             "application startup complete",
@@ -639,6 +645,7 @@ app.include_router(command_center_router)
 app.include_router(schedules_router)
 app.include_router(dashboard_router)
 app.include_router(device_sync_router)
+app.include_router(bio_router)
 if _HAS_QA_ROUTER and qa_router is not None:
     app.include_router(qa_router)
 app.include_router(qeeg_raw_router)
