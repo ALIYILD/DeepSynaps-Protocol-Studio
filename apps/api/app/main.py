@@ -260,6 +260,7 @@ from app.services.brain_targets import (
     list_brain_targets,
 )
 from app.services.agent_scheduler import shutdown_scheduler, start_scheduler
+from app.services.demo_clinic_seed import seed_demo_clinic
 from app.workers.auto_page_worker import (
     shutdown_worker as shutdown_auto_page_worker,
     start_worker_if_enabled as start_auto_page_worker,
@@ -374,6 +375,10 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
         # Seed demo Clinic + User rows so demo tokens resolve with a real
         # clinic_id and cross-clinic gates work in dev/test/smoke runs.
         _seed_demo_users_for_dev(session)
+        # Seed synthetic scheduling data for controlled demos (opt-in).
+        # Guarded by env var + dev/test app_env so production never seeds silently.
+        if settings.app_env in ("development", "test") and os.environ.get("DEEPSYNAPS_DEMO_CLINIC_SEED", "").strip() == "1":
+            seed_demo_clinic(session)
         app_instance.state.clinical_snapshot_id = snapshot.snapshot_id
         logger.info(
             "application startup complete",
