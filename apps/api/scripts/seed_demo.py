@@ -20,6 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.database import SessionLocal, init_database
+from app.services.demo_clinic_seed import demo_seed_env_ok
 from app.persistence.models import (
     AdverseEvent,
     AssessmentRecord,
@@ -1070,6 +1071,14 @@ def _seed_marketplace(session) -> int:
 
 
 def seed(session) -> None:
+    if not demo_seed_env_ok():
+        print(
+            "Skipping demo seed — set DEEPSYNAPS_APP_ENV=development (or test) "
+            "and DEEPSYNAPS_DEMO_CLINIC_SEED=1",
+            file=sys.stderr,
+        )
+        return
+
     # ── 1. Clinician user ─────────────────────────────────────────────────────
     clinician = session.query(User).filter(User.email == _CLINICIAN_EMAIL).first()
     if clinician is not None:
