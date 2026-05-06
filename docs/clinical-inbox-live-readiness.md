@@ -143,3 +143,19 @@ Priority rules are deterministic and documented in `apps/api/app/routers/clinici
 11. Click **Export CSV** and open the downloaded file; point out DEMO prefix/header.
 12. Close: explain that the Inbox is a **deterministic audit/activity aggregation queue**, not AI triage.
 
+## Final test results (lock)
+
+Commands run (cloud agent VM):
+
+```bash
+cd apps/api && python3 -m pytest -q tests/test_clinician_inbox_router.py
+cd apps/web && node --test src/clinician-inbox-launch-audit.test.js
+cd apps/web && npm run build
+```
+
+Results:
+
+- `apps/api` pytest: **PASS** (4 passed)
+- `apps/web` node test: **PASS** (26 subtests)
+- `apps/web` build: **PASS** on Node **v20.20.2** (Vite requires Node 20.19+)
+
