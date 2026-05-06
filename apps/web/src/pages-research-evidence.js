@@ -1127,26 +1127,44 @@ async function renderEvidenceSearch(body, liveEvidence) {
     try {
       const res = await api.libraryExternalSearch({ q: qv, condition_id: cSel?.value || null, limit: 20 });
       if (!res?.items?.length) { out.innerHTML = '<div class="ch-empty">No matches in the curated ingest for that query.</div>'; return; }
-      const rowsHtml = res.items.map(r => (
-        '<div class="lib-card lib-card--review">' +
-          '<div class="lib-card-top">' +
-            '<span class="lib-card-name">' + esc(r.title) + '</span>' +
-            '<span class="lib-badge" style="background:rgba(245,158,11,0.14);color:var(--amber);border:1px solid rgba(245,158,11,0.3)" title="Not curated — review before clinical use">Unreviewed</span>' +
-          '</div>' +
-          '<div class="lib-card-meta">' +
-            (r.year ? '<span class="lib-tag">' + esc(r.year) + '</span>' : '') +
-            (r.journal ? '<span class="lib-tag">' + esc(r.journal) + '</span>' : '') +
-            (r.pub_types && r.pub_types[0] ? '<span class="lib-tag">' + esc(r.pub_types[0]) + '</span>' : '') +
-          '</div>' +
-          (r.authors ? '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">' + esc(r.authors) + '</div>' : '') +
-          '<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:6px">Trust: <b>' + esc(r.source_trust) + '</b> · Status: <b>' + esc(r.review_status) + '</b></div>' +
-          '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">' +
-            (r.url ? '<a class="ch-btn-sm" target="_blank" rel="noopener noreferrer" href="' + esc(r.url) + '">Open ↗</a>' : '') +
-            '<button class="ch-btn-sm ch-btn-teal" onclick="window._libPromoteExternal(' + Number(r.id) + ',\'' + esc(r.title).replace(/'/g, "\\'") + '\')">Promote to Library</button>' +
-            '<label class="ch-btn-sm" style="display:inline-flex;gap:4px;align-items:center;cursor:pointer"><input type="checkbox" class="lib-ai-pick" value="' + Number(r.id) + '" style="margin:0"> AI draft</label>' +
-          '</div>' +
-        '</div>'
-      )).join('');
+      const rowsHtml = res.items.map(r => {
+        const linkBits = [];
+        if (r.pmid) {
+          linkBits.push('<a class="ch-btn-sm" target="_blank" rel="noopener noreferrer" href="https://pubmed.ncbi.nlm.nih.gov/' + esc(r.pmid) + '">PubMed</a>');
+        }
+        if (r.doi) {
+          linkBits.push('<a class="ch-btn-sm" target="_blank" rel="noopener noreferrer" href="https://doi.org/' + esc(r.doi) + '">DOI</a>');
+        }
+        if (r.europe_pmc_url) {
+          linkBits.push('<a class="ch-btn-sm" target="_blank" rel="noopener noreferrer" href="' + esc(r.europe_pmc_url) + '">Europe PMC</a>');
+        }
+        if (r.url) {
+          linkBits.push('<a class="ch-btn-sm" target="_blank" rel="noopener noreferrer" href="' + esc(r.url) + '">Open access</a>');
+        }
+        const linksRow = linkBits.length
+          ? '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;font-size:11px">' + linkBits.join('') + '</div>'
+          : '<div style="margin-top:6px;font-size:11px;color:var(--text-tertiary)">No direct link available (no PMID / DOI / OA URL in index).</div>';
+        return (
+          '<div class="lib-card lib-card--review">' +
+            '<div class="lib-card-top">' +
+              '<span class="lib-card-name">' + esc(r.title) + '</span>' +
+              '<span class="lib-badge" style="background:rgba(245,158,11,0.14);color:var(--amber);border:1px solid rgba(245,158,11,0.3)" title="Indexed ingest — not curated until promoted">Indexed · unreviewed</span>' +
+            '</div>' +
+            '<div class="lib-card-meta">' +
+              (r.year ? '<span class="lib-tag">' + esc(r.year) + '</span>' : '') +
+              (r.journal ? '<span class="lib-tag">' + esc(r.journal) + '</span>' : '') +
+              (r.pub_types && r.pub_types[0] ? '<span class="lib-tag" title="Publication type from ingest">' + esc(r.pub_types[0]) + '</span>' : '') +
+            '</div>' +
+            (r.authors ? '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">' + esc(r.authors) + '</div>' : '') +
+            '<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:6px">Provenance: <b>evidence DB ingest</b> · Trust: <b>' + esc(r.source_trust) + '</b> · Status: <b>' + esc(r.review_status) + '</b></div>' +
+            linksRow +
+            '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">' +
+              '<button class="ch-btn-sm ch-btn-teal" onclick="window._libPromoteExternal(' + Number(r.id) + ',\'' + esc(r.title).replace(/'/g, "\\'") + '\')">Promote to Library</button>' +
+              '<label class="ch-btn-sm" style="display:inline-flex;gap:4px;align-items:center;cursor:pointer"><input type="checkbox" class="lib-ai-pick" value="' + Number(r.id) + '" style="margin:0"> AI draft</label>' +
+            '</div>' +
+          '</div>'
+        );
+      }).join('');
       out.innerHTML =
         '<div class="lib-trust-banner" role="note" style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);padding:10px 14px;border-radius:8px;font-size:12px;margin-bottom:12px">' +
           '<b style="color:var(--amber)">Unreviewed external results</b> — ' + esc(res.notice || '') +

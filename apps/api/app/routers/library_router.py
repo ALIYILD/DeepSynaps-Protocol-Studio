@@ -197,6 +197,7 @@ class ExternalEvidenceItem(BaseModel):
     url: Optional[str] = None
     pmid: Optional[str] = None
     doi: Optional[str] = None
+    europe_pmc_url: Optional[str] = None
     source_trust: str
     review_status: str
     provenance_note: Optional[str] = None
@@ -468,7 +469,7 @@ def external_search(
                 params.append(f"%{cond['name'].lower()}%")
         sql = (
             "SELECT p.id, p.title, p.year, p.journal, p.authors_json, p.pub_types_json, "
-            "p.oa_url, p.pmid, p.doi "
+            "p.oa_url, p.pmid, p.doi, p.europe_pmc_url "
             "FROM papers p " + join + "WHERE " + " AND ".join(where) + " LIMIT ?"
         )
         params.append(body.limit)
@@ -501,6 +502,7 @@ def external_search(
                 url=r["oa_url"],
                 pmid=r["pmid"],
                 doi=r["doi"],
+                europe_pmc_url=r["europe_pmc_url"],
                 source_trust="external_raw",
                 review_status="pending",
                 provenance_note="Indexed from public PubMed/OpenAlex ingest. Not curated.",
