@@ -33,6 +33,13 @@ test('Research Evidence unified search uses honest empty, auth messaging, and co
   assert.match(src, /re-ev-search-source/);
 });
 
+test('Degraded banner hides when indexed corpus flag set; status drives Indexed DB badge', () => {
+  const src = read('./pages-research-evidence.js');
+  assert.match(src, /indexedCorpusAvailable/);
+  assert.match(src, /Indexed DB/);
+  assert.match(src, /Indexed evidence corpus unavailable in this preview environment/);
+});
+
 test('Bundled evidence dataset does not ship illustrative DOI links for condition drill-down', () => {
   const ds = read('./evidence-dataset.js');
   assert.match(ds, /recentHighImpact.*length = 0/s);

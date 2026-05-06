@@ -112,6 +112,55 @@ _Agent run:_ manual queries not executed in CI — fill this table during previe
 - `getEvidenceUiStats` caches the first resolution for the SPA session (`resetEvidenceUiStatsCache()` exists for tests).
 - LocalStorage literature verdicts are **browser-local** only.
 
+## Preview backend acceptance — indexed ~87k corpus
+
+The repo may contain evidence pipeline assets, but **only the deployed preview backend** decides whether the UI searches the live ingest.
+
+### Acceptance criteria (follow-up)
+
+1. **`GET /api/v1/evidence/status`** returns **`total_papers` > 0** (often ~87,000 after full ingest). Record the **exact JSON** below under “Actual status (paste after QA)”.
+2. Research Evidence shows **`indexedCorpusAvailable`** in the UI as: source strip **Indexed DB** badge + **no red degraded banner** when status confirms a non-empty ingest.
+3. Evidence Search uses **`GET /api/v1/evidence/papers`** for the indexed path (FTS over the same SQLite DB).
+4. Queries **depression rTMS**, **ASD tDCS**, **ADHD neurofeedback**, **chronic pain TPS**, **Alzheimer TPS** return real rows when the ingest contains matches (empty state must remain honest if no hit).
+5. If the DB exists **locally** but Fly/preview does **not** mount `evidence.db`, the UI must **not** pretend the corpus is live — status will show **0**; source strip stays **bundled/unavailable** and the Evidence Search banner says corpus unavailable for **this environment**.
+6. **Red degraded banner** must **not** appear when status confirms **`total_papers` > 0** (`indexedCorpusAvailable` in `getEvidenceUiStats`).
+7. Bundled registry KPI rows must **never** appear as rows in **Evidence Search results** (only dedicated bundled tabs/context).
+8. Fill in **actual** curl outputs after QA.
+
+### Smoke checks (replace `YOUR_API_URL`)
+
+```bash
+curl -sS "https://YOUR_API_URL/api/v1/evidence/status"
+# Expect: total_papers > 0 when ingest is mounted (often ~87000).
+
+curl -sS "https://YOUR_API_URL/api/v1/evidence/papers?q=depression%20rTMS&limit=5"
+# Expect (when clinician-auth cookie/header used in browser): real PaperOut fields —
+# title, year, journal, authors, abstract/snippet if present, PMID/DOI/OA URL when present,
+# modality/condition tags when enriched.
+```
+
+**Actual status response (paste after preview QA):**
+
+```json
+{
+  "_comment": "Paste GET /api/v1/evidence/status JSON from preview Fly/backend here."
+}
+```
+
+**Sample papers query result notes:** _(optional)_ paste first hit title + PMID or “empty array” if FTS returned none.
+
+### Doctor-demo wording (87k + honesty)
+
+> We have an indexed evidence database of around 87,000 records **when the deployment reports that scale via** `GET /api/v1/evidence/status`. On the Research Evidence page, the **source badge** confirms whether **this preview** is searching that **live indexed corpus** or falling back to curated/bundled navigation context. We do not present bundled rollups as verified citations.
+
+Shorter variant:
+
+> We have an indexed evidence database of around 87,000 records. This page searches that database when the **Indexed DB** badge and status-backed counts are shown. The UI also makes clear when results come from fallback or bundled registry context.
+
+**Only say “this preview is searching the ~87k database” after** `total_papers > 0` **on that deployment’s** `/api/v1/evidence/status`.
+
+---
+
 ## Preview click-through log (DevOps)
 
 _Agent environment:_ automated checks = `node --test` on Research Evidence tests + `vite build` + targeted `pytest` for evidence/library routers. **Manual preview URL exercise** (Netlify + Fly) requires org credentials — run locally per `CLAUDE.md` (`bash scripts/deploy-preview.sh`), then:

@@ -15,5 +15,6 @@ test('evidence-ui-live exports cache reset and distinguishes live corpus signals
   const src = read('./evidence-ui-live.js');
   assert.match(src, /export function resetEvidenceUiStatsCache/);
   assert.match(src, /liveEvidenceService/);
-  assert.match(src, /evidenceDbHasRows/);
+  assert.match(src, /indexedCorpusAvailable/);
+  assert.match(src, /statusTotalPapers/);
 });

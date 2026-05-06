@@ -132,14 +132,21 @@ function _resGovernanceBanner() {
   );
 }
 
-/** When live corpus counts are unavailable — honest degraded mode */
+/** When live corpus counts are unavailable — honest degraded mode (hidden when status confirms indexed ingest) */
 function _resBundledDegradedBanner(stats) {
-  if (stats && stats.live) return '';
+  if (stats?.indexedCorpusAvailable) return '';
+  if (stats?.live) return '';
+  const previewMsg =
+    stats?.evidenceStatusReachable && !stats?.indexedCorpusAvailable
+      ? '<strong style="color:var(--rose)">Indexed evidence corpus unavailable in this preview environment.</strong> ' +
+        '<code style="font-size:10px">GET /api/v1/evidence/status</code> reported zero papers/trials/devices or the ingest is empty. ' +
+        'Bundled registry approximations below are for navigation only — not verified search results.'
+      : '<strong style="color:var(--rose)">Live evidence service unreachable.</strong> ' +
+        'Showing bundled registry approximations for navigation only.';
   return (
     '<div class="ch-card" role="status" aria-live="polite" style="margin-bottom:14px;border-left:3px solid var(--rose);background:rgba(244,63,94,0.06);padding:10px 14px">' +
-    '<div style="font-size:12px;color:var(--text-secondary)">' +
-    '<strong style="color:var(--rose)">Live evidence service unavailable.</strong> ' +
-    'Showing bundled registry approximations for navigation only.' +
+    '<div style="font-size:12px;color:var(--text-secondary);line-height:1.5">' +
+    previewMsg +
     '</div></div>'
   );
 }
@@ -147,13 +154,21 @@ function _resBundledDegradedBanner(stats) {
 /** Labels live API vs bundled demo/registry fallback for transparency */
 function _resSourceStrip(stats) {
   const demo = _resDemoBuild();
+  const idx = !!(stats && stats.indexedCorpusAvailable);
   const apiLive = !!(stats && stats.live);
-  const modeLabel = apiLive
-    ? 'Live evidence service (aggregated counts from API)'
-    : 'Bundled registry approximation — connect API + ingest for authoritative totals';
-  const liveBadge = apiLive
-    ? '<span style="margin-left:8px;padding:2px 8px;border-radius:999px;background:rgba(45,212,191,0.18);color:var(--teal);font-size:11px;font-weight:700">Live API</span>'
-    : '<span style="margin-left:8px;padding:2px 8px;border-radius:999px;background:var(--surface-2);color:var(--text-secondary);font-size:11px;font-weight:600">Bundled registry</span>';
+  const st = Number(stats?.statusTotalPapers || 0);
+  const modeLabel = idx
+    ? 'Indexed evidence corpus connected — ~' +
+      fmt(st || stats?.totalPapers || 0) +
+      ' papers reported by GET /api/v1/evidence/status (search uses GET /api/v1/evidence/papers)'
+    : apiLive
+      ? 'Live evidence service (aggregated counts from API)'
+      : 'Bundled registry approximation — connect API + ingest for authoritative totals';
+  const liveBadge = idx
+    ? '<span style="margin-left:8px;padding:2px 8px;border-radius:999px;background:rgba(45,212,191,0.22);color:var(--teal);font-size:11px;font-weight:700">Indexed DB</span>'
+    : apiLive
+      ? '<span style="margin-left:8px;padding:2px 8px;border-radius:999px;background:rgba(45,212,191,0.18);color:var(--teal);font-size:11px;font-weight:700">Live API</span>'
+      : '<span style="margin-left:8px;padding:2px 8px;border-radius:999px;background:var(--surface-2);color:var(--text-secondary);font-size:11px;font-weight:600">Bundled registry</span>';
   const demoNote = demo
     ? '<span style="margin-left:8px;padding:2px 8px;border-radius:999px;background:rgba(245,158,11,0.15);color:var(--amber);font-size:11px;font-weight:600">Demo / preview build</span>'
     : '';
@@ -337,9 +352,11 @@ export async function pgResearchEvidence(setTopbar, navigate) {
   const papersBadgeText = liveEvidence.totalPapers
     ? `${fmtK(liveEvidence.totalPapers)} papers indexed`
     : 'Evidence corpus';
-  const papersBadgeTitle = liveEvidence.live
-    ? 'Live evidence index aggregate for this session when API + ingest are connected.'
-    : 'Bundled corpus metadata / fallback — not guaranteed live database totals.';
+  const papersBadgeTitle = liveEvidence.indexedCorpusAvailable
+    ? 'Indexed evidence database connected — paper count from GET /api/v1/evidence/status. Use Evidence Search for live FTS over this ingest.'
+    : liveEvidence.live
+      ? 'Live evidence index aggregate for this session when API + ingest are connected.'
+      : 'Bundled corpus metadata / fallback — not guaranteed live database totals.';
   setTopbar('Research Evidence',
     `<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--surface-2);color:var(--text-secondary);font-weight:600;border:1px solid var(--border)" title="${esc(papersBadgeTitle)}">${esc(papersBadgeText)}</span>`);
 
@@ -444,7 +461,7 @@ function renderOverview(body, liveEvidence = null) {
   const modalityKpi = modalityKeys.length
     ? modalityKeys.length
     : Object.keys(S.modalityDistribution || {}).length;
-  const kpiUseBundled = !liveEvidence?.live;
+  const kpiUseBundled = !liveEvidence?.indexedCorpusAvailable && !liveEvidence?.live;
   const kpiPapers = liveEvidence?.totalPapers || EVIDENCE_TOTAL_PAPERS;
   const kpiTrials = liveEvidence?.totalTrials || EVIDENCE_TOTAL_TRIALS;
   const kpiMeta = liveEvidence?.totalMetaAnalyses || EVIDENCE_TOTAL_META;
@@ -545,13 +562,17 @@ function renderOverview(body, liveEvidence = null) {
     '<div style="font-weight:600;margin-bottom:8px">Wearables &amp; passive sensing</div>' +
     '<p style="font-size:13px;color:var(--text-secondary);margin:0 0 10px;line-height:1.5">' +
     'Patient <strong>Devices &amp; Wearables</strong> can surface ranked citations via the same evidence-intelligence layer as this dashboard ' +
-    (liveEvidence?.live
-      ? '(deterministic retrieval over the indexed corpus — on the order of <strong>' +
-        fmt(liveEvidence.totalPapers || EVIDENCE_TOTAL_PAPERS) +
-        '</strong> papers when the live evidence database matches this aggregate). '
-      : '(the <strong>' +
-        fmt(EVIDENCE_TOTAL_PAPERS) +
-        '</strong> figure is bundled corpus metadata for typical studio scale — not a live query result for this session). ') +
+    (liveEvidence?.indexedCorpusAvailable
+      ? '(deterministic retrieval over the indexed corpus — <strong>' +
+        fmt(liveEvidence.statusTotalPapers || liveEvidence.totalPapers) +
+        '</strong> papers reported by <code style="font-size:11px">/api/v1/evidence/status</code> in this deployment). '
+      : liveEvidence?.live
+        ? '(deterministic retrieval over the indexed corpus — on the order of <strong>' +
+          fmt(liveEvidence.totalPapers || EVIDENCE_TOTAL_PAPERS) +
+          '</strong> papers when the live evidence database matches this aggregate). '
+        : '(the <strong>' +
+          fmt(EVIDENCE_TOTAL_PAPERS) +
+          '</strong> figure is bundled corpus metadata for typical studio scale — not a live query result for this session). ') +
     'Biometric <em>correlation</em> readouts are associational evidence summaries only — not autonomous diagnosis or treatment guidance.' +
     '</p>' +
     (currentUser && currentUser.role === 'patient'

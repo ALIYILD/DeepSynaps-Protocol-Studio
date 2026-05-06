@@ -50,12 +50,17 @@ export async function getEvidenceUiStats({
             ? conditionsRes.value
             : [];
 
-        const evidenceDbHasRows =
+        const statusTotalPapers = _toCount(status?.total_papers, 0);
+        const statusTotalTrials = _toCount(status?.total_trials, 0);
+        const statusTotalFda = _toCount(status?.total_fda, 0);
+
+        /** True when the SQLite evidence ingest is non-empty per public status endpoint — drives “no red degraded banner” + honest 87k claims. */
+        const indexedCorpusAvailable =
+          statusRes.status === 'fulfilled' &&
           status &&
-          _toCount(status.total_papers, 0) +
-            _toCount(status.total_trials, 0) +
-            _toCount(status.total_fda, 0) >
-            0;
+          statusTotalPapers + statusTotalTrials + statusTotalFda > 0;
+
+        const evidenceDbHasRows = indexedCorpusAvailable;
 
         const summarySignals = _summaryHasSignal(summary);
         const conditionsSignal = conditions.length > 0;
@@ -82,6 +87,8 @@ export async function getEvidenceUiStats({
 
         return {
           live: liveEvidenceService,
+          indexedCorpusAvailable,
+          statusTotalPapers,
           evidenceStatusReachable: statusRes.status === 'fulfilled',
           evidenceStatusRejected: statusRes.status === 'rejected',
           totalPapers: _toCount(status?.total_papers, _toCount(summary?.paper_count)),
@@ -107,6 +114,8 @@ export async function getEvidenceUiStats({
   const live = await _evidenceUiStatsPromise;
   return {
     live: !!live?.live,
+    indexedCorpusAvailable: !!live?.indexedCorpusAvailable,
+    statusTotalPapers: _toCount(live?.statusTotalPapers, 0),
     evidenceStatusReachable: !!live?.evidenceStatusReachable,
     evidenceStatusRejected: !!live?.evidenceStatusRejected,
     totalPapers: _toCount(live?.totalPapers, _toCount(fallbackSummary?.totalPapers, 0)),
