@@ -1410,7 +1410,7 @@ async function renderEvidenceSearch(body, liveEvidence) {
         '<strong style="color:var(--teal)">Indexed evidence corpus available.</strong> ' +
         '<span style="font-size:12px;color:var(--text-secondary)">~' +
         fmt(indexedPaperCount) +
-        ' papers reported by <code style="font-size:11px">GET /api/v1/evidence/status</code> — live count for this deployment, not the bundled ~87k orientation figure.</span>' +
+        ' papers reported by <code style="font-size:11px">GET /api/v1/evidence/status</code> — live count for this deployment, not the bundled orientation rollup.</span>' +
         '</div>'
       : '<div class="ch-card" style="margin-bottom:14px;padding:12px 16px;border-left:3px solid var(--amber);background:rgba(245,158,11,0.06)">' +
         '<strong style="color:var(--amber)">Indexed evidence corpus unavailable.</strong> ' +

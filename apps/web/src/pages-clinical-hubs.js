@@ -33,7 +33,7 @@ import { DOCUMENT_TEMPLATES, renderTemplate } from './documents-templates.js';
 import { documentsWorkspaceRouteFromSearch } from './documents-v2-route.js';
 import { SCALE_REGISTRY } from './registries/scale-assessment-registry.js';
 import { ASSESS_REGISTRY } from './registries/assess-instruments-registry.js';
-import { EVIDENCE_SUMMARY, CONDITION_EVIDENCE, getConditionEvidence } from './evidence-dataset.js';
+import { EVIDENCE_SUMMARY, EVIDENCE_TOTAL_PAPERS, CONDITION_EVIDENCE, getConditionEvidence } from './evidence-dataset.js';
 import { PROTOCOL_LIBRARY, CONDITIONS as PROTO_CONDITIONS, DEVICES as PROTO_DEVICES, getProtocolsByCondition } from './protocols-data.js';
 import { DEMO_PATIENT_ROSTER } from './patient-dashboard-helpers.js';
 import { canAccessPatientRegistry } from './patient-registry-access.js';
@@ -3937,7 +3937,7 @@ export async function pgProtocolHub(setTopbar, navigate) {
     }
 
     const _totalProtos = PROTOCOL_LIBRARY?.length || 0;
-    const _totalEvPapers = EVIDENCE_SUMMARY?.totalPapers || 87000;
+    const _totalEvPapers = EVIDENCE_SUMMARY?.totalPapers || EVIDENCE_TOTAL_PAPERS;
     const _totalEvTrials = EVIDENCE_SUMMARY?.totalTrials || 0;
 
     const kpiAndGrid =
@@ -6561,7 +6561,7 @@ export async function pgLibraryHub(setTopbar, navigate) {
   // ── Per-condition evidence lookup for packages tab ─────────────────────────
   const _condEvMap = {};
   for (const ce of _condEvidence) _condEvMap[ce.conditionId] = ce;
-  const _totalEvPapersLib = _evSummary?.totalPapers || EVIDENCE_SUMMARY?.totalPapers || 87000;
+  const _totalEvPapersLib = _evSummary?.totalPapers || EVIDENCE_SUMMARY?.totalPapers || EVIDENCE_TOTAL_PAPERS;
   const _totalEvTrialsLib = _evSummary?.totalTrials || EVIDENCE_SUMMARY?.totalTrials || 0;
 
   // "Conditions" tab moved to Protocol Studio (protocol-hub route, Tab 1).

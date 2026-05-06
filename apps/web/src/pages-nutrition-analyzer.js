@@ -362,8 +362,8 @@ function _renderRefPills(refs) {
     return `<span style="display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap;margin:2px 8px 2px 0">
       <span style="font-size:11px;color:var(--text-tertiary);max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${tooltip}">${title}${meta ? ` <span style="opacity:.7">(${esc(meta)})</span>` : ''}</span>
       <button type="button" class="pill" data-action="open-evidence" data-prefill="${prefill}"
-        title="Search this PMID in the local 87k evidence corpus"
-        style="background:rgba(155,127,255,0.10);color:var(--violet,#9b7fff);border:1px solid rgba(155,127,255,0.30);cursor:pointer;font-size:10.5px;min-height:24px;padding:2px 8px">📚 87k evidence</button>
+        title="Search this PMID in the indexed evidence corpus (when connected)"
+        style="background:rgba(155,127,255,0.10);color:var(--violet,#9b7fff);border:1px solid rgba(155,127,255,0.30);cursor:pointer;font-size:10.5px;min-height:24px;padding:2px 8px">📚 Indexed evidence</button>
       <a class="pill" href="${pubmed}" target="_blank" rel="noopener noreferrer"
         title="Open PMID ${esc(pmid)} on PubMed (new tab)"
         style="background:rgba(45,212,191,0.10);color:var(--teal);border:1px solid rgba(45,212,191,0.30);text-decoration:none;font-size:10.5px;min-height:24px;padding:2px 8px">🔗 PubMed</a>

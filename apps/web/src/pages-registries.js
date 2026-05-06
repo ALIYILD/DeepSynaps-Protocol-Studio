@@ -19,7 +19,7 @@ import {
 } from './registries.js';
 import { renderRegistryInfoModal } from './registry-widget-info.js';
 import { api } from './api.js';
-import { EVIDENCE_SUMMARY, CONDITION_EVIDENCE, getConditionEvidence } from './evidence-dataset.js';
+import { EVIDENCE_SUMMARY, EVIDENCE_TOTAL_PAPERS, CONDITION_EVIDENCE, getConditionEvidence } from './evidence-dataset.js';
 import { PROTOCOL_LIBRARY, CONDITIONS as PROTO_CONDITIONS, DEVICES as PROTO_DEVICES, getProtocolsByCondition } from './protocols-data.js';
 
 // ── Live data merge helpers ───────────────────────────────────────────────────
@@ -211,7 +211,7 @@ export async function pgConditionRegistry(setTopbar) {
 
   setTopbar('Condition Registry', `
     <div style="display:flex;gap:8px">
-      <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">${DATA.length} conditions · ${(EVIDENCE_SUMMARY?.totalPapers || 87000).toLocaleString()} papers · ${PROTOCOL_LIBRARY?.length || 0} protocols</span>
+      <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">${DATA.length} conditions · ${(EVIDENCE_SUMMARY?.totalPapers || EVIDENCE_TOTAL_PAPERS).toLocaleString()} papers · ${PROTOCOL_LIBRARY?.length || 0} protocols</span>
       <button class="btn btn-sm" onclick="window._regAbout?.('conditions')">ℹ About</button>
     </div>
   `);
@@ -355,7 +355,7 @@ export async function pgProtocolRegistryPage(setTopbar) {
   const DATA = _mergeProtocolsFromApi(apiItems);
 
   setTopbar('Protocol Registry', `
-    <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">${DATA.length} templates · ${(EVIDENCE_SUMMARY?.totalPapers || 87000).toLocaleString()} evidence papers</span>
+    <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">${DATA.length} templates · ${(EVIDENCE_SUMMARY?.totalPapers || EVIDENCE_TOTAL_PAPERS).toLocaleString()} evidence papers</span>
     <button class="btn btn-sm" onclick="window._regAbout?.('protocols')">ℹ About</button>
   `);
   const el = document.getElementById('content');
@@ -433,7 +433,7 @@ export async function pgDeviceRegistry(setTopbar) {
   const DATA = _mergeDevicesFromApi(apiItems);
 
   setTopbar('Device Registry', `
-    <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">${DATA.length} devices · ${PROTOCOL_LIBRARY?.length || 0} protocols · ${(EVIDENCE_SUMMARY?.totalPapers || 87000).toLocaleString()} papers</span>
+    <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">${DATA.length} devices · ${PROTOCOL_LIBRARY?.length || 0} protocols · ${(EVIDENCE_SUMMARY?.totalPapers || EVIDENCE_TOTAL_PAPERS).toLocaleString()} papers</span>
     <button class="btn btn-sm" onclick="window._regAbout?.('devices')">ℹ About</button>
   `);
   const el = document.getElementById('content');

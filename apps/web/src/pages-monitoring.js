@@ -310,7 +310,7 @@ async function renderOverview(body) {
     const lu = evSt?.last_updated ? esc(String(evSt.last_updated)) : '—';
     if (sum > 0) {
       evIndexedHtml = card(
-        'Indexed evidence corpus (~87k when fully ingested)',
+        'Indexed evidence corpus (counts from status endpoint)',
         `<div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;justify-content:space-between">
           <div style="flex:1;min-width:220px">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
@@ -338,7 +338,7 @@ async function renderOverview(body) {
       );
     } else {
       evIndexedHtml = card(
-        'Indexed evidence corpus (~87k when fully ingested)',
+        'Indexed evidence corpus (counts from status endpoint)',
         `<div style="font-size:12px;color:${T.t2};line-height:1.55">
           <div style="display:flex;align-items:flex-start;gap:8px">
             ${statusDot('warning')}
@@ -350,7 +350,7 @@ async function renderOverview(body) {
     }
   } catch (e) {
     evIndexedHtml = card(
-      'Indexed evidence corpus (~87k when fully ingested)',
+      'Indexed evidence corpus (counts from status endpoint)',
       `<div style="font-size:12px;color:${T.t2};line-height:1.55">
         <div style="display:flex;align-items:flex-start;gap:8px">
           ${statusDot('down')}

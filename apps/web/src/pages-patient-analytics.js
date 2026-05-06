@@ -557,7 +557,7 @@ function widgetVoice(_tel, patientId) {
     <div class="pa-voice-list">${rows}</div>
     <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
       <button class="btn btn-ghost btn-xs" data-pa-action="open-voice-analyzer">Voice Analyzer</button>
-      <button class="btn btn-ghost btn-xs" data-pa-action="open-voice-evidence">87k research library</button>
+      <button class="btn btn-ghost btn-xs" data-pa-action="open-voice-evidence">Indexed research library</button>
       <button class="btn btn-ghost btn-xs" data-pa-action="open-deeptwin-voice">DeepTwin voice</button>
     </div>`;
 }
@@ -598,7 +598,7 @@ function widgetVideo(_tel, patientId) {
       <button class="btn btn-ghost btn-xs" data-pa-action="report" data-pa-widget="video">Generate video report</button>
       <button class="btn btn-ghost btn-xs" data-pa-action="open-deeptwin">Use in DeepTwin correlations</button>
       <button class="btn btn-ghost btn-xs" data-pa-action="open-video-evidence">Open evidence drawer</button>
-      <button class="btn btn-ghost btn-xs" data-pa-action="open-research-evidence">87k research library</button>
+      <button class="btn btn-ghost btn-xs" data-pa-action="open-research-evidence">Indexed research library</button>
     </div>`;
 }
 

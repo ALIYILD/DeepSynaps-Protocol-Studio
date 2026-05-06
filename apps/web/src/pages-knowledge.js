@@ -2,7 +2,7 @@ import { api, downloadBlob } from './api.js';
 import { cardWrap, fr, evBar, pillSt, tag, spinner, emptyState } from './helpers.js';
 import { FALLBACK_CONDITIONS, FALLBACK_MODALITIES } from './constants.js';
 import { renderLiveEvidencePanel } from './live-evidence.js';
-import { EVIDENCE_SUMMARY, CONDITION_EVIDENCE, getConditionEvidence, getTopConditionsByPaperCount } from './evidence-dataset.js';
+import { EVIDENCE_SUMMARY, EVIDENCE_TOTAL_PAPERS, CONDITION_EVIDENCE, getConditionEvidence, getTopConditionsByPaperCount } from './evidence-dataset.js';
 import { PROTOCOL_LIBRARY, CONDITIONS as PROTO_CONDITIONS, DEVICES as PROTO_DEVICES, getProtocolsByCondition } from './protocols-data.js';
 import { renderBrainMap10_20, SITES_10_20 } from './brain-map-svg.js';
 import { getEvidenceUiStats } from './evidence-ui-live.js';
@@ -336,7 +336,7 @@ export async function pgDevices(setTopbar) {
 
   // Evidence KPI banner
   const _totalProtos = PROTOCOL_LIBRARY?.length || 0;
-  const _totalPapers = EVIDENCE_SUMMARY?.totalPapers || 87000;
+  const _totalPapers = EVIDENCE_SUMMARY?.totalPapers || EVIDENCE_TOTAL_PAPERS;
   const _totalTrials = EVIDENCE_SUMMARY?.totalTrials || 0;
 
   el.innerHTML = `
@@ -19525,7 +19525,7 @@ export async function pgClinicalScoringCalc(setTopbar) {
 // pgConditionBrowser — browse all 20 condition packages
 // ─────────────────────────────────────────────────────────────────────────────
 export async function pgConditionBrowser(setTopbar) {
-  const _totalPapers = EVIDENCE_SUMMARY?.totalPapers || 87000;
+  const _totalPapers = EVIDENCE_SUMMARY?.totalPapers || EVIDENCE_TOTAL_PAPERS;
   const _totalProtos = PROTOCOL_LIBRARY?.length || 0;
   const _totalConds  = PROTO_CONDITIONS?.length || 0;
   setTopbar('Condition Packages', `

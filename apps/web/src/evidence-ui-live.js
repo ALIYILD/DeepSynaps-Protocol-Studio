@@ -54,7 +54,7 @@ export async function getEvidenceUiStats({
         const statusTotalTrials = _toCount(status?.total_trials, 0);
         const statusTotalFda = _toCount(status?.total_fda, 0);
 
-        /** True when the SQLite evidence ingest is non-empty per public status endpoint — drives “no red degraded banner” + honest 87k claims. */
+        /** True when the SQLite evidence ingest is non-empty per public status endpoint — drives “no red degraded banner” + honest indexed-corpus claims. */
         const indexedCorpusAvailable =
           statusRes.status === 'fulfilled' &&
           status &&

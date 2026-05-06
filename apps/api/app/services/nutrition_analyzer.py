@@ -193,7 +193,7 @@ def build_patient_nutrition_payload(
         BiomarkerLink(
             label="Research evidence corpora",
             page_id="research-evidence",
-            detail="Full literature explorer (~87k papers when evidence.db is built).",
+            detail="Full literature explorer when evidence.db is built (corpus size from GET /api/v1/evidence/status).",
             confidence=0.6,
         ),
         BiomarkerLink(

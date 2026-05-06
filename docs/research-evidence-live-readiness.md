@@ -21,7 +21,11 @@ Mandatory UI copy (also rendered on-page):
 | **Demo / preview** | `import.meta.env.DEV` or `VITE_ENABLE_DEMO=1` | Amber **Demo / preview build** pill |
 | **Offline fallback** | `evidenceStatus` promise rejected | **Offline fallback** hint next to source strip |
 
-Bundled figures (e.g. ~87k papers in `evidence-dataset.js`) are **corpus metadata / orientation**, not a guarantee that this session’s database query returned that count.
+Bundled figures in `evidence-dataset.js` are **registry orientation only** when the API is offline — not a guarantee that SQLite returned that count for this session.
+
+**Stale wording note:** Earlier marketing referred to an “87k” corpus; that figure is obsolete. On this checkout, local `services/evidence-pipeline/evidence.db` reports **184,669** papers, **0** trials, **0** devices, **`last_ingested`: 2026-04-22T18:18:44Z**. Preview/production deployments **must** be verified via **`GET /api/v1/evidence/status`** (counts vary by environment).
+
+**Source of truth:** The backend resolves the evidence SQLite database through **`EVIDENCE_DB_PATH`**. Dev fallback is `services/evidence-pipeline/evidence.db`; production Fly config uses `/data/evidence.db`. **`GET /api/v1/evidence/status`** is the only authoritative UI signal for live corpus availability and current counts.
 
 ## Tab / action matrix (abbrev.)
 
@@ -65,7 +69,7 @@ For the full **label → handler → API → behavior** grid, see section **Butt
 | **Indexed path** | `api.searchEvidencePapers({ q: fts })` → `GET /api/v1/evidence/papers?q=…` → `evidence_router.search_papers` → `PaperOut[]` (title, abstract, modalities, conditions, pmid, doi, oa_url, …) |
 | **Brokered path** | `api.libraryExternalSearch({ q, condition_id })` → `POST /api/v1/library/external-search` → same SQLite FTS over ingest (server-side; not browser PubMed) → `ExternalEvidenceItem[]` |
 | **Curated path** | `window._reCuratedLitSnapshot` from `listLiterature`; client-side substring filter — clearly labelled **Showing curated library records** |
-| **Corpus availability banner** | `api.evidenceStatus()` → `GET /api/v1/evidence/status` — **`total_papers > 0`** ⇒ “Indexed evidence corpus available” + live count; **`0`** ⇒ unavailable banner (**do not** claim live 87k unless status reflects it) |
+| **Corpus availability banner** | `api.evidenceStatus()` → `GET /api/v1/evidence/status` — **`total_papers > 0`** ⇒ “Indexed evidence corpus available” + live count from the response; **`0`** ⇒ unavailable banner (**never** claim a live indexed corpus unless status reflects non-zero rows) |
 | **Live FTS panel** | `#re-live-evidence-host` → `renderLiveEvidencePanel()` → same `/api/v1/evidence/papers` stack |
 | **Results UI** | Cards: PMID/DOI/open-access links **only if API returned values**; abstract snippet or “Abstract unavailable”; source badges per row (**Indexed corpus** / **Brokered indexed search** / curated) |
 
@@ -77,7 +81,7 @@ Before showing Research Evidence to a doctor, verify **at least one** is true:
 2. Brokered library search returns **real** literature links from the ingest, **or**
 3. Curated library search returns **real** records and is clearly labelled **curated/fallback**.
 
-If **none** are true, **do not** claim “searches our 87k evidence DB.” Say instead:
+If **none** are true, **do not** claim “searches our full indexed evidence corpus.” Say instead:
 
 > “The Evidence Search interface is present, but the evidence corpus is not connected in this preview environment.”
 
@@ -112,13 +116,13 @@ _Agent run:_ manual queries not executed in CI — fill this table during previe
 - `getEvidenceUiStats` caches the first resolution for the SPA session (`resetEvidenceUiStatsCache()` exists for tests).
 - LocalStorage literature verdicts are **browser-local** only.
 
-## Preview backend acceptance — indexed ~87k corpus
+## Preview backend acceptance — indexed evidence corpus
 
 The repo may contain evidence pipeline assets, but **only the deployed preview backend** decides whether the UI searches the live ingest.
 
 ### Acceptance criteria (follow-up)
 
-1. **`GET /api/v1/evidence/status`** returns **`total_papers` > 0** (often ~87,000 after full ingest). Record the **exact JSON** below under “Actual status (paste after QA)”.
+1. **`GET /api/v1/evidence/status`** returns **`total_papers` > 0** at the scale your deployment ingested (local dev example on this checkout: **184,669** papers — **do not** assume the same number in Fly until you paste the JSON). Record the **exact JSON** below under “Actual status (paste after QA)”.
 2. Research Evidence shows **`indexedCorpusAvailable`** in the UI as: source strip **Indexed DB** badge + **no red degraded banner** when status confirms a non-empty ingest.
 3. Evidence Search uses **`GET /api/v1/evidence/papers`** for the indexed path (FTS over the same SQLite DB).
 4. Queries **depression rTMS**, **ASD tDCS**, **ADHD neurofeedback**, **chronic pain TPS**, **Alzheimer TPS** return real rows when the ingest contains matches (empty state must remain honest if no hit).
@@ -135,7 +139,7 @@ The repo may contain evidence pipeline assets, but **only the deployed preview b
 
 ```bash
 curl -sS "https://YOUR_API_URL/api/v1/evidence/status"
-# Expect: total_papers > 0 when ingest is mounted (often ~87000).
+# Expect: total_papers > 0 when ingest is mounted (exact count is deployment-specific).
 
 curl -sS "https://YOUR_API_URL/api/v1/evidence/papers?q=depression%20rTMS&limit=5"
 # Expect (when clinician-auth cookie/header used in browser): real PaperOut fields —
@@ -153,15 +157,21 @@ curl -sS "https://YOUR_API_URL/api/v1/evidence/papers?q=depression%20rTMS&limit=
 
 **Sample papers query result notes:** _(optional)_ paste first hit title + PMID or “empty array” if FTS returned none.
 
-### Doctor-demo wording (87k + honesty)
+### Doctor-demo wording (dynamic corpus size)
 
-> We have an indexed evidence database of around 87,000 records **when the deployment reports that scale via** `GET /api/v1/evidence/status`. On the Research Evidence page, the **source badge** confirms whether **this preview** is searching that **live indexed corpus** or falling back to curated/bundled navigation context. We do not present bundled rollups as verified citations.
+Strongest single line for reviewers:
 
-Shorter variant:
+> The evidence corpus size is **not** hard-coded. The page reads **`GET /api/v1/evidence/status`** and only treats the indexed corpus as **live** when that endpoint confirms available records.
 
-> We have an indexed evidence database of around 87,000 records. This page searches that database when the **Indexed DB** badge and status-backed counts are shown. The UI also makes clear when results come from fallback or bundled registry context.
+Full script (adjust counts to whatever status returns in **this** preview):
 
-**Only say “this preview is searching the ~87k database” after** `total_papers > 0` **on that deployment’s** `/api/v1/evidence/status`.
+> This preview is connected to our indexed evidence database when **`/api/v1/evidence/status`** reports non-zero rows. In this checkout, the local indexed corpus contains approximately **185,000** paper records (example: **184,669** in `services/evidence-pipeline/evidence.db`), with the latest ingest timestamp shown by the backend status response. The UI only presents the corpus as live when the status endpoint confirms available records, and each search result shows provenance and links **only** when returned by the evidence API.
+
+Operational wording:
+
+> This page searches the connected indexed evidence corpus when the backend status endpoint confirms available records. The exact corpus size is displayed from the live status endpoint rather than hard-coded.
+
+**Distinction:** Local/dev corpus size may differ from production/preview — **always** cite **`GET /api/v1/evidence/status`** for the deployment you are demoing; avoid fixed “185k DB” marketing unless that environment’s status JSON agrees.
 
 ---
 

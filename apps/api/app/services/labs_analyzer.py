@@ -621,7 +621,7 @@ def _build_multimodal_links_from_context(patient_id: str, ext: LabsExternalConte
     out.append(
         MultimodalLink(
             target_page="research-evidence",
-            label="87k evidence corpus",
+            label="Indexed evidence corpus",
             rationale="Search PubMed-linked corpus for lab interpretation, monitoring, and confounds.",
         )
     )

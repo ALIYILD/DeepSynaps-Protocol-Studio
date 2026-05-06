@@ -157,7 +157,7 @@ export function pgHome() {
   el.scrollTop = 0;
 
   // ── Evidence matrix data — sourced from DeepSynaps 87K Evidence Dataset (2026-04-24) ──
-  // 87,000 papers · 12,840 trials · 53 conditions · 13 modalities
+  // Bundled orientation figures — live counts from GET /api/v1/evidence/status when online.
   // Grades: S = Strong (Grade A: FDA-approved / multiple RCTs + meta-analysis)
   //         M = Moderate (Grade B: RCT evidence)
   //         E = Emerging (Grade C/D: open-label, pilot, or limited data)
@@ -171,7 +171,7 @@ export function pgHome() {
   }));
 
   // S = Strong (Grade A) | M = Moderate (Grade B) | E = Emerging (Grade C/D)
-  // Source: DeepSynaps 87K Evidence Dataset — 87,000 papers, 12,840 trials, 53 conditions, 13 modalities
+  // Source: bundled evidence registry orientation (verify corpus size via evidence status endpoint).
   // Build condition-modality mapping dynamically from protocols-data + evidence-dataset
   const _pdLookup = Object.fromEntries(PD_CONDITIONS.map(c => [c.id, c]));
   const _evConds = CONDITION_EVIDENCE.map(ce => {
