@@ -45,6 +45,14 @@ function mockAuth(page: Page) {
   page.route('**/api/v1/schedule-types**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }));
 }
 
+function mockAuthSessionsFail(page: Page) {
+  mockAuth(page);
+  page.unroute('**/api/v1/sessions**').catch(() => {});
+  page.route('**/api/v1/sessions**', (route) => {
+    route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ code: 'internal_error', message: 'boom' }) });
+  });
+}
+
 async function navToScheduling(page: Page) {
   await page.goto('/');
   await page.waitForFunction(() => typeof (window as any).demoLogin === 'function');
@@ -74,6 +82,13 @@ test.describe('Scheduling go-live', () => {
     await expect(page.locator('[data-testid="ds-schedule-demo-banner"]')).toBeVisible();
     const fatal = errors.filter(e => !e.includes('ResizeObserver') && !e.includes('net::ERR'));
     expect(fatal).toHaveLength(0);
+  });
+
+  test('sessions API failure does not seed demo schedule', async ({ page }) => {
+    mockAuthSessionsFail(page);
+    await navToScheduling(page);
+    await expect(page.locator('[data-testid="ds-schedule-demo-banner"]')).toHaveCount(0);
+    await expect(page.locator('#content')).toContainText('Live schedule data unavailable');
   });
 
   test('view controls switch without crash', async ({ page }) => {
