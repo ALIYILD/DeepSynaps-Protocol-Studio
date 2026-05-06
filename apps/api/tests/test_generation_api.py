@@ -131,3 +131,7 @@ def test_handbook_generation_requires_clinician_or_admin(
     assert dr is not None
     assert dr.get("schema_id") == "deepsynaps.report-payload/v1"
     assert len(dr.get("sections") or []) >= 5
+    gov = payload.get("governance")
+    assert gov is not None
+    assert gov.get("clinician_review_required") is True
+    assert gov.get("not_autonomous_prescription") is True

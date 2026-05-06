@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from deepsynaps_generation_engine import build_report_payload_from_handbook_document
@@ -30,6 +30,7 @@ from clinical_data_registry import (  # noqa: F401  (public re-exports)
 from deepsynaps_core_schema import (
     DeviceListResponse,
     DeviceRecord,
+    DisclaimerSet,
     EvidenceListResponse,
     EvidenceRecord,
     HandbookDocument,
@@ -121,6 +122,27 @@ class ClinicalDatasetBundle:
     snapshot: ClinicalSnapshot
 
 
+class HandbookGovernanceMeta(BaseModel):
+    """Transparency flags for handbook generation — not clinical authorization."""
+
+    clinician_review_required: bool = True
+    not_autonomous_prescription: bool = True
+    evidence_used: list[str] = Field(
+        default_factory=lambda: [
+            "imported_clinical_dataset",
+            "condition_modality_protocol_registry",
+        ],
+        description="High-level sources feeding deterministic assembly (no hidden retrieval).",
+    )
+    safety_flags: list[str] = Field(default_factory=list)
+    missing_data: list[str] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
+    generated_by: str = Field(
+        default="deterministic_clinical_dataset_handbook_v1",
+        description="Engine label — LLM composition is not used in this path.",
+    )
+
+
 class HandbookGenerateAPIResponse(HandbookGenerateResponse):
     """Handbook generator response plus a structured clinical report payload."""
 
@@ -130,6 +152,43 @@ class HandbookGenerateAPIResponse(HandbookGenerateResponse):
             "Structured ReportPayload (observed / interpretation / suggested actions) "
             "for reporting exports and downstream renderers."
         ),
+    )
+    governance: HandbookGovernanceMeta = Field(
+        default_factory=HandbookGovernanceMeta,
+        description="Review and provenance metadata — mandatory clinician oversight.",
+    )
+
+
+def _build_handbook_governance(
+    document: HandbookDocument,
+    disclaimers: DisclaimerSet,
+    detailed_report: ReportPayload | None,
+    *,
+    protocol_row_missing: bool,
+) -> HandbookGovernanceMeta:
+    safety_flags: list[str] = ["deterministic_registry_handbook_assembly"]
+    if disclaimers.draft_support_only:
+        safety_flags.append("draft_support_disclaimer")
+    if disclaimers.off_label_review_required:
+        safety_flags.append("off_label_review_disclaimer")
+
+    missing_data: list[str] = []
+    if protocol_row_missing:
+        missing_data.append("matched_protocol_row_missing_verify_before_use")
+    if not document.references:
+        missing_data.append("resolved_primary_evidence_links_unavailable_in_environment")
+
+    limitations: list[str] = [
+        "Does not infer stimulation parameters absent from registry rows.",
+        "Does not replace device IFU, institutional policy, or informed consent.",
+    ]
+    if detailed_report is not None:
+        limitations.extend(detailed_report.global_limitations)
+
+    return HandbookGovernanceMeta(
+        safety_flags=safety_flags,
+        missing_data=missing_data,
+        limitations=list(dict.fromkeys(limitations)),
     )
 
 
@@ -979,8 +1038,16 @@ def generate_handbook_from_clinical_data(
         references=[reference for reference in references if reference][:6],
     )
     detailed_report = build_report_payload_from_handbook_document(document)
+    disc = standard_disclaimers(include_draft=protocol is None)
+    gov = _build_handbook_governance(
+        document,
+        disc,
+        detailed_report,
+        protocol_row_missing=protocol is None,
+    )
     return HandbookGenerateAPIResponse(
         document=document,
-        disclaimers=standard_disclaimers(include_draft=protocol is None),
+        disclaimers=disc,
         detailed_report=detailed_report,
+        governance=gov,
     )

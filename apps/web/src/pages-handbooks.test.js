@@ -1,7 +1,11 @@
 // pages-handbooks.test.js — Handbooks v2 static checks (no full DOM).
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildEntries, curatedHandbookStatus } from './pages-handbooks.js';
+
+const _handbooksSrc = readFileSync(fileURLToPath(new URL('./pages-handbooks.js', import.meta.url)), 'utf8');
 
 test('buildEntries attaches modality and protocol facets for filtering', function () {
   const entries = buildEntries();
@@ -19,4 +23,10 @@ test('curatedHandbookStatus distinguishes ops/train templates', function () {
 
   const draftTrain = curatedHandbookStatus({ kind: 'train', version: 'draft' });
   assert.match(draftTrain.label, /draft/i);
+});
+
+test('handbook bundle export wiring is present in source', function () {
+  assert.ok(_handbooksSrc.includes('Download handbook DOCX'), 'DOCX export button');
+  assert.ok(_handbooksSrc.includes('exportHandbookPdf'), 'PDF API hook');
+  assert.ok(_handbooksSrc.includes('_hbExportBundlePdf'), 'PDF handler');
 });
