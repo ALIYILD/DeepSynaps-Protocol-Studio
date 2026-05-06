@@ -1157,10 +1157,203 @@ function renderAIML(body, liveEvidence, q, sInput) {
   body.innerHTML = html;
 }
 
+/* ══════════════════════════════════════════════════════════════════════════════
+   Evidence Search — synonym expansion (transparent FTS hints; does not fabricate)
+   ══════════════════════════════════════════════════════════════════════════════ */
+const _EV_TOKEN_SYNONYMS = {
+  depression: ['depression', 'MDD', 'depressive', 'major'],
+  mdd: ['MDD', 'depression', 'depressive'],
+  rtms: ['rTMS', 'RTMS', 'repetitive', 'TMS'],
+  tms: ['TMS', 'transcranial', 'magnetic'],
+  tdcs: ['tDCS', 'transcranial', 'direct', 'current'],
+  tacs: ['tACS'],
+  trns: ['tRNS'],
+  tfus: ['tFUS', 'focused', 'ultrasound'],
+  tps: ['TPS', 'pulse', 'stimulation'],
+  asd: ['ASD', 'autism', 'spectrum'],
+  adhd: ['ADHD', 'attention', 'deficit', 'hyperactivity'],
+  ocd: ['OCD', 'obsessive', 'compulsive'],
+  anxiety: ['anxiety', 'GAD', 'anxious'],
+  alzheimer: ['Alzheimer', 'dementia'],
+  alzheimers: ['Alzheimer', 'dementia'],
+  neurofeedback: ['neurofeedback', 'EEG', 'biofeedback'],
+  qeeg: ['qEEG', 'EEG', 'quantitative'],
+  mri: ['MRI', 'neuroimaging', 'resonance'],
+  ces: ['CES', 'cranial', 'electrical'],
+  pbm: ['PBM', 'photobiomodulation', 'laser'],
+  pain: ['pain', 'chronic', 'nociceptive'],
+  chronic: ['chronic', 'persistent'],
+  fibromyalgia: ['fibromyalgia', 'widespread'],
+  migraine: ['migraine', 'headache'],
+  stroke: ['stroke', 'cerebrovascular'],
+  parkinson: ['Parkinson', 'PD'],
+  epilepsy: ['epilepsy', 'seizure'],
+  insomnia: ['insomnia', 'sleep'],
+  ptsd: ['PTSD', 'trauma'],
+  tinnitus: ['tinnitus'],
+};
+
+function _reExpandEvidenceSearchQuery(raw) {
+  const tokens = String(raw || '').trim().split(/\s+/).filter(Boolean);
+  const noteParts = [];
+  const groups = tokens.map((tok) => {
+    const norm = tok.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const syn = _EV_TOKEN_SYNONYMS[norm];
+    if (syn && syn.length) {
+      const uniq = [...new Set(syn)].slice(0, 6);
+      noteParts.push(`${tok} ↔ ${uniq.join(', ')}`);
+      return '(' + uniq.map((t) => (/\s/.test(t) ? `"${t.replace(/"/g, '')}"` : t)).join(' OR ') + ')';
+    }
+    return tok.replace(/["']/g, '');
+  });
+  return {
+    fts: groups.join(' '),
+    notes: noteParts.length ? 'Transparent synonym expansion (FTS): ' + noteParts.join(' · ') : '',
+  };
+}
+
+function _reFilterCuratedLiterature(items, rawQ) {
+  const ql = String(rawQ || '').trim().toLowerCase();
+  if (!ql || ql.length < 2) return [];
+  return (items || []).filter((p) => {
+    const blob = [p.title, p.authors, p.journal, p.condition, p.study_type].filter(Boolean).join(' ').toLowerCase();
+    return blob.includes(ql);
+  });
+}
+
+function _reRenderPaperOutCard(p) {
+  const abs = (p.abstract || '').trim();
+  const snip = abs
+    ? esc(abs.slice(0, 280)) + (abs.length > 280 ? '…' : '')
+    : '<span style="font-size:11px;color:var(--text-tertiary)">Abstract unavailable</span>';
+  const mods = Array.isArray(p.modalities) ? p.modalities.filter(Boolean).slice(0, 5) : [];
+  const conds = Array.isArray(p.conditions) ? p.conditions.filter(Boolean).slice(0, 5) : [];
+  const modTags = mods.map((m) => `<span class="lib-tag">${esc(m)}</span>`).join('');
+  const condTags = conds.map((c) => `<span class="lib-tag">${esc(c)}</span>`).join('');
+  const authors = Array.isArray(p.authors) ? p.authors.slice(0, 5).join(', ') : '';
+  const pubTypes = (p.pub_types || []).slice(0, 3).map((t) => `<span class="lib-tag">${esc(t)}</span>`).join('');
+  const pmidL = p.pmid
+    ? `<a class="ch-btn-sm" target="_blank" rel="noopener noreferrer" href="https://pubmed.ncbi.nlm.nih.gov/${esc(String(p.pmid))}/">PubMed</a>`
+    : '<span style="font-size:11px;color:var(--text-tertiary)">PMID unavailable</span>';
+  const doiL = p.doi
+    ? `<a class="ch-btn-sm" target="_blank" rel="noopener noreferrer" href="https://doi.org/${esc(p.doi)}">DOI</a>`
+    : '<span style="font-size:11px;color:var(--text-tertiary)">DOI unavailable</span>';
+  const urlL = p.oa_url
+    ? `<a class="ch-btn-sm" target="_blank" rel="noopener noreferrer" href="${esc(p.oa_url)}">Open access</a>`
+    : '';
+  const des = [p.study_design, p.effect_direction].filter(Boolean).map((x) => `<span class="lib-tag">${esc(x)}</span>`).join('');
+  const pid = Number(p.id);
+  return (
+    '<div class="lib-card lib-card--review">' +
+    '<div class="lib-card-top">' +
+    '<span class="lib-card-name">' + esc(p.title || '(untitled)') + '</span>' +
+    '<span class="lib-badge" style="background:rgba(45,212,191,0.14);color:var(--teal);border:1px solid rgba(45,212,191,0.35)">Indexed corpus</span>' +
+    '</div>' +
+    '<div class="lib-card-meta">' +
+    (p.year ? '<span class="lib-tag">' + esc(p.year) + '</span>' : '') +
+    (p.journal ? '<span class="lib-tag">' + esc(p.journal) + '</span>' : '') +
+    pubTypes +
+    '</div>' +
+    (authors ? '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">' + esc(authors) + '</div>' : '') +
+    (modTags || condTags ? '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">' + modTags + condTags + '</div>' : '') +
+    (des ? '<div style="margin-top:6px">' + des + '</div>' : '') +
+    '<div style="font-size:12px;color:var(--text-secondary);margin-top:8px;line-height:1.45">' + snip + '</div>' +
+    '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;align-items:center">' +
+    pmidL +
+    doiL +
+    urlL +
+    (Number.isFinite(pid)
+      ? '<button class="ch-btn-sm ch-btn-teal" onclick="window._libPromoteExternal(' +
+        pid +
+        ',\'' +
+        esc(p.title || '').replace(/'/g, "\\'") +
+        '\')">Promote to Library</button>' +
+        '<label class="ch-btn-sm" style="display:inline-flex;gap:4px;align-items:center;cursor:pointer"><input type="checkbox" class="lib-ai-pick" value="' +
+        pid +
+        '" style="margin:0"> AI draft</label>'
+      : '') +
+    '</div>' +
+    '</div>'
+  );
+}
+
+function _reRenderBrokeredItemCard(r) {
+  const pmidL = r.pmid
+    ? `<a class="ch-btn-sm" target="_blank" rel="noopener noreferrer" href="https://pubmed.ncbi.nlm.nih.gov/${esc(String(r.pmid))}/">PubMed</a>`
+    : '<span style="font-size:11px;color:var(--text-tertiary)">PMID unavailable</span>';
+  const doiL = r.doi
+    ? `<a class="ch-btn-sm" target="_blank" rel="noopener noreferrer" href="https://doi.org/${esc(r.doi)}">DOI</a>`
+    : '<span style="font-size:11px;color:var(--text-tertiary)">DOI unavailable</span>';
+  const urlL = r.url
+    ? `<a class="ch-btn-sm" target="_blank" rel="noopener noreferrer" href="${esc(r.url)}">Open URL</a>`
+    : '';
+  return (
+    '<div class="lib-card lib-card--review">' +
+    '<div class="lib-card-top">' +
+    '<span class="lib-card-name">' + esc(r.title) + '</span>' +
+    '<span class="lib-badge" style="background:rgba(245,158,11,0.14);color:var(--amber);border:1px solid rgba(245,158,11,0.3)">Brokered indexed search</span>' +
+    '</div>' +
+    '<div class="lib-card-meta">' +
+    (r.year ? '<span class="lib-tag">' + esc(r.year) + '</span>' : '') +
+    (r.journal ? '<span class="lib-tag">' + esc(r.journal) + '</span>' : '') +
+    (r.pub_types && r.pub_types[0] ? '<span class="lib-tag">' + esc(r.pub_types[0]) + '</span>' : '') +
+    '</div>' +
+    (r.authors ? '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">' + esc(r.authors) + '</div>' : '') +
+    '<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:6px">Trust: <b>' + esc(r.source_trust) + '</b> · Status: <b>' + esc(r.review_status) + '</b></div>' +
+    '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">' +
+    pmidL +
+    doiL +
+    urlL +
+    '<button class="ch-btn-sm ch-btn-teal" onclick="window._libPromoteExternal(' +
+    Number(r.id) +
+    ',\'' +
+    esc(r.title).replace(/'/g, "\\'") +
+    '\')">Promote to Library</button>' +
+    '<label class="ch-btn-sm" style="display:inline-flex;gap:4px;align-items:center;cursor:pointer"><input type="checkbox" class="lib-ai-pick" value="' +
+    Number(r.id) +
+    '" style="margin:0"> AI draft</label>' +
+    '</div>' +
+    '</div>'
+  );
+}
+
+function _reEvidenceSearchErrorHtml(prefix, e) {
+  const code = e?.status;
+  let msg = e?.message || 'Unknown error';
+  if (code === 401) msg = 'Sign in as clinical staff to search the evidence service.';
+  if (code === 403) msg = 'Your role cannot access this evidence search action.';
+  if (code === 503) msg = 'Evidence service unavailable. Try again later or use bundled registry context.';
+  if (!code && (e?.name === 'TypeError' || /fetch|network|failed/i.test(String(msg)))) {
+    msg =
+      'Live evidence service unreachable. Bundled rollups are still available for navigation, but they are not verified search results.';
+  }
+  return (
+    '<div class="ch-card" style="padding:12px;margin-bottom:12px;border-left:3px solid var(--rose)">' +
+    '<strong>' +
+    esc(prefix) +
+    '</strong> — ' +
+    esc(msg) +
+    '</div>'
+  );
+}
+
+function _reEmptyVerifiedEvidenceHtml() {
+  return (
+    '<div class="ch-empty" style="line-height:1.55">' +
+    '<div style="margin-bottom:10px">No verified results found for this query in the connected evidence sources.</div>' +
+    '<ul style="font-size:12px;color:var(--text-tertiary);margin:0;padding-left:18px">' +
+    '<li>Broaden the query or remove filters.</li>' +
+    '<li>Try a condition synonym (e.g. MDD, depression) or modality-only (e.g. rTMS).</li>' +
+    '<li>Confirm the indexed evidence corpus is connected (status banner above).</li>' +
+    '<li>Try <strong>Curated library</strong> source if you have promoted papers.</li>' +
+    '</ul></div>'
+  );
+}
+
 
 /* ══════════════════════════════════════════════════════════════════════════════
    TAB 7 — Evidence Search (migrated from Library Hub)
-   External brokered search · promote-to-library · AI summarization · curated lib
+   Unified indexed corpus + brokered search · promote-to-library · AI summarization · curated lib
    ══════════════════════════════════════════════════════════════════════════════ */
 async function renderEvidenceSearch(body, liveEvidence) {
   await _ensureProtoData();
@@ -1179,13 +1372,29 @@ async function renderEvidenceSearch(body, liveEvidence) {
 
   /* ── parallel API fetch ──────────────────────────────────────────────── */
   let overview = null, conditions = [], curatedLitItems = [];
-  const [ovRes, litRes] = await Promise.allSettled([
+  const [ovRes, litRes, evStatusRes] = await Promise.allSettled([
     api.libraryOverview(),
     api.listLiterature(),
+    api.evidenceStatus(),
   ]);
   if (ovRes.status === 'fulfilled') overview = ovRes.value;
   if (litRes.status === 'fulfilled') curatedLitItems = litRes.value?.items || [];
+  window._reCuratedLitSnapshot = curatedLitItems;
+  const evStatusPayload = evStatusRes.status === 'fulfilled' ? evStatusRes.value : null;
+  const indexedPaperCount = Number(evStatusPayload?.total_papers || 0);
   conditions = overview?.conditions || [];
+  const corpusStatusBanner =
+    indexedPaperCount > 0
+      ? '<div class="ch-card" style="margin-bottom:14px;padding:12px 16px;border-left:3px solid var(--teal);background:rgba(45,212,191,0.06)">' +
+        '<strong style="color:var(--teal)">Indexed evidence corpus available.</strong> ' +
+        '<span style="font-size:12px;color:var(--text-secondary)">~' +
+        fmt(indexedPaperCount) +
+        ' papers reported by <code style="font-size:11px">GET /api/v1/evidence/status</code> — live count for this deployment, not the bundled ~87k orientation figure.</span>' +
+        '</div>'
+      : '<div class="ch-card" style="margin-bottom:14px;padding:12px 16px;border-left:3px solid var(--amber);background:rgba(245,158,11,0.06)">' +
+        '<strong style="color:var(--amber)">Indexed evidence corpus unavailable.</strong> ' +
+        '<span style="font-size:12px;color:var(--text-secondary)">Showing available fallback sources only. Do not claim the bundled corpus rollup as live indexed search results.</span>' +
+        '</div>';
   const libraryAuthNote =
     ovRes.status === 'rejected' || litRes.status === 'rejected'
       ? '<div class="ch-card" role="note" style="margin-bottom:14px;padding:12px 14px;border-left:3px solid var(--amber);font-size:12px;color:var(--text-secondary)">' +
@@ -1217,61 +1426,165 @@ async function renderEvidenceSearch(body, liveEvidence) {
       window._dsToast?.({ title: 'Promote failed', body: msg, severity: 'error' });
     }
   };
-  window._libExternalSearch = async () => {
+  window._reRunEvSearchChip = (q) => {
+    const el = document.getElementById('lib-ext-q');
+    if (el) el.value = q;
+    window._libUnifiedEvidenceSearch();
+  };
+  window._libUnifiedEvidenceSearch = async () => {
     const input = document.getElementById('lib-ext-q');
-    const cSel  = document.getElementById('lib-ext-cond');
-    const out   = document.getElementById('lib-ext-results');
+    const sourceSel = document.getElementById('re-ev-search-source');
+    const cSel = document.getElementById('lib-ext-cond');
+    const out = document.getElementById('re-ev-search-results');
+    const noteEl = document.getElementById('re-ev-expanded-note');
     if (!input || !out) return;
-    const qv = (input.value || '').trim();
-    if (qv.length < 2) { out.innerHTML = '<div class="ch-empty">Type at least 2 characters.</div>'; return; }
-    out.innerHTML = spinner();
+    const rawQ = (input.value || '').trim();
+    if (rawQ.length < 2) {
+      out.innerHTML = '<div class="ch-empty">Type at least 2 characters.</div>';
+      return;
+    }
+    const { fts, notes } = _reExpandEvidenceSearchQuery(rawQ);
+    if (noteEl) {
+      noteEl.innerHTML = notes
+        ? '<div style="font-size:11px;color:var(--text-tertiary);margin-bottom:10px;line-height:1.45">' + esc(notes) + '</div>'
+        : '';
+    }
+    out.innerHTML =
+      '<div style="padding:24px;text-align:center">' +
+      spinner() +
+      '<div style="margin-top:12px;font-size:12px;color:var(--text-secondary)">Searching evidence sources…</div></div>';
+    const source = sourceSel ? sourceSel.value : 'all';
+    const conditionId = cSel?.value || null;
+    const curatedSnap = window._reCuratedLitSnapshot || [];
+    const chunks = [];
+    const seen = new Set();
+
+    const pushAiToolbar = () =>
+      '<div style="display:flex;gap:8px;align-items:center;margin:14px 0;flex-wrap:wrap">' +
+      '<button type="button" class="ch-btn-sm ch-btn-teal" onclick="window._libAiDraft()">✦ Summarise selected</button>' +
+      '<span style="font-size:11px;color:var(--text-tertiary)">AI-assisted draft only — clinician review required.</span>' +
+      '</div>' +
+      '<div id="lib-ai-draft-panel"></div>';
+
     try {
-      const res = await api.libraryExternalSearch({ q: qv, condition_id: cSel?.value || null, limit: 20 });
-      if (!res?.items?.length) {
-        out.innerHTML =
-          '<div class="ch-empty">No verified results found for this query in the indexed corpus. Try broader terms, sign in as a clinician, or confirm the evidence pipeline is ingested.</div>';
-        return;
+      if (source === 'all' || source === 'indexed') {
+        try {
+          const papers = await api.searchEvidencePapers({ q: fts, limit: 25 });
+          const rows = Array.isArray(papers) ? papers : [];
+          rows.forEach((p) => seen.add(String(p.id)));
+          if (rows.length) {
+            chunks.push(
+              '<div style="font-size:12px;font-weight:600;margin:12px 0 8px;color:var(--text-secondary)">' +
+                '<span class="lib-badge" style="background:rgba(45,212,191,0.15);color:var(--teal);border:1px solid rgba(45,212,191,0.35)">Searching live indexed evidence corpus</span> · ' +
+                rows.length +
+                ' result(s)</div>' +
+                '<div class="lib-grid">' +
+                rows.map((p) => _reRenderPaperOutCard(p)).join('') +
+                '</div>',
+            );
+          } else if (source === 'indexed') {
+            chunks.push(_reEmptyVerifiedEvidenceHtml());
+          }
+        } catch (e) {
+          chunks.push(_reEvidenceSearchErrorHtml('Indexed corpus search', e));
+        }
       }
-      const rowsHtml = res.items.map(r => (
-        '<div class="lib-card lib-card--review">' +
-          '<div class="lib-card-top">' +
-            '<span class="lib-card-name">' + esc(r.title) + '</span>' +
-            '<span class="lib-badge" style="background:rgba(245,158,11,0.14);color:var(--amber);border:1px solid rgba(245,158,11,0.3)" title="Not curated — review before clinical use">Unreviewed</span>' +
-          '</div>' +
-          '<div class="lib-card-meta">' +
-            (r.year ? '<span class="lib-tag">' + esc(r.year) + '</span>' : '') +
-            (r.journal ? '<span class="lib-tag">' + esc(r.journal) + '</span>' : '') +
-            (r.pub_types && r.pub_types[0] ? '<span class="lib-tag">' + esc(r.pub_types[0]) + '</span>' : '') +
-          '</div>' +
-          (r.authors ? '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">' + esc(r.authors) + '</div>' : '') +
-          '<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:6px">Trust: <b>' + esc(r.source_trust) + '</b> · Status: <b>' + esc(r.review_status) + '</b></div>' +
-          '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">' +
-            (r.url ? '<a class="ch-btn-sm" target="_blank" rel="noopener noreferrer" href="' + esc(r.url) + '">Open ↗</a>' : '') +
-            '<button class="ch-btn-sm ch-btn-teal" onclick="window._libPromoteExternal(' + Number(r.id) + ',\'' + esc(r.title).replace(/'/g, "\\'") + '\')">Promote to Library</button>' +
-            '<label class="ch-btn-sm" style="display:inline-flex;gap:4px;align-items:center;cursor:pointer"><input type="checkbox" class="lib-ai-pick" value="' + Number(r.id) + '" style="margin:0"> AI draft</label>' +
-          '</div>' +
-        '</div>'
-      )).join('');
-      out.innerHTML =
-        '<div class="lib-trust-banner" role="note" style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);padding:10px 14px;border-radius:8px;font-size:12px;margin-bottom:12px">' +
-          '<b style="color:var(--amber)">Unreviewed external results</b> — ' + esc(res.notice || '') +
-          '<br><span style="opacity:0.7">Provenance: ' + esc(res.provenance || '—') + ' · Last checked: ' + esc((res.last_checked_at || '').slice(0, 19)) + '</span>' +
-        '</div>' +
-        '<div style="display:flex;gap:8px;align-items:center;margin:10px 0;flex-wrap:wrap">' +
-          '<button class="ch-btn-sm ch-btn-teal" onclick="window._libAiDraft()">✦ Summarise selected</button>' +
-          '<span style="font-size:11px;color:var(--text-tertiary)">AI output is always a DRAFT and cites source paper IDs.</span>' +
-        '</div>' +
-        '<div class="lib-grid">' + rowsHtml + '</div>' +
-        '<div id="lib-ai-draft-panel" style="margin-top:16px"></div>';
+
+      if (source === 'all' || source === 'brokered') {
+        try {
+          const res = await api.libraryExternalSearch({
+            q: fts,
+            condition_id: conditionId,
+            limit: 22,
+          });
+          const items = (res?.items || []).filter((r) => !seen.has(String(r.id)));
+          items.forEach((r) => seen.add(String(r.id)));
+          if (items.length) {
+            chunks.push(
+              '<div class="lib-trust-banner" role="note" style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);padding:10px 14px;border-radius:8px;font-size:12px;margin:16px 0 12px">' +
+                '<b style="color:var(--amber)">Searching brokered external literature service</b> — ' +
+                esc(res.notice || '') +
+                '<br><span style="opacity:0.75">Provenance: ' +
+                esc(res.provenance || '—') +
+                ' · Last checked: ' +
+                esc((res.last_checked_at || '').slice(0, 19)) +
+                '</span></div>',
+            );
+            chunks.push(
+              '<div style="font-size:12px;font-weight:600;margin:8px 0;color:var(--text-secondary)">' +
+                '<span class="lib-badge" style="background:rgba(245,158,11,0.14);color:var(--amber)">Brokered indexed search</span> · ' +
+                items.length +
+                ' result(s)</div>',
+            );
+            chunks.push('<div class="lib-grid">' + items.map((r) => _reRenderBrokeredItemCard(r)).join('') + '</div>');
+          } else if (source === 'brokered') {
+            chunks.push(_reEmptyVerifiedEvidenceHtml());
+          }
+        } catch (e) {
+          chunks.push(_reEvidenceSearchErrorHtml('Brokered literature search', e));
+        }
+      }
+
+      if (source === 'all' || source === 'curated') {
+        const curatedHits = _reFilterCuratedLiterature(curatedSnap, rawQ);
+        if (curatedHits.length) {
+          chunks.push(
+            '<div style="font-size:12px;font-weight:600;margin:16px 0 8px;color:var(--text-secondary)">' +
+              '<span class="lib-badge" style="background:rgba(139,92,246,0.14);color:var(--violet)">Showing curated library records</span> · ' +
+              curatedHits.length +
+              ' match(es)</div>',
+          );
+          chunks.push(
+            '<div class="lib-grid">' +
+              curatedHits
+                .slice(0, 40)
+                .map((p) => {
+                  const g = p.evidence_grade ? gradeBadge(p.evidence_grade) : '';
+                  return (
+                    '<article class="lib-card lib-card--evidence">' +
+                    '<div class="lib-card-top">' +
+                    '<span class="lib-card-name">' +
+                    esc(p.title) +
+                    '</span>' +
+                    g +
+                    '</div>' +
+                    '<div class="lib-card-meta">' +
+                    (p.year ? '<span class="lib-tag">' + esc(p.year) + '</span>' : '') +
+                    (p.journal ? '<span class="lib-tag">' + esc(p.journal) + '</span>' : '') +
+                    (p.condition ? '<span class="lib-tag">' + esc(p.condition) + '</span>' : '') +
+                    '</div>' +
+                    (p.authors ? '<div style="font-size:11px;color:var(--text-tertiary)">' + esc(p.authors) + '</div>' : '') +
+                    (p.url
+                      ? '<div style="margin-top:8px"><a class="ch-btn-sm" target="_blank" rel="noopener noreferrer" href="' +
+                        esc(p.url) +
+                        '">Open ↗</a></div>'
+                      : '<div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">URL unavailable</div>') +
+                    '</article>'
+                  );
+                })
+                .join('') +
+              '</div>',
+          );
+        } else if (source === 'curated') {
+          chunks.push(
+            '<div class="ch-empty">No curated library records matched this query. Promote papers from indexed results first.</div>',
+          );
+        }
+      }
+
+      const htmlOut = chunks.join('');
+      const hasGrid = htmlOut.includes('lib-grid');
+      const hasErr = htmlOut.includes('border-left:3px solid var(--rose)');
+      if (!hasGrid && !hasErr) {
+        out.innerHTML = _reEmptyVerifiedEvidenceHtml();
+      } else {
+        out.innerHTML = htmlOut + (hasGrid ? pushAiToolbar() : '');
+      }
     } catch (e) {
-      const code = e?.status;
-      let msg = e?.message || 'service unavailable';
-      if (code === 401) msg = 'Sign in as a clinician to run brokered external search.';
-      if (code === 403) msg = 'You do not have permission for brokered external search.';
-      if (code === 503) msg = 'External evidence index unavailable — pipeline may not be ingested.';
-      out.innerHTML = '<div class="ch-empty" style="color:var(--red)">External search unavailable: ' + esc(msg) + '</div>';
+      out.innerHTML = _reEvidenceSearchErrorHtml('Evidence search', e);
     }
   };
+  window._libExternalSearch = window._libUnifiedEvidenceSearch;
   window._libAiDraft = async () => {
     const picks = Array.from(document.querySelectorAll('.lib-ai-pick:checked')).map(n => Number(n.value)).filter(Boolean);
     const panel = document.getElementById('lib-ai-draft-panel');
@@ -1338,9 +1651,34 @@ async function renderEvidenceSearch(body, liveEvidence) {
   };
 
   /* ── HTML ─────────────────────────────────────────────────────────────── */
+  const exampleQueries = [
+    'depression rTMS',
+    'ASD tDCS',
+    'ADHD neurofeedback',
+    'chronic pain TPS',
+    'Alzheimer TPS',
+    'anxiety tDCS',
+    'OCD rTMS',
+  ];
+  const exampleChipRow =
+    '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;align-items:center">' +
+    '<span style="font-size:11px;color:var(--text-tertiary)">Example queries:</span>' +
+    exampleQueries
+      .map(
+        (q) =>
+          '<button type="button" class="btn btn-ghost btn-xs" onclick="window._reRunEvSearchChip(' +
+          JSON.stringify(q) +
+          ')">' +
+          esc(q) +
+          '</button>',
+      )
+      .join('') +
+    '</div>';
+
   let html =
     _resWorkspaceHeader(liveEvidence, { shortcuts: true }) +
     libraryAuthNote +
+    corpusStatusBanner +
     '<div id="re-live-evidence-host" style="margin-bottom:16px"></div>' +
     '<div class="ch-card" style="margin-bottom:16px;padding:14px 16px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between">' +
       '<div style="font-size:12px;color:var(--text-secondary)"><strong>Research export summary</strong> — clinician-only; audits on server.</div>' +
@@ -1357,25 +1695,42 @@ async function renderEvidenceSearch(body, liveEvidence) {
       kpi('var(--amber)',  _liveEvidenceUiStats?.totalConditions || CONDITION_EVIDENCE.length, 'Conditions covered') +
       kpi('var(--teal)',   evDbAvailable ? 'Online' : 'Unavailable', 'Evidence index reachability') +
     '</div>' +
-    /* External brokered search */
+    /* Unified evidence search */
     '<div class="ch-card" style="margin-bottom:16px">' +
-      '<div class="ch-card-hd"><span class="ch-card-title">External evidence search (brokered)</span>' +
-        '<span class="lib-badge" style="background:rgba(245,158,11,0.14);color:var(--amber);border:1px solid rgba(245,158,11,0.3)" title="Unreviewed ingest — promote before clinical use">Unreviewed by default</span>' +
+      '<div class="ch-card-hd"><span class="ch-card-title">Evidence Search</span>' +
+        '<span class="lib-badge" style="background:rgba(59,130,246,0.12);color:var(--blue);border:1px solid rgba(59,130,246,0.25)">Corpus + brokered + curated</span>' +
       '</div>' +
-      '<div style="padding:14px 16px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">' +
+      '<div style="padding:14px 16px 10px;font-size:12px;color:var(--text-secondary);line-height:1.55;border-bottom:1px solid var(--border)">' +
+        '<strong>Evidence governance.</strong> This page can search the connected evidence corpus when the evidence DB is available. ' +
+        'Source badges show whether results are from the live indexed corpus, brokered literature search, or curated library — not bundled registry rollups as verified citations.' +
+      '</div>' +
+      exampleChipRow +
+      '<div style="padding:8px 16px 12px;display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">' +
+        '<div style="min-width:200px;flex:1">' +
+          '<label style="font-size:11px;color:var(--text-tertiary);display:block;margin-bottom:4px" for="re-ev-search-source">Search source</label>' +
+          '<select id="re-ev-search-source" class="ph-search-input" style="width:100%">' +
+          '<option value="all">All available sources</option>' +
+          '<option value="indexed">Evidence DB / indexed corpus</option>' +
+          '<option value="brokered">Live brokered search (library router)</option>' +
+          '<option value="curated">Curated library only</option>' +
+          '</select></div>' +
         '<div style="flex:2;min-width:240px"><label class="sr-only" for="lib-ext-q">Query</label>' +
-          '<input id="lib-ext-q" type="search" value="' + esc(defaultSearch) + '" placeholder="e.g. rTMS dlpfc depression meta-analysis" class="ph-search-input" style="width:100%">' +
+          '<label style="font-size:11px;color:var(--text-tertiary);display:block;margin-bottom:4px" for="lib-ext-q">Query</label>' +
+          '<input id="lib-ext-q" type="search" value="' + esc(defaultSearch) + '" placeholder="e.g. depression rTMS, ASD tDCS, ADHD neurofeedback" class="ph-search-input" style="width:100%">' +
         '</div>' +
         '<div style="flex:1;min-width:180px"><label class="sr-only" for="lib-ext-cond">Condition scope</label>' +
+          '<label style="font-size:11px;color:var(--text-tertiary);display:block;margin-bottom:4px" for="lib-ext-cond">Condition filter (brokered)</label>' +
           '<select id="lib-ext-cond" class="ph-search-input" style="width:100%">' + condOptions + '</select>' +
         '</div>' +
-        '<button class="btn btn-primary btn-sm" onclick="window._libExternalSearch()">Search</button>' +
+        '<button type="button" class="btn btn-primary btn-sm" onclick="window._libUnifiedEvidenceSearch()">Search</button>' +
       '</div>' +
-      '<div style="padding:0 16px 16px;font-size:11px;color:var(--text-tertiary)">' +
-        'Queries are routed through the backend evidence broker — never via the browser. ' +
-        'Every result is tagged with provenance and marked <b>pending</b> until a clinician promotes it.' +
+      '<div id="re-ev-expanded-note" style="padding:0 16px"></div>' +
+      '<div style="padding:8px 16px 16px;font-size:11px;color:var(--text-tertiary);line-height:1.5">' +
+        '<strong>Indexed corpus:</strong> <code style="font-size:10px">GET /api/v1/evidence/papers</code> (clinician auth). ' +
+        '<strong>Brokered:</strong> <code style="font-size:10px">POST /api/v1/library/external-search</code> — server-side FTS over the ingest; never browser PubMed scraping. ' +
+        '<strong>Curated:</strong> your promoted library rows (filtered in-browser). Links and DOI/PMID render only when returned by the API.' +
       '</div>' +
-      '<div id="lib-ext-results" style="padding:0 16px 16px"></div>' +
+      '<div id="re-ev-search-results" style="padding:0 16px 16px;min-height:48px"></div>' +
     '</div>' +
     /* Curated library */
     '<div class="ch-card">' +
@@ -1424,7 +1779,7 @@ async function renderEvidenceSearch(body, liveEvidence) {
     if (_input) {
       try { _input.focus(); _input.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch {}
     }
-    try { window._libExternalSearch?.(); } catch {}
+    try { window._libUnifiedEvidenceSearch?.(); } catch {}
   }
 }
 

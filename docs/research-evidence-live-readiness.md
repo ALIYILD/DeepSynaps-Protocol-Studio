@@ -49,13 +49,60 @@ For the full **label → handler → API → behavior** grid, see section **Butt
 | `librarySummarizeEvidence` | `POST /api/v1/library/ai/summarize-evidence` | `library_router` |
 | `getResearchExportSummary` | `GET /api/v1/evidence/research/exports/summary` | `evidence_router` / export |
 | `curateLiteraturePaper` | `POST /api/v1/literature/papers/{pmid}/curate` | `literature_router` |
+| `searchEvidencePapers` | `GET /api/v1/evidence/papers` | `evidence_router` (`search_papers` — FTS over ingested SQLite corpus; clinician auth) |
 
-**Role gating (server-enforced):** external search, AI summarize, promote, curated library, and research export require authenticated **clinician** (or higher) roles where applicable; exact checks live in router `Depends` / `require_minimum_role`.
+## Evidence Search tab — flow trace (Evidence Search Guarantee)
+
+**Goal:** Clinicians search real ingested rows when the DB exists; otherwise see honest errors / curated fallback — never fabricated citations.
+
+### Search box → backend
+
+| Step | Detail |
+|------|--------|
+| **UI** | `#lib-ext-q` query, `#re-ev-search-source` (`all` \| `indexed` \| `brokered` \| `curated`), optional `#lib-ext-cond` for brokered condition filter |
+| **Expansion** | `_reExpandEvidenceSearchQuery()` — optional transparent FTS synonym groups (e.g. depression ↔ MDD); shown in `#re-ev-expanded-note` |
+| **Unified handler** | `window._libUnifiedEvidenceSearch()` |
+| **Indexed path** | `api.searchEvidencePapers({ q: fts })` → `GET /api/v1/evidence/papers?q=…` → `evidence_router.search_papers` → `PaperOut[]` (title, abstract, modalities, conditions, pmid, doi, oa_url, …) |
+| **Brokered path** | `api.libraryExternalSearch({ q, condition_id })` → `POST /api/v1/library/external-search` → same SQLite FTS over ingest (server-side; not browser PubMed) → `ExternalEvidenceItem[]` |
+| **Curated path** | `window._reCuratedLitSnapshot` from `listLiterature`; client-side substring filter — clearly labelled **Showing curated library records** |
+| **Corpus availability banner** | `api.evidenceStatus()` → `GET /api/v1/evidence/status` — **`total_papers > 0`** ⇒ “Indexed evidence corpus available” + live count; **`0`** ⇒ unavailable banner (**do not** claim live 87k unless status reflects it) |
+| **Live FTS panel** | `#re-live-evidence-host` → `renderLiveEvidencePanel()` → same `/api/v1/evidence/papers` stack |
+| **Results UI** | Cards: PMID/DOI/open-access links **only if API returned values**; abstract snippet or “Abstract unavailable”; source badges per row (**Indexed corpus** / **Brokered indexed search** / curated) |
+
+### Evidence Search demo gate (before doctor demo)
+
+Before showing Research Evidence to a doctor, verify **at least one** is true:
+
+1. The indexed evidence corpus is connected and Evidence Search returns **real** records with source/provenance, **or**
+2. Brokered library search returns **real** literature links from the ingest, **or**
+3. Curated library search returns **real** records and is clearly labelled **curated/fallback**.
+
+If **none** are true, **do not** claim “searches our 87k evidence DB.” Say instead:
+
+> “The Evidence Search interface is present, but the evidence corpus is not connected in this preview environment.”
+
+**Safe doctor-facing wording:**
+
+> “This page can search the connected evidence corpus when the evidence DB is available. In this preview, the source badge shows whether results are from the live indexed corpus, brokered literature search, curated library, or bundled registry context. We do not present bundled rollups as verified citations.”
+
+### Manual search checklist (record in preview environment)
+
+| Query | Expect |
+|-------|--------|
+| depression rTMS | FTS hits if ingested; synonym expansion note may appear |
+| ASD tDCS | Same |
+| ADHD neurofeedback | Same |
+| chronic pain TPS | Same |
+| Alzheimer TPS | Same |
+
+Record: sources connected, which queries returned rows, whether PMID/DOI appeared on cards, empty-state honesty.
+
+_Agent run:_ manual queries not executed in CI — fill this table during preview QA.
 
 ## Evidence / citation governance
 
 - **Bundled condition rows** do not ship verified DOI/PubMed drill-downs as primary citations; users are directed to **Evidence Search** / brokered search.
-- **External search** returns indexed ingest rows with provenance — empty queries yield “No verified results found…”, not fabricated papers.
+- **Unified Evidence Search** returns indexed ingest rows (`/evidence/papers`) and/or brokered rows (`/library/external-search`) with provenance — when no rows match, the UI shows “No verified results found for this query in the connected evidence sources.” with next-step hints — never fabricated papers.
 - **AI summaries** are labeled draft; they cite supplied paper IDs; provider failures surface honest errors.
 - **Literature Watch** triage uses `/literature-watch.json` snapshot when present; empty state explains cron/build path.
 

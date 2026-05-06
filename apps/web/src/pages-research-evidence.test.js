@@ -21,10 +21,16 @@ test('Research Evidence page exposes governance banner and live evidence panel',
   assert.match(src, /re-live-evidence-host/);
 });
 
-test('Research Evidence external search uses honest empty and auth messaging', () => {
+test('Research Evidence unified search uses honest empty, auth messaging, and corpus wiring', () => {
   const src = read('./pages-research-evidence.js');
-  assert.match(src, /No verified results found/);
-  assert.match(src, /Sign in as a clinician to run brokered external search/);
+  assert.match(src, /_libUnifiedEvidenceSearch/);
+  assert.match(src, /searchEvidencePapers/);
+  assert.match(src, /No verified results found for this query in the connected evidence sources/);
+  assert.match(src, /Sign in as clinical staff to search the evidence service/);
+  assert.match(src, /Indexed evidence corpus available/);
+  assert.match(src, /Example queries:/);
+  assert.match(src, /depression rTMS/);
+  assert.match(src, /re-ev-search-source/);
 });
 
 test('Bundled evidence dataset does not ship illustrative DOI links for condition drill-down', () => {
