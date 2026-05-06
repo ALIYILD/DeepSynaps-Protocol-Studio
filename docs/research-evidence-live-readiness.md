@@ -127,6 +127,10 @@ The repo may contain evidence pipeline assets, but **only the deployed preview b
 7. Bundled registry KPI rows must **never** appear as rows in **Evidence Search results** (only dedicated bundled tabs/context).
 8. Fill in **actual** curl outputs after QA.
 
+### Where to see connection status in the UI (besides Research Evidence)
+
+**Settings → System Health → Health Overview** (`settings-v2`, System Health tab): an **“Indexed evidence corpus”** card calls the same **`GET /api/v1/evidence/status`** as the Research Evidence banners. It shows **INDEXED DB** when `total_papers` / trials / FDA sums are non-zero, **EMPTY** when the ingest reports zeros (DB not mounted), or **UNAVAILABLE** if the request fails — plus a shortcut button to **Research Evidence → Evidence Search**.
+
 ### Smoke checks (replace `YOUR_API_URL`)
 
 ```bash

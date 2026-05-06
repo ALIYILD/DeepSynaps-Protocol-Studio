@@ -5,6 +5,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { spinner } from './helpers.js';
+import { api } from './api.js';
 
 /* ── Design-v2 tokens (matches pages-brainmap.js pattern) ─────────────────── */
 const T = {
@@ -298,6 +299,68 @@ async function renderOverview(body) {
   const uptime = await fetchOr('/api/v1/admin/uptime', demoUptime);
   const preview = !!(data && data.__demo) || !!(uptime && uptime.__demo);
 
+  /* ── Real indexed evidence DB (public status — same source as Research Evidence) ─ */
+  let evIndexedHtml = '';
+  try {
+    const evSt = await api.evidenceStatus();
+    const tp = Number(evSt?.total_papers ?? 0);
+    const tt = Number(evSt?.total_trials ?? 0);
+    const tf = Number(evSt?.total_fda ?? 0);
+    const sum = tp + tt + tf;
+    const lu = evSt?.last_updated ? esc(String(evSt.last_updated)) : '—';
+    if (sum > 0) {
+      evIndexedHtml = card(
+        'Indexed evidence corpus (~87k when fully ingested)',
+        `<div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;justify-content:space-between">
+          <div style="flex:1;min-width:220px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+              ${statusDot('connected')}
+              <span style="font-size:13px;font-weight:600;color:${T.t1}">Connected to live SQLite ingest on this API</span>
+            </div>
+            <div style="font-size:12px;color:${T.t2};line-height:1.55">
+              <strong style="color:${T.teal};font-family:${T.fmono}">${fmt(tp)}</strong> papers ·
+              <strong style="font-family:${T.fmono}">${fmt(tt)}</strong> trials ·
+              <strong style="font-family:${T.fmono}">${fmt(tf)}</strong> FDA rows
+              <div style="margin-top:8px;font-size:11px;color:${T.t3}">
+                Endpoint: <code style="font-size:10px">GET /api/v1/evidence/status</code> · Last ingest: ${lu}
+              </div>
+              <div style="margin-top:8px;font-size:11px;color:${T.t3}">
+                Research Evidence and Evidence Search use the same corpus via <code style="font-size:10px">GET /api/v1/evidence/papers</code> (clinician session).
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;align-items:stretch">
+            <button type="button" style="font-size:12px;padding:8px 14px;border-radius:8px;border:1px solid ${T.teal};background:${T.teal}18;color:${T.teal};cursor:pointer;font-weight:600;white-space:nowrap"
+              onclick="window._nav('research-evidence',{tab:'search'})">Open Research Evidence · Evidence Search</button>
+          </div>
+        </div>`,
+        { headerRight: `<span style="font-size:11px;color:${T.green};font-weight:700">INDEXED DB</span>` },
+      );
+    } else {
+      evIndexedHtml = card(
+        'Indexed evidence corpus (~87k when fully ingested)',
+        `<div style="font-size:12px;color:${T.t2};line-height:1.55">
+          <div style="display:flex;align-items:flex-start;gap:8px">
+            ${statusDot('warning')}
+            <span><strong style="color:${T.t1}">Not connected on this API host.</strong> Status reports zero papers, trials, and FDA rows — the evidence SQLite file is likely missing or empty (<code style="font-size:10px">EVIDENCE_DB_PATH</code>). Research Evidence falls back to bundled navigation context.</span>
+          </div>
+        </div>`,
+        { headerRight: `<span style="font-size:11px;color:${T.amber};font-weight:700">EMPTY</span>` },
+      );
+    }
+  } catch (e) {
+    evIndexedHtml = card(
+      'Indexed evidence corpus (~87k when fully ingested)',
+      `<div style="font-size:12px;color:${T.t2};line-height:1.55">
+        <div style="display:flex;align-items:flex-start;gap:8px">
+          ${statusDot('down')}
+          <span>Could not load <code style="font-size:10px">GET /api/v1/evidence/status</code>: ${esc(String(e?.message || e))}</span>
+        </div>
+      </div>`,
+      { headerRight: `<span style="font-size:11px;color:${T.red};font-weight:700">UNAVAILABLE</span>` },
+    );
+  }
+
   /* ── Gauges row ─────────────────────────────────────────────────────────── */
   const gaugesHtml = `
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:16px;margin-bottom:20px">
@@ -369,6 +432,7 @@ async function renderOverview(body) {
 
   body.innerHTML = `
     ${preview ? previewNotice('Preview telemetry is shown because the live admin health endpoints were unavailable. Values on this page are sample diagnostics, not authoritative production monitoring.') : ''}
+    <div style="margin-bottom:20px">${evIndexedHtml}</div>
     ${gaugesHtml}
     ${statsHtml}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
